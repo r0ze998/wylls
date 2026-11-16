@@ -212,3 +212,7 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   source only). Muster/Garrison/Dissolve/Depart were found while checking (host.rs lock_own) and covered. One rule
   (fland captureLocked/mirrorLocked; fconquest uses it). Tests 6/6 + related 41/41; ordinary subset 1771/1770/0 fail;
   screens all pass. Candidate 2f5a8298. Unit/fixture only.
+
+## 2026-11-16 12:45 JST — S1 fort form checks
+- 647ffc6f: FortGarrison pre-checks (NotFinal after the lazy flip, NotResident, the fort's room, the reserve) before signing;
+  tests 4/4, ordinary subset 1775/1774/0 fail. Still to audit: Raid, Seize, Siege, Expel, nation proposals/votes.

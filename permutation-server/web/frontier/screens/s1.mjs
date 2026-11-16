@@ -183,7 +183,9 @@ export function seizeOffer(FS, prov, idx, target, kind) {
     ...(target.ownerCitizen ? [] : ['OwnerUnknown']),
     ...(kind === 'vault' && Number(c.vaults ?? 0) >= MAX_VAULTS ? ['VaultLimit'] : []),
     ...(kind !== 'vault' && Number(c[{ 1: 'towers', 2: 'palisades', 3: 'forts' }[target.kind]] ?? 0) >= (STRUCTURE_MAX[target.kind] ?? 0) ? ['StructureLimit'] : []),
-    ...(kind !== 'vault' && Number(target.kind) === KIND.fort && (prov?.forts ?? []).some(f => Number(f.tile) === idx && Number(f.state) !== 0 && Number(f.troops) > 0) ? ['FortManned'] : []),
+    // (structure.rs fort_troops: troops + pending troops; a fort whose garrison is still coming in is manned too — the page
+    //  read troops only and offered such a fort, refused on send: 2026-11-16)
+    ...(kind !== 'vault' && Number(target.kind) === KIND.fort && (prov?.forts ?? []).some(f => Number(f.tile) === idx && Number(f.state) !== 0 && (Number(f.troops) > 0 || Number(f.pend ?? 0) > 0)) ? ['FortManned'] : []),
   ];
   return { entry, hostHolding, ownerCitizen: target.ownerCitizen ?? null, blocks };
 }
