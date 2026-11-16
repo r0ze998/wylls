@@ -53,3 +53,65 @@ The real consumer is the coop screen (`coop/index.html` loads `coop-ui.mjs`). Th
 | Candidate command (for the coordinator; not run) | `node --test workstreams/01-national-strategy/test/coop.fulfil-bounds.test.mjs` |
 
 **Not done here:** the screen was not loaded and the browser test was not run, so the change is unverified on the real screen.
+
+## Run record (the coordinator's run; Lane C ran nothing)
+
+| Item | Result |
+|---|---|
+| Who and when | The coordinator, once, at `e5f39a3c`, after re-checking the whole dependency closure of the helper and the test, the environment, side effects, and that it does not overlap any refused route. Not to be rerun |
+| Command | `node --test workstreams/01-national-strategy/test/coop.fulfil-bounds.test.mjs`, with Homebrew's `node` (Node 23.11.0) |
+| Result | 5/5 pass; fail 0, cancelled 0, skipped 0; exit 0; duration 41.893125 ms; 53,600,000 KiB free |
+| Scope | The pure helper only. The screen and a real world are not verified |
+
+## Joint precision: `underBy` counts every counted arrival, including those recorded as 0 (2026-11-17)
+
+Written, not run. Nothing was imported, run, served or loaded in a browser.
+
+**The trace.**
+- `underBy` is made only in `coop/goal.mjs` `coopView`, as `h.records[r]`, and is read only by the screen's `joint-precision` line (`coop-ui.mjs`) and by `ws15Export`'s copy of `joint[].progress` into the fixture.
+- No judge, count, send, permission, ownership or rule reads it: the verdict uses `perResource`.
+
+**What the existing contracts fix.**
+- ④ `QUANTITY-CONTRACT.ja.md` §3: a `RuleDerived` arrival is `[b, b+1)`, "b＝0 でも 0 とは限らない".
+- §4: n runs together are `[Σb, Σb+n)`, where n is the number of `RuleDerived`/`Recorded` runs. Only a `KnownZero` run carries no fraction.
+- ①'s own comment (`goal.mjs`, above `progress`) says `underBy` is "その k（数えた到着の件数）", and ① doc 19 says "`underBy`（数えた件数）".
+- The code counted an arrival only when `v > 0`. So a counted arrival recorded as 0, which may really be up to 1 more, was left out of k. This is a mismatch with the stated contract, not an open question.
+
+**What was not adopted.** "Sent 0 ⇒ exactly 0" (reading the sent cargo to call a 0 exact) is not in ④'s contract, so it is not used.
+
+**The change.**
+
+| File | Change |
+|---|---|
+| `coop/goal.mjs` | `h.records[r]` counts every counted arrival that carries resource r (the `v > 0` condition removed), with a comment citing §3–4 |
+| `coop/fulfil-bounds.mjs` | Adds `jointPrecisionText(progress, ja)`. When k > 0 the sentence is the same as before. A resource with k = 0 has no counted arrival, so its counted amount is exactly 0 and it reads "…は数えた到着がなく、数えた量はちょうど 0", not "0 未満多い". `fulfilBoundsText` is unchanged; the already-run `coop.fulfil-bounds.test.mjs` is byte-identical (`b24fb9b0…ef717645`), but the module it imports now has a new hash |
+| `coop/coop-ui.mjs` | The `joint-precision` line uses the helper |
+| `test/coop.test.mjs` | A wrong expectation corrected with its reason: stone `underBy` 0 → 2. Two counted arrivals each carry stone 0, and each is `[0, 1)` |
+| `test/coop.e2e.test.mjs` | The fixture is kept byte-identical as history (`c4d64fe3…47900bfa`). The test asserts that the fixture's wood `underBy` is 4 as made, applies the one correction (4 → 5: five counted wood arrivals 119, 81, 5, 4 and 0, the last being r5's), then compares the whole export as before |
+| `docs/19-reconcile-04.ja.md` | A note on the corrected count |
+
+**Not changed:**
+- the counted amounts (`perResource`), `verdict`/`done`, `fulfilmentOf`, `countOf` and the judges;
+- sending, signing, permissions, ownership and rules;
+- ④'s receipts, D's ③, the fixture bytes, the other branches and canonical;
+- the 25 deleted media files.
+
+**New pure regression** (`test/coop.joint-precision.test.mjs`, sha256 `5ff550a1…af77b495`, written, not run). It has four tests:
+1. k > 0 gives the same sentence as before.
+2. k = 0 gives "ちょうど 0" and never "0 未満".
+3. k = 1 with an amount of 0 is "1 未満多いことがある", never "ちょうど 0".
+4. Missing fields and unknown names do not crash.
+
+The count itself is regressed by the two corrected existing tests above.
+
+**Static audit**
+
+| Item | Finding |
+|---|---|
+| New test closure | `node:test`, `node:assert/strict`, `../coop/fulfil-bounds.mjs` (sha256 `1adb1d77…b89f9b5d`, no imports, declarations only). No `fs`, `fetch`, `process`, `child_process`, dynamic `import()`, `new Function`, key or sign API, so it needs no `node-key-tests.txt` entry; the lists are unchanged |
+| Corrected existing tests | `coop.test.mjs` (`09a610f3…dc991a26`) and `coop.e2e.test.mjs` (`9779bc84…e0b9b49c`) are **not pure**. They build a board, a fake chain and a store, and they are listed in `scripts/ci/node-key-tests.txt` (the key-scan list). Their imports were not changed by this edit. Running them is the coordinator's decision |
+| Other changed sources | `goal.mjs` `9a51c583…9799c708`; `coop-ui.mjs` `28e8f2ed…dca602c8` |
+| Refused work | It touches no walls, muster, G, runner or world code, and it is not a substitute for any refused run |
+| Candidate commands (for the coordinator; not run) | `node --test workstreams/01-national-strategy/test/coop.joint-precision.test.mjs` (pure). The corrected `coop.test.mjs` and `coop.e2e.test.mjs` only after the coordinator's own audit |
+
+**Not verified:** the screen, a real world, and the two corrected existing tests.

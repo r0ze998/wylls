@@ -25,3 +25,17 @@ export function fulfilBoundsText(f, ja) {
   if (exact.length) parts.push(`数えた量 ${exact.map(r => `${ja[r] ?? r} ちょうど 0`).join('・')}（どの隊商も数えられないと決まった）`);
   return parts.join('、');
 }
+
+/**
+ * 共同の目的の精度の言い方（表示だけ）。progress：goal.mjs coopView の joint[].progress（{resource, underBy}）。
+ * underBy＝数えた到着の件数 k。記録は1件ずつ切り捨てなので、本当の量は表示より k 未満多いことがある（④ QUANTITY-CONTRACT §4：［Σb, Σb＋n））。
+ * k＝0 の資源は数えた到着がなく、数えた量はちょうど 0：「0 未満多い」とは言わない。
+ */
+export function jointPrecisionText(progress, ja) {
+  const ps = Array.isArray(progress) ? progress : [];
+  const some = ps.filter(p => p.underBy > 0), none = ps.filter(p => !(p.underBy > 0));
+  const parts = [];
+  if (some.length) parts.push(`記録は到着1件ごとにミリ単位を切り捨てた値なので、本当の量は表示より ${some.map(p => `${ja[p.resource] ?? p.resource} ${p.underBy} 未満`).join('・')} 多いことがある（件数ぶん）`);
+  if (none.length) parts.push(`${none.map(p => ja[p.resource] ?? p.resource).join('・')}は数えた到着がなく、数えた量はちょうど 0`);
+  return ['整数単位', ...parts].join('。');
+}

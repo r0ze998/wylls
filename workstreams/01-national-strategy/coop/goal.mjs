@@ -202,7 +202,8 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
     for (const a of q.arrivals) {
       if (a.duplicateOf) continue;
       if (a.counted) {
-        for (const [r, v] of Object.entries(a.counted)) { h.perResource[r] += v; if (v > 0) h.records[r] = (h.records[r] ?? 0) + 1; }
+        // underBy は数えた到着の件数。記録が 0 の到着も数える：b＝0 でも実際は［0, 1）（④ QUANTITY-CONTRACT §3・§4 の n。2026-11-17 Lane C：以前は v > 0 だけを数えていた）
+        for (const [r, v] of Object.entries(a.counted)) { h.perResource[r] += v; h.records[r] = (h.records[r] ?? 0) + 1; }
         h.contributors.add(a.responder);
         h.lastArrivalSeen = Math.max(h.lastArrivalSeen, obs.ended?.[caravanKey(a.caravanId)] ?? 0);
         const hf = factionOf(q.requester, ctxOf(q)), rf = factionOf(a.responder, ctxOf(q));

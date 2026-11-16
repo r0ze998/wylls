@@ -75,7 +75,13 @@ test('⑮へ渡す fold() の出力：板の state() と、保存した記録を
   const refolded = fold(r.board.records, { goals: GOALS, contexts: r.board.contexts });
   assert.deepEqual(JSON.parse(JSON.stringify(refolded)), JSON.parse(JSON.stringify(r.board.state())));
   const now = JSON.parse(JSON.stringify(ws15Export(r, r.board.state())));
-  assert.deepEqual(now, JSON.parse(fs.readFileSync(FIXTURE, 'utf8')), 'fixture を作り直す：node test/make-ws15-fixture.mjs');
+  const fx = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+  // 訂正（2026-11-17、Lane C）：fixture は作ったときのまま残す（履歴）。共同の目的の木材の underBy だけ 4 → 5 と読む：
+  // 数えた到着 5 件（119・81・5・4・0）のうち、r5 の記録 0 の到着も［0, 1）（④ QUANTITY-CONTRACT §3・§4）。fixture は v > 0 だけを数えた版で作られた
+  const fxWood = fx.view.joint[0].progress.find(p => p.resource === 'wood');
+  assert.equal(fxWood.underBy, 4, 'fixture は作ったときのまま');
+  fxWood.underBy = 5;
+  assert.deepEqual(now, fx, 'fixture（木材の underBy の訂正だけを当てたもの）と一致');
   assert.ok(Object.values(now.fold.requests).every(q => q.links.every(l => typeof l.caravan.ctx === 'string')), '隊商の鍵に文脈');
   assert.ok(Object.keys(now.wallets).includes(W.A.address));
 });
