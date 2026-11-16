@@ -41,3 +41,18 @@ Any run; the screen in a browser; a world with two villages.
   `cycleHolding` already cleared the hand; the other switches (`selectHost`, `selectVillage`, the plain tap on a village,
   the march / return / explore / `cg-go` presses, `handHost` now) open the subject's own village.
 - Regression: pinned as text in `web-frontier-hand-chip-village.test.mjs` — SOURCE ONLY, not run.
+
+## Review: the switches against drafts, waiting sends and orders in flight (2026-11-16, static; NOT run) — no change
+- Orders in flight: `act` fixes `v.holding` at the press (train: `activeHolding(FS)` read then; build: `h` read then;
+  muster: `musterOrder` takes a frozen village and refuses another — NotOwner); the order record's tile is taken then
+  (`orderOf`). `handOrder` closes only the card it was given from; the busy flags are global. A switch during the flight
+  cannot redirect the order or misplace its record.
+- The march draft and its waiting send: `marchNow` reads the draft's own village (`c.holding`); the driver compares
+  `FS.compose === card`. Neither reads `FS.selected` (nor does `hud/marchcard.mjs`). `dropOtherVillageCard` clearing the
+  selection while a draft is open removes a highlight only; the draft and its send are unchanged.
+- The local muster wait: frozen village; `look` needs the open muster card of that same village. Closing that card
+  (`dropOtherVillageCard`, or a host chip) withdraws it as a cancel — 「送信待ちを取り消しました。命令は送られていません。」
+  (`why === 'changed' && FS.hand?.pop !== 'muster'`). Before these changes a switch under an open card withdrew it too
+  (`HoldingMismatch` → 'problem'); nothing is ever sent for another village; no cancel protection is weakened.
+- No proven inconsistency, so no code change. The properties are pinned as text in
+  `web-frontier-hand-chip-village.test.mjs` — SOURCE ONLY, not run.

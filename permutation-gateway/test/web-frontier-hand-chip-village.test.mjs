@@ -52,3 +52,26 @@ test('the village plate (home) and the rail (holding-go) that open another villa
   const hg = a.slice(a.indexOf("  'holding-go': d => {"), a.indexOf('\n  },', a.indexOf("  'holding-go': d => {")));
   assert.match(hg, /FS\.activeHolding = i;\n\s+dropOtherVillageCard\(i\);/);
 });
+
+// (2026-11-16, review of 7d45ddbd / f03d3378 — SOURCE ONLY, NOT run) the village switches above do not reach an order
+// already being drafted, waiting or in flight: each fixes its own village when it is made (pinned as text).
+test('orders fix their village when made; the waiting sends compare their own card and village (pinned as text)', () => {
+  const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  const fn = name => { const at = c.indexOf(name); return c.slice(at, c.indexOf('\n}\n', at)); };
+  // a march draft and its waiting send: the draft's own village; the driver compares the draft itself
+  assert.match(fn('function marchNow('), /const h = c\.holding \? holdingByRef\(FS\.holdings, c\.holding\) : activeHolding\(FS\);/);
+  assert.match(c, /const same = FS\.compose === card, now = same \? marchNow\(card\)/);
+  // the local muster wait: frozen village; the open muster card of that same village, else withdrawn — a cancel when
+  // the card was closed, never silent; the send is for the frozen village (musterOrder refuses another)
+  assert.match(fn('function musterNow('), /const problems = !sameHolding\(h, activeHolding\(FS\)\) \? \['HoldingMismatch'\]/);
+  assert.match(c, /sameCard: n\.open && sameHolding\(card\.holding, n\.holding\)/);
+  assert.match(c, /const t = why === 'changed' && FS\.hand\?\.pop !== 'muster' \? MUSTER_WITHDRAWN\.cancel : MUSTER_WITHDRAWN\[why\];/);
+  assert.match(fn('function musterOrder('), /if \(holding && !sameHolding\(h, holding\)\) return failed\(\{ code: 'NotOwner' \}\);/);
+  // an order in flight: its village and its record's tile are taken at the press
+  assert.match(c, /return act\('Train', \{ v: \{ holding: activeHolding\(FS\) \}/);
+  const a = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(a, /if \(r\?\.ok && FS\.hand\?\.pop && FS\.hand\.pop === from\)/, 'handOrder closes only the card it was given from');
+  // the switch helpers touch neither the draft nor a waiting send
+  const d = a.slice(a.indexOf('function dropOtherVillageCard(i) {'), a.indexOf('\n}\n', a.indexOf('function dropOtherVillageCard(i) {')));
+  assert.doesNotMatch(d, /compose|pendingDriver|musterDriver|musterWait/);
+});
