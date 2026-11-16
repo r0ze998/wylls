@@ -198,3 +198,10 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Candidate 34cf0807+: CLAUDE-RELEASE-EVIDENCE-20261116.md — land5-proven vs fixture-only; land .so byte-identical;
   candidate-built herald/runners/keeper tools (sha256 there; untested in any world); fresh-clone audit (6,696 refs, no
   missing tracked file); `scripts/fresh-clone-audit.py`.
+
+## 2026-11-16 11:50 JST — ①/⑨/⑭ read; one ordinary gap fixed
+- ⑭ (tower), ⑨ (capacity preview) and ① (national strategy prototype) are proposals or off-by-default previews: nothing to
+  fix without inventing rules. Existing S1 building checks vs the program: all mirrored except CapturePending.
+- b44db980: the S1 tile card blocks a storehouse and structures while the village is being captured (the program's capture
+  lock); test pins the Rust rule; ordinary subset 0 fail. Candidate b402100b with the selection note
+  (CLAUDE-NORMAL-GAP-S1-CAPTURE-LOCK-20261116.md). Next candidate: CapturePending in fland actionBlocks (per action).
