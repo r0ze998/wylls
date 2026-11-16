@@ -118,3 +118,24 @@ The two touch no common file; static checks found no secrets in either. The cand
 - A FIFO or device at a store path is refused before opening (`check_store_paths`). The `db` mode has no such check: it opens the given path with SQLite as `read_observations` always did, so a FIFO given as `--db` could block. That is unchanged from 7baa4d93, and stated here as a limit.
 
 **Not done:** build, run, real store, any consumer wiring (13), any admission.
+
+## Reverse review: the command line → 12's held report (2026-11-17, source only)
+
+**Fixed:**
+1. **An empty value was not a bad request.** `--store ""` / `--db ""` passed `run_opts` and failed later as `ObservationNotRead` (exit 1), which looks like an unreadable store. It is now exit 2 `BadRequest`.
+2. **A non-UTF-8 argument panicked.** `std::env::args()` panics on one, giving exit 101 and no JSON, so a non-UTF-8 path broke `observe`'s JSON error contract.
+   - `main` now reads the arguments as OS strings first, and only for `observe`: a non-UTF-8 argument is exit 2 `BadRequest` in JSON.
+   - Every other command still collects `std::env::args()` exactly as before, so its behaviour, including that panic, is unchanged.
+
+**Checked against 12's consumer, no change needed** (`claude/ws12-13-live-observation-20261116` @ 5b2bed58, read only):
+- **u64 `owner` / `raider`** (the event's key and the raider's tag, often above 2^53) are written as JSON numbers. 13's command reads the page with `parseJsonU64`, which keeps exactly those two keys as decimal strings, and 12's held report does not use them.
+- **`event_cursor`, `archive_sequence`, `ps2_ordinal`, `transaction_slot`:** a value above 2^53 fails 12's `Number.isSafeInteger` and is reported as `…_malformed`, held: refused, not misread.
+- **The store mode's extra numbers** (`store.*`, `archive_epoch.epoch.from_seq`) are not read by 12.
+- **The error line `{"error", "message"}`,** if fed to 12 as a page, has no `format`, so it is held as `ws04_observation_format:…`, never read as observations.
+- **The page format, `basis` and the four per-row holds 12 requires** are unchanged. The extra page holds are kept, not refused.
+
+**Found in 12 (read only, not changed):** 12's `triple` display (`signature|ps2_ordinal|body_sha256`) interpolates `ps2_ordinal` even when it is unsafe and already flagged `_malformed`. The displayed string can then carry a rounded number. This is display only, but it is 12's to fix (for example, by leaving `triple` null when the ordinal is not safe).
+
+**Unchanged and noted:** 4's frame branch (`396a9911`, a decimal-string contract) was not read into this branch, and nothing here duplicates it.
+
+**Tests (written, not run):** `tests/observe_cli.rs` gains two empty values as bad requests, a non-UTF-8 path as JSON `BadRequest` (unix), and the dispatch pin moved to the new `observe` check.

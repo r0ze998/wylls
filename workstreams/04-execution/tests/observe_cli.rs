@@ -63,6 +63,7 @@ fn bad_requests_are_refused_before_anything_is_opened() {
         vec!["db", "--store", st],
         vec!["store", "--store", st, "--verbose", "1"],            // unknown
         vec!["store", "--store", "--limit"],                       // a value that is another option
+        vec!["store", "--store", ""], vec!["db", "--db", ""],      // an empty value: a bad request, not an unreadable store
         vec!["store", "--store", st, "--limit", "0"], vec!["store", "--store", st, "--limit", "257"],
         vec!["store", "--store", st, "--limit", "-1"], vec!["store", "--store", st, "--limit", "+5"],
         vec!["store", "--store", st, "--limit", " 5"], vec!["store", "--store", st, "--limit", "5x"],
@@ -111,10 +112,21 @@ fn store_mode_prints_the_held_page_with_epoch_diagnostics() {
     let _ = fs::remove_dir_all(&d);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_path_that_is_not_utf8_is_a_bad_request_in_json_not_a_panic() {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::OsStr::from_bytes(b"/tmp/runexec-observe-\xff\xfe");
+    let out = Command::new(BIN).args(["observe", "store", "--store"]).arg(path).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let v: Value = serde_json::from_str(String::from_utf8(out.stdout).unwrap().trim()).unwrap();
+    assert_eq!(v["error"], "BadRequest");
+}
+
 #[test]
 fn observe_is_dispatched_first_and_reaches_no_run_store_or_network_path() {
     let src = include_str!("../src/main.rs");
-    let first = src.find("if args.get(1).map(String::as_str) == Some(\"observe\")").expect("observe dispatch");
+    let first = src.find("if raw.get(1).and_then(|a| a.to_str()) == Some(\"observe\")").expect("observe dispatch");
     for later in ["== Some(\"run\")", "== Some(\"act\")", "let Some(db) = arg(&args, \"--db\")"] {
         assert!(src.find(later).expect(later) > first, "{later} comes after observe");
     }

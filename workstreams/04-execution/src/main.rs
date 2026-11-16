@@ -540,8 +540,8 @@ fn observe(args: &[String]) -> Result<serde_json::Value, ActErr> {
         _ => return Err(bad("observe store --store <dir> | observe db --db <index.sqlite>".into())),
     };
     let opts = run_opts(args, allowed).map_err(bad)?;
-    if let Some((k, _)) = opts.iter().find(|(_, v)| v.starts_with("--")) {
-        return Err(bad(format!("{k} needs a value, not another option")));
+    if let Some((k, _)) = opts.iter().find(|(_, v)| v.is_empty() || v.starts_with("--")) {
+        return Err(bad(format!("{k} needs a non-empty value, not another option")));
     }
     // Plain decimal digits only (no sign, no space): `u64::from_str` alone would take "+5".
     let nat = |k: &str, max: u64| -> Result<Option<u64>, ActErr> {
@@ -575,9 +575,18 @@ fn observe(args: &[String]) -> Result<serde_json::Value, ActErr> {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().collect();
-    // First: a diagnostic read that must never reach a run store or any other command.
-    if args.get(1).map(String::as_str) == Some("observe") {
+    // First: a diagnostic read that must never reach a run store or any other command. Its arguments are taken as
+    // OS strings, so a path that is not UTF-8 is a `BadRequest` in JSON, not the panic `std::env::args()` gives
+    // (which the other commands below keep, unchanged).
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if raw.get(1).and_then(|a| a.to_str()) == Some("observe") {
+        let args: Vec<String> = match raw.into_iter().map(|a| a.into_string()).collect::<Result<_, _>>() {
+            Ok(a) => a,
+            Err(_) => {
+                println!("{}", serde_json::json!({ "error": "BadRequest", "message": "observe arguments must be UTF-8" }));
+                return ExitCode::from(2);
+            }
+        };
         return match observe(&args) {
             Ok(v) => {
                 println!("{v}");
@@ -592,6 +601,7 @@ fn main() -> ExitCode {
             }
         };
     }
+    let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("run") {
         return match run(&args) {
             Ok(v) => {
