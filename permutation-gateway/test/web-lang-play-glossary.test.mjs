@@ -47,6 +47,8 @@ const KEYS = {
     '返却と解放は、包囲の結果を受け取ったときに反映されます。自動で行われるとは限りません。',
     '戻るのは包囲の結果を受け取ったときで、それまでは「返却待ち」と表示します。',
     '預けた資源：返却待ちです。返却の債務として残っており、まだ結果を受け取っていません。',
+    // round 2 of this audit (candidate aa12ce74): the walls' queue refusal, hud/orderparts.mjs
+    '城壁の工事は 2 つ先までです。前の工事が仕上がり、そのターンが決着してからです',
   ],
   'frontier-play': [
     // round 36 (3a85aa9c): the clash report's recompute
@@ -77,6 +79,21 @@ const KEYS = {
     'あなたの国が奪取中：{0} / {1} ターン',
     '{0}が奪取中：{1} / {2} ターン',
     '国の土地から切り離され減っています：{0} / {1} ターン',
+    // round 2 of this audit (candidate aa12ce74): the land chip's other provinces, the fort and garrison checks, the walls,
+    // the scout muster's line (frontier/land.mjs, screens/s1.mjs, screens/holding.mjs, hud/orderparts.mjs, screens/onboarding.mjs)
+    'ほかの州 {0} マス',
+    '（毎時 +{0}）',
+    '地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。',
+    'この要塞にはあと {0} 人まで入れられます',
+    '要塞を選んでください',
+    'この村はもう追放されています（国に戻す提案は、追放された村の一覧から出せます）。',
+    '入れる人数が範囲の外です',
+    'この要塞には、それだけ入る空きがありません',
+    '入れる人数は 1 から {0} までです',
+    '守備隊にはあと {0} 人まで入れられます',
+    '増やす人数は 1 以上の整数です',
+    '守備隊には、それだけ入る空きがありません',
+    '訓練した斥候を一つの隊にまとめましょう。このターンが終わり、封が開けられてターンが決着すると整列します。待つあいだも村の建設を進められます。',
   ],
   frontier: [
     // round 36 (3a85aa9c)
@@ -183,10 +200,15 @@ const TERMS = [
   ['署名', /sign/i],
   ['領土の試験', /\bterritory trial\b/i],
   ['土地', /\bland\b/i],
+  ['要塞', /\bforts?\b/i],
+  ['守備隊', /\bgarrison\b/i],
+  ['追放', /\bexpel/i],
 ];
 
 /** Rules an entry is known to break, with the audit doc's entry (docs/integration/CLAUDE-LANE-D-ENGLISH-AUDIT-20261116.md). */
 const KNOWN = {
+  // not wrong (the audit doc, ok-2): "readmit" is "take back into the nation" (国に戻す)
+  'この村はもう追放されています（国に戻す提案は、追放された村の一覧から出せます）。': { rule: '国', doc: 'ok-2' },
   // not wrong (the audit doc, "ok with a note"): the march card's estimate says "it" for the card's own host
   '見込み（今出発し、軍勢が残り、ほかの戦いがない場合）：次はターン {0} から。到着で戦った場合は遅くともターン {1} から': { rule: '軍勢', doc: 'ok-1' },
 };
@@ -291,3 +313,11 @@ proposed('D-11', 'この州で獲得 {0} マス · 生産 +{1}%',
   // (the dictionary's plural keeps {0} for the page to fill, as every plural entry does: compare in that form)
   (n, p) => `Claimed in this province: ${n === 1 ? '{0} tile' : '{0} tiles'} · production +${p}%`,
   'この州 is "this province": "here" on the village strip does not say which place');
+
+// ------------------------------------------------------------------ round 2 (candidate aa12ce74), the audit doc's R2 entries
+proposed('R2-1', '地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。',
+  'Counts only the other provinces the map has loaded (test world). It can change as you move the map.',
+  'the Japanese says what is counted (the loaded other provinces), not "land claimed"');
+test('R2-2 (CLAUDE-LANE-D-ENGLISH-AUDIT-20261116.md): no stale entry for the scout card\'s old countdown label', () => {
+  for (const [g, dict] of Object.entries(EN_GROUPS)) assert.ok(!Object.hasOwn(dict, '反映の目安まで（ゲーム内）'), `lang/en-${g}.mjs`);
+});
