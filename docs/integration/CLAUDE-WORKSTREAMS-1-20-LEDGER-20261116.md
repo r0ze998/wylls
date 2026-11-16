@@ -312,3 +312,8 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json, CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before-files.tar,
   permutation-gateway/screens/node_modules.
 - Candidate merge 372f778b, note in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116.
+
+### Minimap camera frame fix integrated (2026-11-16, Claude)
+- codex/minimap-frame-20261116 @ 0a58fa44 (hud/minimap.mjs + web-frontier-minimap-cache test): no overlap with the land
+  chip fix; diff --check and node --check pass; web-frontier-minimap-cache.test.mjs alone from the export: 6/6.
+- Integration merge 84469802, candidate merge fccaf09e. No key, signing, request or storage. Canonical unchanged.
