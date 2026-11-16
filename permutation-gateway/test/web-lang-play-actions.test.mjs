@@ -50,3 +50,15 @@ test('no English for 着いて落ち着いた says "settled", and 決着のあ�
   }
   assert.deepEqual(bad, []);
 });
+
+// Round 4, item 2: a structure's or caravan's cost whose amount is 未確定 (statusview.mjs costView 'unsettled', s1.mjs
+// the stores left free) is "undecided" — the play screen never says "settle", and the ban's \bsettle misses "unsettled".
+test('round 4: an undecided cost is "undecided", never "unsettled"', () => {
+  assert.ok(src('hud/statusview.mjs').includes('L`未確定（額はまだ決まっていません）` : L`未確定：最大 ${amt}`'));
+  assert.ok(src('screens/s1.mjs').includes('L`使える量（未確定の費用を最大で引いた見込み）：${'));
+  assert.equal(en(() => L`未確定（額はまだ決まっていません）`), 'Undecided (the amount is not fixed yet)');
+  assert.equal(en(() => L`未確定：最大 ${'40 wood'}`), 'Undecided: at most 40 wood');
+  assert.equal(en(() => L`使える量（未確定の費用を最大で引いた見込み）：${'120 food'}`), 'Usable (with undecided costs taken at their most, an estimate): 120 food');
+  const bad = Object.entries(EN).filter(([, e]) => typeof e === 'string' && /unsettled/i.test(e));
+  assert.deepEqual(bad, []);
+});
