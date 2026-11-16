@@ -108,10 +108,17 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     return { status: res.status, json };
   }
 
+  // (2026-11-17) A read that answered 200 without a JSON object (an HTML page, an empty body, a proxy's error page)
+  // is reported as an error, not as a successful `null`: the caller's AI would otherwise read "null" as the agent's
+  // view or the world record. Applies to the four reads only; agent_act is unchanged.
+  const notJson = (code, what) => fail(code, `${what} answered HTTP 200 without a JSON object`);
+  const isObject = j => j !== null && typeof j === 'object' && !Array.isArray(j);
+
   async function view() {
     const r = await http('GET', `${base}/f/agent?id=${encodeURIComponent(agentId)}`);
     if (r.transport) return fail(r.error.code, r.error.message, { retrySameRequestId: true });
     if (r.status !== 200) return fail(r.json?.code ?? 'RelayError', scrub(r.json?.error ?? `HTTP ${r.status}`));
+    if (!isObject(r.json)) return notJson('RelayError', 'the relay');
     return ok(r.json);
   }
 
@@ -152,6 +159,7 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     const r = await http('GET', `${h}${path}`);
     if (r.transport) return fail(r.error.code, r.error.message);
     if (r.status !== 200) return fail('HeraldError', `HTTP ${r.status}`);
+    if (!isObject(r.json)) return notJson('HeraldError', 'the herald');
     return ok(r.json);
   }
 
@@ -159,6 +167,7 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     const r = await http('GET', `${base}/f/agent/terms`);
     if (r.transport) return fail(r.error.code, r.error.message);
     if (r.status !== 200) return fail(r.json?.code ?? 'RelayError', scrub(r.json?.error ?? `HTTP ${r.status}`));
+    if (!isObject(r.json)) return notJson('RelayError', 'the relay');
     return ok(r.json);
   }
 
@@ -166,6 +175,7 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     const r = await http('POST', `${base}/f/agent/whoami`, { agentId, capability });
     if (r.transport) return fail(r.error.code, r.error.message);
     if (r.status !== 200) return fail(r.json?.code ?? 'RelayError', scrub(r.json?.error ?? `HTTP ${r.status}`));
+    if (!isObject(r.json)) return notJson('RelayError', 'the relay');
     return ok(r.json);
   }
 
