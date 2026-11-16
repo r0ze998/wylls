@@ -238,4 +238,9 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   existing sentence. Test web-frontier-muster-province-full 4/4.
 - Buildings, promotion, Train, Harvest: audited, no gap (production cap 1,000/h left to the program: not reachable).
 - Ordinary subset 1793: 1792 pass, 0 fail, 1 skipped. Candidate merges d9e12b9d, 228ec445; note cf79d9b5.
-- Next (open): the Garrison form's Spearman reserve and the garrison's room (30,000 after pending changes).
+- 80c51b92: garrison — the form's number checked as garrison_as does (whole from 1, the Spearman reserve, the room
+  30,000 less troops and pending after the resolved ones); not under the wide card. Test 5/5; ordinary subset 1798:
+  1797 pass, 0 fail, 1 skipped. Candidate merge edafa56b. A first version broke web-frontier-wide-holding-ui
+  (refused before WideReadOnly); narrowed before commit.
+- The village actions audit (Build, walls, promotion, Train, Harvest, Muster, Garrison) is complete for what the page
+  holds. Not re-audited: the muster troop count's 100–30,000 per form and the muster tile.
