@@ -100,15 +100,15 @@ pub fn write_header(d: &mut [u8], h: &LandHeader) -> Result<(), LandBytesError> 
 
 // ------------------------------------------------------------ instructions
 
-/// FoldLand (PROVISIONAL, not allocated: 0xCD, in the range ABI-ALLOCATION
-/// rev 6 lists as free, 0xCD–0xCF, used by no branch on 2026-11-15; the
-/// integrator, workstream 4, allocates tags): anyone folds the bells a Province
+/// FoldLand (0xCD; ABI-ALLOCATION rev 7 proposes 0xCD–0xCE for the land
+/// preview and keeps 0xCF reserved — provisional until integration, as every
+/// row of that ledger; rev 6 listed 0xCD–0xCF as free): anyone folds the bells a Province
 /// has resolved into its land record (created on the first fold, paid by
 /// the fee payer). Data: `[tag, max_bells u8]`. Accounts:
 /// `[fee_payer s,w] [season] [province] [land w] [system]` then up to six
 /// neighbouring land records (read only; absent ones may be omitted).
 pub const TAG_FOLD_LAND: u8 = 0xCD;
-/// ClaimLandYield (PROVISIONAL 0xCE): anyone pays a holding its land yield up to the
+/// ClaimLandYield (0xCE, ABI-ALLOCATION rev 7, provisional): anyone pays a holding its land yield up to the
 /// land record's folded bell. Data: `[tag]`. Accounts:
 /// `[fee_payer s,w] [season] [province] [land w] [holding w]`.
 pub const TAG_CLAIM_LAND_YIELD: u8 = 0xCE;

@@ -236,3 +236,19 @@ prize の program（`PrizeError`、0x100 から）：基準は 0x100–0x110 と
 | 判定の code | `ResidentActMismatch`、`ResidentOldAuthority`、`ResidentActUnproven`、`ResidentInnerUnmodelled`（⑳ が codes.rs に追加） |
 | 住民の所有者の定義 | `frontier_abi::resident_auth::holder` と `Holder::authority` の一つだけ（⑳）。④ の通しの場面（chain_nft）も、これで読む |
 | `ResidentFeed` の Input の欄（U47 の残り） | **未決**。resident program の取引を同じ feed seq で並べる feed、または archiver が要る。決まるまで、所有者の判定は UNVERIFIABLE |
+
+## rev 7（2026-11-16、統合候補 `claude/canonical-candidate-20261116` の上で照合。土地の試験 = land preview）
+
+rev 3 の §2.1 で「空き」だった 0xCD–0xCF を、土地の試験（`land-preview`、TEST-ONLY のローカル世界だけ）に割り当てる案。**仮**。統合で確定するまで正式決定ではない。外部への deploy はない。
+
+| 項目 | 割当（仮、統合で確定） | 根拠 |
+|---|---|---|
+| 命令 tag 0xCD | FoldLand（`frontier_abi::land_preview::TAG_FOLD_LAND`） | 256 値すべてで、v2 の表（86 個、0xC2–0xCC の ⑩ を含む）・② 0xD0–0xD5・⑨ 0xF0–0xFD・広域の下書き 0xD6–0xDF と 0xEE と重ならない（`frontier-abi` の試験 `the_land_tags_collide_with_no_routed_band`、全 feature で 13/13）。⑳ の 0xE0–0xE7 とは既存の試験で重ならない。⑪ の 0xE8–0xED とも重ならない |
+| 命令 tag 0xCE | ClaimLandYield（`TAG_CLAIM_LAND_YIELD`） | 同上 |
+| 命令 tag 0xCF | 土地の試験の予備（使わない） | 次の土地の命令のため。今の build は `is_land_tag(0xCF)` が偽で、v2 の表でも拒否 |
+| 口座 | 土地の記録：seed tag `ld`、magic `PSFLAND1`、272 B。AccountKind の番号は使わない（kind の外の記録） | `ld` と `PSFLAND1` はほかのどこにもない（静的に照合） |
+| エラー番号 | 新しい番号なし（既存の Auth、BadAddress、BadData、TooEarly、TooManyAccounts、WrongStatus を使う） | `proc/land.rs` |
+| 記録の kind | なし（土地の命令は記録を出さない） | 同上 |
+| プログラムの版 | 今は版を変えない（土地の build も `0x4804`）。土地の試験がローカルの外へ出るときのために、ビット **0x0400** を予約（0x0800 遠征・0x1000 ⑨・0x2000 ②・0x4000 広域・0x8000 ⑳ と重ならない） | 版を変えると build・runner の宣言・launcher の照合・ページの版の分岐（例：`program_version === '18436'`）が変わるので、今は適用しない |
+
+確定の前に要る互換の確認：(1) 版のビット 0x0400 を付けるときの、ページ・launcher・runner・検証器の版の照合、(2) 検証器が 0xCD/0xCE を「知らない tag」として扱う場面（土地の世界の記録を検証するとき）、(3) 本番の build に `land-preview` が入らないこと（既定の build は 0xCD/0xCE を BadData で拒否：`ix.rs` の試験）。
