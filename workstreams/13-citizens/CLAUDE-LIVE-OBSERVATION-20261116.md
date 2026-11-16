@@ -664,3 +664,24 @@ Nothing is adopted. (a) is in force, and the header now states it.
 **Tests (written, not run):**
 - 12 `ws04-observation.test.mjs`: +1, a covering epoch on a row whose sequence is unsafe, negative, a string or missing is refused, while an epoch-less view is kept.
 - 13 `ws04-observe.test.mjs`: +1, the header's subprocess and exit-code statements and the `not_read` line, pinned as text.
+
+### Static audit: what the WS13 guard's `@solana/web3.js` would do when loaded (2026-11-17)
+
+**Read only:** files under `/Users/<user>/node_modules` were read; nothing was loaded or run.
+- **`@solana/web3.js` 1.98.0** (`lib/index.cjs.js`, 360,504 bytes) requires, at load:
+  - Node's `http`, `https`, `util`, `buffer`;
+  - the npm packages `node-fetch`, `rpc-websockets`, `jayson/lib/client/browser`, `superstruct`, `bs58`, `borsh`, `bn.js`, `bigint-buffer`, `@solana/buffer-layout`, and `@noble/hashes` / `@noble/curves` (ed25519, secp256k1, sha256, sha3).
+- **`bigint-buffer` 1.1.5** (`dist/node.js`) runs `require('bindings')('bigint_buffer')` **at require time**.
+  - That loads the native addon `bigint-buffer/build/Release/bigint_buffer.node` into the process, running its native initialisation.
+  - If that throws, it prints a warning and falls back to pure JS.
+- **A simple text search** found no top-level connection, timer, listener or `fetch` in `index.cjs.js` (requires only). This is a pattern search over a bundled file, not proof; the required packages' own load code was not audited.
+
+**Consequences for the WS13 candidate** (`13-citizens/test/ws04-observe.test.mjs` under `keyless-guard.mjs`):
+- **Running it loads code from outside this repository:** about 15 npm packages and a native addon, chosen by Node's walk up to the home directory's `node_modules`. Their versions are whatever is installed there, not pinned by this repository.
+- **The guard intends this** (it patches web3.js's classes so a key cannot be made), but the repository does not vendor that tree.
+- **Options (none taken):**
+  - (a) approve loading that tree, including the native addon, for this run;
+  - (b) make the guard's web3.js resolution come from a pinned, reviewed install inside the repository (`npm ci --prefix permutation-gateway`, as `run.sh` says it needs). That is a change to the environment, not to the guard;
+  - (c) leave the WS13 file unrun.
+
+The guard is not changed, removed or bypassed, and the test is not run without it.
