@@ -97,7 +97,8 @@ export const BONUS = Object.freeze({ PER_TILE_BPS: 200, CAP_BPS: 3000 });
  * there: `{claimed, tiles, bonusPct}` — ONLY that province's record: the tiles the viewer's nation has claimed there
  * (not village land), all its tiles there, and the production bonus the program pays this holding:
  * `min(claimed × 2% / its nation's villages there, 30%)`. It never depends on how many other provinces the page has
- * read (the line once summed every province read, so it jumped when the camera moved).
+ * read (the line once summed every province read, so it jumped when the camera moved). `h` is the village as the next
+ * instruction finds it (app.mjs passes `settled`, as for the strip): its production is the one the program's yield reads.
  */
 export function landSummary(FS, h, f) {
   if (!h || !Number.isInteger(f)) return null;
