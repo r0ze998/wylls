@@ -1077,6 +1077,67 @@ pub fn pay_rest_home(
     Ok(x)
 }
 
+/// What [`replay_rest_home`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestHomeReplay {
+    /// The claimed amounts and the recorded after-states are exactly what the
+    /// kernel does on the before-states.
+    Match,
+    /// The claimed amounts differ from the kernel's: these are the kernel's.
+    Amounts { whole: i64, paid: i64 },
+    /// The amounts agree; a recorded after-state does not (lot or home).
+    State,
+}
+
+/// A pure check of one rest-home step (**not wired**: no verifier calls it,
+/// no record kind exists; it affects no wire format). It never trusts the
+/// claimed numbers to change anything: it re-applies [`pay_rest_home`] to
+/// **copies** of the before-states, with every condition of that function
+/// unchanged (the owner by wallet and by full Citizen key, the lot usable
+/// and tracked, the home live, the owner's, in the lot's province and not
+/// its tile, with room), then compares.
+///
+/// - A claim no step could make is malformed: `whole` negative or not whole
+///   units, `paid` outside `0..1000` → `Quantity`.
+/// - A refusal of the step itself on the before-states is returned as that
+///   refusal (`NotAuthorized`, `Order`, `Capacity`, `Forfeited`, `State`,
+///   `WalletRequired`, …): no such step can have happened.
+/// - Otherwise [`RestHomeReplay`]: `Amounts` with the kernel's amounts if the
+///   claim differs, `State` if a recorded after-state differs, else `Match`.
+///
+/// All inputs are shared references: nothing given to it changes.
+#[allow(clippy::too_many_arguments)]
+pub fn replay_rest_home(
+    lot_vault: &VaultView,
+    lot_before: &Lot,
+    owner: &Actor,
+    home_before: &VaultView,
+    claimed_whole: i64,
+    claimed_paid: i64,
+    lot_after: &Lot,
+    home_after: &VaultView,
+) -> CResult<RestHomeReplay> {
+    if claimed_whole < 0 || claimed_whole % MILLI != 0 || !(0..MILLI).contains(&claimed_paid) {
+        return Err(CustodyError::Quantity);
+    }
+    let (mut l, mut h) = (*lot_before, *home_before);
+    let paid = pay_rest_home(lot_vault, &mut l, owner, &mut h)?;
+    let whole = lot_before
+        .returns
+        .rest
+        .checked_sub(l.returns.rest)
+        .and_then(|d| d.checked_sub(paid))
+        .filter(|w| *w >= 0)
+        .ok_or(CustodyError::Overflow)?;
+    if (whole, paid) != (claimed_whole, claimed_paid) {
+        return Ok(RestHomeReplay::Amounts { whole, paid });
+    }
+    if l != *lot_after || h != *home_after {
+        return Ok(RestHomeReplay::State);
+    }
+    Ok(RestHomeReplay::Match)
+}
+
 // ------------------------------------------------------------ seizure
 
 /// What [`forfeit`] moved.

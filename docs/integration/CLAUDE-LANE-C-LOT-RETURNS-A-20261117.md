@@ -732,7 +732,7 @@ env -u RUST_LOG cargo +1.89.0 test --offline --locked -p permutation-frontier --
 | Who | Item |
 |---|---|
 | ④ | Tag for the rest-home step (0xEF is the only free high-band value; it is used today only as an "unused" probe in two tests). Record kinds for: the payout (44 B prepared), a job's count and release (`begin_use`, `end_use`), and a rest paid back (`pay_rest`). `CUSTODY_VERSION` and `RULESET_HASH_V4` (the kernel's meaning changed). Names for the Lot's RSV fields and the link bytes 2 and 3. A world identity (version bit) before the rest-home step may leave host tests. Custody version 5 against S2's 5, and the 0xC8 overlap if S2 returns |
-| The owner | Who may trigger a job's return once it is final (today only the user's ClaimJob). ClaimJob's need for B's own vault even when nothing goes into it. Seizure: where a seized lot's pending returns and rest go. A sub-unit rest when the owner has no vault in the province (today the lot stays open). D3 (wood and arms in lots). Two sources for one job |
+| The owner | Who may trigger a job's return once it is final (today only the user's ClaimJob). ClaimJob's need for B's own vault even when nothing goes into it. Seizure: where a seized lot's pending returns and rest go. D3 (wood and arms in lots). Two sources for one job |
 | Release | An SBF build, LiteSVM tests and measured compute budgets for each preview. A complete V26 and a capacity verifier. A deployable dispatch |
 | Migration | Whether any custody or capacity world exists is unverified. Old lots and jobs stay fail-closed until a migration with proof is approved |
 | Page | No builder or screen exists for custody or capacity, and none is warranted before adoption |
@@ -750,3 +750,47 @@ env -u RUST_LOG cargo +1.89.0 test --offline --locked -p permutation-frontier --
 **Not candidates** (each needs a decision): a permissionless return trigger, dropping ClaimJob's vault requirement, any seizure rule, any page builder, any change to the default or deployable build.
 
 **Recommendation for the next step:** item 1, then 2. They turn the prepared records into something V26 can adopt mechanically, and touch only the kernel and test sources.
+
+## Pure replay check for the rest-home step (2026-11-17; unwired; nothing run)
+
+**Correction to the survey above.** "A sub-unit rest when the owner has no vault in the province" was removed from the open items. The owner **approved** that case: the rest is held and the lot does not close. It is decided, and implemented as such.
+
+### What was added
+
+`permutation-rules/src/frontier/custody.rs`: `replay_rest_home(lot_vault, lot_before, owner, home_before, claimed_whole, claimed_paid, lot_after, home_after) -> CResult<RestHomeReplay>`, plus the enum `RestHomeReplay { Match, Amounts { whole, paid }, State }`.
+
+**Additions only.** No existing function changed. The kernel `pay_rest_home` and every audited test file are unchanged, with the same hashes.
+
+| Point | How |
+|---|---|
+| Never trusts the claim | The claimed numbers are only compared, never applied. The function re-applies the existing `pay_rest_home` to **copies** of the before-states |
+| Same conditions | All of `pay_rest_home`'s: owner by wallet and full Citizen key; lot usable and tracked; home live, the owner's, in the lot's province, not its tile, with room including `CUSTODY_QUOTA`. A refusal on the before-states is returned as that refusal: no such step can have happened |
+| Malformed claim | `whole < 0`, `whole` not a multiple of 1,000, or `paid` outside `0..1000` → `Quantity`, before anything else |
+| Result | `Amounts { whole, paid }` (the kernel's) when the claim differs; `State` when a recorded after-state (lot or home) differs; otherwise `Match` |
+| Whole without paid | Handled: `whole` is derived as `REST before − REST after − paid` on the copies, so a step that only gives whole units back into the lot (`paid = 0`) is matched exactly |
+| Repeat | On the after-states the kernel pays 0, so only `(0, 0)` with unchanged states matches. A second claimed payment gets `Amounts { 0, 0 }` |
+| Inputs | All shared references: nothing given to it changes |
+| Wiring | **None.** No verifier calls it, no record kind exists, and no wire format or ABI is affected |
+
+### Regression source (new file `permutation-rules/tests/custody_rest_home_replay.rs`; WRITTEN, NOT RUN)
+
+Seven tests:
+- true steps match for 250 → (0, 250), 1,250 → (1,000, 250), and 2,000 → (2,000, 0) with the lot changed and the home unchanged;
+- six tampered amounts get the kernel's `(1000, 250)`;
+- eight malformed claims (negative, `i64::MIN`, 1,500, 1,001, paid −1, 1,000 or `i64::MAX`, whole `i64::MAX`) → `Quantity`;
+- tampered lot (`held`, `rest`) or home (`stores`) → `State`;
+- refusals: a stranger or the keeper → `NotAuthorized`; a session → `WalletRequired`; another owner's vault → `NotAuthorized`; another province or the lot's tile → `Order`; a closed home → `Forfeited`; a full home → `Capacity`; the lot's vault seized → `Forfeited`; an untracked lot → `State`;
+- the repeat matches only as a no-op;
+- nothing given changes.
+
+### The same method for `begin_use`, `end_use` and `pay_rest`: contract differences only (nothing implemented)
+
+| Step | What a replay would need | Difference from the rest-home case |
+|---|---|---|
+| `begin_use(lot)` (DepositToJob's first feed) | The lot before and after; it is called right after `consume` in the same instruction | It takes no vault or actor, and its effect (`pending += 1`) only means something with the `consume` before it. A replay must cover **the instruction's pair** (`consume` + `begin_use`) and the job link's byte (1 → 2), which is a program-side account (`proc/capacity.rs` `Link`), not a kernel type. So a record would carry the lot key, the job id and the count after |
+| `end_use(v, lot, rest)` (ClaimJob's release) | The lot's vault (usable), the lot before and after, the `rest` (`0 ≤ rest < 1000`), and the link's `owed` and count before and after | `rest` comes from the job's `link.owed`, so a replay needs the link, a program account, as input. It is part of `settle_lot`, which may first `return_unused` the whole `due`. **The record must carry `due`, `rest`, the count transition (2 → 3) and the `whole` paid back by `pay_rest`**, or the replay cannot separate them |
+| `pay_rest(v, lot)` (inside `settle_lot` and the owner's `spend_ship`) | The lot's vault and the lot before and after | It runs **inside** other instructions. V26 already replays `spend_ship` through this kernel, so its effect there is reproduced. What is missing is a record of the `whole` it paid, so that history can explain the lowered `CONSUMED`. In `settle_lot` it is the same `whole` as in the row above |
+
+**Shared requirement (④ decides; not taken here).** One record per instruction that changes a lot's returns, carrying the before-to-after amounts (`due`, `whole`, `rest`, `paid`) and the link's count transition when a job is involved. A pure check of the instruction as a whole, like `replay_rest_home`, can then re-apply the kernel to copies.
+
+**Not implemented:** any of these three checks, any record kind, any V26 wiring. Implementing them needs the job link's layout (a program type) to be accepted as replay input, which is ④'s call for the capacity records.
