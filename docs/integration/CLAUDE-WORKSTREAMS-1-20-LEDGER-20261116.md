@@ -172,3 +172,10 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   reserved, 0x0400 reserved not applied) with a ledger↔code test; ordinary subset 0 fail. Details: that branch's
   CLAUDE-CANONICAL-CANDIDATE-20261116.md and CLAUDE-WIP-BCC63A24-INVENTORY-20261116.md.
 - Free space ~21.5 GiB (my scratch exports, ~14 × 210 MB, are kept; deleting them needs the owner's approval).
+
+## 2026-11-16 10:05 JST — scratch cleanup (approved) and the held WIP items
+- Owner-approved batch: exactly 13 scratch test copies deleted after a gated re-check (realpath, no process use, file-by-file
+  equality with GitHub commits; two safe aborts before the final run); 2,808 MiB freed (21.21 → 23.95 GiB); logs, scripts,
+  symlink targets, worktrees and pinned binaries unchanged.
+- Candidate: runtime-contract depart_message 5/5 + unsigned_message 4/4; expedition SBF built guarded, its checks pass
+  (f2f03328…). WIP inventory: 50 adopt, 22 records, 1 hold, 1 record-only, 1 not adopted, 4 restricted.
