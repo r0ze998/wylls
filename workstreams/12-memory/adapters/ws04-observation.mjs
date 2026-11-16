@@ -26,6 +26,37 @@ const KINDS = new Set(['caravan_settled', 'caravan_raided']);
 const MAX_SHOWN = 256;   // 4's MAX_ROWS
 const nat = x => Number.isSafeInteger(x) && x >= 0;
 const strs = a => (Array.isArray(a) && a.every(x => typeof x === 'string') ? [...a] : null);
+const obj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+const optStr = x => x === null || typeof x === 'string';
+
+// (2026-11-17) Store mode (runexec `observe store`, observation.rs `read_store_observations`): each row may carry
+// `archive_epoch` {epoch, why, pairing} and the page `store` (the pairing facts). Carried as given when well formed,
+// as diagnostics only: an epoch is the archive's producer setting (program as configured, commitment as requested),
+// the pairing is one directory named by the caller (not proof of one archive, not one snapshot). Neither is evidence,
+// neither lifts a hold, and a page without them is reported exactly as before.
+const EPOCH_WHY = new Set(['covered_by_epoch', 'before_first_epoch', 'past_manifest_end', 'manifest_changed_during_read']);
+const PAIRING = 'same_directory_not_proof_of_same_archive';
+const GENERATIONS = new Set(['index_matches_manifest', 'index_ahead_of_manifest', 'index_behind_manifest', 'manifest_changed_during_read']);
+const MALFORMED_EPOCH = Object.freeze({ epoch: null, why: 'archive_epoch_malformed', pairing: PAIRING });
+
+/** A row's archive epoch as given, or null when it is not one runexec writes (then nothing is guessed). */
+function epochOf(x, archiveSequence) {
+  if (!obj(x) || !EPOCH_WHY.has(x.why) || x.pairing !== PAIRING) return null;
+  if (x.epoch === null) return x.why === 'covered_by_epoch' ? null : { epoch: null, why: x.why, pairing: PAIRING };
+  const e = x.epoch;
+  if (x.why !== 'covered_by_epoch' || !obj(e) || !nat(e.from_seq) || e.from_seq < 1 || typeof e.source !== 'string' ||
+      !optStr(e.program_configured) || !optStr(e.commitment_requested) || (nat(archiveSequence) && e.from_seq > archiveSequence)) return null;
+  return { epoch: { from_seq: e.from_seq, source: e.source.slice(0, 60), program_configured: e.program_configured, commitment_requested: e.commitment_requested }, why: x.why, pairing: PAIRING };
+}
+
+/** The page's pairing facts as given; a number that is not a safe integer is null and named in `unsafe`. */
+function storeOf(s) {
+  if (!obj(s) || s.same_directory !== true || typeof s.manifest_stable !== 'boolean' || !GENERATIONS.has(s.generation) || !strs(s.limits)) return null;
+  const unsafe = [];
+  const n = k => (nat(s[k]) ? s[k] : (unsafe.push(k), null));
+  return { same_directory: true, index_last_seq: n('index_last_seq'), manifest_next_seq_before: n('manifest_next_seq_before'),
+    manifest_next_seq_after: n('manifest_next_seq_after'), manifest_stable: s.manifest_stable, generation: s.generation, limits: [...s.limits], unsafe };
+}
 
 /**
  * A `ws04-observation/0` page -> a held report: {format, admitted: 0, status: 'held', pageHeld, why, observations}.
@@ -44,6 +75,10 @@ export function heldFromWs04Observation(page) {
   if (!Array.isArray(page.observations)) why.push('ws04_observation_list_malformed');
   const list = Array.isArray(page.observations) ? page.observations : [];
   if (list.length > MAX_SHOWN) why.push(`ws04_observation_page_over_${MAX_SHOWN}`);
+  const storeMode = page.store !== undefined;
+  const store = storeMode ? storeOf(page.store) : undefined;
+  if (storeMode && !store) why.push('ws04_observation_store_malformed');
+  let epochRows = 0;
   const observations = list.slice(0, MAX_SHOWN).map((o, i) => {
     const own = [];
     if (!o || typeof o !== 'object') return { index: i, kind: null, held: [], why: ['observation_not_an_object'] };
@@ -58,14 +93,25 @@ export function heldFromWs04Observation(page) {
     const v = o.event?.value;
     if (kind === 'caravan_settled' && v && v.credited !== null && v.credited !== undefined) own.push('credited_present_not_admitted');
     if (v && nat(v.slot) && nat(o.transaction_slot) && v.slot !== o.transaction_slot) own.push('event_slot_not_the_transaction_slot');
+    let epoch;
+    if (o.archive_epoch !== undefined) {
+      epochRows++;
+      epoch = epochOf(o.archive_epoch, o.archive_sequence);
+      if (!epoch) { own.push('archive_epoch_malformed'); epoch = MALFORMED_EPOCH; }
+    }
     return {
       index: i, kind: KINDS.has(kind) ? kind : null,
       locator: typeof o.local_locator === 'string' ? o.local_locator.slice(0, 80) : null,
-      triple: typeof o.signature === 'string' ? `${o.signature.slice(0, 128)}|${o.ps2_ordinal}|${o.body_sha256}` : null,
+      // only safe integers go into the text: an ordinal past 2^53 would be shown rounded (it is reported _malformed)
+      triple: typeof o.signature === 'string' && nat(o.ps2_ordinal) ? `${o.signature.slice(0, 128)}|${o.ps2_ordinal}|${o.body_sha256}` : null,
       transaction_slot: nat(o.transaction_slot) ? o.transaction_slot : null,
       held: held ?? [],
       why: own,
+      ...(epoch ? { archive_epoch: epoch } : {}),
     };
   });
-  return Object.freeze({ format: page.format ?? null, admitted: 0, status: 'held', pageHeld: pageHeld ?? [], why, observations });
+  // a page that carries rows' epochs without its pairing facts, or the facts without epochs on its rows, is not what
+  // the store reader writes
+  if (storeMode !== (epochRows > 0) && list.length > 0) why.push('ws04_observation_store_mode_inconsistent');
+  return Object.freeze({ format: page.format ?? null, admitted: 0, status: 'held', pageHeld: pageHeld ?? [], why, observations, ...(storeMode ? { store } : {}) });
 }

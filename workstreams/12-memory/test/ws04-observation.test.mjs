@@ -66,3 +66,37 @@ test('the source: no ingest, no receipt, no attestation, no coverage; observeLiv
   const call = live.slice(live.indexOf('const r = connectCanonical('), live.indexOf('const r = connectCanonical(') + 200);
   assert.doesNotMatch(call, /ws04/, 'never an input to the connection');
 });
+
+// (2026-11-17) Store mode (runexec `observe store`): epochs and pairing carried as given, or refused; never guessed.
+test('store mode: epochs and the pairing facts are carried as given; malformed ones are refused, not guessed', () => {
+  const epoch = { epoch: { from_seq: 1, source: 'rpc_poll', program_configured: 'P', commitment_requested: 'finalized' }, why: 'covered_by_epoch', pairing: 'same_directory_not_proof_of_same_archive' };
+  const store = { same_directory: true, index_last_seq: 3, manifest_next_seq_before: 4, manifest_next_seq_after: 4, manifest_stable: true, generation: 'index_matches_manifest', limits: ['l'] };
+  const page = { ...PAGE, held: [...P, 'store_pairing_is_not_a_snapshot_or_proof'], store, observations: [settled({ archive_sequence: 3, archive_epoch: epoch })] };
+  const r = heldFromWs04Observation(page);
+  assert.deepEqual(r.why, []);
+  assert.deepEqual(r.observations[0].archive_epoch, epoch);
+  assert.deepEqual(r.store, { ...store, unsafe: [] });
+  assert.equal(r.admitted, 0); assert.deepEqual(r.observations[0].held, H);
+  for (const bad of [{ ...epoch, why: 'guessed' }, { ...epoch, pairing: 'same_archive' }, { ...epoch, why: 'past_manifest_end' },
+    { ...epoch, epoch: { ...epoch.epoch, from_seq: 4 } }, { ...epoch, epoch: { ...epoch.epoch, from_seq: 2 ** 53 } }, { ...epoch, epoch: { ...epoch.epoch, source: 5 } },
+    { epoch: null, why: 'covered_by_epoch', pairing: epoch.pairing }, 'x']) {
+    const o = heldFromWs04Observation({ ...page, observations: [settled({ archive_sequence: 3, archive_epoch: bad })] }).observations[0];
+    assert.ok(o.why.includes('archive_epoch_malformed'), JSON.stringify(bad));
+    assert.deepEqual(o.archive_epoch, { epoch: null, why: 'archive_epoch_malformed', pairing: 'same_directory_not_proof_of_same_archive' });
+  }
+  const unsafe = heldFromWs04Observation({ ...page, store: { ...store, index_last_seq: 2 ** 53 } });
+  assert.equal(unsafe.store.index_last_seq, null); assert.deepEqual(unsafe.store.unsafe, ['index_last_seq']);
+  for (const s of [{ ...store, same_directory: false }, { ...store, generation: 'same' }, { ...store, limits: 'l' }, null]) {
+    const x = heldFromWs04Observation({ ...page, store: s });
+    assert.ok(x.why.includes('ws04_observation_store_malformed')); assert.equal(x.store, null);
+  }
+  assert.ok(heldFromWs04Observation({ ...page, store: undefined }).why.includes('ws04_observation_store_mode_inconsistent'));
+  assert.ok(heldFromWs04Observation({ ...page, observations: [settled()] }).why.includes('ws04_observation_store_mode_inconsistent'));
+});
+
+test('a plain page is reported as before (no store, no epochs), and an unsafe ordinal is never put into text', () => {
+  const r = heldFromWs04Observation(PAGE);
+  assert.ok(!('store' in r)); assert.ok(r.observations.every(o => !('archive_epoch' in o)));
+  const big = heldFromWs04Observation({ ...PAGE, observations: [settled({ ps2_ordinal: 2 ** 53 + 2 })] }).observations[0];
+  assert.equal(big.triple, null); assert.ok(big.why.includes('ps2_ordinal_malformed'));
+});

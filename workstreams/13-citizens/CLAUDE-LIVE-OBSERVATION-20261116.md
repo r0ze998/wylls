@@ -535,3 +535,43 @@ So the preview is **not** the decision a step would make. It is the candidate se
 5. **4's admission evidence**, independently: the world binding, finality, record identity, the committed frame, and a reader on a command line.
 
 Nothing here was implemented, run, signed, spent or sent. WS4's unproven or held data stays held.
+
+## `runexec observe` → 12's held report → 13's command (2026-11-17, integration branch, source only)
+
+**Branch:** `claude/ws04-observe-consumer-20261117`.
+- It starts at `claude/ws04-store-dir-observation-20261117` @ 6005b380 (4's reader and the `runexec observe` command, with findex's observed epochs) and merges `claude/ws12-13-live-observation-20261116` @ 5b2bed58.
+- The two touch no common file and neither touches the worktree's deleted media paths. No secret was found.
+- The candidate and both source branches are unchanged.
+
+**Connected (in source; never run):**
+1. **`13-citizens/resident/ports/ws04-observe.mjs` `ws04ObserveClient({bin, execFile, parse})`,** modelled on `runViewClient` (ports/ws04-run.mjs):
+   - it runs `runexec observe store --store <dir>` or `observe db --db <file>` (`--after`, `--limit`) through an injected `execFile`, with no shell;
+   - the last stdout line is parsed with the injected parser (the command passes 12's `parseJsonU64`, which keeps the u64 `owner` / `raider` exact);
+   - errors keep runexec's own code (`BadRequest`, `ObservationNotRead`), or are `Spawn`. A page printed with a failing exit is not taken, and a bad argument is refused before anything starts;
+   - it imports nothing and is **not a resident port:** the resident does not use it.
+2. **`13-citizens/bin/observe-canonical.mjs`:** `--runexec <bin>` with `--ws04-store` or `--ws04-db` (and `--ws04-after`, `--ws04-limit`), as an alternative to `--ws04-observation page.json`.
+   - **Checked before anything is read or started:** one page source at most; `--runexec` with exactly one of store or db; no empty values.
+   - **The page** goes to `observeLive` and 12's held report exactly as a file's would.
+   - **A failure** is printed as `ws04Read: {status: 'not_read', code, message}`, with nothing handed to 12. The herald and RPC part goes on.
+   - The command still makes only its two `fetch` calls (herald GET, RPC `getSlot`).
+3. **`12-memory/adapters/ws04-observation.mjs`** carries the store mode as diagnostics:
+   - **each row's `archive_epoch`** `{epoch, why, pairing}`, only when it is one runexec writes: a known `why`, the fixed `pairing` text, an epoch only with `covered_by_epoch`, a safe `from_seq` with `1 ≤ from_seq ≤ archive_sequence`, and string or null settings. Anything else is `archive_epoch_malformed`, with no epoch;
+   - **the page's `store`** (generation, the two `next_seq`, `index_last_seq`, stability, limits). A number that is not a safe integer is `null` and named in `unsafe`; a malformed block is `null` plus `ws04_observation_store_malformed`;
+   - **consistency:** rows with epochs but no `store`, or `store` without epochs on its rows, give `ws04_observation_store_mode_inconsistent`;
+   - **the `triple` text** is built only from a safe `ps2_ordinal`. The rounding I found earlier is fixed: an unsafe ordinal gives `triple: null`, and it is still `_malformed`;
+   - **nothing new is admitted:** `admitted: 0`; every 4 hold verbatim; `basis` `unproven`. The pairing stays "one directory, not proof of one archive", and an epoch stays the producer's setting. A page without store mode is reported exactly as before.
+
+**Still not connected:**
+- **No resident.** No production resident exists, the only constructor is the test harness, and `#publicEvidence` does not read `observation.ws04`.
+- **Not decided here:** the resident's execution ports (WS4 acts and runs) and the Autopilot's MCP tools (`agent_view`, `agent_act`) are other paths. Neither is adopted as an entry point, and no production assembly is specified.
+- **Nothing ran:** no real store, runexec, herald or RPC was used.
+
+**Tests (written, not run; static basis: every I/O injected):**
+- **13 `test/ws04-observe.test.mjs`** (4): exact arguments with no shell; error codes kept, `Spawn` otherwise, never `NoRecord`; bad arguments refused with nothing started; the client imports nothing and the resident does not use it. It uses a fake `execFile` and starts no process.
+- **12 `test/ws04-observe-cli.test.mjs`** (3): runs 13's `main` with a fake `execFile` and a herald that answers 503 (no socket, no file):
+  - a store page reaches 12's report with its epoch and pairing, and every hold kept;
+  - a failed read is `not_read` with runexec's code, and 12 gets nothing;
+  - page sources are exclusive, checked before anything starts.
+- **12 `test/ws04-observation.test.mjs`** (+2): store-mode carry and refusals; a plain page unchanged; the unsafe ordinal.
+- **What a run would touch:** these tests start no process, open no socket, and read or write no file (the command reads files only for `--binding` / `--rpc-binding` / `--ws04-observation`, none given). They use no key, signing, sending or spending.
+- **Where they would run:** 13's `run.sh` globs `test/*.test.mjs`, so the 13 file would run there. The two 12 files are not in `tools/keyfree-tests.txt`.
