@@ -903,11 +903,4 @@ export class Resident {
 }
 
 /** The default fallback until workstream 5's autopilot is wired: answer addressed requests, build, else wait; never a new commitment. */
-export function safeFallback(candidates) {
-  const order = ['decline', 'build', 'wait'];
-  for (const kind of order) {
-    const c = candidates.filter(x => x.kind === kind).sort((a, b) => b.score - a.score)[0];
-    if (c) return c.id;
-  }
-  return 'wait';
-}
+export { safeFallback } from './decide-core.mjs';

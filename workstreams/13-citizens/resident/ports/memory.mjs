@@ -12,7 +12,7 @@
 // file, and the resident is handed only its own adapter.
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { retrieve } from '../../../../permutation-gateway/citizens/memory/retrieve.mjs';
+import { recallFrom } from '../recall.mjs';
 
 export const EPISODE_KINDS = Object.freeze(['kept', 'broken', 'declined', 'unanswered', 'delivered', 'raided', 'failed', 'refused-by-me', 'returned', 'joined', 'built']);
 
@@ -38,11 +38,7 @@ export function localMemory(file) {
       if (file) appendFileSync(file, `${JSON.stringify(e)}\n`);
       return true;
     },
-    recall({ focus = [], bell }) {
-      const list = [...eps.values()];
-      const ids = retrieve(list, focus, bell + 1);
-      return ids.map(id => eps.get(id));
-    },
+    recall({ focus = [], bell }) { return recallFrom([...eps.values()], { focus, bell }); },
     all() { return [...eps.values()]; },
   };
 }

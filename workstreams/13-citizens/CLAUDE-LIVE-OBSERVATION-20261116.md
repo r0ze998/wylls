@@ -357,3 +357,44 @@ So the preview is **not** the decision a step would make. It is the candidate se
 - The text pins: the resident calls the same functions, and the core's imports are only frame, sanitize, rules, candidates, goals and the provider schema.
 
 **Kept as before:** WS4's four held reasons; the cap that never raises the simulated store to `chain`; and `assembly.mjs` still reports `assembled: false`. The preview is not a resident.
+
+## Reverse review of the split (2026-11-17, source only)
+
+**Normal mode, before and after** (`git diff 3c5f22d2^ 3c5f22d2 -- resident.mjs`, read line by line):
+
+| Point | Before | After | Same? |
+|---|---|---|---|
+| `this` reads | `this.addr`, `this.state.aliases`, `this.ports.{memory,observe,evidence,evidenceUse}` read in the method | the same values, read in the same method and passed in | yes |
+| exception order | `#request`: `memory.recall` was the first call that could throw | `recall` is called first, then `requestOf` | yes |
+| call counts | `memory.all` once per trust index; `memory.recall` once per request; `evidence.read` once per counterparty (at most 3) | the same | yes |
+| day counters | `#today` resets `state.counters` in place; `buildCandidates` only reads `today` (no assignment in `candidates.mjs`) | `#today` unchanged | yes |
+| aliases | `this.state.aliases[c]`: throws if `aliases` is missing | `whoOf`: an empty table if missing | error case only (every saved state has `aliases: {}`) |
+| clock / world / basis gating | `#publicEvidence` body | `publicEvidenceOf`, the same body (`this.ports.observe` → `observe`) | yes |
+| hold rule | `held` closure over `st.failures` | `heldOf({failures: st.failures})` | yes |
+
+**Fixed in the preview** (evidence: 3c5f22d2's own source):
+1. **It called the ports it was handed.** `previewDecision` called `memory.all` / `recall` and `evidence.read` on objects the caller supplied, so a "read" port that signs, spends or sends would have run inside it.
+   - It now takes a **snapshot of plain data** `{charter, state, address, obs, episodes, frame, evidence: {…, answers}}`.
+   - The snapshot is `structuredClone`d first: a function anywhere in it fails the copy, and the preview is refused (`snapshot_not_plain_data`). So no port of any name, no callback, signer, budget, provider or sender can be called.
+   - Memory and evidence are rebuilt from the data. A counterparty with no answer in the snapshot is `not_in_snapshot`.
+2. **A missing observe frame skipped the clock and world check.** Evidence without `frame.clock` and `frame.world` is now refused, not read.
+   - Normal mode keeps its behaviour unchanged: it skips the check when its port declares none.
+3. **Missing inputs are refused by name and never filled in:** charter, state (incl. `journal` / `counters` / `cooldown` / `accepted` / `aliases`), address, obs (incl. `world.me` and this resident's village), episodes, and the shape of each evidence answer.
+
+**Added:**
+- `fallback`: what the **default** code fallback (`safeFallback`, now in `decide-core.mjs` and re-exported by `resident.mjs` as the same function) would pick. A resident's own `ports.fallback` may differ, and its provider would be asked first; neither happened.
+- `modelAsked: false`.
+- `recall.mjs` `recallFrom`: the local memory adapter's rule. `localMemory.recall` now calls it, so the preview recalls the same way. A resident on another memory port (12's mirror) may recall differently.
+
+**Still true:**
+- The preview is not a step's decision and not a model's decision.
+- WS4's unproven data is never evidence: its basis is not `chain`, so the resident's rule shows it and does not act on it, and the preview offers no test switch.
+- A preview's snapshot exists only in the test world today.
+
+**Tests (source only, not run):** 13 `test/decide-core.test.mjs`, 6 cases.
+- a snapshot preview leaves the resident, the snapshot and the files unchanged;
+- a port or callback anywhere in the snapshot is refused, and nothing is called;
+- missing inputs are refused by name;
+- the evidence rule (chain acts; `unproven`, `integration-output` and `unstated` do not);
+- the shared rules (recall, counters, aliases, trust, fallback);
+- the text pins.

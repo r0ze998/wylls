@@ -6,17 +6,18 @@
 // posts or cancels. The inputs are handed in; what is read from a port is read through the port's own read methods
 // (memory.all / memory.recall, evidence.read), which are reads by their contracts (ports/memory.mjs; 12's evidence port).
 //
-// previewDecision: the decision a resident WOULD reach up to the point where it asks a provider — candidates, the
-// exclusions (including a workstream 12 breach, under the same chain-only rule), the public evidence summary and the
-// request text it would send — and nothing after it. It is analysis, not a resident: it decides nothing, sends
-// nothing and is not the resident's run. Its inputs (charter, state, observation) must come from somewhere real for
-// the answer to mean anything; no live observe port exists in this tree (resident/assembly.mjs).
+// previewDecision: the decision a resident WOULD reach up to the point where it asks a provider, from a snapshot of
+// plain data (no port, no callback): candidates, exclusions, the evidence summary, the request text and the default
+// fallback's pick. It is analysis, not a resident: it decides nothing, sends nothing, asks no model and is not the
+// resident's run. Its snapshot must come from somewhere real for the answer to mean anything; no live observe port
+// exists in this tree (resident/assembly.mjs).
 import { clockId, sameClock, worldMismatch } from './frame.mjs';
 import { wrapMemory, wrapUntrusted } from '../../../permutation-gateway/citizens/mind/sanitize.mjs';
 import { BELLS_PER_DAY } from '../world/rules.mjs';
 import { buildCandidates } from './candidates.mjs';
 import { GOALS } from './goals.mjs';
 import { answerSchema } from './ports/provider.mjs';
+import { recallFrom } from './recall.mjs';
 
 /**
  * Journal states of work that is not finished. `unresolved`: the world gave no definite answer for a game day; the
@@ -141,40 +142,100 @@ export function requestOf({ charter, id, citizen, obs, bell, turn, cands, wakes,
 /** The day's counters for `bell` (#today's rule), as a NEW object: the given counters are not changed. */
 export const todayOf = (counters, bell) => (counters.day !== dayOf(bell) ? { ...counters, day: dayOf(bell), actions: 0, messages: 0, giveAway: 0, gifts: 0, sibling: 0 } : { ...counters });
 
+/** The default fallback until workstream 5's autopilot is wired: answer addressed requests, build, else wait; never a new commitment. */
+export function safeFallback(candidates) {
+  const order = ['decline', 'build', 'wait'];
+  for (const kind of order) {
+    const c = candidates.filter(x => x.kind === kind).sort((a, b) => b.score - a.score)[0];
+    if (c) return c.id;
+  }
+  return 'wait';
+}
+
+/** What a preview snapshot must hold, or the reasons it does not (nothing is filled in). */
+function snapshotProblems(x) {
+  const why = [];
+  const obj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!obj(x.charter) || !GOALS[x.charter.goal] || !obj(x.charter.limits) || typeof x.charter.id !== 'string' || typeof x.charter.name !== 'string') why.push('charter');
+  const st = x.state;
+  if (!obj(st) || !Number.isSafeInteger(st.turn) || typeof st.citizen !== 'string' || !obj(st.journal) || !obj(st.counters) || !obj(st.cooldown) || !obj(st.accepted) || !obj(st.aliases)) why.push('state');
+  if (typeof x.address !== 'string' || !x.address) why.push('address');
+  const w = x.obs?.world;
+  if (!obj(w) || !Number.isSafeInteger(w.bell) || !Array.isArray(w.villages) || !obj(w.me) || !Array.isArray(x.obs?.board?.requests)) why.push('obs');
+  else if (typeof st?.citizen === 'string' && !w.villages.some(v => v.citizen === st.citizen)) why.push('obs: no village of this resident');
+  if (!Array.isArray(x.episodes) || !x.episodes.every(e => obj(e) && typeof e.id === 'string' && Array.isArray(e.entities))) why.push('episodes');
+  if (x.evidence != null) {
+    const e = x.evidence;
+    if (!obj(e) || !obj(e.answers)) why.push('evidence');
+    else for (const [cp, r] of Object.entries(e.answers)) {
+      if (!obj(r) || typeof r.status !== 'string' || !Array.isArray(r.lines) || (r.facts !== undefined && !Array.isArray(r.facts))) why.push(`evidence answer for ${cp.slice(0, 12)}`);
+      else if (!r.lines.every(l => obj(l) && Array.isArray(l.sources) && typeof l.text === 'string')) why.push(`evidence lines for ${cp.slice(0, 12)}`);
+      else if (!(r.facts ?? []).every(f => obj(f) && Array.isArray(f.sources) && typeof f.commitment === 'string')) why.push(`evidence facts for ${cp.slice(0, 12)}`);
+    }
+    // The resident checks evidence against its own observe clock and world; without them the check cannot be made,
+    // so the evidence is not read (the resident's step skips the check when its port declares none: not here).
+    if (!obj(x.frame?.clock) && typeof x.frame?.clock !== 'string') why.push('frame: no clock to check the evidence against');
+    if (!obj(x.frame?.world)) why.push('frame: no world to check the evidence against');
+  }
+  return why;
+}
+
 /**
- * The decision up to the provider, from copies of the inputs. Returns {mode: 'preview', turn, bell, candidates,
- * excluded, need, idle, evidence, request, byCode} and never decides, sends or writes:
- *   - `state` and `charter` are read (structuredClone'd first): the journal, failures, cooldowns, aliases, counters;
- *   - `obs` is the observation as the observe port would give it ({world: {bell, villages}, board});
- *   - `memory` is read through all() and recall() only; `evidence` through read() only;
- *   - `request` is the text a provider WOULD receive: it is not sent. With one candidate the resident would wait by
- *     code (`byCode: 'wait'`) and no request is built, as #decide does.
- * Not covered (the resident's step does these before or after this point, with effects): join, reconcile, learn,
- * duties, the wake gate, the stop reasons, the budget hold, the provider's answer, the fallback, the send.
+ * The decision up to the provider, from a SNAPSHOT of plain data — never from ports or callbacks:
+ *   {charter, state, address, obs: {world, board}, episodes: memory.all()'s answer,
+ *    frame: {clock, world} (the observe port's), evidence: {kind, clock, world, basis, basisWhy, answers: {counterparty: read's answer}} | null}
+ * The snapshot is copied with structuredClone first: a function anywhere in it (a port, a callback, a getter's
+ * result that is a function) makes the copy fail, and the preview is refused (`snapshot_not_plain_data`). So nothing
+ * handed in can be called: no port of any name, no signer, budget, provider or sender. Missing fields are refused
+ * with their names; nothing is filled in.
+ * Returns {mode: 'preview', sent: false, decided: false, turn, bell, candidates, excluded, need, idle, evidence,
+ * byCode, request, fallback}:
+ *   - the same functions the resident uses (buildCandidates, trustIndexOf, publicEvidenceOf, heldOf, requestOf), over
+ *     the copy; the day counters are reset on the copy (todayOf); recall is the local memory adapter's rule
+ *     (recall.mjs) over `episodes`, so a resident on another memory port (workstream 12's mirror) may recall otherwise;
+ *   - `evidence` is read from `answers` only (a counterparty missing there is `not_in_snapshot`); its basis is taken as
+ *     given and acted on by the resident's rule (chain only; the test switch is not offered here);
+ *   - `request` is the text a provider WOULD receive. It is not sent, and no model's answer is shown;
+ *   - `fallback` is what the DEFAULT code fallback (safeFallback) would pick. The resident's own `ports.fallback`
+ *     may differ, and its provider would be asked first; neither has happened.
+ * Not covered (the resident's step does these before or after this point, with effects or state changes): join,
+ * reconcile, learn, duties, settling returns, noting debts, the cursor, the wake gate, the stop reasons, the budget
+ * hold, the provider's answer, the send. This is not the decision a step would make, and not a model's decision.
  */
-export function previewDecision({ charter, state, address, obs, memory, evidence = null, observe = null, evidenceUse = undefined, wakes = ['preview'] }) {
-  const ch = structuredClone(charter), st = structuredClone(state);
+export function previewDecision(snapshot) {
+  let x;
+  try { x = structuredClone(snapshot); } catch { return { mode: 'preview', refused: ['snapshot_not_plain_data'] }; }
+  if (!x || typeof x !== 'object') return { mode: 'preview', refused: ['snapshot'] };
+  const why = snapshotProblems(x);
+  if (why.length) return { mode: 'preview', refused: why };
+  const { charter: ch, state: st, obs, episodes } = x;
   const bell = obs.world.bell;
   const turn = st.turn + 1;
   const goal = GOALS[ch.goal];
-  const who = whoOf({ addr: new Map(obs.world.villages.map(v => [v.citizen, v.owner])), aliases: st.aliases ?? {} });
-  const ti = trustIndexOf(memory.all(), st.aliases ?? {});
+  const who = whoOf({ addr: new Map(obs.world.villages.map(v => [v.citizen, v.owner])), aliases: st.aliases });
+  const memory = Object.freeze({ all: () => episodes.slice(), recall: q => recallFrom(episodes, q) });
+  const ti = trustIndexOf(memory.all(), st.aliases);
   const built = buildCandidates({
     me: st.citizen, bell, world: obs.world, board: obs.board, goal, memory, limits: ch.limits,
-    today: todayOf(st.counters, bell), siblings: new Set(ch.siblings), cooldown: st.cooldown, mine: { accepted: new Set(Object.keys(st.accepted)) },
+    today: todayOf(st.counters, bell), siblings: new Set(ch.siblings ?? []), cooldown: st.cooldown, mine: { accepted: new Set(Object.keys(st.accepted)) },
     who, trust: ti.trust, raided: ti.raided,
   });
   const { excluded, assessment } = built;
-  const ev = publicEvidenceOf({ port: evidence, observe, evidenceUse, cands: built.candidates, bell, who });
+  // The evidence port, rebuilt here from data: its read returns the snapshot's answer, nothing else runs.
+  const e = x.evidence;
+  const port = e ? Object.freeze({ kind: `preview-snapshot:${String(e.kind ?? 'unstated').slice(0, 60)}`, clock: e.clock ?? null, world: e.world ?? null, basis: e.basis ?? 'unstated',
+    basisWhy: Array.isArray(e.basisWhy) ? e.basisWhy : [], read: ({ counterparty }) => e.answers[counterparty] ?? { status: 'not_in_snapshot', lines: [] } }) : null;
+  const ev = publicEvidenceOf({ port, observe: x.frame ?? null, cands: built.candidates, bell, who });
   const held = heldOf({ evidence: ev, inFlight: inFlightOf(st.journal), failures: st.failures ?? {}, bell, who });
   for (const c of built.candidates) { const h = held(c); if (h) excluded.push({ candidate: c.id, ...h }); }
   const candidates = built.candidates.filter(c => !held(c));
   const byCode = candidates.length === 1 ? 'wait' : null;
-  const request = byCode ? null : requestOf({ charter: ch, id: ch.id, citizen: st.citizen, obs, bell, turn, cands: candidates, wakes, evidence: ev,
-    mem: memory.recall({ focus: [address, ...candidates.flatMap(c => (c.act.to ? [who(c.act.to)] : []))], bell }) });
+  const request = byCode ? null : requestOf({ charter: ch, id: ch.id, citizen: st.citizen, obs, bell, turn, cands: candidates, wakes: ['preview'], evidence: ev,
+    mem: memory.recall({ focus: [x.address, ...candidates.flatMap(c => (c.act.to ? [who(c.act.to)] : []))], bell }) });
   return {
-    mode: 'preview', sent: false, decided: false, turn, bell,
+    mode: 'preview', sent: false, decided: false, modelAsked: false, turn, bell,
     candidates: candidates.map(c => ({ id: c.id, kind: c.kind, score: Math.round(c.score * 100) / 100, summary: c.summary })),
     excluded, need: assessment.shortfall, idle: assessment.idle, evidence: ev.summary, byCode, request,
+    fallback: { by: 'safeFallback (the default code fallback)', choice: byCode ?? safeFallback(candidates) },
   };
 }
