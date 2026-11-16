@@ -138,14 +138,16 @@ export class Autopilot {
     const registerAct = this.acts ? registerBeforeSend(this.acts, who) : null;
     const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.#actFence(), registerAct });
     const rec = decisionRecord(report);
-    if (this.acts) rec.acts = await this.#readActs(runId, report);
+    // The registry's receipt of each act, by requestId: it fills the RunReceipt's `from4` act fields (run-receipt.mjs actFrom4).
+    const actReceipts = new Map();
+    if (this.acts) rec.acts = await this.#readActs(runId, report, actReceipts);
     if (this.receipts) {
       this.receipts.attachInference(runId, report.inference ?? null);
       // Every item that reached agent_act: its requestId is in the journal's act-begin of this run.
       const begun = this.journal.entries.filter(e => e.runId === runId && e.step === 'act-begin');
       for (const it of report.items ?? []) {
         const b = begun.find(e => e.requestId === it.requestId);
-        if (b) this.receipts.attachAct(runId, { requestId: b.attemptId, outcome: it.outcome, code: it.code ?? null, signature: it.signature ?? null, proposed: it.proposed });
+        if (b) this.receipts.attachAct(runId, { requestId: b.attemptId, outcome: it.outcome, code: it.code ?? null, signature: it.signature ?? null, proposed: it.proposed, registry: actReceipts.get(b.attemptId) ?? null });
       }
       rec.receipt = await this.receipts.close(runId);
     }
@@ -169,12 +171,13 @@ export class Autopilot {
   }
 
   /** This run's acts after sending: one status read each (recorded in the registry), and the registry's id on the item. */
-  async #readActs(runId, report) {
+  async #readActs(runId, report, receipts = null) {
     const out = [];
     for (const b of this.journal.entries.filter(e => e.runId === runId && e.step === 'act-begin')) {
       const key = idempotencyKeyOf(this.actSource, b.attemptId);
       let r;
       try { r = await this.acts.status({ agentId: this.w.agentId, key }); } catch (e) { out.push({ requestId: b.attemptId, key, error: e.code ?? 'StatusFailed', why: e.message }); continue; }
+      receipts?.set(b.attemptId, r);
       out.push({ requestId: b.attemptId, run4Id: r.run4Id, state: r.state, next: r.next, newAttemptAllowed: r.newAttemptAllowed, connection: r.connection, signature: r.signature ?? null, validUntil: r.lastValidBlockHeight ?? null, signedAt: r.signedAt ?? null });
       const item = (report.items ?? []).find(it => it.requestId === b.requestId);
       if (item) Object.assign(item, { run4Id: r.run4Id, fateState: r.state, registry: r.connection });

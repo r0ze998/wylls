@@ -41,6 +41,25 @@ export const RECEIPT_FIELDS = Object.freeze({
 
 const STAGES = Object.freeze(['before-sign', 'signed-unsent', 'sent']);
 
+/** The act fields of this receipt that only ④ gives (RECEIPT_FIELDS `from4: true` under `acts[]`). */
+export const ACT_FROM4_FIELDS = Object.freeze(Object.keys(RECEIPT_FIELDS).filter(k => k.startsWith('acts[].') && RECEIPT_FIELDS[k].from4));
+
+/**
+ * The act fields that ④'s act registry gives, from one of its receipts (`p04-acts/0.1`, as acts-port.mjs returns it:
+ * fourActsPort REAL or localActsPort SUBSTITUTE). The same mapping as ④'s `toP05Act(receipt)`
+ * (workstreams/04-execution/clients/acts.mjs:106; EXECUTION-CONTRACT-20261106 §7.3), written out here because ⑤'s
+ * tree does not carry ④'s files. `connection` and `port` are kept beside it, so a substitute's answer is never
+ * passed off as ④'s.
+ */
+export function actFrom4(r) {
+  return {
+    run4Id: r.run4Id, idempotencyKey: r.idempotencyKey, source: r.source, signature: r.signature ?? null,
+    signedAt: r.signedAt ?? null, fate: r.state, commitment: r.commitment ?? null, cancellable: false,
+    cancel: { stage: r.cancel?.stage ?? null, result: r.cancel?.result ?? null, until: r.cancel?.until ?? null },
+    connection: r.connection ?? null, port: r.port ?? null,
+  };
+}
+
 /**
  * The local adapter: in memory, one process, built from the relay's reads. Not ④'s; its receipts say so.
  * @param {object} o
@@ -78,9 +97,24 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
         r.costs.inferenceIn4Names = { unit: 'test-USDC base units', reserved: r.costs.inference.reserved, charged: r.costs.inference.settled, unconfirmed: r.costs.inference.undecided, released: r.costs.inference.released };
       }
     },
-    /** One act of the run: its agent_act requestId and outcome (participate's item). */
-    attachAct(runId, { requestId, outcome, code = null, signature = null, proposed = null }) {
-      must(runId).acts.push({ requestId, idempotencyKey: null, source: null, action: proposed, status: outcome, code, signature, signedAt: null, fate: signature ? 'unknown' : null, gameCharge: null, cancellable: null });
+    /**
+     * One act of the run: its agent_act requestId and outcome (participate's item). `registry`: the act's receipt from
+     * ④'s act registry (acts-port.mjs status), when the autopilot has one: it fills the act's `from4` fields
+     * (actFrom4). A registry receipt for another signature fills nothing and is kept as `from4.mismatch`.
+     */
+    attachAct(runId, { requestId, outcome, code = null, signature = null, proposed = null, registry = null }) {
+      const a = { requestId, idempotencyKey: null, source: null, action: proposed, status: outcome, code, signature, signedAt: null, fate: signature ? 'unknown' : null, gameCharge: null, cancellable: null };
+      if (registry) {
+        const f = actFrom4(registry);
+        if (f.signature && signature && f.signature !== signature) {
+          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, mismatch: `the registry has another signature (${f.signature})` };
+        } else {
+          Object.assign(a, { idempotencyKey: f.idempotencyKey, source: f.source, signature: signature ?? f.signature, signedAt: f.signedAt, fate: f.fate, cancellable: f.cancellable,
+            lastValidBlockHeight: f.cancel.until?.lastValidBlockHeight ?? null });
+          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, commitment: f.commitment, cancel: f.cancel };
+        }
+      }
+      must(runId).acts.push(a);
     },
     async close(runId) {
       const r = must(runId);
@@ -94,6 +128,9 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
         a.gameCharge = hold ? { reserved: hold.amount, state: hold.state } : { reserved: '0', state: a.status === 'sent' ? 'none or settled (see history)' : 'none' };
       }
       r.costs.game = { reserved: r.acts.reduce((t, a) => t + BigInt(a.gameCharge?.reserved ?? '0'), 0n).toString() };
+      // The act fields only ④ gives are no longer missing when every act carries ④'s REAL registry receipt; a
+      // substitute's (⑤'s copy of the contract) or a mismatched one leaves them listed as missing.
+      if (r.acts.length && r.acts.every(a => a.from4?.connection === 'real' && !a.from4.mismatch)) r.missingFrom4 = r.missingFrom4.filter(k => !ACT_FROM4_FIELDS.includes(k));
       r.state = r.state === 'cancelled' ? 'cancelled' : 'closed';
       return structuredClone(r);
     },
@@ -109,6 +146,8 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
           continue;
         }
         if (!a.signature) continue;
+        // An act whose fate came from ④'s act registry keeps it: GET /f/tx is the weaker read and never replaces it.
+        if (a.from4 && !a.from4.mismatch) continue;
         let t = null;
         try { t = await txState(a.signature); } catch { t = null; }
         // GET /f/tx's `expired` is by the confirmed height only: not ④'s proof, so not a final fate here.
