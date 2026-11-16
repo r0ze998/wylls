@@ -39,13 +39,18 @@ log(`redirect profiles: ${auth.redirectProfiles.join(', ')}`);
 const receipts = receiptPortFor(env.WYLLS_MCP_RECEIPT_PORT ?? 'local');
 // Workstream 04's act registry, through ④'s own client (never re-implemented here). All three settings or none.
 let acts = null;
+let actsReadVia = null;
 if (env.WYLLS_MCP_WS04_ACTS) {
   if (!env.WYLLS_MCP_WS04_RUNEXEC || !env.WYLLS_MCP_WS04_DB) { console.error('WYLLS_MCP_WS04_ACTS needs WYLLS_MCP_WS04_RUNEXEC and WYLLS_MCP_WS04_DB'); process.exit(2); }
   const { createActsClient } = await import(pathToFileURL(env.WYLLS_MCP_WS04_ACTS).href);
-  acts = createActsClient({ bin: env.WYLLS_MCP_WS04_RUNEXEC, db: env.WYLLS_MCP_WS04_DB, gatewayPort: env.WYLLS_MCP_WS04_GATEWAY_PORT ? Number(env.WYLLS_MCP_WS04_GATEWAY_PORT) : null });
+  const gatewayPort = env.WYLLS_MCP_WS04_GATEWAY_PORT ? Number(env.WYLLS_MCP_WS04_GATEWAY_PORT) : null;
+  acts = createActsClient({ bin: env.WYLLS_MCP_WS04_RUNEXEC, db: env.WYLLS_MCP_WS04_DB, gatewayPort });
+  // The same value ④'s client tests (`read && gatewayPort`): a port it would use → 'gateway', else 'store-only' (a
+  // non-number or 0 included). Never bridge (this loader does not ask for ④'s test bridge).
+  actsReadVia = gatewayPort ? 'gateway' : 'store-only';
   log(`④ act registry: ${env.WYLLS_MCP_WS04_DB} (runexec act; source mcp)`);
 }
-const mcp = createWyllsMcp({ auth, game, store, log, receipts, acts });
+const mcp = createWyllsMcp({ auth, game, store, log, receipts, acts, actsReadVia });
 log(`receipt port: ${receipts.contract}${receipts.real ? '' : ' (MOCK: this server\'s own tracking, not ④\'s ledger)'}`);
 const seal = auth.sealCheck();
 if (seal.unopenable) log(`warning: ${seal.unopenable} of ${seal.sealed} connection capabilities cannot be opened with this WYLLS_MCP_SEAL_KEY; their sends are held (CapabilityUnavailable) until the key is restored or the owner revokes the connection`);

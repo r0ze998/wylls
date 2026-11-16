@@ -118,6 +118,15 @@ export function feesOf(op) {
   return { category: 'unconfirmed', lamports: null, basis: 'an attempt may have been signed; its absence is not proven, so it is never released' };
 }
 
+/**
+ * How this server asked ④ for an answer (the caller's own configuration, never read from ④'s receipt, which does not
+ * say): 'gateway' — ④'s client was built with the agent wallet's port, so a status call asks ④ to read the wallet once;
+ * 'store-only' — ④'s stored record (register, list, or a client without a port); null — not told. It names a path
+ * only: not that the read succeeded, not how fresh the facts are, not any chain finality (workstream 05 fada02f9's
+ * words). `source` in ④'s receipt is who registered the act, a different thing.
+ */
+export const readViaOf = v => (v === 'gateway' || v === 'store-only' ? v : null);
+
 /** The fixed marker of a registry receipt whose own state is `unqueryable` (④ could not read the wallet for this act). */
 export const WS04_UNQUERYABLE = 'Unqueryable: workstream 04 could not read the agent wallet for this act (its receipt says nothing about the act)';
 
@@ -135,20 +144,28 @@ export const WS04_UNQUERYABLE = 'Unqueryable: workstream 04 could not read the a
  * The registry answering is not evidence of a chain (④'s receipt names no chain, simulator or read mode); its source
  * says who registered the act, not where its facts came from.
  */
-export function ws04ActAfterRead(prev, a, { key, at, scrub = null }) {
+// `readVia` (readViaOf): how this read was asked. It is stored beside `at` for a read that answered (`readVia` belongs
+// to `at`); for an unqueryable receipt it goes beside `readErrorAt` (`readErrorVia`), so the kept `readVia` stays the
+// earlier answering read's and is never shown as this attempt's.
+export function ws04ActAfterRead(prev, a, { key, at, scrub = null, readVia = null }) {
   if (a.idempotencyKey != null && a.idempotencyKey !== key) return { ok: false, code: 'Inconsistent', message: `the registry answered for another key (${a.idempotencyKey})` };
   if (a.state === 'unqueryable') {
     const text = v => (v == null ? null : scrub ? scrub(v) : String(v));
-    return { ok: true, act: { ...ws04ActAfterFailedRead(prev, WS04_UNQUERYABLE, at), registryUnqueryable: { lastReadError: text(a.lastReadError), why: text(a.why), at } } };
+    return { ok: true, act: { ...ws04ActAfterFailedRead(prev, WS04_UNQUERYABLE, at, readVia), registryUnqueryable: { lastReadError: text(a.lastReadError), why: text(a.why), at } } };
   }
-  const { readError: _e, readErrorAt: _t, registryUnqueryable: _u, ...kept } = prev ?? {};
+  const { readError: _e, readErrorAt: _t, readErrorVia: _v, registryUnqueryable: _u, ...kept } = prev ?? {};
   return { ok: true, act: { ...kept, run4Id: a.run4Id, receiptVersion: a.receiptVersion ?? null, state: a.state, final: a.final === true, next: a.next ?? null, newAttemptAllowed: a.newAttemptAllowed === true,
-    cancel: a.cancel ?? null, retention: a.retention ?? null, conflict: a.conflict ?? null, signature: a.signature ?? null, idempotencyKey: a.idempotencyKey ?? null, source: a.source ?? null, at } };
+    cancel: a.cancel ?? null, retention: a.retention ?? null, conflict: a.conflict ?? null, signature: a.signature ?? null, idempotencyKey: a.idempotencyKey ?? null, source: a.source ?? null, at, readVia: readViaOf(readVia) } };
 }
 
-/** `op.ws04Act` after a registry read (or registration) that failed: everything known kept, `at` (the last read that answered) untouched. Pure. */
-export function ws04ActAfterFailedRead(prev, readError, at) {
-  return { ...(prev ?? {}), readError, readErrorAt: at };
+/**
+ * `op.ws04Act` after a registry read (or registration) that failed: everything known kept, `at` and `readVia` (the last
+ * read that answered) untouched. Pure. `readVia` given: how the failed attempt was asked, as `readErrorVia`; an earlier
+ * attempt's `readErrorVia` never stays beside this attempt's `readErrorAt`.
+ */
+export function ws04ActAfterFailedRead(prev, readError, at, readVia = undefined) {
+  const { readErrorVia: _v, ...rest } = prev ?? {};
+  return { ...rest, readError, readErrorAt: at, ...(readVia !== undefined ? { readErrorVia: readViaOf(readVia) } : {}) };
 }
 
 /** A revoked connection's cancellation in ④'s phases, per operation. */

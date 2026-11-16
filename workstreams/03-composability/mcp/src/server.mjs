@@ -10,7 +10,7 @@ import { Game, GameError, untrusted } from './game.mjs';
 import { SCOPES } from './auth.mjs';
 import { MockGrantPort, STATES, TERMINAL, resultUnknown } from './ports.mjs';
 import { AGENT_PRICE_NOT_READ, prepareNotice } from './confirm.mjs';
-import { LocalReceiptPort, assertReceiptPort, ws04ActAfterRead, ws04ActAfterFailedRead } from './receipt-port.mjs';
+import { LocalReceiptPort, assertReceiptPort, WS04_UNQUERYABLE, readViaOf, ws04ActAfterRead, ws04ActAfterFailedRead } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
 import { REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
@@ -50,8 +50,11 @@ function askedCargo(c) {
  * @param {Game} o.game
  * @param {JsonStore} o.store
  */
-export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null }) {
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null, actsReadVia = null }) {
   assertReceiptPort(receipts);
+  // How a status call to ④ is asked, from the caller's configuration of ④'s client (bin/wylls-mcp.mjs): 'gateway' |
+  // 'store-only' | null (not told). register and list always answer from ④'s store. A path, not freshness or finality.
+  const statusVia = readViaOf(actsReadVia);
   const receiptOf = op => receipts.receipt(op);
   const db = store.state;
   const inflight = new Map();
@@ -253,7 +256,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       if (e?.code !== 'BadRequest' || !/UNIQUE/i.test(String(e?.message))) throw e;
       r = await acts.register(args);
     }
-    op.ws04Act = { ...(op.ws04Act ?? {}), run4Id: r.run4Id, runId: r.runId ?? args.runId, registeredAt: op.ws04Act?.registeredAt ?? new Date(now()).toISOString(), receiptVersion: r.receiptVersion ?? null, state: op.ws04Act?.state ?? r.state };
+    op.ws04Act = { ...(op.ws04Act ?? {}), run4Id: r.run4Id, runId: r.runId ?? args.runId, registeredAt: op.ws04Act?.registeredAt ?? new Date(now()).toISOString(), receiptVersion: r.receiptVersion ?? null, state: op.ws04Act?.state ?? r.state, registeredVia: 'store-only' };
     return r;
   }
 
@@ -622,16 +625,17 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     const f = await game.actFate(link.agentId, keyOf(op));
     if (acts) {
       const at = new Date(now()).toISOString();
+      let via = statusVia; // how the attempt that may fail below was asked
       try {
-        if (!op.ws04Act?.run4Id) await register(op, link);
+        if (!op.ws04Act?.run4Id) { via = 'store-only'; await register(op, link); via = statusVia; }
         const a = await acts.status({ agentId: link.agentId, key: keyOf(op) });
         // The receipt is this request's only when it names this request's key: another key's receipt is not applied
         // (a failed read). `at` is the time of the last read that answered; the registry's signature, key and source are
         // kept, so its cancel.until is used only for this request's own signature (receipt-port.mjs ws04CancelPhase).
-        const r = ws04ActAfterRead(op.ws04Act, a, { key: keyOf(op), at, scrub });
+        const r = ws04ActAfterRead(op.ws04Act, a, { key: keyOf(op), at, scrub, readVia: statusVia });
         if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code });
         op.ws04Act = r.act;
-      } catch (e) { op.ws04Act = ws04ActAfterFailedRead(op.ws04Act, `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, at); }
+      } catch (e) { op.ws04Act = ws04ActAfterFailedRead(op.ws04Act, `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, at, via); }
     }
     if (f === null) return null;
     applyFate(op, link, f);
@@ -761,15 +765,23 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         // ④'s list answers as last recorded; a row not final yet is read again (④'s status reads the wallet's fate,
         // read only), so that a run's state does not depend on which connection asks (a reconnect, another sender).
         const rows = [];
+        // readVia is set here, never taken from a row (④'s receipt does not say): list rows are ④'s stored record. A
+        // re-read whose own state is unqueryable says nothing about the act (as consult): the stored row is kept, marked.
+        const asText = v => (v == null ? null : scrub(v));
         for (const a of (l.acts ?? []).slice(0, 50)) {
-          if (a.final === true) { rows.push(a); continue; }
-          try { rows.push(await acts.status({ run4Id: a.run4Id })); } catch (e) { rows.push({ ...a, readError: `${e?.code ?? 'Error'}: ${scrub(e?.message)}` }); }
+          const stored = { ...a, readVia: 'store-only' };
+          if (a.final === true) { rows.push(stored); continue; }
+          try {
+            const s = await acts.status({ run4Id: a.run4Id });
+            rows.push(s.state === 'unqueryable' ? { ...stored, readError: WS04_UNQUERYABLE, readErrorVia: statusVia, registryUnqueryable: { lastReadError: asText(s.lastReadError), why: asText(s.why) } } : { ...s, readVia: statusVia });
+          } catch (e) { rows.push({ ...stored, readError: `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, readErrorVia: statusVia }); }
         }
         registry = { read: true, acts: rows, ...((l.acts ?? []).length > 50 ? { truncated: true } : {}) };
       }
       catch (e) { registry = { read: false, error: `${e?.code ?? 'Error'}: ${scrub(e?.message)}` }; }
     }
-    return ok({ runId, operations, registry, notes: ['Read only: nothing is sent. The registry lists every act registered under this run (other senders\' included, each with its source).'] });
+    return ok({ runId, operations, registry, notes: ['Read only: nothing is sent. The registry lists every act registered under this run (other senders\' included, each with its source).',
+      'readVia says how this server asked workstream 04 (gateway: ④ was asked to read the agent wallet once; store-only: ④\'s stored record; null: not known); it is not freshness, success or chain finality, and source is who registered the act.'] });
   }
 
   async function listOps(principal) {

@@ -81,8 +81,9 @@ test('R7 an unqueryable receipt keeps the last answering read', () => {
   const known = ws04ActAfterRead(registered, receipt({ state: 'unknown', next: 'hold' }), { key: KEY, at: T1 }).act;
   const r = ws04ActAfterRead(known, unq(), { key: KEY, at: T2, scrub });
   assert.equal(r.ok, true);
-  const { readError, readErrorAt, registryUnqueryable, ...rest } = r.act;
-  assert.deepEqual(rest, known, 'state, next, cancel, signature, at: unchanged');
+  const { readError, readErrorAt, readErrorVia, registryUnqueryable, ...rest } = r.act;
+  assert.deepEqual(rest, known, 'state, next, cancel, signature, at, readVia: unchanged');
+  assert.equal(readErrorVia, null, 'the failed attempt\'s path (not told here: null)');
   assert.deepEqual([r.act.state, r.act.next, r.act.at], ['unknown', 'hold', T1]);
   assert.deepEqual([readError, readErrorAt], [WS04_UNQUERYABLE, T2]);
   assert.deepEqual(registryUnqueryable, { lastReadError: 'fate read answered 502', why: 'node down', at: T2 });
