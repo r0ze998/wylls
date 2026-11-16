@@ -169,7 +169,9 @@ function hostModel(FS, sub) {
   const faction = int(FS.citizen?.faction) ? FS.citizen.faction : 0;
   const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve'), mLocal = localMarchClosed(FS, r), eLocal = localRefuses(FS, 'Explore');
   const ex = r.unit === SCOUT ? exploreCheck(FS, r) : null;
-  const all = ownHosts(FS);
+  // (2026-11-16: 次の軍勢 counts and cycles the hosts of the host's OWN village — the press (app.mjs nextHost) goes there;
+  //  a host of another village chosen by a plain tap or a chip read 1/N of the open village's hosts, which it is not among)
+  const all = ownHosts({ ...FS, activeHolding: sub.holdingIndex });
   const at = all.findIndex(x => x.id === r.id);
   const pop = popOf(FS, sub);
   // (the board is armed for a march as soon as a host that can march is selected: its reach is lit and a tap is the order)
