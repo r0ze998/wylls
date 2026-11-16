@@ -106,8 +106,9 @@
   provenance: { from, before, after, stable, why, slotCommitment },  // ヘラルドの畳み込みの位置（下）
   facts: [ { seq, kind, verified: 'derived', ... } ],
   summary: { moving, throughInner, throughConcord, innerShare, concordShare,
-             cargoInnerShare, cargoConcordShare,          // 資源をまたいだ合計の割合
-             cargoByResource: { all, inner, concord },     // 資源ごと（8枠）
+             cargoInnerShare, cargoConcordShare,          // 資源をまたいだ合計の割合。積荷不明の隊商が1件でもあれば null
+             cargoByResource: { all, inner, concord },     // 資源ごと（8枠）。積荷が分かる隊商だけの和
+             cargoNotGiven: { all, inner, concord },       // 積荷不明の隊商の件数（0 として足さない）
              vaultsAtCentre, vaultsInConcord,
              structuresAtCentre, structuresInConcord, byFaction } }
 ```
@@ -118,7 +119,7 @@
 |---|---|---|
 | `centre.vault` | `p, q, tile, ring, concord, faction, ownerTag, gen` | 中央に建っている倉（個人の物。今のコードでは大協約にも建てられる） |
 | `centre.structure` | `p, q, tile, ring, concord, structureKind, faction, ownerTag` | 中央に建っている S1 の建物（`tower`＝物見櫓・`palisade`・`fort`） |
-| `centre.transit` | `ownerTag, seqOfOwner, faction, throughConcord, innermostRing, provinces, cargo, cargoByResource, raided` | 道中の隊商で、通る州（`provinces`）が中央に入るもの。`cargoByResource` はヘラルドの積荷そのまま（規則の資源8枠、i 番目＝資源 i）。`cargo` は資源をまたいだ合計で、単位が混ざる |
+| `centre.transit` | `ownerTag, seqOfOwner, faction, throughConcord, innermostRing, provinces, cargo, cargoByResource, raided` | 道中の隊商で、通る州（`provinces`）が中央に入るもの。`cargoByResource` はヘラルドの積荷そのまま（規則の資源8枠、i 番目＝資源 i）。`cargo` は資源をまたいだ合計で、単位が混ざる。積荷が無い・8枠でない・0以上の安全な整数でない隊商は、`cargoByResource` も `cargo` も `null`（積荷不明。0 の積荷とは別）で、`summary.cargoNotGiven` に数える |
 | `centre.sighting` | `bell, tower, towerFaction, towerOwnerTag, what, faction, subject` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない）。`towerOwnerTag`＝物見櫓の持ち主、`subject`＝見られたもの（ヘラルドの欄そのまま） |
 
 - 一覧は**今の状態**だけ。着いた隊商は `moving` から消える。閉じた倉は、ヘラルドが無いと読むまで残る（ヘラルドの注記）。時間を通した量は、呼び出し側が何度か読んで並べる。

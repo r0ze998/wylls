@@ -86,3 +86,21 @@ Traced in source only. Nothing was run: no test, no `node --check`, no product i
 - every test, old or new, is unrun under the standing stop;
 - the semantics of an empty `provinces` list;
 - whether ⑮'s frozen fixture regenerates byte-identically (it was not regenerated).
+
+## Who reads `cargo: null` and `share: null` (2026-11-16, source only)
+
+I searched with `git grep` for `cargoByResource`, the share fields, `cargoNotGiven`, `centre.transit`, `centreFacts` and `centre.mjs`.
+
+| Consumer | What it reads | Compatible with `null`? |
+|---|---|---|
+| A UI (`permutation-server/web/…`) | — | no importer of `centre.mjs` or `centre-facts` was found |
+| `centre-cli.mjs` | prints the whole output with `JSON.stringify` | yes: `null` is printed as `null`, distinct from `0` |
+| ⑮ `src/adapters/ws14-centre.mjs` | `cargoByResource` per transit | yes: anything other than 8 non-negative safe integers goes to `notGiven`. `cargo` and the two shares are in `NOT_USED`, and the summary is recounted from the facts rather than taken, so an added `cargoNotGiven` key is neither read nor refused |
+| ⑮ `test/contract-ws14-centre.test.mjs` + the frozen `ws14-centre-88cf67c0.json` | a frozen output (8-slot cargo, `t.cargo === 80`) | the fixture is frozen, so this change doesn't alter it. A `null` input case is not in ⑮'s test (⑮'s own area; not edited) |
+| `CONTRACT.ja.md` §6 | the documented output | **updated**: the shares can be `null`, `cargoNotGiven` is added, and an unknown cargo is `null` (the `centre.transit` row) |
+
+**Stale text in other docs, not edited:**
+- ⑭ `README.ja.md` line 343 names `cargoConcordShare` as the measure, without saying it can be `null`. That is a question for the reader, not a contract change.
+- ⑮ `docs/08-peer-contracts.ja.md` line 231 and the adapter's header comment still name ⑭'s `sumCargo` (removed in 28618a83). Both are ⑮'s files.
+
+**Not verified:** none of this was run.
