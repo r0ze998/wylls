@@ -72,6 +72,14 @@ pub trait Source: Send {
     fn ledger_seq(&self) -> bool {
         false
     }
+    /// What the source says of itself, for the archive's `observed` epochs
+    /// (archive.rs, "Observed sources"): only what its own code knows (the
+    /// program it was given, the commitment it asks for), never an endpoint.
+    /// `None`: it says nothing (its records get no observation, or an
+    /// `unstated` epoch after an observed one).
+    fn observed(&self) -> Option<crate::archive::ObservedSource> {
+        None
+    }
 }
 
 /// The local node's (or the in-process chain's) ordered feed.
@@ -439,6 +447,16 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
     }
     fn ledger_seq(&self) -> bool {
         true
+    }
+    /// The program filter it was given (checked per record when set, see
+    /// `with_program`), and no commitment: a local node's feed is not asked
+    /// for one.
+    fn observed(&self) -> Option<crate::archive::ObservedSource> {
+        Some(crate::archive::ObservedSource {
+            source: "localnet_feed".into(),
+            program_configured: self.program.map(|p| p.to_string()),
+            commitment_requested: None,
+        })
     }
 }
 
@@ -983,6 +1001,18 @@ impl Source for RpcPoll {
     fn coverage(&self) -> Option<Value> {
         Some(RpcPoll::coverage(self))
     }
+    /// The program it lists signatures for, as configured, and the
+    /// commitment it asks for both the signatures and the transactions it
+    /// archives (`get_finalized_signatures_for_address`,
+    /// `get_finalized_transaction`). A request, not a proof; the RPC URL is
+    /// not given out (it may carry a key).
+    fn observed(&self) -> Option<crate::archive::ObservedSource> {
+        Some(crate::archive::ObservedSource {
+            source: "rpc_poll".into(),
+            program_configured: Some(self.program.to_string()),
+            commitment_requested: Some("finalized".into()),
+        })
+    }
 }
 
 fn truncate(s: &str, n: usize) -> String {
@@ -1080,6 +1110,12 @@ impl<S: Source> Source for Enriched<S> {
     }
     fn ledger_seq(&self) -> bool {
         self.inner.ledger_seq()
+    }
+    /// The inner source's, marked: the post-state is read separately
+    /// (finalized `getMultipleAccounts`), which this observation does not
+    /// describe. An inner source that says nothing stays unstated.
+    fn observed(&self) -> Option<crate::archive::ObservedSource> {
+        self.inner.observed().map(|o| crate::archive::ObservedSource { source: format!("{}+enriched", o.source), ..o })
     }
 }
 

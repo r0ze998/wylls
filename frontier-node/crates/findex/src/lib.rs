@@ -33,7 +33,7 @@ use fclient::ports::TxRecord;
 use frontier_abi::addr::AddrCtx;
 use solana_address::Address;
 
-pub use archive::Archive;
+pub use archive::{Archive, ObservedSource};
 pub use index::{EventRow, Index, Reader};
 pub use ingest::{Enriched, IngestError, LocalnetFeed, RpcPoll, Source};
 
@@ -189,6 +189,8 @@ impl Findex {
         // Every store write stops this ingester on failure (reopen
         // required). A stop between the two leaves the index behind the
         // archive, which open() and the check at the top of ingest() see.
+        // What the source says of itself, for these records only (archive.rs: observed sources).
+        self.archive.observe_source(src.observed().as_ref());
         let stored = if src.ledger_seq() {
             self.archive.append_feed(&got, src.cursor())
         } else {
