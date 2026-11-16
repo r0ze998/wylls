@@ -302,3 +302,13 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Not run: the ordinary subset, web-frontier-hand (one-village case, unaffected by reading), the two refused files.
 - Next: the bar's other paths for such a host read its own village; no further clear mismatch in this family.
 - Candidate merge d9986330, note in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116.
+
+### Land chip per-hour figure (2026-11-16, Claude)
+- Mismatch: the chip's 「毎時 +N」 read the stored production; the strip and ClaimLandYield (after settle_tiered) count a
+  finished building or promotion. Fixed in e87faba3: the chip call passes settledHolding(lh, now). map/minimap untouched.
+- Test web-frontier-land-chip-settled.test.mjs: 5/5 with the fix, 4/5 without (call pinned as text); that file only.
+- Key: none. Signing: none. Network: none. Storage: none. Free space 21.98 GiB before the run.
+- Lane C E1 already in (41fb12a8), separate. Untracked files in this checkout, not mine, untouched:
+  CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json, CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before-files.tar,
+  permutation-gateway/screens/node_modules.
+- Candidate merge 372f778b, note in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116.
