@@ -34,7 +34,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'check_resource_shortfall',
     title: 'Resource shortfall',
-    description: 'What the village lacks for a goal: a storehouse ({"kind":"vault"}) or explicit amounts ({"kind":"amounts","amounts":{"Stone":300}}). Returns need, have, short, the hours production would take, and which of the owner\'s storehouses hold the short resources. No change.',
+    description: 'What the village lacks for a goal: a storehouse ({"kind":"vault"}) or explicit amounts ({"kind":"amounts","amounts":{"Stone":300}}). Returns need, have, short, the hours production would take, and which of the owner\'s storehouses hold the short resources; storehouseCoverage says whether the storehouses were read (complete), partly (partial: storehousesUnknown lists those whose stores are not known) or not at all (unavailable) — an empty storehouseSources means none can help only when complete. No change.',
     inputSchema: {
       type: 'object', additionalProperties: false, required: ['goal'],
       properties: { goal: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { type: 'string', enum: ['vault', 'amounts'] }, amounts: cargoSchema } } },

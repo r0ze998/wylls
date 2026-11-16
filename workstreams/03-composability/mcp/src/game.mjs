@@ -215,7 +215,13 @@ export class Game {
     }).filter(r => r.need > 0);
     const sources = view.places.filter(pl => pl.kind === 'vault' && pl.known).map(pl => ({ placeId: pl.placeId,
       covers: rows.filter(r => r.short > 0).map(r => ({ resource: r.resource, available: pl.stores[names.indexOf(r.resource)].have, short: r.short })).filter(c => c.available > 0) })).filter(s => s.covers.length);
-    return { goal, rows, enough: rows.every(r => r.short === 0), storehouseSources: sources };
+    // Which storehouses were looked at (village_status's caravanFeed): the feed not read → `unavailable` (the list of
+    // storehouses itself is unknown); some of the owner's storehouses with unknown stores → `partial` (listed in
+    // storehousesUnknown, never counted as 0); else `complete`. An empty storehouseSources means "none of the read
+    // storehouses holds a short resource" only when complete.
+    const unknown = view.places.filter(pl => pl.kind === 'vault' && !pl.known).map(pl => pl.placeId);
+    const storehouseCoverage = view.feedOk === false ? 'unavailable' : unknown.length ? 'partial' : 'complete';
+    return { goal, rows, enough: rows.every(r => r.short === 0), storehouseSources: sources, storehouseCoverage, storehousesUnknown: unknown };
   }
 
   /** A caravan plan between two of the owner's places: the exact SendCaravan fields and route, or a refusal. */
