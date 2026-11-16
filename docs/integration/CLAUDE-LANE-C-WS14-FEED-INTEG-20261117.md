@@ -134,3 +134,49 @@ Nothing was run, imported or compiled for this section.
 | CI | No CI job runs ⑭'s tests. `centre.test.mjs` appears only in `scripts/ci/node-key-tests.txt` (the key-scan list). The new file needs no entry, and the lists are unchanged |
 | Side effects | None at load or at run: no file, process, network, key, world or write. The behaviour is pure functions on hand-made objects |
 | The candidate command (for the coordinator; not run) | `node --test workstreams/14-central-tower/game/centre-provenance.test.mjs` |
+
+## G1 applied: ⑮ re-checks the fold position (branch `claude/lane-c-ws15-g1-provenance-20261117`, from 6d4e27fc)
+
+Written, not run. Nothing was run, imported or compiled.
+
+**The change** (`workstreams/15-coop-outcomes/src/adapters/ws14-centre.mjs`, sha256 `9ec318d3…1732`).
+- `readCentreFacts` no longer takes `provenance.stable === true` on its word. It reports `'snapshot'` only when all of these hold:
+  - `before` and `after` are objects;
+  - `foldedThrough` and `lastSlot` are safe non-negative integers;
+  - `events` is a canonical u64 decimal string, at most 20 characters and at most `18446744073709551615`;
+  - all three fields are equal on both reads.
+- These are the same checks as ⑭'s `provenanceOf`.
+- Anything else stated stable is `'between'`, with the reason "… not taken as a snapshot".
+- Unchanged:
+  - `stable: false` or `null` still give `'between'` with the producer's `why`;
+  - a missing source is still `'source_unknown'`;
+  - the status words, `counted: false`, the counts, cargo, sightings and refusals.
+
+**The fixture.** `scenarios/fixtures/ws14-centre-88cf67c0.json` is kept byte-identical as historical evidence, and was not regenerated.
+
+**The existing test** (`test/contract-ws14-centre.test.mjs`, sha256 `fdff4f39…39bb2`).
+- The first test's wrong expectation, `'snapshot'` for `O.still` (whose `events` is the number 900), is corrected to `'between'` with the reason check. Its title says why.
+- No test was removed, and no other assertion was changed.
+
+**The new pure regression** (`test/contract-ws14-centre-provenance.test.mjs`, sha256 `81ed3968…f9963`). It has five tests:
+- a herald-shaped, equal pair is `'snapshot'`, including zero and u64::MAX;
+- a missing read, `{v:1}`, and fifteen missing or mistyped fields on one or both reads are `'between'`;
+- reads that differ in `events`, `lastSlot` or `foldedThrough` are `'between'`;
+- `events` above u64::MAX is `'between'`;
+- unchanged: `false` and `null` keep the producer's reason, and `from: null` is `'source_unknown'`.
+
+**The ⑮ contract** (`docs/08-peer-contracts.ja.md` §5f) now states the re-check and the fixture's status.
+
+**Static audit (no run)**
+
+| Item | Finding |
+|---|---|
+| Import closure | New test → `node:test`, `node:assert/strict`, `../src/adapters/ws14-centre.mjs` → `./s1-chain.mjs` (sha256 `60c1d573…6eb4`, no imports). No fixture file, package or other workstream |
+| Top-level code | Declarations only in `ws14-centre.mjs` and `s1-chain.mjs`; the test file has imports, two `const` helpers and `test(...)` calls |
+| I/O, keys, network | No `fs`, `fetch`, `process`, `child_process`, `worker_threads`, dynamic `import()`, `new Function` or key or sign API in the closure. Nothing for the key scan to flag, so it needs no `node-key-tests.txt` entry; the lists are unchanged |
+| The existing test | Reads its fixture with `readFileSync` (a read only), as before |
+| Refused work | It touches no walls, muster, G, runner, `web-frontier` or world code, and it is not a substitute for any refused run |
+| Unchanged | ⑭'s code; the formal specification, permissions, rewards and outcomes; the ⑨/⑩ branches; the candidate and canonical tree; the 25 deleted media files |
+| Candidate commands (for the coordinator; not run) | `node --test workstreams/15-coop-outcomes/test/contract-ws14-centre-provenance.test.mjs`; the corrected existing file: `node --test workstreams/15-coop-outcomes/test/contract-ws14-centre.test.mjs` |
+
+**Not complete.** ⑮ still has no real consumer of the centre facts: only its tests call `readCentreFacts`. This fix makes the reader fail-closed; it does not connect anything.

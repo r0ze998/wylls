@@ -228,6 +228,8 @@
   - 違う → `between`
   - 読んでいない → `source_unknown`
   - どれでも事実は並べるが、時刻を推し量らない。
+  - **⑭の `stable: true` だけでは `snapshot` にしない（2026-11-17、Lane C）。** ⑮は前後の読みを自分で確かめる：どちらもヘラルドの型（`foldedThrough`・`lastSlot` は 0 以上の安全な整数、`events` は u64 の 10 進の文字列で u64 の上限以下）で、三つとも一致するときだけ `snapshot`。それ以外は理由を付けて `between`。状態の語（`snapshot`・`between`・`source_unknown`）と `counted: false` は変えない。
+  - 88cf67c0 の固定データの `still` は `events` が数（900）で、ヘラルドの形ではない。固定データは作られたときのまま残し、⑮の読みでは `between` になる（`test/contract-ws14-centre.test.mjs` の期待をそう直した）。ヘラルドの形の `snapshot` と、欠け・不一致・上限超えの例は `test/contract-ws14-centre-provenance.test.mjs`（手で作った文書だけ。書いたが未実行）。
 - **使わない欄：** `centre.transit.cargo` は資源をまたいだ合計（積荷が正しい8枠のとき。例：木材30＋石材50＝80）。積荷が無い・8枠でない・0以上の安全な整数でないときは、⑭は `cargo` も `cargoByResource` も `null` にする（2026-11-16、⑭ 28618a83）。summary の積荷の割合もその合計から作られ、積荷不明の隊商が1件でもあれば `null`。⑮は資源を合計しないので、どちらも使わない。代わりに⑭が足した `cargoByResource`（ヘラルドの 8 枠）を資源ごとに数える。Science・Influence は、数えない資源として別に出す。`cargoByResource` のない事実（d9c8b81d の形）や `null` の事実は「量なし」（`notGiven`）とし、0 とはしない。0 の8枠は、分かっている 0 として数える。そのほかの数も、事実から数え直す。
 - 目撃（`centre.sighting`）には、物見櫓の持ち主（`towerOwnerTag`）と、見られたもの（`subject`）がある（88cf67c0）。⑮はそれを u64 の文字列のまま報告する。目撃が誰に何をもたらすかは決まっていないので、誰の手柄にもしない（`creditedTo: null`）。
 

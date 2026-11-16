@@ -9,9 +9,12 @@ import { fromTowerFacts } from '../src/adapters/ws14.mjs';
 const fx = JSON.parse(readFileSync(new URL('../scenarios/fixtures/ws14-centre-88cf67c0.json', import.meta.url), 'utf8'));
 const O = fx.outputs;
 
-test('a still fold is a snapshot; vaults, structures, transits and sightings are counted per kind', () => {
+test('the fixture\'s still fold is not a snapshot (its events are numbers, not the herald\'s string); vaults, structures, transits and sightings are counted per kind', () => {
   const r = readCentreFacts(O.still);
-  assert.equal(r.status, 'snapshot');
+  // Corrected 2026-11-17 (Lane C): 88cf67c0's `stable: true` is no longer taken on its word. The fixture's /h/status
+  // has `events: 900` (a number); the herald writes a u64 decimal string. The fixture is kept as it was made.
+  assert.equal(r.status, 'between');
+  assert.match(r.reasons[0], /not taken as a snapshot/);
   assert.deepEqual(r.counts, {
     vaults: { centre: 2, concord: 1 },
     structures: { centre: 1, concord: 1, byKind: { tower: 1 } },

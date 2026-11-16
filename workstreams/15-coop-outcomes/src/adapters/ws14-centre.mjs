@@ -12,10 +12,21 @@
 //     Who a sighting earns anything for is not decided: it is credited to no one.
 //   - provenance: the herald's fold position read before and after the feeds. Moving (`stable: false`) or not
 //     stated (`from: null`) is reported as such; the facts are still listed, never dated by a guess.
+//     `stable: true` alone is not taken (2026-11-17, Lane C): 'snapshot' only when `before` and `after` are both in the
+//     herald's /h/status types (`foldedThrough`, `lastSlot` safe non-negative integers; `events` a canonical u64 decimal
+//     string, frontier-node/crates/herald/src/server.rs) and equal. Anything else is 'between' with a reason. The
+//     88cf67c0 fixture's `events` are JSON numbers, so its `still` is 'between' here; the fixture is kept as it was made.
 import { SLOT_RESOURCES } from './s1-chain.mjs';
 
 export const CENTRE_SCHEMA = 'wylls.ws14.centre-facts/1';
 const KINDS = new Set(['centre.vault', 'centre.structure', 'centre.transit', 'centre.sighting']);
+// The herald's fold position, as ⑭'s provenanceOf checks it (game/centre.mjs): re-checked here, not trusted.
+const U64_MAX = 18446744073709551615n;
+const nat = x => Number.isSafeInteger(x) && x >= 0;
+const u64Text = x => typeof x === 'string' && x.length <= 20 && /^(0|[1-9][0-9]*)$/.test(x) && BigInt(x) <= U64_MAX;
+const foldOk = st => !!st && typeof st === 'object' && nat(st.foldedThrough) && u64Text(st.events) && nat(st.lastSlot);
+const sameFold = (a, b) => a.foldedThrough === b.foldedThrough && a.events === b.events && a.lastSlot === b.lastSlot;
+const NOT_CHECKED = 'stable was stated, but the /h/status reads before and after are not both valid herald fold positions (foldedThrough, events as a u64 string, lastSlot) that are equal: not taken as a snapshot';
 const NOT_USED = Object.freeze([
   'centre.transit.cargo: a sum over resources (the evaluator keeps resources apart)',
   'summary.cargoInnerShare / cargoConcordShare: built on that sum',
@@ -35,7 +46,9 @@ export function readCentreFacts(doc) {
     else facts.push(f);
   }
   const p = doc.provenance ?? {};
-  const status = p.from === null || p.from === undefined ? 'source_unknown' : p.stable === true ? 'snapshot' : 'between';
+  const unknownSource = p.from === null || p.from === undefined;
+  const checked = p.stable === true && foldOk(p.before) && foldOk(p.after) && sameFold(p.before, p.after);
+  const status = unknownSource ? 'source_unknown' : checked ? 'snapshot' : 'between';
   const of = k => facts.filter(f => f.kind === k);
   const count = (list, pred = () => true) => list.filter(pred).length;
   const byKind = {};
@@ -63,7 +76,7 @@ export function readCentreFacts(doc) {
   }
   return {
     status,
-    reasons: status === 'snapshot' ? [] : [p.why ?? 'no /h/status read with the feeds'],
+    reasons: status === 'snapshot' ? [] : status === 'between' && p.stable === true ? [NOT_CHECKED] : [p.why ?? 'no /h/status read with the feeds'],
     schema: CENTRE_SCHEMA,
     verified: 'derived',
     counted: false, // reported only: no goal, award, score or prize reads these
