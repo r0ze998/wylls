@@ -36,22 +36,48 @@ All five are linear on `d16048aa`, and no media file is in the range.
 
 **Contract.** `workstreams/14-central-tower/CONTRACT.ja.md`'s provenance paragraph now states the `null` case and the herald's field types.
 
-**Regression source** (`game/centre.test.mjs`, new test `provenance: missing or invalid fold evidence is never a stable snapshot`; **written, not run**):
-- `{v:1}` on both sides gives `null`.
-- Sixteen malformed fields: `foldedThrough` missing, `'9'`, −1, 1.5, `null`, 2^53; `events` missing, 27, `'027'`, `'-1'`, `'2.5'`, `''`; `lastSlot` missing, `'77'`, −1, `null`. Each, on both sides and on either side alone, gives `null`, never `true`.
-- The normal cases (still, moving, `lastSlot` moved, zero is a position, one read only) keep their results.
-- ⑮'s mapping line is pinned by reading the file as text (not imported).
-
-**Running it later.** It is pure, but `centre.test.mjs` also contains tests that start an HTTP server and child processes. A run must select it alone, by name, for example:
-
-```
-node --test --test-name-pattern "missing or invalid fold evidence" workstreams/14-central-tower/game/centre.test.mjs
-```
-
-With a name pattern, Node skips the bodies of the tests that do not match. The file's top level, read line by line, defines only constants and small functions (`repo`, `place`, `caravan`, `FEEDS`, `STATUS`, `centreTransit`): no server, process or file access outside test bodies. Not run here.
+**Regression source** (moved, 2026-11-17, into its own pure file; see the section below). `game/centre.test.mjs` is back to exactly its `ed665b84` content: no original test was removed or changed.
 
 ## The consumer contract, as read
 
 - The existing provenance and HTTP tests use valid `STATUS(...)` objects, so they are unaffected.
 - **⑮'s side is not connected to anything real:** `readCentreFacts` is used only by ⑮'s own contract test (`contract-ws14-centre.test.mjs`). No page, gateway or other code imports it, so nothing here completes ⑭ → ⑮ in the product.
 - Nothing about scores, prizes, goals, keys, the ABI or permissions is involved.
+
+## Correction and follow-up (2026-11-17; static only, nothing run, imported or compiled)
+
+**Withdrawn: the name-pattern run.**
+- The earlier suggestion was to run the new test inside `centre.test.mjs` with `--test-name-pattern`.
+- That file also starts an HTTP server and child processes, and it is on `scripts/ci/node-key-tests.txt`: the key scan flags its `child_process` import.
+- So the suggestion is **withdrawn**. The regression now lives in its own file, and `centre.test.mjs` is restored byte for byte to `ed665b84`.
+
+**The new pure file: `workstreams/14-central-tower/game/centre-provenance.test.mjs`.**
+- **Imports:** `node:test`, `node:assert/strict`, `./centre.mjs`, and nothing else. Its own `STATUS` helper builds hand-made status values.
+- **Four tests:**
+  - `{v:1}` alone;
+  - sixteen missing or mistyped fold fields, on one read or both;
+  - `events` above u64::MAX, with u64::MAX itself accepted;
+  - the normal cases (still, moving, `lastSlot` moved, zero, one read, no status).
+- **Written, not run.**
+
+**Removed from the regression, kept here as a static observation.** ⑮'s adapter (`workstreams/15-coop-outcomes/src/adapters/ws14-centre.mjs:38`) maps `provenance.stable === true` to `'snapshot'` and anything else to `'between'`, or to `'source_unknown'` when `from` is null. So `stable: null` reaches ⑮ as "between", never "snapshot". **⑮ is not connected to a real consumer:** only its own contract test uses `readCentreFacts`.
+
+**Fix: `events` above u64::MAX.**
+- The canonical-digits check accepted any length, so a string above u64::MAX, equal on both reads, would have counted as a fold position and could give `stable: true`.
+- `events` must now also be at most 20 characters and at most `18446744073709551615` (the BigInt comparison runs only after the digit and length checks, so it cannot throw).
+- Same missing/invalid scope: such a read is `stable: null`.
+- `foldedThrough` and `lastSlot` are JSON numbers: a value above 2^53 is not a safe integer and is already `null` (fail-closed).
+
+### Pre-run audit of the new file (read-only)
+
+| Item | Finding |
+|---|---|
+| Import closure | `centre-provenance.test.mjs` → `node:test`, `node:assert/strict`, `./centre.mjs` → `../proto/geometry.mjs` (no imports of its own). No package, `node_modules` or other workstream |
+| Top-level code | `centre.mjs` and `geometry.mjs`: declarations only (`import`, `const`, functions, exports), nothing executed at load. The new file: imports, two `const` helpers, and `test(...)` calls |
+| I/O | No `fs`, `fetch`, `process`, `child_process`, `net` or `http` in any of the three files |
+| Keys | Nothing that `scripts/ci/scan-node-key-tests.mjs` flags (`PAT`: key and sign APIs; `UNFOLLOWED`: `child_process`, `worker_threads`, `new Function`, dynamic `import()`), so it needs no entry in `node-key-tests.txt`. The lists are not changed |
+| Writes, network, world | None: pure functions on in-memory objects |
+| Relation to refused work | It does not use the walls, muster, G or runner sources, or any `web-frontier` dependency, and it is not a substitute for any refused run |
+| A candidate command (for the coordinator; not run) | `node --test workstreams/14-central-tower/game/centre-provenance.test.mjs`. Node's version and environment were not checked here |
+
+**Unchanged:** the formal specification, permissions and rewards; the ⑨/⑩ branches; the candidate and canonical tree; the 25 deleted media files.

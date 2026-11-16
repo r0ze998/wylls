@@ -182,7 +182,10 @@ const FOLD = ['foldedThrough', 'events', 'lastSlot'];
 // it ({v: 1} alone, a field missing or of another type) used to compare equal as null === null and were called a
 // stable snapshot; they are now `stable: null` (not known), which a consumer must not take as a snapshot.
 const nat = x => Number.isSafeInteger(x) && x >= 0;
-const FOLD_OK = { foldedThrough: nat, events: x => typeof x === 'string' && /^(0|[1-9][0-9]*)$/.test(x), lastSlot: nat };
+// `events` is a u64 written as a decimal string: canonical digits, and no more than u64::MAX.
+const U64_MAX = 18446744073709551615n;
+const u64Text = x => typeof x === 'string' && x.length <= 20 && /^(0|[1-9][0-9]*)$/.test(x) && BigInt(x) <= U64_MAX;
+const FOLD_OK = { foldedThrough: nat, events: u64Text, lastSlot: nat };
 const foldKnown = st => FOLD.every(k => FOLD_OK[k](st[k]));
 /** Where the herald's fold stood when the feeds were read; null fields when unknown, never guessed. */
 export function provenanceOf(status) {
