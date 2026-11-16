@@ -3290,14 +3290,20 @@ export const HUD_ACTIONS = {
     // (2026-11-16: a draft is put away as 「やめる」 puts it away — controller.mjs compose-close: an armed waiting send is
     //  cancelled first and says so. The pill's press dropped it, and the waiting send was withdrawn as if the order had changed)
     leaveReport(); if (FS.compose) ACTIONS['compose-close'](); FS.guideOpen = false; FS.tab = 'map';
+    // (2026-11-16: the guide reads its progress over every village and names the host or the village its step can be
+    //  done with — screens/conquestguide.mjs. A host is looked up in each of the viewer's villages and taken with
+    //  selectHost, which opens its own village; a named village is used only while it is still one of the viewer's,
+    //  matched by p, q and site, else the open village as before. Nothing else here changed.)
     if (d.pop === 'keeps') {
-      const r = hand.ownHosts(FS).find(x => x.id === String(d.host)) ?? hand.ownHosts(FS).find(x => x.unit !== 6 && x.unit !== 7 && hand.marchCheck(FS, x).ok) ?? null;
+      let r = null;
+      for (let i = 0; i < (FS.holdings ?? []).length && !r; i++) r = hand.ownHosts({ ...FS, activeHolding: i }).find(x => x.id === String(d.host)) ?? null;
+      r ??= hand.ownHosts(FS).find(x => x.unit !== 6 && x.unit !== 7 && hand.marchCheck(FS, x).ok) ?? null;
       if (!r) { HUD_ACTIONS.tab({ tab: 'hosts' }); return; }
-      endPick(); FS.selected = { p: r.p, q: r.q, idx: r.tile }; FS.hand = { host: r.id }; FS.inspectOpen = false;
-      setPop('keeps'); invalidate('map', 'panel', 'tabs', 'rail');
+      if (selectHost(r)) setPop('keeps');
       return;
     }
-    const hi = Math.max(0, Math.min((FS.holdings ?? []).length - 1, FS.activeHolding ?? 0));
+    const named = d.p !== undefined ? (FS.holdings ?? []).findIndex(h => String(h.p) === String(d.p) && String(h.q) === String(d.q) && String(h.site) === String(d.site)) : -1;
+    const hi = named >= 0 ? named : Math.max(0, Math.min((FS.holdings ?? []).length - 1, FS.activeHolding ?? 0));
     if (['build', 'train', 'muster'].includes(d.pop)) selectVillage(hi, d.pop);
   },
   // ---- the prototype rule "banners" (hud/proto.mjs): orders to the sample world from the bar's card, and its small controls

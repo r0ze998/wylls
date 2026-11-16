@@ -48,7 +48,10 @@ export function guideTarget(FS) {
     // (the step's own press says where: while the first host forms, the muster step points at training or building)
     const pop = o?.go?.act === 'cg-go' ? o.go.data?.pop : null;
     const kind = ['build', 'train', 'muster'].includes(o?.id) && ['build', 'train', 'muster'].includes(pop) ? pop : null;
-    return kind ? { step: kind, kind, p: h.p, q: h.q, tile: h.tile } : null;
+    // (2026-11-16: the step's press may name the village it can be done in — screens/conquestguide.mjs —: the map points
+    //  there too, not at the open village)
+    const d = o?.go?.data, at = d?.p !== undefined ? (FS.holdings ?? []).find(v => String(v.p) === String(d.p) && String(v.q) === String(d.q) && String(v.site) === String(d.site)) ?? h : h;
+    return kind ? { step: kind, kind, p: at.p, q: at.q, tile: at.tile } : null;
   }
   if (territoryEnabled(FS)) {
     const building = (h.queue ?? []).some(q => q && q.kind === 1 && Number(q.doneAt) > (FS.chain?.now?.() ?? 0));
