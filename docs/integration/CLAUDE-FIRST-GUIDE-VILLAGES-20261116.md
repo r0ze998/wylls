@@ -64,3 +64,20 @@ village's province — `FS.holdings?.length > 0 && FS.provinces.has(\`${h.p},${h
 - Same family, audited: train already checks the card's Train blocks and affordability; march judges a ready host with
   its own village's Depart blocks (`waitOf`); forming hosts and waits in another village go to that host's forts card;
   build acts on the open village and appears only when no village has built. No other demonstrated mismatch.
+
+## The build press and the card's blocks (2026-11-16, static; NOT run — all new test runs are paused)
+- Reachable state, by the existing rules (read): an outpost needs only the first village at Town
+  (`fconquest.mjs outpostOffer`: `effectiveTier(home) ≥ outpostTierMin`, default 1) and a promotion needs no building
+  (`hud/rulebook.mjs promotionOffer`: cost and a queue slot only). The guide's "built" counts production buildings only
+  (`onboarding.mjs hasBuilt`, a queued item of kind 1), not a promotion. So two villages can stand with the guide still
+  at "build".
+- Mismatch: the build press acted on the open village; a new outpost open with empty stores (or a village under the
+  capture lock) opened a card where nothing could be built while the other village could.
+- Fix (`screens/conquestguide.mjs`): "can build" = no `holdingModel(…).blocks.Build` (actionBlocks: the capture lock) and
+  a production building (not the walls) with no block of its own (`buildOffers`: QueueFull, Insufficient); the open
+  village when it can, else the first other that can, else none named (the open village's card says why). One village:
+  unchanged (`{pop: 'build'}`).
+- Regression cases added to `web-frontier-guide-other-village.test.mjs` as SOURCE ONLY: open cannot pay → other named;
+  open under the capture lock → other named; second open and empty → first named; none can / open can → unnamed.
+  Expected values derived by reading `holdingModel`, `buildOffers`, `actionBlocks`, `captureLocked`; not executed, no
+  `node --check`.

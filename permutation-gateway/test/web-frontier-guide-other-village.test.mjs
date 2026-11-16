@@ -138,6 +138,22 @@ test('muster: the open village can — unnamed, as before, even when another hol
   const reserve = Array(8).fill(0); reserve[0] = 200;
   assert.deepEqual(conquestObjective(world({ a: { reserve }, b: { reserve }, active: 1 })).go.data, { pop: 'muster' });
 });
+// (2026-11-16, source only — NOT run) the build press and the card's blocks: two villages and nothing built yet (a
+// promotion needs no building and an outpost only a Town). "Can build" = no Build block (the capture lock) and a
+// production building with no block of its own (QueueFull, Insufficient) — holdingModel's, as the card reads them.
+test('build: the open village cannot pay, the other can — the press names the other', () => {
+  assert.deepEqual(conquestObjective(world({ b: { stores: rich() }, active: 0 })).go.data, { pop: 'build', p: 3, q: 0, site: 1 });
+});
+test('build: the open village is under the capture lock, the other can — the press names the other', () => {
+  assert.deepEqual(conquestObjective(world({ a: { stores: rich() }, b: { stores: rich() }, aProv: captured, active: 0 })).go.data, { pop: 'build', p: 3, q: 0, site: 1 });
+});
+test('build: the second village open and empty, the first can — the press names the first', () => {
+  assert.deepEqual(conquestObjective(world({ a: { stores: rich() }, active: 1 })).go.data, { pop: 'build', p: 2, q: 0, site: 2 });
+});
+test('build: no village can — nothing named (the open village\'s card says why); the open village can — unnamed', () => {
+  assert.deepEqual(conquestObjective(world({ active: 1 })).go.data, { pop: 'build' });
+  assert.deepEqual(conquestObjective(world({ a: { stores: rich() }, active: 0 })).go.data, { pop: 'build' });
+});
 test('the map\'s guide points at the village the press names (hud/guide.mjs guideTarget; app.mjs guideGo opens it)', () => {
   const reserve = Array(8).fill(0); reserve[0] = 200;
   const t = guideTarget(world({ a: { reserve }, active: 1 }));

@@ -183,6 +183,9 @@ function villageFor(FS, can) {
 }
 const named = (FS, i, data) => { const h = i !== null && i !== openIndex(FS) ? FS.holdings?.[i] : null; return h ? { ...data, p: h.p, q: h.q, site: h.site } : data; };
 const canTrain = V => { const m = holdingModel(V); return !!m && !m.blocks?.Train?.length && maxTrain(0, m.have ?? [], V.season?.programVersion) > 0; };
+// (a village that can Build its first building now: no village block — holdingModel's actionBlocks 'Build', the capture
+//  lock — and a production building (not the walls) with no block of its own — buildOffers: QueueFull, Insufficient)
+const canBuild = V => { const m = holdingModel(V); return !!m && Array.isArray(m.blocks?.Build) && m.blocks.Build.length === 0 && (m.offers ?? []).some(o => o.kind === 'building' && (o.blocks ?? []).length === 0); };
 const hasReserve = V => (activeHolding(V)?.reserve ?? []).slice(0, SCOUT).some(n => Number(n) >= 100);
 // (a village that can Form a host now: the reserve AND none of the card's own blocks — holdingModel's actionBlocks: the
 //  capture lock, not final, its province catching up, the province full. A model that cannot be read is not "can")
@@ -198,7 +201,11 @@ export function conquestObjective(FS) {
   const title = TITLE[id](hold);
   let text = '', go = null;
   if (id === 'village') { text = L`国を選ぶと、最初の村が自動で置かれます。`; go = { act: 'join-open', data: {}, label: L`国を選ぶ` }; }
-  else if (id === 'build') { text = L`村を選び、「建てる」から最初の建物を選びます。建物は毎時の産出を増やします。`; go = { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` }; }
+  else if (id === 'build') {
+    // (2026-11-16: two villages can stand before anything is built — a promotion needs no building, and an outpost only a
+    //  Town: the press names a village that can build now; none, nothing named — the open village's card says why)
+    text = L`村を選び、「建てる」から最初の建物を選びます。建物は毎時の産出を増やします。`; go = { act: 'cg-go', data: named(FS, villageFor(FS, canBuild), { pop: 'build' }), label: L`建設をひらく` };
+  }
   else if (id === 'train' || id === 'muster') {
     // what a keep takes, said before the host is formed (the UI check of 2026-10-26: the guide's first march, a host of
     // the first 100 spearmen, met a keep of 100 defenders behind walls and was turned back)
