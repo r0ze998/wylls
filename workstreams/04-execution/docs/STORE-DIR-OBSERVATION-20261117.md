@@ -139,3 +139,43 @@ The two touch no common file; static checks found no secrets in either. The cand
 **Unchanged and noted:** 4's frame branch (`396a9911`, a decimal-string contract) was not read into this branch, and nothing here duplicates it.
 
 **Tests (written, not run):** `tests/observe_cli.rs` gains two empty values as bad requests, a non-UTF-8 path as JSON `BadRequest` (unix), and the dispatch pin moved to the new `observe` check.
+
+## One guarded run of the three test files (2026-11-17, at 0ef28f57)
+
+**Command, run once** (from `workstreams/04-execution`):
+
+```
+cargo test --offline --locked --test observation --test store_observation --test observe_cli
+```
+
+**Under the session's unchanged guards:** `floor21.sh` (sha256 `99dbed44…`: 21 GiB free floor, a 30-minute deadline), which runs `conquest-guard.sh` (sha256 `94baeb7d…`: a dedicated new target of at most 4 GiB, at least 20 GiB free, 30 minutes). `TMPDIR` was a new, dedicated, empty directory.
+
+**Conditions checked before starting:**
+- both guard hashes;
+- the process list readable (`ps -ax`; `pgrep -P` proven on a test child), with no cargo or rustc running;
+- the target and `TMPDIR` new;
+- 49.2 GiB free;
+- the worktree status recorded.
+
+The refused gateway tests (`web-frontier-build-walls-items`, `web-frontier-muster-province-full`), their runner, any world, any equivalent path, RPC, signing and network were not involved.
+
+**Result:**
+- `observation.rs`: 4 passed;
+- `observe_cli.rs`: 5 passed;
+- `store_observation.rs`: 7 passed;
+- **16 / 16 in all.** Compiling took 7.04 s, the whole run about 10 s.
+- Both guards: `rc=0`, `stop=none`, peak target 176,896 KiB.
+- No download (offline, locked), 66 crates compiled, 0 warnings.
+
+**After the run:**
+- no cargo, rustc or runexec process left;
+- target 173 MiB, kept;
+- 49.0 GiB free;
+- the dedicated `TMPDIR` empty (the tests removed their own fixtures);
+- no `runexec-*` entries in `/tmp`;
+- the worktree's `git status` identical to the one recorded before (the same unstaged media deletions, which are not this work's), nothing staged.
+
+**What it shows, and what it does not:**
+- These tests use hand-made **synthetic** stores and records. They show that the readers and the command behave as written on those inputs.
+- They show nothing about a real findex store, the chain, finality, world binding or any consumer.
+- Nothing is admitted, and every hold remains.
