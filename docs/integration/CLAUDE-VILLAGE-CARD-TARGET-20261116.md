@@ -31,3 +31,13 @@ does. No rule, no safety guard changed.
 
 ## Not verified
 Any run; the screen in a browser; a world with two villages.
+
+## Same family: the village plate and the rail (2026-11-16, static; NOT run)
+- `home` (the village plate; pressed again at a village it goes to the next — `map/fmap.mjs home`, read only, sets the
+  logical view at once) and `holding-go` (a village of the rail) set `FS.activeHolding` and left `FS.selected` / `FS.hand`
+  as they were: with village B's card in the bar, the open village became C — B's card, orders for C.
+- Fix (`app.mjs`): `dropOtherVillageCard(i)` after either change — a VILLAGE card of a village other than the new open
+  one is put away (`endPick`, hand and selection cleared). A host in hand keeps its own village's card. `goToItem` /
+  `cycleHolding` already cleared the hand; the other switches (`selectHost`, `selectVillage`, the plain tap on a village,
+  the march / return / explore / `cg-go` presses, `handHost` now) open the subject's own village.
+- Regression: pinned as text in `web-frontier-hand-chip-village.test.mjs` — SOURCE ONLY, not run.

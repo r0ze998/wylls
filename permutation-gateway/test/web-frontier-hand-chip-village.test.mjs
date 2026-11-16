@@ -42,3 +42,13 @@ test('app.mjs handHost opens the subject\'s village (pinned as text); the villag
   assert.match(c, /build: d => homeAction\(\(\) => \{\n\s+const h = activeHolding\(FS\), item = num\(d\.item\);/, 'the order reads the open village: why the chip must open the subject\'s');
   assert.match(c, /return act\('Train', \{ v: \{ holding: activeHolding\(FS\) \}/);
 });
+
+test('the village plate (home) and the rail (holding-go) that open another village put away a village card of a different village (pinned as text)', () => {
+  const a = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  const at = a.indexOf('function dropOtherVillageCard(i) {'), d = a.slice(at, a.indexOf('\n}\n', at));
+  assert.match(d, /const sub = hand\.subjectOf\(FS\);\n\s+if \(sub\?\.kind === 'village' && sub\.holdingIndex !== i\) \{ endPick\(\); FS\.hand = null; FS\.selected = null; FS\.inspectOpen = false; invalidate\('map'\); \}/);
+  const home = a.slice(a.indexOf('  home: () => {'), a.indexOf("\n  'holding-go':"));
+  assert.match(home, /FS\.activeHolding = i;\n\s+dropOtherVillageCard\(i\);/);
+  const hg = a.slice(a.indexOf("  'holding-go': d => {"), a.indexOf('\n  },', a.indexOf("  'holding-go': d => {")));
+  assert.match(hg, /FS\.activeHolding = i;\n\s+dropOtherVillageCard\(i\);/);
+});

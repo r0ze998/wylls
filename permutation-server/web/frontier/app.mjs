@@ -1493,6 +1493,15 @@ function handHost(id) {
   if (sub && Number.isInteger(sub.holdingIndex) && sub.holdingIndex >= 0 && sub.holdingIndex !== (FS.activeHolding ?? 0)) { FS.activeHolding = sub.holdingIndex; invalidate('rail'); }
   invalidate('map', 'panel', 'tabs');
 }
+/**
+ * (2026-11-16) After the open village became `i` by the village plate or the rail: a village card of ANOTHER village left
+ * in the bar would show that village and order for `i` (the village orders read the open one), so it is put away. A
+ * host in hand keeps its card (its own village's).
+ */
+function dropOtherVillageCard(i) {
+  const sub = hand.subjectOf(FS);
+  if (sub?.kind === 'village' && sub.holdingIndex !== i) { endPick(); FS.hand = null; FS.selected = null; FS.inspectOpen = false; invalidate('map'); }
+}
 /** Select one of the viewer's hosts wherever it stands: its tile is the selection and it has the hand. `fly`: bring it into view. */
 function selectHost(row, { fly = false } = {}) {
   if (!row) return false;
@@ -3421,7 +3430,11 @@ export const HUD_ACTIONS = {
     if (v && hs.length > 1) {
       const at = hs.map(h => (c => Math.hypot(c.x - v.x, c.y - v.y))((x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile))));
       const i = at.indexOf(Math.min(...at));
-      if (i >= 0 && i !== (FS.activeHolding ?? 0)) { FS.activeHolding = i; invalidate('panel', 'rail'); }
+      if (i >= 0 && i !== (FS.activeHolding ?? 0)) {
+        FS.activeHolding = i;
+        dropOtherVillageCard(i);
+        invalidate('panel', 'rail');
+      }
     }
   },
   'holding-go': d => {
@@ -3429,6 +3442,7 @@ export const HUD_ACTIONS = {
     if (!h) return;
     clearWideSelect(FS);
     FS.activeHolding = i;
+    dropOtherVillageCard(i);
     const c = (x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile));
     camKeep.touch();
     mapRef?.setView({ x: c.x, y: c.y, zoom: Math.max(mapRef.view.zoom, 1.0) });
