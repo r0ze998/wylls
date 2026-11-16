@@ -60,4 +60,10 @@ Not yet audited the same way: Raid, Seize (seizeOffer), Siege (siegeOffer), Expe
   for the target), NotBesiegeable/ReservedSite/TooLate.
 - Raid: no gap — the program's decision window (RaidWindow: now_bell > raid_bell + RAID_DECIDE_BELLS) is the page's
   `open` flag (bell <= raidBell + RAID_DECIDE_BELLS), which disables both buttons.
-- Not audited yet: Expel and the nation proposals/votes (a separate small piece).
+- Expel: one gap fixed — an already expelled village was offered for expulsion (Propose KIND_EXPEL requires the target's
+  expelled_since == 0); the page now reads the nation's expelled list (its holdings). With an older herald that names
+  no holdings, the program decides. Test web-frontier-s1-expel-target.
+- Proposals and votes: no gap — eligibility (join + 288, not expelled), the stance form (other nations, values 0–2 =
+  stance_ok), slots (a proposal occupies its slot until settled: free() = not OPEN, the page counts state open), one
+  open proposal per proposer, votes (open_at: now < close; voted once), readmission (the herald's `since` is a turn,
+  the program's bell_of(since) the same).
