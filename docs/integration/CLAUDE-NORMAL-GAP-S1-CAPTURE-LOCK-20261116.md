@@ -58,4 +58,6 @@ Not yet audited the same way: Raid, Seize (seizeOffer), Siege (siegeOffer), Expe
   (test web-frontier-s1-siege-ready; the S1/ws07 siege fixtures moved to a resolved target, expectations unchanged).
   Left to the program by design: the lead host (NotLead), protection/immunity, the target's generation (CapturePending
   for the target), NotBesiegeable/ReservedSite/TooLate.
-- Not audited yet: Raid (raidOffers has no blocks of its own), Expel and the nation votes.
+- Raid: no gap — the program's decision window (RaidWindow: now_bell > raid_bell + RAID_DECIDE_BELLS) is the page's
+  `open` flag (bell <= raidBell + RAID_DECIDE_BELLS), which disables both buttons.
+- Not audited yet: Expel and the nation proposals/votes (a separate small piece).
