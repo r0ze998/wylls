@@ -82,7 +82,7 @@ read, never an older one than the page had. No client inconsistency found: **no 
 | item | state |
 |---|---|
 | the tie contract (land-only change ⇒ seq/slot/bell unchanged) | **settled** (lines above) |
-| how often a Province is written (bounds case 2 if land ever closed) | partly: the herald records each Province write where `resolved_next` grows (`fold.rs` ~640–652, `n > o`); the program's instruction that writes it was not located by name (no literal `RESOLVED_NEXT` write; a helper / layout writer not traced) |
+| how often a Province is written (bounds case 2 if land ever closed) | **settled**: `frontier-abi/src/clash_model.rs finish_bell` (1166–1185) sets `RESOLVED_NEXT = b + 1` (and `roster_epoch + 1` when anything changed), called by `permutation-frontier/src/proc/clash.rs` (904, 923, 1525) as each bell is resolved; opening: `proc/map.rs` 757 / `proc/wide.rs` 861. Each bell's resolution writes the Province, so its capture — and the envelope's seq / slot / bell — moves: a land closure, if one ever existed, could be masked at most until the Province's next bell resolution. How long that is in a given world (the keeper's pace) is not measured |
 | a herald restart / rebuild serving an envelope before its land capture | server behaviour, not read |
 | any of this in a browser or a world | all test runs are paused |
 | the server contract (`landTx` / `landSeen`) | proposed only |
