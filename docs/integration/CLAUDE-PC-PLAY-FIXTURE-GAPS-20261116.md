@@ -203,3 +203,10 @@ OTHER village:
   profile in the system temp folder (removed at close; size not measured). Dependencies: the export's
   `screens/node_modules` is a symlink to `wylls-nft-candidate-world-20261115` (playwright-core, axe-core), used
   read-only; Chromium 1208 is already in the Playwright cache (no download). No world, launcher, relay or chain.
+
+## Lane C G2: correction after the control run (2026-11-16, Claude)
+- The replay `permutation-gateway/screens/land-redraw.screen.mjs` passed 2/2 with the fix AND 2/2 on the page before
+  it (e84049ed^). The section above was wrong: `renderHudTick` ends with `publishNoGo()` unconditionally → the map's
+  `setNoGo` → `tick()`, so the board draws a frame each HUD tick even with reduced motion, and that frame re-checks the
+  land marks and outlines. No stale outline until the next poll. e84049ed is redundant (harmless); reverting it is the
+  owner's decision, not done here.
