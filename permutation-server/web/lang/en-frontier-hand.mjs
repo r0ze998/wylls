@@ -210,7 +210,7 @@ export default {
   '建設は同時に {0} つまで（{1}）': 'At most {0} things under way at once ({1})',
   '建設は同時に {0} つまで（{1}）。あと {2} で空きます': 'At most {0} things under way at once ({1}). A place is free in {2}',
   '昇格は一度にひとつです': 'One promotion at a time',
-  '城壁の工事は 2 つ先までです。前の工事が仕上がり、そのターンが決着してからです': 'At most two works on the walls ahead. Once an earlier one is finished and its turn is resolved',
+  '城壁の工事は 2 つ先までです。前の工事が仕上がり、そのターンが決着してからです': 'At most two works on the walls can wait at once. Another can be ordered once an earlier one is finished and its turn is resolved.',
   'いちばん上の段階です': 'This is the highest tier',
   '城壁はこれ以上高くできません（{0} まで）': 'The walls cannot be raised further ({0} at most)',
   'これ以上は増やせません': 'No more can be added',

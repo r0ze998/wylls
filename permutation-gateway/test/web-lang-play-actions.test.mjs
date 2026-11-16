@@ -62,3 +62,12 @@ test('round 4: an undecided cost is "undecided", never "unsettled"', () => {
   const bad = Object.entries(EN).filter(([, e]) => typeof e === 'string' && /unsettled/i.test(e));
   assert.deepEqual(bad, []);
 });
+
+// Round 4, item 3: orderparts.mjs whyText('WallsBusy') (rulebook.mjs wallItemsBusy: both wall-work places are
+// waiting). The English ended in a fragment ("Once an earlier one is finished…") that never said what then becomes
+// possible; the Japanese says the next work can be ordered after that.
+test('round 4: the walls block says when another work on the walls can be ordered', () => {
+  assert.ok(src('hud/orderparts.mjs').includes("case 'WallsBusy': return L`城壁の工事は 2 つ先までです。前の工事が仕上がり、そのターンが決着してからです`;"));
+  assert.equal(en(() => L`城壁の工事は 2 つ先までです。前の工事が仕上がり、そのターンが決着してからです`),
+    'At most two works on the walls can wait at once. Another can be ordered once an earlier one is finished and its turn is resolved.');
+});
