@@ -54,7 +54,8 @@ fn feed(v: &K::VaultView, l: &mut K::Lot, slot: u8, qty: i64) {
         dst: K::PlaceRef::default(),
         purpose: PURPOSE,
     };
-    let id = K::set_order(v, l, &act(OWNER), slot, l.nonce, &spec, BELL).unwrap();
+    let nonce = l.nonce; // read first: `l` is lent mutably to set_order below
+    let id = K::set_order(v, l, &act(OWNER), slot, nonce, &spec, BELL).unwrap();
     K::consume(v, l, &act(GRANTEE), slot, id, qty * MILLI, PURPOSE, BELL).unwrap();
     assert!(K::begin_use(l).unwrap(), "a tracked lot counts the job");
 }
@@ -225,4 +226,21 @@ fn a_failing_rest_payout_leaves_the_send_undone() {
     let before = l;
     assert_eq!(withdraw(&v, &mut l, 3), Err(K::CustodyError::Quantity));
     assert_eq!(l, before);
+}
+
+#[test]
+fn counting_past_the_counter_is_refused_unchanged() {
+    let mut v = view();
+    let mut l = lot(&mut v, 40, 10);
+    l.returns.pending = u32::MAX;
+    let before = l;
+    assert_eq!(K::begin_use(&mut l), Err(K::CustodyError::Overflow));
+    assert_eq!(l, before);
+    // a gathered rest at the top of i64 does not wrap either
+    let mut m = lot(&mut v, 40, 10);
+    feed(&v, &mut m, 0, 2);
+    m.returns.rest = i64::MAX;
+    let b = m;
+    assert_eq!(K::end_use(&v, &mut m, 1), Err(K::CustodyError::Overflow));
+    assert_eq!(m, b);
 }

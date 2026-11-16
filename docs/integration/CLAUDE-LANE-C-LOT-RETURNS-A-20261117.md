@@ -59,3 +59,75 @@
 3. Seizure: where a forfeited lot's pending returns and rest go.
 4. Workstream 4: naming the RSV fields; `CUSTODY_VERSION` and the V4 hash; record kinds for release and rest payout; V26's history treatment; the ⑨/⑩ numbers already listed.
 5. Migration of any existing custody/capacity world. None was verified to exist. Old lots and jobs are fail-closed until a migration with proof is approved.
+
+## Falsification pass 2 (2026-11-17, on `5ce1ed2f`; static, nothing run)
+
+### Found and fixed
+
+| Finding | Fix |
+|---|---|
+| **Source:** `custody_returns.rs` `feed` passed `l` (a mutable reborrow) and `l.nonce` to `set_order` in one argument list. Function arguments get no two-phase borrow, so that does not compile (E0503) | `let nonce = l.nonce;` first |
+| `settle_lot` used unchecked `returned +=`. `permutation-frontier` builds with overflow checks, so a wrap would panic (the transaction aborts) instead of returning a refusal | `checked_add`, then `CapError::Overflow`; the link and the lot are still not written |
+| No case for counter overflow | New kernel case `counting_past_the_counter_is_refused_unchanged`: `pending = u32::MAX` and `rest = i64::MAX` are refused unchanged |
+
+### Read and found consistent
+
+**One release per job.**
+- The release happens only at `Count::Pending` and goes to `Released`.
+- A second ClaimJob returns early (`due == 0`, no release, not `Pending`) and reads nothing.
+- The kernel refuses a release at `pending == 0` (`State`).
+
+**Owners and generations cannot mix.**
+- The lot's address includes `owner_tag` and the vault generation, so a link only ever names that owner's lot of that generation.
+- A `Pending` link cannot outlive its instance: a lot with a count is never empty, so it never closes or reopens.
+- An old link (byte 1) on a tracked lot is refused on deposit, and left untouched on claim.
+- A `Released` link never touches a later lot at the same address.
+- **Not verified:** whether a citizen tag can pass to another wallet (shared with design B's question).
+
+**Literals.**
+- Every `Lot { … }` sets `returns`: `open`, `decode`, and the round-trip test.
+- `Link` is built only in `link_of` and by `Link::default()`, and `Count` derives `#[default] None`.
+- No other crate builds either struct; only `custody.rs` and `proc/capacity.rs` do.
+
+**Atomicity, the pure kernel versus the handler.**
+- **Pure kernel.** These are all-or-nothing on their own, with no reliance on a rollback:
+  - `begin_use`: a single write, after its checks;
+  - `end_use` and `pay_rest`: they work on a copy and commit at the end;
+  - `spend_ship`: it restores its entry state if the payout fails;
+  - `encode`: it validates before writing;
+  - `decode`: it does not mutate.
+- **Handler (ClaimJob, DepositToJob).** These write several accounts in sequence:
+  - ClaimJob writes the lot, then the vault, job, link and pool;
+  - DepositToJob writes the lot, then the job, link and pool.
+
+  A failure after the first write relies on the Solana transaction being rolled back, as these handlers did before design A. `settle_lot` itself (lot and link) changes nothing on its own errors.
+
+### The sub-unit rest that keeps a lot open (the owner's intent is undecided; nothing changed)
+
+**Smallest unit.**
+- Every lot operation is in whole units (`whole()`: `deposit`, `ship`, `consume`, `return_unused`, `pay_rest`).
+- The general stores of a vault and of a Holding, and a caravan's cargo, are milli.
+
+**How a rest arises.**
+- A job's unused ore is `hopper − ORE_PER_ARM × settled`, and `settled` (arms, milli) grows with time.
+- So the rest is a non-whole number of units whenever `settled` is not a multiple of 500 milli.
+- That is the common case: the existing host test's 15,250 arms leave 500 milli.
+
+**Adopted paths that could give it back.** None. Both previews are unadopted. Inside them, only `return_unused` and `pay_rest`, both whole units.
+
+**Consequence.** A lot whose gathered rest never adds up to a whole unit never closes. Its vault quota and rent stay with it. No goods are lost.
+
+**Options (one for the owner):**
+1. **Keep it as is:** the lot stays open until rests add up. Fail-closed and nothing lost, but it can be permanent.
+2. **(Recommended) the owner waives at close:** M's own CloseLot may give up a rest below one unit, logged as a loss of its own. The system never rounds; only the owner can choose it, and it changes no destination and no one else's rights. Needs a CloseLot data flag and a loss or record kind (④).
+3. **Pay the rest to M elsewhere** (M's home Holding, exact in milli). A new destination that moves goods out of the province, against D6.
+4. **Prevent it at the source:** a lot-fed job counts lot ore as used in whole units. A ⑨ settlement rule change, and B would effectively pay for the fraction.
+
+### Boundaries this branch does not cross (unchanged)
+
+- **Bytes not allocated:** the 16 RSV bytes (tag `RTA1`, pending, rest) and link bytes 2 and 3 are this branch's proposal. The ABI still says `RSV`.
+- **Kernel meaning changed, version not bumped:** `CUSTODY_VERSION` and `RULESET_HASH_V4` stay as they were.
+- **No record kinds:** none for a release or a rest payout.
+- **V26:** its history check does not know about either.
+- **Existing worlds:** whether any custody or capacity world exists is **not verified**, and no migration was done. Old lots and jobs are fail-closed.
+- **Nothing run:** no test, syntax check or build. The two regression sources and the edited host tests are paper cases; whether they compile and pass is not shown.

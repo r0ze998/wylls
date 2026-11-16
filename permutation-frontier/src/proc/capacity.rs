@@ -1232,7 +1232,10 @@ mod lots {
             match kc::return_unused(&v, &mut l, due) {
                 Ok(()) => {
                     lk.owed -= due;
-                    lk.returned += due;
+                    lk.returned = lk
+                        .returned
+                        .checked_add(due)
+                        .ok_or(cap_err(CapError::Overflow))?;
                     changed = true;
                 }
                 // Frozen (its vault seized) or full: it stays owed.
@@ -1243,7 +1246,10 @@ mod lots {
         if release && lk.owed < milli {
             match kc::end_use(&v, &mut l, lk.owed) {
                 Ok(_) => {
-                    lk.returned += lk.owed;
+                    lk.returned = lk
+                        .returned
+                        .checked_add(lk.owed)
+                        .ok_or(cap_err(CapError::Overflow))?;
                     lk.owed = 0;
                     lk.count = Count::Released;
                     changed = true;
