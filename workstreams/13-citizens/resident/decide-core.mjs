@@ -156,20 +156,27 @@ export function safeFallback(candidates) {
 function snapshotProblems(x) {
   const why = [];
   const obj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
-  if (!obj(x.charter) || !GOALS[x.charter.goal] || !obj(x.charter.limits) || typeof x.charter.id !== 'string' || typeof x.charter.name !== 'string') why.push('charter');
+  if (!obj(x.charter) || typeof x.charter.goal !== 'string' || !Object.hasOwn(GOALS, x.charter.goal) || !obj(x.charter.limits) || typeof x.charter.id !== 'string' || typeof x.charter.name !== 'string' ||
+      (x.charter.siblings !== undefined && !(Array.isArray(x.charter.siblings) && x.charter.siblings.every(a => typeof a === 'string')))) why.push('charter');
   const st = x.state;
   if (!obj(st) || !Number.isSafeInteger(st.turn) || typeof st.citizen !== 'string' || !obj(st.journal) || !obj(st.counters) || !obj(st.cooldown) || !obj(st.accepted) || !obj(st.aliases)) why.push('state');
   if (typeof x.address !== 'string' || !x.address) why.push('address');
   const w = x.obs?.world;
-  if (!obj(w) || !Number.isSafeInteger(w.bell) || !Array.isArray(w.villages) || !obj(w.me) || !Array.isArray(x.obs?.board?.requests)) why.push('obs');
+  if (!obj(w) || !Number.isSafeInteger(w.bell) || !Array.isArray(w.villages) || !obj(w.me) || !obj(w.me.quota) || !obj(x.obs?.board) || !Array.isArray(x.obs.board.requests)) why.push('obs');
+  else if (!w.villages.every(v => obj(v) && typeof v.citizen === 'string' && typeof v.owner === 'string' && obj(v.stores) && Array.isArray(v.buildings) && Array.isArray(v.building))) why.push('obs: a village of another shape');
+  else if (!x.obs.board.requests.every(r => obj(r) && typeof r.id === 'string')) why.push('obs: a request of another shape');
   else if (typeof st?.citizen === 'string' && !w.villages.some(v => v.citizen === st.citizen)) why.push('obs: no village of this resident');
-  if (!Array.isArray(x.episodes) || !x.episodes.every(e => obj(e) && typeof e.id === 'string' && Array.isArray(e.entities))) why.push('episodes');
+  if (!Array.isArray(x.episodes) || !x.episodes.every(e => obj(e) && typeof e.id === 'string' && typeof e.kind === 'string' && Number.isFinite(e.bell) &&
+      Array.isArray(e.entities) && e.entities.every(n => typeof n === 'string') && obj(e.text) && typeof e.text.en === 'string')) why.push('episodes');
+  else if (new Set(x.episodes.map(e => e.id)).size !== x.episodes.length) why.push('episodes: an id kept twice');
   if (x.evidence != null) {
     const e = x.evidence;
     if (!obj(e) || !obj(e.answers)) why.push('evidence');
+    else if ((e.basis !== undefined && typeof e.basis !== 'string') || (e.basisWhy !== undefined && !(Array.isArray(e.basisWhy) && e.basisWhy.every(w => typeof w === 'string'))) ||
+      (e.clock != null && !obj(e.clock) && typeof e.clock !== 'string') || (e.world != null && !obj(e.world))) why.push('evidence: basis, clock or world of another shape');
     else for (const [cp, r] of Object.entries(e.answers)) {
       if (!obj(r) || typeof r.status !== 'string' || !Array.isArray(r.lines) || (r.facts !== undefined && !Array.isArray(r.facts))) why.push(`evidence answer for ${cp.slice(0, 12)}`);
-      else if (!r.lines.every(l => obj(l) && Array.isArray(l.sources) && typeof l.text === 'string')) why.push(`evidence lines for ${cp.slice(0, 12)}`);
+      else if (!r.lines.every(l => obj(l) && Array.isArray(l.sources) && typeof l.text === 'string' && typeof l.epistemic === 'string')) why.push(`evidence lines for ${cp.slice(0, 12)}`);
       else if (!(r.facts ?? []).every(f => obj(f) && Array.isArray(f.sources) && typeof f.commitment === 'string')) why.push(`evidence facts for ${cp.slice(0, 12)}`);
     }
     // The resident checks evidence against its own observe clock and world; without them the check cannot be made,
@@ -180,14 +187,20 @@ function snapshotProblems(x) {
   return why;
 }
 
+const MAX_SNAPSHOT_CHARS = 8 * 1024 * 1024;
+const nullProto = o => Object.assign(Object.create(null), o);
+
 /**
- * The decision up to the provider, from a SNAPSHOT of plain data — never from ports or callbacks:
+ * The decision up to the provider, from a SNAPSHOT given as ONE primitive JSON string — never from an object:
  *   {charter, state, address, obs: {world, board}, episodes: memory.all()'s answer,
  *    frame: {clock, world} (the observe port's), evidence: {kind, clock, world, basis, basisWhy, answers: {counterparty: read's answer}} | null}
- * The snapshot is copied with structuredClone first: a function anywhere in it (a port, a callback, a getter's
- * result that is a function) makes the copy fail, and the preview is refused (`snapshot_not_plain_data`). So nothing
- * handed in can be called: no port of any name, no signer, budget, provider or sender. Missing fields are refused
- * with their names; nothing is filled in.
+ * Anything but a primitive string is refused by `typeof` before it is touched (`snapshot_not_a_json_string`): an
+ * object, a String object, a Proxy, an object with getters or toJSON is never read, converted (no String(), no
+ * JSON.stringify) or copied, so nothing in it runs. The string is parsed by JSON.parse with no reviver; what that
+ * gives is data only. Lookups by a key that comes from the data (a goal name, an alias, a counterparty) are own-key
+ * lookups (Object.hasOwn, or tables copied onto a null prototype), so a key such as "constructor" finds nothing
+ * inherited. Missing or mis-shaped fields are refused by name; nothing is filled in; anything else that throws is a
+ * refusal (`snapshot_shape_unexpected`), never an exception out of here.
  * Returns {mode: 'preview', sent: false, decided: false, turn, bell, candidates, excluded, need, idle, evidence,
  * byCode, request, fallback}:
  *   - the same functions the resident uses (buildCandidates, trustIndexOf, publicEvidenceOf, heldOf, requestOf), over
@@ -202,13 +215,22 @@ function snapshotProblems(x) {
  * reconcile, learn, duties, settling returns, noting debts, the cursor, the wake gate, the stop reasons, the budget
  * hold, the provider's answer, the send. This is not the decision a step would make, and not a model's decision.
  */
-export function previewDecision(snapshot) {
+export function previewDecision(snapshotJson) {
+  if (typeof snapshotJson !== 'string') return { mode: 'preview', refused: ['snapshot_not_a_json_string'] };
+  if (snapshotJson.length > MAX_SNAPSHOT_CHARS) return { mode: 'preview', refused: ['snapshot_too_large'] };
   let x;
-  try { x = structuredClone(snapshot); } catch { return { mode: 'preview', refused: ['snapshot_not_plain_data'] }; }
-  if (!x || typeof x !== 'object') return { mode: 'preview', refused: ['snapshot'] };
+  try { x = JSON.parse(snapshotJson); } catch { return { mode: 'preview', refused: ['snapshot_not_json'] }; }
+  if (x === null || typeof x !== 'object' || Array.isArray(x)) return { mode: 'preview', refused: ['snapshot'] };
   const why = snapshotProblems(x);
   if (why.length) return { mode: 'preview', refused: why };
-  const { charter: ch, state: st, obs, episodes } = x;
+  try { return previewOf(x); } catch (e) { return { mode: 'preview', refused: [`snapshot_shape_unexpected:${String(e?.message ?? 'error').slice(0, 80)}`] }; }
+}
+
+function previewOf(x) {
+  const { charter: ch, obs, episodes } = x;
+  // the state's tables, keyed by data: own keys only
+  const st = { ...x.state, aliases: nullProto(x.state.aliases), cooldown: nullProto(x.state.cooldown), accepted: nullProto(x.state.accepted),
+    failures: nullProto(x.state.failures ?? {}), journal: nullProto(x.state.journal), counters: nullProto(x.state.counters) };
   const bell = obs.world.bell;
   const turn = st.turn + 1;
   const goal = GOALS[ch.goal];
@@ -223,10 +245,10 @@ export function previewDecision(snapshot) {
   const { excluded, assessment } = built;
   // The evidence port, rebuilt here from data: its read returns the snapshot's answer, nothing else runs.
   const e = x.evidence;
-  const port = e ? Object.freeze({ kind: `preview-snapshot:${String(e.kind ?? 'unstated').slice(0, 60)}`, clock: e.clock ?? null, world: e.world ?? null, basis: e.basis ?? 'unstated',
-    basisWhy: Array.isArray(e.basisWhy) ? e.basisWhy : [], read: ({ counterparty }) => e.answers[counterparty] ?? { status: 'not_in_snapshot', lines: [] } }) : null;
+  const port = e ? Object.freeze({ kind: `preview-snapshot:${typeof e.kind === 'string' ? e.kind.slice(0, 60) : 'unstated'}`, clock: e.clock ?? null, world: e.world ?? null, basis: e.basis ?? 'unstated',
+    basisWhy: Array.isArray(e.basisWhy) ? e.basisWhy : [], read: ({ counterparty }) => (Object.hasOwn(e.answers, counterparty) ? e.answers[counterparty] : { status: 'not_in_snapshot', lines: [] }) }) : null;
   const ev = publicEvidenceOf({ port, observe: x.frame ?? null, cands: built.candidates, bell, who });
-  const held = heldOf({ evidence: ev, inFlight: inFlightOf(st.journal), failures: st.failures ?? {}, bell, who });
+  const held = heldOf({ evidence: ev, inFlight: inFlightOf(st.journal), failures: st.failures, bell, who });
   for (const c of built.candidates) { const h = held(c); if (h) excluded.push({ candidate: c.id, ...h }); }
   const candidates = built.candidates.filter(c => !held(c));
   const byCode = candidates.length === 1 ? 'wait' : null;

@@ -398,3 +398,46 @@ So the preview is **not** the decision a step would make. It is the candidate se
 - the evidence rule (chain acts; `unproven`, `integration-output` and `unstated` do not);
 - the shared rules (recall, counters, aliases, trust, fallback);
 - the text pins.
+
+## The preview takes one JSON string; reverse review of types and odd shapes (2026-11-17, source only)
+
+**The defect** (found by the owner's review of 67d136a3): `structuredClone(snapshot)` reads every own property, so a getter (and a Proxy's traps) **runs** during the copy. "No callback handed in is ever called" did not hold.
+
+**The fix:** `previewDecision(snapshotJson)` takes **one primitive JSON string** and nothing else.
+- **Anything else is refused by `typeof` before it is touched** (`snapshot_not_a_json_string`): an object, a `String` object, a Proxy, an object with getters, `toJSON` or `valueOf`, a function, a symbol, a Buffer, null. There is no `String()`, no `JSON.stringify` and no `structuredClone` (pinned as text).
+- **Size and syntax:** over 8 MiB → `snapshot_too_large`; text `JSON.parse` rejects → `snapshot_not_json`; a non-object result → `snapshot`.
+- **Parsing:** `JSON.parse` with no reviver. What it gives is data. A `"toJSON"`, `"toString"` or `"__proto__"` key in the text is only data: never called, and no prototype is changed (`__proto__` becomes an own key).
+- **Lookups by a key that comes from the data are own-key lookups:**
+  - the goal: `Object.hasOwn(GOALS, goal)`, so `"constructor"` or `"toString"` is refused;
+  - evidence answers: `Object.hasOwn(answers, counterparty)`;
+  - the state's `aliases`, `cooldown`, `accepted`, `failures`, `journal` and `counters` are copied onto null prototypes.
+- **Mis-shaped fields are refused by name:**
+  - a village without `citizen`, `owner`, `stores`, `buildings` or `building`;
+  - a request without an `id`;
+  - `world.me.quota` missing;
+  - an episode without `kind`, `bell`, string `entities` or `text.en`;
+  - two episodes with one id;
+  - evidence `basis` / `basisWhy` / `clock` / `world` of another type;
+  - an evidence line without `epistemic`.
+- **Anything else that throws** while computing is a refusal (`snapshot_shape_unexpected:…`), never an exception out of the preview.
+- The evidence `kind` is shown only if it is a string. Nothing from the data is turned into a string by conversion.
+
+**Normal mode is unchanged** (`resident.mjs` not touched in this fix). `previewDecision` has no consumer outside its tests: there is no other caller in the tree.
+
+**Reverse review: types, inherited properties, odd shapes.**
+
+| Where | What could go wrong | Result |
+|---|---|---|
+| preview input | getter / Proxy / `toJSON` / implicit conversion runs caller code | **fixed:** a primitive string only, checked by `typeof` first |
+| preview goal / answers / aliases | an inherited key (`"constructor"`) found on `Object.prototype` | **fixed:** own keys only |
+| preview cooldown / failures keys | `` `${owner}\|${res}` `` / `Name:{…}` | they contain `\|` or `:`, so they are never an inherited name; copied onto a null prototype anyway |
+| preview deep nesting | `JSON.parse` throws on extreme depth | inside its `try`: `snapshot_not_json`. Validation does not recurse |
+| `requestOf` over a board note that is not a string | the sanitizer may throw | caught: `snapshot_shape_unexpected` |
+| **normal mode:** `#who` / `trustIndexOf` over `state.aliases` loaded from `state.json` | a citizen id such as `"constructor"` would find `Object.prototype.constructor` | **not changed:** normal mode is kept as it is, as instructed. A finding for the owner: making `aliases` own-key in normal mode would be a behaviour change of `resident.mjs` |
+
+**Tests (source only, not run):** `test/decide-core.test.mjs` is updated.
+- 14 non-string inputs are refused with no getter, trap, `toJSON`, `valueOf` or `toString` called.
+- Malformed JSON, non-objects and oversize text are refused.
+- `__proto__` / `toJSON` / `toString` in the text are only data.
+- 10 more shape and inherited-key refusals.
+- The JSON boundary is pinned as text.

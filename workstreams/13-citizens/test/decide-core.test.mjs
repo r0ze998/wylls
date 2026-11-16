@@ -1,4 +1,4 @@
-// The resident's decision core (resident/decide-core.mjs) and its preview over a plain-data snapshot (2026-11-17).
+// The resident's decision core (resident/decide-core.mjs) and its preview over a snapshot given as ONE JSON string (2026-11-17).
 // SOURCE-ONLY when written: not run in the session that wrote it. The snapshots come from the TEST world
 // (helpers.mjs small/run over world/harness.mjs); that is a test world, not a production one.
 import test from 'node:test';
@@ -23,7 +23,7 @@ async function scene(bells = 6) {
 test('preview from a snapshot: candidates, the request a provider WOULD get and the default fallback; the resident is untouched', async () => {
   const { r, obs, snap } = await scene();
   const before = { state: structuredClone(r.state), charter: structuredClone(r.charter), files: filesOf(r.dir), snap: structuredClone(snap) };
-  const p = previewDecision(snap);
+  const p = previewDecision(JSON.stringify(snap));
   assert.equal(p.refused, undefined, JSON.stringify(p.refused));
   assert.deepEqual([p.mode, p.sent, p.decided, p.modelAsked], ['preview', false, false, false]);
   assert.equal(p.turn, r.state.turn + 1); assert.equal(p.bell, obs.world.bell);
@@ -39,17 +39,27 @@ test('preview from a snapshot: candidates, the request a provider WOULD get and 
   assert.deepEqual(filesOf(r.dir), before.files, 'no file written or touched');
 });
 
-test('a port or a callback anywhere in the snapshot is refused, so nothing handed in can be called', async () => {
+test('anything but a primitive JSON string is refused before it is touched: no getter, toJSON, Proxy trap or conversion runs', async () => {
   const { r, snap } = await scene(2);
   const calls = [];
-  const fn = name => () => { calls.push(name); };
-  for (const bad of [
-    { ...snap, episodes: r.ports.memory },
-    { ...snap, memory: { all: fn('memory.all'), recall: fn('memory.recall') } },
-    { ...snap, evidence: { clock: snap.frame.clock, world: snap.frame.world, basis: 'chain', answers: {}, read: fn('evidence.read') } },
-    { ...snap, provider: { decide: fn('provider.decide') } }, { ...snap, execution: { submit: fn('execution.submit') } }, { ...snap, sign: fn('sign') },
-  ]) assert.deepEqual(previewDecision(bad).refused, ['snapshot_not_plain_data']);
-  assert.deepEqual(calls, []);
+  const getterSnap = Object.defineProperty({ ...snap }, 'state', { enumerable: true, get() { calls.push('getter'); return snap.state; } });
+  const proxy = new Proxy(snap, { get(t, k) { calls.push(`proxy.get:${String(k)}`); return t[k]; }, ownKeys(t) { calls.push('proxy.ownKeys'); return Reflect.ownKeys(t); } });
+  const withToJSON = { toJSON() { calls.push('toJSON'); return snap; } };
+  const stringObject = new String(JSON.stringify(snap));
+  Object.defineProperty(stringObject, 'toString', { value() { calls.push('toString'); return ''; } });
+  for (const bad of [snap, getterSnap, proxy, withToJSON, stringObject, { valueOf() { calls.push('valueOf'); return '{}'; } }, r.ports.memory, null, undefined, 42, true, Symbol('s'), () => '{}', Buffer.from('{}')]) {
+    assert.deepEqual(previewDecision(bad).refused, ['snapshot_not_a_json_string']);
+  }
+  assert.deepEqual(calls, [], 'nothing in the input ran');
+  for (const [text, why] of [['', 'snapshot_not_json'], ['{', 'snapshot_not_json'], ['[]', 'snapshot'], ['null', 'snapshot'], ['"x"', 'snapshot'], ['7', 'snapshot']]) {
+    assert.deepEqual(previewDecision(text).refused, [why], text);
+  }
+  assert.deepEqual(previewDecision('x'.repeat(8 * 1024 * 1024 + 1)).refused, ['snapshot_too_large']);
+  // a JSON text naming toJSON / toString / __proto__ is data: parsed, never called
+  const odd = JSON.stringify({ ...snap, toJSON: 'x', evidence: { kind: { toString: 'not callable' }, basis: 'unproven', clock: snap.frame.clock, world: snap.frame.world, answers: {} } }).replace('"toJSON":"x"', '"toJSON":"x","__proto__":{"polluted":true}');
+  const p = previewDecision(odd);
+  assert.equal(p.refused, undefined, JSON.stringify(p.refused)); assert.equal(p.mode, 'preview');
+  assert.equal({}.polluted, undefined, 'no prototype changed');
 });
 
 test('missing inputs are refused by name, never filled in; evidence without the observe frame is not read', async () => {
@@ -64,7 +74,21 @@ test('missing inputs are refused by name, never filled in; evidence without the 
     [{ ...snap, frame: { clock: snap.frame.clock }, evidence: { answers: {} } }, 'frame: no world to check the evidence against'],
     [{ ...snap, evidence: { answers: { x: { status: 'ok' } } } }, 'evidence answer for x'],
   ];
-  for (const [s, why] of cases) assert.ok((previewDecision(s).refused ?? []).includes(why), `${why}: ${JSON.stringify(previewDecision(s).refused)}`);
+  const more = [
+    [{ ...snap, charter: { ...snap.charter, goal: 'constructor' } }, 'charter'], [{ ...snap, charter: { ...snap.charter, goal: 'toString' } }, 'charter'],
+    [{ ...snap, obs: { ...snap.obs, world: { ...snap.obs.world, villages: [...snap.obs.world.villages, null] } } }, 'obs: a village of another shape'],
+    [{ ...snap, obs: { ...snap.obs, board: { requests: [7] } } }, 'obs: a request of another shape'],
+    [{ ...snap, episodes: [{ id: 'e', kind: 'kept', bell: 1, entities: ['x'] }] }, 'episodes'],
+    [{ ...snap, episodes: [{ id: 'e', kind: 'kept', bell: 1, entities: [1], text: { en: '' } }] }, 'episodes'],
+    [{ ...snap, episodes: [...Array(2)].map(() => ({ id: 'same', kind: 'kept', bell: 1, entities: [], text: { en: '' } })) }, 'episodes: an id kept twice'],
+    [{ ...snap, evidence: { basis: { toString: 'x' }, answers: {} } }, 'evidence: basis, clock or world of another shape'],
+    [{ ...snap, evidence: { basis: 'chain', basisWhy: [1], answers: {} } }, 'evidence: basis, clock or world of another shape'],
+    [{ ...snap, evidence: { answers: { cp: { status: 'ok', lines: [{ sources: [], text: 't' }] } } } }, 'evidence lines for cp'],
+  ];
+  for (const [s, why] of [...cases, ...more]) {
+    const out = previewDecision(JSON.stringify(s)).refused ?? [];
+    assert.ok(out.includes(why), `${why}: ${JSON.stringify(out)}`);
+  }
 });
 
 test("the resident's evidence rule over snapshot answers: chain excludes; unproven / integration-output are shown, not acted on", async () => {
@@ -80,7 +104,7 @@ test("the resident's evidence rule over snapshot answers: chain excludes; unprov
     assert.equal(out.breaches.size, 0, basis); assert.match(out.summary[0].notActedBecause, new RegExp(`basis ${basis}: not chain evidence`));
   }
   // through the preview: a counterparty not in the snapshot is `not_in_snapshot`, never read elsewhere
-  const p = previewDecision({ ...snap, evidence: ev('unproven') });
+  const p = previewDecision(JSON.stringify({ ...snap, evidence: ev('unproven') }));
   assert.equal(p.refused, undefined);
   assert.ok((p.evidence ?? []).every(s => s.status === 'not_in_snapshot'));
   assert.ok(!p.excluded.some(x => x.reason === 'ws12-verified-breach'));
@@ -113,5 +137,8 @@ test('the normal mode calls the same functions (pinned as text); the core import
   const imports = [...core.matchAll(/^import .* from '([^']+)';$/gm)].map(m => m[1]);
   assert.deepEqual(imports, ['./frame.mjs', '../../../permutation-gateway/citizens/mind/sanitize.mjs', '../world/rules.mjs', './candidates.mjs', './goals.mjs', './ports/provider.mjs', './recall.mjs']);
   assert.doesNotMatch(core, /node:fs|writeFile|appendFile|loadOrCreateKey|AgentLedger|decideWithin|\.submit\(|ports\.(join|board|execution|provider)|\.hold\(|memory\.append\(/);
-  assert.match(core, /try \{ x = structuredClone\(snapshot\); \} catch \{ return \{ mode: 'preview', refused: \['snapshot_not_plain_data'\] \}; \}/);
+  assert.match(core, /if \(typeof snapshotJson !== 'string'\) return \{ mode: 'preview', refused: \['snapshot_not_a_json_string'\] \};/);
+  assert.match(core, /try \{ x = JSON\.parse\(snapshotJson\); \}/, 'no reviver');
+  assert.doesNotMatch(core, /structuredClone\(|JSON\.stringify\(|String\(snapshot/);
+  assert.match(core, /Object\.hasOwn\(GOALS, x\.charter\.goal\)/); assert.match(core, /Object\.hasOwn\(e\.answers, counterparty\)/);
 });
