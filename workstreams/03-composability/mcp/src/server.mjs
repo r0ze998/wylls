@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { Game, GameError, untrusted } from './game.mjs';
 import { SCOPES } from './auth.mjs';
 import { MockGrantPort, STATES, TERMINAL, resultUnknown } from './ports.mjs';
+import { AGENT_PRICE_NOT_READ, prepareNotice } from './confirm.mjs';
 import { LocalReceiptPort, assertReceiptPort } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
@@ -131,13 +132,11 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       summary: { from: plan.from, to: plan.to, cargo: plan.cargoNamed, steps: plan.steps, estimatedMinutes: Math.round(plan.estimatedSecs / 60), seq: plan.seq } };
     for (const [k, p] of Object.entries(db.plans)) if (p.expiresAt + PLAN_TTL_MS < now() && !p.usedBy) delete db.plans[k];
     store.save();
-    const warnings = [];
-    if (!(a.policy?.allowed ?? []).includes('SendCaravan')) warnings.push('The agent\'s policy does not allow SendCaravan: send_caravan will be refused (ActionNotAllowed) until the owner allows the transport group (and the relay has patch 0005).');
-    if (a.mode !== 'auto') warnings.push('The agent is stopped (manual): send_caravan will be refused (AgentStopped).');
-    if (a.delegation && !a.delegation.delegated) warnings.push('The village is not delegated to the agent on chain: send_caravan will be refused (SessionNotDelegated).');
-    return ok({ planId: id, expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(), summary: db.plans[id].summary, cost: { resources: plan.cargoNamed, settleFeeLamports: plan.feeLamports, paidBy: plan.paidBy },
-      confirm: `Send a caravan from ${plan.from} to ${plan.to} with ${Object.entries(plan.cargoNamed).map(([r, n]) => `${n} ${r}`).join(', ')} (about ${Math.round(plan.estimatedSecs / 60)} min on the road; it cannot be recalled and can be raided).`,
-      warnings, sent: false });
+    // confirm carries the cost and the refusals as well (confirm.mjs): the text the instructions say to show the person.
+    const { confirm, warnings } = prepareNotice(plan, a);
+    return ok({ planId: id, expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(), summary: db.plans[id].summary,
+      cost: { resources: plan.cargoNamed, settleFeeLamports: plan.feeLamports, paidBy: plan.paidBy, agentPrice: AGENT_PRICE_NOT_READ },
+      confirm, warnings, sent: false });
   }
 
   // ------------------------------------------------------------ operations
