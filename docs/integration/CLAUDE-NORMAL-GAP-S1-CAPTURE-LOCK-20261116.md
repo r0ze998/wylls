@@ -49,3 +49,13 @@ selected fort's room after pending troops) and Insufficient (reserve), in that o
 own codes. Evidence: `web-frontier-s1-fort-checks.test.mjs` 4/4; related + errors + lang 82/82; ordinary subset
 1775/1774/0 fail. Unit/fixture only.
 Not yet audited the same way: Raid, Seize (seizeOffer), Siege (siegeOffer), Expel, the nation proposals and votes.
+
+## Raid / Seize / Siege / Expel audit (2026-11-16)
+- Seize: one gap fixed — a fort with only pending troops counts as manned (structure.rs fort_troops = troops + pending);
+  seizeOffer read troops only (integration cb88dcea; test web-frontier-s1-seize-fort). "No owner's host on the tile"
+  (NotOnTile) needs the owner's villages, which the page does not hold: left to the program, as its comment says.
+- Siege: NotFinal (source final; the lazy flip only in the target Province) and NotResident (target resolved) added
+  (test web-frontier-s1-siege-ready; the S1/ws07 siege fixtures moved to a resolved target, expectations unchanged).
+  Left to the program by design: the lead host (NotLead), protection/immunity, the target's generation (CapturePending
+  for the target), NotBesiegeable/ReservedSite/TooLate.
+- Not audited yet: Raid (raidOffers has no blocks of its own), Expel and the nation votes.
