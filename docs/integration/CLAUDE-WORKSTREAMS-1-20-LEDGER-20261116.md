@@ -205,3 +205,10 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - b44db980: the S1 tile card blocks a storehouse and structures while the village is being captured (the program's capture
   lock); test pins the Rust rule; ordinary subset 0 fail. Candidate b402100b with the selection note
   (CLAUDE-NORMAL-GAP-S1-CAPTURE-LOCK-20261116.md). Next candidate: CapturePending in fland actionBlocks (per action).
+
+## 2026-11-16 12:20 JST — capture lock in every action pre-check
+- 7ca998e3: CapturePending pre-checked for Build/Train/Harvest/Muster/Garrison/FortGarrison (own Province, always),
+  Explore/Dissolve/Depart (only with the host in the own Province — the page passes the host's), SendCaravan (village
+  source only). Muster/Garrison/Dissolve/Depart were found while checking (host.rs lock_own) and covered. One rule
+  (fland captureLocked/mirrorLocked; fconquest uses it). Tests 6/6 + related 41/41; ordinary subset 1771/1770/0 fail;
+  screens all pass. Candidate 2f5a8298. Unit/fixture only.
