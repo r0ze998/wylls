@@ -252,3 +252,15 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - No code change, no test added, no suite run for this step. Candidate note fb4d457a.
 - Open for the owner (not changed): the page is stricter than the program in two places — musterTiles' "six to a
   tile" and exploreTargets leaving out the host's own and impassable tiles.
+
+## 2026-11-16 — march / arrival / return, keyless
+- Muster's six-to-a-tile and Explore's targets: kept as they are (owner: design decisions).
+- Return audited: a march with the village as destination; hand-return switches to the host's own village first. No
+  mismatch, no code change.
+- Not done: round 28's open-gate case for a host of another village through the real controller — it needs the
+  memory-only test wallet (a key in memory), outside this round; a keyless test would need a controller test seam (not
+  made). The pure contract (localMarchOpen) is already tested.
+- Unit runs on the candidate: 30/30 and 53/53 (march/arrival/return files). One of them, web-frontier-local-play-return,
+  is a key-using test (memory-only WebCrypto key, no network) and was run before its header was read; it is also in the
+  ordinary subset. No suite run, no fix. Candidate note 98738ff2.
+- World-only items unchanged (landing send, credited land yield, far land, catching-up live, rounds 44–45, natural speed).
