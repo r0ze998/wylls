@@ -29,13 +29,21 @@ export function fulfilBoundsText(f, ja) {
 /**
  * 共同の目的の精度の言い方（表示だけ）。progress：goal.mjs coopView の joint[].progress（{resource, underBy}）。
  * underBy＝数えた到着の件数 k。記録は1件ずつ切り捨てなので、本当の量は表示より k 未満多いことがある（④ QUANTITY-CONTRACT §4：［Σb, Σb＋n））。
- * k＝0 の資源は数えた到着がなく、数えた量はちょうど 0：「0 未満多い」とは言わない。
+ * k＝0（明示の 0）の資源は数えた到着がなく、数えた量はちょうど 0：「0 未満多い」とは言わない。
+ * k が 0 以上の安全な整数でない（欠けた・null・負・小数・NaN・文字列など）、または要素そのものが無い・形が違うときは、
+ * 精度が分からない：0 と言わない（推し量らない）。
  */
+const kOf = p => (p && typeof p === 'object' && Number.isSafeInteger(p.underBy) && p.underBy >= 0 ? p.underBy : null);
+const nameOf = (p, ja) => {
+  const r = p && typeof p === 'object' && typeof p.resource === 'string' && p.resource ? p.resource : null;
+  return r === null ? '（資源名なし）' : ja?.[r] ?? r;
+};
 export function jointPrecisionText(progress, ja) {
   const ps = Array.isArray(progress) ? progress : [];
-  const some = ps.filter(p => p.underBy > 0), none = ps.filter(p => !(p.underBy > 0));
+  const some = ps.filter(p => kOf(p) > 0), zero = ps.filter(p => kOf(p) === 0), unknown = ps.filter(p => kOf(p) === null);
   const parts = [];
-  if (some.length) parts.push(`記録は到着1件ごとにミリ単位を切り捨てた値なので、本当の量は表示より ${some.map(p => `${ja[p.resource] ?? p.resource} ${p.underBy} 未満`).join('・')} 多いことがある（件数ぶん）`);
-  if (none.length) parts.push(`${none.map(p => ja[p.resource] ?? p.resource).join('・')}は数えた到着がなく、数えた量はちょうど 0`);
+  if (some.length) parts.push(`記録は到着1件ごとにミリ単位を切り捨てた値なので、本当の量は表示より ${some.map(p => `${nameOf(p, ja)} ${p.underBy} 未満`).join('・')} 多いことがある（件数ぶん）`);
+  if (zero.length) parts.push(`${zero.map(p => nameOf(p, ja)).join('・')}は数えた到着がなく、数えた量はちょうど 0`);
+  if (unknown.length) parts.push(`${unknown.map(p => nameOf(p, ja)).join('・')}は数えた到着の件数が示されていないので、精度が分からない`);
   return ['整数単位', ...parts].join('。');
 }

@@ -115,3 +115,35 @@ The count itself is regressed by the two corrected existing tests above.
 | Candidate commands (for the coordinator; not run) | `node --test workstreams/01-national-strategy/test/coop.joint-precision.test.mjs` (pure). The corrected `coop.test.mjs` and `coop.e2e.test.mjs` only after the coordinator's own audit |
 
 **Not verified:** the screen, a real world, and the two corrected existing tests.
+
+## Correction: a missing or invalid `underBy` is "precision not known", never "exactly 0" (2026-11-17)
+
+The coordinator's static review before any run found that `jointPrecisionText` (at 71764e61) treated anything that is not `> 0` as an explicit zero. That included missing, `null`, negative, fractional, `NaN` and string values, which all read as "数えた到着がなく、数えた量はちょうど 0". The new test also expected a missing `ore` count to be 0. This breaks the existing rule that an unknown stays unknown. **That test had not been run.**
+
+**The fix** (display only; `coop/fulfil-bounds.mjs`, sha256 `85a141fb…30e8c525`).
+- k is accepted only when the element is an object and `underBy` is a safe non-negative integer.
+- A positive k gives "k 未満多いことがある", the same sentence as before.
+- An explicit 0 gives "ちょうど 0".
+- Anything else, including a `null` or wrongly shaped element, a missing count or a missing `ja`, gives "…は数えた到着の件数が示されていないので、精度が分からない". It is never 0 and never "未満".
+- A missing or non-string resource name is shown as "（資源名なし）".
+- `fulfilBoundsText` is unchanged.
+- Not changed: the count in `goal.mjs` (still every counted arrival, including those recorded as 0), counted amounts, the verdict, sending and permissions.
+
+**The test** (`test/coop.joint-precision.test.mjs`, sha256 `bd8b8c53…54d7b922`, written, not run).
+- The wrong expectation (missing `ore` → "ちょうど 0") is corrected, with the reason, to "精度が分からない".
+- New cases:
+  - thirteen invalid `underBy` values (`undefined`, `null`, -1, 1.5, `NaN`, ±`Infinity`, '2', '0', `true`, 2^53, `{}`, `[]`);
+  - `null` and wrongly shaped elements, and missing or non-string names;
+  - a mix of positive, zero and unknown;
+  - no `ja`.
+- Kept: explicit 0 gives "ちょうど 0"; k = 1 with an amount of 0 gives "1 未満"; k > 0 gives the old sentence.
+
+**Re-audit (static).**
+
+| Item | Finding |
+|---|---|
+| Closure | The test imports `node:test`, `node:assert/strict` and `../coop/fulfil-bounds.mjs`, which has no imports and only declarations: two `const` helpers and two exported functions. No `fs`, `fetch`, `process`, `child_process`, `worker_threads`, dynamic `import()`, `new Function` or `require`, and no key or sign API. No `node-key-tests.txt` entry is needed and the lists are unchanged |
+| Other files | `coop.fulfil-bounds.test.mjs` is byte-identical (`b24fb9b0…ef717645`), but the module it imports changed. Its function (`fulfilBoundsText`) is unchanged; its earlier 5/5 run was against the module at e5f39a3c |
+| Not audited for running | The corrected existing `coop.test.mjs` and `coop.e2e.test.mjs` (board, fake chain and store, on the key-scan list) and the screen tests: not to be run until audited |
+| Refused work | It touches no walls, muster, G, runner or world code, and it is not a substitute for any refused run |
+| Candidate command (for the coordinator; not run) | `node --test workstreams/01-national-strategy/test/coop.joint-precision.test.mjs` |
