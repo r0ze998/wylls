@@ -183,7 +183,10 @@ function villageFor(FS, can) {
 }
 const named = (FS, i, data) => { const h = i !== null && i !== openIndex(FS) ? FS.holdings?.[i] : null; return h ? { ...data, p: h.p, q: h.q, site: h.site } : data; };
 const canTrain = V => { const m = holdingModel(V); return !!m && !m.blocks?.Train?.length && maxTrain(0, m.have ?? [], V.season?.programVersion) > 0; };
-const canMuster = V => (activeHolding(V)?.reserve ?? []).slice(0, SCOUT).some(n => Number(n) >= 100);
+const hasReserve = V => (activeHolding(V)?.reserve ?? []).slice(0, SCOUT).some(n => Number(n) >= 100);
+// (a village that can Form a host now: the reserve AND none of the card's own blocks — holdingModel's actionBlocks: the
+//  capture lock, not final, its province catching up, the province full. A model that cannot be read is not "can")
+const canMuster = V => { if (!hasReserve(V)) return false; const b = holdingModel(V)?.blocks?.Muster; return Array.isArray(b) && b.length === 0; };
 const combatRows = V => { try { return hostRows(V).filter(r => r.unit !== SCOUT && r.unit !== SETTLER); } catch { return []; } };
 const readyIn = V => combatRows(V).find(r => !waitOf(V, r)) ?? null;
 
@@ -215,7 +218,8 @@ export function conquestObjective(FS) {
         //  does not list it)
         : !x.formingHere ? { act: 'cg-go', data: { pop: 'keeps', host: String(r.id) }, label: L`軍勢の準備を確かめる` }
         : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
-    } else { text = L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`; go = { act: 'cg-go', data: named(FS, villageFor(FS, canMuster), { pop: 'muster' }), label: L`軍勢を編成する` }; }
+    } else { text = L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`; go = { act: 'cg-go', data: named(FS, villageFor(FS, canMuster) ?? villageFor(FS, hasReserve), { pop: 'muster' }), label: L`軍勢を編成する` }; }
+    // (a village that can muster now first; else one holding the troops, whose card says why it waits; else none named)
   } else if (id === 'march') {
     // (the open village's ready host first, else another village's — each judged with its own village; else the first wait)
     const vi = villageFor(FS, V => !!readyIn(V)), V = vi === null ? FS : atVillage(FS, vi);

@@ -29,10 +29,10 @@ const built = () => baseProduction(0).map((v, i) => (i === 0 ? v + 50_000n : v))
 const hostOf = (o, extra = {}) => ({ id: hostId({ p: o.p, q: o.q, site: o.site, gen: 0, seq: 1 }), unit: 0, state: 1, tile: o.tile, troops: 100000, staminaValue: 120, staminaBell: 0, readyBell: 0, pendOp: 0, fromBell: 1, ...extra });
 
 const rich = () => Array.from({ length: 8 }, () => ({ value: 1_000_000_000n, rate: 0n, cap: 2_000_000_000_000n, t0: BigInt(NOW) }));   // stores that pay for training
-function world({ a = {}, b = {}, aEntries = [], active = 0, only = false } = {}) {
+function world({ a = {}, b = {}, aEntries = [], aProv = {}, active = 0, only = false } = {}) {
   const A = village(2, 0, 2, 20, a), B = village(3, 0, 1, 10, b);   // B: a new village (an outpost), nothing done there
   return { mode: 'play', season: SEASON, citizen: { faction: 0 }, holdings: only ? [A] : [A, B], activeHolding: active, nowBell: 2, clock: CLOCK, chain: { now: () => NOW }, land: { stage: 'final' },
-    provinces: new Map([['2,0', { province: { p: 2, q: 0, resolvedNext: 1, entries: aEntries.map(e => e(A)), ticketCohorts: [] } }], ['3,0', { province: { p: 3, q: 0, resolvedNext: 1, entries: [], ticketCohorts: [] } }]]),
+    provinces: new Map([['2,0', { province: { p: 2, q: 0, resolvedNext: 1, entries: aEntries.map(e => e(A)), ticketCohorts: [], ...aProv } }], ['3,0', { province: { p: 3, q: 0, resolvedNext: 1, entries: [], ticketCohorts: [] } }]]),
     formingBells: [], marches: [], orders: [], ui: { dismissed: [] },
     conquest: { status: 'ready', keeps: new Map(), history: new Map(), standings: null, final: null, events: [] } };
 }
@@ -120,6 +120,23 @@ test('local play with its march closed, the host in the first village, the secon
   assert.deepEqual(conquestObjective(FS).go.data, { pop: 'keeps', host: String(hostOf(FS.holdings[0]).id) });
   const one = closed(world({ a: { production: built() }, aEntries: [o => hostOf(o)], only: true }));
   assert.deepEqual(conquestObjective(one).go.data, { tab: 'hosts' }, 'one village: as before');
+});
+// (2026-11-16, source only — NOT run: all new test runs are paused) the muster press and the card's own blocks
+// (holdingModel → actionBlocks 'Muster': the capture lock, not final, catching up, province full). A = site 2 of (2,0);
+// its province's site mirror shows the site as a holding of the next generation: the capture lock (CapturePending).
+const captured = { siteMirror: [{ state: 0 }, { state: 0 }, { state: 1, gen: 1, faction: 0 }] };
+test('muster: troops in a village under the capture lock and in another that can muster — the press names the one that can', () => {
+  const reserve = Array(8).fill(0); reserve[0] = 200;
+  const o = conquestObjective(world({ a: { reserve }, b: { reserve }, aProv: captured, active: 0 }));
+  assert.deepEqual(o.go.data, { pop: 'muster', p: 3, q: 0, site: 1 }, 'B, not the locked open village A');
+});
+test('muster: troops only in a village under the capture lock — that village is still named (its card says why), not the empty one open', () => {
+  const reserve = Array(8).fill(0); reserve[0] = 200;
+  assert.deepEqual(conquestObjective(world({ a: { reserve }, aProv: captured, active: 1 })).go.data, { pop: 'muster', p: 2, q: 0, site: 2 });
+});
+test('muster: the open village can — unnamed, as before, even when another holds troops too', () => {
+  const reserve = Array(8).fill(0); reserve[0] = 200;
+  assert.deepEqual(conquestObjective(world({ a: { reserve }, b: { reserve }, active: 1 })).go.data, { pop: 'muster' });
 });
 test('the map\'s guide points at the village the press names (hud/guide.mjs guideTarget; app.mjs guideGo opens it)', () => {
   const reserve = Array(8).fill(0); reserve[0] = 200;

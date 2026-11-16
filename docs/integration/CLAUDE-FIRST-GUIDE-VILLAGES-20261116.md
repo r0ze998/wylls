@@ -49,3 +49,18 @@ village's province — `FS.holdings?.length > 0 && FS.provinces.has(\`${h.p},${h
 - Checked with fake dependencies only (`web-frontier-first-guide-safety.test.mjs`, 26/26): set-up failure + audit,
   readiness failure, case + audit failures, audit-only failure, every verdict combination, the bounded wait. No browser,
   server or process; the browser check itself is still not re-run.
+
+## The muster press and the card's own blocks (2026-11-16, static; NOT run — all new test runs are paused)
+- Mismatch (read from the code): the guide's `canMuster` looked only at a reserve of 100+ combat troops, while the muster
+  card refuses on `holdingModel(…).blocks.Muster` (`fland.mjs actionBlocks`: CapturePending, NotFinal, NotResident,
+  ProvinceFull). With troops in a locked village and in one that can muster, the press could name the locked one — its
+  card a dead end while the other could act.
+- Fix (`screens/conquestguide.mjs`): a village that can muster NOW (the reserve and no Muster block; a model that cannot
+  be read is not "can") first; else one holding the troops, whose card says why it waits; else none named.
+- Regression cases added to `permutation-gateway/test/web-frontier-guide-other-village.test.mjs` as SOURCE ONLY (capture
+  lock via the province's site mirror): locked open village + able village → the able one named; only a locked village
+  holds troops → it is named (not the empty open one); the open village able → unnamed. Expected values derived by
+  reading `actionBlocks`/`captureLocked`/`isFinal`; not executed, no `node --check`.
+- Same family, audited: train already checks the card's Train blocks and affordability; march judges a ready host with
+  its own village's Depart blocks (`waitOf`); forming hosts and waits in another village go to that host's forts card;
+  build acts on the open village and appears only when no village has built. No other demonstrated mismatch.
