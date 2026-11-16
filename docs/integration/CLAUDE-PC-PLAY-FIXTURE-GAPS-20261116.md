@@ -118,3 +118,12 @@ OTHER village:
   library (names only; not called).
 - Lane C E1 (S1 promotion ore in the strip) is separate and already in (41fb12a8); `settled` includes it.
 - Not covered: the chip in a world; how soon the crank's ClaimLandYield refreshes the record (not measured).
+
+## Minimap camera frame, integrated from the parallel owner (2026-11-16, Claude)
+- `codex/minimap-frame-20261116` @ 0a58fa44 (parent: integration 3f3372b8): `hud/minimap.mjs` draws the camera frame
+  only where it meets the minimap (a camera beyond the map gave a negative width/height, which the canvas reverses into
+  a false frame); `web-frontier-minimap-cache.test.mjs` gains the wholly-outside and partial-edge cases.
+- Checked here: diff read; no file shared with the integration commits since 3f3372b8 (land chip fix, ledger);
+  `git diff --check` and `node --check` pass; that test alone from the single export on the commit's files: 6/6.
+  No key, signing, request or storage in the test.
+- Integration merge 84469802, candidate merge fccaf09e; the land chip fix (e87faba3) is still in.
