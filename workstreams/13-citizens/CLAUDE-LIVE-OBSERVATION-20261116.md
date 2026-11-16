@@ -685,3 +685,19 @@ Nothing is adopted. (a) is in force, and the header now states it.
   - (c) leave the WS13 file unrun.
 
 The guard is not changed, removed or bypassed, and the test is not run without it.
+
+### The CLI test, past the herald (2026-11-17, written, not run)
+
+**The gap:** `12-memory/test/ws04-observe-cli.test.mjs` exercised only a herald answering 503 (an early return).
+
+**The new test** gives the command a normal Season and its events (the same fixtures as `live-observation.test.mjs`), so `observeLive` goes on to the RPC, the store and `connectCanonical`:
+- **Every I/O is a counted fake:** `getJson` (exactly `/h/season` and `/h/events?after=0`), `rpc` (0 calls), `readStore` (exactly once, with the `--store` path: the injected reader, so no SQLite fallback and nothing opened), and `execFile` (one `runexec observe store --store /s`, no shell).
+- **The store reader returns 4's simulator receipts** from `fixtures/ws04-receipts/happy.json`, which is a fixture, not chain evidence.
+- **No binding files are given** (the command would read them). So the RPC's cluster and the store's world are undeclared, and the asserted result is the correct one:
+  - status `held` (exit 2), `rpc_cluster_undeclared` and `world_binding_undeclared`;
+  - every receipt held, `ingest: null`;
+  - finality `null`;
+  - every provenance part `integration-output` (the `chain` labels lowered);
+  - basis not `chain`.
+- **4's page reaches the end of the output** held, with its epoch and `store`. The resident preflight still says `assembled: false`.
+- **What it reads:** besides module loading, it reads one fixture file (`happy.json`).

@@ -6,6 +6,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { main } from '../../13-citizens/bin/observe-canonical.mjs';
+import { readFileSync } from 'node:fs';
+import { b58encode } from '../adapters/canonical.mjs';
+import { parseJsonU64 } from '../adapters/ws04-receipts.mjs';
 
 const H = ['world_binding_unproven', 'finality_unproven', 'transaction_record_identity_unproven', 'committed_frame_unproven'];
 const ROW = { event_cursor: 1, archive_sequence: 1, ps2_ordinal: 0, signature: 'sig1', transaction_slot: 101, body_sha256: 'a'.repeat(64), local_locator: 'findex-row:1:0',
@@ -75,4 +78,64 @@ test('page sources are exclusive and checked before anything is started', async 
     assert.equal(code, 64, JSON.stringify(args)); assert.equal(out.error, 'usage'); assert.deepEqual(calls, []);
     assert.deepEqual([n.getJson.length, n.rpc, n.readStore], [0, 0, 0], 'a usage error reads nothing at all');
   }
+});
+
+// (2026-11-17) Past the herald: a normal Season and its events (the same fixtures as live-observation.test.mjs), so
+// observeLive goes on to the RPC, the store and connectCanonical. Every one of them is a counted fake: the store
+// reader returns 4's SIMULATOR receipts from fixtures/ws04-receipts (a fixture: never chain evidence). No binding
+// files are given (the command would read them), so the RPC's cluster and the store's world are undeclared: holding
+// every receipt is the correct answer here, and no RPC call is made.
+const bytes = (fill) => Buffer.alloc(32, fill);
+const PROGRAM = b58encode(bytes(0x21)), SEASON_PDA = b58encode(bytes(0x42));
+const SEASON = { v: 1, programId: PROGRAM, cluster: 'localnet', sample: false, season: '1', seasonAddress: SEASON_PDA, genesisTs: 1_000_000, bellSecs: 600,
+  continuous: true, latestSlot: 40, latestUnix: 1_000_000 + 200 * 600, slot: 40 };
+const EVENTS = { v: 1, events: [2, 4, 6, 24].map((slot, i) => ({ seq: String(i + 1), slot, sig: `s${slot}`, kind: 1, bell: 100 + slot })), next: '4', full: false };
+function fixtureStore() {
+  const v = JSON.parse(readFileSync(new URL('../fixtures/ws04-receipts/happy.json', import.meta.url), 'utf8'));
+  return { world: 'sim-world-1', runSpecs: Object.fromEntries(Object.entries(v.run_specs_json).map(([id, spec]) => [id, parseJsonU64(spec)])),
+    receipts: v.receipts.map(r => ({ run_id: r.run_id, kind: r.kind, subject: r.subject, source: r.source, slot: Number(r.slot), body: parseJsonU64(r.body_json) })) };
+}
+
+test('past a normal Season: every I/O is a counted fake, the store reader is the fake (no SQLite), receipts held, 4\'s page held to the end', async () => {
+  const store = fixtureStore();
+  const n = { getJson: [], rpc: 0, readStore: [] };
+  const io = {
+    getJson: async url => {
+      n.getJson.push(url);
+      if (url === 'http://127.0.0.1:1/h/season') return { ok: true, status: 200, body: SEASON };
+      if (url === 'http://127.0.0.1:1/h/events?after=0') return { ok: true, status: 200, body: EVENTS };
+      return { ok: false, status: 404 };
+    },
+    rpc: async () => { n.rpc++; throw new Error('no RPC in this test'); },
+    readStore: path => { n.readStore.push(path); return store; },
+  };
+  const spawned = [];
+  const execFile = (bin, a, opts, cb) => { spawned.push({ bin, a, shell: opts.shell }); setImmediate(() => cb(null, `${PRINTED}\n`, '')); };
+  const printed = [];
+  const code = await main([...base, '--herald-kind', 'chain', '--rpc-kind', 'chain', '--store-kind', 'chain',
+    '--runexec', '/x/runexec', '--ws04-store', '/s'], { io, execFile, print: s => printed.push(s) });
+  const out = JSON.parse(printed.at(-1));
+  // what was asked, and of whom
+  assert.deepEqual(n.getJson, ['http://127.0.0.1:1/h/season', 'http://127.0.0.1:1/h/events?after=0']);
+  assert.equal(n.rpc, 0, 'no RPC: the RPC <-> cluster pairing is not declared');
+  assert.deepEqual(n.readStore, ['/nowhere/runexec.sqlite'], 'the injected reader, once: no SQLite fallback, nothing opened');
+  assert.deepEqual(spawned, [{ bin: '/x/runexec', a: ['observe', 'store', '--store', '/s'], shell: false }]);
+  // the observation: held, with its reasons; labels lowered, never chain
+  assert.equal(code, 2); assert.equal(out.status, 'held');
+  assert.ok(out.reasons.includes('rpc_cluster_undeclared') && out.reasons.includes('world_binding_undeclared'), out.reasons.join(' '));
+  assert.equal(out.held.length, store.receipts.length);
+  assert.ok(out.held.every(h => h.why === 'world_binding_undeclared'));
+  assert.equal(out.ingest, null, 'nothing taken in');
+  assert.deepEqual(out.world, { cluster: 'localnet', world_id: `${PROGRAM}/${SEASON_PDA}` });
+  assert.equal(out.inputs.finality.slot, null);
+  for (const part of ['world', 'clock', 'identity', 'records']) assert.equal(out.provenance[part]?.kind, 'integration-output', part);
+  assert.equal(out.provenance.finality, null);
+  assert.notEqual(out.basis, 'chain');
+  // 4's page reaches the end of the output, held, with its epoch and pairing as given
+  assert.deepEqual(out.ws04Read, { status: 'read', mode: 'store' });
+  assert.deepEqual([out.ws04.status, out.ws04.admitted, out.ws04.why], ['held', 0, []]);
+  assert.deepEqual(out.ws04.observations[0].held, H);
+  assert.equal(out.ws04.observations[0].archive_epoch.why, 'covered_by_epoch');
+  assert.equal(out.ws04.store.generation, 'index_matches_manifest');
+  assert.equal(out.resident.assembled, false);
 });
