@@ -129,7 +129,10 @@ test('the scout guide follows training, muster, ready turn, send, receipt, and a
   const clock = { genesisTs: 0, window: () => 600, margin: 60 };
   const pending = scoutState(entry({ state: 2, fromBell: 11, readyBell: 11 }), { clock, nowBell: 11, chain: { now: () => 6700 } });
   const estimate = String(renderScoutAction(pending));
-  assert.match(estimate, /data-home-deadline="7260"/, 'activation waits for the issued bell’s seed, not merely the next turn');
+  // (2026-11-16: the shared phase-aware line, hud/firststeps.mjs formingLine — no countdown to an estimated total wait;
+  //  with the muster turn over and no herald facts read, it says only that the scouts stand once that turn is resolved)
+  assert.doesNotMatch(estimate, /data-home-deadline/, 'no estimated total wait is promised');
+  assert.match(estimate, /は編成中です。編成したターンが決着すると整列します。/);
   const overdue = String(renderScoutAction({ ...pending, nowBell: 13, chain: { now: () => 7800 } }));
   assert.match(overdue, /世界の処理で編成が反映されると/);
   assert.doesNotMatch(overdue, /data-home-deadline|第14ターン/, 'an overdue activation never invents a moving next turn');

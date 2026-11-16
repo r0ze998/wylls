@@ -16,7 +16,8 @@ import { sealLine } from '../hud/glossary.mjs';
 import { icon } from '../hud/icons.mjs';
 import { cardHead } from './parts.mjs';
 import { activeHolding } from '../fstate.mjs';
-import { SCOUT, SETTLER, actionBlocks, ticketTimes } from '../fland.mjs';
+import { SCOUT, SETTLER, actionBlocks } from '../fland.mjs';
+import { formingLine } from '../hud/firststeps.mjs';
 import { hostRows, homeProvinceUnread } from './host.mjs';
 import { countdown } from '../clock.mjs';
 import { territoryEnabled } from '../territory.mjs';
@@ -271,10 +272,12 @@ export function renderScoutAction(FS) {
   }
   const forming = rows.find(r => r.state === 2);
   if (forming) {
-    const now = FS.chain?.now?.() ?? 0;
-    const due = FS.clock && Number.isInteger(forming.fromBell) && forming.fromBell > 0 ? ticketTimes(FS.clock, forming.fromBell - 1).resultAbout : null;
-    return html`<p class="home-status" role="status">${L`編成の反映を待っています。`}</p>
-      ${due !== null && due > now ? html`<p class="guide-build-clock"><span>${L`反映の目安まで（ゲーム内）`}</span><span data-home-deadline="${due}">${countdown(due - now)}</span></p>` : html`<p class="muted">${L`世界の処理で編成が反映されると、ここから探索を始められます。`}</p>`}`;
+    // (2026-11-16: where the muster turn really is — the shared phase-aware line, hud/firststeps.mjs formingLine, as the
+    //  conquest guide says it for a forming host —, not a countdown to one estimated total wait: the village ticket's
+    //  resultAbout ran out while the scouts still waited for the key or the draw. No time is promised that the turn's
+    //  pipeline does not name.)
+    return html`<p class="home-status" role="status">${L`編成の反映を待っています。`}</p><p>${formingLine(FS, forming)}</p>
+      <p class="muted">${L`世界の処理で編成が反映されると、ここから探索を始められます。`}</p>`;
   }
   const resting = rows.find(r => r.readyBell > bell);
   if (resting) return html`<p class="home-status" role="status">${L`斥候隊は第${fmtNum(resting.readyBell)}ターンまで休息しています。`}</p>`;
