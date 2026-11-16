@@ -26,7 +26,7 @@ With the bit it would report `0x4C04` (19460).
 | `frontier-node/crates/herald/src/local_play.rs:56,151` | the herald's local-play metadata (`program_version is not 0x4804`) |
 | `frontier-node/crates/itest/src/expedition_play.rs:77,88` | the runner (compile-time assert against the wire version) |
 
-## So
+## So — adopted for this candidate (2026-11-16): keep 0x4804, bit 0x0400 reserved only
 Applying the bit is a coordinated change across the page, the gateway, the herald and the runner (the ten files in the table above)
 plus a rebuilt and re-pinned program. Until the land preview leaves local TEST-ONLY worlds, keeping `0x4804` is the
 smaller risk; the launcher already tells land worlds apart by the runner's own `land_preview` statement

@@ -53,7 +53,7 @@ How the evidence was taken (2026-11-16):
 | `permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-prepared-report-heap256k.json` | A | expedition (Rust, own workspace) | adopt (2026-11-16 10:00) | read by keeper `experimental_expedition_depart_prepare` (10/10), which fails when this fixture is stale |
 | `permutation-frontier/runtime-contract-tests/support/src/lib.rs` | M | expedition (Rust, own workspace) | adopt (2026-11-16 10:00) | `cargo +1.95.0 test --offline --locked -p permutation-frontier-runtime-contract-tests --lib --features expedition-dispatch-experimental,system-cpi-tests --target aarch64-apple-darwin proc::wide::expedition_dispatch_tests::depart_message::` 5/5 (listed first: exactly 5), guarded |
 | `permutation-frontier/runtime-contract-tests/support/src/unsigned_message.rs` | A | expedition (Rust, own workspace) | adopt (2026-11-16 10:00) | the depart_message tests above 5/5 (no key, signature, transaction, bank or SBF VM) and `-p runtime-contract-support --lib unsigned_message` 4/4 |
-| `permutation-frontier/src/proc/wide_expedition_close_positive_unexecuted.rs.txt` | A | unexecuted code text | hold | not compiled; the expedition lane decides |
+| `permutation-frontier/src/proc/wide_expedition_close_positive_unexecuted.rs.txt` | A | unexecuted code text (future reference) | not needed for adoption (kept, not deleted) | its own header: "NONCOMPILED REFERENCE ONLY. Positive test blocked by independent audit" (SDK assign/resize soundness); nothing references it; the compiled `wide_expedition_close_tests.rs` is its refusal-only counterpart and names it as the uncompiled proposal; the successful close itself is covered by the compiled runtime-contract test `runtime_contract_member_return_diversions_retained_close_and_refusals` 1/1 (2026-11-16, guarded) |
 | `permutation-gateway/screens/codex-route-preview.screen.mjs` | M | restricted | boundary: not run, not changed | NFT-resident / wallet / boundary control / prize stub |
 | `permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-heap256k-rust.json` | A | test fixture | adopt | read by the passing expedition / seal tests |
 | `permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-rust.json` | A | test fixture | adopt | read by the passing expedition / seal tests |
@@ -95,12 +95,12 @@ How the evidence was taken (2026-11-16):
 | `scripts/build-frontier-localnet-expedition-sbf.sh` | A | build script | adopt (2026-11-16 10:00) | its build (build-frontier.sh lane: `cargo-build-sbf --tools-version v1.52 --arch v2 --features localnet-expedition-sbf --offline --skip-tools-install -- --locked`) run guarded with a separate out dir; build-frontier.sh's own `check` (lines 92–140, verbatim) passes: SBPF v2, overflow checks, expedition marker only, 0 data relocations; .so sha256 f2f033281f695e2f…, 3,377,056 B. The script itself was not run as is (it pins a new in-tree target) |
 | `workstreams/15-coop-outcomes/results/long-run.json` | M | generated timings | hold (record only) | only totalMs/perWindowMs changed; output of workstreams/15 test/long-run.mjs |
 
-Totals: adopt: 46 + 4 adopted on 2026-11-16 10:00 (runtime-contract-tests 3, expedition SBF script 1) = 50, adopt as record: 22, boundary: not run, not changed: 4, hold: 1, hold (record only): 1, not adopted (left in place, not deleted): 1 (of 79)
+Totals: adopt: 46 + 4 adopted on 2026-11-16 10:00 (runtime-contract-tests 3, expedition SBF script 1) = 50, adopt as record: 22, boundary: not run, not changed: 4, hold: 0, not needed (future reference): 1, hold (record only): 1, not adopted (left in place, not deleted): 1 (of 79)
 
 ## Notes on the holds and the one not adopted
 - `en-frontier-play.mjs.orig`: not needed by the candidate — no import, no script or test loads it; it is an older copy of
   the play dictionary (it differs from round 49's file from line 161 on). Left in place; nothing deleted, in canonical or here.
 - runtime-contract-tests (3 files) and `build-frontier-localnet-expedition-sbf.sh`: verified 2026-11-16 10:00 after the
   approved scratch cleanup (free 23.5–24 GiB), in APFS-clone targets under the guard and the 21 GiB floor — adopted (rows above).
-- `wide_expedition_close_positive_unexecuted.rs.txt`: code kept as text by the expedition lane; not compiled anywhere.
+- `wide_expedition_close_positive_unexecuted.rs.txt`: future reference only — the positive close it proposes is covered by the compiled runtime-contract settlement test (1/1); not needed for adoption; left in place.
 - `long-run.json`: machine timings of a coop evaluator run; no test asserts them.

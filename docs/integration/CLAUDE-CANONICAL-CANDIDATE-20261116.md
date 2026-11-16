@@ -98,10 +98,21 @@ branch; workstream 20's 0xE0–0xE7 by the existing assertion. No other first-by
   program_hash 2752619fdd7fb4dc…, 3,377,056 B. Not deployed; no world.
 - Inventory now: 50 adopt, 22 records, 1 hold (`.rs.txt`), 1 record-only hold (`long-run.json`), 1 not adopted, 4 restricted.
 
-## Left before canonical takes it
-1. The canonical owner checks bcc63a24 on its own (it is unverified).
-2. Rust: DONE for the land scope above, including the land SBF build (byte-identical to the pin) and the tag audit.
-3. `.orig`: not needed (inventory). Land tags: rev 7 proposal written; the integrator confirms it (and decides on the 0x0400 bit).
-4. A real TEST-ONLY world with the owner's go (ops: `scripts/play2-land-ops/`, fail-closed; never run for real yet):
-   none of the fixes since land5 (block reasons, S1 ore, English, return card, far-land chip) has been seen in a world.
-5. Natural-speed world; phone width (PC first, owner).
+## Conditions for canonical to take this candidate (2026-11-16)
+Met on the candidate (evidence above and in the linked docs):
+- every path both sides changed is merged (herald Cargo.toml: both lines; fold.rs: auto-merged) and builds/tests: herald with
+  both features, land_capture, expedition_records, lib; rules/abi land + default; program checks; itest land_lane;
+- the WIP's 79 files: 50 adopted on per-file evidence, 22 records, 1 future-reference `.rs.txt` (not needed), 1 record-only
+  (`long-run.json`), 1 not adopted (`.orig`), 4 restricted (not run, not changed) — CLAUDE-WIP-BCC63A24-INVENTORY-20261116.md;
+- land SBF from this tree = the pinned land4/play2 program (f2e64442…); expedition SBF built and checked (f2f03328…);
+- ABI rev 7 adopted for this candidate: 0xCD/0xCE land, 0xCF reserved, version kept at 0x4804 (0x0400 reserved only);
+- ordinary-only gateway subset 0 fail; screens first-session, maptap, block reasons, conquest-press, return card pass.
+Still required before canonical merges it (none is met here):
+1. the canonical owner (or integrator) accepts the WIP inventory's decisions, in particular the 4 restricted files left
+   untested and the `.orig`/`.rs.txt` left in place;
+2. a real TEST-ONLY world on these binaries with the owner's go (ops: scripts/play2-land-ops, fail-closed): none of the
+   page fixes since land5 (block reasons, S1 ore, English, return card, far land, yield per hour) has been seen in a world;
+3. if land ever leaves local TEST-ONLY worlds: the version bit and its 10 exact gates (CLAUDE-LAND-VERSION-BIT-COMPAT-20261116.md);
+4. a natural-speed world and phone width (PC first, owner) stay open.
+How to take it: fast-forward is impossible (canonical is bcc63a24, an ancestor); merge `claude/canonical-candidate-20261116`
+into `codex/wide-conquest-lifecycle-20261109` without force, or cherry-pick its merge commits; no reset, no force push.
