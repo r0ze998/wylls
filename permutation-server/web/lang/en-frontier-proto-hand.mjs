@@ -161,7 +161,7 @@ export default {
   '同じ国の仲間の旗': 'A banner of a nation-mate',
   '同じ国の{0}の旗': 'A banner of your nation-mate {0}',
   '{0}の旗（{1}）': 'A banner of {0} ({1})',
-  '国境に触れています：向かいの国には{0}ターンで取られます': 'Touches the border: the neighbour can take it in {0} turns',
+  '国境に触れています：向かいの国には{0}ターンで取られます': n => plural(n, 'Touches the border: the neighbour can take it in {0} turn', 'Touches the border: the neighbour can take it in {0} turns'),
   '国境に触れています：向かいの国には早く取られます': 'Touches the border: the neighbour can take it sooner',
   'あなたの旗が狙われています。いつ取られてもおかしくありません': 'Your banner is under threat: it can be taken at any moment',
   '到着：ターン {0}・{1}の旗が立つマスです。ここに立ちつづけると、その旗を取るか倒せます': 'Arrives on turn {0}: the pole of a banner of {1}. A host that keeps standing here can take that banner or pull it down',
