@@ -154,3 +154,16 @@ OTHER village:
 - `web-frontier-first-village-ui.test.mjs`: the estimate assertion now expects the phase line and no deadline.
   **Not run** (key-free runner refusal not bypassed). Checked: node --check, git diff --check, the source trace.
 - EN entries 「反映の目安まで（ゲーム内）」 / 「編成の反映の目安まで {0}」 left in place (no deletion).
+
+## First session: display, cancel and repeated presses — static audit (2026-11-16, Claude; no change)
+- Home choice: `home-pick` / `home-refresh` refuse while `homeChoice.busy`; `confirmHome` sets busy, re-checks a saved
+  pending Join/PlaceHome (local play by its own scope, else by its signature) and sends nothing in its place while the
+  outcome is unknown — no double application on a repeated press.
+- Scout train / muster (`home-scout-train`, `home-scout-muster`): `homeAction` refuses while busy or an order is in
+  flight, and clears busy only after the refresh, so a second press cannot re-send before the card has changed.
+- March draft 「やめる」 (`compose-close`) cancels an armed waiting send first ("取り消しました。命令は送られていません").
+- Candidate, NOT fixed (not clear): `cg-go` (the conquest guide's press, app.mjs) drops the draft with `FS.compose = null`
+  without that cancel. Nothing is sent (the driver sees another card and withdraws), but its notice would give the
+  reason 'changed'. The drawer shows the order card, not the guide, while a draft is open (hud/drawer.mjs), so whether
+  `cg-go` can be pressed then (the attention pill) was not traced. Local play's test entry only.
+- Not covered: any of this pressed in a browser or a world.
