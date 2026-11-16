@@ -238,4 +238,38 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   existing sentence. Test web-frontier-muster-province-full 4/4.
 - Buildings, promotion, Train, Harvest: audited, no gap (production cap 1,000/h left to the program: not reachable).
 - Ordinary subset 1793: 1792 pass, 0 fail, 1 skipped. Candidate merges d9e12b9d, 228ec445; note cf79d9b5.
-- Next (open): the Garrison form's Spearman reserve and the garrison's room (30,000 after pending changes).
+- 80c51b92: garrison — the form's number checked as garrison_as does (whole from 1, the Spearman reserve, the room
+  30,000 less troops and pending after the resolved ones); not under the wide card. Test 5/5; ordinary subset 1798:
+  1797 pass, 0 fail, 1 skipped. Candidate merge edafa56b. A first version broke web-frontier-wide-holding-ui
+  (refused before WideReadOnly); narrowed before commit.
+- The village actions audit (Build, walls, promotion, Train, Harvest, Muster, Garrison) is complete for what the page
+  holds. Not re-audited: the muster troop count's 100–30,000 per form and the muster tile.
+
+## 2026-11-16 — Muster troop count / tile, Explore tiles
+- Audited read-only, no refusal gap: the drawer's 100–30,000 is held by the input and the browser's validation before
+  the submit handler; the hand clamps; Settlers excluded; the drawer's tile is the village site (passable by
+  construction), the hand's tiles are passable; Explore offers passable unexplored neighbours (the program accepts more).
+- No code change, no test added, no suite run for this step. Candidate note fb4d457a.
+- Open for the owner (not changed): the page is stricter than the program in two places — musterTiles' "six to a
+  tile" and exploreTargets leaving out the host's own and impassable tiles.
+
+## 2026-11-16 — march / arrival / return, keyless
+- Muster's six-to-a-tile and Explore's targets: kept as they are (owner: design decisions).
+- Return audited: a march with the village as destination; hand-return switches to the host's own village first. No
+  mismatch, no code change.
+- Not done: round 28's open-gate case for a host of another village through the real controller — it needs the
+  memory-only test wallet (a key in memory), outside this round; a keyless test would need a controller test seam (not
+  made). The pure contract (localMarchOpen) is already tested.
+- Unit runs on the candidate: 30/30 and 53/53 (march/arrival/return files). One of them, web-frontier-local-play-return,
+  is a key-using test (memory-only WebCrypto key, no network) and was run before its header was read; it is also in the
+  ordinary subset. No suite run, no fix. Candidate note 98738ff2.
+- World-only items unchanged (landing send, credited land yield, far land, catching-up live, rounds 44–45, natural speed).
+
+## 2026-11-16 — test runs stopped; key-free check of two fix tests
+- Stopped by the owner: no ordinary-subset run and no key-using test from here on. The subset (193 files) included 15
+  key-using and 78 possibly key-using files (scripts/ci/node-key-tests.txt); it ran today without no-keys-guard.
+- Static boundary for web-frontier-build-walls-items and web-frontier-muster-province-full: no key API, network,
+  process or restricted call on the tested paths (details: candidate gap note fb569acb).
+- `node-keyfree.sh` on those two files from the export: REFUSED, exit 5 — 10 stale entries in
+  scripts/ci/node-key-reviewed.txt. Nothing ran; not a success; not retried or bypassed; lists and guard unchanged.
+- Key-free status of today's normal-game fixes: none confirmed under the key-free runner (only unguarded runs).
