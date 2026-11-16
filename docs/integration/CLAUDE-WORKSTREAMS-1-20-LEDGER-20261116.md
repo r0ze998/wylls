@@ -308,7 +308,7 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   finished building or promotion. Fixed in e87faba3: the chip call passes settledHolding(lh, now). map/minimap untouched.
 - Test web-frontier-land-chip-settled.test.mjs: 5/5 with the fix, 4/5 without (call pinned as text); that file only.
 - Key: none. Signing: none. Network: none. Storage: none. Free space 21.98 GiB before the run.
-- Lane C E1 already in (41fb12a8), separate. Untracked files in this checkout, not mine, untouched:
+- Lane C E1 already in (41fb12a8), separate. Untracked in the CANONICAL checkout (bcc63a24), not mine, untouched:
   CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json, CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before-files.tar,
   permutation-gateway/screens/node_modules.
 - Candidate merge 372f778b, note in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116.
