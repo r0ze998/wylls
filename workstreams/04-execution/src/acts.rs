@@ -11,6 +11,7 @@
 //! | `commitment` | the confirmation status the node reported (`processed`, `confirmed`, `finalized`) |
 //! | `final` | `landed`, `failed`, `expired` and `not-sent` never change once recorded |
 //! | `cancel` | the gateway signs and sends in one step: before an answer `NotSupported` (④ cannot stop it), after a send `Irrevocable` until `lastValidBlockHeight` |
+//! | `code` | the gateway's own code word for this key's entry, as its fate read gave it (`Duplicate`, `SendFailed`, a refusal's code), or null; recorded as read, never interpreted here |
 //!
 //! The registry keeps the last reading of each act durably, so a restart
 //! answers from it and an unreadable gateway never erases what was known: a
@@ -281,6 +282,11 @@ pub fn receipt(store: &Store, id: &str) -> Result<Value, String> {
         "slotFloor": f["slotFloor"],
         "commitment": f["commitment"],
         "why": f["why"],
+        // (2026-11-17) The gateway's code for this key's entry, already in the recorded reading (refresh keeps the
+        // whole answer). Added alongside, as `next` and `newAttemptAllowed` were under the same receiptVersion: a
+        // reader that does not know it is unaffected. It lets a reader see that the entry is a Duplicate, whose
+        // signature and state are the EARLIER send's (gateway.mjs actionFateView), not this key's own send.
+        "code": f["code"],
         "lastReadError": f["lastReadError"],
         "conflict": f["conflict"],
         "cancellable": false,
