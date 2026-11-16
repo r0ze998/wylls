@@ -244,6 +244,10 @@ const I64_MAX = 0x7fffffffffffffffn;
 const clampBig = (n, min, max) => n < min ? min : n > max ? max : n;
 /** Economic dormancy still uses Holding::DORMANT_AFTER, not the season's lifecycle timer. */
 export const ECONOMIC_DORMANT_SECS = 5 * 86400;
+/** Store slots and the S1 workshop's conversion (permutation-rules arms.rs ARMS = Horses, ORE_PER_ARM, WOOD_PER_ARM, WORKSHOP_DELTA). */
+const ORE_SLOT = RESOURCE_ORDER.indexOf('Ore'), ARMS_SLOT = RESOURCE_ORDER.indexOf('Horses');
+const CONVERSION_INPUTS = Object.freeze([[ORE_SLOT, BigInt(WORKSHOP.orePerArm)], [RESOURCE_ORDER.indexOf('Wood'), BigInt(WORKSHOP.woodPerArm)]]);
+const WORKSHOP_DELTA_MILLI = BigInt(WORKSHOP.perHour) * 1000n;
 
 function settleAccrual(a, t) {
   if (t <= a.t0) return 0n;
@@ -277,14 +281,66 @@ export function projectedHolding(holding, now) {
   if (time < h.stores[0].t0) return h;
   const dorm = holding.lastOwnerAction === undefined ? null : BigInt(holding.lastOwnerAction)+BigInt(ECONOMIC_DORMANT_SECS);
   const settle = t => { for (let i=0;i<h.stores.length;i++) { const short = settleAccrual(h.stores[i],t); if(i===0) h.foodShortfall = clampBig(h.foodShortfall+short,0n,I64_MAX); } };
-  const rates = t => { for(let i=0;i<h.stores.length;i++) { const prod=clampBig(h.production[i],0n,1000000n); h.stores[i].rate=(dorm!==null && t>=dorm ? prod/2n : prod)-clampBig(h.upkeep[i],0n,100000000000n); } };
+  // (lane C P1, 2026-11-16: the rates the rules' Holding sets (permutation-rules holding.rs net_rate, full_rates,
+  //  limited_rates, lent_arms, dry_after/dry_at). The S1 workshops turn ore and wood into arms (ORE_PER_ARM 2,
+  //  WOOD_PER_ARM 1 per arm), lent copies make nothing here, and when an input would go below 0 they run limited from
+  //  that moment. The page set every rate to production − upkeep after a completion or dormancy, so a village with
+  //  workshops was shown its ore and wood without the workshops' use. A holding with no arms production (every M1 and
+  //  MC holding) gets exactly the plain net rates, as before.)
+  const isDorm = t => dorm!==null && t>=dorm;
+  const netRate = (i,dormant) => { const prod=clampBig(h.production[i],0n,1000000n); return (dormant ? prod*5000n/10000n : prod)-clampBig(h.upkeep[i],0n,100000000000n); };
+  const ownArms = () => { if(h.stores.length<=ARMS_SLOT) return 0n; const p=clampBig(h.production[ARMS_SLOT] ?? 0n,0n,1000000n)-BigInt(Number(holding.lentWorkshops ?? 0))*WORKSHOP_DELTA_MILLI; return p>0n ? p : 0n; };
+  const armsOut = dormant => dormant ? ownArms()*5000n/10000n : ownArms();
+  const lentArms = dormant => { const all=clampBig(h.production[ARMS_SLOT] ?? 0n,0n,1000000n); return (dormant ? all*5000n/10000n : all)-armsOut(dormant); };
+  const fullRates = dormant => {
+    const r=h.stores.map((_,i)=>netRate(i,dormant)), out=armsOut(dormant);
+    if(out>0n) for(const [i,per] of CONVERSION_INPUTS) r[i]-=out*per;
+    if(ARMS_SLOT<r.length) r[ARMS_SLOT]-=lentArms(dormant);
+    return r;
+  };
+  const limitedRates = dormant => {
+    const r=h.stores.map((_,i)=>netRate(i,dormant)), out=armsOut(dormant);
+    if(out===0n) { if(ARMS_SLOT<r.length) r[ARMS_SLOT]-=lentArms(dormant); return r; }
+    let share=10000n;
+    for(const [i,per] of CONVERSION_INPUTS) { const s=(r[i]>0n ? r[i] : 0n)*10000n/(out*per); if(s<share) share=s; }
+    for(const [i,per] of CONVERSION_INPUTS) r[i]-=out*per*share/10000n;
+    r[ARMS_SLOT]-=out-out*share/10000n;
+    r[ARMS_SLOT]-=lentArms(dormant);
+    return r;
+  };
+  const dryAfter = rs => {
+    if(ownArms()<=0n) return null;
+    let first=null;
+    for(const [i] of CONVERSION_INPUTS) {
+      if(rs[i]>=0n) continue;
+      const s=h.stores[i], exact=(s.value>0n ? s.value : 0n)*BigInt(HOUR)+s.frac, secs=clampBig(exact/(-rs[i]),0n,I64_MAX);
+      first=first===null || secs<first ? secs : first;
+    }
+    return first;
+  };
+  const dryAt = () => {
+    if(ownArms()<=0n || h.stores.length<=Math.max(ARMS_SLOT,...CONVERSION_INPUTS.map(([i])=>i))) return null;
+    const t=h.stores[0].t0, full=fullRates(isDorm(t));
+    if(h.stores.some((a,i)=>a.rate!==full[i])) return null;
+    const d=dryAfter(full); return d===null ? null : t+d;
+  };
+  const setRates = rs => { for(let i=0;i<h.stores.length;i++) h.stores[i].rate=rs[i]; };
+  const rates = t => { const full=fullRates(isDorm(t)); setRates(dryAfter(full)===0n ? limitedRates(isDorm(t)) : full); };
   while (true) {
     const t0=h.stores[0].t0;
     const due=h.queue.map((q,i)=>({q,i})).filter(({q})=>q && [1,2,3].includes(q.kind) && BigInt(q.doneAt)>0n && BigInt(q.doneAt)<=time)
       .sort((a,b)=>Number(BigInt(a.q.doneAt)-BigInt(b.q.doneAt)) || a.i-b.i);
     const next=due.length ? (BigInt(due[0].q.doneAt)>t0 ? BigInt(due[0].q.doneAt) : t0) : null;
-    if(dorm!==null && dorm>t0 && dorm<=time && (next===null || dorm<next)) { settle(dorm); rates(dorm); continue; }
-    if(next===null) break;
+    // the rules' order (Holding::settle): a completion, then dormancy, then a dry input; each only if none before it
+    const dormDue=dorm!==null && dorm>t0 && dorm<=time;
+    const dryT=(d => d!==null && d<=time ? d : null)(dryAt());
+    const dryFirst=x => dryT!==null && dryT<x;
+    const completion=next!==null && (!dormDue || next<=dorm) && !dryFirst(next);
+    if(!completion) {
+      if(dormDue && !dryFirst(dorm)) { settle(dorm); rates(dorm); continue; }
+      if(dryT!==null) { settle(dryT); setRates(limitedRates(isDorm(dryT))); continue; }
+      break;
+    }
     settle(next);
     const oldTier=Number(h.tier ?? 0);
     for(const {q,i} of due.filter(({q})=>BigInt(q.doneAt)<=next)) {
@@ -302,7 +358,13 @@ export function projectedHolding(holding, now) {
       // (lane C E1, 2026-11-16 — S1: the program's settle_tiered applies arms::base_production, whose ore entry is the
       //  village's terrain ore under the tier bonus; while the terrain is not known the M1 base is used, as rulebook
       //  copyNumber does. Off S1 seasonBase returns the M1 base unchanged.)
-      const tierBase=t=>{ const m1=baseProduction(t); return seasonBase(m1,holding,{bonusPct:TIER_BONUS_PCT[t]??0}).map((v,i)=>v ?? m1[i]); };
+      // (lane C P2, 2026-11-16 — the terrain ore the program uses is the one stored on the holding (holding2
+      //  TERRAIN_ORE, read by proc/holding.rs terrain_ore for every settle_tiered), not the map's reading: on S1 the
+      //  decoded `terrainOre` is used when present, so neither an unread map nor a differing map reading changes it.)
+      const stored=s1On() && typeof holding.terrainOre==='bigint' ? (holding.terrainOre>0n ? holding.terrainOre : 0n) : null;
+      const tierBase=t=>{ const m1=baseProduction(t), bonus=BigInt(100+(TIER_BONUS_PCT[t]??0));
+        if(stored!==null) return m1.map((v,i)=>i===ORE_SLOT ? stored*bonus/100n : v);
+        return seasonBase(m1,holding,{bonusPct:TIER_BONUS_PCT[t]??0}).map((v,i)=>v ?? m1[i]); };
       const before=tierBase(oldTier),after=tierBase(Number(h.tier));
       h.production=h.production.map((p,i)=>p+after[i]-before[i]);
     }
