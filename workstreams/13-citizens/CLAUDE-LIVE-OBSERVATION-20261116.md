@@ -481,3 +481,57 @@ So the preview is **not** the decision a step would make. It is the candidate se
 
 - **Today** a preview can be filled only from the test world. Live sources cover the frame, the Season bell and the (non-chain) evidence. Everything a candidate is built from (villages, quota, events, board, charter, state, episodes) has no adopted live source.
 - **Nothing is filled in:** a missing field is refused by name. No unknown becomes zero or false, and no Season bell is used as a test-world turn.
+
+## The resident's entry: what is missing, kept apart from 4's admission, and the next steps (2026-11-17, source only)
+
+### 1. Missing for a production resident (13; from `resident.mjs`, `assembly.mjs` REQUIREMENTS)
+
+| Gap | Source | Kind of decision |
+|---|---|---|
+| no production assembly; the only `new Resident(` is `world/harness.mjs` (the test world) | `harness.mjs:48` | which program runs a resident, and where (13 + owner) |
+| no read-only path: `step()` = `assertPort(execution)` → observe → join → reconcile → … → budget hold → provider → send | `resident.mjs` `step`, `#decide`, `#enact` | a read-only mode of `step`, or a separate consumer of `ports.evidence` (13 design; owner) |
+| identity: the constructor makes and saves a key unless one is handed in | constructor | key custody (owner) |
+| observe: only the test world's shape exists | `harness.mjs portsFor` | a live observe contract (below) |
+| join / execution / board / provider / cost: all act, sign, post or spend | `#enact`, `#decide`, `step` | authority, budget and model use (owner; out of scope) |
+| time: the agent ledger's clock is `GENESIS_SECS + bell × BELL_SECS` (its own UTC-midnight genesis) | constructor (`AgentLedger now`) | whether a Season bell can drive the ledger day (13) |
+
+### 2. Missing for 4's real-data admission (4; separate)
+
+- **What it touches:** only the *records* behind evidence: caravan settled and raided. Not the resident's observe, execution or identity.
+- **Today's state:** 4's `ws04-observation/0` page is held with its four reasons per observation and three per page (§ above), and 12 never ingests it.
+- **What admission needs** (4's own list): raw transaction and frame proof, a world and source binding, finalized context, a record identity and replay contract, and a reader on a command line.
+- **Independent of §1:** closing §1 would not admit 4's records, and admitting them would not give a resident an entry.
+
+### 3. Herald → observe fields: connectable without losing meaning, or not
+
+| Field the resident reads | Live source with an adopted meaning | Verdict |
+|---|---|---|
+| `observe.world` / `observe.clock` (the frame) | 12 `worldFromSeason(/h/season)` | **connectable** (already in `observeLive`) |
+| `world.bell` | 12 `currentBellFromSeason`: the Season bell | **connectable as a Season bell only**, with a resident whose clock is the Season clock. Not a test-world turn |
+| own village `stores` | `/h/me` holdings (`bytes_b64`) → the client codec's `decodeAccount` → the gateway runner's existing `villageState({holding, now, profile ≥ 3})`: S1 names (`RESOURCES_S1`, the same list `rules.mjs` uses), whole units, projected to `now` as the owner's page does | **connectable for the viewer's own village only.** The projection to `now` (`latestUnix`) is part of that meaning |
+| own village `building` (the queue) | `villageState.queue`: `{what: "<resource> building", done_in_s}`; the queue's `ARG` is a resource index, not a `CATALOG_S1` item | **not connectable as is:** the item is not named, and `done_in_s` → `doneBell` is a time conversion that needs a rule. 12's `clockFromGenesis` converts a timestamp to a bell, but nothing says the queue's `DONE_AT` is to be read that way here |
+| own village `buildings` (built items) | not in `villageState` | **missing** |
+| village `citizen` / `owner` | S1: a citizen tag / address and a wallet (`/h/me`); the test world: `c<n>` and a key | **not the same identifier**; `st.citizen`, `aliases` and board ids are `c<n>` |
+| other villages (`stores`, `owner`) | not in `/h/me`; no adopted public source maps them | **missing** |
+| village `pos` (caravan time, `caravanBells`) | S1 places are (p, q, site) and a route of provinces; the test world uses a flat hex `{q, r}` | **not connectable:** another geometry and another travel rule |
+| `world.me.quota` | `/h/me.quota` = the relay's `/f/quota` answer, passed through or `null` | **missing:** no field mapping; `null` must stay unknown |
+| `world.events` | `/h/events`: PS2 kinds; the test world uses `Joined` / `CaravanRaided` / `BuildDone` / … | **missing:** another vocabulary |
+| `board.requests` / `replies` | none (no live board) | **missing** |
+
+**No adapter written.**
+- The only field that keeps its meaning end to end beyond the frame and the bell is the viewer's own `stores`, and the existing `villageState` already gives it.
+- A new helper would duplicate it, and stores alone make no consumer work: `buildCandidates` also needs `buildings`, `building`, `pos`, `quota`, `events`, the board and other villages, and there is no resident entry to consume it.
+
+### 4. Next steps (decisions, then work)
+
+1. **The live observe contract.** Two options:
+   - **(a)** the resident reads an S1 view (the gateway runner's `AgentObserver` / `villageState` shape: stores, queue, province) and its candidate code is adapted to S1 (13's design changes; the test world would adopt the same shape);
+   - **(b)** S1 is mapped into the test world's shape: lossy. `buildings`, `pos`, `events`, the board and other villages have no source, so most fields would be missing or invented.
+
+   (a) is the one that loses no meaning; (b) cannot be filled without inventing values. Owner and 13.
+2. **A read-only consumer of the evidence:** a read-only `step` mode, or a separate consumer. `previewDecision` covers the part before the provider.
+3. **Identity and key custody** for a production resident.
+4. **The ledger's clock** under a Season bell.
+5. **4's admission evidence**, independently: the world binding, finality, record identity, the committed frame, and a reader on a command line.
+
+Nothing here was implemented, run, signed, spent or sent. WS4's unproven or held data stays held.
