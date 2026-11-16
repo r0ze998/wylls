@@ -237,7 +237,8 @@ export function conquestObjective(FS) {
         go = { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` };
       } else {
         text = L`${back}${who}の軍勢が立ちました。${closed}`;
-        go = { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
+        // (a host of another village: its forts card — the open village's Hosts tab does not list it)
+        go = vi !== openIndex(FS) ? { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`軍勢の準備を確かめる` } : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
       }
     } else if (ready && best && best.odds !== 'good') {
       // the host as it stands would most likely be turned back: say so, and how many it takes, before it goes

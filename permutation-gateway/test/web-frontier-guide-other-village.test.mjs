@@ -114,6 +114,13 @@ test('one village: the presses are exactly as before (no village named)', () => 
   const FS = world({ a: { production: built() }, aEntries: [o => hostOf(o)], only: true });
   assert.deepEqual(conquestObjective(FS).go.data, { pop: 'keeps', host: String(hostOf(FS.holdings[0]).id) });
 });
+test('local play with its march closed, the host in the first village, the second open: its forts card, not the empty Hosts tab', () => {
+  const closed = FS => Object.assign(FS, { localPlay: { address: 'x' }, localMarch: { open: false, reason: 'LocalMarchNotReady' } });
+  const FS = closed(world({ a: { production: built() }, aEntries: [o => hostOf(o)], active: 1 }));
+  assert.deepEqual(conquestObjective(FS).go.data, { pop: 'keeps', host: String(hostOf(FS.holdings[0]).id) });
+  const one = closed(world({ a: { production: built() }, aEntries: [o => hostOf(o)], only: true }));
+  assert.deepEqual(conquestObjective(one).go.data, { tab: 'hosts' }, 'one village: as before');
+});
 test('the map\'s guide points at the village the press names (hud/guide.mjs guideTarget; app.mjs guideGo opens it)', () => {
   const reserve = Array(8).fill(0); reserve[0] = 200;
   const t = guideTarget(world({ a: { reserve }, active: 1 }));
