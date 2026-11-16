@@ -139,3 +139,18 @@ OTHER village:
   key-free runner's stale reviews; not retried, not bypassed, runner unchanged). Other 「約11〜21分」 lines remain for
   the village application (join), a separate context not in this change.
 - Integration merge 5877d468, candidate merge a0b3cf99; the dissolve, 次の軍勢, land chip and minimap fixes are still in.
+
+## The forming scout card and the shared phase-aware line (2026-11-16, Claude; the follow-up named in CODEX-SAKURAI-SCOUT-WAIT)
+- Mismatch: `screens/onboarding.mjs renderScoutAction`, scouts forming, counted down to `ticketTimes(...).resultAbout`
+  (the village ticket's one estimated total wait). After the muster turn ended, with the key or the draw later than
+  that, the countdown ran out while the scouts still waited. The first-session review's shared rule
+  (`hud/firststeps.mjs`) shows a countdown only where the turn's pipeline names a time, and the conquest guide says a
+  forming host's phase with `formingLine`.
+- Fix (integration c7533214, candidate merge d5800fca): the scout card uses the same `formingLine`; its status line and
+  its "explore from here" line stay. No new words (every JA string has its EN entry), no rule or timer. Static trace:
+  turn running → the turn's end; key awaited → no time; seals opened → their deadline; draw awaited → its scheduled
+  time; resolved → stands on the map once the record is read, then the explore button. The line is redrawn when the
+  panel is (turn change, refresh), as in the conquest guide.
+- `web-frontier-first-village-ui.test.mjs`: the estimate assertion now expects the phase line and no deadline.
+  **Not run** (key-free runner refusal not bypassed). Checked: node --check, git diff --check, the source trace.
+- EN entries 「反映の目安まで（ゲーム内）」 / 「編成の反映の目安まで {0}」 left in place (no deletion).
