@@ -144,14 +144,74 @@ CIMD (ChatGPT's preferred registration) is not implemented; DCR, which ChatGPT s
 **The consent step:** `GET /oauth/authorize` serves a consent page (`src/http.mjs`) on which a browser wallet signs with `signMessage` (`window.solana` / Phantom); no key is typed. The test authorization server has no accounts: it authorizes a link the owner's wallet signs.
 
 **Missing or unverified, each a decision rather than a code fix:**
-1. **A public HTTPS origin** (a tunnel or a deployment) and its domain: operator infrastructure, not in the repository.
+1. **How ChatGPT reaches the server.** *Corrected 2026-11-17:* an earlier version of this item said a public HTTPS origin was required, which was too strong. The owner cites OpenAI's guide (`developers.openai.com/api/docs/guides/custom-mcp-server`), which describes a Server URL and also a Secure MCP Tunnel path; that page was not read here (no network).
+   - **What this repository implements:** the server listens on `127.0.0.1` over HTTP, and `WYLLS_MCP_ISSUER` names the origin it advertises (the launcher's comment: "https behind a tunnel for ChatGPT").
+   - **What it does not include:** any tunnel, any deployment, or any configuration for either path.
+   - **Not verified:** which path fits this server (its issuer and resource URL must match what ChatGPT is given) and how. This is a decision.
 2. **A production identity or authorization server.** `auth.mjs` says "a production deployment would put this behind a real identity provider", and only the test one exists. Whether the wallet-signed link may be used against ChatGPT is a policy decision.
 3. **The wallet in ChatGPT's OAuth window.** The consent page needs a browser wallet extension in whatever browser ChatGPT opens for OAuth. A desktop browser with the extension can, but a mobile app's in-app browser may not. Unverified.
 4. **Which ChatGPT plans and roles may add a custom MCP server.** The preflight already lists this as unverified.
 5. **An independent gap in an adopted contract: the shipped preflight command cannot check the public deployment.**
    - The library's contract is "`allowRemote` is for an approved deployment".
-   - But `bin/wylls-mcp-preflight.mjs` passes only `{client}`. So it refuses the public HTTPS URL, and on loopback the `chatgpt` profile fails the scheme check "by design".
-   - So there is no shipped way to preflight the very deployment ChatGPT would use.
+   - But `bin/wylls-mcp-preflight.mjs` passes only `{client}`. So it refuses any URL that is not on this machine, and on loopback the `chatgpt` profile fails the scheme check "by design".
+   - So there is no shipped way to preflight a deployment off this machine (whichever path reaches it).
    - **Candidate (not done):** an explicit `--allow-remote` flag on that command, never a default, used only for an approved deployment. It would get the same per-request checks, with redirects refused. This changes the command's interface (`bin/`, ③'s area), so it needs a decision.
 
 Nothing here was run, published, configured in ChatGPT, or connected to any account.
+
+## The preflight command: `--allow-remote`, JSON errors and exit codes (2026-11-17, written, not run)
+
+**Changed:** `workstreams/03-composability/mcp/bin/wylls-mcp-preflight.mjs` (now an exported `main(argv, {print, warn, fetch})`, run when it is the entry script), and a new `test/preflight-cli.test.mjs`. `src/preflight.mjs` is unchanged by this step.
+
+### Before, read statically
+
+| Case | Old behaviour |
+|---|---|
+| no URL | usage on stderr, exit 2 |
+| extra arguments | silently ignored (`url --allow-remote` made `--allow-remote` the client) |
+| unknown client, a URL that does not parse, a URL off this machine, a failed request | the library throws, nothing catches it: **a stack trace and exit 1**, the same code as "a check failed", and no JSON |
+| a URL off this machine for an approved deployment | no way to give `allowRemote`: the library's opt-in had no command-line form |
+
+### Now
+
+- **Arguments:** `<mcp url> [claude-code|claude|chatgpt] [--allow-remote]`.
+  - The only flag is exactly `--allow-remote`, given at most once; any other flag, a second flag, extra or missing positionals, an unknown client, or a URL that does not parse is usage.
+  - Usage means exit 2, on stderr, with nothing on stdout and nothing requested.
+- **Output and exit codes:**
+  - one JSON document on stdout;
+  - exit 0 when every check passed;
+  - exit 1 when a check failed, or when the preflight stopped with an error, printed as `{client, ok: false, error}` (for example the library's "this machine only" refusal, or a request that failed). A request that failed after others were made (registrations) is not undone, and the command says so in its header.
+- **`--allow-remote`** passes `allowRemote: true` to the library, **and nothing else.**
+  - It lifts the "on this machine" check for the URL given and for every URL the server under test names. Every request is still checked first (http or https, no credentials), redirects are still refused, and a refusal still stops it.
+  - It is never a default, and the command says on stderr that it is for an approved deployment only.
+
+### Who decides what
+
+- **The person running the command** chooses the opt-in by typing it. Nothing else can turn it on: there is no environment variable and no configuration file.
+- **The server under test** names the next URLs, as before. With the opt-in, those URLs may be any http(s) host, including private addresses reachable from this machine. That is the library's existing `allowRemote` meaning ("for an approved deployment"), not widened. Choosing which deployments are approved stays a decision for whoever runs it; no policy is invented here.
+
+**Compatibility:**
+- a healthy loopback run prints the same JSON and exits 0, as before;
+- callers that relied on extra arguments being ignored now get usage (exit 2);
+- callers that relied on a crash now get JSON with exit 1.
+
+### Static falsification of the command's contract
+
+- **Usage never requests anything:** the arguments are checked before `preflight` is called.
+- **Library refusals also come before any request** (the client, the URL, and off-machine without the flag), so they request nothing.
+- **The only way to reach a host off this machine is the typed flag:** `--allowRemote`, `--allow-remote=1`, `-x` and a repeated flag are usage.
+- **No credential is printed** from a refusal. The result's `url` field is the URL as the caller entered it, as before.
+- **An error message is cut to 300 characters**, and no stack is printed.
+- **Limit:** with the flag, the server under test can make this machine request hosts it names (the library's `allowRemote`). Use it only against a deployment someone approved.
+
+### Test (written, not run)
+
+`test/preflight-cli.test.mjs`, 4 cases with a fake `fetch`:
+1. **Nine usage errors:** exit 2, nothing on stdout, nothing requested.
+2. **Without the flag:** an off-machine URL is JSON with exit 1 and nothing requested; a healthy loopback run is exit 0.
+3. **With the flag:** an approved-deployment chain passes; a redirect and a credential URL are still refused, and the credential is never printed.
+4. **A failed request:** JSON `{client, ok: false, error: 'fetch failed'}` with exit 1, not a crash.
+
+**What running it would touch:** the test imports `node:test`, `node:assert/strict` and the command (which imports `node:url` and `src/preflight.mjs` only). The command's own entry check does not fire under the test runner. There is no network, server, file write, key or subprocess.
+
+Nothing here connects ChatGPT or any client.
