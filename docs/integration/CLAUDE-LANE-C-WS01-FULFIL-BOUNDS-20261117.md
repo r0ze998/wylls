@@ -247,3 +247,15 @@ Those are not treated as done.
 | Result | 5/5 pass; fail 0, cancelled 0, skipped 0; exit 0; duration 49.257625 ms; 53,200,000 KiB free |
 | What it verifies | Only `addCounted`'s arithmetic |
 | Not run | The real `coopView` guards (duplicates, `counted: null`), the board, the chain fake, the DOM and screen, and a real world |
+
+## Do the two new imports resolve where the board serves them? (source only; no server, screen or test started)
+
+| Import | Who loads it | How it resolves | Result |
+|---|---|---|---|
+| `coop-ui.mjs` → `./fulfil-bounds.mjs` | The browser. `coop/index.html:84` loads `./coop-ui.mjs` from the page `PAGE` = `/ws01/repo/workstreams/01-national-strategy/coop/` (`board.mjs:38`) | The URL is `/ws01/repo/workstreams/01-national-strategy/coop/fulfil-bounds.mjs`. `board.mjs:302` passes `/ws01/repo/…` to `serveStatic`, which resolves it under the repo, accepts it because it is inside `SERVE[0]` (the `coop` directory, `board.mjs:36`, `:265`), checks that it exists (`:267`; the file is on this branch, 4,098 bytes), and sends it as `text/javascript` (`TYPES['.mjs']`, `:39`) | Resolves. No list or route change needed |
+| `goal.mjs` → `./joint-count.mjs` | Node only. The only non-test importer of `goal.mjs` is `board.mjs:27`. No module the browser loads imports `goal.mjs` (`coop-ui.mjs`, `ws04.mjs`, `fulfil-bounds.mjs`, `record.mjs`, `ids.mjs`, `arrival.mjs`, `pending.mjs`, `send.mjs`, `chain.mjs` were checked) | Node's ES module loader reads a sibling file on disk (1,249 bytes on this branch). Static serving is not involved | Resolves for the board process |
+| Other loaders of the board (read, not run) | `permutation-gateway/screens/ws07-s1-pure.screen.mjs` and `permutation-gateway/test/web-frontier-ws07-coop.test.mjs` import `board.mjs` directly, so they also load `goal.mjs` → `joint-count.mjs` from disk. `screens/ws07-coop.screen.mjs` only stubs `/coop/config` with the same `PAGE` | The same sibling-file resolution | Resolves. These are main's or refused-adjacent `web-frontier` files: read only, not run, not changed |
+
+**Not found:** any gap. Both imports are relative, sit in the served `coop` directory, and use the `.mjs` type the board already maps.
+
+**Not checked:** an actual page load, the board process, the browser's module loading, and a real world.
