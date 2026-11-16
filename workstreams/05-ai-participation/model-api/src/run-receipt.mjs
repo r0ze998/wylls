@@ -61,6 +61,30 @@ export function actFrom4(r) {
 }
 
 /**
+ * What a registry receipt does NOT say. ④'s `p04-acts/0.1` (acts.rs `receipt`) names no chain, cluster or simulator,
+ * nor how its state was read: the wallet's route, ④'s test bridge (`createActsClient({bridge: true})`), or the store
+ * alone (no gateway port: `registered`, or the last recorded read). `connection: 'real'` means ④'s client and
+ * registry answered; it is not evidence that a chain executed the act.
+ */
+export const REGISTRY_CHAIN_NOTE = 'not recorded: ④\'s act receipt names no chain, cluster, simulator or read mode (wallet route, test bridge or store only); connection says which registry answered, not that a chain executed the act';
+
+/** Final states (④ EXECUTION-CONTRACT §1): once the registry has one, a later read never changes it here. */
+const FINAL_FATES = Object.freeze(['landed', 'failed', 'expired', 'not-sent']);
+
+/**
+ * The relay history's entry for one act. With a key the registry gave, only that exact key; without one, the single
+ * key ending in `:<requestId>` (the relay prefixes the source, which ⑤ may not know). Never an entry carrying another
+ * signature, and never a pick between two different keys (`ambiguous`).
+ */
+function historyEntryOf(history, a) {
+  const same = x => x.type === 'action' && typeof x.key === 'string' && !(x.signature && a.signature && x.signature !== a.signature);
+  if (a.from4 && !a.from4.mismatch && a.idempotencyKey) return { entry: (history ?? []).find(x => same(x) && x.key === a.idempotencyKey) ?? null };
+  const all = (history ?? []).filter(x => same(x) && x.key.endsWith(`:${a.requestId}`));
+  const keys = [...new Set(all.map(x => x.key))];
+  return keys.length > 1 ? { entry: null, ambiguous: keys } : { entry: all[0] ?? null };
+}
+
+/**
  * The local adapter: in memory, one process, built from the relay's reads. Not ④'s; its receipts say so.
  * @param {object} o
  * @param {Function} o.view      async () → agent_view (structuredContent)
@@ -100,18 +124,21 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
     /**
      * One act of the run: its agent_act requestId and outcome (participate's item). `registry`: the act's receipt from
      * ④'s act registry (acts-port.mjs status), when the autopilot has one: it fills the act's `from4` fields
-     * (actFrom4). A registry receipt for another signature fills nothing and is kept as `from4.mismatch`.
+     * (actFrom4). A registry receipt for another signature, or for a key that is not `<source>:<requestId>` of this
+     * act, fills nothing and is kept as `from4.mismatch`.
      */
     attachAct(runId, { requestId, outcome, code = null, signature = null, proposed = null, registry = null }) {
       const a = { requestId, idempotencyKey: null, source: null, action: proposed, status: outcome, code, signature, signedAt: null, fate: signature ? 'unknown' : null, gameCharge: null, cancellable: null };
       if (registry) {
         const f = actFrom4(registry);
-        if (f.signature && signature && f.signature !== signature) {
-          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, mismatch: `the registry has another signature (${f.signature})` };
+        const keyOk = typeof f.idempotencyKey === 'string' && f.idempotencyKey === `${f.source}:${requestId}`;
+        if (!keyOk || (f.signature && signature && f.signature !== signature)) {
+          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, chain: null, chainWhy: REGISTRY_CHAIN_NOTE,
+            mismatch: keyOk ? `the registry has another signature (${f.signature})` : `the registry receipt is for another key (${f.idempotencyKey})` };
         } else {
           Object.assign(a, { idempotencyKey: f.idempotencyKey, source: f.source, signature: signature ?? f.signature, signedAt: f.signedAt, fate: f.fate, cancellable: f.cancellable,
             lastValidBlockHeight: f.cancel.until?.lastValidBlockHeight ?? null });
-          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, commitment: f.commitment, cancel: f.cancel };
+          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, commitment: f.commitment, cancel: f.cancel, chain: null, chainWhy: REGISTRY_CHAIN_NOTE };
         }
       }
       must(runId).acts.push(a);
@@ -122,15 +149,19 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
       r.seq.closed = v.historySeq;
       // Read back how the relay recorded each act: its idempotency key and source, and the game hold under that key.
       for (const a of r.acts) {
-        const h = (v.history ?? []).find(x => x.type === 'action' && typeof x.key === 'string' && x.key.endsWith(`:${a.requestId}`));
+        const { entry: h, ambiguous } = historyEntryOf(v.history, a);
         if (h) { a.idempotencyKey = h.key; a.source = h.source ?? null; }
+        if (ambiguous) a.historyAmbiguous = ambiguous;
         const hold = (v.holds ?? []).find(x => x.key === a.idempotencyKey);
         a.gameCharge = hold ? { reserved: hold.amount, state: hold.state } : { reserved: '0', state: a.status === 'sent' ? 'none or settled (see history)' : 'none' };
       }
       r.costs.game = { reserved: r.acts.reduce((t, a) => t + BigInt(a.gameCharge?.reserved ?? '0'), 0n).toString() };
-      // The act fields only ④ gives are no longer missing when every act carries ④'s REAL registry receipt; a
-      // substitute's (⑤'s copy of the contract) or a mismatched one leaves them listed as missing.
-      if (r.acts.length && r.acts.every(a => a.from4?.connection === 'real' && !a.from4.mismatch)) r.missingFrom4 = r.missingFrom4.filter(k => !ACT_FROM4_FIELDS.includes(k));
+      // An act field only ④ gives is no longer missing when every act carries ④'s REAL registry receipt and, for every
+      // signed act, the registry actually gave a value for it (a store-only or failed read leaves signedAt null: still
+      // missing). A substitute's (⑤'s copy of the contract) or a mismatched receipt leaves the fields listed. This says
+      // which registry supplied the field, never that a chain executed the act (REGISTRY_CHAIN_NOTE).
+      const realAll = r.acts.length > 0 && r.acts.every(a => a.from4?.connection === 'real' && !a.from4.mismatch);
+      if (realAll) r.missingFrom4 = r.missingFrom4.filter(k => !(ACT_FROM4_FIELDS.includes(k) && r.acts.every(a => !a.signature || a[k.slice('acts[].'.length)] != null)));
       r.state = r.state === 'cancelled' ? 'cancelled' : 'closed';
       return structuredClone(r);
     },
@@ -141,8 +172,13 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
         if (fate && a.idempotencyKey) {
           // ④'s seven states, and the signing facts the gateway fixed (signedAt, the lifetime as cancel.until).
           const f = await fate(r.agentId, a.idempotencyKey);
+          // A read for another signature changes nothing (the rule of txStateFromFate / txStateFromActs).
+          if (f.signature && a.signature && f.signature !== a.signature) { a.fateRead = { mismatch: `the fate read is for another signature (${f.signature})` }; continue; }
+          // A final state the registry gave never changes (④ acts.rs); a contradicting read is kept, not applied.
+          if (a.from4 && !a.from4.mismatch && FINAL_FATES.includes(a.fate) && f.state !== a.fate) { if (f.state !== 'unqueryable') a.fateRead = { conflict: { state: f.state, why: f.why ?? null } }; continue; }
           a.fate = f.state;
-          if (f.signature) Object.assign(a, { signature: a.signature ?? f.signature, signedAt: f.signedAt ?? null, lastValidBlockHeight: f.lastValidBlockHeight ?? null });
+          // Facts already known are kept when a later read lacks them (the wallet keeps only its latest entries).
+          if (f.signature) Object.assign(a, { signature: a.signature ?? f.signature, signedAt: f.signedAt ?? a.signedAt ?? null, lastValidBlockHeight: f.lastValidBlockHeight ?? a.lastValidBlockHeight ?? null });
           continue;
         }
         if (!a.signature) continue;
