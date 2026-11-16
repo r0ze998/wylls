@@ -191,3 +191,10 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   Candidate e9da7611: its page differs only by the WIP's seal-worker.mjs, the unloaded .orig and the route-preview screen;
   correction: the first version of the land check was flaky (1 in 2 EN runs; it sampled under a sprite — the page painted
   the land correctly); fixed in the next commit, then 8/8 runs (4 integration, 4 with the candidate's page files).
+
+## 2026-11-16 11:25 JST — release evidence (candidate), landKeys retraction stated
+- Stated plainly: while chasing the land screen's flake a product change to `map/fmap.mjs` + `app.mjs` (`landKeys`) was
+  tried and reverted before any commit; the page painted the land correctly, the test sampled under a sprite (274bad0d).
+- Candidate 34cf0807+: CLAUDE-RELEASE-EVIDENCE-20261116.md — land5-proven vs fixture-only; land .so byte-identical;
+  candidate-built herald/runners/keeper tools (sha256 there; untested in any world); fresh-clone audit (6,696 refs, no
+  missing tracked file); `scripts/fresh-clone-audit.py`.
