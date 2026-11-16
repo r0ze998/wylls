@@ -90,3 +90,31 @@ The two touch no common file; static checks found no secrets in either. The cand
 - the no-write test, now limited to the reader's own writes.
 
 **Not verified:** no compile, no run, no real store. Nothing is connected: no CLI or runtime calls `read_store_observations`.
+
+## The command line: `runexec observe store|db` (2026-11-17, written, not run)
+
+- **Dispatched first** in `main`: before `run`, `act` and the old `--db` commands (pinned as text).
+- **`observe()` names no run-store or network code:** no `Store::`, `open_read_only`, gateway, intake, executor, sim, acts, HTTP or RPC (pinned as text).
+- **Two explicit modes:** `store --store <dir>` and `db --db <index.sqlite>`. There is no automatic choice, and the other mode's option is refused as unknown.
+- **Options** are checked with the existing `run_opts`:
+  - unknown, repeated and valueless options are refused;
+  - so is a value that is another option (`--…`);
+  - `--after` and `--limit` must be plain decimal digits: no sign or space, since `u64::from_str` alone accepts `+5`;
+  - `--after` must be ≤ `i64::MAX`, and `--limit` in 1..=256 (`MAX_ROWS`);
+  - each failure is exit 2 `BadRequest`.
+- **A read refused or failed is exit 1 `ObservationNotRead`,** never `NoRecord` (exit 3), and never a statement about a run or a caravan.
+- **The output is the page as it is,** so 12's consumer reads it unchanged. `store` mode carries `store.limits`, including the `-shm` note.
+- **Existing commands are unchanged.** The only other edit is one more usage word in the bare-command message (stderr).
+- **Tests (written, not run):** `tests/observe_cli.rs`, as a separate process:
+  - 19 bad requests;
+  - missing paths are `ObservationNotRead`, and nothing is created there;
+  - the store mode's page and the db mode's plain page;
+  - the dispatch order and the forbidden names.
+- **Usage in `README.ja.md`,** marked never run.
+
+**Reverse review (static):**
+- The only reachable code is `run_opts`, the two readers and `serde_json`.
+- A missing `--db` file is not created: the reader opens with `SQLITE_OPEN_READ_ONLY`, without `CREATE`.
+- A FIFO or device at a store path is refused before opening (`check_store_paths`). The `db` mode has no such check: it opens the given path with SQLite as `read_observations` always did, so a FIFO given as `--db` could block. That is unchanged from 7baa4d93, and stated here as a limit.
+
+**Not done:** build, run, real store, any consumer wiring (13), any admission.
