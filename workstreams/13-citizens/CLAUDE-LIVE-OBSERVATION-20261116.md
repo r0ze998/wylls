@@ -607,3 +607,21 @@ Nothing here was implemented, run, signed, spent or sent. WS4's unproven or held
 - `/opt/homebrew/opt/node/bin/node` is v23.11.0, which has both.
 
 **Status:** not run.
+
+### Correction: the WS13 preload loads an npm package and a native addon (2026-11-17, static)
+
+**What was wrong:** the run plan said `13-citizens/test/keyless-guard.mjs` would find no `@solana/web3.js` (`web3 = null`) because `permutation-gateway/node_modules` is absent, and it implied that the candidates load Node built-ins only. **That is not so for the WS13 candidate.** The 22-module closure above is the test files' own imports and is correct as such, but it does not cover the preload.
+
+**What the preload does:**
+- `keyless-guard.mjs` runs `createRequire(<permutation-gateway/package.json>)('@solana/web3.js')`.
+- Node's resolution walks up the directories, so with no nearer `node_modules` it finds `/Users/<user>/node_modules/@solana/web3.js` (version 1.98.0, `main` `lib/index.cjs.js`). Checked with `ls` and the `package.json` only; nothing was loaded.
+- That file references `bigint-buffer`, which is present in the same `node_modules` with `bindings` and the native addon `bigint-buffer/build/Release/bigint_buffer.node`.
+- So running the WS13 candidate with its guard would load that package tree and, potentially, a native addon from outside this repository. **Its safety basis ("built-ins only") does not hold.**
+
+**The one attempted run (01:44:22, the WS13 file) did not load it:** Node failed to resolve the `--import` specifier itself (`ERR_MODULE_NOT_FOUND: Cannot find package 'workstreams'`, at `packageResolve`, because the path lacked `./`). So the guard module was never evaluated. This is derived from the log; there is no separate trace. Its log and the worktree status are kept: the status is identical before and after, and nothing is staged.
+
+**Now:**
+- **The WS13 candidate is on hold** until the web3.js tree's load-time side effects (and that of the native addon) are audited.
+- **The guard is not removed, bypassed or changed,** and no run without it is proposed.
+- **The two WS12 candidates are separate.** Their preload `12-memory/tools/nokey-guard.mjs` imports only `node:crypto` and `node:module`, and their closure has no npm package. They are not run now either.
+- **Not run:** nothing else. The `./` correction alone was not used to run anything.
