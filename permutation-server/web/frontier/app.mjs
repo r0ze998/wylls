@@ -2355,7 +2355,9 @@ function renderHudTick(now) {
     //  (2026-11-16: and, apart, the land the viewer's nation has claimed in other provinces the map has loaded — a take far
     //  from home showed 0 there, or no chip at all when the home province had no land record)
     const lh = FS.mode === 'play' ? hud.activeHolding(FS) : null, lf = FS.citizen?.faction;
-    const ls = lh ? landSummary(FS, lh, lf) : null, le = lh ? landElsewhere(FS, lh, lf) : null;
+    //  (2026-11-16: the per-hour figure reads the village as the strip does — settledHolding: a finished building or
+    //  promotion already produces —, as ClaimLandYield's yield_for reads it after settle_tiered; the stored record lagged)
+    const ls = lh ? landSummary(FS, settledHolding(lh, now ?? 0), lf) : null, le = lh ? landElsewhere(FS, lh, lf) : null;
     const landShown = !!ls || (le?.tiles ?? 0) > 0;
     let chip = $('land-chip-box');
     if (landShown && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
