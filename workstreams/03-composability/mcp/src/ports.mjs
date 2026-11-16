@@ -102,11 +102,16 @@ export const RECOVERY = Object.freeze({
   WrongVillage: ['the agent acts on its own village only'],
   TransactionFailed: ['check village_status; prepare again'],
   Expired: ['the transaction expired before it landed: prepare again (nothing moved)'],
-  // The same transaction was sent by another operation of this server (server.mjs resume, Duplicate): that operation
-  // carries the effect. Preparing again would be a second caravan.
-  DuplicateOfOperation: ['this request\'s transaction is the one another operation already sent (error.message names it): follow that operation with get_operation_status; do not prepare again for this'],
-  // Workstream 04's registry has this key under another run, before anything was sent (server.mjs resume).
-  RunConflict: ['nothing was sent: this requestId is registered under another run in workstream 04\'s registry; send again with that runId, or prepare again with a new requestId for a new decision'],
+  // The same transaction was sent by another operation of this server (server.mjs resume, Duplicate; found among all
+  // of the server's operations, any connection): that operation carries the effect. Preparing again would be a second
+  // caravan. get_operation_status shows only this connection's operations (UnknownOperation otherwise), so the owner's
+  // view is named for the case where the other operation came from another connection.
+  DuplicateOfOperation: ['this request\'s transaction is the one another operation already sent (error.message names it): follow that operation — get_operation_status on the connection that sent it, or the owner\'s view (wallet-signed) from any other; do not prepare again for this'],
+  // Workstream 04's registry has this key under another run, before anything was sent (server.mjs resume → definite:
+  // failed, not retryable). The request has ended: a send with another runId is IdempotencyConflict (the run is fixed
+  // for the requestId), and with the same one it returns this answer again. (20061e81 said "send again with that runId":
+  // that cannot be done.)
+  RunConflict: ['nothing was sent and this request has ended: its run is fixed and it is not sent again (the same requestId returns this answer); error.message names the run that holds the key in workstream 04\'s registry. A new decision is a new plan: prepare_caravan, the person confirms, then send_caravan with a new requestId'],
   lost: ['the destination changed generation: nothing can be recovered for this caravan'],
   taken: ['another village took the caravan in a raid: nothing can be recovered for this caravan'],
   burned: ['a raid burned the cargo: nothing can be recovered for this caravan'],

@@ -5,8 +5,10 @@
 // own advice in RECOVERY, or is one of the few where the fallback "prepare again" is right (nothing of it moved and
 // nothing of it will: NotLanded is proven never to land; a definite ContextChanged ended in an old world context).
 //   K1 every literal definite code is covered
-//   K2 DuplicateOfOperation sends the person to the other operation, never to prepare again
-//   K3 RunConflict says nothing was sent and names the two ways on (the run's id, or a new requestId)
+//   K2 DuplicateOfOperation sends the person to the other operation — on its own connection, or the owner's view (an
+//      operation of another connection is UnknownOperation here) — never to prepare again
+//   K3 RunConflict: nothing was sent, the request has ended (no resend under any runId), a new decision is a new plan,
+//      confirmed, with a new requestId (corrects 20061e81, which advised "send again with that runId")
 // KEY-FREE: imports ports.mjs (no imports); reads server.mjs as text (not imported).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,12 +27,14 @@ test('K1 every definite code has advice or a right fallback', () => {
 
 test('K2 DuplicateOfOperation: follow the other operation', () => {
   const t = failed({ code: 'DuplicateOfOperation', message: 'the same transaction was already sent by this server\'s operation op_x' }).next.join(' ');
-  assert.match(t, /follow that operation with get_operation_status/);
+  assert.match(t, /get_operation_status on the connection that sent it, or the owner's view/);
   assert.match(t, /do not prepare again/);
 });
 
-test('K3 RunConflict: nothing sent, two ways on', () => {
+test('K3 RunConflict: nothing sent, the request has ended, a new decision is a new plan', () => {
   const t = failed({ code: 'RunConflict' }).next.join(' ');
-  assert.match(t, /nothing was sent/);
-  assert.match(t, /that runId.*new requestId/);
+  assert.match(t, /nothing was sent and this request has ended/);
+  assert.match(t, /not sent again/);
+  assert.doesNotMatch(t, /send again with that runId/);
+  assert.match(t, /prepare_caravan, the person confirms, then send_caravan with a new requestId/);
 });
