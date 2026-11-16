@@ -1002,6 +1002,81 @@ pub fn pay_rest(v: &VaultView, lot: &mut Lot) -> CResult<i64> {
     }
 }
 
+/// The owner's sub-unit rest, exactly, into the owner's own live vault in
+/// the lot's province (the owner's approval of 2026-11-17: when the owner
+/// acts, the fraction goes back exactly to their own storehouse in the
+/// same province; with none, or a full one, it is held and the lot stays
+/// open). **Not adopted**: no instruction dispatches it yet.
+///
+/// - `lot_vault`: the lot's own vault. The lot must be usable (open, its
+///   vault live and of its generation): a seized lot's rest is the seizure
+///   question, undecided.
+/// - `owner`: the actor, by its wallet, and the lot's owner (its full
+///   Citizen key, `OWNER_CITIZEN`).
+/// - `home`: the vault that takes the rest: live, owned by the lot's owner
+///   (full key; a seized vault is the captor's and fails), in the lot's
+///   province, not the lot's own vault, with room (`STORES + CUSTODY_QUOTA
+///   ≤ CAP` after the credit).
+///
+/// Gathered whole units first go back into the lot if it has room
+/// ([`pay_rest`]): whole units stay in custody. Then only the part below one
+/// unit, `x`, goes home, exactly (milli). On the lot: `REST −= x`, `CONSUMED
+/// −= x`, `OUT_TOTAL += x` (it left to the owner's own place, as a
+/// withdrawal does); in `home`: `STORES += x`. **All or nothing**: every
+/// check runs on copies and a refusal changes neither the lot nor `home`
+/// (no home, a full or stale one: the rest stays held and the lot stays
+/// open). A second call finds nothing below a unit and pays 0. Returns `x`.
+pub fn pay_rest_home(
+    lot_vault: &VaultView,
+    lot: &mut Lot,
+    owner: &Actor,
+    home: &mut VaultView,
+) -> CResult<i64> {
+    lot.usable(lot_vault)?;
+    if !lot.returns.tracked {
+        return Err(CustodyError::State);
+    }
+    wallet(owner)?;
+    if owner.citizen != lot.owner {
+        return Err(CustodyError::NotAuthorized);
+    }
+    if !home.live {
+        return Err(CustodyError::Forfeited);
+    }
+    if home.owner != lot.owner {
+        return Err(CustodyError::NotAuthorized);
+    }
+    if (home.p, home.q) != (lot.p, lot.q) || home.tile == lot.tile {
+        return Err(CustodyError::Order);
+    }
+    let r = lot.resource as usize;
+    let mut l = *lot;
+    pay_rest(lot_vault, &mut l)?;
+    let x = l.returns.rest % MILLI;
+    if x == 0 {
+        *lot = l;
+        return Ok(0);
+    }
+    let have = *home.stores.get(r).ok_or(CustodyError::Resource)?;
+    let quota = *home.quota.get(r).ok_or(CustodyError::Resource)?;
+    let stores = have.checked_add(x).ok_or(CustodyError::Overflow)?;
+    if stores.checked_add(quota).is_none_or(|n| n > home.cap) {
+        return Err(CustodyError::Capacity);
+    }
+    let consumed = l
+        .consumed
+        .checked_sub(x)
+        .filter(|c| *c >= 0)
+        .ok_or(CustodyError::Quantity)?;
+    let out_total = l.out_total.checked_add(x).ok_or(CustodyError::Overflow)?;
+    l.returns.rest -= x;
+    l.consumed = consumed;
+    l.out_total = out_total;
+    home.stores[r] = stores;
+    *lot = l;
+    Ok(x)
+}
+
 // ------------------------------------------------------------ seizure
 
 /// What [`forfeit`] moved.

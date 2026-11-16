@@ -232,3 +232,53 @@ cargo +1.89.0 test --offline --locked -p permutation-rules --test custody_return
 - any migration, or whether an existing world exists.
 
 **The open decisions are unchanged:** the sub-unit rest, who may trigger a return, seizure.
+
+## The sub-unit rest goes home, exactly (2026-11-17; branch `claude/lane-c-lot-rest-home-20261117`, from `7333967e`)
+
+**Approval** (the owner's answer "うん", relayed by the coordinator): when the owner acts, the fraction goes back exactly to their own storehouse in the same province. With none there, or a full one, it is held and the lot does not close.
+
+**Scope of this commit.**
+- **Kernel only:** one pure function, `custody::pay_rest_home`, plus a new regression source `permutation-rules/tests/custody_rest_home.rs`. It is a separate file, so `custody_returns.rs` keeps its audited SHA-256.
+- **Not touched:** the program handlers, dispatch, ABI tags, error codes (only existing `CustodyError` variants are used), record kinds, version and hash, V26, and migration.
+- **Not run.** New test runs wait for the coordinator's own pre-audit and approval.
+
+### What `pay_rest_home(lot_vault, lot, owner, home)` does
+
+| Point | Rule |
+|---|---|
+| Original owner's authentication | `owner` acts by wallet (`WalletRequired` for a session key, which is stricter than WithdrawLot's kernel) and `owner.citizen == lot.owner` (the full 32-byte Citizen key), else `NotAuthorized` |
+| Lot | Must be usable: open, its vault live and of its generation, else `Forfeited`. A seized lot's rest is the seizure question, undecided. It must be tracked; an old untracked lot gets `State` (fail-closed) |
+| Destination | `home.live`, else `Forfeited`. `home.owner == lot.owner` (full key; a seized home is the captor's), else `NotAuthorized`. Same `(p, q)` as the lot and not the lot's own tile, else `Order`. No other owner, destination type or permission exists |
+| Room | `STORES + x + CUSTODY_QUOTA ≤ CAP`, so others' lots in M's vault keep their reserved room; else `Capacity` |
+| Exact milli | Whole units of the gathered rest first go back into the lot (`pay_rest`): whole units stay in custody. Only `x = rest % 1000` goes home, exactly. Nothing is rounded or dropped |
+| Books | Lot: `REST −= x`, `CONSUMED −= x`, `OUT_TOTAL += x` (left to the owner's own place, like a withdrawal), so `IN_TOTAL = HELD + OUT_TOTAL + CONSUMED + FORFEITED` holds. Home: `STORES += x` |
+| Missing, full or stale | Every refusal leaves the lot and `home` unchanged, so the rest stays held and the lot stays open (`empty` needs `rest == 0`) |
+| Double payment | The rest falls by `x` in the same step as the credit; a second call finds nothing below a unit, pays 0 and changes nothing |
+| Atomicity (pure function) | Every check runs before any write. The lot is worked on a copy and committed last, and `home.stores` is written only on success. A refusal after the lot's whole-unit return (for example `Capacity`) undoes that return too |
+
+**Paper cases in `custody_rest_home.rs` (not run):**
+- 250 milli exactly home, then the lot closes, with a second call paying 0;
+- full home, others' quota counted, closed home, seized home, another province, the lot's own tile: all `Err` and unchanged;
+- keeper, grantee or a stranger, a session key, another owner's vault, the lot's vault seized, an untracked lot: all refused and unchanged;
+- 1,250 gathered gives 1 unit back to the lot and 250 home, and a refusing home undoes both.
+
+### The dispatch contract still to decide (④ and the owner): one concrete candidate
+
+**Candidate.** An owner-only step that takes `[fee_payer s] [season] [citizen (the owner, by wallet)] [lot_vault r] [lot w] [home_vault w]`. Two ways to carry it:
+- (a) an optional trailing `home_vault` on **CloseLot (0xCB)**: pay home, then close if empty, in one instruction;
+- (b) a separate tag. `0xCF` is the only free tag in the 0xC_ band (allocation rev 7), and **④ allocates it**.
+
+**The handler would:**
+- authenticate the owner with `player_as(Auth::Wallet)`;
+- read the lot (`lot_of`), its vault (`vault_of_lot`) and the home (`vault_view`: present, canonical address);
+- call `pay_rest_home`;
+- write the lot (`put_lot`) and the home (`put_vault`).
+
+A failure after the first write relies on the Solana transaction rollback, as every multi-account custody handler does. `pay_rest_home` itself is all or nothing.
+
+**Also needed before adoption:**
+- a record kind for the payout, so V26 can replay it (otherwise its history check sees `CONSUMED` lowered and `OUT_TOTAL` raised without a record);
+- the version and hash (`CUSTODY_VERSION`, `RULESET_HASH_V4`);
+- the ABI naming of the RSV bytes.
+
+**Not decided here.** Still open: who may trigger a job's return, seizure, ClaimJob's need for B's vault, and any migration or existing world.
