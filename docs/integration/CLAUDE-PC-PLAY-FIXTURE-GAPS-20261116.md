@@ -37,3 +37,25 @@ Read from the records (this table, CLAUDE-FIRST-PLAYABLE-STATUS-20261115 "Unveri
   (ordinary-suite.sh does not exclude it). Recorded so the owner can decide whether the subset should exclude it.
 - Still world-only (unchanged): a send that lands, the credited land yield against the stores, the far-land part and
   the per-hour figure in a world, the catching-up state live, rounds 44–45 in a world, the natural-speed world.
+
+## Round 28's open-gate case, checked (2026-11-16, Claude; owner's approval for in-memory test keys and synthetic signing)
+`permutation-gateway/test/web-frontier-local-march-open-other-village.test.mjs` (integration bcc17068, candidate merge
+f2c0f2a1): the REAL controller (`startPlay` in local play, then `ACTIONS['cq-march']`) with the march gate OPEN and a host
+of the viewer's OTHER village. Result 5/5, run alone from the single export (`node --test <that file>`): the gate's
+answer is open for a host of either village; the press switches to the host's own village and the composed order fixes
+that village ({5,-1,4,0}, not the active one before); the send-time answer (FS.localMarch) is open; a host in none of
+the viewer's villages composes nothing; the send's use of the composed village is pinned as text. No mismatch, no fix.
+- Key: ONE Ed25519 key made by WebCrypto `subtle.generateKey`, extractable = false (fephemeral-wallet.mjs), in the test
+  process; offered through Wallet Standard events on a plain EventTarget as `window`; destroyed after the tests.
+- Signing: NONE. No order was sent (compose only); asserted: the only non-GET request is the capability POST, no
+  submit and no act-context request.
+- Network: every request went to a `fetch` stub (loopback relay origin http://127.0.0.1:41988; no socket); the
+  capability answer is synthetic (TEST-ONLY trial: `trial: true` and the page's `trialEntry: true`; synthetic instance
+  `ab`×32).
+- Storage: none (Node has no localStorage — asserted; no file written).
+- First run 2/5: the test's instance string was not 64 hex (instanceOk), so no capability was read — a fixture error,
+  fixed in the test; no product change.
+- Not covered: the send itself (sealing, prepare, the signature, the relay's and the chain's answers) and the map tap /
+  bar buttons in app.mjs (pinned in round 28, not driven here); no world.
+- The file names `subtle.generateKey` in its header, so `scripts/ci/node-keyfree.sh` refuses it (exit 3) rather than
+  run it; scripts/ci/node-key-tests.txt was NOT changed (owner's instruction) and needs the owner's regeneration.
