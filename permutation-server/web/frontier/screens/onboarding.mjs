@@ -279,7 +279,7 @@ export function renderScoutAction(FS) {
   const resting = rows.find(r => r.readyBell > bell);
   if (resting) return html`<p class="home-status" role="status">${L`斥候隊は第${fmtNum(resting.readyBell)}ターンまで休息しています。`}</p>`;
   if (rows.length) return html`<p class="home-status">${L`斥候隊は別の命令を実行中です。軍勢の画面で様子を確認できます。`}</p><button type="button" class="btn" data-act="tab" data-tab="hosts">${L`斥候隊を見る`}</button>`;
-  if (Number(h.reserve?.[SCOUT] ?? 0) >= 100) return html`<p>${L`訓練した斥候を一つの隊にまとめましょう。世界の処理に反映されると探索できます。目安はゲーム内で約11〜21分です。`}</p><button type="button" class="btn primary" data-act="home-scout-muster">${L`斥候隊を編成する`}</button>`;
+  if (Number(h.reserve?.[SCOUT] ?? 0) >= 100) return html`<p>${L`訓練した斥候を一つの隊にまとめましょう。このターンが終わり、封が開けられてターンが決着すると整列します。待つあいだも村の建設を進められます。`}</p><button type="button" class="btn primary" data-act="home-scout-muster">${L`斥候隊を編成する`}</button>`;
   return html`<p>${L`村の周りを調べる斥候を100人、訓練しましょう。訓練はすぐに終わります。`}</p><button type="button" class="btn primary" data-act="home-scout-train">${L`斥候を訓練する`}</button>`;
 }
 
