@@ -102,3 +102,19 @@ OTHER village:
 - Next looked at: the bar's other paths for such a host (local-play answer, 砦へ進軍 list, 探索, expedition / outbound
   read-only checks) read the host's own village; `cg-go` lists the open village's hosts on both sides. No further clear
   mismatch found in this family.
+
+## The land chip's per-hour figure after a building or promotion is done (2026-11-16, Claude)
+- Mismatch: ClaimLandYield credits `yield_for(production, bonus, bells)` with the village's production AFTER
+  `settle_tiered(now)` (`permutation-frontier/src/proc/land.rs`); the strip reads the village the same way
+  (app.mjs `settledHolding` → hud/rulebook.mjs `settled`), but the land chip (`landSummary` → `landYieldPerHour`) read the
+  stored record, so its 「毎時 +N」 lagged from a building's or promotion's completion until an instruction landed on
+  the village.
+- Fix (integration e87faba3, candidate merge 372f778b): the chip call in app.mjs passes `settledHolding(lh, now)`;
+  land.mjs only gains a doc line. No rule, formula or new path; map/minimap not touched.
+- Test `permutation-gateway/test/web-frontier-land-chip-settled.test.mjs`, alone from the single export: 5/5 with the
+  fix; 4/5 on the unchanged page (the app.mjs call is pinned as text, app.mjs being the DOM module; tests 2–3 show the
+  stored record's figure 20 short after a +200 Food building, and the Hamlet figure after a promotion). KEY-FREE: no key
+  made, no signing, no request, nothing stored; synthetic records. Its import closure reaches the vendored curve
+  library (names only; not called).
+- Lane C E1 (S1 promotion ore in the strip) is separate and already in (41fb12a8); `settled` includes it.
+- Not covered: the chip in a world; how soon the crank's ClaimLandYield refreshes the record (not measured).
