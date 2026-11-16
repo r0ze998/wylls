@@ -24,7 +24,19 @@ the send was refused.
   the lock, CapturePending, `state == STATE_HOLDING (1) && gen == holding_gen + 1` wrapping); with web-frontier-s1 and
   web-lang 52/52; ordinary-only subset 1765 tests, 1764 pass, 0 fail. Unit level; not seen in a world.
 
-## Next candidate (not done here)
-`fland.mjs actionBlocks` has no CapturePending at all, while the program applies the same lock to Build, Train, Harvest,
-Explore, SendCaravan and the fort garrison. Each page caller passes its own province context (Explore's is the host's,
-not the village's), so this is a per-action change with its own tests — a separate round.
+## Follow-up done (2026-11-16): the lock in every action pre-check
+Program, per action (pinned as text in `web-frontier-capture-lock-actions.test.mjs`):
+| action | lock | Province |
+|---|---|---|
+| Build, Train, Harvest (`holding.rs`, Harvest via `harvest_body`) | always | the village's own |
+| Muster, Garrison (`host.rs lock_own`) | always | the village's own |
+| FortGarrison (`structure.rs`) | always | the village's own |
+| Explore (`holding.rs explore_as`) | only when the Scout stands in the village's own Province | the host's |
+| Dissolve, Depart (`host.rs`) | only when the host's Province is the village's own | the host's |
+| SendCaravan (`caravan.rs`) | only from a village source (a storehouse is not locked) | the source's own |
+Muster, Garrison, Dissolve and Depart were found while checking (the first note missed `lock_own`): they go through the same
+`actionBlocks` and are covered too. Page: `fland.mjs captureLocked` / `mirrorLocked` / `CAPTURE_LOCKED_ACTIONS` in
+`actionBlocks` (the lock first, as the program orders it), `fconquest capturePending` on the same rule, the S1 caravan
+source and fort form, and the controller's refusals before signing. Existing sentence (fi18n CapturePending), JA/EN.
+Evidence: the test above 6/6; with conquest-state, s1 and s1-capture-lock 41/41; ordinary-only subset 1771/1770/0 fail;
+screens map tap 5, block reasons 16, first session 2, conquest press 10, land/arrival 4. Unit/fixture only, not in a world.
