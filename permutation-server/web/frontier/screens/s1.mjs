@@ -21,7 +21,7 @@ import { storesAt, hostOfHolding, SCOUT } from '../fland.mjs';
 import { SIEGE_ARMS, s1On } from '../fs1.mjs';
 import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
-import { keepFromProvince } from '../fconquest.mjs';
+import { keepFromProvince, capturePending } from '../fconquest.mjs';
 import { hostParts } from '../faddr.mjs';
 import { hexDistance, ringOf, wedgeOf } from '../fgeo.mjs';
 import { ownTag } from '../people/ui.mjs';
@@ -133,7 +133,11 @@ export function s1TileModel(FS, sel) {
   const h = activeHolding(FS), have = haveOf(FS, h);
   const site = siteProblem(prov, idx), siteBlock = site === 'Unknown' ? 'Unknown' : site ? 'Site' : null;
   const c = FS.citizen ?? {};
-  const common = [...(h ? [] : ['NoHolding']), ...(siteBlock ? [siteBlock] : [])];
+  // (2026-11-16: the program's capture lock — holding.rs own_province_unlocked → capture_lock, CapturePending — refuses a
+  //  storehouse and every structure while the village in hand is being captured; the card offered them and only the send
+  //  was refused. The same mirror-generation rule as the program: fconquest.mjs capturePending.)
+  const locked = !!h && capturePending(FS, h);
+  const common = [...(h ? [] : ['NoHolding']), ...(locked ? ['CapturePending'] : []), ...(siteBlock ? [siteBlock] : [])];
   const vaultBlocks = [...common, ...(vault ? ['Taken'] : []), ...(Number(c.vaults ?? 0) >= MAX_VAULTS ? ['VaultLimit'] : []), ...(shortOf(VAULT_COST, have).length ? ['Insufficient'] : [])];
   const live = (prov?.structures ?? []).filter(e => Number(e.kind) !== 0);
   const forts = (prov?.forts ?? []).filter(f => Number(f.state) !== 0);
