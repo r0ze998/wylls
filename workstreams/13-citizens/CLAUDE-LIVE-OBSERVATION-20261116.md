@@ -176,3 +176,46 @@ So 4's executor is consistent only with its own simulation. Against the real v2 
 - Nothing about arrival fills in a clock, a credited amount or a settlement.
 
 **Not verified:** whether a real-chain run of 4's executor records `caravan_settled` at the right slot while its arrival wait is misread as a slot. That needs 4's port fixed and a run; neither is done.
+
+## Receiving workstream 4's read observation: held, not ingested (2026-11-17, no code change)
+
+**Source:** workstream 4's settled contract as relayed by the owner. Its branch `codex/ws04-read-observation-20261116`, from d16048aa, was **not on the remote** when this was written; its code was not read.
+
+**What 4 gives:**
+- decoded `CARAVAN_SETTLED` / `CARAVAN_RAIDED` records;
+- the tx slot and signature;
+- a PS2 ordinal;
+- a body hash;
+- `basis: 'unproven'`;
+- `held: [world_binding_unproven, finality_unproven, transaction_record_identity_unproven]`;
+- `credited: None`, always.
+- **The PS2 ordinal is not a global ordinal.** It numbers the program-attributed PS2 bodies (after the PS2 filter of the typed list in the experimental build), not the instruction or log position.
+- **findex's DB meta holds integers only:** no program or season binding and no commitment. The DB alone proves no stable cross-source identifier, no world and no finality.
+- 4 writes no runexec receipt and nothing to its DB.
+
+**How 12 receives it, by its existing rules:**
+
+| 4's output | 12's existing receiving side | Rule |
+|---|---|---|
+| `basis: 'unproven'` | `provenanceOf` / `stated()` take only `chain` / `integration-output` / `fixture`; 13's `basisCheck` takes `unproven` as no statement | **unstated, never chain**. Not raised to `integration-output` either |
+| `held: [world_binding_unproven, …]` | `storeWorldMismatch` needs a 4 store `meta('world')` plus a declaration | **the whole observation is held with 4's three reasons kept as they are**. It is not passed to `connectCanonical` or `ingestReceipts`, and the reasons are not replaced by 12's own (`ws04_store_world_unbound`) |
+| finality unproven | facts need `slot ≤` an attested finalized slot | held. The live observation's RPC finalized slot is **not lent** to 4's records: it says nothing about which program's bodies findex indexed |
+| tx signature + PS2 ordinal + body hash | 12's fact id is `kind\|subject` in the partition (dedupes the feed's `event:` and the history's `history:`) | **not turned into a `kind\|subject` id**. The PS2 ordinal is not a global position, so it can't be a cross-source identifier, and these records are not deduped against, or collided with, the simulated store's receipts |
+| decoded SETTLED / RAIDED | `receiptToFacts` would make `caravan_settled` / `caravan_raided` facts | **not converted into the Receipt shape, and no fact is made**. In particular not through `ingestReceipts` directly, which skips the world and world-binding checks the way `stages-cde.mjs` does |
+| `credited: None` | `caravan_credited` only when the body carries an array | no credited fact, then or later. The cargo as recorded is not turned into a credited amount |
+| no `caravan_sent` (`arrive_ts` is a timestamp) | `fold.mjs` 394–406: without a sent fact, a promise stays `unverified` | no fulfilment, no breach, and no "not sent" (there is still no coverage) |
+
+**Already safe in the current code:**
+- If someone handed 4's observation to `observeLive` as the store, `connectCanonical` would find no `meta('world')` and hold everything as `ws04_store_world_unbound`. Nothing would be ingested, but 4's reasons would be lost.
+- The only path that would make facts is calling `ingestReceipts` directly with a caller's finalized slot. Nothing in this slice does that.
+
+**Receiving-side change for later** (only after 4 shares the code and the owner says go): an input such as `observeLive({ws04Observation})`.
+- For `basis !== chain`, or any `held`, it returns `status: 'held'` with 4's reasons verbatim, its records as `held` entries keyed by `sig|ordinal|bodyHash`, no ingest and no provenance.
+- It is not written now.
+
+**What a later provider must add before any of it is a fact:**
+1. a world binding for the index (which program and season address its bodies belong to, with a source);
+2. finality for those records (a commitment the index records, or a check per signature);
+3. a stable cross-source record identity (the signature plus the record's position in that transaction, as a provider defines it).
+
+Until all three exist, the receiving side holds it.
