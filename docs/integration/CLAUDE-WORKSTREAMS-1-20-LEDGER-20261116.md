@@ -281,3 +281,14 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Key: one in-memory non-extractable Ed25519 key; signing: none; network: fetch stub only; storage: none.
 - Not run: the ordinary subset, the two refused key-free files, any send. Lists, reviews and guard unchanged.
 - Candidate merge f2c0f2a1; note in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116.
+
+### Map tap and host bar, a host of another village (2026-11-16, Claude)
+- Static: map tap → march, 「村へ戻す」, 探索, 砦へ進軍, 次の軍勢 all switch to the host's own village first. Correct.
+- 解散 did not: after a plain tap on the host's tile, its chip on a shared tile, or a put-away march draft, the order
+  named the open village (program refuses: dissolve_as → resident_host). Fixed in 98ea5c52 (controller.mjs dissolve
+  switches first, as the others do).
+- Test web-frontier-dissolve-other-village.test.mjs: 6/6 with the fix, 2/6 without; that file only, from the export.
+- Key: none. Signing: none. Network: fetch stub, no request made. Storage: none.
+- Not run: the ordinary subset, the two refused key-free files, node-keyfree.sh. Lists, reviews and guard unchanged.
+- Candidate merge 9dd64905, note 5c79530e (CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116). Not fixed (display only): 次の軍勢's
+  figure counts the open village's hosts.
