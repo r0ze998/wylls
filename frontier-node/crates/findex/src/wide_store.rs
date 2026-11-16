@@ -140,6 +140,8 @@ impl WideFindex {
             self.poisoned = true;
             IngestError::Store(e)
         })?;
+        // What the source says of itself, for these records only (archive.rs: observed sources).
+        self.archive.observe_source(src.observed().as_ref());
         let stored = self.archive.append(&got, src.cursor()).map_err(|e| {
             self.poisoned = true;
             IngestError::Store(e.to_string())
