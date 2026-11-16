@@ -201,7 +201,6 @@ export default {
   '斥候隊の準備ができました。隣の土地を選んで探索に送りましょう。': 'Your scouts are ready. Choose nearby land to explore.',
   '探索する土地を選ぶ': 'Choose where to explore',
   '編成の反映を待っています。': 'Waiting for your scouts to enter the world.',
-  '反映の目安まで（ゲーム内）': 'Estimated wait (game time)',
   '世界の処理で編成が反映されると、ここから探索を始められます。': 'You can start exploring here once the world has processed their formation.',
   '斥候隊は第{0}ターンまで休息しています。': 'Your scouts are resting until turn {0}.',
   '斥候隊は別の命令を実行中です。軍勢の画面で様子を確認できます。': 'Your scouts are carrying out another order. Check their status in Hosts.',
@@ -1646,7 +1645,7 @@ export default {
   '守備隊にはあと {0} 人まで入れられます': 'The garrison has room for {0} more',
   '増やす人数は 1 以上の整数です': 'Enter a whole number from 1',
   '守備隊には、それだけ入る空きがありません': 'The garrison has no room for that many',
-  '地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。': 'Land claimed in the other provinces the map has loaded only (test world). It can change as you move the map.',
+  '地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。': 'Counts only the other provinces the map has loaded (test world). It can change as you move the map.',
   // the land preview, the selected tile (hud/inspect.mjs over frontier/land.mjs landTileLines)
   'どの国の土地でもない空き地（領土の試験）': 'Open ground, no nation\'s land (territory trial)',
   'あなたの国の村の土地（領土の試験）': 'Village land of your nation (territory trial)',
