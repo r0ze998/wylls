@@ -215,3 +215,33 @@ Nothing here was run, published, configured in ChatGPT, or connected to any acco
 **What running it would touch:** the test imports `node:test`, `node:assert/strict` and the command (which imports `node:url` and `src/preflight.mjs` only). The command's own entry check does not fire under the test runner. There is no network, server, file write, key or subprocess.
 
 Nothing here connects ChatGPT or any client.
+
+## One run of the command's test (2026-11-17, at 8f8b7961)
+
+**Command, from the repository root, run once:**
+
+```
+/opt/homebrew/opt/node/bin/node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test workstreams/03-composability/mcp/test/preflight-cli.test.mjs
+```
+
+**Checked just before:**
+- HEAD `8f8b7961`, equal to the remote;
+- `test/preflight-cli.test.mjs` `f34fdfa7d8f6741f…`, `bin/wylls-mcp-preflight.mjs` `ee6c25b046e053c1…` and `src/preflight.mjs` `55070d74b45f6497…`, all as committed;
+- the guard `nokey-guard.mjs` `cf4518176289a45755a831140c85705093e9352825d3a6e80c75d91cf4f9862f`, unchanged;
+- Node v23.11.0;
+- the preload variables unset;
+- no other `node --test` running;
+- 49.6 GiB free;
+- the worktree status recorded (the unstaged media deletions, which are not this work's), nothing staged.
+
+**Not involved:** `connect.test.mjs`, the refused gateway tests, WS13's guard, any world or runner, any HTTP, OAuth registration or key.
+
+**Result, 02:32:40 (+0900):**
+- **4 / 4 passed**, `rc=0`, 45 ms, no warning:
+  - usage errors;
+  - off-machine refusal without the flag, with loopback still exit 0;
+  - `--allow-remote` with redirects and credentials still refused;
+  - a failed request as JSON.
+- **After:** no test process left, the status identical, nothing staged, 49.6 GiB free.
+
+**Limits:** a fake `fetch` only. No real server, deployment, tunnel or client.
