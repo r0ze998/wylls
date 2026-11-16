@@ -156,3 +156,23 @@ The factory and the CLI are not a finished resident. A real resident entry, with
 **Not verified:**
 - **Renumbered events:** a findex rollback (`DELETE FROM event WHERE seq > c`) can renumber events between two page reads, and the contiguity check can't see that. `/h/season.headSeq` was not compared.
 - **No run:** the tests were updated as source only (pagination: 7 cases plus a midway failure; label caps) and never run.
+
+## Open dependency: workstream 4's arrival time is a slot; the chain's is a timestamp (2026-11-17)
+
+**The mismatch** (read in source; not resolved here):
+
+| Where | Field | Type and meaning |
+|---|---|---|
+| 4 `src/ports.rs:44`, `src/sim.rs:63` | `CaravanView.arrive_slot` | u64, compared with the slot: `executor.rs:1437–1451`, the settle wait and `settle_grace` |
+| frontier-abi v2 `layout/s1.rs:150` | caravan `ARRIVE_TS @ 180` | i64 unix timestamp |
+| the herald and `CqEvent` | `arrive_ts` / `arriveTs` | a timestamp |
+
+So 4's executor is consistent only with its own simulation. Against the real v2 caravan, a timestamp would be compared as a slot. Whether 4's port should read `ARRIVE_TS` and wait on time is **4's decision; not decided here**.
+
+**What this slice does with it: nothing.**
+- A receipt's bell comes only from its own record slot: 4 writes `slot: st.slot` / `r.slot` / `u.slot`, the observed record's slot, not `arrive_slot` (`executor.rs:1013`, `1487`, `1676`). That slot is placed through the herald's `/h/events` rows (`clockFromHeraldEvents`) and is otherwise held.
+- No arrival field is read in `live-observation.mjs`, `canonical.mjs` or `ws04-receipts.mjs` (pinned as text in the 12 test).
+- No slot is turned into a time or a time into a slot.
+- Nothing about arrival fills in a clock, a credited amount or a settlement.
+
+**Not verified:** whether a real-chain run of 4's executor records `caravan_settled` at the right slot while its arrival wait is misread as a slot. That needs 4's port fixed and a run; neither is done.

@@ -189,4 +189,10 @@ test('the source: one RPC read; nothing written; no absence concluded; no credit
   assert.match(s, /capKind\(kinds\.store, 'integration-output'\)/);
   assert.match(s, /capKind\(kinds\.herald, LABEL_CAP\)/); assert.match(s, /capKind\(kinds\.rpc, LABEL_CAP\)/);
   assert.doesNotMatch(s, /capKind\(kinds\.(herald|rpc)\)/, 'no uncapped label');
+  // Arrival time is not a clock here: 4's CaravanView.arrive_slot (u64, compared as a slot) and the chain's
+  // ARRIVE_TS (i64 unix seconds, frontier-abi v2 s1.rs @180; the herald's arrive_ts) are not converted into each
+  // other. A receipt's bell comes only from its own record slot through the herald's events.
+  for (const f of ['../adapters/live-observation.mjs', '../adapters/ws04-receipts.mjs', '../adapters/canonical.mjs']) {
+    assert.doesNotMatch(readFileSync(new URL(f, import.meta.url), 'utf8'), /arrive_?(slot|ts)|arriveTs|arriveSlot|ARRIVE_TS/i, f);
+  }
 });
