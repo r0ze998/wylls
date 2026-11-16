@@ -829,3 +829,44 @@ cargo +1.89.0 test --offline --locked -p permutation-rules --test custody_rest_h
 | Not the refused tests | It is not the Node `.mjs` web tests or their runner (see the pre-audit) |
 
 Whether it compiles and passes is **unknown until run**.
+
+## Replay-check test evidence (2026-11-16, 18:12 UTC; the coordinator's single run; not re-run)
+
+**What ran.** Once, at HEAD `59362828`:
+
+```
+env -u RUST_LOG cargo +1.89.0 test --offline --locked -p permutation-rules --test custody_rest_home_replay \
+  --target-dir <the existing dedicated kernel target: wylls-test-target-custody-43e963d3> -j 1
+```
+
+**Result:** build 2.55 s; **7 passed**, 0 failed, 0 ignored, 0 measured, 0 filtered out; tests 0.00 s; exit 0; no warnings.
+
+**The seven tests** are every test in the file:
+- `a_repeated_step_matches_only_as_a_no_op`
+- `malformed_claims_are_refused_before_anything`
+- `nothing_given_to_the_check_changes`
+- `tampered_after_states_are_found`
+- `a_step_the_kernel_refuses_is_returned_as_that_refusal`
+- `a_true_step_matches_fraction_whole_and_both`
+- `tampered_amounts_get_the_kernels_amounts_back`
+
+**Source:** `permutation-rules/tests/custody_rest_home_replay.rs`, SHA-256 `a53f45bb38532b9b0b2bb4f250016230d8396461581bb6b61b26aa5021fa4d7a`. Lane C re-checked it read-only at `59362828`.
+
+**Conditions:** no code, lock or config change before or after; nothing staged; the 25 media deletions unchanged. The target used 196,964 KiB.
+
+**Scope.**
+- It covers the pure kernel check `replay_rest_home` on hand-built states only.
+- **Not verified:** V26, a formal record, the ABI, a real world, SBF, signatures, integration.
+- This result does not carry over to any other change.
+
+## Is there still an improvement that needs no ABI decision? (static; nothing changed)
+
+| Candidate | Needs an ABI or ④ decision? | Verdict |
+|---|---|---|
+| Pure replay checks for `begin_use` and `end_use` | Yes. Their meaning depends on the job link (a program-side account: byte 1/2/3, `owed`) and on what a record would carry (`due`, `rest`, the count transition, `whole`). Writing a check now would fix a record shape ④ has not chosen | Not done |
+| A pure replay check for `pay_rest` | No, but it adds nothing: inside the owner's `spend_ship`, V26 already replays the kernel; inside `settle_lot`, it is bound to `end_use`'s record above | Not worth adding |
+| Prepared payload encoders for those steps | Yes: same reason as the first row (they would anticipate ④'s record fields) | Not done |
+| Page or client work | Yes: there is no adopted instruction to build for | Not done |
+| Further kernel or handler hardening of design A and the rest home | No. The audits found no remaining real defect; the open items are all decisions (who triggers a return, ClaimJob's vault, seizure, D3, two sources) | Nothing left |
+
+**Conclusion:** within ⑨/⑩, no ABI-free static improvement of real value remains. The remaining work waits on ④ (tag, record kinds, version and hash, RSV and link names, a world identity) and on the owner's open decisions listed above.
