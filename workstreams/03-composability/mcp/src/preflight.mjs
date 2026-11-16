@@ -34,11 +34,17 @@ export async function preflight(url, { client = 'claude-code', fetch: f = fetch,
   const u = new URL(url);
   if (!allowRemote && !isLoopbackHost(u.hostname)) throw new Error('preflight runs against a server on this machine only (it registers OAuth clients); allowRemote is for an approved deployment');
   const checks = [];
-  // (2026-11-17) A detail may quote what the server under test sent (its resource, its issuers, an error text). The
-  // user:password part of any URL in it is removed, so a credential the server names never comes back in the result.
-  // The `url` field stays the URL exactly as the caller entered it.
-  const redact = d => (typeof d === 'string' ? d.replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#@"]*@/g, '$1[credentials removed]@') : d);
-  const check = (name, ok, detail = null) => { checks.push({ name, ok: Boolean(ok), ...(detail !== null ? { detail: redact(detail) } : {}) }); return Boolean(ok); };
+  // (2026-11-17) A detail may quote what the server under test sent (its resource, its issuers, an error text). Only
+  // text is ever shown, with the user:password part of any URL in it removed (up to the LAST "@" before the path, as
+  // URL parsing reads it; with or without "//"); a value that is not text is shown by its type alone, and nothing
+  // inside it is read. So a credential the server names never comes back in the result. A missing detail stays
+  // absent. The `url` field stays the URL exactly as the caller entered it.
+  const shown = d => (typeof d === 'string'
+    ? d.replace(/([A-Za-z][A-Za-z0-9+.-]*:[\/\\]*)[^\s\/\\?#"<>]*@/g, '$1[credentials removed]@')
+    : `(not text: ${Array.isArray(d) ? 'array' : typeof d})`);
+  const check = (name, ok, detail = null) => { checks.push({ name, ok: Boolean(ok), ...(detail !== null && detail !== undefined ? { detail: shown(detail) } : {}) }); return Boolean(ok); };
+  /** A value for a detail written as text: itself if it is text, else its type (never String() of an object). */
+  const textOf = v => (typeof v === 'string' ? v : v === undefined ? 'undefined' : v === null ? 'null' : `(not text: ${Array.isArray(v) ? 'array' : typeof v})`);
   const json = async (res) => { try { return await res.json(); } catch { return null; } };
   const stop = () => ({ client, url, ok: false, checks, unverified: [] });
   /** One request, only to a URL that keeps the contract above; null (with a failed check) when refused. */
@@ -69,7 +75,7 @@ export async function preflight(url, { client = 'claude-code', fetch: f = fetch,
   const prmRes = await reach('protected resource metadata', prmUrl);
   if (!prmRes) return stop();
   const prm = await json(prmRes);
-  check('resource equals the URL as entered', prm?.resource === url, `resource ${prm?.resource}`);
+  check('resource equals the URL as entered', prm?.resource === url, `resource ${textOf(prm?.resource)}`);
   const issuer = prm?.authorization_servers?.[0] ?? null;
   check('an authorization server (the first is used)', issuer, issuer);
   if (!issuer) return { client, url, ok: false, checks, unverified: [] };
@@ -97,7 +103,7 @@ export async function preflight(url, { client = 'claude-code', fetch: f = fetch,
   const tok = await reach('token endpoint', asm?.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: 'preflight-not-a-token' }).toString() });
   if (!tok) return stop();
   const tb = await json(tok);
-  check('token endpoint: form body, invalid_grant for a bad refresh token', tok.status === 400 && tb?.error === 'invalid_grant', `status ${tok.status} ${tb?.error ?? ''}`);
+  check('token endpoint: form body, invalid_grant for a bad refresh token', tok.status === 400 && tb?.error === 'invalid_grant', `status ${tok.status} ${tb?.error === undefined || tb?.error === null ? '' : textOf(tb.error)}`);
 
   const unverified = [
     'the client itself was not run: its screens, its consent prompt for write tools, and how its model picks tools are not checked',

@@ -258,7 +258,7 @@ Nothing here connects ChatGPT or any client.
 | detail of "issuer matches" | the server (AS metadata `issuer`) | **echoed raw** |
 | detail of "registers with redirect …" | the server's `error_description` text | **echoed raw** |
 | a refusal's detail | this module | never the URL (since 274d5c62) |
-| the command's `{error}` | the library's own texts, or `fetch`'s message | no URL: `reach` refuses a credential URL before any request, so `fetch` never sees one |
+| the command's `{error}` | the library's own texts, or `fetch`'s message | ~~no URL: `reach` refuses a credential URL before any request, so `fetch` never sees one~~ **wrong**: that does not bound what an exception's message says (see the next section) |
 
 **The gap:** the committed property is that a credential the server names never comes back (the loopback test's case 4, and the command test's credential case). It did not hold for those four details. A server naming `http://user:secret@…` as its authorization server had that credential printed in the issuer check's detail.
 
@@ -271,3 +271,48 @@ Nothing here connects ChatGPT or any client.
 - **Secrets that are not userinfo:** a secret the server embeds elsewhere (a query parameter, free text that is not `scheme://user:pass@`) is not recognised. The server under test chose to send it.
 
 **Test (written, not run):** `test/preflight-loopback.test.mjs` +1 case. A credential in the resource, the authorization server, the issuer or a registration's error text never appears in the result, `[credentials removed]` does, and nothing outside is requested. It uses the same fake `fetch` and imports as the file's other cases.
+
+## Three counter-examples to the last section, fixed (2026-11-17, written, not run)
+
+The owner's review found three ways a credential could still come back. Each was confirmed by reading the source; all three are real.
+
+| # | Counter-example | Why it leaked |
+|---|---|---|
+| 1 | `http://u:abc@def@127.0.0.1` | URL parsing ends the userinfo at the **last** `@` before the path; the pattern stopped at the first, leaving `def` |
+| 2 | an `issuer`, `authorization_servers[0]` or `error_description` that is an object | `check()` redacted strings only, so an object went into the result **as given**, credential strings inside it included. `resource ${…}` and the token detail also turned an object into text through a template. |
+| 3 | an exception from `fetch` | the command printed any exception's `message`. Refusing credential URLs before a request does not bound what an error message says: a custom `fetch`, a proxy or a library may quote URLs, headers or tokens. |
+
+**The fix** (`src/preflight.mjs`, `bin/wylls-mcp-preflight.mjs`; D, auth and http untouched):
+- **Userinfo:** the pattern is `scheme:` followed by any `/` or `\`, then everything up to the last `@` before whitespace, `/`, `\`, `?`, `#`, `"`, `<` or `>`. It also covers `http:u:p@h` and `http:\\u:p@h`, which URL parsing also reads as userinfo.
+- **Non-text details:** a detail that is not a string is shown as `(not text: object)`, `(not text: array)`, `(not text: number)` and so on. Nothing inside it is read: no recursion, no `String()`, no `toString` or getter. The two template details (`resource …`, the token error) use the same type-only text.
+- **Command errors:** `error` is one of two fixed texts:
+  - the library's refusal of a URL off this machine, recognised by its fixed opening words;
+  - otherwise `request failed`.
+
+  `message` is read only as an own data property holding text, through `Object.getOwnPropertyDescriptor`, so a getter is never run. A thrown string, `null`, a number, or an object whose `message` is not text all give `request failed`.
+
+**Effect on the existing return contract:**
+- **Unchanged:** check names, `ok`, the order of checks, requests, refusals, exit codes, and the `url` field (the caller's input as entered).
+- **A `detail` is now always a string when present.** Before, it could be an object or array. A missing detail (`null` or `undefined`) is still left out.
+- **A detail that was an object or array is now its type only.** Its contents are no longer visible in the output, by design.
+- **The command's `error` no longer carries the underlying cause.** "fetch failed", "ECONNREFUSED" and similar now all read `request failed`. Diagnosing a failed request means rerunning with a debugger or the library directly. The command does not provide that.
+
+**Remaining limits (not claimed):**
+- **Free-text secrets:** only URL userinfo in text is recognised. A token in a query string (`?access_token=`), a header quoted in free text, or a bare password is not.
+- **Credentials the pattern does not recognise:** a password containing whitespace, a quote or `<>`; a tab or newline inside the userinfo, which URL parsing drops but the pattern stops at; or a scheme the pattern does not start at. In these cases the userinfo is not recognised and is left as is.
+- **Fields the module reads from a fake response:** `status` and `headers` come from `fetch`. Real `fetch` gives numbers and strings; a fake could give objects whose `valueOf` runs in a comparison. Only the body (JSON from `res.json()`) is treated as untrusted shape here.
+- **What is requested:** `--allow-remote` still sends requests to whatever the server names. The fixes above bound what is printed, not what is requested.
+
+**Tests (written, not run; fake `fetch`, made-up values `zq1`, `zq2`, `zq9` only):**
+- **`test/preflight-loopback.test.mjs` +1 case (now 8):**
+  - a password with `@`, a URL without `//`, and one with backslashes, each giving `[credentials removed]`;
+  - a resource, authorization server, issuer, `error_description` or token error that is an object or array, each giving `(not text: …)`;
+  - in every variant, no `zq1` or `zq2` in the result, every detail a string, and nothing outside requested.
+- **`test/preflight-cli.test.mjs`:**
+  - the failed-request case now expects `request failed` (was `fetch failed`);
+  - +1 case (now 5): a fake `fetch` throws an Error, a string, an object with a non-text `message`, `null`, `undefined` or `42`, each naming `zq9` where it can. The output is always `request failed`, with no `zq9`. A `message` getter is never run, and the library's refusal keeps its fixed text.
+- **Imports are unchanged:**
+  - `node:test`, `node:assert/strict` and `node:fs` (read of the module's own source for the pin);
+  - `../src/preflight.mjs`, which imports nothing;
+  - `../bin/wylls-mcp-preflight.mjs`, which imports `node:url` and the library.
+- **Side effects:** none outside the process. No server, socket, OAuth registration, file write or environment read. The command's entry guard does not fire under `node --test`, because `process.argv[1]` is the test file, not the command.

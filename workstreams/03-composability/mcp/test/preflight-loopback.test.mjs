@@ -122,3 +122,31 @@ test('a credential the server names in a resource, an issuer or an error text ne
     assert.deepEqual(external(s.asked), [], `${label}: nothing outside was requested`);
   }
 });
+
+// (2026-11-17) The userinfo pattern runs to the LAST "@" (as URL parsing reads it), with or without "//"; a detail that
+// is not text is shown by its type alone and nothing inside it is read. Made-up values only. Written, not run.
+test('a password with "@", a URL without "//", and details that are not text never bring a credential back', async () => {
+  const PRM = `${L}/.well-known/oauth-protected-resource`, ASM = `${L}/.well-known/oauth-authorization-server`;
+  const ok200 = body => () => ({ status: 200, headers: { get: () => null }, json: async () => body });
+  const asmBody = over => ({ issuer: `${L}/`, code_challenge_methods_supported: ['S256'], registration_endpoint: `${L}/register`,
+    token_endpoint_auth_methods_supported: ['none'], token_endpoint: `${L}/token`, ...over });
+  for (const [label, over, typeOnly] of [
+    ['"@" in the password', { [`GET ${PRM}`]: ok200({ resource: 'http://u:zq1@zq2@127.0.0.1:9000/mcp', authorization_servers: [`${L}/`] }) }, false],
+    ['no "//"', { [`GET ${PRM}`]: ok200({ resource: 'http:u:zq1@127.0.0.1:9000/mcp', authorization_servers: [`${L}/`] }) }, false],
+    ['backslashes', { [`GET ${PRM}`]: ok200({ resource: 'http:\\\\u:zq1@127.0.0.1:9000/mcp', authorization_servers: [`${L}/`] }) }, false],
+    ['resource as an object', { [`GET ${PRM}`]: ok200({ resource: { href: 'http://u:zq1@127.0.0.1:9000/mcp' }, authorization_servers: [`${L}/`] }) }, true],
+    ['authorization server as an object', { [`GET ${PRM}`]: ok200({ resource: URL0, authorization_servers: [{ url: 'http://u:zq1@127.0.0.1:9000/' }] }) }, true],
+    ['issuer as an object', { [`GET ${ASM}`]: ok200(asmBody({ issuer: { id: 'http://u:zq1@127.0.0.1:9000/' } })) }, true],
+    ['issuer as an array', { [`GET ${ASM}`]: ok200(asmBody({ issuer: ['http://u:zq1@127.0.0.1:9000/'] })) }, true],
+    ['error_description as an object', { [`POST ${L}/register`]: () => ({ status: 400, headers: { get: () => null }, json: async () => ({ error_description: { see: 'http://u:zq1@127.0.0.1/' } }) }) }, true],
+    ['token error as an object', { [`POST ${L}/token`]: () => ({ status: 400, headers: { get: () => null }, json: async () => ({ error: { see: 'http://u:zq1@127.0.0.1/' } }) }) }, true],
+  ]) {
+    const s = server(over);
+    const r = await preflight(URL0, { client: 'claude-code', fetch: s.fetch });
+    const text = JSON.stringify(r);
+    assert.ok(!/zq1|zq2/.test(text), `${label}: ${text}`);
+    assert.ok(text.includes(typeOnly ? '(not text: ' : '[credentials removed]'), `${label}: ${text}`);
+    assert.ok(r.checks.every(c => !('detail' in c) || typeof c.detail === 'string'), `${label}: every detail is text`);
+    assert.deepEqual(external(s.asked), [], `${label}: nothing outside was requested`);
+  }
+});

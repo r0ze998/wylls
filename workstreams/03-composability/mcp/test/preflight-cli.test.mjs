@@ -4,7 +4,7 @@
 // Imports: node:test, node:assert/strict, and the command (which imports node:url and src/preflight.mjs only).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { main, USAGE } from '../bin/wylls-mcp-preflight.mjs';
+import { main, USAGE, errorText } from '../bin/wylls-mcp-preflight.mjs';
 
 /** A healthy server at `origin` (loopback or an approved deployment), answering from a table. */
 function server(origin, { over = {}, throwOn = null } = {}) {
@@ -77,6 +77,25 @@ test('--allow-remote is the library\'s allowRemote and no more: the deployment i
 test('a request that fails is JSON with exit 1, not a crash; the requests made before it are listed by the fake', async () => {
   const s = server(L, { throwOn: `POST ${L}/token` });
   const r = await run([`${L}/mcp`, 'claude-code'], s);
-  assert.equal(r.code, 1); assert.deepEqual(r.json, { client: 'claude-code', ok: false, error: 'fetch failed' });
+  assert.equal(r.code, 1); assert.deepEqual(r.json, { client: 'claude-code', ok: false, error: 'request failed' });
   assert.equal(s.asked.filter(x => x.key === `POST ${L}/register`).length, 2, 'the registrations before it were made (and are not undone)');
+});
+
+// (2026-11-17) An exception's own message is never printed: a fetch that throws text naming a credential (made-up
+// values only) gives the fixed "request failed"; the library's own refusal keeps its fixed text. Written, not run.
+test('an exception naming a credential is never printed; only fixed texts come back', async () => {
+  const thrown = [new Error('connect to http://u:zq9@127.0.0.1:9000/token failed (Authorization: Bearer zq9tok)'),
+    'http://u:zq9@127.0.0.1:9000/', { message: { url: 'http://u:zq9@127.0.0.1:9000/' } }, null, undefined, 42];
+  for (const e of thrown) {
+    const s = server(L);
+    const f = async (url, init = {}) => { if (url === `${L}/token`) throw e; return s.fetch(url, init); };
+    const out = [];
+    const code = await main([`${L}/mcp`, 'claude-code'], { print: x => out.push(x), warn: () => {}, fetch: f });
+    assert.equal(code, 1); assert.equal(JSON.parse(out.at(-1)).error, 'request failed', String(e));
+    assert.ok(!out.join('').includes('zq9'), 'the made-up credential never comes back');
+  }
+  let ran = false;
+  const getter = { get message() { ran = true; return 'http://u:zq9@127.0.0.1/'; } };
+  assert.equal(errorText(getter), 'request failed'); assert.equal(ran, false, 'a message getter is never run');
+  assert.match(errorText(new Error('preflight runs against a server on this machine only (it registers OAuth clients); allowRemote is for an approved deployment')), /--allow-remote is for an approved deployment$/);
 });

@@ -13,9 +13,24 @@
 //
 // (2026-11-17) Output: one JSON document on stdout. Exit 0: every check passed. Exit 1: a check failed, or the
 // preflight stopped with an error (`{ok: false, error}`; a request that failed after others were made, such as a
-// registration, is not undone). Exit 2: usage (stderr), and nothing is requested.
+// registration, is not undone). Exit 2: usage (stderr), and nothing is requested. `error` is one of two fixed texts:
+// the library's own refusal of a URL off this machine, or "request failed" (an exception's own message is never
+// printed: it may quote a URL, a header or a token).
 import { pathToFileURL } from 'node:url';
 import { preflight, PREFLIGHT_CLIENTS } from '../src/preflight.mjs';
+
+/** The library's one refusal before any request (src/preflight.mjs), recognised by its fixed opening words. */
+const OFF_MACHINE = 'preflight runs against a server on this machine only';
+/** What the command says of an error: a fixed text only. `message` is read only as an own data property holding
+ * text (a getter is never run); anything else thrown, or anything unreadable, is "request failed". */
+export function errorText(e) {
+  let m = '';
+  try {
+    const d = e !== null && typeof e === 'object' ? Object.getOwnPropertyDescriptor(e, 'message') : undefined;
+    if (d && 'value' in d && typeof d.value === 'string') m = d.value;
+  } catch { m = ''; }
+  return m.startsWith(OFF_MACHINE) ? `${OFF_MACHINE} (it registers OAuth clients); --allow-remote is for an approved deployment` : 'request failed';
+}
 
 export const USAGE = `usage: wylls-mcp-preflight <mcp url> [${PREFLIGHT_CLIENTS.join('|')}] [--allow-remote]`;
 
@@ -31,7 +46,7 @@ export async function main(argv, { print = s => process.stdout.write(`${s}\n`), 
   if (allowRemote) warn('--allow-remote: for an approved deployment only; the server under test names the next URLs, and they may be off this machine');
   let r;
   try { r = await preflight(url, { client, allowRemote, fetch: f }); } catch (e) {
-    print(JSON.stringify({ client, ok: false, error: String(e?.message ?? e).slice(0, 300) }, null, 2));
+    print(JSON.stringify({ client, ok: false, error: errorText(e) }, null, 2));
     return 1;
   }
   print(JSON.stringify(r, null, 2));
