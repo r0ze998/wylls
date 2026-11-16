@@ -73,13 +73,25 @@ for (const lang of ['en', 'ja']) test(`land layer (${lang} @ 1440): another nati
       const seed = FS.record.rings.find(r => r.d === 2).seed;
       const g = k.call('generate_province', { ring_seed: Uint8Array.from(seed.match(/../g), x => parseInt(x, 16)), p, q }).value;
       const h0 = tileHex(p, q, from), hexes = i => { const h = tileHex(p, q, i), dq = h.q - h0.q, dr = h.r - h0.r; return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2; };
+      // (open ground only: not the keep's tile nor a village's — their sprites stand over the land wash)
+      const env = FS.provinces.get(`${p},${q}`), pv = env?.province;
+      const { keepFromProvince } = await import('/frontier/fconquest.mjs');
+      let keep = null; try { keep = keepFromProvince(pv)?.tile ?? null; } catch { keep = null; }
+      const sites = new Set((pv?.siteMirror ?? []).filter(x => x && x.state !== 0 && Number.isInteger(x.tile)).map(x => x.tile));
       const out = [];
-      for (let i = 0; i < 61; i++) if (hexes(i) >= 2 && hexes(i) <= 3 && ((BigInt(g.passableMask) >> BigInt(i)) & 1n)) out.push(i);
+      for (let i = 1; i < 61; i++) if (i !== keep && !sites.has(i) && hexes(i) >= 2 && hexes(i) <= 3 && ((BigInt(g.passableMask) >> BigInt(i)) & 1n)) out.push(i);
       return out;
     }, [HOME.p, HOME.q, HOME.tile]);
     let T = null, pt = null;
     for (const t of tiles) { const q = await pointOf(page, { p: HOME.p, q: HOME.q, tile: t }); if (q.canvas && q.x > 200 && q.x < 1240 && q.y > 160 && q.y < 760) { T = t; pt = q; break; } }
     assert.ok(T !== null, 'a passable tile in sight');
+    // seven points inside the tile (its centre and six at 0.45 of its radius), on screen: a sprite may stand on one
+    const pts = await page.evaluate(async at => {
+      const { tileHex } = await import('/frontier/fgeo.mjs');
+      const { project, RADIUS } = await import('/map.mjs');
+      const h = tileHex(at.p, at.q, at.tile), c = project(h.q, h.r), m = window.__map;
+      return [[0, 0], ...[0, 1, 2, 3, 4, 5].map(k => [Math.cos(k * Math.PI / 3) * RADIUS * 0.45, Math.sin(k * Math.PI / 3) * RADIUS * 0.45])].map(([dx, dy]) => m.project(c.x + dx, c.y + dy));
+    }, { p: HOME.p, q: HOME.q, tile: T });
 
     // set the home province's land record: tile T (and its province's other claimed tiles) held by `owner`
     const setLand = (owner, take) => page.evaluate(async ([p, q, T, owner, take]) => {
@@ -102,28 +114,41 @@ for (const lang of ['en', 'ja']) test(`land layer (${lang} @ 1440): another nati
     }, [HOME.p, HOME.q, T, owner, take]);
 
     // the colour at the tile, averaged over 7 × 7 device pixels, on every 2D canvas of the page that covers it
-    const sample = () => page.evaluate(([x, y]) => [...document.querySelectorAll('canvas')].map((cv, i) => {
+    const sample = () => page.evaluate(P => P.flatMap(({ x, y }, k) => [...document.querySelectorAll('canvas')].map((cv, i) => {
       const b = cv.getBoundingClientRect();
       if (!b.width || x < b.left || x > b.right || y < b.top || y > b.bottom) return null;
       let g = null; try { g = cv.getContext('2d', { willReadFrequently: true }); } catch {} if (!g) return null;
       const cx = Math.round((x - b.left) * cv.width / b.width), cy = Math.round((y - b.top) * cv.height / b.height);
       const d = g.getImageData(cx - 3, cy - 3, 7, 7).data, s = [0, 0, 0, 0];
       for (let k = 0; k < d.length; k += 4) for (let j = 0; j < 4; j++) s[j] += d[k + j];
-      return { i, rgba: s.map(v => v / 49) };
-    }).filter(Boolean), [pt.x, pt.y]);
+      return { i: `${k}:${i}`, rgba: s.map(v => v / 49) };
+    }).filter(Boolean)), pts);
 
+    // a baseline with no land record, then the other nation's tile: wait until the map has painted it (the first frames
+    // after loading may still be the opening, and the ground layer is re-baked a few frames after a change)
+    await settle(page);
+    const bare = await sample();
     const theirs = await setLand('other', true);
     assert.ok(theirs.ok && Number.isInteger(theirs.me), 'the record parses');
-    await settle(page); await page.waitForTimeout(250);
-    const before = await sample();
+    const differs = (a, b) => a.some(x => { const y = b.find(z => z.i === x.i); return y && Math.hypot(...[0, 1, 2].map(j => x.rgba[j] - y.rgba[j])) > 2; });
+    let before = [];
+    for (let i = 0; i < 20; i++) { await settle(page); await page.waitForTimeout(200); before = await sample(); if (differs(before, bare)) break; }
+    const diag = differs(before, bare) ? null : await page.evaluate(async ([p, q, T]) => {
+      const m = window.__map, { FS } = await import('/frontier/fstate.mjs');
+      const sv = FS.survey;
+      return { landKeys: [...(m.landKeys ?? [])], kept: m.kept?.landmarks ?? null, level: sv?.levelOf?.(p, q, T) ?? null, showAll: !!sv?.showAll,
+        lod: document.getElementById('frontier-map')?.dataset.lod, moving: !!m.cam?.moving, piece: !!m.piece, land: !!FS.provinces.get(`${p},${q}`)?.land };
+    }, [HOME.p, HOME.q, T]);
+    assert.ok(differs(before, bare), `the other nation's land is painted at the tile: ${JSON.stringify({ T, pt, diag, bare, before })}`);
     const mine = await setLand('me', false);
-    await settle(page); await page.waitForTimeout(250);
-    const after = await sample();
     const colours = await page.evaluate(async ([a, b]) => { const { FACTION_COLORS } = await import('/frontier/fi18n.mjs'); return [FACTION_COLORS[a], FACTION_COLORS[b]]; }, [mine.me, theirs.f]);
     const rgb = c => { const h = String(c).replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
     const [own, other] = colours.map(rgb);
-    // the map's own pixels at the tile moved towards the viewer's nation's colour, away from the other nation's
-    const moved = after.map(a => { const b0 = before.find(x => x.i === a.i); if (!b0) return null; const d = [0, 1, 2].map(j => a.rgba[j] - b0.rgba[j]); return { i: a.i, d, dot: d.reduce((s, v, j) => s + v * (own[j] - other[j]), 0), size: Math.hypot(...d) }; }).filter(x => x && x.size > 2);
+    // the map's own pixels at the tile moved towards the viewer's nation's colour, away from the other nation's (sampled
+    // again every 200 ms for up to 4 s: the ground layer is re-baked a few frames after the record changes)
+    const movedOf = after => after.map(a => { const b0 = before.find(x => x.i === a.i); if (!b0) return null; const d = [0, 1, 2].map(j => a.rgba[j] - b0.rgba[j]); return { i: a.i, d, dot: d.reduce((s, v, j) => s + v * (own[j] - other[j]), 0), size: Math.hypot(...d) }; }).filter(x => x && x.size > 2);
+    let after = [], moved = [];
+    for (let i = 0; i < 20 && !moved.some(m => m.dot > 0); i++) { await settle(page); await page.waitForTimeout(200); after = await sample(); moved = movedOf(after); }
     assert.ok(moved.length > 0, `a canvas changed at the tile (${JSON.stringify(after.map(a => a.i))})`);
     assert.ok(moved.some(m => m.dot > 0), `towards the viewer's colour: ${JSON.stringify(moved)}`);
 
