@@ -845,6 +845,29 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
     }
     assert_eq!(lot_now(&lot_ai), before);
     assert_eq!(home_ore(&home), 0);
+    // Through the dispatch, in the `custody-rest-home-preview` build only
+    // (provisional, unallocated tag 0xEF; WRITTEN, NOT RUN): the shape is
+    // checked before anything is read, and every refusal changes nothing.
+    #[cfg(feature = "custody-rest-home-preview")]
+    {
+        let tag = crate::proc::custody::REST_HOME_PREVIEW_TAG;
+        let with_home = |who: &Member, h: &AccountInfo<'static>| {
+            t.as_player(who, &[lot_vault.clone(), lot_ai.clone(), h.clone()])
+        };
+        assert_eq!(run(&with_home(&m, &home), &[tag, 0]), Err(E::BadData as u32), "no data after the tag");
+        assert_eq!(
+            run(&t.as_player(&m, &[lot_vault.clone(), lot_ai.clone()]), &[tag]),
+            Err(E::TooManyAccounts as u32)
+        );
+        // (BAD_ACCOUNT is not a custom code, which `run` does not map:
+        // these call the dispatch directly)
+        let refused = |acc: &[AccountInfo<'static>]| crate::dispatch(&program, acc, &[tag]).is_err();
+        assert!(refused(&with_home(&m, &with_writable(&home, false))), "home must be writable");
+        assert!(refused(&with_home(&m, &lot_vault)), "alias of the lot's vault");
+        assert!(refused(&with_home(&b, &home)), "only the lot's owner");
+        assert_eq!(lot_now(&lot_ai), before);
+        assert_eq!(home_ore(&home), 0);
+    }
     // the exact rest home, once
     assert_eq!(pay(&home).unwrap(), 500);
     let l = lot_now(&lot_ai);
@@ -858,6 +881,15 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
     assert_eq!(pay(&home).unwrap(), 0);
     assert_eq!(lot_now(&lot_ai), l);
     assert_eq!(home_ore(&home), 500);
+    // and through the dispatch: Ok, nothing paid, nothing written
+    #[cfg(feature = "custody-rest-home-preview")]
+    {
+        let tag = crate::proc::custody::REST_HOME_PREVIEW_TAG;
+        let a = t.as_player(&m, &[lot_vault.clone(), lot_ai.clone(), home.clone()]);
+        assert_eq!(run(&a, &[tag]), Ok(()));
+        assert_eq!(lot_now(&lot_ai), l);
+        assert_eq!(home_ore(&home), 500);
+    }
 }
 
 /// Design A (WRITTEN, NOT RUN): the link's first byte carries the count

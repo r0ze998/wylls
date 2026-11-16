@@ -1242,7 +1242,9 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 // ------------------------------------------------------------ the owner's rest home (not dispatched)
 
-/// **Not dispatched; no tag, no ABI.** The accounts side of
+/// **Dispatched only by the `custody-rest-home-preview` build** (through
+/// [`pay_lot_rest_home`] on the provisional, unallocated tag 0xEF); every
+/// other build leaves it unused. The accounts side of
 /// `custody::pay_rest_home` (the owner's approval of 2026-11-17: the
 /// owner's sub-unit rest goes exactly to their own live vault in the lot's
 /// province; with none, or a full one, it is held and the lot stays open),
@@ -1281,7 +1283,7 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 ///
 /// No record is logged: no record kind exists for the payout (workstream 4;
 /// until then V26 cannot verify it). Returns the milli paid home.
-#[allow(dead_code)] // not wired to dispatch until its carrier is agreed
+#[cfg_attr(not(feature = "custody-rest-home-preview"), allow(dead_code))]
 pub(crate) fn pay_rest_home_accounts(
     p: &Pubkey,
     pl: &Player,
@@ -1318,6 +1320,56 @@ pub(crate) fn pay_rest_home_accounts(
         put_vault_data(d, &h)?;
     }
     Ok(paid)
+}
+
+/// The rest-home preview's tag: **provisional and unallocated**
+/// (ABI-ALLOCATION rev 3 lists 0xEE–0xEF as free and the wide draft took
+/// 0xEE; workstream 4 allocates). Routed only by the
+/// `custody-rest-home-preview` build; a default build refuses it as an
+/// unknown tag, as does the verifier.
+#[cfg(feature = "custody-rest-home-preview")]
+pub const REST_HOME_PREVIEW_TAG: u8 = 0xEF;
+
+/// 0xEF (provisional) PayLotRestHome: P (the lot's owner, by wallet) +
+/// `[lot_vault r] [lot w] [home w]`, no data after the tag. The owner's
+/// sub-unit rest goes exactly to `home`, the owner's own live vault in the
+/// lot's province ([`pay_rest_home_accounts`]); with none, a full or a stale
+/// one, the instruction is refused and nothing changes: the rest stays held
+/// and the lot stays open. CloseLot is unchanged (the owner closes with it
+/// afterwards). No record is logged: no kind is allocated (see
+/// [`rest_home_payload`] for the prepared payload).
+#[cfg(feature = "custody-rest-home-preview")]
+pub fn pay_lot_rest_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    if d != [REST_HOME_PREVIEW_TAG] {
+        return Err(FrontierError::BadData.into());
+    }
+    let [_, _payer, _season, citizen, lot_vault, lot, home] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    if !lot.is_writable || !home.is_writable {
+        return Err(BAD_ACCOUNT);
+    }
+    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    pay_rest_home_accounts(p, &pl, citizen, lot_vault, lot, home)?;
+    Ok(())
+}
+
+/// The payout's record payload, **prepared, not emitted** (no record kind is
+/// allocated; workstream 4): the lot's raw key (15 B) ‖ the milli paid (i64)
+/// ‖ the home vault's place `p i16 ‖ q i16 ‖ tile u8` ‖ its owner's tag
+/// (u64): 36 bytes. With a kind, V26 would replay it as `REST −= x`,
+/// `CONSUMED −= x`, `OUT_TOTAL += x` on the lot and `STORES += x` on the
+/// home vault.
+#[allow(dead_code)] // prepared for a record kind workstream 4 has not allocated
+pub(crate) fn rest_home_payload(l: &Lot, paid: i64, home: &VaultView) -> [u8; 36] {
+    let mut b = [0u8; 36];
+    b[..15].copy_from_slice(&lot_raw(l));
+    b[15..23].copy_from_slice(&paid.to_le_bytes());
+    b[23..25].copy_from_slice(&home.p.to_le_bytes());
+    b[25..27].copy_from_slice(&home.q.to_le_bytes());
+    b[27] = home.tile;
+    b[28..36].copy_from_slice(&home.owner_tag.to_le_bytes());
+    b
 }
 
 #[cfg(test)]

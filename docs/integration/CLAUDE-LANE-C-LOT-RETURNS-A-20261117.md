@@ -266,7 +266,7 @@ cargo +1.89.0 test --offline --locked -p permutation-rules --test custody_return
 
 **Candidate.** An owner-only step that takes `[fee_payer s] [season] [citizen (the owner, by wallet)] [lot_vault r] [lot w] [home_vault w]`. Two ways to carry it:
 - (a) an optional trailing `home_vault` on **CloseLot (0xCB)**: pay home, then close if empty, in one instruction;
-- (b) a separate tag. `0xCF` is the only free tag in the 0xC_ band (allocation rev 7), and **④ allocates it**.
+- (b) a separate tag, which **④ allocates**. *(Corrected 2026-11-17: 0xCF is not free; rev 7 reserves it for the land preview. See "The carrier, wired as a preview" below.)*
 
 **The handler would:**
 - authenticate the owner with `player_as(Auth::Wallet)`;
@@ -311,12 +311,12 @@ A failure after the first write relies on the Solana transaction rollback, as ev
 
 ### The carrier, for ④ and the owner (not adopted)
 
-| | (a) Optional trailing `home` on CloseLot (0xCB) | (b) A separate owner-only tag (0xCF is the free tag in the band, per rev 7) |
+| | (a) Optional trailing `home` on CloseLot (0xCB) | (b) A separate owner-only tag (*corrected: not 0xCF, which rev 7 reserves for land; see below*) |
 |---|---|---|
 | Accounts | Today CloseLot is a fixed 7 accounts with an empty body (`check_accounts_v2(Ix2::CloseLot, a, None)`). It would become 7 or 8: **an existing instruction's public account list changes** in `frontier-abi` v2 tags, the generated `abi-v2-tags.mjs`, and the vectors | `[signer wallet] [payer] [season] [citizen w] [lot_vault r] [lot w] [home w]`, empty body. CloseLot is unchanged |
 | Behaviour | Pay home, then close if empty, in one instruction. A missing or full home refuses the whole close and keeps the rest (the approved behaviour). The keeper's close cannot use it (the kernel needs the owner) | Pay home only. The owner then closes with today's CloseLot, in the same transaction or a later one |
 | Clients and verifier | Every CloseLot builder and V26's CloseLot replay must learn the optional account and the payout | V26 learns one new instruction. Existing clients are untouched |
-| ④'s agreement | Changing an allocated instruction's account list | Allocating 0xCF (rev 7 lists it free) |
+| ④'s agreement | Changing an allocated instruction's account list | Allocating a free tag (*corrected: not 0xCF*) |
 | Both need | A record kind for the payout; V26 replay and history; `CUSTODY_VERSION` and `RULESET_HASH_V4`; ABI names for the RSV bytes |
 | Recommendation | — | **(b)**: no existing instruction or client changes, and the payout is its own replayable step |
 
@@ -343,3 +343,81 @@ A failure after the first write relies on the Solana transaction rollback, as ev
   - **pure kernel:** all or nothing on its own;
   - **two-account helper:** a borrow failure means nothing written. Any later failure relies on the runtime's rollback of the transaction.
 - **Unrun regression lines** in `capacity_runtime_tests.rs`: with `home`'s data held by a read borrow, the call fails, and the lot and `home` are both unchanged.
+
+## The carrier, wired as a preview (2026-11-17; static, nothing run)
+
+### Correction: 0xCF is not free
+
+Rev 7 of `ABI-ALLOCATION-20261106.ja.md` (line 248) reserves 0xCF as the land preview's spare: "土地の試験の予備（使わない）", and `land_preview.rs` keeps it reserved. My earlier rows said 0xCF was free. They are corrected above.
+
+### The tag check (read-only)
+
+**Occupancy, from the code:**
+
+| Use | Tags |
+|---|---|
+| v2 table | 86 tags (0xB0–0xBE, 0xC0–0xCC, and below) |
+| Reserved | 0x53, 0x80–0x91, 0xA4, 0xA8–0xAF, 0xBF |
+| ② rights | 0xD0–0xD5 |
+| Wide draft | 0xD6–0xDF and 0xEE |
+| ⑳ resident | 0xE0–0xE7 |
+| ⑪ extension | 0xE8–0xED |
+| ⑨ capacity | 0xF0–0xFD |
+| Land | 0xCD–0xCF |
+| Unknown-tag tests / test only | 0xFE / 0xFF |
+
+So **0xEF is the only free value in the high bands**: rev 3 lists 0xEE–0xEF as free, and the wide draft took only 0xEE. It is not an M1 tag either.
+
+**Across all 75 local branches** (fixed-string search, branch by branch), 0xEF appears only as an "is not in this band" probe:
+- `frontier-abi/src/capacity.rs:666`;
+- `world_index/wide_ix.rs:2552`;
+- the same lines inside ⑨'s patches.
+
+It also appears in the ledger's "free" row. Nothing assigns it. Those probes stay true, because only a separate opt-in build routes it.
+
+Remote branches not present locally were not searched (no fetch); they are **unknown**.
+
+### What was added (preview only, not adopted)
+
+| File | Change |
+|---|---|
+| `permutation-frontier/Cargo.toml` | Feature `custody-rest-home-preview = ["custody-preview"]`. Off in every default and deployable build: `scripts/build-frontier.sh` refuses unknown features. **The tag is provisional and unallocated**; there is no version bit and no ABI row |
+| `permutation-frontier/src/lib.rs` | One cfg-gated arm before the v2 tags, as the land preview does: `data[0] == 0xEF` goes to `proc::custody::pay_lot_rest_home`. A default build refuses the byte as an unknown tag |
+| `permutation-frontier/src/proc/custody.rs` | `REST_HOME_PREVIEW_TAG = 0xEF` (gated). `pay_lot_rest_home(p, a, d)`: the data must be exactly the tag (`BadData`), then exactly `[signer] [payer] [season] [citizen] [lot_vault] [lot w] [home w]` (`TooManyAccounts`), the lot and home writable (`BAD_ACCOUNT`), then `player_as(Auth::Wallet)`, then `pay_rest_home_accounts`. **CloseLot is unchanged**: the owner closes with it afterwards. `rest_home_payload` (36 B: the lot's raw key, the milli paid, the home's p/q/tile, its owner's tag) is **prepared and not emitted**: no record kind exists |
+| `permutation-frontier/src/capacity_runtime_tests.rs` | Lines that compile only in the rest-home build, through the real dispatch. **Written, not run.** Data after the tag is `BadData`. Six accounts is `TooManyAccounts`. A non-writable home, the lot's vault as home, and B instead of M are refused, with the lot and home unchanged. After the payment, a dispatch call is `Ok` and pays and writes nothing |
+
+### Static falsification (read)
+
+**Who and where.** The owner acts by wallet: `player_as` authenticates the Citizen and the wallet, and the kernel refuses a session key (`WalletRequired`) and any actor whose Citizen key is not the lot's.
+
+**Which accounts.**
+- The lot and home are read at their canonical addresses for this season, and the lot's vault is canonical for the lot's tile.
+- The home must be live, of the owner (a seized one is the captor's), in the same province, not the lot's tile, and have room counting `CUSTODY_QUOTA`.
+- The three accounts must be distinct.
+
+**Refusals and repeats.** A missing, full or stale home leaves the lot and home unchanged; the rest is held and the lot stays open. A double payment pays 0.
+
+**Atomicity, in two layers.**
+- The kernel is pure and all or nothing on its own.
+- The helper takes both write borrows before writing either, so a borrow failure leaves both unchanged. It then relies on the runtime rollback only for a failure between its two writes.
+
+**No crosstalk with other bands.** The arm sits after the capacity arm and before land and the v2 tags; 0xEF is in no other band.
+
+**Combinations:**
+- `capacity-preview` and the rest-home preview can coexist: the version is `PROGRAM_VERSION_CUSTODY | 0x1000`, unchanged by this feature.
+- `wide-world-experimental` with `custody-preview`: a combination not checked.
+
+### For V26 and records (prepared, **not** wired to replay)
+
+V26 treats any custody instruction in a custody season as UNVERIFIABLE at best, and any unknown tag as such. So until ④ allocates a tag and a record kind, a world using 0xEF **cannot verify**. That is honest, and no production replay is pretended.
+
+**The differences needed at adoption:**
+1. A record kind for the payout, with `rest_home_payload` as its body.
+2. V26 replay: run `pay_rest_home` on the recorded lot and home states (the kernel is already pure), and check `REST`, `CONSUMED`, `OUT_TOTAL` and the home's `STORES`.
+3. V26 history: accept the lowered `CONSUMED` and raised `OUT_TOTAL` only together with that record.
+4. The tag in the v2 table, or as a recognised band, plus the generated `abi-v2-tags.mjs`.
+5. `CUSTODY_VERSION` and `RULESET_HASH_V4`, and the RSV field names.
+
+**Not changed:** the default and deployable builds, CloseLot, the ABI tables, V26, migration. There is still no waiver, no other recipient, nothing permissionless, B's vault is still required, and nothing about seizure.
+
+**Nothing was run.** Only the kernel 4/4 evidence exists, from the coordinator's earlier run.

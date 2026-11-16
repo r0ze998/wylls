@@ -321,6 +321,13 @@ pub fn dispatch(
     {
         return proc::capacity::dispatch(program_id, accounts, data);
     }
+    // Lane C's rest-home preview (provisional, unallocated 0xEF, inside the
+    // custody preview): a default build never reaches this arm and refuses
+    // the byte as an unknown tag below.
+    #[cfg(feature = "custody-rest-home-preview")]
+    if data.first() == Some(&proc::custody::REST_HOME_PREVIEW_TAG) {
+        return proc::custody::pay_lot_rest_home(program_id, accounts, data);
+    }
     // The land preview (provisional 0xCD/0xCE): a default build never
     // reaches this arm and refuses the bytes as unknown tags below.
     #[cfg(feature = "land-preview")]
