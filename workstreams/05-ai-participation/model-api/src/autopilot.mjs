@@ -101,6 +101,8 @@ export class Autopilot {
     this.inFlight = 0;
     /** Where checkSent's next bounded read starts among the open sent acts (round robin: none starves behind held ones). */
     this.followOffset = 0;
+    /** The last checkSent's summary, for the owner's status (no reads happen in status()). */
+    this.lastFollowUp = null;
   }
 
   #event(e) { this.events.push({ at: this.w.publicWorld.clockSec(), ...e }); }
@@ -219,6 +221,8 @@ export class Autopilot {
     const open = verified.filter(v => [OPEN.unknown, OPEN.landed].includes(v.outcome));
     const unfinished = this.journal.unfinished().map(b => ({ key: b.key, requestId: b.requestId, attemptId: b.args?.requestId ?? null, outcome: OPEN.unknown, why: 'begun without an answer: not re-sent after the stop' }));
     this.#event({ op: 'check-sent', read: verified.filter(v => !v.notRead).length, open: open.length, unfinished: unfinished.length });
+    this.lastFollowUp = { at: this.w.publicWorld.clockSec(), read, open: open.length, notRead: verified.filter(v => v.notRead).length, unfinished: unfinished.length,
+      settled: open.length === 0 && unfinished.length === 0, nextOffset: this.followOffset };
     return { state: this.state, verified, open: open.length, notRead: verified.filter(v => v.notRead).length, unfinished, settled: open.length === 0 && unfinished.length === 0, sends: 0, nextOffset: this.followOffset };
   }
 
@@ -274,5 +278,8 @@ export class Autopilot {
     return this.start({ by });
   }
 
-  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.lease ? 'one per agent across processes on this machine (process lease); other machines are not seen' : this.scope, executionPath: EXECUTION_PATH }; }
+  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.lease ? 'one per agent across processes on this machine (process lease); other machines are not seen' : this.scope, executionPath: EXECUTION_PATH,
+    // What the last read-only follow-up after a stop found (checkSent); null until one ran. A summary only: settled is
+    // true only when nothing sent is open and nothing begun is unfinished; a result unknown keeps it false.
+    followUp: this.lastFollowUp }; }
 }

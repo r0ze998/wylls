@@ -96,6 +96,34 @@ rules for the relay, the ABI.
 "keep checking sent results" therefore holds only when something calls it. Who calls it and how often (an owner view,
 a CLI) is the open decision; no timer was added. A is not complete.
 
+## Round 3 (2026-11-17, on 7cc68536): where checkSent can be connected
+
+**Consumers traced (source at HEAD; test files read but not counted as consumers):**
+
+| Who | Uses of ⑤ | ⑤'s Autopilot? |
+|---|---|---|
+| ③ MCP (`workstreams/03-composability/mcp`) | `model-api/src/acts-port.mjs`, only in tests via `WS05_ROOT` | no |
+| ⑬ residents (`workstreams/13-citizens`) | cost ledger, process lease, price book (`resident/ports/ws05-cost.mjs`, tests) | no; "⑤の Autopilot に置き換える口" is a planned slot in ⑬'s own fallback (`01-existing-surface.ja.md:27`, `README.ja.md:105`) — ⑬'s file, not edited |
+| frontier-node `crates/bots` "autopilot" | — | a different thing (the Rust bots' rule autopilot), not ⑤'s |
+| ⑤ `model-api/demo/run-api-demo.mjs` | `Autopilot` (tick, stop, resume, status) | yes: the only non-test driver |
+
+No server, API, UI or CLI drives ⑤'s Autopilot. `tick()` while stopped is pinned to `{skipped: true, state: 'stopped'}`
+(`integration/same-citizen-contention.test.mjs:151`), so the follow-up is not folded into a stopped tick (that would also
+invent its cadence).
+
+**Connected (⑤ only):**
+- `checkSent()` records a summary; `status()` (the owner's view of the autopilot) shows it as `followUp` (null before
+  one ran). `status()` makes no read.
+- The demo calls `checkSent()` once at its existing post-stop step and records it in the stop stage beside the model
+  requests after the stop. No schedule was added. The committed demo log (`logs/model-api/api-demo.report.json`) was not
+  regenerated (the demo was not run).
+
+**Still not connected:** a caller that keeps checking. A complete A needs one of: ⑬'s fallback slot calling ⑤ (⑬'s
+file; reported, not edited), an owner view in ③ or the browser that calls `checkSent` (needs an owner-authorized route —
+an authorization decision), or the demo/runner calling it per world turn. A bounded proposal for whoever owns that
+caller: at most one `checkSent` per world turn (bell) while stopped, 8 reads each (round robin), stop calling once
+`settled`; within the relay's 20 burst / 2 per second. Not implemented.
+
 ## Residual windows (stated, not closed)
 
 - (Round 1's microtask window between `beforeSend` and `agent_act` is closed in round 2: the fence runs inside `act()`.)
@@ -117,7 +145,7 @@ a CLI) is the open decision; no timer was added. A is not complete.
 `AutopilotStopped`, no act-begin; S2 stop + resume during the wait → the old tick sends nothing and leaves the state
 alone, the next tick sends; S4 `checkSent` read only, an unsettled send open, never settled; S5 refused while running or
 with a tick in flight; S6 an unfinished act reported, not re-sent; S7 a stop between act-begin and the first agent_act; S8 no re-ask once
-stopped; S9 verifyPending's rotation; S10 checkSent's advancing start. It uses `autopilot.test.mjs`'s harness (the local
+stopped; S9 verifyPending's rotation; S10 checkSent's advancing start; S11 status shows the last follow-up and reads nothing. It uses `autopilot.test.mjs`'s harness (the local
 world, whose relay makes an in-memory test agent key, and the model HTTP fixture on 127.0.0.1): run only through the
 repository's key-free guard.
 

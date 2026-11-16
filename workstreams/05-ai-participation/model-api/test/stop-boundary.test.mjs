@@ -15,6 +15,7 @@
 //   S8 the re-ask of an unfinished act at a run's start: not made once the caller is stopped
 //   S9 verifyPending's bounded read rotates: 10 open sends, 8 reads a call — the 9th and 10th are read on the next call
 //   S10 checkSent advances its start by what it read: acts held open at the front never starve the later ones
+//   S11 the owner's status shows the last follow-up (null before one ran); status itself reads nothing
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -209,5 +210,22 @@ test('S10 checkSent advances its start: the later acts are read on the next call
     assert.ok(readKeys(c2).includes('k9') && readKeys(c2).includes('k10'), JSON.stringify(readKeys(c2)));
     assert.deepEqual([c1.nextOffset, s.w.chain.sent.length], [8, sent]);
     assert.equal(c2.settled, false, 'held results are never settled');
+  } finally { await s.close(); }
+});
+
+test('S11 status shows the last follow-up; status itself reads nothing', async () => {
+  const s = await setup();
+  try {
+    await s.ap.start({ by: 'owner' });
+    assert.equal(s.ap.status().followUp, null);
+    const t = await s.ap.tick();
+    assert.equal(t.game[0].outcome, 'sent');
+    s.ap.stop({ by: 'owner' });
+    const c = await s.ap.checkSent();
+    const f = s.ap.status().followUp;
+    assert.deepEqual([f.read, f.open, f.notRead, f.unfinished, f.settled, f.nextOffset], [c.verified.filter(v => !v.notRead).length, c.open, c.notRead, c.unfinished.length, c.settled, c.nextOffset]);
+    const events = s.ap.events.length;
+    s.ap.status(); s.ap.status();
+    assert.equal(s.ap.events.length, events, 'status makes no read and records nothing');
   } finally { await s.close(); }
 });

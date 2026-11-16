@@ -95,7 +95,10 @@ async function flow(name, adapter, model) {
     for (let i = 0; i < 10 && ap.state === 'running'; i++) { w.advance(60); ticks.push(await ap.tick()); w.settle(); }
     const before = srv.requests();
     const skipped = await ap.tick();
-    stage('stop', '6 上限停止', { state: ap.status(), last: ticks.at(-1), skippedAfterStop: skipped, modelRequestsAfterStop: srv.requests() - before });
+    // After the stop: what was already sent is followed, read only (owner-approved A; checkSent: no decision, no send,
+    // at most 8 chain reads, unknown held). One call here; the demo adds no schedule.
+    const followUp = await ap.checkSent();
+    stage('stop', '6 上限停止', { state: ap.status(), last: ticks.at(-1), skippedAfterStop: skipped, followUp, modelRequestsAfterStop: srv.requests() - before });
     // 7. 手動復帰
     costs.caps.total = String(BigInt(costs.caps.total) + 30000n);
     await ap.resume({ by: 'owner', note: 'the owner raised the inference total cap by 30000' });
