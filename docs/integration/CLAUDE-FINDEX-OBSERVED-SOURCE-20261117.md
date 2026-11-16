@@ -67,3 +67,30 @@ The manifest gets an optional **`observed`** list of epochs (`findex/src/archive
 4. **The program, as checked rather than configured.** Options: check that each archived transaction's account keys include the program, or read the program account once per epoch.
 5. **Whether to bump `MANIFEST_VERSION`.** Not bumped here, because the key is optional and ignored by older readers.
 6. **Who reads `observed` and what it is worth.** 12 and 4 do not read it; admission rules (WS4's held reasons, WS19's coverage) are unchanged. An observation is not evidence until someone adopts a rule for it.
+
+## Reverse review (2026-11-17, source only)
+
+**Fixed** (evidence: 3b426c52's own source):
+1. **`from_json` checked each epoch's fields, not the list.** A list out of order, repeated or past the end was accepted. `observed_for` then credited a record to the wrong source: with `[{5, X}, {3, Y}]`, record 6 was given Y.
+   - Now: strictly increasing `from_seq`, each with `1 ≤ from_seq < next_seq`, or the archive is not opened.
+2. **`observed_for` answered for records that do not exist** (`0`, and `next_seq` and above, i.e. under a pending epoch). It now returns `None`.
+3. **A pending epoch could be made durable.** A source was noted, then the append failed or had nothing, and a `commit()` wrote an epoch that covered no record. The next writer could inherit it.
+   - Now `to_json` writes only epochs that cover at least one record (`from_seq < next_seq`).
+   - In memory, a pending epoch is still replaced or continued by the next `observe_source`.
+
+**Checked, no change needed:**
+- **A failed manifest write or a crash:** the epoch and its records are lost together; the manifest names only synced frames, and the cursor is still before them.
+- **An older writer appending to a newer archive:** its `Manifest` has no `observed` field, so its rewrite drops the key. Observations are lost, never moved onto its records.
+- **A newer writer after an older one:** it finds no key, and every record stays unobserved.
+- **`Manifest` literals:** only in `archive.rs` (`from_json`, `open_with`), both updated.
+- **Public API:** `Source::observed` defaults to `None`, so the test sources in `findex/tests` and `herald/tests` compile unchanged. `ObservedSource` is re-exported, and nothing outside findex constructs a `Manifest`.
+- **Other readers:** the manifest is hand-written JSON, with no serde derive and no `deny_unknown_fields`. Nothing outside `archive.rs` parses findex's `manifest.json` (the drand-replay archive has a manifest of its own).
+
+**Clarified in the API and the module note: an epoch is NOT an endpoint identity.** `ObservedSource` is the producer's kind and settings. Equal values (the same `rpc_poll`, program and requested commitment) from different endpoints continue one epoch, by design: no endpoint is stored, and nothing may infer that one verified source served the records. Readers must not read equal epochs as the same or a verified source.
+
+**New regressions (written, not run):**
+- `epochs_out_of_order_repeated_or_past_the_end_are_refused_whole`;
+- `a_pending_epoch_is_never_made_durable_nor_inherited`;
+- `equal_observations_do_not_identify_the_endpoint`.
+
+**Not verified:** no compile, no run. An archive written by the earlier 3b426c52 code with a pending epoch would now be refused when opened; that code never ran.

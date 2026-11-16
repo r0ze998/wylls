@@ -35,10 +35,14 @@
 //!   - `commitment_requested` is what the source ASKED the RPC for, not a proof the answer was finalized;
 //!   - `genesis_hash` is always null: no source fetches the cluster's genesis hash, so it is not observed;
 //!   - `endpoint` is always null: an RPC URL may carry a key (a query string, a path or a host), so no form of it is
-//!     stored.
+//!     stored. Hence an epoch observes the producer's kind and settings only, NOT the endpoint's identity: the same
+//!     values from another endpoint continue the same epoch, and equal epochs never mean one verified source.
 //! Nothing is filled in backwards: records appended before the first epoch (an older archive, or a source that did
 //! not describe itself) have no observation, and a reopen with another source, or a source that describes nothing
-//! after one that did, starts a new epoch, so no record is credited to a source it did not come from. An archive
+//! after one that did, starts a new epoch, so no record is credited to a source it did not come from. An epoch no
+//! record was appended under is not written (an append that failed leaves none behind for the next writer). An
+//! older writer drops the key when it rewrites the manifest: observations are then lost, never moved onto its
+//! records. A list out of order, repeated or past the end is refused when the archive is opened. An archive
 //! whose sources never describe themselves has no `observed` key: the same bytes as before. Older readers ignore the
 //! key (`Manifest::from_json` reads named keys only). Nothing here admits a record, states completeness or lifts a
 //! hold: readers decide what an observation is worth.
@@ -86,7 +90,11 @@ pub struct SegmentMeta {
     pub sha256: Option<String>,
 }
 
-/// What an ingest source says of itself (module note: observed sources). Only what the source's own code knows.
+/// What an ingest source says of itself (module note: observed sources). Only what the source's own code knows: its
+/// KIND and its SETTINGS. It does not identify the endpoint: two equal values (the same `rpc_poll`, program and
+/// requested commitment) may have been served by different RPC endpoints, and one epoch continues across such a
+/// change. So equal observations never mean "the same, verified source", and nothing may be inferred from them
+/// about which node answered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObservedSource {
     /// The source's own word: `rpc_poll`, `localnet_feed`, `rpc_poll+enriched`, …; `unstated` for none.
@@ -166,9 +174,12 @@ impl Manifest {
                 "records": s.records, "bytes": s.bytes, "sha256": s.sha256,
             })).collect::<Vec<_>>(),
         });
-        // Only when something was observed: an archive without observations keeps the same bytes as before.
-        if !self.observed.is_empty() {
-            v["observed"] = json!(self.observed.iter().map(ObservedEpoch::to_json).collect::<Vec<_>>());
+        // Only epochs that cover at least one record: one no record was appended under (a pending epoch, kept in
+        // memory while an append is retried) is never made durable, so a later writer cannot inherit it. Nothing
+        // observed: no key, the same bytes as before.
+        let covering: Vec<Value> = self.observed.iter().filter(|e| e.from_seq < self.next_seq).map(ObservedEpoch::to_json).collect();
+        if !covering.is_empty() {
+            v["observed"] = json!(covering);
         }
         v
     }
@@ -202,17 +213,28 @@ impl Manifest {
                 sha256: s.get("sha256").and_then(|x| x.as_str()).map(String::from),
             });
         }
+        let next_seq = u(v, "next_seq")?;
+        let observed: Vec<ObservedEpoch> = match v.get("observed") {
+            None => vec![],
+            Some(Value::Array(a)) => a.iter().map(ObservedEpoch::from_json).collect::<Result<_, _>>()?,
+            Some(_) => return Err("manifest: observed".into()),
+        };
+        // Epochs in strictly increasing order, each covering at least one record (1 ≤ from_seq < next_seq): a list
+        // out of order, repeated or past the end would credit records to the wrong source, so it is refused whole.
+        let mut prev = 0u64;
+        for e in &observed {
+            if e.from_seq <= prev || e.from_seq >= next_seq {
+                return Err(format!("manifest: observed from_seq {} out of order or range (after {prev}, next_seq {next_seq})", e.from_seq));
+            }
+            prev = e.from_seq;
+        }
         Ok(Manifest {
             version,
             segment_bytes: u(v, "segment_bytes")?,
             segments,
-            next_seq: u(v, "next_seq")?,
+            next_seq,
             cursor: v.get("cursor").cloned().unwrap_or(Value::Null),
-            observed: match v.get("observed") {
-                None => vec![],
-                Some(Value::Array(a)) => a.iter().map(ObservedEpoch::from_json).collect::<Result<_, _>>()?,
-                Some(_) => return Err("manifest: observed".into()),
-            },
+            observed,
         })
     }
 }
@@ -458,8 +480,14 @@ impl Archive {
         }
     }
 
-    /// The observation that covers record `seq`, if any (module note: older records have none).
+    /// The observation that covers record `seq`, if any (module note: older records have none). `None` for a
+    /// sequence the archive does not hold (0, or `next_seq` and above): a pending epoch describes no record.
+    /// What it returns says what the producer reported of its kind and settings, not which endpoint served the
+    /// record (see [`ObservedSource`]).
     pub fn observed_for(&self, seq: u64) -> Option<&ObservedSource> {
+        if seq == 0 || seq >= self.manifest.next_seq {
+            return None;
+        }
         self.manifest.observed.iter().rev().find(|e| e.from_seq <= seq).map(|e| &e.observed)
     }
 
@@ -1012,6 +1040,80 @@ mod tests {
             fs::write(&mp, serde_json::to_vec(&v).unwrap()).unwrap();
             assert!(Archive::open(&d, 1 << 20).is_err(), "{bad}");
         }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    // (2026-11-17, reverse review) Written, not run.
+    #[test]
+    fn epochs_out_of_order_repeated_or_past_the_end_are_refused_whole() {
+        let d = tmp("observed-order");
+        let mut a = Archive::open(&d, 1 << 20).unwrap();
+        a.append(&(1..=6).map(rec).collect::<Vec<_>>(), json!(6)).unwrap();
+        drop(a);
+        let mp = d.join("manifest.json");
+        let base: Value = serde_json::from_slice(&fs::read(&mp).unwrap()).unwrap();
+        assert_eq!(base["next_seq"], json!(7));
+        let e = |from: u64| json!({"from_seq": from, "source": "s"});
+        for bad in [
+            json!([e(5), e(3)]),      // reversed: record 6 would be credited to the epoch from 3
+            json!([e(3), e(3)]),      // repeated
+            json!([e(0)]),            // before the first record
+            json!([e(3), e(7)]),      // past the end (covers no record)
+            json!([e(9)]),
+        ] {
+            let mut v = base.clone();
+            v["observed"] = bad.clone();
+            fs::write(&mp, serde_json::to_vec(&v).unwrap()).unwrap();
+            assert!(Archive::open(&d, 1 << 20).is_err(), "{bad}");
+        }
+        let mut v = base.clone();
+        v["observed"] = json!([e(1), e(4)]);
+        fs::write(&mp, serde_json::to_vec(&v).unwrap()).unwrap();
+        let b = Archive::open(&d, 1 << 20).unwrap();
+        assert_eq!(b.observed_for(3).map(|o| o.source.as_str()), Some("s"));
+        // no answer for a record the archive does not hold
+        assert_eq!(b.observed_for(0), None);
+        assert_eq!(b.observed_for(7), None);
+        assert_eq!(b.observed_for(u64::MAX), None);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_pending_epoch_is_never_made_durable_nor_inherited() {
+        let d = tmp("observed-pending");
+        let mut a = Archive::open(&d, 1 << 20).unwrap();
+        a.append(&[rec(1)], json!(1)).unwrap();
+        let rpc = ObservedSource { source: "rpc_poll".into(), program_configured: Some("P".into()), commitment_requested: Some("finalized".into()) };
+        // noted for an append that then did not happen (a failed append, a pull with nothing), and committed anyway
+        a.observe_source(Some(&rpc));
+        a.commit().unwrap();
+        assert_eq!(a.observed_for(2), None, "no record 2 yet: nothing to describe");
+        let m: Value = serde_json::from_slice(&fs::read(d.join("manifest.json")).unwrap()).unwrap();
+        assert!(m.get("observed").is_none(), "the pending epoch was not written: {m}");
+        drop(a);
+        // the next writer (here one whose source says nothing) does not inherit it
+        let mut b = Archive::open(&d, 1 << 20).unwrap();
+        assert!(b.manifest.observed.is_empty());
+        b.observe_source(None);
+        b.append(&[rec(2)], json!(2)).unwrap();
+        assert_eq!(b.observed_for(2), None);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn equal_observations_do_not_identify_the_endpoint() {
+        // the same kind and settings from two endpoints: one epoch continues; the observation names no endpoint
+        let d = tmp("observed-endpoint");
+        let mut a = Archive::open(&d, 1 << 20).unwrap();
+        let rpc = ObservedSource { source: "rpc_poll".into(), program_configured: Some("P".into()), commitment_requested: Some("finalized".into()) };
+        a.observe_source(Some(&rpc)); // (endpoint A)
+        a.append(&[rec(1)], json!(1)).unwrap();
+        a.observe_source(Some(&rpc)); // (endpoint B: not visible here, by design)
+        a.append(&[rec(2)], json!(2)).unwrap();
+        assert_eq!(a.manifest.observed.len(), 1);
+        let m: Value = serde_json::from_slice(&fs::read(d.join("manifest.json")).unwrap()).unwrap();
+        assert!(m["observed"][0]["endpoint"].is_null());
+        assert!(m["observed"][0].get("verified").is_none() && m["observed"][0].get("same_source").is_none());
         let _ = fs::remove_dir_all(&d);
     }
 }
