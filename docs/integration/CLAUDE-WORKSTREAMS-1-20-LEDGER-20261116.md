@@ -244,3 +244,11 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   (refused before WideReadOnly); narrowed before commit.
 - The village actions audit (Build, walls, promotion, Train, Harvest, Muster, Garrison) is complete for what the page
   holds. Not re-audited: the muster troop count's 100–30,000 per form and the muster tile.
+
+## 2026-11-16 — Muster troop count / tile, Explore tiles
+- Audited read-only, no refusal gap: the drawer's 100–30,000 is held by the input and the browser's validation before
+  the submit handler; the hand clamps; Settlers excluded; the drawer's tile is the village site (passable by
+  construction), the hand's tiles are passable; Explore offers passable unexplored neighbours (the program accepts more).
+- No code change, no test added, no suite run for this step. Candidate note fb4d457a.
+- Open for the owner (not changed): the page is stricter than the program in two places — musterTiles' "six to a
+  tile" and exploreTargets leaving out the host's own and impassable tiles.
