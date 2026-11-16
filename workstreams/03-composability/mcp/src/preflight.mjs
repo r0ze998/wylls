@@ -8,6 +8,12 @@
 //
 // It registers one OAuth client (DCR) per redirect it checks, so by default it runs only against a loopback
 // server (this machine): `allowRemote` is for an approved deployment, never a default.
+//
+// (2026-11-17) "Loopback only" holds for EVERY request, not only the first. The server under test names the next
+// URLs itself (WWW-Authenticate resource_metadata, the authorization server, its registration and token endpoints),
+// and fetch follows redirects by default. So each request's URL is checked before it is made (http or https, no
+// credentials in it, and on this machine unless allowRemote), every request is sent with `redirect: 'manual'`, and a
+// redirect answer stops the preflight. A refusal is a failed check, and nothing after it is requested.
 
 const CLIENTS = Object.freeze({
   'claude-code': { redirects: ['http://localhost:3118/callback', 'http://127.0.0.1:3118/callback'], needsHttps: false, iss: false },
@@ -30,27 +36,45 @@ export async function preflight(url, { client = 'claude-code', fetch: f = fetch,
   const checks = [];
   const check = (name, ok, detail = null) => { checks.push({ name, ok: Boolean(ok), ...(detail !== null ? { detail } : {}) }); return Boolean(ok); };
   const json = async (res) => { try { return await res.json(); } catch { return null; } };
+  const stop = () => ({ client, url, ok: false, checks, unverified: [] });
+  /** One request, only to a URL that keeps the contract above; null (with a failed check) when refused. */
+  const reach = async (step, target, init = {}) => {
+    let t;
+    try { t = new URL(target); } catch { check(`${step}: a URL`, false, 'not a URL: nothing requested'); return null; }
+    if (t.protocol !== 'http:' && t.protocol !== 'https:') { check(`${step}: http or https`, false, `${t.protocol} refused: nothing requested`); return null; }
+    if (t.username || t.password) { check(`${step}: no credentials in the URL`, false, 'refused: nothing requested'); return null; }
+    if (!allowRemote && !isLoopbackHost(t.hostname)) { check(`${step}: on this machine`, false, `${t.hostname} is not this machine: nothing requested (allowRemote is off)`); return null; }
+    const res = await f(String(target), { ...init, redirect: 'manual' });
+    if (res.status >= 300 && res.status < 400) { check(`${step}: no redirect`, false, `status ${res.status}: redirects are not followed`); return null; }
+    return res;
+  };
 
   // Transport: hosted clients reach the server from their cloud over public HTTPS; Claude Code runs here.
   check('scheme', want.needsHttps ? u.protocol === 'https:' : (u.protocol === 'https:' || isLoopbackHost(u.hostname)),
     want.needsHttps ? 'this client needs a public https URL (a loopback URL cannot be reached from its cloud)' : 'https, or http on this machine');
 
   // 1. An unauthenticated call is a 401 pointing at the protected resource metadata (a 200 is ignored by Claude).
-  const r401 = await f(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'wylls-preflight', version: '0' } } }) });
+  const r401 = await reach('MCP endpoint', url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'wylls-preflight', version: '0' } } }) });
+  if (!r401) return stop();
   const www = r401.headers.get('www-authenticate') ?? '';
   const prmUrl = /resource_metadata="([^"]+)"/.exec(www)?.[1] ?? null;
   check('401 with resource_metadata', r401.status === 401 && prmUrl, `status ${r401.status}`);
   if (!prmUrl) return { client, url, ok: false, checks, unverified: [] };
 
   // 2. The protected resource names this URL exactly, and its first authorization server.
-  const prm = await json(await f(prmUrl));
+  const prmRes = await reach('protected resource metadata', prmUrl);
+  if (!prmRes) return stop();
+  const prm = await json(prmRes);
   check('resource equals the URL as entered', prm?.resource === url, `resource ${prm?.resource}`);
   const issuer = prm?.authorization_servers?.[0] ?? null;
   check('an authorization server (the first is used)', issuer, issuer);
   if (!issuer) return { client, url, ok: false, checks, unverified: [] };
 
   // 3. Authorization server metadata.
-  const asm = await json(await f(`${issuer.replace(/\/+$/, '')}/.well-known/oauth-authorization-server`));
+  if (typeof issuer !== 'string') { check('authorization server is a URL string', false); return stop(); }
+  const asmRes = await reach('authorization server metadata', `${issuer.replace(/\/+$/, '')}/.well-known/oauth-authorization-server`);
+  if (!asmRes) return stop();
+  const asm = await json(asmRes);
   check('issuer matches', asm?.issuer === issuer, asm?.issuer);
   check('PKCE S256 advertised', asm?.code_challenge_methods_supported?.includes('S256'));
   check('DCR (registration_endpoint)', typeof asm?.registration_endpoint === 'string');
@@ -60,12 +84,14 @@ export async function preflight(url, { client = 'claude-code', fetch: f = fetch,
 
   // 4. Registration with this client's redirect URIs.
   for (const redirect of want.redirects) {
-    const reg = await f(asm.registration_endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: [redirect], client_name: `wylls-preflight (${client})`, token_endpoint_auth_method: 'none' }) });
+    const reg = await reach('registration endpoint', asm?.registration_endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: [redirect], client_name: `wylls-preflight (${client})`, token_endpoint_auth_method: 'none' }) });
+    if (!reg) return stop();
     const body = await json(reg);
     check(`registers with redirect ${redirect}`, reg.status === 201 && body?.client_id, reg.status === 201 ? null : body?.error_description ?? `status ${reg.status}`);
   }
   // The token endpoint takes form bodies (RFC 6749): a bad grant must come back as an OAuth error, not 415.
-  const tok = await f(asm.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: 'preflight-not-a-token' }).toString() });
+  const tok = await reach('token endpoint', asm?.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: 'preflight-not-a-token' }).toString() });
+  if (!tok) return stop();
   const tb = await json(tok);
   check('token endpoint: form body, invalid_grant for a bad refresh token', tok.status === 400 && tb?.error === 'invalid_grant', `status ${tok.status} ${tb?.error ?? ''}`);
 
