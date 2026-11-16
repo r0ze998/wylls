@@ -197,3 +197,43 @@ The coordinator's static review before any run found that `jointPrecisionText` (
 - Those need the existing board, chain-fake and key-listed tests above, which are still not audited for running.
 
 **Result of this audit.** No further mismatch was found in the counted-0, `KnownZero` and duplicate boundaries, so no code was changed in this step.
+
+## The joint count moved to an import-free helper and wired into the real consumer (2026-11-17; nothing run)
+
+**What moved.**
+- `coop/joint-count.mjs` (new; no imports; sha256 `e6520b93…549fecfa`) exports `addCounted(perResource, records, counted)`.
+- It is the joint loop's one line from `goal.mjs` (71764e61 to 6e812809), with the arithmetic unchanged: `perResource[r] += v` and `records[r] = (records[r] ?? 0) + 1`, for every key of `counted`, including a 0. It changes the caller's objects in place and returns nothing.
+
+**The real consumer.**
+- `coop/goal.mjs` `coopView` (sha256 `f167e2e5…6db5ed31`) imports it and calls `addCounted(h.perResource, h.records, a.counted)` in place of the inline line.
+- The guards around it are unchanged:
+  - `if (a.duplicateOf) continue`;
+  - `if (a.counted)`;
+  - the contributor and nation bookkeeping, `unprovenDeliveries` and `unverifiedCaravans`.
+- Also unchanged: `blank()` (8 resources at 0), the verdict (reads `perResource`), `underBy` (reads `records`), `fulfilmentOf`, `countOf`, the judges, sending, signing and permissions.
+- `goal.mjs` gains one relative import of a file in the directory the board serves.
+
+**Pure regression** (`test/coop.joint-count.test.mjs`, sha256 `9000a3d5…5204ad05`, written, not run). It has five tests:
+1. The fixture's five counted arrivals (copied by hand) give `perResource` wood 209 and stone 200, and `records` wood 5 and stone 2.
+2. Arrivals recorded as 0 add 0 to the amount and 1 to the count.
+3. The result equals a verbatim copy of the old inline line on six inputs.
+4. The objects are changed in place, nothing is returned, and an empty `counted` changes nothing.
+5. The arithmetic is unchanged even for a resource not seeded in `perResource`: it gives `NaN`, as before. `coopView` always seeds the 8 resources with `blank()`.
+
+**Static audit.**
+
+| Item | Finding |
+|---|---|
+| Closure | The test imports `node:test`, `node:assert/strict` and `../coop/joint-count.mjs` (no imports). It does not import `goal.mjs`, `record.mjs`, the board, the chain, `permutation-server/web/frontier` or the DOM |
+| Top-level code | The helper has comments and one exported function. The test has imports, `const` helpers and `test(...)` calls |
+| I/O, keys, network | None: no `fs`, `fetch`, `process`, `child_process`, `worker_threads`, dynamic `import()`, `new Function`, `require`, `document`, `window`, or key or sign API. No `node-key-tests.txt` entry is needed and the lists are unchanged |
+| Refused work | It touches no walls, muster, G, runner or world code, and it is not a substitute for any refused run |
+| Candidate command (for the coordinator; not run) | `node --test workstreams/01-national-strategy/test/coop.joint-count.test.mjs` |
+
+**Not verified.** The pure test checks only the addition. Nothing has run that checks:
+- that `coopView` calls the helper with the right guards;
+- the board, chain-fake or key-listed tests (`coop.test.mjs`, `coop.e2e.test.mjs`, including their corrected expectations);
+- the screen;
+- a real world.
+
+Those are not treated as done.
