@@ -87,3 +87,35 @@ It sends with `redirect: 'manual'`, and a 3xx answer is a failed check (`<step>:
 - **DNS:** what `localhost` resolves to (for example, a changed hosts file) is the machine's own setting, as before.
 - **The first URL:** if it carries credentials and is on this machine, it passes the existing check, but the preflight refuses to request it. Its `url` field returns it as the caller entered it.
 - **`allowRemote`:** it lifts only the host check, as before, and it is meant for an approved deployment.
+
+## One run of the test (2026-11-17, at 5dc7ab6a)
+
+**Command, from the repository root, run once:**
+
+```
+/opt/homebrew/opt/node/bin/node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test workstreams/03-composability/mcp/test/preflight-loopback.test.mjs
+```
+
+**Checked just before:**
+- HEAD `5dc7ab6a`, equal to the remote;
+- `test/preflight-loopback.test.mjs` sha256 `6134ee14f0d9bb72…`, `src/preflight.mjs` `55070d74b45f6497…`, both as committed;
+- the guard `workstreams/12-memory/tools/nokey-guard.mjs` `cf4518176289a45755a831140c85705093e9352825d3a6e80c75d91cf4f9862f`, unchanged (built-ins only);
+- Node v23.11.0 (`01ca46d5dbf4e6fd…`);
+- `NODE_OPTIONS`, `NODE_PATH`, `NODE_EXTRA_CA_CERTS`, `NODE_TEST_CONTEXT`, `LD_PRELOAD`, `LD_LIBRARY_PATH` and the `DYLD_*` preload variables all unset;
+- no other `node --test` running;
+- 48.8 GiB free;
+- the worktree status recorded (the unstaged media deletions, which are not this work's), nothing staged.
+
+**Not involved:** `connect.test.mjs`, the refused gateway tests, WS13's guard, any runner or world, any HTTP, OAuth registration or key.
+
+**Result, 02:16:34 (+0900):**
+- **6 / 6 passed**, `rc=0`, 46 ms, no warning:
+  - the healthy loopback chain;
+  - off-machine URLs refused at every step;
+  - redirects stop it;
+  - credentials, other schemes and missing URLs refused;
+  - `allowRemote` adds no permission;
+  - the one checked fetch path.
+- **After:** no test process left, the status identical to before, nothing staged, 48.8 GiB free.
+
+**Limits:** a fake `fetch` only. Nothing about a real MCP server, OAuth server, ChatGPT, Claude or Claude Code.
