@@ -23,7 +23,7 @@ export const FIVE_REFUSALS = Object.freeze({
   AgentStopped: R('⑤', 'mode', false, 'the owner switches the agent to auto on the agent page, then prepares again'),
   StalePolicy: R('⑤', 'policy', false, 'the owner changed the policy: prepare again'),
   StaleMode: R('⑤', 'mode', false, 'the mode changed since the plan: prepare again'),
-  ActionNotAllowed: R('⑤', 'policy', false, 'the owner allows the transport group in the agent\'s policy (and the relay needs patch 0005)'),
+  ActionNotAllowed: R('⑤', 'policy', false, 'the agent\'s policy, the season (SendCaravan exists in S1 seasons only) or the relay (patch 0005) refused it: the receipt\'s next follows the relay\'s message'),
   WrongVillage: R('⑤', 'policy', false, 'only the agent\'s own village can send'),
   BudgetExceeded: R('⑤', 'budget', false, 'the owner raises the budget, or waits'),
   DailyLimitReached: R('⑤', 'budget', false, 'wait for the next UTC day, or the owner raises the daily limit'),
