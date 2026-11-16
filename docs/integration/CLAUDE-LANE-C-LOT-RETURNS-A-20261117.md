@@ -794,3 +794,38 @@ Seven tests:
 **Shared requirement (④ decides; not taken here).** One record per instruction that changes a lot's returns, carrying the before-to-after amounts (`due`, `whole`, `rest`, `paid`) and the link's count transition when a job is involved. A pure check of the instruction as a whole, like `replay_rest_home`, can then re-apply the kernel to copies.
 
 **Not implemented:** any of these three checks, any record kind, any V26 wiring. Implementing them needs the job link's layout (a program type) to be accepted as replay input, which is ④'s call for the capacity records.
+
+## Fixture fix in `custody_rest_home_replay.rs`, and the single-run pre-check (2026-11-17; nothing run or compiled)
+
+**The defect (test only; flagged by the coordinator, confirmed statically).**
+- In `a_true_step_matches_fraction_whole_and_both`, `lot_with_rest` was called three times on **one** keeper vault.
+- `open` adds each lot's quota (40 units) to the vault's `CUSTODY_QUOTA`. The third call would need 80 + 40 = 120 units of a 100-unit vault, so `open` would refuse (`Capacity`) and the fixture's `unwrap` would panic.
+
+**Fix.** Each of the three cases now takes its own `keeper_vault()`. No product code, no expectation and no other test changed.
+
+**Re-check of all seven tests (read):**
+- every test now opens exactly one lot per keeper vault: quota 40 of 100, inbound 10 ≤ 40, room for the 1–2 units returned;
+- the order expires within 1,008 bells;
+- each expected error follows the order of `pay_rest_home`'s checks (usable, tracked, wallet, owner, home live, home owner, place, then room);
+- closures take shared references, and `VaultView`/`Lot` are `Copy`;
+- no file, network, process, environment or key use in the test file.
+
+**Pre-check for one run of this file alone (static; for the coordinator):**
+
+```
+cargo +1.89.0 test --offline --locked -p permutation-rules --test custody_rest_home_replay \
+  --target-dir <the existing dedicated kernel target> -j 1
+```
+
+| Item | Finding |
+|---|---|
+| Unchanged since the earlier kernel runs (`43e963d3`, `0a70925e`) | `Cargo.lock`, root `Cargo.toml`, `.cargo/config.toml`, `rust-toolchain.toml` and `permutation-rules/Cargo.toml` (`git diff`: empty) |
+| What changed in `permutation-rules` since `0a70925e` | Only `src/frontier/custody.rs` (the added `replay_rest_home` and `RestHomeReplay`) and the new test file |
+| Dependency closure | `cargo tree -p permutation-rules -e normal,build,dev --offline --frozen` gives 27 packages, all within the 170 already verified (each archive matches the lock checksum, and the extracted sources are byte-identical). Features: `default` |
+| Build scripts | 5: `borsh`, `generic-array`, `libc`, `proc-macro2`, `quote`. No C or assembly: `blst` and `blake3` are not in this closure |
+| Toolchain, config, environment | As in the host-test pre-audit: 1.89.0 pinned; the repo config only sets `target-dir` (overridden); no user config; no cargo, rust or compiler variables |
+| Target | The existing dedicated kernel target is 191,548 KiB. 51,251,844 KiB free (floor 21 GiB) |
+| Effects | In-process unit tests only: no keys, network, files, processes or world |
+| Not the refused tests | It is not the Node `.mjs` web tests or their runner (see the pre-audit) |
+
+Whether it compiles and passes is **unknown until run**.

@@ -94,17 +94,21 @@ fn step(v: &K::VaultView, l: &K::Lot, h: &K::VaultView) -> (i64, K::Lot, K::Vaul
 
 #[test]
 fn a_true_step_matches_fraction_whole_and_both() {
-    let mut v = keeper_vault();
+    // One keeper vault per case: `open` adds each lot's quota (40) to the
+    // vault, and three lots on one vault of 100 would not fit.
     let h = home(5 * MILLI, 50 * MILLI);
     // 250: nothing whole, 250 home
+    let mut v = keeper_vault();
     let l = lot_with_rest(&mut v, 250);
     let (_, la, ha) = step(&v, &l, &h);
     assert_eq!(K::replay_rest_home(&v, &l, &act(OWNER), &h, 0, 250, &la, &ha), Ok(K::RestHomeReplay::Match));
     // 1,250: 1,000 back into the lot, 250 home
+    let mut v = keeper_vault();
     let l = lot_with_rest(&mut v, 1_250);
     let (_, la, ha) = step(&v, &l, &h);
     assert_eq!(K::replay_rest_home(&v, &l, &act(OWNER), &h, MILLI, 250, &la, &ha), Ok(K::RestHomeReplay::Match));
     // 2,000: whole > 0 with paid = 0; the lot changes, home does not
+    let mut v = keeper_vault();
     let l = lot_with_rest(&mut v, 2 * MILLI);
     let (paid, la, ha) = step(&v, &l, &h);
     assert_eq!(paid, 0);
