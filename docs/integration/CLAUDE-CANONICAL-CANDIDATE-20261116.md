@@ -66,9 +66,22 @@ Peak target 2.7 GiB apparent (clone included), free ≥ 22.18 GiB throughout; no
 target stays). Not run: the program's default lib tests (they reach NFT-resident paths), any SBF build, herald
 `real_chain`, any world. No change to the candidate was needed.
 
+## Land SBF on the candidate (2026-11-16 09:00 JST) — byte-identical to the pinned land4 program
+`cargo build-sbf … --features localnet-land-sbf --offline --skip-tools-install -- --locked` (solana-cargo-build-sbf
+3.1.9, platform-tools v1.52), guarded as above, in the clone target; permutation-rules, frontier-abi and
+permutation-frontier recompiled from this tree. Output (git-ignored, separate from the pinned file):
+`permutation-frontier/target/deploy-localnet-land-sbf/permutation_frontier.so` sha256
+f2e644420dd8dca4a9c985b995ea599040e09b0e69bc561f3069e625e96a5987 (3,648,952 B) = the land4/play2 pin; the script's checks
+pass (SBPF v2, overflow checks, localnet markers, no test marker). Not deployed, no world.
+
+## Tag audit (2026-11-16)
+`frontier-abi` `the_land_tags_collide_with_no_routed_band`: 0xCD/0xCE outside the v2 table, rights 0xD0–0xD5, capacity
+0xF0–0xFD and the wide drafts 0xD6–0xDF + 0xEE — 13/13 with all those features, here (99666882) and on the integration
+branch; workstream 20's 0xE0–0xE7 by the existing assertion. No other first-byte use found statically. Still provisional.
+
 ## Left before canonical takes it
 1. The canonical owner checks bcc63a24 on its own (it is unverified).
-2. Rust: DONE for the land scope above (2026-11-16). Still open: an SBF build of the land program from this tree.
+2. Rust: DONE for the land scope above, including the land SBF build (byte-identical to the pin) and the tag audit.
 3. Decide on the `.orig` file; allocate the land tags (0xCD/0xCE provisional).
 4. A real TEST-ONLY world with the owner's go (ops: `scripts/play2-land-ops/`, fail-closed; never run for real yet):
    none of the fixes since land5 (block reasons, S1 ore, English, return card, far-land chip) has been seen in a world.
