@@ -328,3 +328,8 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   scouts still waited for the key or the draw; the shared rule and the conquest guide say the turn's phase instead.
   Fixed in c7533214 (formingLine reused; no new words). first-village-ui assertion updated, NOT run.
 - Static only: node --check, diff --check, source trace. No key, signing, request, world. Candidate merge d5800fca.
+
+### First session: display, cancel, repeated presses — static audit (2026-11-16, Claude)
+- Home choice, scout train/muster and the draft's 「やめる」 are guarded against repeats and cancel cleanly. No change.
+- Candidate (not clear, not fixed): cg-go drops a draft without cancelling an armed waiting send; nothing is sent, the
+  notice's reason would read 'changed'; reachability while a draft is open not traced. Local play's test entry only.
