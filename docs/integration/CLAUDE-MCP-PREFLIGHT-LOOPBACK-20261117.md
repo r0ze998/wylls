@@ -119,3 +119,39 @@ It sends with `redirect: 'manual'`, and a 3xx answer is a failed check (`<step>:
 - **After:** no test process left, the status identical to before, nothing staged, 48.8 GiB free.
 
 **Limits:** a fake `fetch` only. Nothing about a real MCP server, OAuth server, ChatGPT, Claude or Claude Code.
+
+## Before a real ChatGPT connection: what ③'s MCP entry needs, and what is missing (2026-11-17, read only)
+
+**Read, not changed:** `workstreams/03-composability/mcp/bin/wylls-mcp.mjs`, `bin/wylls-mcp-preflight.mjs`, `src/auth.mjs`, `src/http.mjs`, `README.md`. The game, server, ports and tools are lane D's. The README says plainly that it "has not been tried in ChatGPT".
+
+**What the launcher (`bin/wylls-mcp.mjs`) needs:**
+- `WYLLS_MCP_RELAY` (a relay with the agent wallet on) and `WYLLS_MCP_HERALD`.
+- `WYLLS_MCP_ISSUER`: the public origin. The server listens on `127.0.0.1` over HTTP, and the comment says the HTTPS origin comes "behind a tunnel". `resource` is `${issuer}/mcp`.
+- `WYLLS_MCP_TEST_AS=1`, without which it exits: "only the local test authorization server is implemented".
+- `WYLLS_MCP_STORE` with `WYLLS_MCP_SEAL_KEY` (it exits without the key).
+- `WYLLS_MCP_REDIRECT_PROFILES`, which defaults to `chatgpt,loopback`.
+
+**What the authorization server offers ChatGPT** (`src/auth.mjs`):
+- protected resource metadata, and `WWW-Authenticate` on 401;
+- authorization server metadata with PKCE `S256` only;
+- DCR (`/oauth/register`) and public clients;
+- `authorization_response_iss_parameter_supported: true`;
+- refresh-token rotation;
+- ChatGPT's redirect URIs.
+
+CIMD (ChatGPT's preferred registration) is not implemented; DCR, which ChatGPT still supports, is.
+
+**The consent step:** `GET /oauth/authorize` serves a consent page (`src/http.mjs`) on which a browser wallet signs with `signMessage` (`window.solana` / Phantom); no key is typed. The test authorization server has no accounts: it authorizes a link the owner's wallet signs.
+
+**Missing or unverified, each a decision rather than a code fix:**
+1. **A public HTTPS origin** (a tunnel or a deployment) and its domain: operator infrastructure, not in the repository.
+2. **A production identity or authorization server.** `auth.mjs` says "a production deployment would put this behind a real identity provider", and only the test one exists. Whether the wallet-signed link may be used against ChatGPT is a policy decision.
+3. **The wallet in ChatGPT's OAuth window.** The consent page needs a browser wallet extension in whatever browser ChatGPT opens for OAuth. A desktop browser with the extension can, but a mobile app's in-app browser may not. Unverified.
+4. **Which ChatGPT plans and roles may add a custom MCP server.** The preflight already lists this as unverified.
+5. **An independent gap in an adopted contract: the shipped preflight command cannot check the public deployment.**
+   - The library's contract is "`allowRemote` is for an approved deployment".
+   - But `bin/wylls-mcp-preflight.mjs` passes only `{client}`. So it refuses the public HTTPS URL, and on loopback the `chatgpt` profile fails the scheme check "by design".
+   - So there is no shipped way to preflight the very deployment ChatGPT would use.
+   - **Candidate (not done):** an explicit `--allow-remote` flag on that command, never a default, used only for an approved deployment. It would get the same per-request checks, with redirects refused. This changes the command's interface (`bin/`, ③'s area), so it needs a decision.
+
+Nothing here was run, published, configured in ChatGPT, or connected to any account.
