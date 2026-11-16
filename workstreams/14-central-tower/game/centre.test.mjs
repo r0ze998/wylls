@@ -167,9 +167,11 @@ test('cargo per resource is kept apart, not only summed', () => {
   assert.deepEqual(out.summary.cargoByResource.all, [0, 200, 50, 0, 0, 0, 0, 0]);
   assert.deepEqual(out.summary.cargoByResource.inner, [0, 100, 50, 0, 0, 0, 0, 0]);
   assert.deepEqual(out.summary.cargoByResource.concord, [0, 100, 0, 0, 0, 0, 0, 0]);
-  const mixed = centreFacts({ caravans: { v: 1, vaults: [], moving: [caravan(5, 0, 0, [[0, 0]], [0, 30, 50])] } });
-  assert.deepEqual(mixed.facts[0].cargoByResource, [0, 30, 50, 0, 0, 0, 0, 0]);
-  assert.equal(mixed.facts[0].cargo, 80);
+  // (2026-11-16) a cargo that is not the herald's 8 slots is not known: no zeros filled in (it was [0, 30, 50, 0, …] and 80)
+  const short = centreFacts({ caravans: { v: 1, vaults: [], moving: [caravan(5, 0, 0, [[0, 0]], [0, 30, 50])] } });
+  assert.equal(short.facts[0].cargoByResource, null);
+  assert.equal(short.facts[0].cargo, null);
+  assert.deepEqual(short.summary.cargoNotGiven, { all: 1, inner: 1, concord: 1 });
 });
 
 test('a centre sighting says whose tower saw what', () => {
@@ -207,4 +209,45 @@ test('the herald\'s shapes are still read: the fixture, no structures list, no s
   const long = { ...FEEDS.caravans.vaults[0], ownerTag: '18446744073709551615' };   // u64::MAX, as the herald writes it
   assert.deepEqual(feedProblems({ caravans: { ...FEEDS.caravans, vaults: [long, FEEDS.caravans.vaults[1]] } }), []);
   assert.ok(Array.isArray(centreFacts({ caravans: { ...FEEDS.caravans, vaults: [long, FEEDS.caravans.vaults[1]] } }).facts));
+});
+
+// (2026-11-16, unknown cargo is not zero — SOURCE ONLY, NOT run: all new test runs are paused) ⑮'s adapter
+// (workstreams/15-coop-outcomes/src/adapters/ws14-centre.mjs) counts a transit as cargo "not given" unless its
+// cargoByResource is exactly 8 non-negative safe integers; ⑭ now hands such a cargo over as null instead of zeros.
+// (`caravan` gives a default cargo for `undefined`: the missing case drops the field itself)
+const centreTransit = cargo => { const m = caravan(5, 0, 0, [[0, 0]], cargo); if (cargo === undefined) delete m.cargo; return centreFacts({ caravans: { v: 1, vaults: [], moving: [m] } }); };
+test('unknown cargo (missing, null, short, long, not integers, negative, unsafe) is null, never zeros', () => {
+  const unknown = [undefined, null, [], [0, 30, 50], Array(9).fill(0), 'abc', { 0: 1 }, [0, 1.5, 0, 0, 0, 0, 0, 0], [0, -1, 0, 0, 0, 0, 0, 0],
+    [0, 2 ** 53, 0, 0, 0, 0, 0, 0], [0, '3', 0, 0, 0, 0, 0, 0], [0, null, 0, 0, 0, 0, 0, 0], [0, NaN, 0, 0, 0, 0, 0, 0]];
+  for (const c of unknown) {
+    const out = centreTransit(c), t = out.facts[0];
+    assert.equal(t.cargoByResource, null, JSON.stringify(c)); assert.equal(t.cargo, null, JSON.stringify(c));
+    assert.deepEqual(out.summary.cargoNotGiven, { all: 1, inner: 1, concord: 1 });
+    assert.deepEqual(out.summary.cargoByResource.all, [0, 0, 0, 0, 0, 0, 0, 0], 'nothing added for it');
+    assert.equal(out.summary.cargoInnerShare, null); assert.equal(out.summary.cargoConcordShare, null);
+  }
+});
+test('a known zero stays a known zero; a full 8-slot cargo is read as it is', () => {
+  const zero = centreTransit([0, 0, 0, 0, 0, 0, 0, 0]).facts[0];
+  assert.deepEqual(zero.cargoByResource, [0, 0, 0, 0, 0, 0, 0, 0]); assert.equal(zero.cargo, 0);
+  const full = centreTransit([1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(full.facts[0].cargoByResource, [1, 2, 3, 4, 5, 6, 7, 8]); assert.equal(full.facts[0].cargo, 36);
+  assert.deepEqual(full.summary.cargoNotGiven, { all: 0, inner: 0, concord: 0 });
+  assert.equal(full.summary.cargoConcordShare, 1);
+});
+test('mixed: known caravans are summed, the unknown one is counted apart, and the shares are not claimed', () => {
+  const out = centreFacts({ caravans: { v: 1, vaults: [], moving: [
+    caravan(1, 0, 0, [[0, 0]], [0, 10, 0, 0, 0, 0, 0, 0]),   // Concord, known
+    caravan(2, 0, 0, [[1, 0]], [0, 5, 0, 0, 0, 0, 0, 0]),    // a Seat, known
+    caravan(3, 0, 0, [[0, 0]], [0, 10]),                     // Concord, unknown
+    caravan(4, 0, 0, [[4, 0]], null),                        // outside, unknown
+  ] } });
+  assert.deepEqual(out.summary.cargoByResource.all, [0, 15, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(out.summary.cargoByResource.concord, [0, 10, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(out.summary.cargoNotGiven, { all: 2, inner: 1, concord: 1 });
+  assert.equal(out.summary.cargoInnerShare, null); assert.equal(out.summary.cargoConcordShare, null);
+  assert.equal(out.facts.filter(f => f.kind === 'centre.transit' && f.cargoByResource === null).length, 1, 'the unknown one at the centre');
+  // ⑮'s rule (read as text): a transit whose cargoByResource is not 8 non-negative safe integers is "not given"
+  const ws15 = readFileSync(new URL('../../15-coop-outcomes/src/adapters/ws14-centre.mjs', import.meta.url), 'utf8');
+  assert.match(ws15, /if \(!Array\.isArray\(t\.cargoByResource\) \|\| t\.cargoByResource\.length !== 8 \|\| !t\.cargoByResource\.every\(q => Number\.isSafeInteger\(q\) && q >= 0\)\) \{ cargo\.notGiven\+\+; continue; \}/);
 });

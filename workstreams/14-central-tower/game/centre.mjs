@@ -35,10 +35,14 @@ export const STRUCTURE_KIND = Object.freeze({ 1: 'tower', 2: 'palisade', 3: 'for
 const isConcord = (p, q) => p === 0 && q === 0;
 const int = x => Number.isSafeInteger(x);
 const tagOrder = (a, b) => (BigInt(a.ownerTag) < BigInt(b.ownerTag) ? -1 : BigInt(a.ownerTag) > BigInt(b.ownerTag) ? 1 : (a.seq ?? a.tile ?? 0) - (b.seq ?? b.tile ?? 0));
-const sumCargo = c => (Array.isArray(c) ? c.reduce((s, x) => s + (int(x) ? x : 0), 0) : 0);
-/** The herald's cargo as it is: one slot per resource of the rules (holding.rs RESOURCES, 8), unknown slots as 0. */
+/** The herald's cargo: one slot per resource of the rules (holding.rs RESOURCES, 8). */
 export const RESOURCE_SLOTS = 8;
-const slots = c => Array.from({ length: RESOURCE_SLOTS }, (_, i) => (Array.isArray(c) && int(c[i]) ? c[i] : 0));
+// (2026-11-16) A caravan's cargo is KNOWN only as the herald gives it: exactly RESOURCE_SLOTS non-negative safe integers.
+// Anything else — missing, null, shorter or longer, a non-integer, a negative, an unsafe number — is UNKNOWN: null, never
+// filled in as zeros (it used to be, and ⑮'s adapter, which counts a transit without 8 such slots as "not given", then
+// read a broken cargo as a known zero). A known zero ([0, …, 0]) stays a known zero.
+const knownCargo = c => (Array.isArray(c) && c.length === RESOURCE_SLOTS && c.every(x => int(x) && x >= 0) ? [...c] : null);
+const zeros = () => Array(RESOURCE_SLOTS).fill(0);
 const addSlots = (a, b) => a.map((x, i) => x + b[i]);
 
 /** Problems with the feeds as text ([] when they can be read). */
@@ -101,16 +105,20 @@ export function centreFacts({ caravans, structures = null, observedAt = null, st
     if (ring <= INNER_RING) push('centre.structure', { p: s.p, q: s.q, tile: s.tile, ring, concord: isConcord(s.p, s.q), structureKind: STRUCTURE_KIND[s.kind] ?? `kind ${s.kind}`, faction: s.faction ?? null, ownerTag: s.ownerTag });
   }
   // Caravans on the road whose walk enters the centre.
+  // (cargo sums and per-resource totals are over the caravans whose cargo is KNOWN; those whose cargo is not are counted
+  //  apart in cargoNotGiven, never added as zeros)
   let cargoAll = 0, cargoInner = 0, cargoConcord = 0, inner = 0, concord = 0;
-  let allBy = slots(null), innerBy = slots(null), concordBy = slots(null);
+  let allBy = zeros(), innerBy = zeros(), concordBy = zeros();
+  const notGiven = { all: 0, inner: 0, concord: 0 };
   for (const m of [...caravans.moving].sort(tagOrder)) {
-    const cargo = sumCargo(m.cargo), by = slots(m.cargo);
-    cargoAll += cargo; allBy = addSlots(allBy, by);
+    const by = knownCargo(m.cargo), cargo = by ? by.reduce((a, x) => a + x, 0) : null;
+    if (by) { cargoAll += cargo; allBy = addSlots(allBy, by); } else notGiven.all++;
     const rings = m.provinces.map(([p, q]) => ringOf(p, q));
     const throughConcord = m.provinces.some(([p, q]) => isConcord(p, q));
     if (Math.min(...rings) > INNER_RING) continue;
-    inner++; cargoInner += cargo; innerBy = addSlots(innerBy, by);
-    if (throughConcord) { concord++; cargoConcord += cargo; concordBy = addSlots(concordBy, by); }
+    inner++;
+    if (by) { cargoInner += cargo; innerBy = addSlots(innerBy, by); } else notGiven.inner++;
+    if (throughConcord) { concord++; if (by) { cargoConcord += cargo; concordBy = addSlots(concordBy, by); } else notGiven.concord++; }
     push('centre.transit', { ownerTag: m.ownerTag, seqOfOwner: m.seq ?? null, faction: m.faction ?? null, throughConcord, innermostRing: Math.min(...rings), provinces: m.provinces.length, cargo, cargoByResource: by, raided: !!m.raided });
   }
   // What watchtowers standing at the centre reported (S1's own sightings).
@@ -142,9 +150,12 @@ export function centreFacts({ caravans, structures = null, observedAt = null, st
       innerShare: moving ? inner / moving : null,
       concordShare: moving ? concord / moving : null,
       // cargo* sum the resources into one number (a unit across resources); *ByResource keep them apart (slot i = resource i of the rules)
-      cargoInnerShare: cargoAll ? cargoInner / cargoAll : null,
-      cargoConcordShare: cargoAll ? cargoConcord / cargoAll : null,
+      // (2026-11-16) both are over the caravans whose cargo is known; cargoNotGiven counts the others, per set. A share is
+      // null as soon as one moving caravan's cargo is not known: the part it would carry is not zero, it is not known.
+      cargoInnerShare: notGiven.all === 0 && cargoAll ? cargoInner / cargoAll : null,
+      cargoConcordShare: notGiven.all === 0 && cargoAll ? cargoConcord / cargoAll : null,
       cargoByResource: { all: allBy, inner: innerBy, concord: concordBy },
+      cargoNotGiven: notGiven,
       vaultsAtCentre: facts.filter(f => f.kind === 'centre.vault').length,
       vaultsInConcord: facts.filter(f => f.kind === 'centre.vault' && f.concord).length,
       structuresAtCentre: facts.filter(f => f.kind === 'centre.structure').length,

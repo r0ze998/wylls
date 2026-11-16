@@ -34,3 +34,24 @@ decimal tag (`BigInt` reads it). No rule and no output field changed.
 ## Regression (SOURCE ONLY, not run)
 Two tests appended to `game/centre.test.mjs`: 23 broken feeds — each must not throw and must be refused with no facts;
 and the herald's shapes still read (the fixture, no structures list, no sightings, a u64::MAX tag).
+
+## ⑭ → ⑮: unknown cargo is no longer handed over as known zeros (2026-11-16, static; NOT run)
+**Defect.** ⑭'s `slots()` filled a cargo it could not read — missing, null, shorter, a non-integer slot — with zeros,
+and `sumCargo` added such slots as 0. ⑮'s adapter (`workstreams/15-coop-outcomes/src/adapters/ws14-centre.mjs`) counts a
+transit as cargo **"not given"** unless its `cargoByResource` is exactly 8 non-negative safe integers; ⑭'s zeros made it
+read an unknown cargo as a known zero.
+**Contract now (⑭ `centre.mjs`).** A cargo is KNOWN only as the herald gives it: exactly 8 non-negative safe integers
+(`caravan.rs` writes the 8 slots of the rules). Otherwise the transit's `cargoByResource` and `cargo` are `null`. A known
+zero (`[0, …, 0]`) stays a known zero. In the summary, `cargoByResource.{all, inner, concord}` sum the caravans whose
+cargo is known; a new `cargoNotGiven: {all, inner, concord}` counts the others per set; `cargoInnerShare` /
+`cargoConcordShare` are `null` as soon as one moving caravan's cargo is not known (the part it would carry is not zero:
+it is not known). Counts and shares of caravans (`innerShare`, `concordShare`) are unchanged.
+**⑮: no change needed.** Its existing `notGiven` rule now sees `null` and counts it; it does not read `t.cargo` or the
+summary (it recounts). Its frozen fixture (`scenarios/fixtures/ws14-centre-88cf67c0.json`) and its generator use full
+8-slot cargo, so a regeneration gives the same facts.
+**Other consumers read.** `game/centre-cli.mjs` uses neither cargo nor the summary.
+**Regression (SOURCE ONLY, not run).** In `game/centre.test.mjs`: the 3-slot case that pinned the padding now expects
+`null` and a `cargoNotGiven` of 1; added: 13 unknown cargo shapes (missing, null, empty, short, long, string, object,
+fraction, negative, unsafe, string slot, null slot, NaN) → `null`, nothing added, shares `null`; a known zero and a full
+8-slot cargo read as they are; a mixed set (known summed, unknown counted apart, shares `null`), with ⑮'s rule pinned as
+text. No rule, prize or evaluation changed.
