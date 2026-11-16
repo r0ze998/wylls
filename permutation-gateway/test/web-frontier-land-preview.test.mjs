@@ -3,7 +3,8 @@
 // nation fill and the viewer's gold outline, and a world without the option changes nothing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseLand, landOf, landTotals, landSummary, landElsewhere, renderLandChip, LAND } from '../../permutation-server/web/frontier/land.mjs';
+import { readFileSync } from 'node:fs';
+import { parseLand, landOf, landTotals, landSummary, landElsewhere, landYieldPerHour, renderLandChip, LAND } from '../../permutation-server/web/frontier/land.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { recordLands } from '../../permutation-server/web/frontier/map/fmap.mjs';
 import { SpriteArt } from '../../permutation-server/web/frontier/map/sprites.mjs';
@@ -97,7 +98,7 @@ test('the territory line counts only this village\'s province and states the bon
   const province = { siteMirror: [{ state: 1, faction: 0 }, { state: 0, faction: 0 }] };
   FS.provinces.set('2,0', { province, land: parseLand(record({ owners: { 30: 0, 31: 0, 32: 0, 33: 0, 20: 4 }, village: [30] }), { p: 2, q: 0, seasonId: 11 }) });
   const s = landSummary(FS, h, 0);
-  assert.deepEqual(s, { claimed: 3, tiles: 4, bonusPct: 6 }, '3 claimed tiles × 2% for one village');
+  assert.deepEqual(s, { claimed: 3, tiles: 4, bonusPct: 6, perHour: null }, '3 claimed tiles × 2% for one village (no production known: no figure)');
   // reading another province (the camera moved) changes nothing in the line
   FS.provinces.set('3,0', { land: parseLand(record({ p: 3, q: 0, owners: { 5: 0, 6: 0, 7: 0 } }), { p: 3, q: 0, seasonId: 11 }) });
   assert.deepEqual(landSummary(FS, h, 0), s, 'independent of the provinces read');
@@ -146,6 +147,39 @@ test('land claimed in other provinces the map has loaded is said apart, and the 
     assert.match(String(renderLandChip(null, { tiles: 1, provinces: 1 })), /Other provinces: 1 tile\b/);
     assert.doesNotMatch(en, /[\u3040-\u30ff\u4e00-\u9fff]/);
     assert.doesNotMatch(en, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
+  } finally { setLang('ja'); }
+});
+
+test('the chip says what the land bonus pays in an hour, by the program\'s own yield_for', () => {
+  // the Rust formula, read as text: each entry × bonus_bps × bells / (10 000 × 6), rounded down
+  const rust = readFileSync(new URL('../../frontier-abi/src/land_preview.rs', import.meta.url), 'utf8');
+  assert.match(rust, /\(v\.max\(0\) as i128 \* bonus_bps as i128 \* bells as i128 \/ \(10_000 \* BELLS_PER_HOUR as i128\)\) as i64/);
+  assert.match(rust, /pub const BELLS_PER_HOUR: i64 = 6;/);
+  const yieldFor = (prod, bps, bells) => prod.map(v => (BigInt(Math.max(0, v)) * BigInt(bps) * BigInt(bells)) / (10_000n * 6n));
+  const town = [60_000, 45_000, 30_000, 22_000, 22_000, 7_000, 0, 0];   // milli per hour (a Town, M1)
+  for (const bps of [0, 200, 600, 1_333, 3_000]) {
+    const want = Number(yieldFor(town, bps, 6).reduce((a, b) => a + b, 0n) / 1000n);
+    assert.equal(landYieldPerHour(town, bps), want, `bps ${bps}`);
+    assert.equal(landYieldPerHour(town.map(BigInt), bps), want, 'BigInt production too');
+  }
+  assert.equal(landYieldPerHour(town, 600), 11, '186 an hour × 6% = 11.16 → 11');
+  assert.equal(landYieldPerHour(null, 600), null);
+  assert.equal(landYieldPerHour([], 600), null);
+  assert.equal(landYieldPerHour([-5_000, 10_000], 3_000), 3, 'negative entries pay nothing (v.max(0))');
+  // in the chip, after the percentage; nothing when the figure is 0 or unknown
+  const FS = { provinces: new Map() };
+  const province = { siteMirror: [{ state: 1, faction: 0 }] };
+  FS.provinces.set('2,0', { province, land: parseLand(record({ owners: { 30: 0, 31: 0, 32: 0, 33: 0 }, village: [30] }), { p: 2, q: 0, seasonId: 11 }) });
+  const s = landSummary(FS, { p: 2, q: 0, production: town }, 0);
+  assert.deepEqual(s, { claimed: 3, tiles: 4, bonusPct: 6, perHour: 11 });
+  assert.match(String(renderLandChip(s)), /この州で獲得 3 マス · 生産 \+6%（毎時 \+11）/);
+  assert.doesNotMatch(String(renderLandChip({ ...s, perHour: 0 })), /毎時/);
+  assert.doesNotMatch(String(renderLandChip({ ...s, perHour: null })), /毎時/);
+  setLang('en');
+  try {
+    const en = String(renderLandChip(s));
+    assert.match(en, /Claimed in this province: 3 tiles · production \+6% \(\+11\/h\)/);
+    assert.doesNotMatch(en, /[\u3040-\u30ff\u4e00-\u9fff]/);
   } finally { setLang('ja'); }
 });
 
