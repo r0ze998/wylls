@@ -102,6 +102,11 @@ export const RECOVERY = Object.freeze({
   WrongVillage: ['the agent acts on its own village only'],
   TransactionFailed: ['check village_status; prepare again'],
   Expired: ['the transaction expired before it landed: prepare again (nothing moved)'],
+  // The same transaction was sent by another operation of this server (server.mjs resume, Duplicate): that operation
+  // carries the effect. Preparing again would be a second caravan.
+  DuplicateOfOperation: ['this request\'s transaction is the one another operation already sent (error.message names it): follow that operation with get_operation_status; do not prepare again for this'],
+  // Workstream 04's registry has this key under another run, before anything was sent (server.mjs resume).
+  RunConflict: ['nothing was sent: this requestId is registered under another run in workstream 04\'s registry; send again with that runId, or prepare again with a new requestId for a new decision'],
   lost: ['the destination changed generation: nothing can be recovered for this caravan'],
   taken: ['another village took the caravan in a raid: nothing can be recovered for this caravan'],
   burned: ['a raid burned the cargo: nothing can be recovered for this caravan'],
