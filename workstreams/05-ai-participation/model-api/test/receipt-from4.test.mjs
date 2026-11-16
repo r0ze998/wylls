@@ -17,6 +17,8 @@
 //   F10 refreshFates with a fate reader: a read for another signature changes nothing
 //   F11 refreshFates with a fate reader: a final state from the registry does not change; facts are kept
 //   F12 a REAL registry that gave no signedAt (store-only or failed read) leaves acts[].signedAt missing
+//   F13 readVia (acts-port.mjs: gateway | store-only) is carried into from4 as given, null when missing or unknown, on
+//       the mismatch path too; it changes no fate, finality or missingFrom4
 // KEY-FREE: imports run-receipt.mjs and its conformance file only (neither imports anything else). The relay and the
 // fate reader are stub functions, the registry receipts are written by hand in ④'s receipt shape; nothing is signed,
 // sent, read from disk or fetched.
@@ -49,7 +51,7 @@ test('F1 a registry receipt fills the act fields only ④ gives (toP05Act), and 
   const a = r.acts[0];
   assert.deepEqual([a.idempotencyKey, a.source, a.signature, a.signedAt, a.fate, a.cancellable, a.lastValidBlockHeight],
     [KEY, 'ai', 'sigA', 1_762_000_000_000, 'landed', false, 5000]);
-  assert.deepEqual(a.from4, { connection: 'real', port: '④ runexec act (run store)', run4Id: 'act-008445dbab443860', commitment: 'finalized',
+  assert.deepEqual(a.from4, { connection: 'real', port: '④ runexec act (run store)', readVia: null, run4Id: 'act-008445dbab443860', commitment: 'finalized',
     cancel: { stage: 'sent', result: 'Irrevocable', until: { lastValidBlockHeight: 5000 } }, chain: null, chainWhy: REGISTRY_CHAIN_NOTE });
   assert.match(REGISTRY_CHAIN_NOTE, /not that a chain executed the act/);
   assert.deepEqual(actFrom4(receipt4()).cancel.until, { lastValidBlockHeight: 5000 });
@@ -151,4 +153,19 @@ test('F12 a REAL registry without signedAt leaves acts[].signedAt missing', asyn
   const { r } = await run({ registry: receipt4({ state: 'registered', signedAt: null }) });
   assert.ok(r.missingFrom4.includes('acts[].signedAt'), 'the registry gave no value: still missing');
   assert.ok(!r.missingFrom4.includes('acts[].cancellable'), 'cancellable is given (false) by ④\'s receipt');
+});
+
+test('F13 readVia is carried as an observation-source class only', async () => {
+  for (const [given, want] of [['gateway', 'gateway'], ['store-only', 'store-only'], [undefined, null], [null, null], ['chain', null]]) {
+    const ok = (await run({ registry: { ...receipt4(), readVia: given } })).r;
+    assert.equal(ok.acts[0].from4.readVia, want, `matched: ${given}`);
+    assert.equal(actFrom4({ ...receipt4(), readVia: given }).readVia, want);
+    const bad = (await run({ registry: { ...receipt4({ signature: 'sigOther' }), readVia: given } })).r;
+    assert.equal(bad.acts[0].from4.readVia, want, `mismatch: ${given}`);
+  }
+  // the same fate, finality and missingFrom4 whatever readVia says
+  const g = (await run({ registry: { ...receipt4({ state: 'pending' }), readVia: 'gateway' } })).r;
+  const s = (await run({ registry: { ...receipt4({ state: 'pending' }), readVia: 'store-only' } })).r;
+  assert.deepEqual([g.acts[0].fate, g.missingFrom4], [s.acts[0].fate, s.missingFrom4]);
+  assert.deepEqual([g.acts[0].from4.chain, g.acts[0].from4.commitment], [null, 'finalized']);
 });

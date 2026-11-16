@@ -56,9 +56,16 @@ export function actFrom4(r) {
     run4Id: r.run4Id, idempotencyKey: r.idempotencyKey, source: r.source, signature: r.signature ?? null,
     signedAt: r.signedAt ?? null, fate: r.state, commitment: r.commitment ?? null, cancellable: false,
     cancel: { stage: r.cancel?.stage ?? null, result: r.cancel?.result ?? null, until: r.cancel?.until ?? null },
-    connection: r.connection ?? null, port: r.port ?? null,
+    connection: r.connection ?? null, port: r.port ?? null, readVia: readViaOf(r),
   };
 }
+
+/**
+ * How the acts port says it obtained the receipt's state (acts-port.mjs `readVia`): 'gateway' (one GET /f/agent/fate
+ * read) or 'store-only' (the registry's own records); null when missing or anything else. An observation-source class
+ * only: it says nothing of finality, of a signature, or of a chain, and nothing here decides on it.
+ */
+const readViaOf = r => (r?.readVia === 'gateway' || r?.readVia === 'store-only' ? r.readVia : null);
 
 /**
  * What a registry receipt does NOT say. ④'s `p04-acts/0.1` (acts.rs `receipt`) names no chain, cluster or simulator,
@@ -133,12 +140,12 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
         const f = actFrom4(registry);
         const keyOk = typeof f.idempotencyKey === 'string' && f.idempotencyKey === `${f.source}:${requestId}`;
         if (!keyOk || (f.signature && signature && f.signature !== signature)) {
-          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, chain: null, chainWhy: REGISTRY_CHAIN_NOTE,
+          a.from4 = { connection: f.connection, port: f.port, readVia: f.readVia, run4Id: f.run4Id, chain: null, chainWhy: REGISTRY_CHAIN_NOTE,
             mismatch: keyOk ? `the registry has another signature (${f.signature})` : `the registry receipt is for another key (${f.idempotencyKey})` };
         } else {
           Object.assign(a, { idempotencyKey: f.idempotencyKey, source: f.source, signature: signature ?? f.signature, signedAt: f.signedAt, fate: f.fate, cancellable: f.cancellable,
             lastValidBlockHeight: f.cancel.until?.lastValidBlockHeight ?? null });
-          a.from4 = { connection: f.connection, port: f.port, run4Id: f.run4Id, commitment: f.commitment, cancel: f.cancel, chain: null, chainWhy: REGISTRY_CHAIN_NOTE };
+          a.from4 = { connection: f.connection, port: f.port, readVia: f.readVia, run4Id: f.run4Id, commitment: f.commitment, cancel: f.cancel, chain: null, chainWhy: REGISTRY_CHAIN_NOTE };
         }
       }
       must(runId).acts.push(a);
