@@ -45,7 +45,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'prepare_caravan',
     title: 'Prepare caravan',
-    description: 'Plans a caravan between two of the owner\'s own places (placeIds from get_village_status): checks the cargo against the source, finds the road and its estimated time, and returns a planId valid for 5 minutes with a summary to show the person. If the owner\'s storehouses could not be read, a storehouse placeId is refused as Unknown (read get_village_status again), not as another player\'s. Sends nothing and spends nothing; send_caravan sends.',
+    description: 'Plans a caravan between two of the owner\'s own places (placeIds from get_village_status): checks the cargo against the source, finds the road and its estimated time, and returns a planId valid for 5 minutes, a summary, and confirm: the text to show the person before send_caravan. If the owner\'s storehouses could not be read, a storehouse placeId is refused as Unknown (read get_village_status again), not as another player\'s. Sends nothing and spends nothing; send_caravan sends.',
     inputSchema: {
       type: 'object', additionalProperties: false, required: ['from', 'to', 'cargo'],
       properties: { from: { type: 'string', maxLength: 64 }, to: { type: 'string', maxLength: 64 }, cargo: cargoSchema },
@@ -68,7 +68,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'get_operation_status',
     title: 'Operation status',
-    description: 'The state of an operation by operationId (or the requestId it was sent with): requested, accepted (the relay sent the transaction, or an attempt whose result is not known yet: then `hold` says why — not to be sent again), processing (it landed; the caravan is on the road), completed (settled: delivered, lost, taken or burned in a raid) or failed (with the reason and what can be done). Works after a reconnect. No change.',
+    description: 'The state of an operation by operationId (or the requestId it was sent with): requested (not sent yet, or an attempt whose answer was lost: next says the result is not known and only the same requestId may be retried), accepted (the relay sent the transaction, or an attempt whose result is not known yet: then `hold` says why — not to be sent again), processing (it landed; the caravan is on the road), completed (settled: delivered, lost, taken or burned in a raid) or failed (with the reason and what can be done). Works after a reconnect. No change.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { operationId: { type: 'string', maxLength: 64 }, requestId: { type: 'string', pattern: REQUEST_ID.source } } },
     annotations: { ...read, title: 'Operation status' },
     securitySchemes: oauth([SCOPES.READ]),
@@ -84,7 +84,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'list_operations',
     title: 'Recent operations',
-    description: 'This connection\'s recent operations (newest first, at most 20) with their last recorded state, for picking up after a reconnect: get_operation_status reads one again now. resultUnknown (with hold) marks an operation whose result is not known yet — not delivered, not failed, not to be sent again. No change.',
+    description: 'This connection\'s recent operations (newest first, at most 20) with their last recorded state, for picking up after a reconnect: get_operation_status reads one again now. resultUnknown (with hold) marks an operation whose result is not known yet — not delivered, not failed; never prepared or sent again as a new plan or requestId (one requested with a lost answer may be retried only with its same requestId: get_operation_status says so). No change.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { ...read, title: 'Recent operations' },
     securitySchemes: oauth([SCOPES.READ]),
