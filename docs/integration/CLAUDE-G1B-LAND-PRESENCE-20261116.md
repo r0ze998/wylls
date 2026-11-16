@@ -62,3 +62,27 @@ read, never an older one than the page had. No client inconsistency found: **no 
 | a herald restart / rebuild serving an envelope before its land capture | server behaviour, not read |
 | any of this in a browser or a world | all test runs are paused |
 | the server contract (`landTx` / `landSeen`) | proposed only |
+
+## The tie contract, settled from source lines (2026-11-16, static; NOT run) — no code change
+- **What a `latest` envelope's `seq` / `slot` / `bell` are**: `frontier-node/crates/herald/src/views.rs province_latest`
+  (119–123) decodes the captured Province and calls `envelope((p, q), pv.resolved_next)`; `fold.rs envelope` (896–)
+  sets `bell` (= that `resolved_next`), `slot: pv.slot` and `seq` = the Province capture's chained `event_head`
+  (`pv.head()`). All three are functions of the Province account alone.
+- **FoldLand does not write the Province**: `permutation-frontier/src/proc/land.rs fold` (101–152) declares
+  `[fee_payer s,w] [season] [province] [land w] [system]`, checks only `land.is_writable`, and reads the Province twice
+  (`Ro(&province.try_borrow_data()?)` for `RESOLVED_NEXT`, line 117; `let pd = province.try_borrow_data()?` passed to
+  `fold_province(&pd, &mut ld, …)` as input); it folds only bells `b < resolved_next`.
+- **The herald keeps an unchanged Province's capture**: `fold.rs` (~633) `if old.as_ref().map(|o| &o.data) == Some(&d)
+  { continue; }` — a read-only Province in a FoldLand transaction leaves its capture's `slot`, `tx` and head as they were.
+- **Hence**: a land-only change (FoldLand, or ClaimLandYield's header write) always ties on seq / slot / bell, and a land
+  record's `nextBell` never passes the Province's `resolved_next` — exactly what `latestEnvelope`'s G1c / G1b rules
+  assume. No counterexample found.
+
+### Not verified (table, updated)
+| item | state |
+|---|---|
+| the tie contract (land-only change ⇒ seq/slot/bell unchanged) | **settled** (lines above) |
+| how often a Province is written (bounds case 2 if land ever closed) | partly: the herald records each Province write where `resolved_next` grows (`fold.rs` ~640–652, `n > o`); the program's instruction that writes it was not located by name (no literal `RESOLVED_NEXT` write; a helper / layout writer not traced) |
+| a herald restart / rebuild serving an envelope before its land capture | server behaviour, not read |
+| any of this in a browser or a world | all test runs are paused |
+| the server contract (`landTx` / `landSeen`) | proposed only |
