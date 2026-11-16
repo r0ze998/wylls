@@ -76,3 +76,24 @@ Any run; the screen in a browser; a world with two villages.
   pick ended. Nothing else (generations of the land record, Lane C's freshness, are a separate matter).
 - Regression: `permutation-gateway/test/web-frontier-holdings-reload.test.mjs` (new) — the precondition by `subjectOf` /
   `activeHolding`, the gap as a todo, and `applyMeResult`'s current text pinned — SOURCE ONLY, not run.
+
+## The contract applied: applyMeResult keeps the open village by identity (2026-11-16, static; NOT run)
+Approved scope (the owner's conversation, re-quoted): the normal game's build / train / harvest operating conditions,
+fixes and GitHub saves (06:17 「よい」; 13:20 「進めて」「自走して」). The controller change is limited to this; Lane C
+(stopped, no controller change) reserved this spot to the main session.
+- `controller.mjs applyMeResult`: before `FS.holdings = me.holdings`, the open village's identity (p, q, site, gen); after,
+  `FS.activeHolding` = that identity's new position (`holdingByRef`). Reordered, an earlier village lost, one put before
+  it: the open village and the card's village stay the same village.
+- The open village itself gone (lost, or its site held by another generation): position 0 is opened; a VILLAGE card of a
+  village other than position 0 is put away (`hud/subject.mjs subjectOf`; a host in hand keeps its own card); and the
+  page is drawn synchronously (`fstate.mjs flush`) at the end of the adoption — so no card drawn for the old village stays
+  pressable while `refresh()` goes on reading, and the redraw does not wait for a paced render. A card of the village now
+  at position 0 (e.g. the same site's new generation) is drawn again with its own figures.
+- Not touched: a march draft, a waiting send, an exploration (each `holdingByRef` at its send); land freshness, slots,
+  the generation comparison of land records; any rule or guard.
+- Existing tests read for impact (not run): the expedition tests bump the open village's generation through
+  `applyMeResult` with a HOST in hand — the host is kept, so their later steps are unchanged; tests with empty lists take
+  no branch or the gone branch with nothing to put away; the new `subjectOf` import makes no cycle (no hud module
+  imports controller.mjs).
+- Regression: `web-frontier-holdings-reload.test.mjs` — the precondition, the rule by hand, and the new code pinned as
+  text (the todo removed) — SOURCE ONLY, not run; `git diff --check` only.

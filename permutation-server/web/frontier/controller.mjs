@@ -13,7 +13,8 @@ import * as fwide from './fwide.mjs';
 import * as expedition from './fexpedition.mjs';
 import * as preparation from './fexpedition-prepare.mjs';
 import * as outbound from './fexpedition-compose.mjs';
-import { FS, invalidate, activeHolding } from './fstate.mjs';
+import { FS, invalidate, flush, activeHolding } from './fstate.mjs';
+import { subjectOf } from './hud/subject.mjs';
 import { ownTag } from './people/ui.mjs';
 import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
@@ -1248,7 +1249,27 @@ export function applyMeResult(me) {
     FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;
     const before = FS.land?.stage;
     FS.citizen = me.citizen;
+    // (2026-11-16: the open village is kept by its identity — p, q, site, gen —, not by its position in the list: a
+    //  village lost, or one put before it, between two reads moved the positions, and the bar's card — found by its tile
+    //  (hud/subject.mjs) — showed one village while the village orders — activeHolding(FS) — went to another.)
+    const open = activeHolding(FS), openRef = open ? { p: open.p, q: open.q, site: open.site, gen: open.gen } : null;
+    let redrawNow = false;
     FS.holdings = me.holdings;
+    if (openRef) {
+      const at = FS.holdings.indexOf(holdingByRef(FS.holdings, openRef));
+      if (at >= 0) { if (at !== FS.activeHolding) { FS.activeHolding = at; invalidate('map', 'panel', 'tabs', 'rail', 'chips'); } }
+      else {
+        // the open village itself is gone (lost, or its site held by another generation): position 0 is opened. A village
+        // card of another village would now order for position 0, so it is put away (a host in hand keeps its own); and
+        // the page is drawn again before this adoption returns, so a card drawn for the old village is replaced before any
+        // later press — the redraw does not wait for the end of refresh() or a paced render. A march draft, a waiting send and an
+        // exploration keep their own village (holdingByRef at their send) and are not touched here.
+        FS.activeHolding = 0;
+        const sub = subjectOf(FS);
+        if (sub?.kind === 'village' && sub.holdingIndex !== 0) { FS.hand = null; FS.selected = null; FS.inspectOpen = false; }
+        invalidate('map', 'panel', 'tabs', 'rail', 'chips'); redrawNow = true;   // (drawn at the end of this adoption: below)
+      }
+    }
     mySlots = me.slots ?? [];
     // the wide inventory (`wideContext`, `wideHoldings`) beside — never inside — the legacy holdings, checked against
     // this season's world and addresses, the Citizen the viewer *is* (derived from the wallet or the NFT played, never
@@ -1279,6 +1300,8 @@ export function applyMeResult(me) {
     // inspection is still reading. Retain it only if its complete identity still
     // resolves after adoption. Owner/generation/issuance changes fail closed.
     reconcileExpedition();
+    // (the open village was gone: drawn now, with everything above adopted, so no card of the old village stays pressable)
+    if (redrawNow) flush();
     return 'found';
   }
   expedition.clearInspection(FS, { keepInputs: true }); outbound.clearOutbound(FS);
