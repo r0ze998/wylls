@@ -12,7 +12,7 @@
 //
 // It guards one process: two Autopilot objects for one agent in this process are refused, but a second PROCESS is
 // not detected, so a second process is not safe (its reservations and its decision keys are its own).
-import { participate } from '../../src/participate.mjs';
+import { participate, verifyPending } from '../../src/participate.mjs';
 import { checkAccess } from './access-check.mjs';
 import { checkBounds } from './bounds.mjs';
 import { idempotencyKeyOf, txStateFromTx } from './fate-reader.mjs';
@@ -33,6 +33,11 @@ const scrub = (text, secret) => (secret ? String(text).split(secret).join('[capa
 export { checkAccess } from './access-check.mjs';
 
 /** Where game operations go today, and what is NOT integrated. Carried in every status and record. */
+/** Chain reads per checkSent call (FATE-ACTS-5 §3: unsettled acts are read again up to 8 a time; relay 20 burst, 2/s). */
+export const FOLLOW_UP_READS = 8;
+/** verifyPending outcomes that are not an end (OUTCOME.UNKNOWN, OUTCOME.LANDED without its effect seen). */
+const OPEN = Object.freeze({ unknown: 'unknown', landed: 'landed' });
+
 export const EXECUTION_PATH = Object.freeze({
   via: 'existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository',
   fourIntegrated: false,
@@ -90,6 +95,14 @@ export class Autopilot {
     // A restarted process continues the run ids of its journal: tick n+1, never a second "t1" with a different decision.
     this.ticks = lastTickOf(journal, world.agentId);
     this.scope = 'one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)';
+    /** Advanced by every start (and so every resume): a tick may send only while the generation it began in is current. */
+    this.generation = 0;
+    /** Ticks still in flight (a stop does not wait for them; checkSent does not overlap them). */
+    this.inFlight = 0;
+    /** Where checkSent's next bounded read starts among the open sent acts (round robin: none starves behind held ones). */
+    this.followOffset = 0;
+    /** The last checkSent's summary, for the owner's status (no reads happen in status()). */
+    this.lastFollowUp = null;
   }
 
   #event(e) { this.events.push({ at: this.w.publicWorld.clockSec(), ...e }); }
@@ -113,6 +126,7 @@ export class Autopilot {
       this.#event({ op: 'lease', epoch: l.epoch, takenOver: l.takenOver ? { pid: l.takenOver.pid, epoch: l.takenOver.epoch } : null, recovered });
     }
     RUNNING.set(this.w.agentId, this);
+    this.generation++;
     this.state = 'running';
     this.#event({ op: 'start', by });
     return this.status();
@@ -129,6 +143,14 @@ export class Autopilot {
         return { skipped: true, state: this.state };
       }
     }
+    // The generation this tick belongs to: a stop, or a stop then a resume, while it awaits (the model, a view, the
+    // registry) leaves it unable to send anything (#actFence); only its read-only bookkeeping finishes.
+    const gen = this.generation;
+    this.inFlight++;
+    try { return await this.#tick(gen); } finally { this.inFlight--; }
+  }
+
+  async #tick(gen) {
     const runId = `${runPrefix(this.w.agentId)}${++this.ticks}`;
     this.currentRun = runId;
     if (this.receipts) await this.receipts.open({ runId });
@@ -136,7 +158,7 @@ export class Autopilot {
     const who = { agentId: this.w.agentId, source: this.actSource };
     const txState = this.acts ? txStateFromActs(this.acts, who) : txStateFromTx(this.w.txState);
     const registerAct = this.acts ? registerBeforeSend(this.acts, who) : null;
-    const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.#actFence(), registerAct });
+    const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.#actFence(gen), registerAct });
     const rec = decisionRecord(report);
     if (this.acts) rec.acts = await this.#readActs(runId, report);
     if (this.receipts) {
@@ -150,6 +172,8 @@ export class Autopilot {
       rec.receipt = await this.receipts.close(runId);
     }
     this.records.push(rec);
+    // A tick from an earlier generation (stopped, then resumed while it awaited) does not change the current run's state.
+    if (gen !== this.generation) return rec;
     if (report.status === 'stopped-by-budget') { this.state = 'stopped-by-budget'; this.stoppedBy = report.stoppedBy; RUNNING.delete(this.w.agentId); this.#event({ op: 'stop', by: 'budget', code: report.stoppedBy }); }
     // The relay no longer takes this autopilot's capability (the owner rotated it, e.g. when granting ③'s MCP server):
     // agent_view is a public read, so the next preflight would not see it and every tick would pay for a model call whose
@@ -159,13 +183,47 @@ export class Autopilot {
   }
 
   /**
-   * The check right before each act: the lease is still this process's (a takeover in the middle of a long tick stops
-   * the act, not only the next reservation), then the same Citizen's boundary (③ goes first).
+   * The checks participate makes before sending (HANDOFF-4 §5: from ⑤'s stop on, no new decision and no agent_act):
+   * `beforeAct` right after the fresh view, `beforeSend` after the act's last await (the registration) and before every
+   * re-ask of an unfinished act. Each refuses once this autopilot is not running in the generation the tick began in
+   * (`AutopilotStopped`: a stop, or a stop then a resume, during the tick), then once the lease is no longer this
+   * process's (`LeaseLost`), then (beforeAct only) the same Citizen's boundary (③ goes first). With or without a lease.
    */
-  #actFence() {
-    if (!this.lease) return this.citizen;
+  #actFence(gen) {
     const lease = this.lease, citizen = this.citizen;
-    return { beforeAct: (observed, now, o) => (lease.check() ? (citizen ? citizen.beforeAct(observed, now, o) : { ok: true }) : { ok: false, code: 'LeaseLost', detail: 'another process took this agent over during the run' }) };
+    const live = () => (this.state === 'running' && this.generation === gen ? null
+      : { ok: false, code: 'AutopilotStopped', detail: 'the autopilot was stopped during this run (or restarted since it began)' });
+    const held = () => live() ?? (lease && !lease.check() ? { ok: false, code: 'LeaseLost', detail: 'another process took this agent over during the run' } : null);
+    return {
+      beforeAct: (observed, now, o) => held() ?? (citizen ? citizen.beforeAct(observed, now, o) : { ok: true }),
+      beforeSend: () => held() ?? { ok: true },
+    };
+  }
+
+  /**
+   * After a stop: what became of the acts already sent, READ ONLY (verifyPending: the registry's or the chain's word,
+   * recorded in the journal). Never decides, never sends, never re-asks an unfinished act (one begun without an answer
+   * is reported, held as unknown). At most FOLLOW_UP_READS chain reads per call (FATE-ACTS-5 §3: up to 8 a time, the
+   * relay allowing 20 at once and 2 a second), starting where the previous call stopped (round robin over the open sent
+   * acts, so held ones at the front never starve the rest); no timer — the caller asks again. `settled` only when nothing is open and
+   * nothing is unfinished: a result unknown is never taken as done. Not while a tick is still in flight.
+   */
+  async checkSent() {
+    if (this.state === 'running') return { skipped: true, why: 'running: each tick follows its earlier sends', state: this.state };
+    if (this.inFlight > 0) return { skipped: true, why: 'a tick begun before the stop is still in flight', state: this.state };
+    const who = { agentId: this.w.agentId, source: this.actSource };
+    const txState = this.acts ? txStateFromActs(this.acts, who) : txStateFromTx(this.w.txState);
+    const offset = this.followOffset;
+    const verified = await verifyPending({ journal: this.journal, txState, world: this.w.publicWorld, maxReads: FOLLOW_UP_READS, offset });
+    // The next call starts after the acts read now (verified holds one entry per open act of this call, read or not).
+    const read = verified.filter(v => !v.notRead).length;
+    this.followOffset = verified.length ? (offset + read) % verified.length : 0;
+    const open = verified.filter(v => [OPEN.unknown, OPEN.landed].includes(v.outcome));
+    const unfinished = this.journal.unfinished().map(b => ({ key: b.key, requestId: b.requestId, attemptId: b.args?.requestId ?? null, outcome: OPEN.unknown, why: 'begun without an answer: not re-sent after the stop' }));
+    this.#event({ op: 'check-sent', read: verified.filter(v => !v.notRead).length, open: open.length, unfinished: unfinished.length });
+    this.lastFollowUp = { at: this.w.publicWorld.clockSec(), read, open: open.length, notRead: verified.filter(v => v.notRead).length, unfinished: unfinished.length,
+      settled: open.length === 0 && unfinished.length === 0, nextOffset: this.followOffset };
+    return { state: this.state, verified, open: open.length, notRead: verified.filter(v => v.notRead).length, unfinished, settled: open.length === 0 && unfinished.length === 0, sends: 0, nextOffset: this.followOffset };
   }
 
   /** This run's acts after sending: one status read each (recorded in the registry), and the registry's id on the item. */
@@ -220,5 +278,8 @@ export class Autopilot {
     return this.start({ by });
   }
 
-  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.lease ? 'one per agent across processes on this machine (process lease); other machines are not seen' : this.scope, executionPath: EXECUTION_PATH }; }
+  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.lease ? 'one per agent across processes on this machine (process lease); other machines are not seen' : this.scope, executionPath: EXECUTION_PATH,
+    // What the last read-only follow-up after a stop found (checkSent); null until one ran. A summary only: settled is
+    // true only when nothing sent is open and nothing begun is unfinished; a result unknown keeps it false.
+    followUp: this.lastFollowUp }; }
 }
