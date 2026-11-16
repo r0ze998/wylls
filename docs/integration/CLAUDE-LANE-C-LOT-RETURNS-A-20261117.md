@@ -301,7 +301,7 @@ A failure after the first write relies on the Solana transaction rollback, as ev
 | Account aliasing | The three accounts must be distinct (`BAD_ACCOUNT`) before anything is read |
 | Missing, full, stale | A kernel refusal means no write at all: the rest is held and the lot stays open |
 | Double payment | The second call finds nothing below a unit, pays 0 and writes nothing |
-| Atomicity | The kernel is all or nothing. Every read and check happens before the writes. The lot is written only if it changed, then `home` only if something was paid. Those are **two accounts**: `put_vault` can fail only on a short account, which `vault_view` already ruled out, and any failure after the first write is undone by the **transaction rollback**, as in every multi-account handler here. The pure function does not rely on it; the helper's second write does |
+| Atomicity | **Corrected 2026-11-17** (the earlier line said the second write "can fail only on a short account", which was wrong: `try_borrow_mut_data` can fail too). **Pure kernel:** `pay_rest_home` is all or nothing on its own copies. **Two-account helper:** every read and check first; then the mutable borrow of each account it will write (the lot if it changed, `home` if paid) is taken **before either write**, so a borrow failure leaves both untouched (since the follow-up commit); then the writes. A write can still fail after the borrows, but only on an offset outside the data (`Lot::encode` checks the length before its first byte; `put_vault_data` writes the offsets `vault_view` just read). Any failure after the first write makes the instruction fail, and **the runtime discards every account change of the transaction**: the helper relies on that rollback for the two writes together, as every multi-account handler here does |
 | Record | **None logged**: no record kind exists. Until ④ allocates one, V26 cannot verify the payout |
 
 **Regression source, written, not run.** The tail of `capacity_runtime_tests.rs` `capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back`:
@@ -321,3 +321,25 @@ A failure after the first write relies on the Solana transaction rollback, as ev
 | Recommendation | — | **(b)**: no existing instruction or client changes, and the payout is its own replayable step |
 
 **Not decided or done here.** No tag, no account list, no record, version or hash; no dispatch wiring; no migration. The open questions are unchanged: who may trigger a job's return, seizure, and ClaimJob's need for B's vault.
+
+## Kernel test evidence and an atomicity correction (2026-11-17)
+
+**Evidence.**
+- **The approval:** the owner explicitly approved ("うん") one run of the four ⑨/⑩ rest-home kernel cases, using no keys, no network and no real world. The coordinator ran them once, after a re-review, at `0a70925e`:
+
+  ```
+  cargo +1.89.0 test --offline --locked -p permutation-rules --test custody_rest_home --target-dir <dedicated target> -j 1
+  ```
+
+- **Result:** 4 passed, 0 failed, 0 ignored, 0 filtered. Build 2.16 s, tests 0.00 s.
+- **Source:** `permutation-rules/tests/custody_rest_home.rs`, SHA-256 `6ec91abd1fde143c00e49fec2a426d305a5db9ae3413c812f1e1f7b45df2bda6`. Lane C re-checked it read-only: the same at `0a70925e` and at `782cb047`.
+- **Conditions:** the dedicated target used 192,476 KiB. Afterwards there was no code or `Cargo.lock` diff, nothing was staged, and the 25 media deletions were unchanged.
+- **Scope:** this covers **the kernel function only**. The account helper `pay_rest_home_accounts` and its host-test lines were **not** part of the run; they remain unrun.
+
+**Atomicity correction (code and doc).**
+- **The problem:** the helper's earlier description said its second write could fail only on a short account. That was inaccurate: `try_borrow_mut_data` can fail too.
+- **The minimal fix:** within the existing contract (no ABI, dispatch or permission change), the helper now takes **every write borrow before writing any account**. `put_vault` was split, and `put_vault_data` writes on data already borrowed, with `put_vault`'s behaviour unchanged.
+- **The precise contract** is in the helper's doc comment and in the corrected table row above:
+  - **pure kernel:** all or nothing on its own;
+  - **two-account helper:** a borrow failure means nothing written. Any later failure relies on the runtime's rollback of the transaction.
+- **Unrun regression lines** in `capacity_runtime_tests.rs`: with `home`'s data held by a read borrow, the call fails, and the lot and `home` are both unchanged.

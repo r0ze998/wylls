@@ -143,7 +143,13 @@ pub(crate) fn vault_of_lot(
 /// Writes what the kernel may change of a vault: stores, quota, lots.
 pub(crate) fn put_vault(ai: &AccountInfo, v: &VaultView) -> R<()> {
     let mut d = ai.try_borrow_mut_data()?;
-    let mut w = Rw(&mut d);
+    put_vault_data(&mut d, v)
+}
+
+/// [`put_vault`] on data already borrowed (so a caller can take every write
+/// borrow it needs before writing any account).
+fn put_vault_data(d: &mut [u8], v: &VaultView) -> R<()> {
+    let mut w = Rw(d);
     for i in 0..RESOURCES {
         w.set_i64(VA::store(i), v.stores[i])?;
         w.set_i64(VA::custody_quota(i), v.quota[i])?;
@@ -1256,14 +1262,25 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 ///   kernel's checks.
 ///
 /// The three accounts must be distinct (`BAD_ACCOUNT`), so no alias reaches
-/// the kernel or the writes. The kernel works on copies and is all or
-/// nothing. Then the lot is written if it changed (whole units back into
-/// it), and `home` if anything was paid. The two writes are two accounts: the
-/// second can fail only on a short account, which `vault_view` has already
-/// ruled out, and any failure after the first is undone by the
-/// transaction's rollback, as in every multi-account handler here. No record
-/// is logged: no record kind exists for the payout (workstream 4; until
-/// then V26 cannot verify it). Returns the milli paid home.
+/// the kernel or the writes.
+///
+/// **Atomicity, kept apart:**
+/// - the kernel (`pay_rest_home`) is a pure function and all or nothing on
+///   its own: a refusal changes neither copy;
+/// - this helper writes **two accounts**. Every read and check runs first;
+///   then it takes the mutable borrow of each account it will write (the lot
+///   if it changed, `home` if anything was paid) **before writing either**,
+///   so a borrow failure (`try_borrow_mut_data`) leaves both untouched; only
+///   then does it write. A write can still fail after a borrow, but only on
+///   an offset outside the data: `Lot::encode` checks the length before its
+///   first byte, and `put_vault_data` writes the same offsets `vault_view`
+///   has just read. Whatever fails after the first write, the instruction
+///   returns an error and **the runtime discards every account change of
+///   the transaction**; the helper relies on that rollback for the two
+///   writes together, as every multi-account handler here does.
+///
+/// No record is logged: no record kind exists for the payout (workstream 4;
+/// until then V26 cannot verify it). Returns the milli paid home.
 #[allow(dead_code)] // not wired to dispatch until its carrier is agreed
 pub(crate) fn pay_rest_home_accounts(
     p: &Pubkey,
@@ -1282,11 +1299,23 @@ pub(crate) fn pay_rest_home_accounts(
     let mut h = vault_view(p, &pl.ctx, sid, home)?;
     let before = l;
     let paid = kc::pay_rest_home(&lv, &mut l, &actor(pl, citizen), &mut h).map_err(cerr)?;
-    if l != before {
-        put_lot(lot, &l)?;
+    // Every write borrow first (no read borrow is held any more), then the
+    // writes: a borrow that fails leaves both accounts as they were.
+    let mut ld = if l != before {
+        Some(lot.try_borrow_mut_data()?)
+    } else {
+        None
+    };
+    let mut hd = if paid > 0 {
+        Some(home.try_borrow_mut_data()?)
+    } else {
+        None
+    };
+    if let Some(d) = ld.as_mut() {
+        l.encode(d).ok_or(BAD_ACCOUNT)?;
     }
-    if paid > 0 {
-        put_vault(home, &h)?;
+    if let Some(d) = hd.as_mut() {
+        put_vault_data(d, &h)?;
     }
     Ok(paid)
 }

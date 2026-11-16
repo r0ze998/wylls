@@ -835,6 +835,16 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
     // the lot's own vault given as home: an alias, refused before any read
     assert!(pay(&lot_vault).is_err());
     assert_eq!(lot_now(&lot_ai), before);
+    // a write borrow that cannot be had (home's data held elsewhere): the
+    // helper takes every write borrow before writing, so neither the lot nor
+    // home changes (no reliance on the runtime's rollback for this one)
+    {
+        let held = home.try_borrow_data().unwrap();
+        assert!(pay(&home).is_err());
+        drop(held);
+    }
+    assert_eq!(lot_now(&lot_ai), before);
+    assert_eq!(home_ore(&home), 0);
     // the exact rest home, once
     assert_eq!(pay(&home).unwrap(), 500);
     let l = lot_now(&lot_ai);
