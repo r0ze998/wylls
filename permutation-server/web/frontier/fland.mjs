@@ -374,6 +374,24 @@ export function hostsIn(province, holding, nowBell) {
       pending: e.pendOp, fromBell: e.fromBell, inTransit: hostInTransit(holding, e.id), entry: e }));
 }
 
+// ------------------------------------------------------------------ the capture lock (MC §5.8)
+/**
+ * frontier-abi `prologue::capture_locked` on the village's OWN Province: its site is mirrored as a holding (state 1) of
+ * the next generation (u8, wrapping) — the village is being captured, and the program refuses its resident actions with
+ * CapturePending. False for any other Province (a host elsewhere, or no Province read yet).
+ */
+export function captureLocked(province, holding) {
+  if (!province || !holding || province.p !== holding.p || province.q !== holding.q) return false;
+  return mirrorLocked(province, holding);
+}
+/** The mirror check alone, for a Province already known to be the village's own (fconquest capturePending looks it up by key). */
+export function mirrorLocked(province, holding) {
+  const m = province?.siteMirror?.[holding?.site];
+  return m?.state === 1 && Number(m.gen) === ((Number(holding.gen) + 1) & 255);
+}
+/** The page's action names the program puts behind that lock (see actionBlocks). */
+export const CAPTURE_LOCKED_ACTIONS = new Set(['Harvest', 'Build', 'Train', 'Muster', 'Garrison', 'Explore', 'Dissolve', 'Depart']);
+
 // ------------------------------------------------------------------ resident actions (I-29, I-44)
 /**
  * What blocks an action now (`[]` = send it): program error names the
@@ -384,6 +402,11 @@ export function actionBlocks(name, ctx) {
   const out = [];
   const resident = ['Muster', 'Dissolve', 'Garrison', 'Explore', 'Depart'].includes(name);
   if (!ctx.holding) return ['NoTicket'];
+  // (2026-11-16: the program's capture lock — CapturePending — before the other checks, as the program orders them:
+  //  always for the actions on the village's own province (holding.rs own_province_unlocked for Harvest/Build/Train,
+  //  host.rs lock_own for Muster/Garrison), and for Explore/Dissolve/Depart only when the host's province — the one
+  //  `ctx.province` names here — is the village's own (holding.rs explore_as, host.rs dissolve_as/depart_as))
+  if (CAPTURE_LOCKED_ACTIONS.has(name) && captureLocked(ctx.province, ctx.holding)) out.push('CapturePending');
   if (resident && !isFinal(ctx.holding, ctx.province, ctx.now ?? 0, ctx.nowBell ?? 0)) out.push('NotFinal');
   if (resident && (!ctx.province || ctx.province.resolvedNext + 1 < ctx.nowBell)) out.push('NotResident');
   if (['Dissolve', 'Explore', 'Depart'].includes(name)) {

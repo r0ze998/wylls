@@ -290,8 +290,11 @@ export function s1VillageModel(FS) {
   const structures = (s1.structures?.structures ?? []).filter(s => isMine(s.ownerTag, mine)).map(s => ({ ...s, name: KIND_NAME[s.kind] }));
   // where a caravan may leave from: the village in hand (its stores now) or one of the viewer's storehouses (the stores
   // the herald read from its account; a storehouse whose stores are not known yet offers nothing to send)
+  // (2026-11-16: the capture lock — caravan.rs send_caravan_as for a village source, structure.rs fort_garrison_as —
+  //  refuses while the village in hand is being captured: CapturePending; a storehouse source is not locked)
+  const locked = !!h && capturePending(FS, h);
   const sources = [
-    ...(h ? [{ kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0, tile: h.tile, have: haveOf(FS, h) }] : []),
+    ...(h ? [{ kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0, tile: h.tile, have: haveOf(FS, h), locked }] : []),
     ...vaults.map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen, known: Array.isArray(v.stores), have: Array.isArray(v.stores) ? v.stores.map(Number) : Array(8).fill(0), cap: Number(v.cap ?? 0) })),
   ];
   const destinations = [
@@ -336,7 +339,8 @@ export function s1VillageModel(FS) {
     // (production[4]: the Horses slot, the workshops' arms under S1)
     oreStarved = Number(h.production?.[4] ?? 0) > 0 && !!ore && ore.perHour <= 0 && ore.value < 100;
   }
-  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved };
+  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved,
+    fortBlocks: locked ? ['CapturePending'] : [] };
 }
 
 /** How many of other players' places the caravan form lists, the nearest first. */
@@ -380,6 +384,8 @@ export const samePlace = (a, b) => !!a && !!b && a.kind === b.kind && a.p === b.
  */
 export function caravanProblem(src, dst, cargo) {
   if (!src || !dst) return 'NoPlace';
+  // (the program refuses a village source being captured before it reads the destination or the cargo)
+  if (src.kind === 'holding' && src.locked) return 'CapturePending';
   if (samePlace(src, dst)) return 'SamePlace';
   if (!cargo.some(v => v > 0)) return 'NoCargo';
   if (cargo.some((v, i) => v > Math.floor(src.have?.[i] ?? 0))) return 'Insufficient';
@@ -480,7 +486,7 @@ export function renderS1Village(FS) {
   const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
-    <label class="field">${L`出発地`}<select name="src">${m.sources.map((s, i) => html`<option value="${i}">${placeWord(s)} — ${haveText(s)}</option>`)}</select></label>
+    <label class="field">${L`出発地`}<select name="src">${m.sources.map((s, i) => html`<option value="${i}">${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
     <label class="field">${L`行き先`}<select name="dst">${otherDst.length
       ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
       : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
@@ -493,7 +499,8 @@ export function renderS1Village(FS) {
   const fort = m.forts.length ? html`<form class="vform" data-form="s1-fort">
     <label class="field">${L`要塞`}<select name="tile">${m.forts.map(f => html`<option value="${f.tile}">${L`マス ${f.tile}（兵 ${fmtNum(f.troops)} / ${fmtNum(FORT_MAX_TROOPS)}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="s1-ft">${L`入れる槍兵（控えから）`}<span class="muted"> / ${fmtNum(m.spearmen)}</span></label><input id="s1-ft" name="troops" type="number" min="1" max="${Math.min(m.spearmen, FORT_MAX_TROOPS)}" step="1" value="${Math.min(100, m.spearmen) || 1}" inputmode="numeric"></div>
-    <div class="actions"><button type="submit" class="btn" ${raw(m.spearmen > 0 ? '' : 'disabled')}>${L`要塞に兵を入れる`}</button></div>
+    <div class="actions"><button type="submit" class="btn" ${raw(m.spearmen > 0 && !m.fortBlocks.length ? '' : 'disabled')}>${L`要塞に兵を入れる`}</button></div>
+    ${m.fortBlocks.length ? html`<p class="blocked">${m.fortBlocks.map(blockText).join(' / ')}</p>` : ''}
     <p class="muted">${L`兵は次のターンから要塞を守ります。`}</p></form>` : '';
   const n = m.nation;
   const nation = n ? html`${label(L`国の方針`)}

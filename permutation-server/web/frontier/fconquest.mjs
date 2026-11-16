@@ -2,7 +2,7 @@
 // recompute accounts from raw Province/Holding bytes before signing.
 import { L } from '../lang.mjs';
 import { ringOf, hexDistance } from './fgeo.mjs';
-import { projectedHolding } from './fland.mjs';
+import { projectedHolding, mirrorLocked } from './fland.mjs';
 
 export const conquestEnabled = season => Number(season?.layoutVersion) === 2 && Number(season?.programVersion) >= 3;
 /**
@@ -85,8 +85,8 @@ export const effectiveTier = (h, now) => Math.min(3, h.tier + (h.queue ?? []).fi
 
 /** Same mirror-generation check as the program's capture_locked. */
 export function capturePending(fs, h) {
-  const m = fs.provinces?.get(`${h.p},${h.q}`)?.province?.siteMirror?.[h.site];
-  return m?.state === 1 && m.gen === ((h.gen + 1) & 255);
+  // (one rule for the page: fland.mjs mirrorLocked; the Province is the village's own by its key)
+  return mirrorLocked(fs.provinces?.get(`${h.p},${h.q}`)?.province ?? null, h);
 }
 
 /**

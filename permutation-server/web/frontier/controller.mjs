@@ -2336,6 +2336,7 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
   let dst = m.destinations[dstIndex];
   const problem = caravanProblem(from, dst, cargo);
   if (problem === 'NoPlace') return s1Refused(L`出発地と行き先を選んでください`);
+  if (problem === 'CapturePending') return failed({ code: 'CapturePending' });
   if (problem === 'SamePlace') return s1Refused(L`出発地と行き先が同じです`);
   if (problem === 'NoCargo') return s1Refused(L`運ぶものを入れてください`);
   if (problem === 'Insufficient') return failed({ code: 'Insufficient' });
@@ -2676,6 +2677,9 @@ export const FORMS = {
   's1-fort': f => {
     const h = activeHolding(FS), troops = Math.trunc(formNum(f, 'troops')), tile = Math.trunc(formNum(f, 'tile'));
     if (!h) return s1Refused(L`村を選んでください`);
+    // (the program's capture lock on the village in hand: refused here, before anything is signed)
+    const fb = s1VillageModel(FS).fortBlocks;
+    if (fb.length) return failed({ code: fb[0] });
     return act('FortGarrison', { v: { holding: h, tile }, fields: { troops }, order: orderOf('s1-fort', 'FortGarrison', { tile: { p: h.p, q: h.q, tile }, say: () => L`要塞に槍兵 ${fmtNum(troops)} を入れました` }) });
   },
   's1-propose': f => act('Propose', { v: { faction: FS.citizen?.faction }, fields: { kind: PROPOSE_STANCE, target_faction: Math.trunc(formNum(f, 'target')), value: Math.trunc(formNum(f, 'value')) },
