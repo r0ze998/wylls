@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { b58decode, b58encode } from '../adapters/canonical.mjs';
 import { parseJsonU64 } from '../adapters/ws04-receipts.mjs';
-import { baseUrl, capKind, observeLive, readFinalizedSlot, readHerald, RPC_METHODS } from '../adapters/live-observation.mjs';
+import { baseUrl, capKind, LABEL_CAP, observeLive, readFinalizedSlot, readHerald, RPC_METHODS } from '../adapters/live-observation.mjs';
 
 const bytes = (fill, head = []) => { const b = Buffer.alloc(32, fill); Buffer.from(head).copy(b); return b; };
 const PROGRAM = b58encode(bytes(0x21)), SEASON_PDA = b58encode(bytes(0x42));
@@ -59,13 +59,15 @@ const observe = (over = {}, ioOver = {}) => {
     kinds: { herald: 'chain', rpc: 'chain', store: 'integration-output' }, io: i, ...over }).then(o => ({ o, calls: i.calls }));
 };
 
-test('connected: the world, the Season clock and the provenance as stated; 4\'s receipts stay integration-output', async () => {
+test('connected: the world and the Season clock; a caller\'s chain label is lowered (herald, RPC, store), never kept', async () => {
   const { o, calls } = await observe({ kinds: { herald: 'chain', rpc: 'chain', store: 'chain' } });   // a caller who states the store is chain
   assert.equal(o.status, 'ok');
   assert.deepEqual(o.world, { cluster: 'localnet', world_id: `${PROGRAM}/${SEASON_PDA}` });
   assert.deepEqual([o.clock.genesisTs, o.clock.bellSecs], [1_000_000, 600]);
   assert.equal(o.provenance.records.kind, 'integration-output', '4\'s executor is a simulation: never raised to chain');
-  assert.equal(o.provenance.world.kind, 'chain');
+  assert.equal(LABEL_CAP, 'integration-output');
+  for (const part of ['world', 'clock', 'identity', 'finality']) assert.equal(o.provenance[part].kind, 'integration-output', `${part}: a label alone is not chain`);
+  assert.equal(o.inputs.lowered.length, 3, o.inputs.lowered.join(' | '));
   assert.equal(o.provenance.finality.commitment, 'finalized'); assert.equal(o.provenance.finality.slot, 100);
   assert.equal(o.observedBell, 200);
   assert.equal(o.inputs.eventsComplete, true);
@@ -129,6 +131,7 @@ test('the herald\'s answers: a missing Season is no world; a page limit or a sta
   const pages = [{ v: 1, events: EVENT_ROWS.slice(0, 2), next: '2', full: true }, { v: 1, events: EVENT_ROWS.slice(2), next: '4', full: false }];
   const cut = await observe({ maxEventPages: 1 }, { pages });
   assert.equal(cut.o.inputs.eventsComplete, false); assert.ok(cut.o.reasons.includes('events_page_limit'));
+  assert.ok(cut.o.held.length > 0 && cut.o.held.every(h => h.why === 'herald_events_incomplete')); assert.equal(cut.o.ingest, undefined);
   const both = await observe({}, { pages });
   assert.equal(both.o.inputs.eventPages, 2); assert.equal(both.o.inputs.eventsComplete, true);
   const stall = await observe({}, { pages: [{ v: 1, events: [], next: '0', full: true }] });
@@ -137,6 +140,30 @@ test('the herald\'s answers: a missing Season is no world; a page limit or a sta
     const r = await readHerald({ base: HERALD, getJson: async u => (u.includes('/h/events') ? { ok: true, body: bad } : { ok: true, body: SEASON }) });
     assert.ok(r.why.includes('events_malformed'));
   }
+});
+
+test('pagination that repeats, goes back, skips, mislabels `next` or fails midway holds every receipt; nothing is read as "no record"', async () => {
+  const row = (seq, slot) => ({ seq: String(seq), slot, sig: `s${slot}`, kind: 1, bell: 100 + slot });
+  const cases = [
+    [[{ v: 1, events: [row(1, 2), row(1, 2)], next: '1', full: false }], 'events_seq_repeated'],
+    [[{ v: 1, events: [row(1, 2), row(3, 4)], next: '3', full: false }], 'events_seq_skipped'],
+    [[{ v: 1, events: [row(2, 2)], next: '2', full: false }], 'events_seq_skipped'],
+    [[{ v: 1, events: [row(1, 2), row(2, 4)], next: '2', full: true }, { v: 1, events: [row(2, 4)], next: '2', full: false }], 'events_seq_repeated'],
+    [[{ v: 1, events: [row(1, 2), row(2, 4)], next: '2', full: true }, { v: 1, events: [row(1, 2)], next: '1', full: false }], 'events_seq_went_back'],
+    [[{ v: 1, events: [row(1, 2), row(2, 4)], next: '9', full: false }], 'events_next_not_the_last_row'],
+    [[{ v: 1, events: [{ ...row(1, 2), seq: 1 }], next: '1', full: false }], 'events_seq_malformed'],
+  ];
+  for (const [pages, why] of cases) {
+    const { o } = await observe({}, { pages });
+    assert.ok(o.reasons.includes(why), `${why}: ${o.reasons}`);
+    assert.equal(o.inputs.eventsComplete, false); assert.equal(o.status, 'held');
+    assert.ok(o.held.length > 0 && o.held.every(h => h.why === 'herald_events_incomplete'));
+    assert.equal(o.provenance, null, 'nothing was taken in');
+  }
+  // a second page that fails: the first page's slots are not used either
+  const midway = await observe({}, { pages: [{ v: 1, events: EVENT_ROWS.slice(0, 2), next: '2', full: true }], status: { '/h/events?after=2': 503 } });
+  assert.ok(midway.o.reasons.includes('events_http_503')); assert.ok(midway.o.held.every(h => h.why === 'herald_events_incomplete'));
+  assert.equal(midway.o.memory.journal.records().length, 0, 'the memory took in nothing');
 });
 
 test('/h/me: a malformed wallet is not requested; an answer for another wallet or no citizen pairs nobody', async () => {
@@ -160,4 +187,6 @@ test('the source: one RPC read; nothing written; no absence concluded; no credit
   assert.doesNotMatch(s, /coverageFromHistory\(|writeFileSync|appendFileSync|\.observe\(|\.say\(|credited|sign\(|Keypair/);
   assert.match(s, /createMemory\(\{ world: W\.world, partitions: W\.partitions \}\)/, 'no path: an in-process memory only');
   assert.match(s, /capKind\(kinds\.store, 'integration-output'\)/);
+  assert.match(s, /capKind\(kinds\.herald, LABEL_CAP\)/); assert.match(s, /capKind\(kinds\.rpc, LABEL_CAP\)/);
+  assert.doesNotMatch(s, /capKind\(kinds\.(herald|rpc)\)/, 'no uncapped label');
 });

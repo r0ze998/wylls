@@ -64,9 +64,9 @@ Everything below comes from reading the source.
 
 | Part | Kind | Rule |
 |---|---|---|
-| world, clock, identity | the herald's | the caller states it (`--herald-kind`). A Season the herald marks `sample` is a fixture, capped. An unknown or missing kind is no statement (`null`, so basis `unstated`). |
+| world, clock, identity | the herald's | the caller states it (`--herald-kind`), **capped at `integration-output`** (see the review below). A Season the herald marks `sample` is a fixture. An unknown or missing kind is no statement (`null`, so basis `unstated`). |
 | records (4's store) | **at most `integration-output`** | `capKind(kinds.store, 'integration-output')`. 4's executor is a simulation, so a statement of `chain` is lowered, never kept. |
-| finality | the caller's (`--rpc-kind`) | it exists only with the RPC binding; its `world_id` is the Season's world. |
+| finality | the caller's (`--rpc-kind`), **capped at `integration-output`** | it exists only with the RPC binding; its `world_id` is the Season's world. |
 
 - Kinds are only ever lowered (`capKind`); nothing in this slice raises a kind.
 - **Consequence:** with today's sources the basis is never `chain`, so the resident would show lines but act on none.
@@ -122,3 +122,37 @@ It is **not** added to `tools/keyfree-tests.txt` (12 runs only listed files).
 - the store↔world binding (`binding.json`) and the RPC↔cluster binding (`rpc-binding.json`): who runs both declares them. The format of 4's world string is not pinned (canonical.mjs header).
 
 **Known limit:** `provenance.clock` is the weaker of the season and events statements. When both have the same kind, its source is the season's, so an incomplete event read is visible in `inputs.eventsComplete` and `reasons`, not in `provenance.clock.source`. Slots after the cut are unmapped, and so are held.
+
+## Reverse review (2026-11-17): the data path, source by source
+
+| Step | Source | Wired? | Started? |
+|---|---|---|---|
+| CLI args → observation | `bin/observe-canonical.mjs` `main` → `observeLive` | yes | **never run** |
+| herald GETs | `getJson` (GET only, `redirect: 'error'`) → `readHerald` | yes | never run |
+| RPC finalized slot | `rpc` (`getSlot` only; any other method throws before `fetch`) → `readFinalizedSlot` | yes; asked only with a declared RPC↔cluster binding | never run |
+| 4's store | `readWs04Store` (one read transaction, `readOnly: true`), called once | yes | never run |
+| into 12 | `connectCanonical` → `ingestReceipts` into `createMemory` with no path | yes | never run |
+| 12 → 13 port | `liveCanonicalEvidence` → `ws12CanonicalEvidence` → `ws12EvidencePort` | yes | never run |
+| port → resident | `wireLiveEvidence(port)` = `wire(r)` in `world/harness.mjs openResident` | **available only**: no caller passes it | not started |
+| resident reads it | `Resident#publicEvidence` → `ports.evidence.read` | it would read through the same field, but the only constructor is the **test harness** (`openResident`, on `MOCK_WORLD` / `MOCK_CLOCK`), so the answer would be `clock_mismatch` | **no production entry exists** |
+
+The factory and the CLI are not a finished resident. A real resident entry, with an observe port on the Season clock and world, does not exist in this tree.
+
+**Fixed (evidence: this slice's own source):**
+1. **The herald's and the RPC's kinds came from the caller's label alone** (`capKind(kinds.herald)` / `capKind(kinds.rpc)`). `--herald-kind chain` made world, clock, identity and finality `chain` with nothing checking that the host serves the chain's accounts or that cluster. They are now capped at `LABEL_CAP = 'integration-output'`, and each lowering is listed in `inputs.lowered`.
+   - A `sample` Season is a fixture.
+   - The store stays at most `integration-output`.
+   - Corroboration that could earn `chain` (for example, comparing the herald's Season bytes with the account read over the declared RPC) is **not designed here** and needs a decision.
+2. **Pagination checks.** A failed page, the page limit, a stalled `next`, or a row number that repeats, goes back or skips now holds **every** receipt (`herald_events_incomplete`), with no ingest and no provenance. Before, the slots of the pages read so far were still placed in bells. `next` must also be the page's last row number.
+   - This relies on the herald numbering events 1, 2, 3, …: findex `event(ev INTEGER PRIMARY KEY)`, served in `ev` order.
+
+**Checked, no change needed:**
+- **No `not_sent` from a short window:** `coverageFromHistory` is never called, and absence is never concluded.
+- **One snapshot:** `readWs04Store` is called once (`BEGIN`…`COMMIT`, read-only).
+- **Finality stays with its cluster:** the attestation is built only when `rpcBinding.cluster === /h/season.cluster` and the endpoint is the declared one, with the Season's `world_id`.
+- **Credited cargo:** 12's `ws04-receipts.mjs` records it only when the body carries an array, and `null` gives no fact. This slice adds no quantity.
+- **No signing, auth, AI or trading path:** the import closure was scanned (12 `src/*`, `adapters/{canonical,ws04-receipts,ws08-world,live-observation}`, 13 `frame`, `ws12-canonical`, `live-canonical`, gateway `memory/config` and `mind/sanitize`). It has no `fetch` except the CLI's two, and no key creation, signing, transaction sending or model call. `records.mjs` only *verifies* someone else's signature. `createMemory` is given no keys.
+
+**Not verified:**
+- **Renumbered events:** a findex rollback (`DELETE FROM event WHERE seq > c`) can renumber events between two page reads, and the contiguity check can't see that. `/h/season.headSeq` was not compared.
+- **No run:** the tests were updated as source only (pagination: 7 cases plus a midway failure; label caps) and never run.
