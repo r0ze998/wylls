@@ -25,6 +25,23 @@ const KNOWN = new Set(['registered', 'not-sent', 'landed', 'failed', 'expired', 
 export function fateOfReceipt(r) {
   if (r?.state === 'unqueryable') throw new Unqueryable(`the act could not be read: ${r.why ?? r.lastReadError ?? 'unqueryable'}`);
   if (!KNOWN.has(r?.state)) throw new Unqueryable(`unknown registry state ${r?.state}`);
+  // (2026-11-17) The wallet's entry for this key is a Duplicate (workstream 4's receipt `code`, from the wallet's fate
+  // read): nothing of THIS key's request left; the signature and state in the receipt are the earlier send's
+  // (permutation-gateway agent/gateway.mjs: the Duplicate branch of #run, actionFateView). They are not this key's
+  // send or its result. The answer is the one the wallet gave this key's submit, a Duplicate failure, so a read-back
+  // (after a restart, or a lost reply) ends the line as the answer itself would have (#retryOrFail('Duplicate')):
+  // no signature, never sent again, never counted as landed. Only with a signature in the receipt: a Duplicate the
+  // wallet refused before anything was signed (a non-seq action out of rebuilds) reads `not-sent` with no signature and
+  // keeps today's handling (nothing happened: a new attempt may follow).
+  if (r.code === 'Duplicate' && typeof r.signature === 'string' && r.signature !== '') {
+    return {
+      ok: false, status: 'failed', fate: 'failed', fateError: 'Duplicate',
+      error: { code: 'Duplicate', message: 'the same transaction was already sent by an earlier request; this key sent nothing of its own' },
+      duplicate: true,
+      ws04: { run4Id: r.run4Id ?? null, state: r.state, next: r.next ?? null, newAttemptAllowed: r.newAttemptAllowed === true,
+        commitment: r.commitment ?? null, final: r.final ?? null, code: r.code, ...(r.conflict ? { conflict: r.conflict } : {}) },
+    };
+  }
   return {
     ok: true, status: r.state === 'not-sent' ? 'refused' : 'sent', fate: r.state === 'registered' ? 'pending' : r.state,
     // ④'s own words kept beside the fate: `commitment` is what the node reported (processed | confirmed | finalized);
