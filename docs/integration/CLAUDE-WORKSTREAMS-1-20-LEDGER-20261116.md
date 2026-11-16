@@ -382,3 +382,15 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   no process left; writes = 783-byte log + the 4 synced export files. Older playwright folders in the system temp
   (08:19, ~140 KB) are not this run's; untouched.
 - NOT done: the control run on the unchanged app.mjs (so the old page's failure is not yet shown).
+
+### G2 control run: the mismatch was not real (2026-11-16, Claude)
+- Control: the same land-redraw.screen.mjs, once, from the export with app.mjs as before the fix (e84049ed^; the only
+  app.mjs change since) in a new empty temp folder: **2/2 as well** (5.4 s; monitor not tripped, profile peak 7.5 MiB,
+  free low 27.55 GiB; temp folder emptied; no process left; 785-byte log). The export's app.mjs was restored to HEAD.
+- Why (static, after the control): `renderHudTick` ends with `publishNoGo()` outside any condition; it calls the map's
+  `setNoGo` → `tick()` (`dirty = true`), so the board draws a frame on every HUD tick (each chip redraw) with or
+  without reduced motion, and each frame's live pass re-checks the land marks and outlines and re-bakes them. My G2
+  claim ("the board kept the old outline until the next poll") missed this call: **retracted**.
+- So e84049ed is redundant (harmless: one extra `invalidate()` per changed record). Reverting it is the owner's call;
+  not reverted here. The test stays as a regression check that passes with or without it — it does not, by itself,
+  tell the two apart.
