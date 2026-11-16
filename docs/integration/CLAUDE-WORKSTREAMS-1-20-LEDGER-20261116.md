@@ -189,4 +189,5 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - 3524adb0: `land-arrival.screen.mjs` 4/4 (EN/JA @ 1440, three runs): land layer enemy → own (canvas colour at the tile,
   card owner + take count, chip) and away → arrived (the village's tag with the arrival turn). No page change; nothing sent.
   Candidate e9da7611: its page differs only by the WIP's seal-worker.mjs, the unloaded .orig and the route-preview screen;
-  the test with those files in place: 4/4. World-only items remain (see the candidate's gap doc).
+  correction: the first version of the land check was flaky (1 in 2 EN runs; it sampled under a sprite — the page painted
+  the land correctly); fixed in the next commit, then 8/8 runs (4 integration, 4 with the candidate's page files).
