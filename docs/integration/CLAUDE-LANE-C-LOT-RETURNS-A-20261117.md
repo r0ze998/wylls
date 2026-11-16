@@ -175,3 +175,31 @@
 > When a storage's last leftover is less than one unit, may its owner, on closing it, have that exact leftover put into their own storehouse in the same province (recommended; if they have none there, or it is full, the storage simply stays open as now), or should the storage stay open until leftovers add up to a whole unit, however long that takes?
 
 **Boundaries unchanged.** Nothing implemented. No ABI, version, hash or record kind is fixed, no permission or destination was added, no world was verified and no migration was done, and nothing was run.
+
+## Final consistency pass (2026-11-17, on `e00e66ba`; static, nothing run, no code changed)
+
+**Result: no implementation mistake found.** The paths were read through the program handler, the kernel and the order of writes.
+
+| Path | Read | Result |
+|---|---|---|
+| CloseLot: open lot by its owner, open lot by the vault's owner, forfeited lot by anyone | Rules `close` checks `lot.empty(bell)` **before** it branches on state, so all three entries need `tracked && pending == 0 && rest == 0`. The handler `close_lot` only reads the lot and vault, then calls the kernel | consistent |
+| ClaimJob without the lot pair, then again with it | First claim: the refund goes into `link.owed`, the link is written and the lot is not touched. Second claim: `cap::claim` is `Already`, and `settle_lot` pays the whole units and then releases once (`fin` holds). The lot cannot close in between (`pending > 0`) | consistent |
+| ClaimJob with the pair of a lot the link does not name | `settle_lot` refuses (`BAD_ACCOUNT`) before reading it | consistent |
+| CancelJob, then ClaimJob | Cancel touches neither the link nor the lot. The later claim refunds into owed, then releases | consistent |
+| RecordFacilityLoss, then ClaimJob | `lose` touches neither links nor lots. Under D4 the captor's share is out (`refunded` and `claimed = settled`), so `fin` holds at the next ClaimJob, which releases the count with what is still owed (if any) | consistent |
+| RetireJob / RetireGrant / RetirePool | RetireJob refuses `owed != 0` or `Pending`. RetireGrant needs no job left. RetirePool needs `occ` empty, so a pool cannot outlive a pending job | consistent |
+| Resource, owner and generation mixing | DepositToJob checks `l.resource == resource` (and only ore is enabled). The lot address binds `owner_tag` (derived from the full Citizen key) and the vault generation. A `Pending` link always names its own instance. Old links are refused on tracked lots | consistent |
+| Double release | Only `Pending` releases, and it becomes `Released`. The kernel refuses `pending == 0` | consistent |
+
+**Where a pending count can stay forever.** These are not implementation mistakes; each depends on a decision already open.
+1. **The job's user never claims.** Only B's ClaimJob releases ("who may trigger", open).
+2. **B has no live vault of B's own in the facility's province.** ClaimJob needs one (`user_vault`, `proc/capacity.rs:815`) even when nothing goes into it, so the release cannot run. Allowing a claim without that vault changes ClaimJob's account list: an ABI change that belongs to the same "who may trigger" decision. Not changed.
+3. **The lot's vault was seized.** `end_use` is `Forfeited` and the count stays. That is seizure, which is undecided.
+4. **A gathered rest below one unit.** That is the sub-unit question, waiting for the owner's answer.
+
+**Limits (unchanged).**
+- No test, syntax check or build was run, so the sources and edited host tests are unproven.
+- Not adopted: the ABI RSV and link bytes, the version and hash, record kinds, V26.
+- Existing worlds not verified, and no migration done.
+
+**This audit is complete for design A.** No safe independent fix remains on this branch without a new decision.
