@@ -322,3 +322,9 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - codex/sakurai-scout-wait-20261116 @ fc6e8b68 (onboarding.mjs, en-frontier-play.mjs, first-village-ui test, owner doc):
   no overlap; diff --check, node --check and the banned-English read pass. Test NOT run (stale runner; not bypassed).
 - Integration merge 5877d468, candidate merge a0b3cf99. No key, signing, request, world. Canonical unchanged.
+
+### Forming scout card (2026-11-16, Claude)
+- Mismatch: the card counted down to one estimated total wait (ticketTimes resultAbout), which ran out while the
+  scouts still waited for the key or the draw; the shared rule and the conquest guide say the turn's phase instead.
+  Fixed in c7533214 (formingLine reused; no new words). first-village-ui assertion updated, NOT run.
+- Static only: node --check, diff --check, source trace. No key, signing, request, world. Candidate merge d5800fca.
