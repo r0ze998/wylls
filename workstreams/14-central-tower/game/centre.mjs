@@ -52,6 +52,10 @@ const addSlots = (a, b) => a.map((x, i) => x + b[i]);
 // vault's or a structure's tag that was never checked. A missing structures list is still read as empty, as before.)
 const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const tagOk = t => typeof t === 'string' && /^\d+$/.test(t);
+// (2026-11-16, reverse review) A faction or a moving seq that is given must be a non-negative integer (the herald writes
+// u8 / u32 numbers): `byFaction` keyed `String(f.faction)` made a confirmed count under a key such as "[object Object]",
+// and tagOrder's `a.seq - b.seq` was NaN for a non-number, an order that is not one. Absent or null stays allowed.
+const optNat = x => x === undefined || x === null || (int(x) && x >= 0);
 export function feedProblems({ caravans, structures }) {
   const out = [];
   if (!isObj(caravans) || caravans.v !== 1) out.push(`h/caravans.json: version ${isObj(caravans) ? caravans.v : typeof caravans}, expected 1`);
@@ -60,6 +64,7 @@ export function feedProblems({ caravans, structures }) {
     else caravans.moving.forEach((m, i) => {
       if (!isObj(m)) { out.push(`moving ${i}: not an object`); return; }
       if (!tagOk(m.ownerTag)) out.push(`moving ${i}: ownerTag`);
+      if (!optNat(m.faction) || !optNat(m.seq)) out.push(`moving ${i}: faction or seq`);
       if (!Array.isArray(m.provinces) || !m.provinces.every(x => Array.isArray(x) && x.length === 2 && x.every(int))) out.push(`moving ${i}: provinces`);
     });
     if (!Array.isArray(caravans.vaults)) out.push('h/caravans.json: no vaults list');
@@ -67,6 +72,7 @@ export function feedProblems({ caravans, structures }) {
       if (!isObj(v)) { out.push(`vault ${i}: not an object`); return; }
       if (![v.p, v.q, v.tile].every(int)) out.push(`vault ${i}: place`);
       if (!tagOk(v.ownerTag)) out.push(`vault ${i}: ownerTag`);
+      if (!optNat(v.faction)) out.push(`vault ${i}: faction`);
     });
   }
   if (structures !== undefined && structures !== null) {
@@ -78,6 +84,7 @@ export function feedProblems({ caravans, structures }) {
         if (!isObj(s)) { out.push(`structure ${i}: not an object`); return; }
         if (![s.p, s.q, s.tile, s.kind].every(int)) out.push(`structure ${i}: place or kind`);
         if (!tagOk(s.ownerTag)) out.push(`structure ${i}: ownerTag`);
+        if (!optNat(s.faction)) out.push(`structure ${i}: faction`);
       });
       const seen = structures.sightings;
       if (seen !== undefined && seen !== null && !Array.isArray(seen)) out.push('h/structures.json: sightings is not a list');

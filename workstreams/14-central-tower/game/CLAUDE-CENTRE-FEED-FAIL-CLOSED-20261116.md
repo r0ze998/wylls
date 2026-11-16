@@ -55,3 +55,34 @@ summary (it recounts). Its frozen fixture (`scenarios/fixtures/ws14-centre-88cf6
 fraction, negative, unsafe, string slot, null slot, NaN) → `null`, nothing added, shares `null`; a known zero and a full
 8-slot cargo read as they are; a mixed set (known summed, unknown counted apart, shares `null`), with ⑮'s rule pinned as
 text. No rule, prize or evaluation changed.
+
+## Reverse static review (2026-11-16): what reaches sort, BigInt, `ringOf` and the aggregates
+
+Traced in source only. Nothing was run: no test, no `node --check`, no product import, no browser, server or world.
+
+| Path | Input it uses | Checked by `feedProblems` before use? | Result |
+|---|---|---|---|
+| `tagOrder` → `BigInt(ownerTag)` | moving / vault / structure `ownerTag` | yes (`tagOk`: decimal string) | no throw |
+| `tagOrder` tie-break `a.seq ?? a.tile` | moving `seq`; vault / structure `tile` | `tile` yes; **moving `seq` was not** | **fixed**: a non-number made `NaN` — not an order |
+| `ringOf(p, q)` | vault / structure place, moving `provinces` | yes (safe integers) | no throw. An empty `provinces` list makes the transit count as "outside" — a meaning, not a crash. Left as is |
+| `byFaction[String(faction)]` | moving / vault / structure `faction` | **no** | **fixed**: `{}` gave a confirmed count under `"[object Object]"` |
+| cargo sums and shares | moving `cargo` | `knownCargo` (8 non-negative safe integers, otherwise `null` + `cargoNotGiven`) | missing ≠ 0 (the cargo section above) |
+| sightings, `gen` | passed through as given (`?? null`) | object shape only | not aggregated, so no false confirmed value |
+
+**The fix:** `optNat` — a `faction` (moving caravan, vault, structure) or a moving `seq` that is given must be a non-negative safe integer. Absent or `null` is still accepted, because the herald writes `faction: null` when it does not know it.
+- No upper bound is added. The herald writes u8 / u32, and this check neither widens nor narrows those contracts. It only refuses what is not a number.
+- No `ownerTag` (u64) rule changed.
+
+**Unchanged:**
+- schema v1;
+- the normal `FEEDS` (still `[]` problems; asserted);
+- ⑮'s frozen fixture input: `gen-ws14-centre.mjs` uses integer `faction` / `seq` (read, not run);
+- the CLI: it prints the whole JSON, so `null` stays distinct from `0`;
+- ⑮'s `notGiven` rule (pinned as text).
+
+**New source-only regression:** `a faction or a moving seq that is not a non-negative integer is refused` covers 8 bad values × 4 places, plus absent and `null` still being read.
+
+**Not verified:**
+- every test, old or new, is unrun under the standing stop;
+- the semantics of an empty `provinces` list;
+- whether ⑮'s frozen fixture regenerates byte-identically (it was not regenerated).

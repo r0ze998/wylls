@@ -202,6 +202,30 @@ test('broken feeds are refused, not thrown on', () => {
     assert.equal(out.facts, undefined, 'no facts from a refused feed');
   }
 });
+test('a faction or a moving seq that is not a non-negative integer is refused (no "[object Object]" count, no NaN order)', () => {
+  const C = FEEDS.caravans, S = FEEDS.structures;
+  const m0 = C.moving[0], v0 = C.vaults[0], s0 = S.structures[0];
+  const bad = [{}, [], '1', -1, 1.5, NaN, 2 ** 53, true];
+  for (const x of bad) {
+    for (const feeds of [
+      { caravans: { ...C, moving: [{ ...m0, faction: x }, ...C.moving.slice(1)] }, structures: S },
+      { caravans: { ...C, moving: [{ ...m0, seq: x }, ...C.moving.slice(1)] }, structures: S },
+      { caravans: { ...C, vaults: [{ ...v0, faction: x }, ...C.vaults.slice(1)] }, structures: S },
+      { caravans: C, structures: { ...S, structures: [{ ...s0, faction: x }, ...S.structures.slice(1)] } },
+    ]) {
+      let out;
+      assert.doesNotThrow(() => { out = centreFacts(feeds); });
+      assert.ok(out.refused?.length > 0, String(x)); assert.equal(out.facts, undefined);
+    }
+  }
+  // absent or null stays read as before (faction null = the herald did not know it)
+  for (const x of [undefined, null]) {
+    const feeds = { caravans: { ...C, moving: [{ ...m0, faction: x, seq: x }, ...C.moving.slice(1)], vaults: [{ ...v0, faction: x }, ...C.vaults.slice(1)] },
+      structures: { ...S, structures: [{ ...s0, faction: x }, ...S.structures.slice(1)] } };
+    assert.deepEqual(feedProblems(feeds), []);
+    assert.ok(!Object.keys(centreFacts(feeds).summary.byFaction ?? {}).some(k => k === 'null' || k === 'undefined'));
+  }
+});
 test('the herald\'s shapes are still read: the fixture, no structures list, no sightings, a long decimal tag', () => {
   assert.deepEqual(feedProblems(FEEDS), []);
   assert.deepEqual(feedProblems({ caravans: FEEDS.caravans, structures: { v: 1 } }), [], 'a missing structures list is read as empty, as before');
