@@ -507,6 +507,25 @@ mod tests {
         assert!(crate::v2::ix::tag_of(&[0xCD]).is_err() && crate::v2::ix::tag_of(&[0xCE]).is_err());
     }
 
+    /// Tag audit (2026-11-16): the land preview's provisional tags against every first-byte band the program routes
+    /// before the v2 table and the v2 table itself, over all 256 byte values. Workstream 09's capacity band and the
+    /// wide draft band (+ reveal) exist only under their own features: run with `land-preview,capacity-preview,
+    /// world-index-experimental` to compare them too. (Workstream 20's band is the assertion above, unchanged.)
+    #[test]
+    fn the_land_tags_collide_with_no_routed_band() {
+        assert_eq!((0..=255u8).filter(|t| is_land_tag(*t)).count(), 2);
+        for t in [TAG_FOLD_LAND, TAG_CLAIM_LAND_YIELD] {
+            assert!(is_land_tag(t));
+            assert!(crate::v2::ix::tag_of(&[t]).is_err(), "v2 table: {t:#x}");
+            assert!(crate::v2::Ix::ALL.iter().all(|ix| ix.tag() != t), "v2 Ix::ALL: {t:#x}");
+            assert!(!crate::v2::rights::is_rights_tag(t), "rights band: {t:#x}");
+            #[cfg(feature = "capacity-preview")]
+            assert!(!crate::capacity::is_capacity_tag(t), "capacity band: {t:#x}");
+            #[cfg(feature = "world-index-experimental")]
+            assert!(!crate::world_index::wide_ix::is_draft_tag(t), "wide draft band: {t:#x}");
+        }
+    }
+
     #[test]
     fn a_refused_fold_leaves_the_record_unchanged() {
         let pd = province();
