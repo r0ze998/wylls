@@ -73,3 +73,58 @@ Before any run of ②'s tests is proposed, read statically:
 - **Network:** `Game` defaults `fetch` to `globalThis.fetch` and `now` to `Date.now`. Check that every `new Game(` in the three tests passes a fake `relay`, `herald` and `fetch`, so that no default can make a request.
 - **File reads:** three tests read `src/server.mjs` or `src/tools.mjs` as text, as source pins. They write nothing; this still needs to be confirmed for the rest of each file.
 - **Then:** list the exact command (Node 23, `--import ./workstreams/12-memory/tools/nokey-guard.mjs`, the six files only) and the hashes, for approval.
+
+## ②'s later commits, read only: ce24417f, 20061e81, f2dc4de6 (2026-11-17, not integrated, not run)
+
+On `claude/ws03-chatgpt-flow-20261117`, after the fixed `df5f9bcd` that this branch contains, there are three commits, ending at `f2dc4de6a3fcc538874ce2dfd68683f4f0a5e7d9`. D's session had stopped when this was read.
+
+**The range in numbers:**
+- **7 files:** `src/ports.mjs`; the tests `list-result-unknown` (M), `unknown-result-display` (M) and `recovery-codes` (A); three reports.
+- **Unchanged:** `server.mjs`, `game.mjs`, `tools.mjs` and `receipt-port.mjs`.
+- **Checks:** 0 paths shared with ①; `diff --check` clean; no secret patterns in added lines.
+- **Test imports:** the three tests import only `node:test`, `node:assert/strict`, `node:fs` and `src/ports.mjs`. They read `server.mjs` or `tools.mjs` as text. This is the same class as group P.
+
+**ce24417f: "result unknown" decided by state.** Checked against `server.mjs` at that commit:
+- **`requested` + `unknownSince`:** set only on the transport-failure path (`r.transport`). There the state stays `requested`, with `RelayUnreachable`, and a retry with the same requestId is safe.
+- **`accepted` + `uncertain`:** every `uncertain()` call, and the two direct writes, also step the state to `accepted`.
+- **`processing`:** reached only on evidence that the caravan landed: its own signed record, finalized, or a landed transaction.
+- **Never cleared:** neither `uncertain` nor `unknownSince` is ever cleared, so the old rule (`hold || uncertain`) called a landed caravan unknown.
+- **Verdict:** the new rule matches these transitions. A hold still holds in any non-terminal state. A lost answer's advice keeps the same-requestId contract.
+
+**Observation for D (not changed here):** `receipt-port.mjs` (④'s view) computes its own `held` from `op.uncertain` and does not use `resultUnknown`. After ce24417f the two disagree in two cases:
+- **`processing` with `uncertain` history:** `resultUnknown` is false (on its way), but `held` is `Indeterminate`.
+- **`requested` + `unknownSince` (a lost answer):** `resultUnknown` is true, but `held` is null. This case already disagreed before ce24417f.
+
+Whether ④'s `Indeterminate` should follow the same rule is a decision for ③ and ④.
+
+**20061e81 → f2dc4de6: recovery advice.** 20061e81's RunConflict advice ("send again with that runId") contradicted the fixed contract; f2dc4de6 corrects it. Checked against `server.mjs`:
+- **RunConflict ends the operation:** before any attempt, it ends `failed` (`definite`, line 316).
+- **Another runId is refused:** the same requestId under a different runId is `IdempotencyConflict` ("the run is fixed for the requestId", line 183).
+- **The same runId:** returns the ended operation.
+
+The corrected text ("this request has ended; a new decision is a new plan … a new requestId") matches. The DuplicateOfOperation text, which names the owner's view for another connection, is wording only.
+
+**Candidate for intake (not done):** take `f2dc4de6` (`df5f9bcd..f2dc4de6`, 7 files) onto this branch.
+- **Conflict:** none expected. The paths this branch changed since `df5f9bcd` are only `docs/integration/CLAUDE-INTEG-*` and `docs/integration/logs/`.
+- **Evidence does not carry over:** the group P run (15/15) is for the `6666ae68` versions of `ports.mjs`, `list-result-unknown` and `unknown-result-display`, and all three change in this range. After intake, those files and the new `recovery-codes` are not run.
+- **Next run:** one run of those four, the same way as group P (extracted blobs, Node 23, no-key guard), needs its own approval.
+
+## Acceptance checklist: the six ③ MCP steps (2026-11-17)
+
+**Basis:** `CLAUDE-WS03-CHATGPT-FLOW-20261117.md` (the 10/29 instruction's six steps).
+- **✅** means a run passed, with the evidence named. **⏸** means held or not run. **⬜** means not checked on a device.
+- **Not decided here:** no choice about permissions, publishing, the identity provider, authentication or plans is made in this checklist.
+
+| Step | What has a passing run | Held or not run | Not checked on a device |
+|---|---|---|---|
+| Before 1: can a client connect | ✅ `preflight` library and command, 13/13 (fake `fetch`, loopback rules, no redirect, no credential in output), `5f67eb17` | — | ⬜ a real server; ⬜ ChatGPT or Claude connecting; ⬜ any approved deployment (`--allow-remote` never run) |
+| 1 see my village (`get_village_status`) | — (no new test) | ⏸ ③'s existing tests not run in this round | ⬜ |
+| 2 resources short (`check_resource_shortfall`) | — | ⏸ `shortfall-coverage` (group G, held: shared web-frontier closure) | ⬜ |
+| 3 prepare (`prepare_caravan`) | — | ⏸ `place-unknown`, `road-unknown` (group G, held) | ⬜ |
+| 4 confirm (`destructiveHint`) | — | — | ⬜ ChatGPT's confirmation dialog not seen |
+| 5 send (`send_caravan`), refusal advice | ✅ ActionNotAllowed advice follows the relay's message, A1–A6, at `6666ae68` | ⏸ `recovery-codes` (f2dc4de6, not taken in, not run) | ⬜ |
+| 6 arrived / failed / unknown (`get_operation_status`, `list_operations`) | ✅ unknown result not shown as on its way, `list_operations` carries `hold`/`resultUnknown`, L1–L4 and D1–D5, at `6666ae68` | ⏸ ce24417f's state rule (L1 cases changed; D6, D7) is not taken in and not run; `receipt-port`'s `held` disagrees (above) | ⬜ how ChatGPT shows `next` and `hold` |
+
+**Still outside any run:**
+- **The server:** the MCP server running, its HTTP/OAuth endpoint, the relay, the herald, a world, and a real send.
+- **Connection prerequisites:** the identity provider, a tunnel or deployment, whether the wallet appears in the OAuth window, and the plan. These are owner decisions, listed in ①'s report.
