@@ -21,6 +21,9 @@ const summaryOf = obs => Object.freeze({
   held: (obs?.held ?? []).length,
   heldReasons: Object.freeze([...new Set((obs?.held ?? []).map(h => h.why))]),
   inputs: obs?.inputs ? Object.freeze({ ...obs.inputs }) : null,
+  // Workstream 4's read observation, as 12 reports it: held, with 4's reasons as given; never evidence here.
+  ws04: obs?.ws04 ? Object.freeze({ format: obs.ws04.format, status: obs.ws04.status, admitted: obs.ws04.admitted, observations: obs.ws04.observations.length,
+    pageHeld: Object.freeze([...obs.ws04.pageHeld]), heldReasons: Object.freeze([...new Set(obs.ws04.observations.flatMap(o => o.held))]), why: Object.freeze([...obs.ws04.why]) }) : null,
 });
 
 /** A port that answers nothing, with why (an observation that did not connect). */

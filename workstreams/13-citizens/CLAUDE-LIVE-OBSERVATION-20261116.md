@@ -225,3 +225,75 @@ So 4's executor is consistent only with its own simulation. Against the real v2 
 - 12 already takes no transaction status as record evidence (`receiptToFacts` reads no `err` or success field). The receiving side must not start: `committed_frame_unproven` stays a held reason until a provider proves the frame, per record, not per transaction.
 
 Until all three exist, the receiving side holds it.
+
+## A production resident entry: what it needs, and the held WS4 report (2026-11-17, source only)
+
+### What Resident needs, from its source
+
+`resident.mjs`, as `resident/assembly.mjs` `REQUIREMENTS` lists it (pinned as text in `test/assembly.test.mjs`):
+
+| Port | Where it is used | What using it does | Is a live, read-only one available? |
+|---|---|---|---|
+| `dir` | the constructor reads `charter.json`; `createStateStore(state.json)`; the agent ledger over it | writes the resident's own files | no: constructing writes |
+| `identity` | `identity ?? keyIdentity(loadOrCreateKey(resident.key))` | without one, **makes and saves a key**; `keylessIdentity` is a test identity (`ws13-test:`) | no |
+| `execution` | `assertPort` (submit / status / cancel, `retentionBells`); `#enact`, `#reconcile` | sends to the world | no (4's agent wallet signs and sends) |
+| `observe` | `ports.observe(address, {events, boardBell})` → `{world: {bell, villages, …}, board}` | reads | **none exists live.** The only implementation is the test world's (`harness.mjs portsFor`), and no contract maps the herald onto this shape |
+| `join` | `ports.join({body, sig: identity.sign(JOIN_DOMAIN, body)})` when no village is found | signs and joins | no |
+| `memory` | `all` / `append` / `recall` | writes its episodes | no |
+| `board` | `#enact`: `board.post` | posts publicly | no (no live board exists) |
+| `provider` | `#decide`: `decideWithin(provider, req)` after `ledger.hold(inference)` | calls a model and spends budget | no |
+| `cost` | `#decide`: `(cost ?? flatCost)`, quote / reserve / settle | spends | no |
+| `fallback` | `#decide`: `fallback(candidates)` | reads | (code) |
+| `evidence` | `#publicEvidence`: `evidence.read(…)` after the clock and world checks | reads | **yes:** `liveCanonicalEvidence` |
+
+**The real consumer is `#publicEvidence`.** It is reached only inside `#decide` from `step()`, and `step()` first does all of these:
+1. `assertPort(execution)`;
+2. `observe`;
+3. `join` if no village is found;
+4. `#reconcile` (execution status and cancel).
+
+After the evidence read, it goes on to:
+- a budget hold;
+- `provider`;
+- `#enact` (submit and post).
+
+`step()` has no read-only mode. **So no read-only production resident can be assembled under today's contracts.**
+
+**What was added:** `readOnlyResidentPreflight({dir, identity, ports})` (`resident/assembly.mjs`).
+- It never constructs a Resident, writes nothing, makes no key and calls no port.
+- It refuses every port that is required and not supplied, and every port whose use signs, sends, joins, spends, posts, calls a model or writes, even when one is supplied. A refusing stub is refused by the same rule, so `assembled` is always false.
+- It refuses the test harness's observe port as not live.
+- It reports the evidence port (world, clock, basis, the observation's held count, the WS4 report) with `reachesResident: false`.
+- The command prints it under `resident`.
+
+### WS4's read observation, as a held report
+
+- **`12-memory/adapters/ws04-observation.mjs` `heldFromWs04Observation(page)`.** It reads 4's `ws04-observation/0` page (4 @ 7baa4d93: `observation.rs`, `READ-OBSERVATION-20261116.md`):
+  - **4's reasons, copied verbatim:** the page's three held reasons, and each observation's four.
+  - **This module's own findings, kept apart:** a page that claims a world, a finality, completeness or a basis other than `unproven`, a missing reason, a non-null `credited`, an event slot that is not the transaction's, or malformed fields. Each one is one more reason, never fewer.
+  - **Nothing admitted:** `admitted: 0`; no fact, receipt, id, coverage or attestation; no import at all.
+- **`observeLive({…, ws04Observation})`:** returns it as `ws04` beside the connection, never as its input (pinned: the `connectCanonical(` call has no `ws04`).
+- **`liveCanonicalEvidence`:** carries the summary (`observation.ws04`: format, status, admitted, count, page reasons, observation reasons).
+- **`observe-canonical --ws04-observation page.json`:** reads the page with `parseJsonU64` (u64 owner and raider tags stay exact) and prints the report.
+- **Nothing produces that file:** 4's reader is not on the runexec command line (4's doc: "no runtime consumer yet").
+
+### Where the consumer is actually reached (source)
+
+| Path | How far it reaches |
+|---|---|
+| live herald + RPC + 4 store → 12 memory → 13 port | wired; never run |
+| 4 page → 12 held report → 13 port summary → command output | wired; never run; no producer of the page |
+| port → `Resident#publicEvidence` | **not reached**: no production resident; the harness (test world, `MOCK_CLOCK`) would answer `clock_mismatch` |
+| WS4 held reasons → a resident's decision | not reached. `#publicEvidence` records `status`, `basis` and `basisWhy` per counterparty, not `observation.ws04` |
+
+### Dependencies, not created here
+
+1. **A live observe port:** a contract for which herald answers become `world.bell`, `villages[{citizen, owner}]`, events and the board. **Undefined.**
+2. **A read-only mode of `Resident#step`**, or a separate read-only consumer of `ports.evidence`. It does not exist; adding one is a change to 13's resident design and needs the owner's decision.
+3. **An identity for a production resident** without making a key here. Key custody is undecided.
+4. **Execution, join, board, provider and cost** for a resident that acts: signing, sending, model calls and budget all stay out of scope.
+5. **4's reader on a command line**, and the admission evidence 4 lists: raw transaction and frame proof, world and source binding, finalized context, identity and replay.
+
+**New tests (source only, never run):**
+- 12 `test/ws04-observation.test.mjs`: 5 cases. Not added to `keyfree-tests.txt`.
+- 13 `test/assembly.test.mjs`: 4 cases.

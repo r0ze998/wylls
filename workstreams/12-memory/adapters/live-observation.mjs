@@ -35,6 +35,7 @@ import { createMemory } from '../src/index.mjs';
 import {
   connectCanonical, currentBellFromSeason, identityFromHeraldMe, readWs04Store, resolverFromIdentity, worldFromSeason,
 } from './canonical.mjs';
+import { heldFromWs04Observation } from './ws04-observation.mjs';
 
 export const RPC_METHODS = Object.freeze(['getSlot']);
 const KINDS = Object.freeze(['fixture', 'integration-output', 'chain']);
@@ -136,12 +137,14 @@ export async function readFinalizedSlot({ rpcUrl, rpc, rpcBinding, season, world
  *
  * `kinds` = {herald, rpc, store}: the caller's statement of each source's kind (see the header). Missing: unstated.
  */
-export async function observeLive({ heraldUrl, rpcUrl, storePath, binding = null, rpcBinding = null, wallets = [], kinds = {}, maxEventPages, io }) {
+export async function observeLive({ heraldUrl, rpcUrl, storePath, binding = null, rpcBinding = null, wallets = [], kinds = {}, maxEventPages, io, ws04Observation = undefined }) {
   if (typeof io?.getJson !== 'function' || typeof io?.rpc !== 'function') throw new TypeError('io.getJson and io.rpc are required (this module makes no request itself)');
   const readStore = io.readStore ?? readWs04Store;
   const h = await readHerald({ base: heraldUrl, getJson: io.getJson, wallets, maxEventPages });
+  // 4's read observation, when one is handed in: a held report beside the connection, never an input to it.
+  const ws04 = ws04Observation === undefined ? null : heldFromWs04Observation(ws04Observation);
   const missing = [...h.why];
-  const base = { status: 'held', reasons: missing, held: [], memory: null, world: null, clock: null, observedBell: null, identity: null, provenance: null,
+  const base = { status: 'held', reasons: missing, held: [], memory: null, world: null, clock: null, observedBell: null, identity: null, provenance: null, ws04,
     inputs: { eventPages: h.eventPages, eventsComplete: h.eventsComplete, meRefused: h.meRefused, finality: null } };
   if (!h.season) return Object.freeze({ ...base, status: 'world_unverified' });
   let W;
@@ -181,6 +184,6 @@ export async function observeLive({ heraldUrl, rpcUrl, storePath, binding = null
   return Object.freeze({
     status: r.status, reasons: [...missing, ...r.reasons], held: r.held, memory, world: W.world, clock: W.clock, observedBell, identity: ids,
     provenance: r.provenance, identitySummary: r.identity, ingest: r.ingest ? { added: r.ingest.added, duplicate: r.ingest.duplicate, refused: r.ingest.refused } : null,
-    inputs,
+    inputs, ws04,
   });
 }

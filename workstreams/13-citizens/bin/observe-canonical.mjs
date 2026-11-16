@@ -12,10 +12,13 @@
 //     --herald http://127.0.0.1:8080 --rpc http://127.0.0.1:8899 --store path/to/runexec.sqlite \
 //     --binding binding.json --rpc-binding rpc-binding.json \
 //     --herald-kind chain --rpc-kind chain --store-kind integration-output \
-//     --wallet <base58> [--wallet …] [--about <base58> …] [--max-event-pages 64]
+//     --wallet <base58> [--wallet …] [--about <base58> …] [--max-event-pages 64] [--ws04-observation page.json]
 //
 //   binding.json      {"ws04World": "…", "programId": "…", "seasonAddress": "…", "source": "who declares it"}
 //   rpc-binding.json  {"rpcUrl": "http://…", "cluster": "<as /h/season says>", "source": "who declares it"}
+//   page.json         workstream 4's `ws04-observation/0` page (runexec observation::read_observations): shown held,
+//                     with every reason as given; never ingested (12 adapters/ws04-observation.mjs). Nothing in this
+//                     tree produces the file: 4's reader is not on the runexec command line.
 //
 // Requests: GET to the herald only (/h/season, /h/events, /h/me/{wallet}); one POST to the RPC, JSON-RPC getSlot
 // at commitment 'finalized' (live-observation.mjs RPC_METHODS). The store is opened read-only. Nothing is written,
@@ -25,8 +28,10 @@ import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { observeLive, RPC_METHODS } from '../../12-memory/adapters/live-observation.mjs';
 import { ws12EvidencePort } from '../../12-memory/adapters/canonical.mjs';
+import { parseJsonU64 } from '../../12-memory/adapters/ws04-receipts.mjs';
 import { liveCanonicalEvidence } from '../resident/ports/live-canonical.mjs';
 import { seasonClock } from '../resident/frame.mjs';
+import { readOnlyResidentPreflight } from '../resident/assembly.mjs';
 
 const TIMEOUT_MS = 10_000;
 
@@ -59,17 +64,22 @@ export async function main(argv = process.argv.slice(2), { io = { getJson, rpc }
       binding: { type: 'string' }, 'rpc-binding': { type: 'string' },
       'herald-kind': { type: 'string' }, 'rpc-kind': { type: 'string' }, 'store-kind': { type: 'string' },
       wallet: { type: 'string', multiple: true }, about: { type: 'string', multiple: true }, 'max-event-pages': { type: 'string' },
+      'ws04-observation': { type: 'string' },
     }, strict: true }).values;
   } catch (e) { print(json({ error: 'usage', why: e.message })); return 64; }
   if (!a.herald || !a.rpc || !a.store) { print(json({ error: 'usage', why: '--herald, --rpc and --store are required' })); return 64; }
   const pages = a['max-event-pages'] === undefined ? undefined : Number(a['max-event-pages']);
   if (pages !== undefined && !(Number.isSafeInteger(pages) && pages > 0)) { print(json({ error: 'usage', why: '--max-event-pages' })); return 64; }
-  let binding, rpcBinding;
-  try { binding = readDecl(a.binding); rpcBinding = readDecl(a['rpc-binding']); } catch (e) { print(json({ error: 'usage', why: `declaration file: ${e.message}` })); return 64; }
+  let binding, rpcBinding, ws04Observation;
+  try {
+    binding = readDecl(a.binding); rpcBinding = readDecl(a['rpc-binding']);
+    // owner and raider are u64: parsed exact (as decimal strings), as 12 parses 4's receipts
+    if (a['ws04-observation']) ws04Observation = parseJsonU64(readFileSync(a['ws04-observation'], 'utf8'));
+  } catch (e) { print(json({ error: 'usage', why: `declaration file: ${e.message}` })); return 64; }
   const obs = await observeLive({
     heraldUrl: a.herald, rpcUrl: a.rpc, storePath: a.store, binding, rpcBinding,
     wallets: [...(a.wallet ?? []), ...(a.about ?? [])], maxEventPages: pages,
-    kinds: { herald: a['herald-kind'], rpc: a['rpc-kind'], store: a['store-kind'] }, io,
+    kinds: { herald: a['herald-kind'], rpc: a['rpc-kind'], store: a['store-kind'] }, io, ws04Observation,
   });
   // The resident's clock here is the Season bell of the same numbers (a resident on another clock reads nothing).
   const residentClock = obs.clock ? seasonClock(obs.clock) : undefined;
@@ -79,6 +89,9 @@ export async function main(argv = process.argv.slice(2), { io = { getJson, rpc }
     status: obs.status, reasons: obs.reasons, world: obs.world, clock: obs.clock, provenance: obs.provenance,
     basis: port.basis, basisWhy: port.basisWhy, inputs: obs.inputs, ingest: obs.ingest ?? null, identity: obs.identitySummary ?? null,
     held: obs.held,
+    ws04: obs.ws04 ?? null,
+    // No resident is made: what a read-only assembly would refuse, and why (resident/assembly.mjs).
+    resident: readOnlyResidentPreflight({ ports: { evidence: port } }),
     worldBell: bell,
     about: (a.about ?? []).map(w => ({ wallet: w, ...(Number.isSafeInteger(bell) ? port.read({ counterparty: w, worldBell: bell }) : { status: 'clock_unverified', lines: [], facts: [] }) })),
   }));
