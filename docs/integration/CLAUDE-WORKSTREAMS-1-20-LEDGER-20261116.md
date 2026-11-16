@@ -184,3 +184,10 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - 7e2ecdb9 (here): the land chip adds what the bonus pays in an hour (program's yield_for), EN 342 px; ordinary subset 0 fail.
 - Candidate (df80ab90 + docs): `.rs.txt` = future reference (positive close covered by the compiled runtime-contract test
   1/1); ABI rev 7 policy adopted (0x4804 kept, 0x0400 reserved); PC play gap list; exact conditions for canonical to take it.
+
+## 2026-11-16 11:00 JST — the two PC fixture gaps closed (fixture replay, not a world)
+- 3524adb0: `land-arrival.screen.mjs` 4/4 (EN/JA @ 1440, three runs): land layer enemy → own (canvas colour at the tile,
+  card owner + take count, chip) and away → arrived (the village's tag with the arrival turn). No page change; nothing sent.
+  Candidate e9da7611: its page differs only by the WIP's seal-worker.mjs, the unloaded .orig and the route-preview screen;
+  correction: the first version of the land check was flaky (1 in 2 EN runs; it sampled under a sprite — the page painted
+  the land correctly); fixed in the next commit, then 8/8 runs (4 integration, 4 with the candidate's page files).
