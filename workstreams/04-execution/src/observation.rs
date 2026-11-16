@@ -6,8 +6,9 @@
 //! (2026-11-17, integration branch claude/ws04-store-dir-observation-20261117) [`read_store_observations`] reads the
 //! same page from a findex STORE DIRECTORY (`index.sqlite` + `archive/manifest.json`, findex lib.rs `Findex`) and adds,
 //! as diagnostics only, what the archive manifest's `observed` epochs (findex archive.rs, a99b961f) say of each row's
-//! producer. It never opens the store as findex does (no `Findex::open`, no `Archive::open`: those write and recover),
-//! writes nothing, and lifts no hold: the two files are read separately (not one snapshot), a directory is not proof
+//! producer. It never opens the store as findex does (no `Findex::open`, no `Archive::open`: those write and recover)
+//! and makes no write or recovery of its own; SQLite itself may still create the index's WAL side files (`-shm`), so
+//! "no file changes" is NOT guaranteed. It lifts no hold: the two files are read separately (not one snapshot), a directory is not proof
 //! that they belong together, and an epoch is a producer's kind and settings, not evidence of world, finality,
 //! identity or authenticity. See docs/STORE-DIR-OBSERVATION-20261117.md.
 use std::io::Read;
@@ -61,6 +62,9 @@ pub struct ArchiveEpoch {
 pub struct EpochView {
     pub epoch: Option<ArchiveEpoch>,
     pub why: &'static str,
+    /// Always `same_directory_not_proof_of_same_archive`: the row and the epoch were read from one directory, which
+    /// does not prove that this index row was built from this archive.
+    pub pairing: &'static str,
 }
 
 /// What [`read_store_observations`] knows of the pairing of the two files. Not proof that they belong together.
@@ -101,11 +105,12 @@ pub struct ObservationPage {
 /// cross-rebuild resume cursor. This first slice has no admitted restart cursor.
 /// No schema creation/migration, network, key, RPC, executor or send path.
 pub fn read_observations(path: &Path, after: u64, limit: usize) -> Result<ObservationPage, String> {
-    read_observations_with_last(path, after, limit).map(|(page, _)| page)
+    read_observations_with_last(path, after, limit, false).map(|(page, _)| page)
 }
 
-/// [`read_observations`] plus `MAX(tx.seq)`, read in the same read transaction.
-fn read_observations_with_last(path: &Path, after: u64, limit: usize) -> Result<(ObservationPage, u64), String> {
+/// [`read_observations`]; with `want_last`, also `MAX(tx.seq)` in the same read transaction (the store reader only:
+/// the plain reader runs no extra query and gains no new way to fail).
+fn read_observations_with_last(path: &Path, after: u64, limit: usize, want_last: bool) -> Result<(ObservationPage, u64), String> {
     if limit == 0 || limit > MAX_ROWS || after > i64::MAX as u64 {
         return Err("observation bounds".into());
     }
@@ -157,9 +162,13 @@ fn read_observations_with_last(path: &Path, after: u64, limit: usize) -> Result<
         });
         previous = cursor;
     }
-    let last: i64 = db.query_row("SELECT COALESCE(MAX(seq), 0) FROM tx", [], |r| r.get(0))
-        .map_err(|_| "observation index last sequence unreadable".to_string())?;
-    let last = u64::try_from(last).map_err(|_| "negative observation integer".to_string())?;
+    let last = if want_last {
+        let last: i64 = db.query_row("SELECT COALESCE(MAX(seq), 0) FROM tx", [], |r| r.get(0))
+            .map_err(|_| "observation index last sequence unreadable".to_string())?;
+        u64::try_from(last).map_err(|_| "negative observation integer".to_string())?
+    } else {
+        0
+    };
     Ok((ObservationPage { format: "ws04-observation/0", basis: "unproven", world: None,
         finality: None, complete: None, observations, next_local_cursor: previous,
         held: vec!["not_executor_receipts", "source_provenance_unproven", "resume_cursor_not_admitted"], store: None }, last))
@@ -191,6 +200,18 @@ fn read_manifest(store: &Path) -> Result<ManifestRead, String> {
         return Err("observation manifest version not supported".into());
     }
     let next_seq = v.get("next_seq").and_then(|x| x.as_u64()).filter(|n| *n >= 1).ok_or("observation manifest next_seq")?;
+    // What findex's own Manifest::from_json requires, so a manifest findex refuses is refused here too.
+    v.get("segment_bytes").and_then(|x| x.as_u64()).ok_or("observation manifest segment_bytes")?;
+    for seg in v.get("segments").and_then(|x| x.as_array()).ok_or("observation manifest segments")? {
+        seg.get("name").and_then(|x| x.as_str()).ok_or("observation manifest segment name")?;
+        for k in ["first_seq", "last_seq", "records", "bytes"] {
+            seg.get(k).and_then(|x| x.as_u64()).ok_or("observation manifest segment field")?;
+        }
+    }
+    match v.get("codec") {
+        None | Some(serde_json::Value::String(_)) => {}
+        Some(_) => return Err("observation manifest codec".into()),
+    }
     let opt = |e: &serde_json::Value, k: &str| -> Result<Option<String>, String> {
         match e.get(k) {
             None | Some(serde_json::Value::Null) => Ok(None),
@@ -222,20 +243,35 @@ fn read_manifest(store: &Path) -> Result<ManifestRead, String> {
     Ok(ManifestRead { raw, next_seq, epochs })
 }
 
+const PAIRING: &str = "same_directory_not_proof_of_same_archive";
+
+/// The directory and `archive/` must be directories, `index.sqlite` and the manifest regular files, none a symbolic
+/// link (not followed: `symlink_metadata`). A FIFO, a device or a socket there could block an open with no end, so
+/// they are refused before anything is opened. Checked before each open; a path swapped in between is a stated limit.
+fn check_store_paths(store: &Path) -> Result<(), String> {
+    for (p, dir) in [(store.to_path_buf(), true), (store.join("archive"), true), (store.join(STORE_INDEX), false), (store.join(STORE_MANIFEST), false)] {
+        let m = std::fs::symlink_metadata(&p).map_err(|_| "observation store path unavailable".to_string())?;
+        let t = m.file_type();
+        if t.is_symlink() {
+            return Err("observation store path is a symbolic link: refused".into());
+        }
+        if (dir && !t.is_dir()) || (!dir && !t.is_file()) {
+            return Err("observation store path is not a directory or regular file as expected: refused".into());
+        }
+    }
+    Ok(())
+}
+
 /// [`read_observations`] over a findex store directory, with each row's archive epoch as a diagnostic.
 /// Order: the manifest, then the index page (one read transaction), then the manifest again. The epochs are used
 /// only when the two manifest reads are equal; a row at or past the manifest's `next_seq` gets `epoch: null`.
 /// Refused: a symbolic link at the directory, `index.sqlite`, `archive/` or the manifest (checked before opening;
 /// a link swapped in between is a limit, stated in `limits`). Every hold is kept, and two are added to the page.
 pub fn read_store_observations(store: &Path, after: u64, limit: usize) -> Result<ObservationPage, String> {
-    for p in [store.to_path_buf(), store.join(STORE_INDEX), store.join("archive"), store.join(STORE_MANIFEST)] {
-        let m = std::fs::symlink_metadata(&p).map_err(|_| "observation store path unavailable".to_string())?;
-        if m.file_type().is_symlink() {
-            return Err("observation store path is a symbolic link: refused".into());
-        }
-    }
+    check_store_paths(store)?;
     let before = read_manifest(store)?;
-    let (mut page, index_last_seq) = read_observations_with_last(&store.join(STORE_INDEX), after, limit)?;
+    let (mut page, index_last_seq) = read_observations_with_last(&store.join(STORE_INDEX), after, limit, true)?;
+    check_store_paths(store)?;
     let after_read = read_manifest(store)?;
     let stable = before.raw == after_read.raw;
     let generation = if !stable {
@@ -250,13 +286,13 @@ pub fn read_store_observations(store: &Path, after: u64, limit: usize) -> Result
     for o in page.observations.iter_mut() {
         let seq = o.archive_sequence;
         o.archive_epoch = Some(if !stable {
-            EpochView { epoch: None, why: "manifest_changed_during_read" }
+            EpochView { epoch: None, why: "manifest_changed_during_read", pairing: PAIRING }
         } else if seq >= before.next_seq {
-            EpochView { epoch: None, why: "past_manifest_end" }
+            EpochView { epoch: None, why: "past_manifest_end", pairing: PAIRING }
         } else {
             match before.epochs.iter().rev().find(|e| e.from_seq <= seq) {
-                Some(e) => EpochView { epoch: Some(e.clone()), why: "covered_by_epoch" },
-                None => EpochView { epoch: None, why: "before_first_epoch" },
+                Some(e) => EpochView { epoch: Some(e.clone()), why: "covered_by_epoch", pairing: PAIRING },
+                None => EpochView { epoch: None, why: "before_first_epoch", pairing: PAIRING },
             }
         });
     }
@@ -272,8 +308,8 @@ pub fn read_store_observations(store: &Path, after: u64, limit: usize) -> Result
         limits: vec![
             "two files read one after the other: not one snapshot",
             "one directory named by the caller: not proof the index was built from this archive",
-            "symbolic links refused only at the time of the check, and only as the last part of each path",
-            "a read-only SQLite connection may still create the database's -shm file in WAL mode (as the plain reader)",
+            "symbolic links and non-regular files refused only at the time of each check, and only as the last part of each path",
+            "no application write or recovery; SQLite may still create the index's WAL side files (-shm): no file change is not guaranteed",
             "an epoch names no endpoint and proves no finality, world or authenticity",
         ],
     });

@@ -82,6 +82,9 @@ fn every_hold_is_kept_and_each_row_gets_its_epoch_or_why_not() {
     assert_eq!(obs[0]["archive_epoch"]["epoch"]["source"], "rpc_poll");
     assert_eq!(obs[0]["archive_epoch"]["epoch"]["commitment_requested"], "finalized");
     assert!(obs[0]["archive_epoch"]["epoch"].get("endpoint").is_none(), "no endpoint is carried");
+    for o in obs {
+        assert_eq!(o["archive_epoch"]["pairing"], "same_directory_not_proof_of_same_archive", "said on every row");
+    }
     // the index holds seq 3, the manifest only up to 2: the row past it has no epoch
     assert_eq!(obs[2]["archive_epoch"]["why"], "past_manifest_end");
     assert!(obs[2]["archive_epoch"]["epoch"].is_null());
@@ -120,6 +123,14 @@ fn a_malformed_manifest_or_epoch_list_refuses_the_whole_read() {
     assert!(read_store_observations(&d, 0, 10).is_err());
     fs::write(d.join("archive/manifest.json"), br#"{"version": 2, "next_seq": 4}"#).unwrap();
     assert!(read_store_observations(&d, 0, 10).is_err());
+    // what findex's own Manifest::from_json refuses is refused here too
+    for bad in [r#"{"version": 1, "next_seq": 4, "segments": []}"#, r#"{"version": 1, "segment_bytes": 1, "next_seq": 4}"#,
+                r#"{"version": 1, "segment_bytes": 1, "next_seq": 4, "segments": [{"name": "seg-000001.log"}]}"#,
+                r#"{"version": 1, "segment_bytes": 1, "next_seq": 0, "segments": []}"#,
+                r#"{"version": 1, "segment_bytes": 1, "next_seq": 4, "segments": [], "codec": 5}"#] {
+        fs::write(d.join("archive/manifest.json"), bad).unwrap();
+        assert!(read_store_observations(&d, 0, 10).is_err(), "{bad}");
+    }
     fs::remove_file(d.join("archive/manifest.json")).unwrap();
     assert!(read_store_observations(&d, 0, 10).is_err(), "no manifest: refused, not read as empty");
     let _ = fs::remove_dir_all(&d);
@@ -147,7 +158,36 @@ fn symbolic_links_are_refused() {
 }
 
 #[test]
-fn nothing_is_written_and_the_plain_reader_is_unchanged() {
+fn a_path_of_another_kind_is_refused_before_anything_is_opened() {
+    // a FIFO, a device or a socket could block an open with no end; a directory stands in for any non-regular file
+    let d = tmp("kind");
+    index(&d, 1);
+    fs::create_dir_all(d.join("archive/manifest.json")).unwrap();
+    assert!(read_store_observations(&d, 0, 10).is_err(), "a directory at the manifest");
+    let e = tmp("kind-index");
+    manifest(&e, 2, None);
+    fs::create_dir_all(e.join("index.sqlite")).unwrap();
+    assert!(read_store_observations(&e, 0, 10).is_err(), "a directory at the index");
+    let f = tmp("kind-file");
+    fs::remove_dir_all(&f).unwrap();
+    fs::write(&f, b"not a directory").unwrap();
+    assert!(read_store_observations(&f, 0, 10).is_err(), "a file as the store");
+    let _ = fs::remove_dir_all(&d);
+    let _ = fs::remove_dir_all(&e);
+    let _ = fs::remove_file(&f);
+}
+
+#[test]
+fn the_plain_reader_runs_no_extra_query() {
+    let src = include_str!("../src/observation.rs");
+    assert!(src.contains("read_observations_with_last(path, after, limit, false).map(|(page, _)| page)"));
+    assert!(src.contains("read_observations_with_last(&store.join(STORE_INDEX), after, limit, true)?"));
+}
+
+/// The reader makes no application write to either file. SQLite's own WAL side files (-shm) are NOT covered: this
+/// test's index is not in WAL mode, and no claim is made that a WAL index gains no side file.
+#[test]
+fn the_reader_writes_neither_file_and_the_plain_reader_page_is_unchanged() {
     let d = tmp("nowrite");
     index(&d, 2);
     manifest(&d, 3, Some(serde_json::json!([serde_json::from_str::<serde_json::Value>(RPC).unwrap()])));
