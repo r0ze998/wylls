@@ -123,11 +123,15 @@ export function actionNotAllowedNext(message) {
   return RECOVERY.ActionNotAllowed;
 }
 
+/**
+ * Not decided yet, and its result is not known (held, or an attempt that may have been sent — 08 state table: accepted
+ * also covers "result unknown"): neither sent-and-travelling nor failed, and never to be sent again.
+ */
+export const resultUnknown = op => !TERMINAL.includes(op.state) && (Boolean(op.hold) || op.uncertain === true);
+
 /** The receipt view of an operation record (what operation_status returns). */
 export function receiptOf(op) {
-  // Not decided yet, and its result is not known (held, or an attempt that may have been sent — 08 state table:
-  // accepted also covers "result unknown"): neither sent-and-travelling nor failed, and never to be sent again.
-  const unknown = !TERMINAL.includes(op.state) && (Boolean(op.hold) || op.uncertain === true);
+  const unknown = resultUnknown(op);
   const next = op.state === STATES.FAILED ? (op.error?.code === 'ActionNotAllowed' ? actionNotAllowedNext(op.error.message) : RECOVERY[op.error?.code] ?? ['prepare again'])
     : op.state === STATES.COMPLETED ? (op.outcome === 'delivered' ? [] : RECOVERY[op.outcome] ?? [])
     : unknown ? [`the result is not known yet${op.hold ? ` (${op.hold.code})` : ''}: do not prepare or send this again; it is neither delivered nor failed until operation_status says so; call operation_status again later`]

@@ -84,7 +84,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'list_operations',
     title: 'Recent operations',
-    description: 'This connection\'s recent operations (newest first, at most 20) with their current state, for picking up after a reconnect. No change.',
+    description: 'This connection\'s recent operations (newest first, at most 20) with their last recorded state, for picking up after a reconnect: get_operation_status reads one again now. resultUnknown (with hold) marks an operation whose result is not known yet — not delivered, not failed, not to be sent again. No change.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { ...read, title: 'Recent operations' },
     securitySchemes: oauth([SCOPES.READ]),

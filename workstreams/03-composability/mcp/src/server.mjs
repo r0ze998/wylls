@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { Game, GameError, untrusted } from './game.mjs';
 import { SCOPES } from './auth.mjs';
-import { MockGrantPort, STATES, TERMINAL } from './ports.mjs';
+import { MockGrantPort, STATES, TERMINAL, resultUnknown } from './ports.mjs';
 import { LocalReceiptPort, assertReceiptPort } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
@@ -748,7 +748,10 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
 
   async function listOps(principal) {
     const mine = store.operationsOf([principal.linkId], 20);
-    return ok({ operations: mine.map(op => ({ operationId: op.id, requestId: op.requestId, state: op.state, outcome: op.outcome ?? null, createdAt: op.createdAt, updatedAt: op.updatedAt, summary: op.planSummary })) });
+    // The last recorded state (not read again here: get_operation_status does), and whether its result is known: a held
+    // or uncertain operation is "accepted" with resultUnknown true — not sent-and-travelling, not to be sent again.
+    return ok({ operations: mine.map(op => ({ operationId: op.id, requestId: op.requestId, state: op.state, outcome: op.outcome ?? null, createdAt: op.createdAt, updatedAt: op.updatedAt, summary: op.planSummary,
+      hold: op.hold?.code ?? null, resultUnknown: resultUnknown(op) })) });
   }
 
   const tools = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps };
