@@ -86,7 +86,8 @@ export const RECOVERY = Object.freeze({
   GrantLimitReached: ['ask the owner to connect again with more sends'],
   GrantCargoOverCap: ['prepare a smaller caravan', 'ask the owner for a larger cap'],
   GrantActionNotAllowed: ['ask the owner to grant the action'],
-  ActionNotAllowed: ['the owner allows the transport group in the agent\'s policy (agent page); until patch 0005 is in the relay, SendCaravan is not an agent action at all'],
+  // Generic; actionNotAllowedNext picks the advice from the relay's own message (three different causes).
+  ActionNotAllowed: ['the relay refused SendCaravan for this agent (the agent\'s policy, a season other than S1, or a relay without patch 0005): error.message says which'],
   AgentStopped: ['the owner switches the agent to auto on the agent page'],
   StalePolicy: ['read village_status again and prepare again'],
   StaleMode: ['read village_status again and prepare again'],
@@ -106,10 +107,34 @@ export const RECOVERY = Object.freeze({
   burned: ['a raid burned the cargo: nothing can be recovered for this caravan'],
 });
 
+/**
+ * The relay answers ActionNotAllowed for different reasons (permutation-gateway src/frontier/agent, read only):
+ * policy.mjs checkAllowed "<name> is not allowed for this agent" (the policy does not allow it — or, on a relay
+ * without workstream 03 patch 0005, the action is not an agent action there at all: the same message), gateway.mjs
+ * "SendCaravan exists in S1 seasons only", and gateway.mjs "<name> is not an action an agent sends" (a relay that does
+ * not take SendCaravan from an agent). The advice follows the message the relay gave; it never says that allowing the
+ * transport group always helps.
+ */
+export function actionNotAllowedNext(message) {
+  const m = String(message ?? '');
+  if (/is not allowed for this agent/.test(m)) return ['the owner allows the transport group (SendCaravan) in the agent\'s policy (agent page), then prepares again; on a relay without patch 0005 there is no transport group to allow'];
+  if (/S1 seasons only/.test(m)) return ['this season takes no caravans from an agent (SendCaravan exists in S1 seasons only): a policy change does not help'];
+  if (/is not an action an agent sends/.test(m)) return ['this relay does not take SendCaravan from an agent (a relay without patch 0005): a policy change does not help'];
+  return RECOVERY.ActionNotAllowed;
+}
+
+/**
+ * Not decided yet, and its result is not known (held, or an attempt that may have been sent — 08 state table: accepted
+ * also covers "result unknown"): neither sent-and-travelling nor failed, and never to be sent again.
+ */
+export const resultUnknown = op => !TERMINAL.includes(op.state) && (Boolean(op.hold) || op.uncertain === true);
+
 /** The receipt view of an operation record (what operation_status returns). */
 export function receiptOf(op) {
-  const next = op.state === STATES.FAILED ? RECOVERY[op.error?.code] ?? ['prepare again']
+  const unknown = resultUnknown(op);
+  const next = op.state === STATES.FAILED ? (op.error?.code === 'ActionNotAllowed' ? actionNotAllowedNext(op.error.message) : RECOVERY[op.error?.code] ?? ['prepare again'])
     : op.state === STATES.COMPLETED ? (op.outcome === 'delivered' ? [] : RECOVERY[op.outcome] ?? [])
+    : unknown ? [`the result is not known yet${op.hold ? ` (${op.hold.code})` : ''}: do not prepare or send this again; it is neither delivered nor failed until operation_status says so; call operation_status again later`]
     : ['call operation_status again later (arrival is not instant; ETA in caravan.arriveAt)'];
   return {
     contract: MOCK_RUN_RECEIPT, mock: true,
@@ -136,7 +161,7 @@ export function receiptOf(op) {
     ...(op.error ? { error: op.error } : {}),
     history: op.steps.map(s => ({ ...s })),
     next,
-    notes: ['accepted = the relay sent the transaction; processing = it landed and the caravan is on the road; completed = the caravan was settled (delivered, lost, or raided). Sending is not arriving.',
+    notes: ['accepted = the relay sent the transaction, or an attempt whose result is not known yet (then hold and history say so); processing = it landed and the caravan is on the road; completed = the caravan was settled (delivered, lost, or raided). Sending is not arriving, and an unknown result is neither.',
       'completed is the end of transport; arrival.quantity says whether the amount that arrived is known (unverified: it is not).'],
   };
 }

@@ -34,7 +34,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'check_resource_shortfall',
     title: 'Resource shortfall',
-    description: 'What the village lacks for a goal: a storehouse ({"kind":"vault"}) or explicit amounts ({"kind":"amounts","amounts":{"Stone":300}}). Returns need, have, short, the hours production would take, and which of the owner\'s storehouses hold the short resources. No change.',
+    description: 'What the village lacks for a goal: a storehouse ({"kind":"vault"}) or explicit amounts ({"kind":"amounts","amounts":{"Stone":300}}). Returns need, have, short, the hours production would take, and which of the owner\'s storehouses hold the short resources; storehouseCoverage says whether the storehouses were read (complete), partly (partial: storehousesUnknown lists those whose stores are not known) or not at all (unavailable) — an empty storehouseSources means none can help only when complete. No change.',
     inputSchema: {
       type: 'object', additionalProperties: false, required: ['goal'],
       properties: { goal: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { type: 'string', enum: ['vault', 'amounts'] }, amounts: cargoSchema } } },
@@ -45,7 +45,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'prepare_caravan',
     title: 'Prepare caravan',
-    description: 'Plans a caravan between two of the owner\'s own places (placeIds from get_village_status): checks the cargo against the source, finds the road and its estimated time, and returns a planId valid for 5 minutes with a summary to show the person. Sends nothing and spends nothing; send_caravan sends.',
+    description: 'Plans a caravan between two of the owner\'s own places (placeIds from get_village_status): checks the cargo against the source, finds the road and its estimated time, and returns a planId valid for 5 minutes with a summary to show the person. If the owner\'s storehouses could not be read, a storehouse placeId is refused as Unknown (read get_village_status again), not as another player\'s. Sends nothing and spends nothing; send_caravan sends.',
     inputSchema: {
       type: 'object', additionalProperties: false, required: ['from', 'to', 'cargo'],
       properties: { from: { type: 'string', maxLength: 64 }, to: { type: 'string', maxLength: 64 }, cargo: cargoSchema },
@@ -68,7 +68,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'get_operation_status',
     title: 'Operation status',
-    description: 'The state of an operation by operationId (or the requestId it was sent with): requested, accepted (the relay sent the transaction), processing (it landed; the caravan is on the road), completed (settled: delivered, lost, taken or burned in a raid) or failed (with the reason and what can be done). Works after a reconnect. No change.',
+    description: 'The state of an operation by operationId (or the requestId it was sent with): requested, accepted (the relay sent the transaction, or an attempt whose result is not known yet: then `hold` says why — not to be sent again), processing (it landed; the caravan is on the road), completed (settled: delivered, lost, taken or burned in a raid) or failed (with the reason and what can be done). Works after a reconnect. No change.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { operationId: { type: 'string', maxLength: 64 }, requestId: { type: 'string', pattern: REQUEST_ID.source } } },
     annotations: { ...read, title: 'Operation status' },
     securitySchemes: oauth([SCOPES.READ]),
@@ -84,7 +84,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'list_operations',
     title: 'Recent operations',
-    description: 'This connection\'s recent operations (newest first, at most 20) with their current state, for picking up after a reconnect. No change.',
+    description: 'This connection\'s recent operations (newest first, at most 20) with their last recorded state, for picking up after a reconnect: get_operation_status reads one again now. resultUnknown (with hold) marks an operation whose result is not known yet — not delivered, not failed, not to be sent again. No change.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { ...read, title: 'Recent operations' },
     securitySchemes: oauth([SCOPES.READ]),
