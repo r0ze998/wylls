@@ -123,3 +123,38 @@
 6. **After the wallet drops an entry** (more than 500 later actions), ④'s receipt keeps S beside `state: 'unqueryable'` and `code: null`. ⑬ never reads it, but a reader that does not throw on `unqueryable` sees an unmarked signature. This is for ④'s owner (whether a non-final `unqueryable` reading should keep the carried signature) and is not changed here.
 7. **Whether an earlier send's effect may count for a line** is open, the same as Lane D's for ③.
 8. **Running anything** (these regressions, ⑬'s guard tests and family, ④'s `cargo` tests) needs its own approval. Nothing here was run.
+
+## Remaining item 5: does ④'s `cancel` show the earlier send's deadline as this key's own? (read only, nothing run)
+
+**What ④ shows** (`acts.rs` `receipt`, at `1bebe971`):
+- `sent` is true when the state is not `not-sent` and the facts say `sent: true` or carry a signature.
+- For a Duplicate entry, the wallet's view gives `sent: true` and `signature: S` (the earlier send's), so `cancel` is `{stage: 'sent', result: 'Irrevocable', until: {lastValidBlockHeight: <S's>}, phase: AwaitingSigned | Completed}`.
+
+**What ④'s adopted contract says** (`EXECUTION-CONTRACT-20261106.ja.md` §3.3 l.58; `acts.rs` field table):
+- `cancel` is `before-sign/NotSent`, `sent/Irrevocable` (with `until` the recorded `lastValidBlockHeight`, a block height) or `signed-unsent/NotSupported`.
+- **No adopted text** says that `until` is the lifetime of *this act's own* signature, and the `cancel` object names **no signature**.
+- The wallet's rule for a Duplicate: nothing of this request left, but "the same bytes did leave before: not `not-sent`" (`gateway.mjs:695-704`).
+
+**Judgement: not a defect in ④'s receipt.**
+- **Why the window is right:** the bytes that carry this key's effect are S's (the same transaction). They can still land until S's `lastValidBlockHeight`, and nothing can stop them. "Irrevocable until that height" is therefore a true statement about what this key's effect can still do.
+- **Why the alternatives are wrong:**
+  - `until: null` would hide that window: a reader could conclude that nothing can land any more.
+  - `before-sign/NotSent` would misclassify the act, which the wallet's rule forbids.
+  - A new stage would be a new rule.
+- **The one thing a reader could misread:** that the bytes were sent *by this key*, which `cancel.stage: 'sent'` and the top-level `signature` suggest. On this branch, `code: 'Duplicate'` now tells the reader that the signature and its window are the earlier send's.
+- **So no change to `acts.rs`.**
+
+**Every reader of the act receipt's `cancel`:**
+
+| Reader | What it does with it | Risk |
+|---|---|---|
+| ③ `receipt-port.mjs` `ws04CancelPhase` | takes `cancel.until` as "this send's" deadline with ③'s own signature | the earlier attribution problem. **Handled on Lane D's line**, per Lane D's report (registry `until` only for this server's own signature; `36e5ceac`/`ab0425d8`; not re-read here). Not edited here. |
+| ④ `clients/acts.mjs` `toP05Act` | passes `cancel.{stage, result, until}` through, with the receipt's `signature` | none in ④: it passes, it does not interpret |
+| ⑤ `run-receipt.mjs` (canonical) | `refreshFates` reads the **wallet's** fate (signature, `signedAt`, `lastValidBlockHeight`), not ④'s `cancel` | the same Duplicate question, on the wallet path (Lane D's area, read only) |
+| ⑤ `fc43eb72` line, `actFrom4` | keeps ④'s `cancel` only when the registry's signature equals ⑤'s own (`run-receipt.mjs`, the mismatch branch) | if ⑤ keeps the wallet answer's `signature` (S, for a Duplicate) as its own (not traced here), they match and the window is kept as ⑤'s own. ⑤ can now tell it apart by ④'s `code`. **For Lane D, not edited here.** |
+| ⑬ `ws04-acts.mjs` | does not read `cancel` (`cancel()` answers `NotSupported` itself) | none |
+
+**A concrete proposal, not made** (no defect and no adopted wording for it): one sentence in ④'s `acts.rs` field table and in `EXECUTION-CONTRACT` §3.3, for ④'s owner:
+> For an entry whose `code` is `Duplicate`, `signature` and `cancel.until` are the earlier send's (the same bytes); this key sent nothing of its own.
+
+This changes no behaviour.
