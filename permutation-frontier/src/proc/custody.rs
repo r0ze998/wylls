@@ -1404,6 +1404,40 @@ pub(crate) fn rest_home_payload(l: &Lot, done: RestHome, home: &VaultView) -> [u
     b
 }
 
+#[cfg(test)]
+mod tests {
+    use frontier_abi::v2::log::{CqKind, CQ_SPECS};
+
+    /// The payloads and keys the handlers write have their records' widths
+    /// (the record writer refuses any other length at run time).
+    #[test]
+    fn custody_record_widths() {
+        let width = |k: CqKind| {
+            let s = CQ_SPECS.iter().find(|s| s.kind == k).expect("spec");
+            (
+                s.key.iter().map(|f| f.1).sum::<usize>(),
+                s.payload.iter().map(|f| f.1).sum::<usize>(),
+            )
+        };
+        // (kind, key, payload) as written in this file.
+        let written = [
+            (CqKind::LOT_OPENED, 15, 8 + 8),
+            (CqKind::LOT_QUOTA, 15, 8),
+            (CqKind::LOT_INBOUND, 12, 15 + 8 + 8 + 1),
+            (CqKind::LOT_SHIPPED, 12, 15 + 8 + 8 + 1 + 4 + 8),
+            (CqKind::LOT_SETTLED, 12, 15 + 8 + 8 + 8),
+            (CqKind::LOT_ORDER, 15, 1 + 4 + 1 + 8 + 8 + 4 + 8 + 2),
+            (CqKind::LOT_REVOKED, 15, 1 + 4 + 8),
+            (CqKind::LOT_CONSUMED, 15, 4 + 8 + 8 + 2),
+            (CqKind::LOT_LOSS, 15, 1 + 8 + 8 + 8 + 4),
+        ];
+        for (k, key, payload) in written {
+            assert_eq!(width(k), (key, payload), "{k:?}");
+        }
+    }
+}
+
+
 /// The rest-home carrier's boundary (Lane C, 2026-11-17; WRITTEN, NOT RUN):
 /// 0xEF exists only in host unit tests of the `custody-rest-home-preview`
 /// build, and the prepared payload's layout.

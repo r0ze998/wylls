@@ -559,3 +559,44 @@ cargo +1.89.0 test --offline --locked -p permutation-frontier --lib \
 | Feature combinations | `capacity-preview` + `custody-preview` (+ rest-home) is allowed: no `compile_error!`, since only rights or NFT with capacity conflict. Host only; SBF is not involved |
 | Size and time | **Not measured.** This builds `solana-program` and the ark crates, more than the `permutation-rules`-only runs (188–192 MiB targets); no figure is claimed |
 | Whether they compile and pass | **Unknown.** All of this is unrun source |
+
+## Repair: an existing test module deleted by mistake in `22b613b1`, restored (2026-11-17; static, nothing run)
+
+**What happened (my error).**
+- In `22b613b1` I replaced the prepared payload function with a text slice, from its doc comment to the doc comment of `rest_home_boundary`.
+- The existing `#[cfg(test)] mod tests` of `proc/custody.rs` sat between those two points: `custody_record_widths`, the key and payload width checks of the nine custody `CQ_SPECS` records.
+- So the slice deleted it. Nothing elsewhere replaced it.
+
+**Repair.**
+- That block only (32 lines) was copied back from `513f8409`, verified byte-identical, and placed where it was: after the payload function, before `rest_home_boundary`.
+- No file was restored or checked out whole.
+
+**Review of every line this branch removes relative to the candidate `d16048aa`.** Every removal is intended:
+
+| File | What is removed, and why |
+|---|---|
+| `capacity_runtime_tests.rs` | The old lot-test expectations, replaced by design A's (rest on the lot, released once, retires) and `balanced(bell)` |
+| `proc/capacity.rs` | The link's 0/1 byte, `pay_owed` (replaced by `settle_lot`) and the owed-only retire check, all design A |
+| `proc/custody.rs` | `put_vault`'s `Rw` line, split into `put_vault_data` with the same behaviour |
+| `rules custody.rs` | The old `empty` doc line, the `layout` import list (gained `Returns`), and the length-only check in `encode` (it now also refuses an untracked lot with returns) |
+
+There are no other deletions: the report, `Cargo.toml`, `lib.rs` and the two kernel test files only add.
+
+**Regression source added (unrun).** In `capacity_runtime_tests.rs`, a helper case with **`whole > 0` and `paid = 0`**:
+- a rest of exactly 2,000 milli, written by hand with the books balanced;
+- it gives `RestHome { whole: 2000, paid: 0 }`;
+- the lot is written (`HELD +2000`, `CONSUMED −2000`, `REST 0`, balanced) although nothing goes home;
+- the home's bytes are unchanged (not written);
+- the dispatch call afterwards writes nothing.
+
+This is the case for which a record would be due on `whole` alone.
+
+**Test candidates (read-only audit, unchanged otherwise).** Add `proc::custody::tests::custody_record_widths` to both run A and run B, to show the restored module, for example:
+
+```
+-- --exact proc::custody::tests::custody_record_widths …
+```
+
+Its body is the same as at `513f8409` and the candidate, and needs only `custody-preview`. Nothing else in the audit changes: no build scripts, no dev-dependencies, in-process stubs only, no file, network or key side effects, writes to the dedicated target only. Registry availability for `--offline`, size and time are **not checked**.
+
+Nothing was run or compiled.

@@ -903,13 +903,35 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
     );
     assert!(l3.balanced(bell));
     assert_eq!(home_ore(&home), 750);
+    // whole > 0 with paid = 0 (a rest of exactly 2,000 written by hand): two
+    // whole units go back into the lot, the lot IS written although nothing
+    // goes home, and home is not written; a record would be due for `whole`.
+    {
+        let mut l4 = lot_now(&lot_ai);
+        l4.returns.rest = 2 * MILLI;
+        l4.consumed += 2 * MILLI;
+        l4.in_total += 2 * MILLI;
+        let mut d = lot_ai.try_borrow_mut_data().unwrap();
+        l4.encode(&mut d).unwrap();
+    }
+    let l4 = lot_now(&lot_ai);
+    assert!(l4.balanced(bell));
+    let home_bytes = home.try_borrow_data().unwrap().to_vec();
+    assert_eq!(pay(&home).unwrap(), crate::proc::custody::RestHome { whole: 2 * MILLI, paid: 0 });
+    let l5 = lot_now(&lot_ai);
+    assert_eq!(
+        (l5.held, l5.consumed, l5.out_total, l5.returns.rest),
+        (l4.held + 2 * MILLI, l4.consumed - 2 * MILLI, l4.out_total, 0)
+    );
+    assert!(l5.balanced(bell));
+    assert_eq!(&home.try_borrow_data().unwrap()[..], &home_bytes[..], "home not written");
     // and through the dispatch: Ok, nothing paid, nothing written
     #[cfg(feature = "custody-rest-home-preview")]
     {
         let tag = crate::proc::custody::REST_HOME_PREVIEW_TAG;
         let a = t.as_player(&m, &[lot_vault.clone(), lot_ai.clone(), home.clone()]);
         assert_eq!(run(&a, &[tag]), Ok(()));
-        assert_eq!(lot_now(&lot_ai), l3);
+        assert_eq!(lot_now(&lot_ai), l5);
         assert_eq!(home_ore(&home), 750);
     }
 }
