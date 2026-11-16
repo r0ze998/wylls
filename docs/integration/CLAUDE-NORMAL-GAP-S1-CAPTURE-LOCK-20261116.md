@@ -119,3 +119,33 @@ Beyond the capture lock (already done), the village actions' cost, slot and queu
 - Stricter on the page than the program (not changed; for the owner, since loosening would be a design choice):
   musterTiles leaves out tiles with 6 hosts standing or forming ("six to a tile": clash slots per tile, clash.rs
   §6.1; muster_as has no per-tile limit); exploreTargets leaves out the host's own tile and impassable tiles.
+
+## Key-free check of two fix tests (2026-11-16) — static boundary read; guarded run REFUSED, nothing ran
+Test runs were stopped after a key-using test (web-frontier-local-play-return) had been run, and the ordinary subset
+was found to include 15 key-using and 78 possibly key-using files (list in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116 notes,
+scratchpad list). This step concerns only web-frontier-build-walls-items and web-frontier-muster-province-full.
+- Static read (import closure, own read-only script; relative static imports and literal dynamic imports): 118 / 52
+  files; external specifiers only node:test, node:assert/strict, node:fs; no non-literal dynamic import.
+  - Key API names: the vendored noble BLS12-381 / weierstrass files, reached only through seal.mjs `sealMarch`'s
+    `import('./seal-worker.mjs')` (called when a march is sealed; neither test calls it); map/tilt.mjs `Math.sign`
+    (not a key). Neither test file names a key API.
+  - Network: `fetch` only inside herald.mjs `createHerald` and people/leader-art.mjs `holdArt` (walls test's closure
+    only), neither called by the tested functions (buildOffers, wallItemsBusy, buildCards, whyText; actionBlocks,
+    provinceFull, errorText).
+  - Processes/workers: none started (seal-worker's top-level block is guarded by WorkerGlobalScope and not loaded).
+  - Import-time effects: callback registrations (fstate onLangChange → invalidate, leader-sprite onArtWanted), table
+    set-up in sdk/base58 and sdk/bytes, lang.mjs's browser-only block. `setLang` writes `globalThis.localStorage`
+    (absent in Node 20: nothing written) and marks renderers dirty (none registered in these closures).
+  - Restricted-area words (session, resident, …) occur in loaded modules' definitions; the tested functions do not call
+    them. Reads of repository Rust/ABI files are local text reads.
+- Guarded run: `bash scripts/ci/node-keyfree.sh permutation-gateway <the two files>` from the single export (the
+  export's scripts/ci, web and the two tests byte-identical to the integration worktree; no WS*_ROOT/RUNEXEC set).
+  REFUSED at its first step, the scanner's --check: exit 5, `scripts/ci/node-key-reviewed.txt`: 10 "stale review"
+  entries (the reviewed closure hashes of other test files no longer match — e.g. web-frontier-map-arrival,
+  -growth-route, -viewport, -overview-queue, -free-city, -land-bounds, -large-chart, -want-province,
+  -viewer-own-citizen, workstreams/06-creation connect-live). Also printed: "fatal: not a git repository" (the export
+  has no .git; the scanner walked the files). No test started; not a success. Not retried; the list, the reviews and
+  the guard were not changed; no direct node run. Whether today's page edits caused the staleness: not confirmed.
+- How far the fixes are confirmed key-free: the 2026-11-16 normal-game fixes (capture lock, fort, seize, siege, expel,
+  walls items, Muster ProvinceFull, Garrison) were tested only by unguarded node runs earlier today; none is confirmed
+  under the key-free runner. The static boundary above covers the walls and Muster tests only.
