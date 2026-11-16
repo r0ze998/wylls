@@ -373,7 +373,7 @@ export default {
   "署名を確認できませんでした": "The signature could not be verified.",
   "行き先を選んでください": "Choose a destination.",
   "解散": "Dissolve",
-  "解散待ち（決着のあと控えに戻る）": "Dissolving (back to the reserve after the clash)",
+  "解散待ち（決着のあと控えに戻る）": "Dissolving (back to the reserve after the turn is resolved)",
   "訓練する": "Train",
   "記録を読めませんでした": "The record could not be read.",
   "設定": "Settings",

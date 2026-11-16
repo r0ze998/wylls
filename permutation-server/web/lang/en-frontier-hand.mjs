@@ -188,7 +188,7 @@ export default {
   '終わると、村のまわりの土地がひとまわり広がります。': 'When it is done, your village\'s land grows by one ring.',
   '建設の列をひとつ使います。終わると、村のまわりの土地がひとまわり広がります。': 'It takes one place in the building queue. When it is done, your village\'s land grows by one ring.',
   '建設の列をひとつ使います。': 'It takes one place in the building queue.',
-  '産出 +{0}% · 蔵 {1} · 建設 {2} つ · 村のまわり {3} マス': 'Production +{0}% · stores {1} · {2} under way · land {3} out',
+  '産出 +{0}% · 蔵 {1} · 建設 {2} つ · 村のまわり {3} マス': (a, b, s, r) => `Production +{0}% · stores {1} · ${plural(s, '{2} build at once', '{2} builds at once')} · land ${plural(r, '{3} tile', '{3} tiles')} around the village`,
 
   // ---- exploring, dissolving, marching
   'となりのマスを 2 つまで': 'Up to two neighbouring tiles',
