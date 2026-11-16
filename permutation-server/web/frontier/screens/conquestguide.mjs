@@ -88,7 +88,7 @@ export function conquestFacts(FS) {
   return { village: !!h, built: builtAt(h) || (FS.holdings ?? []).some(builtAt), trained: !!base.trainedCombat || allBase.some(b => b.trainedCombat),
     host: !!base.ownCombatHost || allBase.some(b => b.ownCombatHost) || allRows.length > 0 || away,
     // (a host that stands in the record — formed, or out on a march: the muster step is done only then, not while it forms)
-    stood: stoodHosts(allRows).length > 0 || away, forming: formingHosts(rows)[0] ?? null,
+    stood: stoodHosts(allRows).length > 0 || away, forming: formingHosts(rows)[0] ?? formingHosts(allRows)[0] ?? null, formingHere: formingHosts(rows).length > 0,
     marched: !!(standing || revealed || sealed || contest || gain),
     holding: contest ? { p: contest.p, q: contest.q, progress: Math.max(0, Number(contest.progress ?? 0)), required: holdTurns(FS, contest) } : null,
     captured: gain ? { p: gain.p, q: gain.q, turn: gain.bell } : null, target: target ? { p: target.p, q: target.q } : gain ? { p: gain.p, q: gain.q } : null,
@@ -185,7 +185,9 @@ export function conquestObjective(FS) {
     else if (x.forming) {
       // the host is forming: where its muster turn really is, and one thing worth doing meanwhile (the first-session
       // review of 2026-11-13: the guide said nothing for the ~18 minutes between the muster and the formed host)
-      const r = x.forming, s = waitingSuggestion(FS, r, t);
+      // (2026-11-16: a host forming in ANOTHER village — the open one has none — is said too, so the guide never asks for a
+      //  second muster while it forms; the while-waiting hint is the open village's stores and only for its own host)
+      const r = x.forming, s = x.formingHere ? waitingSuggestion(FS, r, t) : null;
       text = [formingLine(FS, r), whileWaitingLine(s, r.unit)].filter(Boolean).join(' ');
       go = s?.kind === 'train' ? { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }
         : s?.kind === 'build' ? { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` }

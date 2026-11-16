@@ -59,19 +59,44 @@ test('nothing done anywhere: "build" with either village open (no progress made 
   assert.equal(conquestGuide(world({ active: 1 })).current, 'build');
 });
 
-test('what to do next stays the open village\'s: a host forming in the first village is not the second village\'s forming host', () => {
+test('a host forming in the first village, the second open: the guide says it forms and never asks for a second muster', () => {
   const FS = world({ aEntries: [o => hostOf(o, { state: 2, fromBell: 3 })], active: 1 });
   const g = conquestGuide(FS);
   assert.equal(g.current, 'muster', 'formed is not stood: the muster step stays');
-  assert.equal(g.facts.forming, null, 'the forming host is the open village\'s only');
-  assert.ok(conquestObjective(FS));
+  assert.equal(String(g.facts.forming?.id), String(hostOf(FS.holdings[0]).id), 'the forming host of the first village');
+  assert.equal(g.facts.formingHere, false);
+  const o = conquestObjective(FS);
+  assert.match(o.text, /は編成中です/);
+  assert.doesNotMatch(o.text, /「編成」で控えの兵を軍勢にします/, 'not "form a host" again');
+  assert.notEqual(o.go?.data?.pop, 'muster');
+  assert.notEqual(o.go?.act, 'cg-go', 'no while-waiting press: that hint reads the open village\'s stores, not the forming host\'s');
+});
+
+test('a host forming in the open village: its while-waiting hint as before', () => {
+  const FS = world({ aEntries: [o => hostOf(o, { state: 2, fromBell: 3 })], active: 0 });
+  assert.equal(conquestGuide(FS).facts.formingHere, true);
+  assert.match(conquestObjective(FS).text, /は編成中です/);
+});
+
+// Not fixable inside the guide: its presses (app.mjs cg-go) act on the OPEN village — build/train/muster cards open on
+// FS.activeHolding and the keeps press looks the host up in hand.ownHosts(FS), the open village's. With the progress in
+// the first village and the second open, these presses lead nowhere until cg-go can be told which village (reported).
+test('the march press reaches the first village\'s standing host with the second open', { todo: 'app.mjs cg-go acts on the open village only' }, () => {
+  const o = conquestObjective(world({ a: { production: built() }, aEntries: [o2 => hostOf(o2)], active: 1 }));
+  assert.notEqual(o.go?.act, 'tab', 'not the open village\'s empty Hosts tab');
+});
+test('the muster press reaches the first village\'s reserve with the second open', { todo: 'app.mjs cg-go acts on the open village only' }, () => {
+  const reserve = Array(8).fill(0); reserve[0] = 200;
+  const o = conquestObjective(world({ a: { reserve }, active: 1 }));
+  assert.equal(o.go?.data?.i, 0, 'the press names the village that holds the trained troops');
 });
 
 test('the source: the progress facts read every village (pinned as text)', () => {
   const s = readFileSync(new URL('../../permutation-server/web/frontier/screens/conquestguide.mjs', import.meta.url), 'utf8');
   assert.match(s, /const villages = \(FS\.holdings \?\? \[\]\)\.map\(\(_, i\) => \(\{ \.\.\.FS, activeHolding: i \}\)\);/);
   assert.match(s, /const standing = allRows\.map\(r => keeps\.find\(/);
-  assert.match(s, /stood: stoodHosts\(allRows\)\.length > 0 \|\| away, forming: formingHosts\(rows\)\[0\] \?\? null,/);
+  assert.match(s, /stood: stoodHosts\(allRows\)\.length > 0 \|\| away, forming: formingHosts\(rows\)\[0\] \?\? formingHosts\(allRows\)\[0\] \?\? null, formingHere: formingHosts\(rows\)\.length > 0,/);
+  assert.match(s, /const r = x\.forming, s = x\.formingHere \? waitingSuggestion\(FS, r, t\) : null;/);
 });
 
 test('isolation: no request', () => { assert.deepEqual(requests, []); assert.equal(globalThis.localStorage, undefined); });
