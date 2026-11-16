@@ -187,7 +187,7 @@ So 4's executor is consistent only with its own simulation. Against the real v2 
 - a PS2 ordinal;
 - a body hash;
 - `basis: 'unproven'`;
-- `held: [world_binding_unproven, finality_unproven, transaction_record_identity_unproven]`;
+- `held: [world_binding_unproven, finality_unproven, transaction_record_identity_unproven, committed_frame_unproven]` (the fourth added by 4 on 2026-11-17);
 - `credited: None`, always.
 - **The PS2 ordinal is not a global ordinal.** It numbers the program-attributed PS2 bodies (after the PS2 filter of the typed list in the experimental build), not the instruction or log position.
 - **findex's DB meta holds integers only:** no program or season binding and no commitment. The DB alone proves no stable cross-source identifier, no world and no finality.
@@ -198,7 +198,7 @@ So 4's executor is consistent only with its own simulation. Against the real v2 
 | 4's output | 12's existing receiving side | Rule |
 |---|---|---|
 | `basis: 'unproven'` | `provenanceOf` / `stated()` take only `chain` / `integration-output` / `fixture`; 13's `basisCheck` takes `unproven` as no statement | **unstated, never chain**. Not raised to `integration-output` either |
-| `held: [world_binding_unproven, …]` | `storeWorldMismatch` needs a 4 store `meta('world')` plus a declaration | **the whole observation is held with 4's three reasons kept as they are**. It is not passed to `connectCanonical` or `ingestReceipts`, and the reasons are not replaced by 12's own (`ws04_store_world_unbound`) |
+| `held: [world_binding_unproven, …, committed_frame_unproven]` | `storeWorldMismatch` needs a 4 store `meta('world')` plus a declaration | **the whole observation is held with all four of 4's reasons kept as they are**. It is not passed to `connectCanonical` or `ingestReceipts`, and the reasons are not replaced by 12's own (`ws04_store_world_unbound`) |
 | finality unproven | facts need `slot ≤` an attested finalized slot | held. The live observation's RPC finalized slot is **not lent** to 4's records: it says nothing about which program's bodies findex indexed |
 | tx signature + PS2 ordinal + body hash | 12's fact id is `kind\|subject` in the partition (dedupes the feed's `event:` and the history's `history:`) | **not turned into a `kind\|subject` id**. The PS2 ordinal is not a global position, so it can't be a cross-source identifier, and these records are not deduped against, or collided with, the simulated store's receipts |
 | decoded SETTLED / RAIDED | `receiptToFacts` would make `caravan_settled` / `caravan_raided` facts | **not converted into the Receipt shape, and no fact is made**. In particular not through `ingestReceipts` directly, which skips the world and world-binding checks the way `stages-cde.mjs` does |
@@ -210,12 +210,18 @@ So 4's executor is consistent only with its own simulation. Against the real v2 
 - The only path that would make facts is calling `ingestReceipts` directly with a caller's finalized slot. Nothing in this slice does that.
 
 **Receiving-side change for later** (only after 4 shares the code and the owner says go): an input such as `observeLive({ws04Observation})`.
-- For `basis !== chain`, or any `held`, it returns `status: 'held'` with 4's reasons verbatim, its records as `held` entries keyed by `sig|ordinal|bodyHash`, no ingest and no provenance.
+- For `basis !== chain`, or any `held`, it returns `status: 'held'` with every one of 4's reasons verbatim (none dropped, none merged), its records as `held` entries keyed by `sig|ordinal|bodyHash`, no ingest and no provenance.
 - It is not written now.
 
 **What a later provider must add before any of it is a fact:**
 1. a world binding for the index (which program and season address its bodies belong to, with a source);
 2. finality for those records (a commitment the index records, or a check per signature);
-3. a stable cross-source record identity (the signature plus the record's position in that transaction, as a provider defines it).
+3. a stable cross-source record identity (the signature plus the record's position in that transaction, as a provider defines it);
+4. evidence that each record's own frame committed.
+
+**Committed frames (4, 2026-11-17):**
+- Legacy findex has no rollback of a failed CPI subtree; the typed log does.
+- A strict marker alone is not evidence that a record's frame committed. So a successful transaction does **not** make each of its events committed: an event inside an inner call that failed and was rolled back can still be listed.
+- 12 already takes no transaction status as record evidence (`receiptToFacts` reads no `err` or success field). The receiving side must not start: `committed_frame_unproven` stays a held reason until a provider proves the frame, per record, not per transaction.
 
 Until all three exist, the receiving side holds it.
