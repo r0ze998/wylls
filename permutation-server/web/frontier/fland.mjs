@@ -409,6 +409,7 @@ export function actionBlocks(name, ctx) {
   if (CAPTURE_LOCKED_ACTIONS.has(name) && captureLocked(ctx.province, ctx.holding)) out.push('CapturePending');
   if (resident && !isFinal(ctx.holding, ctx.province, ctx.now ?? 0, ctx.nowBell ?? 0)) out.push('NotFinal');
   if (resident && (!ctx.province || ctx.province.resolvedNext + 1 < ctx.nowBell)) out.push('NotResident');
+  if (name === 'Muster' && ctx.province && ctx.province.p === ctx.holding.p && ctx.province.q === ctx.holding.q && provinceFull(ctx.province, ctx.holding.faction)) out.push('ProvinceFull');
   if (['Dissolve', 'Explore', 'Depart'].includes(name)) {
     const h = ctx.host;
     if (!h || h.state !== 1) out.push('HostBusy');
@@ -420,6 +421,20 @@ export function actionBlocks(name, ctx) {
   if (name === 'Explore' && ctx.host && ctx.host.unit !== SCOUT) out.push('NotScout');
   if (name === 'Explore' && ctx.holding.explore?.state) out.push('Explored');
   return out;
+}
+
+// (2026-11-16: host.rs muster_as counts the village's own Province before it writes the new host: hosts standing or
+//  forming (entry states 1 and 2) — PROVINCE_HOST_CAP of them in all, FACTION_RESIDENT_CAP of the village's nation —
+//  and a free entry; any of them → ProvinceFull. The page offered the Muster and only the send was refused.)
+/** permutation-rules host.rs PROVINCE_HOST_CAP, FACTION_RESIDENT_CAP; clash.rs Occupancy::STORAGE (the Province's entries). */
+export const PROVINCE_HOST_CAP = 48, FACTION_RESIDENT_CAP = 8, PROVINCE_ENTRIES = 56;
+/** host.rs muster_as's ProvinceFull on a decoded Province, for a host of `faction`. The free-entry check needs every entry (a full decode). */
+export function provinceFull(province, faction) {
+  const es = Array.isArray(province?.entries) ? province.entries : null;
+  if (!es) return false;
+  const standing = es.filter(e => e?.state === 1 || e?.state === 2);
+  if (standing.length >= PROVINCE_HOST_CAP || standing.filter(e => e.faction === faction).length >= FACTION_RESIDENT_CAP) return true;
+  return es.length >= PROVINCE_ENTRIES && !es.some(e => e?.state === 0);
 }
 
 const TILE_AT = new Map(TILE_OFFSETS.map((o, i) => [`${o.q},${o.r}`, i]));
