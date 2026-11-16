@@ -150,7 +150,7 @@ export class Game {
 
   async province(p, q) {
     const r = await this.herald.province(p, q);
-    if (!r.ok) throw new GameError('HeraldUnavailable', `Province ${p},${q}: ${r.code ?? r.error}`, { retryable: true });
+    if (!r.ok) throw new GameError('HeraldUnavailable', `Province ${p},${q}: ${r.code ?? r.error}`, { retryable: true, heraldCode: r.code ?? null });
     // Terrain and sites only: the envelope's ArrivalSlots, day and inputs are not passed on.
     const v = r.province;
     return { p: v.p, q: v.q, sites: v.sites, passableMask: v.passableMask, roughMask: v.roughMask, roadMask: v.roadMask };
@@ -245,9 +245,28 @@ export class Game {
     if (over >= 0) throw new GameError('Insufficient', `${view.resources[over]}: ${cargo[over]} asked, ${Math.floor(have[over])} at the source`, { resource: view.resources[over] });
     if (!Number.isInteger(src.tile) || !Number.isInteger(dst.tile)) throw new GameError('Unknown', 'a place\'s tile is not known yet');
     const lands = [];
-    for (const c of landsWanted(src, dst)) { try { lands.push(landOfProvince(await this.province(c.p, c.q))); } catch { /* an unopened Province: no road there */ } }
+    // A Province the herald answers 404 for (GET /h/province/P,Q/latest: NoSuchProvince — not in its fold: unopened, or
+    // not recorded there yet, or unreadable there) is not used for the road; that alone does not prove there is no road.
+    // Any other failure (network, 425, HTTP, an unreadable or inconsistent answer, an unreadable land) is not known:
+    // the plan stops (fail closed) instead of searching a partial map.
+    const notFound = [];
+    for (const c of landsWanted(src, dst)) {
+      let pv;
+      try { pv = await this.province(c.p, c.q); } catch (e) {
+        if (e instanceof GameError && e.extra?.heraldCode === 'NotFound') { notFound.push(`${c.p},${c.q}`); continue; }
+        throw e;
+      }
+      try { lands.push(landOfProvince(pv)); } catch (e) {
+        throw new GameError('HeraldUnavailable', `Province ${c.p},${c.q}: its land could not be read (${String(e?.message ?? e).slice(0, 80)})`, { retryable: true, heraldCode: 'BadRecord' });
+      }
+    }
     const road = fastestPath({ p: src.p, q: src.q, tile: src.tile }, { p: dst.p, q: dst.q, tile: dst.tile }, lands);
-    if (!road || !road.dirs.length) throw new GameError('NoRoad', `no caravan road (at most ${MAX_PATH_STEPS} steps and ${MAX_PATH_PROVINCES} Provinces)`);
+    if (!road || !road.dirs.length) {
+      // No road through the Provinces that were read. With some not found at the herald, that there is no road at all is
+      // not proven: Unknown (read village_status again later), never NoRoad.
+      if (notFound.length) throw new GameError('Unknown', `no caravan road through the Provinces that could be read; ${notFound.join(' ')} ${notFound.length === 1 ? 'was' : 'were'} not found at the herald (unopened, or not recorded there yet): that no road exists is not proven`, { retryable: true, reason: 'ProvincesNotFound', provinces: notFound });
+      throw new GameError('NoRoad', `no caravan road (at most ${MAX_PATH_STEPS} steps and ${MAX_PATH_PROVINCES} Provinces)`);
+    }
     const secs = stepSecsOf({ p: src.p, q: src.q, tile: src.tile }, road.dirs, lands).reduce((a, b) => a + b, 0);
     const seq = Number(view.citizen?.caravans ?? 0);
     const target = { kind: dst.kind, p: dst.p, q: dst.q, ...(dst.kind === 'vault' ? { tile: dst.tile } : { site: dst.site }), gen: dst.gen ?? 0 };
