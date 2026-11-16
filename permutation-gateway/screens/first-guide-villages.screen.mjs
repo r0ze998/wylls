@@ -26,27 +26,31 @@
 //   of its folders checked after close.
 // - Sound: `--mute-audio`; chromiumSandbox true.
 // Run alone, from this folder: FIRST_GUIDE_TMP=<empty absolute folder> node --test first-guide-villages.screen.mjs
+// Its guard is first-guide-safety.mjs (pure, fail-closed; tested with fake handles in test/web-frontier-first-guide-safety.test.mjs).
 // STATUS: written 2026-11-16, NOT RUN (needs the owner's go-ahead).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { statfsSync, readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { createGuard, walkFiles, totalSize, scanStorage } from './first-guide-safety.mjs';
 
 const TMP = process.env.FIRST_GUIDE_TMP ?? '';
 const FREE_MIN = 22 * 2 ** 30, PROFILE_MAX = 300 * 2 ** 20, MONITOR_MS = 1000;
 const STORED = ['ps-wallet', 'ps-lang', 'ps-fintro', 'ws07:keyUses'];
 
+// the real disk, handed to the pure guard (first-guide-safety.mjs: fail-closed; a gone file adds nothing)
+const DISK = { list: dir => readdirSync(dir, { withFileTypes: true }).map(e => ({ name: e.name, dir: e.isDirectory() })), join, size: f => statSync(f).size, read: f => readFileSync(f) };
 const freeBytes = () => { const s = statfsSync(TMP); return Number(s.bavail) * Number(s.bsize); };
+const profiles = () => readdirSync(TMP).filter(n => n.startsWith('playwright'));   // (playwright_chromiumdev_profile-*, playwright-artifacts-*)
+const profileFiles = () => profiles().flatMap(n => walkFiles(join(TMP, n), DISK));
+const profileBytes = () => totalSize(profileFiles(), DISK);
 function guardDisk() {
   assert.ok(isAbsolute(TMP) && existsSync(TMP), 'FIRST_GUIDE_TMP: an absolute folder that exists');
   assert.deepEqual(readdirSync(TMP), [], 'FIRST_GUIDE_TMP is empty');
   const free = freeBytes();
-  assert.ok(free > FREE_MIN, `more than 22 GiB free before launch (have ${(free / 2 ** 30).toFixed(2)} GiB)`);
+  assert.ok(Number.isFinite(free) && free > FREE_MIN, `more than 22 GiB free before launch (have ${(free / 2 ** 30).toFixed(2)} GiB)`);
   process.env.TMPDIR = TMP;   // (os.tmpdir() reads it at each call: Playwright's profile and artifacts land here)
 }
-const walk = dir => { try { return readdirSync(dir, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)])); } catch { return []; } };
-const profiles = () => readdirSync(TMP).filter(n => n.startsWith('playwright'));   // (playwright_chromiumdev_profile-*, playwright-artifacts-*)
-const profileBytes = () => profiles().flatMap(n => walk(join(TMP, n))).reduce((a, f) => { try { return a + statSync(f).size; } catch { return a; } }, 0);
 
 guardDisk();
 const { chromium } = await import('playwright-core');
@@ -54,42 +58,26 @@ const { startServer } = await import('./server.mjs');
 const NK = await import('./ws07/nokey-page.mjs');
 const { LATEST_UNIX, HOME } = await import('./world.mjs');
 
-let srv = null, browser = null, ctx = null, base = null, origin = null, monitor = null, tripped = null, peak = { profile: 0, freeLow: Infinity };
-// (each of this test's own handles is closed at most once, whoever asks first; nothing outside them is touched)
-let closing = null;
-const closeAll = () => (closing ??= (async () => {
-  if (monitor) { clearInterval(monitor); monitor = null; }
-  const c = ctx, b = browser, s = srv; ctx = null; browser = null; srv = null;
-  await c?.close().catch(() => {}); await b?.close().catch(() => {}); await s?.close().catch(() => {});
-})());
-function watch() {
-  monitor = setInterval(() => {
-    if (tripped) return;
-    let free = Infinity, prof = 0;
-    try { free = freeBytes(); } catch { /* unread: no trip */ }
-    prof = profileBytes();
-    peak = { profile: Math.max(peak.profile, prof), freeLow: Math.min(peak.freeLow, free) };
-    if (free <= FREE_MIN) tripped = `free space ${(free / 2 ** 30).toFixed(2)} GiB ≤ 22 GiB`;
-    else if (prof > PROFILE_MAX) tripped = `profile ${(prof / 2 ** 20).toFixed(1)} MiB > 300 MiB`;
-    if (tripped) closeAll();
-  }, MONITOR_MS);
-  monitor.unref?.();
-}
+// this test's own context, browser and server, each adopted through the guard: closed once; one that arrives after a
+// trip is closed at once (first-guide-safety.mjs)
+const guard = createGuard({ freeBytes, profileBytes, freeMin: FREE_MIN, profileMax: PROFILE_MAX, every: MONITOR_MS, timers: { setInterval, clearInterval } });
+let srv = null, browser = null, ctx = null, base = null, origin = null;
+const closeAll = () => guard.closeAll();
 
 before(async () => {
-  srv = await startServer({ keyless: true });
+  guard.start();
+  srv = await guard.adopt('srv', startServer({ keyless: true }));
   srv.stage('holding');
   base = srv.url;   // http://127.0.0.1:<port>
   origin = new URL(base);
-  watch();
-  browser = await chromium.launch({ channel: 'chromium', chromiumSandbox: true, args: ['--mute-audio', '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1'] });
+  browser = await guard.adopt('browser', chromium.launch({ channel: 'chromium', chromiumSandbox: true, args: ['--mute-audio', '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1'] }));
 });
 after(async () => { await closeAll(); });
 
 
 const settle = page => page.waitForTimeout(400);
 async function openPage() {
-  ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-GB', timezoneId: 'UTC', serviceWorkers: 'block' });
+  ctx = await guard.adopt('ctx', browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-GB', timezoneId: 'UTC', serviceWorkers: 'block' }));
   const blocked = [], posts = [], errors = [];
   await NK.prepare(ctx, srv.viewer, { lang: 'en' });
   await ctx.route('**/seal-worker.mjs', route => route.abort('blockedbyclient'));
@@ -162,24 +150,29 @@ test('the first-play guide with two villages: the pill names the village or host
     r = await after_(page);
     assert.deepEqual([r.active, r.pop], [0, 'muster'], JSON.stringify(r));
 
-    assert.equal(tripped, null, 'the monitor never tripped');
+    assert.equal(guard.state().tripped, null, 'the monitor never tripped');
     assert.deepEqual(posts, [], 'no request other than GET or HEAD (each was aborted before it was sent)');
     assert.deepEqual([...new Set(blocked)], [], 'no request to any origin other than the fixture\'s');
     assert.deepEqual(errors, []);
     await NK.assertKeyless(ctx, assert);
-    const files = profiles().flatMap(n => walk(join(TMP, n)));
-    const size = files.reduce((a, f) => { try { return a + statSync(f).size; } catch { return a; } }, 0);
+    // the profile: within its limit, and none of the page's storage written into it — a file that cannot be read fails
+    const files = profileFiles();
+    const size = totalSize(files, DISK);
     assert.ok(size <= PROFILE_MAX, `the temporary profile stays under 300 MiB (${(size / 2 ** 20).toFixed(1)} MiB)`);
-    const leaked = files.filter(f => { try { const b = readFileSync(f); return STORED.some(k => b.includes(k)); } catch { return false; } });
-    assert.deepEqual(leaked, [], 'no page storage in the profile on disk');
+    const scan = scanStorage(files, STORED, DISK);
+    assert.deepEqual(scan.unreadable, [], 'every profile file could be read');
+    assert.deepEqual(scan.leaked, [], 'no page storage in the profile on disk');
   } finally {
-    if (tripped) await closeAll();
+    if (guard.state().tripped) await closeAll();
   }
 });
 
-test('cleanup: this test\'s own context, browser and server closed once; Playwright removed its temporary profile and artifacts', async () => {
+test('cleanup: this test\'s own context, browser and server closed once and cleanly; Playwright removed its temporary profile and artifacts', async () => {
   await closeAll();
-  console.log(`# monitor: tripped=${tripped ?? 'no'}; profile peak ${(peak.profile / 2 ** 20).toFixed(1)} MiB; free low ${(peak.freeLow / 2 ** 30).toFixed(2)} GiB (sampled every ${MONITOR_MS} ms)`);
-  assert.equal(tripped, null, tripped ?? '');
+  const st = guard.state();
+  console.log(`# monitor: tripped=${st.tripped ?? 'no'}; profile peak ${(st.peak.profile / 2 ** 20).toFixed(1)} MiB; free low ${(st.peak.freeLow / 2 ** 30).toFixed(2)} GiB (sampled every ${MONITOR_MS} ms)`);
+  assert.equal(st.tripped, null, st.tripped ?? '');
+  assert.deepEqual(st.closeErrors, [], 'every close succeeded');
+  assert.deepEqual(st.open, [], 'no handle left open');
   assert.deepEqual(profiles(), [], JSON.stringify(readdirSync(TMP)));
 });
