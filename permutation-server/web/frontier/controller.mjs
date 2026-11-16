@@ -2554,6 +2554,12 @@ export const ACTIONS = {
   // W6-D: re-read soon after the keeper was asked (the next poll could be 30 s away, past the window the catch-up opens).
   nudge: (d = {}) => { const h = Number.isInteger(num(d.p)) && Number.isInteger(num(d.q)) ? {p:num(d.p),q:num(d.q)} : activeHolding(FS); if(!h) return; const env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`追いつくよう頼みました`) : failed(r); }); },
   dissolve: d => {
+    // (2026-11-16: a host of another of the viewer's villages — in hand after a plain tap on its tile, or its chip on a
+    //  tile shared with the open village, which leave the village as it was — is dissolved from its own village, as
+    //  「村へ戻す」 and the march switch to it first. The order named the open village and the program refused it
+    //  (host.rs dissolve_as → resident_host); the bar had offered it, its check reading the host's own village.)
+    const hi = holdingIndexOfHost(d.host);
+    if (hi !== null && hi !== (FS.activeHolding ?? 0)) { FS.activeHolding = hi; invalidate('rail'); }
     const r = hostRow(d.host);
     const who = r ? unitCount(UNIT_ORDER[r.unit], r.troops) : null;
     return act('Dissolve', { v: { holding: activeHolding(FS), province: r ? { p: r.p, q: r.q } : null }, fields: { host_id: BigInt(d.host) },
