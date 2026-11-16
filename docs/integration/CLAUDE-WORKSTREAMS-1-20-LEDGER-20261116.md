@@ -292,3 +292,13 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Not run: the ordinary subset, the two refused key-free files, node-keyfree.sh. Lists, reviews and guard unchanged.
 - Candidate merge 9dd64905, note 5c79530e (CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116). Not fixed (display only): 次の軍勢's
   figure counts the open village's hosts.
+
+### 次の軍勢 for a host of another village (2026-11-16, Claude)
+- Mismatch: figure counted the open village's hosts (1/N, host not among them; refused with < 2 there); the press
+  jumped to the open village's first host. Fixed in aded7996 (hand.mjs hostModel + app.mjs nextHost read the subject's
+  own village).
+- Test web-frontier-next-host-other-village.test.mjs: 6/6 with the fix, 3/6 without; that file only, from the export.
+- Key: none. Signing: none. Network: fetch stub, no request. Storage: none.
+- Not run: the ordinary subset, web-frontier-hand (one-village case, unaffected by reading), the two refused files.
+- Next: the bar's other paths for such a host read its own village; no further clear mismatch in this family.
+- Candidate merge d9986330, note in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116.
