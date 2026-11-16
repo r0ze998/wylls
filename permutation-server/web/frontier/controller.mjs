@@ -60,7 +60,7 @@ import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, s1TileModel, fortGarrisonProblem, fortProblemText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -2374,6 +2374,7 @@ export const ACTIONS = {
   's1-expel': d => {
     const o = expelOffer(FS, { p: num(d.p), q: num(d.q), idx: FS.provinces.get(`${num(d.p)},${num(d.q)}`)?.province?.sites?.[num(d.site)] });
     if (!o) return s1Refused(L`この村は追放を提案できません`);
+    if (o.blocks[0] === 'TargetExpelled') return s1Refused(expelBlockText('TargetExpelled'));
     if (o.blocks.length) return failed({ code: o.blocks[0] === 'Expelled' ? 'NotVoter' : o.blocks[0] });
     return s1ProposeVillage(PROPOSE_EXPEL, { p: o.p, q: o.q, site: o.site });
   },
