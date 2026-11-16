@@ -46,10 +46,17 @@ export function conquestFacts(FS) {
   try { base = factsOf(FS); } catch { /* a page without its records yet */ }
   let rows = [];
   try { rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER); } catch { rows = []; }
+  // (2026-11-16: the steps already done are read over EVERY village of the viewer, not only the one open — with a second
+  //  village (an outpost) open, the guide went back to "build" though the first village had built, trained and formed a
+  //  host. What to do next — the forming host and its while-waiting hint — stays the open village's.)
+  const villages = (FS.holdings ?? []).map((_, i) => ({ ...FS, activeHolding: i }));
+  const each = fn => villages.flatMap(v => { try { return [fn(v)]; } catch { return []; } });
+  const allRows = villages.length ? each(v => hostRows(v).filter(r => r.unit !== SCOUT && r.unit !== SETTLER)).flat() : rows;
+  const allBase = each(v => factsOf(v));
   const keeps = keepsOf(FS);
   const foreign = k => int(k.holder) && k.holder !== f && !k.heartland;
   // a host of the viewer on a keep's tile (the province record), a march revealed toward a keep's province, or the order this page sealed
-  const standing = rows.map(r => keeps.find(k => k.p === r.p && k.q === r.q && k.tile === r.tile && (r.state === 1 || r.state === 3)) ?? null).find(Boolean) ?? null;
+  const standing = allRows.map(r => keeps.find(k => k.p === r.p && k.q === r.q && k.tile === r.tile && (r.state === 1 || r.state === 3)) ?? null).find(Boolean) ?? null;
   // a march whose turn has been resolved while no host of the viewer stands on that keep's tile and its nation runs no
   // contest there was turned back (the first turn decides it): it no longer counts as "marched" — the guide goes back
   // to the march and says so (seen in the UI check of 2026-10-26: a first march of 100 spearmen on a keep of 100 was
@@ -77,9 +84,11 @@ export function conquestFacts(FS) {
   // the guide then counted no host and fell back to "build" (1/7) mid-march. The viewer's own march list says a host
   // stood and is away)
   const away = (FS.marches ?? []).length > 0;
-  return { village: !!h, built: !!h && (hasBuilt(h, now) || (h.queue ?? []).some(q => q && q.kind === 1)), trained: !!base.trainedCombat, host: !!base.ownCombatHost || rows.length > 0 || away,
+  const builtAt = o => !!o && (hasBuilt(o, now) || (o.queue ?? []).some(q => q && q.kind === 1));
+  return { village: !!h, built: builtAt(h) || (FS.holdings ?? []).some(builtAt), trained: !!base.trainedCombat || allBase.some(b => b.trainedCombat),
+    host: !!base.ownCombatHost || allBase.some(b => b.ownCombatHost) || allRows.length > 0 || away,
     // (a host that stands in the record — formed, or out on a march: the muster step is done only then, not while it forms)
-    stood: stoodHosts(rows).length > 0 || away, forming: formingHosts(rows)[0] ?? null,
+    stood: stoodHosts(allRows).length > 0 || away, forming: formingHosts(rows)[0] ?? null,
     marched: !!(standing || revealed || sealed || contest || gain),
     holding: contest ? { p: contest.p, q: contest.q, progress: Math.max(0, Number(contest.progress ?? 0)), required: holdTurns(FS, contest) } : null,
     captured: gain ? { p: gain.p, q: gain.q, turn: gain.bell } : null, target: target ? { p: target.p, q: target.q } : gain ? { p: gain.p, q: gain.q } : null,
