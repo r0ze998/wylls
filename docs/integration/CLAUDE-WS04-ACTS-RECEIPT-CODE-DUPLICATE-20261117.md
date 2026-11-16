@@ -82,3 +82,44 @@
 - **Taking in the ④ change** is for ④'s owner and the integrator: a shared file (`acts.rs`, Rust) and a new receipt field. Paths and hashes are in the commit.
 - **The wallet's `actionFateView` proposal:** carry `duplicateOf`, and keep `sent: null` for a Duplicate entry.
 - **⑬'s production `send` and assembly are still not connected,** and the gateway-or-store-only read choice still decides the lost-send liveness gap (`CLAUDE-WS13-JOURNAL-RESTART-BOUNDARY-20261117.md` §4-1).
+
+## Static counter-review (read only, nothing run): can a later reading lose `code` but keep the earlier signature?
+
+**The candidate counter-example:**
+- On a non-final `Ok(v)`, `acts::refresh` replaces `facts` with `v` and carries over only `signature`, `lastValidBlockHeight`, `slotFloor` and `signedAt` from before.
+- So a Duplicate reading that is still `pending`, followed by a reading **without** `code`, would leave S (the earlier send's signature) with `code: null`.
+- ⑬ would then read S as this key's send again.
+
+**Can it happen? Not as a reading ⑬ acts on.** The grounds are all at `6d8ae8db`, and the four cases are:
+1. **While the wallet keeps the entry, every reading has `code`.**
+   - **Where the code comes from:** `actionFateView` puts `code` in `base` for every retained entry (`gateway.mjs:183`), and the entry is the **latest** history entry of type `action` with this key (`actionFate`, `:820`).
+   - **Only one entry per key:** history entries are append-only (`ledger.mjs` `note`, `:128-133`). The only writers for an action are the two `recordAction` calls in the wallet's `#run` (`gateway.mjs:631, 691`).
+   - **Why `#run` runs once per key:** a second `#run` for the same key cannot happen. A prior request record replays its result, a request in flight is joined, and a prior record without a result is refused (`:550-561`). The request record is never deleted (`ledger.mjs` `requests`, no `delete`; full → refuses new sends).
+   - So the Duplicate entry is the only entry for the key, and it carries `code: 'Duplicate'`.
+2. **When the entry has left the history** (more than 500 later entries, `HISTORY_MAX`), the wallet answers `{state: 'unqueryable', retained: false}` (`:182`).
+   - **In ④:** `refresh` stores that answer, so `code` is gone, but S and its lifetime are kept: `state: 'unqueryable'`, `signature: S`, `code: null`.
+   - **⑬ is protected:** `fateOfReceipt` throws on `unqueryable` before anything else, the Duplicate check included (`ws04-acts.mjs:26`). Its signature is never read.
+3. **Other cases in ④:**
+   - **A final Duplicate reading** (`landed` or `failed`): `facts` are never replaced. A contradicting reading only adds `conflict`. `code` stays.
+   - **A failed read (`Err`):** the old `facts` are kept with `lastReadError` (state `unqueryable`), so `code` stays.
+   - **A wallet reading without a chain answer, or with `queryFailed`:** `unqueryable`, with `code` (`:190-191`).
+4. **⑬ after case 2, by path:**
+   - **`#reconcile` on a `sent` line** (a lost reply): it throws, so the line is held, then `unresolved` after a game day. It is never landed, and S is never stored.
+   - **`#run` after a restart** (an `intended` line): it throws, so the status is `null`, then `submit` under **the same key**. The wallet's request record replays the Duplicate answer (`:556-561`), and the submit path ends the line `failed` (`#retryOrFail('Duplicate')`). Not counted, not resent.
+   - **Counting:** a lost-reply line was counted when it became ambiguous (`Transport`), and that stays, as before this branch. Nothing new is counted.
+
+**Decision:** there is no reachable inconsistency in ④ or ⑬, so **no further change.** The four fields carried over in `refresh` are ④'s rule for keeping a known signature, and they are not altered.
+- `null` is not read as not-sent.
+- An unknown code is not read as a Duplicate.
+- No new rule on ownership, trust or resending is introduced.
+
+## What a real connection still lacks (concrete)
+
+1. **⑬'s production `send` and assembly:** only the test stack's `send` exists. Not decided either: how a real caller turns the wallet's HTTP 409/503 into a result.
+2. **⑬'s acts client read mode:** with store-only reads, a send lost before the wallet reads `registered` → `pending` indefinitely (`CLAUDE-WS13-JOURNAL-RESTART-BOUNDARY-20261117.md` §4-1). The assembly must pass a gateway port.
+3. **This branch's two code changes are not taken in:** the `code` field in ④ (④'s owner, Rust, `cargo` not run) and ⑬'s Duplicate reading. Their regressions (`tests/acts_code.rs`, `test/ws04-acts-duplicate.test.mjs`) are written, not run.
+4. **⑬'s may-have-left change** (`claude/ws13-sendfailed-same-key-20261117`) is not taken in either. Its regression is not run.
+5. **The wallet's fate answer for a Duplicate entry** still says `sent: true` without `duplicateOf`, and ④'s `cancel` for such an act shows `Irrevocable` until **S's** `lastValidBlockHeight`. ⑬ does not read `cancel`, but other readers of the receipt do. This is a proposal for the wallet's and ④'s owners, not changed here.
+6. **After the wallet drops an entry** (more than 500 later actions), ④'s receipt keeps S beside `state: 'unqueryable'` and `code: null`. ⑬ never reads it, but a reader that does not throw on `unqueryable` sees an unmarked signature. This is for ④'s owner (whether a non-final `unqueryable` reading should keep the carried signature) and is not changed here.
+7. **Whether an earlier send's effect may count for a line** is open, the same as Lane D's for ③.
+8. **Running anything** (these regressions, ⑬'s guard tests and family, ④'s `cargo` tests) needs its own approval. Nothing here was run.
