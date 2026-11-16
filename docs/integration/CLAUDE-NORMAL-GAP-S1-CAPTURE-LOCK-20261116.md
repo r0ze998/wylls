@@ -40,3 +40,12 @@ Muster, Garrison, Dissolve and Depart were found while checking (the first note 
 source and fort form, and the controller's refusals before signing. Existing sentence (fi18n CapturePending), JA/EN.
 Evidence: the test above 6/6; with conquest-state, s1 and s1-capture-lock 41/41; ordinary-only subset 1771/1770/0 fail;
 screens map tap 5, block reasons 16, first session 2, conquest press 10, land/arrival 4. Unit/fixture only, not in a world.
+
+## Next gap done (2026-11-16): the S1 fort form against FortGarrison's refusals
+Audit of the S1 operations after the capture lock: SendCaravan's refusals (cargo, same place, wallet for another's place,
+route) were already pre-checked. FortGarrison's were not: NotFinal (after the lazy flip), NotResident, StructureLimit (the
+selected fort's room after pending troops) and Insufficient (reserve), in that order. Fixed in `screens/s1.mjs`
+(fortBlocks, `fortGarrisonProblem`, `fortProblemText`) and the controller (before signing); `fi18n` texts for the form's
+own codes. Evidence: `web-frontier-s1-fort-checks.test.mjs` 4/4; related + errors + lang 82/82; ordinary subset
+1775/1774/0 fail. Unit/fixture only.
+Not yet audited the same way: Raid, Seize (seizeOffer), Siege (siegeOffer), Expel, the nation proposals and votes.
