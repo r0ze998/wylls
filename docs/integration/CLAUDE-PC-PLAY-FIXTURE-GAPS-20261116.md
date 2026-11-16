@@ -15,3 +15,25 @@ Node; "world" = a real local TEST-ONLY chain (none run since land5). Restricted 
 Done in this round: the chip's per-hour figure (the strip's rates do not include the land yield, so the chip now says it).
 Both fixture gaps above are now covered by `land-arrival.screen.mjs` (4/4, EN/JA @ 1440). What remains is world-only: a send that
 lands, the credited land yield against the stores, the far-land part and the per-hour figure seen in a world.
+
+## March / arrival / return: what is left that can be checked without a world (2026-11-16, Claude)
+Read from the records (this table, CLAUDE-FIRST-PLAYABLE-STATUS-20261115 "Unverified", CLAUDE-NORMAL-PLAY-STATUS-20261114
+"Open items" and round 28) and checked against the candidate's code. No code change.
+- Return (村へ戻す): a march like any other with the village as its destination (controller `march-home` → compose →
+  setDestination), so its pre-checks are the march's own (`checkMarch`; the 16 block reasons already shown on the
+  fixture). The bar's `hand-return` makes the host's own village the active one before `march-home`, so a host of
+  another village returns to its own village. No mismatch.
+- Round 28's "not covered": local play with the march gate OPEN for a host of another village. The pure part is
+  covered: `localMarchOpen` reads the holding only for its ring (≤ 128) — the same answer for any of the viewer's
+  villages — and `web-frontier-local-play-march-open` tests it; cq-march asks with the host's own village before the
+  switch (round 28 tests and pins). The real controller with the gate open is NOT checked: opening it needs the
+  page's memory-only test wallet connected (a key made in memory) and its capability read; key operations are outside
+  this round. A keyless check would need a test seam in the controller (injecting the capability) — a production code
+  change for testing only, not made without the owner's word.
+- Candidate code, unit only: cq-march-other-village, local-play-march-open, away-tag, land-marks, local-march-pending
+  30/30; expedition-return, local-play-return, return-card, marches 53/53. NOTE: `web-frontier-local-play-return` is a
+  KEY-USING test (scripts/ci/node-key-tests.txt: a memory-only WebCrypto key signs a synthetic message; no network, no
+  chain). It was run once here before its header was read; it is also inside the ordinary subset used all day
+  (ordinary-suite.sh does not exclude it). Recorded so the owner can decide whether the subset should exclude it.
+- Still world-only (unchanged): a send that lands, the credited land yield against the stores, the far-land part and
+  the per-hour figure in a world, the catching-up state live, rounds 44–45 in a world, the natural-speed world.
