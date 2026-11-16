@@ -106,7 +106,20 @@ export function landSummary(FS, h, f) {
   const villages = (env.province?.siteMirror ?? []).filter(s => s?.state === 1 && s?.faction === f).length;
   const claimed = env.land.claimed[f] ?? 0;
   const bps = villages > 0 ? Math.min(Math.floor(claimed * BONUS.PER_TILE_BPS / villages), BONUS.CAP_BPS) : 0;
-  return { claimed, tiles: env.land.totals[f] ?? 0, bonusPct: bps / 100 };
+  return { claimed, tiles: env.land.totals[f] ?? 0, bonusPct: bps / 100, perHour: landYieldPerHour(h.production, bps) };
+}
+
+/**
+ * What the land bonus pays this holding in an hour, in whole units over all its stores, or null without its production:
+ * the program's `land_preview::yield_for(production, bonus_bps, 6 bells)` — each entry (milli per hour) × bps / 10 000,
+ * rounded down —, summed and rounded down to whole units. ClaimLandYield credits it to the stores later (the crank); the
+ * strip's rates do not include it, so the chip says it (2026-11-16: the chip said "+N%" with no figure).
+ */
+export function landYieldPerHour(production, bps) {
+  if (!Array.isArray(production) || !production.length || !Number.isInteger(bps) || bps < 0) return null;
+  let milli = 0n;
+  try { for (const v of production) { const x = BigInt(v); if (x > 0n) milli += x * BigInt(bps) / 10_000n; } } catch { return null; }
+  return Number(milli / 1000n);
 }
 
 /** The strip's land line: "Claimed here: 9 tiles · production +1.5%" (nothing without a land record). */
@@ -137,5 +150,5 @@ export function renderLandChip(s, far = null) {
 }
 
 function homeChip(s) {
-  return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。`}">${L`この州で獲得 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}</span>`;
+  return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。`}">${L`この州で獲得 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}${s.perHour > 0 ? L`（毎時 +${fmtNum(s.perHour)}）` : ''}</span>`;
 }

@@ -1636,6 +1636,7 @@ export default {
   '領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。': 'Territory trial (test world): the tiles hosts claimed by standing in this village\'s province, and the production they add.',
   'この州で獲得 {0} マス · 生産 +{1}%': (n, p) => `Claimed in this province: ${plural(n, '{0} tile', '{0} tiles')} · production +${p}%`,
   'ほかの州 {0} マス': n => `Other provinces: ${plural(n, '{0} tile', '{0} tiles')}`,
+  '（毎時 +{0}）': ' (+{0}/h)',
   '地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。': 'Land claimed in the other provinces the map has loaded only (test world). It can change as you move the map.',
   // the land preview, the selected tile (hud/inspect.mjs over frontier/land.mjs landTileLines)
   'どの国の土地でもない空き地（領土の試験）': 'Open ground, no nation\'s land (territory trial)',
