@@ -108,3 +108,21 @@ else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
    - **Not changed here:** whether ⑬ should follow it, and whether an earlier signature may count as this line's own effect. Lane D is looking at the same question for ③. ⑬ must not upgrade it to this line's success evidence before that answer.
 2. **A status reading of `not-sent`** (④ `fateOfReceipt` → `status: 'refused'`, no code) reaches `#retryOrFail('Unknown')` and ends `failed`. It does not get a new key, even though ④ allows a new attempt. This is unchanged and conservative: no double send, at most a missed retry.
 3. **ws04-run port:** a `StoreError` or `Spawn` from `accept` is thrown, which makes it `Transport`, ambiguous: read back under the same key. Unchanged.
+
+## Static counter-check after the change (read only, nothing run)
+
+1. **Every way into `#run`** (`resident.mjs:593` `#reconcile`, `:616` resubmit, `:740`, `:990` enact) reaches the new branch only through `submit`.
+   - A `status` answer that is not null skips `submit`, so `fromSubmit` stays false and the old path applies.
+   - A resubmit re-enters with the same `sendKey`, which is unchanged.
+2. **The answer contract:** ⑬'s `ActionResult` is the agent wallet's shape (`resident/ports/execution.mjs:1-12`; `03-contracts.ja.md:33-39`).
+   - In the wallet, a `failed` that carries a signature is either this request's own send after signing (`sent: true`, may land) or a Duplicate's other send (excluded).
+   - No `failed` with a signature means "executed and failed". A definite chain failure comes only from a status reading (④'s `failed`), which this branch does not judge.
+3. **The other answer producers in ⑬:**
+   - the test world (`world/testworld.mjs:115-144`: `refused` without signature, or `sent`);
+   - `ws04-run` (`:134-143`: `refused` without signature, `sent`, or a throw);
+   - `ws04-acts` (`BadKey` `refused`, or the caller's `send`).
+   None of them yields `sent: true`, a signature on a non-`sent` answer, or `SendFailed`, so their behaviour is unchanged.
+4. **`Transport` with fate `failed`** (`ambiguous` false): it has no `sent` and no signature, so `mayHaveLeft` is false and `#retryOrFail('Transport')` applies, as before. Whether it should be ambiguous too is not changed here.
+5. **A replayed wallet answer** (`replayed: true`) of an earlier `SendFailed` + `sent: true` has the same shape, so the same key is held. A replayed `sent` is unchanged.
+6. **Counting:** `recordedBefore` needs `landedBell`, which wallet answers do not carry, so a may-have-left answer is counted once for its key. A later `landed` reading for that key adds nothing (`counted` guard).
+7. **CI:** `.github/workflows/ci.yml` runs on push, and the commit message carries `[skip ci]`. `gh run list` for this branch shows no run.
