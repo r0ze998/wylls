@@ -677,3 +677,50 @@ cargo +1.89.0 test --offline --locked -p permutation-frontier --lib \
 - **The restored `mod tests`** is identical to `513f8409`.
 
 **No defect found, so no code changed.** Whether these compile and pass is **unknown until run**.
+
+## Host-test evidence (2026-11-16, about 17:40 UTC; the coordinator's single runs; not re-run)
+
+**What ran.** The pre-audit's Run A and Run B, once each, at HEAD `47ff0bd7`:
+
+```
+env -u RUST_LOG cargo +1.89.0 test --offline --locked -p permutation-frontier --lib \
+  --features <A or B> --target-dir <dedicated: wylls-test-target-rest-home-47ff0bd7> -j 1 \
+  -- --exact --test-threads=1 <the 6 (A) / 7 (B) exact names listed in the pre-audit>
+```
+
+- `RUST_LOG` was the only variable present and was unset for the runs. No other override.
+- Both use the exact names listed in the pre-audit above. B adds `without_the_feature_the_dispatch_refuses_0xef`.
+
+| Run | Features | Build | Result | Test time | Exit |
+|---|---|---|---|---|---|
+| A (carrier on) | `capacity-preview,custody-rest-home-preview` | 50.95 s | **6 passed**, 0 failed, 0 ignored, 0 measured, 121 filtered out | 0.01 s | 0 |
+| B (carrier off) | `capacity-preview,custody-preview` | 4.70 s | **7 passed**, 0 failed, 0 ignored, 0 measured, 121 filtered out | 0.00 s | 0 |
+
+**Conditions:**
+- No warnings in the tool output.
+- No change to `Cargo.lock`, the sources or the config. Nothing staged, and the 25 media deletions unchanged.
+- The dedicated target used 656,960 KiB.
+- Each session was seen to finish with exit 0. `pgrep` could not list processes (its service was absent), so **"no process left behind" is not claimed**.
+
+**Sources pinned, identical before and after** (SHA-256; Lane C re-checked them read-only at `47ff0bd7`):
+
+| File | SHA-256 |
+|---|---|
+| `permutation-frontier/src/lib.rs` | `da9106becda1ef14010997a866171b874585257b2b0f3c76bd0fd31f59acc873` |
+| `permutation-frontier/src/capacity_runtime_tests.rs` | `c7c6e639e2125eec0b54d3df36afd324177888b373c10c893d151eba2592a984` |
+| `permutation-frontier/src/map_growth_runtime_tests.rs` | `4b9767cddc250502ecf49996f4b7c0c3d5165c25753fdb1c50548a4da99a7a8f` |
+| `permutation-frontier/src/proc/custody.rs` | `99bc4d0e7f242516726c1cdb09021d6a44cb4f4b8e58d898d5bae048b1151fb9` |
+
+**What this shows:**
+- design A's lot test (released once, retires, rest on the lot);
+- the link states;
+- the restored custody record widths;
+- the rest-home helper (exact 500; whole 1,000 + 250; whole-only 2,000; the borrow failure; alias; paying again);
+- through the host-test dispatch: 0xEF's shape refusals and the no-op;
+- the 0xEF boundary in both builds;
+- the 44-byte payload.
+
+**Limits.**
+- Hand-built accounts and syscall stubs on the host only.
+- **Not verified:** a real world, SBF, signatures, the formal ABI, a record kind, V26, migration, integration.
+- Nothing here is adopted.
