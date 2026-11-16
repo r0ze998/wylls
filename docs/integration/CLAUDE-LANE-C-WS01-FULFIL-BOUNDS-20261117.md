@@ -259,3 +259,39 @@ Those are not treated as done.
 **Not found:** any gap. Both imports are relative, sit in the served `coop` directory, and use the `.mjs` type the board already maps.
 
 **Not checked:** an actual page load, the board process, the browser's module loading, and a real world.
+
+## Adoption into the canonical candidate: a static check and a minimal plan (2026-11-17; nothing merged, nothing run)
+
+The candidate and canonical are not changed, and nothing is merged or cherry-picked here.
+
+**Facts.**
+- **The candidate:** `claude/canonical-candidate-20261116` at `d16048aa`, the same locally and on origin. Its worktree has no uncommitted change other than the user's 25 deleted media files, which are not touched.
+- **This branch:** `claude/lane-c-ws01-fulfil-bounds-20261117` was cut from `d16048aa` and is a linear descendant of it. The candidate has no commit on these paths after the base, so the unit **fast-forwards with no conflict**.
+- **Other branches:** no other local branch has commits on these ① paths that are not in the candidate. Remote-only branches were not fetched or checked.
+- **Ownership:** the unit touches ① (`workstreams/01-national-strategy`) and one report. It touches nothing of main's (④, ⑫, ⑬, ⑲) or D's (③, ⑤), and no walls, muster, G, runner or world code.
+- **Earlier refusals:** no candidate document (`CLAUDE-CANONICAL-CANDIDATE-20261116.md`, the WIP inventory) records a refused integration of ① display or count work. As far as the repository shows, this is not a substitute for an earlier refused C or D integration. The coordinator should confirm against its own record of refusals.
+- **The candidate's ① evidence:** its last ① commit is `42b1f393` (2026-11-08), and its documents record no ① test evidence, so no recorded pass is made stale. The ① tests are not in any CI job: they appear only on the key-scan list.
+
+**The unit: 7 commits on 12 paths, `d16048aa..` this branch's tip.**
+
+| Commit | Content | Paths | Depends on |
+|---|---|---|---|
+| `e5f39a3c` | Request fulfilment: a zero upper bound is "ちょうど 0" | `coop/fulfil-bounds.mjs` (new), `coop/coop-ui.mjs`, `docs/22-…`, `test/coop.fulfil-bounds.test.mjs` (new), report | — |
+| `71764e61` | `underBy` counts arrivals recorded as 0; joint-precision text; two existing expectations corrected; run record | `coop/goal.mjs`, `coop/fulfil-bounds.mjs`, `coop/coop-ui.mjs`, `test/coop.test.mjs`, `test/coop.e2e.test.mjs`, `test/coop.joint-precision.test.mjs` (new), `docs/19-…`, report | e5f39a3c |
+| `6e812809` | Precision text: missing or invalid counts are "精度が分からない" | `coop/fulfil-bounds.mjs`, `test/coop.joint-precision.test.mjs`, report | 71764e61 |
+| `c38d3f57` | Report only (run record, audit) | report | — |
+| `d9f1acfc` | `addCounted` helper wired into `coopView` | `coop/joint-count.mjs` (new), `coop/goal.mjs`, `test/coop.joint-count.test.mjs` (new), report | 71764e61 |
+| `41e3382b`, `796f55e2` | Report only (run record, serving check) | report | — |
+
+**A minimal adoption plan (for the integrator; not done here).**
+1. **Smallest independent piece:** `e5f39a3c` alone. It is display only, changes no existing test expectation, and its pure test passed 5/5 once (coordinator, at `e5f39a3c`). It still needs a screen check: the ① page, or `test/coop.browser.nokey.mjs` after the coordinator's own audit.
+2. **The count piece:** `71764e61` + `6e812809` + `d9f1acfc`, together. These change what `underBy` means on the screen and in the ⑮ export, which needs ①'s agreement as owner. They correct two existing expectations, which have not been run. The pure tests passed 8/8 (`6e812809`) and 5/5 (`d9f1acfc`).
+3. **Whole unit:** fast-forward the candidate from `d16048aa` to this branch's tip. The report commits carry no code.
+
+**What still blocks a real connection.**
+- The corrected existing tests, `test/coop.test.mjs` and `test/coop.e2e.test.mjs`, have not been run. They start local HTTP servers, use a fixed signer, a fake chain and temporary files, and are on `node-key-tests.txt`. Run them only after the coordinator's audit, as the ordinary ① subset.
+- The ① fixture `test/fixtures/ws15-fold-e2e.json` is kept as made, and the test applies one stated correction (wood `underBy` 4 → 5). ① decides whether to regenerate it instead (`test/make-ws15-fixture.mjs`, a run).
+- The screen has not been loaded: neither the ① page nor the board.
+- `permutation-gateway`'s `screens/ws07-s1-pure.screen.mjs` and `test/web-frontier-ws07-coop.test.mjs` import `board.mjs` and so load the changed `goal.mjs`. They are main's or `web-frontier` files and were not run. Their re-verification belongs to their owner.
+- No real world has been run.
+- **Who integrates:** one integrator. The candidate's owner is told the paths and hashes and does the integration; Lane C does not write the candidate.
