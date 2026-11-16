@@ -864,7 +864,7 @@ export default {
   '封が開けられないまま、受付が終わりました。軍勢は敗走する（兵・体力・チップの半分を失う）か、同じ国の到着が多すぎたときは損失なしで村へ戻ります。': 'The time for opening seals ended with this seal still closed. The host is routed (it loses half its troops, stamina and tip) or, if too many hosts of your nation arrived, it returns home without loss.',
   '結果を受け取る': 'Collect the result',
   'ふつうは自動で受け取ります。': 'It is normally collected automatically.',
-  '進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。': 'Until this march is resolved, the host cannot march, dissolve or explore (it is normally resolved automatically).',
+  '進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。': 'Until the result of this march is collected, the host cannot march, dissolve or explore (it is normally collected automatically).',
   'ターン {0} まで休息': 'Resting until turn {0}',
   '出発の手続き中': 'Departure in progress',
   '封が正しくなかったため失われます': 'Will be lost: its seal was not valid',

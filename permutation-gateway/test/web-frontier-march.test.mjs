@@ -692,7 +692,7 @@ test('the tracker: steps from chain facts; the host stays locked until its trans
   assert.doesNotMatch(trackerScreen.privateLine(e), /州|（/);
   setLang('en');
   const cardEn = String(trackerScreen.renderMarch(m0)).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
-  assert.match(cardEn, /Until this march is resolved, the host cannot march, dissolve or explore/);
+  assert.match(cardEn, /Until the result of this march is collected, the host cannot march, dissolve or explore/);
   assert.match(cardEn, /Departure\s+\(done\)\s+Arrival\s+\(now\)\s+Result/);
   assert.match(cardEn, /Waiting for the arrival turn/);
   assert.doesNotMatch(cardEn, /beacon|settle|\bbell\b|Anchored|[぀-ヿ㐀-鿿]/i);

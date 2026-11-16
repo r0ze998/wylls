@@ -499,7 +499,7 @@ export default {
   'このターンの到着はもう締め切られました': 'Arrivals for this turn are closed.',
   'このターンの戦いを決めるくじがまだ出ていません': 'The draw that decides this turn\'s clashes is not out yet.',
   'その場所は予約されています（第0・第1輪）': 'That site is reserved (rings 0 and 1).',
-  'この軍勢は、進軍の結果を受け取るまで動かせません': 'This host cannot move until its march is resolved.',
+  'この軍勢は、進軍の結果を受け取るまで動かせません': 'This host cannot move until the result of its march is collected.',
   'この州は、このターンの村の申し込みがいっぱいです。次のターンに試してください。': 'This province takes no more village requests this turn. Try next turn.',
   '撤退の倍率が正しくありません（0.0001〜6 倍）': 'The retreat ratio is not valid (0.0001–6×).',
   'このシーズンの公開乱数は quicknet ではありません': 'This season\'s public randomness is not quicknet.',
