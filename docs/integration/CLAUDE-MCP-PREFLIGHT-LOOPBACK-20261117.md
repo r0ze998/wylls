@@ -245,3 +245,29 @@ Nothing here connects ChatGPT or any client.
 - **After:** no test process left, the status identical, nothing staged, 49.6 GiB free.
 
 **Limits:** a fake `fetch` only. No real server, deployment, tunnel or client.
+
+## Credentials in the output: traced, one gap closed (2026-11-17, written, not run)
+
+**Where URL-shaped values reach the result** (`src/preflight.mjs`):
+
+| Value | Who wrote it | Before |
+|---|---|---|
+| the result's `url` | the caller (as entered) | echoed as entered (documented; unchanged) |
+| detail `resource …` | the server under test (protected resource metadata) | **echoed raw** |
+| detail of "an authorization server" | the server (`authorization_servers[0]`) | **echoed raw**, before `reach` refused that URL |
+| detail of "issuer matches" | the server (AS metadata `issuer`) | **echoed raw** |
+| detail of "registers with redirect …" | the server's `error_description` text | **echoed raw** |
+| a refusal's detail | this module | never the URL (since 274d5c62) |
+| the command's `{error}` | the library's own texts, or `fetch`'s message | no URL: `reach` refuses a credential URL before any request, so `fetch` never sees one |
+
+**The gap:** the committed property is that a credential the server names never comes back (the loopback test's case 4, and the command test's credential case). It did not hold for those four details. A server naming `http://user:secret@…` as its authorization server had that credential printed in the issuer check's detail.
+
+**The fix:**
+- `check()` now removes the `user:password@` part of any URL inside a string detail, giving `scheme://[credentials removed]@host…`. The rest of the detail is kept, so it still says what was quoted.
+- Unchanged: no check, check name, or `ok`; the `url` field (the caller's own input); requests and refusals.
+
+**Remaining limits:**
+- **Non-string details:** a detail that is not a string (an `authorization_servers[0]` that is an object) is printed as given, then refused as "not a URL string".
+- **Secrets that are not userinfo:** a secret the server embeds elsewhere (a query parameter, free text that is not `scheme://user:pass@`) is not recognised. The server under test chose to send it.
+
+**Test (written, not run):** `test/preflight-loopback.test.mjs` +1 case. A credential in the resource, the authorization server, the issuer or a registration's error text never appears in the result, `[credentials removed]` does, and nothing outside is requested. It uses the same fake `fetch` and imports as the file's other cases.

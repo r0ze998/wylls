@@ -34,7 +34,11 @@ export async function preflight(url, { client = 'claude-code', fetch: f = fetch,
   const u = new URL(url);
   if (!allowRemote && !isLoopbackHost(u.hostname)) throw new Error('preflight runs against a server on this machine only (it registers OAuth clients); allowRemote is for an approved deployment');
   const checks = [];
-  const check = (name, ok, detail = null) => { checks.push({ name, ok: Boolean(ok), ...(detail !== null ? { detail } : {}) }); return Boolean(ok); };
+  // (2026-11-17) A detail may quote what the server under test sent (its resource, its issuers, an error text). The
+  // user:password part of any URL in it is removed, so a credential the server names never comes back in the result.
+  // The `url` field stays the URL exactly as the caller entered it.
+  const redact = d => (typeof d === 'string' ? d.replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#@"]*@/g, '$1[credentials removed]@') : d);
+  const check = (name, ok, detail = null) => { checks.push({ name, ok: Boolean(ok), ...(detail !== null ? { detail: redact(detail) } : {}) }); return Boolean(ok); };
   const json = async (res) => { try { return await res.json(); } catch { return null; } };
   const stop = () => ({ client, url, ok: false, checks, unverified: [] });
   /** One request, only to a URL that keeps the contract above; null (with a failed check) when refused. */

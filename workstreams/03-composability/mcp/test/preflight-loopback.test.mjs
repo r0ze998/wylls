@@ -100,3 +100,25 @@ test('every request goes through the one checked path (pinned as text)', () => {
   assert.match(src, /const res = await f\(String\(target\), \{ \.\.\.init, redirect: 'manual' \}\);/);
   assert.doesNotMatch(src, /^import /m);
 });
+
+// (2026-11-17) A credential the server under test names (in its resource, its authorization server, its issuer, or an
+// error text) never comes back: details quoting them have the user:password part removed. Written, not run.
+test('a credential the server names in a resource, an issuer or an error text never comes back in the result', async () => {
+  const PRM = `${L}/.well-known/oauth-protected-resource`, ASM = `${L}/.well-known/oauth-authorization-server`;
+  const ok200 = body => () => ({ status: 200, headers: { get: () => null }, json: async () => body });
+  const asmBody = over => ({ issuer: `${L}/`, code_challenge_methods_supported: ['S256'], registration_endpoint: `${L}/register`,
+    token_endpoint_auth_methods_supported: ['none'], token_endpoint: `${L}/token`, ...over });
+  for (const [label, over] of [
+    ['resource', { [`GET ${PRM}`]: ok200({ resource: 'http://u:hunter2@127.0.0.1:9000/mcp', authorization_servers: [`${L}/`] }) }],
+    ['authorization server', { [`GET ${PRM}`]: ok200({ resource: URL0, authorization_servers: ['http://u:hunter2@127.0.0.1:9000/'] }) }],
+    ['issuer', { [`GET ${ASM}`]: ok200(asmBody({ issuer: 'http://u:hunter2@127.0.0.1:9000/' })) }],
+    ['error text', { [`POST ${L}/register`]: () => ({ status: 400, headers: { get: () => null }, json: async () => ({ error_description: 'see https://admin:hunter2@help.example/x' }) }) }],
+  ]) {
+    const s = server(over);
+    const r = await preflight(URL0, { client: 'claude-code', fetch: s.fetch });
+    const text = JSON.stringify(r);
+    assert.ok(!text.includes('hunter2'), `${label}: ${text}`);
+    assert.ok(text.includes('[credentials removed]'), `${label}: the detail still says what it quoted, without the credential`);
+    assert.deepEqual(external(s.asked), [], `${label}: nothing outside was requested`);
+  }
+});
