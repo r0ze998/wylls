@@ -79,10 +79,18 @@ pass (SBPF v2, overflow checks, localnet markers, no test marker). Not deployed,
 0xF0–0xFD and the wide drafts 0xD6–0xDF + 0xEE — 13/13 with all those features, here (99666882) and on the integration
 branch; workstream 20's 0xE0–0xE7 by the existing assertion. No other first-byte use found statically. Still provisional.
 
+## WIP inventory and ABI rev 7 (2026-11-16, 375478e4)
+- Per-file inventory of bcc63a24's 79 files: docs/integration/CLAUDE-WIP-BCC63A24-INVENTORY-20261116.md — 46 adopt
+  (per-file evidence), 22 records, 6 hold, 1 not adopted (`.orig`), 4 restricted (not run/changed). Two WIP tests failed at
+  bcc63a24 itself and are fixed here (cfffc589). Not a whole-WIP pass.
+- ABI-ALLOCATION rev 7 (provisional): 0xCD FoldLand, 0xCE ClaimLandYield, 0xCF reserved; seed `ld` / PSFLAND1; version bit
+  0x0400 reserved, not applied. Test `frontier-abi-land-allocation.test.mjs` 3/3. Land SBF still f2e64442… after.
+- Ordinary-only subset on 375478e4: 1967 tests, 1966 pass, 0 fail, 1 skipped.
+
 ## Left before canonical takes it
 1. The canonical owner checks bcc63a24 on its own (it is unverified).
 2. Rust: DONE for the land scope above, including the land SBF build (byte-identical to the pin) and the tag audit.
-3. Decide on the `.orig` file; allocate the land tags (0xCD/0xCE provisional).
+3. `.orig`: not needed (inventory). Land tags: rev 7 proposal written; the integrator confirms it (and decides on the 0x0400 bit).
 4. A real TEST-ONLY world with the owner's go (ops: `scripts/play2-land-ops/`, fail-closed; never run for real yet):
    none of the fixes since land5 (block reasons, S1 ore, English, return card, far-land chip) has been seen in a world.
 5. Natural-speed world; phone width (PC first, owner).
