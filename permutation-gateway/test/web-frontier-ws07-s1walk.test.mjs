@@ -99,7 +99,8 @@ test('a caravan is sent round a palisade that stops it, where the fastest road w
 
 test('the siege offer holds back the refusals the page can tell: the own village shielded, a busy or owing site', () => {
   const mine = { state: 1, tile: 5, id: hostId({ p: 0, q: 0, site: 0, gen: 1, seq: 3 }), fromBell: 5, unit: 0 };
-  const P = (conquest) => prov(0, 0, { siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [mine], ...(conquest ? { conquest } : {}) });
+  // (resolvedNext 99 at turn 100: the target Province is resolved; one behind the turn is NotResident — web-frontier-s1-siege-ready)
+  const P = (conquest) => prov(0, 0, { resolvedNext: 99, siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [mine], ...(conquest ? { conquest } : {}) });
   const sel = { p: 0, q: 0, idx: 5 };
   assert.deepEqual(SCR.siegeOffer(world({ provinces: new Map([['0,0', { province: P() }]]) }), sel).blocks, []);
   const shielded = world({ provinces: new Map([['0,0', { province: P() }]]), holdings: [holding(0, 0, 0, 30, { shieldUntil: 5000 }), holding(1, 0, 2, 20)] });

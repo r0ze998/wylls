@@ -17,7 +17,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { icon } from '../hud/icons.mjs';
 import { RESOURCES, RESOURCE_ORDER, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, hostOfHolding, SCOUT, isFinal } from '../fland.mjs';
+import { storesAt, hostOfHolding, SCOUT, isFinal, finalityDue } from '../fland.mjs';
 import { SIEGE_ARMS, s1On } from '../fs1.mjs';
 import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
@@ -237,7 +237,14 @@ export function siegeOffer(FS, sel) {
   // `Heartland` (the S1 program's relation is always Rivalry, never War; a nation's stance does not change it)
   const ring = ringOf(sel.p, sel.q), maxRing = Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3);
   const heartland = state === SITE_HOLDING && ring >= 2 && ring <= maxRing && wedgeOf(sel.p, sel.q) === Number(mirror.faction);
+  // (2026-11-16: conquest.rs declare_siege_as step 2 — the declaring village must be final; the lazy flip applies only
+  //  when its own Province is the target's — and step 3 — the target Province resolved: resident_ok, NotResident —;
+  //  the page offered both cases and they were refused on send)
+  const now = Number(FS.chain?.now?.() ?? 0), nowBell = Number(FS.nowBell ?? 0);
+  const srcFinal = !src || Number(src.state) === 2 || (src.p === sel.p && src.q === sel.q && finalityDue(src, prov, now, nowBell));
   const blocks = [
+    ...(srcFinal ? [] : ['NotFinal']),
+    ...(rn + 1 < nowBell ? ['NotResident'] : []),
     ...(heartland ? ['Heartland'] : []),
     ...(shielded ? ['Shielded'] : []),
     ...(entry < 0 ? ['NoFighterHere'] : []),
