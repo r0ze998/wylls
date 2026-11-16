@@ -167,3 +167,15 @@ OTHER village:
   reason 'changed'. The drawer shows the order card, not the guide, while a draft is open (hud/drawer.mjs), so whether
   `cg-go` can be pressed then (the attention pill) was not traced. Local play's test entry only.
 - Not covered: any of this pressed in a browser or a world.
+
+## cg-go while a waiting send is armed — reachable, fixed (2026-11-16, Claude; follows the audit above)
+- Path (static): `#attn-pill` (app.mjs) shows `nextNow()` → `hud.nextThing` with the guide's objective; in a conquest
+  season that is `conquestObjective(FS).go`, and the pill's `data-act` is its act — `cg-go` for the march step's
+  「届く砦を見る」 (another ready host) or 「兵を足す」. The pill is not hidden while a draft is open (the drawer shows the
+  order card; the pill stays) on PC; frontier.css hides it only in the narrow layout, where the line under the plate is
+  not drawn while the order card has the drawer.
+- So on PC, in local play's test entry, a draft whose send waits for the province (e.g. NotResident) beside a ready host
+  could be dropped by the pill: nothing was sent, but the driver withdrew it with the 'changed' notice.
+- Fix (integration e00ad87b, candidate merge e59e802c): `cg-go` puts an open draft away through the existing
+  `compose-close` (cancel first: 「送信待ちを取り消しました。命令は送られていません。」). Static only: trace,
+  node --check, git diff --check; no test run. Not seen in a browser or a world.
