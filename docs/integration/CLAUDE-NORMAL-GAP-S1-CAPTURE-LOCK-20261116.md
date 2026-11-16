@@ -67,3 +67,31 @@ Not yet audited the same way: Raid, Seize (seizeOffer), Siege (siegeOffer), Expe
   stance_ok), slots (a proposal occupies its slot until settled: free() = not OPEN, the page counts state open), one
   open proposal per proposer, votes (open_at: now < close; voted once), readmission (the herald's `since` is a turn,
   the program's bell_of(since) the same).
+
+## Village Build / Train / Harvest / Muster / Garrison audit (2026-11-16)
+Beyond the capture lock (already done), the village actions' cost, slot and queue refusals against the page:
+- Build, walls: one gap fixed. build_as → wall_item writes each walls order into one of the TWO wall items of the
+  village's site mirror; an item is free once its effective bell is ≤ the province's resolved_next; both waiting →
+  QueueFull. The page checked only the queue slots and the 1,200 cap, so a third walls order was offered and only the
+  send was refused. `hud/rulebook.mjs` `wallItemsBusy` + buildOffers `mirror`/`resolvedNext`; `screens/holding.mjs`
+  buildCards passes the village's own mirror (its province, site and generation); reason 'WallsBusy' (JA/EN).
+  Integration ceba1d61, candidate merge d9e12b9d. Test `web-frontier-build-walls-items.test.mjs` 5/5; related 83/83
+  (export) and 85/85 (candidate tree); ordinary subset 1789: 1788 pass, 0 fail, 1 skipped. Unit/fixture only.
+- Build, buildings and promotion: no gap — queue slots by tier (enqueue QueueFull), one promotion at a time (QueueFull
+  → the page's 'Promoting'), TopTier, Insufficient (pay), copy number (built above base + queued same resource + 1),
+  more than 64 copies (catalog building None → BadData; the page's AboveCap). Not mirrored: the program's production cap
+  (MAX_PRODUCTION_PER_HOUR 1,000/h → AboveCap), not reachable at prices the stores can pay before 64 copies.
+- Train: no gap — train_v3 (n ≥ 1, unit trains, arms for the strong units), pay → Insufficient; the page's trainCost and
+  its 30,000 limit match.
+- Harvest: no refusal beyond ownership, live, the capture lock and finality, all already mirrored.
+- Muster: one gap fixed. muster_as refuses with ProvinceFull when the village's own Province has 48 hosts standing or
+  forming (entry states 1–2), 8 of the village's nation, or no free entry; the page did not check it. `fland.mjs`
+  `provinceFull` + actionBlocks('Muster') after NotFinal/NotResident; the existing sentence (fi18n ProvinceFull, JA/EN).
+  The free-entry part only on a full decode (56 entries); otherwise the program decides. Integration 3ba74174,
+  candidate merge 228ec445. Test `web-frontier-muster-province-full.test.mjs` 4/4; ordinary subset 1793: 1792 pass,
+  0 fail, 1 skipped. Unit/fixture only. Already mirrored: NotFinal, NotResident, CapturePending, the reserve (the
+  drawer form is disabled when short; the hand says NoReserve below 100 musterable). Not re-audited in this round: the
+  troop count's own 100–30,000 range per form, and the muster tile (passable, inside the Province).
+- Garrison: NotFinal / NotResident / CapturePending mirrored. Open (next): the form does not check the Spearman reserve
+  (Insufficient) or the garrison's room (30,000 after pending changes, TooLarge); the page holds both (reserve, the
+  site mirror's garrison and pending items).
