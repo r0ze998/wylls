@@ -22,10 +22,24 @@ export const nextOf = state => { const next = NEXT[state] ?? 'wait'; return { ne
 const withNext = r => ({ ...r, ...nextOf(r.state) });
 const err = (code, message) => Object.assign(new Error(message), { code });
 
-/** REAL: ④'s client (createActsClient(...) from ④'s clients/acts.mjs). */
-export function fourActsPort(client, { label = '④ runexec act (run store)' } = {}) {
-  const tag = r => ({ ...r, connection: 'real', port: label });
-  const wrap = p => p.then(tag, e => { throw err(e?.code ?? 'Spawn', e?.message ?? String(e)); });
+/**
+ * How one answer's state was obtained, as far as ⑤ can know it (④'s receipt does not say): `gateway` — this call read
+ * GET /f/agent/fate once (④'s client given a gateway port, clients/acts.mjs `status`; or ⑤'s fate reader); `store-only`
+ * — the registry answered from its own records (register, list, `read: false`, a client without a gateway port, the
+ * substitute without a fate reader); null — not known (a port built from a client whose gateway port it was not told).
+ * Neither value names a chain, cluster or simulator: a gateway read is the wallet's answer about whatever chain it
+ * sends to, and no field here is evidence that a chain executed the act.
+ */
+export const READ_VIA = Object.freeze(['gateway', 'store-only']);
+
+/**
+ * REAL: ④'s client (createActsClient(...) from ④'s clients/acts.mjs). `readVia`: 'gateway' when the client was made
+ * with a gateway port, 'store-only' without one, null (default) when the caller does not say.
+ */
+export function fourActsPort(client, { label = '④ runexec act (run store)', readVia = null } = {}) {
+  const tagAs = via => r => ({ ...r, connection: 'real', port: label, readVia: via });
+  const tag = tagAs('store-only');
+  const wrap = (p, t = tag) => p.then(t, e => { throw err(e?.code ?? 'Spawn', e?.message ?? String(e)); });
   return {
     kind: label, real: true,
     // ④ 95686606's register reads, then inserts: two processes registering the same NEW key at the same moment make
@@ -35,7 +49,7 @@ export function fourActsPort(client, { label = '④ runexec act (run store)' } =
       if (e?.code === 'BadRequest' && /UNIQUE constraint failed/.test(e.message ?? '')) return client.register({ agentId, key, source, runId });
       throw e;
     })),
-    status: (q, o = {}) => wrap(client.status(q, o)),
+    status: (q, o = {}) => wrap(client.status(q, o), tagAs(o.read === false ? 'store-only' : readVia)),
     list: runId => client.list(runId).then(x => ({ ...x, acts: (x.acts ?? []).map(tag) }), e => { throw err(e?.code ?? 'Spawn', e?.message ?? String(e)); }),
   };
 }
@@ -46,12 +60,14 @@ export function fourActsPort(client, { label = '④ runexec act (run store)' } =
  */
 export async function loadFourActsPort({ clientPath, bin, db, gatewayPort = null, timeoutMs }) {
   const m = await import(pathToFileURL(clientPath).href);
-  return fourActsPort(m.createActsClient({ bin, db, gatewayPort, ...(timeoutMs ? { timeoutMs } : {}) }));
+  // ④'s client without a gateway port answers from the store only (clients/acts.mjs `status`); this loader never asks
+  // for ④'s test bridge, so with a port the read is the wallet's route.
+  return fourActsPort(m.createActsClient({ bin, db, gatewayPort, ...(timeoutMs ? { timeoutMs } : {}) }), { readVia: gatewayPort ? 'gateway' : 'store-only' });
 }
 
 /** SUBSTITUTE: ⑤'s file registry with the fate reader (fate omitted: answers from the file only). */
 export function localActsPort({ registry, fate = null, label = '⑤ local substitute (acts-registry.mjs)' }) {
-  const tag = r => withNext({ ...r, connection: 'substitute', port: label });
+  const tag = (r, via = 'store-only') => withNext({ ...r, connection: 'substitute', port: label, readVia: via });
   const idOf = q => q.run4Id ?? registry.idOf(q.agentId, q.key);
   return {
     kind: label, real: false,
@@ -62,7 +78,7 @@ export function localActsPort({ registry, fate = null, label = '⑤ local substi
     async status(q, { read = true } = {}) {
       const id = idOf(q);
       if (!registry.get(id)) throw err('NoRecord', `no act ${id} is registered`);
-      return tag(read && fate ? await registry.refresh(id, fate) : registry.receipt(id));
+      return read && fate ? tag(await registry.refresh(id, fate), 'gateway') : tag(registry.receipt(id));
     },
     async list(runId) { return { runId, acts: registry.byRun(runId).map(r => tag(registry.receipt(r.run4Id))) }; },
   };

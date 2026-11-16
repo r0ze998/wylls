@@ -97,7 +97,7 @@ async function statusByActs({ es, acts, agentId, source, requestId }) {
   }
   const terminal = ['landed', 'failed', 'expired', 'not-sent'].includes(r.state);
   return {
-    ...base, journal: journalSays, registry: 'recorded', connection: r.connection ?? base.connection,
+    ...base, journal: journalSays, registry: 'recorded', connection: r.connection ?? base.connection, readVia: r.readVia ?? null,
     fate: { state: r.state, in4: IN_RUN4[r.state] ?? 'Pending', commitment: r.commitment ?? null, why: r.why ?? null, lastReadError: r.lastReadError ?? null, conflict: r.conflict ?? null },
     signature: r.signature ?? null, signedAt: r.signedAt ?? null, slotFloor: r.slotFloor ?? null,
     validUntil: r.lastValidBlockHeight ?? null, validUntilUnit: 'block height (lastValidBlockHeight)',

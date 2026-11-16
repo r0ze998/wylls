@@ -137,7 +137,7 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
       if (!r.cancel) return null;
       // Which record the phase rests on: NOT ④'s run store or attempt table (not connected).
       const basis = 'the relay\'s agent_act answers and fates read by ⑤ (GET /f/agent/fate, else GET /f/tx; not ④\'s run store)';
-      if (r.state === 'cancelled' && r.acts.length === 0) { r.cancel.phase = 'Completed'; return { phase: 'Completed', effects: [], basis }; }
+      if (r.state === 'cancelled' && r.acts.length === 0) { r.cancel.phase = 'Completed'; r.cancel.until = null; return { phase: 'Completed', effects: [], basis }; }
       const open = r.acts.filter(a => a.status === 'sent' && !['landed', 'failed', 'expired'].includes(a.fate));
       // `until`: the latest lifetime among the open acts, as the gateway fixed it (a BLOCK HEIGHT); null when any is
       // unknown — ⑤ does not guess it from the clock.
@@ -146,6 +146,10 @@ export function localReceiptPort({ view, txState, costs = null, fate = null }) {
       const out = open.length ? { phase: 'AwaitingSigned', until, waitingOn: open.map(a => a.signature), why: until ? 'until: the gateway\'s lastValidBlockHeight (GET /f/agent/fate)' : 'until unknown: no fate reader, or an act without a recorded lifetime', basis }
         : { phase: 'Completed', effects: r.acts.filter(a => a.fate === 'landed').map(a => ({ requestId: a.requestId, action: a.action, signature: a.signature })), basis };
       r.cancel.phase = out.phase;
+      // The receipt's own `cancel.until` (RECEIPT_FIELDS; FATE-ACTS-5 §3: "fate の読み手があれば … cancel.until
+      // ({lastValidBlockHeight}) を埋める"): the until computed here while AwaitingSigned, null once Completed or unknown.
+      // It is the run's (the latest lifetime of its open acts), not one act's; the act ids stay on the acts.
+      r.cancel.until = out.phase === 'AwaitingSigned' ? out.until : null;
       return out;
     },
     get(runId) { const r = runs.get(runId); return r ? structuredClone(r) : null; },
