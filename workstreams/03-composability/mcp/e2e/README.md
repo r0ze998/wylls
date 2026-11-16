@@ -2,14 +2,15 @@
 
 `local-stack.mjs` plays the MCP flow end to end against a disposable local world. That world has `frontier-localnet` (a local test chain), the Frontier program, the keeper, the herald, and the relay with the agent wallet. Test USDC only, local ports only.
 
-The relay must have [patch 0005](../../patches/0005-agent-wallet-sendcaravan.patch), which makes SendCaravan an agent action. The main tree stays unpatched: the stack runs its relay from a throwaway worktree through `PSF_REPO`, and every build comes from the main tree.
+The relay must have [patch 0005](../../patches/0005-agent-wallet-sendcaravan.patch), which makes SendCaravan an agent action. Since commit `31ceb016` this repository's gateway carries it: applied verbatim, then changed by later work, so the patch file no longer applies to this tree (in either direction). On such a tree there is no patched worktree to make: `W` is this checkout, step 1 is skipped, and so is the worktree removal in step 4. Step 1 is only for an older tree without the patch, where the stack runs its relay from a throwaway worktree through `PSF_REPO` and every build comes from the main tree. (Corrected 2026-11-17 from the source and `git apply --check`; the steps were not run.)
 
 ```sh
 # 0. Builds (once): see docs/RUNNING.md §2
 scripts/build-frontier.sh --features test-beacon && scripts/build-prize.sh
 npm ci --prefix permutation-gateway && (cd frontier-node && cargo build --locked --release --workspace)
 
-# 1. A worktree with patch 0005, its build outputs and node_modules linked to the main tree's
+# 1. Only on a tree WITHOUT patch 0005 (before 31ceb016). On this tree: W=$PWD, then step 2.
+#    A worktree with patch 0005, its build outputs and node_modules linked to the main tree's
 W=/tmp/ws03-gw; git worktree add --detach $W HEAD
 git -C $W apply "$PWD/workstreams/03-composability/patches/0005-agent-wallet-sendcaravan.patch"
 for d in permutation-frontier/target permutation-prize/target frontier-node/target permutation-gateway/node_modules; do ln -s "$PWD/$d" "$W/$d"; done
@@ -26,7 +27,8 @@ K=/tmp/ws03-agentkeys; mkdir -p $K
 WS03_E2E_HERALD=http://127.0.0.1:41740 WS03_E2E_RPC=http://127.0.0.1:41710 node workstreams/03-composability/mcp/e2e/local-stack.mjs
 
 # 4. Clean up
-frontier-node/target/release/frontier-stack down --run-id <the run id>; git worktree remove --force $W
+frontier-node/target/release/frontier-stack down --run-id <the run id>
+git worktree remove --force $W   # only when step 1 made $W (an older tree); never with W=$PWD
 ```
 
 The transcript goes to `workstreams/03-composability/results/mcp-local-stack.json`.

@@ -29,8 +29,8 @@ The design and the facts are in [../07-mcp.ja.md](../07-mcp.ja.md) (Japanese). T
 
 ```sh
 cd workstreams/03-composability/mcp && npm ci
-npm test                                                                    # this repository's gateway (no patch 0005): the write tests are skipped
-WS03_GATEWAY_ROOT=/path/to/a/tree/with/patch-0005/permutation-gateway npm test  # every test
+npm test                                                         # this repository's gateway has patch 0005 since 31ceb016: the write tests run (test/fixture.mjs PATCHED)
+WS03_GATEWAY_ROOT=/path/to/another/permutation-gateway npm test  # another gateway tree (one without patch 0005 skips the write tests)
 ```
 
 Run the server (local only):
