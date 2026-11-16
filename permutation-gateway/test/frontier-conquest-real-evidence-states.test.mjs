@@ -107,8 +107,8 @@ test('the capture run, stage by stage: each is reported as the present fact it i
   try {
     const line = async name => String(hand.cityStateView(pageOf(CAP, (await read(CAP, stage(CAP, name))).got).city));
     assert.equal(await line('reservation_pending'), '');
-    assert.match(await line('reservation_applied'), /Your siege is under way: 0 of 36 turns \(declared at turn 19; site 1\)\. The city is not yours yet\./);
-    assert.match(await line('capture_due'), /waiting to be settled \(due from turn \d+; declared at turn 19; site 1\)\. The city is not yours yet\./);
+    assert.match(await line('reservation_applied'), /Your siege is under way: 0 of 36 turns \(declared on turn 19; site 1\)\. The city is not yours yet\./);
+    assert.match(await line('capture_due'), /waiting for the capture(?:'|&#39;)s result to be collected \(from turn \d+; declared on turn 19; site 1\)\. The city is not yours yet\./);
     const owned = await line('captured');
     assert.match(owned, /You hold this city now \(site 1; holding slot 2\)\. Only the fact that you hold it now is shown\./); assert.doesNotMatch(owned, /captured|won|victory/i);
   } finally { setLang('ja'); }
