@@ -701,3 +701,52 @@ The guard is not changed, removed or bypassed, and the test is not run without i
   - basis not `chain`.
 - **4's page reaches the end of the output** held, with its epoch and `store`. The resident preflight still says `assembled: false`.
 - **What it reads:** besides module loading, it reads one fixture file (`happy.json`).
+
+### One run each of the two WS12 test files (2026-11-17, at 8e2e3e85)
+
+**Commands, from the repository root, each run once:**
+
+```
+/opt/homebrew/opt/node/bin/node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test workstreams/12-memory/test/ws04-observation.test.mjs
+/opt/homebrew/opt/node/bin/node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test workstreams/12-memory/test/ws04-observe-cli.test.mjs
+```
+
+**Checked just before the first run:**
+- HEAD `8e2e3e85`, equal to the remote;
+- `ws04-observation.test.mjs` sha256 `058070c1d4cc05ca…`, `ws04-observe-cli.test.mjs` `e535632535042dbe…`, both as committed;
+- `nokey-guard.mjs` `cf4518176289a457…`, unchanged (it imports only `node:crypto` and `node:module`);
+- Node v23.11.0 (`/opt/homebrew/Cellar/node/23.11.0/bin/node`, `01ca46d5dbf4e6fd…`);
+- `NODE_OPTIONS`, `NODE_PATH`, `NODE_EXTRA_CA_CERTS`, `NODE_TEST_CONTEXT`, `LD_PRELOAD`, `LD_LIBRARY_PATH` and the `DYLD_*` preload variables all unset;
+- no other `node --test` running;
+- 48.9 GiB free;
+- the worktree status recorded (the unstaged media deletions, which are not this work's), nothing staged.
+
+**Not involved:** WS13's test, its `keyless-guard.mjs` and the `@solana/web3.js` tree it would load; the refused gateway tests; any runner or world; any network, database, key or subprocess beyond the test runner's own.
+
+**Result:**
+
+| Run | Time (+0900) | Exit | Result |
+|---|---|---|---|
+| `ws04-observation.test.mjs` | 01:58:48 | `rc=0` | **8 / 8 passed**, in 49 ms |
+| `ws04-observe-cli.test.mjs` | 01:58:54 | `rc=0` | **4 / 4 passed**, in 54 ms |
+
+- **One warning (the second run):** `ExperimentalWarning: SQLite is an experimental feature`. It comes from loading `node:sqlite`, which `12-memory/adapters/canonical.mjs` imports at top level. No database was opened: the test asserts that the injected store reader was the only one called, once.
+- **The I/O assertions passed:**
+  - `getJson` only `/h/season` and `/h/events?after=0` at the fake address;
+  - `rpc` 0 calls;
+  - `readStore` 0 calls, or exactly 1 call of the fake in the normal-Season case;
+  - `execFile` only the fake, no shell;
+  - a usage error makes no call at all.
+- **No guard block notice** in either log.
+
+**After the runs:**
+- no `node --test` or `runexec` process left;
+- 48.9 GiB free;
+- the worktree status identical to before, nothing staged;
+- nothing new in `/tmp`.
+- The logs are in the session's scratchpad (`logs/ws12-t1-ws04-observation.log`, `logs/ws12-t2-ws04-observe-cli.log`).
+
+**What this shows, and what it does not:**
+- These tests run 12's held report and 13's command against hand-made pages, fixtures and fakes. They show that the code behaves as written on those inputs.
+- They show nothing about a real runexec, a real findex store, the herald, an RPC, the chain or ChatGPT, and nothing about a resident: none is connected.
+- WS13's client test is still not run (the web3.js tree is not audited and approved).
