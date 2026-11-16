@@ -1,4 +1,12 @@
-# What a user's MCP client can read of their village today (2026-11-17, static audit)
+# What the agent wallet's MCP can read of its village today (2026-11-17, static audit)
+
+> **Scope correction (2026-11-17):** this audit covers **the agent wallet's MCP only** (`permutation-gateway/mcp/agent-mcp.mjs`). It does not cover ③'s user MCP.
+>
+> **③ already has these tools** (lane D's check of `workstreams/03-composability/mcp`):
+> - **`get_village_status`:** `server.mjs` 96–114 → `Game.view` (`game.mjs` 163–174) → `herald.me(owner)` → the holding at the matching coordinates → `fland.storesAt`, giving stores, per-hour production and cap.
+> - **`check_resource_shortfall`:** `game.mjs` 203–218, giving need, have, short, hours by production, and top-up from vaults the user owns.
+>
+> **So ③'s flow does not need the "candidates" below.** Those concern only the agent-wallet entry, and none is proposed for ③.
 
 **Branch:** `claude/gateway-mcp-read-display-20261117`, cut from candidate d16048aa.
 
@@ -41,7 +49,7 @@
 
 **What running it would touch:** the file imports only `mcp/agent-mcp.mjs` (Node's `readline` and `url`) and a fake `fetch`. It does not import `@solana/web3.js` or the gateway's fixtures (the existing `agent-wallet-mcp.test.mjs` imports `@solana/web3.js`, which here would resolve to an unaudited tree in the home directory). It is not one of the refused tests (`web-frontier-build-walls-items`, `web-frontier-muster-province-full`), nor a runner or a world.
 
-## Candidates (new tools or contracts: not adopted)
+## Candidates for the agent-wallet entry only (new tools or contracts: not adopted; not needed for ③, which has its own)
 
 To give the MCP user step 1 and step 2:
 1. **A read of the agent's own village state**, for example a `village_read` tool, or a `world_read` `what: "village"`. It reads the herald's `/h/holding/{P},{Q},{site}.json` for the agent's own `village` (from `agent_view`), decodes it with the client codec (`decodeAccount`), and projects it with the runner's existing `villageState` (S1 names, whole units, projected to `latestUnix` as the owner's page does).
@@ -52,3 +60,49 @@ To give the MCP user step 1 and step 2:
 3. **Where these go:** either in this agent MCP (an agent's owner's village), or in ③'s user MCP (`03-composability/mcp`, lane D's). Which one is ③'s and the owner's choice. A user MCP that reads the user's own village by wallet would use `/h/me/{wallet}`.
 
 Code existing for any of these is not a live ChatGPT connection: none of it has been run against a real relay, herald or client.
+
+## One run of the new test (2026-11-17, at 7ad7d602)
+
+**Command, from the repository root, run once:**
+
+```
+/opt/homebrew/opt/node/bin/node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test permutation-gateway/test/agent-mcp-read-not-json.test.mjs
+```
+
+**Checked just before:**
+- HEAD `7ad7d602`, equal to the remote;
+- the test (`91ac476961c73a92…`), `agent-mcp.mjs` (`804e3b21aa551461…`) and the guard `nokey-guard.mjs` (`cf4518176289a457…`, built-ins only) all as committed;
+- Node v23.11.0 (`01ca46d5dbf4e6fd…`);
+- the Node and loader preload variables unset;
+- no other `node --test` running;
+- 48.8 GiB free;
+- the worktree status recorded (the unstaged media deletions, which are not this work's, plus this report's uncommitted scope note), nothing staged.
+
+**Imports:** the test imports `node:test`, `node:assert/strict`, `node:fs` and `../mcp/agent-mcp.mjs`, which imports `node:readline` and `node:url` only. No `@solana/web3.js`, no gateway fixtures. The command's own stdio `main` is not reached.
+
+**Result, 02:07:06 (+0900):**
+- **3 / 3 passed**, `rc=0`, 44 ms, no warning:
+  - a 200 that is not a JSON object is an error for all five read calls;
+  - a JSON object passes through unchanged;
+  - `agent_act` and the tool list are unchanged.
+- **After:** no test process left, the status identical to before, nothing staged, 48.9 GiB free.
+
+**Limits:** a fake `fetch` only. Nothing about a real relay, herald, MCP client or ChatGPT.
+
+## ③'s user MCP: its village path, traced read-only
+
+`workstreams/03-composability/mcp/src/game.mjs` is unchanged from the candidate. It was read, not edited (lane D's).
+- **`view()`:**
+  - `herald.me(owner)` (the web client's `herald.mjs`, which checks each Holding against its canonical address: `checkMe`);
+  - the holding whose `p`, `q`, `site` equal the agent's `village`;
+  - `fland.storesAt(h, now, resources)`.
+
+  The values are whole units: `value = accrual / 1000`, `perHour = rate / 1000`, `cap = cap / 1000`.
+- **The owner's vaults:** from the herald's caravan feed, where `caravan.rs` writes `stores` and `cap` in whole units (`milli / 1000`, floored). They exist only where a post-transaction state was read, and `game.mjs` marks a vault without them `known: false`, using none of it. So `shortfall` compares village and vault amounts in the same unit, and indexes `stores` in the same resource order.
+- **One divergence noted, not shown to matter:**
+  - `game.mjs` takes the S1 names (`Arms` in slot 4) when `season.programVersion >= 4`;
+  - the web client's own test is `s1Season = layoutVersion === 2 && programVersion >= 4` (`permutation-server/web/frontier/fs1.mjs:9`);
+  - they would differ only for a Season with program version ≥ 4 and another layout, and no such Season was found;
+  - the gateway's runner chooses its catalog by another field (`profile >= 3`).
+
+  Reported to lane D's area as an observation. Nothing is changed here.
