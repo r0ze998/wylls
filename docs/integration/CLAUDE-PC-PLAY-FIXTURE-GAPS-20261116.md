@@ -59,3 +59,28 @@ the viewer's villages composes nothing; the send's use of the composed village i
   bar buttons in app.mjs (pinned in round 28, not driven here); no world.
 - The file names `subtle.generateKey` in its header, so `scripts/ci/node-keyfree.sh` refuses it (exit 3) rather than
   run it; scripts/ci/node-key-tests.txt was NOT changed (owner's instruction) and needs the owner's regeneration.
+
+## The map tap and the host bar for a host of another village (2026-11-16, Claude)
+Static trace of the entries a player presses (app.mjs, hud/hand.mjs, controller.mjs), each for a host of the viewer's
+OTHER village:
+- Map tap → march (`mapTap` → `orderMarch`): switches to the actor's own village (`A.actor.holdingIndex`) before
+  `ACTIONS.compose`; the order fixes that village. Correct.
+- 「村へ戻す」 (`hand-return`): switches to `sub.holdingIndex` before `march-home`; the return's destination is that
+  village's tile. Correct.
+- 探索 (`setPop('explore')`), 砦へ進軍 (`cq-march`, round 28), 次の軍勢 / `selectHost`: switch first. Correct.
+- 解散 (`hand-pop` → `dissolve`): **mismatch, fixed.** A plain tap on the host's tile (the selection switches only on a
+  village's own tile) or its chip on a tile shared with the open village (`hand-host` → `handHost`, no switch) leaves
+  the open village as it was. The bar offered 解散 (`dissolveCheck` reads the host's own village), but
+  `controller.mjs dissolve` built the order from the OPEN village (`activeHolding`, `hostRow`), which the program
+  refuses (`host.rs dissolve_as` → `resident_host`). The same after a march draft was put away with the village left
+  switched (a stale village). Fix (integration 98ea5c52, candidate merge 9dd64905): `dissolve` first switches to the
+  host's own village (`holdingIndexOfHost`), as the other entries do. No rule changed, no test-only hook.
+- Test `permutation-gateway/test/web-frontier-dissolve-other-village.test.mjs`, run alone from the single export:
+  6/6 with the fix; 2/6 on the unchanged controller (plain tap, chip and a repeated choice, put-away draft, source pin
+  fail). It drives the bar's model (`handModel`) and the real controller action; the app.mjs handlers are pinned as text
+  (app.mjs is the DOM module). KEY-FREE: no key made, nothing signed or sent (no pin: the order stops at NoPin before
+  anything is built); `fetch` stubbed and never called (asserted); nothing stored. Its import closure is that of the
+  keyless `web-frontier-cq-march-other-village` test plus itself. `node-keyfree.sh` was not used (it refuses on the
+  stale reviews; not changed).
+- Not covered: the press in a browser, the order landing on a chain, a world. Display only, not fixed: 次の軍勢's
+  figure counts the open village's hosts, so it reads 1/N for a host of the other village.
