@@ -237,3 +237,13 @@ The coordinator's static review before any run found that `jointPrecisionText` (
 - a real world.
 
 Those are not treated as done.
+
+## Run record (the coordinator's run of the joint-count test; Lane C ran nothing)
+
+| Item | Result |
+|---|---|
+| Who and when | The coordinator, once, at `d9f1acfc`, after reading the whole test and helper and re-checking the dependencies, side effects, environment, and that it does not overlap any refused route. Not to be rerun |
+| Command | `node --test workstreams/01-national-strategy/test/coop.joint-count.test.mjs`, with Homebrew's `node` (Node 23.11.0); no injected environment variables |
+| Result | 5/5 pass; fail 0, cancelled 0, skipped 0; exit 0; duration 49.257625 ms; 53,200,000 KiB free |
+| What it verifies | Only `addCounted`'s arithmetic |
+| Not run | The real `coopView` guards (duplicates, `counted: null`), the board, the chain fake, the DOM and screen, and a real world |
