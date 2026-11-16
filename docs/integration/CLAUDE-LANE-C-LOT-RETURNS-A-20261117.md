@@ -600,3 +600,80 @@ This is the case for which a record would be due on `whole` alone.
 Its body is the same as at `513f8409` and the candidate, and needs only `custody-preview`. Nothing else in the audit changes: no build scripts, no dev-dependencies, in-process stubs only, no file, network or key side effects, writes to the dedicated target only. Registry availability for `--offline`, size and time are **not checked**.
 
 Nothing was run or compiled.
+
+## Host-test pre-audit (2026-11-17; read-only: nothing built, compiled or run, no download)
+
+**Scope.** Only resolution and reads: `cargo tree` / `cargo metadata` with `--offline --frozen`, file hashes, source reads, and `clang --version`. Nothing was downloaded, installed or built.
+
+### Toolchain, configuration, environment
+
+| Item | Finding |
+|---|---|
+| Toolchain | `rust-toolchain.toml` pins `1.89.0` (profile minimal, rustfmt and clippy). `cargo 1.89.0 (c24e10642)`, `rustc 1.89.0 (29483883e)`, host `aarch64-apple-darwin` |
+| Repo `.cargo/config.toml` | Only `[build] target-dir = "permutation-chain/target"`, which the command's `--target-dir` overrides |
+| User cargo config | None (`~/.cargo/config.toml` absent). Credentials were not read |
+| Environment | No `CARGO*`, `RUST*`, `RUSTC*`, `RUSTFLAGS`, `CC`, `CXX`, `AR`, `CFLAGS`, `SOLANA*`, `SBF*` or `BPF*` variable is set |
+| C compiler (for `cc`) | `/usr/bin/clang` and `/usr/bin/cc`: Apple clang 21.0.0, arm64-apple-darwin |
+| `Cargo.lock` | SHA-256 `87459163…7bc9`, identical to the candidate `d16048aa`. Not changed |
+
+### Dependency closure and its integrity
+
+- **Resolution.** `cargo tree -p permutation-frontier -e normal,build,dev --target aarch64-apple-darwin --offline --frozen` resolves **170 packages**, the same set with the carrier on (`capacity-preview,custody-rest-home-preview`) and off (`capacity-preview,custody-preview`). Only `permutation-frontier`'s own feature list differs; `frontier-abi` and `permutation-rules` get `capacity-preview,default` in both.
+- **Registry crates (167).** All from `registry+https://github.com/rust-lang/crates.io-index`, and **every one checked**:
+  - each local archive in `~/.cargo/registry/cache` has a SHA-256 equal to the `Cargo.lock` checksum;
+  - every file in every archive (**4,692 files**) is byte-identical to the extracted copy in `~/.cargo/registry/src`.
+  - Problems: none. Mismatches: 0.
+- **Path crates (3):** `permutation-frontier`, `permutation-rules`, `frontier-abi`.
+
+### Build scripts in the closure (18)
+
+**Two compile C or assembly through `cc` with the system clang:**
+- `blst 0.3.17`: probes `clang --version` (and `clang-cl` only on MSVC-type targets), then builds its C and asm. It reads only `CARGO_CFG_*`, `CARGO_ENCODED_RUSTFLAGS`, `CC`, `BLST_TEST_NO_STD` and `CARGO_MANIFEST_DIR`.
+- `blake3 1.5.5`: builds its NEON C for aarch64. It reads `TARGET` and `CARGO_CFG_TARGET_ENDIAN`.
+
+**The other sixteen** are `ahash`, `borsh`, `bv`, `curve25519-dalek`, `generic-array`, `libc`, `memoffset`, `num-traits`, `paste`, `proc-macro2`, `quote`, `radium`, `serde`, `serde_core`, `thiserror` and `zerocopy`. Their only processes are `rustc` version or feature probes. `libc` also names `freebsd-version` and `emcc`, for other target OSes only.
+
+**Common to all 18:**
+- Writes: only under `OUT_DIR` (`private.rs`, a probe subdirectory), inside the target directory.
+- Network: none. Every `http(s)://` match is in a comment.
+
+### The candidate commands (to be approved by the coordinator; not run)
+
+**Run A, with the carrier:**
+
+```
+cargo +1.89.0 test --offline --locked -p permutation-frontier --lib \
+  --features capacity-preview,custody-rest-home-preview \
+  --target-dir <new dedicated dir> -j 1 -- --exact --test-threads=1 \
+  map_growth_runtime_tests::capacity::capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back \
+  map_growth_runtime_tests::capacity::capacity_link_count_states \
+  proc::custody::tests::custody_record_widths \
+  proc::custody::rest_home_boundary::the_tag_is_unknown_to_the_v2_table \
+  proc::custody::rest_home_boundary::the_carrier_is_compiled_into_host_unit_tests_only \
+  proc::custody::rest_home_boundary::the_prepared_payload_carries_whole_and_paid_in_44_bytes
+```
+
+**Run B, without the carrier:** `--features capacity-preview,custody-preview`, the same six names plus `proc::custody::rest_home_boundary::without_the_feature_the_dispatch_refuses_0xef`.
+
+**Where the names come from:**
+- `map_growth_runtime_tests`: `#[cfg(all(test, feature = "program"))]` in `lib.rs`; `capacity`: `#[cfg(feature = "capacity-preview")]`; the two lot tests: `#[cfg(feature = "custody-preview")]`.
+- `proc::custody::tests` and `rest_home_boundary`: `#[cfg(test)]` inside the custody-preview module.
+
+### Effects, space and identity
+
+| Item | Finding |
+|---|---|
+| Writes | The new dedicated `--target-dir` only, plus build scripts' `OUT_DIR` inside it. The test code has no `std::fs`, `std::net`, `std::process` or `env::var` (read in `map_growth_runtime_tests.rs`, `capacity_runtime_tests.rs` and `proc/custody.rs`). `include_str!` reads three source files at compile time |
+| Keys, network, real world | None. Wallets and keys are fixed byte arrays. `set_syscall_stubs` runs in-process, with a serial `Mutex`, in-memory logs and `set_test_clock`. No RPC, validator, world, launcher or browser |
+| Space | 51,951,604 KiB free now (floor 21 GiB). The earlier kernel-only target `wylls-test-target-custody-43e963d3` is 191,548 KiB. **This build's size is not measured**: it adds `solana-program`, the ark crates, `blst` and `blake3` |
+| Not the refused tests | `web-frontier-build-walls-items.test.mjs` and `web-frontier-muster-province-full.test.mjs` are JavaScript files under `permutation-gateway/test`, run by Node (`node --test`, `package.json`), checking the web page. The candidates are Rust unit tests of the `permutation-frontier` library, run by `cargo test --lib --exact`. They share no file, runner, language or purpose, and no step of these commands invokes Node or those files |
+
+### Final static check of the target sources (read)
+
+- **Closures:** captures in scope (`program`, `b`, `pl`), and no conflicting borrows of `t`.
+- **Slice coercions:** `RefMut`/`Ref` to `&mut [u8]` / `&[u8]` (`encode`, `to_vec`, slice comparison) all hold.
+- **Names:** `RestHome` and `rest_home_payload` reach `rest_home_boundary` through `use super::*`.
+- **Source pin:** still 2.
+- **The restored `mod tests`** is identical to `513f8409`.
+
+**No defect found, so no code changed.** Whether these compile and pass is **unknown until run**.
