@@ -127,3 +127,15 @@ OTHER village:
   `git diff --check` and `node --check` pass; that test alone from the single export on the commit's files: 6/6.
   No key, signing, request or storage in the test.
 - Integration merge 84469802, candidate merge fccaf09e; the land chip fix (e87faba3) is still in.
+
+## Scout muster wording (Sakurai review), integrated from the parallel owner (2026-11-16, Claude)
+- `codex/sakurai-scout-wait-20261116` @ fc6e8b68 (parent: integration 3f3372b8): the scout guide's muster line no longer
+  says 「約11〜21分」; it says the scouts stand once the turn ends, its seals are opened and it is resolved, and that
+  the village can keep building meanwhile (`screens/onboarding.mjs renderScoutAction`, EN in `lang/en-frontier-play.mjs`,
+  the owner's doc, and new asserts in `web-frontier-first-village-ui.test.mjs`). No game logic changed.
+- Checked here, statically only: diff read; no file shared with the integration commits since 3f3372b8; `git diff
+  --check` and `node --check` (3 code/test files) pass; the new English has no word of the play screen's banned list.
+- **Dynamically NOT verified**: `web-frontier-first-village-ui.test.mjs` was not run (the owner's run was refused by the
+  key-free runner's stale reviews; not retried, not bypassed, runner unchanged). Other 「約11〜21分」 lines remain for
+  the village application (join), a separate context not in this change.
+- Integration merge 5877d468, candidate merge a0b3cf99; the dissolve, 次の軍勢, land chip and minimap fixes are still in.
