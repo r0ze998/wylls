@@ -150,3 +150,18 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Land doc item 5 ("Territory N tiles" = nation over provinces read): already gone — no page file uses `landTotals`
   since db6eef59 (the chip is landSummary, plus the far part of c46b6768).
 - Lane C O1: cannot occur for seasons this program creates (CreateSeason takes only this binary's S1 version).
+
+## 2026-11-16 09:15 JST — land SBF reproduced on the candidate; tag audit
+- SBF (candidate 6b2c4303 worktree): `cargo build-sbf --manifest-path permutation-frontier/Cargo.toml --tools-version
+  v1.52 --arch v2 --features localnet-land-sbf --offline --skip-tools-install -- --locked` (solana-cargo-build-sbf 3.1.9,
+  installed platform-tools v1.52), guarded (conquest-guard 94baeb7d + floor21 99dbed44, deadline 10:30), target = APFS
+  clone of the land target; rules, abi and program recompiled from the candidate's sources (registry deps cached).
+  Output (separate, git-ignored): `<candidate>/permutation-frontier/target/deploy-localnet-land-sbf/permutation_frontier.so`
+  sha256 f2e644420dd8dca4a9c985b995ea599040e09b0e69bc561f3069e625e96a5987, 3,648,952 B — byte-identical to the pinned land4
+  .so; script checks (PSF_LAND_CHECK_ONLY=1): SBPF v2, overflow checks, both localnet markers, no test marker. Not
+  deployed; no world.
+- Tag audit: frontier-abi `the_land_tags_collide_with_no_routed_band` — 0xCD/0xCE against v2 (table + Ix::ALL), rights
+  0xD0–0xD5, capacity 0xF0–0xFD, wide drafts 0xD6–0xDF + 0xEE (under their features); workstream 20's band 0xE0–0xE7 by
+  the existing assertion. Static: no other first-byte use of 0xCD/0xCE in program, abi, rules, frontier-node or the page
+  (other hits are 32-byte address/hash literals; expedition instructions reuse wide tags with a 0xff class byte). Pass with
+  all features (13) and land-only (10). Tags stay PROVISIONAL until the integrator allocates them.
