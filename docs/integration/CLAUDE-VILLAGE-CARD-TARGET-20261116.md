@@ -56,3 +56,23 @@ Any run; the screen in a browser; a world with two villages.
   (`HoldingMismatch` → 'problem'); nothing is ever sent for another village; no cancel protection is weakened.
 - No proven inconsistency, so no code change. The properties are pinned as text in
   `web-frontier-hand-chip-village.test.mjs` — SOURCE ONLY, not run.
+
+## The villages read again: positions shift under the open village (2026-11-16, static; NOT run) — controller contract proposed, NOT applied
+- Read: `controller.mjs applyMeResult` sets `FS.holdings = me.holdings` (the herald record's order, `herald.mjs me`) and
+  keeps `FS.activeHolding`, a position; `fstate.mjs activeHolding` falls back to position 0 when it is out of range.
+  The bar's card subject is found by TILE in the new list (`hud/subject.mjs subjectOf`).
+- Mismatch: villages [A, B, C], C open (position 2) with C's card; B is lost (captured) → [A, C]: position 2 is out of
+  range → the open village is A, while the card still shows C (now position 1) — C's card, its 建設 / 訓練 / 編成 / 収穫
+  ordered for A. (A village put before the open one would shift it the same way; whether the herald's order can do so
+  was not verified.)
+- Why not in app.mjs: `refresh()` redraws only at its end (after the envelope, march and chronicle reads that follow
+  `applyMeResult`), so the old card stays pressable in between — a render-time check does not cover it; and the press
+  handlers (`build`, `train`, …) are shared by the bar and the village screen, so a press-time check cannot tell which
+  village the player meant.
+- Minimal contract proposed for `controller.mjs applyMeResult` (NOT applied — the controller's identity/generation
+  handling is not this branch's): before `FS.holdings = me.holdings`, take the open village's identity (p, q, site,
+  gen); after, set `FS.activeHolding` to the new position of that identity (`holdingByRef`); if it is gone, position 0,
+  and a village card of a village no longer held put away (`FS.hand`/`FS.selected` cleared) and an open village-card
+  pick ended. Nothing else (generations of the land record, Lane C's freshness, are a separate matter).
+- Regression: `permutation-gateway/test/web-frontier-holdings-reload.test.mjs` (new) — the precondition by `subjectOf` /
+  `activeHolding`, the gap as a todo, and `applyMeResult`'s current text pinned — SOURCE ONLY, not run.
