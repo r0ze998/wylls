@@ -78,8 +78,9 @@ export function contributedTo(journal, requestId) {
  * memory; a failed or expired one is remembered as that; anything not yet
  * provable stays open for the next run.
  */
-export async function verifyPending({ journal, txState, world, guard = null }) {
+export async function verifyPending({ journal, txState, world, guard = null, maxReads = Infinity }) {
   const out = [];
+  let reads = 0;
   const keys = new Set(journal.entries.filter(e => e.step === 'act-result' && e.outcome === OUTCOME.SENT).map(e => e.key));
   for (const key of keys) {
     const last = journal.stateOf(key);
@@ -87,6 +88,10 @@ export async function verifyPending({ journal, txState, world, guard = null }) {
     const begin = lastOf(journal, key, 'act-begin');
     const sent = lastOf(journal, key, 'act-result', e => !!e.signature);
     if (!sent) continue;
+    // `maxReads`: a caller's bound on chain reads per call (the autopilot's read-only follow-up after a stop); the
+    // rest stay open and are read on a later call. A tick passes none (every open act, as before).
+    if (reads >= maxReads) { out.push({ key, outcome: OUTCOME.UNKNOWN, notRead: true }); continue; }
+    reads++;
     let tx;
     // The requestId lets a fate-based txState (model-api/src/fate-reader.mjs) read GET /f/agent/fate by key.
     try { tx = await txState(sent.signature, { requestId: begin?.attemptId ?? sent.attemptId }); } catch (e) { tx = { state: 'unknown', fateState: 'unqueryable', why: String(e?.message ?? e) }; }
@@ -132,9 +137,12 @@ export async function verifyPending({ journal, txState, world, guard = null }) {
   return out;
 }
 
-async function act(mcp, args, retries) {
+async function act(mcp, args, retries, fence = null) {
   let r;
   for (let i = 0; i <= retries; i++) {
+    // A retry after the caller's stop would be this request's first send: not made. The answer stays unknown (as when
+    // every retry fails): the act is held, never taken as sent or as not sent.
+    if (i > 0 && fence && !fence().ok) return { r, attempts: i, unreachable: true, stopped: true };
     r = await tool(mcp, 'agent_act', args);
     // The relay was not reached: retry the SAME requestId (the gateway never sends a key twice).
     if (r.structuredContent?.error?.code !== 'RelayUnreachable') return { r, attempts: i + 1 };
@@ -187,7 +195,10 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
   // action_status), so a stop, a revoked or expired mandate or a lost delegation holds it as unknown instead.
   if (!grant.ok) report.held = journal.unfinished().map(b => ({ key: b.key, requestId: b.requestId, outcome: OUTCOME.UNKNOWN, why: 'the grant is not valid now; not re-sent' }));
   else for (const b of journal.unfinished()) {
-    const { r, unreachable } = await act(mcp, b.args, retries);
+    // The caller's stop (the autopilot stopped or restarted since this run began): re-asking may send, so it is held.
+    const bs = boundary?.beforeSend?.();
+    if (bs && !bs.ok) { report.resumed.push({ key: b.key, outcome: OUTCOME.UNKNOWN, code: bs.code, why: `${bs.detail}: not re-sent` }); continue; }
+    const { r, unreachable } = await act(mcp, b.args, retries, () => boundary?.beforeSend?.() ?? { ok: true });
     if (unreachable) { J({ step: 'act-error', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: OUTCOME.UNKNOWN, code: 'RelayUnreachable', resumed: true }); report.resumed.push({ key: b.key, outcome: OUTCOME.UNKNOWN }); continue; }
     const a = resultOf(r.structuredContent);
     if (!a.status) { J({ step: 'act-error', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: OUTCOME.UNKNOWN, code: a.code, resumed: true }); report.resumed.push({ key: b.key, outcome: OUTCOME.UNKNOWN, code: a.code }); continue; }
@@ -320,9 +331,20 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
         continue;
       }
     }
+    // The caller's stop, checked after the last await before sending (the registration): a stop during the model call,
+    // the fresh view or the registration sends nothing. Checked before act-begin, so a restart never finds this act
+    // unfinished and re-asks it.
+    const bs = boundary?.beforeSend?.();
+    if (bs && !bs.ok) {
+      S?.guard.release(`game:${args.requestId}`);
+      J({ step: 'guard', key, requestId: p.requestId, attemptId: args.requestId, verdict: 'refused', code: bs.code, reason: bs.detail });
+      Object.assign(item, { outcome: OUTCOME.SKIPPED, code: bs.code, reason: `${bs.detail}。送らない`, ownerDecision: null });
+      stale = bs.code;
+      continue;
+    }
     J({ step: 'act-begin', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.ACTING, args, cost: g.cost, gamePrice, worldSec: nowSec, unitName, baseline: unitName ? (obs.village?.reserve_troops?.[unitName] ?? 0) + (sentUnits[unitName] ?? 0) : null, ...(reg ? { run4Id: reg.run4Id, registry: reg.connection } : {}) });
     await crash('act-begin');
-    const { r, unreachable, attempts } = await act(mcp, args, retries);
+    const { r, unreachable, attempts } = await act(mcp, args, retries, () => boundary?.beforeSend?.() ?? { ok: true });
     await crash('act-sent');
     // Not known to have been sent: its cost still counts against this run and the day (it may land), and its troops against the next baseline.
     const commit = () => { for (const [k, n] of Object.entries(g.cost ?? {})) committedThisRun[k] = (committedThisRun[k] ?? 0) + n; if (unitName) sentUnits[unitName] = (sentUnits[unitName] ?? 0) + g.command.fields.n; };
