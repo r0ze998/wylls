@@ -131,3 +131,47 @@
 - **V26:** its history check does not know about either.
 - **Existing worlds:** whether any custody or capacity world exists is **not verified**, and no migration was done. Old lots and jobs are fail-closed.
 - **Nothing run:** no test, syntax check or build. The two regression sources and the edited host tests are paper cases; whether they compile and pass is not shown.
+
+## The sub-unit rest: four options compared (2026-11-17; static only, nothing implemented)
+
+**The approved rule stays as it is:** no close until every return is in, fractions included. Whether a rest that never adds up may keep a lot open forever is the owner's open question. Nothing below is implemented.
+
+### Facts the comparison rests on (`d16048aa` + this branch)
+
+| Fact | Where |
+|---|---|
+| A lot stores its owner's full Citizen key `OWNER_CITIZEN` [32]. Its `OWNER_TAG` is `addr::citizen_tag(citizen key)`, written when the Citizen is created and never reassigned. The tag and the key name the same account; the owner is not a 64-bit tag alone | rules `custody.rs` Lot; `proc/citizen.rs:448` |
+| A Vault stores `OWNER_CITIZEN`, `STATE`, `GEN`, `CAP`, milli `STORES` and `CUSTODY_QUOTA`. SeizeVault overwrites the owner and does `GEN += 1` | `proc/caravan.rs` ~628–631 and 1856–1864 |
+| `capacity.rs` `user_vault` + `UserVault::put` are an existing, exact milli credit into a vault. They check the canonical address, `STATE_LIVE`, `OWNER_CITIZEN == given key` and the province, then `STORES + CUSTODY_QUOTA ≤ CAP`, else `Custody`. Today they are used only for the **job's user B** (ClaimJob) | `proc/capacity.rs` ~372–447 |
+| WithdrawLot checks that M owns the destination (`named_place`, `NotOwner`), but moves **whole units by caravan** (`whole()`: wear, raids) | `proc/custody.rs` 852–941 |
+| `Holding::credit` is an exact milli credit to a village (used today by RecordFacilityLoss for the captor) | `proc/capacity.rs` `lose` |
+
+### The four options
+
+| | 1. Keep (as is) | 2. Waive (not approved) | 3. Exact milli to M's live Vault in the lot's province | 4. The lot itself holds and pays out milli |
+|---|---|---|---|---|
+| The owner's goods | Kept on the lot's books; nothing lost | M gives up less than 1 unit, logged as a loss | Paid in full, in milli, to M's own general stock in the same province (D6 kept) | Paid in full: held as milli, and withdrawn exactly |
+| Lot closable | Only when rests add up to whole units, **possibly never** (quota and rent stay) | Yes, with M's consent | Yes, once paid, if such a Vault exists and has room. Otherwise it stays as in option 1 | Yes, after an exact final withdrawal |
+| Owner proof | Not needed | M signs CloseLot | `vault.OWNER_CITIZEN == lot.owner` (full key), `STATE_LIVE`, canonical address, `(p, q) == (lot.p, lot.q)`. The same checks as `user_vault` with `lot.owner` in place of the signer. **A seized Vault fails** (its owner is the captor), so it never pays someone else | M signs the withdrawal (as WithdrawLot) |
+| Destination missing, full or stale | — | — | No Vault, a seized or closed one, or `Custody` (full): **refused, and the rest stays on the lot unchanged**. A retry pays once: the lot's rest goes to 0 in the same instruction as the credit | Caravan arrival rules: wear and raids on the way; a destination gone at arrival is `DestinationGone` (a loss) |
+| Double payment | — | — | Prevented: `rest −= x` and the Vault `+= x` in one instruction. On the lot's books, `CONSUMED −= x` and `OUT_TOTAL += x` (it left to the owner's place, like a withdrawal) | Ordinary withdrawal books |
+| New contract (④ and the owner) | None | CloseLot data flag; loss or record kind; V26 | **One** owner-signed step that takes the lot plus M's Vault, for example an optional account on CloseLot: "pay my sub-unit rest to my Vault here". A record kind for the payout, and V26 learning it. No new account kind, destination type or permission beyond M acting on M's own goods. The checks and the credit reuse `user_vault`/`put` | ⑩'s whole-units contract is relaxed: `whole()` in ship/withdraw (and orders?), the lot's invariants, caravan cargo and wear in milli, V26 replay. **The largest change** |
+| Reuse of existing code | Full | Partial | **High**: `user_vault`-style checks and `UserVault::put` exist; the lot side is a small kernel step like `pay_rest` | Low |
+| Risks | Permanent lock-ups | M loses up to 0.999 per lot | M may have **no Vault in that province** (max 3 per citizen); then there is no exact path and option 1 applies. The goods become ordinary vault stock, open to raids and seizure like any stock (the normal rule) | Fractions on the road (wear in bps of milli), and every custody path changes |
+
+### Recommendation (for the owner to choose)
+
+**Option 3, with option 1 as its fallback.**
+- It returns the exact amount to the original owner, in the same province, into M's own Vault.
+- It is proved by the full Citizen key the lot already stores.
+- It needs no new destination type or permission beyond M's own signed close.
+- It reuses the existing exact milli credit.
+- When M has no live Vault there, or it is full, the rest simply stays and the lot stays open (today's approved behaviour). Nothing is lost or sent to anyone else.
+- Option 4 would rework ⑩'s whole-units contract.
+- Option 2 makes M bear a loss and is not approved.
+
+### The question for the owner
+
+> When a storage's last leftover is less than one unit, may its owner, on closing it, have that exact leftover put into their own storehouse in the same province (recommended; if they have none there, or it is full, the storage simply stays open as now), or should the storage stay open until leftovers add up to a whole unit, however long that takes?
+
+**Boundaries unchanged.** Nothing implemented. No ABI, version, hash or record kind is fixed, no permission or destination was added, no world was verified and no migration was done, and nothing was run.
