@@ -188,4 +188,5 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 ## 2026-11-16 11:00 JST — the two PC fixture gaps closed (fixture replay, not a world)
 - 3524adb0: `land-arrival.screen.mjs` 4/4 (EN/JA @ 1440, three runs): land layer enemy → own (canvas colour at the tile,
   card owner + take count, chip) and away → arrived (the village's tag with the arrival turn). No page change; nothing sent.
-  Candidate e9da7611 (page/screens identical to this branch). World-only items remain (see the candidate's gap doc).
+  Candidate e9da7611: its page differs only by the WIP's seal-worker.mjs, the unloaded .orig and the route-preview screen;
+  the test with those files in place: 4/4. World-only items remain (see the candidate's gap doc).
