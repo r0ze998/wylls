@@ -105,3 +105,58 @@ git archive 6666ae68 \
 **On a failure, a guard stop or a safety refusal:** stop, with no retry and no other route.
 
 **Not included:** group G, `connect.test`, the refused walls-items and muster tests, any world, runner or WS13 held path, and any real ChatGPT connection.
+
+## One run of group P (2026-11-17, blobs from 6666ae68)
+
+Run once, in one batch, with the owner's approval. Nothing was retried, and group G was not run.
+
+**Run tree:** a new, dedicated folder `<session scratchpad>/ws03-p-run-6666ae68`, 104 KiB. It was not deleted and is kept as evidence.
+- It was created empty; the run would have stopped if it already existed.
+- The eight blobs were extracted with `git archive 6666ae68 … | tar -x -k` (`-k`: no overwrite).
+
+**Checked just before the run:**
+- **Hashes:** all eight extracted files' sha256 equal the `6666ae68` blobs, the hashes in the audit above.
+- **Run tree:** 8 files, 3 of them tests, and 0 symlinks. No `node_modules` or `package.json` in the tree or in any ancestor up to `/`.
+- **Environment:** `NODE_OPTIONS`, `NODE_PATH`, `NODE_EXTRA_CA_CERTS`, `NODE_TEST_CONTEXT`, `LD_PRELOAD`, `LD_LIBRARY_PATH` and `DYLD_*` were unset.
+  - `NODE_USE_SYSTEM_CA=1` was set in the shell. It only chooses the TLS certificate store and loads no code.
+  - It was removed for this one process (`env -u NODE_USE_SYSTEM_CA`), so the run had no `NODE_*` variable at all.
+- **Node:** `/opt/homebrew/opt/node/bin/node` v23.11.0, sha256 `01ca46d5dbf4e6fd39e2cca6154b24e867fae029512b125b1b108ecfbcc1b462`.
+- **Guard:** `nokey-guard.mjs` sha256 `cf4518176289a45755a831140c85705093e9352825d3a6e80c75d91cf4f9862f`, the full known hash.
+- **Disk and worktree:** 48 GiB free (floor 21). The working tree had the 13 media deletions unstaged, nothing else modified, the index empty, and HEAD `9fe9018e`.
+
+**Command** (in the run tree):
+
+```
+env -u NODE_USE_SYSTEM_CA /opt/homebrew/opt/node/bin/node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test \
+  workstreams/03-composability/mcp/test/action-not-allowed-advice.test.mjs \
+  workstreams/03-composability/mcp/test/list-result-unknown.test.mjs \
+  workstreams/03-composability/mcp/test/unknown-result-display.test.mjs
+```
+
+**Result: 15 tests, 15 passed**, 0 failed, 0 cancelled or skipped; exit 0; 47 ms.
+- A1–A6: 6/6.
+- L1–L4: 4/4.
+- D1–D5: 5/5.
+- No guard or safety refusal.
+- The log is `docs/integration/logs/ws03-p-run-6666ae68.log`, 975 bytes, sha256 `7314ba4d…b94c`. It is the test runner's output plus the exit code.
+
+**After the run:**
+- **Processes:** no new `node` process; the set of PIDs before and after is equal.
+- **Run tree:** still 8 files and 0 symlinks, with none newer than the extracted guard.
+- **Disk and worktree:** 48 GiB free. The 13 media deletions, the empty index and HEAD `9fe9018e` are unchanged.
+- **Branch tips:** the source branch ① and the candidate are unchanged. ② (`claude/ws03-chatgpt-flow-20261117`) has since moved to `ce24417f`; D is working on it. This integration and this run use only the fixed `df5f9bcd` content.
+- **Not done:** a per-file hash recheck after the run was attempted in one command together with the group G trace below. A built-in safety check refused that command, and it was **not** run or retried.
+
+**What this shows and does not show:**
+- **Shows:** at `6666ae68`, `actionNotAllowedNext`, `receiptOf`, `resultUnknown` and `refusalOf` behave as the 15 cases state, and the three source pins in `server.mjs` and `tools.mjs` hold.
+- **Does not show:** anything about group G, the MCP server running, the relay, or a real ChatGPT or Claude connection.
+
+## Group G's open dependencies (static trace not done)
+
+The static trace of what group G still lacks was refused by a built-in safety check and stopped, not retried. It covered `seal-worker.mjs`'s own closure and top-level code, and any `import.meta.url`, `new URL(…)`, `.wasm` or `WebAssembly` loads in the 60-module closure. Before group G can be considered, these remain open:
+1. **The owner's decision** on loading the web-frontier closure it shares with the refused walls-items test (50 of 60 modules) and muster test (33 of 60).
+2. **`seal-worker.mjs`:** its closure and top-level code (reached by `seal.mjs` through `new Worker(new URL(…))` and a dynamic `import()`).
+3. **Load-time code:** a parser-level scan of all 60 modules, replacing the line heuristic.
+4. **Resource loads:** a list of any loads by URL or of WebAssembly in the closure.
+
+Group G's run approval is not extended by this report.

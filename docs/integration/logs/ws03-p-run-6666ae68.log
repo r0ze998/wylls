@@ -1,0 +1,24 @@
+✔ A1 the policy message (0.354709ms)
+✔ A2 the season message (0.106ms)
+✔ A3 the not-an-agent-action message (0.043959ms)
+✔ A4 any other message: the generic advice (0.226625ms)
+✔ A5 the failed receipt follows the message; other codes unchanged (0.260416ms)
+✔ A6 the boundary text names the three causes, no unconditional claim (0.056709ms)
+✔ L1 resultUnknown (0.376959ms)
+✔ L2 receiptOf agrees (0.158208ms)
+✔ L3 list_operations carries hold and resultUnknown (0.286916ms)
+✔ L4 the description (0.094583ms)
+✔ D1 a held operation is not shown as on its way (0.470292ms)
+✔ D2 an uncertain attempt without a hold yet: the same (0.118375ms)
+✔ D3 a known send keeps the arrival guidance (0.330834ms)
+✔ D4 terminal states keep their own next (0.127334ms)
+✔ D5 the note and the tool description name the unknown case (0.248917ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 46.763333
+exit 0
