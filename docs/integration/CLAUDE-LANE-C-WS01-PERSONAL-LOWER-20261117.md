@@ -67,3 +67,32 @@ Areas already audited in earlier steps (bounds, `underBy`, the counting helper, 
   - the board, chain-fake and screen checks of `coopView` and the page (the ordinary ① subset, after the coordinator's audit);
   - ①'s decision on the `underBy` meaning and the fixture.
 - **Observation (not changed, data):** `myVerified` drops resources whose total is 0 (`v > 0`). So a viewer whose counted arrivals all recorded 0 sees "—", although per §3 that is "0 以上". Changing it would change `coop.test.mjs:150, 623` (`deepEqual` on `myVerified`) and the data the board serves. It is left for ① to decide.
+
+## Run record (the coordinator's run; Lane C ran nothing)
+
+| Item | Result |
+|---|---|
+| Who and when | The coordinator, once, at `62d7c184`, after reading the whole new test and the whole `fulfil-bounds.mjs`, and checking the dependencies, side effects, and that it is not the same as any refused test. Not to be rerun |
+| Command | `node --test workstreams/01-national-strategy/test/coop.personal-lower.test.mjs`, with Homebrew's `node` (Node 23.11.0); no injected environment variables; 51,600,000 KiB free |
+| Result | 5/5 pass; fail 0, cancelled 0, skipped 0; exit 0; 53.154458 ms |
+| What it verifies | Only the wording helper `lowerBoundText` |
+| Not verified | The real screen (the personal panel), the browser tests, the board, the chain fake, and a real world |
+
+## Hand-over to D (for the aggregate; this branch does not update it)
+
+- **Base:** the fixed ① candidate `claude/integ-ws01-display-count-20261117` at `5d9b0cdbdd3e0e9fffb4f6e6d9b18a89543ed29e`, which is unchanged.
+- **Unit:** one code commit, `62d7c184` (`fix(01 coop personal)…`), plus the report commit that holds this record. A fast-forward from `5d9b0cdb`.
+- **Four paths against `5d9b0cdb`** (git blob ids at `62d7c184`):
+
+| Status | Blob | Path |
+|---|---|---|
+| M | `0ec40a6b0cc0` | `workstreams/01-national-strategy/coop/fulfil-bounds.mjs`. Adds `lowerBoundText`; the existing exports are byte-identical in behaviour |
+| M | `6a64cb6ddad4` | `workstreams/01-national-strategy/coop/coop-ui.mjs`. One import name, and one line in `renderPersonal` |
+| A | `5fedaf0ebaa5` | `workstreams/01-national-strategy/test/coop.personal-lower.test.mjs`. Pure; ran 5/5 |
+| A | (this file) | `docs/integration/CLAUDE-LANE-C-WS01-PERSONAL-LOWER-20261117.md` |
+
+- **Real consumer difference:** only the browser's ① page.
+  - The personal panel line `[data-testid=my-verified]` changes from "自分が届けた確定の量：木材 196" to "自分が届けた確定の到着の量（数えた入荷量の下限。資源ごと）：木材 196 以上".
+  - No change to `goal.mjs`, `board.mjs`, `/coop/view` data (`personal.myVerified`), the ⑮ export, counts, the verdict, sending or permissions.
+  - No new file reaches the browser.
+- **Left undecided, not changed:** `myVerified` drops resources whose total is 0 (`v > 0`), which is data and ①'s decision.
