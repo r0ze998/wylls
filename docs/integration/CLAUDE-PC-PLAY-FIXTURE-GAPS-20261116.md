@@ -179,3 +179,27 @@ OTHER village:
 - Fix (integration e00ad87b, candidate merge e59e802c): `cg-go` puts an open draft away through the existing
   `compose-close` (cancel first: 「送信待ちを取り消しました。命令は送られていません。」). Static only: trace,
   node --check, git diff --check; no test run. Not seen in a browser or a world.
+
+## Lane C G2: the board's land after a re-read other than arrival (2026-11-16, Claude)
+- Static trace: map/fmap.mjs collects `landKeys` as provinces are drawn (art on by default: `?art=0` opts out) and
+  re-checks both the land marks (`landMarksKey`) and the outlines (`land.key|shape.key`) in every live frame, re-baking
+  the still layer on a difference. Live frames repeat (`invalidateSoon(90)`) only while `F.live && !F.still`; `F.still`
+  is `reducedMotion()`. The poll's `refresh()` ends with `invalidate(..., 'map')`, and every app.mjs `wantProvince` call
+  redraws the map; local play's sync reads (controller.mjs: the waiting send's driver, the muster wait, the half-second
+  sync) invalidate only the panel. The land chip is drawn in every HUD tick.
+- Mismatch (narrow): with reduced motion, after such a sync read the chip showed the new holder at once and the board
+  kept the old outline until the next poll (30 s idle, 10 s in flight, a quarter turn at most on fast clocks).
+- Fix (integration e84049ed, candidate merge 7ccc0275), app.mjs only: `renderHudTick` compares the land records by
+  content (nextBell, owners, by, count, village; cached per record object) and redraws the map when one changed.
+  Static only: node --check, git diff --check; no test run.
+- Proposed check, NOT started (needs the go-ahead): a new screen file beside `land-arrival.screen.mjs` — its case A's
+  setup, with `reducedMotion: 'reduce'` on the context, Chromium launched with `--mute-audio`, the land record set with
+  `invalidate('panel')` only (as the sync reads do), and the map's canvas sampled within 2 s (well before a poll):
+  changed with the fix, unchanged without. Run alone from the single export, after copying the fixed app.mjs there:
+  `cd <export>/permutation-gateway/screens && node --test land-redraw.screen.mjs > <scratchpad>/logs/land-redraw.tap 2>&1`.
+  Traffic: the harness's own HTTP server on 127.0.0.1 (port 0) and Chromium mapping `wylls.test` to 127.0.0.1; every
+  non-GET is counted and none is allowed; index.html names no outside host. Keys: the keyless viewer; the harness's
+  init records any `crypto.subtle` use. Writes: the .tap log (a few KB), the copied app.mjs, Chromium's temporary
+  profile in the system temp folder (removed at close; size not measured). Dependencies: the export's
+  `screens/node_modules` is a symlink to `wylls-nft-candidate-world-20261115` (playwright-core, axe-core), used
+  read-only; Chromium 1208 is already in the Playwright cache (no download). No world, launcher, relay or chain.
