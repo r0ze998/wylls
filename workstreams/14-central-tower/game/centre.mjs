@@ -177,16 +177,26 @@ export function centreFacts({ caravans, structures = null, observedAt = null, st
 }
 
 const FOLD = ['foldedThrough', 'events', 'lastSlot'];
+// (Lane C, 2026-11-17) A fold position is evidence only in the shape the herald writes it (server.rs /h/status:
+// `foldedThrough` and `lastSlot` JSON numbers from u64, `events` the u64 as a decimal string). Two reads that both lack
+// it ({v: 1} alone, a field missing or of another type) used to compare equal as null === null and were called a
+// stable snapshot; they are now `stable: null` (not known), which a consumer must not take as a snapshot.
+const nat = x => Number.isSafeInteger(x) && x >= 0;
+const FOLD_OK = { foldedThrough: nat, events: x => typeof x === 'string' && /^(0|[1-9][0-9]*)$/.test(x), lastSlot: nat };
+const foldKnown = st => FOLD.every(k => FOLD_OK[k](st[k]));
 /** Where the herald's fold stood when the feeds were read; null fields when unknown, never guessed. */
 export function provenanceOf(status) {
   const pick = st => (st && st.v === 1 ? { foldedThrough: st.foldedThrough ?? null, events: st.events ?? null, lastSlot: st.lastSlot ?? null, alarms: st.alarms ?? null } : null);
   const before = pick(status?.before), after = pick(status?.after);
   if (!before && !after) return { from: null, stable: null, why: 'no /h/status read with the feeds', slotCommitment: 'not stated by the herald' };
-  const stable = !!before && !!after && FOLD.every(k => JSON.stringify(before[k]) === JSON.stringify(after[k]));
+  const known = !!before && !!after && foldKnown(before) && foldKnown(after);
+  const stable = !before || !after ? false : !known ? null : FOLD.every(k => before[k] === after[k]);
   return {
     from: 'herald /h/status',
     before, after, stable,
-    why: stable ? 'the fold did not move while the feeds were read' : before && after ? 'the fold moved while the feeds were read: the feeds are between the two' : 'only one /h/status was read',
+    why: stable === true ? 'the fold did not move while the feeds were read'
+      : stable === null ? 'a /h/status read has no valid fold position (foldedThrough, events, lastSlot): not known whether the fold moved'
+      : before && after ? 'the fold moved while the feeds were read: the feeds are between the two' : 'only one /h/status was read',
     slotCommitment: 'not stated by the herald',
   };
 }

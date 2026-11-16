@@ -123,7 +123,7 @@
 | `centre.sighting` | `bell, tower, towerFaction, towerOwnerTag, what, faction, subject` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない）。`towerOwnerTag`＝物見櫓の持ち主、`subject`＝見られたもの（ヘラルドの欄そのまま） |
 
 - 一覧は**今の状態**だけ。着いた隊商は `moving` から消える。閉じた倉は、ヘラルドが無いと読むまで残る（ヘラルドの注記）。時間を通した量は、呼び出し側が何度か読んで並べる。
-- **出どころ（`provenance`）：** 読み取りのコマンドは、二つの一覧を読む前と後に `/h/status` を読む。`before`・`after` にヘラルドの `foldedThrough`（畳み込んだアーカイブの通し番号）・`events`（畳み込んだ記録の件数、`/h/events` の番号）・`lastSlot`・`alarms` を入れる。前後が同じなら `stable: true`（一覧はその畳み込みの時点のもの）、違えば `false`（一覧は二つの間のどこか）。`lastSlot` が確定（confirmed・finalized）した slot かどうかは、ヘラルドが示さないので `slotCommitment: 'not stated by the herald'` とだけ書く。ファイルから読んだときは `from: null`（出どころ不明）。どの記録からどの事実ができたかの一件ごとの対応は、ヘラルドの一覧が持たないので付けられない。⑮から2026-11-08 に出どころの要望があった。
+- **出どころ（`provenance`）：** 読み取りのコマンドは、二つの一覧を読む前と後に `/h/status` を読む。`before`・`after` にヘラルドの `foldedThrough`（畳み込んだアーカイブの通し番号）・`events`（畳み込んだ記録の件数、`/h/events` の番号）・`lastSlot`・`alarms` を入れる。前後が同じなら `stable: true`（一覧はその畳み込みの時点のもの）、違えば `false`（一覧は二つの間のどこか）。前後のどちらかに正しい畳み込みの位置がない（`{v: 1}` だけ、欄がない、ヘラルドの書く型と違う：`foldedThrough`・`lastSlot` は u64 の数、`events` は u64 の10進の文字列）ときは `stable: null`（動いたかどうか分からない）。確定の時点として扱わない（2026-11-17、Lane C：以前は欠けた欄どうしが null で一致し `true` になっていた）。`lastSlot` が確定（confirmed・finalized）した slot かどうかは、ヘラルドが示さないので `slotCommitment: 'not stated by the herald'` とだけ書く。ファイルから読んだときは `from: null`（出どころ不明）。どの記録からどの事実ができたかの一件ごとの対応は、ヘラルドの一覧が持たないので付けられない。⑮から2026-11-08 に出どころの要望があった。
 - 読めない版・欄は推し量らずに断る（`refused`）。並びは一覧の順に依らない。
 - 欄の名前は、試験でヘラルドのソース（`herald/src/caravan.rs`・`structure.rs`）に固定した。
 - 試験の一覧は、ヘラルドのソースに書かれた形どおりに作った**合成の例**。本物のヘラルドの出力では、①の fixture（④の候補 `workstreams/01-national-strategy/test/fixtures/herald-caravans-ended.json`）を読めることだけ確かめた（中央に入る隊商はなかった）。動いているヘラルドからは読んでいない。

@@ -139,6 +139,41 @@ test('provenance: where the herald\'s fold stood, never guessed', () => {
   assert.equal(provenanceOf({ before: { v: 2 }, after: null }).from, null);
 });
 
+// (Lane C, 2026-11-17; WRITTEN, NOT RUN — pure, no server, no process) Two reads without a valid fold position are not
+// a snapshot: they used to compare equal as null === null and be called stable.
+test('provenance: missing or invalid fold evidence is never a stable snapshot', () => {
+  const unknown = p => {
+    assert.equal(p.from, 'herald /h/status');
+    assert.equal(p.stable, null, JSON.stringify(p));
+    assert.notEqual(p.stable, true);
+    assert.match(p.why, /no valid fold position/);
+  };
+  // {v: 1} alone, on both sides
+  unknown(provenanceOf({ before: { v: 1 }, after: { v: 1 } }));
+  // one field missing, or of another type than the herald writes, on one or both sides
+  const S = STATUS(9, 77);
+  for (const bad of [
+    { ...S, foldedThrough: undefined }, { ...S, foldedThrough: '9' }, { ...S, foldedThrough: -1 }, { ...S, foldedThrough: 1.5 },
+    { ...S, foldedThrough: null }, { ...S, foldedThrough: 2 ** 53 },
+    { ...S, events: undefined }, { ...S, events: 27 }, { ...S, events: '027' }, { ...S, events: '-1' }, { ...S, events: '2.5' }, { ...S, events: '' },
+    { ...S, lastSlot: undefined }, { ...S, lastSlot: '77' }, { ...S, lastSlot: -1 }, { ...S, lastSlot: null },
+  ]) {
+    unknown(provenanceOf({ before: bad, after: bad }));
+    unknown(provenanceOf({ before: S, after: bad }));
+    unknown(provenanceOf({ before: bad, after: S }));
+  }
+  // the normal cases are unchanged: still is stable, moving is not, one read alone is not
+  assert.equal(provenanceOf({ before: STATUS(9, 77), after: STATUS(9, 77) }).stable, true);
+  assert.equal(provenanceOf({ before: STATUS(9, 77), after: STATUS(10, 80) }).stable, false);
+  assert.equal(provenanceOf({ before: STATUS(9, 77), after: STATUS(9, 78) }).stable, false, 'lastSlot moved');
+  assert.equal(provenanceOf({ before: STATUS(0, 0), after: STATUS(0, 0) }).stable, true, 'zero is a position');
+  const one = provenanceOf({ before: STATUS(9, 77), after: null });
+  assert.equal(one.stable, false); assert.match(one.why, /only one/);
+  // ⑮'s adapter maps anything but `stable === true` away from a snapshot (ws14-centre.mjs; read, not imported)
+  const adapter = readFileSync(`${repo}workstreams/15-coop-outcomes/src/adapters/ws14-centre.mjs`, 'utf8');
+  assert.match(adapter, /p\.stable === true \? 'snapshot' : 'between'/);
+});
+
 test('the command line reads a herald by public GETs and records its fold', async () => {
   const seen = [];
   const server = createServer((req, res) => {
