@@ -77,3 +77,51 @@ Open:
 
 - Branches newer than the candidate that adopt either preview. I read the candidate, and the workstream directories on it, only. `preserve/*`, `integrate/custody-r4-20261107` and `integrate/ws09-10-audit-20261107` were seen in `ls-remote` but not diffed.
 - That no later owner decision changed D1–D6.
+
+## Addendum (2026-11-17): every saved ⑨/⑩ tip compared with the candidate
+
+Local objects were read first. The three tips missing locally were read through the GitHub compare/commits/blob API. No fetch, clone or export was done.
+
+| Ref | Tip | Date | Against `d16048aa` | What it holds that the candidate lacks |
+|---|---|---|---|---|
+| `integrate/custody-r4-20261107` | `3fa1f4a7` | 11-07 11:27 | **ancestor** | nothing |
+| `integrate/ws09-10-audit-20261107` | `c1e8137e` | 11-07 09:23 | **ancestor** | nothing |
+| `integration/ws09-13-v16-d0949fd4` | `ef63544c` | 11-06 00:28 | **ancestor** | nothing |
+| `preserve/resident-custody-integrated-20261107` | `1d050f79` | 11-07 11:32 | **ancestor** | nothing (⑳ resident custody, not ⑩) |
+| `preserve/resident-custody-wide-draft-20261107` | `c94a5df7` | 11-07 11:41 | **ancestor** | nothing |
+| `claude/elegant-bohr-co2uhr` (⑨ owner) | `66d1a21e` | 11-08 17:40 | diverged: +2 / −486, merge base `b1157847` | Only `patches/to-04-16576826/0001` and its SHA256SUMS, plus three `results/*.log`. The patch's code is **already in the candidate**: it is commit `b1157847` itself. `git apply --check -R` passes per file for rules `capacity.rs`, `proc/capacity.rs`, `capacity_runtime_tests.rs` and the kernel `ledger.rs`. |
+| `claude/great-babbage-3ogkqu` (⑩ owner) | `b128e611` | 11-08 18:39 | diverged: +32 / −447, merge base `02be5f41` | The 300 files are mostly ④'s candidates merged in ("keep reachable"). ⑩'s own code: `v26_custody.rs` at the tip (patch 0007, "a send with no path Province listed is not judged") has blob `cedf1fbb`, **identical to the candidate's**. Missing from the candidate are docs and patch files only: `patches-candidate/0005–0007` and their SHA256SUMS. |
+| `integrate/nft-custody-auth-prep-20261107` | `ab5a210f` | 11-07 02:41 | +1 / −793 | One refactor of 2 files for ⑳ resident routing. That is not ⑩, so it is out of this scope. |
+
+**Result.** No ref carries an adopted provider or contract that the candidate lacks, so there is still no connection to implement.
+
+## The three properties read in the preview code (not run; no defect found)
+
+**Unreturned amounts are kept.**
+- `ClaimJob` (`proc/capacity.rs` ~752–833) adds a lot-fed job's unused ore to `link.owed`.
+- `lots::pay_owed` (~1138–1165) returns only whole units (`owed / MILLI × MILLI`) through custody's `return_unused`. That moves `CONSUMED → HELD` without counting `IN_TOTAL` twice.
+- A frozen or full lot leaves the amount owed (`Forfeited | Capacity → Ok(false)`).
+- `RetireJob` refuses while `owed != 0` (~976).
+- After a facility loss, `claim` still runs (`lost` skips the live check), and `pay_owed` is reached before the `Already` return. So an amount already owed can still be paid.
+
+**No double consumption.**
+- `DepositToJob` from a lot calls custody `consume` only when `cap::deposit` applied an event. A retried deposit id is `Already`, so the lot is not consumed again.
+- `consume` checks the order's kind, id, grantee, expiry and `qty_left`, and checks for overflow, before any write (`spend_order` mutates only after its checks).
+- A second source is refused (`NotImplemented`): another lot, or the user's own ore already in the hopper. `hopper` is cumulative (`in_total`), so `hopper[0] − link.taken` measures the user's own ore correctly.
+
+**A refusal leaves everything unchanged.**
+- Every handler read writes its accounts (`put_lot`, `put_job`, `put_link`, `put_pool`, `v.write`) only after all kernel calls succeed.
+- An `Err` aborts the transaction anyway.
+- The rules' `return_unused` and `consume` check before they mutate.
+
+**Not read.** The rest of `proc/custody.rs` (ship, inbound, withdraw, reconcile, forfeit), cancel/lose beyond what is quoted, and the rules' `settle_job`. These were not audited line by line. ⑨'s and ⑩'s own property tests (300 × 400 steps, 3,000 random runs) cover them, but **I ran none of them**.
+
+## Still undecided (unchanged from above, none taken here)
+
+- ④: final tags, kinds, errors and AccountKinds; custody version 5 against S2's 5; the 0xC8 overlap.
+- The owner:
+  - D3, whether wood and arms may sit in lots;
+  - vault seizure (⑩'s `forfeit` is "a proposal, not a decision");
+  - two sources for one job, which is refused today as `NotImplemented`.
+- Release conditions: an SBF build, LiteSVM tests, measured budgets, a complete V26, and a capacity verifier.
+- A deployable program that dispatches the tags by default.
