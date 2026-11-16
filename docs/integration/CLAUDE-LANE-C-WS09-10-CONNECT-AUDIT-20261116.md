@@ -166,3 +166,83 @@ A stopgap that only makes `pay_owed` report "not payable" for a closed lot would
 1. **The owner:** where unused lot ore goes when its lot has closed, (c). And whether a lot may close while returns are pending, (a)/(b). This defect needs that decision before either preview can be adopted.
 2. **④ and the owner:** where a sub-unit rest is held (already open: ⑨ INTEGRATION-04 §2). The same lot-side field would serve (a).
 3. Then the adoption items already listed: final numbers, version 5 against S2, SBF/LiteSVM/budgets, V26, a capacity verifier, and a deployable dispatch.
+
+## Addendum 3 (2026-11-17): the CloseLot stranding, two designs compared (static; nothing adopted or changed)
+
+### Facts both designs rest on (`d16048aa`)
+
+| Fact | Where |
+|---|---|
+| Lot is 576 B. The tail `RSV` @560 is 16 B: written as zeros (`custody.rs:1168`) and ignored by `Lot::decode`. V26's state audit checks only the Vault/Caravan custody fields for nonzero | `abi-v2-layouts.mjs` Lot; `custody.rs` 974–1168; `v26_custody.rs:116–126` |
+| The lot's address is derived from `(p, q, tile, vault_gen, owner_tag, resource)`. Lot carries `OWNER_CITIZEN` and `OWNER_TAG` | `frontier-abi/src/v2/addr.rs:127`; `proc/custody.rs:154–166` |
+| The job's `Link` holds only `fed`, the lot **address**, `taken`, `returned` and `owed`, and **no owner**. The owner can still be proved from the address's inputs (the six seeds) plus the Citizen carrying `owner_tag` | `proc/capacity.rs:88–129` |
+| ClaimJob is **the user's only** (`j.user != signer → NotUser`). The lot's owner cannot trigger a return, so until B claims, M's unused ore is not even computed | rules `capacity.rs` `claim` |
+| `CONSUMED` is both "used for good" and "out, may come back": `return_unused` lowers it. After every return it stays above 0 for what was really used | `custody.rs` 820–872 |
+
+**Why "refuse CloseLot while `consumed > 0`" does not work.**
+- It cannot tell the two meanings apart.
+- A lot that ever fed a job could never close, even with nothing left to come back, so its vault quota would be locked forever.
+- And it still says nothing about where the sub-unit rest should go.
+
+### A — a lot that may still receive a return cannot close
+
+**Shape.** Use 12 of the 16 RSV bytes:
+- `pending` (u32): the number of jobs fed from this lot that are not yet settled;
+- `owed_rest` (i64 milli): the sub-unit rests of finished jobs, gathered on the lot.
+
+**When `pending` and `owed_rest` move:**
+- DepositToJob (the first feed of a job) does `pending += 1`.
+- The job's final settlement (the full return, or a forfeit to a captor under D4) does `pending −= 1`, and moves the sub-unit rest from `link.owed` into `owed_rest`.
+- `owed_rest` is paid back in whole units as it fills up.
+
+**`Lot::empty` additionally needs `pending == 0`**, which closes the stranding.
+
+| Aspect | A |
+|---|---|
+| ABI | No new account kind or tag. **The meaning of Lot changes, so the kernel changes**: `empty`, `balanced`, `consume` and `return_unused`. That means a new `RULESET_HASH_V4` and changes to V26's replay and state audit. The program's writes and the accounts that some capacity instructions list change too, because the last settlement must write the lot. All capacity tags are provisional anyway |
+| Data / owner proof | None new: the goods never leave the lot's books |
+| Where the return goes | Into the same lot, at the same place. No new destination, no teleport, and the D6 "same province" rule is kept |
+| Sub-unit rest | **Solved by the same field.** The rests of several jobs add up on the lot, which removes the job-side remainder that blocks retiring today (⑨ INTEGRATION-04 §2, ⑩ doc 15 decision 2) |
+| Full lot | `return_unused` refuses (`Capacity`) and the amount stays owed. `pending` holds, so the lot cannot close while it is full of pending returns. That is consistent |
+| Seizure | A forfeited lot still has `pending > 0`, and "closed by anyone after forfeit" must also wait for it. **Where a forfeited lot's pending returns go is the same open question as ⑩'s seizure proposal** |
+| Double return | Unchanged guards: `return_unused ≤ consumed`, and `link.owed` is decremented in the same write. `pending` falls exactly once, at final settlement |
+| Keeper | The vault owner can no longer close a lot that is waiting for a return |
+| Liveness | M's lot cannot close until B claims. Today M's ore is equally stuck; A only makes it visible. It needs a decision too: a permissionless or owner-callable "settle the return" after the job is final |
+| Migration | The previews were never deployable: no season of the custody or capacity build exists outside local test worlds, and a new V4 hash refuses old ones anyway. Old RSV bytes are zero, so an existing lot would read `pending = 0`. Not safe for jobs already open, so local worlds would have to restart |
+| Depends on | ④ (accepting a new V4, possibly account lists); ⑨ and ⑩ (kernel and program); V26; the owner (seizure, liveness) |
+
+### B — CloseLot is allowed; the return goes to an owner-bound claim account
+
+**Shape.** When ClaimJob finds the lot closed or reopened, it moves `link.owed` into a **ReturnClaim** account in the same write. The account's address is seeded by the lot's six seeds, so it names the owner by construction. A new **ClaimReturn** instruction then pays it out to M:
+- M signs as the Citizen whose tag is `owner_tag`;
+- M presents the six seeds;
+- the program checks that `lot_address(seeds) == link.lot`.
+
+| Aspect | B |
+|---|---|
+| ABI | **New**: an AccountKind, a seed tag and magic, 1–2 instruction tags, a record kind for the claim and its payout, and errors. ⑩'s band 0xC2–0xCC and ⑨'s 0xF0–0xFD are full. 0xCD–0xCE are taken by the land preview and 0xCF is free: **④ must allocate**. Lot and CloseLot themselves are unchanged |
+| Data / owner proof | Proof by the address's inputs and the Citizen's tag. **Not verified**: whether a citizen tag can ever pass to another wallet (rejoin, expulsion). If it can, B pays the wrong person |
+| Where the return goes | **A new choice**: M's home Holding (exact in milli, but the ore appears at home: a "teleport" against D6's same-province rule), M's vault at the lot's tile (may be gone or seized), or a new lot. **The owner decides** |
+| Sub-unit rest | The claim holds milli exactly, and a Holding credit is in milli, so nothing is stranded. Only the claim's payout, not the job, needs to settle. The job-side rest problem stays for lots that are still open, unless B is also used for them |
+| Full destination | It depends on the destination. A vault or lot can be full (the claim waits); a Holding credit cannot |
+| Seizure | The lot is closed, so ⑩'s seizure does not reach the claim. **Whether a captor of M's vault should get it is a new rule choice** |
+| Double return | Owed moves to the claim and the claim pays once, then closes. That needs its own replay in V26 (a new verifier surface) |
+| Keeper | The vault owner may still close an empty lot, but M's return is preserved |
+| Liveness | Same as A: it still waits for B's ClaimJob unless a permissionless trigger is added |
+| Migration | Same as A (no deployed seasons). Lots already closed in local worlds: their jobs could move their owed amount into a claim on the next ClaimJob, if B is defined that way |
+| Depends on | ④ (new numbers); ⑨ and ⑩; V26 (new account, new replay); the owner (destination, seizure, tag permanence) |
+
+### Recommendation: A
+
+- It adds no account kind, tag or destination.
+- The goods stay where custody says they are.
+- One field also solves the known sub-unit-rest problem.
+- It takes the keeper's power to strand a return away, instead of compensating for it.
+
+B is stronger only if the owner wants lots to close freely; it then needs ④'s new numbers and a destination rule. The cost of A is a kernel and V26 change under a new V4 hash, which any adoption of these previews needs anyway.
+
+**Both A and B leave one choice to the owner: who may trigger the return once a job is final.** Today only the user can.
+
+### The question for the owner (one choice)
+
+> When ore from someone's storage has gone into another player's workshop job, and some of it may still come back, should that storage be **unable to close until every possible return is settled** (recommended: the returned ore, fractions included, goes back into the same storage), **or should it be allowed to close**, with what comes back held in a separate account that only the original owner can collect (you would then also pick where it is paid out: home village, the storehouse, or a new storage)?
