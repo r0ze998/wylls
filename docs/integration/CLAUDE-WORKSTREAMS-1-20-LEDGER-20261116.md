@@ -349,3 +349,20 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   branches hold each lane's files byte-identical to the lane head.
 - Lane owners' runs (theirs, not repeated here): Lane D glossary 18/18, web-lang 24/24; Lane C freshness 6/6.
   **Not run after integration** (by instruction). Canonical bcc63a24 and its 3 untracked files untouched.
+
+### Lane C G2, land redraw (2026-11-16, Claude)
+- Static: refresh and wantProvince redraw the map; local play's sync reads redraw only the panel; with reduced motion
+  the board then kept an old outline until the next poll while the chip was new. Fixed in e84049ed (app.mjs
+  renderHudTick: land records compared by content → map redraw). Static only, no test run. Candidate 7ccc0275.
+- Browser replay case proposed (reduced motion, panel-only invalidate, sample within 2 s); not started.
+
+### G2 replay: safety re-check and a test file (2026-11-16, Claude; written, NOT run)
+- The ws07 harness (nokey-page.mjs) needs `--unsafely-treat-insecure-origin-as-secure` for wylls.test, and its init
+  writes localStorage (language, title seen, test wallet name, key-use log). Keyless is not storage-free.
+- No security exception needed: the page's own `devWallet=off` opt-out on native secure 127.0.0.1 (as
+  codex-route-preview.screen.mjs) — dev-only effects are the dev wallet (off) and `?herald=`/`localPlay=1` (not used).
+- land-redraw.screen.mjs (6212bf77): outside traffic blocked before sending (resolver rules MAP * ~NOTFOUND
+  except 127.0.0.1; a catch-all route; service/seal workers refused); Playwright's profile and artifacts in a named
+  empty folder (removed by Playwright on close and on SIGINT/SIGTERM, not on SIGKILL; no size limit of its own → the
+  test caps it at 300 MB and needs ≥ 22 GiB free); the non-persistent context's storage checked absent from the
+  profile; --mute-audio; key guard and session unchanged. G2 stays dynamically unverified.
