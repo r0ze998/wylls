@@ -9,6 +9,8 @@
 //   D3 accepted, sent and known: unchanged (call again later, ETA)
 //   D4 terminal states keep their own next (delivered → none; failed → recovery), a left-over hold changes nothing
 //   D5 the receipt's note and the tool description name the unknown case
+//   D6 requested with a lost answer (unknownSince, RelayUnreachable): not known — the same requestId only, no new plan
+//   D7 an uncertain attempt that later landed (processing; uncertain and unknownSince kept as history): arrival guidance
 // KEY-FREE: imports ports.mjs (no imports); reads tools.mjs as text (not imported). Plain objects; nothing is signed,
 // sent or fetched.
 import { test } from 'node:test';
@@ -52,4 +54,18 @@ test('D5 the note and the tool description name the unknown case', () => {
   assert.match(receiptOf(op()).notes[0], /an attempt whose result is not known yet/);
   const tools = readFileSync(new URL('../src/tools.mjs', import.meta.url), 'utf8');
   assert.match(tools, /accepted \(the relay sent the transaction, or an attempt whose result is not known yet/);
+});
+
+test('D6 requested with a lost answer: not known, the same requestId only', () => {
+  const r = receiptOf(op({ state: STATES.REQUESTED, unknownSince: 1, error: { code: 'RelayUnreachable', retryable: true } }));
+  assert.match(text(r), /result is not known yet \(RelayUnreachable\)/);
+  assert.match(text(r), /may only reuse the same requestId, never a new plan or a new requestId/);
+  assert.doesNotMatch(text(r), /ETA/);
+  assert.deepEqual(receiptOf(op({ state: STATES.REQUESTED, unknownSince: null })).next, ['call operation_status again later (arrival is not instant; ETA in caravan.arriveAt)'], 'a fresh request, nothing lost: as before');
+});
+
+test('D7 landed after an uncertain attempt: on its way, not unknown', () => {
+  const r = receiptOf(op({ state: STATES.PROCESSING, uncertain: true, unknownSince: 1, gateway: { signature: 'S' } }));
+  assert.deepEqual(r.next, ['call operation_status again later (arrival is not instant; ETA in caravan.arriveAt)']);
+  assert.match(text(receiptOf(op({ state: STATES.PROCESSING, uncertain: true, hold: { code: 'ContextChanged' } }))), /not known yet \(ContextChanged\)/, 'a hold still holds');
 });

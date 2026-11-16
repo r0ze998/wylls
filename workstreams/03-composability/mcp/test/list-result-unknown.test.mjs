@@ -16,7 +16,10 @@ const op = (o = {}) => ({ id: 'op_1', requestId: 'req-00000001', kind: 'caravan'
 const CASES = [
   [op({ hold: { code: 'ResultUnknown' } }), true],
   [op({ uncertain: true }), true],
-  [op({ state: STATES.REQUESTED, uncertain: true }), true],
+  [op({ state: STATES.REQUESTED, unknownSince: 1, error: { code: 'RelayUnreachable' } }), true],
+  [op({ state: STATES.REQUESTED, unknownSince: null }), false],
+  [op({ state: STATES.PROCESSING, uncertain: true, unknownSince: 1 }), false],
+  [op({ state: STATES.PROCESSING, hold: { code: 'ContextChanged' } }), true],
   [op({ gateway: { signature: 'S' } }), false],
   [op({ state: STATES.PROCESSING }), false],
   [op({ state: STATES.COMPLETED, outcome: 'delivered', hold: { code: 'Indeterminate' } }), false],

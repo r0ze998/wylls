@@ -127,13 +127,20 @@ export function actionNotAllowedNext(message) {
  * Not decided yet, and its result is not known (held, or an attempt that may have been sent — 08 state table: accepted
  * also covers "result unknown"): neither sent-and-travelling nor failed, and never to be sent again.
  */
-export const resultUnknown = op => !TERMINAL.includes(op.state) && (Boolean(op.hold) || op.uncertain === true);
+// The state is the evidence: `uncertain` and `unknownSince` are never cleared (history), so they count only where no
+// later evidence moved the operation on — requested with a lost answer (the relay may or may not have it), accepted
+// with an attempt whose outcome is not known; processing means it landed (its arrival is then a matter of time), and
+// only a hold keeps it undecided there.
+export const resultUnknown = op => !TERMINAL.includes(op.state) && (Boolean(op.hold)
+  || (op.state === STATES.ACCEPTED && op.uncertain === true)
+  || (op.state === STATES.REQUESTED && op.unknownSince !== null && op.unknownSince !== undefined));
 
 /** The receipt view of an operation record (what operation_status returns). */
 export function receiptOf(op) {
   const unknown = resultUnknown(op);
   const next = op.state === STATES.FAILED ? (op.error?.code === 'ActionNotAllowed' ? actionNotAllowedNext(op.error.message) : RECOVERY[op.error?.code] ?? ['prepare again'])
     : op.state === STATES.COMPLETED ? (op.outcome === 'delivered' ? [] : RECOVERY[op.outcome] ?? [])
+    : unknown && op.state === STATES.REQUESTED && !op.hold ? [`the result is not known yet${op.error?.code ? ` (${op.error.code})` : ''}: the relay may or may not have the request; it is neither delivered nor failed; call operation_status again later (it asks without sending) — a retry may only reuse the same requestId, never a new plan or a new requestId`]
     : unknown ? [`the result is not known yet${op.hold ? ` (${op.hold.code})` : ''}: do not prepare or send this again; it is neither delivered nor failed until operation_status says so; call operation_status again later`]
     : ['call operation_status again later (arrival is not instant; ETA in caravan.arriveAt)'];
   return {
