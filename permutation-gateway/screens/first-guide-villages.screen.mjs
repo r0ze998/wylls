@@ -32,7 +32,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { statfsSync, readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { createGuard, walkFiles, totalSize, scanStorage } from './first-guide-safety.mjs';
+import { createGuard, walkFiles, totalSize, scanStorage, waitUntil, runPhases, summarize, verdict } from './first-guide-safety.mjs';
 
 const TMP = process.env.FIRST_GUIDE_TMP ?? '';
 const FREE_MIN = 22 * 2 ** 30, PROFILE_MAX = 300 * 2 ** 20, MONITOR_MS = 1000;
@@ -76,26 +76,38 @@ after(async () => { await closeAll(); });
 
 
 const settle = page => page.waitForTimeout(400);
+// (what the page asked for and threw, kept outside openPage so the audit can read them even when the opening failed)
+const seen = { blocked: [], posts: [], errors: [] };
+let page = null;
+const READY_MS = 20_000, READY_EVERY = 250;
 async function openPage() {
   ctx = await guard.adopt('ctx', browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-GB', timezoneId: 'UTC', serviceWorkers: 'block' }));
-  const blocked = [], posts = [], errors = [];
   await NK.prepare(ctx, srv.viewer, { lang: 'en' });
   await ctx.route('**/seal-worker.mjs', route => route.abort('blockedbyclient'));
   await ctx.route(() => true, route => {
     const r = route.request(), u = new URL(r.url()), m = r.method();
     if (u.protocol === origin.protocol && u.hostname === origin.hostname && u.port === origin.port && (m === 'GET' || m === 'HEAD')) return route.fallback();
-    (m === 'GET' || m === 'HEAD' ? blocked : posts).push(`${m} ${u.protocol}//${u.host}${u.pathname}`);
+    (m === 'GET' || m === 'HEAD' ? seen.blocked : seen.posts).push(`${m} ${u.protocol}//${u.host}${u.pathname}`);
     return route.abort('blockedbyclient');
   });
-  const page = await ctx.newPage();
-  page.on('pageerror', e => errors.push(e.message));
+  page = await ctx.newPage();
+  page.on('pageerror', e => seen.errors.push(e.message));
   await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
   await page.goto(`${base}/frontier/index.html?devWallet=off&at=${HOME.p},${HOME.q},${HOME.tile},1.0`);
   assert.equal(await page.evaluate(() => isSecureContext && !!crypto.subtle), true, 'native secure 127.0.0.1, no insecure-origin override');
   await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
   await page.locator('#frontier-map').waitFor();
-  return { page, blocked, posts, errors };
 }
+// (4d12e851: the first run touched the home province before the page had read it) the viewer's village and that
+// village's province are in the page — bounded, polled; a page that never gets there fails with the reason
+const readiness = () => page.evaluate(async () => {
+  const { FS } = await import('/frontier/fstate.mjs');
+  const h = FS.holdings?.[0];
+  if (!h) return { ok: false, why: 'no village of the viewer in the page yet' };
+  const env = FS.provinces?.get?.(`${h.p},${h.q}`);
+  return env?.province ? { ok: true } : { ok: false, why: `the province ${h.p},${h.q} of the viewer's village is not read yet` };
+});
+const ready = () => waitUntil(readiness, { timeoutMs: READY_MS, everyMs: READY_EVERY, sleep: ms => new Promise(r => setTimeout(r, ms)), now: () => Date.now(), what: 'ready (the home province read)' });
 
 // the page's own state, test-only: a conquest season, A = the viewer's village (with `a`), B = an empty second village
 // in A's province (when `two`), B open; A's hosts are the fixture's removed and, with `host`, one ready host given
@@ -110,6 +122,7 @@ const scene = (page, { a = {}, host = false, two = true }) => page.evaluate(asyn
   const A0 = FS.holdings[0];
   const A = { ...A0, ...a, reserve: a.reserve ?? Array(8).fill(0) };
   const key = `${A.p},${A.q}`, env = FS.provinces.get(key);
+  if (!env?.province) throw new Error(`the home province ${key} is not read yet`);
   const others = (env.province.entries ?? []).map(e => (e.state >= 1 && e.state <= 3 && hostOfHolding(e.id, A) ? { ...e, state: 0 } : e));
   const id = hostId({ p: A.p, q: A.q, site: A.site, gen: A.gen, seq: 9 });
   const entries = host ? [...others, { ...(others.find(e => e.state === 0) ?? {}), id, unit: 0, state: 1, tile: A.tile, troops: 300000, staminaValue: 120, staminaBell: 0, readyBell: 0, pendOp: 0, fromBell: 1, faction: A.faction }] : others;
@@ -124,55 +137,72 @@ const scene = (page, { a = {}, host = false, two = true }) => page.evaluate(asyn
 const pill = page => page.evaluate(() => { const b = document.getElementById('attn-pill'); return b && !b.hidden ? { ...b.dataset } : null; });
 const after_ = page => page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return { active: FS.activeHolding, pop: FS.hand?.pop ?? null, host: FS.hand?.host ?? null, sel: FS.selected ? { p: FS.selected.p, q: FS.selected.q, idx: FS.selected.idx } : null }; });
 
-test('the first-play guide with two villages: the pill names the village or host that can act, and pressing it opens there (fixture replay)', { timeout: 150_000 }, async () => {
-  const { page, blocked, posts, errors } = await openPage();
+// the main run's phases (first-guide-safety.mjs runPhases): open → ready → cases; the audit ALWAYS, whatever failed before
+let MAIN = null;
+async function cases() {
+  // 1. A trained, no host; B open
+  const reserve = Array(8).fill(0); reserve[0] = 200;
+  let s = await scene(page, { a: { reserve } }); await settle(page);
+  let d = await pill(page);
+  assert.deepEqual(d && { act: d.act, pop: d.pop, p: d.p, q: d.q, site: d.site }, { act: 'cg-go', pop: 'muster', p: String(s.a.p), q: String(s.a.q), site: String(s.a.site) }, JSON.stringify(d));
+  await page.locator('#attn-pill').click(); await settle(page);
+  let r = await after_(page);
+  assert.deepEqual([r.active, r.pop, r.sel?.idx], [0, 'muster', s.a.tile], JSON.stringify(r));
+  // 2. A has a ready host; B open
+  s = await scene(page, { host: true }); await settle(page);
+  d = await pill(page);
+  assert.deepEqual(d && { act: d.act, pop: d.pop, host: d.host }, { act: 'cg-go', pop: 'keeps', host: s.host }, JSON.stringify(d));
+  await page.locator('#attn-pill').click(); await settle(page);
+  r = await after_(page);
+  assert.deepEqual([r.active, r.pop, r.host], [0, 'keeps', s.host], JSON.stringify(r));
+  // 3. one village: nothing named, the open village stays
+  s = await scene(page, { a: { reserve }, two: false }); await settle(page);
+  d = await pill(page);
+  assert.ok(d && d.act === 'cg-go' && d.pop === 'muster' && d.p === undefined, JSON.stringify(d));
+  await page.locator('#attn-pill').click(); await settle(page);
+  r = await after_(page);
+  assert.deepEqual([r.active, r.pop], [0, 'muster'], JSON.stringify(r));
+}
+// the safety audit: traffic, page errors, keys and storage, the profile — every check runs and every failure is kept
+async function audit() {
+  const fails = [];
+  const check = (name, fn) => { try { fn(); } catch (e) { fails.push(`${name}: ${e?.message ?? e}`); } };
+  check('monitor', () => assert.equal(guard.state().tripped, null, 'the monitor tripped'));
+  check('requests', () => assert.deepEqual(seen.posts, [], 'a request other than GET or HEAD was asked for (aborted before it was sent)'));
+  check('origins', () => assert.deepEqual([...new Set(seen.blocked)], [], 'a request to another origin was asked for (aborted before it was sent)'));
+  check('page errors', () => assert.deepEqual(seen.errors, []));
+  if (!ctx) fails.push('keys/storage: the browser context never opened — key use and stored seeds are unchecked');
+  else { try { await NK.assertKeyless(ctx, assert); } catch (e) { fails.push(`keys/storage: ${e?.message ?? e}`); } }
   try {
-    // 1. A trained, no host; B open
-    const reserve = Array(8).fill(0); reserve[0] = 200;
-    let s = await scene(page, { a: { reserve } }); await settle(page);
-    let d = await pill(page);
-    assert.deepEqual(d && { act: d.act, pop: d.pop, p: d.p, q: d.q, site: d.site }, { act: 'cg-go', pop: 'muster', p: String(s.a.p), q: String(s.a.q), site: String(s.a.site) }, JSON.stringify(d));
-    await page.locator('#attn-pill').click(); await settle(page);
-    let r = await after_(page);
-    assert.deepEqual([r.active, r.pop, r.sel?.idx], [0, 'muster', s.a.tile], JSON.stringify(r));
-    // 2. A has a ready host; B open
-    s = await scene(page, { host: true }); await settle(page);
-    d = await pill(page);
-    assert.deepEqual(d && { act: d.act, pop: d.pop, host: d.host }, { act: 'cg-go', pop: 'keeps', host: s.host }, JSON.stringify(d));
-    await page.locator('#attn-pill').click(); await settle(page);
-    r = await after_(page);
-    assert.deepEqual([r.active, r.pop, r.host], [0, 'keeps', s.host], JSON.stringify(r));
-    // 3. one village: nothing named, the open village stays
-    s = await scene(page, { a: { reserve }, two: false }); await settle(page);
-    d = await pill(page);
-    assert.ok(d && d.act === 'cg-go' && d.pop === 'muster' && d.p === undefined, JSON.stringify(d));
-    await page.locator('#attn-pill').click(); await settle(page);
-    r = await after_(page);
-    assert.deepEqual([r.active, r.pop], [0, 'muster'], JSON.stringify(r));
-
-    assert.equal(guard.state().tripped, null, 'the monitor never tripped');
-    assert.deepEqual(posts, [], 'no request other than GET or HEAD (each was aborted before it was sent)');
-    assert.deepEqual([...new Set(blocked)], [], 'no request to any origin other than the fixture\'s');
-    assert.deepEqual(errors, []);
-    await NK.assertKeyless(ctx, assert);
-    // the profile: within its limit, and none of the page's storage written into it — a file that cannot be read fails
     const files = profileFiles();
     const size = totalSize(files, DISK);
-    assert.ok(size <= PROFILE_MAX, `the temporary profile stays under 300 MiB (${(size / 2 ** 20).toFixed(1)} MiB)`);
+    check('profile size', () => assert.ok(size <= PROFILE_MAX, `the temporary profile passed 300 MiB (${(size / 2 ** 20).toFixed(1)} MiB)`));
     const scan = scanStorage(files, STORED, DISK);
-    assert.deepEqual(scan.unreadable, [], 'every profile file could be read');
-    assert.deepEqual(scan.leaked, [], 'no page storage in the profile on disk');
-  } finally {
-    if (guard.state().tripped) await closeAll();
-  }
+    check('profile read', () => assert.deepEqual(scan.unreadable, [], 'a profile file could not be read'));
+    check('profile storage', () => assert.deepEqual(scan.leaked, [], 'page storage was found in the profile on disk'));
+  } catch (e) { fails.push(`profile: could not be read — ${e?.code ?? e?.message ?? e}`); }
+  if (fails.length) throw new Error(fails.join(' | '));
+}
+
+test('the first-play guide with two villages: the pill names the village or host that can act, and pressing it opens there (fixture replay)', { timeout: 150_000 }, async () => {
+  MAIN = await runPhases([
+    { name: 'open', run: openPage },
+    { name: 'ready', run: ready },
+    { name: 'cases', run: cases },
+    { name: 'audit', run: audit, always: true },
+  ]);
+  const sum = summarize(MAIN);
+  console.log(`# phases: ${MAIN.map(r => `${r.name}=${r.ok === null ? 'skipped' : r.ok ? 'ok' : 'FAILED'}`).join(' ')}`);
+  if (guard.state().tripped) await closeAll();
+  assert.ok(sum.ok, sum.failures.join('\n') || `skipped: ${sum.skipped.join(', ')}`);
 });
 
-test('cleanup: this test\'s own context, browser and server closed once and cleanly; Playwright removed its temporary profile and artifacts', async () => {
+test('cleanup: this test\'s own context, browser and server closed once and cleanly; Playwright removed its temporary profile and artifacts; and the safety audit passed', async () => {
   await closeAll();
   const st = guard.state();
   console.log(`# monitor: tripped=${st.tripped ?? 'no'}; profile peak ${(st.peak.profile / 2 ** 20).toFixed(1)} MiB; free low ${(st.peak.freeLow / 2 ** 30).toFixed(2)} GiB (sampled every ${MONITOR_MS} ms)`);
-  assert.equal(st.tripped, null, st.tripped ?? '');
-  assert.deepEqual(st.closeErrors, [], 'every close succeeded');
-  assert.deepEqual(st.open, [], 'no handle left open');
-  assert.deepEqual(profiles(), [], JSON.stringify(readdirSync(TMP)));
+  let leftovers;
+  try { leftovers = profiles(); } catch (e) { leftovers = [`(the temp folder could not be read: ${e?.code ?? e?.message})`]; }
+  const v = verdict({ state: st, leftovers, main: MAIN });
+  assert.deepEqual(v, [], v.join('\n'));
 });

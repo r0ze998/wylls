@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createGuard, walkFiles, totalSize, scanStorage, GONE } from '../screens/first-guide-safety.mjs';
+import { createGuard, walkFiles, totalSize, scanStorage, GONE, waitUntil, runPhases, summarize, verdict } from '../screens/first-guide-safety.mjs';
 
 const err = code => Object.assign(new Error(code), { code });
 const GiB = 2 ** 30, MiB = 2 ** 20;
@@ -112,13 +112,69 @@ test('scanStorage: a leak is found; a gone file is skipped; an unreadable one is
   assert.deepEqual(scanStorage(['ls', 'ok', 'gone', 'locked'], ['ps-wallet', 'ws07:keyUses'], { read }), { leaked: ['ls'], unreadable: ['locked: EACCES'] });
 });
 
-test('the screen test wires this guard and keeps no fail-open path of its own (pinned as text)', () => {
+// ------------------------------------------------------------------ the phases, the bounded wait and the verdict
+const fakeClock = () => { let t = 0; return { now: () => t, sleep: async ms => { t += ms; } }; };
+
+test('waitUntil: ready on the third check; a throwing check is "not ready" with its reason; bounded, with the last reason', async () => {
+  const c = fakeClock(); let n = 0;
+  const r = await waitUntil(async () => (++n === 1 ? (() => { throw new Error('module not loaded'); })() : { ok: n >= 3, why: `try ${n}` }), { timeoutMs: 1000, everyMs: 250, ...c });
+  assert.equal(r.ok, true); assert.equal(n, 3);
+  const c2 = fakeClock(); let m = 0;
+  await assert.rejects(waitUntil(async () => { m++; return { ok: false, why: 'the province 2,0 is not read yet' }; }, { timeoutMs: 1000, everyMs: 250, ...c2, what: 'ready' }),
+    /not ready after 1000 ms: the province 2,0 is not read yet/);
+  assert.equal(m, 5, 'checks at 0, 250, 500, 750, 1000 ms, then stopped');
+});
+
+const ok = () => {}, boom = msg => () => { throw new Error(msg); };
+const run = (open, rdy, cases, audit) => runPhases([{ name: 'open', run: open }, { name: 'ready', run: rdy }, { name: 'cases', run: cases }, { name: 'audit', run: audit, always: true }]);
+
+test('phases: all pass → ok', async () => {
+  const s = summarize(await run(ok, ok, ok, ok));
+  assert.deepEqual(s, { ok: true, failures: [], skipped: [] });
+});
+test('phases: the set-up fails → ready and cases skipped, the audit STILL runs; both kept', async () => {
+  let audited = false;
+  const r = await run(boom('open failed'), ok, ok, () => { audited = true; throw new Error('keys/storage: the browser context never opened'); });
+  assert.equal(audited, true);
+  assert.deepEqual(summarize(r), { ok: false, failures: ['open: open failed', 'audit: keys/storage: the browser context never opened'], skipped: ['ready', 'cases'] });
+});
+test('phases: the readiness wait fails (as in 4d12e851) → cases skipped, the audit runs and may pass; still not ok', async () => {
+  const s = summarize(await run(ok, boom('not ready after 20000 ms: the province 2,0 is not read yet'), ok, ok));
+  assert.equal(s.ok, false); assert.deepEqual(s.skipped, ['cases']); assert.equal(s.failures.length, 1);
+});
+test('phases: a case fails and the audit fails → both kept', async () => {
+  const s = summarize(await run(ok, ok, boom('pill: expected muster'), boom('requests: a POST was asked for')));
+  assert.deepEqual(s.failures, ['cases: pill: expected muster', 'audit: requests: a POST was asked for']);
+});
+test('phases: the cases pass, the audit fails → not ok', async () => {
+  assert.equal(summarize(await run(ok, ok, ok, boom('profile storage: page storage was found'))).ok, false);
+});
+
+const clean = { tripped: null, closeErrors: [], open: [] };
+test('verdict: a clean cleanup and a passed audit → nothing to report', async () => {
+  assert.deepEqual(verdict({ state: clean, main: await run(ok, ok, ok, ok) }), []);
+});
+test('verdict: a clean cleanup does NOT stand for a passed audit (failed, skipped, never run, no main run)', async () => {
+  assert.match(verdict({ state: clean, main: await run(ok, ok, ok, boom('origins: another origin')) })[0], /the safety audit did not pass \(origins: another origin\): a clean cleanup is not a passed safety check/);
+  assert.match(verdict({ state: clean, main: [{ name: 'audit', ok: null, error: null }] })[0], /did not pass \(skipped\)/);
+  assert.deepEqual(verdict({ state: clean, main: [{ name: 'open', ok: true, error: null }] }), ['the safety audit never ran']);
+  assert.deepEqual(verdict({ state: clean, main: null }), ['the main run never ran']);
+});
+test('verdict: cleanup failures are reported with the audit\'s', async () => {
+  const v = verdict({ state: { tripped: 'free space unreadable: EIO', closeErrors: ['srv: ERR_SERVER_NOT_RUNNING'], open: ['browser'] }, leftovers: ['playwright-artifacts-x'], main: await run(ok, ok, ok, boom('page errors: x')) });
+  assert.deepEqual(v.slice(0, 4), ['the monitor tripped: free space unreadable: EIO', 'close failed: srv: ERR_SERVER_NOT_RUNNING', 'left open: browser', 'temporary folders left: playwright-artifacts-x']);
+  assert.match(v[4], /the safety audit did not pass/);
+});
+
+test('the screen test wires this guard, waits for its home province, audits always, and gives the cleanup the audit\'s verdict (pinned as text)', () => {
   const s = readFileSync(new URL('../screens/first-guide-villages.screen.mjs', import.meta.url), 'utf8');
-  assert.match(s, /import \{ createGuard, walkFiles, totalSize, scanStorage \} from '\.\/first-guide-safety\.mjs';/);
+  assert.match(s, /import \{ createGuard, walkFiles, totalSize, scanStorage, waitUntil, runPhases, summarize, verdict \} from '\.\/first-guide-safety\.mjs';/);
   assert.match(s, /browser = await guard\.adopt\('browser', chromium\.launch\(/);
   assert.match(s, /srv = await guard\.adopt\('srv', startServer\(/);
   assert.match(s, /ctx = await guard\.adopt\('ctx', browser\.newContext\(/);
-  assert.match(s, /assert\.deepEqual\(scan\.unreadable, \[\], 'every profile file could be read'\);/);
-  assert.match(s, /assert\.deepEqual\(st\.closeErrors, \[\], 'every close succeeded'\);/);
+  assert.match(s, /\{ name: 'open', run: openPage \},\s*\{ name: 'ready', run: ready \},\s*\{ name: 'cases', run: cases \},\s*\{ name: 'audit', run: audit, always: true \},/);
+  assert.match(s, /const v = verdict\(\{ state: st, leftovers, main: MAIN \}\);\s*assert\.deepEqual\(v, \[\], v\.join/);
+  assert.match(s, /if \(!env\?\.province\) throw new Error\(`the home province \$\{key\} is not read yet`\);/);
+  assert.match(s, /if \(!ctx\) fails\.push\('keys\/storage: the browser context never opened/);
   assert.doesNotMatch(s, /catch \{ return \[\]; \}|catch \{ return a; \}|catch \{ return false; \}|\.catch\(\(\) => \{\}\)|let free = Infinity/);
 });

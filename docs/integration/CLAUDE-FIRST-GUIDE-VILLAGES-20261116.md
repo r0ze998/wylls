@@ -35,3 +35,17 @@ In `openPage`, after the map waits, poll (a few hundred ms at a time, bounded) u
 village's province — `FS.holdings?.length > 0 && FS.provinces.has(\`${h.p},${h.q}\`)` read through
 `import('/frontier/fstate.mjs')` — and fail with that message if it never does; `scene` to throw a plain message
 ("the home province is not read yet") rather than a TypeError.
+
+## After the run: the test's own structure fixed (static; NOT run again)
+- Readiness: before any case, a bounded wait (20 s, every 250 ms) until the page holds the viewer's village and that
+  village's province; it fails with the last reason ("the province 2,0 … is not read yet"). `scene` throws that plain
+  message instead of a TypeError.
+- Phases (`first-guide-safety.mjs` `runPhases`): open → ready → cases, then the safety AUDIT ALWAYS, whatever failed
+  before it; every failure is kept (a set-up failure and an audit failure are both reported). The audit runs each of its
+  checks (monitor, non-GET requests, other origins, page errors, keys/storage, profile size/readability/storage) and
+  reports all that fail; with no browser context it fails ("key use and stored seeds are unchecked").
+- Verdict (`verdict`): the cleanup test fails unless the main run ran AND its audit passed — a clean cleanup is no
+  longer a passed safety check — besides a trip, a close error, an open handle or a temp folder left.
+- Checked with fake dependencies only (`web-frontier-first-guide-safety.test.mjs`, 26/26): set-up failure + audit,
+  readiness failure, case + audit failures, audit-only failure, every verdict combination, the bounded wait. No browser,
+  server or process; the browser check itself is still not re-run.

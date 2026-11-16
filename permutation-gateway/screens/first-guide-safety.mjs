@@ -81,3 +81,59 @@ export function createGuard({ freeBytes, profileBytes, freeMin, profileMax, ever
   const state = () => ({ tripped, closed: !!closing, closeErrors: [...errors], open: [...handles.keys()], peak: { ...peak } });
   return { adopt, start, sample, closeAll, state };
 }
+
+// ------------------------------------------------------------------ the run's phases and its verdict (2026-11-16)
+// The first run (4d12e851) failed in its set-up and so never reached its traffic/key/storage assertions, while its
+// cleanup passed. From here: the set-up waits for what it needs (bounded), the safety audit runs whatever came before
+// it, every failure is kept, and a clean cleanup never stands for a passed audit.
+
+/**
+ * Poll `check()` → {ok, why} (it may throw: that counts as not ready, the error kept as the reason) until it is ok,
+ * at most `timeoutMs` (by `now()`), `everyMs` apart (`sleep(ms)`); then throw with the last reason. Bounded.
+ */
+export async function waitUntil(check, { timeoutMs, everyMs, sleep, now, what = 'ready' }) {
+  const t0 = now();
+  let why = 'not checked';
+  for (;;) {
+    try { const r = await check(); if (r?.ok) return r; why = r?.why ?? 'not ready'; } catch (e) { why = `check failed: ${e?.message ?? e}`; }
+    if (now() - t0 >= timeoutMs) throw new Error(`not ${what} after ${timeoutMs} ms: ${why}`);
+    await sleep(everyMs);
+  }
+}
+
+/**
+ * Run `phases` [{name, run, always}] in order. After a failure the later phases are skipped, except those marked
+ * `always` (the audit), which run whatever happened. Returns [{name, ok: true|false|null (skipped), error}].
+ */
+export async function runPhases(phases) {
+  const out = [];
+  let failed = false;
+  for (const p of phases) {
+    if (failed && !p.always) { out.push({ name: p.name, ok: null, error: null }); continue; }
+    try { await p.run(); out.push({ name: p.name, ok: true, error: null }); } catch (e) { failed = true; out.push({ name: p.name, ok: false, error: e?.message ?? String(e) }); }
+  }
+  return out;
+}
+
+/** {ok, failures: ['name: message'], skipped: [names]} of runPhases' result. */
+export function summarize(results) {
+  const failures = results.filter(r => r.ok === false).map(r => `${r.name}: ${r.error}`);
+  return { ok: failures.length === 0 && results.every(r => r.ok === true), failures, skipped: results.filter(r => r.ok === null).map(r => r.name) };
+}
+
+/**
+ * The cleanup's verdict: its own state (`state`: the guard's) AND the main run's audit. A cleanup that closed
+ * everything is not a passed safety check: no main run, or an audit that did not pass, fails here too.
+ */
+export function verdict({ state, leftovers = [], main = null, audit = 'audit' }) {
+  const out = [];
+  if (state.tripped) out.push(`the monitor tripped: ${state.tripped}`);
+  for (const e of state.closeErrors) out.push(`close failed: ${e}`);
+  if (state.open.length) out.push(`left open: ${state.open.join(', ')}`);
+  if (leftovers.length) out.push(`temporary folders left: ${leftovers.join(', ')}`);
+  const a = main?.find?.(r => r.name === audit) ?? null;
+  if (!main) out.push('the main run never ran');
+  else if (!a) out.push('the safety audit never ran');
+  else if (a.ok !== true) out.push(`the safety audit did not pass (${a.ok === null ? 'skipped' : a.error}): a clean cleanup is not a passed safety check`);
+  return out;
+}
