@@ -45,7 +45,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'prepare_caravan',
     title: 'Prepare caravan',
-    description: 'Plans a caravan between two of the owner\'s own places (placeIds from get_village_status): checks the cargo against the source, finds the road and its estimated time, and returns a planId valid for 5 minutes with a summary to show the person. Sends nothing and spends nothing; send_caravan sends.',
+    description: 'Plans a caravan between two of the owner\'s own places (placeIds from get_village_status): checks the cargo against the source, finds the road and its estimated time, and returns a planId valid for 5 minutes with a summary to show the person. If the owner\'s storehouses could not be read, a storehouse placeId is refused as Unknown (read get_village_status again), not as another player\'s. Sends nothing and spends nothing; send_caravan sends.',
     inputSchema: {
       type: 'object', additionalProperties: false, required: ['from', 'to', 'cargo'],
       properties: { from: { type: 'string', maxLength: 64 }, to: { type: 'string', maxLength: 64 }, cargo: cargoSchema },

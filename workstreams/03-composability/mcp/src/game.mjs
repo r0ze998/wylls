@@ -189,11 +189,19 @@ export class Game {
     return { agent, season, now, village, places, caravans, citizenTag: tag.toString(), resources, citizen: me.citizen, feedOk: feed.ok };
   }
 
-  /** A place of the owner's by its `placeId` (else NotYourPlace: the server never resolves another player's). */
+  /**
+   * A place of the owner's by its `placeId` (else NotYourPlace: the server never resolves another player's). The
+   * storehouses come from the caravan feed: when it was not read (`feedOk: false`), a storehouse id that is not listed
+   * may still be the owner's — that is not known, so it is not "not yours" either. It is refused all the same (Unknown,
+   * fail closed: nothing is planned on a place that could not be verified); the advice is to read again, never to send.
+   */
   static placeOf(view, id) {
     const pl = view.places.find(x => x.placeId === id);
-    if (!pl) throw new GameError('NotYourPlace', `${String(id).slice(0, 40)} is not one of the connected owner's places (village_status lists them)`);
-    return pl;
+    if (pl) return pl;
+    if (view.feedOk === false && /^vault:/.test(String(id))) {
+      throw new GameError('Unknown', `the owner's storehouses could not be read (caravan feed unavailable): whether ${String(id).slice(0, 40)} is one of them is not known; read village_status again, then prepare again`, { retryable: true, reason: 'CaravanFeedUnavailable' });
+    }
+    throw new GameError('NotYourPlace', `${String(id).slice(0, 40)} is not one of the connected owner's places (village_status lists them)`);
   }
 
   /**
