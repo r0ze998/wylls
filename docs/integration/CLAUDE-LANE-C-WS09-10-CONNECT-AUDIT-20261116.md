@@ -125,3 +125,44 @@ Local objects were read first. The three tips missing locally were read through 
   - two sources for one job, which is refused today as `NotImplemented`.
 - Release conditions: an SBF build, LiteSVM tests, measured budgets, a complete V26, and a capacity verifier.
 - A deployable program that dispatches the tags by default.
+
+## Addendum 2 (2026-11-17): cancel and loss traced through owed amounts and closing (static; not run)
+
+The trace followed each path from the program handler (`proc/capacity.rs`), through the kernel (`permutation-rules/src/frontier/capacity.rs` and `custody.rs`), to the order of account writes. Line numbers are on `d16048aa`.
+
+| Path | What happens | Judgement |
+|---|---|---|
+| CancelJob (`proc` 861–889 → `cap::cancel` 1135–1162) | Settles to `now` and sets `Fin::Cancelled`. Retrying is `Already`; a job already final is `AlreadyFinal`. Job and pool are written only on `Applied`, and the link is not touched. The refund waits for ClaimJob, which puts a lot's ore into `link.owed` (Addendum 1). | sound |
+| ClaimJob after Cancel, then RecordFacilityLoss | Claim sets `refunded = true`, so `lose` computes `refund = [0, 0]`: nothing is returned twice. | sound |
+| RecordFacilityLoss first (`proc` 895–958 → `cap::lose` 1245–1312) | Every job of the pool is required, in order (`UnknownJob` otherwise). Under a policy that gives the captor the inputs, `refunded = true` and the inputs go to `forfeited_in`; the captor's Holding is credited. The owner's decision D4 is that the captor takes it and nothing returns to the lot. A later claim refunds nothing, and the output is claimed for the captor exactly once. Ore that was already in `link.owed` before the loss stays owed, and remains payable (Addendum 1). | sound (D4 as decided) |
+| A loss where the user keeps all, or no captor | `refunded` stays false, and ClaimJob refunds later into `link.owed`. | sound |
+| RetireJob (`proc` 966–988 → `cap::retire` 1316–1351) | Requires the job final and fully handed out (`claimed == settled`, plus refunded or nothing left). The program also refuses while `link.owed != 0`. | sound |
+| A sub-unit owed rest | `pay_owed` returns whole units only, so a rest below 1000 milli stays in the job's link forever. The job then never retires, and the pool keeps its occupancy row. | **known and documented**: ⑨ `INTEGRATION-04.ja.md` §2 and ⑩ doc 15 decision 2. Holding the rest on the lot needs a Lot layout field, a new `RULESET_HASH_V4`, ④'s allocation and an owner decision. Not changed. |
+
+### A defect not found in the documents: closing the lot strands what a job still owes it
+
+1. M's lot holds 10 ore. M gives B a use order for 10.
+2. B's `DepositToJob` consumes all 10. `spend_order` frees the order when `qty_left` reaches 0, so the lot has `held == 0`, no live order and no inbound caravan. `Lot::empty` is therefore true.
+3. **M, or the vault's owner**, sends CloseLot. Rules `custody::close` (467–497) allows either. `proc/custody.rs` `close_lot` (1187–1235) then closes the account with `init::close_to`.
+4. B's job ends, or is cancelled, with 4 ore unused. ClaimJob puts 4000 into `link.owed`.
+5. `lots::pay_owed` cannot pay it.
+   - With the closed account, `lot_of` → `present_v2` fails, so a claim that lists the lot pair fails as a whole.
+   - If M reopens a lot at the same deterministic address (`lot_address`: p, q, tile, vault generation, owner tag, resource), its `consumed` is 0, and `return_unused` refuses with `Quantity`.
+   - Without the pair, the owed amount stays in the job forever. The job never retires, and the pool keeps its row.
+
+**What breaks.** The ore that was not used belongs back to M (D2), and it is now unrecoverable: it is held by nobody. And the **vault's owner** can cause this, against ⑩'s claim that the keeper cannot reach a lot's goods.
+
+**Reachable only in a build with both previews** (`capacity-preview` and `custody-preview`). The default S1 build refuses these tags.
+
+**Why not fixed here.** Every remedy is a rule choice, outside this lane:
+- (a) the lot records returns still pending, and `empty` waits for them. This is a new Lot field (RSV), so the layout and `RULESET_HASH_V4` change: ④ and the owner.
+- (b) CloseLot of an open lot is refused while anything consumed for a workshop could come back. The lot cannot tell this without (a).
+- (c) define where the owed ore goes when its lot is gone: M's Holding, M's vault stock, or a new lot. That is the owner's decision.
+
+A stopgap that only makes `pay_owed` report "not payable" for a closed lot would leave the ore stranded as before. So no code was changed, and no regression case was written: a case would only pin the defect. Once one of (a)–(c) is chosen, the case is the scenario above.
+
+### What actually needs deciding next (in order)
+
+1. **The owner:** where unused lot ore goes when its lot has closed, (c). And whether a lot may close while returns are pending, (a)/(b). This defect needs that decision before either preview can be adopted.
+2. **④ and the owner:** where a sub-unit rest is held (already open: ⑨ INTEGRATION-04 §2). The same lot-side field would serve (a).
+3. Then the adoption items already listed: final numbers, version 5 against S2, SBF/LiteSVM/budgets, V26, a capacity verifier, and a deployable dispatch.
