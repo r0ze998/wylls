@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { Game, GameError, untrusted } from './game.mjs';
 import { SCOPES } from './auth.mjs';
 import { MockGrantPort, STATES, TERMINAL } from './ports.mjs';
-import { LocalReceiptPort, assertReceiptPort } from './receipt-port.mjs';
+import { LocalReceiptPort, assertReceiptPort, ws04ActAfterRead, ws04ActAfterFailedRead } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
 import { REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
@@ -603,15 +603,13 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       try {
         if (!op.ws04Act?.run4Id) await register(op, link);
         const a = await acts.status({ agentId: link.agentId, key: keyOf(op) });
-        // The receipt is this request's only when it names this request's key: another key's receipt is not applied.
-        if (a.idempotencyKey != null && a.idempotencyKey !== keyOf(op)) throw Object.assign(new Error(`the registry answered for another key (${a.idempotencyKey})`), { code: 'Inconsistent' });
-        // `at` is the time of the last read that answered; a stale readError goes with a read that answered. The
-        // registry's signature, key and source are kept, so its cancel.until is used only for this request's own
-        // signature (receipt-port.mjs ws04CancelPhase). The registry answering is not evidence of a chain.
-        const { readError: _e, readErrorAt: _t, ...kept } = op.ws04Act ?? {};
-        op.ws04Act = { ...kept, run4Id: a.run4Id, receiptVersion: a.receiptVersion ?? null, state: a.state, final: a.final === true, next: a.next ?? null, newAttemptAllowed: a.newAttemptAllowed === true,
-          cancel: a.cancel ?? null, retention: a.retention ?? null, conflict: a.conflict ?? null, signature: a.signature ?? null, idempotencyKey: a.idempotencyKey ?? null, source: a.source ?? null, at };
-      } catch (e) { op.ws04Act = { ...(op.ws04Act ?? {}), readError: `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, readErrorAt: at }; }
+        // The receipt is this request's only when it names this request's key: another key's receipt is not applied
+        // (a failed read). `at` is the time of the last read that answered; the registry's signature, key and source are
+        // kept, so its cancel.until is used only for this request's own signature (receipt-port.mjs ws04CancelPhase).
+        const r = ws04ActAfterRead(op.ws04Act, a, { key: keyOf(op), at });
+        if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code });
+        op.ws04Act = r.act;
+      } catch (e) { op.ws04Act = ws04ActAfterFailedRead(op.ws04Act, `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, at); }
     }
     if (f === null) return null;
     applyFate(op, link, f);

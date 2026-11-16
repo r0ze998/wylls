@@ -118,6 +118,25 @@ export function feesOf(op) {
   return { category: 'unconfirmed', lamports: null, basis: 'an attempt may have been signed; its absence is not proven, so it is never released' };
 }
 
+/**
+ * `op.ws04Act` after a registry status read that answered (server.mjs consult). Pure: no I/O.
+ * `{ok: false, code: 'Inconsistent', message}` when the receipt names another idempotency key (not applied: consult
+ * records it as a failed read); else `{ok: true, act}`: the receipt's run4Id, state, next, cancel, retention, conflict
+ * and its signature, key and source, with `at` the time of this read and any earlier readError/readErrorAt dropped.
+ * The registry answering is not evidence of a chain (④'s receipt names no chain, simulator or read mode).
+ */
+export function ws04ActAfterRead(prev, a, { key, at }) {
+  if (a.idempotencyKey != null && a.idempotencyKey !== key) return { ok: false, code: 'Inconsistent', message: `the registry answered for another key (${a.idempotencyKey})` };
+  const { readError: _e, readErrorAt: _t, ...kept } = prev ?? {};
+  return { ok: true, act: { ...kept, run4Id: a.run4Id, receiptVersion: a.receiptVersion ?? null, state: a.state, final: a.final === true, next: a.next ?? null, newAttemptAllowed: a.newAttemptAllowed === true,
+    cancel: a.cancel ?? null, retention: a.retention ?? null, conflict: a.conflict ?? null, signature: a.signature ?? null, idempotencyKey: a.idempotencyKey ?? null, source: a.source ?? null, at } };
+}
+
+/** `op.ws04Act` after a registry read (or registration) that failed: everything known kept, `at` (the last read that answered) untouched. Pure. */
+export function ws04ActAfterFailedRead(prev, readError, at) {
+  return { ...(prev ?? {}), readError, readErrorAt: at };
+}
+
 /** A revoked connection's cancellation in ④'s phases, per operation. */
 export function ws04CancelPhase(op) {
   if (op.state === 'processing') return { phase: 'Ineffective', at: 'InTransit' };
