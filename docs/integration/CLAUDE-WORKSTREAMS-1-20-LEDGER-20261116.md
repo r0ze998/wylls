@@ -273,3 +273,11 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - `node-keyfree.sh` on those two files from the export: REFUSED, exit 5 — 10 stale entries in
   scripts/ci/node-key-reviewed.txt. Nothing ran; not a success; not retried or bypassed; lists and guard unchanged.
 - Key-free status of today's normal-game fixes: none confirmed under the key-free runner (only unguarded runs).
+
+## 2026-11-16 — round 28's open-gate case (owner approved in-memory test keys and synthetic signing)
+- bcc17068: web-frontier-local-march-open-other-village.test.mjs — real controller, local play, gate open, host of the
+  other village: switches to its village, the order fixes it, the send-time answer is open. 5/5, that file only (first
+  run 2/5: the test's instance fixture was not 64 hex; fixed in the test). No product mismatch, no fix.
+- Key: one in-memory non-extractable Ed25519 key; signing: none; network: fetch stub only; storage: none.
+- Not run: the ordinary subset, the two refused key-free files, any send. Lists, reviews and guard unchanged.
+- Candidate merge f2c0f2a1; note in CLAUDE-PC-PLAY-FIXTURE-GAPS-20261116.
