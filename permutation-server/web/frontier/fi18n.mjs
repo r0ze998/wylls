@@ -322,6 +322,10 @@ const CLIENT_TEXT = {
   PlannerRefused: () => L`道を探せませんでした`,
   NoPath: () => L`そこまでの道が見つかりません`,
   NoDestination: () => L`行き先を選んでください`,
+  // the S1 fort form's own reasons (screens/s1.mjs fortGarrisonProblem; FortFull says the room there)
+  NoFort: () => L`要塞を選んでください`,
+  BadTroops: () => L`入れる人数が範囲の外です`,
+  FortFull: () => L`この要塞には、それだけ入る空きがありません`,
   // S1 (controller.mjs s1Refused): an order the page refuses before building it; the notice carries its own sentence
   S1Refused: () => L`この命令は今は出せません`,
   // (controller.mjs act: the same order sent again while the first is on its way; nothing more is sent)

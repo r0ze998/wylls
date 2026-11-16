@@ -17,7 +17,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { icon } from '../hud/icons.mjs';
 import { RESOURCES, RESOURCE_ORDER, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, hostOfHolding, SCOUT } from '../fland.mjs';
+import { storesAt, hostOfHolding, SCOUT, isFinal } from '../fland.mjs';
 import { SIEGE_ARMS, s1On } from '../fs1.mjs';
 import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
@@ -339,8 +339,12 @@ export function s1VillageModel(FS) {
     // (production[4]: the Horses slot, the workshops' arms under S1)
     oreStarved = Number(h.production?.[4] ?? 0) > 0 && !!ore && ore.perHour <= 0 && ore.value < 100;
   }
-  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved,
-    fortBlocks: locked ? ['CapturePending'] : [] };
+  // (2026-11-16: structure.rs fort_garrison_as also refuses a village that is not final after the lazy flip (NotFinal)
+  //  and a Province behind the turn (NotResident, prologue::resident_ok); the form offered both)
+  const nowBell = Number(FS.nowBell ?? 0), now = FS.chain?.now?.() ?? 0;
+  const fortBlocks = !h ? [] : [...(locked ? ['CapturePending'] : []), ...(!isFinal(h, prov, now, nowBell) ? ['NotFinal'] : []),
+    ...(!prov || Number(prov.resolvedNext) + 1 < nowBell ? ['NotResident'] : [])];
+  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved, fortBlocks };
 }
 
 /** How many of other players' places the caravan form lists, the nearest first. */
@@ -391,6 +395,24 @@ export function caravanProblem(src, dst, cargo) {
   if (cargo.some((v, i) => v > Math.floor(src.have?.[i] ?? 0))) return 'Insufficient';
   return null;
 }
+
+/**
+ * Why FortGarrison(tile, troops) would be refused for the numbers given, or null (structure.rs fort_garrison_as, in its
+ * order: troops 1..FORT_MAX_TROOPS, the fort's room after its pending troops — StructureLimit —, then the reserve's
+ * Spearmen — Insufficient): `{code, room?}`. The village-wide blocks are `m.fortBlocks`.
+ */
+export function fortGarrisonProblem(m, tile, troops) {
+  if (m?.fortBlocks?.length) return { code: m.fortBlocks[0] };
+  const f = (m?.forts ?? []).find(x => x.tile === tile);
+  if (!f) return { code: 'NoFort' };
+  if (!Number.isInteger(troops) || troops < 1 || troops > FORT_MAX_TROOPS) return { code: 'BadTroops' };
+  if (troops > f.room) return { code: 'FortFull', room: f.room };
+  if (troops > (m.spearmen ?? 0)) return { code: 'Insufficient' };
+  return null;
+}
+/** The words for fortGarrisonProblem. */
+export const fortProblemText = pr => (pr.code === 'FortFull' ? L`この要塞にはあと ${fmtNum(pr.room)} 人まで入れられます`
+  : pr.code === 'NoFort' ? L`要塞を選んでください` : pr.code === 'BadTroops' ? L`入れる人数は 1 から ${fmtNum(FORT_MAX_TROOPS)} までです` : errorText(pr.code));
 
 // ------------------------------------------------------------------ words
 const S1_BLOCK = { NoHolding: () => L`村を選んでください（費用は選んだ村から払います）`, Taken: () => L`このマスにはもう建っています`, Unknown: () => L`この州のようすをまだ読み込んでいません`,

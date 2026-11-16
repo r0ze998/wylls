@@ -60,7 +60,7 @@ import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s1TileModel, fortGarrisonProblem, fortProblemText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -2677,9 +2677,10 @@ export const FORMS = {
   's1-fort': f => {
     const h = activeHolding(FS), troops = Math.trunc(formNum(f, 'troops')), tile = Math.trunc(formNum(f, 'tile'));
     if (!h) return s1Refused(L`村を選んでください`);
-    // (the program's capture lock on the village in hand: refused here, before anything is signed)
-    const fb = s1VillageModel(FS).fortBlocks;
-    if (fb.length) return failed({ code: fb[0] });
+    // (the program's own refusals — capture lock, not final, Province behind, the fort's room, the reserve — here,
+    //  before anything is signed: screens/s1.mjs fortGarrisonProblem)
+    const pr = fortGarrisonProblem(s1VillageModel(FS), tile, troops);
+    if (pr) return ['CapturePending', 'NotFinal', 'NotResident', 'Insufficient'].includes(pr.code) ? failed({ code: pr.code }) : s1Refused(fortProblemText(pr));
     return act('FortGarrison', { v: { holding: h, tile }, fields: { troops }, order: orderOf('s1-fort', 'FortGarrison', { tile: { p: h.p, q: h.q, tile }, say: () => L`要塞に槍兵 ${fmtNum(troops)} を入れました` }) });
   },
   's1-propose': f => act('Propose', { v: { faction: FS.citizen?.faction }, fields: { kind: PROPOSE_STANCE, target_faction: Math.trunc(formNum(f, 'target')), value: Math.trunc(formNum(f, 'value')) },

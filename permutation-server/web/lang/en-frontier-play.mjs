@@ -1637,6 +1637,11 @@ export default {
   'この州で獲得 {0} マス · 生産 +{1}%': (n, p) => `Claimed in this province: ${plural(n, '{0} tile', '{0} tiles')} · production +${p}%`,
   'ほかの州 {0} マス': n => `Other provinces: ${plural(n, '{0} tile', '{0} tiles')}`,
   '（毎時 +{0}）': ' (+{0}/h)',
+  'この要塞にはあと {0} 人まで入れられます': 'This fort has room for {0} more',
+  '要塞を選んでください': 'Choose a fort',
+  '入れる人数が範囲の外です': 'That number is out of range',
+  'この要塞には、それだけ入る空きがありません': 'This fort has no room for that many',
+  '入れる人数は 1 から {0} までです': 'Enter between 1 and {0}',
   '地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。': 'Land claimed in the other provinces the map has loaded only (test world). It can change as you move the map.',
   // the land preview, the selected tile (hud/inspect.mjs over frontier/land.mjs landTileLines)
   'どの国の土地でもない空き地（領土の試験）': 'Open ground, no nation\'s land (territory trial)',
