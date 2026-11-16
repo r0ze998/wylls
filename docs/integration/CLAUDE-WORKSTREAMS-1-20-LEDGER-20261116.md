@@ -216,3 +216,9 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 ## 2026-11-16 12:45 JST — S1 fort form checks
 - 647ffc6f: FortGarrison pre-checks (NotFinal after the lazy flip, NotResident, the fort's room, the reserve) before signing;
   tests 4/4, ordinary subset 1775/1774/0 fail. Still to audit: Raid, Seize, Siege, Expel, nation proposals/votes.
+
+## 2026-11-16 13:10 JST — Raid/Seize/Siege audit
+- cb88dcea: seize — a fort with only pending troops is manned (fort_troops), as the program counts.
+- 6d01289e: siege — NotFinal (source final; lazy flip only in the target Province) and NotResident (target resolved);
+  siege fixtures moved to a resolved target, expectations unchanged. Ordinary subset 1781/1780/0 fail.
+- Raid: no gap (decision window mirrored). Next: Expel and the nation proposals/votes. Candidate notes on that branch.
