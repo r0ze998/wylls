@@ -10,6 +10,11 @@
 //   S4 checkSent after a stop: read only (no send, no model call); an unsettled send stays open, never "settled"
 //   S5 checkSent refuses while running and while a tick begun before the stop is still in flight
 //   S6 an act begun without an answer is reported as unfinished and is not re-sent by checkSent
+//   S7 a stop between act-begin and the first agent_act (the old microtask window): nothing sent, the act-begin closed
+//      as refused / not sent, nothing left unfinished
+//   S8 the re-ask of an unfinished act at a run's start: not made once the caller is stopped
+//   S9 verifyPending's bounded read rotates: 10 open sends, 8 reads a call — the 9th and 10th are read on the next call
+//   S10 checkSent advances its start by what it read: acts held open at the front never starve the later ones
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -17,7 +22,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunJournal } from '../../src/adapters.mjs';
 import { createLocalWorld, northernRequests } from '../../src/local-world.mjs';
-import { mandateFor } from '../../test/helpers.mjs';
+import { mandateFor, run } from '../../test/helpers.mjs';
+import { verifyPending } from '../../src/participate.mjs';
 import { openaiAdapter } from '../src/adapters.mjs';
 import { loopbackTransport } from '../src/http-transport.mjs';
 import { FIXTURE_BOOK } from '../src/price-book.mjs';
@@ -135,5 +141,73 @@ test('S6 an act begun without an answer is reported, not re-sent', async () => {
     assert.equal(s.w.chain.sent.length, sent);
     assert.deepEqual(c.unfinished.map(u => [u.key, u.outcome]), [['k-unfinished', 'unknown']]);
     assert.equal(c.settled, false);
+  } finally { await s.close(); }
+});
+
+const STOP = { ok: false, code: 'AutopilotStopped', detail: 'stopped (test boundary)' };
+const sentEntries = (journal, n) => { for (let i = 1; i <= n; i++) {
+  journal.append({ runId: 'x:t1', step: 'act-begin', key: `k${i}`, requestId: `R-${i}`, attemptId: `p05.s${i}`, outcome: 'acting', args: { requestId: `p05.s${i}`, action: { name: 'Train', fields: { unit: 0, n: 1 } } } });
+  journal.append({ runId: 'x:t1', step: 'act-result', key: `k${i}`, requestId: `R-${i}`, attemptId: `p05.s${i}`, outcome: 'sent', sent: true, signature: `sig${i}` });
+} };
+
+test('S7 a stop between act-begin and the first agent_act sends nothing and closes the act', async () => {
+  const w = await createLocalWorld({ requests: board(), stores: { Food: 5000, Wood: 100, Stone: 100, Ore: 2000, Gold: 1000 } });
+  let stopped = false;
+  const boundary = { beforeAct: () => ({ ok: true }), beforeSend: () => (stopped ? STOP : { ok: true }) };
+  const sentBefore = w.chain.sent.length;
+  const { report, journal } = await run(w, { boundary, crash: step => { if (step === 'act-begin') stopped = true; } });
+  assert.equal(w.chain.sent.length, sentBefore, 'no agent_act after the stop');
+  const begun = journal.entries.filter(e => e.step === 'act-begin');
+  assert.equal(begun.length, 1, 'the one act that passed beforeSend before the stop');
+  const closed = journal.entries.find(e => e.step === 'act-result' && e.attemptId === begun[0].attemptId);
+  assert.deepEqual([closed.outcome, closed.sent, closed.code], ['refused', false, 'AutopilotStopped']);
+  assert.deepEqual(journal.unfinished(), [], 'nothing for a restart to re-ask');
+  assert.ok(report.items.every(it => it.outcome !== 'sent'), JSON.stringify(report.items));
+});
+
+test('S8 an unfinished act is not re-asked once the caller is stopped', async () => {
+  const w = await createLocalWorld({ requests: board(), stores: { Food: 5000, Wood: 100, Stone: 100, Ore: 2000, Gold: 1000 } });
+  const journal = new RunJournal({ now: () => w.state.clock * 1000 });
+  journal.append({ runId: 'x:t0', step: 'act-begin', key: 'k-open', requestId: 'R-1', attemptId: 'p05.open', outcome: 'acting', args: { requestId: 'p05.open', policyVersion: 1, modeEpoch: 0, action: { name: 'Train', fields: { unit: 0, n: 100 } } } });
+  const sentBefore = w.chain.sent.length;
+  const { report } = await run(w, { journal, boundary: { beforeAct: () => STOP, beforeSend: () => STOP } });
+  assert.equal(w.chain.sent.length, sentBefore);
+  assert.deepEqual(report.resumed.map(r => [r.key, r.outcome, r.code]), [['k-open', 'unknown', 'AutopilotStopped']]);
+  assert.equal(journal.unfinished().length, 1, 'still unfinished (unknown), not taken as sent or as not sent');
+});
+
+test('S9 verifyPending rotates its bounded reads', async () => {
+  const journal = new RunJournal({ now: () => 0 });
+  sentEntries(journal, 10);
+  const reads = [];
+  const txState = async sig => { reads.push(sig); return { state: 'unknown' }; };
+  const world = { village: () => null };
+  const a = await verifyPending({ journal, txState, world, maxReads: 8, offset: 0 });
+  assert.deepEqual(reads, ['sig1', 'sig2', 'sig3', 'sig4', 'sig5', 'sig6', 'sig7', 'sig8']);
+  assert.equal(a.length, 10);
+  assert.deepEqual(a.filter(v => v.notRead).map(v => v.key), ['k9', 'k10']);
+  reads.length = 0;
+  await verifyPending({ journal, txState, world, maxReads: 8, offset: 8 });
+  assert.deepEqual(reads, ['sig9', 'sig10', 'sig1', 'sig2', 'sig3', 'sig4', 'sig5', 'sig6']);
+  reads.length = 0;
+  await verifyPending({ journal, txState, world });
+  assert.equal(reads.length, 10, 'unbounded (a tick): every open act, in order');
+  assert.deepEqual(reads.slice(0, 2), ['sig1', 'sig2']);
+});
+
+test('S10 checkSent advances its start: the later acts are read on the next call', async () => {
+  const s = await setup();
+  try {
+    await s.ap.start({ by: 'owner' });
+    s.ap.stop({ by: 'owner' });
+    sentEntries(s.ap.journal, 10);
+    const sent = s.w.chain.sent.length;
+    const c1 = await s.ap.checkSent();
+    const c2 = await s.ap.checkSent();
+    const readKeys = c => c.verified.filter(v => !v.notRead).map(v => v.key);
+    assert.equal(readKeys(c1).length, FOLLOW_UP_READS);
+    assert.ok(readKeys(c2).includes('k9') && readKeys(c2).includes('k10'), JSON.stringify(readKeys(c2)));
+    assert.deepEqual([c1.nextOffset, s.w.chain.sent.length], [8, sent]);
+    assert.equal(c2.settled, false, 'held results are never settled');
   } finally { await s.close(); }
 });

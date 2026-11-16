@@ -99,6 +99,8 @@ export class Autopilot {
     this.generation = 0;
     /** Ticks still in flight (a stop does not wait for them; checkSent does not overlap them). */
     this.inFlight = 0;
+    /** Where checkSent's next bounded read starts among the open sent acts (round robin: none starves behind held ones). */
+    this.followOffset = 0;
   }
 
   #event(e) { this.events.push({ at: this.w.publicWorld.clockSec(), ...e }); }
@@ -200,7 +202,8 @@ export class Autopilot {
    * After a stop: what became of the acts already sent, READ ONLY (verifyPending: the registry's or the chain's word,
    * recorded in the journal). Never decides, never sends, never re-asks an unfinished act (one begun without an answer
    * is reported, held as unknown). At most FOLLOW_UP_READS chain reads per call (FATE-ACTS-5 §3: up to 8 a time, the
-   * relay allowing 20 at once and 2 a second); no timer — the caller asks again. `settled` only when nothing is open and
+   * relay allowing 20 at once and 2 a second), starting where the previous call stopped (round robin over the open sent
+   * acts, so held ones at the front never starve the rest); no timer — the caller asks again. `settled` only when nothing is open and
    * nothing is unfinished: a result unknown is never taken as done. Not while a tick is still in flight.
    */
   async checkSent() {
@@ -208,11 +211,15 @@ export class Autopilot {
     if (this.inFlight > 0) return { skipped: true, why: 'a tick begun before the stop is still in flight', state: this.state };
     const who = { agentId: this.w.agentId, source: this.actSource };
     const txState = this.acts ? txStateFromActs(this.acts, who) : txStateFromTx(this.w.txState);
-    const verified = await verifyPending({ journal: this.journal, txState, world: this.w.publicWorld, maxReads: FOLLOW_UP_READS });
+    const offset = this.followOffset;
+    const verified = await verifyPending({ journal: this.journal, txState, world: this.w.publicWorld, maxReads: FOLLOW_UP_READS, offset });
+    // The next call starts after the acts read now (verified holds one entry per open act of this call, read or not).
+    const read = verified.filter(v => !v.notRead).length;
+    this.followOffset = verified.length ? (offset + read) % verified.length : 0;
     const open = verified.filter(v => [OPEN.unknown, OPEN.landed].includes(v.outcome));
     const unfinished = this.journal.unfinished().map(b => ({ key: b.key, requestId: b.requestId, attemptId: b.args?.requestId ?? null, outcome: OPEN.unknown, why: 'begun without an answer: not re-sent after the stop' }));
     this.#event({ op: 'check-sent', read: verified.filter(v => !v.notRead).length, open: open.length, unfinished: unfinished.length });
-    return { state: this.state, verified, open: open.length, notRead: verified.filter(v => v.notRead).length, unfinished, settled: open.length === 0 && unfinished.length === 0, sends: 0 };
+    return { state: this.state, verified, open: open.length, notRead: verified.filter(v => v.notRead).length, unfinished, settled: open.length === 0 && unfinished.length === 0, sends: 0, nextOffset: this.followOffset };
   }
 
   /** This run's acts after sending: one status read each (recorded in the registry), and the registry's id on the item. */
