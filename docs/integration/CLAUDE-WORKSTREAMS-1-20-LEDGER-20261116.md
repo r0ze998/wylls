@@ -264,3 +264,12 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   is a key-using test (memory-only WebCrypto key, no network) and was run before its header was read; it is also in the
   ordinary subset. No suite run, no fix. Candidate note 98738ff2.
 - World-only items unchanged (landing send, credited land yield, far land, catching-up live, rounds 44–45, natural speed).
+
+## 2026-11-16 — test runs stopped; key-free check of two fix tests
+- Stopped by the owner: no ordinary-subset run and no key-using test from here on. The subset (193 files) included 15
+  key-using and 78 possibly key-using files (scripts/ci/node-key-tests.txt); it ran today without no-keys-guard.
+- Static boundary for web-frontier-build-walls-items and web-frontier-muster-province-full: no key API, network,
+  process or restricted call on the tested paths (details: candidate gap note fb569acb).
+- `node-keyfree.sh` on those two files from the export: REFUSED, exit 5 — 10 stale entries in
+  scripts/ci/node-key-reviewed.txt. Nothing ran; not a success; not retried or bypassed; lists and guard unchanged.
+- Key-free status of today's normal-game fixes: none confirmed under the key-free runner (only unguarded runs).
