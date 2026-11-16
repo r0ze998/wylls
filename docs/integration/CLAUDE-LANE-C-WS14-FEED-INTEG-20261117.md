@@ -81,3 +81,56 @@ All five are linear on `d16048aa`, and no media file is in the range.
 | A candidate command (for the coordinator; not run) | `node --test workstreams/14-central-tower/game/centre-provenance.test.mjs`. Node's version and environment were not checked here |
 
 **Unchanged:** the formal specification, permissions and rewards; the ⑨/⑩ branches; the candidate and canonical tree; the 25 deleted media files.
+
+## ⑭ → ⑮: where the centre facts are actually read (static trace, 2026-11-17, at 48ea7162)
+
+Nothing was run, imported or compiled for this section.
+
+**The producer.** `workstreams/14-central-tower/game/centre-cli.mjs` is ⑭'s only non-test caller of `centreFacts`. It reads a herald (`--herald`, public GETs with `/h/status` before and after) or saved files (`--caravans`, `--structures`), and prints `wylls.ws14.centre-facts/1` to stdout. It writes no file.
+
+**The reader.** ⑮'s only reader is `readCentreFacts` (`workstreams/15-coop-outcomes/src/adapters/ws14-centre.mjs`).
+
+**Who calls it.**
+- `readCentreFacts`: only `workstreams/15-coop-outcomes/test/contract-ws14-centre.test.mjs`.
+- ⑮'s entry points (`bin/eval.mjs`, `bin/compare.mjs`, `play/play.mjs`, `play/serve.mjs`) import `evaluate`, `rulesets` and `contract`, but neither ⑭ adapter.
+- Outside ⑭ and ⑮, nothing in the repository names `centre-facts` or `centreFacts`.
+- The only cross-workstream caller of ⑮'s code is ④'s `tools/chain-flow/stages-cde.mjs`, and it reads the ④ adapter, not the centre one.
+
+**What the adopted contracts allow.**
+- ⑮'s `docs/08-peer-contracts.ja.md` §5f says the centre facts are reported only. They never become evaluator events, and no goal, award, score or prize reads them. The reader returns `counted: false`.
+- ⑭'s `CONTRACT.ja.md` names no consumer other than ⑮.
+- So `evaluate()` is not a valid place to connect them: that needs a rule saying what the centre is worth, and that rule is undecided.
+
+**Candidates, and what stands in the way of each.**
+
+| Candidate | What it would be | What stands in the way |
+|---|---|---|
+| 1. A ⑮ report command | A file-only command, `bin/centre.mjs <centre-facts.json>`, printing `readCentreFacts(doc)`. Within §5f ("report only") | No reader of that report is named. It would add an entry point, not fill a gap in an existing call path. It also inherits gap G1 below |
+| 2. ⑮'s evaluator | Centre facts as events | Refused by §5f and by the undecided outcome rules, goals and prizes. Not done |
+| 3. A player screen | A centre panel | The screen and its owner are not decided. It would touch `web-frontier` (refused routes) or ⑬ (main's area). Not done |
+| 4. ⑫ memory or ⑬ citizens | A feed into their readers | Main's areas (⑫, ⑬). Not done |
+
+**Conclusion.** No minimal slice can be connected under the existing permissions and contracts alone: the consumer of the report is undecided. Nothing was connected and no code was changed.
+
+**Gap G1 (concrete; recorded, not changed).**
+- `readCentreFacts` takes the producer's `provenance.stable === true` as `'snapshot'` without checking `before` and `after` itself.
+- ⑮'s committed fixture `scenarios/fixtures/ws14-centre-88cf67c0.json` (output of ⑭ at 88cf67c0) has `still` with `events: 900`, a JSON number.
+- The herald writes `events` as a decimal string (`frontier-node/crates/herald/src/server.rs:311`, `f.st.events.to_string()`). So the fixture's status is not in the herald's shape, although `gen-ws14-centre.mjs` describes its feed as written "in the herald's shape".
+- At 48ea7162, `centreFacts` would give that same input `stable: null`, and ⑮ would report `'between'`. The fixture keeps the old `true`, and ⑮ reports `'snapshot'`.
+- **The limited fix:** ⑮ re-checks the fold fields with the same rule as ⑭ (`foldedThrough` and `lastSlot` are safe non-negative integers, `events` is a canonical u64 decimal string) before saying `'snapshot'`, and reports anything else as `'between'` with a reason. No new status value is needed.
+- **Why it was not applied:**
+  - ⑮'s existing test (`contract-ws14-centre.test.mjs`, the first test) asserts `'snapshot'` for `O.still`. Applying the fix means either changing that existing expectation, or regenerating the fixture by running ⑭'s code. Both need the coordinator's decision, and the second needs a run.
+  - The status is reported only (`counted: false`), so no score or prize depends on it.
+
+### Final pre-run audit of `centre-provenance.test.mjs` (static, no run)
+
+| Item | Finding |
+|---|---|
+| Hashes (sha256) | `centre-provenance.test.mjs` `2727430e…3617`, `centre.mjs` `7f2fa256…156e`, `proto/geometry.mjs` `7ed7c309…cebb` |
+| Import closure | Unchanged: `node:test`, `node:assert/strict`, `./centre.mjs` → `../proto/geometry.mjs`. Only `centre.mjs:26` imports (`ringOf`); `geometry.mjs` imports nothing and has no dynamic `import()` |
+| Package scope | No `package.json` at the repository root or in `workstreams/14-central-tower`. The files are ES modules by their `.mjs` extension, with no loader hooks, `imports` maps or `node_modules` |
+| Node | CI pins Node 20 or 22 (`.github/workflows/ci.yml`). The `node` on the shell path here is Homebrew's `node@20`; the version was read from the path only, and `node` was not executed. The file uses only `node:test` default `test`, `assert.equal`, `notEqual`, `match` and BigInt, all present in Node 20 |
+| Environment | `NODE_OPTIONS`, `NODE_PATH` and `NODE_TEST_CONTEXT` are unset in this shell. No `.nvmrc` or `.node-version` |
+| CI | No CI job runs ⑭'s tests. `centre.test.mjs` appears only in `scripts/ci/node-key-tests.txt` (the key-scan list). The new file needs no entry, and the lists are unchanged |
+| Side effects | None at load or at run: no file, process, network, key, world or write. The behaviour is pure functions on hand-made objects |
+| The candidate command (for the coordinator; not run) | `node --test workstreams/14-central-tower/game/centre-provenance.test.mjs` |
