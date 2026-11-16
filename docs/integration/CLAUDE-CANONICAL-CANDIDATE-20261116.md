@@ -107,6 +107,8 @@ Met on the candidate (evidence above and in the linked docs):
 - land SBF from this tree = the pinned land4/play2 program (f2e64442…); expedition SBF built and checked (f2f03328…);
 - ABI rev 7 adopted for this candidate: 0xCD/0xCE land, 0xCF reserved, version kept at 0x4804 (0x0400 reserved only);
 - ordinary-only gateway subset 0 fail; screens first-session, maptap, block reasons, conquest-press, return card pass.
+Release evidence (what land5 proved vs fixture-only, source↔binary with candidate-built host binaries, fresh-clone audit):
+docs/integration/CLAUDE-RELEASE-EVIDENCE-20261116.md.
 Still required before canonical merges it (none is met here):
 1. the canonical owner (or integrator) accepts the WIP inventory's decisions, in particular the 4 restricted files left
    untested and the `.orig`/`.rs.txt` left in place;
