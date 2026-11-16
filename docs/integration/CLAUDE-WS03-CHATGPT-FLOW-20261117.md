@@ -14,7 +14,7 @@ browser or runner); the two guard-refused frontier tests were not run in any for
 | 1 see my village | `get_village_status` (scope read) | `server.mjs` status | implemented |
 | 2 resources short | `check_resource_shortfall` (goal vault / amounts) | `server.mjs` shortfall | implemented |
 | 3 prepare a caravan | `prepare_caravan` (own placeIds; planId valid 5 min; sends nothing) | `server.mjs` prepare | implemented |
-| 4 confirm | `send_caravan` has `destructiveHint: true` (ChatGPT asks); 07: the chat's yes is not authority — scope + signed limits + ⑤ policy/budget + delegation + program rules | annotations | implemented; ChatGPT's confirmation UI not seen |
+| 4 confirm | `send_caravan` has `destructiveHint: true` (implementation fact; whether a client shows a confirmation for it is not verified — corrected 2026-11-17, this row first said "ChatGPT asks"); 07: the chat's yes is not authority — scope + signed limits + ⑤ policy/budget + delegation + program rules | annotations | implemented; ChatGPT's confirmation UI not seen |
 | 5 send | `send_caravan` (planId, requestId retry key, scope read + caravan) | `server.mjs` send → agent wallet | implemented; the relay allows SendCaravan for agents in S1 seasons (`permutation-gateway/src/frontier/agent/contract.mjs:37`, `gateway.mjs:115-119`) |
 | 6 arrived / failed | `get_operation_status`, `list_operations` (after a reconnect) | `ports.mjs receiptOf`, herald events | implemented; **the unknown case was mis-told** (below) |
 
