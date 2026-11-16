@@ -40,6 +40,21 @@ test('cargo summed over resources by the source is not used; the evaluator keeps
   assert.deepEqual(readCentreFacts(old).cargo.byResource.wood, { centre: 0, concord: 0 });
 });
 
+test('⑭\'s null cargo (28618a83) is "not given"; a known zero 8-slot cargo is a known zero, not "not given"', () => {
+  // source-only: built from the frozen output, nothing regenerated; ⑭ writes cargo and cargoByResource null together
+  const transitIdx = O.still.facts.flatMap((f, i) => (f.kind === 'centre.transit' ? [i] : []));
+  assert.equal(transitIdx.length, 2);
+  const withCargo = list => ({ ...O.still, facts: O.still.facts.map((f, i) => (transitIdx.includes(i) ? { ...f, ...list[transitIdx.indexOf(i)] } : f)) });
+  const nul = { cargo: null, cargoByResource: null }, zero = { cargo: 0, cargoByResource: [0, 0, 0, 0, 0, 0, 0, 0] };
+  const mixed = readCentreFacts(withCargo([nul, zero])).cargo;
+  assert.equal(mixed.notGiven, 1, 'the null one only');
+  assert.ok(Object.values(mixed.byResource).every(x => x.centre === 0 && x.concord === 0));
+  const zeros = readCentreFacts(withCargo([zero, zero])).cargo;
+  assert.equal(zeros.notGiven, 0, 'two known zeros are not "not given"');
+  assert.equal(readCentreFacts(withCargo([nul, nul])).cargo.notGiven, 2);
+  assert.equal(readCentreFacts(withCargo([nul, zero])).counts.transits.centre, 2, 'the transit itself is still counted');
+});
+
 test('u64 owner tags stay exact strings', () => {
   const r = readCentreFacts(O.still);
   assert.ok(r.transitOwners.some(o => o.ownerTag === '17278127443140898241'));

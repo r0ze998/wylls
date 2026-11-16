@@ -104,3 +104,36 @@ I searched with `git grep` for `cargoByResource`, the share fields, `cargoNotGiv
 - ⑮ `docs/08-peer-contracts.ja.md` line 231 and the adapter's header comment still name ⑭'s `sumCargo` (removed in 28618a83). Both are ⑮'s files.
 
 **Not verified:** none of this was run.
+
+## Closing the ⑭→⑮ cargo contract in the docs; the tie-break per collection (2026-11-16, source only)
+
+**`tagOrder` tie-break.** The herald writes no `seq` on a vault or a structure:
+- `caravan.rs` writes a vault as `{p, q, tile, ownerTag, faction, gen}`;
+- in `structure.rs`, `seq` appears only on sightings and on the checkpoint's top level.
+
+Yet the shared `(a.seq ?? a.tile)` read an unchecked extra `seq` first on vaults and structures too. A string there made the comparison `NaN`, and a number silently took the tile's place.
+
+**Fixed:**
+- `bySeq` (moving caravans: `seq`, which `optNat` checks);
+- `byTile` (vaults and structures: `tile`, which the place check covers).
+
+Each is the collection's own checked field. Same tag order otherwise. Regression: tiles stay `[3, 5]` / `[4, 8]` whether the extra `seq` is absent, `'x'/'y'`, `0/9` (which would have reversed them before) or `{}/[]`; moving caravans are still ordered by `seq`.
+
+**Docs updated to the same contract:**
+- the cargo sum over resources when there are 8 valid slots;
+- otherwise `cargo` and `cargoByResource` are `null`, the shares are `null`, and the count is in `cargoNotGiven` / ⑮ `notGiven`.
+
+The files:
+- ⑭ `README.ja.md` (the `cargoConcordShare` line);
+- ⑮ `docs/08-peer-contracts.ja.md` (the unused-fields paragraph);
+- ⑮ `src/adapters/ws14-centre.mjs`: **header comment only**. The adapter's logic, evaluation, scores and prizes are unchanged.
+
+⑮ `docs/06-conflicts-decisions.ja.md` item 14 still names `sumCargo`. It is a dated (2026-11-08) decision record, so it was left as history.
+
+**⑮ source-only case** (`contract-ws14-centre.test.mjs`), built from the frozen output (nothing regenerated):
+- `null` cargo → `notGiven` 1;
+- two known 8-slot zeros → `notGiven` 0;
+- two `null` → 2;
+- the transit is still counted.
+
+**Not verified:** none of the old or new tests were run, and nothing was checked for syntax or imported.

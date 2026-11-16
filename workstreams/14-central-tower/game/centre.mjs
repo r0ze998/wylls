@@ -34,7 +34,11 @@ export const STRUCTURE_KIND = Object.freeze({ 1: 'tower', 2: 'palisade', 3: 'for
 
 const isConcord = (p, q) => p === 0 && q === 0;
 const int = x => Number.isSafeInteger(x);
-const tagOrder = (a, b) => (BigInt(a.ownerTag) < BigInt(b.ownerTag) ? -1 : BigInt(a.ownerTag) > BigInt(b.ownerTag) ? 1 : (a.seq ?? a.tile ?? 0) - (b.seq ?? b.tile ?? 0));
+// (2026-11-16) The tie-break is each collection's own checked field: a moving caravan's `seq`, a vault's or a structure's
+// `tile`. The herald writes no `seq` on a vault or a structure (caravan.rs / structure.rs), so `a.seq ?? a.tile` read an
+// unchecked extra field there first: a string made the comparison NaN, a number took the tile's place.
+const tagOrderBy = key => (a, b) => (BigInt(a.ownerTag) < BigInt(b.ownerTag) ? -1 : BigInt(a.ownerTag) > BigInt(b.ownerTag) ? 1 : (key(a) ?? 0) - (key(b) ?? 0));
+const bySeq = tagOrderBy(m => m.seq), byTile = tagOrderBy(x => x.tile);
 /** The herald's cargo: one slot per resource of the rules (holding.rs RESOURCES, 8). */
 export const RESOURCE_SLOTS = 8;
 // (2026-11-16) A caravan's cargo is KNOWN only as the herald gives it: exactly RESOURCE_SLOTS non-negative safe integers.
@@ -102,11 +106,11 @@ export function centreFacts({ caravans, structures = null, observedAt = null, st
   const push = (kind, fields) => facts.push({ ...fields, seq: facts.length, kind, verified: VERIFIED });
 
   // Vaults and structures standing in the Concord or a Seat: who holds a place at the centre.
-  for (const v of [...caravans.vaults].sort(tagOrder)) {
+  for (const v of [...caravans.vaults].sort(byTile)) {
     const ring = ringOf(v.p, v.q);
     if (ring <= INNER_RING) push('centre.vault', { p: v.p, q: v.q, tile: v.tile, ring, concord: isConcord(v.p, v.q), faction: v.faction ?? null, ownerTag: v.ownerTag, gen: v.gen ?? null });
   }
-  const items = structures ? [...(structures.structures ?? [])].sort(tagOrder) : [];
+  const items = structures ? [...(structures.structures ?? [])].sort(byTile) : [];
   for (const s of items) {
     const ring = ringOf(s.p, s.q);
     if (ring <= INNER_RING) push('centre.structure', { p: s.p, q: s.q, tile: s.tile, ring, concord: isConcord(s.p, s.q), structureKind: STRUCTURE_KIND[s.kind] ?? `kind ${s.kind}`, faction: s.faction ?? null, ownerTag: s.ownerTag });
@@ -117,7 +121,7 @@ export function centreFacts({ caravans, structures = null, observedAt = null, st
   let cargoAll = 0, cargoInner = 0, cargoConcord = 0, inner = 0, concord = 0;
   let allBy = zeros(), innerBy = zeros(), concordBy = zeros();
   const notGiven = { all: 0, inner: 0, concord: 0 };
-  for (const m of [...caravans.moving].sort(tagOrder)) {
+  for (const m of [...caravans.moving].sort(bySeq)) {
     const by = knownCargo(m.cargo), cargo = by ? by.reduce((a, x) => a + x, 0) : null;
     if (by) { cargoAll += cargo; allBy = addSlots(allBy, by); } else notGiven.all++;
     const rings = m.provinces.map(([p, q]) => ringOf(p, q));

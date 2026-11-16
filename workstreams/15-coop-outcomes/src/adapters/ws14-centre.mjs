@@ -4,8 +4,9 @@
 //     and no rule says what a vault, a structure or a transit at the centre earns. Goals, awards, scores and prizes
 //     are not touched (undecided).
 //   - `verified: 'derived'` (the herald folded them from chain records). Not ⑭'s model facts (`unverified`).
-//   - `centre.transit.cargo` is the sum over resources of a caravan's cargo (⑭ `sumCargo`), and the summary's cargo
-//     shares are built on it. The evaluator keeps resources apart, so neither is used. `cargoByResource` (88cf67c0,
+//   - `centre.transit.cargo` is the sum over resources of a caravan's cargo when ⑭ reads 8 valid slots, and `null`
+//     (with `cargoByResource: null`) when the cargo is missing or malformed (⑭ 28618a83); the summary's cargo shares
+//     are built on that sum and are `null` while any cargo is unknown. The evaluator keeps resources apart, so neither is used. `cargoByResource` (88cf67c0,
 //     the herald's 8 slots) is read per resource; Science and Influence (slots 6, 7) are reported apart, not kept.
 //   - a sighting names its tower's owner and its subject (88cf67c0) as the herald gives them (u64 tags as strings).
 //     Who a sighting earns anything for is not decided: it is credited to no one.

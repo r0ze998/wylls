@@ -226,6 +226,19 @@ test('a faction or a moving seq that is not a non-negative integer is refused (n
     assert.ok(!Object.keys(centreFacts(feeds).summary.byFaction ?? {}).some(k => k === 'null' || k === 'undefined'));
   }
 });
+test('a vault or a structure is ordered by its tile, never by an unchecked extra seq (the herald writes none there)', () => {
+  const v = (tile, seq) => ({ p: 0, q: 0, tile, ownerTag: '21', faction: 0, gen: 1, ...(seq === undefined ? {} : { seq }) });
+  const st = (tile, seq) => ({ p: 0, q: 0, tile, kind: 1, faction: 2, ownerTag: '31', gen: 1, notify: 1, cover: [], sent: 0, ...(seq === undefined ? {} : { seq }) });
+  for (const [a, b] of [[undefined, undefined], ['x', 'y'], [0, 9], [{}, []]]) {
+    const out = centreFacts({ caravans: { v: 1, moving: [], vaults: [v(5, a), v(3, b)] }, structures: { v: 1, structures: [st(8, a), st(4, b)], sightings: [] } });
+    assert.deepEqual(out.facts.filter(f => f.kind === 'centre.vault').map(f => f.tile), [3, 5], String(a));
+    assert.deepEqual(out.facts.filter(f => f.kind === 'centre.structure').map(f => f.tile), [4, 8], String(a));
+  }
+  // a moving caravan is still ordered by its own seq
+  const m = (seq, tile) => caravan(7, seq, 0, [[0, 0]], [0, 1, 0, 0, 0, 0, 0, 0], { tile });
+  const out = centreFacts({ caravans: { v: 1, vaults: [], moving: [m(2, 1), m(0, 9)] } });
+  assert.deepEqual(out.facts.filter(f => f.kind === 'centre.transit').map(f => f.seqOfOwner), [0, 2]);
+});
 test('the herald\'s shapes are still read: the fixture, no structures list, no sightings, a long decimal tag', () => {
   assert.deepEqual(feedProblems(FEEDS), []);
   assert.deepEqual(feedProblems({ caravans: FEEDS.caravans, structures: { v: 1 } }), [], 'a missing structures list is read as empty, as before');
