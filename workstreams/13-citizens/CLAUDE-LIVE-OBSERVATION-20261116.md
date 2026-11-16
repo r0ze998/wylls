@@ -625,3 +625,42 @@ Nothing here was implemented, run, signed, spent or sent. WS4's unproven or held
 - **The guard is not removed, bypassed or changed,** and no run without it is proposed.
 - **The two WS12 candidates are separate.** Their preload `12-memory/tools/nokey-guard.mjs` imports only `node:crypto` and `node:module`, and their closure has no npm package. They are not run now either.
 - **Not run:** nothing else. The `./` correction alone was not used to run anything.
+
+### Reverse review: the command → the runexec client → 12's held report (2026-11-17, static)
+
+**Fixed:**
+1. **12 credited a row of unknown sequence to an epoch.** `epochOf` checked `from_seq ≤ archive_sequence` only when the sequence was a safe integer. For an unsafe one (rounded past 2^53, already reported `archive_sequence_malformed`), the check was skipped, and the row was still shown as `covered_by_epoch`.
+   - A covering epoch now needs the row's own safe sequence; otherwise it is `archive_epoch_malformed`.
+   - A view that claims no coverage (`past_manifest_end` and the like, `epoch: null`) is still carried as given.
+2. **The command's header named only the herald and RPC requests.** With `--runexec` it also starts one `runexec observe` subprocess (`execFile`, no shell, read-only), and it now says so.
+   - It now also states what the exit code and the top-level `status` cover: the herald/RPC/store observation only. A requested page of 4's that was not read (`ws04Read.status: 'not_read'`), or that 12 refused (`ws04.why` not empty), does not change them.
+   - This documents the existing behaviour; it is not a new contract.
+
+**Checked, no change needed:**
+- **An invalid page and a valid empty page are told apart:**
+  - a valid empty page gives `why: []` and no observations;
+  - an invalid one (format, basis, holds, observation list) gives a non-empty `why`;
+  - a JSON array, `null` or a non-object gives `ws04_observation_not_an_object`;
+  - the client takes runexec's JSON object only on exit 0 without `error`; anything else is runexec's code or `Spawn`.
+- **Unsafe numbers do not mislead:**
+  - a number past 2^53 rounds to a value that is still not a safe integer, so it is refused (`_malformed`) rather than misread;
+  - `store` numbers become `null`, named in `unsafe`;
+  - `generation` and the other strings come from runexec, computed in u64;
+  - `ws04Read` carries no numbers.
+- **Argument boundary:**
+  - every value is its own `argv` entry with no shell;
+  - the client refuses an empty path or one starting with `--`;
+  - `--ws04-after` / `--ws04-limit` must be plain decimals within runexec's limits;
+  - runexec itself refuses an option value starting with `--`.
+- **The file input (`--ws04-observation`) is as before:** the same parse (`parseJsonU64`), the same usage error for an unreadable file. The only addition is the one-source rule.
+
+**A contract choice, not made here.** The reachable misreading: a caller who looks only at the exit code (or `status: ok`) gets 0 even when the page it asked for was not read. Options:
+- **(a)** Keep it as now and documented: the exit code is the herald observation's, and `ws04Read` / `ws04.why` say what happened to 4's page.
+- **(b)** When a page was requested and not read, or refused by 12, exit 2 (the existing "held") and keep `status`. That changes what 2 means for this command.
+- **(c)** A new exit code for "4's page not read" (for example, 3). That is a new contract.
+
+Nothing is adopted. (a) is in force, and the header now states it.
+
+**Tests (written, not run):**
+- 12 `ws04-observation.test.mjs`: +1, a covering epoch on a row whose sequence is unsafe, negative, a string or missing is refused, while an epoch-less view is kept.
+- 13 `ws04-observe.test.mjs`: +1, the header's subprocess and exit-code statements and the `not_read` line, pinned as text.

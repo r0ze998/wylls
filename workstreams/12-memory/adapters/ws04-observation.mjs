@@ -45,7 +45,9 @@ function epochOf(x, archiveSequence) {
   if (x.epoch === null) return x.why === 'covered_by_epoch' ? null : { epoch: null, why: x.why, pairing: PAIRING };
   const e = x.epoch;
   if (x.why !== 'covered_by_epoch' || !obj(e) || !nat(e.from_seq) || e.from_seq < 1 || typeof e.source !== 'string' ||
-      !optStr(e.program_configured) || !optStr(e.commitment_requested) || (nat(archiveSequence) && e.from_seq > archiveSequence)) return null;
+      !optStr(e.program_configured) || !optStr(e.commitment_requested) ||
+      // a covering epoch needs the row's own sequence: an unsafe one (reported _malformed) cannot be placed in a range
+      !nat(archiveSequence) || e.from_seq > archiveSequence) return null;
   return { epoch: { from_seq: e.from_seq, source: e.source.slice(0, 60), program_configured: e.program_configured, commitment_requested: e.commitment_requested }, why: x.why, pairing: PAIRING };
 }
 

@@ -53,3 +53,10 @@ test('the client is not a resident port and imports nothing (pinned as text)', (
   const r = readFileSync(new URL('../resident/resident.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(r, /ws04-observe/, 'the resident does not use it');
 });
+
+test('the command says it may start one runexec subprocess, and that its exit code does not cover 4\'s page (pinned as text)', () => {
+  const c = readFileSync(new URL('../bin/observe-canonical.mjs', import.meta.url), 'utf8');
+  assert.match(c, /With --runexec, also one subprocess: `runexec observe\n\/\/ store\|db …` \(execFile, no shell; it only reads\)/);
+  assert.match(c, /The exit code and the top-level `status` are\n\/\/ the herald\/RPC\/store observation's only/);
+  assert.match(c, /ws04Read = \{ status: 'not_read', code: String\(e\?\.code \?\? 'Spawn'\)/);
+});

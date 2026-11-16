@@ -100,3 +100,16 @@ test('a plain page is reported as before (no store, no epochs), and an unsafe or
   const big = heldFromWs04Observation({ ...PAGE, observations: [settled({ ps2_ordinal: 2 ** 53 + 2 })] }).observations[0];
   assert.equal(big.triple, null); assert.ok(big.why.includes('ps2_ordinal_malformed'));
 });
+
+test('a covering epoch on a row whose sequence is not a safe integer is refused: the row cannot be placed in a range', () => {
+  const epoch = { epoch: { from_seq: 1, source: 'rpc_poll', program_configured: 'P', commitment_requested: 'finalized' }, why: 'covered_by_epoch', pairing: 'same_directory_not_proof_of_same_archive' };
+  const store = { same_directory: true, index_last_seq: 3, manifest_next_seq_before: 4, manifest_next_seq_after: 4, manifest_stable: true, generation: 'index_matches_manifest', limits: ['l'] };
+  for (const seq of [2 ** 53, 2 ** 53 + 2, -1, '3', undefined]) {
+    const o = heldFromWs04Observation({ ...PAGE, store, observations: [settled({ archive_sequence: seq, archive_epoch: epoch })] }).observations[0];
+    assert.ok(o.why.includes('archive_epoch_malformed'), String(seq));
+    assert.equal(o.archive_epoch.epoch, null);
+  }
+  // an epoch-less view (no coverage claimed) on such a row stays as given
+  const none = heldFromWs04Observation({ ...PAGE, store, observations: [settled({ archive_sequence: 2 ** 53, archive_epoch: { epoch: null, why: 'past_manifest_end', pairing: epoch.pairing } })] }).observations[0];
+  assert.equal(none.archive_epoch.why, 'past_manifest_end');
+});

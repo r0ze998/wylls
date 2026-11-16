@@ -27,8 +27,11 @@
 //                     never as "no record"; the rest of the observation goes on. At most one page source is given.
 //
 // Requests: GET to the herald only (/h/season, /h/events, /h/me/{wallet}); one POST to the RPC, JSON-RPC getSlot
-// at commitment 'finalized' (live-observation.mjs RPC_METHODS). The store is opened read-only. Nothing is written,
-// signed or sent; no key is read or made. Exit 0: connected; 2: held or no world; 64: usage.
+// at commitment 'finalized' (live-observation.mjs RPC_METHODS). With --runexec, also one subprocess: `runexec observe
+// store|db …` (execFile, no shell; it only reads). The store is opened read-only. Nothing is written, signed or sent; no
+// key is read or made. Exit 0: connected; 2: held or no world; 64: usage. The exit code and the top-level `status` are
+// the herald/RPC/store observation's only: a requested page of 4's that was not read (`ws04Read.status: 'not_read'`)
+// or was read but refused by 12 (`ws04.why` not empty) does not change them, so read `ws04Read` and `ws04` for it.
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
