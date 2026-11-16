@@ -176,3 +176,35 @@ test('a centre sighting says whose tower saw what', () => {
   const s = centreFacts(FEEDS).facts.find(f => f.kind === 'centre.sighting');
   assert.deepEqual([s.towerOwnerTag, s.subject], ['31', '11']);
 });
+
+// (2026-11-16, fail-closed feed reader — SOURCE ONLY, NOT run: all new test runs are paused) a broken feed is refused,
+// never thrown on; the herald's own shapes (caravan.rs / structure.rs) are still read as before.
+test('broken feeds are refused, not thrown on', () => {
+  const C = FEEDS.caravans, S = FEEDS.structures;
+  const broken = [
+    { caravans: 'x' }, { caravans: 5 }, { caravans: [] }, { caravans: null },
+    { caravans: { ...C, moving: {} } }, { caravans: { ...C, moving: 'abc' } }, { caravans: { ...C, vaults: { 0: C.vaults[0] } } },
+    { caravans: { ...C, moving: [null] } }, { caravans: { ...C, vaults: [null] } }, { caravans: { ...C, vaults: [7] } },
+    { caravans: { ...C, vaults: [{ ...C.vaults[0], ownerTag: undefined }] } }, { caravans: { ...C, vaults: [{ ...C.vaults[0], ownerTag: 'x' }] } },
+    { caravans: { ...C, vaults: [{ ...C.vaults[0], ownerTag: ' 21' }] } }, { caravans: { ...C, vaults: [{ ...C.vaults[0], ownerTag: 21 }] } },
+    { caravans: { ...C, vaults: [{ ...C.vaults[0], p: 2 ** 53 }] } },
+    { caravans: C, structures: 5 }, { caravans: C, structures: { ...S, structures: {} } }, { caravans: C, structures: { ...S, structures: 'abc' } },
+    { caravans: C, structures: { ...S, structures: [null] } }, { caravans: C, structures: { ...S, structures: [{ ...S.structures[0], ownerTag: undefined }] } },
+    { caravans: C, structures: { ...S, structures: [{ ...S.structures[0], ownerTag: '-31' }] } },
+    { caravans: C, structures: { ...S, sightings: {} } }, { caravans: C, structures: { ...S, sightings: [null] } },
+  ];
+  for (const feeds of broken) {
+    let out;
+    assert.doesNotThrow(() => { out = centreFacts(feeds); }, JSON.stringify(feeds).slice(0, 120));
+    assert.ok(Array.isArray(out.refused) && out.refused.length > 0, JSON.stringify(feeds).slice(0, 120));
+    assert.equal(out.facts, undefined, 'no facts from a refused feed');
+  }
+});
+test('the herald\'s shapes are still read: the fixture, no structures list, no sightings, a long decimal tag', () => {
+  assert.deepEqual(feedProblems(FEEDS), []);
+  assert.deepEqual(feedProblems({ caravans: FEEDS.caravans, structures: { v: 1 } }), [], 'a missing structures list is read as empty, as before');
+  assert.deepEqual(feedProblems({ caravans: FEEDS.caravans, structures: { v: 1, structures: [] } }), [], 'no sightings');
+  const long = { ...FEEDS.caravans.vaults[0], ownerTag: '18446744073709551615' };   // u64::MAX, as the herald writes it
+  assert.deepEqual(feedProblems({ caravans: { ...FEEDS.caravans, vaults: [long, FEEDS.caravans.vaults[1]] } }), []);
+  assert.ok(Array.isArray(centreFacts({ caravans: { ...FEEDS.caravans, vaults: [long, FEEDS.caravans.vaults[1]] } }).facts));
+});

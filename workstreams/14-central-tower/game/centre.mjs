@@ -42,21 +42,43 @@ const slots = c => Array.from({ length: RESOURCE_SLOTS }, (_, i) => (Array.isArr
 const addSlots = (a, b) => a.map((x, i) => x + b[i]);
 
 /** Problems with the feeds as text ([] when they can be read). */
+// (2026-11-16: fail-closed — a list that is not an array, an element that is not an object, or an ownerTag that is not
+// the herald's decimal string (caravan.rs / structure.rs: `owner_tag.to_string()`) is a problem, so centreFacts refuses
+// it instead of throwing: forEach went on over a non-array after its problem was noted, and tagOrder's BigInt threw on a
+// vault's or a structure's tag that was never checked. A missing structures list is still read as empty, as before.)
+const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+const tagOk = t => typeof t === 'string' && /^\d+$/.test(t);
 export function feedProblems({ caravans, structures }) {
   const out = [];
-  if (!caravans || caravans.v !== 1) out.push(`h/caravans.json: version ${caravans?.v}, expected 1`);
+  if (!isObj(caravans) || caravans.v !== 1) out.push(`h/caravans.json: version ${isObj(caravans) ? caravans.v : typeof caravans}, expected 1`);
   else {
     if (!Array.isArray(caravans.moving)) out.push('h/caravans.json: no moving list');
-    if (!Array.isArray(caravans.vaults)) out.push('h/caravans.json: no vaults list');
-    (caravans.moving ?? []).forEach((m, i) => {
-      if (typeof m.ownerTag !== 'string' || !/^\d+$/.test(m.ownerTag)) out.push(`moving ${i}: ownerTag`);
+    else caravans.moving.forEach((m, i) => {
+      if (!isObj(m)) { out.push(`moving ${i}: not an object`); return; }
+      if (!tagOk(m.ownerTag)) out.push(`moving ${i}: ownerTag`);
       if (!Array.isArray(m.provinces) || !m.provinces.every(x => Array.isArray(x) && x.length === 2 && x.every(int))) out.push(`moving ${i}: provinces`);
     });
-    (caravans.vaults ?? []).forEach((v, i) => { if (![v.p, v.q, v.tile].every(int)) out.push(`vault ${i}: place`); });
+    if (!Array.isArray(caravans.vaults)) out.push('h/caravans.json: no vaults list');
+    else caravans.vaults.forEach((v, i) => {
+      if (!isObj(v)) { out.push(`vault ${i}: not an object`); return; }
+      if (![v.p, v.q, v.tile].every(int)) out.push(`vault ${i}: place`);
+      if (!tagOk(v.ownerTag)) out.push(`vault ${i}: ownerTag`);
+    });
   }
   if (structures !== undefined && structures !== null) {
-    if (structures.v !== 1) out.push(`h/structures.json: version ${structures.v}, expected 1`);
-    else (structures.structures ?? []).forEach((s, i) => { if (![s.p, s.q, s.tile, s.kind].every(int)) out.push(`structure ${i}: place or kind`); });
+    if (!isObj(structures) || structures.v !== 1) out.push(`h/structures.json: version ${isObj(structures) ? structures.v : typeof structures}, expected 1`);
+    else {
+      const list = structures.structures;
+      if (list !== undefined && list !== null && !Array.isArray(list)) out.push('h/structures.json: structures is not a list');
+      else (list ?? []).forEach((s, i) => {
+        if (!isObj(s)) { out.push(`structure ${i}: not an object`); return; }
+        if (![s.p, s.q, s.tile, s.kind].every(int)) out.push(`structure ${i}: place or kind`);
+        if (!tagOk(s.ownerTag)) out.push(`structure ${i}: ownerTag`);
+      });
+      const seen = structures.sightings;
+      if (seen !== undefined && seen !== null && !Array.isArray(seen)) out.push('h/structures.json: sightings is not a list');
+      else (seen ?? []).forEach((x, i) => { if (!isObj(x)) out.push(`sighting ${i}: not an object`); });
+    }
   }
   return out;
 }
