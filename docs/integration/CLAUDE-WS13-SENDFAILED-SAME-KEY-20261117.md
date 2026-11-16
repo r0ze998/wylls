@@ -72,7 +72,7 @@ else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
   - `landed` → landed;
   - `failed`, `not-sent` or `expired` → `#retryOrFail`, as for any sent line, with cancel and revocation taken into account;
   - `unknown`, `unqueryable` or an exception → held, then `unresolved` after a day.
-- **`#reconcile`'s resubmit** (`:630`) needs `lastError === 'Transport'` and a status of `null`. It does not apply: a line that may have left is read, never resent.
+- **`#reconcile`'s resubmit** (`:630`) needs `lastError === 'Transport'` and a status of `null`. For every answer the contract allows, a may-have-left line's `lastError` is `SendFailed` or `MayHaveLeft`, so it is read, not resubmitted. **Corrected (see the last section):** an answer outside the contract with code `Transport` would keep `lastError: 'Transport'` and could be resubmitted under the same key.
 
 **Unchanged:**
 - **Counting:** `#countAction` stays once per `sendKey` (the `counted` guard).
@@ -126,3 +126,29 @@ else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
 5. **A replayed wallet answer** (`replayed: true`) of an earlier `SendFailed` + `sent: true` has the same shape, so the same key is held. A replayed `sent` is unchanged.
 6. **Counting:** `recordedBefore` needs `landedBell`, which wallet answers do not carry, so a may-have-left answer is counted once for its key. A later `landed` reading for that key adds nothing (`counted` guard).
 7. **CI:** `.github/workflows/ci.yml` runs on push, and the commit message carries `[skip ci]`. `gh run list` for this branch shows no run.
+
+## Correction: an out-of-contract `Transport` answer can reach the same-key resubmit
+
+**The claim corrected:** the comment in `#run` and the paragraph above said a may-have-left line is "not Transport", so it is only read back. That holds for the answers the contract allows, but not for every answer.
+
+**The case:**
+- A submit answer `{status: 'failed', error: {code: 'Transport'}, fate: 'failed', signature}` is not ambiguous, because of the old rule's `fate !== 'failed'` guard.
+- It *is* may-have-left (it has a signature), and `lastError` copies the code: `'Transport'`.
+- `#reconcile` can then take it into the same-key resubmit (`:630`): status `null` (no record), `unclear >= 3`, within retention, no cancel, fewer than `maxRetries` resubmits.
+
+**Reachable? No, not for any producer the contract defines:**
+- **The answer contract:** ⑬'s `ActionResult` (`resident/ports/execution.mjs:11-12`; `03-contracts.ja.md:33-39`) gives `submit` no `fate`. `fate` belongs to `status` answers, and `#run` judges those with `fromSubmit` false, outside the new branch.
+- **The only `Transport` in ⑬** is the resident's own catch (`resident.mjs:504`: `status: 'unknown'`, no fate, no signature). That is ambiguous first, so it never reaches the new branch.
+- **The other producers:** the agent wallet's error codes have no `Transport` (`contract.mjs` `ERR`). The test world, `ws04-run` and `ws04-acts` never answer with it (a `grep` at `b18a0f10`).
+- **The `fate !== 'failed'` guard** dates from the first commit of the rule (`f637c7a5`). It is defensive, and its real use is a status answer.
+
+**Safe even if a caller's `send` produced it anyway:**
+- The resubmit uses **the same key** (`#run` with `attempts` unchanged), which R1/R2 and the wallet's never-deleted request record make idempotent.
+- It never creates a new key, it is counted once (`counted` guard), it is blocked by a cancel request (`!it.cancelRequested`), and it needs ④ to say there is **no record** of the key. With `ws04-acts` that means never registered, so never sent (R5).
+- A decided `failed` is still honoured: `#reconcile` reads the key's own fate and takes `failed` to `#retryOrFail`, as before. This happens one reading later, never as `unknown`.
+
+**Decision:** there is no contract-backed inconsistency, so **no code change**. Only this report is corrected, and the `#run` comment's "not Transport" is to be read as "not Transport for any answer the contract allows". A tighter wording of that comment can go with any later code change. It would need to say: the new branch's `lastError` is the answer's own code; with an out-of-contract `Transport`, the same-key resubmit applies.
+
+**Regression, written and not run** (`test/sendfailed-may-have-left.test.mjs`, two added cases):
+- **The out-of-contract answer, with "no record" for 8 reads, over 16 ticks:** every submit of the action is under its first key, the attempts stay 1, and it is counted once.
+- **The same answer with a cancel after the first tick:** this action is not submitted again, and the key, the attempts and the count are kept.

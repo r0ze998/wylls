@@ -18,11 +18,11 @@ const firstBuild = r => Object.values(r.state.journal).find(it => it.purpose?.ty
  * transport-uncertain.test.mjs, the first two status reads answer null (no record yet), so the first tick shows the
  * line as #run left it before #reconcile reads its fate.
  */
-function answerOnce(ren, { reach, answer }) {
+function answerOnce(ren, { reach, answer, hidden = 2 }) {
   const real = ren.ports.execution;
   const submitted = [];
   let once = true;
-  let hiddenStatuses = 2;
+  let hiddenStatuses = hidden;
   ren.ports.execution = {
     ...real,
     async status(key) { return hiddenStatuses-- > 0 ? null : real.status(key); },
@@ -98,4 +98,41 @@ test('a definite refusal stays as before (BucketEmpty: transient; another code: 
     await run(env, 1);
     assert.equal(firstBuild(ren).state, want, code);
   }
+});
+
+// (2026-11-17, counter-check) An answer OUTSIDE the ActionResult contract: a submit answer never carries `fate`, and
+// the only Transport in ⑬ is the resident's own catch (status 'unknown', no signature), which is ambiguous first. If a
+// caller's send still returned Transport + fate 'failed' + a signature, the new branch keeps it under its key with
+// lastError 'Transport', so #reconcile's same-key resubmit can apply after a "no record" wait (R1/R2: the same key, not a
+// new one). These cases pin what must hold then: one key only, counted once, and no resubmit once a cancel is asked.
+const OUT_OF_CONTRACT = { ok: false, status: 'failed', error: { code: 'Transport', message: 'x' }, fate: 'failed', signature: 'FAKE-SIG-5' };
+
+test('out of contract (Transport + fate failed + signature): only the same key, counted once, across the resubmit wait', async () => {
+  const env = await small({ residents: [{ id: 'ren', goal: 'village-first', pos: { q: 0, r: 0 } }] });
+  const ren = env.rs.ren;
+  const submitted = answerOnce(ren, { reach: true, answer: OUT_OF_CONTRACT, hidden: 8 });
+  await run(env, 1);
+  const it = firstBuild(ren);
+  assert.deepEqual([it.state, it.sendKey, it.attempts], ['sent', it.key, 1]);
+  await run(env, 16);
+  const mine = submitted.filter(k => k.startsWith(it.key));
+  assert.ok(mine.length >= 1 && mine.every(k => k === it.key), 'every submit of this action is under its first key');
+  assert.equal(it.attempts, 1, 'no new attempt');
+  assert.deepEqual(it.counted, [it.key], 'counted once');
+});
+
+test('out of contract, then a cancel: no resubmit after the cancel, the key and count kept', async () => {
+  const env = await small({ residents: [{ id: 'ren', goal: 'village-first', pos: { q: 0, r: 0 } }] });
+  const ren = env.rs.ren;
+  const submitted = answerOnce(ren, { reach: true, answer: OUT_OF_CONTRACT, hidden: 8 });
+  await run(env, 1);
+  const it = firstBuild(ren);
+  await ren.cancelAction(it.key);
+  assert.ok(it.cancelRequested, 'the cancel is recorded');
+  const mine = () => submitted.filter(k => k.startsWith(it.key)).length;
+  const before = mine();
+  await run(env, 16);
+  assert.equal(mine(), before, 'this action is not submitted again after the cancel');
+  assert.deepEqual([it.sendKey, it.attempts], [it.key, 1]);
+  assert.deepEqual(it.counted, [it.key]);
 });
