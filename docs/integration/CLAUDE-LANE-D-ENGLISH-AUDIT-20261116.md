@@ -120,3 +120,47 @@ are ordinary tests there; not reapplied. Scope: every Japanese play-screen text 
 **Tests (alone, pure: they import web/lang.mjs, i18n.mjs and state.mjs and read files only):**
 `node --test test/web-lang-play-glossary.test.mjs` 18 pass / 0 fail; `node --test test/web-lang.test.mjs`
 24 pass / 0 fail (it was 23 / 1 on aa12ce74, the 1 being R2-2).
+
+## Round 3 — candidate at d5b8e382 (2026-11-16)
+
+Branch `claude/lane-d-english-r3-20261116`, cut from d5b8e382 (R2 already in; not reapplied). Since aa12ce74 only
+`frontier/app.mjs` (no new text) and the R2 dictionary lines changed, so this round read the reachable refusal and status
+texts in full: `fi18n.mjs` ERROR_TEXT (every program refusal, 107 lines) and CLIENT_TEXT (the page's and the relay's
+refusals, statuses and cancellations, 232 lines), each Japanese against its English. Every one has English (0 missing).
+Left out: Resident* / NFT, prize, payment and faucet lines (restricted lanes).
+
+**Fixed (en-frontier.mjs)**
+
+| Code | Japanese | Was | Now | Why |
+|---|---|---|---|---|
+| CapturePending | 占領処理中です。結果が確定してから操作してください | Capture is being settled. Wait for the result before acting. | The capture is being processed. Act once its result is confirmed. | "settled" is banned on the play screen. The line can be seen as the locked source option of the fort march (s1.mjs). |
+| RaidState | この隊商には決着を待つ略奪がない、またはすでに決着しています | There is no open raid on this caravan, or it is already settled. | There is no raid on this caravan waiting to be resolved, or it is already resolved. | 決着 is "resolved"; "settled" is banned. |
+| StakeUnsettled | 包囲の結果をまだ受け取っていません | The siege result has not been received yet. | The siege's result has not been collected yet. | 結果を受け取る is "collect the result" (glossary): the player has to act. |
+| SiegeBusy | この軍勢は包囲に参加中です | This host is already besieging a village. | This host is already taking part in a siege. | The Japanese says the host is in a siege; sieges are of cities, not villages. |
+| HoldingsFull | 保有できる村の上限に達しています | You have reached your holding limit. | You already hold as many villages as you can. | 村 is "village" (W11); "holding" is the old word. |
+| NotBesiegeable | この村は現在包囲できません | This holding cannot be besieged now. | This village cannot be besieged now. | Same. |
+| FrontierProtected | この村は辺境の保護期間中です | This holding has frontier protection. | This village is in its frontier protection period. | Same; 期間 (a period) was dropped. |
+| VaultSite, StructureSite | …（通れない土地、村、砦、野営地、または既存の…） | (impassable, a site, the keep, …) | (impassable, a village, the keep, …) | 村 is "village"; "a site" says something else (a place a village could go). |
+| BadWorldMode | この記録の世界設定と版を確認できません… | This record’s … | This record's … | Straight apostrophes (GLOSSARY.md Style). |
+
+**Proposed, not changed**
+
+- **R3-P1** HostInTransit 「この軍勢は、進軍の結果を受け取るまで動かせません」 → "This host cannot move until its
+  march is resolved." The Japanese says the player has to collect the march's result first. The English sounds like
+  waiting will do. Proposed: "This host cannot move until its march's result is collected." Not changed here, because
+  `web-frontier-errors.test.mjs:87` and `web-frontier-relay.test.mjs:365` pin the current English, and editing those
+  tests is outside this lane. `test.todo` in `web-lang-play-refusals.test.mjs`.
+
+**Read and left as it is**
+
+- 捕捉記録 → "captured record" (WideReadOnly and five other wide-view entries, and the wide mode's code). It's one term
+  used the same way throughout, but in a conquest game "captured" can read as a captured village. If the owner wants a
+  change, it should be one term-wide change ("snapshot record"), not one line.
+- 取消の前に成立した分は、まだ受け取っていません → "…has not been received yet" (an order cancelled in part). It's the
+  economy display (Lane C's area) and not 結果を受け取る, so I left it.
+
+**Tests (each alone; pure: the new one imports only fi18n.mjs and lang.mjs, whose imports are local tables with no
+DOM, network or storage):**
+`web-lang-play-refusals.test.mjs` (new) 3 pass / 0 fail / 1 todo; `web-lang-play-glossary.test.mjs` 18 / 0;
+`web-lang.test.mjs` 24 / 0. Not run: `web-frontier-errors.test.mjs` and `web-frontier-relay.test.mjs` (the relay one
+reads the relay's sources). A static grep finds no test that pins any English changed here.
