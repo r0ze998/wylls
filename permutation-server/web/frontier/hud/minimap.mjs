@@ -179,7 +179,11 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     const a = fr.toPx(view.x - size.width / 2 / view.zoom, view.y - size.height / 2 / view.zoom);
     const b = fr.toPx(view.x + size.width / 2 / view.zoom, view.y + size.height / 2 / view.zoom);
     ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 1.6;
-    ctx.strokeRect(Math.max(1, a.x), Math.max(1, a.y), Math.min(px - 2, b.x) - Math.max(1, a.x), Math.min(px - 2, b.y) - Math.max(1, a.y));
+    // Intersect, rather than draw a negative-sized rectangle when the camera is
+    // beyond the minimap. Canvas reverses negative sizes and paints a false frame.
+    const left = Math.max(1, a.x), top = Math.max(1, a.y);
+    const right = Math.min(px - 2, b.x), bottom = Math.min(px - 2, b.y);
+    if (right > left && bottom > top) ctx.strokeRect(left, top, right - left, bottom - top);
   }
   // where the viewer is: the active village, in gold, breathing
   const home = limited && survey.home ? tileHex(survey.home.p, survey.home.q, survey.home.tile) : null;

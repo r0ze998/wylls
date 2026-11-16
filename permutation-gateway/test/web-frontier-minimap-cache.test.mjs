@@ -2,11 +2,11 @@
 // network, terrain generation, keys or signing; public coordinates only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { paintMinimap } from '../../permutation-server/web/frontier/hud/minimap.mjs';
+import { paintMinimap, frameOf } from '../../permutation-server/web/frontier/hud/minimap.mjs';
 import { FACTION_FILL } from '../../permutation-server/web/frontier/people/avatar.mjs';
 
 function canvas({ cache = true } = {}) {
-  const layers = [], metrics = { calls: new Map(), fills: new Map(), nonfinite: 0, images: [] };
+  const layers = [], metrics = { calls: new Map(), fills: new Map(), nonfinite: 0, images: [], rectangles: [] };
   let ctx;
   const cv = { width: 188, height: 188, getContext: () => ctx };
   if (cache) cv.ownerDocument = { createElement() {
@@ -22,6 +22,7 @@ function canvas({ cache = true } = {}) {
         metrics.nonfinite += args.filter(x => typeof x === 'number' && !Number.isFinite(x)).length;
         if (name === 'fill') metrics.fills.set(target.fillStyle, (metrics.fills.get(target.fillStyle) ?? 0) + 1);
         if (name === 'drawImage') metrics.images.push(args[0]);
+        if (name === 'strokeRect') metrics.rectangles.push(args);
         if (name === 'createRadialGradient') return { addColorStop() {} };
       };
     },
@@ -95,4 +96,36 @@ test('minimap direct fallback observes mutable records and clamps legacy extent'
   paint(c, { recs, revision: {}, rings: Number.MAX_SAFE_INTEGER });
   assert.equal(recs.reads, 182 + 49537);
   assert.equal(c.metrics.nonfinite, 0);
+});
+
+
+test('minimap camera frame is clipped without reversed rectangles outside the world', () => {
+  const c = canvas({ cache: false });
+  const size = { width: 800, height: 600 };
+  for (const [x, y] of [[1e7, 0], [-1e7, 0], [0, 1e7], [0, -1e7]]) {
+    paint(c, { view: { x, y, zoom: 1 }, size });
+  }
+  assert.equal(c.metrics.rectangles.length, 0, 'wholly off-map cameras have no viewport intersection');
+  paint(c, { view: { x: 0, y: 0, zoom: 1 }, size });
+  assert.equal(c.metrics.rectangles.length, 1);
+  for (const [x, y, w, h] of c.metrics.rectangles) {
+    assert.ok(x >= 1 && y >= 1 && w > 0 && h > 0);
+    assert.ok(x + w <= 186 && y + h <= 186);
+  }
+});
+
+
+test('minimap camera frame preserves partial intersections at all four edges', () => {
+  const c = canvas({ cache: false }), frame = frameOf(7);
+  const size = { width: 40 / frame.k, height: 40 / frame.k };
+  for (const [sx, sy] of [[5, 94], [183, 94], [94, 5], [94, 183]]) {
+    const position = frame.toWorld(sx, sy);
+    paint(c, { view: { ...position, zoom: 1 }, size });
+  }
+  assert.equal(c.metrics.rectangles.length, 4);
+  for (const [x, y, w, h] of c.metrics.rectangles) {
+    assert.ok([x, y, w, h].every(Number.isFinite));
+    assert.ok(x >= 1 && y >= 1 && w > 0 && h > 0);
+    assert.ok(x + w <= 186 && y + h <= 186);
+  }
 });
