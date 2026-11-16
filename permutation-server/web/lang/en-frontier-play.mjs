@@ -205,7 +205,7 @@ export default {
   '世界の処理で編成が反映されると、ここから探索を始められます。': 'You can start exploring here once the world has processed their formation.',
   '斥候隊は第{0}ターンまで休息しています。': 'Your scouts are resting until turn {0}.',
   '斥候隊は別の命令を実行中です。軍勢の画面で様子を確認できます。': 'Your scouts are carrying out another order. Check their status in Hosts.',
-  '訓練した斥候を一つの隊にまとめましょう。世界の処理に反映されると探索できます。目安はゲーム内で約11〜21分です。': 'Assemble your trained scouts into a host. They can explore once their formation is processed, in about 11–21 game minutes.',
+  '訓練した斥候を一つの隊にまとめましょう。このターンが終わり、封が開けられてターンが決着すると整列します。待つあいだも村の建設を進められます。': 'Assemble your trained scouts into a host. They stand once this turn has ended, its seals have been opened and the turn is resolved. You can keep building your village while you wait.',
   '斥候隊を編成する': 'Assemble my scouts',
   '村の周りを調べる斥候を100人、訓練しましょう。訓練はすぐに終わります。': 'Train 100 scouts to explore the land around your village. Training is immediate.',
   '斥候を訓練する': 'Train scouts',
