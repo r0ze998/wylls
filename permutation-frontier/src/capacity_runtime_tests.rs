@@ -810,6 +810,44 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
     assert_eq!(lot_now(&lot_ai), lot_before, "released once");
     // Nothing is owed and nothing counted: the job may retire.
     assert_eq!(t.retire(job), Ok(()));
+
+    // The owner's rest home (2026-11-17; the helper is NOT DISPATCHED and
+    // this part is WRITTEN, NOT RUN): M, by wallet, takes the lot's exact 500
+    // milli into M's own live vault on another tile of this province.
+    let home_tile = VAULT_TILE + 2;
+    let mut hd = vault_bytes(c, &m, 0, 0);
+    hd[VA::TILE] = home_tile;
+    let hkey = frontier_abi::v2::addr::vault(&t.w.ctx, c.p, c.q, home_tile);
+    let home = info(leak(hkey, PROGRAM, hd, 0, BIG), false, true);
+    let program = Pubkey::new_from_array(PROGRAM);
+    let pm = t.as_player(&m, &[]);
+    let pl = crate::proc::holding::player_as(&program, &pm, &crate::proc::Auth::Wallet).unwrap();
+    let pay = |h: &AccountInfo<'static>| {
+        crate::proc::custody::pay_rest_home_accounts(&program, &pl, &m.citizen, &lot_vault, &lot_ai, h)
+    };
+    let home_ore = |h: &AccountInfo| {
+        let d = h.try_borrow_data().unwrap();
+        let o = VA::store(Resource::Ore as usize);
+        i64::from_le_bytes(d[o..o + 8].try_into().unwrap())
+    };
+    let before = lot_now(&lot_ai);
+    assert_eq!(before.returns.rest, 500);
+    // the lot's own vault given as home: an alias, refused before any read
+    assert!(pay(&lot_vault).is_err());
+    assert_eq!(lot_now(&lot_ai), before);
+    // the exact rest home, once
+    assert_eq!(pay(&home).unwrap(), 500);
+    let l = lot_now(&lot_ai);
+    assert_eq!(
+        (l.returns.rest, l.consumed, l.out_total),
+        (0, before.consumed - 500, before.out_total + 500)
+    );
+    assert!(l.balanced(bell));
+    assert_eq!(home_ore(&home), 500, "exactly 500 milli, not rounded");
+    // a second call pays nothing and writes nothing
+    assert_eq!(pay(&home).unwrap(), 0);
+    assert_eq!(lot_now(&lot_ai), l);
+    assert_eq!(home_ore(&home), 500);
 }
 
 /// Design A (WRITTEN, NOT RUN): the link's first byte carries the count

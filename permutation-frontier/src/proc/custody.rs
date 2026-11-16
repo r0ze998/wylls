@@ -1234,6 +1234,63 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
+// ------------------------------------------------------------ the owner's rest home (not dispatched)
+
+/// **Not dispatched; no tag, no ABI.** The accounts side of
+/// `custody::pay_rest_home` (the owner's approval of 2026-11-17: the
+/// owner's sub-unit rest goes exactly to their own live vault in the lot's
+/// province; with none, or a full one, it is held and the lot stays open),
+/// for an owner-only step whose carrier (a trailing account on CloseLot, or
+/// a tag of its own) workstream 4 and the owner have not chosen. See
+/// `docs/integration/CLAUDE-LANE-C-LOT-RETURNS-A-20261117.md`.
+///
+/// `pl` must come from `hold::player_as(.., &Auth::Wallet)` on the same
+/// instruction's accounts: the owner's wallet (or session; the kernel then
+/// refuses a session) signed and `citizen` is its Citizen. Reads, before
+/// any write:
+/// - `lot`: present, this season's, at its canonical address (`lot_of`);
+/// - `lot_vault`: canonical for the lot's tile (`vault_of_lot`); closed or
+///   absent is `LotForfeited`;
+/// - `home`: a present Vault of this season at its canonical address
+///   (`vault_view`); its owner, liveness, province, tile and room are the
+///   kernel's checks.
+///
+/// The three accounts must be distinct (`BAD_ACCOUNT`), so no alias reaches
+/// the kernel or the writes. The kernel works on copies and is all or
+/// nothing. Then the lot is written if it changed (whole units back into
+/// it), and `home` if anything was paid. The two writes are two accounts: the
+/// second can fail only on a short account, which `vault_view` has already
+/// ruled out, and any failure after the first is undone by the
+/// transaction's rollback, as in every multi-account handler here. No record
+/// is logged: no record kind exists for the payout (workstream 4; until
+/// then V26 cannot verify it). Returns the milli paid home.
+#[allow(dead_code)] // not wired to dispatch until its carrier is agreed
+pub(crate) fn pay_rest_home_accounts(
+    p: &Pubkey,
+    pl: &Player,
+    citizen: &AccountInfo,
+    lot_vault: &AccountInfo,
+    lot: &AccountInfo,
+    home: &AccountInfo,
+) -> R<i64> {
+    if home.key == lot_vault.key || home.key == lot.key || lot.key == lot_vault.key {
+        return Err(BAD_ACCOUNT);
+    }
+    let sid = pl.pc.season.id;
+    let mut l = lot_of(p, &pl.ctx, sid, lot)?;
+    let lv = vault_of_lot(p, &pl.ctx, sid, lot_vault, &l)?.ok_or(cq(CqError::LotForfeited))?;
+    let mut h = vault_view(p, &pl.ctx, sid, home)?;
+    let before = l;
+    let paid = kc::pay_rest_home(&lv, &mut l, &actor(pl, citizen), &mut h).map_err(cerr)?;
+    if l != before {
+        put_lot(lot, &l)?;
+    }
+    if paid > 0 {
+        put_vault(home, &h)?;
+    }
+    Ok(paid)
+}
+
 #[cfg(test)]
 mod tests {
     use frontier_abi::v2::log::{CqKind, CQ_SPECS};

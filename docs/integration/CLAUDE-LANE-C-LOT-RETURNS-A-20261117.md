@@ -282,3 +282,42 @@ A failure after the first write relies on the Solana transaction rollback, as ev
 - the ABI naming of the RSV bytes.
 
 **Not decided here.** Still open: who may trigger a job's return, seizure, ClaimJob's need for B's vault, and any migration or existing world.
+
+## The accounts side of the rest home: an unwired helper (2026-11-17; static, nothing run)
+
+`custody_rest_home.rs` (4 kernel cases) was refused at the safety review and waits for the owner's own confirmation. It was **not run**, here or by any other route.
+
+### What was added
+
+`proc/custody.rs` `pay_rest_home_accounts(p, pl, citizen, lot_vault, lot, home)`, `pub(crate)`, `#[allow(dead_code)]`.
+
+**Not dispatched:** no tag, no account-list ABI, no record kind. It uses only the existing readers and writers: `lot_of`, `vault_of_lot`, `vault_view`, `put_lot` and `put_vault`.
+
+| Point | How |
+|---|---|
+| Original owner, by wallet, full Citizen key | `pl` must come from `hold::player_as(.., &Auth::Wallet)` on the same accounts. The kernel refuses a session key (`WalletRequired`) and any actor whose Citizen key is not the lot's `OWNER_CITIZEN` |
+| Canonical address, season | The lot via `lot_of` (`present_v2` for this season, `expect_key` against its seeds). The lot's vault via `vault_of_lot` (canonical for the lot's tile; absent is `LotForfeited`). `home` via `vault_view` (present, this season, canonical) |
+| Live, generation, owner, same province, not the lot's tile, room | The kernel (`pay_rest_home`): a seized home has the captor as owner and fails; `STORES + x + CUSTODY_QUOTA ≤ CAP` |
+| Account aliasing | The three accounts must be distinct (`BAD_ACCOUNT`) before anything is read |
+| Missing, full, stale | A kernel refusal means no write at all: the rest is held and the lot stays open |
+| Double payment | The second call finds nothing below a unit, pays 0 and writes nothing |
+| Atomicity | The kernel is all or nothing. Every read and check happens before the writes. The lot is written only if it changed, then `home` only if something was paid. Those are **two accounts**: `put_vault` can fail only on a short account, which `vault_view` already ruled out, and any failure after the first write is undone by the **transaction rollback**, as in every multi-account handler here. The pure function does not rely on it; the helper's second write does |
+| Record | **None logged**: no record kind exists. Until ④ allocates one, V26 cannot verify the payout |
+
+**Regression source, written, not run.** The tail of `capacity_runtime_tests.rs` `capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back`:
+- after the job retires, M (by wallet, through the real `player_as`) passes the lot's own vault as home and is refused, with the lot unchanged;
+- passing M's own live vault on another tile of the province pays exactly 500 milli, leaves the lot balanced, and puts 500 milli in M's vault;
+- a second call pays 0 and writes nothing.
+
+### The carrier, for ④ and the owner (not adopted)
+
+| | (a) Optional trailing `home` on CloseLot (0xCB) | (b) A separate owner-only tag (0xCF is the free tag in the band, per rev 7) |
+|---|---|---|
+| Accounts | Today CloseLot is a fixed 7 accounts with an empty body (`check_accounts_v2(Ix2::CloseLot, a, None)`). It would become 7 or 8: **an existing instruction's public account list changes** in `frontier-abi` v2 tags, the generated `abi-v2-tags.mjs`, and the vectors | `[signer wallet] [payer] [season] [citizen w] [lot_vault r] [lot w] [home w]`, empty body. CloseLot is unchanged |
+| Behaviour | Pay home, then close if empty, in one instruction. A missing or full home refuses the whole close and keeps the rest (the approved behaviour). The keeper's close cannot use it (the kernel needs the owner) | Pay home only. The owner then closes with today's CloseLot, in the same transaction or a later one |
+| Clients and verifier | Every CloseLot builder and V26's CloseLot replay must learn the optional account and the payout | V26 learns one new instruction. Existing clients are untouched |
+| ④'s agreement | Changing an allocated instruction's account list | Allocating 0xCF (rev 7 lists it free) |
+| Both need | A record kind for the payout; V26 replay and history; `CUSTODY_VERSION` and `RULESET_HASH_V4`; ABI names for the RSV bytes |
+| Recommendation | — | **(b)**: no existing instruction or client changes, and the payout is its own replayable step |
+
+**Not decided or done here.** No tag, no account list, no record, version or hash; no dispatch wiring; no migration. The open questions are unchanged: who may trigger a job's return, seizure, and ClaimJob's need for B's vault.
