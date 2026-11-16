@@ -349,3 +349,9 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   branches hold each lane's files byte-identical to the lane head.
 - Lane owners' runs (theirs, not repeated here): Lane D glossary 18/18, web-lang 24/24; Lane C freshness 6/6.
   **Not run after integration** (by instruction). Canonical bcc63a24 and its 3 untracked files untouched.
+
+### Lane C G2, land redraw (2026-11-16, Claude)
+- Static: refresh and wantProvince redraw the map; local play's sync reads redraw only the panel; with reduced motion
+  the board then kept an old outline until the next poll while the chip was new. Fixed in e84049ed (app.mjs
+  renderHudTick: land records compared by content → map redraw). Static only, no test run. Candidate 7ccc0275.
+- Browser replay case proposed (reduced motion, panel-only invalidate, sample within 2 s); not started.
