@@ -23,3 +23,6 @@ pub mod ports;
 pub mod sim;
 pub mod store;
 pub mod view;
+
+/// Read-only held findex observations; no executor admission.
+pub mod observation;
