@@ -272,6 +272,33 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     step(op, STATES.ACCEPTED, why);
   }
 
+  /** Whether the operation is known to be a Duplicate (the field is present; its value may be null: no signature named). */
+  const isDuplicate = op => op.gateway != null && Object.hasOwn(op.gateway, 'duplicateOf');
+  /**
+   * A Duplicate (⑤): the same bytes were already sent by an earlier request; this one was not rebuilt. That send is not
+   * proven this request's own, nor proven absent: counted, held, never re-sent. Only a proven end of that transaction
+   * (failed at finalized, or proven never to land) decides; its landing alone does not make it ours. The same handling
+   * for the relay's answer and for the agent wallet's own record of this key when that answer was lost (applyFate,
+   * recover): the earlier signature is `duplicateOf`, never `gateway.signature`, never `caravan.mine`.
+   */
+  function markDuplicate(op, link, duplicateOf, { by, why, recoveredFrom = null }) {
+    op.gateway = { ...(op.gateway ?? { charges: [], replayed: false, code: 'Duplicate' }), signature: null, duplicateOf: duplicateOf ?? null, ...(recoveredFrom ? { recoveredFrom } : {}) };
+    delete op.lifetime;
+    // The same signature is the same transaction (⑤: the relay's replay key is the agent key's signature over the
+    // message): one effect on chain. If another of this server's operations sent it, that operation carries the
+    // effect and the count; this one ends as its duplicate and gives its hold back (counted once, not twice).
+    const owner = op.gateway.duplicateOf && Object.values(db.operations).find(o => o.id !== op.id && o.gateway?.signature === op.gateway.duplicateOf);
+    if (owner) {
+      definite(op, link, 'DuplicateOfOperation', `the same transaction was already sent by this server's operation ${owner.id}: its outcome is that operation's`, by);
+      op.error.duplicateOfOperation = owner.id;
+      return;
+    }
+    // A request still `requested` becomes accepted-uncertain (its grant counted, once); one already accepted is not
+    // stepped again. An existing hold is kept (never released here).
+    if (op.state === STATES.REQUESTED) uncertain(op, link, why);
+    if (!op.hold) hold(op, 'Duplicate', 'the same transaction was already sent by an earlier request: not proven this request\'s own, not proven absent; held, counted, not re-sent', { evidence: { duplicateOf: op.gateway.duplicateOf } });
+  }
+
   /** Sends (or re-sends under the same idempotency key) an operation still `requested`. */
   async function resume(principal, op) {
     const plan = db.plans[op.planId];
@@ -343,23 +370,8 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       grantConsume(link, op);
       step(op, STATES.ACCEPTED, 'the relay sent the transaction');
     } else if (r.status === 200 && res.status === 'failed' && res.error?.code === 'Duplicate') {
-      // ⑤: the same bytes were already sent by an earlier request (`duplicateOf`); this one was not rebuilt. That send
-      // is not proven this request's own, nor proven absent: counted, held, never re-sent. Only a proven end of that
-      // transaction (failed at finalized, or proven never to land) decides; its landing alone does not make it ours.
-      op.gateway.signature = null;
-      op.gateway.duplicateOf = res.duplicateOf ?? res.signature ?? null;
-      delete op.lifetime;
-      // The same signature is the same transaction (⑤: the relay's replay key is the agent key's signature over the
-      // message): one effect on chain. If another of this server's operations sent it, that operation carries the
-      // effect and the count; this one ends as its duplicate and gives its hold back (counted once, not twice).
-      const owner = op.gateway.duplicateOf && Object.values(db.operations).find(o => o.id !== op.id && o.gateway?.signature === op.gateway.duplicateOf);
-      if (owner) {
-        definite(op, link, 'DuplicateOfOperation', `the same transaction was already sent by this server's operation ${owner.id}: its outcome is that operation's`, 'agent wallet gateway (Duplicate)');
-        op.error.duplicateOfOperation = owner.id;
-      } else {
-        uncertain(op, link, 'the relay answered Duplicate: the same transaction was already sent by an earlier request');
-        hold(op, 'Duplicate', 'the same transaction was already sent by an earlier request: not proven this request\'s own, not proven absent; held, counted, not re-sent', { evidence: { duplicateOf: op.gateway.duplicateOf } });
-      }
+      // ⑤: the same bytes were already sent by an earlier request (`duplicateOf`); this one was not rebuilt (markDuplicate).
+      markDuplicate(op, link, res.duplicateOf ?? res.signature ?? null, { by: 'agent wallet gateway (Duplicate)', why: 'the relay answered Duplicate: the same transaction was already sent by an earlier request' });
     } else if (r.status === 200 && res.status === 'failed' && res.sent === false && !res.signature) {
       // The wallet's own record: nothing left the relay under this key (failed before sending). Same key = its replay.
       definite(op, link, code, res.error?.message ?? 'failed before anything was sent', 'agent wallet gateway (sent: false)');
@@ -504,7 +516,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
    * key). Not finding the key, or a failure without a signature, decides nothing and releases nothing.
    */
   async function recover(op) {
-    if (op.gateway?.signature || op.gateway?.duplicateOf || op.attempts === 0) return;
+    if (op.gateway?.signature || isDuplicate(op) || op.attempts === 0) return;
     if (op.unknownSince === null && op.gateway?.status !== 'failed') return;
     const link = auth.link(op.linkId);
     if (!link?.agentId) return;
@@ -515,6 +527,11 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     op.agentRecord = { at, read: true, found: Boolean(rec.entry || rec.hold), status: rec.entry?.status ?? null, signature: sig, ...(rec.hold ? { hold: rec.hold } : {}),
       window: rec.window, ...(rec.entry || rec.hold ? {} : { note: 'not in the view: proves nothing (the view keeps 50 lines; a stop between the send and its line leaves none)' }),
       ...(rec.entry?.status === 'failed' && !sig ? { note: 'failed with no signature in the agent wallet\'s record (its failed result carries none; ④ G-2): whether it was signed is unknown' } : {}) };
+    // The wallet's record says Duplicate (the answer was lost): its signature is the earlier send's, never this request's.
+    if (rec.entry?.code === 'Duplicate') {
+      markDuplicate(op, link, rec.entry.signature ?? null, { by: 'agent wallet history (Duplicate, GET /f/agent, read only)', why: 'the agent wallet\'s record for this key says Duplicate (its answer was lost): the same transaction was already sent by an earlier request', recoveredFrom: 'agent wallet history (GET /f/agent, read only)' });
+      return;
+    }
     if (sig) {
       op.gateway = { ...(op.gateway ?? { charges: [], replayed: false, code: null }), status: rec.entry?.status ?? op.gateway?.status ?? null, signature: sig,
         recoveredFrom: rec.entry?.signature ? 'agent wallet history (GET /f/agent, read only)' : 'agent wallet hold (GET /f/agent, read only)' };
@@ -541,7 +558,13 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     op.fate = { state: f.state, retained: f.retained ?? null, signature: f.signature ?? null, commitment: f.commitment ?? null, queryFailed: f.queryFailed === true,
       why: f.why ?? null, source: f.source, at, ...(f.code ? { code: f.code } : {}) };
     if (TERMINAL.includes(op.state)) return;
-    if (op.gateway?.duplicateOf) {
+    // The wallet's record for this key says Duplicate and this server never learned it (the answer was lost): the same
+    // handling as the answered Duplicate, before any signature could be taken as this request's.
+    if (f.code === 'Duplicate' && !op.gateway?.signature && !isDuplicate(op)) {
+      markDuplicate(op, link, f.signature ?? null, { by: 'agent wallet fate (Duplicate, read only)', why: 'the agent wallet\'s record for this key says Duplicate (its answer was lost): the same transaction was already sent by an earlier request', recoveredFrom: 'agent wallet GET /f/agent/fate (read only)' });
+      if (TERMINAL.includes(op.state)) return;
+    }
+    if (isDuplicate(op)) {
       // A Duplicate: the wallet's record may name the earlier send's signature; it is never adopted as this request's.
       const same = !f.signature || f.signature === op.gateway.duplicateOf;
       if (same && f.state === 'failed') { op.chain = { state: 'failed', of: 'duplicateOf', source: f.source }; definite(op, link, 'TransactionFailed', 'the identical transaction failed at finalized: nothing moved', 'program'); }
@@ -652,7 +675,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       store.save();
       return op;
     }
-    if (!TERMINAL.includes(op.state) && op.gateway?.duplicateOf) { store.save(); return op; } // held as Duplicate: only its fate decides (applyFate)
+    if (!TERMINAL.includes(op.state) && isDuplicate(op)) { store.save(); return op; } // held as Duplicate: only its fate decides (applyFate)
     if (!TERMINAL.includes(op.state)) {
       const mine = await evidence(op);
       if (mine && op.hold?.code === 'Indeterminate') { delete op.hold; op.steps.push({ state: op.state, at: new Date(now()).toISOString(), detail: 'no longer held: the caravan is proven this request\'s own' }); }
