@@ -317,3 +317,8 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - codex/minimap-frame-20261116 @ 0a58fa44 (hud/minimap.mjs + web-frontier-minimap-cache test): no overlap with the land
   chip fix; diff --check and node --check pass; web-frontier-minimap-cache.test.mjs alone from the export: 6/6.
 - Integration merge 84469802, candidate merge fccaf09e. No key, signing, request or storage. Canonical unchanged.
+
+### Scout muster wording integrated (2026-11-16, Claude)
+- codex/sakurai-scout-wait-20261116 @ fc6e8b68 (onboarding.mjs, en-frontier-play.mjs, first-village-ui test, owner doc):
+  no overlap; diff --check, node --check and the banned-English read pass. Test NOT run (stale runner; not bypassed).
+- Integration merge 5877d468, candidate merge a0b3cf99. No key, signing, request, world. Canonical unchanged.
