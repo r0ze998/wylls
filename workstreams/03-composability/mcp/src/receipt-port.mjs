@@ -127,8 +127,14 @@ export function ws04CancelPhase(op) {
   // the relay's recorded lifetime (patch 0007): then it is that signature's last valid block height (a block height,
   // not a slot). Without them (no 0007, or the signature unknown) it is null: ⑤'s ActionResult does not carry it (④ G-1).
   if (op.attempts > 0 || op.gateway?.signature) {
-    // ④'s own registry receipt, when the operation is registered there: its cancel stage, as ④ gives it.
-    if (op.ws04Act?.cancel?.until?.lastValidBlockHeight != null) return { phase: op.ws04Act.cancel.phase ?? 'AwaitingSigned', until: { ...op.ws04Act.cancel.until, unit: 'block height', signature: op.gateway?.signature ?? null, source: 'ws04 act registry (runexec act status)' }, stage: op.ws04Act.cancel.stage, result: op.ws04Act.cancel.result };
+    // ④'s own registry receipt, when the operation is registered there: its cancel stage, as ④ gives it — but only as
+    // the lifetime of THIS request's own signature (the rule below): the registry's receipt must name a signature, and
+    // it must be the one this server received (or this server has none yet). Never for a Duplicate (the wallet's record
+    // may name the earlier send's signature, never adopted as this request's). `readAt`: when the registry last
+    // answered (a later failed read is in ws04Act.readError). The registry answering is not evidence of a chain.
+    const reg = op.ws04Act?.signature ?? null;
+    const regOwn = reg !== null && !op.gateway?.duplicateOf && (!op.gateway?.signature || op.gateway.signature === reg);
+    if (regOwn && op.ws04Act?.cancel?.until?.lastValidBlockHeight != null) return { phase: op.ws04Act.cancel.phase ?? 'AwaitingSigned', until: { ...op.ws04Act.cancel.until, unit: 'block height', signature: reg, source: 'ws04 act registry (runexec act status)', readAt: op.ws04Act.at ?? null }, stage: op.ws04Act.cancel.stage, result: op.ws04Act.cancel.result };
     const h = op.gateway?.signature && (!op.lifetime?.signature || op.lifetime.signature === op.gateway.signature) ? op.lifetime?.lastValidBlockHeight ?? null : null;
     return { phase: 'AwaitingSigned', until: h == null ? null : { lastValidBlockHeight: h, unit: 'block height', signature: op.gateway.signature, source: op.lifetime.source } };
   }
