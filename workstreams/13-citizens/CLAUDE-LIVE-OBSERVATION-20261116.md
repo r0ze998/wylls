@@ -441,3 +441,43 @@ So the preview is **not** the decision a step would make. It is the candidate se
 - `__proto__` / `toJSON` / `toString` in the text are only data.
 - 10 more shape and inherited-key refusals.
 - The JSON boundary is pinned as text.
+
+## Normal-mode alias lookups: not reachable, not changed (2026-11-17, source only)
+
+**Question:** can a key looked up in `state.aliases` (`#who`, `trustIndexOf`, `#learn`'s decline count) be an inherited name such as `constructor` or `__proto__`?
+
+**Traced:**
+- **Alias keys** are written only by `#migrate`: `st.aliases[v.citizen] ??= v.owner`, over the world view's villages.
+- **Citizen ids** are assigned by the world: `testworld.mjs:65`, `` `c${n}` ``.
+- **The values looked up:**
+  - `c.act.to`: from `candidates.mjs` 61–68 (a village from the world view) and 99 (`r.from`);
+  - `r.by` / `r.from` / `rep.from`: the board sets them to the sender's world citizen (`board.mjs:70`, 91, 106; `accept.from`);
+  - `r.to` is read only for the resident's own requests, whose `to` it took from the world view;
+  - episode entities are those ids, the resident's own address (43–44 base58 characters) or `route:<address>><id>`.
+- None of these can be an inherited property name. **A wrong lookup through the resident's alias table is not reachable, so `resident.mjs` is left as it is.**
+
+**Found, not fixed (the test world, not an adopted contract):**
+- The test world's own existence checks use plain lookups: `testworld.mjs:195` `this.s.citizens[f.to]` (SendCaravan) and `board.mjs:88` `this.world.s.citizens[body.to]` (a request's addressee).
+- A signed participant (a scripted person) sending `to: "constructor"` passes both checks.
+- **SendCaravan:** the stores are debited (`:232`), then `dst` is `Object.prototype.constructor` (`:234`, `dst.id` / `dst.pos` undefined).
+- **The board:** stores a request addressed to nobody.
+- No resident produces such a `to`. This is test-world code, so it is left for its owner; an own-key check there would be a test-world change.
+
+## Each preview field and where it could come from (2026-11-17, source only)
+
+| Preview field | Test world (mock) | Adopted live source | Status |
+|---|---|---|---|
+| `frame.clock`, `frame.world` | `MOCK_CLOCK` / `MOCK_WORLD` | 12 `worldFromSeason(/h/season)` → `observeLive` `world` / `clock` | **available** (read-only slice; never run) |
+| `obs.world.bell` | the test world's turn counter | 12 `currentBellFromSeason` (`observeLive.observedBell`): the Season bell from `latestUnix` | **available, but a different clock.** It is the Season bell, not the test world's turn, so it only means something with a Season-clock frame |
+| `evidence` (`kind`, `clock`, `world`, `basis`, `basisWhy`, `answers`) | a stub | 13 `liveCanonicalEvidence(…).read(…)`, answers written into the snapshot by the caller | **available.** The basis is never `chain` today: 4's receipts are `integration-output`, and 4's read observation is held |
+| `obs.world.villages[{citizen, owner, stores, buildings, building}]` | all villages, public stores | `/h/me` gives the **viewer's own** holdings as raw account bytes (`acct`: `bytes_b64`); other villages are not in it | **missing.** No contract maps a S1 Holding (milli units, the S1 building set) onto this shape, and other villages' stores have no adopted source |
+| `obs.world.me.quota {bucket, relayLeft, lamportsLeft}` | the test world's limits | `/h/me.quota` is the relay's `/f/quota` answer passed through (`server.rs relay_quota`; `null` when the relay does not answer) | **missing:** the field mapping is not specified |
+| `obs.world.events` | the test world's events (`Joined`, `CaravanRaided`, `BuildDone`, …) | `/h/events` are PS2 records (kinds 80–89, 91–93, …), another vocabulary | **missing:** no mapping |
+| `obs.board.requests` / `replies` | the test world's board | none | **missing:** no live board exists |
+| `charter` | `createCharter` (writes `charter.json`) | the owner's charter of a real resident | **missing:** no production resident |
+| `state` (`turn`, `citizen`, `journal`, `counters`, `cooldown`, `accepted`, `aliases`, `failures`) | the resident's `state.json` | the same file of a running resident | **missing:** no production resident |
+| `address` | the keyless test identity | the resident's wallet | **missing:** key custody is undecided |
+| `episodes` | `localMemory` (`episodes.jsonl`) | the resident's memory (or 12's mirror) | **missing:** no production resident |
+
+- **Today** a preview can be filled only from the test world. Live sources cover the frame, the Season bell and the (non-chain) evidence. Everything a candidate is built from (villages, quota, events, board, charter, state, episodes) has no adopted live source.
+- **Nothing is filled in:** a missing field is refused by name. No unknown becomes zero or false, and no Season bell is used as a test-world turn.
