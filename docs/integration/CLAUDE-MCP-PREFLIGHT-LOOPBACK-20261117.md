@@ -71,3 +71,19 @@ It sends with `redirect: 'manual'`, and a 3xx answer is a failed check (`<step>:
 **What running it would touch:** it imports `node:test`, `node:assert/strict`, `node:fs` (to read `src/preflight.mjs` for the pin) and `../src/preflight.mjs`, which imports nothing. There is no network, server, file write, key or subprocess. It is not one of the refused tests (`web-frontier-build-walls-items`, `web-frontier-muster-province-full`), not `connect.test.mjs`, not a runner, not a world.
 
 **Not shown by any of this:** that ChatGPT, Claude or Claude Code connect. The preflight never runs a client.
+
+## Static falsification of the fix (2026-11-17)
+
+**Host spellings (WHATWG URL parsing, as Node uses it):**
+- `127.0.0.1.nip.io`, `localhost.` (trailing dot), `0.0.0.0`, `[::ffff:127.0.0.1]` and any other host are not in the list, so they are refused.
+- `LOCALHOST`, and the numeric spellings of 127.0.0.1 (`0177.0.0.1`, `2130706433`), are normalised by the parser to a listed host. They are this machine, so nothing is widened.
+
+**Redirects:**
+- Node's `fetch` with `redirect: 'manual'` returns the 3xx answer itself, which is refused.
+- In a browser it would return an opaque response with status 0. That is not refused as a redirect, but it is not followed either, so nothing outside is requested.
+- The preflight is a Node command (`bin/wylls-mcp-preflight.mjs`). No change was made for browsers.
+
+**Remaining limits:**
+- **DNS:** what `localhost` resolves to (for example, a changed hosts file) is the machine's own setting, as before.
+- **The first URL:** if it carries credentials and is on this machine, it passes the existing check, but the preflight refuses to request it. Its `url` field returns it as the caller entered it.
+- **`allowRemote`:** it lifts only the host check, as before, and it is meant for an approved deployment.
