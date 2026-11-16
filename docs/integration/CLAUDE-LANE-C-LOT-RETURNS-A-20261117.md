@@ -203,3 +203,32 @@
 - Existing worlds not verified, and no migration done.
 
 **This audit is complete for design A.** No safe independent fix remains on this branch without a new decision.
+
+## Test evidence (2026-11-17; one run, by the coordinator, after an independent audit and approval)
+
+**What ran.** Only the kernel regression source, once, at HEAD `43e963d3`:
+
+```
+cargo +1.89.0 test --offline --locked -p permutation-rules --test custody_returns --target-dir <dedicated target> -j 1
+```
+
+**Source pinned:** `permutation-rules/tests/custody_returns.rs`, SHA-256 `808682e59aaf1547d746a0df08966ad05cf6ccb8cdd900c0a2be26ad4f4cfaec`. Re-checked read-only by Lane C before this note.
+
+**Result:** 9 passed, 0 failed, 0 ignored, 0 filtered. Build 13.30 s, tests 0.00 s.
+- The 9 are the 8 cases of the first commit plus `counting_past_the_counter_is_refused_unchanged`.
+- This also shows the source compiles, so the borrow fix in `feed` holds.
+
+**Conditions:**
+- Registry archive checksums matched the lock, with 1,542 files extracted.
+- No network, no keys, no world.
+- The dedicated target used 188,424 KiB.
+- No code or `Cargo.lock` changed, and nothing was staged.
+
+**Still not verified:**
+- the program side: `proc/capacity.rs` handlers and the edited host tests in `capacity_runtime_tests.rs`, which need the `capacity-preview` + `custody-preview` build;
+- any integration with other branches;
+- ABI adoption: RSV fields, link bytes, version and hash, record kinds;
+- V26;
+- any migration, or whether an existing world exists.
+
+**The open decisions are unchanged:** the sub-unit rest, who may trigger a return, seizure.
