@@ -194,4 +194,16 @@ Written, not run. Nothing was run, imported or compiled.
 **What this does and does not show.**
 - It shows that the pure functions pass: ⑭'s `provenanceOf` and ⑮'s `readCentreFacts` re-check.
 - It is not a real world, a real consumer, or a completed integration.
-- The corrected existing test (`workstreams/15-coop-outcomes/test/contract-ws14-centre.test.mjs`, the first test now expecting `'between'`) was **not** part of this run, and remains unrun.
+- The corrected existing test (`workstreams/15-coop-outcomes/test/contract-ws14-centre.test.mjs`, the first test now expecting `'between'`) was **not** part of this run. It was run separately, once: see the next section.
+
+## Run record 2: the existing fixture test (the coordinator's run; Lane C ran nothing)
+
+| Item | Result |
+|---|---|
+| Who and when | The coordinator, once, at `3f9ec65e`. Not to be rerun |
+| Checked before the run | The whole dependency closure: built-in `node:test`, `node:assert/strict` and `node:fs`; `ws14-centre.mjs` → `s1-chain.mjs`; `ws14.mjs`, which has no imports. The only I/O is a read of the fixed fixture `ws14-centre-88cf67c0.json` (11,733 bytes). No keys, network or writes, and nothing that overlaps a refused route |
+| Command | `node --test workstreams/15-coop-outcomes/test/contract-ws14-centre.test.mjs`, with Homebrew's `node` (Node 23.11.0) |
+| Result | 8/8 pass; fail 0, cancelled 0, skipped 0; exit 0; duration 42.381083 ms. This includes the corrected first test: the fixture's `still` is now `'between'` |
+| Kept unchanged | The 25 deleted media files and the untracked files |
+
+**Scope.** This is ⑮'s existing fixture regression, separate from the 9 pure tests in run record 1. It is not a real consumer, a real world, or a completed integration.
