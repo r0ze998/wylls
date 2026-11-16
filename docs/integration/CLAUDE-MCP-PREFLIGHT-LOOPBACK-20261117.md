@@ -316,3 +316,92 @@ The owner's review found three ways a credential could still come back. Each was
   - `../src/preflight.mjs`, which imports nothing;
   - `../bin/wylls-mcp-preflight.mjs`, which imports `node:url` and the library.
 - **Side effects:** none outside the process. No server, socket, OAuth registration, file write or environment read. The command's entry guard does not fire under `node --test`, because `process.argv[1]` is the test file, not the command.
+
+## One run of both tests (2026-11-17, at 5f67eb17)
+
+Run once, in one batch, with the owner's approval. Nothing was retried, and no other test file was given.
+
+```
+/opt/homebrew/opt/node/bin/node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test \
+  workstreams/03-composability/mcp/test/preflight-loopback.test.mjs workstreams/03-composability/mcp/test/preflight-cli.test.mjs
+```
+
+**Checked just before the run:**
+- **Commit:** HEAD `5f67eb17`, and the remote branch is equal.
+- **Runtime and guard:** Node v23.11.0, binary sha256 `01ca46d5…b462`. `NODE_OPTIONS` unset. `nokey-guard.mjs` sha256 `cf451817…f862f`, the known hash.
+- **sha256 of the files under test:**
+
+  | File | sha256 |
+  |---|---|
+  | `preflight-loopback.test.mjs` | `790a5341…0855` |
+  | `preflight-cli.test.mjs` | `20b05806…c855` |
+  | `bin/wylls-mcp-preflight.mjs` | `2e3fdcf8…25c0` |
+  | `src/preflight.mjs` | `5865bdfd…219f` |
+
+- **Imports:** builtins only (`node:test`, `node:assert/strict`, `node:fs`, `node:url`), plus the library and the command.
+- **Worktree:** 49 GiB free (floor 21). The 13 media deletions unstaged; nothing else modified; the index empty.
+
+**Result:** 13 tests, 13 passed, 0 failed, 0 cancelled or skipped; exit 0; duration 49 ms.
+- **`preflight-cli.test.mjs`: 5/5.** These include the new case: an exception naming a credential is never printed, and a `message` getter is never run.
+- **`preflight-loopback.test.mjs`: 8/8.** These include the new case: a password with `@`, no `//`, backslashes, and non-text details.
+- **No guard or safety refusal.**
+
+**What this shows and does not show:**
+- **Shows:** with fake `fetch`, `print` and `warn`, the library and command behave as these 13 cases state. No request left the process.
+- **Does not show** anything about a real server, a real network error's text, a real ChatGPT or Claude connection, or the limits listed in the section above.
+
+## Compatibility for existing users of the command (2026-11-17, static)
+
+The comparison is the command and library before this branch (`274d5c62^`) against `5f67eb17`.
+- **In-repo users of the command:** the runbook (`12-device-runbook.ja.md` lines 23 and 48) and the ③ overview (`11-claude-chatgpt.ja.md` line 75).
+- **In-repo importers of the library:** none besides the command. The other `preflight` names in the repo are different functions (gateway session, server previews, keeper).
+
+**Unchanged:**
+- **Library:**
+  - the signature `preflight(url, {client, fetch, allowRemote})` and the return shape `{client, url, ok, checks, unverified}`;
+  - its two thrown texts;
+  - the existing check names.
+- **Runbook:** `node bin/wylls-mcp-preflight.mjs <URL> <client>`, and "exit 0 on a healthy loopback server".
+
+**Changes an existing caller can notice:**
+
+| Case | Before | Now |
+|---|---|---|
+| extra positional argument, or any flag other than one `--allow-remote` | ignored | usage, exit 2 |
+| unknown client | uncaught throw: stack on stderr, exit 1 | usage, exit 2 |
+| URL that does not parse | uncaught throw, exit 1 | usage, exit 2 |
+| URL off this machine | uncaught throw (stack), stdout empty, exit 1 | `{client, ok:false, error}` JSON on stdout, exit 1 |
+| a request that throws | uncaught throw: the cause on stderr, exit 1 | JSON `error: "request failed"`, exit 1; the cause is not shown |
+| a server that answers a redirect (e.g. http→https, trailing slash) | followed silently; could pass | a failed `…: no redirect` check, exit 1 |
+| a server naming a credential URL, a non-http scheme, or an off-machine URL | requested | refused before the request, failed check, exit 1 |
+| non-string `issuer` or `authorization_servers[0]` | uncaught `TypeError`, exit 1 | failed check `authorization server is a URL string`, exit 1 |
+| `detail` | as given (could be an object) | always text when present; userinfo removed; non-text shown as its type |
+| new check names | — | `<step>: a URL`, `http or https`, `no credentials in the URL`, `on this machine`, `no redirect`, and `authorization server is a URL string` |
+
+**Exit codes:**
+- **Exit 0 means the same:** every check passed.
+- **Exit 1** still means not passed. It now always comes with a JSON document on stdout.
+- **Exit 2 now also covers:** an unknown client, an unparseable URL, and extra arguments, which were exit 1 or ignored.
+
+**Additions:** the command now exports `main`, `USAGE` and `errorText`, and it sets `process.exitCode` instead of calling `process.exit`, so stdout is not cut off when piped.
+
+**A caller that may break:**
+- a script that passes extra arguments;
+- a script that relies on a redirecting server passing;
+- a script that reads the failure cause from stderr;
+- a script that expects stdout to be empty on a refusal.
+
+No such script was found in the repo; scripts outside it were not searched.
+
+## Open decisions and what a real connection still lacks (short)
+
+**Owner decisions (none taken here):**
+1. **Diagnostics flag:** whether the command should offer an opt-in diagnostics flag that shows a failed request's cause. Today it shows none, by design.
+2. **Redirects:** whether a deployment that redirects (http→https, trailing slash) should be fixed at the deployment, or listed as an accepted exception. The preflight refuses all redirects.
+3. **Merging:** whether and when this branch is merged into the canonical candidate (one integrator; D's game-plan/send freshness audit is in progress, and this branch does not touch D's files).
+
+**Still missing for a real ChatGPT or Claude connection** (unchanged from the section above; nothing here was connected):
+- **Hosting:** a chosen identity provider, and the Secure MCP Tunnel or an approved public HTTPS deployment.
+- **OAuth window:** a decision on whether a wallet appears in it.
+- **Plan:** the plan or tier the connecting account needs.
+- **The client itself:** its screens, its consent prompt and how its model picks tools are not checked by the preflight. A run of `--allow-remote` against an approved deployment has not been done.
