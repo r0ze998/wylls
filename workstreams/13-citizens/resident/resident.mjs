@@ -493,8 +493,10 @@ export class Resident {
     // A key already known to the world (a send made before a restart) is never sent twice: its recorded answer is taken.
     // When the port cannot answer, going on to submit is safe: the same key never executes twice (08, R1/R2).
     let res;
+    let fromSubmit = false;
     try { res = await this.ports.execution.status(sendKey); } catch { res = null; }
     if (!res) {
+      fromSubmit = true;
       it.submittedBell = this.bell;
       try { res = await this.ports.execution.submit({ agentId: this.id, source: 'resident', idempotencyKey: sendKey, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch, action: it.action }); }
       // The world may have accepted the send before its reply was lost. A transport error
@@ -508,10 +510,25 @@ export class Resident {
     // world recorded before this line existed was not sent by it and is not counted (the phantom of a re-created
     // obligation).
     const ambiguous = res.status === 'unknown' || (res.error?.code === 'Transport' && res.fate !== 'failed');
+    // (2026-11-17) A send's own answer that says it may have left is not "nothing happened" (④ EXECUTION-CONTRACT §1:
+    // only not-sent and expired allow a new attempt; 08 R4: an unknown result is never a reason to resend). The agent
+    // wallet answers `failed` with code SendFailed and `sent: true`, its signature and lifetime when the send threw
+    // after signing ("it may still land"), and SendFailed for a key whose earlier request has no final response. Such
+    // an answer keeps THIS key and is read back (#reconcile decides from the key's fate); only a SendFailed that says
+    // `sent: false` and carries no signature stays transient. Only an answer to this line's own submit is judged here
+    // (a status reading is ④'s and is taken as before). A Duplicate's earlier signature is another send's and is not
+    // read as this key's send: Duplicate keeps its existing handling.
+    const duplicate = res.error?.code === 'Duplicate' || res.duplicateOf != null;
+    const ownSignature = typeof res.signature === 'string' && res.signature !== '';
+    const mayHaveLeft = fromSubmit && res.status !== 'sent' && !ambiguous && !duplicate
+      && (res.sent === true || ownSignature || (res.error?.code === 'SendFailed' && res.sent !== false));
     const recordedBefore = Number.isInteger(res.landedBell) && Number.isInteger(it.createdBell) && res.landedBell < it.createdBell;
-    if ((res.status === 'sent' || ambiguous) && !recordedBefore) this.#countAction(it);
+    if ((res.status === 'sent' || ambiguous || mayHaveLeft) && !recordedBefore) this.#countAction(it);
     if (res.status === 'sent') { Object.assign(it, { state: 'sent', signature: res.signature }); delete it.lastError; }
     else if (ambiguous) Object.assign(it, { state: 'sent', lastError: 'Transport' });
+    // Read back under this key; not Transport, so #reconcile's resubmit (for a key the registry has no record of)
+    // does not apply, and no signature is recorded as this line's proven send.
+    else if (mayHaveLeft) Object.assign(it, { state: 'sent', lastError: res.error?.code ?? 'MayHaveLeft' });
     else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
     return it;
   }

@@ -1,0 +1,110 @@
+# ⑬ resident: a SendFailed that may have left keeps its key (2026-11-17)
+
+**Branch:** `claude/ws13-sendfailed-same-key-20261117`, from the canonical candidate `claude/canonical-candidate-20261116` at `d16048aa` (`resident.mjs` there is blob `46d0063e`, the same as at `73f4984b`).
+
+**Static change, NOT run, NOT integrated:**
+- **Not done:** no test, old or new; no import, syntax check, model, HTTP, RPC, authentication, signing or world.
+- **Not run in any form:** ⑬'s guard tests and the other refused items (H, G, walls, muster).
+- **Not traced:** dependency closures and runnability.
+- **Not touched:** C and D files.
+
+**Background:** the reading is `docs/integration/CLAUDE-WS13-RESIDENT-UNQUERYABLE-BOUNDARY-20261117.md` §5 (integration branch, `73f4984b`).
+
+## Files
+
+| File | Change |
+|---|---|
+| `workstreams/13-citizens/resident/resident.mjs` | `#run` only: a `fromSubmit` flag, and the `mayHaveLeft` branch |
+| `workstreams/13-citizens/test/sendfailed-may-have-left.test.mjs` | new, **written, not run** |
+| `docs/integration/CLAUDE-WS13-SENDFAILED-SAME-KEY-20261117.md` | this report |
+
+## The defect
+
+- **Before this change**, `#run` treated as ambiguous only `status: 'unknown'` or code `Transport`.
+- **Every other answer that was not `sent`** went to `#retryOrFail(code)`.
+- **`SendFailed` is in `TRANSIENT`** (`resident.mjs:55`), so it became `attempts + 1`: a **new key `key#aN`**.
+
+**What the agent wallet means by `SendFailed`** (`permutation-gateway/src/frontier/agent/gateway.mjs`):
+
+| Case | Answer | Did it leave? |
+|---|---|---|
+| The send threw after the signature was recorded | `#run` `:714`: `failed`, `SendFailed`, `sendFacts(signed)` = `sent: true`, `signature`, `lastValidBlockHeight`, `slotFloor` | **may still land** (`contract.mjs:162-168`) |
+| The same key, saved without a final response; or an older key with an unverified send | `:558, :560`: `SendFailed` 409, with the prior `signature` | **possibly** |
+| An exception before sending | `:708`: `failed`, `SendFailed`, `sent: false` | no |
+| State not writable; request journal full | `:549`; `ledger.mjs:237`: `SendFailed` 503 | no |
+
+**Why this broke a rule:** a new key after the first two cases can execute one intention twice. That contradicts ④'s `EXECUTION-CONTRACT-20261106` §1 (only `not-sent` and `expired` allow a new attempt, quoted at `resident.mjs:69-74`) and ⑬'s `08-retention-contract` R4 (an unknown result is never a reason to resend).
+
+## The change (`#run`, `resident.mjs:495-532`)
+
+```js
+let fromSubmit = false;          // set when this call submitted (status had no answer)
+...
+const duplicate = res.error?.code === 'Duplicate' || res.duplicateOf != null;
+const ownSignature = typeof res.signature === 'string' && res.signature !== '';
+const mayHaveLeft = fromSubmit && res.status !== 'sent' && !ambiguous && !duplicate
+  && (res.sent === true || ownSignature || (res.error?.code === 'SendFailed' && res.sent !== false));
+if ((res.status === 'sent' || ambiguous || mayHaveLeft) && !recordedBefore) this.#countAction(it);
+...
+else if (mayHaveLeft) Object.assign(it, { state: 'sent', lastError: res.error?.code ?? 'MayHaveLeft' });
+else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
+```
+
+**The order of the branches, unchanged except for the new one:**
+1. `sent`;
+2. ambiguous (`unknown`, or `Transport` without fate `failed`);
+3. **may have left (new)**;
+4. otherwise `#retryOrFail`, as before.
+
+**What does not change:**
+- **Answers from a status read** (`fromSubmit` false): ④'s readings, including a final `failed`, `not-sent` or `expired`, are taken exactly as before. Nothing already decided becomes unknown.
+- **Definite refusals** (`refused` with a code, no `sent: true`, no signature): unchanged. `BucketEmpty` and `QuotaExceeded` stay transient; any other code fails.
+  - The test world's refusals (`world/testworld.mjs:115-126`) and the `ws04-run` port's (`resident/ports/ws04-run.mjs:134-141`) carry neither `sent` nor a signature.
+- **`SendFailed` with `sent: false` and no signature:** still transient (a new key after the backoff), because nothing left.
+- **`sent: false` with a signature** is contradictory: it is treated as may-have-left.
+- **Duplicate** (`error.code === 'Duplicate'` or `duplicateOf`): unchanged. It still goes to `#retryOrFail('Duplicate')`, so it ends `failed` with no resend. Its signature is another send's; it is **not** recorded as this line's send and not taken as evidence of success (see "Left open").
+
+**What a may-have-left line becomes:**
+- `state: 'sent'` under its existing `sendKey`;
+- `lastError` = the code (`SendFailed`), or `MayHaveLeft` when the answer has none;
+- **no `it.signature`**: a signature is recorded only for a `sent` answer, as before;
+- `#reconcile` reads the key's fate:
+  - `landed` → landed;
+  - `failed`, `not-sent` or `expired` → `#retryOrFail`, as for any sent line, with cancel and revocation taken into account;
+  - `unknown`, `unqueryable` or an exception → held, then `unresolved` after a day.
+- **`#reconcile`'s resubmit** (`:630`) needs `lastError === 'Transport'` and a status of `null`. It does not apply: a line that may have left is read, never resent.
+
+**Unchanged:**
+- **Counting:** `#countAction` stays once per `sendKey` (the `counted` guard).
+- **The rest:** `#reconcile`, `cancelAction` and `#applyRevocation` (these test `lastError === 'Transport'` only for `intended` lines, and a may-have-left line is `sent`); retention; both ports; the send authority (`submit`'s request fields).
+
+## The regression (`test/sendfailed-may-have-left.test.mjs`, written, NOT run)
+
+**Harness:** the same as `transport-uncertain.test.mjs` (`helpers.mjs` `small`/`run`). The first two status reads are hidden (`null`), so the first tick shows `#run`'s result. The answers are made-up wallet shapes (`FAKE-SIG-*`); nothing is signed.
+
+| Case | Expected |
+|---|---|
+| `SendFailed`, `sent: true`, signature (the send reached the test world) | `sent`, same key, attempts 1, `lastError` SendFailed, no `signature`, counted once; after 8 ticks one key submitted in total, and `landed` |
+| `SendFailed`, signature, no `sent` field (409 shape) | the same |
+| `SendFailed`, no `sent`, no signature | the same |
+| `SendFailed`, `sent: false`, no signature (did not reach) | `intended`, attempts 2, not counted (unchanged) |
+| `SendFailed`, `sent: false`, with a signature | `sent`, same key, attempts 1 |
+| `Duplicate` with `duplicateOf` and signature | `failed`, not counted (unchanged) |
+| `refused` `BucketEmpty` / `ActionNotAllowed` | `intended` / `failed` (unchanged) |
+
+**About running it:** its import closure includes `world/harness.mjs` and the resident, which is the same family as ⑬'s other tests. Whether and how it may be run is the owner's decision. It was not run and not traced here.
+
+## Not hidden
+
+- **No production `send` is connected for ⑬.** `ws04ActsPort` takes `send(req)` from its caller, and the only `send` in the tree is the test stack's (`test/stack.test.mjs:91-101`).
+- **How a real caller turns the wallet's HTTP 409/503 into a result** is not decided by any contract. If it throws, the line is `Transport` (ambiguous), as before. If it returns `{status: 'failed', error: {code: 'SendFailed'}}` without `sent: false`, the line is now held under its key.
+- **This change protects the answer shapes the wallet itself returns.** It does not establish the assembly.
+
+## Left open (not changed here)
+
+1. **Duplicate of a seq action (SendCaravan).**
+   - **The wallet's advice:** "follow it, do not resend" (`gateway.mjs:695-704`).
+   - **What ⑬ does:** ends the line `failed`, with no resend, and never follows the earlier signature's fate.
+   - **Not changed here:** whether ⑬ should follow it, and whether an earlier signature may count as this line's own effect. Lane D is looking at the same question for ③. ⑬ must not upgrade it to this line's success evidence before that answer.
+2. **A status reading of `not-sent`** (④ `fateOfReceipt` → `status: 'refused'`, no code) reaches `#retryOrFail('Unknown')` and ends `failed`. It does not get a new key, even though ④ allows a new attempt. This is unchanged and conservative: no double send, at most a missed retry.
+3. **ws04-run port:** a `StoreError` or `Spawn` from `accept` is thrown, which makes it `Transport`, ambiguous: read back under the same key. Unchanged.
