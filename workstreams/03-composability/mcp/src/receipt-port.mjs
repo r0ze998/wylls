@@ -118,6 +118,39 @@ export function feesOf(op) {
   return { category: 'unconfirmed', lamports: null, basis: 'an attempt may have been signed; its absence is not proven, so it is never released' };
 }
 
+/** The fixed marker of a registry receipt whose own state is `unqueryable` (④ could not read the wallet for this act). */
+export const WS04_UNQUERYABLE = 'Unqueryable: workstream 04 could not read the agent wallet for this act (its receipt says nothing about the act)';
+
+/**
+ * `op.ws04Act` after a registry status read that returned a receipt (server.mjs consult). Pure: no I/O.
+ * `{ok: false, code: 'Inconsistent', message}` when the receipt names another idempotency key (not applied: consult
+ * records it as a failed read). The key is checked first, for every receipt.
+ * A receipt whose own state is `unqueryable` is not a read that answered (④: `unqueryable` says nothing about the act;
+ * acts.rs next_step, clients/acts.mjs): everything known before is kept — the last answering read's state, next,
+ * cancel, signature and `at` — and it is recorded as a failed read (readError = WS04_UNQUERYABLE, readErrorAt = this
+ * read) with ④'s own lastReadError and why kept verbatim as text (through `scrub`, the server's error boundary), never
+ * parsed. A first-ever unqueryable keeps only what registration stored: no answering read is made up.
+ * Otherwise `{ok: true, act}`: the receipt's run4Id, state, next, cancel, retention, conflict and its signature, key and
+ * source, with `at` the time of this read and any earlier readError/readErrorAt/registryUnqueryable dropped.
+ * The registry answering is not evidence of a chain (④'s receipt names no chain, simulator or read mode); its source
+ * says who registered the act, not where its facts came from.
+ */
+export function ws04ActAfterRead(prev, a, { key, at, scrub = null }) {
+  if (a.idempotencyKey != null && a.idempotencyKey !== key) return { ok: false, code: 'Inconsistent', message: `the registry answered for another key (${a.idempotencyKey})` };
+  if (a.state === 'unqueryable') {
+    const text = v => (v == null ? null : scrub ? scrub(v) : String(v));
+    return { ok: true, act: { ...ws04ActAfterFailedRead(prev, WS04_UNQUERYABLE, at), registryUnqueryable: { lastReadError: text(a.lastReadError), why: text(a.why), at } } };
+  }
+  const { readError: _e, readErrorAt: _t, registryUnqueryable: _u, ...kept } = prev ?? {};
+  return { ok: true, act: { ...kept, run4Id: a.run4Id, receiptVersion: a.receiptVersion ?? null, state: a.state, final: a.final === true, next: a.next ?? null, newAttemptAllowed: a.newAttemptAllowed === true,
+    cancel: a.cancel ?? null, retention: a.retention ?? null, conflict: a.conflict ?? null, signature: a.signature ?? null, idempotencyKey: a.idempotencyKey ?? null, source: a.source ?? null, at } };
+}
+
+/** `op.ws04Act` after a registry read (or registration) that failed: everything known kept, `at` (the last read that answered) untouched. Pure. */
+export function ws04ActAfterFailedRead(prev, readError, at) {
+  return { ...(prev ?? {}), readError, readErrorAt: at };
+}
+
 /** A revoked connection's cancellation in ④'s phases, per operation. */
 export function ws04CancelPhase(op) {
   if (op.state === 'processing') return { phase: 'Ineffective', at: 'InTransit' };
@@ -127,8 +160,18 @@ export function ws04CancelPhase(op) {
   // the relay's recorded lifetime (patch 0007): then it is that signature's last valid block height (a block height,
   // not a slot). Without them (no 0007, or the signature unknown) it is null: ⑤'s ActionResult does not carry it (④ G-1).
   if (op.attempts > 0 || op.gateway?.signature) {
-    // ④'s own registry receipt, when the operation is registered there: its cancel stage, as ④ gives it.
-    if (op.ws04Act?.cancel?.until?.lastValidBlockHeight != null) return { phase: op.ws04Act.cancel.phase ?? 'AwaitingSigned', until: { ...op.ws04Act.cancel.until, unit: 'block height', signature: op.gateway?.signature ?? null, source: 'ws04 act registry (runexec act status)' }, stage: op.ws04Act.cancel.stage, result: op.ws04Act.cancel.result };
+    // ④'s own registry receipt, when the operation is registered there: its cancel stage, as ④ gives it — but only as
+    // the lifetime of THIS request's own signature (the rule below): the registry's receipt must name a signature, and
+    // it must equal the signature this server itself holds as its own (op.gateway.signature). Without one the registry's
+    // signature is not proven this request's — the wallet's record may name an earlier send's (a Duplicate whose answer
+    // was lost, or a fate read that failed while the registry answered): its until is not used (null via the rule
+    // below). Never for a Duplicate, including one that named no signature (`duplicateOf` present, null). `readAt`:
+    // when the registry last answered (a later failed read is in ws04Act.readError). Not evidence of a chain.
+    const reg = op.ws04Act?.signature ?? null;
+    const own = op.gateway?.signature ?? null;
+    const duplicate = op.gateway != null && Object.hasOwn(op.gateway, 'duplicateOf');
+    const regOwn = reg !== null && own !== null && own === reg && !duplicate;
+    if (regOwn && op.ws04Act?.cancel?.until?.lastValidBlockHeight != null) return { phase: op.ws04Act.cancel.phase ?? 'AwaitingSigned', until: { ...op.ws04Act.cancel.until, unit: 'block height', signature: reg, source: 'ws04 act registry (runexec act status)', readAt: op.ws04Act.at ?? null }, stage: op.ws04Act.cancel.stage, result: op.ws04Act.cancel.result };
     const h = op.gateway?.signature && (!op.lifetime?.signature || op.lifetime.signature === op.gateway.signature) ? op.lifetime?.lastValidBlockHeight ?? null : null;
     return { phase: 'AwaitingSigned', until: h == null ? null : { lastValidBlockHeight: h, unit: 'block height', signature: op.gateway.signature, source: op.lifetime.source } };
   }
