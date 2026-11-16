@@ -1528,9 +1528,11 @@ function selectVillage(i, pop = null) {
 }
 /** The next (dir +1) or previous (−1) of the viewer's hosts, those that can act this turn first (Civ's "next unit"). */
 function nextHost(dir) {
-  const all = hand.ownHosts(FS);
-  if (!all.length) return;
+  // (2026-11-16: from a host in hand, the hosts of ITS own village — as the bar's figure counts them (hud/hand.mjs); a host
+  //  of another village in hand jumped to the open village's first host)
   const sub = hand.subjectOf(FS);
+  const all = hand.ownHosts(sub?.kind === 'host' ? { ...FS, activeHolding: sub.holdingIndex } : FS);
+  if (!all.length) return;
   const at = sub?.kind === 'host' ? all.findIndex(r => r.id === sub.host.id) : -1;
   selectHost(all[((at + dir) % all.length + all.length) % all.length], { fly: true });
 }
