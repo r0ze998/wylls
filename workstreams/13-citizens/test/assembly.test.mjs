@@ -46,7 +46,7 @@ test("REQUIREMENTS is Resident's own source (pinned as text); the preflight impo
   const r = readFileSync(new URL('../resident/resident.mjs', import.meta.url), 'utf8');
   for (const s of ["identity ?? keyIdentity(loadOrCreateKey(path.join(dir, 'resident.key')))", "assertPort('execution', this.ports.execution)", 'await this.ports.observe(this.address,',
     'await this.ports.join({ body, sig: this.identity.sign(JOIN_DOMAIN, body) })', 'await this.ports.board.post(it.body)', 'await decideWithin(this.ports.provider, req)',
-    'this.ports.cost ?? flatCost(b.pricePerCall)', 'choice = this.ports.fallback(candidates)', 'const port = this.ports.evidence;', "createStateStore(path.join(dir, 'state.json'))"]) assert.ok(r.includes(s), s);
+    'this.ports.cost ?? flatCost(b.pricePerCall)', 'choice = this.ports.fallback(candidates)', 'publicEvidenceOf({ port: this.ports.evidence', "createStateStore(path.join(dir, 'state.json'))"]) assert.ok(r.includes(s), s);
   assert.equal(REQUIREMENTS.length, 11);
   const a = readFileSync(new URL('../resident/assembly.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(a, /^import /m);

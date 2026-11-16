@@ -297,3 +297,63 @@ After the evidence read, it goes on to:
 **New tests (source only, never run):**
 - 12 `test/ws04-observation.test.mjs`: 5 cases. Not added to `keyfree-tests.txt`.
 - 13 `test/assembly.test.mjs`: 4 cases.
+
+## The decision core split out, and a preview with no effect (2026-11-17, source only)
+
+**What was moved.** These moved from `resident.mjs` into `resident/decide-core.mjs`, unchanged in meaning, and `Resident` now calls them:
+
+| Was | Now | Its inputs |
+|---|---|---|
+| `#who` | `whoOf({addr, aliases})` | the view's citizen→owner map, the alias table |
+| `#trustIndex` | `trustIndexOf(episodes, aliases)` | `memory.all()` |
+| `#publicEvidence` | `publicEvidenceOf({port, observe, evidenceUse, cands, bell, who})` | `evidence.read` (the same chain-only rule; the fixture test switch as before) |
+| `#decide`'s hold rule | `heldOf({evidence, inFlight, failures, bell, who})`, `inFlightOf(journal)` | state |
+| `#request` | `requestOf({charter, id, citizen, obs, bell, turn, cands, wakes, evidence, mem})` | `mem` = `memory.recall(…)` (still called by the resident) |
+| `OPEN_STATES`, `actionSig`, `candidateAction` | moved | `resident.mjs` re-exports `OPEN_STATES` and `actionSig` as before |
+
+**The one difference is an error case:** with no `state.aliases`, `#who` threw before; it now reads an empty alias table. Every saved state has `aliases`.
+
+**`previewDecision({charter, state, address, obs, memory, evidence, observe, evidenceUse})`.** It is the decision up to the point where a provider would be asked:
+- candidates and exclusions, including a WS12 breach under the same rule;
+- the evidence summary;
+- the request text the provider would get. It is not sent. With a single candidate, `byCode: 'wait'` and no request, as `#decide` does.
+
+It uses copies of `charter` and `state` (`structuredClone`), and the day counters are reset on a copy (`todayOf`). It reads only `memory.all` / `recall` and `evidence.read`.
+
+It never reaches:
+- the constructor (no key, no ledger, no file);
+- `join`;
+- the budget hold or the cost port;
+- the provider;
+- the fallback;
+- `execution` or `board`.
+
+**What the preview does not cover.** These are steps `step()` takes before or after deciding, each with effects or with state it changes:
+- reconcile;
+- learn and duties;
+- `#settleReturns` and `#noteDebts`;
+- the cursor;
+- the wake gate;
+- the stop reasons;
+- the provider's answer and the fallback;
+- the send.
+
+So the preview is **not** the decision a step would make. It is the candidate set and the request at the current state, before those steps.
+
+**How far it reaches:**
+- **Normal mode:** the same functions. Equivalence is pinned as text, not by a run.
+- **Preview:** inputs exist only in the **test world** (`helpers.mjs small/run` over `world/harness.mjs`). A production preview needs:
+  - a live observe port: none exists, and no contract maps the herald to `{world: {bell, villages, me: {quota}}, board}`;
+  - a resident's charter and state, from its own files.
+
+  So no production preview exists.
+- **Nothing in this slice calls `previewDecision`:** no CLI, no harness.
+
+**Tests (source only, not run):** 13 `test/decide-core.test.mjs`, 4 cases.
+- On the test world, the preview reaches no acting port: execution, board, provider, cost, join, fallback and `memory.append` are traps that throw.
+- It changes no state or charter, and no file in the resident's directory (size and modification time).
+- The hold rules: chain acts; `integration-output` is shown but not acted on; the fixture test switch still works; a clock mismatch is caught.
+- The helpers.
+- The text pins: the resident calls the same functions, and the core's imports are only frame, sanitize, rules, candidates, goals and the provider schema.
+
+**Kept as before:** WS4's four held reasons; the cap that never raises the simulated store to `chain`; and `assembly.mjs` still reports `assembled: false`. The preview is not a resident.
