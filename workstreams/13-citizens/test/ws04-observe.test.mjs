@@ -13,6 +13,14 @@ function fake(answer) {
 }
 const parse = text => JSON.parse(text);
 
+// What the client's source must never contain. Correction (2026-11-18): the earlier bare `sign\(` also matched
+// `Object.assign(` (as-sign-paren), a false positive on the client's own error construction. Only that `as` prefix is
+// excluded now. Whitespace (space, tab, newline) is allowed between `sign` and `(`, and around the `:` of
+// `shell: true` (quoted key too), so those calls are caught in any layout. `send` / `submit` / `NoRecord'` /
+// `12-memory` stay bare substrings, unchanged; `sign(` / `obj.sign (` / `resign(` are all still caught.
+const FORBIDDEN = /12-memory|shell['"]?\s*:\s*true|NoRecord'|send|submit|(?<!as)sign\s*\(/;
+const IMPORT = /^import /m;
+
 test('store and db: the exact read-only arguments, no shell, the page as printed', async () => {
   const f = fake(() => [null, `${JSON.stringify(PAGE)}\n`]);
   const c = ws04ObserveClient({ bin: '/x/runexec', execFile: f.execFile, parse });
@@ -48,10 +56,36 @@ test('bad arguments are refused before anything is started', async () => {
 
 test('the client is not a resident port and imports nothing (pinned as text)', () => {
   const s = readFileSync(new URL('../resident/ports/ws04-observe.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(s, /^import /m);
-  assert.doesNotMatch(s, /12-memory|shell: true|NoRecord'|send|submit|sign\(/);
+  assert.doesNotMatch(s, IMPORT);
+  assert.doesNotMatch(s, FORBIDDEN);
   const r = readFileSync(new URL('../resident/resident.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(r, /ws04-observe/, 'the resident does not use it');
+});
+
+test('the source detector itself: Object.assign is accepted, every real forbidden form is still caught', () => {
+  for (const ok of [
+    "Object.assign(new Error(m), { code: 'BadRequest' })",
+    'reject(Object.assign(new Error(String(err?.message)), { code: v.error }));',
+    'Object.assign (e, {})', 'Object.assign\t(e, {})', 'Object.assign\n(e, {})',
+    "execFile(bin, args, { timeout: 1, shell: false }, cb)", '{ shell:false }', '{ shell :\tfalse }',
+    '// never "no record", never "not sent".',
+  ]) assert.doesNotMatch(ok, FORBIDDEN, JSON.stringify(ok));
+  for (const bad of [
+    // sign: bare, method, and with whitespace (space, tab, newline, mixed) before the paren
+    'sign(tx)', 'sign (tx)', 'sign\t(tx)', 'sign\n(tx)', 'sign \t\n (tx)',
+    'key.sign(tx)', 'key.sign (tx)', 'key.sign\t(tx)', 'key.sign\n(tx)', 'key . sign  (tx)', 'key\n  .sign (tx)',
+    'wallet.signer.sign(payload)', 'resign(x)', 'resign (x)', 'as sign(x)',
+    // send / submit: unchanged bare substrings
+    'send(tx)', 'send (tx)', 'conn.send(x)', 'sendRawTransaction(x)', 'submit(tx)', 'submit\t(tx)', 'rpc.submitTransaction(x)',
+    // shell true: any spacing around the colon, quoted key
+    'execFile(b, a, { shell: true }, cb)', '{ shell:true }', '{ shell :true }', '{ shell  :  true }', '{ shell:\ttrue }',
+    '{ shell:\ntrue }', "{ 'shell': true }", '{ "shell":true }',
+    "import x from '../../12-memory/x.mjs'", "{ code: 'NoRecord' }",
+    'Object.assign(e, {}); key.sign(tx)', 'Object.assign(e, {}); key.sign (tx)',   // an assign beside a real sign is still caught
+  ]) assert.match(bad, FORBIDDEN, JSON.stringify(bad));
+  assert.match("import { a } from './a.mjs';", IMPORT);
+  assert.match("// x\nimport b from 'b';", IMPORT);
+  assert.doesNotMatch('// a comment about importing nothing', IMPORT);
 });
 
 test('the command says it may start one runexec subprocess, and that its exit code does not cover 4\'s page (pinned as text)', () => {
