@@ -557,3 +557,10 @@ only the allowed confirmation of already-submitted work remains within that boun
 - **Runtime correction:** after computer connectivity changed, direct process/listener checks confirmed the earlier launcher and both supervisors were no longer running. Their final monitoring records lack a normal shutdown result, so the cause remains unconfirmed. No two-player Start had been sent and no world had been created.
 - The empty old-run data directory was preserved without deletion and preflight passed again. A new launcher restart was then **denied by normal approval review** for lack of authorization recognized for that exact restart and the remaining containment risks. It was not retried or bypassed. No new runtime deadline exists.
 - A bounded two-player Join fixture is prepared and syntax-checked, but **not executed**. It uses fresh memory-only test wallets and existing page builders, at most one Join each, signature-only result follow-up and Citizen readback. No PlaceHome or later gameplay has been verified. Restart authorization and live execution remain open.
+
+
+### 2026-11-17 UTC — ⑥ existing creation-port contracts verified
+
+- Reviewed the complete fourteen-module local import closure before normal approval review allowed the two existing, unchanged tests: `workstreams/06-creation/test/ports-run-view.test.mjs` **8/8** and `workstreams/06-creation/test/ports-registry-truncated.test.mjs` **4/4**. Total **12/12 passed**; no product or test source changes were needed.
+- Ten cases exercise actual ports with injected fake callbacks; two inspect Dispatch source text only. Throwing key-API stubs are installed before dynamic imports. No real subprocess, network, key generation, database or world was exercised. This closes a bounded existing verification gap, not chain integration or completion of workstream ⑥.
+- The live restart remains denied and stopped as recorded above; these independently scoped tests did not start or replace that runtime.
