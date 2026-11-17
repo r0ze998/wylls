@@ -452,9 +452,9 @@ a shared lock for all state or owner-mode writers.
 
 ### Remaining tasks
 
-- [ ] Resolve the official CLI workspace-trust/configuration confirmation, then continue the partial coop read
-      adapter with Opus, complete its tests/documentation, independently verify, and review before integration.
-      Do not report a stale monitor label or a rejected launch as a running task.
+- [x] Resolved the official CLI workspace flow; Opus completed the coop adapter and opt-in MCP wiring.
+      Independent fixture verification and source integration are complete (see latest entry below).
+      Authenticated live-client/board/world end-to-end verification remains separate and open.
 - [ ] Resolve the independent-verification block for the provisional random-home candidate before any adoption.
 - [ ] Validate adopted source through separately permitted tests and real-user flows; do not bypass refused tests,
       stale-review guards or equivalent restrictions.
@@ -490,3 +490,12 @@ only the allowed confirmation of already-submitted work remains within that boun
   registration, server wiring, authenticated real-client/board end-to-end checks, main merge or deployment.**
   It remains disabled by default and grants no new action authority. Earlier launch/partial-output entries above
   are history, not the current task state.
+
+
+### 2026-11-17 UTC — opt-in cooperation MCP wiring completed and source integrated
+
+- Official Opus session completed; no duplicate implementation was started. Six wiring/config/test/doc files were saved to this branch, ending at `0cf47638f0abe64d79252ad4c6177e1ec908864a`; all six were fetched and exactly matched the validated local output.
+- `get_cooperation_status` is listed and callable only when explicitly enabled. It uses authenticated owner + existing `wylls.read`, server-owned current world and explicitly configured cluster. Disabled means no board fetch. Caller-supplied owner/world/URL is refused. No grant or send authority was added.
+- Review found and fixed archive housekeeping on this read; success/refusal/failure leave local stored operations untouched, while existing tools preserve their prior behavior.
+- Independent final verification: **60/60 passed**, zero failures/skips (34 adapter unit + 26 real server/HTTP-handler fixture integration tests); five wiring JavaScript files passed `node --check`, tracked diff passed whitespace check. The initial missing dependency was resolved using existing installed local SDK dependencies, without package/lockfile changes.
+- HTTP verification executes the real `createHandler` with fake request/response streams and an auth stub: it is not a socket, real OAuth, external MCP-client, live-board or game-world test. Real funds, signatures, runtime deployment, main merge and the full historical regression suite were not exercised. Source integration is not production deployment; the feature remains off by default.
