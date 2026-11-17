@@ -323,3 +323,7 @@ async function enactRespondOnce({ dir, wallet, proposal, observed, nation, signe
   line.lastError = `http_${r.status}`; save();
   return { ok: false, unknown: true, state: 'sending', recordId: line.recordId, durable: true, why: `the board answered http ${r.status}: whether it arrived is not known; read back later, not posted again` };
 }
+
+// (2026-11-17) The same checks for the read-only consumer of saved results (enact-read.mjs): exported as they are, not
+// copied, so a line is judged there exactly as here.
+export { JOURNAL, LOCK, LINE_STATES, sameBinding, lineProblem, boardWorldIs };
