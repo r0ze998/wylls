@@ -2815,7 +2815,9 @@ function renderFeed() {
   const stripItem = strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip), faction: FS.citizen?.faction ?? null }) }] : [];
   // (a phone shows one notice: a standing threat's comes before the turn's own card, which hid it for as long as that
   // card stood — the threat was then told only by the guide's line; a wide screen shows both, the turn's card first)
+  // (2026-11-17, ⑦: the replay asked for outside a report says how its read goes, here — replayNotice)
   const items = held ? [] : [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
+    ...(FS.replayAsk ? [{ id: 'replay', markup: replayNotice(FS.replayAsk) }] : []),
     ...feed.stackOrder(stripItem, toasts, { alarmsFirst: phone() })];
   syncStack(el, items);
   publishNoGo();
@@ -3046,6 +3048,10 @@ function syncBattleWorld() {
   endOtherWorldBattles(world);
   if (battleKeepWorld !== undefined && battleKeepWorld !== world) { clearTimeout(battleBack); battleBack = null; camKeep.drop('battle'); battleKeepWorld = undefined; }
   peopleCache.at = -1;
+  // (a replay asked for in another world: its notice goes with it — the request itself is called off by playBattle.
+  //  Corrected: only a notice of ANOTHER world. One asked in this world — the person pressed before this sync came
+  //  round — is this world's own: it stays, being read or not read, and its answer still finds it)
+  if (FS.replayAsk && FS.replayAsk.world !== world) { FS.replayAsk = null; renderFeed(); }
   return world;
 }
 let battleBack = null;
@@ -3333,6 +3339,16 @@ async function playAsked(p, q, bell) {
   const rep = FS.report ?? null, world = reportWorld();
   closeDialPop();
   if (rep) { rep.playing = true; rep.playFailed = false; invalidate('panel'); }
+  // (2026-11-17, ⑦: a press made outside a report — a notice, the tracker, the inspector — has no report to say how the
+  //  read goes: it said nothing, also when the clash could not be read. `FS.replayAsk` is that press's own state — being
+  //  read, then gone when the scene plays, or "not read" with the same request to make again — shown as one notice on
+  //  the map's stack (renderFeed). It is not a record: nothing of the notices' list or its seen marks is touched. A
+  //  press inside a report keeps to the report's own line.)
+  //  (corrected: the notice carries the world it was asked in — `world`, the pin with its generation, the same string
+  //  as momentWorld — so the battle state's sync lets go of another world's notice only, never one asked in this world
+  //  before that sync came round)
+  FS.replayAsk = rep ? null : { p, q, bell, state: 'loading', req, world };
+  renderFeed();
   // (2026-11-17 correction: the request's validity reaches playBattle before its effects — `asked`: the last press, and
   //  the report open now is the one it was pressed in (none for none) in the same world. A later press, a report opened,
   //  switched or closed meanwhile, or another world: no scene, no flight, nothing on the map (null). Not `still`: the
@@ -3342,9 +3358,21 @@ async function playAsked(p, q, bell) {
   try { ok = await playBattle(p, q, bell, { focus: true, asked }); } catch (e) { console.error('frontier battle play:', e); ok = false; }
   if (req !== playAskSeq) return;
   if (rep) rep.playing = false;
+  // (outside a report: the scene plays → the notice goes; "no scene" (false, or a throw) with nothing changed since →
+  //  "not read", to ask again; called off (null: another world or herald, a report opened meanwhile) → the notice goes
+  //  without a word, as nothing failed. Only this press's own notice is touched: `req`)
+  if (!rep && FS.replayAsk?.req === req) { FS.replayAsk = ok === false && asked() ? { p, q, bell, state: 'failed', req, world } : null; renderFeed(); }
   if (ok === true) { if (rep && FS.report === rep) leaveReport(); return; }
   if (rep && ok === false && FS.report === rep && reportWorld() === world) rep.playFailed = true;
   if (rep) invalidate('panel');
+}
+/** The notice of a replay asked for outside a report (FS.replayAsk): being read, or not read with the way to ask again. */
+function replayNotice(a) {
+  const again = html`<button type="button" class="btn small primary" data-act="battle-play" data-p="${a.p}" data-q="${a.q}" data-bell="${a.bell}">${icon('return')}${L`もう一度読み込む`}</button>`;
+  return html`<div class="toast replay-ask" role="status" data-state="${a.state}"><span class="toast-icon">${icon(a.state === 'failed' ? 'alert' : 'hourglass')}</span>
+    <span class="toast-text">${a.state === 'failed' ? L`戦いを読み込めませんでした（ターン ${fmtNum(a.bell)}）。戦いがなかったという意味ではありません。記録はそのままです。` : L`戦いを読み込んでいます…`}</span>
+    ${a.state === 'failed' ? html`<span class="toast-acts">${again}</span>` : ''}
+    <button type="button" class="toast-x" data-act="replay-dismiss" aria-label="${L`閉じる`}">${icon('close')}</button></div>`;
 }
 const FX_LEVEL_TEXT = { full: () => L`標準`, reduced: () => L`控えめ`, off: () => L`オフ` };
 const BATTLE_FX_TEXT = { normal: () => L`ふつう`, fast: () => L`早送り`, off: () => L`自動では見せない` };
@@ -3755,6 +3783,9 @@ export const HUD_ACTIONS = {
   //  wanted; reads only. The selection and the camera stay where the person put them)
   // (2026-11-17, ⑦ the march card: the forecast that could not be made is asked again, from the same draft — only one
   //  that was not read; 見えていない土地 and the rules' own refusals are answers and are not asked around)
+  // (2026-11-17, ⑦: the replay's notice put away by the person. While the clash is still being read that is a "no": the
+  //  press is not the last one any more, so its scene is not staged and the camera does not go there — playAsked `asked`)
+  'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },
   'forecast-retry': () => { const c = FS.compose; if (!c || c.sending || !c.forecast?.unread) return; updateForecast({ again: true }); invalidate('panel'); },
   'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },

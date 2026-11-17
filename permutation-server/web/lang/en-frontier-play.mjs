@@ -1696,4 +1696,6 @@ export default {
   '見込みはまだわかりません（行き先の州の記録を読めていません）。下書きはそのままです。': 'The forecast is not known yet (the record of the destination province has not been loaded). Your draft is kept.',
   '見込みはまだわかりません（規則を読めていません）。下書きはそのままです。': 'The forecast is not known yet (the rules have not been loaded). Your draft is kept.',
   '見込みをもう一度計算する': 'Work out the forecast again',
+  // (2026-11-17, Lane C ⑦ a replay asked for outside a report)
+  '戦いを読み込めませんでした（ターン {0}）。戦いがなかったという意味ではありません。記録はそのままです。': 'The clash could not be loaded (turn {0}). This does not mean there was no clash. The record is kept.',
 };
