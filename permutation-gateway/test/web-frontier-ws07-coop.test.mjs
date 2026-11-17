@@ -65,7 +65,7 @@ test('the slot: nothing without a board; a board not read or of another Season i
       if (expect === 'open') {
         assert.doesNotMatch(h, /disabled/);
         assert.equal(openCoop(FS(), 'ws01-coop'), true);
-        assert.equal(opened.at(-1), `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}`, 'this village as the destination (p,q,site,gen)');
+        assert.equal(opened.at(-1), `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}&program=${PROGRAM}&season=7`, 'this village as the destination (p,q,site,gen)');
         assert.match(text(renderCoopSlot({ ...FS(), holdings: [] })), /Choose a village/);
       }
     } finally { off(); }
@@ -101,7 +101,7 @@ test("01's real board: its /coop/config is read, its Season compared, and its pa
     assert.deepEqual(CB.boardState(fs, b), { available: true });
     assert.equal(CB.boardState({ ...fs, season: { seasonId: 8n } }, b).available, false, 'another Season');
     assert.equal(CB.boardState({ ...fs, pin: { programId: 'Othr1111111111111111111111111111111111111111' } }, b).available, false, 'another program');
-    assert.equal(CB.boardHref(fs, b), `${b.config.page}?to=${encodeURIComponent('2,-1,3,4')}`);
+    assert.equal(CB.boardHref(fs, b), `${b.config.page}?to=${encodeURIComponent('2,-1,3,4')}&program=${PROG}&season=7`);   // (2026-11-17) with the page's world
     // the page is the board's own: served by it
     const page = await fetch(base + CB.boardHref(fs, b));
     assert.equal(page.status, 200);

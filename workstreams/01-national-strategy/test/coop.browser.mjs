@@ -98,7 +98,7 @@ const board = createBoard({ herald: hurl, programId, seasonId: '90', dataDir: bo
   rpc: `http://127.0.0.1:${rpc.address().port}` });   // 中継は既定の /gw（同じ入口）
 const srv = createServer(board, { herald: hurl });
 await new Promise(r => srv.listen(0, '127.0.0.1', r));
-const url = `http://127.0.0.1:${srv.address().port}${PAGE}?to=3,0,2,1`;
+const url = `http://127.0.0.1:${srv.address().port}${PAGE}?to=3,0,2,1&program=${programId}&season=90`;   // (2026-11-17) the entry's world, as ⑦'s card sends it
 
 const browser = await chromium.launch();
 const errors = [], results = [], dialogs = [];
@@ -214,7 +214,7 @@ try {
     await new Promise(r => srv2.listen(0, '127.0.0.1', r));
     const ctx2 = await browser.newContext(); await ctx2.addInitScript(hex => localStorage.setItem('ps-dev-wallet', hex), toHex(seedB));
     const p2 = await ctx2.newPage(); p2.on('pageerror', e => errors.push(String(e)));
-    await p2.goto(`http://127.0.0.1:${srv2.address().port}${PAGE}?to=3,0,2,1&follow=2`);
+    await p2.goto(`http://127.0.0.1:${srv2.address().port}${PAGE}?to=3,0,2,1&program=${programId}&season=90&follow=2`);
     await p2.click('#connect'); await p2.waitForSelector('#who:has-text("Dev Wallet")');
     await p2.waitForSelector('[data-testid=pending-send]');
     // blockhash が切れた → もう着地しない → 送り直せる
