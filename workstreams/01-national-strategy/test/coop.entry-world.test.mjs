@@ -1,4 +1,4 @@
-// （2026-11-17、書いただけ・未実行）⑦の村カードから来た届け先は、その村の世界（program・シーズン）がこの板のいまの世界と
+// （2026-11-17 に書いた。2026-11-18 コーディネーターが実行：coop.entry-focus-world.test.mjs と合わせて 17/17 通過）⑦の村カードから来た届け先は、その村の世界（program・シーズン）がこの板のいまの世界と
 // 同じときだけ入れる。違う・分からないときは入れずに理由を言う。読み直しの古い答えは新しい表示を上書きしない。
 // 画面（coop-ui.mjs）はブラウザで動くので、ここでは文として固定する（ブラウザの試験は鍵の都合で別）。
 import test from 'node:test';
@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 const ui = readFileSync(new URL('../coop/coop-ui.mjs', import.meta.url), 'utf8');
 
 test('the entry fills the destination only for this board\'s present world', () => {
-  assert.match(ui, /const sameWorld = qs\.get\('program'\) === cfg\.season\.programId && qs\.get\('season'\) === String\(cfg\.season\.seasonId\);/);
+  assert.match(ui, /const sameWorld = sameCtx\(\{ programId: qs\.get\('program'\), seasonId: qs\.get\('season'\) \}, cfg\.season\);/);
   assert.match(ui, /if \(to && \/\^-\?\\d\+,-\?\\d\+,\\d\+,\\d\+\$\/\.test\(to\) && sameWorld\) \[\$\('toP'\)\.value/);
   // another world, or a world not named: not filled, and why (the broken-format case keeps its own words)
   assert.match(ui, /入口の村が、どの世界（シーズン・プログラム）の村か分からないため、届け先に入れていない/);
@@ -22,7 +22,7 @@ test('a refresh answer older than the one shown, or asked for another viewer, is
   assert.match(r, /if \(seq <= appliedSeq \|\| \(signer\?\.address \?\? null\) !== viewerAt\) return false;/);
 });
 
-// (2026-11-17, read failures; WRITTEN ONLY, NOT RUN) a failed or partial read never shows as success or empty; a view is
+// (2026-11-17, read failures; run and passed by the coordinator 2026-11-18) a failed or partial read never shows as success or empty; a view is
 // applied whole or not at all; actions use only the snapshot shown for this viewer; POST outcomes are told apart
 test('reads: GET fails on anything but a 2xx JSON; the config too', () => {
   const a = ui.slice(ui.indexOf('async function apiRead('), ui.indexOf('const viewShapeOk'));
@@ -66,10 +66,11 @@ test('post: signing failed, not known to have reached the board, refused, and ac
   assert.equal((p.match(/受け付けられなかった/g) ?? []).length, 1, 'refused said only for the explicit refusal');
   // after acceptance, a failed re-read is not "cannot sign": refresh says it on its own line
   assert.ok(p.indexOf("say(done, 'ok'); await refresh();") > 0, 'accepted, then a re-read whose failure goes to the read-state line');
-  assert.equal((p.match(/署名できない/g) ?? []).length, 1, 'only the signing failure is called that');
+  // (2026-11-18) count the say() sites, not the comment that names the three cases
+  assert.equal((p.match(/say\(`署名できない/g) ?? []).length, 1, 'only the signing failure is called that');
 });
 
-// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN) the caravan list's read state: unknown is not "none"
+// (2026-11-17, second tip; run and passed by the coordinator 2026-11-18) the caravan list's read state: unknown is not "none"
 test('the herald caravan list: read or not read, applied with the view; not read is said, never as no caravan', () => {
   const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('function staleSay('));
   assert.match(r, /if \(!r\.ok\) return \{ state: 'unread', why: `HTTP \$\{r\.status\}` \};/);
@@ -82,7 +83,7 @@ test('the herald caravan list: read or not read, applied with the view; not read
   assert.match(ui, /cands === null \? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない/);
 });
 
-// (2026-11-17, one request; WRITTEN ONLY, NOT RUN) the board page points at a named request only after checking it
+// (2026-11-17, one request; run and passed by the coordinator 2026-11-18) the board page points at a named request only after checking it
 test('a named request: kept only for this world, then checked against the view (present, this world, to the entry\'s village)', () => {
   assert.match(ui, /const entryOk = !!to && \/\^-\?\\d\+,-\?\\d\+,\\d\+,\\d\+\$\/\.test\(to\);/);
   assert.match(ui, /focus = entryOk && sameWorld && typeof reqParam === 'string' && reqParam && reqParam\.length <= 128 \? \{ id: reqParam, to, seen: false \} : null;/);
@@ -90,7 +91,7 @@ test('a named request: kept only for this world, then checked against the view (
   assert.match(ui, /入口で選んだ依頼は、入口の村がこの板の世界の村だと確かめられないため開いていません/);
   assert.match(ui, /入口で選んだ依頼の名前が読めないため開いていません/);
   const f = ui.slice(ui.indexOf('function applyFocus()'), ui.indexOf('function staleSay('));
-  assert.match(f, /const ctxOk = q\.ctx && q\.ctx\.programId === cfg\.season\.programId && String\(q\.ctx\.seasonId\) === String\(cfg\.season\.seasonId\);/);
+  assert.match(f, /const ctxOk = sameCtx\(q\.ctx, cfg\.season\);/);
   assert.match(f, /const toOk = q\.to && \[q\.to\.p, q\.to\.q, q\.to\.site, q\.to\.gen\]\.join\(','\) === focus\.to;/);
   assert.match(f, /この板にありません（消えたか、別の世界の依頼です）。一覧から選び直してください/);
   assert.match(f, /いまの表示にありません（記録が変わったか、別の世界の依頼です）/);
@@ -101,16 +102,16 @@ test('a named request: kept only for this world, then checked against the view (
   assert.ok(r.indexOf('try { applyFocus(); }') > r.indexOf("readState('');"));
 });
 
-// (2026-11-17, correction; WRITTEN ONLY, NOT RUN) the named request is decided apart from the destination's branches:
+// (2026-11-17, correction; run and passed by the coordinator 2026-11-18) the named request is decided apart from the destination's branches:
 // the 'another world' warning stays bound to the fill line, so a same-world entry (with or without a request) never warns
 test('the destination branches stay one chain; the named request is decided after them, on its own', () => {
-  const i = ui.slice(ui.indexOf("const sameWorld = qs.get('program')"), ui.indexOf('await refresh();\n  setInterval('));
+  const i = ui.slice(ui.indexOf('const sameWorld = sameCtx('),ui.indexOf('await refresh();\n  setInterval('));
   const fill = i.indexOf("if (to && /^-?\\d+,-?\\d+,\\d+,\\d+$/.test(to) && sameWorld) [$('toP').value");
   const other = i.indexOf("else if (to && /^-?\\d+,-?\\d+,\\d+,\\d+$/.test(to)) {");
   const broken = i.indexOf("} else if (to !== null) {");
   const req = i.indexOf("const reqParam = qs.get('request');");
   assert.ok(fill >= 0 && other > fill && broken > other && req > broken, 'fill → another world → broken, then the request');
-  assert.match(i.slice(fill, other), /to\.split\(','\);\n  else if/, 'the another-world branch follows the fill line directly');
+  assert.match(i.slice(fill, other + 'else if'.length), /to\.split\(','\);\n  else if/,'the another-world branch follows the fill line directly');
   assert.doesNotMatch(i.slice(0, req), /reqParam|focus/, 'nothing about the request inside the destination chain');
   assert.doesNotMatch(i.slice(req), /entryWarn|toP'\)\.value/, 'the request part neither fills nor warns about the destination');
 });
