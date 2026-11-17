@@ -6,6 +6,7 @@ import { deliveredText, FULFILMENT_JA } from './ws04.mjs';
 import { fulfilBoundsText, jointPrecisionText, lowerBoundText } from './fulfil-bounds.mjs';
 import { STATE_JA } from './arrival.mjs';
 import { OUTCOME_JA, requestHistory } from './history.mjs';
+import { jointOfRequest, requestsOfJoint, personalLinks } from './crosslinks.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { parseTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
@@ -127,15 +128,57 @@ function renderJoint() {
   $('joint').querySelector('.body').innerHTML = `
     <div class="note">${esc(cfg.goals[goalId].what)}。費用（S1）：${esc(needText(cfg.goals[goalId].cost))}。ほかの人から：${esc(needText(cfg.goals[goalId].fromOthers))}［仮］。報酬はない。</div>
     ${rows.length ? rows.map(j => `
-      <div class="req" data-host="${esc(j.host)}">
+      <div class="req" data-host="${esc(j.host)}" data-goal="${esc(j.goalId)}">
         <div><b>${esc(short(j.host))}</b>（${j.hostNation === null ? `<span class="warn">国籍未検証</span>` : esc(nationName(j.hostNation))}）の貯蔵庫：
           <span class="tag ${j.done ? 'ok' : 'warn'}" data-testid="joint-status">${j.done ? '達成（記録だけ）' : 'まだ達成と言えない'}</span></div>
         <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（数えた入荷量の下限。資源ごと。合計しない）</div>
         <div class="note" data-testid="joint-precision">${esc(jointPrecisionText(j.progress, RESOURCE_JA))}</div>
         <div class="note" data-testid="joint-why">${esc(j.judgeLabel)}：${esc(j.why)}</div>
+        ${jointRequestsHtml(j)}
         <div class="note">確かめた他国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}${j.nationsUnverified.length ? `（<span class="warn" data-testid="nation-unverified">${esc(j.nationsUnverified.join('、'))}</span>）` : ''}。輸送中・不明の隊商 ${j.unverifiedCaravans} 本、到着したが数えられない隊商（入った量を確認できない・受取人や時刻が未検証）${j.unprovenDeliveries} 本（どちらも数えない。0 個とは言わない）</div>
       </div>`).join('') : '<div class="note">まだ依頼はない</div>'}`;
 }
+
+/**
+ * （2026-11-17、往復）自分・依頼・協力の進捗を、板の view の既存の鍵（依頼の id、goalId と依頼した人、依頼の世界 ctx）だけで結ぶ
+ * （crosslinks.mjs）。読むだけ：押すと、この画面の中のその場所へ動くだけ（送る・結び付ける・記録を出すことはしない）。
+ * 一つに決まらないもの・前の世界が混ざるものは結ばず、理由を言う。
+ */
+const navBtn = (kind, attrs, text, testid) => `<button type="button" class="nav" data-nav="${kind}"${attrs} data-testid="${testid}">${esc(text)}</button>`;
+function jointRequestsHtml(j) {
+  const r = requestsOfJoint(view, j, cfg.season);
+  if (r.state !== 'ok') return `<div class="note" data-testid="joint-requests" data-state="${esc(r.state)}">この進捗の依頼：${esc(r.why)}</div>`;
+  return `<div class="row" data-testid="joint-requests" data-state="ok"><span class="note">この進捗の依頼 ${r.ids.length} 件：</span>${r.ids.map((id, i) => navBtn('req', ` data-target="${esc(id)}"`, `依頼 ${i + 1}（${short(id)}）の記録へ`, 'nav-req')).join('')}</div>`;
+}
+function personalLinksHtml() {
+  const l = personalLinks(view);
+  if (!l) return '';
+  const item = (x, text) => (x.found ? navBtn('req', ` data-target="${esc(x.id)}"`, text, 'nav-req') : `<span class="note">${esc(text)}：いまの表示にない</span>`);
+  const st = x => REQ_JA[x.state] ?? (x.state ?? '?');
+  return `<div class="row" data-testid="my-request-links"><span class="note">自分の依頼：</span>${l.requests.length ? l.requests.map(x => item(x, `${short(x.id)}（${st(x)}）`)).join('') : '<span class="note">ない</span>'}</div>
+    <div class="row" data-testid="my-response-links"><span class="note">自分の応答：</span>${l.responses.length ? l.responses.map(x => item(x, `${short(x.id)}（${st(x)}・${x.answer === 'accept' ? (x.withdrawn ? '取り下げた' : '送るつもり') : x.answer === 'decline' ? '断った' : '?'}）`)).join('') : '<span class="note">ない</span>'}</div>`;
+}
+function requestLinksHtml(q, mine, resp) {
+  const j = jointOfRequest(view, q, cfg.season);
+  const toJoint = j.state === 'one' ? navBtn('joint', ` data-goal="${esc(j.goalId)}" data-host="${esc(j.host)}"`, `協力の進捗（${short(j.host)} の貯蔵庫）へ`, 'nav-joint')
+    : `<span class="note" data-testid="req-joint" data-state="${esc(j.state)}">協力の進捗とは結ばない：${esc(j.why)}</span>`;
+  const toMe = mine || resp ? navBtn('personal', '', '自分の欄へ', 'nav-personal') : '';
+  return `<div class="row" data-testid="req-links">${toJoint}${toMe}</div>`;
+}
+/** 画面の中で動くだけ（送る・記録を出す・読み直すことはしない）。探す相手は属性を比べて見つける（文字を選択子に入れない）。 */
+function onNav(e) {
+  const b = e.target.closest?.('button[data-nav]');
+  if (!b) return;
+  let el = null;
+  if (b.dataset.nav === 'req') {
+    el = [...document.querySelectorAll('#requests .req')].find(x => x.dataset.req === b.dataset.target) ?? null;
+    if (el) { historyOpen.add(b.dataset.target); el.querySelector('details.req-history')?.setAttribute('open', ''); }
+  } else if (b.dataset.nav === 'joint') el = [...document.querySelectorAll('#joint .req')].find(x => x.dataset.goal === b.dataset.goal && x.dataset.host === b.dataset.host) ?? null;
+  else if (b.dataset.nav === 'personal') el = document.getElementById('personal');
+  if (!el) return say('その場所は、いまの表示にない。読み直した表示で確かめてください', 'warn');
+  el.scrollIntoView?.({ block: 'center' });
+}
+for (const id of ['joint', 'personal', 'requests']) $(id).addEventListener('click', onNav);
 
 function renderNation() {
   const n = view.nation;
@@ -149,6 +192,7 @@ function renderPersonal() {
   const p = view.personal;
   $('personal').querySelector('.body').innerHTML = p ? `
     <div>自分の依頼 ${p.myRequests.length} 件・自分の応答 ${p.myResponses.length} 件</div>
+    ${personalLinksHtml()}
     <div>自分が届けた確定の到着の量（数えた入荷量の下限。資源ごと）：<b data-testid="my-verified">${esc(lowerBoundText(p.myVerified, RESOURCE_JA))}</b></div>
     ${p.left.length ? '<div class="warn">この目的から抜けている（送った隊商はそのまま届く）</div>' : ''}
     <div class="note">協力しないで自分で進めてもよい。自分の物で建てれば、依頼は「自分で進める」で取り消せる。</div>` : '<div class="note">署名する人を接続すると出る</div>';
@@ -185,6 +229,7 @@ function renderRequests() {
       ${open && q.destination?.status === 'mismatch' ? `<div class="warn" data-testid="req-destination" data-status="mismatch">届け先が、いま依頼した人の村ではない：${esc(q.destination.why)}。この依頼に送っても、届いた量は数えられない（送る・結び付けるは出さない）</div>` : ''}
       ${open && q.destination?.status === 'unknown' ? `<div class="warn" data-testid="req-destination" data-status="unknown">届け先の村を今は確かめられない：${esc(q.destination.why)}。確かめられるまで、送る・結び付けるは出さない（読み直すと、また確かめる）</div>` : ''}
       <div class="note" data-testid="req-fulfilment" data-status="${esc(q.fulfilment?.status ?? '')}">依頼の充足：${esc(FULFILMENT_JA[q.fulfilment?.status] ?? '—')}${q.fulfilment && q.fulfilment.status !== 'none' ? `。${esc(fulfilBoundsText(q.fulfilment, RESOURCE_JA))}${q.fulfilment.open ? `、終わっていない ${q.fulfilment.open} 本${q.fulfilment.held ? `（うち原因を確認中 ${q.fulfilment.held}）` : ''}` : ''}${q.fulfilment.unproven ? `、到着したが数えられない ${q.fulfilment.unproven} 本` : ''}${q.fulfilment.knownZero ? `、届かなかった ${q.fulfilment.knownZero} 本` : ''}` : ''}</div>
+      ${requestLinksHtml(q, mine, resp)}
       <div class="row">
         ${mine && open ? `<button data-act="cancel-self" data-id="${esc(q.id)}">取り消す（自分で進める）</button><button data-act="cancel-other" data-id="${esc(q.id)}">取り消す（ほかの理由）</button>` : ''}
         ${!mine && open && !accepted ? `<button data-act="accept" data-id="${esc(q.id)}">応じる（送るつもり。義務はない）</button><button data-act="decline" data-id="${esc(q.id)}">断る</button>` : ''}
