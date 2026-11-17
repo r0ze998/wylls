@@ -55,17 +55,45 @@ export class Game {
     this.now = now;
     /** The contexts this process has seen replaced (oldest first): `{key, programId, seasonId, since, until}`. */
     this.contextChanges = [];
+    // Read order of GET /f/season (2026-11-18): each relay read takes a number when it starts. `contextSettledSeq` is the
+    // newest read that has settled, whatever its outcome (published, relay transport/HTTP failure, unreadable answer,
+    // addresses not built); `contextPublishedSeq` the newest one that published (context, addresses, herald pin). An
+    // older overlapping read that settles later never publishes over a newer one (see context()).
+    this.contextReadSeq = 0;
+    this.contextSettledSeq = 0;
+    this.contextPublishedSeq = 0;
   }
 
   /**
    * The context the relay serves now: `{key, programId, seasonId, since}`. This is this server's observation, not a
    * world registry (④ owns the shared identifiers): the key only says which addresses, records and event index the
    * reads and writes of this moment belong to. A change re-pins the herald client and is recorded.
+   *
+   * `{fresh: true}` (2026-11-18, for get_cooperation_status's before/after boundaries) skips the `contextTtlMs` reuse
+   * and reads GET /f/season now; the result is from a relay read that started during this call, or later. Without it
+   * (every other caller) the cache is exactly as before. A fresh read is one observation of the relay at one moment:
+   * it is not a lock on the remote world and not linearizable with it (the world may change right after the answer).
+   *
+   * Overlapping reads: when a read started later has already settled, an earlier one that settles after it never
+   * publishes (no roll-back to an older world). It returns the published context only when that is the newest settled
+   * read's own publication; when the newest settled read failed in any way (the relay not answering, a non-200, an
+   * unreadable answer, addresses not built), it throws ContextUnavailable (retryable), never an older context, so a
+   * caller does not take a world from before the latest failed observation as current. A later read that starts after
+   * that failure and succeeds publishes as usual. The TTL reuse of a published context is unchanged.
    */
-  async context() {
+  async context({ fresh = false } = {}) {
     const t = this.now();
-    if (this.pinned && t - this.pinnedAt < this.contextTtlMs) return this.pinned;
-    const s = await this.json('GET', `${this.relay}/f/season`);
+    if (!fresh && this.pinned && t - this.pinnedAt < this.contextTtlMs) return this.pinned;
+    const seq = ++this.contextReadSeq;
+    const s = await this.json('GET', `${this.relay}/f/season`); // json() never throws: failures come back as values
+    if (seq < this.contextSettledSeq) {
+      // A read that started after this one has settled already: its outcome is newer than this one's answer.
+      if (this.contextPublishedSeq === this.contextSettledSeq && this.pinned) return this.pinned;
+      throw new GameError('ContextUnavailable', 'a newer read of the relay\'s context failed: the context is not known now; read again', { retryable: true });
+    }
+    // Settled from here on: everything below up to the publication is synchronous, so the settle mark, the throw or the
+    // publication happen in one step and no other read can interleave.
+    this.contextSettledSeq = seq;
     if (s.transport || s.status !== 200) throw new GameError('RelayUnreachable', 'the relay did not answer GET /f/season', { retryable: true });
     const key = `${s.json.programId}:${s.json.seasonId}`;
     if (!this.pinned || this.pinned.key !== key) {
@@ -81,6 +109,7 @@ export class Game {
       this.addresses = addresses;
     }
     this.pinnedAt = t;
+    this.contextPublishedSeq = seq;
     return this.pinned;
   }
 
