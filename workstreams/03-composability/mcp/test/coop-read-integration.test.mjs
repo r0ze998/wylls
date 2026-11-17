@@ -1,8 +1,8 @@
 // get_cooperation_status wired into the real MCP server logic (src/server.mjs createWyllsMcp → handle), with the real
 // adapter (src/coop-read-adapter.mjs) and the launcher's pure settings (bin/coop-read-settings.mjs). Fixtures only:
 // an injected principal, game, store and auth stub, a fake fetch with fake streamed bodies, idle fake timers. No
-// real keys, signatures, network, child processes, timers or filesystem writes. Written by the implementation session; independently executed by the coordinator on 2026-11-17 UTC:
-// 26/26 passed (see COOP-READ-ADAPTER.md); separate from the 34/34 adapter unit suite.
+// real keys, signatures, network, child processes or filesystem writes; SDK request timeout timers are real. Written by the implementation session; independently executed by the coordinator on 2026-11-17 UTC:
+// 31/31 passed including SDK transport tests (see COOP-READ-ADAPTER.md); separate from the 34/34 adapter unit suite.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createWyllsMcp } from '../src/server.mjs';
@@ -11,6 +11,8 @@ import { createCoopReadAdapter } from '../src/coop-read-adapter.mjs';
 import { coopReadSettings } from '../bin/coop-read-settings.mjs';
 import { STATES, TERMINAL } from '../src/ports.mjs';
 import { createHandler } from '../src/http.mjs';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 const OWNER = 'Hv7mQ9xT3kPz2RbW5cYfN8dLsJ4gAeUq6tBnVr1oXy';
 const OTHER = 'Gk3pZ8wR2nTq5vYc7bMd9fHs4jKe6gAu1xWr2tNmPz';
@@ -477,8 +479,179 @@ test('HTTP: a missing read scope through createHandler is the step-up error and 
   assert.equal(fetch.calls.length, 0);
 });
 
+// ------------------------------------------------------------------ official SDK client transport, in-process HTTP
+// The pinned @modelcontextprotocol/sdk Client and StreamableHTTPClientTransport, with an injected fetch that hands each
+// request to the real createHandler as fake request/response objects. No socket, no listen, no network, no real
+// OAuth (stub auth, one fixed fake bearer string), no world. This is SDK transport evidence, not a live client/server
+// OAuth or world proof.
+
+const SDK_ORIGIN = 'http://127.0.0.1:41960'; // httpAuth().issuer
+const SDK_URL = `${SDK_ORIGIN}/mcp`;
+const SDK_TIMEOUT = { timeout: 5000 };
+const FAKE_BEARER = 'Bearer fake-test-token'; // the one value httpAuth() accepts
+
+/** fetch for the SDK transport → createHandler. Exact origin and /mcp only; POST/GET/DELETE only; bounded bodies. */
+function bridgeFetch(handler) {
+  const seen = [];
+  const f = async (input, init = {}) => {
+    let url, method, body = null;
+    let headers = new Headers();
+    if (typeof Request === 'function' && input instanceof Request) {
+      url = new URL(input.url); method = input.method; headers = new Headers(input.headers);
+      if (input.body) body = await input.text();
+    } else if (input instanceof URL) url = new URL(input.href);
+    else if (typeof input === 'string') url = new URL(input);
+    else throw new TypeError('bridge: unsupported fetch input');
+    method = String(init.method ?? method ?? 'GET').toUpperCase();
+    if (init.headers) for (const [k, v] of new Headers(init.headers)) headers.set(k, v);
+    if (init.body !== undefined && init.body !== null) body = typeof init.body === 'string' ? init.body : await new Response(init.body).text();
+    if (init.signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    if (url.origin !== SDK_ORIGIN || url.pathname !== '/mcp' || url.search !== '' || url.hash !== '') throw new TypeError('bridge: only the test origin\'s /mcp');
+    if (!['POST', 'GET', 'DELETE'].includes(method)) throw new TypeError(`bridge: method ${method} not bridged`);
+    if (body !== null && Buffer.byteLength(body, 'utf8') > 64 * 1024) throw new TypeError('bridge: body too large');
+    const reqHeaders = Object.fromEntries(headers); // Headers names are lower case, as node:http gives them
+    const res = fakeRes();
+    await handler(fakeReq({ method, url: '/mcp', headers: reqHeaders, body }), res);
+    if (!res.ended) throw new Error('bridge: the handler did not end the response');
+    seen.push({ method, status: res.status, authorization: reqHeaders.authorization ?? null, rpc: body ? (() => { try { return JSON.parse(body).method ?? null; } catch { return null; } })() : null });
+    const out = new Headers();
+    for (const [k, v] of Object.entries(res.headers ?? {})) if (v !== undefined && v !== null) out.set(k, String(v));
+    const empty = res.body === '' || [204, 205, 304].includes(res.status);
+    return new Response(empty ? null : res.body, { status: res.status, headers: out });
+  };
+  f.seen = seen;
+  return f;
+}
+
+/** Runs fn with globalThis.fetch replaced by a thrower (restored after): the SDK must use only the injected fetch. */
+async function noGlobalFetch(fn) {
+  const original = globalThis.fetch;
+  let used = 0;
+  globalThis.fetch = async () => { used += 1; throw new Error('global fetch must not be used'); };
+  try { await fn(); } finally { globalThis.fetch = original; }
+  assert.equal(used, 0, 'global fetch was used');
+}
+
+/** An SDK client over the bridge; always closed by the caller (finally). */
+function sdkClient(handler, { authorization = FAKE_BEARER } = {}) {
+  const fetch = bridgeFetch(handler);
+  const transport = new StreamableHTTPClientTransport(new URL(SDK_URL), { fetch, requestInit: authorization ? { headers: { Authorization: authorization } } : {} });
+  const client = new Client({ name: 'wylls-coop-read-sdk-test', version: '0.0.0' });
+  return { client, transport, fetch };
+}
+
+test('SDK transport (in-process HTTP): enabled discovery and a successful read bound to the owner and current world', async () => {
+  await noGlobalFetch(async () => {
+    const { mcp, fetch: board, store } = server({ store: fakeStore(oldTerminalOp()) });
+    const { client, transport, fetch } = sdkClient(createHandler({ auth: httpAuth(), mcp }));
+    try {
+      await client.connect(transport, SDK_TIMEOUT);
+      const { tools } = await client.listTools(undefined, SDK_TIMEOUT);
+      assert.deepEqual(tools.map(t => t.name), [...TOOLS.map(t => t.name), 'get_cooperation_status']);
+      const coop = tools.find(t => t.name === 'get_cooperation_status');
+      assert.equal(coop.annotations.readOnlyHint, true);
+      assert.equal(coop.annotations.openWorldHint, true);
+      const r = await client.callTool({ name: 'get_cooperation_status', arguments: {} }, undefined, SDK_TIMEOUT);
+      assert.equal(r.isError, false);
+      assert.equal(r.structuredContent.owner, OWNER);
+      assert.deepEqual(r.structuredContent.world, { programId: PROGRAM, seasonId: '3', cluster: 'localnet' });
+      assert.deepEqual(r.structuredContent.nation, { status: 'verified', nation: 'North', requests: 4, deliveredFromNation: 7, note: null });
+      assert.deepEqual(board.calls.map(c => c.url), [`${BASE}/coop/config`, `${BASE}/coop/view?viewer=${OWNER}`, `${BASE}/coop/config`]);
+      assert.equal(store.saves.n, 0);
+      assert.deepEqual(store.archived, []);
+    } finally {
+      await client.close();
+    }
+    // The transport's own traffic: initialize (200), notifications/initialized (202), an optional GET for a server
+    // stream (405: none here), then the calls. Every POST carried the fixed fake bearer; nothing left /mcp.
+    const posts = fetch.seen.filter(s => s.method === 'POST');
+    assert.equal(posts[0].rpc, 'initialize');
+    assert.equal(posts[0].status, 200);
+    assert.ok(posts.some(s => s.rpc === 'notifications/initialized' && s.status === 202));
+    for (const s of fetch.seen.filter(x => x.method === 'GET')) assert.equal(s.status, 405);
+    for (const s of posts) assert.equal(s.authorization, FAKE_BEARER);
+    assert.ok(fetch.seen.length <= 10, `bounded traffic: ${fetch.seen.length} requests`);
+  });
+});
+
+test('SDK transport (in-process HTTP): disabled read is not discovered, and calling it is a protocol error with no board fetch', async () => {
+  await noGlobalFetch(async () => {
+    const { mcp, fetch: board } = server({ coop: false });
+    const { client, transport } = sdkClient(createHandler({ auth: httpAuth(), mcp }));
+    try {
+      await client.connect(transport, SDK_TIMEOUT);
+      const { tools } = await client.listTools(undefined, SDK_TIMEOUT);
+      assert.deepEqual(tools.map(t => t.name), TOOLS.map(t => t.name));
+      await assert.rejects(client.callTool({ name: 'get_cooperation_status', arguments: {} }, undefined, SDK_TIMEOUT), e => e?.code === -32602);
+    } finally {
+      await client.close();
+    }
+    assert.equal(board.calls.length, 0);
+  });
+});
+
+test('SDK transport (in-process HTTP): invalid arguments and a missing read scope are tool errors with no board fetch', async () => {
+  await noGlobalFetch(async () => {
+    const a = server();
+    const c1 = sdkClient(createHandler({ auth: httpAuth(), mcp: a.mcp }));
+    try {
+      await c1.client.connect(c1.transport, SDK_TIMEOUT);
+      const r = await c1.client.callTool({ name: 'get_cooperation_status', arguments: { viewer: OTHER } }, undefined, SDK_TIMEOUT);
+      assert.equal(r.isError, true);
+      assert.equal(r.structuredContent.error.code, 'BadRequest');
+    } finally {
+      await c1.client.close();
+    }
+    assert.equal(a.fetch.calls.length, 0);
+
+    const b = server();
+    const c2 = sdkClient(createHandler({ auth: httpAuth(principalOf({ scopes: ['wylls.caravan'] })), mcp: b.mcp }));
+    try {
+      await c2.client.connect(c2.transport, SDK_TIMEOUT);
+      const r = await c2.client.callTool({ name: 'get_cooperation_status', arguments: {} }, undefined, SDK_TIMEOUT);
+      assert.equal(r.isError, true);
+      assert.equal(r.structuredContent.error.code, 'InsufficientScope');
+    } finally {
+      await c2.client.close();
+    }
+    assert.equal(b.fetch.calls.length, 0);
+  });
+});
+
+test('SDK transport (in-process HTTP): a client without a valid bearer is rejected at connect (401), no board fetch', async () => {
+  await noGlobalFetch(async () => {
+    for (const authorization of [null, 'Bearer not-the-fake-token']) {
+      const { mcp, fetch: board } = server();
+      const { client, transport, fetch } = sdkClient(createHandler({ auth: httpAuth(), mcp }), { authorization });
+      try {
+        await assert.rejects(client.connect(transport, SDK_TIMEOUT));
+      } finally {
+        await client.close();
+      }
+      assert.ok(fetch.seen.length >= 1);
+      assert.equal(fetch.seen[0].status, 401);
+      assert.ok(fetch.seen.every(s => s.method !== 'POST' || s.status === 401));
+      assert.equal(board.calls.length, 0);
+    }
+  });
+});
+
+test('SDK bridge refuses other origins, paths and methods (no fallback)', async () => {
+  const { mcp } = server();
+  const f = bridgeFetch(createHandler({ auth: httpAuth(), mcp }));
+  await assert.rejects(f('http://127.0.0.1:41961/mcp', { method: 'POST', body: '{}' }), TypeError);
+  await assert.rejects(f(`${SDK_ORIGIN}/oauth/token`, { method: 'POST', body: '{}' }), TypeError);
+  await assert.rejects(f(`${SDK_URL}?x=1`, { method: 'POST', body: '{}' }), TypeError);
+  await assert.rejects(f(SDK_URL, { method: 'PUT', body: '{}' }), TypeError);
+  await assert.rejects(f(42), TypeError);
+  const del = await f(new URL(SDK_URL), { method: 'DELETE' });
+  assert.equal(del.status, 405);
+  assert.equal(await del.text(), '');
+  assert.equal(f.seen.length, 1);
+});
+
 test('initialize and ping are unchanged by the cooperation read', async () => {
-  const init = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } };
+  const init ={ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } };
   const a = await server().mcp.handle(init, null);
   const b = await server({ coop: false }).mcp.handle(init, null);
   assert.deepEqual(a, b);
