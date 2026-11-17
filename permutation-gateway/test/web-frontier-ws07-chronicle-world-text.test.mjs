@@ -6,11 +6,17 @@
 //   R2 openReport keeps the world it started under; a clash answer read under another world is dropped, not shown
 //   R3 the keep added to a report needs the same world
 //   R4 loadSeason closes a report of another pinned world (and only the report's own what-if)
+//   C1 controller.refreshChronicle: a chronicle read under another herald or pinned world is forgotten (undefined, so the
+//      screen says it is being read — never empty) before the new world's start is read
+//   C2 a page the change overtakes writes nothing (return before any write to FS or the cursor)
+//   C3 FS.isMine reads the viewer's holdings when a line is drawn
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+const body = ctl.slice(ctl.indexOf('async function refreshChronicle() {'), ctl.indexOf('// Incoming (§7.7)', ctl.indexOf('async function refreshChronicle() {')));
 
 test('R1 the pinned world, never made up', () => {
   assert.ok(app.includes("const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
@@ -37,4 +43,26 @@ test('R4 a report of another pinned world is closed when the season is read', ()
   const pin = body.indexOf('FS.pin = setPin(');
   const close = body.indexOf("if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }");
   assert.ok(was > 0 && pin > was && close > pin, 'the world before the pin, the pin, then the close');
+});
+
+test('C1 another herald or world: forgotten, not empty, before the new start is read', () => {
+  assert.ok(body.includes("const worldNow = () => { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; };"));
+  const reset = body.indexOf('if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; }');
+  const start = body.indexOf('if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);');
+  assert.ok(body.includes('if (FS.chronicleSource !== h0 || FS.chronicleWorld !== w0) {'));
+  assert.ok(reset > 0 && start > reset, 'forgotten before the start is set');
+  assert.doesNotMatch(body, /FS\.chronicle = \[\];\s*\}?\s*\/\/ \(reset/, 'no empty record is made by the reset');
+});
+
+test('C2 a read the change overtakes writes nothing', () => {
+  const ask = body.indexOf('try { r = await herald.events(cursor); }');
+  const stop = body.indexOf('if (herald !== h0 || worldNow() !== w0) return;');
+  const first = Math.min(...['if (!r?.ok)', 'pages++;', 'FS.chronicle = [', 'FS.life = updateLife(', 'cursor = r.next'].map(k => body.indexOf(k)));
+  assert.ok(ask > 0 && stop > ask && first > stop, 'the check comes right after the read, before any write');
+});
+
+test('C3 the viewer\'s holdings when a line is drawn', () => {
+  const at = body.indexOf('FS.isMine = rec => {');
+  assert.ok(at > 0 && body.indexOf('const own = FS.holdings ?? [];', at) > at, 'read inside the function');
+  assert.equal(body.slice(0, at).includes('const own = FS.holdings ?? [];'), false, 'not captured before');
 });

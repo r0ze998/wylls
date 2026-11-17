@@ -29,9 +29,11 @@
 |---|---|---|
 | D4 | `openReport` checked only `FS.report !== rep` across `await heraldRef.clash(...)` and the keep read. A report started under one pinned world could be shown, and get its keep, after `loadSeason` had re-pinned another. A report already open stayed open across a world change | `reportWorld()` comes from `FS.pin` (cluster, program, `addresses.season`: the account `setPin` derives and checks against the herald's record; `null` before a pin, nothing made up). `openReport` keeps the world it started under; an answer that arrives under another world is dropped (`FS.report = null`), not shown as read. The keep needs the same world. `loadSeason` closes a report of another pinned world, and the report's own what-if (`FS.practice.whatif`) only |
 
-Regression (written, not run): `permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs`, a key-free text check (only `node:test`, `node:assert`, `node:fs`; it reads `app.mjs` as text). R1–R4 cover the world source, the order of the drop in `openReport`, the keep guard, and the close in `loadSeason`. Candidate (not run): `node --test permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs`.
+Regression (written, not run): `permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs`, a key-free text check (only `node:test`, `node:assert`, `node:fs`; it reads `app.mjs` and `controller.mjs` as text, imports neither, and does not run, trace or substitute any refused test). R1–R4 cover the world source, the order of the drop in `openReport`, the keep guard, and the close in `loadSeason`. **C1–C3** cover `refreshChronicle`: forgotten before the new start, the overtaken read's return before any write, and holdings read at draw time. Running it needs its own approval. Candidate (not run): `node --test permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs`.
 
-## Found, needing a shared file: proposed range in `controller.mjs` (not edited; awaiting the coordinator)
+## Fixed in the shared file, as approved: `controller.mjs` `refreshChronicle` only (D1–D3)
+
+The coordinator (main) approved this range on 2026-11-17: `refreshChronicle` only, no other function or module, no new route or response shape, unknown kept unknown, nothing run.
 
 | # | Defect | Proposed fix (limited to `refreshChronicle`) |
 |---|---|---|
@@ -39,18 +41,45 @@ Regression (written, not run): `permutation-gateway/test/web-frontier-ws07-chron
 | D2 | The page loop awaits `herald.events(cursor)` with no check: a switch mid-read appends the old world's pages after a reset, and `cursor = r.next` moves the new world's cursor with an old answer | After each await, stop without writing anything when the herald object or the world key changed |
 | D3 | `FS.isMine` captures `FS.holdings` at refresh time: after a wallet change (`resetViewer`), the former wallet's lines stay marked "（あなた）" until the next refresh | `FS.isMine` reads `FS.holdings` when it is called |
 
-About 15 lines, all inside `refreshChronicle`. No other function, no file of main's ④ or D's ③/⑥. Sending, permissions, assets and rules are untouched.
+**As implemented** (all inside `refreshChronicle`):
+- **D1:**
+  - `worldNow()` is the pinned world from `io.pinned()` (cluster, program, `addresses.season`; `null` before a pin, nothing made up).
+  - When the herald object or that world differs from what the chronicle was read under (`FS.chronicleSource`, `FS.chronicleWorld`, recorded by this function), `cursor = 0`, `FS.chronicle = undefined`, `FS.chronicleRead = undefined` and `FS.life = undefined`. The screen then says "出来事の記録を読み込んでいます", never "まだ記録はありません".
+  - This happens before the new start is set from the head. The very first read resets nothing.
+- **D2:** right after each `await herald.events(cursor)`, if the herald or the world changed, the function returns before any write: no records, `life`, cursor, `chronicleRead` or `isMine`. FS stays as it was, and the next call forgets the old world by D1.
+- **D3:** `FS.isMine` reads `FS.holdings` when a line is drawn.
+
+**Unchanged:**
+- normal reads under the same herald and world;
+- the page loop;
+- the incoming departures that follow in the same function;
+- every other function and module (herald, fplay, session, seal);
+- routes and response shapes;
+- sending, permissions, assets and rules.
+
+**Unverified, noted:** `app.mjs`'s moment snapshot (`momentSnapshot({life: FS.life ?? new Map(), …})`) compares the previous `life` with the next. Across a real world change, it now compares the old world's life with an empty one until the new world is read. Whether that draws a spurious moment was not checked, since that needs a page.
 
 ## Not changed
 
 Sending, auth, assets, rules, the ABI, MCP and ④.
 
-## Hand-over (so far)
+## Hand-over (final)
+
+See the manifest at the end.
+
+## Final manifest (for D; the aggregate is not changed here)
 
 - **Base:** `8c7f4de1d9b03665336e0075d4a3e017fe0fa6cf`.
-- **Branch:** `claude/lane-c-ws07-chronicle-flow-20261117` (the tip is given in the session report).
-- **Three paths:**
-  - `permutation-server/web/frontier/app.mjs` (M: `reportWorld`, `openReport`, `loadSeason`);
-  - `permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs` (A);
-  - this report (A).
-- **Likely conflict point:** `app.mjs` near `openReport` and `loadSeason`. The away bundle adds `awayWorld()` with the same world rule, near `awayPump`.
+- **Branch:** `claude/lane-c-ws07-chronicle-flow-20261117`. Commits: `a11962cd` (D4, app), then this commit (D1–D3, controller), which is the final tip.
+- **Four paths against the base** (mode and git blob at this commit):
+
+| Status | Mode | Blob | Path |
+|---|---|---|---|
+| M | 100644 | `7b787e1024b12494e2133606fd5b0e08c69c7e62` | `permutation-server/web/frontier/app.mjs` |
+| M | 100644 | `06cc0820e143ce8867df4a87a8c82b3f4c33048d` | `permutation-server/web/frontier/controller.mjs` |
+| A | 100644 | `5d2c319e4e61c72774d1125be679021c7159d3b6` | `permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs` |
+| A | 100644 | (this file) | `docs/integration/CLAUDE-LANE-C-WS07-CHRONICLE-FLOW-20261117.md` |
+
+- **Likely conflict points:** `app.mjs` near `openReport` and `loadSeason` (the away bundle adds `awayWorld` near `awayPump`); `controller.mjs` `refreshChronicle` only.
+- **Not run or verified:** every test; the page (chronicle card, report, see); a real world change; the moment snapshot across a change.
+- **Candidate (independent, key-free; needs its own approval):** `node --test permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs`.
