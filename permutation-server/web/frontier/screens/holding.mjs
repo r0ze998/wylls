@@ -274,7 +274,28 @@ export function holdingRead(FS) {
   //  a place of another map, and nothing of it is asked for here)
   const mine = !!h && viewer !== 'otherWorld';
   const key = mine ? `${h.p},${h.q}` : null, st = key && !FS.provinces?.has?.(key) ? FS.provinceReads?.get?.(key) ?? null : null;
-  return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null };
+  // (2026-11-17, ⑦: the person's own re-read — controller rereadVillage. Its note is said only while it is still about
+  //  what is shown: "being read" always; "did not come" / "came, but the land changed" while the viewer's record is the
+  //  one it was said about (a later answer replaces FS.citizen or FS.meError); "the province did not come" for the
+  //  village it was pressed for. It is offered while the latest load of the viewer's record failed, or after its own
+  //  province part did not come; never in the prototype rule's world.)
+  const rr = FS.villageReread ?? null;
+  const rrState = !rr ? null : rr.state === 'loading' ? 'loading'
+    : rr.state === 'provinceFailed' ? (key !== null && rr.key === key ? 'provinceFailed' : null)
+    : (rr.errAt ?? null) === (FS.meError ?? null) && (rr.citAt ?? null) === (FS.citizen ?? null) ? rr.state : null;
+  const can = !!FS.wallet && !FS.proto && FS.mode === 'play' && (FS.meStatus === 'error' || rrState === 'provinceFailed');
+  return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null,
+    reread: { can, state: rrState, code: rrState ? rr.code ?? null : null } };
+}
+/** The lines of the person's own re-read (holdingRead().reread): what became of the press, and the button. */
+function rereadLines(rr) {
+  const lines = [];
+  if (rr.state === 'loading') lines.push(html`<p class="muted" role="status">${L`村の記録を読み直しています…`}</p>`);
+  else if (rr.state === 'failed') lines.push(html`<p class="notice error" role="alert">${L`村の記録を読み直せませんでした（${rr.code}）。前に読めた記録は、そのまま残しています。`}</p>`);
+  else if (rr.state === 'changed') lines.push(html`<p class="notice" role="status">${L`読み直しましたが、土地の状態にかかわる変更がありました。この変更は、次の通常の読み込みで反映します。ここの表示は、まだ前の記録のものです。`}</p>`);
+  else if (rr.state === 'provinceFailed') lines.push(html`<p class="notice error" role="alert">${L`村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。`}</p>`);
+  if (rr.can && rr.state !== 'loading') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button></div>`);
+  return lines;
 }
 /** The note the village screen carries under its head when a read behind it did not come (holdingRead); '' when all is read. */
 export function renderHoldingRead(FS) {
@@ -287,7 +308,8 @@ export function renderHoldingRead(FS) {
       : html`<p class="muted" role="status">${L`この村の州の記録を、まだ読めていません。読めるまで、下の行動は「この州はまだ前のターンの決着が済んでいません」と出ます。`}</p>`);
     if (r.province !== 'loading' && r.province !== 'waiting') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="province-reread" data-p="${r.p}" data-q="${r.q}">${icon('return')}${L`もう一度読み込む`}</button></div>`);
   }
-  return lines.length ? html`<div class="village-read" data-viewer="${r.viewer}" data-province="${r.province ?? ''}">${lines}</div>` : '';
+  lines.push(...rereadLines(r.reread));
+  return lines.length ? html`<div class="village-read" data-viewer="${r.viewer}" data-province="${r.province ?? ''}" data-reread="${r.reread.state ?? ''}">${lines}</div>` : '';
 }
 
 export function render(FS) {
@@ -298,9 +320,9 @@ export function render(FS) {
   const wideStatus = wideHolding.renderWideInventoryStatus(FS);
   // (2026-11-17, ⑦: "no village yet" only once the viewer's record answered so; before that it is not read — holdingRead)
   if (!m) {
-    const v = holdingRead(FS).viewer;
+    const rd = holdingRead(FS), v = rd.viewer, again = rereadLines(rd.reread);
     return html`${wideStatus}<p${v === 'unread' || v === 'noneStale' ? html` role="status" data-read="${v}"` : ''}>${v === 'unread' ? L`村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。`
-      : v === 'noneStale' ? L`最後に読めた記録では、まだ村がありません。いまの読み込みは失敗しています。次の読み込みでもう一度確かめます。` : L`まだ村がありません。`}</p>`;
+      : v === 'noneStale' ? L`最後に読めた記録では、まだ村がありません。いまの読み込みは失敗しています。次の読み込みでもう一度確かめます。` : L`まだ村がありません。`}</p>${again.length ? html`<div class="village-read" data-viewer="${v}" data-province="" data-reread="${rd.reread.state ?? ''}">${again}</div>` : ''}`;
   }
   const { holding: h, facts: f } = m;
   // (shadows the module's `blockedLine` for this panel: in local play the blocked reasons carry no "catch up" button)

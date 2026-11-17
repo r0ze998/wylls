@@ -36,7 +36,7 @@ test('W3 W4 every answer records its world: a Citizen and "no Citizen" alike', (
 test('W2 the answer and its world are let go together', () => {
   const rv = fnOf(ctl, 'function resetViewer(');
   order(rv, 'FS.meAnswered = false;', 'FS.meWorld = undefined;');
-  assert.ok(ctl.includes('fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; }'), 'useHerald');
+  assert.ok(ctl.includes('fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; }'), 'useHerald');
 });
 
 test('W1–W7 no village: by where the answer came from', () => {
@@ -52,7 +52,7 @@ test('W1–W7 no village: by where the answer came from', () => {
 
 test('W8 W9 another world\'s village offers no read of its place', () => {
   order(hr, ": FS.holdingsWorld !== undefined && FS.holdingsWorld !== world ? 'otherWorld'", "const mine = !!h && viewer !== 'otherWorld';", 'const key = mine ? `${h.p},${h.q}` : null',
-    "return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null };");
+    "return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null,");
   order(note, "if (r.viewer === 'otherWorld')", "if (r.province && r.province !== 'held') {", 'data-act="province-reread" data-p="${r.p}" data-q="${r.q}"');
   // (with province null the whole block, its button included, is skipped)
   assert.ok(note.includes("if (r.province && r.province !== 'held') {"));

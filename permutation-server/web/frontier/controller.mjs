@@ -685,6 +685,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   FS.book = [];
   FS.marches = [];
   FS.marchesRead = null;
+  FS.villageReread = null;   // (the former viewer's own re-read and its note — rereadVillage)
   FS.bellItems = [];
   FS.formingBells = [];
   FS.orders = [];
@@ -831,6 +832,7 @@ export function adoptPinnedWorld() {
   //  not touched)
   FS.marches = [];
   FS.marchesRead = null;
+  FS.villageReread = null;   // (a re-read asked in the world that was pinned, and its note, are not this world's — rereadVillage)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
   if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
   dropOtherWorldConquest(world);
@@ -869,6 +871,8 @@ async function loadEnvelope(p, q, bell = 'latest', still = null) {
     const k=keepFromProvince(accepted.province);
     if (k && FS.conquest) FS.conquest.keeps.set(key,k);
     FS.provinceReads?.delete?.(key);
+    // (a good read of the village's province, whoever asked it, ends the village re-read's "the province did not come" note)
+    if (FS.villageReread?.state === 'provinceFailed' && FS.villageReread.key === key) FS.villageReread = null;
     return accepted;
   }
   // (2026-11-17, ⑦ the wide map: how the latest read of a province went, for the one who selected it — hud/inspect.mjs.
@@ -1312,7 +1316,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; }
+export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; }
 
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
@@ -1576,7 +1580,10 @@ export async function refresh() {
     if (!currentViewer()) return;
     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
     if (!currentViewer()) return;
-    if (applyMeResult(me) === 'error') return;
+    // (2026-11-17, ⑦: the person's own re-read — rereadVillage — asked AFTER this refresh began and already adopted is
+    //  the later read: this refresh's older /h/me answer, good or failed, is not put over it. Only the adoption is
+    //  skipped; the rest of this refresh goes on as always, and nothing here is cut short.)
+    if (request > meNewerThan && applyMeResult(me) === 'error') return;
     const h = activeHolding(FS);
     // every holding's province (the rail can switch between them), the active one first
     for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) { await loadEnvelope(o.p, o.q); if (!currentViewer()) return; }
@@ -1614,6 +1621,84 @@ export async function refresh() {
   invalidate('panel', 'tabs', 'chips', 'map');
   if (needsHomeChoice()) await refreshHomes();
   else autoTicket().catch(e => console.error('frontier auto ticket:', e));
+}
+
+/** The refresh number (`viewerRefresh`) at the press of the last village re-read that was adopted; see refresh. */
+let meNewerThan = 0;
+
+/**
+ * Whether adopting this /h/me answer through applyMeResult would save nothing on the device: the land stage is the one
+ * held (or none was held yet), no "why the land ended" record waits to be cleared, and no filed ticket waits to be
+ * marked seen. Under exactly these conditions none of applyMeResult's `saveLandPatch` lines runs. "No Citizen" is plain
+ * only while no Citizen and no village is held (a held village is never dropped by a re-read). `readLand` reads the
+ * device's record, as applyMeResult itself does first; it writes nothing to the device.
+ */
+function plainMeAnswer(me) {
+  if (!me.ok) return me.code === 'NotFound' && !FS.citizen && !(FS.holdings ?? []).length;
+  const before = FS.land?.stage ?? null, after = landState(me.citizen).stage;
+  if (before !== null && before !== after) return false;
+  const lr = readLand();
+  if ((after === 'provisional' || after === 'final') && lr.landEnd) return false;
+  return lr.ticketSeen !== false;
+}
+
+/**
+ * (2026-11-17, ⑦ the village screen) The person's own "read my village's record again": ONE read of the viewer's
+ * record (/h/me) and ONE read of the province of the village in hand at the press — and nothing else. It is NOT
+ * `refresh`: no prize read, no catch-up request (auto nudge), no march read (which can reveal and writes the march
+ * book), no quota, conquest, chronicle or homes read, no automatic ticket; nothing is sent and nothing is saved.
+ *   - the answer is adopted (applyMeResult, the one place a viewer's record is adopted) only when `plainMeAnswer`
+ *     holds; an answer whose land stage differs is left whole to the regular load ('changed') — its bookkeeping is the
+ *     regular load's; a failed read is NOT handed to applyMeResult (the values held and the wide inventory stay)
+ *   - what an adoption still does besides memory: `refreshDelegation` may make its public agents read (at most every
+ *     AGENTS_REFRESH_MS, while the key does not match) — a read, as in every regular load
+ *   - whose answer: this press's own run object, the herald, local play, the wallet, the viewer key and the pinned
+ *     world, all as at the press; a regular load that BEGAN after the press is the later read and this one is let go;
+ *     one that began before and answers later does not replace this one (`meNewerThan`, in refresh)
+ *   - a press while one is under way starts nothing; the prototype rule's world (its own records ride on the regular
+ *     load) and practice are not offered
+ * `FS.villageReread = { state: 'loading'|'failed'|'changed'|'provinceFailed', code, key, errAt, citAt }` is the note
+ * for the screen (screens/holding.mjs holdingRead); null when there is nothing to say.
+ */
+export async function rereadVillage() {
+  if (!herald || !FS.clock || !FS.wallet || FS.proto || FS.mode !== 'play') return false;
+  if (FS.villageReread?.state === 'loading') return 'loading';
+  const h0 = activeHolding(FS) ?? null;
+  const run = { state: 'loading', code: null, key: h0 ? `${h0.p},${h0.q}` : null, errAt: null, citAt: null };
+  const at = { herald, localPlay, address: FS.wallet.address, viewer: viewerKey(), world: providerWorld(), poll: viewerRefresh };
+  const mine = () => FS.villageReread === run && herald === at.herald && localPlay === at.localPlay && FS.wallet?.address === at.address
+    && viewerKey() === at.viewer && providerWorld() === at.world;
+  // (the note is shown only while the viewer's record is the one it was said about: a later answer, good or failed,
+  //  replaces FS.citizen or FS.meError and the note goes with it)
+  const say = (state, code) => { run.state = state; run.code = code ?? null; run.errAt = FS.meError ?? null; run.citAt = FS.citizen ?? null; };
+  FS.villageReread = run; invalidate('panel');
+  let part = 'viewer';
+  try {
+    const me = await at.herald.me(at.viewer).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
+    if (!mine()) return false;
+    if (viewerRefresh !== at.poll) { FS.villageReread = null; return false; }
+    if (me.ok && !viewerOwnCitizen(me.citizen)) { say('failed', 'WrongKey'); return false; }
+    if (!me.ok && me.code !== 'NotFound') { say('failed', me.code ?? 'Unavailable'); return false; }
+    if (!plainMeAnswer(me)) { say('changed'); return false; }
+    meNewerThan = at.poll;
+    applyMeResult(me);
+    part = 'province';
+    const h = h0 ? (FS.holdings ?? []).find(x => x.p === h0.p && x.q === h0.q) ?? null : null;
+    if (h) {
+      const got = await loadEnvelope(h.p, h.q, 'latest', mine);
+      if (!mine()) return false;
+      if (!got) { say('provinceFailed'); return 'partial'; }
+    }
+    FS.villageReread = null;
+    return true;
+  } catch (e) {
+    console.error('frontier village reread:', e);
+    if (mine()) say(part === 'viewer' ? 'failed' : 'provinceFailed', part === 'viewer' ? e?.code ?? 'Error' : null);
+    return false;
+  } finally {
+    if (FS.villageReread === run && run.state === 'loading') FS.villageReread = null;
+    invalidate('panel', 'tabs', 'chips', 'map');
+  }
 }
 
 /** The conquest day files the records read back from today (a 14-day season in full). */
@@ -2903,6 +2988,8 @@ export const ACTIONS = {
   'dest-quick': d => setDestination({ p: num(d.p), q: num(d.q), tile: num(d.tile) }),
   // (2026-11-17, ⑦ the march card: the route of the draft's own place, asked again — a new request for the same place,
   //  so an answer of the earlier one that comes late is not written; the draft's settings are kept. Not while sending.)
+  // (2026-11-17, ⑦ the village screen: the viewer's record and the village's province read again — a read only, never refresh)
+  'village-reread': () => { rereadVillage().catch(() => {}); },
   'dest-retry': () => { const c = FS.compose; if (!c?.dest || c.sending) return undefined; return setDestination({ p: c.dest.p, q: c.dest.q, tile: c.dest.tile }); },
   'march-send': () => sendTheMarch(),
   'march-send-wait': () => armMarchWait(),

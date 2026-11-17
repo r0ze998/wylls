@@ -38,7 +38,7 @@ test('V1 V4 V5 the viewer\'s record: not read, another world, stale, or answered
 
 test('V2 V3 the village\'s province: why NotResident may be "not loaded"', () => {
   assert.ok(fland.includes("if (resident && (!ctx.province || ctx.province.resolvedNext + 1 < ctx.nowBell)) out.push('NotResident');"), 'the mirror answers NotResident with no record');
-  assert.ok(hr.includes("return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null };"));
+  assert.ok(hr.includes("return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null,"));   // (the re-read's own part follows: web-frontier-ws07-village-reread-text.test.mjs)
   order(note, "if (r.province && r.province !== 'held') {", "r.province === 'failed'", 'この村の州の記録を読めていません（${r.code}）。', 'この村の州の記録を、まだ読めていません。',
     "if (r.province !== 'loading' && r.province !== 'waiting') lines.push(", 'data-act="province-reread" data-p="${r.p}" data-q="${r.q}"');
   assert.ok(note.includes("return lines.length ? html`<div class=\"village-read\""), 'nothing when all is read');

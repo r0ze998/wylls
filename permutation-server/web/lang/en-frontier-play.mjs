@@ -1709,4 +1709,10 @@ export default {
   'いまの読み込みに失敗しています。下の数は、最後に読めた記録から計算したものです。次の読み込みでもう一度確かめます。': 'The latest load failed. The numbers below are worked out from the last record that was loaded. It is checked again on the next load.',
   'この村の州の記録を読めていません（{0}）。下の行動が「この州はまだ前のターンの決着が済んでいません」と出るのは、記録を読めていないためのことがあります。': 'The record of this village\'s province could not be loaded ({0}). Where the actions below say "This province is still resolving the last turn.", that may be because the record is not loaded.',
   'この村の州の記録を、まだ読めていません。読めるまで、下の行動は「この州はまだ前のターンの決着が済んでいません」と出ます。': 'The record of this village\'s province is not loaded yet. Until it is, the actions below say "This province is still resolving the last turn.".',
+  // (2026-11-17, ⑦ the village screen: the person's own re-read of the village's record)
+  '村の記録を読み直しています…': 'Loading the village record again…',
+  '村の記録を読み直せませんでした（{0}）。前に読めた記録は、そのまま残しています。': 'The village record could not be loaded again ({0}). The record loaded before is kept as it is.',
+  '読み直しましたが、土地の状態にかかわる変更がありました。この変更は、次の通常の読み込みで反映します。ここの表示は、まだ前の記録のものです。': 'The record was loaded again, but it carries a change to the state of the land. The next regular load will apply this change. What is shown here is still the earlier record.',
+  '村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。': 'The village record was loaded again. The record of this village\'s province was not. The province\'s numbers are still those of the record loaded before.',
+  '村の記録を読み直す': 'Load the village record again',
 };
