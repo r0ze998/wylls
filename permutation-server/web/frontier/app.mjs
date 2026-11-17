@@ -2994,10 +2994,16 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
   // (2026-11-17, ⑦: a clash belongs to the herald and the pinned world — with its generation — it was asked of. One the
   //  change overtakes is not staged: its inputs are another world's and this world's province would stand beside them,
   //  and its flight would take the camera to a place of another map. `still`: the caller's own condition, asked again
-  //  after the wait (the spectator's follow: the watch still on, no report opened meanwhile).)
+  //  after the wait (the spectator's follow: the same herald and world, the watch still on, no report opened, no move
+  //  of the camera the map counts). A request the change overtook answers null — called off, nothing to make up for —
+  //  and false stays "no scene" (no clash, nothing to stage): only false lets a caller fall back.
+  //  A scene the page stages by itself (`auto`, or the follow's `still`) whose answer comes after a later turn's scene
+  //  of the same province is already playing is called off too: the older answer does not replace the newer picture.
+  //  A scene asked for by name — the report's 見る — plays as before.)
   const world = momentWorld(), source = heraldRef;
-  const r = await heraldRef.clash(p, q, bell).catch(() => null);
-  if (momentWorld() !== world || heraldRef !== source || (still && !still())) return false;
+  const r = await source.clash(p, q, bell).catch(() => null);
+  if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;
+  if ((auto || still) && (FS.battles ?? []).some(b => b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;
   if (!r?.ok || !r.inputs) return false;
   let before = null;
   try { before = r.report?.province_before_b64 ? decodeAccount('Province', fromBase64(r.report.province_before_b64)) : null; } catch { before = null; }
@@ -3985,8 +3991,13 @@ function followBattles() {
   watchSeen = key;
   const f = FS.watch?.faction;
   if (FS.watch?.auto === false || FS.report || (Number.isInteger(f) && !provinceFactions(FS.overviews, c.p, c.q).includes(f))) return;
-  const still = () => momentWorld() === world && FS.watch?.auto !== false && !FS.report;
-  playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (!ok && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
+  // (the request's own origin is kept from the ask to the fallback: the same herald object as well as the same world —
+  //  the herald can be replaced within one world — and no camera move the map counts since (map/fmap.mjs `moves`: a
+  //  drag, the wheel, a pinch, the map's keys and buttons, a "go there"; the count map.restore's ifStill reads). A
+  //  called-off request (null) never falls back; only "no scene" (false) does, while all of it still holds)
+  const source = heraldRef, moves = mapRef?.moves ?? 0;
+  const still = () => momentWorld() === world && heraldRef === source && FS.watch?.auto !== false && !FS.report && (mapRef?.moves ?? 0) === moves;
+  playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (ok === false && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
 }
 
 function startSpectate(herald) {

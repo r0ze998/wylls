@@ -33,14 +33,17 @@ test('W1 the follow compares within one world', () => {
 });
 
 test('W2 the follow\'s play and fallback hold only while still', () => {
-  order(follow, "const still = () => momentWorld() === world && FS.watch?.auto !== false && !FS.report;",
-    'playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (!ok && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });');
+  // (corrected by the source bundle — web-frontier-ws07-spectate-source-text.test.mjs: the same herald and no counted
+  //  camera move belong to `still`, and only "no scene" (false) falls back)
+  order(follow, 'const source = heraldRef, moves = mapRef?.moves ?? 0;',
+    "const still = () => momentWorld() === world && heraldRef === source && FS.watch?.auto !== false && !FS.report && (mapRef?.moves ?? 0) === moves;",
+    'playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (ok === false && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });');
   assert.doesNotMatch(follow, /\{ if \(!ok\) mapRef/, 'no unconditioned fallback flight is left');
 });
 
 test('W3 playBattle drops a clash the change overtook', () => {
   order(pb, '{ focus = false, auto = false, still = null } = {}) {', 'const world = momentWorld(), source = heraldRef;',
-    'const r = await heraldRef.clash(p, q, bell).catch(() => null);', 'if (momentWorld() !== world || heraldRef !== source || (still && !still())) return false;',
+    'const r = await source.clash(p, q, bell).catch(() => null);', 'if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;',
     'if (!r?.ok || !r.inputs) return false;', 'const scene = battleScene({', 'if (focus && mapRef) {', 'mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);',
     'FS.battles = [', "fxEmit('battle', {");
   const code = pb.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
