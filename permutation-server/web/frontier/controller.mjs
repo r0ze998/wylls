@@ -683,6 +683,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   FS.quota = null;
   FS.book = [];
   FS.marches = [];
+  FS.marchesRead = null;
   FS.bellItems = [];
   FS.formingBells = [];
   FS.orders = [];
@@ -824,6 +825,11 @@ export function adoptPinnedWorld() {
   // (2026-11-17, ⑦ the march's entry: a draft and a host in hand name a host, a village and a route of the world that
   //  was pinned: not this world's. A draft that is only a draft is put away — one being sent, waiting to be sent or
   //  armed is the send's own and is left to it — and the host in hand is let go. The selected place stays the person's.)
+  // (2026-11-17, ⑦ the march tracker: the marches listed were read for the world that was pinned: not this world's —
+  //  the list is emptied and marked not read until this world's own reading; the device's book is keyed by world and is
+  //  not touched)
+  FS.marches = [];
+  FS.marchesRead = null;
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
   if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
   dropOtherWorldConquest(world);
@@ -1015,15 +1021,20 @@ async function protoOrder(op, fields, at = null) {
 async function slotOf(dest, b, hostId) {
   let env = await herald.province(dest.p, dest.q, b);
   if (!env.ok) env = await herald.province(dest.p, dest.q, 'latest');
-  if (!env.ok || env.bell !== b) return { env: null, slot: null };
+  // (2026-11-17, ⑦ the march tracker: `failed` — the read itself did not come (a code other than NotFound): not the same
+  //  as "no slot there yet". Told beside the answer; `env` and `slot` are exactly what they were, so nothing that is
+  //  decided from them — the self-reveal, the settle offer — changes.)
+  if (!env.ok) return { env: null, slot: null, failed: env.code !== 'NotFound', code: env.code ?? null };
+  if (env.bell !== b) return { env: null, slot: null, failed: false, code: null };
   const s = env.slots.find(x => BigInt(x.account.hostId) === BigInt(hostId));
-  return { env, slot: s ?? null };
+  return { env, slot: s ?? null, failed: false, code: null };
 }
 
 /** Pipeline facts of bell b in region r from the herald's bell-region record. */
 async function bellFacts(b, region, resolvedNext = null) {
   const r = await herald.bellRegion(b, region);
-  if (!r.ok) return { facts: { anchor: null, archive: null, seed: false, resolvedNext }, record: null };
+  // (`failed`: as slotOf — the read did not come; the facts and the record returned are what they were)
+  if (!r.ok) return { facts: { anchor: null, archive: null, seed: false, resolvedNext }, record: null, failed: r.code !== 'NotFound', code: r.code ?? null };
   const j = r.record;
   return { record: j, facts: { anchor: r.anchor ? { a: Number(r.anchor.a) } : null, archive: j.archived || j.tombstoned ? { archived: !!j.archived, tombstoned: !!j.tombstoned } : null,
     seed: (j.caches ?? []).length > 0, latestRound: 0, resolvedNext } };
@@ -1104,7 +1115,8 @@ async function readMarches() {
     // mark fell on the province's middle tile: found with the live fixture)
     const dest = { p: p.destP, q: p.destQ, tile: p.destTile };
     const region = regionOf(dest.p, dest.q);
-    const { slot, env } = b >= first.arriveBell ? await slotOf(dest, first.arriveBell, first.host) : { slot: null, env: null };
+    const slotRead = b >= first.arriveBell ? await slotOf(dest, first.arriveBell, first.host) : { slot: null, env: null };
+    const { slot, env } = slotRead;
     if (slot) revealed.push(first.host);
     // (for the question "does this march still lack its slot?" the viewer's own record counts too. The herald shows
     // a Reveal that landed in two places: the destination's envelope of the arrival bell — that bell's own file once
@@ -1112,7 +1124,8 @@ async function readMarches() {
     // record, which lists the viewer's ArrivalSlots of any bell from the moment they exist. What the page says of
     // the march, and when, still follows the envelope alone)
     const seen = !!slot || slotsOfMine.some(x => x.bell === first.arriveBell && BigInt(x.hostId) === BigInt(first.host));
-    const { facts, record } = b >= first.arriveBell ? await bellFacts(first.arriveBell, region, env?.province.resolvedNext ?? null) : { facts: {}, record: null };
+    const factsRead = b >= first.arriveBell ? await bellFacts(first.arriveBell, region, env?.province.resolvedNext ?? null) : { facts: {}, record: null };
+    const { facts, record } = factsRead;
     const pl = pipeline(FS.clock, first.arriveBell, { now: now(), ...facts });
     const transit = transits.find(t => t.slot === first.transitSlot && String(t.hostId) === first.host) ?? null;
     // (the entry as the book holds it NOW, after the waits above: its attempts decide whether a reveal goes out)
@@ -1132,7 +1145,9 @@ async function readMarches() {
     }
     // (local play: the keeper sends the SettleTransit, as it reveals — the relay serves no page settle, so no button)
     const settleReady = !localPlay && !!transit && !!env && transit.state >= 2 && pl.state === 'resolved' && pl.close !== null && now() >= pl.close + 600;
-    marches.push({ entry: e, transit, facts: { nowBell: b, pipeline: pl.state, slotPresent: !!slot, settleReady }, record, slot, env, dest, region });
+    // (`unread`: which of this march's reads did not come — for the tracker's words and its "read again"; nothing above reads it)
+    marches.push({ entry: e, transit, facts: { nowBell: b, pipeline: pl.state, slotPresent: !!slot, settleReady }, record, slot, env, dest, region,
+      unread: slotRead.failed || factsRead.failed ? { slot: !!slotRead.failed, facts: !!factsRead.failed, code: slotRead.code ?? factsRead.code ?? null } : null });
   }
   // (round 29: a live transit this device's book has no entry for — in local play every march: the page seals it, the
   //  relay sends it, and no book entry is written — got no turn facts, so its card stood at "waiting for the key" for
@@ -1140,15 +1155,18 @@ async function readMarches() {
   //  its stage is read as a booked march's is, from the destination the transit carries or else from this page's own
   //  order record bound to the same identity, slot, host and arrival turn. Only a turn record that was read sets it: a
   //  failed read, or no matching record, leaves the card as before (unconfirmed). Reads only; nothing is sent.)
-  const looseFacts = new Map();
+  const looseFacts = new Map(), looseUnread = new Map();
   for (const t of transits.filter(x => x.state >= 1 && x.state <= 3)) {
     if (marches.some(m => m.transit && m.transit.slot === t.slot) || !Number.isInteger(t.arriveBell) || b < t.arriveBell) continue;
     const dest = t.dest ?? ownMarchDest(t, at.scope);
     if (!dest) continue;
-    const { slot, env } = await slotOf(dest, t.arriveBell, t.hostId);
+    const slotRead = await slotOf(dest, t.arriveBell, t.hostId);
+    const { slot, env } = slotRead;
     if (!same()) return;
-    const { facts, record } = await bellFacts(t.arriveBell, regionOf(dest.p, dest.q), env?.province.resolvedNext ?? null);
+    const factsRead = await bellFacts(t.arriveBell, regionOf(dest.p, dest.q), env?.province.resolvedNext ?? null);
+    const { facts, record } = factsRead;
     if (!same()) return;
+    if (slotRead.failed || factsRead.failed) looseUnread.set(t.slot, { slot: !!slotRead.failed, facts: !!factsRead.failed, code: slotRead.code ?? factsRead.code ?? null, dest });
     if (record === null) continue;
     looseFacts.set(t.slot, { dest, slot, env, record, pipeline: pipeline(FS.clock, t.arriveBell, { now: now(), ...facts }).state });
   }
@@ -1159,9 +1177,9 @@ async function readMarches() {
   for (const t of transits.filter(x => x.state >= 1 && x.state <= 3)) {
     if (marches.some(m => m.transit && m.transit.slot === t.slot)) continue;
     if (held.some(e => e.transitSlot === t.slot && e.host === String(t.hostId) && e.state !== 'settled')) continue;
-    const lf = looseFacts.get(t.slot) ?? null, dest = lf?.dest ?? t.dest;
+    const lf = looseFacts.get(t.slot) ?? null, lu = looseUnread.get(t.slot) ?? null, dest = lf?.dest ?? t.dest;
     marches.push({ entry: null, transit: t, facts: { nowBell: b, pipeline: lf?.pipeline ?? null, slotPresent: !!lf?.slot, settleReady: false }, record: lf?.record ?? null, slot: lf?.slot ?? null, env: lf?.env ?? null,
-      dest, region: dest ? regionOf(dest.p, dest.q) : null });
+      dest, region: dest ? regionOf(dest.p, dest.q) : null, unread: lu ? { slot: lu.slot, facts: lu.facts, code: lu.code } : null, readDest: lu?.dest ?? null });
   }
   // (a free transit record means "settled" only once the march's arrival turn has ended: no transit is settled
   // before that (contract §5.11). The Holding a reading holds may be older than the book — it was asked for before
@@ -1186,10 +1204,54 @@ async function readMarches() {
   book.saveBook(store, key, entries);
   FS.book = entries;
   FS.marches = marches;
+  // (the list was read for this book, village and world: an empty list now means "none", not "not read" — the tracker)
+  FS.marchesRead = { key, world: at.world };
   FS.bellItems = [
     ...(holding ? [{ bell: b, region: regionOf(holding.p, holding.q), why: 'current', facts: {} }] : []),
     ...marches.map(m => ({ bell: m.entry?.arriveBell ?? m.transit?.arriveBell, region: m.region, why: 'arrival', facts: {} })),
   ];
+}
+
+/**
+ * Read again what the tracker shows of ONE march whose reads did not come (2026-11-17, ⑦) — a pure read. It asks the
+ * herald for the same two files readMarches reads for it (the destination's envelope of the arrival turn, that turn's
+ * region record) and writes only what the tracker shows of that march: `facts.pipeline`, `facts.slotPresent` and
+ * `unread`. It does NOT load or save the book, does NOT reveal (io.reveal), does NOT touch `slot`, `env`, `record`,
+ * `entry`, `transit` or `settleReady` — what the self-reveal and the settle offer are decided from stays readMarches'
+ * own, at its own times. Only a march marked `unread`, only from the arrival turn on (a sealed destination is never
+ * asked for before it), only the destination this page already used for that read. The answer is written only if the
+ * same herald, local-play instance, village, book, world and list still stand and no later press was made ON THIS MARCH.
+ * Resolves true when the reads came, false when they did not or the request was let go.
+ */
+export async function rereadMarchFacts(hostId) {
+  const list = FS.marches, m = (list ?? []).find(x => String(x.entry?.host ?? x.transit?.hostId ?? '') === String(hostId));
+  const dest = m?.entry ? m.dest : m?.readDest ?? m?.dest ?? null;
+  const bell = m?.entry?.arriveBell ?? m?.transit?.arriveBell;
+  if (!m?.unread || !dest || !Number.isInteger(bell) || !herald || nowBell() < bell) return false;
+  // (2026-11-17 correction: the request is this march's own — `m.rereadReq`, a token on the item. A later press on the
+  //  SAME march takes its place; a press on another march does not touch it (one number for all marches let march B's
+  //  press call off march A's). The tidy-up clears "being read" only while the item still names this request.)
+  const req = m.rereadReq = {}, holding = holdingRef(activeHolding(FS) ?? null);
+  const at = { herald, localPlay, instance: localPlay?.march?.instance ?? null, holding, key: bookKey(), world: providerWorld() };
+  const same = () => m.rereadReq === req && FS.marches === list && list.includes(m) && herald === at.herald && localPlay === at.localPlay
+    && (localPlay?.march?.instance ?? null) === at.instance && holdingRef(activeHolding(FS) ?? null) === at.holding && bookKey() === at.key && providerWorld() === at.world;
+  m.rereading = true; invalidate('panel');
+  let ok = false;
+  try {
+    const slotRead = await slotOf(dest, bell, m.entry?.host ?? m.transit?.hostId);
+    if (!same()) return false;
+    const factsRead = await bellFacts(bell, regionOf(dest.p, dest.q), slotRead.env?.province.resolvedNext ?? null);
+    if (!same()) return false;
+    if (slotRead.failed || factsRead.failed) m.unread = { slot: !!slotRead.failed, facts: !!factsRead.failed, code: slotRead.code ?? factsRead.code ?? null };
+    else {
+      // (a loose transit whose turn record is not there yet keeps its stage unknown, as readMarches leaves it)
+      const known = !!m.entry || factsRead.record !== null;
+      m.facts = { ...m.facts, ...(known ? { pipeline: pipeline(FS.clock, bell, { now: now(), ...factsRead.facts }).state, slotPresent: !!slotRead.slot } : {}) };
+      m.unread = null; ok = true;
+    }
+  } catch (e) { console.error('frontier march reread:', e); if (same()) m.unread = { ...(m.unread ?? {}), code: e?.code ?? 'Error' }; }
+  finally { if (m.rereadReq === req) m.rereading = false; invalidate('panel'); }
+  return ok;
 }
 
 async function refreshChronicle() {

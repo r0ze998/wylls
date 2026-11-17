@@ -101,6 +101,8 @@ export function renderMarch(m, FS = null) {
     ${t.closedUnrevealed ? html`<p class="warn">${L`封が開けられないまま、受付が終わりました。軍勢は敗走する（兵・体力・チップの半分を失う）か、同じ国の到着が多すぎたときは損失なしで村へ戻ります。`}</p>` : ''}
     ${t.outcome ? html`<p class="march-out">${TRANSIT_OUTCOME_TEXT[t.outcome] ?? t.outcome}</p>` : ''}
     ${m.entry?.failure ? html`<p class="notice error">${failureText({ code: m.entry.failure })}</p>` : ''}
+    ${m.unread ? html`<div class="march-unread" role="status"><p class="notice error">${m.unread.code ? L`この進軍の到着先の記録を読めていません（${m.unread.code}）。上の進み具合は、読めたところまでです。結果がないという意味ではありません。` : L`この進軍の到着先の記録を読めていません。上の進み具合は、読めたところまでです。結果がないという意味ではありません。`}</p>
+      <div class="actions"><button type="button" class="btn small" data-act="march-reread" data-host="${host}" ${m.rereading ? 'disabled' : ''}>${icon('return')}${m.rereading ? L`読み込んでいます…` : L`記録をもう一度読む`}</button></div></div>` : ''}
     ${m.dest || m.facts?.settleReady ? html`<div class="actions">
       ${m.facts?.settleReady ? html`<button type="button" class="btn primary small" data-act="settle-transit" data-host="${host}" data-slot="${m.entry?.transitSlot ?? m.transit?.slot ?? ''}">${L`結果を受け取る`}</button>` : ''}
       ${m.dest && resolved && Number.isInteger(t.arriveBell) ? html`<button type="button" class="btn${m.facts?.settleReady ? '' : ' primary'} small" data-act="report-open" data-p="${m.dest.p}" data-q="${m.dest.q}" data-bell="${t.arriveBell}">${icon('scroll')}${L`報告`}</button>
@@ -113,7 +115,11 @@ export function renderMarch(m, FS = null) {
 
 export function render(FS) {
   const list = FS.marches ?? [];
-  if (!list.length) return html`<section class="vcard" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><p class="muted">${L`進軍中の軍勢はいません`}</p>
+  // (2026-11-17, ⑦: an empty list is "none" only once the marches were read for this viewer, village and world —
+  //  controller readMarches sets FS.marchesRead beside the list. Before that, for a viewer who may have marches, it is
+  //  "not read yet": said as that, and read by the page's ordinary reading)
+  const unread = !list.length && (FS.mode ?? 'play') === 'play' && !!FS.wallet && !FS.marchesRead && (!!FS.citizen || FS.meStatus !== 'ready');
+  if (!list.length) return html`<section class="vcard" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><p class="muted"${unread ? html` role="status" data-read="unread"` : ''}>${unread ? L`進軍の記録をまだ読めていません。進軍がないという意味ではありません。次の読み込みで確かめます。` : L`進軍中の軍勢はいません`}</p>
     <div class="actions"><button type="button" class="btn" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button></div></section>`;
   return html`<section class="bare" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><ul class="marches">${list.map(m => renderMarch(m, FS))}</ul></section>`;
 }
