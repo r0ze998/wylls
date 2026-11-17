@@ -93,6 +93,13 @@ export function renderMarch(m, FS = null) {
   const sealed = own ? html`<p class="march-secret">${icon('lock')}<span class="secret">${[who, STANCE_TEXT[STANCES[own.stance]] ?? ''].filter(Boolean).join(' · ')}</span> <span class="muted">${stepDone('revealed') ? L`（封は開けられました）` : L`（行き先と構えはあなたにだけ見えます）`}</span></p>` : '';
   const state = s => (s.state === 'now' ? html`<span class="visually-hidden">${L`（いま）`}</span>` : s.state === 'done' ? html`<span class="visually-hidden">${L`（済み）`}</span>` : '');
   const slug = host.replace(/\D/g, '').slice(-8);
+  // (2026-11-17, ⑦ the keep and the march toward it: a march whose destination is a province with a keep — in the
+  //  conquest record read for the world now pinned — has the way to that keep's tile; where the march's tile is known
+  //  it must be the keep's own. app.mjs 'march-keep' asks again at the press.)
+  const keep = FS && m.dest ? (FS.conquest?.keeps instanceof Map ? FS.conquest.keeps.get(`${m.dest.p},${m.dest.q}`) ?? null : null) : null;
+  const toKeep = !!keep && Number.isInteger(keep.tile) && keep.tile >= 0 && keep.tile < 61 && (!Number.isInteger(m.dest.tile) || m.dest.tile === keep.tile);
+  const keepWay = toKeep && (FS.mode ?? 'play') === 'play' && Number.isInteger(FS.contextSeq)
+    ? html`<button type="button" class="btn small" data-act="march-keep" data-ctx="${FS.contextSeq}" data-p="${keep.p}" data-q="${keep.q}" data-tile="${keep.tile}">${icon('flag')}${L`この砦を見る`}</button>` : '';
   return html`<li class="vcard march-card" data-march-host="${host}">
     <div class="march-top">${icon('banner')}<strong class="march-to">${title}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(t.arriveBell ?? 0)} に到着`}`, resolved ? 'ok' : 'info')}</div>
     ${sealed}
@@ -107,7 +114,7 @@ export function renderMarch(m, FS = null) {
       ${m.facts?.settleReady ? html`<button type="button" class="btn primary small" data-act="settle-transit" data-host="${host}" data-slot="${m.entry?.transitSlot ?? m.transit?.slot ?? ''}">${L`結果を受け取る`}</button>` : ''}
       ${m.dest && resolved && Number.isInteger(t.arriveBell) ? html`<button type="button" class="btn${m.facts?.settleReady ? '' : ' primary'} small" data-act="report-open" data-p="${m.dest.p}" data-q="${m.dest.q}" data-bell="${t.arriveBell}">${icon('scroll')}${L`報告`}</button>
         <button type="button" class="btn small" data-act="battle-play" data-p="${m.dest.p}" data-q="${m.dest.q}" data-bell="${t.arriveBell}">${icon('play')}${L`戦いを再生`}</button>` : ''}
-      ${m.dest ? html`<button type="button" class="btn small" data-act="goto" data-p="${m.dest.p}" data-q="${m.dest.q}">${L`地図で見る`}</button>` : ''}</div>` : ''}
+      ${m.dest ? html`<button type="button" class="btn small" data-act="goto" data-p="${m.dest.p}" data-q="${m.dest.q}">${L`地図で見る`}</button>` : ''}${keepWay}</div>` : ''}
     ${fold(`m-steps-${slug}`, L`くわしい段階`, html`<ol class="list track-steps">${t.steps.map(s => html`<li class="${s.state}">${STEP_TEXT[s.id]()}${s.state === 'now' ? html` <span class="muted">${L`（いま）`}</span>` : s.state === 'done' ? html` <span class="muted">${L`（済み）`}</span>` : ''}</li>`)}</ol>`)}
     ${t.locked ? fold(`m-lock-${slug}`, L`この軍勢はまだ動かせません`, html`<p class="locked-note" role="note">${lockedText()}</p>`) : ''}
     ${FS && (FS.mode ?? 'play') === 'play' ? html`<div class="actions march-back"><button type="button" class="btn small quiet" data-act="tab" data-tab="hosts">${L`軍勢の一覧へ`}</button></div>` : ''}
