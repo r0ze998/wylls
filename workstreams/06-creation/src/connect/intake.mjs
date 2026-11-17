@@ -39,7 +39,9 @@ export function intake({ dispatch, route, adoption, binding, request }) {
   } else if (route !== "act") {
     return { ok: false, findings: [{ code: "SHAPE", detail: "route: run | act" }] };
   }
-  return dispatch.plan({ route, ...request });
+  // The route checked above is the route planned (2026-11-17): `request` is spread first, so a `route` inside it can
+  // never replace it (before, `{ route, ...request }` let an "act" intake — no requester, no binding — plan a run).
+  return dispatch.plan({ ...request, route });
 }
 
 /** The state of a run request from the journal: nothing is read from ③ or ④, nothing is sent. */
