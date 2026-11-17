@@ -1717,4 +1717,11 @@ export default {
   '進軍の記録をまだ読めていません。進軍がないという意味ではありません。次の読み込みで確かめます。': 'The marches have not been loaded yet. This does not mean there are no marches. They are checked again on the next load.',
   // (2026-11-17, Lane C ⑦ a report that could not be read)
   '戦いがなかったという意味ではありません。もう一度読み込めます。': 'This does not mean there was no clash. It can be loaded again.',
+  // (2026-11-17, Lane C ⑦ the village screen: reads that did not come)
+  '村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。': 'Your villages have not been loaded yet. This does not mean you have no village. They are checked again on the next load.',
+  '最後に読めた記録では、まだ村がありません。いまの読み込みは失敗しています。次の読み込みでもう一度確かめます。': 'By the last record that was loaded you have no village yet. The latest load failed. It is checked again on the next load.',
+  'この村は、前に読んだ世界の記録です。いまの世界の記録を読み込んでいます。': 'This village is from a world loaded earlier. The record of the current world is being loaded.',
+  'いまの読み込みに失敗しています。下の数は、最後に読めた記録から計算したものです。次の読み込みでもう一度確かめます。': 'The latest load failed. The numbers below are worked out from the last record that was loaded. It is checked again on the next load.',
+  'この村の州の記録を読めていません（{0}）。下の行動が「この州はまだ前のターンの決着が済んでいません」と出るのは、記録を読めていないためのことがあります。': 'The record of this village\'s province could not be loaded ({0}). Where the actions below say "This province is still resolving the last turn.", that may be because the record is not loaded.',
+  'この村の州の記録を、まだ読めていません。読めるまで、下の行動は「この州はまだ前のターンの決着が済んでいません」と出ます。': 'The record of this village\'s province is not loaded yet. Until it is, the actions below say "This province is still resolving the last turn.".',
 };

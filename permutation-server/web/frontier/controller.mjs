@@ -673,6 +673,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   // record's view across a failed refresh only for the viewer and world it answered for. A reply still in flight for
   // the former viewer is dropped by refresh's currentViewer check, before applyMeResult.)
   FS.meAnswered = false;
+  FS.meWorld = undefined;
   if (walletChanged) FS.session = null;
   if (walletChanged) FS.sessionProblem = null;
   FS.citizen = null;
@@ -1311,7 +1312,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; }
+export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; }
 
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
@@ -1497,6 +1498,10 @@ export function applyMeResult(me) {
   if (me.ok && !viewerOwnCitizen(me.citizen)) me = { ok: false, code: 'WrongKey' };
   if (me.ok) {
     FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;
+    // (2026-11-17, ⑦: the world this answer was read for — with the pin's generation —, for every answer: a Citizen
+    //  and also "no Citizen". `FS.holdingsWorld` below is written only with villages, so "answered: none" had no world
+    //  and could not be told from an answer of another world. Read metadata only: nothing is decided from it here.)
+    FS.meWorld = providerWorld();
     const before = FS.land?.stage;
     FS.citizen = me.citizen;
     FS.holdings = me.holdings;
@@ -1537,6 +1542,7 @@ export function applyMeResult(me) {
   expedition.clearInspection(FS, { keepInputs: true }); outbound.clearOutbound(FS);
   if (me.code === 'NotFound') {
     FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;
+    FS.meWorld = providerWorld();
     FS.citizen = null; FS.holdings = []; FS.land = landState(null);
     mySlots = [];
     fwide.clearWide(FS); FS.wideStatus = 'unavailable';
