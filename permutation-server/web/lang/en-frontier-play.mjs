@@ -1726,8 +1726,9 @@ export default {
   '{0}：送られていません。': '{0}: not sent.',
   '{0}：送信しましたが、成立しませんでした。': '{0}: sent, but it did not take effect.',
   '{0}：送信済みです。結果はまだ確認できていません。同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。': '{0}: sent. The result is not confirmed yet. The same order is not sent again. Press the same order once more to check its result.',
-  '{0}：受け付けられました。村の記録には、まだ出ていません。次の読み込みで出ます。': '{0}: accepted. It is not in the village record yet. It will show with the next load.',
-  '{0}：送信の結果は確認できませんでしたが、村の記録には出ています。': '{0}: the result of sending could not be confirmed, but it is in the village record.',
-  '{0}：送信済みです。結果はまだ確認できていません（送られていない、という意味ではありません）。村の記録には、まだ出ていません。もう一度命じると、二重になることがあります。': '{0}: sent. The result is not confirmed yet (this does not mean it was not sent). It is not in the village record yet. Ordering it again may do it twice.',
-  '{0}：送信済みです。結果はまだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。村の記録を読み直し、下の数で確かめてください。': '{0}: sent. The result is not confirmed yet (this does not mean it was not sent). Ordering it again may do it twice. Load the village record again and check the numbers below.',
+  '{0}：受け付けられました。いま読めている村の記録には、まだ出ていません。': '{0}: accepted. The village record loaded so far does not show it yet.',
+  '{0}：送信済みです。この命令の結果は、まだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。': '{0}: sent. The result of this order is not confirmed yet (this does not mean it was not sent). Ordering it again may do it twice.',
+  'いま読めている村の記録では、{0}は {1} つです（建設中を含みます）。この命令で増えたものかどうかは、記録からは分かりません。': 'In the village record loaded so far, {0}: {1} (those being built included). The record does not say whether this order added one.',
+  'いま読めている村の記録では、昇格の工事が列にあります。この命令によるものかどうかは、記録からは分かりません。': 'In the village record loaded so far, a promotion is in the building queue. The record does not say whether this order put it there.',
+  'いま読めている村の記録では、段階は{0}です。昇格の工事は列にありません。': 'In the village record loaded so far, the tier is {0}. No promotion is in the building queue.',
 };

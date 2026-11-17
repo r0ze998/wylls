@@ -8,11 +8,18 @@
 //   O1 the lifecycle's records, as the controller writes them (unchanged by this work): accepted; refused with `sent`
 //      false (nothing left the browser) or true (sent: failed, expired, or outcome not read — codes Unconfirmed /
 //      TxUnqueryable from fplay track); unconfirmed (local play, held by its signature)
-//   O2 the classes: refused+not sent → notSent; refused+sent+unknown code → unknown (never "not sent", never failed);
-//      refused+sent+other → sentFailed; unconfirmed → held; accepted and not in the record yet → waiting; accepted and
-//      in the record, or naming no mark → not listed
-//   O3 the record's evidence only where the order names it: a building's copy number (two orders with the same number:
-//      the later needs one copy more), a promotion's tier or its place in the queue; otherwise null (nothing claimed)
+//   O2 the classes: refused+not sent → notSent; refused+sent+unknown code, or 'unconfirmed' with a code other than the
+//      local hold's → unknown (never "not sent", never failed, never "in the record"); refused+sent+other →
+//      sentFailed; 'unconfirmed' with LocalActUnconfirmed → held; accepted and the record still behind → waiting;
+//      accepted otherwise → not listed
+//   O3 what the record says (CORRECTED — the first version matched orders to copies by number and order, counted failed
+//      orders among them, and called an unknown order "in the record"):
+//      - an unknown order stays unknown whatever the record holds; the record's count / queue is said beside it as a
+//        fact of the record, with "the record does not say whether this order did it"
+//      - a failed order with the same copy number as a later accepted one: nothing of one order is counted for
+//        another, so the accepted one is `waiting` only while the record is below ITS OWN number, never for good
+//      - two accepted orders with the same number: neither is claimed shown or not shown beyond its own number
+//      - "waiting" says only what was read so far; it promises nothing of the next load
 //   O4 only this village's orders of this turn: by province and tile (a muster by province)
 //   O5 the module is pure: no act, no send, no save, no refresh, no change of FS; it disables nothing
 //   O6 the unknown outcome offers the pure re-read (village-reread), once; not while one is under way, not in the
@@ -42,27 +49,32 @@ test('O1 the lifecycle records this reads are the controller\'s own', () => {
 });
 
 test('O2 each record is said as what it is', () => {
-  // (corrected: 'unconfirmed' is the local hold only with the hold's own code; with any other code — main's chain records
-  //  an ordinary-path unknown outcome that way — a second press is a new order: `unknown`, never the hold's words)
   assert.ok(vo.includes("export const LOCAL_HOLD_CODE = 'LocalActUnconfirmed';"));
   assert.ok(ctl.includes("code: 'LocalActUnconfirmed'"), 'the controller\'s own code for the hold');
   order(model, "if (o.state === 'unconfirmed') cls = o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';",
     "else if (o.state === 'refused') cls = o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';",
-    "else if (o.state === 'accepted') cls = seen === false ? 'waiting' : null;", 'if (cls) out.push(');
+    "else if (o.state === 'accepted') cls = recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null;", 'if (!cls) continue;', 'out.push(');
   order(view, "if (x.cls === 'notSent')", '：送られていません。', "if (x.cls === 'sentFailed')", '：送信しましたが、成立しませんでした。', "if (x.cls === 'held')",
-    '同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。', "if (x.cls === 'waiting')", '：受け付けられました。村の記録には、まだ出ていません。',
-    'if (x.inRecord === true)', '送信の結果は確認できませんでしたが、村の記録には出ています。', '（送られていない、という意味ではありません）');
-  // an unknown outcome is never worded as not sent or as failed
+    '同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。', "if (x.cls === 'waiting')", '：受け付けられました。いま読めている村の記録には、まだ出ていません。',
+    '// unknown:', 'この命令の結果は、まだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。');
+  // an unknown outcome is never worded as not sent, as failed, or as resolved by the record
   const unknownPart = view.slice(view.indexOf('// unknown:'));
-  assert.doesNotMatch(unknownPart.replace(/（送られていない、という意味ではありません）/g, ''), /送られていません|成立しませんでした/);
+  assert.doesNotMatch(unknownPart.replace(/（送られていない、という意味ではありません）/g, ''), /送られていません|成立しませんでした|記録には出ています/);
+  assert.doesNotMatch(vo, /記録には出ています|次の読み込みで出ます/, 'no claim that the record shows an order, no promise of the next load');
 });
 
-test('O3 the record is evidence only where the order names its mark', () => {
-  order(model, "if (o.kind !== 'build' || !Number.isInteger(o.item) || !Number.isInteger(o.n) || o.state === 'refused' && o.sent !== true) continue;",
-    'const key = `${o.item}|${o.n}`, extra = copies.get(key) ?? 0;', 'need.set(o.id, o.n + extra);',
-    "if (o.kind === 'build' && need.has(o.id)) return copyNumber(h, o.item) - 1 >= need.get(o.id);",
-    "if (o.kind === 'promote' && Number.isInteger(o.to)) return Number(h.tier ?? 0) >= o.to || queued.some(q => q.item === ITEM_TIER_UP);", 'return null;');
-  assert.ok(model.includes('for (const o of [...mine].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))) {'), 'the earlier of two equal orders is counted first');
+test('O3 the record is a fact of its own, never proof of an order', () => {
+  const fact = fnOf(vo, 'export function recordFactOf(o, h, now) {'), behind = fnOf(vo, 'export function recordBehind(o, fact) {'), words = fnOf(vo, 'function factWords(f) {');
+  order(fact, "if (o.kind === 'build' && Number.isInteger(o.item) && BUILD_ITEMS[o.item]) return { kind: 'build', item: o.item, count: copyNumber(h, o.item) - 1 };",
+    "if (o.kind === 'promote') return { kind: 'promote', tier: Number(h.tier ?? 0), queued: queueNow(h, now).some(q => q.item === ITEM_TIER_UP) };", 'return null;');
+  order(behind, 'if (!fact) return false;', "if (fact.kind === 'build') return Number.isInteger(o.n) && fact.count < o.n;", 'return Number.isInteger(o.to) && fact.tier < o.to && !fact.queued;');
+  // only the order's own number: no map of copies, no sorting of orders, no counting of one order for another
+  assert.doesNotMatch(codeOf(vo), /copies|need\.(get|set|has)|\.sort\(|new Map\(/);
+  // the fact is kept for the unknown class only, and worded with what the record cannot say
+  assert.ok(model.includes("fact: cls === 'unknown' ? recordFactOf(o, h, now) : null });"));
+  order(words, "if (f.kind === 'build')", 'つです（建設中を含みます）。この命令で増えたものかどうかは、記録からは分かりません。',
+    '昇格の工事が列にあります。この命令によるものかどうかは、記録からは分かりません。', '昇格の工事は列にありません。');
+  order(view, 'const fact = factWords(x.fact);', '<span class="vo-fact"> ${fact}</span>');
   // the order's own fields, as the controller writes them
   assert.ok(ctl.includes("order = orderOf('build', 'Build', { item, n, secs,"));
   assert.ok(ctl.includes("order = orderOf('promote', 'Build', { item, from: tier, to, secs,"));
@@ -71,7 +83,7 @@ test('O3 the record is evidence only where the order names its mark', () => {
 test('O4 this village, this turn', () => {
   assert.ok(vo.includes("export const VILLAGE_ORDER_KINDS = Object.freeze(['harvest', 'build', 'walls', 'promote', 'train', 'muster', 'garrison']);"));
   assert.ok(vo.includes("const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.tile.tile === h.tile);"));
-  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'const mine = (FS.orders ?? []).filter(o => VILLAGE_ORDER_KINDS.includes(o.kind) && o.turn === turn && ofVillage(o, h));');
+  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'for (const o of FS.orders ?? []) {', 'if (!VILLAGE_ORDER_KINDS.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;');
 });
 
 test('O5 pure: it sends, saves and changes nothing', () => {
@@ -84,7 +96,7 @@ test('O5 pure: it sends, saves and changes nothing', () => {
 
 test('O6 the unknown outcome offers the pure re-read, once', () => {
   assert.ok(vo.includes("export const villageRereadOffered = FS => !!FS.wallet && !FS.proto && FS.mode === 'play' && FS.villageReread?.state !== 'loading';"));
-  order(view, "const ask = list.some(x => x.cls === 'unknown' && x.inRecord !== true) && !rereadShown && villageRereadOffered(FS);", 'data-act="village-reread"');
+  order(view, "const ask = list.some(x => x.cls === 'unknown' || x.cls === 'waiting') && !rereadShown && villageRereadOffered(FS);", 'data-act="village-reread"');
   assert.equal((view.match(/data-act="/g) ?? []).length, 1, 'the only action here is the re-read');
   assert.ok(ctl.includes("  'village-reread': () => { rereadVillage().catch(() => {}); },"));
 });
@@ -100,9 +112,10 @@ test('O7 the village screen is the consumer', () => {
 test('O8 English follows; no banned word', () => {
   for (const k of ['{0}の建設', '城壁の工事', '{0}の訓練', '{0}の編成', '守備隊の増員', 'この村から出した命令', '{0}：送られていません。', '{0}：送信しましたが、成立しませんでした。',
     '{0}：送信済みです。結果はまだ確認できていません。同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。',
-    '{0}：受け付けられました。村の記録には、まだ出ていません。次の読み込みで出ます。', '{0}：送信の結果は確認できませんでしたが、村の記録には出ています。',
-    '{0}：送信済みです。結果はまだ確認できていません（送られていない、という意味ではありません）。村の記録には、まだ出ていません。もう一度命じると、二重になることがあります。',
-    '{0}：送信済みです。結果はまだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。村の記録を読み直し、下の数で確かめてください。']) {
+    '{0}：受け付けられました。いま読めている村の記録には、まだ出ていません。',
+    '{0}：送信済みです。この命令の結果は、まだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。',
+    'いま読めている村の記録では、{0}は {1} つです（建設中を含みます）。この命令で増えたものかどうかは、記録からは分かりません。',
+    'いま読めている村の記録では、昇格の工事が列にあります。この命令によるものかどうかは、記録からは分かりません。', 'いま読めている村の記録では、段階は{0}です。昇格の工事は列にありません。']) {
     const line = en.split('\n').find(l => l.startsWith(`  '${k}':`));
     assert.ok(line, k);
     assert.doesNotMatch(line.slice(line.indexOf("': ") + 3), /\b(settle[ds]?|settling|keeper|beacon|seed)\b/i);
