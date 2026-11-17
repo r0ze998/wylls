@@ -325,16 +325,32 @@ export function fileJournal(path, fs, { pid = process.pid, alive, startOf = proc
       off += n;
     }
   };
-  const create = (file, text) => { const fd = fs.openSync(file, "wx"); try { writeAll(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
+  /**
+   * Creates `tmp` exclusively and writes `text` and a newline to it, whole and synced. Returns only once the file is
+   * this call's: `owned()` is called right after the exclusive create, so a caller removes a temporary file only when
+   * it made it. A temporary file already there is not this call's (2026-11-17): it is left as it is and refused as
+   * JournalTmpExists, never taken for the lock existing (EEXIST), so acquire does not loop on it.
+   */
+  const createTmp = (tmp, text, owned) => {
+    let fd;
+    try { fd = fs.openSync(tmp, "wx"); } catch (e) {
+      if (e.code === "EEXIST") throw Object.assign(new Error(`journal ${path}: ${tmp} already exists and is not this attempt's; left as it is`), { code: "JournalTmpExists" });
+      throw e;
+    }
+    owned();
+    try { writeAll(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  };
   const read = (file) => { try { return String(fs.readFileSync(file, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
   /** Puts this open's body at `file` already written: a temporary file, then link (exclusive) or rename (replace). */
   const place = (file, replace) => {
     const tmp = `${file}.${token}.tmp`;
-    // create is inside the try (2026-11-17): a write that fails or comes up short leaves no temporary file behind.
+    // Only a temporary file this attempt made is removed (2026-11-17): a write, sync, close, link or rename that
+    // fails leaves none of ours behind, and one that was already there is not touched.
+    let made = false;
     try {
-      create(tmp, body);
+      createTmp(tmp, body, () => { made = true; });
       if (replace) fs.renameSync(tmp, file); else fs.linkSync(tmp, file);
-    } finally { fs.rmSync(tmp, { force: true }); }
+    } finally { if (made) fs.rmSync(tmp, { force: true }); }
   };
   const refuse = (file, h) => Object.assign(new Error(file === lock
     ? `journal ${path} is held by process ${h?.pid ?? "?"}${h?.pid === pid ? " (this process: another open)" : ""}`
@@ -375,12 +391,13 @@ export function fileJournal(path, fs, { pid = process.pid, alive, startOf = proc
       const tmp = `${path}.${token}.tmp`;
       // Complete before it replaces the journal (2026-11-17): a write or rename that fails leaves the journal as it was
       // and removes this save's temporary file; the error goes to the caller (Dispatch #save), which sends nothing on it.
+      // The temporary file is created exclusively and removed on failure only when this save made it.
+      let made = false;
       try {
-        const fd = fs.openSync(tmp, "w");
-        try { writeAll(fd, `${JSON.stringify(obj)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+        createTmp(tmp, JSON.stringify(obj), () => { made = true; });
         fs.renameSync(tmp, path);
       } catch (e) {
-        try { fs.rmSync(tmp, { force: true }); } catch { /* the original error is the one to report */ }
+        if (made) { try { fs.rmSync(tmp, { force: true }); } catch { /* the original error is the one to report */ } }
         throw e;
       }
       const d = fs.openSync(dir, "r");

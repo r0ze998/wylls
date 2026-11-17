@@ -14,6 +14,10 @@
  *   J6 a rename that fails keeps the journal as it was and leaves no temporary file
  *   J7 a lock held by a live other process is left as it is (JournalLocked)
  *   J8 Dispatch saves before it sends, outside the send's try: a save that throws sends nothing (source text)
+ *   J9 a temporary file already there (not this attempt's) is left as it is: the open ends (JournalTmpExists), no loop
+ *   J10 the same for a save: the journal and that temporary file both stay
+ *   J11 a sync or close that fails after the create removes this attempt's own temporary file; nothing put in place
+ *   J12 an existing lock whose holder is gone is still taken over (the stale takeover is unchanged)
  * No key is generated, imported, derived or used; nothing is signed, sent, spawned or fetched.
  */
 
@@ -48,8 +52,8 @@ function memFs(plan = {}) {
       if (n > 0) files.set(file, Buffer.concat([files.get(file), buf.subarray(off, off + n)]));
       return n;
     },
-    fsyncSync() {},
-    closeSync(fd) { fds.delete(fd); },
+    fsyncSync(fd) { if (plan.fsync?.(fds.get(fd))) throw err("EIO", fds.get(fd)); },
+    closeSync(fd) { const file = fds.get(fd); fds.delete(fd); if (plan.close?.(file)) throw err("EIO", file); },
     linkSync(a, b) { if (files.has(b)) throw err("EEXIST", b); files.set(b, files.get(a)); },
     renameSync(a, b) { if (plan.rename?.(a, b)) throw err("EIO", b); files.set(b, files.get(a)); files.delete(a); },
     rmSync(file) { files.delete(file); },
@@ -145,4 +149,53 @@ test("J8 Dispatch saves before it sends, outside the send's try", () => {
   const send = src.indexOf("await this.act.send(", save);
   assert.ok(save > 0 && save < tryAt && tryAt < send, "save, then the try that sends");
   assert.match(src, /#save\(\) \{\n\s+this\.journal\.save\(clone\(this\.data\)\);\n\s+\}/, "#save does not catch");
+});
+
+test("J9 a temporary file that is not this attempt's stays; the open ends", () => {
+  const fs = memFs();
+  fs.files.set(`${P}.lock.tok.tmp`, Buffer.from("someone's\n"));
+  assert.throws(() => fileJournal(P, fs, opts), (e) => e.code === "JournalTmpExists");
+  assert.equal(fs.files.get(`${P}.lock.tok.tmp`).toString(), "someone's\n");
+  assert.equal(fs.files.has(`${P}.lock`), false);
+});
+
+test("J10 a save does not touch a temporary file that is not its own", () => {
+  const fs = memFs();
+  const j = fileJournal(P, fs, opts);
+  j.save({ v: "A" });
+  fs.files.set(`${P}.tok.tmp`, Buffer.from("other\n"));
+  assert.throws(() => j.save({ v: "B" }), (e) => e.code === "JournalTmpExists");
+  assert.deepEqual(j.load(), { v: "A" });
+  assert.equal(fs.files.get(`${P}.tok.tmp`).toString(), "other\n");
+});
+
+test("J11 a failed sync or close after the create removes this attempt's file", () => {
+  for (const step of ["fsync", "close"]) {
+    let failLock = true;
+    const fs = memFs({ [step]: (file) => file.endsWith(".lock.tok.tmp") && failLock });
+    assert.throws(() => fileJournal(P, fs, opts), (e) => e.code === "EIO", step);
+    assert.deepEqual([fs.files.has(`${P}.lock`), tmps(fs)], [false, []], step);
+    failLock = false;
+    const j = fileJournal(P, fs, opts);
+    j.save({ v: "A" });
+    const bad = memFs();
+    const k = fileJournal(P, bad, opts);
+    k.save({ v: "A" });
+    bad[step === "fsync" ? "fsyncSync" : "closeSync"] = step === "fsync"
+      ? (fd) => { throw Object.assign(new Error("EIO"), { code: "EIO" }); }
+      : ((close) => (fd) => { close(fd); throw Object.assign(new Error("EIO"), { code: "EIO" }); })(bad.closeSync);
+    assert.throws(() => k.save({ v: "B" }), (e) => e.code === "EIO", step);
+    assert.deepEqual(JSON.parse(bad.files.get(P).toString()), { v: "A" }, step);
+    assert.deepEqual(tmps(bad), [], step);
+  }
+});
+
+test("J12 a gone holder's lock is still taken over", () => {
+  const fs = memFs();
+  fs.files.set(`${P}.lock`, Buffer.from(`${JSON.stringify({ pid: 999, start: "s999", token: "old" })}\n`));
+  const j = fileJournal(P, fs, { ...opts, alive: () => false });
+  assert.equal(JSON.parse(fs.files.get(`${P}.lock`).toString()).token, "tok");
+  assert.deepEqual(tmps(fs), []);
+  j.save({ v: 1 });
+  assert.deepEqual(j.load(), { v: 1 });
 });
