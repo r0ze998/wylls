@@ -126,52 +126,51 @@ export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {
   return out;
 }
 
+/** The kinds of order whose record names a tile of its OWN — where a host forms up, a fort — and not the village it was given from. */
+export const OWN_TILE_KINDS = Object.freeze(['muster', 's1-fort']);
 /**
- * (2026-11-17, corrected) What an order record says of WHERE it was given from, against a village — only what the
- * record itself holds: its tile (`orderOf` writes the village's own tile unless the order names another), and its turn.
- *   'tile'      the record's tile IS the village's own tile, and the record is not older than the village's own ticket
- *               (`holding.ticketBell`, where that is a turn that has come): given from the village that stands on this
- *               tile. The record holds no site and no generation: a village founded anew on the same tile after the
- *               order cannot be told from the one before — that is said with the record, not hidden.
- *   'province'  the same province, another tile (a muster forms up on the tile it names; a fort's order names the
- *               fort): WHICH village of the province gave it is not in the record — it is NOT "this village's".
- *   null        another province, no tile, or a record older than this village's ticket (it cannot be this village's).
- * (The first version took a muster for the village's whenever the province matched — `ofVillage`, which the village
- * screen's own note still uses for its list — so another village's scouts forming up in the same province were told in
- * this village's guide as its own order.)
+ * (2026-11-17, corrected three times) What an order record says of WHERE it was given from, against a village — only
+ * what the record itself holds, and nothing reasoned on top of it:
+ *   'tile'     the record's tile is the village's own tile, and the record's kind is one whose tile `orderOf` fills
+ *              with the tile of the village in hand at the order (train, harvest, build …): it was given while the
+ *              village standing on this tile was in hand. The record holds NO site and NO generation — whether that
+ *              village is the one standing there now is not proved by it, and is not claimed.
+ *   'unknown'  the same province, and either another tile, or a kind whose tile is the order's own (a muster's tile is
+ *              where the host forms up — ALSO when that happens to be the village's tile; a fort's order names the
+ *              fort): which village gave it is NOT in the record. It is never "this village's".
+ *   null       another province, or no tile.
+ * (Earlier versions: a muster was this village's whenever the province matched; then whenever its formation tile was
+ * the village's tile, with the village's ticket turn read as a founding time. A formation tile is not the source
+ * village, and no record field proves a village's generation: neither is used.)
  */
-export function orderPlace(o, h, nowBell = null) {
+export function orderPlace(o, h) {
   if (!o?.tile || !h || o.tile.p !== h.p || o.tile.q !== h.q) return null;
-  // (the village's own ticket turn, only where it is a turn that has come — a sentinel or a turn ahead excludes nothing)
-  const born = Number(h.ticketBell), known = Number.isInteger(born) && born >= 0 && born < 0xffffffff && (nowBell === null || born <= nowBell);
-  if (known && Number.isInteger(o.turn) && o.turn < born) return null;
-  return o.tile.tile === h.tile ? 'tile' : 'province';
+  return !OWN_TILE_KINDS.includes(o.kind) && o.tile.tile === h.tile ? 'tile' : 'unknown';
 }
 /**
- * The order record that `match` takes and that still speaks for what the page should say of THIS village, with what
- * became of it: `{order, outcome, why, turn, carried, place}`, or null. `FS.orders` is newest first. Only records made
- * under the context NOW (ofContext) are read.
- *   `place: 'tile'` — given from this village's own tile (orderPlace):
+ * The order record that `match` takes and that still speaks for what the page should say beside THIS village, with
+ * what became of it: `{order, outcome, why, turn, carried, place}`, or null. `FS.orders` is newest first. Only records
+ * made under the context NOW (ofContext) are read. The outcome is the RECORD's; whose village it was is `place`.
+ *   `place: 'tile'` (orderPlace):
  *     - a record whose outcome is NOT CONFIRMED — 'unknown' (sent, not read) or 'held' (local play's hold) — whatever
  *       its turn, the newest such first: a turn going by confirms nothing. `carried`: it is of an earlier turn.
- *     - otherwise the newest record of THIS turn (accepted, sent and failed, not sent): an earlier turn's answer is
- *       not kept.
- *   `place: 'province'` — only when no record of the village's own tile speaks, and only a NOT-CONFIRMED one: an order
- *     of the same kind given in this province from another tile. It is returned as what it is — not known to be this
- *     village's — so that the caller can say so and stay careful; its answer, if it had one, would say nothing of this
- *     village and is not returned.
- * A fact of the RECORD, read by what the record itself names; it is not tied to a button press, and no state of the
- * village is inferred from it. Limits: the page keeps the last ORDERS_MAX records in memory only; a record names no
- * site and no generation.
+ *     - otherwise the newest record of THIS turn (accepted, sent and failed, not sent).
+ *   `place: 'unknown'` — only when no 'tile' record speaks: a not-confirmed record of any turn, or one ACCEPTED this
+ *     turn. It is returned as a record of this province whose village is not known, for the caller to say exactly
+ *     that; a failed or unsent one says nothing worth a line and is not returned.
+ * A fact of the RECORD, read by what the record itself names; not tied to a button press; no state of the village is
+ * inferred from it. Limits: the page keeps the last ORDERS_MAX records in memory only; a record names no site and no
+ * generation.
  */
 export function latestVillageOrder(FS, h, match) {
   if (!h) return null;
   const turn = FS.nowBell ?? null, open = x => { const c = orderOutcome(x); return c === 'unknown' || c === 'held'; };
-  const all = (FS.orders ?? []).filter(x => ofContext(FS, x) && match(x)), here = all.filter(x => orderPlace(x, h, turn) === 'tile');
+  const all = (FS.orders ?? []).filter(x => ofContext(FS, x) && match(x)), here = all.filter(x => orderPlace(x, h) === 'tile');
   const o = here.find(open) ?? here.find(x => x.turn === turn) ?? null;
-  const far = o ? null : all.find(x => orderPlace(x, h, turn) === 'province' && open(x)) ?? null;
+  const loose = o ? [] : all.filter(x => orderPlace(x, h) === 'unknown');
+  const far = loose.find(open) ?? loose.find(x => x.turn === turn && orderOutcome(x) === 'accepted') ?? null;
   const pick = o ?? far, outcome = pick ? orderOutcome(pick) : null;
-  return outcome ? { order: pick, outcome, why: pick.why ?? (pick.code ? clientText(pick.code) : ''), turn: pick.turn ?? null, carried: pick.turn !== turn, place: o ? 'tile' : 'province' } : null;
+  return outcome ? { order: pick, outcome, why: pick.why ?? (pick.code ? clientText(pick.code) : ''), turn: pick.turn ?? null, carried: pick.turn !== turn, place: o ? 'tile' : 'unknown' } : null;
 }
 
 /** Whether the pure re-read of the village may be offered from here (the controller's own conditions for starting one). */

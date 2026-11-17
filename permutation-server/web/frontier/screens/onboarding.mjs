@@ -271,12 +271,15 @@ function scoutOrderNote(FS, h, kind) {
   const x = latestVillageOrder(FS, h, o => o.kind === kind && o.unit === SCOUT);
   if (!x) return null;
   const name = kind === 'train' ? L`斥候の訓練` : L`斥候隊の編成`;
-  // (corrected: an order given in this province from ANOTHER tile is not known to be this village's — another of the
-  //  viewer's villages may have given it. It is said as that, and only while its outcome is not confirmed; the guide
-  //  stays careful, and claims nothing of this village from it.)
+  // (corrected: a record whose village is NOT in it — every muster (its tile is where the host forms up, also when that
+  //  is this village's tile), and any order given from another tile of the province — is said as a record of this
+  //  province, with its outcome, and with "whether it is this village's is not in the record". The guide stays
+  //  careful and claims nothing of this village from it.)
   if (x.place !== 'tile') {
     return { outcome: x.outcome, again: false, place: x.place,
-      note: html`<p class="notice" role="status" data-guide-order="${x.outcome}" data-place="province">${L`この州で出した${name}の命令（ターン ${fmtNum(x.turn ?? 0)}）に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません（同じ州の、あなたの別の村の命令かもしれません）。`}</p>${
+      note: html`<p class="notice" role="status" data-guide-order="${x.outcome}" data-place="unknown">${x.outcome === 'accepted'
+        ? L`この州で、このターンに${name}の命令が受け付けられています。この村の命令かどうかは、記録からは分かりません。`
+        : L`この州で出した${name}の命令（ターン ${fmtNum(x.turn ?? 0)}）に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません。`}</p>${
         villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button>` : ''}` };
   }
   const why = x.why ? html` <span class="muted">${x.why}</span>` : '';
@@ -286,8 +289,8 @@ function scoutOrderNote(FS, h, kind) {
     : x.outcome === 'sentFailed' ? L`${name}は送信しましたが、成立しませんでした。` : L`${name}は、送られていません。`;
   const careful = x.outcome === 'accepted' || x.outcome === 'unknown';
   // (a not-confirmed order of an earlier turn: said with its turn and with what the record is — given from this
-  //  village's tile; the record names no generation, so a village founded anew here since is not told apart)
-  const earlier = x.carried && Number.isInteger(x.turn) ? L`（ターン ${fmtNum(x.turn)} に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、そのあとに村を建て直していた場合は、前の村の命令です。）` : '';
+  //  village's tile; the record names no generation, and nothing is claimed beyond the tile)
+  const earlier = x.carried && Number.isInteger(x.turn) ? L`（ターン ${fmtNum(x.turn)} に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、いまの村の命令であることまでは、記録からは分かりません。）` : '';
   return { outcome: x.outcome, again: !careful, place: 'tile',
     note: html`<p class="${x.outcome === 'accepted' ? 'home-status' : 'notice'}" role="status" data-guide-order="${x.outcome}" data-carried="${x.carried ? 1 : 0}" data-place="tile">${text}${earlier}${x.outcome === 'sentFailed' || x.outcome === 'notSent' ? why : ''}</p>${
       careful && villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button>` : ''}` };
