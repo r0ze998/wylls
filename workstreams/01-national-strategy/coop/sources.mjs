@@ -40,6 +40,27 @@ export async function sourceCandidates(reader, season, wallet) {
 }
 
 /**
+ * 計画に効く依頼の中身（2026-11-17）。板の view（goal.mjs coopView）の依頼のうち、planSend の答えと送ってよいかを決めるものだけ：
+ *   状態（stateNow）、依頼した人、世界（ctx）、届け先（to）、依頼量（need）、届け先の確かめ（destination.status）、
+ *   送る人の答え（answer・withdrawn・offer）。
+ * 計画を立てた時と、使う時（見込みを出す・確かめて署名を求める）で文字列が違えば、その計画は使わない。
+ * 中身で比べる（読み直しの度に作られる新しい物でも、中身が同じなら同じ）ので、ふつうの読み直しでは止めない。
+ * 前の送信（sendings・links）は、ここではなく既存の pending.mjs pendingSendOf で、使う時の依頼について見る。
+ */
+export function planBasisOf(q, who) {
+  if (!q) return null;
+  const amounts = o => (o && typeof o === 'object' ? Object.keys(o).sort().map(k => [k, o[k]]) : null);
+  const r = who ? q.responses?.[who] : null;
+  return JSON.stringify([
+    q.id, q.stateNow ?? null, q.requester ?? null,
+    q.ctx ? [q.ctx.programId ?? null, String(q.ctx.seasonId ?? '')] : null,
+    q.to ? [q.to.p, q.to.q, q.to.site, q.to.gen] : null,
+    amounts(q.need), q.destination?.status ?? null,
+    r ? [r.answer ?? null, !!r.withdrawn, amounts(r.offer)] : null,
+  ]);
+}
+
+/**
  * 送るときに planSend へ渡す送り元。
  *   pick：この送る人・世界・依頼について読んだ候補（{status, why, cands}。読んでいなければ null）、chosen：選んだ村の placeKey か null（最初の村）。
  * → {ok: true, source: {p, q, site} | null}（null は planSend の既定：Citizen の最初の村）か {ok: false, why}

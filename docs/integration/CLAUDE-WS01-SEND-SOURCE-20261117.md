@@ -1,6 +1,9 @@
 # ①'s board page: choose the village a caravan leaves from (2026-11-17)
 
-**Branch:** `claude/ws01-send-source-20261117`, one commit **on `0f843db5`** (the request-link unit's final tip, unchanged).
+**Branch:** `claude/ws01-send-source-20261117` **on `0f843db5`** (the request-link unit's final tip, unchanged).
+- `5c3d406d` is the first tip.
+- The correction (the second tip) is on top of it.
+- **Adopt the final tip only.**
 
 **Adoption:**
 - after `c296c41a..0f843db5`;
@@ -41,6 +44,21 @@
 - **Choosing or estimating accepts, signs and sends nothing.**
 - A page reload forgets the choice (back to the old default). What was sent keeps its source in the board's record.
 
+## Correction (second tip): the parent's review of `5c3d406d`
+
+**Do not adopt `5c3d406d` alone.**
+
+- **The gap:** the choice's key is sender | program | Season | request **id**. After `planSend`'s reads, `sendOnce` only checked that a request with that id was still in the view, and `previewSource` did not look at the request at all.
+- **The effect:** the page re-reads every 4 s. If the same request changed meanwhile, a plan made from the old request and the old answer could still reach the confirm, and an old estimate stayed on screen. Changes that matter: expired or cancelled, another destination (`to`) or generation, another need, the destination check now `unknown` or `mismatch`, another world (`ctx`), or the sender's own answer withdrawn, declined or with another offer.
+- **The fix:**
+  - **What is compared:** `sources.mjs` `planBasisOf(q, who)` covers only what a plan depends on: `stateNow`, `requester`, `ctx`, `to`, `need`, `destination.status`, and the sender's own `answer`, `withdrawn` and `offer`. It compares by content, so a new object with the same content is the same.
+  - **Not compared:** fulfilment, arrivals, other responders, or the reason text.
+  - **Send:** the content is taken before `planSend`, from the request shown when the button was pressed. After the plan is read, and before the confirm, it is compared with the re-read request. If it differs: "この計画では送らない。読み直した表示で確かめて、もう一度押してください".
+  - **Earlier sends:** if the re-read shows an earlier send of this sender to this request (unknown, or landed but unlinked; `pending.mjs` `pendingSendOf`, unchanged), the page does not send and says why. The existing check before the plan stays.
+  - **Preview:** the estimate carries the content it was made for. It is not stored if the request changed while it was read, and it is shown only while the shown request has the same content.
+- **Normal re-reads don't block:** an unchanged re-read, a fulfilment or arrival update, or another player's answer keeps the plan usable (not compared by object identity).
+- **Unchanged:** signing, authorization, re-sends, and `planSend`'s owner, cargo and path checks.
+
 ## Regression (written, NOT run): `workstreams/01-national-strategy/test/coop.send-source.test.mjs` (new)
 
 - **The candidates** on a fake chain (`coop-chain.mjs`): two villages of the sender, one now owned by someone else, one with no account. Owner labels `mine`, `mine`, `other`, `unverified`.
@@ -67,11 +85,22 @@
   - the source of an earlier send shown;
   - the chosen style and its text marker.
 
+- **(second tip) `planBasisOf`:**
+  - the same content, or another key order: equal;
+  - fulfilment, arrivals, sendings, links, the reason text or another player's answer: equal;
+  - state, requester, world, destination or generation, need, destination check, or the sender's withdrawal, offer or answer: different;
+  - a request gone: never equal.
+- **(second tip) the page:**
+  - the content is taken before the plan and compared after it, before the confirm;
+  - an earlier send seen on the re-read stops the send;
+  - the preview carries and checks the content;
+  - no object-identity comparison.
+
 The ① browser tests (`coop.browser.mjs`, `coop.browser.nokey.mjs`) are **not run**. They click `[data-testid=send]` and read the confirm's estimate. Both are kept; the confirm only gained the site.
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws01-send-source-20261117`, one commit on `0f843db5`, all `100644`:
+**Unit:** `claude/ws01-send-source-20261117`, two commits on `0f843db5` (`5c3d406d`, then the correction). Take the final tip's diff from `0f843db5`, all `100644`:
 - `workstreams/01-national-strategy/coop/sources.mjs` (A)
 - `workstreams/01-national-strategy/coop/coop-ui.mjs` (M)
 - `workstreams/01-national-strategy/coop/index.html` (M)

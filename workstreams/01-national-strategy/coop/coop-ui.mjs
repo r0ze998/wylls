@@ -11,7 +11,7 @@ import { parseTransaction } from '../../../permutation-server/web/sdk/solana-tx.
 import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
 import { planSend, sendPlanned } from './send.mjs';
 import { rpcReader, sendOutcome } from './chain.mjs';
-import { sourceCandidates, sourceToUse, placeKey } from './sources.mjs';
+import { sourceCandidates, sourceToUse, placeKey, planBasisOf } from './sources.mjs';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -371,7 +371,8 @@ function srcPickHtml(q) {
   const cands = pick.status === 'ok' ? pick.cands.map(c => `<button data-act="src" data-id="${id}" data-src="${esc(placeKey(c))}" data-owner="${esc(c.owner)}" data-testid="src-cand"${on(placeKey(c))}${c.owner === 'other' || busy ? ' disabled' : ''}>(${esc(c.p)},${esc(c.q)}) 村${esc(c.site)}${c.gen === null ? '' : `・世代 ${esc(c.gen)}`}：${esc(OWNER_JA[c.owner])}${c.why ? `（${esc(c.why)}）` : ''}${mark(placeKey(c))}</button>`).join('') : '';
   const lost = pick.status === 'ok' && pick.chosen !== null && !pick.cands.some(c => placeKey(c) === pick.chosen)
     ? `<span class="warn" data-testid="src-lost">選んでいた村 (${esc(pick.chosen)}) は、読み直した候補にない。選び直してください（最初の村に替えては送らない）</span>` : '';
-  const pv = pick.preview && pick.preview.chosen === pick.chosen ? pick.preview : null;
+  // 見込みは、同じ選択で、同じ依頼の中身（planBasisOf）のときだけ出す（読み直しで依頼・答えが変わったら古い見込みを出さない）
+  const pv = pick.preview && pick.preview.chosen === pick.chosen && pick.preview.basis === planBasisOf(q, signer?.address) ? pick.preview : null;
   return `<div class="src-pick" data-testid="src-pick">
     <div class="row"><span>送り元の村：</span><button data-act="src" data-id="${id}" data-src="" data-testid="src-first"${on(null)}${busy}>Citizen の最初の村（これまでどおり）${mark(null)}</button>${cands}</div>
     <div class="row">${state}${lost}<button data-act="src-load" data-id="${id}" data-testid="src-load"${busy}>候補を読み直す</button><button data-act="src-preview" data-id="${id}" data-testid="src-preview"${busy || pick.status === 'loading' ? ' disabled' : ''}>この送り元で見込みを出す（署名しない）</button></div>
@@ -413,15 +414,17 @@ async function previewSource(q) {
   if (!use.ok) return say(use.why, 'warn');
   const resp = q.responses[signer.address];
   if (!resp?.offer) return say('この依頼に応じた量が見えない。読み直した表示で確かめてください', 'warn');
-  const seq = ++srcSeq, chosenAt = pick.chosen;
+  const seq = ++srcSeq, chosenAt = pick.chosen, basis = planBasisOf(q, signer.address);
   pick.previewSeq = seq;
-  pick.preview = { chosen: chosenAt, status: 'loading', text: '見込みをチェーンから読んでいる…' };
+  pick.preview = { chosen: chosenAt, basis, status: 'loading', text: '見込みをチェーンから読んでいる…' };
   renderRequests();
   let plan;
   try { plan = await planSend({ reader: rpcReader('/coop/rpc'), season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source }); }
   catch (e) { plan = { ok: false, why: `チェーンを読めない：${e.message ?? e}` }; }
   if (srcPicks.get(key) !== pick || pick.previewSeq !== seq || pick.chosen !== chosenAt || srcKey(q) !== key || W.connected()?.address !== c.address) return;
-  pick.preview = { chosen: chosenAt, status: plan.ok ? 'ok' : 'failed',
+  // 読んでいる間に、依頼の中身（状態・届け先・量・世界・自分の答え）が変わったら、古い依頼で立てた見込みは出さない
+  if (planBasisOf(view?.requests.find(x => x.id === q.id), signer?.address) !== basis) { pick.preview = null; renderRequests(); return say('見込みを読んでいる間に依頼か自分の答えが変わった。もう一度見込みを出してください', 'warn'); }
+  pick.preview = { chosen: chosenAt, basis, status: plan.ok ? 'ok' : 'failed',
     text: plan.ok ? `見込み（送るときに読み直す）：送り元 (${plan.src.p},${plan.src.q}) 村${plan.src.site}・道 ${plan.plan.dirs.length} マス・隊商 #${plan.fields.seq}・手数料 ${plan.fields.fee}（ゲームの隊商と同じ）。${estText(plan)}`
       : `この送り元からは送れない（見込み）：${plan.why}` };
   renderRequests();
@@ -436,15 +439,22 @@ async function sendOnce(q) {
   const resp = q.responses[signer.address];
   // （2026-11-17、送り元）選んだ送り元（選んでいなければ null：これまでどおり Citizen の最初の村）。使えない選択なら送らない（黙って替えない）
   const key = srcKey(q), pick = srcPicks.get(key) ?? null, chosenAt = pick ? pick.chosen : null;
+  const basis = planBasisOf(q, signer.address);   // 計画に効く依頼の中身（押した時の表示）
   const use = sourceToUse(pick, chosenAt);
   if (!use.ok) return say(`送れない：${use.why}`, 'warn');
   const reader = rpcReader('/coop/rpc');
   say('送り元・道・番号をチェーンから読んでいます…');
   const plan = await planSend({ reader, season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source });
   // 計画を読んでいる間に、送る人・依頼・送り元の選択が変わったら、この計画は使わない（新しい選択に古い計画を当てない）
-  const pickNow = srcPicks.get(key) ?? null;
-  if (srcKey(q) !== key || W.connected()?.address !== c.address || pickNow !== pick || (pickNow ? pickNow.chosen : null) !== chosenAt || !view?.requests.some(x => x.id === q.id))
+  const pickNow = srcPicks.get(key) ?? null, qNow = view?.requests.find(x => x.id === q.id) ?? null;
+  if (srcKey(q) !== key || W.connected()?.address !== c.address || pickNow !== pick || (pickNow ? pickNow.chosen : null) !== chosenAt || !qNow)
     return say('計画を読んでいる間に、送る人・依頼・送り元の選択が変わった。この計画では送らない。もう一度押してください', 'warn');
+  // （2026-11-17）読み直した依頼の中身が、計画を立てた時と違えば（状態・届け先・量・世界・届け先の確かめ・自分の答え）、古い計画は使わない。
+  // 中身で比べるので、変わっていない読み直しでは止めない
+  if (planBasisOf(qNow, signer.address) !== basis)
+    return say('計画を読んでいる間に、依頼か自分の答えが変わった（状態・届け先・量・答えなど）。この計画では送らない。読み直した表示で確かめて、もう一度押してください', 'warn');
+  // 読み直しで、この依頼への自分の前の送信（結果が分からない・着地して結び付けていない）が見えたら、既存の決まりどおり次は送らない
+  if (blocking(qNow)) return say(`送らない：${blocking(qNow).why}。読み直した表示のボタンで確かめてください`, 'warn');
   if (!plan.ok) return say(`送れない：${plan.why}`, 'bad');
   if (use.source && placeKey(plan.src) !== placeKey(use.source)) return say('計画の送り元が、選んだ村と違う。送らない', 'bad');
   // 送る前の見込み（判定ではない）

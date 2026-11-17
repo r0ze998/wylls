@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fixedSigner } from './nokey.mjs';
 import { planSend } from '../coop/send.mjs';
-import { sourceCandidates, sourceToUse, placeKey } from '../coop/sources.mjs';
+import { sourceCandidates, sourceToUse, placeKey, planBasisOf } from '../coop/sources.mjs';
 import { fakeChain } from './coop-chain.mjs';
 import { encode as b58 } from '../../../permutation-server/web/sdk/base58.mjs';
 
@@ -119,7 +119,7 @@ test('the page: an old read, preview or plan is never applied to a new choice, s
   assert.ok(s.indexOf("if (b?.kind === 'unknown') return followSend(q, b.sending);") < s.indexOf('sourceToUse('), 'an unknown earlier send is followed first, whatever the source');
   assert.match(s, /const plan = await planSend\(\{ reader, season: cfg\.season, wallet: c\.address, request: q, cargo: resp\.offer, source: use\.source \}\);/);
   assert.ok(s.indexOf('この計画では送らない') < s.indexOf('confirm('), 'checked before asking to sign');
-  assert.match(s, /pickNow !== pick \|\| \(pickNow \? pickNow\.chosen : null\) !== chosenAt \|\| !view\?\.requests\.some\(x => x\.id === q\.id\)/);
+  assert.match(s, /pickNow !== pick \|\| \(pickNow \? pickNow\.chosen : null\) !== chosenAt \|\| !qNow\)/);
   assert.match(s, /if \(use\.source && placeKey\(plan\.src\) !== placeKey\(use\.source\)\) return say\(/);
   // the confirm text keeps its estimate (coop.browser.mjs reads it) and now names the village site
   assert.match(s, /const est = estText\(plan\);/);
@@ -134,4 +134,51 @@ test('the page: unread is said as unread; a lost choice is said and not swapped;
   assert.match(ui, /data-testid="pending-src">送り元 \(/);
   assert.match(page, /\.src-pick button\[aria-pressed="true"\] \{ border-color: var\(--ink\); background: #efe6cc; font-weight: 600; \}/);
   assert.match(h, /（選択中）/, 'not by colour alone');
+});
+
+// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN) a plan is used only for the request content it was made for
+const Q = (o = {}) => ({
+  id: 'r1', stateNow: 'open', requester: 'A', ctx: { programId: 'P', seasonId: '90' }, to: { kind: 'holding', p: 3, q: 0, site: 2, gen: 1 },
+  need: { wood: 200, stone: 200 }, destination: { status: 'verified', why: 'x' },
+  responses: { B: { answer: 'accept', withdrawn: false, offer: { wood: 120 } }, C: { answer: 'decline' } },
+  fulfilment: { status: 'none' }, arrivals: [], sendings: [], links: [], ...o,
+});
+
+test('planBasisOf: the same content is the same (a normal re-read never blocks); what a plan depends on changes it', () => {
+  const base = planBasisOf(Q(), 'B');
+  assert.equal(planBasisOf(Q(), 'B'), base, 'a new object with the same content');
+  assert.equal(planBasisOf(Q({ need: { stone: 200, wood: 200 } }), 'B'), base, 'key order does not matter');
+  for (const o of [{ fulfilment: { status: 'undetermined' } }, { arrivals: [{}] }, { sendings: [{}] }, { links: [{}] },
+    { destination: { status: 'verified', why: 'another reason' } },
+    { responses: { B: { answer: 'accept', withdrawn: false, offer: { wood: 120 } }, C: { answer: 'accept', offer: { wood: 1 } } } }]) {
+    assert.equal(planBasisOf(Q(o), 'B'), base, `not part of the plan: ${JSON.stringify(o)}`);
+  }
+  const changed = [
+    { stateNow: 'expired' }, { stateNow: 'cancelled' }, { requester: 'Z' },
+    { ctx: { programId: 'P', seasonId: '91' } }, { ctx: { programId: 'Q', seasonId: '90' } },
+    { to: { kind: 'holding', p: 3, q: 0, site: 2, gen: 2 } }, { to: { kind: 'holding', p: 3, q: 0, site: 3, gen: 1 } },
+    { need: { wood: 150, stone: 200 } }, { destination: { status: 'unknown', why: 'x' } }, { destination: { status: 'mismatch', why: 'x' } },
+    { responses: { B: { answer: 'accept', withdrawn: true, offer: { wood: 120 } } } },
+    { responses: { B: { answer: 'accept', withdrawn: false, offer: { wood: 100 } } } },
+    { responses: { B: { answer: 'decline' } } }, { responses: {} },
+  ];
+  for (const o of changed) assert.notEqual(planBasisOf(Q(o), 'B'), base, `part of the plan: ${JSON.stringify(o)}`);
+  assert.equal(planBasisOf(null, 'B'), null, 'a request gone is never equal to one present');
+});
+
+test('the page: send and preview compare the request content after their reads; a newly visible earlier send still stops the send', () => {
+  const s = between('async function sendOnce(', '\n}\n');
+  const at = t => { const i = s.indexOf(t); assert.ok(i >= 0, t); return i; };
+  assert.ok(at('const basis = planBasisOf(q, signer.address);') < at('await planSend('), 'taken from the shown request before the plan');
+  assert.ok(at('await planSend(') < at('if (planBasisOf(qNow, signer.address) !== basis)'), 'compared after the plan');
+  assert.ok(at('if (planBasisOf(qNow, signer.address) !== basis)') < at('confirm('), 'before asking to sign');
+  assert.ok(at('if (blocking(qNow)) return say(') < at('confirm('), 'an earlier send seen on the re-read stops it (pending.mjs, unchanged)');
+  assert.ok(at("if (b?.kind === 'unknown') return followSend(q, b.sending);") < at('await planSend('), 'and the existing check before the plan stays');
+  const v = between('async function previewSource(', '\n}\n');
+  assert.match(v, /const seq = \+\+srcSeq, chosenAt = pick\.chosen, basis = planBasisOf\(q, signer\.address\);/);
+  assert.ok(v.indexOf('await planSend(') < v.indexOf("if (planBasisOf(view?.requests.find(x => x.id === q.id), signer?.address) !== basis)"));
+  assert.match(v, /pick\.preview = \{ chosen: chosenAt, basis, status: plan\.ok \? 'ok' : 'failed',/);
+  assert.match(between('function srcPickHtml(', '\n}\n'), /pick\.preview\.chosen === pick\.chosen && pick\.preview\.basis === planBasisOf\(q, signer\?\.address\)/);
+  // compared by content, never by object identity (a normal 4-second re-read makes new objects)
+  assert.doesNotMatch(s, /qNow !== q\b|qNow === q\b/);
 });
