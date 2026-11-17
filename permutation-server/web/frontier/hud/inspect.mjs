@@ -10,7 +10,7 @@ import { icon } from './icons.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName, unitCount } from '../fi18n.mjs';
-import { UNIT_ORDER } from '../fland.mjs';
+import { UNIT_ORDER, hostsIn } from '../fland.mjs';
 import { miniCardUrl } from '../people/minis.mjs';
 import { ringOf } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
@@ -150,7 +150,21 @@ export function placeAt(FS, place, terrainOf = null) {
 
 /** The viewer's hosts standing on a tile and able to march (state 1, not on the road): `[{id, troops, unit}]` (`unit` the kernel's name). */
 export function ownHostsOn(FS, p, q, idx) {
-  try { return hostRows(FS).filter(r => r.p === p && r.q === q && r.tile === idx && r.state === 1 && !r.inTransit && !r.pending).map(r => ({ id: String(r.id), troops: r.troops, unit: UNIT_ORDER[r.unit] ?? null })); } catch { return []; }
+  try {
+    const out = hostRows(FS).filter(r => r.p === p && r.q === q && r.tile === idx && r.state === 1 && !r.inTransit && !r.pending).map(r => ({ id: String(r.id), troops: r.troops, unit: UNIT_ORDER[r.unit] ?? null, holdingIndex: FS.activeHolding ?? 0, other: false }));
+    // (2026-11-17, ⑦ the march's entry: the hosts of the viewer's OTHER villages standing here too — hostRows reads the
+    //  open village only, and the card showed such a host with no way to send it. `other`: its village is not the open
+    //  one; the march's entry switches to it — controller ACTIONS.compose)
+    const prov = FS.provinces?.get?.(`${p},${q}`)?.province ?? null;
+    (FS.holdings ?? []).forEach((h, i) => {
+      if (!prov || !h || i === (FS.activeHolding ?? 0)) return;
+      for (const r of hostsIn(prov, h, FS.nowBell ?? 0)) {
+        if (r.tile !== idx || r.state !== 1 || r.inTransit || r.pending || out.some(x => x.id === String(r.id))) continue;
+        out.push({ id: String(r.id), troops: r.troops, unit: UNIT_ORDER[r.unit] ?? null, holdingIndex: i, other: true });
+      }
+    });
+    return out;
+  } catch { return []; }
 }
 
 /**
@@ -190,7 +204,8 @@ export function inspectActions(FS, m) {
   if (t?.site?.mine) out.push({ act: 'holding-pick', data: { i: t.site.holdingIndex }, text: L`この村を開く`, primary: true });
   if (FS.compose && t && !FS.compose.sending) out.push({ act: 'dest-from-map', data: {}, text: L`ここを進軍の行き先にする`, primary: true });
   // the viewer's own ready hosts on this tile can be sent from here (the march card then opens on the map)
-  if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: L`${unitCount(h.unit, h.troops)} を進軍させる`, primary: true });
+  // (a host of another of the viewer's villages says so: pressing it opens the march from that village)
+  if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: h.other ? L`${unitCount(h.unit, h.troops)} を進軍させる（別の村の軍勢：その村から出します）` : L`${unitCount(h.unit, h.troops)} を進軍させる`, primary: true });
   // no site picking from the map (owner decision V2: the first village is placed automatically)
   if (m.reportBell) out.push({ act: 'battle-play', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`戦いを再生` });
   if (m.reportBell) out.push({ act: 'report-open', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`ターン ${fmtNum(m.reportBell)} の衝突の報告` });

@@ -1681,4 +1681,6 @@ export default {
   'もう一度読み込む': 'Load again',
   'この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。': 'This province has not been loaded yet. This does not mean the province is empty.',
   'この州の読み込みは、順番を待っています。空きしだい読み込みます。': 'Loading this province is waiting its turn. It will be loaded as soon as there is room.',
+  // (2026-11-17, Lane C ⑦ the march's entry from the inspector's card)
+  '{0} を進軍させる（別の村の軍勢：その村から出します）': 'March the {0} (a host of another of your villages: it leaves from that village)',
 };
