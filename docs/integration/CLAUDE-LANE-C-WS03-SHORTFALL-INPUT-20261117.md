@@ -107,3 +107,60 @@ Inputs as JSON delivers them (`JSON.parse` of `tools/call` arguments), against t
   - `workstreams/03-composability/mcp/src/game.mjs` (M, `Game.shortfall` `amounts` branch only);
   - `workstreams/03-composability/mcp/test/shortfall-input.test.mjs` (A, not run, not independent: see above);
   - `docs/integration/CLAUDE-LANE-C-WS03-SHORTFALL-INPUT-20261117.md` (A).
+
+## The input schema now says what the runtime already does: `amounts` is required for `kind: "amounts"` (2026-11-17; nothing run)
+
+**The mismatch (pre-existing item 2 above).** `check_resource_shortfall`'s `goal` schema required only `kind`, so `{"kind":"amounts"}` was schema-valid. But `Game.shortfall` refuses it ("goal must be …"), before and after `ad1922e0`. The schema is aligned to the runtime; the runtime is not changed.
+
+**The change** (`workstreams/03-composability/mcp/src/tools.mjs`, the `check_resource_shortfall` `inputSchema` only; sha256 `ad6aed30…37bd67c4`). One `anyOf` on `goal`, written with the `enum` keyword the file already uses (no `const`, `if` or `oneOf`):
+
+```js
+anyOf: [{ properties: { kind: { enum: ['vault'] } } }, { properties: { kind: { enum: ['amounts'] } }, required: ['amounts'] }]
+```
+
+- `kind: "vault"` requires nothing more, and an extra `amounts` on it stays allowed, as before.
+- `kind: "amounts"` requires `amounts`.
+- **Unchanged:**
+  - `goal`'s `required: ['kind']`, its `kind` enum, `additionalProperties: false` and `amounts: cargoSchema`;
+  - `cargoSchema` itself (the 8 resources, integers 0..1000000);
+  - the description and the other tools;
+  - `game.mjs` and `server.mjs` (`tools/call` still does not check schemas), sending and permissions;
+  - the legacy `Horses`/`Arms` question, which is undecided.
+
+**One-time falsification (by hand, JSON Schema semantics; nothing run).**
+
+| `goal` | Before | After | Runtime (`Game.shortfall`) |
+|---|---|---|---|
+| `{"kind":"vault"}` | Valid | Valid (branch 1) | Accepted |
+| `{"kind":"vault","amounts":{"Stone":1}}` | Valid | Valid (branch 1; `amounts` still a declared property) | Accepted; `amounts` ignored (unchanged) |
+| `{"kind":"amounts","amounts":{"Stone":300}}` | Valid | Valid (branch 2) | Accepted |
+| `{"kind":"amounts","amounts":{}}` | Valid | Valid (branch 2) | Accepted: no rows, `enough: true` |
+| `{"kind":"amounts"}` | **Valid** | **Invalid** (branch 1: kind is not vault; branch 2: amounts missing) | Refused (`BadRequest`). Schema and runtime now agree |
+| `{"kind":"other"}` or `{}` | Invalid | Invalid (`enum`, `required`) | Refused |
+| `{"kind":"vault","x":1}` | Invalid | Invalid (`additionalProperties` sees only the sibling `properties`, so the `anyOf` branches neither widen nor narrow it) | Accepted at runtime (not checked); unchanged |
+
+- **Compatibility:**
+  - Every input the runtime accepts is still schema-valid.
+  - The only input that became schema-invalid is one the runtime already refused.
+  - A client that checks schemas before calling now learns this before the call, not from the error.
+- **Who reads the schema:** only `server.mjs` `tools/list` serves this `TOOLS`. The `permutation-gateway` `TOOLS` are a different file. `test/instructions-flow.test.mjs` and `test/shortfall-coverage.test.mjs` match `tools.mjs` text that is unchanged: `SERVER_INSTRUCTIONS`, the descriptions and the storehouse-coverage sentence.
+
+**Regression** (`workstreams/03-composability/mcp/test/shortfall-schema.test.mjs`, sha256 `f0953ea3…430c5ed5`, written, not run).
+- It is **key-free by the existing convention:** it imports only `node:test`, `node:assert/strict` and `node:fs`, and reads `tools.mjs` as text without importing it (as `instructions-flow.test.mjs` does, since `tools.mjs` imports `auth.mjs`).
+- It does not reach `game.mjs` or any `permutation-server/web/frontier` file, so it does not touch the refused tests' subjects.
+- It needs no key-list entry. The lists are unchanged.
+- **S1:** exactly one `anyOf`, with the two branches as written, and `required: ['amounts']` only once.
+- **S2:** the rest of the `goal` schema and `cargoSchema` are unchanged.
+- **Limit:** it is a source-text check. It does not evaluate JSON Schema.
+- Candidate command (for the coordinator; not run): `node --test workstreams/03-composability/mcp/test/shortfall-schema.test.mjs`.
+
+## Hand-over to D (updated; the aggregate is not changed here)
+
+- **Base:** `claude/aggregate-approved-20261117` at `3780614871f80f73d481af61264f9cb5dbd46768`.
+- **Branch:** `claude/lane-c-ws03-shortfall-input-20261117`. The code commits are `ad1922e0` (`game.mjs` input check) and the next commit (`tools.mjs` schema); the tip is the latest report commit.
+- **Five paths against the base:**
+  - `mcp/src/game.mjs` (M);
+  - `mcp/src/tools.mjs` (M);
+  - `mcp/test/shortfall-input.test.mjs` (A; not independent: imports `game.mjs`);
+  - `mcp/test/shortfall-schema.test.mjs` (A; key-free text check);
+  - this report (A).

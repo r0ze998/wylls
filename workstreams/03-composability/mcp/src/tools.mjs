@@ -37,7 +37,9 @@ export const TOOLS = Object.freeze([
     description: 'What the village lacks for a goal: a storehouse ({"kind":"vault"}) or explicit amounts ({"kind":"amounts","amounts":{"Stone":300}}). Returns need, have, short, the hours production would take, and which of the owner\'s storehouses hold the short resources; storehouseCoverage says whether the storehouses were read (complete), partly (partial: storehousesUnknown lists those whose stores are not known) or not at all (unavailable) — an empty storehouseSources means none can help only when complete. No change.',
     inputSchema: {
       type: 'object', additionalProperties: false, required: ['goal'],
-      properties: { goal: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { type: 'string', enum: ['vault', 'amounts'] }, amounts: cargoSchema } } },
+      // amounts is required when kind is "amounts" (Game.shortfall refuses that goal without it); not for "vault" (2026-11-17)
+      properties: { goal: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { type: 'string', enum: ['vault', 'amounts'] }, amounts: cargoSchema },
+        anyOf: [{ properties: { kind: { enum: ['vault'] } } }, { properties: { kind: { enum: ['amounts'] } }, required: ['amounts'] }] } },
     },
     annotations: { ...read, title: 'Resource shortfall' },
     securitySchemes: oauth([SCOPES.READ]),
