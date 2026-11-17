@@ -1,24 +1,107 @@
-# Cooperation board read adapter (read-only, opt-in, not wired)
+# Cooperation board read adapter (read-only, opt-in)
 
 `src/coop-read-adapter.mjs` reads one workstream 01 cooperation board
 (`workstreams/01-national-strategy/coop/board.mjs`) for one authenticated owner. It returns a fixed, safe
 projection. It is **dependency-free** and uses the **fetch the caller passes in**.
 
+Since 2026-11-17 UTC it is wired into the MCP server as the opt-in tool `get_cooperation_status`, which is **off by
+default** (see "MCP wiring" below).
+
 ## Status: be honest about what this is
 
-- **Not integrated.** No MCP tool is registered. `src/tools.mjs`, the scopes in `src/auth.mjs`, the HTTP server
-  and the bin are unchanged. No live MCP support exists. A future authenticated MCP integration can call the
-  exported factory and `read()`. That integration (tool entry, schema, wiring the principal and the current world
-  from the server's own state, deployment config) is separate work and has not been done.
-- **Independently verified after CLI completion (2026-11-17 UTC): 34/34 tests passed.** The coordinator ran
-  `node --test workstreams/03-composability/mcp/test/coop-read-adapter.test.mjs` against the completed output.
-  The suite uses fake fetch, fake streamed bodies and fake timers only. Both JS files also passed `node --check`.
-  This is unit evidence, not real-board, MCP-client or game-world integration evidence.
+- **Wired in code, off by default; fixture integration verified.** `src/server.mjs`, `src/tools.mjs`, `bin/wylls-mcp.mjs` and the new
+  `bin/coop-read-settings.mjs` connect the adapter to the server's existing dispatch. No real server has been started
+  with it on, and no real env or settings were changed. Nothing was tried against a real board, MCP client or game
+  world. The CLI is still the local test stack only (`WYLLS_MCP_TEST_AS=1`).
+- **Two test suites, with different evidence:**
+  - `test/coop-read-adapter.test.mjs` (the adapter unit suite): **independently verified, 34/34 passed**
+    (coordinator, 2026-11-17 UTC). It uses fake fetch, fake streamed bodies and fake timers only. Both JS files
+    also passed `node --check`. This is unit evidence, not real-board, MCP-client or game-world evidence.
+  - `test/coop-read-integration.test.mjs` (the new wiring suite): **independently verified, 26/26 passed**
+    (coordinator, 2026-11-17 UTC), including the real HTTP handler with fake request/response streams.
+    No live socket, real OAuth flow, MCP client or game-world deployment was exercised.
 - **Not a permission source.** The adapter grants nothing. It cannot make `send_caravan` accept another owner's
   place. It derives no recipient or target list, score, selection, role or send authority.
-- **Assumed principal shape:** `{owner, scopes}`. Check this against the server's real authenticated principal
-  when you integrate. The adapter does not import `auth.mjs`, because its imports reach the gateway, so
-  `COOP_READ_SCOPE` (`'wylls.read'`) restates `SCOPES.READ`.
+- **Principal shape:** `{owner, scopes}`. The server passes only these two fields of its authenticated principal.
+  The adapter does not import `auth.mjs`, because its imports reach the gateway, so `COOP_READ_SCOPE`
+  (`'wylls.read'`) restates `SCOPES.READ`.
+
+## MCP wiring (get_cooperation_status)
+
+### Configuration (`bin/coop-read-settings.mjs`, pure, checked before start-up)
+
+| env | meaning |
+|---|---|
+| `WYLLS_MCP_COOP_PUBLIC_BOARD=1` | Explicit opt-in: this specific board's `/coop/*` is meant to be public. Unset or empty means **off** (the default). Any other value is an error. |
+| `WYLLS_MCP_COOP_BOARD=<url>` | The board's base URL: http(s), no user, password, query, fragment or surrounding spaces, and an optional plain path prefix. Required when on. |
+| `WYLLS_MCP_COOP_CLUSTER=<cluster>` | The cluster the board must report (`/^[a-z][a-z0-9-]{0,31}$/`). Required when on, with **no default**. |
+
+- Setting the board or the cluster without the opt-in is an error, not a silent off.
+- Errors name the setting and the rule, never its value.
+- `bin/wylls-mcp.mjs` exits with code 2 on a settings error before it opens the store, relay or anything else.
+- When the read is on, the bin builds the adapter with `publicViewConfirmed: true`, the configured base and the
+  process fetch, then passes `coopRead: {adapter, cluster}` to `createWyllsMcp`. It logs `cooperation board read:
+  on (<origin>, cluster <c>; …)` or `cooperation board read: off`.
+
+### Server (`src/server.mjs`, `src/tools.mjs`)
+
+- **New option:** `createWyllsMcp({ …, coopRead = null })`.
+  - `null`, `undefined`, or an adapter with `enabled: false` means off.
+  - On means `{adapter, cluster}`: an enabled adapter (from `createCoopReadAdapter`) plus a valid cluster.
+  - Any other shape throws `TypeError` (a deployment error, never a quiet off).
+- **Visibility agrees with enablement:**
+  - Off: `tools/list` answers exactly the existing `TOOLS`. `tools/call get_cooperation_status` is the existing
+    unknown-tool error (-32602). Nothing is fetched and `game.context()` is not called.
+  - On: `tools/list` answers `[...TOOLS, COOP_TOOL]`. `COOP_TOOL` is exported from `tools.mjs` but is not part of
+    `TOOLS`, so the existing list and its consumers are unchanged.
+- **Same dispatch as every tool:** the own-name lookup, the `Unauthenticated` refusal, the per-connection rate limit
+  (30 burst, 1/s), and InternalError on a throw. No existing tool, scope, grant, auth flow, store record or write
+  path changed.
+- **One deliberate dispatch difference (review fix, 2026-11-18):** `tools/call` runs `archiveFinished()` (which may
+  move old finished operations to the archive and save the store) after every tool. It now skips that sweep **only**
+  for `get_cooperation_status`, whatever the outcome (ok or any refusal). So the tool really stores nothing locally.
+  Every other tool keeps the sweep exactly as before.
+- **The tool:**
+  - Input schema: `{type: 'object', properties: {}, additionalProperties: false}`.
+  - Security: `oauth2` with `wylls.read`.
+  - Annotations: `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`
+    (it reaches a separate public board).
+  - The description says: the board's GET may refresh and save the board's own observation cache; this server
+    stores nothing; there is no recipient or target list, score, role or send authority; listed entries are not
+    arrivals.
+- **Per call:**
+  1. Check `wylls.read`. Without it the answer is the existing `InsufficientScope` step-up error.
+  2. Accept only empty arguments (`{}`, or omitted). Anything else (viewer, owner, world, url, an array) is
+     `BadRequest`.
+  3. Read `game.context()` and require `{programId, seasonId}` consistent with its `key`. If it can't be read, the
+     answer is `ContextUnavailable` (retryable).
+  4. Call `adapter.read({principal: {owner, scopes}, context: {programId, seasonId, cluster: <configured>}})`. The
+     viewer is always the authenticated owner. The world is always the server's current context plus the
+     configured cluster. The caller chooses neither.
+  5. Read `game.context()` again. If it is now another world, or can't be read, the answer is `ContextChanged`
+     (retryable) and nothing is shown.
+  6. On `ok`, the adapter's result is the tool result (`structuredContent` plus the same JSON as text). Otherwise
+     it is an error with the adapter's result in `error.cooperation` (`nation`/`mine` are null) and this code:
+
+| adapter status | tool error code | retryable |
+|---|---|---|
+| `unavailable` | `CoopBoardUnavailable` | yes |
+| `changed` | `CoopBoardChanged` | yes |
+| `mismatch` (world, cluster or owner) | `CoopBoardMismatch` | no |
+| `unsupported` | `CoopBoardUnsupported` | no |
+| `damaged` | `CoopBoardDamaged` | no |
+| `malformed` | `CoopBoardMalformed` | no |
+| `refused` | `CoopReadRefused` | no |
+| `disabled` | `CoopReadDisabled` | no |
+
+### What the wiring does not do
+
+- It adds no scope, grant, credential, signature or persisted record, and changes no authorization semantics.
+- The result is not a permission source. `send_caravan` still accepts only the owner's own places.
+- It does not make the board authenticated. `viewer` is still display context on a public board, and the owner
+  binding rests on this server's OAuth principal.
+- `SERVER_INSTRUCTIONS` is unchanged, so it does not mention the tool. The tool's own description carries the
+  rules.
 
 ## API
 
@@ -135,9 +218,45 @@ not verified), `disabled`, `refused` and the failure statuses.
   paths, store segment paths, `joint`, `rejected`, `sendings`, and caravan ids.
 - An object `fulfilment` without a recognisable `status` word becomes `null` (not known), not an error.
 
-## Tests (34/34 independently passed)
+## Tests
 
-`test/coop-read-adapter.test.mjs` covers:
+### Integration suite: `test/coop-read-integration.test.mjs` (26/26 independently passed)
+
+It uses the real `createWyllsMcp(...).handle`, the real adapter and the real settings module. The principal, game
+(`context`/`view`), store, auth stub and fetch are fixtures with fake streamed bodies and idle fake timers. There are
+no keys, signatures, network, child processes or filesystem writes. It covers:
+
+- settings: off by default, explicit opt-in, half or bad configurations, and errors that don't echo values;
+- off: an unchanged `tools/list`, the tool unknown, zero fetches (both with no `coopRead` and with a disabled
+  adapter);
+- a malformed `coopRead` throws;
+- on: discovery is `TOOLS` plus the honestly annotated tool;
+- refused before any fetch: unauthenticated calls, a missing `wylls.read` (step-up), any argument;
+- the exact viewer URL for the authenticated owner and the trusted world/cluster, with no store writes and no leaks;
+- fail closed on: a board answering for another wallet; a context that is unavailable or malformed (no fetch); a
+  board of another world or cluster; the world changing during the read; malformed, changed, multi-context, damaged
+  and unreachable boards;
+- the rate limit applies;
+- existing tools answer identically with the read on or off and fetch nothing from the board;
+- regression for the archive fix: with an old finished operation in the store, successful and refused cooperation
+  reads (`BadRequest`, `InsufficientScope`, `Unauthenticated`, a board mismatch) cause no `save()` and no
+  `archive()`. A control test shows `list_operations` still archives that operation and saves, as before;
+- in-process HTTP through the real `createHandler`, using fake request/response objects (an async-iterable body,
+  `writeHead`/`end` recorded), a stub auth that accepts one fixed fake bearer string, and no socket, `listen`,
+  network, keys or child process. It covers: 401 with `www-authenticate` for a missing or bad token (no board
+  read); `tools/list` with the read on and off; a successful call (exact viewer URL, no save or archive); an
+  extra-argument refusal; the unknown tool when off; and the scope step-up;
+- `initialize` and `ping` are unchanged.
+
+None of this has been run. The implementation session wrote the suite and the archive fix without executing
+anything. The coordinator audits and runs it.
+
+Run with `node --test workstreams/03-composability/mcp/test/coop-read-integration.test.mjs`. It imports
+`src/server.mjs`, so it loads the same gateway and frontier modules the existing server tests load.
+
+### Adapter unit suite: `test/coop-read-adapter.test.mjs` (34/34 independently passed)
+
+It covers:
 
 - disabled by default with zero fetches;
 - factory config errors;
@@ -161,3 +280,7 @@ not verified), `disabled`, `refused` and the failure statuses.
 The implementation CLI wrote these tests without running them. The coordinator subsequently audited the imports and
 side effects and ran the completed suite: 34 tests, 34 pass, 0 fail, 0 skipped. No real network, key, signature,
 transaction, filesystem write or game-world operation was exercised.
+
+## Final coordinator verification (2026-11-17 UTC)
+
+After the implementation session completed, the coordinator ran both suites together: **60 tests, 60 pass, 0 fail, 0 skipped** (adapter 34 + integration 26). All five changed/new JavaScript wiring files passed `node --check`. The integration worktree initially lacked the existing SDK peer dependency; the test run used the already installed local dependencies (`@magicblock-labs/ephemeral-rollups-sdk` 0.17.2 and `@solana/web3.js` 1.99.0), without a package or lockfile change. The real server logic and HTTP handler ran with fixtures only. Live OAuth, board networking, a real MCP client, the game world, deployment and the complete pre-existing regression suite remain untested.
