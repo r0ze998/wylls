@@ -1112,12 +1112,19 @@ async function orderMarch(A, hit) {
   FS.tab = 'map'; FS.explore = null;
   FS.selected = { kind: 'tile', p: hit.p, q: hit.q, idx: hit.idx, tileQ: hit.tileQ, tileR: hit.tileR };
   invalidate('map', 'panel', 'tabs');
-  await ACTIONS['dest-from-map']();
-  if (!draftAims(c, { p: hit.p, q: hit.q, tile: hit.idx })) return;
+  // (the place this request gave the draft is taken before the wait — the very object, set at once by setDestination)
+  const world = momentWorld(), going = ACTIONS['dest-from-map'](), aim = c.dest;
+  await going;
+  if (!draftAims(c, aim, world)) return;
   if (c.routeError) mapNote(hit, refusalText(c.routeError, hit));
 }
-/** Whether `c` is still the open draft and still names `to` `{p, q, tile}` as its place (2026-11-17, ⑦). */
-const draftAims = (c, to) => !!c && FS.compose === c && !!c.dest && c.dest.p === to.p && c.dest.q === to.q && c.dest.tile === to.tile;
+/**
+ * Whether a request still owns what it asked for (2026-11-17, ⑦, corrected): `c` is the open draft, its place is the
+ * very object this request gave it (`aim`, taken right after the request set it and before any wait — not a place of
+ * the same coordinates chosen again since: that is a newer request's), and the pinned world, with its generation, is
+ * the one the request was made in. controller.setDestination keeps the same identity for the route it writes.
+ */
+const draftAims = (c, aim, world) => !!c && !!aim && FS.compose === c && c.dest === aim && momentWorld() === world;
 
 /**
  * A tap on the map while the hand holds something (UX brief §5.2, UX design 14.2). Returns true when the tap was an
@@ -1919,8 +1926,9 @@ async function composeTo(row, to) {
   FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false; FS.explore = null; FS.inspectOpen = false;
   FS.selected = { kind: 'tile', p: to.p, q: to.q, idx: to.tile };
   invalidate('map', 'panel', 'tabs', 'rail');
-  await ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) });
-  if (!draftAims(c, to)) return;
+  const world = momentWorld(), going = ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) }), aim = c.dest;
+  await going;
+  if (!draftAims(c, aim, world)) return;
   if (c.routeError) mapNote({ p: to.p, q: to.q, idx: to.tile }, refusalText(c.routeError, { p: to.p, q: to.q, idx: to.tile }));
   // (a march of the viewer's is already sealed for that province and that turn: the sample world lets one host of a
   // citizen in a turn, and the second would be turned back at its seal's opening — the answer to a threat was lost
@@ -3488,13 +3496,18 @@ export const HUD_ACTIONS = {
     if (sub?.kind !== 'host') return;
     if (sub.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = sub.holdingIndex;
     endPick();
-    const host = String(d.host ?? sub.host.id), before = FS.compose;
-    await ACTIONS['march-home']({ host });
-    // (2026-11-17, ⑦: only the draft that this request's march-home opened for this host — a new draft, marked home —
-    //  moves the page and speaks; a host that is not there any more opens none, and another host's draft standing from
-    //  before, or one the person opened meanwhile, is left as it is)
-    const c = FS.compose;
-    if (!c || c === before || !c.home || String(c.host?.id) !== host) return;
+    const host = String(d.host ?? sub.host.id), before = FS.compose, world = momentWorld();
+    const going = ACTIONS['march-home']({ host });
+    // (2026-11-17, ⑦, corrected: the draft and its place are taken HERE, before the wait — march-home opens the draft and
+    //  gives it the village at once, so what stands now is this request's own: a new draft, marked home, of this host.
+    //  A host that is not there any more opens none, and another host's draft standing from before is left as it is.
+    //  After the wait the page moves and speaks only if that very draft, with that very place, in that world, still
+    //  stands: the same host sent home again, the same place chosen again, a draft put away or another world, and this
+    //  request says and changes nothing)
+    const c = FS.compose, aim = c?.dest ?? null;
+    const own = !!c && c !== before && !!c.home && String(c.host?.id) === host;
+    await going;
+    if (!own || !draftAims(c, aim, world)) return;
     FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false; FS.explore = null;
     invalidate('map', 'panel', 'tabs', 'rail');
     if (c.routeError) { const h = hud.activeHolding(FS); mapNote({ p: h.p, q: h.q, idx: h.tile }, refusalText(c.routeError)); }

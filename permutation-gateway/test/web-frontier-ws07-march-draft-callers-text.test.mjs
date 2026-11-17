@@ -28,20 +28,21 @@ const code = s => s.split('\n').filter(l => !l.trim().startsWith('//')).join('\n
 test('D1 D2 orderMarch: its own draft for its own host, or nothing', () => {
   order(om, 'FS.localMarchFor(own, A.actor.id)', 'FS.activeHolding = A.actor.holdingIndex;', "const c = ACTIONS.compose({ host: A.actor.id, stay: 'map' });",
     'if (!c || FS.compose !== c || String(c.host?.id) !== String(A.actor.id)) return;', "FS.tab = 'map'; FS.explore = null;", 'FS.selected = {',
-    "await ACTIONS['dest-from-map']();", 'if (!draftAims(c, { p: hit.p, q: hit.q, tile: hit.idx })) return;', 'if (c.routeError) mapNote(hit, refusalText(c.routeError, hit));');
+    "const world = momentWorld(), going = ACTIONS['dest-from-map'](), aim = c.dest;", 'await going;', 'if (!draftAims(c, aim, world)) return;', 'if (c.routeError) mapNote(hit, refusalText(c.routeError, hit));');
   assert.doesNotMatch(code(om), /if \(!FS\.compose\) return;|FS\.compose\?\.routeError/);
 });
 
 test('D1–D4 composeTo: the same, and the arrival turn of its own draft only', () => {
   order(ct, 'endPick(); FS.hand = null;', "const c = ACTIONS.compose({ host: row.id, stay: 'map' });", 'if (!c || FS.compose !== c || String(c.host?.id) !== String(row.id)) return;',
-    'FS.selected = { kind: \'tile\', p: to.p, q: to.q, idx: to.tile };', "await ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) });",
-    'if (!draftAims(c, to)) return;', 'if (c.routeError) mapNote(', 'if (FS.proto && FS.season && Number.isInteger(c.arriveBell) && pm.ownArrivalAt(FS, to, c.arriveBell, row.id)) {',
+    'FS.selected = { kind: \'tile\', p: to.p, q: to.q, idx: to.tile };', "const world = momentWorld(), going = ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) }), aim = c.dest;",
+    'await going;', 'if (!draftAims(c, aim, world)) return;', 'if (c.routeError) mapNote(', 'if (FS.proto && FS.season && Number.isInteger(c.arriveBell) && pm.ownArrivalAt(FS, to, c.arriveBell, row.id)) {',
     'while (b < w.max && pm.ownArrivalAt(FS, to, b, row.id)) b++;', 'c.protoShift = { from: c.arriveBell, to: b }; c.arriveBell = b;');
   assert.doesNotMatch(code(ct), /const c = FS\.compose;|if \(!FS\.compose\) return;|FS\.compose\?\.routeError/, 'never whatever draft stands after the wait');
 });
 
 test('D3 the check after the wait', () => {
-  assert.ok(app.includes('const draftAims = (c, to) => !!c && FS.compose === c && !!c.dest && c.dest.p === to.p && c.dest.q === to.q && c.dest.tile === to.tile;'));
+  // (corrected: by the place's own object and the world, not by coordinates — web-frontier-ws07-march-draft-identity-text.test.mjs)
+  assert.ok(app.includes('const draftAims = (c, aim, world) => !!c && !!aim && FS.compose === c && c.dest === aim && momentWorld() === world;'));
   // (what makes "another world" fail it: an unsent draft is put away at a re-pin — controller adoptPinnedWorld)
   assert.ok(ctl.includes('if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;'));
   assert.ok(ctl.includes('if (FS.compose !== c || c.dest !== dest) return;'));
@@ -50,8 +51,9 @@ test('D3 the check after the wait', () => {
 test('D1 the HUD\'s compose and 村へ戻す', () => {
   order(hc, 'const c = ACTIONS.compose(d);', 'if (!c || FS.compose !== c) return;', "FS.tab = 'map';", 'mapRef.setView(', 'FS.selected = {');
   assert.doesNotMatch(code(hc), /const c = FS\.compose;/);
-  order(hr, 'if (sub.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = sub.holdingIndex;', 'const host = String(d.host ?? sub.host.id), before = FS.compose;',
-    "await ACTIONS['march-home']({ host });", 'const c = FS.compose;', 'if (!c || c === before || !c.home || String(c.host?.id) !== host) return;', "FS.tab = 'map';",
+  order(hr, 'if (sub.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = sub.holdingIndex;', 'const host = String(d.host ?? sub.host.id), before = FS.compose, world = momentWorld();',
+    "const going = ACTIONS['march-home']({ host });", 'const c = FS.compose, aim = c?.dest ?? null;', 'const own = !!c && c !== before && !!c.home && String(c.host?.id) === host;',
+    'await going;', 'if (!own || !draftAims(c, aim, world)) return;', "FS.tab = 'map';",
     'if (c.routeError) {');
   assert.doesNotMatch(code(hr), /if \(!FS\.compose\) return;|FS\.compose\.routeError/);
 });
