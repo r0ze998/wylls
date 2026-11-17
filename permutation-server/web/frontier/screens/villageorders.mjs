@@ -43,6 +43,24 @@ export const UNKNOWN_OUTCOME_CODES = Object.freeze(['Unconfirmed', 'TxUnqueryabl
 /** The code of local play's hold: sent, held by its signature, and asked — not sent — by the same press (controller.mjs orderUnconfirmed). */
 export const LOCAL_HOLD_CODE = 'LocalActUnconfirmed';
 
+/**
+ * What an order record says became of the order — the ONE place the lifecycle's records are classed (the village's
+ * note, the trade card's, the first village's guide):
+ *   'notSent'     refused before anything left this browser (`sent` not true)
+ *   'sentFailed'  sent, and the chain answered that it failed or expired
+ *   'unknown'     sent, outcome not read: refused with `sent` and a tracker's code, or 'unconfirmed' with any code but
+ *                 the local hold's (the shape of main's order chain for the ordinary path) — never "not sent"
+ *   'held'        local play: sent and held by its signature ('unconfirmed' with the hold's own code); the same press
+ *                 asks its outcome and sends nothing again
+ *   'accepted'    the chain confirmed it
+ * null for a record in no such state.
+ */
+export function orderOutcome(o) {
+  if (o?.state === 'unconfirmed') return o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';
+  if (o?.state === 'refused') return o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';
+  return o?.state === 'accepted' ? 'accepted' : null;
+}
+
 /** What the order was, in a few words. */
 export function villageOrderName(o) {
   switch (o.kind) {
@@ -58,6 +76,15 @@ export function villageOrderName(o) {
     default: return '';
   }
 }
+
+/**
+ * (2026-11-17, corrected) Whether an order record was made under the context the page is in NOW — the same viewer,
+ * herald and pinned world: its number (`o<n>`, the controller's own count of orders made on this page) is higher than
+ * the number that stood when the context last moved (`FS.orderFloor`, controller nextContext). A record made before a
+ * change of viewer, herald or world is another context's, whatever its turn and tile. A store without the floor (an
+ * older fixture) holds nothing against a record.
+ */
+export const ofContext = (FS, o) => { const n = Number(String(o?.id ?? '').slice(1)); return !Number.isInteger(FS.orderFloor) || (Number.isInteger(n) && n > FS.orderFloor); };
 
 /** Whether the order was given from this village: its province, and — but for a muster, whose tile is where the host forms up, and a fort's, whose tile is the fort — its own tile. */
 const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);
@@ -89,18 +116,61 @@ export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {
   const turn = FS.nowBell ?? null;
   const out = [];
   for (const o of FS.orders ?? []) {
-    if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;
-    let cls = null;
-    // ('unconfirmed' is the local-play hold ONLY with the hold's own code. Main's order chain — not adopted at this base
-    //  — records an ordinary-path unknown outcome as 'unconfirmed' too, with the tracker's code: there a second press
-    //  is a NEW order, so it is said as `unknown`, never with the hold's words)
-    if (o.state === 'unconfirmed') cls = o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';
-    else if (o.state === 'refused') cls = o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';
-    else if (o.state === 'accepted') cls = recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null;
+    if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h) || !ofContext(FS, o)) continue;
+    // (what the record says became of the order — orderOutcome, the one place it is read; an accepted order is listed
+    //  only while the village's record is still behind it)
+    const outcome = orderOutcome(o), cls = outcome === 'accepted' ? (recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null) : outcome;
     if (!cls) continue;
     out.push({ id: o.id, kind: o.kind, name: villageOrderName(o), cls, code: o.code ?? null, why: o.why ?? (o.code ? clientText(o.code) : ''), fact: cls === 'unknown' ? recordFactOf(o, h, now) : null });
   }
   return out;
+}
+
+/** The kinds of order whose record names a tile of its OWN — where a host forms up, a fort — and not the village it was given from. */
+export const OWN_TILE_KINDS = Object.freeze(['muster', 's1-fort']);
+/**
+ * (2026-11-17, corrected three times) What an order record says of WHERE it was given from, against a village — only
+ * what the record itself holds, and nothing reasoned on top of it:
+ *   'tile'     the record's tile is the village's own tile, and the record's kind is one whose tile `orderOf` fills
+ *              with the tile of the village in hand at the order (train, harvest, build …): it was given while the
+ *              village standing on this tile was in hand. The record holds NO site and NO generation — whether that
+ *              village is the one standing there now is not proved by it, and is not claimed.
+ *   'unknown'  the same province, and either another tile, or a kind whose tile is the order's own (a muster's tile is
+ *              where the host forms up — ALSO when that happens to be the village's tile; a fort's order names the
+ *              fort): which village gave it is NOT in the record. It is never "this village's".
+ *   null       another province, or no tile.
+ * (Earlier versions: a muster was this village's whenever the province matched; then whenever its formation tile was
+ * the village's tile, with the village's ticket turn read as a founding time. A formation tile is not the source
+ * village, and no record field proves a village's generation: neither is used.)
+ */
+export function orderPlace(o, h) {
+  if (!o?.tile || !h || o.tile.p !== h.p || o.tile.q !== h.q) return null;
+  return !OWN_TILE_KINDS.includes(o.kind) && o.tile.tile === h.tile ? 'tile' : 'unknown';
+}
+/**
+ * The order record that `match` takes and that still speaks for what the page should say beside THIS village, with
+ * what became of it: `{order, outcome, why, turn, carried, place}`, or null. `FS.orders` is newest first. Only records
+ * made under the context NOW (ofContext) are read. The outcome is the RECORD's; whose village it was is `place`.
+ *   `place: 'tile'` (orderPlace):
+ *     - a record whose outcome is NOT CONFIRMED — 'unknown' (sent, not read) or 'held' (local play's hold) — whatever
+ *       its turn, the newest such first: a turn going by confirms nothing. `carried`: it is of an earlier turn.
+ *     - otherwise the newest record of THIS turn (accepted, sent and failed, not sent).
+ *   `place: 'unknown'` — only when no 'tile' record speaks: a not-confirmed record of any turn, or one ACCEPTED this
+ *     turn. It is returned as a record of this province whose village is not known, for the caller to say exactly
+ *     that; a failed or unsent one says nothing worth a line and is not returned.
+ * A fact of the RECORD, read by what the record itself names; not tied to a button press; no state of the village is
+ * inferred from it. Limits: the page keeps the last ORDERS_MAX records in memory only; a record names no site and no
+ * generation.
+ */
+export function latestVillageOrder(FS, h, match) {
+  if (!h) return null;
+  const turn = FS.nowBell ?? null, open = x => { const c = orderOutcome(x); return c === 'unknown' || c === 'held'; };
+  const all = (FS.orders ?? []).filter(x => ofContext(FS, x) && match(x)), here = all.filter(x => orderPlace(x, h) === 'tile');
+  const o = here.find(open) ?? here.find(x => x.turn === turn) ?? null;
+  const loose = o ? [] : all.filter(x => orderPlace(x, h) === 'unknown');
+  const far = loose.find(open) ?? loose.find(x => x.turn === turn && orderOutcome(x) === 'accepted') ?? null;
+  const pick = o ?? far, outcome = pick ? orderOutcome(pick) : null;
+  return outcome ? { order: pick, outcome, why: pick.why ?? (pick.code ? clientText(pick.code) : ''), turn: pick.turn ?? null, carried: pick.turn !== turn, place: o ? 'tile' : 'unknown' } : null;
 }
 
 /** Whether the pure re-read of the village may be offered from here (the controller's own conditions for starting one). */

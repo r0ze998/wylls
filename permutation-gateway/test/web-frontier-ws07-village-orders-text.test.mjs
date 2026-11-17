@@ -53,9 +53,12 @@ test('O1 the lifecycle records this reads are the controller\'s own', () => {
 test('O2 each record is said as what it is', () => {
   assert.ok(vo.includes("export const LOCAL_HOLD_CODE = 'LocalActUnconfirmed';"));
   assert.ok(ctl.includes("code: 'LocalActUnconfirmed'"), 'the controller\'s own code for the hold');
-  order(model, "if (o.state === 'unconfirmed') cls = o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';",
-    "else if (o.state === 'refused') cls = o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';",
-    "else if (o.state === 'accepted') cls = recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null;", 'if (!cls) continue;', 'out.push(');
+  // (the classing moved to ONE place — orderOutcome — which the first village's guide reads too:
+  //  web-frontier-ws07-first-village-orders-text.test.mjs; what each record is classed as is what it was)
+  const outcome = fnOf(vo, 'export function orderOutcome(o) {');
+  order(outcome, "if (o?.state === 'unconfirmed') return o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';",
+    "if (o?.state === 'refused') return o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';", "return o?.state === 'accepted' ? 'accepted' : null;");
+  order(model, "const outcome = orderOutcome(o), cls = outcome === 'accepted' ? (recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null) : outcome;", 'if (!cls) continue;', 'out.push(');
   order(view, "if (x.cls === 'notSent')", '：送られていません。', "if (x.cls === 'sentFailed')", '：送信しましたが、成立しませんでした。', "if (x.cls === 'held')",
     '同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。', "if (x.cls === 'waiting')", '：受け付けられました。いま読めている村の記録には、まだ出ていません。',
     '// unknown:', 'この命令の結果は、まだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。');
@@ -85,7 +88,7 @@ test('O3 the record is a fact of its own, never proof of an order', () => {
 test('O4 this village, this turn', () => {
   assert.ok(vo.includes("export const VILLAGE_ORDER_KINDS = Object.freeze(['harvest', 'build', 'walls', 'promote', 'train', 'muster', 'garrison']);"));
   assert.ok(vo.includes("const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);"));
-  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'for (const o of FS.orders ?? []) {', 'if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;');
+  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'for (const o of FS.orders ?? []) {', 'if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h) || !ofContext(FS, o)) continue;');
 });
 
 test('O5 pure: it sends, saves and changes nothing', () => {

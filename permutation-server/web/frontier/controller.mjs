@@ -716,7 +716,9 @@ function refreshSoon(ms = 1500) {
  * still stood and its own buttons still matched it).
  */
 let contextSeq = 0;
-const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; };
+// (`FS.orderFloor`: the number of the last order made — orderOf's own `o<n>` — when the context moved: an order with a
+//  higher number was made under the context NOW. Read by screens/villageorders.mjs; no order record is touched.)
+const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; FS.orderFloor = orderSeq; };
 function resetViewer({ wallet: walletChanged = true } = {}) {
   expedition.clearInspection(FS); outbound.clearOutbound(FS);
   // (workstream 07: the former viewer's answer is not this viewer's: hud/drawer.mjs viewerState keeps an answered

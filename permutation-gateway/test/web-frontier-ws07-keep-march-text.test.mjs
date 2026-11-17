@@ -57,7 +57,7 @@ test('K1 the list is the page\'s own now, by the mark its reading began under', 
   assert.equal((codeOf(rm).match(/await /g) ?? []).filter(Boolean).length > 0, true);
   assert.ok(codeOf(rm).indexOf('const readCtx = contextSeq') < codeOf(rm).indexOf('await '), 'before the first wait');
   assert.ok(ctl.includes("const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');"), 'the same mark of a village');
-  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; };'));
+  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq;'));
   assert.ok(tr.includes("const worldOf = FS => { const pin = FS?.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };"));
   // the card reads through it, and a button carries the list's own number
   order(toKeep, 'const now = marchListNow(FS);', 'if (!keep || !now.ok) return { read: now.ok, ctx: null, bound: [], province: [] };', 'return { read: true, ctx: now.ctx, bound, province };');

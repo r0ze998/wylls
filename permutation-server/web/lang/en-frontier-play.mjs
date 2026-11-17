@@ -1828,4 +1828,16 @@ export default {
   'この州へ向かっているあなたの軍勢（行き先のマスは、まだ分かりません）': 'Your hosts on their way to this province (the tile they go to is not known yet)',
   'この砦へ向かっているかどうかは、行き先のマスが読めるまで分かりません。': 'Whether they are bound for this keep is not known until the tile they go to is loaded.',
   'この州の砦を見る': 'See this province\'s keep',
+  // (2026-11-17, ⑦ the first village's guide: what became of its own train / form-up order)
+  '斥候の訓練': 'Training the scouts',
+  '斥候隊の編成': 'Forming up the scouts',
+  '{0}は、このターンに受け付けられています。村の記録に、まだ出ていないことがあります。もう一度命じると、もう一度行います。': '{0}: accepted this turn. It may not be in the village record yet. Ordering it again does it once more.',
+  '{0}は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。もう一度命じると、二重になることがあります。': '{0}: sent, and the result is not confirmed yet (this does not mean it was not sent). Ordering it again may do it twice.',
+  '{0}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。': '{0}: sent, and the result is not confirmed yet. The same order is not sent again. Press the button below once more to check its result.',
+  '{0}は送信しましたが、成立しませんでした。': '{0}: sent, but it did not take effect.',
+  '{0}は、送られていません。': '{0}: not sent.',
+  '斥候の命令の結果を確かめる': 'Check what became of the scouts\' order',
+  '（ターン {0} に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、いまの村の命令であることまでは、記録からは分かりません。）': ' (Ordered on turn {0}, from this village\'s tile. The turn moving on does not mean its result was confirmed. An order record does not name the village\'s generation, so the record does not go as far as saying it is the present village\'s order.)',
+  'この州で出した{0}の命令（ターン {1}）に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません。': 'An order in this province — {0}, turn {1} — has a result that is not confirmed yet. The record does not say whether it is this village\'s.',
+  'この州で、このターンに{0}の命令が受け付けられています。この村の命令かどうかは、記録からは分かりません。': 'An order in this province — {0} — was accepted this turn. The record does not say whether it is this village\'s.',
 };
