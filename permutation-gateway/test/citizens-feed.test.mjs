@@ -560,9 +560,16 @@ test('start() polls on a timer and stop() ends it', async () => {
     feed.stop();
     const n = feed.stats.polls;
     assert.ok(n >= 3, `polls: ${n}`);
+    // `stats.polls` counts polls STARTED (pollOnce increments it first), and a poll clears `complete` when it begins, so
+    // the third poll may still be in flight here: stop() ends the timer, it does not cancel that poll. poll() is single
+    // flight, so this joins the in-flight poll (polls stays n) or, if none is in flight, runs exactly one more (n + 1).
+    const last = await feed.poll();
+    assert.equal(last.ok, true, `the last poll drained the log: ${last.error}`);
+    const m = feed.stats.polls;
+    assert.ok(m <= n + 1, `joined or one more: ${n} -> ${m}`);
     await new Promise(r => setTimeout(r, 60));
-    assert.ok(feed.stats.polls <= n + 1, 'stopped');
-    assert.ok(feed.completeThrough() > 0);
+    assert.equal(feed.stats.polls, m, 'stopped: no timer poll after stop()');
+    assert.ok(feed.completeThrough() > 0, `completeThrough: ${feed.completeThrough()}`);
   });
 });
 
