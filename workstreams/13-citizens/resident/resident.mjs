@@ -134,9 +134,16 @@ const candidateAction = c => (c.kind === 'build' ? { name: 'Build', fields: { it
  * nowhere implied; the open questions stay open.
  */
 export function createCharter(dir, c) {
-  if (!GOALS[c.goal]) throw new Error(`unknown goal ${c.goal}`);
+  const charter = charterOf(dir, c);
   mkdirSync(dir, { recursive: true });
-  const charter = {
+  writeFileSync(path.join(dir, 'charter.json'), JSON.stringify(charter, null, 2));
+  return charter;
+}
+
+/** (2026-11-17) The charter object createCharter writes, built without writing (the same object; one source). */
+export function charterOf(dir, c) {
+  if (!GOALS[c.goal]) throw new Error(`unknown goal ${c.goal}`);
+  return {
     v: 1, id: c.id, name: c.name, goal: c.goal, pos: c.pos,
     owner: c.owner, funder: c.funder ?? c.owner,
     stoppedBy: [
@@ -151,8 +158,11 @@ export function createCharter(dir, c) {
     undecided: { aiDisclosure: 'not decided here (24-ai-roles §5 records plan A; this world shows no label)', prizeEligibility: 'not decided here', productionHeadcount: 'not decided here', fundingCollection: 'not decided here' },
     lifetime: 'Runs only while its owner runs this process and the world it plays in exists. Nothing here keeps it alive on its own or independent of the operator.',
   };
-  writeFileSync(path.join(dir, 'charter.json'), JSON.stringify(charter, null, 2));
-  return charter;
+}
+
+/** (2026-11-17) A new resident's state (before the agent ledger adds its record), as the constructor makes it: one source. */
+export function initialStateOf(charter) {
+  return { v: STATE_VERSION, turn: 0, citizen: null, journal: {}, decisions: [], counters: { day: -1 }, cooldown: {}, accepted: {}, returns: {}, lastDecisionBell: -1e9, wakeInterval: charter.limits.wakeEveryBells, providerFailures: 0, providerPausedUntil: -1, pendingDecision: null, seen: [], failures: {}, aliases: {}, cursor: { events: 0, board: 0 }, migrations: [] };
 }
 
 export class Resident {
@@ -175,7 +185,7 @@ export class Resident {
     this.bell = 0;
     this.store = createStateStore(path.join(dir, 'state.json'));
     if (!this.store.load()) {
-      this.store.state = { v: STATE_VERSION, turn: 0, citizen: null, journal: {}, decisions: [], counters: { day: -1 }, cooldown: {}, accepted: {}, returns: {}, lastDecisionBell: -1e9, wakeInterval: this.charter.limits.wakeEveryBells, providerFailures: 0, providerPausedUntil: -1, pendingDecision: null, seen: [], failures: {}, aliases: {}, cursor: { events: 0, board: 0 }, migrations: [] };
+      this.store.state = initialStateOf(this.charter);
     }
     this.ledger = new AgentLedger({ store: this.store, now: () => (GENESIS_SECS + this.bell * BELL_SECS) * 1000 });
     if (!this.ledger.db.agents[this.charter.id]) {
