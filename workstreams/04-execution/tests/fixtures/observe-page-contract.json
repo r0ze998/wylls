@@ -1,0 +1,77 @@
+{
+  "format": "ws04-observation/0",
+  "basis": "unproven",
+  "world": null,
+  "finality": null,
+  "complete": null,
+  "observations": [
+    {
+      "event_cursor": 1,
+      "archive_sequence": 1,
+      "ps2_ordinal": 0,
+      "signature": "sig1",
+      "transaction_slot": 101,
+      "body_sha256": "557b403e09f90d4b83a292bb5ca7e87e3ee8bfbab92396e0caee454cbc7a2056",
+      "local_locator": "findex-row:1:0",
+      "event": {
+        "kind": "caravan_settled",
+        "value": {
+          "key": { "owner": 18446744073709551615, "seq": 3 },
+          "outcome": 0,
+          "dst": { "kind": 2, "p": 3, "q": 0, "at": 4, "gen": 1 },
+          "cargo": [0, 3, 0, 0, 0, 0, 0, 0],
+          "credited": null,
+          "slot": 101
+        }
+      },
+      "held": ["world_binding_unproven", "finality_unproven", "transaction_record_identity_unproven", "committed_frame_unproven"],
+      "archive_epoch": {
+        "epoch": { "from_seq": 1, "source": "rpc_poll", "program_configured": "P", "commitment_requested": "finalized" },
+        "why": "covered_by_epoch",
+        "pairing": "same_directory_not_proof_of_same_archive"
+      }
+    },
+    {
+      "event_cursor": 2,
+      "archive_sequence": 2,
+      "ps2_ordinal": 0,
+      "signature": "sig2",
+      "transaction_slot": 102,
+      "body_sha256": "743c472d753c18bc73ee06edd6aec4ea72249422ecdaff97c71d4c0c86afb880",
+      "local_locator": "findex-row:2:0",
+      "event": {
+        "kind": "caravan_raided",
+        "value": {
+          "key": { "owner": 119, "seq": 1 },
+          "choice": 0,
+          "raider": 9223372036854775813,
+          "taken": [0, 1, 0, 0, 0, 0, 0, 0],
+          "slot": 102
+        }
+      },
+      "held": ["world_binding_unproven", "finality_unproven", "transaction_record_identity_unproven", "committed_frame_unproven"],
+      "archive_epoch": {
+        "epoch": { "from_seq": 1, "source": "rpc_poll", "program_configured": "P", "commitment_requested": "finalized" },
+        "why": "covered_by_epoch",
+        "pairing": "same_directory_not_proof_of_same_archive"
+      }
+    }
+  ],
+  "next_local_cursor": 2,
+  "held": ["not_executor_receipts", "source_provenance_unproven", "resume_cursor_not_admitted", "store_pairing_is_not_a_snapshot_or_proof", "archive_epoch_is_producer_setting_not_evidence"],
+  "store": {
+    "same_directory": true,
+    "index_last_seq": 2,
+    "manifest_next_seq_before": 3,
+    "manifest_next_seq_after": 3,
+    "manifest_stable": true,
+    "generation": "index_matches_manifest",
+    "limits": [
+      "two files read one after the other: not one snapshot",
+      "one directory named by the caller: not proof the index was built from this archive",
+      "symbolic links and non-regular files refused only at the time of each check, and only as the last part of each path",
+      "no application write or recovery; SQLite may still create the index's WAL side files (-shm): no file change is not guaranteed",
+      "an epoch names no endpoint and proves no finality, world or authenticity"
+    ]
+  }
+}
