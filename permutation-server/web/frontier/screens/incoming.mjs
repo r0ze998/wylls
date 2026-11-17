@@ -9,7 +9,7 @@
 // (2026-11-17, ⑦ the warning's way on) A warning was a sentence and nothing else. From it the person can now go on, by
 // what already exists: open the village it names (by its identity, never an index), bring its garrison form into view,
 // see the place on the map, see where that village's own hosts stand, and open the EXISTING plan of a march home for a
-// host that is away (controller 'march-home': it opens the draft; sending is the plan's own step). Nothing here sends,
+// host that is away (app 'incoming-return' → controller 'march-home': it opens the draft; sending is the plan's own step). Nothing here sends,
 // attacks, or decides for the person, and nothing is said that the page does not know: whether the hosts come, and
 // where they go, stays sealed; whether a host at home will fight is the rules', not this card's.
 // How the warnings were read is said too: not judged yet (another viewer or world just taken) is not "none"; a
@@ -49,9 +49,10 @@ export const warningText = (w, FS = null) => L`ターン ${fmtNum(w.bell)} に�
  */
 export function incomingRead(FS) {
   const r = FS.incomingRead;
-  if (r === null || (r && r.world !== worldOf(FS))) return { state: 'unread', chronicleOk: true, unknownOrigins: 0 };
-  if (FS.incoming === null || FS.incoming === undefined) return { state: 'noRules', chronicleOk: true, unknownOrigins: 0 };
-  return { state: 'ok', chronicleOk: r ? r.chronicleOk !== false : true, unknownOrigins: Number(r?.unknownOrigins ?? 0) };
+  if (r === null || (r && r.world !== worldOf(FS))) return { state: 'unread', chronicleOk: true, unknownOrigins: 0, ctx: null };
+  if (FS.incoming === null || FS.incoming === undefined) return { state: 'noRules', chronicleOk: true, unknownOrigins: 0, ctx: null };
+  // (`ctx`: the context number of this judging — every button of the card carries it; null for a store without the mark)
+  return { state: 'ok', chronicleOk: r ? r.chronicleOk !== false : true, unknownOrigins: Number(r?.unknownOrigins ?? 0), ctx: Number.isInteger(r?.ctx) ? r.ctx : null };
 }
 
 /**
@@ -73,18 +74,24 @@ export function defendersOf(FS, w) {
 
 const troopsOf = list => list.reduce((a, r) => a + Number(r.troops ?? 0), 0);
 
-/** One warning with its way on. */
-function warningItem(FS, w) {
-  const d = defendersOf(FS, w), play = FS.mode === 'play';
+/**
+ * One warning with its way on. (Corrected 2026-11-17: a button named only a place, a site and a generation — after the
+ * pinned world changed, a button still on the screen could act in the NEW world on a village of the same place and
+ * generation. Every button now carries the context number of the judging it was drawn from (`data-read`) and the
+ * warning's own turn (`data-bell`); the app acts only while that judging, its world and viewer, and that very warning
+ * still stand — app.mjs incomingStill. Without a context number — a store with no mark — no button is drawn.)
+ */
+function warningItem(FS, w, ctx) {
+  const d = defendersOf(FS, w), play = FS.mode === 'play' && ctx !== null;
   if (!d) return html`<li class="warn">${warningText(w, FS)}<p class="muted" data-incoming="gone">${L`この村は、いまのあなたの村の記録にありません。`}</p></li>`;
-  const h = d.holding, ref = html`data-p="${h.p}" data-q="${h.q}" data-site="${h.site}" data-gen="${h.gen ?? 0}"`;
+  const h = d.holding, ref = html`data-p="${h.p}" data-q="${h.q}" data-site="${h.site}" data-gen="${h.gen ?? 0}" data-bell="${w.bell}" data-read="${ctx ?? ''}"`;
   return html`<li class="warn">${warningText(w, FS)}
     ${play ? html`<div class="actions"><button type="button" class="btn small" data-act="incoming-village" ${ref} data-to="holding">${icon('home')}${L`この村を開く`}</button>
       <button type="button" class="btn small" data-act="incoming-village" ${ref} data-to="garrison">${icon('shield')}${L`守備隊を増やす欄へ`}</button>
-      <button type="button" class="btn small" data-act="goto" data-p="${h.p}" data-q="${h.q}">${L`地図で見る`}</button></div>` : ''}
+      <button type="button" class="btn small" data-act="incoming-goto" ${ref}>${L`地図で見る`}</button></div>` : ''}
     <p class="muted" data-incoming="hosts">${L`この村の軍勢：村のマスに ${fmtNum(d.home.length)}（${fmtNum(troopsOf(d.home))} 兵）、ほかの場所に ${fmtNum(d.away.length)}、行軍中 ${fmtNum(d.moving.length)}。`}</p>
     ${play && d.away.length ? html`<ul class="list incoming-hosts">${d.away.map(r => html`<li>${unitCount(UNIT_ORDER[r.unit], r.troops)} <span class="muted">${provinceName(FS, r.p, r.q)}</span>
-      <button type="button" class="btn small" data-act="march-home" data-host="${r.id}">${icon('return')}${L`村へ戻す計画を開く`}</button></li>`)}</ul>` : ''}</li>`;
+      <button type="button" class="btn small" data-act="incoming-return" ${ref} data-host="${r.id}">${icon('return')}${L`村へ戻す計画を開く`}</button></li>`)}</ul>` : ''}</li>`;
 }
 
 export function render(FS) {
@@ -96,7 +103,7 @@ export function render(FS) {
   if (!w.length) return html`<p class="muted how-line">${icon('shield')}${L`いまのところ、あなたの村に届きそうな他国の軍勢は出ていません。`}</p>${notes}`;
   return html`<section class="vcard incoming-card" aria-labelledby="incoming-title">
     ${cardHead({ id: 'incoming-title', ic: 'alert', title: L`来襲の恐れ`, side: chip(fmtNum(w.length), 'bad') })}
-    <ul class="list incoming">${w.map(x => warningItem(FS, x))}</ul>
+    <ul class="list incoming">${w.map(x => warningItem(FS, x, rd.ctx))}</ul>
     ${notes}
     <p class="muted">${L`来るかどうか、どこへ行くかは、封印が開くまで分かりません。上のボタンは、村や計画を開くだけです。送るかどうかは、開いた先であなたが決めます。`}</p>
     <p class="muted">${L`ほかの州にいる軍勢は、その州の記録を読めているものだけを数えています。戦いがあれば、そのターンのあと「あなたの衝突の報告」に出ます。`}</p></section>`;

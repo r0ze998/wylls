@@ -667,6 +667,8 @@ function refreshSoon(ms = 1500) {
  * Forget everything read for the viewer (workstream 07: shared by a wallet change and by a change between the wallet's
  * own Citizen and one of its resident NFTs — each is another viewer: its Citizen, villages, marches and notices).
  */
+/** A number that moves with every change of viewer, herald or pinned world (resetViewer, useHerald, adoptPinnedWorld): what was drawn before it moved belongs to another context. */
+let contextSeq = 0;
 function resetViewer({ wallet: walletChanged = true } = {}) {
   expedition.clearInspection(FS); outbound.clearOutbound(FS);
   // (workstream 07: the former viewer's answer is not this viewer's: hud/drawer.mjs viewerState keeps an answered
@@ -708,6 +710,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   FS.autoNudgeBell = null;
   FS.incoming = [];
   FS.incomingRead = null;    // (nothing judged yet for this viewer: "none" is not said — screens/incoming.mjs)
+  contextSeq += 1;           // (another viewer: what was drawn for the former one acts on nothing — FS.incomingRead.ctx)
   FS.isMine = () => false;
   if (walletChanged) FS.prize = null;
   if (walletChanged) FS.prizePayment = null;
@@ -840,6 +843,7 @@ export function adoptPinnedWorld() {
   FS.s1Plan = null;          // (a place chosen on the map names a place of the world that was pinned — planS1Place)
   exploreSeedMarks.clear(); FS.exploreSeedCheck = null;   // (a seed read for the world that was pinned is not this world's)
   FS.incoming = []; FS.incomingRead = null;   // (warnings judged for the world that was pinned are not this world's; none is judged here yet)
+  contextSeq += 1;   // (another world: what was drawn for the former one acts on nothing — FS.incomingRead.ctx)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
   if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
   dropOtherWorldConquest(world);
@@ -1335,11 +1339,13 @@ async function refreshChronicle() {
     const f = ov && h ? ov.owners?.[h.site] : null;
     return f === null || f === undefined;
   }).length;
-  FS.incomingRead = { world: providerWorld(), rules: !!k, chronicleOk: failed === null, unknownOrigins, bell: nowBell() };
+  // (`ctx`, `viewer`: the context this judging stands in — the number moves with every change of viewer, herald or pinned
+  //  world, so a button drawn from an earlier judging can be told from one of this context: app.mjs incomingStill)
+  FS.incomingRead = { world: providerWorld(), rules: !!k, chronicleOk: failed === null, unknownOrigins, bell: nowBell(), ctx: contextSeq, viewer: viewerKey() ?? null };
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null; exploreSeedMarks.clear(); FS.exploreSeedCheck = null; }
+export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null; exploreSeedMarks.clear(); FS.exploreSeedCheck = null; contextSeq += 1; }
 
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
