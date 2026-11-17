@@ -97,6 +97,9 @@ export class Dispatch {
       const bad = requesterProblem(requester);
       if (bad) return { ok: false, findings: [{ code: "REQUESTER", detail: bad }] };
     }
+    // The plan and the definition are the ones their hashes name (2026-11-17), before any id is made from them.
+    const mismatch = hashProblem({ plan, planHash, env });
+    if (mismatch) return { ok: false, findings: [mismatch] };
     const made = route === "run"
       ? toRunSpecs({ plan, planHash, env, nonce, ...rest })
       : route === "act" ? toMcpCaravans({ plan, planHash, env, nonce, ...rest }) : { ok: false, findings: [{ code: "SHAPE", detail: "route: run | act" }] };
@@ -277,6 +280,23 @@ export class Dispatch {
     // whether anything outside happened is what each step's state and result say. Absent when it was seen saved.
     return { ok: true, key, route: p.route, complete, held: steps.some((s) => s.state === "held"), steps, ...(this.#isSaved(key) ? {} : { saved: false }) };
   }
+}
+
+/**
+ * Why a run request's content is not what its hashes name, or null (2026-11-17). The plan hash is the plan's content
+ * hash (plan.mjs preparePlan, verifyPlanSignature) and an adoption is keyed by it (adoption.mjs); the definition's hash
+ * is its manifest's content hash (registry.mjs). intake asks the adoption of `planHash` and then plans `plan`; before,
+ * nothing here checked that one is the other's hash, so an adopted hash could carry other places, cargo or parameters,
+ * and ④'s run ids (`ws06:<planHash>:…`) and each step's pin named an adoption that never covered them. toRunSpecs
+ * compares the plan's manifest fields with `env`, not `env.hash` with `env.manifest`. Now each is recomputed; content
+ * that cannot be hashed is refused as SHAPE. Nothing is planned, saved or called on a refusal.
+ */
+export function hashProblem({ plan, planHash, env }) {
+  let p, m;
+  try { p = contentHash(plan); m = contentHash(env?.manifest); } catch { return { code: "SHAPE", detail: "the plan or the definition is not canonical content" }; }
+  if (p !== planHash) return { code: "PLAN_HASH_MISMATCH", detail: "planHash is not the content hash of the plan given" };
+  if (m !== env?.hash) return { code: "DEFINITION_HASH_MISMATCH", detail: "env.hash is not the content hash of env.manifest" };
+  return null;
 }
 
 const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
