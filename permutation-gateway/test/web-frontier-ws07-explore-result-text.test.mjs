@@ -6,19 +6,28 @@
 // node:assert / node:fs: controller.mjs, app.mjs, screens/explore.mjs and the English dictionary are read as TEXT, not
 // imported (they load fi18n.mjs and lang.mjs, the subjects of refused tests). It runs no page, herald or world.
 //   Expected, case by case:
-//   X1 refresh reads the seed as it did — the same condition, once, for the village in hand — and marks whose answer it
-//      is: the village (place, site, generation), the exploration's turn, the world; 'ready' / 'waiting' (no seed yet,
-//      also NotFound) / 'failed' (the read did not come — not "no seed yet")
-//   X2 the flag is true only while the mark is the village now in hand, its pending exploration and the world now pinned:
-//      village A read ready → B chosen → not ready for B; back to A → ready again; A's next exploration (another turn)
-//      → not ready; another world → not ready. Its readers (the plate, the first steps, the card) are unchanged
+//   X1 refresh reads the seed as it did — the same condition, once, for the village in hand — and hands its answer, with
+//      the village and exploration it READ for and its request's number, to the one place every seed answer is applied
+//   X2 ONE application boundary for refresh's answer and the person's own check (CORRECTED — the first version guarded
+//      only the check: refresh wiped the mark at its start and wrote its answer unconditionally, so a refresh that began
+//      earlier could take back a "ready" the check read later). One mark per village. Case by case:
+//      - a refresh begins, the check reads "ready", the refresh's NotFound / failed answer comes late → "ready" stays
+//      - a refresh's start no longer wipes a seed that was read (only a `true` written from outside is taken back)
+//      - two "not ready" answers of the same exploration: the later REQUEST's stands, whichever comes first
+//      - an answer for another pinned world, another turn's exploration, a collected exploration or a village that is
+//        gone → nothing written
+//      - village A's answer while B is in hand → A's mark only; B's is untouched; back at A it is there
+//      - the flag is true only while the village in hand has a 'ready' mark for its pending exploration in this world
+//      - no producer in the page writes `true` to the flag: refresh applies through the boundary (a write to the flag
+//        would name the village in hand at the answer, not the one read for). The flag's readers are unchanged
 //   X3 collecting: a village with nothing waiting is refused with a word, nothing read or sent; after the one wait a
 //      change of world, herald, viewer, village or exploration stops it before anything is built; the send is unchanged
-//   X4 the person's own check: one read of the same record, nothing sent or settled; the press's own run, herald, world,
-//      viewer, and the village and exploration it was pressed for; one at a time; "not yet" never takes back a "ready"
-//      already read for the same exploration; a failed read is said as failed
-//   X5 the card: for the village in hand — checking / could not be loaded (not "not yet") / checked: not yet, and the
-//      button; the other villages' waiting explorations with when each is due, and the way to each
+//   X4 the person's own check: one read of the same record, nothing sent or settled; applied through the same boundary
+//      with what it was pressed for; a change of herald, world or viewer drops it; a press while a check of the SAME
+//      village and exploration is under way starts nothing, a check of another village does not hold this one back
+//   X5 the card: for the village in hand — checking (only its own check, in this world: a check of the village left
+//      behind is not shown as this one's) / could not be loaded (not "not yet") / checked: not yet, and the button; the
+//      mark is read by village, exploration AND world; the other villages' waiting explorations with when each is due
 //   X6 the app's action takes the village in hand the way 'holding-pick' does, opens the hosts screen and asks once; it
 //      settles and sends nothing
 //   X7 a change of viewer, herald or world lets the mark and the check go
@@ -35,23 +44,43 @@ const codeOf = body => body.split('\n').filter(l => !l.trim().startsWith('//')).
 const rf = fnOf(ctl, 'export async function refresh() {'), settle = fnOf(ctl, 'async function settleExplore() {'), check = fnOf(ctl, 'export async function checkExploreSeed() {');
 const card = fnOf(ex, 'export function render(FS) {');
 
-test('X1 refresh reads as it did and marks whose answer it is', () => {
-  order(rf, "// SettleExplore is offered once the explore bell's seed is readable.", 'FS.exploreSeedReady = false;', 'FS.exploreSeedState = exploreSeedMark = null;',
-    'if (h?.explore?.state && nowBell() >= h.explore.bell) {', 'const r = await herald.bellRegion(h.explore.bell, regionOf(h.explore.p, h.explore.q));', 'if (!currentViewer()) return;',
-    'FS.exploreSeedReady = r.ok && !!seedSourceOf(r.record);',
-    "{ const ready = r.ok && !!seedSourceOf(r.record), unread = !ready && !r.ok && r.code !== 'NotFound'; FS.exploreSeedState = exploreSeedMark = exploreMarkOf(h, world, ready ? 'ready' : unread ? 'failed' : 'waiting', unread ? r.code ?? 'Error' : null); }",
-    'await refreshMarches();');
+test('X1 refresh reads as it did and hands its answer to the one boundary', () => {
+  order(rf, "// SettleExplore is offered once the explore bell's seed is readable.", 'FS.exploreSeedReady = false;',
+    'if (h?.explore?.state && nowBell() >= h.explore.bell) {', 'const seedOf = { ref: holdingRef(h), bell: Number(h.explore.bell), ask: ++exploreSeedAsk };',
+    'const r = await herald.bellRegion(h.explore.bell, regionOf(h.explore.p, h.explore.q));', 'if (!currentViewer()) return;',
+    'applyExploreSeed(seedOf.ref, seedOf.bell, world, r, seedOf.ask);', 'await refreshMarches();');
   assert.equal((codeOf(rf).match(/herald\.bellRegion\(/g) ?? []).length, 1, 'the one read it made');
-  assert.ok(ctl.includes("const exploreMarkOf = (h, world, state = 'ready', code = null) => (h?.explore?.state ? { ref: holdingRef(h), bell: Number(h.explore.bell), world, state, code } : null);"));
+  assert.doesNotMatch(codeOf(rf), /FS\.exploreSeedReady = r\.ok|exploreSeedMarks\.(set|delete|clear)/, 'refresh writes no mark and no `true` itself');
   assert.ok(ctl.includes("const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');"));
 });
 
-test('X2 the flag is this village\'s, this exploration\'s, this world\'s', () => {
+test('X2 one boundary: a read seed stays, the later request stands, each village its own', () => {
+  const apply = fnOf(ctl, "function applyExploreSeed(ref, bell, world, r, ask, source = 'read') {");
+  assert.ok(ctl.includes('const exploreSeedMarks = new Map();'));
+  assert.ok(ctl.includes('const exploreOfRef = ref => (FS.holdings ?? []).find(o => holdingRef(o) === ref) ?? null;'));
+  order(apply, 'const here = providerWorld();',
+    'for (const [k, m] of exploreSeedMarks) { const o = exploreOfRef(k); if (m.world !== here || !(o?.explore?.state > 0) || Number(o.explore.bell) !== m.bell) exploreSeedMarks.delete(k); }',
+    'const o = exploreOfRef(ref);', 'if (world !== here || !(o?.explore?.state > 0) || Number(o.explore.bell) !== bell) return false;',
+    "const ready = r?.ok === true && !!seedSourceOf(r.record), unread = !ready && r?.ok !== true && r?.code !== 'NotFound';", 'const cur = exploreSeedMarks.get(ref) ?? null;',
+    "if (cur && !ready && (cur.state === 'ready' || cur.ask > ask)) return false;",
+    "exploreSeedMarks.set(ref, { ref, bell, world, state: ready ? 'ready' : unread ? 'failed' : 'waiting', code: unread ? r?.code ?? 'Error' : null, ask, source });", 'return true;');
+  assert.doesNotMatch(codeOf(apply), /await |herald|\bact\(|refresh\(/, 'it applies an answer; it reads and sends nothing');
+  // every place a mark is written or taken away
+  assert.equal((ctl.match(/exploreSeedMarks\.set\(/g) ?? []).length, 2, 'the boundary, and a `true` written from outside');
+  assert.equal((ctl.match(/exploreSeedMarks\.delete\(/g) ?? []).length, 2, 'the boundary\'s pruning, and a `false` taking back an outside `true`');
+  assert.equal((ctl.match(/exploreSeedMarks\.clear\(\)/g) ?? []).length, 3, 'another viewer, herald, world');
+  assert.equal((ctl.match(/applyExploreSeed\(/g) ?? []).length, 3, 'its definition, refresh, the check');
+  // the flag over the marks
   const now = ctl.slice(ctl.indexOf('const exploreSeedNow = () => {'), ctl.indexOf('\n};\n', ctl.indexOf('const exploreSeedNow = () => {')) + 3);
-  order(now, 'const h = activeHolding(FS) ?? null, m = exploreSeedMark;',
-    "return exploreSeedRaw === true && !!m && m.state === 'ready' && !!h && h.explore?.state > 0 && holdingRef(h) === m.ref && Number(h.explore.bell) === m.bell && providerWorld() === m.world;");
-  order(fnOf(ctl, 'export async function startPlay({ herald: h, cfg }) {'), "Object.defineProperty(FS, 'exploreSeedReady', { configurable: true, enumerable: true, get: exploreSeedNow,",
-    'set: v => { exploreSeedRaw = v === true; if (exploreSeedRaw) exploreSeedMark = exploreMarkOf(activeHolding(FS) ?? null, providerWorld()); } });');
+  order(now, 'const h = activeHolding(FS) ?? null, m = h ? exploreSeedMarks.get(holdingRef(h)) ?? null : null;',
+    "return !!m && m.state === 'ready' && h.explore?.state > 0 && Number(h.explore.bell) === m.bell && providerWorld() === m.world;");
+  const start = fnOf(ctl, 'export async function startPlay({ herald: h, cfg }) {');
+  order(start, 'FS.exploreSeedMarks = exploreSeedMarks;', "Object.defineProperty(FS, 'exploreSeedReady', { configurable: true, enumerable: true, get: exploreSeedNow,",
+    "if (v === true) { if (o?.explore?.state > 0) exploreSeedMarks.set(ref, { ref, bell: Number(o.explore.bell), world: providerWorld(), state: 'ready', code: null, ask: ++exploreSeedAsk, source: 'external' }); }",
+    "else if (ref !== null && exploreSeedMarks.get(ref)?.source === 'external') exploreSeedMarks.delete(ref);");
+  // the page's own writers of the flag: two `false`s (another viewer; refresh's start) and the plain-value fallback — no `true`
+  const writes = [...ctl.matchAll(/FS\.exploreSeedReady = ([^;]+);/g)].map(m => m[1]);
+  assert.deepEqual(writes, ['false', 'false', 'exploreSeedNow()']);
   // the readers of the flag are the ones they were
   assert.ok(read('frontier/hud/hud.mjs').includes('if (FS.exploreSeedReady) {'));
   assert.ok(read('frontier/screens/onboarding.mjs').includes('if (h?.explore?.state > 0) return FS.exploreSeedReady'));
@@ -68,31 +97,34 @@ test('X3 collecting: nothing waiting is said; a change during the wait only stop
   assert.ok(ctl.includes("  'settle-explore': () => settleExplore(),"));
 });
 
-test('X4 the person\'s own check is one read', () => {
-  order(check, 'const h = activeHolding(FS) ?? null;', "if (!herald || FS.mode !== 'play' || !(h?.explore?.state > 0)) return false;", "if (FS.exploreSeedCheck?.state === 'loading') return 'loading';",
-    "const run = { state: 'loading', ref: holdingRef(h), bell: Number(h.explore.bell) }, at = { herald, world: providerWorld(), viewer: viewerKey() ?? null };",
-    'const mine = () => FS.exploreSeedCheck === run && herald === at.herald && providerWorld() === at.world && (viewerKey() ?? null) === at.viewer;',
-    "FS.exploreSeedCheck = run; invalidate('panel');", 'const r = await herald.bellRegion(h.explore.bell, regionOf(h.explore.p, h.explore.q))', 'if (!mine()) return false;',
-    "const ready = r.ok && !!seedSourceOf(r.record), unread = !ready && !r.ok && r.code !== 'NotFound';",
-    "const had = exploreSeedMark && exploreSeedMark.state === 'ready' && exploreSeedMark.ref === run.ref && exploreSeedMark.bell === run.bell && exploreSeedMark.world === at.world && exploreSeedRaw === true;",
-    'if (ready || !had) {', 'FS.exploreSeedReady = ready;',
-    "FS.exploreSeedState = exploreSeedMark = { ref: run.ref, bell: run.bell, world: at.world, state: ready ? 'ready' : unread ? 'failed' : 'waiting', code: unread ? r.code ?? 'Error' : null };",
-    'if (FS.exploreSeedCheck === run) FS.exploreSeedCheck = null;');
+test('X4 the person\'s own check is one read, applied through the same boundary', () => {
+  order(check, 'const h = activeHolding(FS) ?? null;', "if (!herald || FS.mode !== 'play' || !(h?.explore?.state > 0)) return false;",
+    'const at = { herald, world: providerWorld(), viewer: viewerKey() ?? null };', "const run = { state: 'loading', ref: holdingRef(h), bell: Number(h.explore.bell), world: at.world };",
+    "if (cur?.state === 'loading' && cur.ref === run.ref && cur.bell === run.bell && cur.world === run.world) return 'loading';",
+    'const scope = () => herald === at.herald && providerWorld() === at.world && (viewerKey() ?? null) === at.viewer;', 'const ask = ++exploreSeedAsk;',
+    "FS.exploreSeedCheck = run; invalidate('panel');", 'const r = await herald.bellRegion(h.explore.bell, regionOf(h.explore.p, h.explore.q))', 'if (!scope()) return false;',
+    'applyExploreSeed(run.ref, run.bell, at.world, r, ask);', 'if (FS.exploreSeedCheck === run) FS.exploreSeedCheck = null;');
   assert.equal((codeOf(check).match(/await /g) ?? []).length, 1);
-  assert.doesNotMatch(codeOf(check), /\bact\(|settleExplore|refresh\(|refreshMarches|io\.|saveLand|saveHome|storage|loadEnvelope|autoTicket|nudge/);
+  assert.doesNotMatch(codeOf(check), /\bact\(|settleExplore|refresh\(|refreshMarches|io\.|saveLand|saveHome|storage|loadEnvelope|autoTicket|nudge|exploreSeedMarks\.(set|delete|clear)|FS\.exploreSeedReady =/);
   assert.ok(ctl.includes("  'explore-check': () => { checkExploreSeed().catch(() => {}); },"));
 });
 
-test('X5 the card: this village\'s read, and the other villages', () => {
-  const seedOf = fnOf(ex, 'export function seedReadOf(FS, h) {'), others = fnOf(ex, 'export function otherExplorations(FS) {');
+test('X5 the card: this village\'s answer and check, in this world; and the other villages', () => {
+  const seedOf = fnOf(ex, 'export function seedReadOf(FS, h) {'), checking = fnOf(ex, 'export function seedCheckingOf(FS, h) {'), others = fnOf(ex, 'export function otherExplorations(FS) {');
   assert.ok(ex.includes("const refOf = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');"), 'the controller\'s own mark of a village');
-  assert.ok(seedOf.includes('return m && h?.explore?.state > 0 && m.ref === refOf(h) && m.bell === Number(h.explore.bell) ? { state: m.state, code: m.code ?? null } : null;'));
+  assert.ok(ex.includes("const worldOf = FS => { const pin = FS.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };"));
+  assert.ok(ctl.includes("function providerWorld() { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; }"), 'the same world mark');
+  order(seedOf, 'const m = h ? FS.exploreSeedMarks?.get?.(refOf(h)) ?? null : null;',
+    'return m && h.explore?.state > 0 && m.bell === Number(h.explore.bell) && m.world === worldOf(FS) ? { state: m.state, code: m.code ?? null } : null;');
+  order(checking, 'const c = FS.exploreSeedCheck ?? null;',
+    "return !!c && c.state === 'loading' && !!h && h.explore?.state > 0 && c.ref === refOf(h) && c.bell === Number(h.explore.bell) && c.world === worldOf(FS);");
   order(others, 'const active = activeHolding(FS) ?? null;', 'filter(({ o }) => o !== active && o?.explore?.state > 0)',
     'due: FS.clock ? ticketTimes(FS.clock, o.explore.bell).resultAbout : null }));');
-  order(card, "const seed = pending ? seedReadOf(FS, h) : null, checking = FS.exploreSeedCheck?.state === 'loading';", "const seedNote = !pending || FS.exploreSeedReady ? ''", '結果が出たか、確かめています…',
+  order(card, 'const seed = pending ? seedReadOf(FS, h) : null, checking = pending && seedCheckingOf(FS, h);', "const seedNote = !pending || FS.exploreSeedReady ? ''", '結果が出たか、確かめています…',
     "seed?.state === 'failed'", '結果が出たかどうかを、読み込めませんでした（${seed.code}）。まだ出ていない、という意味ではありません。', "seed?.state === 'waiting'", 'いま確かめたところ、結果はまだ出ていません。',
     'data-act="explore-check"', 'const others = otherExplorations(FS);', 'ほかの村の探索（結果待ち）', '結果が出るころを過ぎています。', 'data-act="explore-village" data-i="${x.i}"',
     '結果を受け取れるのは、その村を選んでいるときです。', '${seedNote}${othersNote}');
+  assert.doesNotMatch(card, /FS\.exploreSeedCheck\?\.state === 'loading'|FS\.exploreSeedState/, 'no check or mark read without its village and world');
   assert.doesNotMatch(codeOf(ex), /FS\.[A-Za-z0-9]+ = |invalidate\(|\bact\(/, 'the card reads; it changes nothing');
 });
 
@@ -107,9 +139,9 @@ test('X6 the app\'s action', () => {
 });
 
 test('X7 another viewer, herald or world: the mark and the check are let go', () => {
-  order(fnOf(ctl, 'function resetViewer('), 'FS.exploreSeedReady = false;', 'FS.exploreSeedState = exploreSeedMark = null; FS.exploreSeedCheck = null;');
-  order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.exploreSeedState = exploreSeedMark = null; FS.exploreSeedCheck = null;', 'dropOtherWorldConquest(world);');
-  assert.ok(fnOf(ctl, 'export function useHerald(h) {').includes('FS.exploreSeedState = exploreSeedMark = null; FS.exploreSeedCheck = null;'), 'useHerald');
+  order(fnOf(ctl, 'function resetViewer('), 'exploreSeedMarks.clear(); FS.exploreSeedCheck = null;', 'FS.exploreSeedReady = false;');
+  order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'exploreSeedMarks.clear(); FS.exploreSeedCheck = null;', 'dropOtherWorldConquest(world);');
+  assert.ok(fnOf(ctl, 'export function useHerald(h) {').includes('exploreSeedMarks.clear(); FS.exploreSeedCheck = null;'), 'useHerald');
 });
 
 test('X8 English follows; no banned word', () => {

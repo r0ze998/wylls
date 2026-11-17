@@ -29,14 +29,21 @@ export function directionOf(from, to) {
 
 /** A village's own mark, as the controller writes it (holdingRef): place, site, generation. */
 const refOf = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
+/** The pinned world with its generation, as the controller marks it (providerWorld). */
+const worldOf = FS => { const pin = FS.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };
 /**
- * (2026-11-17, ⑦) How the last read of the seed went for THIS village's pending exploration (controller
- * exploreSeedMark, `FS.exploreSeedState`): 'ready' | 'waiting' | 'failed' with its code, or null when no read answered
- * for this village and this exploration (another village's read is not this one's).
+ * (2026-11-17, ⑦) How the last answer about the seed went for THIS village's pending exploration, in THIS world
+ * (controller exploreSeedMarks, `FS.exploreSeedMarks`: one mark per village): 'ready' | 'waiting' | 'failed' with its
+ * code; null when no answer stands for this village, this exploration and this world.
  */
 export function seedReadOf(FS, h) {
-  const m = FS.exploreSeedState ?? null;
-  return m && h?.explore?.state > 0 && m.ref === refOf(h) && m.bell === Number(h.explore.bell) ? { state: m.state, code: m.code ?? null } : null;
+  const m = h ? FS.exploreSeedMarks?.get?.(refOf(h)) ?? null : null;
+  return m && h.explore?.state > 0 && m.bell === Number(h.explore.bell) && m.world === worldOf(FS) ? { state: m.state, code: m.code ?? null } : null;
+}
+/** Whether the person's own check under way is THIS village's, this exploration's and this world's (corrected: a check of the village left behind is not shown as this one's). */
+export function seedCheckingOf(FS, h) {
+  const c = FS.exploreSeedCheck ?? null;
+  return !!c && c.state === 'loading' && !!h && h.explore?.state > 0 && c.ref === refOf(h) && c.bell === Number(h.explore.bell) && c.world === worldOf(FS);
 }
 /**
  * The viewer's OTHER villages with an exploration waiting: `[{i, name, bell, due}]` (`due`: the second its result is
@@ -58,7 +65,7 @@ export function render(FS) {
   if (draft?.host) targets = exploreTargets(draft.host.province, draft.host);
   const times = pending && FS.clock ? ticketTimes(FS.clock, rec.bell) : null;
   // (2026-11-17, ⑦: the seed read for this village's exploration, the person's own check, and the other villages)
-  const seed = pending ? seedReadOf(FS, h) : null, checking = FS.exploreSeedCheck?.state === 'loading';
+  const seed = pending ? seedReadOf(FS, h) : null, checking = pending && seedCheckingOf(FS, h);
   const now = FS.chain?.now?.() ?? null;
   const seedNote = !pending || FS.exploreSeedReady ? '' : html`${checking ? html`<p class="muted" role="status">${L`結果が出たか、確かめています…`}</p>`
     : seed?.state === 'failed' ? html`<p class="notice error" role="alert">${L`結果が出たかどうかを、読み込めませんでした（${seed.code}）。まだ出ていない、という意味ではありません。`}</p>`
