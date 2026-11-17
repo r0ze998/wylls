@@ -575,3 +575,81 @@ fn older_gateway_failure_is_still_held() {
     );
     assert_eq!(g.stub.txs(), 1);
 }
+
+// ---- 2026-11-17: the simulated world gets a transaction's effect only for a
+// finalized success (`gateway.rs` `status`), never from the `sent` answer
+// itself. WRITTEN, NOT RUN: these use this file's loopback stub (a bound
+// TcpListener) and run only with their own approval.
+
+/// A plain `sent`, then the chain says `failed` (finalized with an error):
+/// nothing of it reaches the simulated world, and the run is not fulfilled.
+#[test]
+fn sent_then_finalized_failed_applies_no_effect() {
+    let mut g = scene(
+        "gwf-sent-failed",
+        Script {
+            fate: VecDeque::from(["pending", "failed"]),
+            ..Default::default()
+        },
+    );
+    g.reach_facility_confirmed();
+    g.drive(80);
+    let row = g.run();
+    assert_ne!(row.state, RunState::Fulfilled, "{:?} {:?}", row.detail.reason, row.held);
+    g.sim.with(|w| {
+        assert!(!w.took_effect("sig1"), "a finalized failure moved nothing");
+        assert_eq!(w.stores(&g.dst), ZERO, "nothing delivered");
+    });
+}
+
+/// A plain `sent` proved `expired`, then one new attempt that lands: the
+/// expired one never took effect, so the cargo arrives exactly once.
+#[test]
+fn sent_then_proved_expired_then_new_attempt_delivers_once() {
+    let mut g = scene(
+        "gwf-sent-expired",
+        Script {
+            answer: VecDeque::from([Answer::Sent, Answer::Sent]),
+            fate_per_tx: vec![
+                VecDeque::from(["expired"]),
+                VecDeque::from(["pending", "landed"]),
+            ],
+            ..Default::default()
+        },
+    );
+    g.reach_facility_confirmed();
+    g.drive(80);
+    let row = g.run();
+    assert_eq!(row.state, RunState::Fulfilled, "{:?} {:?}", row.detail.reason, row.held);
+    assert_eq!(g.stub.txs(), 2, "exactly one new attempt");
+    // The stub names signatures by POST count (replays included): read the new one.
+    let second = g.ex.chain.facts(&g.ship_handle()).unwrap().signed.unwrap().signature;
+    assert_ne!(second, "sig1");
+    g.sim.with(|w| {
+        assert!(!w.took_effect("sig1"), "the expired transaction never took effect");
+        assert!(w.took_effect(&second));
+        assert_eq!(w.stores(&g.dst), r(6, 3), "delivered once, not twice");
+    });
+}
+
+/// A plain `sent` whose result cannot be proved (`unknown`): held, and the
+/// simulated world is not given the effect on the strength of the answer.
+#[test]
+fn sent_then_unknown_holds_without_effect() {
+    let mut g = scene(
+        "gwf-sent-unknown",
+        Script {
+            fate: VecDeque::from(["unknown"]),
+            ..Default::default()
+        },
+    );
+    g.reach_facility_confirmed();
+    g.drive(60);
+    let row = g.run();
+    assert_eq!(row.held.as_deref(), Some("Indeterminate"), "{:?}", row.state);
+    assert_eq!(g.stub.txs(), 1, "never re-sent");
+    g.sim.with(|w| {
+        assert!(!w.took_effect("sig1"));
+        assert_eq!(w.stores(&g.dst), ZERO);
+    });
+}

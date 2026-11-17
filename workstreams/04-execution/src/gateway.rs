@@ -351,14 +351,12 @@ impl GatewayPort {
         self.land(sig)
     }
 
+    /// Records the gateway's answer for `key`. (2026-11-17) Nothing is landed
+    /// here: a `sent` answer says the bytes left, not what the chain decided.
+    /// The simulated world gets the transaction's effect only when the fate
+    /// read says `landed` (see `status`); a send that finalizes `failed`, is
+    /// proved `expired`, or stays `unknown` leaves it untouched.
     fn remember(&self, key: &str, r: GatewayResult) {
-        if let GatewayResult::Sent(s) = &r {
-            if let Err(e) = self.land(&s.signature) {
-                // Recorded as a send we cannot place: the run will not
-                // attribute it (content check) and holds.
-                eprintln!("gateway port: {e}");
-            }
-        }
         self.results.lock().unwrap().insert(key.to_string(), r);
     }
 
@@ -584,8 +582,16 @@ impl Chain for GatewayPort {
                 let f = self.fate(key)?;
                 match f.state.as_str() {
                     "landed" | "failed" => {
-                        // The chain's effect, in the simulated world (idempotent).
-                        let _ = self.land(&s.signature);
+                        // The chain's effect, in the simulated world (idempotent),
+                        // only for a finalized success: a finalized failure moved
+                        // nothing (2026-11-17).
+                        if f.state == "landed" {
+                            if let Err(e) = self.land(&s.signature) {
+                                // A landed send we cannot place: not attributed
+                                // (held below as Unavailable).
+                                eprintln!("gateway port: {e}");
+                            }
+                        }
                         match self.sim.status(&s.signature, u64::MAX)? {
                             SigStatus::Landed { slot, .. } if f.state == "landed" => {
                                 SigStatus::Landed { slot, fee: Some(0) }
