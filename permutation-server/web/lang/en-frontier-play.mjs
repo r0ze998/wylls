@@ -1700,4 +1700,6 @@ export default {
   '記録をもう一度読む': 'Load the records again',
   '読み込んでいます…': 'Loading…',
   '進軍の記録をまだ読めていません。進軍がないという意味ではありません。次の読み込みで確かめます。': 'The marches have not been loaded yet. This does not mean there are no marches. They are checked again on the next load.',
+  // (2026-11-17, Lane C ⑦ a report that could not be read)
+  '戦いがなかったという意味ではありません。もう一度読み込めます。': 'This does not mean there was no clash. It can be loaded again.',
 };
