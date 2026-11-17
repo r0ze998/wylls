@@ -28,7 +28,13 @@
 //      state store may fail after its rename, so the disk may say either state); a later call (this process or after a
 //      restart) reads the disk again: `sending` is only read back, never posted again.
 // Within one process a second call on the same journal (any request; the directory's real path) is held while the
-// first runs; across processes nothing is excluded (the files have no lock): one process per resident directory.
+// first runs. (2026-11-17) Across processes, every call of THIS module takes `live-enact.json.lock` next to the journal
+// by exclusive create before it reads the journal, and holds it until it returns; a lock that is there already is
+// never taken over, moved or removed (whoever made it, alive or not: no process id is used to decide), so the call is
+// held with nothing done. A lock left by a call that stopped (a crash) keeps every later call held until an operator
+// who knows no writer is running removes it. A call removes only the lock it made (the same file, the same token).
+// What this protects: the enact journal against two calls of this module. NOT state.json (the resident, the owner's
+// mode command, the initial writer) or any other file, and not a writer that does not take this lock.
 // A respond record only says the resident will send; it moves nothing (workstream 1). Nothing here signs a transaction,
 // sends a caravan, spends or authorizes.
 //
@@ -38,7 +44,8 @@
 // resident-side send would need that hook and that correlation carried over as a contract for a non-browser signer and
 // for a non-localnet world; neither is adopted, so enactSend answers held and does nothing.
 import path from 'node:path';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, openSync, writeFileSync, fsyncSync, fstatSync, closeSync, lstatSync, unlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { signRecord, recordId, shapeProblem, canonical } from '../../../01-national-strategy/coop/record.mjs';
 import { createStateStore } from '../../../../permutation-gateway/src/config.mjs';
 import { readResidentState } from './resident-state.mjs';
@@ -96,6 +103,49 @@ const RESOURCE = /^[a-z]+$/;
 const BINDING_KEYS = ['wallet', 'board', 'programId', 'seasonId', 'cluster', 'world_id', 'clock'];
 const RECORD_KEYS = ['v', 'kind', 'season', 'at', 'request', 'answer', 'offer', 'nation'];
 const sameKeys = (o, keys) => isObj(o) && Object.keys(o).length === keys.length && keys.every(k => Object.hasOwn(o, k));
+const LOCK = `${JOURNAL}.lock`;
+
+/**
+ * (2026-11-17) The journal's cross-process lock, made by exclusive create (`wx`: an existing file or link is never
+ * opened or followed). → {lock: {path, token, dev, ino}} | {why}. Nothing existing is removed, moved or taken over.
+ */
+function takeJournalLock(dir) {
+  const p = path.join(dir, LOCK);
+  let fd;
+  try { fd = openSync(p, 'wx', 0o600); } catch (e) {
+    if (e?.code === 'EEXIST') return { why: `the enact journal is locked (${LOCK}): another writer is using it, or one that stopped left it; it is not removed or taken over here (an operator who knows no writer is running removes it)` };
+    return { why: `the enact journal's lock could not be made (${short(e)})` };
+  }
+  let st = null, token = null;
+  try {
+    st = fstatSync(fd);
+    token = randomBytes(16).toString('hex');
+    writeFileSync(fd, JSON.stringify({ v: 1, by: 'workstream 13 enact.mjs', token, pid: process.pid, pidNote: 'informational only; never used to decide who holds it' }));
+    fsyncSync(fd);
+  } catch (e) {
+    try { closeSync(fd); } catch { /* closed */ }
+    const left = st ? releaseJournalLock({ path: p, token: null, dev: st.dev, ino: st.ino }) : 'not released: the lock file could not be identified';
+    return { why: `the enact journal's lock could not be written (${short(e)}); the lock ${left}` };
+  }
+  try { closeSync(fd); } catch { /* the content is synced; the descriptor is not used again */ }
+  return { lock: { path: p, token, dev: st.dev, ino: st.ino } };
+}
+
+/** Removes the lock only when it is still the file this call made, with this call's token. → 'released' | 'not released: …' */
+function releaseJournalLock(lock) {
+  try {
+    const st = lstatSync(lock.path);
+    if (!st.isFile() || st.dev !== lock.dev || st.ino !== lock.ino) return 'not released: it is not the file this call made (left as it is)';
+    if (lock.token !== null) {
+      let t = null;
+      try { t = JSON.parse(readFileSync(lock.path, 'utf8')).token; } catch { t = null; }
+      if (t !== lock.token) return 'not released: it does not hold this call\'s token (left as it is)';
+    }
+    unlinkSync(lock.path);
+    return 'released';
+  } catch (e) { return `not released (${short(e)}): later calls are held until it is removed`; }
+}
+
 const UNSAVED = 'the journal could not be saved, and whether the new state reached the disk is not known (a failure after the rename leaves it there)';
 
 /** The binding a journal line is made under, and must still match before it is used: who, which board, which world, which clock. */
@@ -160,7 +210,8 @@ function respondRecordOf(proposal, observed, nation, at) {
  *   `durable: true` when the journal on disk says it; `durable: false, saved: 'unknown'` when the save failed: the disk
  *   may say the earlier state or the new one. A later call (this process or after a restart) reads the disk again and
  *   only reads a `sending` line back, never posts it again.
- * Within one process, one call per resident journal at a time (its real path); across processes nothing is excluded.
+ * Within one process, one call per resident journal at a time (its real path); across processes, one call of this
+ *   module per journal at a time (its lock file); `lock` says whether this call's lock was released.
  */
 export async function enactRespond(args) {
   let realDir;
@@ -168,7 +219,20 @@ export async function enactRespond(args) {
   const journal = path.join(realDir, JOURNAL);
   if (inFlight.has(journal)) return held("another call in this process is using this resident's enact journal: nothing done");
   inFlight.add(journal);
-  try { return await enactRespondOnce({ ...args, dir: realDir }, journal); } finally { inFlight.delete(journal); }
+  let lock = null;
+  try {
+    // (2026-11-17) the cross-process lock before the journal is read; not taken → held, nothing read or done
+    const t = takeJournalLock(realDir);
+    if (!t.lock) return held(`nothing done: ${t.why}`, { lock: 'not taken' });
+    lock = t.lock;
+    const r = await enactRespondOnce({ ...args, dir: realDir }, journal);
+    const released = releaseJournalLock(lock);
+    lock = null;
+    return { ...r, lock: released };
+  } finally {
+    if (lock) releaseJournalLock(lock);
+    inFlight.delete(journal);
+  }
 }
 
 async function enactRespondOnce({ dir, wallet, proposal, observed, nation, signer, boardUrl, fetchImpl, nowSecs }, journal) {

@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync, chmodSync, symlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync, chmodSync, symlinkSync, lstatSync, unlinkSync, readlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { enactRespond, enactSend, SEND_UNSUPPORTED } from '../resident/live/enact.mjs';
@@ -204,6 +204,13 @@ test('an answer seen but not saved is not durable: saved unknown, and the next c
     } finally { chmodSync(dir, 0o700); }
     // this failure is before the rename (no temporary file can be made), so here the disk still says sending
     assert.equal(journal(dir).lines['respond:r1'].state, 'sending');
+    // (2026-11-17, the journal lock unit) the read-only directory also kept this call's lock: later calls are held until an
+    // operator removes it (the test does, as that operator)
+    assert.match(r.lock, /^not released/);
+    const locked = await enactRespond(args(dir, b));
+    assert.match(locked.why, /the enact journal is locked/);
+    assert.equal(b.calls.posts.length, 1);
+    rmSync(path.join(dir, 'live-enact.json.lock'));
     const again = await enactRespond(args(dir, b));
     assert.equal(again.unknown, true, 'not on the fake board view: read back only');
     assert.equal(b.calls.posts.length, 1, 'never posted again');
@@ -300,4 +307,68 @@ test('as text: one journal lock by real path; the clock in the binding; a failed
   assert.match(src, /clock: clockId\(observed\.clock\)/);
   assert.doesNotMatch(src, /it still says sending/, 'no claim about the disk after a failed save');
   assert.ok(src.indexOf('lineProblem(line,') < src.indexOf("line.state === 'posted' || line.state === 'refused') return"), 'checked before answered');
+});
+
+// (2026-11-17, the journal lock unit; WRITTEN ONLY, NOT RUN) the journal's cross-process lock: exclusive create, never taken over
+const lockOf = dir => path.join(dir, 'live-enact.json.lock');
+test('a call takes the journal lock and removes only its own: released, nothing left', async () => {
+  await withResident('auto', async dir => {
+    const b = board();
+    const r = await enactRespond(args(dir, b));
+    assert.deepEqual([r.state, r.lock], ['posted', 'released']);
+    assert.equal(existsSync(lockOf(dir)), false);
+    const h = await enactRespond(args(dir, b, { nation: 9 }));   // held at the checks: the lock is still taken and released
+    assert.deepEqual([h.held, h.lock], [true, 'released']);
+    assert.equal(existsSync(lockOf(dir)), false);
+  });
+});
+
+test('a lock already there is never taken over, moved or removed, whoever holds it: held, nothing read or done', async () => {
+  for (const make of [
+    dir => writeFileSync(lockOf(dir), JSON.stringify({ v: 1, token: 'another', pid: process.pid })),   // even this process id
+    dir => writeFileSync(lockOf(dir), JSON.stringify({ v: 1, token: 'dead', pid: 2147483646 })),       // a process id that looks gone
+    dir => writeFileSync(lockOf(dir), ''),                                                               // empty or unreadable
+    dir => { writeFileSync(path.join(dir, 'elsewhere.txt'), 'keep'); symlinkSync(path.join(dir, 'elsewhere.txt'), lockOf(dir)); },   // a link
+  ]) {
+    await withResident('auto', async dir => {
+      make(dir);
+      const before = lstatSync(lockOf(dir));
+      const content = before.isSymbolicLink() ? readlinkSync(lockOf(dir)) : readFileSync(lockOf(dir), 'utf8');
+      const b = board(), calls = { n: 0 };
+      const r = await enactRespond(args(dir, b, { signer: signer(calls) }));
+      assert.equal(r.held, true);
+      assert.match(r.why, /the enact journal is locked/);
+      assert.equal(r.lock, 'not taken');
+      assert.equal(calls.n, 0, 'not signed');
+      assert.deepEqual(b.calls.posts, [], 'not posted');
+      assert.deepEqual(b.calls.gets, [], 'nothing read on the board');
+      assert.equal(existsSync(path.join(dir, 'live-enact.json')), false, 'the journal not read into or written');
+      const after = lstatSync(lockOf(dir));
+      assert.equal(after.ino, before.ino, 'the same lock file');
+      assert.equal(after.isSymbolicLink() ? readlinkSync(lockOf(dir)) : readFileSync(lockOf(dir), 'utf8'), content, 'unchanged');
+      if (after.isSymbolicLink()) assert.equal(readFileSync(path.join(dir, 'elsewhere.txt'), 'utf8'), 'keep', 'the link target untouched');
+    });
+  }
+});
+
+test('a lock replaced while the call runs is left as it is: not released, later calls held', async () => {
+  await withResident('auto', async dir => {
+    const b = board();
+    const swap = () => { unlinkSync(lockOf(dir)); writeFileSync(lockOf(dir), JSON.stringify({ v: 1, token: 'someone-else' })); };
+    const r = await enactRespond(args(dir, b, { signer: signer({ n: 0 }, swap) }));
+    assert.match(r.lock, /^not released/);
+    assert.equal(JSON.parse(readFileSync(lockOf(dir), 'utf8')).token, 'someone-else', 'the other lock kept');
+    assert.match((await enactRespond(args(dir, b))).why, /the enact journal is locked/);
+  });
+});
+
+test('as text: the lock before the journal is read; no takeover, no process id test, one removal path; what it protects stated', () => {
+  const raw = readFileSync(new URL('../resident/live/enact.mjs', import.meta.url), 'utf8');
+  const src = raw.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '');
+  assert.match(src, /openSync\(p, 'wx', 0o600\)/, 'exclusive create');
+  assert.ok(src.indexOf('takeJournalLock(realDir)') < src.indexOf('enactRespondOnce({ ...args'), 'taken before the journal is loaded');
+  assert.doesNotMatch(src, /process\.kill|renameSync\(|rmSync\(|\.stale/, 'no liveness test, no takeover, no move');
+  assert.equal(src.match(/unlinkSync\(/g).length, 1, 'one removal, in releaseJournalLock');
+  assert.ok(src.indexOf('unlinkSync(') > src.indexOf('function releaseJournalLock') && src.indexOf('st.ino !== lock.ino') < src.indexOf('unlinkSync('), 'only after the same file and token are checked');
+  assert.match(raw, /NOT state\.json/, 'the protected scope stated');
 });
