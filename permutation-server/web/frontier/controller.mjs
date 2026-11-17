@@ -1220,18 +1220,20 @@ async function readMarches() {
  * `entry`, `transit` or `settleReady` — what the self-reveal and the settle offer are decided from stays readMarches'
  * own, at its own times. Only a march marked `unread`, only from the arrival turn on (a sealed destination is never
  * asked for before it), only the destination this page already used for that read. The answer is written only if the
- * same herald, local-play instance, village, book, world and list still stand and no later press was made.
+ * same herald, local-play instance, village, book, world and list still stand and no later press was made ON THIS MARCH.
  * Resolves true when the reads came, false when they did not or the request was let go.
  */
-let marchRereadSeq = 0;
 export async function rereadMarchFacts(hostId) {
   const list = FS.marches, m = (list ?? []).find(x => String(x.entry?.host ?? x.transit?.hostId ?? '') === String(hostId));
   const dest = m?.entry ? m.dest : m?.readDest ?? m?.dest ?? null;
   const bell = m?.entry?.arriveBell ?? m?.transit?.arriveBell;
   if (!m?.unread || !dest || !Number.isInteger(bell) || !herald || nowBell() < bell) return false;
-  const req = ++marchRereadSeq, holding = holdingRef(activeHolding(FS) ?? null);
+  // (2026-11-17 correction: the request is this march's own — `m.rereadReq`, a token on the item. A later press on the
+  //  SAME march takes its place; a press on another march does not touch it (one number for all marches let march B's
+  //  press call off march A's). The tidy-up clears "being read" only while the item still names this request.)
+  const req = m.rereadReq = {}, holding = holdingRef(activeHolding(FS) ?? null);
   const at = { herald, localPlay, instance: localPlay?.march?.instance ?? null, holding, key: bookKey(), world: providerWorld() };
-  const same = () => req === marchRereadSeq && FS.marches === list && list.includes(m) && herald === at.herald && localPlay === at.localPlay
+  const same = () => m.rereadReq === req && FS.marches === list && list.includes(m) && herald === at.herald && localPlay === at.localPlay
     && (localPlay?.march?.instance ?? null) === at.instance && holdingRef(activeHolding(FS) ?? null) === at.holding && bookKey() === at.key && providerWorld() === at.world;
   m.rereading = true; invalidate('panel');
   let ok = false;
@@ -1248,7 +1250,7 @@ export async function rereadMarchFacts(hostId) {
       m.unread = null; ok = true;
     }
   } catch (e) { console.error('frontier march reread:', e); if (same()) m.unread = { ...(m.unread ?? {}), code: e?.code ?? 'Error' }; }
-  finally { if (list.includes(m)) m.rereading = false; invalidate('panel'); }
+  finally { if (m.rereadReq === req) m.rereading = false; invalidate('panel'); }
   return ok;
 }
 

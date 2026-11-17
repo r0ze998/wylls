@@ -13,8 +13,8 @@
 //      that one item; never the book, io.reveal, slot, env, record, entry, transit or settleReady; only from the arrival
 //      turn on; only for a march marked unread
 //   T5 ownership: the same herald, local-play instance, village, book key, world (with its generation), list and item,
-//      and the last press — a newer list, another world (A → B → A), another village or a later press, and nothing is
-//      written
+//      and the last press ON THAT MARCH — a newer list, another world (A → B → A), another village or a later press on
+//      the same march, and nothing is written; a press on another march does not call this one off
 //   T6 a change of viewer or world empties the list and marks it not read
 //   T7 English for every new sentence; no banned word
 import test from 'node:test';
@@ -61,14 +61,15 @@ test('T4 the re-read is a pure read', () => {
     'if (!same()) return false;', 'const factsRead = await bellFacts(bell, regionOf(dest.p, dest.q), slotRead.env?.province.resolvedNext ?? null);', 'if (!same()) return false;',
     'if (slotRead.failed || factsRead.failed) m.unread = {', "m.facts = { ...m.facts, ...(known ? { pipeline: pipeline(FS.clock, bell, { now: now(), ...factsRead.facts }).state, slotPresent: !!slotRead.slot } : {}) };",
     'm.unread = null; ok = true;');
-  assert.equal((c.match(/m\.\w+ = /g) ?? []).filter(x => !['m.rereading = ', 'm.unread = ', 'm.facts = '].includes(x)).length, 0, 'only the three display fields are written');
+  // (m.rereadReq: the request's own token on the item — web-frontier-ws07-march-reread-own-text.test.mjs)
+  assert.equal((c.match(/m\.\w+ = /g) ?? []).filter(x => !['m.rereading = ', 'm.unread = ', 'm.facts = ', 'm.rereadReq = '].includes(x)).length, 0, 'only the three display fields and the request token are written');
   assert.ok(app.includes("'march-reread': d => { if (FS.mode === 'play' && d.host) rereadMarchFacts(d.host).catch(() => {}); },"));
 });
 
 test('T5 the answer is written only for the request that still stands', () => {
-  order(rr, 'const req = ++marchRereadSeq, holding = holdingRef(activeHolding(FS) ?? null);',
+  order(rr, 'const req = m.rereadReq = {}, holding = holdingRef(activeHolding(FS) ?? null);',
     'const at = { herald, localPlay, instance: localPlay?.march?.instance ?? null, holding, key: bookKey(), world: providerWorld() };',
-    'const same = () => req === marchRereadSeq && FS.marches === list && list.includes(m) && herald === at.herald && localPlay === at.localPlay',
+    'const same = () => m.rereadReq === req && FS.marches === list && list.includes(m) && herald === at.herald && localPlay === at.localPlay',
     '&& (localPlay?.march?.instance ?? null) === at.instance && holdingRef(activeHolding(FS) ?? null) === at.holding && bookKey() === at.key && providerWorld() === at.world;');
 });
 
