@@ -52,8 +52,45 @@ export function loadRecords(file) {
  * 再起動：記録（records.jsonl）を最初から畳み込み直すので、依頼・応答・結び付け・重複防止（同じ記録・同じ隊商）は戻る。
  * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
  */
+/**
+ * （2026-11-17）ヘラルドの /h/season の答え `{status, json}` を、板の世界 {programId, seasonId, cluster} と比べる：
+ * 'same' | 'different'（differs） | 'unknown'（読めない・形が違う・cluster を言わない）。板と CLI の起動前の確かめで同じ規則。
+ */
+export function worldOfSeason(r, { programId, seasonId, cluster }) {
+  const j = r?.status === 200 ? r.json : null;
+  if (!j || typeof j.programId !== 'string' || (typeof j.season !== 'string' && typeof j.season !== 'number')) return { state: 'unknown', why: `herald /h/season: ${r?.status ?? '?'}` };
+  const diff = [];
+  if (j.programId !== programId) diff.push('programId');
+  if (String(j.season) !== String(seasonId)) diff.push('season');
+  if (typeof j.cluster !== 'string') return { state: 'unknown', why: 'herald /h/season names no cluster', differs: diff };
+  if (j.cluster !== cluster) diff.push('cluster');
+  return diff.length ? { state: 'different', differs: diff } : { state: 'same' };
+}
+
+/** 板がヘラルド・RPC を読める住所：この機械の loopback の http（TLS は前に置く逆プロキシで終える。板の転送は http だけ）。 */
+export const loopbackHttp = u => { try { const x = new URL(u); return x.protocol === 'http:' && (/^127\./.test(x.hostname) || x.hostname === 'localhost' || x.hostname === '[::1]'); } catch { return false; } };
+
+/**
+ * （2026-11-17）`--profile public` の起動の前の確かめ（副作用なし：板を作る・フォルダを作る・聞く前）。問題の一覧（空なら良い）。
+ *   - cluster を明示し、localnet ではない（Dev Wallet は localnet でだけ有効になる。公開の入口に混ぜない）
+ *   - 記録のフォルダ（--data）を明示し、リポジトリの外（既定の .local は試しの場所）
+ *   - ヘラルドと RPC はこの機械の loopback の http（板は 127.0.0.1 でだけ聞き、公開は前の逆プロキシが受ける）
+ */
+export function checkPublicStart({ cluster, clusterGiven, dataDir, dataGiven, herald, rpc, repoDir }) {
+  const problems = [];
+  if (!clusterGiven) problems.push('--cluster must be given (the public profile has no default cluster)');
+  else if (cluster === 'localnet') problems.push('--cluster localnet: a public board must not offer the local Dev Wallet');
+  if (!dataGiven) problems.push('--data must be given (the default folder is inside the repository)');
+  else if (repoDir && (path.resolve(dataDir) === path.resolve(repoDir) || path.resolve(dataDir).startsWith(path.resolve(repoDir) + path.sep))) problems.push('--data is inside the repository');
+  if (!loopbackHttp(herald)) problems.push('--herald must be http on this machine\'s loopback (TLS ends at the reverse proxy in front)');
+  if (rpc !== null && rpc !== undefined && !loopbackHttp(rpc)) problems.push('--rpc must be http on this machine\'s loopback');
+  return problems;
+}
+
 export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = '/gw', rpc = null,
-  previous = [], legacyDirs = [], segmentBytes = DEFAULT_SEGMENT_BYTES, verify = verifySig, cluster = 'localnet' }) {
+  previous = [], legacyDirs = [], segmentBytes = DEFAULT_SEGMENT_BYTES, verify = verifySig, cluster = 'localnet', profile = 'local' }) {
+  // profile（2026-11-17）：'local'（既定。これまでと同じ）か 'public'（公開の準備：起動の前の確かめは CLI の checkPublicStart。
+  // ここでは config にヘラルドの内側の住所を出さないことだけが違う）
   // verify：記録の署名の確かめ（既定は Ed25519 の verifySig）。試験だけが、署名を使わない確かめに差し替える（CLI からは変えられない）
   // 今の文脈（新しい依頼・ヘラルド・見ている人の国）と、前の文脈（読み続ける）。文脈を世界の正本として決めるのは④⑧。①は渡された一覧を使う。
   const season = { programId, seasonId: String(seasonId) };
@@ -73,8 +110,31 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     storeProblems.push(...L.problems.map(x => (L.legacy ? `${L.legacy}：${x}` : x)));
   }
   const sendCache = new Map();      // 送信の結果（終わったものは変わらないので覚える）
-  let obs = { ended: {}, vaults: {} };
-  try { if (fs.existsSync(obsFile)) obs = JSON.parse(fs.readFileSync(obsFile, 'utf8')); } catch { obs = { ended: {}, vaults: {} }; }
+  // 施設の観測（初めて見た時刻）。（2026-11-17）読めないファイルを黙って空にしない：別の名前で残して（消さない・上書きしない）
+  // 理由を health と config で言う。残せなかったときは、上書きしないために以後この板は書かない（obsWritable=false）。
+  let obs = { ended: {}, vaults: {} }, obsState = 'new', obsWritable = true;
+  if (fs.existsSync(obsFile)) {
+    try {
+      const o = JSON.parse(fs.readFileSync(obsFile, 'utf8'));
+      if (!o || typeof o !== 'object' || !o.ended || typeof o.ended !== 'object' || !o.vaults || typeof o.vaults !== 'object') throw new Error('shape');
+      obs = o; obsState = 'ok';
+    } catch {
+      const aside = `${obsFile}.unreadable-${Date.now()}`;
+      try { fs.renameSync(obsFile, aside); obsState = `unreadable: kept as ${path.basename(aside)}; first-seen times start again`; }
+      catch { obsState = 'unreadable: could not be kept aside; not written again until it is'; obsWritable = false; }
+    }
+  }
+  /** 観測を書き換える：一時ファイル → fsync → rename（途中で止まっても前の版か新しい版のどちらか）。 */
+  function saveObs() {
+    if (!obsWritable) return;
+    const tmp = `${obsFile}.tmp`;
+    try {
+      const fd = fs.openSync(tmp, 'w');
+      try { fs.writeFileSync(fd, JSON.stringify(obs)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      fs.renameSync(tmp, obsFile);
+      if (obsState === 'new') obsState = 'ok';
+    } catch (e) { obsState = `not saved: ${String(e?.code ?? e?.message ?? e).slice(0, 60)}`; }
+  }
   const citizenCache = new Map();   // 確かめられた結果だけを覚える（未検証は毎回やり直す）。鍵は「文脈|ウォレット」
   const endCache = new Map();       // 隊商の確定・襲撃（チェーンの記録。終わったものは変わらないので覚える）
   const rulesCache = new Map();     // 文脈ごとの規則の版
@@ -92,7 +152,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
       let changed = false;
       for (const e of file.ended ?? []) { const k = caravanKeyOf({ ctx: ctxKey(season), ownerTag: e.ownerTag, seq: e.seq }); if (!(k in obs.ended)) { obs.ended[k] = t; changed = true; } }
       for (const v of file.vaults ?? []) { const k = `${v.p},${v.q},${v.tile}`; if (!(k in obs.vaults)) { obs.vaults[k] = t; changed = true; } }
-      if (changed) fs.writeFileSync(obsFile, JSON.stringify(obs));
+      if (changed) saveObs();
     }
     return file;
   }
@@ -239,8 +299,39 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
   }
 
   // season：今の文脈 {programId, seasonId}（object。⑦の入口 hud/coopboard.mjs は season.seasonId を今のシーズンと比べる）。page：この板の画面の道（同じ origin）
-  const config = () => ({ season, contexts, cluster, page: PAGE, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems } });
-  return { submit, view, config, records, caravans, season, contexts, rpc, state };
+  // （2026-11-17）public では、ヘラルドの内側の住所（この機械の loopback）を画面へ出さない。画面は herald を読まない。
+  const config = () => ({ season, contexts, cluster, page: PAGE, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, ...(profile === 'public' ? {} : { herald }), chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems }, observed: obsState });
+
+  /**
+   * （2026-11-17）ヘラルドの世界が、この板の世界（program・シーズン・cluster）と同じか：'same' | 'different'（どこが違うか） |
+   * 'unknown'（読めない・形が違う）。ヘラルドの /h/season（programId・season・cluster）を正本として読むだけ。
+   */
+  async function heraldWorld() {
+    let r;
+    try { r = await getHerald('/h/season'); } catch (e) { return { state: 'unknown', why: `herald unreachable: ${String(e?.code ?? e?.message ?? e).slice(0, 60)}` }; }
+    return worldOfSeason(r, { programId, seasonId, cluster });
+  }
+
+  /**
+   * （2026-11-17）板の健康：確かめたこと（ok）・足りないこと（missing）・分からないこと（unknown）を分けて言う。
+   * ok は、どれも「ok」のときだけ true。チェーンを読まない板（--rpc なし）は missing（国籍・届け先は未検証のまま）。
+   */
+  async function health() {
+    const world = await heraldWorld();
+    const parts = {
+      herald: world.state === 'same' ? 'ok' : world.state === 'different' ? 'missing' : 'unknown',
+      chain: reader ? 'ok' : 'missing',
+      store: storeProblems.length || damaged.length ? 'missing' : 'ok',
+      observed: obsState === 'ok' || obsState === 'new' ? 'ok' : 'missing',
+    };
+    return {
+      ok: Object.values(parts).every(v => v === 'ok'), profile, parts,
+      world: { programId, seasonId: String(seasonId), cluster, herald: world },
+      store: { problems: storeProblems, damaged: damaged.length, segments: segments.filter(s => s.status !== 'ok').map(s => ({ file: s.file, status: s.status })) },
+      observed: obsState, chain: reader ? 'reads the chain' : 'does not read the chain (no --rpc): nations and destinations stay unverified',
+    };
+  }
+  return { submit, view, config, records, caravans, season, contexts, rpc, state, health, heraldWorld };
 }
 
 // ------------------------------------------------------------------ HTTP
@@ -271,6 +362,26 @@ function serveStatic(res, rel) {
 /** 画面から読ませる RPC（読むだけ）。 */
 export const READ_METHODS = Object.freeze(['getAccountInfo', 'getSignaturesForAddress', 'getTransaction', 'isBlockhashValid']);
 
+/**
+ * （2026-11-17）ヘラルドへ渡す「ブラウザの住所」。ヘラルドは自分の peer が loopback のとき X-Forwarded-For の最後の住所を
+ * 信じ（frontier-node/crates/herald/src/server.rs client_ip）、中継はそれをヘラルドからだけ信じる。この板は loopback で
+ * ヘラルドの前に立つので、客の送った X-Forwarded-For をそのまま渡すと、客が中継に見える住所を選べてしまう。だから同じ規則を
+ * ここで当てる：板の peer が loopback（前にある逆プロキシ）なら、その最後の住所。そうでなければ peer そのもの。
+ */
+const LOOPBACK = a => typeof a === 'string' && (/^127\./.test(a) || a === '::1' || /^::ffff:127\./.test(a));
+export function forwardedFor(peer, xff) {
+  const last = typeof xff === 'string' ? xff.split(',').pop().trim() : '';
+  return LOOPBACK(peer) && net.isIP(last) ? last : (typeof peer === 'string' ? peer : '');
+}
+/** ヘラルドへ渡す見出し：host をヘラルドに、X-Forwarded-For を上の一つの住所に。客の Forwarded・X-Real-IP は渡さない。 */
+export function upstreamHeaders(req, up) {
+  const h = { ...req.headers, host: up.host };
+  delete h.forwarded; delete h['x-real-ip'];
+  const ip = forwardedFor(req.socket?.remoteAddress, req.headers?.['x-forwarded-for']);
+  if (ip) h['x-forwarded-for'] = ip; else delete h['x-forwarded-for'];
+  return h;
+}
+
 /** 板の HTTP サーバー。`/coop/*` は板、`/ws01/*` は画面、それ以外はヘラルドへ転送。 */
 export function createServer(board, { herald }) {
   const up = herald ? new URL(herald) : null;
@@ -279,6 +390,8 @@ export function createServer(board, { herald }) {
     try { url = new URL(req.url, 'http://127.0.0.1'); } catch { return send(res, 400, { error: 'bad url' }); }
     try {
       if (url.pathname === '/coop/config') return send(res, 200, board.config());
+      // （2026-11-17）健康：すべて ok なら 200、足りない・分からないものがあれば 503（中身はどちらも同じ形）
+      if (url.pathname === '/coop/health' && req.method === 'GET') { const h = await board.health(); return send(res, h.ok ? 200 : 503, h); }
       if (url.pathname === '/coop/records' && req.method === 'GET') return send(res, 200, board.records);
       if (url.pathname === '/coop/records' && req.method === 'POST') {
         let rec;
@@ -303,7 +416,7 @@ export function createServer(board, { herald }) {
       if (!up) return send(res, 404, { error: 'no herald' });
       // ヘラルドへ転送（ゲームの画面と h/*.json）
       const body = ['GET', 'HEAD'].includes(req.method) ? null : await readBody(req, 1 << 20);
-      const pr = http.request({ host: up.hostname, port: up.port, method: req.method, path: url.pathname + url.search, headers: { ...req.headers, host: up.host } }, r => {
+      const pr = http.request({ host: up.hostname, port: up.port, method: req.method, path: url.pathname + url.search, headers: upstreamHeaders(req, up) }, r => {
         res.writeHead(r.statusCode ?? 502, r.headers);
         r.pipe(res);
       });
@@ -317,7 +430,7 @@ export function createServer(board, { herald }) {
   server.on('upgrade', (req, sock, head) => {
     if (!up) return sock.destroy();
     const t = net.connect(Number(up.port), up.hostname, () => {
-      t.write(`${req.method} ${req.url} HTTP/1.1\r\n${Object.entries({ ...req.headers, host: up.host }).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`);
+      t.write(`${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(upstreamHeaders(req, up)).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`);
       if (head?.length) t.write(head);
       sock.pipe(t).pipe(sock);
     });
@@ -342,8 +455,25 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const legacyDirs = all('legacy-data');
   const segmentBytes = Math.round(Number(arg('segment-mb', String(DEFAULT_SEGMENT_BYTES / 1048576))) * 1048576);   // 記録の区間の大きさ（MB）
   const rpc = arg('rpc');   // 例：http://127.0.0.1:41910（国と届け先の村をチェーンで確かめる。ないと国籍未検証）
-  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs, segmentBytes, cluster: arg('cluster', 'localnet') });   // ウォレットのネットワーク（Wallet Standard の chain）   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
-  createServer(board, { herald }).listen(port, '127.0.0.1', () => {
-    console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}）`);
-  });
+  // （2026-11-17）--profile local（既定・これまでと同じ）| public（公開の準備：板は 127.0.0.1 でだけ聞くのは同じ。前の確かめが増える）
+  const profile = arg('profile', 'local'), cluster = arg('cluster', 'localnet');
+  if (profile !== 'local' && profile !== 'public') { console.error('--profile は local か public'); process.exit(2); }
+  const start = async () => {
+    if (profile === 'public') {
+      const problems = checkPublicStart({ cluster, clusterGiven: arg('cluster') !== null, dataDir, dataGiven: arg('data') !== null, herald, rpc, repoDir: repo });
+      // ヘラルドの世界がこの板の世界と同じか（板を作る・フォルダを作る前に、読むだけ）
+      if (!problems.length) {
+        let r;
+        try { const x = await fetch(new URL('/h/season', herald)); r = { status: x.status, json: x.ok ? await x.json() : null }; } catch (e) { r = null; problems.push(`herald unreachable: ${String(e?.code ?? e?.message ?? e).slice(0, 60)}`); }
+        const w = r ? worldOfSeason(r, { programId, seasonId, cluster }) : null;
+        if (w && w.state !== 'same') problems.push(`herald world ${w.state}${w.differs?.length ? `: ${w.differs.join(', ')}` : ''}${w.why ? ` (${w.why})` : ''}`);
+      }
+      if (problems.length) { console.error(JSON.stringify({ error: 'public start refused', problems })); process.exit(2); }
+    }
+    const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs, segmentBytes, cluster, profile });   // ウォレットのネットワーク（Wallet Standard の chain）   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
+    createServer(board, { herald }).listen(port, '127.0.0.1', () => {
+      console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}、profile ${profile}）`);
+    });
+  };
+  start();
 }
