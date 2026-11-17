@@ -26,16 +26,19 @@ const order = (body, ...parts) => { let at = -1; for (const p of parts) { const 
 const hr = fnOf(hs, 'export function holdingRead(FS) {'), note = fnOf(hs, 'export function renderHoldingRead(FS) {');
 
 test('V1 V4 V5 the viewer\'s record: not read, another world, stale, or answered', () => {
-  order(hr, "const viewer = !h ? (FS.wallet && !FS.meAnswered ? 'unread' : 'none')", ": FS.holdingsWorld !== undefined && FS.holdingsWorld !== world ? 'otherWorld'", ": FS.meStatus === 'error' ? 'stale' : 'ok';");
+  // (corrected: by the world of the answer itself — web-frontier-ws07-production-read-fix-text.test.mjs)
+  order(hr, 'const answeredHere = FS.meAnswered === true && (FS.meWorld === undefined || FS.meWorld === world);',
+    "const viewer = !h ? (!FS.wallet ? 'none' : !answeredHere ? 'unread' : FS.meStatus === 'error' ? 'noneStale' : 'none')", ": FS.holdingsWorld !== undefined && FS.holdingsWorld !== world ? 'otherWorld'", ": FS.meStatus === 'error' ? 'stale' : 'ok';");
   assert.ok(hr.includes("const world = pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null;"));
   assert.ok(ctl.includes('FS.holdingsWorld = providerWorld();'), 'the provider records the world of the villages it applied');
   assert.ok(ctl.includes("FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;"));
-  assert.ok(hs.includes("holdingRead(FS).viewer === 'unread' ? L`村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。` : L`まだ村がありません。`"));
+  assert.ok(hs.includes("v === 'unread' ? L`村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。`"));
+  assert.ok(hs.includes(": v === 'noneStale' ? L`最後に読めた記録では、まだ村がありません。いまの読み込みは失敗しています。次の読み込みでもう一度確かめます。` : L`まだ村がありません。`"));
 });
 
 test('V2 V3 the village\'s province: why NotResident may be "not loaded"', () => {
   assert.ok(fland.includes("if (resident && (!ctx.province || ctx.province.resolvedNext + 1 < ctx.nowBell)) out.push('NotResident');"), 'the mirror answers NotResident with no record');
-  assert.ok(hr.includes("return { viewer, province: !h ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: h?.p ?? null, q: h?.q ?? null };"));
+  assert.ok(hr.includes("return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null };"));
   order(note, "if (r.province && r.province !== 'held') {", "r.province === 'failed'", 'この村の州の記録を読めていません（${r.code}）。', 'この村の州の記録を、まだ読めていません。',
     "if (r.province !== 'loading' && r.province !== 'waiting') lines.push(", 'data-act="province-reread" data-p="${r.p}" data-q="${r.q}"');
   assert.ok(note.includes("return lines.length ? html`<div class=\"village-read\""), 'nothing when all is read');

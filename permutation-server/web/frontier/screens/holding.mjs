@@ -250,10 +250,14 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
 
 /**
  * How the reads behind the village screen went (2026-11-17, ⑦) — nothing is asked here, only said:
- *  - `viewer`: 'none' (the viewer's record answered: no village), 'unread' (a wallet whose record has not answered for
- *    this viewer and world: not "no village"), 'otherWorld' (the villages held were read for another pinned world —
- *    FS.holdingsWorld, with its generation), 'stale' (the last read failed: the numbers are worked out from the record
- *    read before), 'ok';
+ *  - `viewer`: by where the answer shown really came from (corrected 2026-11-17). With no village in hand: 'none' (nobody
+ *    to ask — no wallet —, or the record answered "none" FOR THIS WORLD and the last read is good), 'noneStale' (it
+ *    answered "none" for this world before, and the read fails now: kept as it was, said as kept), 'unread' (no answer
+ *    for this viewer and this world yet — never, or only for another pinned world: not "no village"). With a village:
+ *    'otherWorld' (the villages held were read for another pinned world — FS.holdingsWorld, with its generation),
+ *    'stale' (the last read failed: the numbers are worked out from the record read before), 'ok'.
+ *    The world of an answer is FS.meWorld (controller applyMeResult: a Citizen or "no Citizen" alike); a state without
+ *    it — a fixture, a page from before — is taken as this world's, as it was;
  *  - `province`: the village's own province record — 'held', or how its read stands (controller's FS.provinceReads:
  *    'loading', 'waiting', 'failed', 'missing') or 'idle'. The rules' mirror (fland.actionBlocks) answers NotResident
  *    for a province it has no record of, so every action then reads "this province has not finished its last turn":
@@ -262,11 +266,15 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
 export function holdingRead(FS) {
   const h = activeHolding(FS), pin = FS.pin ?? null;
   const world = pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null;
-  const viewer = !h ? (FS.wallet && !FS.meAnswered ? 'unread' : 'none')
+  const answeredHere = FS.meAnswered === true && (FS.meWorld === undefined || FS.meWorld === world);
+  const viewer = !h ? (!FS.wallet ? 'none' : !answeredHere ? 'unread' : FS.meStatus === 'error' ? 'noneStale' : 'none')
     : FS.holdingsWorld !== undefined && FS.holdingsWorld !== world ? 'otherWorld'
     : FS.meStatus === 'error' ? 'stale' : 'ok';
-  const key = h ? `${h.p},${h.q}` : null, st = key && !FS.provinces?.has?.(key) ? FS.provinceReads?.get?.(key) ?? null : null;
-  return { viewer, province: !h ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: h?.p ?? null, q: h?.q ?? null };
+  // (the province's read is said — and offered again — only for a village of THIS world: another world's village names
+  //  a place of another map, and nothing of it is asked for here)
+  const mine = !!h && viewer !== 'otherWorld';
+  const key = mine ? `${h.p},${h.q}` : null, st = key && !FS.provinces?.has?.(key) ? FS.provinceReads?.get?.(key) ?? null : null;
+  return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null };
 }
 /** The note the village screen carries under its head when a read behind it did not come (holdingRead); '' when all is read. */
 export function renderHoldingRead(FS) {
@@ -289,7 +297,11 @@ export function render(FS) {
   const m = holdingModel(FS);
   const wideStatus = wideHolding.renderWideInventoryStatus(FS);
   // (2026-11-17, ⑦: "no village yet" only once the viewer's record answered so; before that it is not read — holdingRead)
-  if (!m) return html`${wideStatus}<p${holdingRead(FS).viewer === 'unread' ? html` role="status" data-read="unread"` : ''}>${holdingRead(FS).viewer === 'unread' ? L`村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。` : L`まだ村がありません。`}</p>`;
+  if (!m) {
+    const v = holdingRead(FS).viewer;
+    return html`${wideStatus}<p${v === 'unread' || v === 'noneStale' ? html` role="status" data-read="${v}"` : ''}>${v === 'unread' ? L`村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。`
+      : v === 'noneStale' ? L`最後に読めた記録では、まだ村がありません。いまの読み込みは失敗しています。次の読み込みでもう一度確かめます。` : L`まだ村がありません。`}</p>`;
+  }
   const { holding: h, facts: f } = m;
   // (shadows the module's `blockedLine` for this panel: in local play the blocked reasons carry no "catch up" button)
   const blockedLine = blocks => blockedLineOf(blocks, { nudge: !FS.localPlay });
