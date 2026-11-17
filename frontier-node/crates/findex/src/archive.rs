@@ -41,7 +41,11 @@
 //! next one right after the previous one's last; each segment's `records` is `last_seq - first_seq + 1` (0 only with
 //! `bytes` 0, as a roll creates it); `bytes` at least one frame head per record; `next_seq` one past the last segment
 //! (1 when there is none). Frames are not read here: a damaged frame is still found by the reads and
-//! [`Archive::verify`], as before.
+//! [`Archive::verify`], as before. Also (second addendum): a segment's `sha256` is null, absent or a string (the
+//! writer writes null or `hex::encode`); any other type is refused instead of being read as "not sealed", and every
+//! segment but the last must carry one (the writer seals a segment before it rolls). A string that is not the
+//! writer's hex is not refused here: the segment counts as sealed (never truncated or appended to) and
+//! [`Archive::verify`] reports the mismatch, as before. A sealed last segment stays allowed (a roll handles it).
 //!
 //! **Codec (round 13, TEST-ONLY, a new archive only).** [`Archive::open_with`] with [`Codec::GzipV1`] stores each
 //! frame's payload gzip-compressed (the frame's length and sha256 prefix are those of the STORED bytes, so the frame
@@ -156,7 +160,18 @@ impl Manifest {
                 last_seq: u(s, "last_seq")?,
                 records: u(s, "records")?,
                 bytes: u(s, "bytes")?,
-                sha256: s.get("sha256").and_then(|x| x.as_str()).map(String::from),
+                // the writer writes null (open) or the hex string (sealed); any other type is refused, never read
+                // as "not sealed" (module note: structure)
+                sha256: match s.get("sha256") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(h)) => Some(h.clone()),
+                    Some(_) => {
+                        return Err(format!(
+                            "manifest: segment {} sha256 is neither null nor a string: refused, nothing opened or changed",
+                            i + 1
+                        ))
+                    }
+                },
             });
         }
         let segment_bytes = u(v, "segment_bytes")?;
@@ -201,6 +216,10 @@ fn check_structure(segment_bytes: u64, segments: &[SegmentMeta], next_seq: u64) 
             return refuse(format!("{} has {} records in {} B", s.name, s.records, s.bytes));
         }
         expect = end;
+    }
+    // every segment but the last is sealed: the writer seals one before it rolls to the next
+    if let Some(open) = segments.split_last().map(|(_, before)| before).and_then(|b| b.iter().find(|s| s.sha256.is_none())) {
+        return refuse(format!("{} is not the last segment but has no sha256", open.name));
     }
     if next_seq != expect {
         return refuse(format!("next_seq is {next_seq}, the segments end before {expect}"));
@@ -1047,6 +1066,48 @@ mod tests {
             assert_eq!(snapshot(&d), before, "{what}: nothing truncated, removed or rewritten");
         }
         // the writer's own manifest back (the test's own fixture): it opens and verifies
+        fs::write(d.join("manifest.json"), &good).unwrap();
+        assert_eq!(Archive::open(&d, 600).unwrap().verify(), Ok(9));
+    }
+
+    // (2026-11-17, WRITTEN ONLY: not run) The seal: a sha256 of another type, or an unsealed segment before the
+    // last, is refused before anything is changed; what the writer writes (null, absent, its hex) still opens.
+    #[test]
+    fn a_seal_of_another_type_or_an_unsealed_middle_segment_is_refused_and_nothing_changes() {
+        let root = segname_root("seal-shape");
+        let d = root.0.join("archive");
+        let mut a = Archive::open(&d, 600).unwrap();
+        let recs: Vec<TxRecord> = (1..=9).map(rec).collect();
+        a.append(&recs, json!({"after": 9})).unwrap();
+        let n = a.manifest.segments.len();
+        assert!(n >= 3, "600-B segments roll");
+        assert!(a.manifest.segments[..n - 1].iter().all(|s| s.sha256.is_some()), "the writer sealed every segment but the last");
+        drop(a);
+        let good = fs::read(d.join("manifest.json")).unwrap();
+        let last = n - 1;
+        let cases: Vec<(&str, Box<dyn Fn(&mut Value)>)> = vec![
+            ("a number for a sealed segment's sha256", case(|m: &mut Value| m["segments"][0]["sha256"] = json!(7))),
+            ("an object for a sealed segment's sha256", case(|m: &mut Value| m["segments"][0]["sha256"] = json!({"hex": "00"}))),
+            ("a bool for the open segment's sha256", case(move |m: &mut Value| m["segments"][last]["sha256"] = json!(true))),
+            ("an unsealed segment before the last", case(|m: &mut Value| m["segments"][1]["sha256"] = Value::Null)),
+            ("a middle segment without the key", case(|m: &mut Value| {
+                m["segments"][0].as_object_mut().unwrap().remove("sha256");
+            })),
+        ];
+        for (what, f) in cases {
+            fs::write(d.join("manifest.json"), &good).unwrap();
+            edit_manifest(&d, |m| f(m));
+            let before = snapshot(&d);
+            let e = Archive::open(&d, 600).err().unwrap_or_else(|| panic!("{what}: opened"));
+            assert!(e.to_string().contains("refused"), "{what}: {e}");
+            assert_eq!(snapshot(&d), before, "{what}: nothing truncated, removed or rewritten");
+        }
+        // what the writer writes, or an older manifest without the key on the open segment, still opens
+        fs::write(d.join("manifest.json"), &good).unwrap();
+        edit_manifest(&d, |m| {
+            m["segments"][last].as_object_mut().unwrap().remove("sha256");
+        });
+        assert_eq!(Archive::open(&d, 600).unwrap().verify(), Ok(9));
         fs::write(d.join("manifest.json"), &good).unwrap();
         assert_eq!(Archive::open(&d, 600).unwrap().verify(), Ok(9));
     }
