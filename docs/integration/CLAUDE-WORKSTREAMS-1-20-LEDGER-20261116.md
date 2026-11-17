@@ -534,3 +534,10 @@ only the allowed confirmation of already-submitted work remains within that boun
 - **⑦ clock fix: locally complete, not yet integrated.** Invalid chain-clock observations could leave the clock and turn display permanently NaN. Official Opus now ignores invalid observations before state changes. Independent pure regression **11/11 passed**, plus two JavaScript syntax checks. Valid numeric/string/BigInt samples, zero, older slots, normal/accelerated/declared-rate clocks and recovery are covered. No world or transaction was used.
 - **①/⑦ cooperation crosslinks: in progress.** Missing world identifiers incorrectly matched and exposed links despite an unknown world. A narrow fix is under independent review; it is not yet counted complete or integrated.
 - Priority remains ordinary approved portions of workstreams 1–20, not additional MCP expansion. Proposal-only, restricted and unverified portions are not relabeled complete.
+
+
+### 2026-11-17 UTC — two reviewed ordinary gameplay fixes integrated
+
+- **⑦ chain clock:** the three reviewed source/test/evidence files are now integrated through `dd277b19909eff5f12c0ce868c6b63f90678baaf`. Independent regression **11/11 passed**; all three GitHub files were fetched again and matched the validated local contents.
+- **①/⑦ cooperation crosslinks:** unknown, missing or blank world identifiers no longer count as the same world. Existing numeric/string identity compatibility and zero remain intact; nonblank strings are compared exactly, not normalized. Independent pure/source-scan regression **7/7 passed**, both JavaScript syntax checks and scoped whitespace check passed. Three source/test/evidence files integrated through `e37c1b6a9960d310fd788a1cb10f1e962e57c4e7`; all three fetched back exactly.
+- These are integration-branch source results, not main deployment, CI success or browser/live-world proof. The related cooperation deep-link focus check remains a separate fix in progress. The two-player fixture and the broader 1–20 work remain incomplete.
