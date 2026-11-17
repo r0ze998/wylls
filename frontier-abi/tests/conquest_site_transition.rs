@@ -67,22 +67,21 @@ fn ev(code: u8, faction: u8, progress: u8) -> Event {
     }
 }
 
-fn check(
-    mut pd: Vec<u8>,
-    expected: Vec<u8>,
-    b: u32,
-    rep: BellReport,
-    events: &[Event],
+/// Expected `qm::step` outcome: the emitted events and the three outcome flags.
+struct Want<'a> {
+    events: &'a [Event],
     changed: bool,
     quiet: bool,
     active: bool,
-) {
+}
+
+fn check(mut pd: Vec<u8>, expected: Vec<u8>, b: u32, rep: BellReport, want: Want) {
     let out = qm::step(&mut pd, b, &rep, &params()).unwrap();
     assert_eq!(pd, expected, "complete Province bytes at bell {b}");
-    assert_eq!(out.events(), events);
-    assert_eq!(out.changed, changed);
-    assert_eq!(out.quiet_inputs_changed, quiet);
-    assert_eq!(out.active, active);
+    assert_eq!(out.events(), want.events);
+    assert_eq!(out.changed, want.changed);
+    assert_eq!(out.quiet_inputs_changed, want.quiet);
+    assert_eq!(out.active, want.active);
     assert!(!out.roster_changed);
     assert_eq!(out.keep_taken, None);
     assert_eq!(out.snapshot, None);
@@ -99,12 +98,25 @@ fn progress_and_defender_pause_preserve_opaque_context() {
         expected,
         11,
         report(2, false),
-        &[],
-        true,
-        false,
-        true,
+        Want {
+            events: &[],
+            changed: true,
+            quiet: false,
+            active: true,
+        },
     );
-    check(pd.clone(), pd, 11, report(2, true), &[], false, false, true);
+    check(
+        pd.clone(),
+        pd,
+        11,
+        report(2, true),
+        Want {
+            events: &[],
+            changed: false,
+            quiet: false,
+            active: true,
+        },
+    );
 }
 
 #[test]
@@ -135,16 +147,25 @@ fn failures_preserve_slot_and_bar_rules_and_clear_source() {
             expected,
             11,
             report(0, defender),
-            &[ev(
-                event::SIEGE_FAILED | if defender { event::DETAIL } else { 0 },
-                1,
-                1,
-            )],
-            true,
-            false,
-            false,
+            Want {
+                events: &[ev(
+                    event::SIEGE_FAILED | if defender { event::DETAIL } else { 0 },
+                    1,
+                    1,
+                )],
+                changed: true,
+                quiet: false,
+                active: false,
+            },
         );
     }
+}
+
+/// Expected post-capture site-mirror values.
+struct CaptureMirror {
+    order: u8,
+    hour: u16,
+    walls: u32,
 }
 
 fn expected_capture(
@@ -153,10 +174,9 @@ fn expected_capture(
     b: u32,
     credited: bool,
     free: bool,
-    order: u8,
-    hour: u16,
-    walls: u32,
+    mirror: CaptureMirror,
 ) {
+    let CaptureMirror { order, hour, walls } = mirror;
     let o = P::site(0);
     pd[o + SM::STATE] = SM::STATE_HOLDING;
     pd[o + SM::FACTION] = r.faction;
@@ -228,9 +248,11 @@ fn capture_credit_threshold_walls_free_city_and_generation_wrap() {
             b,
             credit,
             free,
-            if slot == 0 { 2 } else { slot },
-            hour,
-            walls,
+            CaptureMirror {
+                order: if slot == 0 { 2 } else { slot },
+                hour,
+                walls,
+            },
         );
         assert!(wr_u16(
             &mut expected,
@@ -246,14 +268,16 @@ fn capture_credit_threshold_walls_free_city_and_generation_wrap() {
             expected,
             b,
             report(1 << faction, false),
-            &[ev(
-                event::CAPTURE_DUE | if credit { event::DETAIL } else { 0 },
-                faction,
-                3,
-            )],
-            true,
-            true,
-            false,
+            Want {
+                events: &[ev(
+                    event::CAPTURE_DUE | if credit { event::DETAIL } else { 0 },
+                    faction,
+                    3,
+                )],
+                changed: true,
+                quiet: true,
+                active: false,
+            },
         );
     }
 }
@@ -283,10 +307,12 @@ fn first_home_becomes_occupation_without_mirror_changes() {
         expected,
         11,
         report(2, false),
-        &[ev(event::OCCUPIED, 1, 3)],
-        true,
-        false,
-        true,
+        Want {
+            events: &[ev(event::OCCUPIED, 1, 3)],
+            changed: true,
+            quiet: false,
+            active: true,
+        },
     );
 }
 
@@ -321,10 +347,12 @@ fn occupation_exit_unpaid_stake_respite_and_expiry_precedence() {
                 expected,
                 b,
                 report(holders, defender),
-                &[ev(code, 1, 0)],
-                true,
-                false,
-                false,
+                Want {
+                    events: &[ev(code, 1, 0)],
+                    changed: true,
+                    quiet: false,
+                    active: false,
+                },
             );
         }
     }
@@ -338,10 +366,12 @@ fn occupation_exit_unpaid_stake_respite_and_expiry_precedence() {
         pd,
         11,
         report(2, false),
-        &[],
-        false,
-        false,
-        true,
+        Want {
+            events: &[],
+            changed: false,
+            quiet: false,
+            active: true,
+        },
     );
 }
 
@@ -359,10 +389,12 @@ fn same_bell_capture_due_unknown_kind_and_invalid_state() {
             pd,
             11,
             report(0, false),
-            &[],
-            false,
-            false,
-            kind == CR::KIND_SIEGE || kind == CR::KIND_OCCUPATION,
+            Want {
+                events: &[],
+                changed: false,
+                quiet: false,
+                active: kind == CR::KIND_SIEGE || kind == CR::KIND_OCCUPATION,
+            },
         );
     }
     let r = Record {
@@ -375,10 +407,12 @@ fn same_bell_capture_due_unknown_kind_and_invalid_state() {
         pd,
         11,
         report(0, false),
-        &[],
-        false,
-        false,
-        false,
+        Want {
+            events: &[],
+            changed: false,
+            quiet: false,
+            active: false,
+        },
     );
     for (kind, state) in [
         (99, SM::STATE_HOLDING),
@@ -430,16 +464,18 @@ fn independent_site_events_remain_in_site_index_order() {
         expected,
         11,
         BellReport::default(),
-        &[
-            ev(event::SIEGE_FAILED, 1, 1),
-            Event {
-                site: 1,
-                ..ev(event::SIEGE_FAILED, 1, 1)
-            },
-        ],
-        true,
-        false,
-        false,
+        Want {
+            events: &[
+                ev(event::SIEGE_FAILED, 1, 1),
+                Event {
+                    site: 1,
+                    ..ev(event::SIEGE_FAILED, 1, 1)
+                },
+            ],
+            changed: true,
+            quiet: false,
+            active: false,
+        },
     );
 }
 
@@ -456,10 +492,12 @@ fn vigil_progress_saturation_and_immunity_saturation() {
         pd,
         11,
         report(2, false),
-        &[],
-        false,
-        false,
-        true,
+        Want {
+            events: &[],
+            changed: false,
+            quiet: false,
+            active: true,
+        },
     );
     let r = Record {
         progress: 255,
@@ -485,10 +523,12 @@ fn vigil_progress_saturation_and_immunity_saturation() {
         expected,
         11,
         report(2, false),
-        &[ev(event::OCCUPIED, 1, 255)],
-        true,
-        false,
-        true,
+        Want {
+            events: &[ev(event::OCCUPIED, 1, 255)],
+            changed: true,
+            quiet: false,
+            active: true,
+        },
     );
     let r = siege(CR::TARGET_FIRST);
     let pd = fixture(r, SM::STATE_HOLDING);
@@ -507,9 +547,11 @@ fn vigil_progress_saturation_and_immunity_saturation() {
         expected,
         u32::MAX,
         report(0, true),
-        &[ev(event::SIEGE_FAILED | event::DETAIL, 1, 1)],
-        true,
-        false,
-        false,
+        Want {
+            events: &[ev(event::SIEGE_FAILED | event::DETAIL, 1, 1)],
+            changed: true,
+            quiet: false,
+            active: false,
+        },
     );
 }
