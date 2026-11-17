@@ -38,6 +38,14 @@
 //! loses at most one interval of records, which the source re-delivers.
 //! (The first smoke run: one `F_FULLFSYNC` per record — macOS's
 //! `sync_data` — held the herald's ingest minutes behind a busy chain.)
+//!
+//! **Segment names (2026-11-17).** This writer names the k-th segment `seg-{k:06}.log` (six digits at least, more
+//! past 999999) and only ever appends segments, so a manifest it wrote names segment k exactly so. A manifest that
+//! names any segment otherwise (another number, `../`, an absolute path, `./`, a duplicate) is refused when it is
+//! read, and [`Archive::open`] also refuses a named segment that is there but is not a regular file (a symbolic link,
+//! a directory, …). Both checks come before the open's recovery writes (truncating the open segment, removing unnamed
+//! segments, rewriting the manifest), so a refused archive is left exactly as it was. The checks are made once, at
+//! open: a file swapped afterwards is not covered.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
@@ -106,11 +114,23 @@ impl Manifest {
             return Err(format!("manifest version {version}"));
         }
         let mut segments = vec![];
-        for s in v
+        for (i, s) in v
             .get("segments")
             .and_then(|x| x.as_array())
             .ok_or("manifest: segments")?
+            .iter()
+            .enumerate()
         {
+            // The name the writer gives segment i + 1 (module note): anything else is refused, never joined to a path.
+            let name = s.get("name").and_then(|x| x.as_str()).ok_or("manifest: name")?;
+            let want = segment_name(i as u64 + 1);
+            if name != want {
+                let shown: String = name.chars().take(80).collect();
+                return Err(format!(
+                    "manifest: segment {} is named {shown:?}, not {want}: refused, nothing opened or changed",
+                    i + 1
+                ));
+            }
             segments.push(SegmentMeta {
                 name: s
                     .get("name")
@@ -132,6 +152,11 @@ impl Manifest {
             cursor: v.get("cursor").cloned().unwrap_or(Value::Null),
         })
     }
+}
+
+/// The file name of the `k`-th segment (1-based), as this writer has always named it.
+fn segment_name(k: u64) -> String {
+    format!("seg-{k:06}.log")
 }
 
 /// The JSON payload of one archived transaction.
@@ -290,6 +315,21 @@ impl Archive {
                 cursor: Value::Null,
             }
         };
+        // Before any recovery write: every named segment that is there must be a regular file, not a symbolic link
+        // or anything else (module note: segment names). A missing one is left to the rules below, as before.
+        for s in &manifest.segments {
+            match fs::symlink_metadata(dir.join(&s.name)) {
+                Ok(m) if m.file_type().is_file() => {}
+                Ok(_) => {
+                    return Err(io_err(format!(
+                        "segment {} is not a regular file (a symbolic link, a directory, …): refused, nothing changed",
+                        s.name
+                    )))
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
         // Recover the open segment: drop bytes the manifest does not name.
         if let Some(last) = manifest.segments.last() {
             if last.sha256.is_none() {
@@ -428,7 +468,7 @@ impl Archive {
                 self.seal_open()?;
                 let n = self.manifest.segments.len() + 1;
                 self.manifest.segments.push(SegmentMeta {
-                    name: format!("seg-{n:06}.log"),
+                    name: segment_name(n as u64),
                     first_seq: r.seq,
                     last_seq: r.seq - 1,
                     records: 0,
@@ -839,5 +879,163 @@ mod tests {
         fs::write(&seg, &bytes[..10]).unwrap();
         assert!(Archive::open(&d, SEGMENT_BYTES).is_err());
         let _ = fs::remove_dir_all(&d);
+    }
+
+    // (2026-11-17, WRITTEN ONLY: not run) Segment names: a manifest naming a segment otherwise than the writer does,
+    // or a named segment that is not a regular file, is refused before anything is changed.
+
+    /// A root these tests created themselves (`create_dir`: never an existing one); only its owner removes it, also
+    /// when an assertion unwinds.
+    struct SegnameRoot(PathBuf);
+    impl Drop for SegnameRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fn segname_root(name: &str) -> SegnameRoot {
+        let d = std::env::temp_dir().join(format!(
+            "findex-segname-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        if let Err(e) = fs::create_dir(&d) {
+            panic!("the test root must be new; {} was not created ({e}) and is left as it is", d.display());
+        }
+        SegnameRoot(d)
+    }
+    /// Every entry of `dir` (not followed): name, kind, length, and the bytes of regular files.
+    fn snapshot(dir: &Path) -> Vec<(String, &'static str, u64, Vec<u8>)> {
+        let mut out = vec![];
+        for e in fs::read_dir(dir).unwrap() {
+            let e = e.unwrap();
+            let m = fs::symlink_metadata(e.path()).unwrap();
+            let t = m.file_type();
+            let kind = if t.is_symlink() { "link" } else if t.is_dir() { "dir" } else if t.is_file() { "file" } else { "other" };
+            let bytes = if t.is_file() { fs::read(e.path()).unwrap() } else { vec![] };
+            out.push((e.file_name().to_string_lossy().into_owned(), kind, m.len(), bytes));
+        }
+        out.sort();
+        out
+    }
+    /// An archive with one open (unsealed) segment, inside `root`, and a 4 KiB file beside it that a wrong path
+    /// would reach. Returns (archive dir, outside file, its bytes).
+    fn one_segment(root: &Path) -> (PathBuf, PathBuf, Vec<u8>) {
+        let d = root.join("archive");
+        let mut a = Archive::open(&d, 600_000).unwrap();
+        a.append(&[rec(1), rec(2)], json!({"after": 2})).unwrap();
+        drop(a);
+        let outside = root.join("outside.txt");
+        let bytes = vec![7u8; 4096];
+        fs::write(&outside, &bytes).unwrap();
+        (d, outside, bytes)
+    }
+    fn set_names(d: &Path, names: &[&str]) {
+        let mp = d.join("manifest.json");
+        let mut m: Value = serde_json::from_slice(&fs::read(&mp).unwrap()).unwrap();
+        let segs = m["segments"].as_array_mut().unwrap();
+        if names.len() > segs.len() {
+            let extra = segs[0].clone();
+            segs.push(extra); // a second entry, for the duplicate case
+        }
+        for (s, n) in segs.iter_mut().zip(names) {
+            s["name"] = json!(n);
+        }
+        fs::write(&mp, serde_json::to_vec_pretty(&m).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn the_writers_own_names_still_open_and_large_numbers_keep_their_digits() {
+        assert_eq!(segment_name(1), "seg-000001.log");
+        assert_eq!(segment_name(999_999), "seg-999999.log");
+        assert_eq!(segment_name(1_000_000), "seg-1000000.log", "six digits at least, not at most");
+        let root = segname_root("ok");
+        let d = root.0.join("archive");
+        let mut a = Archive::open(&d, 600).unwrap();
+        let recs: Vec<TxRecord> = (1..=9).map(rec).collect();
+        a.append(&recs, json!({"after": 9})).unwrap();
+        let names: Vec<String> = a.manifest.segments.iter().map(|s| s.name.clone()).collect();
+        assert!(names.len() >= 3, "600-B segments roll");
+        drop(a);
+        let b = Archive::open(&d, 600).unwrap();
+        assert_eq!(b.manifest.segments.iter().map(|s| s.name.clone()).collect::<Vec<_>>(), names);
+        assert_eq!(b.verify(), Ok(9));
+    }
+
+    #[test]
+    fn a_name_the_writer_never_gives_is_refused_and_nothing_inside_or_outside_changes() {
+        let root = segname_root("names");
+        let (d, outside, bytes) = one_segment(&root.0);
+        let abs = outside.to_string_lossy().into_owned();
+        for names in [
+            vec!["../outside.txt"],
+            vec![abs.as_str()],
+            vec!["./seg-000001.log"],
+            vec!["seg-1.log"],
+            vec!["seg-000002.log"],
+            vec!["seg-000001.log", "seg-000001.log"],
+            vec!["SEG-000001.LOG"],
+        ] {
+            let before_manifest = fs::read(d.join("manifest.json")).unwrap();
+            set_names(&d, &names);
+            let before = snapshot(&d);
+            let e = Archive::open(&d, 600_000).err().unwrap_or_else(|| panic!("{names:?} was opened"));
+            assert!(e.to_string().contains("refused"), "{names:?}: {e}");
+            assert_eq!(snapshot(&d), before, "{names:?}: nothing in the archive changed (no truncation, removal or manifest write)");
+            assert_eq!(fs::read(&outside).unwrap(), bytes, "{names:?}: the file outside is untouched");
+            fs::write(d.join("manifest.json"), &before_manifest).unwrap(); // the test's own fixture, restored for the next case
+        }
+        // and the archive itself is still as the writer left it
+        assert_eq!(Archive::open(&d, 600_000).unwrap().verify(), Ok(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_named_segment_that_is_a_link_or_a_directory_is_refused_and_nothing_is_written_through_it() {
+        let root = segname_root("links");
+        let (d, outside, bytes) = one_segment(&root.0);
+        let seg = d.join("seg-000001.log");
+        let kept = fs::read(&seg).unwrap();
+        // the open segment replaced by a link to the bigger file outside: a recovery would truncate through it
+        fs::remove_file(&seg).unwrap();
+        std::os::unix::fs::symlink(&outside, &seg).unwrap();
+        let before = snapshot(&d);
+        let e = Archive::open(&d, 600_000).err().expect("a linked segment was opened");
+        assert!(e.to_string().contains("not a regular file"), "{e}");
+        assert_eq!(snapshot(&d), before);
+        assert_eq!(fs::read(&outside).unwrap(), bytes, "nothing truncated through the link");
+        // a directory in its place
+        fs::remove_file(&seg).unwrap();
+        fs::create_dir(&seg).unwrap();
+        let before = snapshot(&d);
+        assert!(Archive::open(&d, 600_000).err().unwrap().to_string().contains("not a regular file"));
+        assert_eq!(snapshot(&d), before);
+        // the real segment back: it opens again
+        fs::remove_dir(&seg).unwrap();
+        fs::write(&seg, &kept).unwrap();
+        assert_eq!(Archive::open(&d, 600_000).unwrap().verify(), Ok(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sealed_segment_that_is_a_link_is_refused_too() {
+        let root = segname_root("sealed");
+        let d = root.0.join("archive");
+        let mut a = Archive::open(&d, 600).unwrap();
+        let recs: Vec<TxRecord> = (1..=9).map(rec).collect();
+        a.append(&recs, json!({"after": 9})).unwrap();
+        assert!(a.manifest.segments[0].sha256.is_some(), "the first segment is sealed");
+        drop(a);
+        let outside = root.0.join("outside.txt");
+        let first = d.join("seg-000001.log");
+        fs::rename(&first, &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, &first).unwrap();
+        let bytes = fs::read(&outside).unwrap();
+        let before = snapshot(&d);
+        assert!(Archive::open(&d, 600).err().unwrap().to_string().contains("not a regular file"));
+        assert_eq!(snapshot(&d), before);
+        assert_eq!(fs::read(&outside).unwrap(), bytes);
     }
 }
