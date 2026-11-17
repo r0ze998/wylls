@@ -469,6 +469,21 @@ export function modePanel(FS) {
  * from its own markup (only typed values are carried).
  */
 /**
+ * (2026-11-17, ⑦ the hosts screen) Whether a press from the hosts screen still belongs to what the page is now: the
+ * context number it was drawn under is the number NOW (it moves with every change of viewer, herald or pinned world),
+ * the village the list was drawn for (place, site, generation) is the village in hand, and — unless `row: false` — the
+ * host is still in that village's list. Answers `{h, row}` or null. Reads only.
+ */
+let hostAsk = 0;
+function hostStill(d, { row: needRow = true } = {}) {
+  if (FS.mode !== 'play' || !Number.isInteger(FS.contextSeq) || String(FS.contextSeq) !== String(d.ctx ?? '')) return null;
+  const h = FS.holdings?.[FS.activeHolding ?? 0] ?? null;
+  if (!h || h.p !== num(d.p) || h.q !== num(d.q) || h.site !== num(d.site) || (h.gen ?? 0) !== num(d.gen)) return null;
+  const row = hostScreen.hostRows(FS).find(r => String(r.id) === String(d.host ?? '')) ?? null;
+  return needRow && !row ? null : { h, row };
+}
+
+/**
  * (2026-11-17, ⑦ the warning's way on, corrected) Whether a press from the warning card still belongs to what the page
  * is now: the judging it was drawn from is the one standing (its context number — it moves with every change of viewer,
  * herald or pinned world), that judging's world is the world pinned and its viewer the viewer now, the warning it names
@@ -3841,6 +3856,47 @@ export const HUD_ACTIONS = {
     requestAnimationFrame(() => landS1Plan(id));
   },
   's1-plan-clear': () => clearS1Plan(),
+  // (2026-11-17, ⑦ the hosts screen, from a village to its hosts, their plans and marches, and back. Each of these only
+  //  OPENS something that exists, after hostStill; none sends, settles or collects.)
+  // another of the viewer's villages: found by place, site and generation at the press, taken in hand the way
+  // 'holding-pick' does; the hosts screen stays open and shows that village's hosts
+  'hosts-village': d => {
+    ++hostAsk;
+    if (FS.mode !== 'play' || !Number.isInteger(FS.contextSeq) || String(FS.contextSeq) !== String(d.ctx ?? '')) { invalidate('panel'); return; }
+    const p = num(d.p), q = num(d.q), site = num(d.site), gen = num(d.gen);
+    const i = (FS.holdings ?? []).findIndex(o => o.p === p && o.q === q && o.site === site && (o.gen ?? 0) === gen);
+    if (i < 0) { invalidate('panel'); return; }
+    clearWideSelect(FS);
+    FS.activeHolding = i; FS.explore = null;
+    invalidate('panel', 'tabs', 'rail', 'map');
+  },
+  // a host on the march: the marches screen opens, and its own row of the tracker comes into view — one frame later, and
+  // only while this is still the last such press, the press still belongs and the marches screen is still open
+  'host-track': d => {
+    const at = hostStill(d), req = ++hostAsk;
+    if (!at) { invalidate('panel'); return; }
+    leaveReport(); FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab({ tab: 'marches' });
+    invalidate('rail');
+    requestAnimationFrame(() => {
+      if (req !== hostAsk || !hostStill(d) || FS.tab !== 'marches' || !/^\d+$/.test(String(d.host ?? ''))) return;
+      globalThis.document?.querySelector?.(`[data-march-host="${d.host}"]`)?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+    });
+  },
+  // a host standing away from its village: the EXISTING plan of a march home (controller 'march-home' opens the draft
+  // from the host's own village and gives it the village as its place); the marches screen, where the plan stands, opens
+  'host-return': d => {
+    const at = hostStill(d); ++hostAsk;
+    if (!at || at.row.inTransit || at.row.state !== 1 || (at.row.p === at.h.p && at.row.q === at.h.q && at.row.tile === at.h.tile)) { invalidate('panel'); return; }
+    const host = String(d.host);
+    ACTIONS['march-home']({ host });
+    if (!FS.compose || String(FS.compose.host?.id) !== host || FS.compose.home !== true) { invalidate('panel'); return; }
+    leaveReport(); FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab({ tab: 'marches' });
+    invalidate('rail', 'map');
+  },
+  // where a host stands: it is selected on the map, as the hand's own choice of a host does
+  'host-show': d => { const at = hostStill(d); ++hostAsk; if (!at) { invalidate('panel'); return; } const row = hand.ownHosts(FS).find(r => r.id === String(d.host)); if (row) selectHost(row, { fly: true }); },
   // (2026-11-17, ⑦ the warning's way on: the village a warning names is taken in hand BY WHAT IT IS — place, site and
   //  generation, looked up at the press; never by an index kept in the markup — and the village screen opens, the way
   //  'holding-pick' goes; `to: garrison` brings its garrison form into view. Nothing is sent.
