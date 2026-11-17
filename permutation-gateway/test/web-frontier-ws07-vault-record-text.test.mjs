@@ -7,6 +7,7 @@
 //   V3 the English dictionary has the new keys and no longer the "at most" ones; no banned word in them
 //   V4 returnsum.mjs: `delivered` only for outcome 0; the uncertain path carries lost and delivered; returnwords.mjs says
 //      an uncertain lost or unreadable settlement without "到着"
+//   V5 statusview.mjs: the precision sentence says "under one more" only below u32::MAX; at the cap it says the excess is not known
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -48,4 +49,13 @@ test('V4 the away summary reads the outcome, never "delivered" or "到着" for 1
   assert.ok(rw.includes(": L`あなたが送った隊商の決着が記録されました（ターン ${fmtNum(i.bell)}）。結果を記録から読めないため、着いたとも失われたとも言いません"));
   for (const k of ["'あなたが送った隊商の行き先がなくなり、積荷が失われたと記録されました（ターン {0}）", "'あなたが送った隊商の決着が記録されました（ターン {0}）", "'積荷は失われました（記録の積荷：{0}）':"]) assert.ok(en.includes(k), k);
   assert.ok(!en.includes("'積荷は失われました：{0}':"), 'the unlabelled lost key is gone');
+});
+
+test('V5 the precision sentence follows saturation', () => {
+  assert.ok(sv.includes('const U32_MAX = 4294967295;'));
+  assert.ok(sv.includes('const unitsOf = c => (Array.isArray(c) && c.some(n => n >= U32_MAX)'));
+  assert.ok(sv.includes('L`記録の数は、入った量の下限です（記録は 1 未満を切り捨て、${fmtNum(U32_MAX)} で止まります。そこに達した資源は、記録よりどれだけ多く入ったかわかりません）`'));
+  for (const use of ['unitsOf(x.intake)] };', 'unitsOf(x.arrived)] };']) assert.ok(sv.includes(use), use);
+  assert.doesNotMatch(sv, /, units\]/, 'no use of a fixed precision sentence is left');
+  assert.ok(en.includes("'記録の数は、入った量の下限です（記録は 1 未満を切り捨て、{0} で止まります。そこに達した資源は、記録よりどれだけ多く入ったかわかりません）':"));
 });

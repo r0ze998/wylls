@@ -128,3 +128,48 @@ All other pins still hold. "送付記録の数量：食料 400" and the uncertai
   - screens: `permutation-gateway/screens/ws07-s1-{page,pure}.screen.mjs` (corrected);
   - this report.
 - **Likely conflict points:** `en-frontier-play.mjs`, near the arrival keys, is a shared dictionary, and `CONTRACTS.ja.md` is shared. Both edits are local and line-based.
+
+## Final reverse review (2026-11-17; nothing run)
+
+**F6: the precision sentence follows saturation** (`hud/statusview.mjs` `arrivalView`).
+- Problem: the shared sentence "資源ごとに 1 未満多く入っていることがあります", used by verifiedIntake, verifiedPartial and verifiedFull, is false for a record saturated at u32::MAX. There, what went in may exceed the record by any amount.
+- Fix: `unitsOf(record)` keeps the sentence word for word when no resource is at the cap. When one is, it reads "記録の数は、入った量の下限です（記録は 1 未満を切り捨て、4,294,967,295 で止まります。そこに達した資源は、記録よりどれだけ多く入ったかわかりません）".
+- The lower bound ("n 以上") is unchanged in both cases.
+- The record checked is `intake` for verifiedIntake, and `arrived` for partial and full.
+- English: one new key. The contract's v7 line now states the saturated case.
+- Regression (not run): `web-frontier-ws07-arrival-quantity.test.mjs` "precision" runs all three states, normal and saturated, plus English. The key-free `web-frontier-ws07-vault-record-text.test.mjs` adds V5.
+
+**Reviewed again, consistent:**
+- **Real consumers:**
+  - the away summary: `returnsum` (`itemOf`, `withArrival`) → `statussources.arrivalSettled` → `statusview.arrivalView` / `returnwords.itemText`;
+  - the village card: `screens/s1.mjs` `caravanStatus` (④'s registered `caravanArrival`, else `arrivalOnRoad` → overdue) → `arrivalView`.
+- **Japanese templates and English keys:** every new template has its key (`{0}` placeholders kept); unused keys are removed; there are no banned English words.
+- **Existing pins:** the normal precision sentence is unchanged, and no test or screen pins it. The corrected pins (vault, lost) are as listed above.
+
+**Observation, not changed (a judgement, not wording):**
+- `statussources.arrivalSettled` decides verifiedFull by `recorded >= sent` on whole-unit records. If both the send and arrival records of a resource are saturated, "full" is claimed although the true amounts above the cap may differ.
+- This is the provider's state judgement, not display wording, and it needs over 4.29 billion units of one resource in one caravan. So it is left for a decision, not changed here.
+
+## Final manifest (for D; the aggregate is not changed here)
+
+- **Base:** `51daba36b64eed064db3ba4d3f8c109eda487c5c`.
+- **Branch:** `claude/lane-c-ws07-vault-arrival-record-20261117`. Commits in order: `f99af84d` (F1), `75058182` (F2–F5), then this final review (F6), which is the tip.
+- **Twelve paths against the base:**
+
+| Status | Path |
+|---|---|
+| M | `permutation-server/web/frontier/hud/statusview.mjs` |
+| M | `permutation-server/web/frontier/hud/returnsum.mjs` |
+| M | `permutation-server/web/frontier/hud/returnwords.mjs` |
+| M | `permutation-server/web/lang/en-frontier-play.mjs` |
+| M | `workstreams/07-player-experience/CONTRACTS.ja.md` |
+| M | `permutation-gateway/test/web-frontier-ws07-contracts.test.mjs` |
+| M | `permutation-gateway/test/web-frontier-ws07-connect.test.mjs` |
+| M | `permutation-gateway/screens/ws07-s1-page.screen.mjs` |
+| M | `permutation-gateway/screens/ws07-s1-pure.screen.mjs` |
+| A | `permutation-gateway/test/web-frontier-ws07-arrival-quantity.test.mjs` |
+| A | `permutation-gateway/test/web-frontier-ws07-vault-record-text.test.mjs` |
+| A | `docs/integration/CLAUDE-LANE-C-WS07-VAULT-ARRIVAL-RECORD-20261117.md` |
+
+- **Likely conflict points:** the arrival keys in `en-frontier-play.mjs`, and `CONTRACTS.ja.md`. Both are shared files, and the edits are local and line-based.
+- **Not run:** every test and screen above. The only independent, key-free candidate is `node --test permutation-gateway/test/web-frontier-ws07-vault-record-text.test.mjs`. The others are held: they are refused-adjacent, key-listed, or browser runs.

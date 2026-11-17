@@ -1445,6 +1445,7 @@ export default {
   '世界と戦期': 'The world and the war period',
   // workstream 07: the basis of an arrival's comparison and the intake judged apart (hud/statusview.mjs, statussources.mjs)
   '記録の数は、入った量の下限です（記録は 1 未満を切り捨てるので、資源ごとに 1 未満多く入っていることがあります）': 'The recorded amounts are the least that went in (the records drop anything under one, so up to one more of each may have gone in)',
+  '記録の数は、入った量の下限です（記録は 1 未満を切り捨て、{0} で止まります。そこに達した資源は、記録よりどれだけ多く入ったかわかりません）': 'The recorded amounts are the least that went in (the records drop anything under one and stop at {0}; for a resource at that value, how much more went in is not known)',
   '比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません': 'The basis is the amount on the send record. That amount is after the loss on the road: what was first loaded and what the road took cannot be told from this record',
   '送付記録には経路の減少率 {0}% が記されています': 'The send record states a loss on the road of {0}%',
   'このシーズンのプログラムの版では、入った量の確かめ方を確認していません': 'How the intake can be verified has not been checked for this season\'s program version',

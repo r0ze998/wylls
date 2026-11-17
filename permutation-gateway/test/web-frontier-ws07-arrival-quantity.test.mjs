@@ -53,6 +53,27 @@ test('u32 saturation: shown as the record, still a lower bound for a village, ne
   assert.match(words(arrivalSettled(settled(DST_HOLDING, C(U32)), null, rules)), /^村に入った量：食料 [0-9,]+ 以上/);
 });
 
+test('precision: below the cap "under one more"; at u32::MAX the excess is not bounded — for intake, partial and full', () => {
+  setLang('ja');
+  const NORMAL = /記録は 1 未満を切り捨てるので、資源ごとに 1 未満多く入っていることがあります/;
+  const SATURATED = /記録は 1 未満を切り捨て、4,294,967,295 で止まります。そこに達した資源は、記録よりどれだけ多く入ったかわかりません/;
+  const cases = c => [
+    { state: 'verifiedIntake', intake: c, compare: 'sentUnknown' },
+    { state: 'verifiedPartial', basis: 'sentRecord', sent: C(U32, 10), arrived: c },
+    { state: 'verifiedFull', basis: 'sentRecord', sent: C(1), arrived: c },
+  ];
+  for (const x of cases(C(400, 5))) { const t = words(x); assert.match(t, NORMAL, x.state); assert.doesNotMatch(t, SATURATED, x.state); }
+  for (const x of cases(C(U32, 5))) {
+    const t = words(x);
+    assert.match(t, SATURATED, x.state);
+    assert.doesNotMatch(t, /1 未満多く/, `${x.state}: "under one more" is not said for a saturated record`);
+    assert.match(t, /以上/, `${x.state}: still a lower bound`);
+  }
+  setLang('en');
+  assert.match(words(cases(C(U32))[0]), /stop at 4,294,967,295; for a resource at that value, how much more went in is not known/);
+  setLang('ja');
+});
+
 test('not read: no record, an unreadable outcome, another program: no amount is made up', () => {
   setLang('ja');
   assert.equal(arrivalView({ state: 'settledUnverified', why: 'vault' }).text, '到着しましたが、入った量は確認できません');
