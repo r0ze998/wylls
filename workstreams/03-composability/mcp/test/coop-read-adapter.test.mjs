@@ -1,8 +1,17 @@
+// Final coordinator validation 2026-11-17 UTC: corrected-contract suites passed 74/74 (adapter 41 + integration 33).
 // Tests for src/coop-read-adapter.mjs. Fixtures only: an injected fake fetch with fake streamed bodies, fake timers
-// (no real timeout ever fires), no filesystem, no network. Independently verified: 34/34 (see COOP-READ-ADAPTER.md).
+// (no real timeout ever fires), no filesystem, no network.
+// 2026-11-18 real-board contract fix: the earlier fixtures (34/34 passed) invented a string nation ('North') and
+// capitalised resources ('Stone'), which the real board never sends. The hand-written fixtures below now use the
+// board's shapes (numeric zero-based faction, lowercase resources, fulfilment {status}), and the last section feeds the
+// output of the real, pure coopView (coop/goal.mjs) and fold (coop/record.mjs) into the adapter. Not createBoard: no
+// board process, no fs write, no signature, no address derivation (no links, no herald file). The suite as it now
+// stands has NOT been executed by the session that wrote it (see COOP-READ-ADAPTER.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCoopReadAdapter, normaliseBoardBase, COOP_READ_SCOPE, COOP_READ_LIMITATIONS } from '../src/coop-read-adapter.mjs';
+import { createCoopReadAdapter, normaliseBoardBase, COOP_READ_SCOPE, COOP_READ_LIMITATIONS, COOP_FACTIONS, COOP_RESOURCES, COOP_FULFILMENT_STATUSES } from '../src/coop-read-adapter.mjs';
+import { coopView, GOALS } from '../../../01-national-strategy/coop/goal.mjs';
+import { fold, recordId, RESOURCES } from '../../../01-national-strategy/coop/record.mjs';
 
 const OWNER = 'Hv7mQ9xT3kPz2RbW5cYfN8dLsJ4gAeUq6tBnVr1oXy';
 const OTHER = 'Gk3pZ8wR2nTq5vYc7bMd9fHs4jKe6gAu1xWr2tNmPz';
@@ -88,29 +97,30 @@ function configDoc(over = {}) {
 }
 
 function viewDoc(over = {}) {
+  // nation 0: the first faction. It is falsy in JS and must still read as a verified nation, never as unknown.
   const req1 = {
-    id: 'req-000001', goalId: 'g-vault', requester: OWNER, need: { Stone: 300 }, sig: 'SIG-REQUEST-SECRET', note: 'free text from a player',
+    id: 'req-000001', goalId: 'g-vault', requester: OWNER, nation: 4, need: { stone: 300 }, sig: 'SIG-REQUEST-SECRET', note: 'free text from a player',
     responses: { [OTHER]: { id: 'resp-0001', sig: 'SIG-RESPONSE-SECRET', note: 'free text reply' } }, stateNow: 'open',
     arrivals: [
-      { requestId: 'req-000001', responder: OTHER, caravanId: 'cv-1', state: 'delivered', counted: { Stone: 120 }, proof: 'PROOF-SECRET' },
+      { requestId: 'req-000001', responder: OTHER, caravanId: 'cv-1', state: 'delivered', counted: { stone: 120 }, proof: 'PROOF-SECRET' },
       { requestId: 'req-000001', responder: OTHER, caravanId: 'cv-2', state: 'moving', counted: null },
     ],
-    fulfilment: { status: 'Partial', detail: 'x' }, sendings: [{ walletSig: 'WALLET-SIG-SECRET', outcome: { status: 'unknown', why: 'w' } }],
+    fulfilment: { status: 'undetermined', lower: { stone: 120 }, shortBy: { stone: 180 }, open: 1 }, sendings: [{ walletSig: 'WALLET-SIG-SECRET', outcome: { status: 'unknown', why: 'w' } }],
   };
   const req2 = {
-    id: 'req-000002', goalId: 'g-vault', requester: OTHER, need: { Wood: 50 }, responses: { [OWNER]: { id: 'resp-0002', sig: 'SIG-OWNER-SECRET' } }, stateNow: 'open',
-    arrivals: [{ requestId: 'req-000002', responder: OWNER, caravanId: 'cv-3', state: 'delivered', counted: { Wood: 50 } }], fulfilment: 'Fulfilled',
+    id: 'req-000002', goalId: 'g-vault', requester: OTHER, nation: 4, need: { wood: 50 }, responses: { [OWNER]: { id: 'resp-0002', sig: 'SIG-OWNER-SECRET' } }, stateNow: 'open',
+    arrivals: [{ requestId: 'req-000002', responder: OWNER, caravanId: 'cv-3', state: 'delivered', counted: { wood: 50 } }], fulfilment: { status: 'fulfilled', lower: { wood: 50 }, shortBy: {}, open: 0 },
   };
   return {
     requests: [req1, req2],
     arrivals: [...req1.arrivals, ...req2.arrivals],
     joint: [{ goalId: 'g-vault', host: OWNER, contributors: [OTHER], why: 'free text verdict' }],
-    nation: { nation: 'North', note: 'board note text', requests: 4, deliveredFromNation: 7 },
+    nation: { nation: 0, note: 'board note text', requests: 4, deliveredFromNation: 7 },
     personal: {
-      viewer: OWNER, nation: 'North', nationWhy: null,
-      myRequests: [{ id: 'req-000001', state: 'open', need: { Stone: 300 }, responses: req1.responses, arrivals: req1.arrivals, fulfilment: req1.fulfilment }],
+      viewer: OWNER, nation: 0, nationWhy: null,
+      myRequests: [{ id: 'req-000001', state: 'open', need: { stone: 300 }, responses: req1.responses, arrivals: req1.arrivals, fulfilment: req1.fulfilment }],
       myResponses: [{ id: 'req-000002', requester: OTHER, response: req2.responses[OWNER], arrivals: req2.arrivals }],
-      myVerified: { Wood: 50 }, left: ['g-vault'],
+      myVerified: { wood: 50 }, left: ['g-vault'],
     },
     rejected: [{ why: 'rejected free text', rec: { sig: 'SIG-REJECTED' } }],
     judges: [{ id: 'arrivals', label: 'Arrivals', means: 'm' }],
@@ -123,8 +133,8 @@ function viewDoc(over = {}) {
 function emptyViewDoc() {
   return viewDoc({
     requests: [], arrivals: [], joint: [],
-    nation: { nation: 'North', note: 'n', requests: 0, deliveredFromNation: 0 },
-    personal: { viewer: OWNER, nation: 'North', nationWhy: null, myRequests: [], myResponses: [], myVerified: {}, left: [] },
+    nation: { nation: 0, note: 'n', requests: 0, deliveredFromNation: 0 },
+    personal: { viewer: OWNER, nation: 0, nationWhy: null, myRequests: [], myResponses: [], myVerified: {}, left: [] },
   });
 }
 
@@ -317,15 +327,15 @@ test('malformed or partial view is refused, not shown as none', async () => {
     v => { v.nation.deliveredFromNation = -1; },
     v => { v.nation.nation = 42; },
     v => { delete v.personal; },
-    v => { v.personal.nation = 'South'; },
+    v => { v.personal.nation = 3; },
     v => { delete v.personal.myRequests; },
-    v => { v.personal.myVerified = { Wood: 0 }; },
+    v => { v.personal.myVerified = { wood: 0 }; },
     v => { v.personal.myRequests[0].id = 'req-missing'; },
     v => { v.personal.myRequests.push({ ...v.personal.myRequests[0] }); },
-    v => { v.personal.myRequests[0].need = { Stone: 1.5 }; },
+    v => { v.personal.myRequests[0].need = { stone: 1.5 }; },
     v => { v.personal.myRequests[0].arrivals = 'many'; },
     v => { v.requests[0].requester = OTHER; },
-    v => { v.personal.myResponses[0].arrivals = [{ responder: OTHER, counted: { Wood: 1 } }]; },
+    v => { v.personal.myResponses[0].arrivals = [{ responder: OTHER, counted: { wood: 1 } }]; },
     v => { delete v.requests[1].responses[OWNER]; },
     v => { v.requests.push({ ...v.requests[0] }); },
     v => { v.heraldFeed = 'yes'; },
@@ -459,7 +469,7 @@ test('valid empty snapshot: verified nation with 0 counts and empty lists (disti
   assert.equal(r.ok, true);
   assert.equal(r.status, 'ok');
   assert.equal(r.why, null);
-  assert.deepEqual(r.nation, { status: 'verified', nation: 'North', requests: 0, deliveredFromNation: 0, note: null });
+  assert.deepEqual(r.nation, { status: 'verified', nation: 0, requests: 0, deliveredFromNation: 0, note: null });
   assert.deepEqual(r.mine, { requests: [], responses: [], verified: {}, left: [] });
   assert.deepEqual(r.world, { programId: PROGRAM, seasonId: '3', cluster: 'localnet' });
   assert.equal(r.owner, OWNER);
@@ -472,11 +482,11 @@ test('valid populated snapshot: exact projection', async () => {
     source: { kind: 'coop-board', origin: BASE, readOnly: true, judge: 'arrivals', heraldFeed: 'read' },
     world: { programId: PROGRAM, seasonId: '3', cluster: 'localnet' },
     owner: OWNER,
-    nation: { status: 'verified', nation: 'North', requests: 4, deliveredFromNation: 7, note: null },
+    nation: { status: 'verified', nation: 0, requests: 4, deliveredFromNation: 7, note: null },
     mine: {
-      requests: [{ id: 'req-000001', state: 'open', need: { Stone: 300 }, entries: { listed: 2, counted: 1 }, fulfilment: 'Partial' }],
+      requests: [{ id: 'req-000001', state: 'open', need: { stone: 300 }, entries: { listed: 2, counted: 1 }, fulfilment: 'undetermined' }],
       responses: [{ id: 'req-000002', responded: true, myEntries: { listed: 1, counted: 1 } }],
-      verified: { Wood: 50 },
+      verified: { wood: 50 },
       left: ['g-vault'],
     },
     limitations: COOP_READ_LIMITATIONS,
@@ -513,5 +523,183 @@ test('the result is not a grant: same fixed shape with no permission fields for 
   for (const r of [disabled, refused]) {
     assert.deepEqual(Object.keys(r).sort(), ['limitations', 'mine', 'nation', 'ok', 'owner', 'source', 'status', 'why', 'world']);
     assert.equal(r.ok, false);
+  }
+});
+
+// ------------------------------------------------------------------ real-board contract: types, bounds, no coercion
+
+test('nation is the zero-based faction number: each of 0..5 is verified and kept as a number (0 is not unknown)', async () => {
+  assert.equal(COOP_FACTIONS, 6);
+  for (let f = 0; f < COOP_FACTIONS; f++) {
+    const v = viewDoc();
+    v.nation.nation = f;
+    v.personal.nation = f;
+    const r = await adapter(boardFetch({ view: v })).read(ARGS);
+    assert.equal(r.status, 'ok', `faction ${f}`);
+    assert.equal(r.nation.status, 'verified', `faction ${f}`);
+    assert.strictEqual(r.nation.nation, f);
+    assert.equal(typeof r.nation.nation, 'number');
+    assert.equal(r.nation.requests, 4);
+  }
+});
+
+test('nation of a wrong type or out of 0..5 fails closed: no coercion from strings, names, floats, booleans or -0', async () => {
+  const bad = ['North', '0', '5', '', 6, 7, 255, -1, 1.5, true, false, [0], { faction: 0 }];
+  for (const n of bad) {
+    const v = viewDoc();
+    v.nation.nation = n;
+    v.personal.nation = n;
+    const r = await adapter(boardFetch({ view: v })).read(ARGS);
+    assert.equal(r.status, 'malformed', JSON.stringify(n));
+    assert.equal(r.nation, null);
+    assert.equal(r.mine, null);
+  }
+  // -0 does not survive JSON.stringify (it becomes 0), so it is sent as raw JSON text.
+  const raw = JSON.stringify(viewDoc()).replace('"nation":{"nation":0,', '"nation":{"nation":-0,');
+  assert.ok(raw.includes('"nation":{"nation":-0,'));
+  assert.equal((await adapter(boardFetch({ view: raw })).read(ARGS)).status, 'malformed');
+  // personal.nation must be present and strictly the same value: missing, null or '0' against 0 are all refused.
+  for (const m of [v => { delete v.personal.nation; }, v => { v.personal.nation = null; }, v => { v.personal.nation = '0'; }]) {
+    const v = viewDoc();
+    m(v);
+    assert.equal((await adapter(boardFetch({ view: v })).read(ARGS)).status, 'malformed');
+  }
+});
+
+test('resource names are exactly the board\'s lowercase names; anything else fails closed', async () => {
+  assert.deepEqual([...COOP_RESOURCES], [...RESOURCES]); // coop/record.mjs
+  for (const name of RESOURCES) {
+    const v = viewDoc();
+    v.personal.myRequests[0].need = { [name]: 7 };
+    v.personal.myVerified = { [name]: 3 };
+    const r = await adapter(boardFetch({ view: v })).read(ARGS);
+    assert.equal(r.status, 'ok', name);
+    assert.deepEqual(r.mine.requests[0].need, { [name]: 7 });
+    assert.deepEqual(r.mine.verified, { [name]: 3 });
+  }
+  for (const name of ['Stone', 'Wood', 'STONE', 'science', 'influence', 'horses', 'mud', '', 'stone ', 'toString', 'constructor']) {
+    for (const where of ['need', 'verified']) {
+      const v = viewDoc();
+      if (where === 'need') v.personal.myRequests[0].need = { [name]: 7 };
+      else v.personal.myVerified = { [name]: 3 };
+      const r = await adapter(boardFetch({ view: v })).read(ARGS);
+      assert.equal(r.status, 'malformed', `${where} ${JSON.stringify(name)}`);
+      assert.equal(r.mine, null);
+    }
+  }
+  // "__proto__" as an own JSON key (raw text: an object literal would set the prototype instead).
+  const raw = JSON.stringify(viewDoc()).replace('"myVerified":{"wood":50}', '"myVerified":{"__proto__":50}');
+  assert.ok(raw.includes('"myVerified":{"__proto__":50}'));
+  assert.equal((await adapter(boardFetch({ view: raw })).read(ARGS)).status, 'malformed');
+  for (const amount of ['300', 1.5, -1, null, true]) {
+    const v = viewDoc();
+    v.personal.myRequests[0].need = { stone: amount };
+    assert.equal((await adapter(boardFetch({ view: v })).read(ARGS)).status, 'malformed', JSON.stringify(amount));
+  }
+});
+
+test('fulfilment is the board\'s {status} object with one of its four statuses; any other shape fails closed', async () => {
+  for (const status of COOP_FULFILMENT_STATUSES) {
+    const v = viewDoc();
+    v.personal.myRequests[0].fulfilment = { status, lower: {}, shortBy: {} };
+    const r = await adapter(boardFetch({ view: v })).read(ARGS);
+    assert.equal(r.status, 'ok', status);
+    assert.equal(r.mine.requests[0].fulfilment, status);
+  }
+  for (const f of ['Fulfilled', 'fulfilled', { status: 'Partial' }, { status: 'Fulfilled' }, {}, { status: 1 }, null, undefined, ['fulfilled']]) {
+    const v = viewDoc();
+    if (f === undefined) delete v.personal.myRequests[0].fulfilment; else v.personal.myRequests[0].fulfilment = f;
+    assert.equal((await adapter(boardFetch({ view: v })).read(ARGS)).status, 'malformed', JSON.stringify(f));
+  }
+});
+
+// ------------------------------------------------------------------ regression: the REAL coopView into the real adapter
+// The view below is what coop/board.mjs view() answers, built the way it builds it (board.mjs: `{...coopView(...),
+// heraldFeed, chain, damaged, contexts, store}`), but without createBoard: createBoard makes a data directory and may
+// write observed.json. The state is the real fold of unsigned fixture records (fold checks shape and state, not
+// signatures; the board's signature check is not part of this). No link records and no herald file, so coopView
+// derives no address. checks.citizens is what coop/chain.mjs citizenOf returns: {status: 'verified', faction: <number>}.
+
+const REAL_CTX = Object.freeze({ programId: PROGRAM, seasonId: '3' });
+const REAL_NOW = 1_800_000_000;
+const citizenKey = wallet => `${PROGRAM}/3|${wallet}`; // goal.mjs: `${ctxKey(season)}|${wallet}`
+
+function realRecords() {
+  const base = { v: 1, sig: 'fixture-not-a-signature', season: { ...REAL_CTX } };
+  const mine = { ...base, kind: 'request', signer: OWNER, at: REAL_NOW - 100, goalId: 'crossing-storehouse-v1', need: { wood: 200, stone: 150 },
+    to: { kind: 'holding', p: 1, q: -2, site: 3, gen: 0 }, nation: 4, expiresAt: REAL_NOW + 86400, nonce: 'fixture-1' };
+  const theirs = { ...base, kind: 'request', signer: OTHER, at: REAL_NOW - 90, goalId: 'crossing-storehouse-v1', need: { food: 40, gold: 5 },
+    to: { kind: 'holding', p: 4, q: 0, site: 1, gen: 0 }, nation: 1, expiresAt: REAL_NOW + 86400, nonce: 'fixture-2' };
+  const reply = { ...base, kind: 'respond', signer: OWNER, at: REAL_NOW - 80, request: recordId(theirs), answer: 'accept', nation: 4, offer: { food: 40 } };
+  return { mine, theirs, reply };
+}
+
+/** The board's /coop/view body for `viewer`, from the real fold and the real coopView, as JSON would carry it. */
+function realBoardView({ records = [], citizens = {}, viewer = OWNER } = {}) {
+  const state = fold(records, { goals: GOALS, contexts: [REAL_CTX], current: REAL_CTX });
+  assert.deepEqual(state.rejected, [], 'the fixture records are accepted by the real fold');
+  assert.equal(state.accepted.length, records.length);
+  const v = coopView({ state, file: null, checks: { citizens, holdings: {} }, viewer, now: REAL_NOW, judgeId: 'arrivals', season: REAL_CTX });
+  return JSON.parse(JSON.stringify({ ...v, heraldFeed: null, chain: false, damaged: [], contexts: [REAL_CTX], store: { segments: 0, problems: [] } }));
+}
+
+test('real coopView, verified nationality: numeric faction 0 and lowercase needs are accepted and projected exactly', async () => {
+  const { mine, theirs, reply } = realRecords();
+  const view = realBoardView({
+    records: [mine, theirs, reply],
+    citizens: { [citizenKey(OWNER)]: { status: 'verified', faction: 0, citizen: 'fixture' }, [citizenKey(OTHER)]: { status: 'verified', faction: 2, citizen: 'fixture' } },
+  });
+  // what the real board sends (the contract this adapter was wrong about)
+  assert.strictEqual(view.nation.nation, 0);
+  assert.strictEqual(view.personal.nation, 0);
+  assert.deepEqual(view.personal.myRequests[0].need, { wood: 200, stone: 150 });
+  assert.equal(view.personal.myRequests[0].fulfilment.status, 'none');
+  for (const q of view.requests) for (const k of Object.keys(q.need)) assert.ok(RESOURCES.includes(k), k);
+
+  const r = await adapter(boardFetch({ view })).read(ARGS);
+  assert.deepEqual(r, {
+    ok: true, status: 'ok', why: null,
+    source: { kind: 'coop-board', origin: BASE, readOnly: true, judge: 'arrivals', heraldFeed: 'unavailable' },
+    world: { programId: PROGRAM, seasonId: '3', cluster: 'localnet' },
+    owner: OWNER,
+    nation: { status: 'verified', nation: 0, requests: 1, deliveredFromNation: 0, note: null },
+    mine: {
+      requests: [{ id: recordId(mine), state: 'open', need: { wood: 200, stone: 150 }, entries: { listed: 0, counted: 0 }, fulfilment: 'none' }],
+      responses: [{ id: recordId(theirs), responded: true, myEntries: { listed: 0, counted: 0 } }],
+      verified: {},
+      left: [],
+    },
+    limitations: COOP_READ_LIMITATIONS,
+  });
+  // privacy and no authority, on real data: no other wallet, no board free text, no declared nation, no place, no grant
+  const s = JSON.stringify({ ...r, limitations: undefined });
+  for (const leak of [OTHER, 'fixture-not-a-signature', 'fixture-1', view.nation.note, '"to"', '"offer"', '"joint"', '"rejected"']) assert.ok(!s.includes(leak), `leaked ${leak}`);
+  for (const k of ['recipients', 'targets', 'score', 'role', 'send', 'grant', 'permission']) assert.ok(!(k in r) && !(k in r.mine) && !(k in r.nation));
+});
+
+test('real coopView, unknown nationality: unknown with null counts (not 0, not malformed), own requests still listed', async () => {
+  const { mine, theirs, reply } = realRecords();
+  const view = realBoardView({ records: [mine, theirs, reply], citizens: {} });
+  assert.strictEqual(view.nation.nation, null);
+  assert.strictEqual(view.personal.nation, null);
+  assert.equal(typeof view.nation.why, 'string');
+  const r = await adapter(boardFetch({ view })).read(ARGS);
+  assert.equal(r.status, 'ok');
+  assert.deepEqual({ ...r.nation, note: null }, { status: 'unknown', nation: null, requests: null, deliveredFromNation: null, note: null });
+  assert.equal(typeof r.nation.note, 'string');
+  assert.deepEqual(r.mine.requests.map(q => q.need), [{ wood: 200, stone: 150 }]);
+  assert.deepEqual(r.mine.responses.map(q => q.id), [recordId(theirs)]);
+  const s = JSON.stringify({ ...r, limitations: undefined });
+  for (const leak of [view.nation.why, view.nation.note, view.personal.nationWhy, OTHER]) assert.ok(!s.includes(leak), `leaked ${leak}`);
+});
+
+test('real coopView, empty board: every faction 0..5 the real view reports is a verified nation with zero counts', async () => {
+  for (let f = 0; f < COOP_FACTIONS; f++) {
+    const view = realBoardView({ citizens: { [citizenKey(OWNER)]: { status: 'verified', faction: f, citizen: 'fixture' } } });
+    assert.strictEqual(view.nation.nation, f);
+    const r = await adapter(boardFetch({ view })).read(ARGS);
+    assert.equal(r.status, 'ok', `faction ${f}`);
+    assert.deepEqual(r.nation, { status: 'verified', nation: f, requests: 0, deliveredFromNation: 0, note: null });
+    assert.deepEqual(r.mine, { requests: [], responses: [], verified: {}, left: [] });
   }
 });
