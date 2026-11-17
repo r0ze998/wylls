@@ -298,13 +298,21 @@ export const ORDER_KINDS = Object.freeze(['harvest', 'build', 'walls', 'promote'
 /** Orders kept for the list of this turn: this many at most (older ones leave). */
 export const ORDERS_MAX = 40;
 let orderSeq = 0;
+/**
+ * (2026-11-17) The viewer and world an order is made under: the viewer key (the NFT's asset or the wallet) and the
+ * pinned world (`providerWorld`: pin generation, cluster, program, Season), as refresh's currentViewer compares them.
+ * An answer that comes back after either changed is not this page's: it is not recorded, said or acted on here.
+ */
+const orderScope = () => `${viewerKey() ?? ''}|${providerWorld() ?? ''}`;
 function orderOf(kind, name, extra = {}) {
   const h = activeHolding(FS);
   const tile = extra.tile && Number.isInteger(extra.tile.tile) ? { p: extra.tile.p, q: extra.tile.q, tile: extra.tile.tile } : h && Number.isInteger(h.tile) ? { p: h.p, q: h.q, tile: h.tile } : null;
-  return { ...extra, id: `o${++orderSeq}`, kind, name, turn: nowBell(), faction: FS.citizen?.faction ?? null, tile, at: now() };
+  return { ...extra, id: `o${++orderSeq}`, kind, name, turn: nowBell(), faction: FS.citizen?.faction ?? null, tile, at: now(), scope: orderScope() };
 }
+/** Whether order `o` was made under the viewer and world the page shows now (an order without a scope: as before). */
+const orderHere = o => o.scope === undefined || o.scope === orderScope();
 function orderAnswered(o, ok, extra = {}) {
-  if (!o) return;
+  if (!o || !orderHere(o)) return;
   const rec = { ...o, ...extra, state: ok ? 'accepted' : 'refused' };
   FS.orders = [rec, ...(FS.orders ?? []).filter(x => x.id !== o.id)].slice(0, ORDERS_MAX);
   const { say: _say, ...payload } = rec;
@@ -366,9 +374,10 @@ const localActLedger = localAct.createLocalActLedger();
 const localActScopeNow = () => { const g = localDepartGate(); return localAct.localActScope({ identity: localPlay, relay: g?.ok ? g.relay : null }); };
 export const localPlayUnconfirmedOrders = () => localActLedger.list(localActScopeNow()).map(e => ({ name: e.name, signature: e.signature }));
 /** An order that was SENT and whose outcome is not known: recorded as that — with its signature — never as refused. */
-function orderUnconfirmed(o, signature) {
-  if (!o) return;
+function orderUnconfirmed(o, signature, code = 'LocalActUnconfirmed') {
+  if (!o || !orderHere(o)) return;
   const rec = { ...o, state: 'unconfirmed', sent: true, signature, code: 'LocalActUnconfirmed' };
+  if (code !== 'LocalActUnconfirmed') rec.code = code;   // (2026-11-17) the ordinary path's own code (Unconfirmed, TxUnqueryable)
   FS.orders = [rec, ...(FS.orders ?? []).filter(x => x.id !== o.id)].slice(0, ORDERS_MAX);
   const { say: _say, ...payload } = rec;
   fxEmit('order:unconfirmed', payload);
@@ -450,6 +459,11 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
       sign = { session: FS.session };
     }
   }
+  // (2026-11-17) the viewer and world this order is sent under; the ordinary path's answer is shown only if the page is
+  // still that one when it comes (local play follows its own scope below)
+  const scope0 = orderScope();
+  const moved = () => !local && orderScope() !== scope0;
+  let unconfirmed = false;
   busy(label ?? (() => L`送信中…`));
   const fxa = fxAction(name, v, order);
   let fxDone = false, sent = false, code = null;
@@ -523,6 +537,22 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     if (!r.ok) { code = r.code ?? null; return failed(r); }
     // sent, and the chain says it failed or it expired: definitely not landed (an unknown outcome is neither)
     if (!t.ok && (t.state === 'failed' || t.state === 'expired')) onLost?.(t);
+    // (2026-11-17) SENT, AND THE OUTCOME NOT KNOWN (no answer, or no status read): not a refusal. The order is recorded
+    // as sent and not confirmed, with its signature (as local play records it), never as refused — the next read shows
+    // what became of it. The notice says what the chain answered, as before.
+    if (!t.ok && (t.state === 'unknown' || t.state === 'unqueryable')) {
+      unconfirmed = true;
+      orderUnconfirmed(order, r.signature, t.code ?? 'Unconfirmed');
+    }
+    // (2026-11-17) the page is no longer the viewer or world this was sent under: nothing of the answer is shown here
+    // (the effects bus is told as before — landed or refused — so a busy effect is settled; it is the stage's to end a
+    //  scene of another world)
+    if (moved()) {
+      code = t.code ?? null;
+      if (t.ok) { fxDone = true; fxEmit('action:landed', fxa); }
+      if (FS.notice?.busy) setNotice(null);
+      return { ...t, signature: r.signature, scopeChanged: true };
+    }
     if (!t.ok) { code = t.code ?? null; return failed(t); }
     // each kind of order answers in its own words (the second capture: every order said "recorded on chain")
     done(say ?? order?.say ?? DONE_TEXT[name] ?? (() => L`完了しました`));
@@ -536,7 +566,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     code = e?.code ?? 'Error';
     throw e;
   } finally {
-    if (!fxDone) { fxEmit('action:refused', fxa); orderAnswered(order, false, { code, sent }); }
+    if (!fxDone) { fxEmit('action:refused', fxa); if (!unconfirmed) orderAnswered(order, false, { code, sent }); }
     FS.inFlight -= 1;
     refreshSoon();
   }
