@@ -43,6 +43,24 @@ export const UNKNOWN_OUTCOME_CODES = Object.freeze(['Unconfirmed', 'TxUnqueryabl
 /** The code of local play's hold: sent, held by its signature, and asked — not sent — by the same press (controller.mjs orderUnconfirmed). */
 export const LOCAL_HOLD_CODE = 'LocalActUnconfirmed';
 
+/**
+ * What an order record says became of the order — the ONE place the lifecycle's records are classed (the village's
+ * note, the trade card's, the first village's guide):
+ *   'notSent'     refused before anything left this browser (`sent` not true)
+ *   'sentFailed'  sent, and the chain answered that it failed or expired
+ *   'unknown'     sent, outcome not read: refused with `sent` and a tracker's code, or 'unconfirmed' with any code but
+ *                 the local hold's (the shape of main's order chain for the ordinary path) — never "not sent"
+ *   'held'        local play: sent and held by its signature ('unconfirmed' with the hold's own code); the same press
+ *                 asks its outcome and sends nothing again
+ *   'accepted'    the chain confirmed it
+ * null for a record in no such state.
+ */
+export function orderOutcome(o) {
+  if (o?.state === 'unconfirmed') return o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';
+  if (o?.state === 'refused') return o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';
+  return o?.state === 'accepted' ? 'accepted' : null;
+}
+
 /** What the order was, in a few words. */
 export function villageOrderName(o) {
   switch (o.kind) {
@@ -90,17 +108,27 @@ export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {
   const out = [];
   for (const o of FS.orders ?? []) {
     if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;
-    let cls = null;
-    // ('unconfirmed' is the local-play hold ONLY with the hold's own code. Main's order chain — not adopted at this base
-    //  — records an ordinary-path unknown outcome as 'unconfirmed' too, with the tracker's code: there a second press
-    //  is a NEW order, so it is said as `unknown`, never with the hold's words)
-    if (o.state === 'unconfirmed') cls = o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';
-    else if (o.state === 'refused') cls = o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';
-    else if (o.state === 'accepted') cls = recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null;
+    // (what the record says became of the order — orderOutcome, the one place it is read; an accepted order is listed
+    //  only while the village's record is still behind it)
+    const outcome = orderOutcome(o), cls = outcome === 'accepted' ? (recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null) : outcome;
     if (!cls) continue;
     out.push({ id: o.id, kind: o.kind, name: villageOrderName(o), cls, code: o.code ?? null, why: o.why ?? (o.code ? clientText(o.code) : ''), fact: cls === 'unknown' ? recordFactOf(o, h, now) : null });
   }
   return out;
+}
+
+/**
+ * The newest order record of this village and this turn that `match` takes, with what became of it: `{order, outcome,
+ * why}`, or null. `FS.orders` is newest first. It is a fact of the RECORD — "the last such order given from this village
+ * this turn was …" —, read by what the record itself names (its kind, its unit, its village's tile, its turn); it is
+ * not tied to any button press or plan, and no later state of the village is inferred from it.
+ */
+export function latestVillageOrder(FS, h, match) {
+  if (!h) return null;
+  const turn = FS.nowBell ?? null;
+  const o = (FS.orders ?? []).find(x => x.turn === turn && ofVillage(x, h) && match(x)) ?? null;
+  const outcome = o ? orderOutcome(o) : null;
+  return outcome ? { order: o, outcome, why: o.why ?? (o.code ? clientText(o.code) : '') } : null;
 }
 
 /** Whether the pure re-read of the village may be offered from here (the controller's own conditions for starting one). */

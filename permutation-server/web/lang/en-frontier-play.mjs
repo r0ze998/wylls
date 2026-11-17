@@ -1813,4 +1813,13 @@ export default {
   'この州へ向かっているあなたの軍勢（行き先のマスは、まだ分かりません）': 'Your hosts on their way to this province (the tile they go to is not known yet)',
   'この砦へ向かっているかどうかは、行き先のマスが読めるまで分かりません。': 'Whether they are bound for this keep is not known until the tile they go to is loaded.',
   'この州の砦を見る': 'See this province\'s keep',
+  // (2026-11-17, ⑦ the first village's guide: what became of its own train / form-up order)
+  '斥候の訓練': 'Training the scouts',
+  '斥候隊の編成': 'Forming up the scouts',
+  '{0}は、このターンに受け付けられています。村の記録に、まだ出ていないことがあります。もう一度命じると、もう一度行います。': '{0}: accepted this turn. It may not be in the village record yet. Ordering it again does it once more.',
+  '{0}は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。もう一度命じると、二重になることがあります。': '{0}: sent, and the result is not confirmed yet (this does not mean it was not sent). Ordering it again may do it twice.',
+  '{0}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。': '{0}: sent, and the result is not confirmed yet. The same order is not sent again. Press the button below once more to check its result.',
+  '{0}は送信しましたが、成立しませんでした。': '{0}: sent, but it did not take effect.',
+  '{0}は、送られていません。': '{0}: not sent.',
+  '斥候の命令の結果を確かめる': 'Check what became of the scouts\' order',
 };
