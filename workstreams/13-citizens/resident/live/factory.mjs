@@ -19,7 +19,12 @@
 //                     declares that RPC's network (`rpc.cluster`) and it is the herald's; the Season given to the
 //                     planner is the observed one; after planning, /h/season is read again and a changed world
 //                     (program, Season, world account or network) makes the plan held (WorldChanged)
-//   results (stop-A)  `execution`: the caller's ws04-acts port (resident/ports/ws04-acts.mjs); status only
+//   results (stop-A)  `execution`: the caller's port with status(); only status is used. Or (2026-11-17) `actsStatus`
+//                     {bin, db, gatewayPort?, bridge?, registry, agentId}: workstream 4's acts client
+//                     (createActsClient: runexec over the run store `db`) wrapped in the status-only port
+//                     (ports/ws04-acts-status.mjs), whose origin {registry, agentId} is the caller's explicit
+//                     statement; made at creation with no IO. With `gatewayPort`, each status read also reads the
+//                     wallet once and records the answer in the run store (workstream 4's behaviour).
 //   stop, keys        with `residentDir`: the resident's own stop and submitted keys, read at each step() from its
 //                     charter.json and state.json and its halt file (resident-state.mjs; read only, no key file, no
 //                     Resident constructed). A caller's `stop` may add a stop, never clear the resident's; its keys
@@ -40,6 +45,8 @@ import { readFileSync, lstatSync } from 'node:fs';
 import { observeLive, plannerNow } from './observe.mjs';
 import { readResidentState } from './resident-state.mjs';
 import { seasonClock, clockId } from '../frame.mjs';
+import { createActsClient } from '../../../04-execution/clients/acts.mjs';
+import { ws04ActsStatusPort } from '../ports/ws04-acts-status.mjs';
 import { liveStep } from './step.mjs';
 
 const bytesOf = b64 => {
@@ -93,8 +100,17 @@ const sameSeason = (a, b) => !!a && !!b && a.programId === b.programId && String
  * `createLiveResident({heraldUrl, boardUrl?, rpc?: {url, cluster, source}, wallet, execution?, authority?, provider?,
  *   allow?, fetchImpl})` → {observe(), step({stop?, submittedKeys?})}. Nothing is read until one of them is called.
  */
-export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wallet, residentDir = null, execution = null, authority = {}, provider = null, allow = {}, fetchImpl = globalThis.fetch }) {
+export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wallet, residentDir = null, execution = null, actsStatus = null, authority = {}, provider = null, allow = {}, fetchImpl = globalThis.fetch }) {
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl');
+  // (2026-11-17) the result port from explicit settings: workstream 4's client, read-only wrapper, the stated origin.
+  // Nothing runs here (createActsClient keeps its arguments); a missing or partial setting is refused, not completed.
+  if (actsStatus) {
+    if (execution) throw new TypeError('give either execution or actsStatus, not both');
+    const { bin, db, gatewayPort = null, bridge = false, registry, agentId } = actsStatus;
+    if (typeof bin !== 'string' || !bin.startsWith('/') || typeof db !== 'string' || !db.startsWith('/')) throw new TypeError('actsStatus.bin and actsStatus.db: absolute paths (the runexec binary and its run store)');
+    if (gatewayPort !== null && !(Number.isInteger(gatewayPort) && gatewayPort > 0 && gatewayPort < 65536)) throw new TypeError('actsStatus.gatewayPort: a port on 127.0.0.1, or null (answer from the store only)');
+    execution = ws04ActsStatusPort(createActsClient({ bin, db, gatewayPort, bridge: bridge === true }), { agentId, registry });
+  }
   if (typeof wallet !== 'string' || !wallet) throw new TypeError('wallet: the resident\'s address, supplied by its owner');
   const herald = getReader(heraldUrl, fetchImpl);
   const board = boardUrl ? getReader(boardUrl, fetchImpl) : null;
