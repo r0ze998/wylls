@@ -57,6 +57,49 @@ export function boardState(FS, b) {
   return { available: true };
 }
 
+/**
+ * (2026-11-17) Read the board's view (01's coop/board.mjs `/coop/view`, goal.mjs `coopView`): `{read: 'ok', requests}` |
+ * `{read: 'unread', code}`. A view whose requests are not all of the shape 01 writes (`ctx {programId, seasonId}`, `to {p, q,
+ * site, gen}`, `stateNow`, `fulfilment.status`) is not read at all: an incomplete list is never said as "none".
+ */
+export async function probeView({ fetch: f = (...a) => globalThis.fetch(...a), base = '' } = {}) {
+  let r;
+  try { r = await f(`${base}/coop/view`, { cache: 'no-store' }); } catch { return { read: 'unread', code: 'network' }; }
+  if (!r.ok) return { read: 'unread', code: `HTTP${r.status}` };
+  let j;
+  try { j = await r.json(); } catch { return { read: 'unread', code: 'BadBody' }; }
+  const int = x => Number.isInteger(Number(x)) && x !== null && x !== '' && typeof x !== 'boolean';
+  const good = q => q && typeof q === 'object' && q.ctx && typeof q.ctx.programId === 'string' && (typeof q.ctx.seasonId === 'string' || typeof q.ctx.seasonId === 'number')
+    && q.to && ['p', 'q', 'site', 'gen'].every(k => int(q.to[k])) && typeof q.stateNow === 'string' && typeof q.fulfilment?.status === 'string';
+  if (!j || !Array.isArray(j.requests) || !j.requests.every(good)) return { read: 'unread', code: 'BadView' };
+  return { read: 'ok', requests: j.requests };
+}
+
+/** The world a board read is of: its present context (program and Season), as `/coop/config` names it. */
+const worldKeyOf = b => (b?.read === 'ok' ? `${b.config.season.programId ?? ''}|${b.config.season.seasonId}` : null);
+
+/**
+ * (2026-11-17) What the card says of the requests TO THIS VILLAGE, from the board's view `v` read for the board's present
+ * world: `{lines}` or null (nothing to say: the slot is not available). Only this world's requests (their own `ctx` is the
+ * board's present context, which `boardState` already found to be the page's world) and only those whose destination `to`
+ * is the active village (p, q, site, gen). The fulfilment words are 01's own (ws04.mjs FULFILMENT_JA): "reached" is
+ * proven by the counted lower bound, never by a caravan's cargo. Not read yet, or not readable: said as such, never "none".
+ */
+export function villageRequests(FS, b, v) {
+  if (!boardState(FS, b).available) return null;
+  if (!v) return { lines: [L`この村あての依頼を読み込んでいます…`] };
+  if (v.read !== 'ok') return { lines: [L`この村あての依頼を読み込めませんでした（${v.code ?? '?'}）`] };
+  const h = activeHolding(FS), s = b.config.season;
+  const mine = v.requests.filter(q => q.ctx.programId === (s.programId ?? q.ctx.programId) && String(q.ctx.seasonId) === String(s.seasonId)
+    && Number(q.to.p) === Number(h.p) && Number(q.to.q) === Number(h.q) && Number(q.to.site) === Number(h.site) && Number(q.to.gen) === Number(h.gen ?? 0));
+  if (!mine.length) return { lines: [L`この村あての依頼はありません`] };
+  const n = st => mine.filter(q => q.fulfilment.status === st).length;
+  return { lines: [
+    L`この村あての依頼 ${mine.length} 件（受付中 ${mine.filter(q => q.stateNow === 'open').length}）`,
+    L`依頼量に届いた（下限で証明）${n('fulfilled')}・判定できない ${n('undetermined')}・届かなかった ${n('not-reached')}・まだ隊商がない ${n('none')}`,
+  ] };
+}
+
 /** The board's page for this village (the board's own `page` when its config names one on this origin). */
 export function boardHref(FS, b) {
   const page = typeof b?.config?.page === 'string' && b.config.page.startsWith('/') && !b.config.page.startsWith('//') ? b.config.page : BOARD_PAGE;
@@ -70,10 +113,24 @@ export function boardHref(FS, b) {
  */
 export function installCoopBoard({ fetch, base = '', every = 60_000, changed = () => {}, open = href => globalThis.open?.(href, '_blank', 'noopener'), timers = globalThis } = {}) {
   let board = null, stopped = false, timer = null;
+  // (2026-11-17) the board's view, read when the card asks for it (no timer of its own) and kept with the world it was read
+  // for: `{key, ...probeView}`. A newer read supersedes an older one (`viewSeq`); an answer for another world, an older read,
+  // or one that comes after stop is dropped. Each read of the config marks it due again (`viewDue`).
+  let view = null, viewSeq = 0, viewInFlight = null, viewDue = false;
+  const readView = async key => {
+    const seq = ++viewSeq;
+    viewInFlight = key; viewDue = false;
+    const r = await probeView({ fetch, base });
+    if (stopped || seq !== viewSeq) return;
+    viewInFlight = null;
+    view = worldKeyOf(board) === key ? { key, ...r } : null;   // the board moved to another world meanwhile: not kept
+    changed();
+  };
   const read = async () => {
     const b = await probeBoard({ fetch, base });
     if (stopped) return;
     board = b;
+    viewDue = true;
     changed();
     if (b.read !== 'absent') timer = timers.setTimeout?.(read, every) ?? null;
   };
@@ -82,6 +139,12 @@ export function installCoopBoard({ fetch, base = '', every = 60_000, changed = (
     title: () => L`国をまたぐ依頼を開く`,
     state: FS => boardState(FS, board),
     open: FS => open(boardHref(FS, board)),
+    detail: FS => {
+      if (!boardState(FS, board).available) return null;
+      const key = worldKeyOf(board);
+      if ((viewDue || !view || view.key !== key) && viewInFlight !== key) readView(key);
+      return villageRequests(FS, board, view && view.key === key ? view : null);
+    },
   });
   read();
   return () => { stopped = true; if (timer !== null) timers.clearTimeout?.(timer); off(); };

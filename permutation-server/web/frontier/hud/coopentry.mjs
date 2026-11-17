@@ -4,7 +4,7 @@
 // this file decides none of them. With no entry registered the slot is
 // empty and the page is as it was.
 //
-// 01 registers `{id, title, state(FS) → {available, why?} | {hidden: true}, open(FS)}`:
+// 01 registers `{id, title, state(FS) → {available, why?} | {hidden: true}, open(FS), detail?(FS) → {lines} | null}`:
 // `title` the button's words (in the page's language), `state` whether it
 // can be pressed now and, when not, why (shown under it) — or `hidden` when
 // the thing it opens is not on this server at all —, `open` what
@@ -31,7 +31,11 @@ export function renderCoopSlot(FS) {
   try { st = entry.state(FS) ?? { available: false }; } catch { st = { available: false, why: null }; }
   if (st.hidden === true) return '';
   const why = st.available ? '' : html`<p class="blocked">${st.why ? String(st.why) : L`いまは使えません（理由を受け取れていません）`}</p>`;
-  return html`<div class="ws07-coop" data-coop="${entry.id}"><button type="button" class="btn" data-act="coop-open" data-id="${entry.id}" ${raw(st.available ? '' : 'disabled')}>${String(entry.title())}</button>${why}</div>`;
+  // (2026-11-17) the entry may say more under its button (`detail(FS)` → `{lines}` or null): 01's lines about this village
+  let d = null;
+  try { d = typeof entry.detail === 'function' ? entry.detail(FS) : null; } catch { d = null; }
+  const detail = d && Array.isArray(d.lines) && d.lines.length ? html`<div class="coop-detail">${d.lines.map(x => html`<p>${String(x)}</p>`)}</div>` : '';
+  return html`<div class="ws07-coop" data-coop="${entry.id}"><button type="button" class="btn" data-act="coop-open" data-id="${entry.id}" ${raw(st.available ? '' : 'disabled')}>${String(entry.title())}</button>${why}${detail}</div>`;
 }
 
 /** The HUD action: open the entry if it is the one the button named and it can be pressed now. */
