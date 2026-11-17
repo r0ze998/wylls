@@ -97,6 +97,18 @@ const localHomeMemory = (() => { const m = new Map(); return Object.freeze({ get
 const homeStorage = () => (localPlay ? localHomeMemory : uiStorage);
 const readHome = () => homeKeyNow() ? loadHome(homeStorage(), homeKeyNow()) : { selected: null, pending: null, seen: null };
 const saveHomePatch = patch => homeKeyNow() ? saveHome(homeStorage(), homeKeyNow(), patch) : null;
+// (2026-11-17, ⑦ the first village: WHERE the home record of the viewer and world of this moment is kept — the same key
+//  and the same place as readHome / saveHomePatch use, taken once. A Join or PlaceHome that was sent writes its note
+//  THERE, whatever the page has become by the time the send answers: the note is the only record that a transaction
+//  left this browser, and it belongs to the wallet and world it was sent for — never to the ones on the page later.)
+const homeNoteNow = () => { const key = homeKeyNow(); return key ? { key, storage: homeStorage() } : null; };
+const saveHomeAt = (at, patch) => (at ? saveHome(at.storage, at.key, patch) : null);
+// (the chain's own "failed / expired" lets a note go only when the note is of a signature THIS send wrote: a note a
+//  later send wrote in the same record is that send's)
+const dropHomeNote = (at, sigs) => { if (!at) return; const n = loadHome(at.storage, at.key).pending; if (n && sigs.has(n.signature)) saveHome(at.storage, at.key, { pending: null }); };
+// (confirmHome → ACTIONS.join: the question "is the confirm that asked for this Join still its own?", handed over for
+//  the one call and taken at its first line)
+let homeJoinStill = null;
 const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
 // (workstream 07: an NFT resident (⑳) seals its own marches; its march book is kept apart from its wallet's Citizen's, or
 // the reconciliation against one Citizen's transits would write the other's entries off)
@@ -2178,20 +2190,49 @@ export function ackHomeGrant() {
 
 export async function confirmHome() {
   if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;
+  // (corrected 2026-11-17: the press is of the context it was made in — viewer, herald, world — and that is taken
+  //  BEFORE the first wait. A candidates reading that outlasts a change of wallet or world leaves a choice of the page
+  //  as it has become: this press does not go on with it.)
+  const pressed = contextSeq;
   const faction = wantedHomeFaction();
   if (!FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction)) await refreshHomes({ force: true });
+  if (contextSeq !== pressed) return;
   if (!FS.homeChoice?.selected || FS.homeChoice.busy) return;
-  FS.homeChoice.busy = true; FS.homeChoice.error = null;
-  const pending = p => { FS.homeChoice.pending = p; invalidate('panel'); };
-  const error = (code, text) => { FS.homeChoice.error = { code, text }; invalidate('panel'); };
+  // (2026-11-17, ⑦: THIS confirm — the choice it was pressed on (the object), the context number of that moment
+  //  (viewer, herald, world: nextContext), the world, and where that viewer's home record is kept.
+  //   - what it shows (pending, error, the selection let go) is written on ITS choice, and only while that choice is
+  //     the one standing and the context is the one it began in (`mine`). After another wallet, NFT, herald or world,
+  //     it shows nothing and starts no further step: no Join, no key, no PlaceHome, no note cleared.
+  //   - what it SENT is another matter: the note of a sent Join / PlaceHome is saved in the record taken here
+  //     (`run.note`) whatever the page has become — see saveHomePatch just below.
+  //   - at its end it lets go of its own busy mark only; a newer choice's is not its to take off.)
+  const run = { choice: FS.homeChoice, ctx: pressed, note: homeNoteNow(), sent: new Set() };
+  run.choice.busy = true; run.choice.error = null;
+  const mine = () => FS.homeChoice === run.choice && contextSeq === run.ctx;
+  const pending = p => { if (!mine()) return; run.choice.pending = p; invalidate('panel'); };
+  const error = (code, text) => { if (!mine()) return; run.choice.error = { code, text }; invalidate('panel'); };
+  // (within this confirm every save goes to the record taken at its start. A note WITH a signature — a transaction
+  //  left this browser — is always saved, there. Anything else (the note cleared, the selection) is saved only while
+  //  the confirm is still its own: what the page reads after a change is not this viewer's.)
+  const saveHomePatch = patch => {
+    if (typeof patch?.pending?.signature === 'string') { run.sent.add(patch.pending.signature); return saveHomeAt(run.note, patch); }
+    return mine() ? saveHomeAt(run.note, patch) : null;
+  };
   try {
     if (!FS.wallet) {
       const i = (FS.walletList ?? []).findIndex(w => !w.why);
       if (i < 0) return error('NoWallet', L`参加に使うウォレットを接続してください。`);
       pending('connecting'); await ACTIONS.connect({ i: String(i) });
-      if (!FS.wallet) return;
+      // (corrected 2026-11-17, fail closed: a press made with NO wallet ends here, whatever the connect did. The
+      //  connect hands back nothing that says which wallet it connected — what the page holds afterwards (a name, an
+      //  address, how often the context moved) cannot tell this connect's wallet from another that connected at the
+      //  same moment — and the visitor's choice went with the visitor (resetViewer). So nothing is joined or placed on
+      //  this press: the wallet stays connected, the page shows that wallet's own state, and the person presses
+      //  again there. That press begins with a wallet and is its own.)
+      return;
     }
     if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }
+    if (!mine()) return;
     const saved = readHome();
     if (saved.pending && localPlay) {
       // LOCAL PLAY: the note is of a page-signed Join or PlaceHome. It is asked about as every local order is — ONCE, at
@@ -2211,6 +2252,7 @@ export async function confirmHome() {
       await refresh();
       if (!still()) return;
       if (FS.homeGrant) return;
+      if (!mine()) return;
       // The note is cleared by what the page now SEES of this wallet in this world (its Citizen exists: the Join is
       // done — also when the relay no longer knows the signature, or the order was already let go), or by the chain's
       // own refusal. An unknown outcome with nothing to see keeps it; nothing is sent in its place.
@@ -2226,14 +2268,18 @@ export async function confirmHome() {
       else if (!tracked.ok && ['failed', 'expired'].includes(tracked.state)) saveHomePatch({ pending: null });
       else return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
     }
-    let site = FS.homeChoice.selected;
+    // (the re-check above read the page as it is now: its outcome is this confirm's only while the confirm is its own —
+    //  the note is not cleared otherwise, see saveHomePatch — and nothing further is done)
+    if (!mine()) return;
+    let site = run.choice.selected;
     if (FS.citizen && FS.citizen.faction !== site.faction) {
-      FS.homeChoice.selected = null;
+      run.choice.selected = null;
       return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
     }
     const env = await loadEnvelope(site.p, site.q);
+    if (!mine()) return;
     if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
-      FS.homeChoice.selected = null; saveHomePatch({ selected: null });
+      run.choice.selected = null; saveHomePatch({ selected: null });
       return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
     }
     saveHomePatch({ selected: site });
@@ -2243,14 +2289,17 @@ export async function confirmHome() {
         // ⑳: an NFT's Citizen is made by its first login (nft-login: JoinResident), never by the wallet Join; it is
         // on its way from the herald
         if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
+        if (!mine()) return;
       } else {
         FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: site.faction };
+        homeJoinStill = mine;
         const joined = await ACTIONS.join();
-        if (!joined?.ok) return;
+        if (!joined?.ok || !mine()) return;
         if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
+        if (!mine()) return;
         saveHomePatch({ pending: null });
       }
-      if (FS.citizen.faction !== site.faction) { FS.homeChoice.selected = null; return error('WrongFaction', L`参加済みの国の土地を選んでください。`); }
+      if (FS.citizen.faction !== site.faction) { run.choice.selected = null; return error('WrongFaction', L`参加済みの国の土地を選んでください。`); }
     }
     if (FS.holdings?.length) { updateHomeGrant(); return; }
     // ⑳: an NFT Citizen has no in-game key (its owner's wallet signs the PlaceHome, for the pass's current
@@ -2259,7 +2308,7 @@ export async function confirmHome() {
     // (local play: no in-game key at all — the memory-only wallet signs the PlaceHome itself; SetSession is never asked)
     if (!localPlay && !FS.resident && (!FS.session || FS.sessionProblem)) {
       await ACTIONS.session(); await refresh();
-      if (!FS.session || FS.sessionProblem) return;
+      if (!mine() || !FS.session || FS.sessionProblem) return;
     }
     pending('placing');
     const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },
@@ -2267,12 +2316,20 @@ export async function confirmHome() {
       // (local play: the note also carries the scope the PlaceHome was SENT under — wallet, world and relay — given by
       //  the local send step; outside local play no scope is given and the note is what it always was)
       onSent: (r, sentUnder) => saveHomePatch({ pending: { kind: 'PlaceHome', signature: r.signature, ...(typeof sentUnder?.scope === 'string' ? { scope: sentUnder.scope } : {}) } }),
-      onLost: () => saveHomePatch({ pending: null }) });
-    if (!placed?.ok) { await refresh(); if (!FS.homeGrant) error(placed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`土地の確定を確認できませんでした。再確認するか、候補を更新してください。`); return; }
+      // (the chain's own word that it did not land: the note goes, in the record it was written in, if it is still this send's)
+      onLost: () => dropHomeNote(run.note, run.sent) });
+    if (!mine()) return;
+    if (!placed?.ok) { await refresh(); if (mine() && !FS.homeGrant) error(placed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`土地の確定を確認できませんでした。再確認するか、候補を更新してください。`); return; }
     pending('confirming');
     if (!await waitForOwn(() => !!FS.homeGrant)) error('PendingHome', L`村の確定が記録されました。地図への反映を待っています。`);
   } catch (e) { error(e?.code ?? 'Unavailable', L`参加を完了できませんでした。接続を確認して再試行してください。`); }
-  finally { if (FS.homeChoice) { FS.homeChoice.busy = false; FS.homeChoice.pending = null; } invalidate('panel', 'tabs', 'map'); }
+  finally {
+    run.choice.busy = false; run.choice.pending = null;
+    // (a choice kept across a change of world only because this confirm was under way — adoptPinnedWorld — is let go
+    //  with it: its candidates are places of the world that was pinned)
+    if (FS.homeChoice === run.choice && contextSeq !== run.ctx) FS.homeChoice = null;
+    invalidate('panel', 'tabs', 'map');
+  }
 }
 
 // ------------------------------------------------------------------ the first holding, placed automatically (owner decision V2)
@@ -3229,6 +3286,7 @@ export const ACTIONS = {
   'nft-logout': async () => { adoptResident(null); await refresh(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
+    const still = homeJoinStill; homeJoinStill = null;   // (asked by confirmHome: is that confirm still its own?)
     // LOCAL PLAY: no in-game key is derived, remembered or registered. The page's memory-only wallet signs the Join
     // itself and is the only key the Citizen will ever have (flocalplay-act.mjs writes the wallet as the Join's
     // session key). A Season with a prize pool or a join gate is not served there.
@@ -3242,17 +3300,24 @@ export const ACTIONS = {
     const pin = io.pinned();
     let s;
     try { s = await fsession.derive({ wallet: wallet.connected(), cluster: pin.cluster, programId: pin.programId, seasonId: pin.seasonId }); } catch (e) { return failed({ code: e.code ?? 'SignFailed' }); }
+    // (2026-11-17, ⑦: asked for by a confirm that is no longer its own — another wallet, NFT, herald or world while the
+    //  key was derived —: the key is not remembered, nothing is sent, nothing is said on the page as it is now)
+    if (still && !still()) return { ok: false, code: 'ContextChanged' };
     fsession.remember(s);
     FS.session = s;
-    const lifecycle = { onSent: r => { if (FS.homeChoice?.busy) saveHomePatch({ pending: { kind: 'Join', signature: r.signature } }); },
-      onLost: () => { if (FS.homeChoice?.busy) saveHomePatch({ pending: null }); } };
+    // (the note of this Join — only for a Join that is part of a first village's confirm, as before — is written in the
+    //  home record of THIS moment: no wait stands between here and the wallet the Join is signed with (act → actOnce,
+    //  paidJoin), so it is the record of the wallet and world the Join is sent for, whatever the page becomes before
+    //  the send answers. It is let go on the chain's own "failed / expired", if it is still this send's)
+    const noteAt = FS.homeChoice?.busy ? homeNoteNow() : null, noteSent = new Set();
+    const lifecycle = { onSent: r => { if (noteAt) { noteSent.add(r.signature); saveHomeAt(noteAt, { pending: { kind: 'Join', signature: r.signature } }); } },
+      onLost: () => dropHomeNote(noteAt, noteSent) };
     // A season with a prize pool: the entry fee and the Join in one transaction (x402).
     if (FS.prize) return paidJoin(s, lifecycle);
     const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
     return act('Join', { v: { faction: FS.joinDraft.faction, joinGate: gate, invite: FS.joinDraft.invite },
       fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
-      onSent: r => { if (FS.homeChoice?.busy) saveHomePatch({ pending: { kind: 'Join', signature: r.signature } }); },
-      onLost: () => { if (FS.homeChoice?.busy) saveHomePatch({ pending: null }); } });
+      onSent: lifecycle.onSent, onLost: lifecycle.onLost });
   },
   session: async () => {
     const pin = io.pinned();
