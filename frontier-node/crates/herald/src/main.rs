@@ -4,6 +4,7 @@
 //! ```text
 //! frontier-herald --data DIR --program B58 --season ID --rpc http://127.0.0.1:41010
 //!     [--listen 127.0.0.1:41040] [--source localnet|rpc] [--cluster localnet]
+//!     (--source rpc requires --cluster: the herald cannot tell which chain an RPC serves)
 //!     [--origin SIG] [--witness URL]   (rpc source: history coverage checks)
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
@@ -107,6 +108,30 @@ async fn fixture_conquest(a: &HashMap<String, String>) -> Result<(), String> {
     }
 }
 
+/// The cluster `/h/season` names (2026-11-17). Clients act on it: the web
+/// client turns on the localnet clock, the localnet sample world and the dev
+/// wallet, and picks the wallet's chain, from `cluster == "localnet"`
+/// (permutation-server/web/frontier app.mjs `FS.chain.setAccelerated`,
+/// `FS.sample`; controller.mjs `enableDevWallet`, `wallet.chainOf`). The
+/// localnet source reads `frontier-localnet` (its `frontier_*` methods), so
+/// its default "localnet" is what it reads. `--source rpc` reads any
+/// Solana RPC, and the herald cannot tell which chain that is: without
+/// `--cluster` it said "localnet" for a public chain. It is now required
+/// there (blank refused); the public playtest runbook already passes it
+/// (docs/frontier/m1/PLAYTEST-RUNBOOK.md, `--cluster devnet`). Every other
+/// source keeps its value exactly as before.
+fn season_cluster(source: Option<&str>, cluster: Option<&str>) -> Result<String, String> {
+    if source == Some("rpc") {
+        return match cluster {
+            Some(c) if !c.trim().is_empty() => Ok(c.to_string()),
+            _ => Err("--source rpc requires --cluster NAME (the cluster /h/season names; \
+                      the herald cannot tell which chain an RPC serves)"
+                .into()),
+        };
+    }
+    Ok(cluster.map(str::to_string).unwrap_or_else(|| "localnet".into()))
+}
+
 async fn main_inner() -> Result<(), String> {
     let a = args()?;
     #[cfg(not(feature = "wide-index-read-experimental"))]
@@ -134,6 +159,11 @@ async fn main_inner() -> Result<(), String> {
     if read_only && !a.contains_key("wide-index") {
         return Err("--source read-only requires --wide-index PATH".into());
     }
+    // Before anything is opened or bound: the cluster /h/season will name.
+    let cluster = season_cluster(
+        a.get("source").map(String::as_str),
+        a.get("cluster").map(String::as_str),
+    )?;
     let rpc = if read_only {
         String::new()
     } else {
@@ -241,7 +271,7 @@ async fn main_inner() -> Result<(), String> {
         fold,
         cfg.out(),
         SeasonStatic {
-            cluster: a.get("cluster").cloned().unwrap_or("localnet".into()),
+            cluster,
             drand,
             quotas,
         },
@@ -328,5 +358,40 @@ async fn main() {
     if let Err(e) = main_inner().await {
         eprintln!("frontier-herald: {e}");
         std::process::exit(2);
+    }
+}
+
+#[cfg(test)]
+mod season_cluster_tests {
+    //! WRITTEN, NOT RUN (2026-11-17, under an execution pause): not compiled
+    //! or run. Run it only with its own approval. Pure: no key, no file, no
+    //! network, no process.
+    //!   C1 --source rpc without --cluster, or with a blank one: refused
+    //!   C2 --source rpc --cluster devnet (or localnet, as given): that name
+    //!   C3 the localnet source (default or explicit) and read-only: as
+    //!      before ("localnet" unless --cluster names another)
+    use super::season_cluster;
+
+    #[test]
+    fn c1_rpc_needs_a_cluster() {
+        for c in [None, Some(""), Some("  ")] {
+            let e = season_cluster(Some("rpc"), c).expect_err("refused");
+            assert!(e.contains("--source rpc requires --cluster"), "{e}");
+        }
+    }
+
+    #[test]
+    fn c2_rpc_takes_the_named_cluster() {
+        assert_eq!(season_cluster(Some("rpc"), Some("devnet")), Ok("devnet".to_string()));
+        assert_eq!(season_cluster(Some("rpc"), Some("localnet")), Ok("localnet".to_string()));
+    }
+
+    #[test]
+    fn c3_other_sources_unchanged() {
+        for s in [None, Some("localnet"), Some("read-only")] {
+            assert_eq!(season_cluster(s, None), Ok("localnet".to_string()));
+            assert_eq!(season_cluster(s, Some("devnet")), Ok("devnet".to_string()));
+        }
+        assert_eq!(season_cluster(None, Some("")), Ok(String::new()), "as before: given as is");
     }
 }
