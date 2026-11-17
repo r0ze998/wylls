@@ -31,7 +31,7 @@ test('R2 the report is kept until the scene plays', () => {
   assert.ok(app.includes('let playAskSeq = 0;'));
   order(ask, 'const req = ++playAskSeq;', 'const rep = FS.report ?? null, world = reportWorld();', 'closeDialPop();',
     "if (rep) { rep.playing = true; rep.playFailed = false; invalidate('panel'); }", 'let ok = false;',
-    "try { ok = await playBattle(p, q, bell, { focus: true }); } catch (e) { console.error('frontier battle play:', e); ok = false; }",
+    "try { ok = await playBattle(p, q, bell, { focus: true, asked }); } catch (e) { console.error('frontier battle play:', e); ok = false; }",
     'if (req !== playAskSeq) return;', 'if (rep) rep.playing = false;', 'if (ok === true) { if (rep && FS.report === rep) leaveReport(); return; }',
     'if (rep && ok === false && FS.report === rep && reportWorld() === world) rep.playFailed = true;', "if (rep) invalidate('panel');");
   const code = ask.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
@@ -39,8 +39,10 @@ test('R2 the report is kept until the scene plays', () => {
 });
 
 test('R3 the scene is the explicit request it was', () => {
-  assert.ok(ask.includes('playBattle(p, q, bell, { focus: true })'));
-  assert.doesNotMatch(ask, /auto: true|still/, 'not the page\'s own scene, not the follow');
+  // (corrected: the request carries its own validity, `asked`, and never `still` or `auto` — web-frontier-ws07-report-play-fix-text.test.mjs)
+  assert.ok(ask.includes('playBattle(p, q, bell, { focus: true, asked })'));
+  const code = ask.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  assert.doesNotMatch(code, /auto: true|still/, 'not the page\'s own scene, not the follow');
 });
 
 test('R4 the report says reading / not loaded under its button', () => {

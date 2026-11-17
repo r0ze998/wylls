@@ -35,7 +35,7 @@ test('Y2 the same second: the cache is not another world\'s', () => {
 
 test('Y3 an older world\'s higher bell does not call off this world\'s lower one', () => {
   const pb = fnOf('export async function playBattle(');
-  order(pb, 'const r = await source.clash(p, q, bell).catch(() => null);', 'if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;',
+  order(pb, 'const r = await source.clash(p, q, bell).catch(() => null);', 'if (momentWorld() !== world || heraldRef !== source || (still && !still()) || (asked && !asked())) return null;',
     'syncBattleWorld();',
     'if ((auto || still) && (FS.battles ?? []).some(b => (b.world === undefined || b.world === world) && b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;');
 });

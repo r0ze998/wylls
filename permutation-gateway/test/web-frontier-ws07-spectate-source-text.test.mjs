@@ -25,7 +25,7 @@ const follow = fnOf(app, 'function followBattles() {');
 
 test('S1 one origin per request; called off is not "no scene"', () => {
   order(pb, 'const world = momentWorld(), source = heraldRef;', 'const r = await source.clash(p, q, bell).catch(() => null);',
-    'if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;', 'if (!r?.ok || !r.inputs) return false;',
+    'if (momentWorld() !== world || heraldRef !== source || (still && !still()) || (asked && !asked())) return null;', 'if (!r?.ok || !r.inputs) return false;',
     'if (!scene) return false;', 'if (focus && mapRef) {', 'FS.battles = [');
   const code = pb.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
   assert.equal(code.split('await ').length - 1, 1, 'one wait; everything after it is one stretch');
@@ -60,7 +60,7 @@ test('S5 every caller copes with null', () => {
   assert.ok(app.includes('playBattle(env.province.p, env.province.q, b, { auto: true });'));
   // (the report-play bundle routes 見る through playAsked, which reads the answer — web-frontier-ws07-report-play-text.test.mjs)
   assert.ok(app.includes("'battle-play': d => { playAsked(num(d.p), num(d.q), num(d.bell)); },"));
-  assert.ok(app.includes('try { ok = await playBattle(p, q, bell, { focus: true }); } catch (e) {'));
+  assert.ok(app.includes('try { ok = await playBattle(p, q, bell, { focus: true, asked }); } catch (e) {'));
   assert.ok(app.includes('const go = () => playBattle(bq[0], bq[1], bq[2], { focus: !FS.battleFocused }).then(ok => { if (ok) FS.battleFocused = true; });'));
   assert.equal(app.split('playBattle(').length - 1, 6, 'the definition and five callers');
   assert.doesNotMatch(pb + follow, /prize|faucet|payAndJoin|paidJoin|claim/i);

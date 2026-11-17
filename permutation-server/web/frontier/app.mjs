@@ -3021,7 +3021,7 @@ function endOtherWorldBattles(world) {
   mapRef?.invalidate();
 }
 /** Load a clash and play its scene on the map; `focus` moves the camera to it first. */
-export async function playBattle(p, q, bell, { focus = false, auto = false, still = null } = {}) {
+export async function playBattle(p, q, bell, { focus = false, auto = false, still = null, asked = null } = {}) {
   const fx = FS.ui?.battleFx ?? 'normal';
   if (auto && fx === 'off') return false;
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return false;
@@ -3036,7 +3036,11 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
   //  A scene asked for by name — the report's 見る — plays as before.)
   const world = momentWorld(), source = heraldRef;
   const r = await source.clash(p, q, bell).catch(() => null);
-  if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;
+  // (`asked`: an explicit request's own validity — app playAsked: still the last press, still the report it was pressed
+  //  in (or still none). Checked here, before anything is staged, flown to or put on the map, like `still`; unlike
+  //  `still` it does not make the request one the page stages by itself: a newer scene of the province does not call off
+  //  a clash the person asked for by name, an older one included)
+  if (momentWorld() !== world || heraldRef !== source || (still && !still()) || (asked && !asked())) return null;
   // (the battle state is this world's before anything is compared: an older world's scene with a higher bell is ended
   //  here, not taken for "a later turn of this province" — syncBattleWorld; and only this world's scenes are compared)
   syncBattleWorld();
@@ -3287,8 +3291,13 @@ async function playAsked(p, q, bell) {
   const rep = FS.report ?? null, world = reportWorld();
   closeDialPop();
   if (rep) { rep.playing = true; rep.playFailed = false; invalidate('panel'); }
+  // (2026-11-17 correction: the request's validity reaches playBattle before its effects — `asked`: the last press, and
+  //  the report open now is the one it was pressed in (none for none) in the same world. A later press, a report opened,
+  //  switched or closed meanwhile, or another world: no scene, no flight, nothing on the map (null). Not `still`: the
+  //  person's replay of an older clash is not called off by a newer scene there)
+  const asked = () => req === playAskSeq && (FS.report ?? null) === rep && reportWorld() === world;
   let ok = false;
-  try { ok = await playBattle(p, q, bell, { focus: true }); } catch (e) { console.error('frontier battle play:', e); ok = false; }
+  try { ok = await playBattle(p, q, bell, { focus: true, asked }); } catch (e) { console.error('frontier battle play:', e); ok = false; }
   if (req !== playAskSeq) return;
   if (rep) rep.playing = false;
   if (ok === true) { if (rep && FS.report === rep) leaveReport(); return; }
