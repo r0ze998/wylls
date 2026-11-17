@@ -813,6 +813,16 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     const notification = msg.id === undefined;
     switch (msg.method) {
       case 'initialize': {
+        // (2026-11-17) InitializeRequestParams (MCP 2025-03-26, 2025-06-18 and 2025-11-25 schema): protocolVersion is a
+        // string, capabilities an object, clientInfo an object with string name and version. Missing or mistyped ones
+        // are invalid params (-32602), not a success. An unknown version STRING is not invalid: it gets the latest
+        // supported version below. Other fields are left alone.
+        const p = msg.params;
+        const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+        if (!isObj(p) || typeof p.protocolVersion !== 'string' || !isObj(p.capabilities) || !isObj(p.clientInfo)
+          || typeof p.clientInfo.name !== 'string' || typeof p.clientInfo.version !== 'string') {
+          return error(-32602, 'invalid params: initialize needs protocolVersion (string), capabilities (object) and clientInfo {name, version} (strings)');
+        }
         const asked = msg.params?.protocolVersion;
         return reply({ protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0], capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: SERVER_INSTRUCTIONS });
       }
