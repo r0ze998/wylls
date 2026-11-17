@@ -469,6 +469,26 @@ export function modePanel(FS) {
  * from its own markup (only typed values are carried).
  */
 /**
+ * (2026-11-17, ⑦ the warning's way on, corrected) Whether a press from the warning card still belongs to what the page
+ * is now: the judging it was drawn from is the one standing (its context number — it moves with every change of viewer,
+ * herald or pinned world), that judging's world is the world pinned and its viewer the viewer now, the warning it names
+ * (village and turn) is still among the warnings, and the village is among the viewer's with the same generation.
+ * Answers `{w, h, i}` — that warning, that village and its place in the list as it is NOW — or null. Reads only.
+ */
+let incomingAsk = 0;
+function incomingStill(d) {
+  const r = FS.incomingRead ?? null;
+  // (corrected: the judging's number is compared with the number NOW — `FS.contextSeq` —, and the button's with both:
+  //  a judging left standing from an earlier context, and the buttons drawn from it, act on nothing)
+  if (FS.mode !== 'play' || !r || !Number.isInteger(r.ctx) || !Number.isInteger(FS.contextSeq) || r.ctx !== FS.contextSeq || String(r.ctx) !== String(d.read ?? '') || r.world !== momentWorld()
+    || (r.viewer ?? null) !== (FS.resident?.asset ?? FS.wallet?.address ?? null)) return null;
+  const p = num(d.p), q = num(d.q), site = num(d.site), gen = num(d.gen), bell = num(d.bell);
+  const w = (Array.isArray(FS.incoming) ? FS.incoming : []).find(x => x.holding.p === p && x.holding.q === q && x.holding.site === site && (x.holding.gen ?? 0) === gen && x.bell === bell) ?? null;
+  const i = w ? (FS.holdings ?? []).findIndex(o => o.p === p && o.q === q && o.site === site && (o.gen ?? 0) === gen) : -1;
+  return i >= 0 ? { w, h: FS.holdings[i], i } : null;
+}
+
+/**
  * (2026-11-17, ⑦ from the map to the trade card) Once the card of plan `id` is drawn (its note carries the number): the
  * select the plan names takes the plan's value — ONCE, at the press; a later choice of the person's in the same select
  * is theirs and is kept by keepState —, the form's fold and the folds around the card open, and the card comes into
@@ -3821,6 +3841,33 @@ export const HUD_ACTIONS = {
     requestAnimationFrame(() => landS1Plan(id));
   },
   's1-plan-clear': () => clearS1Plan(),
+  // (2026-11-17, ⑦ the warning's way on: the village a warning names is taken in hand BY WHAT IT IS — place, site and
+  //  generation, looked up at the press; never by an index kept in the markup — and the village screen opens, the way
+  //  'holding-pick' goes; `to: garrison` brings its garrison form into view. Nothing is sent.
+  //  Corrected: every press of the card first asks incomingStill — a button drawn for another pinned world, another
+  //  viewer, an earlier context or a warning that no longer stands does NOTHING, also when a village of the same place
+  //  and generation exists where the page is now. The later step (the jump to the garrison form) runs only while it is
+  //  still the last such request and the same village and screen are still the ones in hand.)
+  'incoming-village': d => {
+    const at = incomingStill(d), req = ++incomingAsk;
+    if (!at) { invalidate('panel'); return; }
+    clearWideSelect(FS);
+    FS.activeHolding = at.i;
+    goToItem({ p: at.h.p, q: at.h.q, tab: 'holding' });
+    if (d.to !== 'garrison') return;
+    requestAnimationFrame(() => {
+      if (req !== incomingAsk || !incomingStill(d) || FS.tab !== 'holding' || FS.activeHolding !== at.i || FS.holdings?.[at.i] !== at.h) return;
+      HUD_ACTIONS['hp-jump']({ id: 'hp-garrison' });
+    });
+  },
+  // (the same press rule for the card's two other ways on: the map — goToItem, as `goto` does — and the EXISTING plan of
+  //  a march home — controller 'march-home', for a host the card lists as standing away from that very village)
+  'incoming-goto': d => { const at = incomingStill(d); ++incomingAsk; if (!at) { invalidate('panel'); return; } leaveReport(); closeResPop(); goToItem({ p: at.h.p, q: at.h.q, tab: 'map' }); },
+  'incoming-return': d => {
+    const at = incomingStill(d); ++incomingAsk;
+    if (!at || !incomingScreen.defendersOf(FS, at.w)?.away.some(r => r.id === String(d.host ?? ''))) { invalidate('panel'); return; }
+    ACTIONS['march-home']({ host: String(d.host) });
+  },
   // (2026-11-17, ⑦ exploration: another of the viewer's villages has an exploration waiting — that village is taken in
   //  hand the way 'holding-pick' does, the hosts screen with its explore card opens, and its result is asked for once:
   //  controller 'explore-check', a read; nothing is settled or sent)
