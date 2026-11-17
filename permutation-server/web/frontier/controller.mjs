@@ -894,6 +894,10 @@ export function adoptPinnedWorld() {
   FS.s1Plan = null;          // (a place chosen on the map names a place of the world that was pinned — planS1Place)
   exploreSeedMarks.clear(); FS.exploreSeedCheck = null;   // (a seed read for the world that was pinned is not this world's)
   FS.incoming = []; FS.incomingRead = null;   // (warnings judged for the world that was pinned are not this world's; none is judged here yet)
+  // (the candidates for a first village are places of the world that was pinned: a reading still under way writes nothing,
+  //  and the list is let go — unless a join / placing is under way: that is confirmHome's own and is left to it, only
+  //  its "reading" mark is taken off, since the reading it stood for will write nothing now)
+  ++homesRefresh; if (FS.homeChoice) { if (FS.homeChoice.busy) { FS.homeChoice.loading = false; FS.homeChoice.reading = null; } else FS.homeChoice = null; }
   FS.hostPlaces = null;   // (the provinces of the world that was pinned are not this world's)
   nextContext();   // (another world: what was drawn for the former one acts on nothing — FS.incomingRead.ctx)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
@@ -2067,8 +2071,26 @@ export async function refreshHomes({ force = false } = {}) {
   const old = FS.homeChoice ?? { candidates: [], selected: readHome().selected, rotation: 0 };
   const faction = wantedHomeFaction();
   if (old.busy || (!force && ((old.loading && old.faction === faction) || (old.loadedBell === nowBell() && old.faction === faction)))) return;
-  const request = ++homesRefresh;
-  FS.homeChoice = { ...old, faction, selected: old.selected?.faction === faction ? old.selected : null, loading: true, error: null };
+  // (2026-11-17, ⑦: the pinned world this reading began under — an answer the change of world overtakes writes nothing:
+  //  the candidates are places of that world's map)
+  const request = ++homesRefresh, world = providerWorld();
+  // (`reading`: whose "loading" mark this is. Only this reading takes it off again, and only while it is still its own)
+  FS.homeChoice = { ...old, faction, selected: old.selected?.faction === faction ? old.selected : null, loading: true, reading: request, error: null };
+  // (corrected 2026-11-17: an answer is applied to the choice AS IT STANDS at the answer, never to the copy taken when the
+  //  reading began — that copy put an older selection back and wiped the busy / pending / error of a join or placing
+  //  begun meanwhile.
+  //   - another reading began, or the world changed: nothing is written. A "loading" mark that is still this reading's
+  //     own is taken off (nobody else will); a newer reading's mark is left alone.
+  //   - no choice stands any more (another viewer): nothing.
+  //   - a join / placing is under way (confirmHome writes busy, pending, error and the selection on the choice in
+  //     hand): what was read is let go — confirmHome reads its own place again — and only this reading's mark goes.)
+  const letGo = () => { const c = FS.homeChoice; if (c && c.reading === request) { c.loading = false; c.reading = null; invalidate('panel'); } };
+  const standing = () => {
+    if (request !== homesRefresh || providerWorld() !== world) { letGo(); return null; }
+    const c = FS.homeChoice ?? null;
+    if (!c || c.busy) { letGo(); return null; }
+    return c;
+  };
   invalidate('panel');
   try {
     if (force) FS.overviewsBell = undefined;
@@ -2077,15 +2099,56 @@ export async function refreshHomes({ force = false } = {}) {
     const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
-    if (request !== homesRefresh) return;
-    const selected = old.selected && (faction === null || old.selected.faction === faction) && result.candidates.some(h => sameHome(h, old.selected)) ? old.selected : faction !== null ? result.candidates[0] ?? null : null;
-    FS.homeChoice = { ...old, ...result, selected, faction, loadedBell: nowBell(), loading: false,
-      error: result.error ? { code: result.error, text: result.error === 'NoFreeHome' ? L`入植できる土地がまだ見つかりません。候補を更新してください。` : L`土地の情報を読み込めませんでした。もう一度お試しください。` } : null };
+    const cur = standing();
+    if (!cur) return;
+    // (a candidate the person picked on the map while this reading waited — home-pick writes it on the choice in hand —
+    //  is theirs. Whether it is kept is decided as before: it must be among the candidates read)
+    const picked = cur.selected ?? null;
+    const selected = picked && (faction === null || picked.faction === faction) && result.candidates.some(h => sameHome(h, picked)) ? picked : faction !== null ? result.candidates[0] ?? null : null;
+    // (an error a join / placing left on the choice meanwhile is the person's own action's: it is not cleared by a good
+    //  reading, nor replaced by this reading's)
+    FS.homeChoice = { ...cur, ...result, selected, faction, loadedBell: nowBell(), loading: false, reading: null,
+      error: cur.error ?? (result.error ? { code: result.error, text: result.error === 'NoFreeHome' ? L`入植できる土地がまだ見つかりません。候補を更新してください。` : L`土地の情報を読み込めませんでした。もう一度お試しください。` } : null) };
   } catch (e) {
-    if (request !== homesRefresh) return;
-    FS.homeChoice = { ...old, faction, loading: false, error: { code: e?.code ?? 'Unavailable', text: L`土地の情報を読み込めませんでした。もう一度お試しください。` } };
+    const cur = standing();
+    if (!cur) return;
+    // (a failed reading changes the candidates and the selection of the choice in hand in nothing)
+    FS.homeChoice = { ...cur, faction, loading: false, reading: null, error: cur.error ?? { code: e?.code ?? 'Unavailable', text: L`土地の情報を読み込めませんでした。もう一度お試しください。` } };
   }
   invalidate('panel', 'map');
+}
+
+/**
+ * (2026-11-17, ⑦ the first village's place) The person's own "read the candidates again": the candidate places for the
+ * first village read once more, in ANOTHER order — and nothing else. The messages of a failed or empty reading said
+ * 「候補を更新してください」 and no control did it: pressing the confirm button again reads the SAME order again, and
+ * `home-refresh` (called from nowhere) runs the ordinary `refresh` while the viewer's record fails — prize read, catch-up
+ * request, march reading with its reveal and book, automatic ticket. This entry never calls `refresh`:
+ *   - while the viewer's record fails, the pure read of it is tried first (rereadVillage: one /h/me read, adopted only
+ *     when adopting saves nothing; for a viewer not joined yet that is "no Citizen"). Still failing → it stops and says so.
+ *   - then the order number (`rotation`) moves, in memory, and refreshHomes reads: the ring overviews and the provinces
+ *     planHomes asks for (herald reads; nothing is sent). The choice is not cleared and nothing is saved on the device;
+ *     the candidate picked stays if it is among those read, as refreshHomes decides.
+ *   - not while a join / placing is under way or a reading runs; not for another context than the one it was pressed
+ *     in (viewer, herald, world).
+ * What may be placed, joined, paid or signed is confirmHome's and is not touched.
+ */
+export async function rereadHomes() {
+  if (!herald || FS.mode !== 'play' || !instantHomeEnabled(FS.season)) return false;
+  const c0 = FS.homeChoice ?? null;
+  if (c0?.busy || c0?.pending || c0?.loading || FS.inFlight > 0) return 'busy';
+  const ctx = contextSeq;
+  if (FS.meStatus === 'error') {
+    await rereadVillage();
+    if (ctx !== contextSeq) return false;
+    if (FS.meStatus === 'error') { failed({ code: FS.meError?.code ?? 'Unavailable', text: L`あなたの記録をまだ読めていないので、土地の候補を読み直せませんでした。少し待って、もう一度お試しください。` }); return false; }
+  }
+  if (!needsHomeChoice()) return false;
+  const c = FS.homeChoice ?? null;
+  if (c?.busy || c?.pending || c?.loading) return 'busy';
+  if (c) c.rotation = (c.rotation ?? 0) + 3;
+  await refreshHomes({ force: true });
+  return ctx === contextSeq && !FS.homeChoice?.error;
 }
 
 async function waitForOwn(predicate) {
@@ -3108,6 +3171,8 @@ export const ACTIONS = {
     saveHomePatch({ selected: null }); return refreshHomes({ force: true });
   },
   'home-confirm': () => confirmHome(),
+  // (2026-11-17, ⑦: the candidates for the first village read again, in another order — reads only, never refresh)
+  'home-reread': () => { rereadHomes().catch(e => console.error('frontier home reread:', e)); },
   'prize-refresh': () => refreshPrize({ force: true }),
   'prize-faucet': async () => {
     if (!FS.wallet) return failed({ code: 'NoWallet' });

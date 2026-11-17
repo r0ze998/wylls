@@ -80,6 +80,12 @@ export function factionCards(FS) {
  * shows one). On a phone the banners are compact (crest, name, doctrine: all six in sight) and the confirm line
  * carries the rest. Without a wallet the confirm line offers to connect one first; the choice is already made.
  */
+/**
+ * (2026-11-17, ⑦) Under a failed or empty reading of the first village's candidates: the way to read them again, in
+ * another order (controller rereadHomes — reads only). Not while a join / placing or a reading is under way.
+ */
+const homeReread = (FS, busy) => (FS.mode === 'play' ? html`<div class="actions"><button type="button" class="btn small" data-act="home-reread" ${raw(busy || FS.homeChoice?.loading ? 'disabled' : '')}>${icon('return')}${L`土地の候補を読み直す`}</button></div>` : '');
+
 export function renderNations(FS) {
   const cards = factionCards(FS);
   const pick = cards.find(c => c.chosen) ?? null;
@@ -110,7 +116,8 @@ export function renderNations(FS) {
       ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
-    ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>` : ''}
+    ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}` : ''}
+    ${instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
     <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
     ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}
     ${renderWorldLines(FS)}
@@ -327,7 +334,8 @@ function renderInstantPlacing(FS) {
   return html`<section class="vcard wait-card" aria-labelledby="join-sites" aria-busy="${busy ? 'true' : 'false'}">
     ${waitHead(FS, title, 'instant')}
     ${busy ? html`<p class="home-status" role="status">${(pending[choice.pending] ?? pending.confirming)()}</p>` : html`<p>${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</p>`}
-    ${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>` : ''}
+    ${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>${homeReread(FS, busy)}` : ''}
+    ${choice.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
     ${!FS.citizen ? renderJoinTerms(FS) : ''}
     ${!busy ? html`<div class="actions"><button type="button" class="btn primary" data-act="home-confirm">${icon('home')}${L`村を築いて始める`}</button></div>` : ''}
   </section>`;
