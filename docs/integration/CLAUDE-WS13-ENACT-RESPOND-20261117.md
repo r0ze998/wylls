@@ -2,8 +2,8 @@
 
 **Branch:** `claude/ws13-enact-respond-20261117` **on `9730f8e2`** (the owner-mode unit's final tip, unchanged).
 - `b1f11f5c` is the first tip.
-- The correction (the second tip) is on top of it.
-- **Do not adopt `b1f11f5c` alone.**
+- The first correction (`7881e8d6`, the second tip) is on top of it, and the second correction (the third tip) on top of that.
+- **Adopt the final tip only:** not `b1f11f5c` or `7881e8d6` alone.
 
 **Adoption and closure:**
 - take this unit's own diff `9730f8e2..<this tip>`;
@@ -69,17 +69,51 @@ A `respond` proposal becomes workstream 1's signed `respond` record (`record.mjs
 
 ### 3. What was observed and what was saved
 
-- **Every answer carries `durable`.** When the board's answer is seen but the journal cannot be saved:
-  - the result says so (`durable: false`, with why);
-  - the journal on disk still says `sending`.
+- **Every answer carries `durable`.** When the board's answer is seen but the journal cannot be saved, the result says so (`durable: false`, with why). *(Corrected in the third tip: what the disk then says is not known.)*
 - **A later call**, in the same process (each call reads the journal from disk) or after a restart, **only reads back; it never posts again.**
 
 ### 4. One call per request at a time
 
-- **Within one process:** a second call for the same request is `held` while the first runs.
+- **Within one process:** a second call for the same request is `held` while the first runs. *(Widened in the third tip to the whole journal.)*
 - **Across processes:** **nothing is excluded** (no lock in the files). Use one process per resident directory.
 
 **Unchanged:** the stop before any new operation and after the signature; the board's world checked before the POST; stop-A read-back only; no send, no key, no authority.
+
+## Third tip: the parent's final review of `7881e8d6`
+
+### 1. One call per journal, not per request
+
+- **The defect:** the lock was per directory and request, but every request loads and saves the same `live-enact.json`. Two requests at once could save over each other's lines and lose a record already posted.
+- **Now:** within one process, a call on a resident's journal holds the **whole journal**. Any second call on it (any request) is `held` with nothing done.
+- **The key is the directory's real path** (`realpathSync`), so another spelling or a symbolic link to the same directory is the same journal. A directory that cannot be resolved is `held`.
+- **Across processes:** still **nothing is excluded**, and nothing is promised.
+
+### 2. The clock is part of the binding
+
+- **The binding is now:** wallet, board, program, Season, network, world id, and **the clock** (`frame.mjs` `clockId` of the observed Season bell).
+- **A new call needs an observed Season-bell clock** (`season-bell:<genesis>:<bell>`). None, a mock clock or a bare kind is `held`, and the observed world's network must be the Season's.
+- **Every binding key must be a non-empty string on both sides and equal.** Unknown never matches unknown, and an older line without a clock is `held`.
+
+### 3. A failed save is unknown, not "still sending"
+
+- **The state store can fail after its rename** (syncing the directory), so the new state may already be on disk. A failed save is reported as **`durable: false, saved: 'unknown'`**, with what was observed kept apart (for example `state: 'posted'` because the board answered ok).
+- **This applies to every save:** the intent, the signature, `sending`, posted, refused, and a read-back confirmation.
+- **A later call, in this process or after a restart, reads the disk again:**
+  - a `sending` line is only read back, never posted again;
+  - a `posted` or `refused` line is answered as it is.
+- **The result never says the disk holds a state it may not hold.**
+
+### 4. A kept line is checked before it is used
+
+- **Before any use, including answering a posted or refused line,** a line must be intact:
+  - its own key and request;
+  - its record by **the same respond schema as a new one** (exactly `{v, kind, season, at, request, answer, offer, nation}`, an accept, this Season, a time, a nation 0..5, whole-unit offer, workstream 1's `shapeProblem`);
+  - from `signed` on: its signed bytes are exactly that record plus this wallet as signer and a signature, valid by `shapeProblem`, with `recordId` equal to the kept record id;
+  - an `intended` line has no signature.
+- **Anything else is `held`:** an old or changed record is never signed or posted, and a changed line is never answered as posted.
+- **The signature itself is not verified here** (`verifySig`); the board verifies it on POST. A fresh signature is checked by the same line check before it is saved.
+
+**Unchanged:** the one-step entry does not enact; the stop before any new operation and after the signature; the board's world before the POST; stop-A read-back only; owner or policy unknown stops (`readResidentState`); no send, key, clock read or authority.
 
 ## `enactSend()`: held, not supported
 
@@ -95,7 +129,7 @@ Nothing is relaxed, and no new transport is made. `enactSend` returns `held` wit
 1. **The send:** a resident-side `sending` record and send under an adopted contract (signer hook, correlation, the world's cluster).
 2. **Reading back a `sending` line that is not on the board:** it stays `unknown`. Re-posting the **same** signed bytes would be refused by the board as a duplicate if it had arrived, but this is not done automatically. **Whether to allow that re-post is an open decision.**
 3. **Identity and authority:** the signer (the resident's key) must be supplied by its owner, and the owner's agent-wallet policy, funding and join are not connected.
-4. **Concurrent writers:** `live-enact.json` and `state.json` have no lock. Use one process at a time per resident directory.
+4. **Concurrent writers across processes:** `live-enact.json` and `state.json` have no lock between processes (within one process the journal is held per call). Use one process at a time per resident directory. **Not guaranteed.**
 
 ## Regression (written, NOT run): `workstreams/13-citizens/test/live-enact.test.mjs` (new)
 
@@ -123,9 +157,16 @@ Temporary resident directories, a fake signer (fixed bytes, no key), a fake boar
 - **Not durable:** an answer seen while the directory is read-only gives `durable: false`; the journal still says `sending`; the next call only reads back (skipped as root).
 - **One call per request at a time** in a process.
 
+**(third tip) Added:**
+- **One journal per call:** another request on the same journal, or the same directory through a symbolic link, is held while a call runs. Both requests' lines are kept afterwards.
+- **The clock:** none, a mock one or a bare kind is held, with nothing written; another bell is held; a line without the clock in its binding is held.
+- **A kept line:** a changed record kind, Season, extra field, request, signed offer, signer, record id or key is held, never signed again or posted. A posted line whose record was changed is not answered as posted.
+- **Not durable:** `saved: 'unknown'`. The case tested fails before the rename, so there the disk still says `sending`.
+- **As text:** the lock by real path, the clock in the binding, no claim about the disk after a failed save, the line checked before it is answered.
+
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws13-enact-respond-20261117`, two commits on `9730f8e2` (`b1f11f5c`, then the correction). Take the final tip's diff from `9730f8e2`, all `100644`:
+**Unit:** `claude/ws13-enact-respond-20261117`, three commits on `9730f8e2` (`b1f11f5c`, `7881e8d6`, then the final correction). Take the final tip's diff from `9730f8e2`, all `100644`:
 - `workstreams/13-citizens/resident/live/enact.mjs` (A)
 - `workstreams/13-citizens/test/live-enact.test.mjs` (A)
 - `docs/integration/CLAUDE-WS13-ENACT-RESPOND-20261117.md` (A)

@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync, chmodSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { enactRespond, enactSend, SEND_UNSUPPORTED } from '../resident/live/enact.mjs';
@@ -11,7 +11,8 @@ import { writeInitialResident } from '../resident/live/initial.mjs';
 
 const WALLET = 'Me1111111111111111111111111111111', OWNER = 'Aw1111111111111111111111111111111';
 const SEASON = { programId: 'Prog', seasonId: '90', seasonAddress: 'Sea', cluster: 'localnet' };
-const observed = { kind: 'live-partial', world: { cluster: 'localnet', world_id: 'Prog/Sea' }, season: SEASON, requests: [{ id: 'r1', need: { wood: 200 } }] };
+const CLOCK = Object.freeze({ kind: 'season-bell', genesisTs: 1_799_000_000, bellSecs: 600, source: 'herald /h/season (fixture)' });
+const observed = { kind: 'live-partial', world: { cluster: 'localnet', world_id: 'Prog/Sea' }, season: SEASON, clock: CLOCK, requests: [{ id: 'r1', need: { wood: 200 } }, { id: 'r2', need: { stone: 50 } }] };
 const proposal = { candidate: { id: 'respond:r1', kind: 'respond', request: 'r1', offer: { wood: 100 } }, record: { kind: 'respond', request: 'r1', answer: 'accept', offer: { wood: 100 } }, enacted: false };
 const signer = (calls = { n: 0 }, onSign = null) => ({ address: WALLET, signMessage: async () => { calls.n += 1; if (onSign) onSign(); return new Uint8Array(64).fill(7); } });
 
@@ -157,9 +158,9 @@ test('a journal line is used only under its own binding (wallet, board, world); 
     assert.equal((await enactRespond(args(dir, b))).state, 'posted');
     const other = await enactRespond(args(dir, b, { boardUrl: 'http://other-board.test' }));
     assert.equal(other.held, true);
-    assert.match(other.why, /another wallet, board or world/);
+    assert.match(other.why, /another wallet, board, world or clock/);
     const moved = await enactRespond(args(dir, b, { observed: { ...observed, world: { cluster: 'localnet', world_id: 'Prog/Other' } } }));
-    assert.match(moved.why, /another wallet, board or world/);
+    assert.match(moved.why, /another wallet, board, world or clock/);
     const j = journal(dir); j.lines['respond:r1'].state = 'mystery'; writeFileSync(path.join(dir, 'live-enact.json'), JSON.stringify(j));
     assert.match((await enactRespond(args(dir, b))).why, /state this code does not know/);
     const k = journal(dir); k.lines['respond:r1'].state = 'sending'; delete k.lines['respond:r1'].binding; writeFileSync(path.join(dir, 'live-enact.json'), JSON.stringify(k));
@@ -193,14 +194,15 @@ test('the record only from the allowed respond fields; a held candidate, another
   });
 });
 
-test('an answer seen but not saved is not durable: the journal still says sending, and the next call only reads back', { skip: process.getuid?.() === 0 ? 'root ignores the read-only directory' : false }, async () => {
+test('an answer seen but not saved is not durable: saved unknown, and the next call only reads back', { skip: process.getuid?.() === 0 ? 'root ignores the read-only directory' : false }, async () => {
   await withResident('auto', async dir => {
     const b = board({ post: () => { chmodSync(dir, 0o500); return { status: 200, json: { ok: true } }; } });
     try {
       const r = await enactRespond(args(dir, b));
-      assert.deepEqual([r.ok, r.state, r.durable], [true, 'posted', false]);
-      assert.match(r.why, /could not be saved: it still says sending/);
+      assert.deepEqual([r.ok, r.state, r.durable, r.saved], [true, 'posted', false, 'unknown'], 'observed posted; saved not known');
+      assert.match(r.why, /whether the new state reached the disk is not known/);
     } finally { chmodSync(dir, 0o700); }
+    // this failure is before the rename (no temporary file can be made), so here the disk still says sending
     assert.equal(journal(dir).lines['respond:r1'].state, 'sending');
     const again = await enactRespond(args(dir, b));
     assert.equal(again.unknown, true, 'not on the fake board view: read back only');
@@ -208,16 +210,94 @@ test('an answer seen but not saved is not durable: the journal still says sendin
   });
 });
 
-test('one call per request at a time in this process', async () => {
+test('one call per journal at a time in this process', async () => {
   await withResident('auto', async dir => {
     const b = board();
     let release; const gate = new Promise(res => { release = res; });
     const slow = { address: WALLET, signMessage: async () => { await gate; return new Uint8Array(64).fill(7); } };
     const first = enactRespond(args(dir, b, { signer: slow }));
     const second = await enactRespond(args(dir, b, { signer: slow }));
-    assert.match(second.why, /another call in this process/);
+    assert.match(second.why, /another call in this process is using this resident's enact journal/);
     release();
     assert.equal((await first).state, 'posted');
     assert.equal(b.calls.posts.length, 1);
   });
+});
+
+// (2026-11-17, third tip; WRITTEN ONLY, NOT RUN) the whole journal held per process, the clock in the binding, a failed
+// save is unknown, a kept line checked before use
+test('another request on the same journal, or the same directory by another path, is held while a call runs; no line is lost', async () => {
+  await withResident('auto', async dir => {
+    const b = board({ view: () => ({ status: 200, json: { requests: [] } }) });
+    const alias = path.join(path.dirname(dir), 'asa-link'); symlinkSync(dir, alias);
+    let release; const gate = new Promise(res => { release = res; });
+    const slow = { address: WALLET, signMessage: async () => { await gate; return new Uint8Array(64).fill(7); } };
+    const first = enactRespond(args(dir, b, { signer: slow }));
+    const r2 = { candidate: { id: 'respond:r2', kind: 'respond', request: 'r2', offer: { stone: 10 } }, record: { kind: 'respond', request: 'r2', answer: 'accept', offer: { stone: 10 } }, enacted: false };
+    assert.match((await enactRespond(args(dir, b, { proposal: r2 }))).why, /another call in this process/, 'another request, same journal');
+    assert.match((await enactRespond(args(alias, b, { proposal: r2 }))).why, /another call in this process/, 'the same directory by another path');
+    release();
+    assert.equal((await first).state, 'posted');
+    assert.equal((await enactRespond(args(alias, b, { proposal: r2 }))).state, 'posted');
+    const lines = journal(dir).lines;
+    assert.deepEqual([lines['respond:r1'].state, lines['respond:r2'].state], ['posted', 'posted'], 'both lines kept');
+  });
+});
+
+test('the clock is part of the binding: none, a mock one, or another bell is held; a line without it is held', async () => {
+  await withResident('auto', async dir => {
+    const b = board();
+    for (const clock of [null, undefined, 'mock-world', { kind: 'mock-world' }]) assert.match((await enactRespond(args(dir, b, { observed: { ...observed, clock } }))).why, /no observed world clock/);
+    assert.equal(existsSync(path.join(dir, 'live-enact.json')), false);
+    assert.equal((await enactRespond(args(dir, b))).state, 'posted');
+    const other = await enactRespond(args(dir, b, { observed: { ...observed, clock: { ...CLOCK, bellSecs: 300 } } }));
+    assert.match(other.why, /another wallet, board, world or clock/);
+    const j = journal(dir); delete j.lines['respond:r1'].binding.clock; writeFileSync(path.join(dir, 'live-enact.json'), JSON.stringify(j));
+    assert.match((await enactRespond(args(dir, b))).why, /or does not say/);
+    assert.equal(b.calls.posts.length, 1);
+  });
+});
+
+test('a kept line is checked before use: a changed record, signed bytes, signer or record id is never signed, posted or answered', async () => {
+  const tamper = [
+    l => { l.record.kind = 'request'; },
+    l => { l.record.season = { programId: 'Prog', seasonId: '91' }; },
+    l => { l.record.extra = 1; },
+    l => { l.record.request = 'r9'; },
+    l => { l.signed.offer = { wood: 199 }; },
+    l => { l.signed.signer = 'Other1111111111111111111111111111'; },
+    l => { l.recordId = 'f'.repeat(64); },
+    l => { l.key = 'respond:r9'; },
+  ];
+  for (const [i, f] of tamper.entries()) {
+    await withResident('auto', async dir => {
+      const b = board({ config: { season: { programId: 'Prog', seasonId: '91' }, cluster: 'localnet' } }), calls = { n: 0 };
+      assert.equal((await enactRespond(args(dir, b, { signer: signer(calls) }))).held, true, 'signed, not posted (the board in another Season)');
+      const j = journal(dir); f(j.lines['respond:r1']); writeFileSync(path.join(dir, 'live-enact.json'), JSON.stringify(j));
+      const good = board();
+      const r = await enactRespond(args(dir, good, { signer: signer(calls) }));
+      assert.equal(r.held, true, `case ${i}`);
+      assert.match(r.why, /not intact/, `case ${i}`);
+      assert.deepEqual(good.calls.posts, [], `case ${i}: not posted`);
+      assert.equal(calls.n, 1, `case ${i}: not signed again`);
+    });
+  }
+  await withResident('auto', async dir => {   // a posted line whose record was changed is not answered as posted
+    const b = board();
+    assert.equal((await enactRespond(args(dir, b))).state, 'posted');
+    const j = journal(dir); j.lines['respond:r1'].record.nation = 4; writeFileSync(path.join(dir, 'live-enact.json'), JSON.stringify(j));
+    const r = await enactRespond(args(dir, b));
+    assert.equal(r.held, true);
+    assert.notEqual(r.state === 'posted' && r.ok, true, 'no posted answer from a changed line');
+  });
+});
+
+test('as text: one journal lock by real path; the clock in the binding; a failed save never called saved', () => {
+  const src = readFileSync(new URL('../resident/live/enact.mjs', import.meta.url), 'utf8').replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '');
+  assert.match(src, /realDir = realpathSync\(args\.dir\)/);
+  assert.match(src, /inFlight\.has\(journal\)/);
+  assert.doesNotMatch(src, /inFlight\.has\(key0\)|respond:\$\{args/, 'not per request');
+  assert.match(src, /clock: clockId\(observed\.clock\)/);
+  assert.doesNotMatch(src, /it still says sending/, 'no claim about the disk after a failed save');
+  assert.ok(src.indexOf('lineProblem(line,') < src.indexOf("line.state === 'posted' || line.state === 'refused') return"), 'checked before answered');
 });
