@@ -41,6 +41,9 @@
 # 1. MCP サーバー（試験用の認可サーバー、ストアと封印の鍵はこの機械の中だけ）
 cd workstreams/03-composability/mcp
 export WYLLS_MCP_SEAL_KEY="$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")"   # 画面にもログにも出さない
+#    起動し直すときは、この行を実行し直さず、同じ WYLLS_MCP_SEAL_KEY のまま起動する。ストアが残ったまま新しい鍵にすると、
+#    そこにある接続の capability を開けず、その送付は CapabilityUnavailable で保留になる（bin が起動時に警告する。直すのは
+#    鍵を戻すか、所有者が接続を取り消して繋ぎ直すこと。bin/wylls-mcp.mjs の sealCheck、src/seal.mjs）。2026-11-17 追記、未実行
 WYLLS_MCP_TEST_AS=1 WYLLS_MCP_RELAY=http://127.0.0.1:41740/gw WYLLS_MCP_HERALD=http://127.0.0.1:41740 \
   WYLLS_MCP_PORT=41960 WYLLS_MCP_STORE=$HOME/.local/wylls-mcp/store.json node bin/wylls-mcp.mjs &
 
