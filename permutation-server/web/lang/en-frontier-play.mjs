@@ -1686,4 +1686,11 @@ export default {
   // (2026-11-17, Lane C ⑦ the march card: a route that was not read)
   '道のりはまだわかっていません。行き先と設定はそのままです。着くターンは、道のりがわかってから決まります。': 'The route is not known yet. The destination and your settings are kept. The arrival turn is set once the route is known.',
   '道のりをもう一度調べる': 'Work out the route again',
+  // (2026-11-17, Lane C ⑦ the march card: a forecast that was not read)
+  '見込みはまだわかりません': 'The forecast is not known yet',
+  '行き先の州の記録をまだ読めていません': 'The record of the destination province has not been loaded yet',
+  '規則を読めていません': 'The rules have not been loaded',
+  '見込みはまだわかりません（行き先の州の記録を読めていません）。下書きはそのままです。': 'The forecast is not known yet (the record of the destination province has not been loaded). Your draft is kept.',
+  '見込みはまだわかりません（規則を読めていません）。下書きはそのままです。': 'The forecast is not known yet (the rules have not been loaded). Your draft is kept.',
+  '見込みをもう一度計算する': 'Work out the forecast again',
 };
