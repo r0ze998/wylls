@@ -1,5 +1,7 @@
 # ⑫ canonical adapter: a receipt whose settle collides no longer writes its credit (Lane C, 2026-11-17)
 
+**Boundary:** this is a latent consistency fix in ⑫'s adapter. Proposal P1 (`credited` in the settle record) is **not adopted**, and the current program records no `credited`. So nothing here is applied to, or reachable in, the current program, and it is not a completed real-world connection. It only makes the adapter consistent with "first wins" should P1 ever be adopted.
+
 **Branch:** `claude/lane-c-ws12-receipt-collision-20261117`, from the shared aggregate `claude/aggregate-approved-20261117` at `cb65bed45cdfbdbf1ef1474902c57e6b5bc886b6` (the origin tip when read; newer than `02f9bb46`). The aggregate, canonical and every other branch are unchanged.
 
 **Written, not run:** no test, syntax check, import, server or world. No new trust source, ABI, binding, permission, or economy or send rule. ⑥ is not touched.
@@ -60,7 +62,11 @@ Candidate command (for the coordinator; not run): `node --test workstreams/12-me
 ## Hand-over
 
 - **Base:** `cb65bed45cdfbdbf1ef1474902c57e6b5bc886b6`.
-- **Branch:** `claude/lane-c-ws12-receipt-collision-20261117`, one commit.
+- **Branch:** `claude/lane-c-ws12-receipt-collision-20261117`. History on top of the base:
+  - the code, test and first report: `f969023d7748f638932571d9f8a2cc6492d69f6b`;
+  - the scope note: `ed4720e3b19b323bd39840e4632be643e248272e`;
+  - this correction (report only), which is the tip.
+- The product and test files are the same in every commit after `f969023d`.
 - **Three paths:**
   - `workstreams/12-memory/adapters/ws04-receipts.mjs` (M);
   - `workstreams/12-memory/test/receipt-collision-keyfree.test.mjs` (A);
