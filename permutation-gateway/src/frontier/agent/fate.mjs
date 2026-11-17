@@ -14,8 +14,10 @@
 //            chain does)
 //   pending  not decided yet (not finalized, or still within its lifetime)
 //   unknown  past its lifetime, but this node cannot prove it never landed
-//            (no history from that time, or a read failed): the money stays
-//            where it is and the operator is told; never guessed
+//            (no history from that time, or a read failed), or the node
+//            returned the transaction at finalized without result metadata
+//            (`meta` null, or no `meta.err`): the money stays where it is and
+//            the operator is told; never guessed
 //
 // Every answer also carries (workstream 04, additive; `fate` is unchanged):
 //   commitment   the confirmationStatus the node reported ('processed' |
@@ -68,7 +70,13 @@ export async function fateOf(connection, { signature, lastValidBlockHeight, slot
   }
   if (tx) {
     commitment = FINAL;
-    return tx.meta?.err ? out('failed', 'found at finalized, with an error') : out('landed', 'found at finalized');
+    // Only the result metadata says how it ran: `meta.err` null is "no error" (landed), a real error is failed.
+    // web3.js types `meta` as nullable; without it (or without `err`) nothing is shown either way. The node
+    // did return the transaction, so it is never `expired` (not even with fullHistory): unknown until a later read.
+    const err = tx.meta?.err;
+    if (err === null) return out('landed', 'found at finalized, without an error');
+    if (err) return out('failed', 'found at finalized, with an error');
+    return out('unknown', 'found at finalized without result metadata: neither "no error" nor an error is shown yet');
   }
   if (fullHistory) return out('expired', 'past its lifetime; the node keeps all history and has no such transaction');
   if (!Number.isSafeInteger(slotFloor)) return out('unknown', 'no slot recorded before it was built: history coverage cannot be shown');
