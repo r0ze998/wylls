@@ -35,7 +35,7 @@ test('E1 the season poll\'s errors are marked as its own', () => {
 test('E2 a good read clears only the season poll\'s error, at the right place', () => {
   assert.ok(app.includes("function seasonRecovered() { if (FS.error?.source === 'season') FS.error = null; }"));
   order(ls, 'const r = await herald.season();', 'if (seasonStale(seq)) return true;', 'if (!r.ok) {', 'FS.pin = setPin({', '} catch (e) {', 'return false;',
-    'const worldChanged = adoptPinnedWorld();', 'seasonRecovered();', 'FS.beacon = checkBeacon({', 'if (!FS.beacon.ok) seasonError(', 'takeSeason(seq);', 'return true;');
+    'adoptPinnedWorld();', 'seasonRecovered();', 'FS.beacon = checkBeacon({', 'if (!FS.beacon.ok) seasonError(', 'takeSeason(seq);', 'return true;');
   // another operation's error carries no season mark
   assert.equal((ctl.match(/FS\.error = \{ code: 'LocalPlayIdentityChanged'/g) ?? []).length, 2);
   assert.doesNotMatch(ctl, /source: 'season'/);
@@ -53,7 +53,8 @@ test('C1 why a restarted world\'s clock stood still', () => {
 });
 
 test('C2 the clock starts again on a change of world only', () => {
-  order(ls, 'const worldChanged = adoptPinnedWorld();', 'FS.clock = seasonClock(season);', 'if (worldChanged) FS.chain = new ChainClock();',
+  // (the partial-apply bundle judges the clock by its own world stamp — web-frontier-ws07-season-partial-text.test.mjs)
+  order(ls, 'adoptPinnedWorld();', 'FS.clock = seasonClock(season);', 'if (FS.chainWorld !== undefined && FS.chainWorld !== clockWorld) FS.chain = new ChainClock();',
     "FS.chain.setAccelerated(record.cluster === 'localnet');", 'FS.chain.observe(record.latestUnix, record.latestSlot);', 'FS.chain.declare(record.sample?.rate);');
   const adopt = fnOf(ctl, 'export function adoptPinnedWorld() {');
   assert.ok(adopt.includes('if (readsWorld === undefined || readsWorld === world) { readsWorld = world; return false; }'), 'first pin and same world: false');

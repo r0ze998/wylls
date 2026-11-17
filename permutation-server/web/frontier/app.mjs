@@ -4023,7 +4023,7 @@ async function loadSeason(herald) {
   herald.pin(record.season, FS.pin.addresses);
   // (2026-11-17, ⑦: the overviews, ring lists, conquest and S1 state read for another pinned world are forgotten before
   //  this world's record is applied — controller.adoptPinnedWorld; the same world forgets nothing)
-  const worldChanged = adoptPinnedWorld();
+  adoptPinnedWorld();
   // (2026-11-17, ⑦: the read succeeded and the pin was accepted: the season poll's own error, if one stands, is over —
   //  the beacon below may set its own again. Another operation's error stays)
   seasonRecovered();
@@ -4048,8 +4048,13 @@ async function loadSeason(herald) {
   // (2026-11-17, ⑦: another pinned world's samples are not this world's: its chain time, slot and offset would hold
   //  this one back — observe drops a sample of a lower slot as "an older answer", and now() never goes back — so a
   //  restarted local stack's clock stood still and read "behind" for good. The clock starts again with no sample —
-  //  unknown, not fresh — and takes this record's sample just below. The same world keeps its clock)
-  if (worldChanged) FS.chain = new ChainClock();
+  //  unknown, not fresh — and takes this record's sample just below. The same world keeps its clock.
+  //  The clock carries the world its samples are of (FS.chainWorld) and is judged by that, not by adoptPinnedWorld's
+  //  answer of this call: that answer is given once, so a throw between the two in the call that re-pinned would have
+  //  left the former world's clock standing through every later good read)
+  const clockWorld = momentWorld();
+  if (FS.chainWorld !== undefined && FS.chainWorld !== clockWorld) FS.chain = new ChainClock();
+  FS.chainWorld = clockWorld;
   FS.chain.setAccelerated(record.cluster === 'localnet');
   FS.chain.observe(record.latestUnix, record.latestSlot);
   // A sample world (the screenshot fixture's world that keeps going, UX design 14.5) says so in its season record and
@@ -4374,7 +4379,15 @@ export async function boot() {
   }
   invalidate('chip', 'status', 'panel', 'chips');
   if (title.shouldOpen({ storage: globalThis.localStorage, search: globalThis.location?.search ?? '' })) openIntro();
-  if (await loadSeason(herald)) {
+  // (2026-11-17, ⑦: what needs a season starts once, at the first good season read — at boot, or, when the season could
+  //  not be read then, at the first good read of the season poll. It started only from boot's read, so a page opened
+  //  while the herald was briefly unreachable showed the season once it came back but never started play, spectating
+  //  or practice: the viewer's record was never asked and the drawer said "reading" for good. A read that throws at
+  //  boot no longer ends the boot before the season poll starts: the poll reads again.)
+  let seasonStarted = false;
+  const startWithSeason = () => {
+    if (seasonStarted || !FS.pin || !FS.season) return;
+    seasonStarted = true;
     // Ring summaries stream in while viewer setup starts; no whole-world boot barrier.
     loadOverviews(herald).catch(e => console.error('frontier overviews:', e));
     // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
@@ -4388,7 +4401,10 @@ export async function boot() {
       // the drawer starts closed: the tab of the last visit is not reopened over the map
       FS.tab = 'map';
     }
-  }
+  };
+  let bootRead = false;
+  try { bootRead = await loadSeason(herald); } catch (e) { console.error('frontier season:', e); }
+  if (bootRead) startWithSeason();
   // from here the season poll loads the overviews of rings that newly want one (a season that failed to load at boot
   // has no rings yet: its first good poll then loads them all)
   FS.overviewsBooted = true;
@@ -4423,6 +4439,8 @@ export async function boot() {
       if (seasonHidden()) return;
       const ok = await loadSeason(herald);
       errors = ok ? 0 : errors + 1;
+      // (the first good read after a boot that could not read the season starts what needs one — startWithSeason)
+      if (ok) startWithSeason();
     },
     // (a clock that runs fast is read more often: a quarter of a turn at most, clock.mjs pollCap; hidden: look again in 5 s)
     delay: () => { const wait = nextPoll({ kind: 'own', hidden: seasonHidden(), errors }); return wait === null ? 5 : Math.min(wait, pollCap(FS.chain)); },
