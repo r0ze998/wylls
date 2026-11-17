@@ -212,9 +212,13 @@ export class Game {
     const names = view.resources;
     let need;
     if (goal?.kind === 'vault') need = [...VAULT_COST];
-    else if (goal?.kind === 'amounts' && goal.amounts && typeof goal.amounts === 'object') {
-      need = names.map(r => { const v = goal.amounts[r]; return Number.isInteger(v) && v >= 0 ? v : 0; });
+    else if (goal?.kind === 'amounts' && goal.amounts && typeof goal.amounts === 'object' && !Array.isArray(goal.amounts)) {
+      // The tool's schema (tools.mjs cargoSchema: an object of known resources, each an integer 0..1000000) is not checked
+      // by tools/call, so it is checked here: a value outside it is refused, never read as 0 (2026-11-17: -5, 1.5 or "300"
+      // became 0 and could report enough: true). Omitted resources are 0, as the schema says.
       for (const k of Object.keys(goal.amounts)) if (!names.includes(k)) throw new GameError('BadRequest', `unknown resource ${String(k).slice(0, 20)} (one of ${names.join(', ')})`);
+      for (const [k, v] of Object.entries(goal.amounts)) if (!Number.isInteger(v) || v < 0 || v > 1_000_000) throw new GameError('BadRequest', `amounts.${k} must be a whole amount from 0 to 1000000`);
+      need = names.map(r => goal.amounts[r] ?? 0);
     } else throw new GameError('BadRequest', 'goal must be {kind: "vault"} or {kind: "amounts", amounts: {Resource: n}}');
     const rows = names.map((resource, i) => {
       const s = view.village.stores[i];
