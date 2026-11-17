@@ -13,8 +13,10 @@
  *   A3 the same request planned again saves the journal: the flag goes, the journal holds sent-requested; no send
  *   A4 another key's save writes the whole journal: the first key's flag goes too; no send
  *   A5 a restart after a save that threw before writing (the journal still says "sending"): ④ has the act, so the step
- *      becomes sent-requested without a send; ④ has no record: the only call is ③'s send with the SAME planId and
- *      requestId (the existing read-before-send recovery; ③ answers a requestId it has from its record) — never new ids
+ *      becomes sent-requested without a send; ④ has no record: ③'s send IS called again (a send call, not a read: this
+ *      is not "no resend"), with the SAME planId, requestId and run id — never new ids. What stops a second effect is
+ *      on ③'s and the wallet's side (an operation ③ has is answered without sending; a lost answer asks the wallet,
+ *      which passes the key on only when it holds nothing under it), not tested here
  *   A6 a send whose answer is not known (it throws, not definitive) and a save that then throws: the step stays
  *      sending, saved: false; the next pass reads ④ before any send
  * Stand-ins only (an in-memory journal, a ③ port that counts and records its arguments). No key is generated,
@@ -114,7 +116,7 @@ test("A5 a restart from a journal that still says sending", async () => {
     await r.advance(p.key);
     if (registered) assert.equal(t.sends.length, 1, "④ has the act: no send");
     else {
-      assert.equal(t.sends.length, 2, "④ has no record: the existing read-before-send recovery calls ③ again");
+      assert.equal(t.sends.length, 2, "④ has no record: ③'s send is called again (a send call, not a read)");
       assert.deepEqual([t.sends[1].planId, t.sends[1].requestId, t.sends[1].runId], [first.planId, first.requestId, first.runId], "with the same planId, requestId and run id");
     }
     assert.notEqual(r.status(p.key).steps[0].state, "planned", "never back to planned");
