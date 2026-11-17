@@ -56,3 +56,36 @@ cargo test --offline --locked -j1 --target aarch64-apple-darwin \
 - PID
 - セッション ID
 - 完全なログ
+
+## 追補:ネイティブプロセス/JSON クライアント/status port の接続確認
+
+この追補の実行証跡も、通常の承認を経てコーディネーターから提供されたものです。本書の作成者はコマンドを実行していません。コード変更・コミット・公開はありません。
+
+### 実行内容
+
+- コンパイル済みの runexec を使いました。
+- 実際の `createActsClient` を使いました(既定の execFile、gatewayPort なし、timeout 2500ms)。
+- `ws04ActsStatusPort` を経由して 4 ケースを実行し、合計 315ms でした。
+
+### 結果
+
+| ケース | 結果 |
+|---|---|
+| 着地済み receipt の重複 | failed / signature なし |
+| 通常の pending | pending / sigA |
+| failed-read を保持したもの | `fromReceipt` による Unqueryable |
+| 本当の NoRecord(exit 3) | null |
+
+### データ保全
+
+- 使用したのは、以前の Rust fixture で作成した使い捨ての SQLite DB 3 個だけです。
+- `Store::open` はスキーマや WAL に触れることがあります。ただし、3 個すべてで、読み取り専用・immutable で取得した論理 iterdump の SHA256 が実行前後で一致しました。
+- integrity_check は 3/3 で ok でした。WAL は残っていませんでした。
+- ps で確認したところ、runexec のプロセスは残っていませんでした。
+- ハーネスはローカル専用で、個人パスが固定されています。公開していません。
+
+### 検証範囲
+
+- 確認できたもの:ネイティブプロセス、JSON クライアント、status port の接続。
+- 未検証のもの:HTTP、world、send、常駐運用全体。
+- 本追補にも、個人パス・run ID・PID・セッション ID・完全なログは含めていません。
