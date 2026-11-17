@@ -126,22 +126,73 @@ The parent approved this range in `controller.mjs`: `refresh`/`currentViewer`, t
 
 **Differences from the fixed base in `controller.mjs`:** `providerWorld` (new), `latestEnvelope` (one line), `loadEnvelope` (world taken, a drop and a tag), `refresh` (`world` and `currentViewer`), `applyMeResult` (one line). It does not overlap the chronicle bundle's `refreshChronicle` edit.
 
+## Correction: life and builds by their provider's record, not by a key that seems to have gone (third commit, 2026-11-17; nothing run)
+
+**Retracted (the second commit was wrong here):**
+- The fence that left out a holding's life and the constructions under way "until they have gone", seen by `checkMoments` noticing a key disappear, does not hold.
+  - The chronicle bundle (`009ecb9c`) `refreshChronicle` sets `FS.life = undefined` and rebuilds it in the same task after its awaits, so a tick is never guaranteed to see the gap.
+  - A coordinate present in both worlds never seems to go, so its later harvests and builds would be left out for good.
+- **The claim above that "with the chronicle bundle the fenced keys go at once" is wrong.** Both fences are removed.
+
+**Now, by provenance only** (`app.mjs`):
+- **The world record of each provider decides:**
+  - `env.world` (provinces);
+  - `FS.holdingsWorld` (holdings);
+  - **`FS.lifeWorld`** (a holding's life: set by `refreshChronicle` once it has rebuilt the life from this world's pages since its reset).
+- **Waiting for holdings:** until the viewer's holdings are read for this world (when there are any), no look is taken.
+- **Until the life is read for this world:** neither its harvests nor its builds are looked at. `constructionsNow(life = FS.life)` takes the life as a parameter; other callers are unchanged by the default.
+- **The first look that has this world's life is its baseline:** `momentPrev`'s `harvest` and `builds` are set to that look's, with `logged: false` for that one comparison. A coordinate that comes back in the new world is not news the first time, and the first ordinary change after it is told as usual.
+- **The page's first world — and a first pin on a page that had none — fences nothing,** as before.
+
+**The `refreshChronicle` change lives in the chronicle bundle, so it is given as a limited patch, not edited here.** This base (`6a7aea0f`) does not include `009ecb9c`, and this branch does not touch `refreshChronicle`.
+- File: `docs/integration/CLAUDE-LANE-C-WS07-MOMENTS-WORLD-refreshChronicle-lifeWorld.patch`.
+- It is against `009ecb9c`'s `permutation-server/web/frontier/controller.mjs` (blob `fa7cb8dd…`, result `34bff634…`), with an `index` line for a 3-way apply.
+- It makes four changed lines:
+  - the reset also sets `FS.lifeWorld = undefined`;
+  - after `FS.life = updateLife(...)`, `FS.lifeWorld = w0;` plus a comment.
+  
+  It sits behind the bundle's own "same herald and world" check after each await.
+- Checked here, without touching any working file: `git apply --cached --3way --check` on a scratch index of `009ecb9c` applies cleanly. Its hunks are inside `refreshChronicle` only and do not overlap this branch's `controller.mjs` edits.
+- **Dependency:** without the chronicle bundle **and** this patch, `FS.lifeWorld` is never set. After a real world change, harvest and life-build moments stay off until the page is reloaded: conservative, never false. The first world is unaffected.
+
+**Static falsification of the cases:**
+
+| Case | Result |
+|---|---|
+| Normal, same world (the first world) | No fence: life, builds, every province, as before |
+| No pin, then a pin, on a page that had none | Still the first world, so nothing is fenced. Envelopes read before the pin carry `world: null` and are not looked at |
+| A → B | Forget. Wait for holdings of B; only B's envelopes; life only when `FS.lifeWorld === B`, its first look being the baseline |
+| A → B → A | Each change forgets and resets readiness. Holdings, envelopes and life count only when their provider recorded A again (the chronicle bundle resets and retags on each change) |
+| B's coordinates equal to A's | No fence by key: the first B look with B's life is the baseline; the next B harvest or build is told |
+| A late answer started under the old pin | Dropped before any write (`loadEnvelope`, `refresh`'s `currentViewer`, `refreshChronicle`'s check) |
+| Failed or empty chronicle read | `FS.lifeWorld` is not set until a page is read, so life is not looked at; an empty page still builds a map and tags it |
+| Provinces arriving in any order | Each counts once read for this world; first sight is not news (unchanged rules) |
+| Variables | `momentFence = {world, first, waitHoldings, lifeReady}`; `lifeReady` and `fresh0` are local; `buildKeys` and the key fences are removed (searched: no use left) |
+
+**Regression (written, not run), `web-frontier-ws07-moments-world-text.test.mjs`:**
+- M2 rewritten: the first world and a first pin fence nothing.
+- M3 rewritten: the order holdings → life readiness → this world's envelopes → look → life baseline, and `constructionsNow(life)`.
+- New **M5**: no key or identity fence left.
+- New **M6**: the patch's four changed lines.
+
 ## Manifest (for D; the aggregate is not changed here)
 
 - **Base:** `6a7aea0fd1fe4deabdc86b5d846dced7aa3e2408`.
-- **Branch:** `claude/lane-c-ws07-moments-world-20261117`. Commits: `5e29cf64` (moments fence), then this commit (provider world identity, with the fence on the provider's tags), which is the final tip.
+- **Branch:** `claude/lane-c-ws07-moments-world-20261117`. Commits: `5e29cf64`, `61f2498f`, then this commit (the correction), which is the final tip.
 
 | Status | Mode | Blob | Path |
 |---|---|---|---|
-| M | 100644 | `152a5bb090e279be6d20d81fe13d875dead6c3f5` | `permutation-server/web/frontier/app.mjs` |
+| M | 100644 | `608a87c671036a94839d301f47b146d98a874b60` | `permutation-server/web/frontier/app.mjs` |
 | M | 100644 | `6b0a0737e91c7b6e03789ece5414b3d46d6875c0` | `permutation-server/web/frontier/controller.mjs` |
-| M | 100644 | `b2e4a8af086919dd7f780432c97c88ca20e7e88f` | `workstreams/07-player-experience/CONTRACTS.ja.md` |
-| A | 100644 | `bf9967c3ea6d6cb824db41cc43231c399a4b5a2c` | `permutation-gateway/test/web-frontier-ws07-moments-world-text.test.mjs` |
+| M | 100644 | `96f06ed23dfa8ec6f3092ecae2414955f56d3b1d` | `workstreams/07-player-experience/CONTRACTS.ja.md` |
+| A | 100644 | `8949e7477e3fd9c5e90bdab2e994ab70c9440fc1` | `permutation-gateway/test/web-frontier-ws07-moments-world-text.test.mjs` |
+| A | 100644 | `28f07f79aa5f21392b443b6311a5faed1ce3832d` | `docs/integration/CLAUDE-LANE-C-WS07-MOMENTS-WORLD-refreshChronicle-lifeWorld.patch` |
 | A | 100644 | (this file) | `docs/integration/CLAUDE-LANE-C-WS07-MOMENTS-WORLD-20261117.md` |
 
+- **Dependency:** the chronicle bundle (`009ecb9c`) plus the patch above. Apply it onto that bundle's `controller.mjs` (3-way checked clean against `009ecb9c`). Without both, harvest and life-build moments stay off after a real world change (never false).
 - **Likely conflict points:**
-  - `controller.mjs`: `latestEnvelope`, `loadEnvelope`, `refresh`, `applyMeResult`. The chronicle bundle edits `refreshChronicle`, which does not overlap.
-  - `app.mjs` around `checkMoments`. The chronicle and away bundles change `app.mjs` elsewhere, each with its own world helper by the same rule.
-  - The end of `CONTRACTS.ja.md` (shared with the away bundle).
-- **Not run or verified:** every test, including the existing `web-frontier-controller.test.mjs` (key-listed) and `web-frontier-land-freshness.test.mjs`, whose pins were checked as text only; the page; a real world change; effects already playing.
+  - `controller.mjs`: `latestEnvelope`, `loadEnvelope`, `refresh`, `applyMeResult` (this branch) and `refreshChronicle` (the chronicle bundle plus the patch); these do not overlap.
+  - `app.mjs` around `checkMoments` and `constructionsNow`.
+  - The end of `CONTRACTS.ja.md`.
+- **Not run or verified:** every test, including the existing `web-frontier-controller.test.mjs` and `web-frontier-land-freshness.test.mjs` (pins checked as text only); the page; a real world change; the patch applied to a real merged tree.
 - **Candidate (independent, key-free; needs its own approval):** `node --test permutation-gateway/test/web-frontier-ws07-moments-world-text.test.mjs`.

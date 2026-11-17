@@ -1,0 +1,22 @@
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index fa7cb8ddfb2b..34bff6346b41 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -1101,7 +1101,7 @@
+   const worldNow = () => { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; };
+   const h0 = herald, w0 = worldNow();
+   if (FS.chronicleSource !== h0 || FS.chronicleWorld !== w0) {
+-    if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; }
++    if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; FS.lifeWorld = undefined; }
+     FS.chronicleSource = h0; FS.chronicleWorld = w0;
+   }
+   if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);
+@@ -1121,6 +1121,8 @@
+     FS.chronicle = [...(FS.chronicle ?? []), ...records].slice(-400);
+     // the life of every holding (people/life.mjs): folded from every record read, not only the last 400
+     FS.life = updateLife(FS.life ?? new Map(), records);
++    // (the world this life was read for: built from this world's pages since the last reset — app.mjs checkMoments)
++    FS.lifeWorld = w0;
+     if (r.next !== null && r.next !== undefined) cursor = r.next;
+     if (!r.full) break;
+   }

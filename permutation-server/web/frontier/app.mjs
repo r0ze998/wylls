@@ -967,7 +967,7 @@ function ownColumns() {
  * viewer's own queue): `[{p, q, site, share, label}]` — the share of the time gone, the
  * building's name and the time left.
  */
-function constructionsNow() {
+function constructionsNow(life = FS.life) {
   const now = FS.chain?.now?.() ?? 0, out = [], seen = new Set();
   const add = (p, q, site, item, doneAt, startTs) => {
     const key = `${p},${q},${site}`;
@@ -982,7 +982,7 @@ function constructionsNow() {
     const done = Number(q.doneAt ?? 0);
     if (done > now) add(h.p, h.q, h.site, queueBuildingItem(q), done, done - buildSecsOf(q));
   }
-  if (FS.clock) for (const [k, rec] of FS.life ?? []) {
+  if (FS.clock) for (const [k, rec] of life ?? []) {
     if (!rec.build || !(rec.build.doneAt > now)) continue;
     const [p, q, site] = k.split(',').map(Number);
     add(p, q, site, rec.build.item, rec.build.doneAt, bellStart(FS.clock.genesisTs, rec.build.bell));
@@ -2276,37 +2276,36 @@ let ownSitesSeen = new Set();
  */
 const momentWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
 /**
- * What stood when the world last changed (2026-11-17). The providers do not empty themselves then, so their own records
- * of the world they read for decide what may be looked at: a province envelope carries `world` (controller.mjs
- * loadEnvelope, which drops an answer read for another world), the viewer's holdings `FS.holdingsWorld` (applyMeResult).
- * A replaced array or object alone proves nothing. Until the viewer's holdings are read for this world (when there are
- * any: a page with no viewer has none to wait for) no look is taken — neither a baseline nor news. After that, only
- * envelopes read for this world are looked at; a construction under way at the change, and a holding's life that stood
- * then, are left out until they have gone (their ends and counts are the old world's, not news here).
+ * What may be looked at after the world changed (2026-11-17), by the providers' own records of the world they read for —
+ * never by a key that seems to have gone or an object that was replaced: a province envelope carries `world`
+ * (controller.mjs loadEnvelope, which drops an answer read for another world), the viewer's holdings `FS.holdingsWorld`
+ * (applyMeResult), a holding's life `FS.lifeWorld` (refreshChronicle, once it has rebuilt the life from this world's
+ * pages since its reset). Until the holdings are read for this world (when there are any) no look is taken. Until the
+ * life is, neither its harvests nor its builds are looked at; the first look that has them is their baseline (the life
+ * read up is not news), and the next change after it is told as usual. The page's first world — and a pin that comes
+ * to a page that had none — fences nothing: its providers read for it.
  */
-let momentFence = null;   // {world, waitHoldings, builds: Set, life: Set}
-const buildKeys = cs => new Set(cs.map(c => `${c.p},${c.q},${c.site}`));
+let momentFence = null;   // {world, first, waitHoldings, lifeReady}
 function checkMoments() {
   if (!FS.provinces) return;
   const world = momentWorld();
   if (!momentFence || momentFence.world !== world) {
-    const first = momentFence === null;
+    const first = momentFence === null || (momentFence.first && momentFence.world === null);
     momentPrev = null; ownSitesSeen = new Set();
-    // (the page's first world fences nothing: its providers read for it; only a change leaves another world behind)
-    momentFence = { world, waitHoldings: !first, builds: first ? new Set() : buildKeys(constructionsNow()), life: first ? new Set() : new Set(FS.life?.keys?.() ?? []) };
+    momentFence = { world, first, waitHoldings: !first, lifeReady: first };
   }
   if (momentFence.waitHoldings) {
     if (Array.isArray(FS.holdings) && FS.holdings.length > 0 && FS.holdingsWorld !== world) return;
     momentFence.waitHoldings = false;
   }
+  const lifeReady = momentFence.lifeReady || FS.lifeWorld === world;
   const fresh0 = new Map([...FS.provinces].filter(([, env]) => env?.world === world));
-  const builds0 = constructionsNow();
-  const nowKeys = buildKeys(builds0);
-  for (const k of [...momentFence.builds]) if (!nowKeys.has(k)) momentFence.builds.delete(k);
-  const lifeNow = FS.life ?? new Map();
-  for (const k of [...momentFence.life]) if (!lifeNow.has(k)) momentFence.life.delete(k);
-  const life0 = momentFence.life.size ? new Map([...lifeNow].filter(([k]) => !momentFence.life.has(k))) : lifeNow;
-  const next = momentSnapshot({ life: life0, constructions: builds0.filter(c => !momentFence.builds.has(`${c.p},${c.q},${c.site}`)), provinces: fresh0, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
+  const next = momentSnapshot({ life: lifeReady ? FS.life ?? new Map() : new Map(), constructions: constructionsNow(lifeReady ? FS.life : null), provinces: fresh0, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
+  // (this world's life looked at for the first time: its harvests and builds are the baseline, not news)
+  if (lifeReady && !momentFence.lifeReady) {
+    momentFence.lifeReady = true;
+    if (momentPrev) momentPrev = { ...momentPrev, harvest: next.harvest, builds: next.builds, logged: false };
+  }
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;

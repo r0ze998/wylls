@@ -8,8 +8,11 @@
 //   P4 refresh's currentViewer needs the world it began under; applyMeResult records the holdings' world
 //   P5 the existing pins on loadEnvelope's store and latestEnvelope's isolated body still hold
 //   M1 "no pin" is a state of its own, not a stop
-//   M2 a change of world forgets the last look and fences constructions and life that stood; the first world fences nothing
-//   M3 wait for holdings read for this world (when there are any); then only envelopes read for this world; then the look
+//   M2 a change of world forgets the last look; the first world (and a first pin) fences nothing
+//   M3 wait for holdings read for this world (when there are any); only envelopes read for this world; life and its builds
+//      only once their provider recorded this world (FS.lifeWorld), the first such look being their baseline
+//   M5 no key-disappearance or object-identity fence is left (2026-11-17 correction)
+//   M6 the limited patch for refreshChronicle (the chronicle bundle 009ecb9c) records the life's world
 //   M4 the comparison itself is unchanged
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -59,21 +62,35 @@ test('M1 "no pin" is a state of its own', () => {
   assert.doesNotMatch(fn, /if \(world === null\)/);
 });
 
-test('M2 a change forgets and fences', () => {
+test('M2 a change forgets; the first world fences nothing', () => {
   const change = fn.indexOf('if (!momentFence || momentFence.world !== world) {');
+  const first = fn.indexOf('const first = momentFence === null || (momentFence.first && momentFence.world === null);', change);
   const forget = fn.indexOf('momentPrev = null; ownSitesSeen = new Set();', change);
-  const fence = fn.indexOf('momentFence = { world, waitHoldings: !first, builds: first ? new Set() : buildKeys(constructionsNow()), life: first ? new Set() : new Set(FS.life?.keys?.() ?? []) };', change);
-  assert.ok(change > 0 && forget > change && fence > forget);
+  const fence = fn.indexOf('momentFence = { world, first, waitHoldings: !first, lifeReady: first };', change);
+  assert.ok(change > 0 && first > change && forget > first && fence > forget);
 });
 
-test('M3 holdings of this world, envelopes of this world, then the look', () => {
+test('M3 holdings, envelopes and life of this world; the life\'s first look is a baseline', () => {
   const wait = fn.indexOf('if (Array.isArray(FS.holdings) && FS.holdings.length > 0 && FS.holdingsWorld !== world) return;');
+  const ready = fn.indexOf('const lifeReady = momentFence.lifeReady || FS.lifeWorld === world;');
   const fresh = fn.indexOf('const fresh0 = new Map([...FS.provinces].filter(([, env]) => env?.world === world));');
-  const life = fn.indexOf('const life0 = momentFence.life.size ? new Map([...lifeNow].filter(([k]) => !momentFence.life.has(k))) : lifeNow;');
-  const snap = fn.indexOf("const next = momentSnapshot({ life: life0, constructions: builds0.filter(c => !momentFence.builds.has(`${c.p},${c.q},${c.site}`)), provinces: fresh0,");
+  const snap = fn.indexOf('const next = momentSnapshot({ life: lifeReady ? FS.life ?? new Map() : new Map(), constructions: constructionsNow(lifeReady ? FS.life : null), provinces: fresh0,');
+  const base = fn.indexOf('if (momentPrev) momentPrev = { ...momentPrev, harvest: next.harvest, builds: next.builds, logged: false };');
   const look = fn.indexOf('const fresh = detectMoments(momentPrev, next, t);');
-  assert.ok(wait > 0 && fresh > wait && life > fresh && snap > life && look > snap);
-  assert.doesNotMatch(fn, /momentFence\.envelopes|FS\.holdings === momentFence\.holdings/, 'object identity is no proof of a read for this world');
+  assert.ok(wait > 0 && ready > wait && fresh > ready && snap > fresh && base > snap && look > base);
+  assert.ok(app.includes('function constructionsNow(life = FS.life) {') && app.includes('if (FS.clock) for (const [k, rec] of life ?? []) {'), 'builds from life only as given');
+});
+
+test('M5 no fence by a key that seems gone or an object replaced', () => {
+  assert.doesNotMatch(fn, /momentFence\.(builds|life|envelopes)\b|buildKeys|FS\.holdings === momentFence\.holdings/);
+});
+
+test('M6 the refreshChronicle patch records the life\'s world', () => {
+  const p = readFileSync(new URL('../../docs/integration/CLAUDE-LANE-C-WS07-MOMENTS-WORLD-refreshChronicle-lifeWorld.patch', import.meta.url), 'utf8');
+  assert.match(p, /^-    if \(FS\.chronicleSource !== undefined\) \{ cursor = 0; FS\.chronicle = undefined; FS\.chronicleRead = undefined; FS\.life = undefined; \}$/m);
+  assert.match(p, /^\+    if \(FS\.chronicleSource !== undefined\) \{ cursor = 0; FS\.chronicle = undefined; FS\.chronicleRead = undefined; FS\.life = undefined; FS\.lifeWorld = undefined; \}$/m);
+  assert.match(p, /^ {5}FS\.life = updateLife\(FS\.life \?\? new Map\(\), records\);\n(\+.*\n)?\+    FS\.lifeWorld = w0;$/m);
+  assert.equal((p.match(/^[+-](?![+-])/gm) ?? []).length, 4, 'four changed lines only: one replaced, two added');
 });
 
 test('M4 the comparison is unchanged', () => {
