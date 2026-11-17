@@ -377,6 +377,38 @@ const LOG_MAX = 4294967295;
 const atCap = (res) => Array.isArray(res) && res.some((n) => n >= LOG_MAX);
 
 /**
+ * Why a quantity vector from ④ cannot be read as ④'s `Res`, or null (2026-11-17). ④'s `Res` is `[u64; 8]` in whole
+ * units (src/model.rs; QUANTITY-CONTRACT §1), serialised as a JSON array of 8 numbers. Required here: an array, exactly
+ * 8 entries, none missing (dense), each a JS number that is a nonnegative integer no greater than RES_MAX. The bound
+ * is u64's: a u64 above u32 (and above 2^53, which JSON.parse rounds to a nearby integer double) is ④'s own output and
+ * is read as it is; the u32 cap is only how the program's cargo_log saturates (`atCap` above). Strings, null,
+ * fractions, NaN, ±Infinity, negatives, a missing slot and integers beyond u64 are refused, so they are never counted
+ * or shown as amounts.
+ */
+function resProblem(res) {
+  const n = CORE_RESOURCES.length;
+  if (!Array.isArray(res)) return `not an array of ${n} (${res === null ? "null" : typeof res})`;
+  if (res.length !== n) return `${res.length} entries, not ${n}`;
+  for (let i = 0; i < n; i++) {
+    if (!Object.hasOwn(res, i)) return `entry ${i} (${CORE_RESOURCES[i]}) missing`;
+    const x = res[i];
+    if (typeof x !== "number" || !Number.isInteger(x) || x < 0) {
+      const shown = typeof x === "number" ? String(x) : typeof x === "string" ? JSON.stringify(x) : x === null ? "null" : typeof x;
+      return `entry ${i} (${CORE_RESOURCES[i]}) is not a nonnegative whole number: ${shown}`;
+    }
+    if (x > RES_MAX) return `entry ${i} (${CORE_RESOURCES[i]}) is beyond u64: ${x}`;
+  }
+  return null;
+}
+/**
+ * The largest amount ④'s Res can hold, as a JS number: u64::MAX (2^64 − 1) as JSON.parse reads it, which rounds to
+ * exactly 2^64 (Number(0xffffffffffffffffn) === 2 ** 64). A parsed 2^64 is therefore accepted: in a JS number u64::MAX
+ * and a literal 2^64 are the same value and cannot be told apart here (no BigInt or string format is introduced).
+ * The next representable integer, 2^64 + 4096, and anything larger (1e100) cannot be ④'s and are refused.
+ */
+const RES_MAX = Number(0xffffffffffffffffn);
+
+/**
  * 06's view of a ④ run: whether it ended, what may be counted, what is
  * known of the amount that arrived, and whether it may serve as the
  * evidence of a finished delivery (C). Follows ④'s quantity contract:
@@ -389,6 +421,21 @@ export function resultOf(run) {
   const v = o?.verification ?? null;
   if (v !== null && !VERIFICATIONS.includes(v)) return { ok: false, code: "SHAPE", detail: `unknown verification ${v}` };
   const final = TERMINAL.includes(run.state);
+  // (2026-11-17) The vectors this reading goes on to use are checked first, as ④'s Res, and refused as SHAPE (the
+  // same answer as an unknown state or verification; Dispatch keeps the step unfinished and reads again). Before, a
+  // terminal Recorded/RuleDerived outcome with `delivered: null` threw a TypeError, `[]` read as usable evidence of
+  // nothing, and "4" was counted as an amount. Only the vectors used below are checked: `delivered` of a terminal
+  // Recorded/RuleDerived outcome, and a non-null `cargo_logged` of a terminal outcome read as unknown. A null
+  // cargo_logged stays "no upper bound"; KnownZero, NotShipped and non-terminal runs read as before.
+  if (o && final) {
+    if (v === "Recorded" || v === "RuleDerived") {
+      const bad = resProblem(o.delivered);
+      if (bad) return { ok: false, code: "SHAPE", detail: `outcome.delivered: ${bad}` };
+    } else if (v !== "KnownZero" && v !== "NotShipped" && o.cargo_logged !== null && o.cargo_logged !== undefined) {
+      const bad = resProblem(o.cargo_logged);
+      if (bad) return { ok: false, code: "SHAPE", detail: `outcome.cargo_logged: ${bad}` };
+    }
+  }
   const verified = (run.state === "Fulfilled" || run.state === "Partial") && (v === "Recorded" || v === "RuleDerived") && Array.isArray(o.delivered);
   let actual;
   if (!o || !final) actual = { kind: "pending" };
