@@ -57,7 +57,7 @@ test('T5 English keys', () => {
 
 test('T6 one world from reading to saving; an auxiliary-only failure is shown', () => {
   assert.ok(app.includes("const awayWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
-  assert.ok(app.includes("return season && wallet && world ? returnRead.awayScope({ herald: `${String(FS.season?.genesisTs ?? '')}|${world}`, seasonId: season, wallet }) : null;"), 'no world, no scope');
+  assert.ok(app.includes("return season && wallet && world ? returnRead.awayScope({ herald: `${String(FS.season?.genesisTs ?? '')}|${FS.pin?.gen ?? 0}|${world}`, seasonId: season, wallet }) : null;"), 'no world, no scope');
   assert.ok(app.includes('away: { ok: s.confirm.ok, summary: s, world } },'), 'the head keeps the world it was read in');
   assert.ok(app.includes("if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow() || !x.away.world || x.away.world !== awayWorld()) return;"));
   assert.ok(app.includes('confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0, world: x.away.world });'));

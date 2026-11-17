@@ -967,7 +967,7 @@ function ownColumns() {
  * viewer's own queue): `[{p, q, site, share, label}]` — the share of the time gone, the
  * building's name and the time left.
  */
-function constructionsNow() {
+function constructionsNow(life = FS.life) {
   const now = FS.chain?.now?.() ?? 0, out = [], seen = new Set();
   const add = (p, q, site, item, doneAt, startTs) => {
     const key = `${p},${q},${site}`;
@@ -982,7 +982,7 @@ function constructionsNow() {
     const done = Number(q.doneAt ?? 0);
     if (done > now) add(h.p, h.q, h.site, queueBuildingItem(q), done, done - buildSecsOf(q));
   }
-  if (FS.clock) for (const [k, rec] of FS.life ?? []) {
+  if (FS.clock) for (const [k, rec] of life ?? []) {
     if (!rec.build || !(rec.build.doneAt > now)) continue;
     const [p, q, site] = k.split(',').map(Number);
     add(p, q, site, rec.build.item, rec.build.doneAt, bellStart(FS.clock.genesisTs, rec.build.bell));
@@ -2268,9 +2268,45 @@ const settledHolding = (h, now) => { try { return h ? settled(h, now) : h; } cat
 let momentPrev = null;
 /** The viewer's villages ("P,Q,site") at the last look of checkMoments. */
 let ownSitesSeen = new Set();
+/**
+ * The world the moments compare (2026-11-17): cluster, program and season account as fchainio.setPin pinned them
+ * (`addresses.season`, derived and checked against the herald's record); null while none is pinned — nothing is made up:
+ * "no pin" is a state of its own, and a pin that comes or changes is a change of world. Two looks are compared only within one world: another world's villages, buildings and hosts
+ * at the same coordinates are not news here (a village "lost" or "taken", a building "finished").
+ */
+// (with the pin's generation — fchainio.setPin: A → B → A are three — so a look of the first A is not one of the last)
+const momentWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+/**
+ * What may be looked at after the world changed (2026-11-17), by the providers' own records of the world they read for —
+ * never by a key that seems to have gone or an object that was replaced: a province envelope carries `world`
+ * (controller.mjs loadEnvelope, which drops an answer read for another world), the viewer's holdings `FS.holdingsWorld`
+ * (applyMeResult), a holding's life `FS.lifeWorld` (refreshChronicle, once it has rebuilt the life from this world's
+ * pages since its reset). Until the holdings are read for this world (when there are any) no look is taken. Until the
+ * life is, neither its harvests nor its builds are looked at; the first look that has them is their baseline (the life
+ * read up is not news), and the next change after it is told as usual. The page's first world — and a pin that comes
+ * to a page that had none — fences nothing: its providers read for it.
+ */
+let momentFence = null;   // {world, first, waitHoldings, lifeReady}
 function checkMoments() {
   if (!FS.provinces) return;
-  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
+  const world = momentWorld();
+  if (!momentFence || momentFence.world !== world) {
+    const first = momentFence === null || (momentFence.first && momentFence.world === null);
+    momentPrev = null; ownSitesSeen = new Set();
+    momentFence = { world, first, waitHoldings: !first, lifeReady: first };
+  }
+  if (momentFence.waitHoldings) {
+    if (Array.isArray(FS.holdings) && FS.holdings.length > 0 && FS.holdingsWorld !== world) return;
+    momentFence.waitHoldings = false;
+  }
+  const lifeReady = momentFence.lifeReady || FS.lifeWorld === world;
+  const fresh0 = new Map([...FS.provinces].filter(([, env]) => env?.world === world));
+  const next = momentSnapshot({ life: lifeReady ? FS.life ?? new Map() : new Map(), constructions: constructionsNow(lifeReady ? FS.life : null), provinces: fresh0, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
+  // (this world's life looked at for the first time: its harvests and builds are the baseline, not news)
+  if (lifeReady && !momentFence.lifeReady) {
+    momentFence.lifeReady = true;
+    if (momentPrev) momentPrev = { ...momentPrev, harvest: next.harvest, builds: next.builds, logged: false };
+  }
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
@@ -2525,7 +2561,9 @@ const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.w
 const awayWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
 // (the scope names the world too — 2026-11-17: two worlds can share a genesis time, a season number and a wallet, and a
 // late answer read under one must not be taken, kept or confirmed under the other)
-const awayScopeNow = () => { const { season, wallet } = awayWho(), world = awayWorld(); return season && wallet && world ? returnRead.awayScope({ herald: `${String(FS.season?.genesisTs ?? '')}|${world}`, seasonId: season, wallet }) : null; };
+// (the scope also names the pin's generation: a reading of the first A is not taken, kept or confirmed under the A pinned
+// again after B. The saved mark keeps the world itself — awayWorld — so that it still matches after a reload)
+const awayScopeNow = () => { const { season, wallet } = awayWho(), world = awayWorld(); return season && wallet && world ? returnRead.awayScope({ herald: `${String(FS.season?.genesisTs ?? '')}|${FS.pin?.gen ?? 0}|${world}`, seasonId: season, wallet }) : null; };
 const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
 /** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
 const awayEnds = records => { for (const x of records ?? []) if (x.record?.name === 'CARAVAN_SETTLED' || x.record?.name === 'CARAVAN_RAIDED') { const k = returnSum.caravanKey(x.record); if (k) caravanWatchOf(FS).ended(k); } };
@@ -3649,7 +3687,8 @@ async function seasonKernel() {
  * The pinned world a report is read for: cluster, program and season account as fchainio.setPin pinned them
  * (`addresses.season`, derived and checked against the herald's record); null before a pin (nothing is made up).
  */
-const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+// (with the pin's generation: a report read under the first A is not shown under the A pinned again after B)
+const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
 export async function openReport(p, q, bell) {
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return;
   // (2026-11-17: the herald may start serving another season or world while a report is read — loadSeason re-pins every

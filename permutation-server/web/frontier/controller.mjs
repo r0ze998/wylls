@@ -746,9 +746,20 @@ async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
   if (epoch === walletSyncEpoch) await refresh();
 }
 
+/**
+ * The pinned world a provider reads for (2026-11-17, ⑦): cluster, program and season account as fchainio.setPin pinned
+ * them (`addresses.season`, derived and checked against the herald's record); null while none is pinned (nothing made up).
+ * A read started under one world is never applied under another, and a province envelope carries the world it was read
+ * for (`world`).
+ */
+function providerWorld() { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; }
+
 /** A slower response must not roll a province back to an earlier generation. */
 export function latestEnvelope(previous, next) {
   if (!previous) return next;
+  // (envelopes of two worlds are not ordered: a new season's seq, slot and bell are lower than the last world's, and the
+  // older world's envelope must not win. Only envelopes read for the same world are compared — 2026-11-17)
+  if (next && previous.world !== next.world) return next;
   for (const field of ['seq','slot','bell']) {
     const a=previous[field], b=next?.[field];
     if (a===undefined || a===null || a==='' || b===undefined || b===null || b==='') continue;
@@ -758,11 +769,15 @@ export function latestEnvelope(previous, next) {
 }
 
 async function loadEnvelope(p, q, bell = 'latest', still = null) {
+  const world = providerWorld();
   const r = await herald.province(p, q, bell);
   // (`still`: a caller's check that the answer still belongs to what it asked for — run after the read and BEFORE anything
   //  is applied; a false answer is dropped whole. Without it, as before)
   if (still && !still()) return null;
+  // (an answer read for another pinned world than the one now pinned is dropped whole, before anything is applied)
+  if (providerWorld() !== world) return null;
   if (r.ok) {
+    r.world = world;
     if (bell !== 'latest') return r;
     const key=`${p},${q}`, accepted=latestEnvelope(FS.provinces.get(key),r);
     FS.provinces.set(key,accepted);
@@ -1098,10 +1113,11 @@ async function refreshChronicle() {
   // fchainio.setPin pinned them. When either changed since it was read, what it holds is another world's: it is
   // forgotten — not shown as this world's, and not told as empty — and read again from the new world's start. A
   // read that the change overtakes writes nothing.)
-  const worldNow = () => { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; };
+  // (with the pin's generation — fchainio.setPin: a read started under the first A is not written under the A pinned again after B)
+  const worldNow = () => { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; };
   const h0 = herald, w0 = worldNow();
   if (FS.chronicleSource !== h0 || FS.chronicleWorld !== w0) {
-    if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; }
+    if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; FS.lifeWorld = undefined; }
     FS.chronicleSource = h0; FS.chronicleWorld = w0;
   }
   if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);
@@ -1121,6 +1137,8 @@ async function refreshChronicle() {
     FS.chronicle = [...(FS.chronicle ?? []), ...records].slice(-400);
     // the life of every holding (people/life.mjs): folded from every record read, not only the last 400
     FS.life = updateLife(FS.life ?? new Map(), records);
+    // (the world this life was read for: built from this world's pages since the last reset — app.mjs checkMoments)
+    FS.lifeWorld = w0;
     if (r.next !== null && r.next !== undefined) cursor = r.next;
     if (!r.full) break;
   }
@@ -1266,6 +1284,8 @@ export function applyMeResult(me) {
     const before = FS.land?.stage;
     FS.citizen = me.citizen;
     FS.holdings = me.holdings;
+    // (the world these holdings were read for: the moments wait for it after a change of world — app.mjs checkMoments)
+    FS.holdingsWorld = providerWorld();
     mySlots = me.slots ?? [];
     // the wide inventory (`wideContext`, `wideHoldings`) beside — never inside — the legacy holdings, checked against
     // this season's world and addresses, the Citizen the viewer *is* (derived from the wallet or the NFT played, never
@@ -1316,7 +1336,7 @@ export function applyMeResult(me) {
 /** Refresh the viewer's accounts, provinces, marches, chronicle and quota. */
 export async function refresh() {
   if (!herald || !FS.clock) return;
-  const request = ++viewerRefresh;
+  const request = ++viewerRefresh, world = providerWorld();
   FS.nowBell = nowBell();
   // A gated season shows the invite field before any refusal (I-51).
   FS.inviteRequired = FS.inviteRequired || inviteRequired(FS.season);
@@ -1325,7 +1345,9 @@ export async function refresh() {
   syncProto();
   if (FS.wallet) {
     const address = FS.wallet.address;
-    const currentViewer = () => request === viewerRefresh && FS.wallet?.address === address;
+    // (and the pinned world this refresh began under: a viewer's record or a province read for another world is never
+    // applied to this one — 2026-11-17)
+    const currentViewer = () => request === viewerRefresh && FS.wallet?.address === address && providerWorld() === world;
     // ⑳: herald's /h/me/{asset} answers an NFT's Citizen (the wallet's own Citizen first).
     const me = await herald.me(viewerKey()).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     // A previous poll or wallet must not replace the viewer selected by a newer refresh.

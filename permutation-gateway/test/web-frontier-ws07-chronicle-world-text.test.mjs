@@ -22,7 +22,9 @@ const fnStart = ctl.indexOf('async function refreshChronicle() {');
 const whole = ctl.slice(fnStart, ctl.indexOf('\n}\n', fnStart) + 2);
 
 test('R1 the pinned world, never made up', () => {
-  assert.ok(app.includes("const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
+  // (corrected 2026-11-17, Lane C moments-generation: the key also names the pin's generation — fchainio.setPin — so a report
+  // read under the first A is not shown under the A pinned again after B)
+  assert.ok(app.includes("const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
   assert.doesNotMatch(app, /FS\.pin\.seasonAddress/, 'setPin has no seasonAddress field');
 });
 
@@ -49,8 +51,9 @@ test('R4 a report of another pinned world is closed when the season is read', ()
 });
 
 test('C1 another herald or world: forgotten, not empty, before the new start is read', () => {
-  assert.ok(body.includes("const worldNow = () => { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; };"));
-  const reset = body.indexOf('if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; }');
+  // (corrected 2026-11-17: with the pin's generation, so a read started under the first A is not written under the A pinned again)
+  assert.ok(body.includes("const worldNow = () => { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; };"));
+  const reset = body.indexOf('if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; FS.lifeWorld = undefined; }');
   const start = body.indexOf('if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);');
   assert.ok(body.includes('if (FS.chronicleSource !== h0 || FS.chronicleWorld !== w0) {'));
   assert.ok(reset > 0 && start > reset, 'forgotten before the start is set');
