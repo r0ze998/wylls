@@ -1771,4 +1771,14 @@ export default {
   '結果が出るころを過ぎています。': 'The result is past its due time.',
   'この村の探索を見る': 'See this village\'s exploration',
   '結果を受け取れるのは、その村を選んでいるときです。': 'A result can be collected while its village is the one in hand.',
+  // (2026-11-17, ⑦ the warning's way on: from a warning of arrivals to the village, its hosts and the existing plans)
+  'この村は、いまのあなたの村の記録にありません。': 'This village is not among your villages in the record now.',
+  '守備隊を増やす欄へ': 'To the garrison form',
+  'この村の軍勢：村のマスに {0}（{1} 兵）、ほかの場所に {2}、行軍中 {3}。': 'This village\'s hosts: {0} on the village\'s tile ({1} troops), {2} elsewhere, {3} on the march.',
+  '村へ戻す計画を開く': 'Open the plan to march it home',
+  '来襲の恐れは、まだ調べていません。出ていない、という意味ではありません。': 'Possible arrivals have not been checked yet. This does not mean there are none.',
+  'できごとの記録の最新の読み込みが失敗しています。新しい出発を、数えられていないことがあります。': 'The latest load of the record of events failed. New departures may not be counted.',
+  '出発地の持ち主をまだ読めていない出発が {0} 件あります。来襲の恐れには数えていません（来ない、という意味ではありません）。': '{0} departures start from a place whose owner is not loaded yet. They are not counted as possible arrivals (this does not mean they will not come).',
+  '来るかどうか、どこへ行くかは、封印が開くまで分かりません。上のボタンは、村や計画を開くだけです。送るかどうかは、開いた先であなたが決めます。': 'Whether they come, and where they go, is not known until the seal is opened. The buttons above only open a village or a plan. Whether to send is yours to decide there.',
+  'ほかの州にいる軍勢は、その州の記録を読めているものだけを数えています。戦いがあれば、そのターンのあと「あなたの衝突の報告」に出ます。': 'Hosts in other provinces are counted only where that province\'s record is loaded. If there is a fight, it shows under "Your clash reports" after that turn.',
 };

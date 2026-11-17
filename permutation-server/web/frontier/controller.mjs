@@ -707,6 +707,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   FS.autoForceAt = 0;
   FS.autoNudgeBell = null;
   FS.incoming = [];
+  FS.incomingRead = null;    // (nothing judged yet for this viewer: "none" is not said — screens/incoming.mjs)
   FS.isMine = () => false;
   if (walletChanged) FS.prize = null;
   if (walletChanged) FS.prizePayment = null;
@@ -838,6 +839,7 @@ export function adoptPinnedWorld() {
   FS.s1Reread = null;        // (the same for the trade card's re-read — rereadS1)
   FS.s1Plan = null;          // (a place chosen on the map names a place of the world that was pinned — planS1Place)
   exploreSeedMarks.clear(); FS.exploreSeedCheck = null;   // (a seed read for the world that was pinned is not this world's)
+  FS.incoming = []; FS.incomingRead = null;   // (warnings judged for the world that was pinned are not this world's; none is judged here yet)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
   if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
   dropOtherWorldConquest(world);
@@ -1318,6 +1320,22 @@ async function refreshChronicle() {
   // them itself when a line is drawn)
   const holdingsNow = FS.holdings ?? [];
   FS.incoming = FS.citizen ? incomingWarnings({ kernel: k, departures, holdings: holdingsNow.map(o => ({ p: o.p, q: o.q, site: o.site, tile: o.tile, shieldUntilBell: FS.provinces.get(`${o.p},${o.q}`)?.province?.siteMirror?.[o.site]?.shieldUntilBell })), faction: FS.citizen.faction, genesisTs: FS.clock.genesisTs, nowBell: nowBell(), unitOf: () => WARNING_UNIT }) : [];
+  // (2026-11-17, ⑦ the warning's way on — screens/incoming.mjs: each warning names its village whole (its tile and its
+  //  generation, from the very holdings it was judged for), and how this judging was read is kept beside it: the pinned
+  //  world, whether the rules were there, whether the chronicle's read came, and how many departures still under way
+  //  could not be judged because the owner of their origin is not read. The judging itself — incomingWarnings, the reach
+  //  test, the unit — and how often it runs are what they were.)
+  for (const w of Array.isArray(FS.incoming) ? FS.incoming : []) {
+    const o = holdingsNow.find(x => x.p === w.holding.p && x.q === w.holding.q && x.site === w.holding.site);
+    if (o) { w.holding.tile = o.tile; w.holding.gen = o.gen ?? 0; }
+  }
+  const unknownOrigins = (FS.chronicle ?? []).filter(x => x.record.name === 'DEPART' && Number(x.record.arrive_bell) >= nowBell()).filter(x => {
+    const h = hostParts(x.record.host_id);
+    const ov = h && [...FS.overviews.values()].flatMap(o => o.provinces).find(pr => pr.p === h.p && pr.q === h.q);
+    const f = ov && h ? ov.owners?.[h.site] : null;
+    return f === null || f === undefined;
+  }).length;
+  FS.incomingRead = { world: providerWorld(), rules: !!k, chronicleOk: failed === null, unknownOrigins, bell: nowBell() };
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */

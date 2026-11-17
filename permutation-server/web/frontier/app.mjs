@@ -3821,6 +3821,20 @@ export const HUD_ACTIONS = {
     requestAnimationFrame(() => landS1Plan(id));
   },
   's1-plan-clear': () => clearS1Plan(),
+  // (2026-11-17, ⑦ the warning's way on: the village a warning names is taken in hand BY WHAT IT IS — place, site and
+  //  generation, looked up at the press; never by an index kept in the markup — and the village screen opens, the way
+  //  'holding-pick' goes; `to: garrison` brings its garrison form into view. A village that is not among the viewer's
+  //  now is not opened: the card says so with its next drawing. Nothing is sent.)
+  'incoming-village': d => {
+    const p = num(d.p), q = num(d.q), site = num(d.site), gen = num(d.gen);
+    const i = FS.mode === 'play' ? (FS.holdings ?? []).findIndex(o => o.p === p && o.q === q && o.site === site && (o.gen ?? 0) === gen) : -1;
+    if (i < 0) { invalidate('panel'); return; }
+    const h = FS.holdings[i];
+    clearWideSelect(FS);
+    FS.activeHolding = i;
+    goToItem({ p: h.p, q: h.q, tab: 'holding' });
+    if (d.to === 'garrison') requestAnimationFrame(() => HUD_ACTIONS['hp-jump']({ id: 'hp-garrison' }));
+  },
   // (2026-11-17, ⑦ exploration: another of the viewer's villages has an exploration waiting — that village is taken in
   //  hand the way 'holding-pick' does, the hosts screen with its explore card opens, and its result is asked for once:
   //  controller 'explore-check', a read; nothing is settled or sent)
