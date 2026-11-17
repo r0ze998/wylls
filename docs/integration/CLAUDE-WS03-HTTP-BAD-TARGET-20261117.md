@@ -53,9 +53,9 @@ try { url = new URL(req.url, auth.issuer); } catch { return send(res, 400, { err
 - **Other code before the main `try`:** only the route string, from `req.method` and `url.pathname`. It cannot throw.
 - **Other unawaited promises in the handler:** none found. The rest is inside the `try` or `await`ed there.
 - **`send`** can throw only if headers were already sent; nothing was sent before this point.
-- **Lane D's `listen` change** sits in other hunks (line 7, lines 239–244): a later intake of both applies without overlap. **Not tried here.**
+- **Lane D's `listen` change** sits in other hunks (line 7, lines 239–244). The aggregate meanwhile moved to `2b70ba9b`, which includes it and the notification fix. `git merge-tree --write-tree` (objects only; no ref, index or checkout) of this branch with `c678c64d`, and with `2b70ba9b`, reports no conflict.
 
-**Fixed tip:** the commit that adds this report, on `claude/ws03-http-bad-target-20261117` (3 paths on `8a1d799f`: `src/http.mjs`, `test/http-bad-target.test.mjs`, this report).
+**Fixed tip:** the latest commit on `claude/ws03-http-bad-target-20261117` (3 paths on `8a1d799f`: `src/http.mjs`, `test/http-bad-target.test.mjs`, this report).
 
 **Next, a finite list, not pursued:**
 1. With Lane D's `listen` change, a start-up error now rejects. The bin's top-level `await listen(...)` then ends the process with that error, which is the intended visible failure.
