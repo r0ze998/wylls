@@ -64,7 +64,13 @@ export class JsonStore {
         if (readSync(fd, last, 0, 1, size - 1) !== 1) throw new Error('archive: the last byte could not be read');
         if (last[0] !== 0x0a) sep = '\n';
       }
-      writeSync(fd, sep + line);
+      // writeSync answers how many bytes it wrote: a short write is not success. Anything less than the whole
+      // separator + record is refused before the sync, the index or the delete, so the operation stays in the main
+      // state; the bytes that did reach the file stay (append-only) as a cut tail, which the next archive closes with
+      // its separator, as above.
+      const bytes = Buffer.from(sep + line, 'utf8');
+      const wrote = writeSync(fd, bytes, 0, bytes.length);
+      if (wrote !== bytes.length) throw new Error(`archive: wrote ${wrote} of ${bytes.length} bytes; nothing moved`);
       fsyncSync(fd);
       this.#remember(op, size + sep.length, Buffer.byteLength(line) - 1);
     } finally { closeSync(fd); }

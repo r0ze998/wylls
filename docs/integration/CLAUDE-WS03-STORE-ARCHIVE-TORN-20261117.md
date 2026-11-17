@@ -34,7 +34,7 @@
   - if the last byte cannot be read, `archive` throws before writing anything.
 - **What is kept:**
   - No byte already in the file is changed, truncated or removed. The cut bytes become a separate line that the index still skips.
-  - The order is unchanged: append, then fsync, then index, then delete the hot copy (the caller saves). An exception before or during the write leaves the hot copy in place (`archiveFinished` logs "nothing moved").
+  - The order is unchanged: append, then fsync, then index, then delete the hot copy (the caller saves). For when an exception leaves the hot copy in place, see "Short writes" below.
   - A newline-terminated or empty archive gets no extra byte.
   - The in-memory store (no file) is unchanged.
   - Offsets stay in bytes (`fstat` size, `Buffer.byteLength`), so multi-byte text reads back exactly.
@@ -52,6 +52,23 @@ Imports: `node:` builtins and `src/store.mjs` only. Writes: only in its own new 
 | T3 | an empty archive file: no separator |
 | T4 | multi-byte notes before and after a torn tail, two appends, then a restart: each record reads back exactly; no blank line |
 | T5 | in memory: unchanged |
+| T6 | a short write (half the bytes) throws; the operation stays in the main state; the bytes before are unchanged and the half record stays; after a save and a restart it is read from the main file, also by `requestId` |
+| T7 | a zero-length write throws the same way |
+| T8 | a write one byte short (a whole record without its newline) throws; the retry appends on its own line; after a restart the operation is found once, by id, by `requestId` and in lists, with its multi-byte note intact |
+
+T6–T8 replace `fs.writeSync` for one archive call only (restored in `finally`, with `syncBuiltinESMExports` so that `store.mjs`'s imported binding sees it). The bytes are really written to the test's own temporary file.
+
+## Short writes (added 2026-11-17, second commit)
+
+`fs.writeSync` answers how many bytes it wrote ([Node docs](https://nodejs.org/api/fs.html#fswritesyncfd-string-position-encoding)), and the first commit did not check that. `archive()` now writes the separator and the record as one UTF-8 `Buffer` and compares the count with the buffer's byte length. **Anything less, zero included, throws** before `fsync`, the index and the delete.
+- **What stays in the file:** the bytes that were written. Append-only: nothing is truncated, rolled back or removed. They form a cut tail, which the next archive closes with its separator (this commit's first fix).
+- **Retry:** `archiveFinished` tries the operation again later. A short write that held the whole record without its newline becomes, once closed, a complete duplicate line of an operation that is still in the main state. The main copy wins, and the retry's later line replaces the index entry, so the operation is found once.
+
+**When a failure leaves the operation in the main state** (exactly):
+- an exception from `mkdirSync`, `openSync`, `fstatSync`, the last-byte `readSync` (or reading fewer than 1 byte), `writeSync`, a short or zero `writeSync`, or `fsyncSync`. All of these come before `#remember` and the delete.
+- **After a full write, if `fsync` throws:** the line may be on disk while the operation stays in the main state. That is the existing "left in both places" case: the main copy wins.
+- **Not covered:** `closeSync` throwing after a successful write and index (inside `finally`). The exception then propagates before the delete, so the operation also stays in the main state, but it is already indexed. This is again the "both places" case, and the main copy is read.
+- **The server's side** (unchanged, read only): `archiveFinished` saves only after its loop (`server.mjs:707-718`). If `archive` throws for the second of several operations, the first is already archived and deleted in memory, and is saved by the next save. The caller's log line "archive failed (nothing moved)" (`:819`) is therefore not exact for that first operation. That wording is outside the store and is noted, not changed.
 
 ## Static counter-review (once, read only)
 
@@ -73,10 +90,21 @@ Imports: `node:` builtins and `src/store.mjs` only. Writes: only in its own new 
    - No caller relies on the old open mode.
 5. **The aggregate moved meanwhile** (`ebc59477`: two documents and `12-device-runbook.ja.md`). It changes no file on this branch.
 
-**Result:** no further defect; no further change.
+**Result at that point:** no further defect found. A later review then found the unchecked `writeSync` count, which is fixed in the second commit ("Short writes").
 
 ## Not verified, and what remains
 
 - **Nothing was run:** neither the new regression nor `archive.test.mjs` (which imports `test/fixture.mjs` and the gateway world).
 - **No real store was opened.**
 - **Remaining for the user's MCP:** a real ChatGPT or Claude Code connection still needs its outside prerequisites (identity provider, tunnel or deployment, the wallet in the OAuth window, the plan), as recorded in the preflight reports.
+
+## Static counter-review of the short-write fix (once, read only)
+
+1. **Byte lengths:** the comparison uses the UTF-8 `Buffer` actually passed to `writeSync`, so multi-byte text cannot make it pass short. The index's offset (`size + sep.length`; `sep` is ASCII) and length (`Buffer.byteLength(line) - 1`) are as before.
+2. **Order:** the check sits between `writeSync` and `fsyncSync`. Nothing is indexed or deleted on a short count. The memory store's branch returns earlier and is untouched.
+3. **Append-only:** no `truncate`, `ftruncate`, positioned overwrite or removal anywhere in `archive()`. `'a+'` writes always go to the end.
+4. **No loop:** a short write is not continued with the rest. Continuing would make a record out of two writes with no way to tell, after a crash in between, which part belongs to which attempt. A refused archive is retried whole by the caller, and the cut tail is closed by the separator.
+5. **Error text:** byte counts only; no record content, id or path. The server logs it through `scrub`.
+6. **Other users of `writeSync` in `store.mjs`:** `save()` writes the main state to a temporary file and renames it. Its count is not checked either. That is outside this change and is noted: a short write there would make the next load's `JSON.parse` fail, not lose the archive. It is not changed here.
+
+**Final fixed tip:** given in the commit that adds this section.

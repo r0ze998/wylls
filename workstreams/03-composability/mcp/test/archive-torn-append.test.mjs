@@ -3,10 +3,12 @@
 // JsonStore.archive after a torn last line: a record appended after a crash-cut line must be on a line of its own, so
 // that after a restart it is still found by id, by requestId (the reconnect guard) and in lists; the bytes already in
 // the archive are never changed. KEY-FREE: imports src/store.mjs only (node:fs, node:path); writes only in its own new
-// temporary directory; no server, relay, network or key.
+// temporary directory; no server, relay, network or key. T6–T8 replace fs.writeSync for ONE archive call (restored in
+// `finally`, with syncBuiltinESMExports so store.mjs's imported binding sees it) to make a short or zero-length write.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import fs, { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JsonStore } from '../src/store.mjs';
@@ -74,4 +76,55 @@ test('T5 in memory (no file): unchanged', () => {
   s.archive(s.state.operations.op_1);
   assert.equal(s.operation('op_1').id, 'op_1');
   assert.equal(s.state.operations.op_1, undefined);
+});
+
+/** Runs `fn` with fs.writeSync writing at most `cap(len)` bytes of each write (really written, to the real file). */
+function withShortWrites(cap, fn) {
+  const real = fs.writeSync;
+  fs.writeSync = (fd, buf, off = 0, len = buf.length, pos) => real(fd, buf, off, Math.min(len, cap(len)), pos);
+  syncBuiltinESMExports();
+  try { return fn(); } finally { fs.writeSync = real; syncBuiltinESMExports(); }
+}
+
+test('T6 a short write is refused: no index, the operation stays in the main state, the written bytes stay', () => {
+  const file = fresh();
+  const s = new JsonStore(file);
+  archiveOne(s, op('op_1'));
+  const before = readFileSync(`${file}.archive.jsonl`);
+  s.state.operations.op_2 = op('op_2');
+  assert.throws(() => withShortWrites(len => Math.floor(len / 2), () => s.archive(s.state.operations.op_2)), /wrote \d+ of \d+ bytes/);
+  assert.equal(s.state.operations.op_2?.id, 'op_2', 'still in the main state');
+  const after = readFileSync(`${file}.archive.jsonl`);
+  assert.ok(after.subarray(0, before.length).equals(before) && after.length > before.length, 'append-only: half a record added, nothing earlier changed');
+  s.save();
+  const r = new JsonStore(file);
+  assert.equal(r.operation('op_2')?.id, 'op_2', 'read from the main file after a restart');
+  assert.deepEqual(r.operationsWithRequestId(['l1'], 'r-op_2'), ['op_2']);
+});
+
+test('T7 a zero-length write is refused the same way', () => {
+  const file = fresh();
+  const s = new JsonStore(file);
+  s.state.operations.op_1 = op('op_1');
+  assert.throws(() => withShortWrites(() => 0, () => s.archive(s.state.operations.op_1)), /wrote 0 of \d+ bytes/);
+  assert.equal(s.state.operations.op_1?.id, 'op_1');
+});
+
+test('T8 after a short write, the retry appends on its own line; a restart finds the operation once, by id and requestId', () => {
+  const file = fresh();
+  const s = new JsonStore(file);
+  archiveOne(s, op('op_1', { note: '前' }));
+  s.state.operations.op_2 = op('op_2', { note: '途中で切れる記録' });
+  assert.throws(() => withShortWrites(len => len - 1, () => s.archive(s.state.operations.op_2)));
+  s.save();
+  const cut = readFileSync(`${file}.archive.jsonl`);
+  assert.notEqual(cut[cut.length - 1], 0x0a, 'the cut tail has no newline');
+  s.archive(s.state.operations.op_2); // the next archiveFinished: real writes again
+  s.save();
+  const after = readFileSync(`${file}.archive.jsonl`);
+  assert.ok(after.subarray(0, cut.length).equals(cut), 'nothing earlier changed');
+  const r = new JsonStore(file);
+  assert.equal(r.operation('op_2')?.note, '途中で切れる記録');
+  assert.deepEqual(r.operationsWithRequestId(['l1'], 'r-op_2'), ['op_2'], 'one id, not two');
+  assert.deepEqual(r.operationsOf(['l1'], 10).map(o => o.id).sort(), ['op_1', 'op_2']);
 });
