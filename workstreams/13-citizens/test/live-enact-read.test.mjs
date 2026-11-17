@@ -20,11 +20,11 @@ const worldFromSeason = s => ({ world: s.continuous ? { cluster: s.cluster, worl
 const heraldSeason = (o = {}) => ({ programId: 'Prog', season: '90', seasonAddress: 'Sea', cluster: 'localnet', genesisTs: 1_799_000_000, bellSecs: 600, continuous: true, ...o });
 
 /** The board enactRespond posts to: 502 (unknown, kept as sending) or 200. */
-function postBoard(status = 502) {
+function postBoard(status = 502, config = { season: { programId: 'Prog', seasonId: '90' }, cluster: 'localnet' }) {
   const fetchImpl = async (url, init = {}) => {
     const p = new URL(url).pathname;
     if (init.method === 'POST') return { status, json: async () => (status === 200 ? { ok: true } : null) };
-    const j = p === '/coop/config' ? { season: { programId: 'Prog', seasonId: '90' }, cluster: 'localnet' } : { requests: [{ id: 'r1', responses: {} }] };
+    const j = p === '/coop/config' ? config : { requests: [{ id: 'r1', responses: {} }] };
     return { status: 200, json: async () => j };
   };
   return { fetchImpl };
@@ -66,11 +66,11 @@ test('a sending line: unknown until the view shows its record id for this reques
     const before = journalText(dir), stateBefore = readFileSync(path.join(dir, 'state.json'), 'utf8');
     const r0 = await read(dir, readSide({ view: { requests: [{ id: 'r1', responses: {} }] } }));
     assert.equal(r0.kind, READ_KIND);
-    assert.deepEqual(r0.lines.map(l => [l.request, l.journal, l.result]), [['r1', 'sending', 'unknown']]);
+    assert.deepEqual(r0.lines.map(l => [l.request, l.journal.state, l.result, l.board.read, l.board.seen]), [['r1', 'sending', 'unknown', true, false]], "the journal's word and the board's view kept apart");
     assert.match(r0.lines[0].why, /whether it arrived is not known/);
     const side = readSide({ view: { requests: [{ id: 'r1', responses: { [WALLET]: { id: e.recordId } } }] } });
     const r1 = await read(dir, side);
-    assert.deepEqual([r1.ok, r1.lines[0].result, r1.lines[0].recordId], [true, 'confirmed', e.recordId]);
+    assert.deepEqual([r1.ok, r1.lines[0].result, r1.lines[0].journal.recordId, r1.lines[0].board.seen], [true, 'confirmed', e.recordId, true]);
     assert.deepEqual(side.calls.map(c => [c.method, c.at]), [['GET', `${HERALD}/h/season`], ['GET', `${BOARD}/coop/config`], ['GET', `${BOARD}/coop/view`]]);
     assert.equal(journalText(dir), before, 'the journal is not updated');
     assert.equal(readFileSync(path.join(dir, 'state.json'), 'utf8'), stateBefore, 'state.json is not written');
@@ -111,23 +111,41 @@ test('no world, another world or clock, or the board in another world: no line c
     for (const season of [heraldSeason({ season: '91' }), heraldSeason({ bellSecs: 300 })]) {
       const r = await read(dir, readSide({ season, config: { season: { programId: 'Prog', seasonId: String(season.season) }, cluster: 'localnet' } }));
       assert.equal(r.lines[0].result, 'held');
-      assert.match(r.lines[0].why, /another wallet, board, world or clock/);
+      assert.match(r.lines[0].why, /another world or clock than the one now/);
     }
-    const other = await read(dir, readSide(), { boardUrl: 'http://other-board.test' });
-    assert.equal(other.lines[0].result, 'held', 'another board in the same world: the line was made for this board');
-    assert.match(other.lines[0].why, /another wallet, board, world or clock/);
+    // another board or wallet than the line's: held from the journal alone, nothing read outside
+    for (const o of [{ boardUrl: 'http://other-board.test' }, { wallet: 'Other1111111111111111111111111111' }]) {
+      const side = readSide();
+      const other = await read(dir, side, o);
+      assert.equal(other.lines[0].result, 'held');
+      assert.match(other.lines[0].why, /another wallet or board than the ones given/);
+      assert.deepEqual(side.calls, [], 'no read outside');
+    }
   });
 });
 
-test('posted and refused as the journal says; an intent only is not taken further; a changed line is held', async () => {
+test('posted, refused, signed-not-posted, intent, a changed line: answered from the journal alone, nothing read outside', async () => {
   await withResident(async dir => {
-    const p = await enact(dir, postBoard(200));
-    const r = await read(dir, readSide({ view: { requests: [{ id: 'r1', responses: { [WALLET]: { id: p.recordId } } }] } }));
-    assert.deepEqual([r.lines[0].result, r.lines[0].board], ['posted', 'seen']);
+    await enact(dir, postBoard(200));
+    const side = readSide();
+    const r = await read(dir, side);
+    assert.deepEqual([r.lines[0].result, r.lines[0].journal.state, r.lines[0].board.read], ['posted', 'posted', false]);
+    assert.deepEqual(side.calls, [], 'a posted line needs no read');
+    assert.match(r.read, /nothing outside/);
     const j = JSON.parse(journalText(dir)); j.lines['respond:r1'].record.nation = 4; writeFileSync(path.join(dir, 'live-enact.json'), JSON.stringify(j));
-    const t = await read(dir, readSide());
+    const side2 = readSide();
+    const t = await read(dir, side2);
     assert.equal(t.lines[0].result, 'held');
     assert.match(t.lines[0].why, /not intact/);
+    assert.deepEqual(side2.calls, []);
+  });
+  await withResident(async dir => {   // signed, then held before posting (the board in another Season at that time)
+    const e = await enact(dir, postBoard(502, { season: { programId: 'Prog', seasonId: '91' }, cluster: 'localnet' }));
+    assert.match(e.why, /signed, not posted/);
+    const side = readSide();
+    const r = await read(dir, side);
+    assert.deepEqual([r.lines[0].result, r.lines[0].journal.state, r.lines[0].board.read], ['signed-not-posted', 'signed', false], 'never raised to a submission');
+    assert.deepEqual(side.calls, []);
   });
   await withResident(async dir => {
     const e = await enact(dir, postBoard(502), { signer: signer(true) });   // the intent is saved, then the signer declines
@@ -135,14 +153,19 @@ test('posted and refused as the journal says; an intent only is not taken furthe
     const side = readSide();
     const r = await read(dir, side);
     assert.equal(r.lines[0].result, 'intent');
+    assert.deepEqual(side.calls, [], 'an intent needs no read');
     assert.equal(JSON.parse(journalText(dir)).lines['respond:r1'].state, 'intended', 'not taken further');
   });
 });
 
-test('no journal: nothing to read; a lock there is only looked at, never read, taken or removed', async () => {
+test('no journal now: said as that only (no evidence of nothing enacted), nothing read outside; a lock is only looked at', async () => {
   await withResident(async dir => {
-    const none = await read(dir, readSide());
-    assert.deepEqual([none.ok, none.lines], [true, []]);
+    const side0 = readSide();
+    const none = await read(dir, side0);
+    assert.deepEqual([none.ok, none.journal, none.lines], [true, 'not there now', []]);
+    assert.match(none.why, /whether anything was enacted before .* is not known/);
+    assert.match(none.why, /no evidence that nothing was enacted or sent/);
+    assert.deepEqual(side0.calls, []);
     await enact(dir, postBoard(502));
     writeFileSync(path.join(dir, 'live-enact.json.lock'), 'held by someone');
     const r = await read(dir, readSide());
@@ -152,11 +175,13 @@ test('no journal: nothing to read; a lock there is only looked at, never read, t
   });
 });
 
-test('as text: GET only; no key, signer, proposal, observation, lock taking, write or clock', () => {
+test('as text: GET only, and only for sending lines; no key, signer, proposal, observation, lock taking, write or clock', () => {
   const src = readFileSync(new URL('../resident/live/enact-read.mjs', import.meta.url), 'utf8').replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '');
   assert.doesNotMatch(src, /method: 'POST'|\.post\(|signRecord|signMessage|writeFileSync|createStateStore|takeJournalLock|releaseJournalLock|unlinkSync|openSync|renameSync|rmSync|enactRespond\(|observeLive|liveCandidates|liveStep|Date\.now|loadOrCreateKey/);
   assert.match(src, /import \{ JOURNAL, LOCK, LINE_STATES, sameBinding, lineProblem, boardWorldIs \} from '\.\/enact\.mjs';/, "enact.mjs's own checks");
   assert.match(src, /lstatSync\(path\.join\(real, LOCK\)\)/, 'the lock: metadata only');
+  assert.ok(src.indexOf('if (!toCheck.length) return') < src.indexOf('await worldNow('), 'nothing read outside unless a sending line needs it');
+  assert.doesNotMatch(src, /nothing was enacted from this directory/, 'no claim from a missing journal');
   const enactSrc = readFileSync(new URL('../resident/live/enact.mjs', import.meta.url), 'utf8');
   assert.match(enactSrc, /export \{ JOURNAL, LOCK, LINE_STATES, sameBinding, lineProblem, boardWorldIs \};/);
 });
