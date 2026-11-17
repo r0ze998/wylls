@@ -8,7 +8,16 @@
 // 結ぶのは一つに決まり、世界が今の板の世界と同じものだけ。進捗に別の文脈（前の世界）の依頼が混ざるときは、どの世界の進捗かが
 // 一つに決まらないので結ばない（「分からない」と言う）。同じ座標・同じ名前だから同じ、とは推し量らない。
 
-export const sameCtx = (c, s) => !!c && !!s && typeof c.programId === 'string' && c.programId === s.programId && String(c.seasonId) === String(s.seasonId);
+// （2026-11-18）世界が読めないもの（programId が空・文字でない、seasonId が無い・null・空・文字か有限の数でない）は同じと言わない：
+// 両方とも無い（String(undefined) どうし）を同じ世界にしない。数の 90 と文字の '90'、0 はこれまでどおり。物は文字にしない。
+// 空白だけの文字も読めない（trim は空かを見るだけ。比べるのは元の文字のまま）。
+const blank = v => v.trim() === '';
+const seasonKey = v => (typeof v === 'string' ? (blank(v) ? null : v) : typeof v === 'number' && Number.isFinite(v) ? String(v) : null);
+export const sameCtx = (c, s) => {
+  if (!c || !s || typeof c.programId !== 'string' || blank(c.programId) || c.programId !== s.programId) return false;
+  const a = seasonKey(c.seasonId), b = seasonKey(s.seasonId);
+  return a !== null && a === b;
+};
 
 /** goalId と依頼した人で決まる、同じ協力の進捗に足される依頼（view.requests から）。 */
 const groupOf = (view, goalId, host) => (Array.isArray(view?.requests) ? view.requests.filter(x => x.goalId === goalId && x.requester === host) : []);
