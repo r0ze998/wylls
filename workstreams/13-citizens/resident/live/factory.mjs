@@ -132,18 +132,26 @@ export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wal
       // frame could decide it: then one GET of /h/season (world and clock), nothing else. Otherwise nothing is read,
       // and when not stopped the step goes on as before (its keys are not used: only stop-A reads results).
       const fs = { readText: p => readFileSync(p, 'utf8'), exists: existsForHalt };
-      let rs = readResidentState({ dir: residentDir, wallet, fs });
-      let live = null;
-      if (rs.stop && execution?.origin && rs.submitted.held.some(h => h.needsLive)) {
+      const first = readResidentState({ dir: residentDir, wallet, fs });
+      // (2026-11-17) the stop for this WHOLE call: the caller's and the one first read, kept; a later read can only add
+      // one (a stop that clears during the call does not let it observe, decide or plan)
+      const stops = [stop, first.stop].filter(Boolean);
+      let rs = first, live = null, later = null;
+      if (stops.length && execution?.origin && first.submitted.held.some(h => h.needsLive)) {
         live = { world: null, clock: null, execution: execution.origin, read: 'herald /h/season (world and clock only, to match submitted keys)' };
         try {
           const s = await herald.get('/h/season');
           if (s.status >= 200 && s.status < 300 && s.json) { const w = worldFromSeason(s.json); if (w.world) { live.world = w.world; live.clock = clockId(seasonClock(w.clock)); } }
         } catch { /* not known: every key stays held */ }
-        rs = readResidentState({ dir: residentDir, wallet, fs, live });
+        later = readResidentState({ dir: residentDir, wallet, fs, live });
+        if (later.stop) stops.push(later.stop);
+        rs = later;
       }
-      const r = await liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop: rs.stop ?? stop, submittedKeys: rs.submitted.keys, authority });
-      return { ...r, resident: { stop: rs.stop, facts: rs.facts, live, submittedRead: rs.submitted.keys, submittedHeld: rs.submitted.held, submittedWhy: rs.submitted.why, unsent: rs.unsent } };
+      const effective = stops.length ? { why: stops[0].why ?? 'stopped', reasons: stops.map(x => x.why ?? 'stopped') } : null;
+      // keys only from a read that matched them against the live frame, and only while stopped (stop-A)
+      const keys = effective && later ? later.submitted.keys : [];
+      const r = await liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop: effective, submittedKeys: keys, authority });
+      return { ...r, resident: { stop: effective, callerStop: stop, firstStop: first.stop, laterStop: later ? later.stop : undefined, facts: rs.facts, live, submittedRead: keys, submittedHeld: rs.submitted.held, submittedWhy: rs.submitted.why, unsent: rs.unsent } };
     },
   });
 }

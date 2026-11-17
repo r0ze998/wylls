@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readResidentState, provenanceMismatch, provenanceComplete, STATE_VERSION } from '../resident/live/resident-state.mjs';
+import { bindingMismatchOf } from '../resident/resident.mjs';
+import { MOCK_WORLD, MOCK_CLOCK, clockId } from '../resident/frame.mjs';
 
 const ME = 'Me1111111111111111111111111111111';
 
@@ -65,8 +67,8 @@ test('resident state reader: pinned to resident.mjs; reads no key, writes nothin
   assert.doesNotMatch(rs, /resident\.key|writeFile|appendFile|rename|mkdir|unlink|new Resident|loadOrCreateKey|\.save\(|setMode|from 'node:fs'/);
   const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
   const step = f.slice(f.indexOf('step: async ({'));
-  assert.match(step, /const fs = \{ readText: p => readFileSync\(p, 'utf8'\), exists: existsForHalt \};\n      let rs = readResidentState\(\{ dir: residentDir, wallet, fs \}\);/, 'read at step(), not at creation; the files first');
-  assert.match(step, /stop: rs\.stop \?\? stop, submittedKeys: rs\.submitted\.keys/, 'a caller may add a stop, never clear the resident\'s; only the resident\'s keys');
+  assert.match(step, /const fs = \{ readText: p => readFileSync\(p, 'utf8'\), exists: existsForHalt \};\n      const first = readResidentState\(\{ dir: residentDir, wallet, fs \}\);/, 'read at step(), not at creation; the files first');
+  assert.match(step, /stop: effective, submittedKeys: keys/, 'a caller may add a stop, never clear the resident\'s; only the resident\'s keys');
   assert.doesNotMatch(f.slice(0, f.indexOf('step: async ({')), /readResidentState\(|readFileSync\(/, 'nothing read before step() (existsForHalt is only defined there, called from step)');
 });
 
@@ -153,15 +155,15 @@ test('resident.mjs (as text): provenance only at a new line\'s creation, before 
 test('factory (as text): the files first; the world is read only for a stopped resident whose keys need it', () => {
   const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
   const step = f.slice(f.indexOf('step: async ({'));
-  const gate = "if (rs.stop && execution?.origin && rs.submitted.held.some(h => h.needsLive)) {";
+  const gate = "if (stops.length && execution?.origin && first.submitted.held.some(h => h.needsLive)) {";
   assert.ok(step.includes(gate));
-  assert.ok(step.indexOf('let rs = readResidentState({ dir: residentDir, wallet, fs });') < step.indexOf(gate), 'the files are read before any network read');
+  assert.ok(step.indexOf('const first = readResidentState({ dir: residentDir, wallet, fs });') < step.indexOf(gate), 'the files are read before any network read');
   assert.equal(step.split("herald.get('/h/season')").length - 1, 1, 'one world read');
-  assert.ok(step.indexOf("herald.get('/h/season')") > step.indexOf(gate) && step.indexOf("herald.get('/h/season')") < step.indexOf('rs = readResidentState({ dir: residentDir, wallet, fs, live });'), 'only inside the gate');
+  assert.ok(step.indexOf("herald.get('/h/season')") > step.indexOf(gate) && step.indexOf("herald.get('/h/season')") < step.indexOf('later = readResidentState({ dir: residentDir, wallet, fs, live });'), 'only inside the gate');
   assert.match(step, /const w = worldFromSeason\(s\.json\); if \(w\.world\) \{ live\.world = w\.world; live\.clock = clockId\(seasonClock\(w\.clock\)\); \}/);
   assert.match(step, /\} catch \{ \/\* not known: every key stays held \*\/ \}/);
   assert.match(step, /read: 'herald \/h\/season \(world and clock only, to match submitted keys\)'/, 'the read is said as what it is');
-  assert.match(step, /stop: rs\.stop \?\? stop, submittedKeys: rs\.submitted\.keys/);
+  assert.match(step, /stop: effective, submittedKeys: keys/);
 });
 
 // (2026-11-17, fourth tip; WRITTEN ONLY, NOT RUN) a line's binding checked before each use of its key; the frame read only when needed
@@ -182,8 +184,7 @@ test('resident.mjs (as text): the binding is checked right before every use of a
   const res = readFileSync(new URL('../resident/resident.mjs', import.meta.url), 'utf8');
   const bm = res.slice(res.indexOf('  #bindingMismatch(it) {'), res.indexOf('\n  }\n', res.indexOf('  #bindingMismatch(it) {')));
   assert.match(bm, /if \(!it \|\| !\('provenance' in it\)\) return null;/, 'an older line keeps the old behaviour');
-  assert.match(bm, /it\.port === 'action' && !sameExec\(p\.execution \?\? null, now\.execution\)/);
-  assert.match(bm, /typeof a\.kind === 'string' && typeof b\.kind === 'string' && a\.kind !== b\.kind/, 'a kind label alone never makes two registries the same');
+  assert.match(bm, /const why = bindingMismatchOf\(it\.provenance, this\.#provenance\(\), it\.port\);/, 'the rule is bindingMismatchOf');
   assert.doesNotMatch(bm, /it\.state\s*=|Object\.assign\(it|provenance\s*=/, 'holds without changing the state or the record');
   const run = res.slice(res.indexOf('  async #run(it) {'));
   const at = t => { const i = run.indexOf(t); assert.ok(i >= 0, t); return i; };
@@ -194,4 +195,49 @@ test('resident.mjs (as text): the binding is checked right before every use of a
   assert.ok(rec.indexOf('if (this.#bindingMismatch(it)) continue;') < rec.indexOf('await this.ports.execution.status(it.sendKey)'), 'reconcile reads only through the same ports');
   const cancel = res.slice(res.indexOf('  async cancelAction(key'));
   assert.ok(cancel.indexOf("return { key, refused: 'BindingMismatch', why }") < cancel.indexOf('it.cancelRequested = {') && cancel.indexOf('it.cancelRequested = {') < cancel.indexOf('await this.ports.execution.cancel('), 'a cancel through other ports is refused before anything changes');
+});
+
+// (2026-11-17, third tip; WRITTEN ONLY, NOT RUN) unknown never matches unknown; the explicit mock contract apart; the stop for the whole call
+const MOCK = (o = {}) => ({ v: 1, world: { cluster: MOCK_WORLD.cluster, world_id: null }, clock: clockId(MOCK_CLOCK), execution: null, identity: 'ws13-test:asa', ...o });
+const REAL = (o = {}) => ({ v: 1, world: { cluster: 'localnet', world_id: 'Prog/Sea' }, clock: 'season-bell:1000:60', execution: { registry: 'runexec:/srv/acts.sqlite', agentId: 'asa', kind: 'workstream 4 act registry' }, identity: ME, ...o });
+
+test('bindingMismatchOf: the explicit mock contract matches only itself; a real binding must be complete on both sides', () => {
+  assert.equal(bindingMismatchOf(MOCK(), MOCK(), 'action'), null, 'the test world: no origin on either side');
+  assert.equal(bindingMismatchOf(MOCK(), MOCK(), 'board'), null);
+  assert.match(bindingMismatchOf(MOCK(), MOCK({ execution: REAL().execution }), 'action'), /another execution/, 'an origin declared on one side only');
+  assert.match(bindingMismatchOf(MOCK(), REAL({ identity: 'ws13-test:asa' }), 'action'), /test world and used in another/);
+  assert.match(bindingMismatchOf(REAL(), MOCK({ identity: ME }), 'board'), /test world and used in another/);
+  assert.equal(bindingMismatchOf(REAL(), REAL(), 'action'), null);
+  assert.equal(bindingMismatchOf(REAL({ execution: null }), REAL({ execution: null }), 'board'), null, 'a board line needs no execution origin');
+  const unknownWorld = { v: 1, world: null, clock: null, execution: null, identity: ME };
+  assert.match(bindingMismatchOf(unknownWorld, unknownWorld, 'board'), /unknown never matches unknown/);
+  assert.match(bindingMismatchOf(unknownWorld, unknownWorld, 'action'), /unknown never matches unknown/);
+  assert.match(bindingMismatchOf(REAL({ world: { cluster: 'localnet', world_id: null } }), REAL({ world: { cluster: 'localnet', world_id: null } }), 'action'), /not declared/, 'a null world_id outside the mock contract');
+  assert.match(bindingMismatchOf(REAL({ clock: null }), REAL({ clock: null }), 'action'), /not declared/);
+  assert.match(bindingMismatchOf(REAL({ execution: null }), REAL({ execution: null }), 'action'), /not declared, or is another/, 'an action line needs a declared origin');
+  assert.match(bindingMismatchOf(REAL({ execution: { kind: 'workstream 4 act registry' } }), REAL({ execution: { kind: 'workstream 4 act registry' } }), 'action'), /not declared/, 'a kind label alone is not a registry');
+  assert.match(bindingMismatchOf(REAL(), REAL({ execution: { ...REAL().execution, kind: 'test-world (mock)' } }), 'action'), /another/);
+  assert.match(bindingMismatchOf(REAL(), REAL({ world: { cluster: 'devnet', world_id: 'Prog/Sea' } }), 'action'), /another world/);
+  assert.match(bindingMismatchOf(REAL(), REAL({ clock: 'season-bell:1000:30' }), 'action'), /another clock/);
+  assert.match(bindingMismatchOf(REAL(), REAL({ identity: 'Other' }), 'action'), /another identity/);
+  assert.match(bindingMismatchOf(REAL({ identity: null }), REAL({ identity: null }), 'board'), /none declared/);
+  assert.match(bindingMismatchOf(null, REAL(), 'action'), /unreadable/);
+});
+
+test('longrun (as text): its observe wrapper keeps the port\'s own declaration', () => {
+  const t = readFileSync(new URL('./longrun.test.mjs', import.meta.url), 'utf8');
+  assert.match(t, /r\.ports\.observe = Object\.assign\(async \(a, since\) => \{[^\n]*\}, \{ world: inner\.world, clock: inner\.clock \}\);/);
+});
+
+test('factory (as text): the stop for the whole call is the caller\'s, the first read\'s and any later one; it never clears; the world read is for keys only', () => {
+  const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
+  const step = f.slice(f.indexOf('step: async ({'));
+  assert.match(step, /const stops = \[stop, first\.stop\]\.filter\(Boolean\);/, 'the caller\'s stop and the first read\'s, kept');
+  assert.match(step, /if \(stops\.length && execution\?\.origin && first\.submitted\.held\.some\(h => h\.needsLive\)\) \{/, 'a caller\'s stop also allows the world read for matching keys');
+  assert.match(step, /if \(later\.stop\) stops\.push\(later\.stop\);/, 'a later stop is added');
+  assert.doesNotMatch(step, /stops\s*=\s*\[\]|stops\.(pop|shift|splice)\(|stops\.length\s*=/, 'never cleared');
+  assert.match(step, /const effective = stops\.length \? \{ why: stops\[0\]\.why \?\? 'stopped', reasons: stops\.map\(x => x\.why \?\? 'stopped'\) \} : null;/);
+  assert.match(step, /const keys = effective && later \? later\.submitted\.keys : \[\];/, 'keys only from a read matched against the live frame');
+  assert.match(step, /stop: effective, submittedKeys: keys/);
+  assert.match(step, /resident: \{ stop: effective, callerStop: stop, firstStop: first\.stop, laterStop: later \? later\.stop : undefined/, 'the returned stop is the one acted on, with each source');
 });
