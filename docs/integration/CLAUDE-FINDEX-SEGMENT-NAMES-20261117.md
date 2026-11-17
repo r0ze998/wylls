@@ -1,6 +1,6 @@
 # findex archive: a manifest's segment names are checked before the open writes anything (2026-11-17)
 
-**Branch:** `claude/findex-segment-names-20261117`, on the aggregate `claude/aggregate-approved-20261117` at `c7c1b1c5`. It is independent of the held directory-sync unit (`142c1cdb`): this branch does not contain that change.
+**Branch:** `claude/findex-segment-names-20261117`, on the aggregate `claude/aggregate-approved-20261117` at `fd1367e1` (findex is the same as at `c7c1b1c5`). It is independent of the held directory-sync unit (`142c1cdb`): this branch does not contain that change.
 
 **Static change, NOT run:**
 - no `cargo`, test or build;
@@ -86,10 +86,10 @@
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/findex-segment-names-20261117` on `c7c1b1c5`, all `100644`:
+**Unit:** `claude/findex-segment-names-20261117` on `fd1367e1`, all `100644`:
 - `frontier-node/crates/findex/src/archive.rs` (M)
 - `docs/integration/CLAUDE-FINDEX-SEGMENT-NAMES-20261117.md` (A)
 
 **Not run:** anything.
 
-**Combining with the directory-sync unit,** if both are adopted: both add test blocks at the end of `archive.rs` `mod tests` and a paragraph to the module note. The merge needs both kept. Their helpers have different names (`SegnameRoot`/`segname_root` here, `OwnedRoot`/`owned_root` there), so both compile side by side.
+**Combining with the directory-sync unit,** if both are adopted: this unit's module-note paragraph and test block sit at other places than that unit's (after the crash-safety paragraph; after the tests' `tmp` helper), and their helpers have different names (`SegnameRoot`/`segname_root` here, `OwnedRoot`/`owned_root` there). So `git merge-tree` of the two is clean (recorded at save).
