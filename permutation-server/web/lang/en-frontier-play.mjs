@@ -328,6 +328,13 @@ export default {
   '国をまたぐ依頼の板を読み込めませんでした（{0}）。もう一度読み込むと、また確かめます': 'The board of requests across nations could not be loaded ({0}). It will be checked again on the next load',
   'この依頼の板は、別の世界（シーズン）のものです': 'This board of requests belongs to another world (season)',
   '村を選ぶと、その村を届け先にして開けます': 'Choose a village to open it with that village as the destination',
+  // (2026-11-17) the requests to this village, from 01's board view (hud/coopboard.mjs villageRequests)
+  'この村あての依頼を読み込んでいます…': 'Loading the requests to this village…',
+  'この村あての依頼を読み込めませんでした（{0}）': 'The requests to this village could not be loaded ({0})',
+  'この村あての依頼はありません': 'No requests to this village',
+  'この村あての依頼が、この世界のものか確かめられません': 'Whether the requests to this village are of this world cannot be checked',
+  'この村あての依頼 {0} 件（受付中 {1}）': 'Requests to this village: {0} ({1} open)',
+  '依頼量に届いた（下限で証明）{0}・判定できない {1}・届かなかった {2}・まだ隊商がない {3}': 'Reached the amount asked (proven by the lower bound) {0} · cannot be judged {1} · not reached {2} · no caravan yet {3}',
   // workstream 07: 04's seven states of a signed send (hud/statusview.mjs sendView)
   '送られていません': 'Not sent',
   '何も送られていないため、効果はありません（確定）': 'Nothing was sent, so it had no effect (final)',
