@@ -265,6 +265,8 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
     }
 
     /// `/h/season` (shared, cached for `cache_ttl`); feeds the game clock.
+    /// A season whose herald has no read time yet is an error, like no
+    /// season ([`herald_read_time`]): it is neither observed nor cached.
     pub async fn season(&self) -> Result<SeasonView, String> {
         if let Some((at, v)) = &self.cache.lock().expect("cache").season {
             if self.fresh(*at) {
@@ -279,7 +281,8 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
             .ok_or("/h/season: 404 (no season yet)")?;
         let v: Value = serde_json::from_slice(&b).map_err(|e| e.to_string())?;
         let s = SeasonView::from_json(&v).map_err(|e| e.to_string())?;
-        self.clock.observe(s.latest_slot, s.latest_unix);
+        let (slot, unix) = herald_read_time(&s)?;
+        self.clock.observe(slot, unix);
         self.cache.lock().expect("cache").season = Some((Instant::now(), s.clone()));
         Ok(s)
     }
@@ -306,6 +309,30 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
             .insert(ring, (Instant::now(), v.clone()));
         v
     }
+}
+
+/// The herald's `(latestSlot, latestUnix)`, or why it has none (2026-11-17).
+///
+/// A herald that has read no block time yet answers `latestUnix` 0: its view
+/// is `f.live.map_or(f.st.last_time, …)` (herald `views.rs`), and the fold's
+/// `last_time` is 0 until a block time is folded (`latestSlot` likewise). That
+/// is not a game time. Observed, the `(0, 0)` sample and the next real one
+/// would measure a scale of the real `latestUnix` over the wall seconds
+/// between the two reads (`GameClock::observe`: the restart on a scale
+/// change needs two samples first): the fleet's clock far ahead of the
+/// chain, every bot at `now >= until` until a third distinct read. And
+/// `--game-hours` set `until` to `0 + hours`, already past at the first real
+/// time, so the fleet ended there. (Derived from the code, not seen in a
+/// run.) As an error the callers wait as they do for no season: the start-up
+/// loop and each bot's first read retry, and no decision is made on it.
+pub fn herald_read_time(s: &SeasonView) -> Result<(u64, i64), String> {
+    if s.latest_unix <= 0 {
+        return Err(format!(
+            "/h/season: the herald has no read time yet (latestUnix {}); read it again later",
+            s.latest_unix
+        ));
+    }
+    Ok((s.latest_slot, s.latest_unix))
 }
 
 impl<H, R, D> Shared<H, R, D> {
