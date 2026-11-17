@@ -804,6 +804,11 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     const reply = result => (notification ? null : { jsonrpc: '2.0', id: msg.id, result });
     const error = (code, message) => (notification ? null : { jsonrpc: '2.0', id: msg.id, error: { code, message } });
     const invalid = () => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32600, message: 'invalid request' } });
+    // (2026-11-17) MCP 2025-06-18 basic/Requests: a request's id MUST be a string or an integer, and MUST NOT be null.
+    // An id that is present and is neither (null, a boolean, a fraction, an array, an object) is refused before anything
+    // is dispatched, -32600 with id null: the bad id is not echoed. An absent id is a notification (below).
+    const badId = msg !== null && typeof msg === 'object' && msg.id !== undefined && typeof msg.id !== 'string' && !Number.isInteger(msg.id);
+    if (badId) return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid request: id must be a string or an integer' } };
     if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return invalid();
     const notification = msg.id === undefined;
     switch (msg.method) {
