@@ -219,7 +219,9 @@ export class Game {
     const rows = names.map((resource, i) => {
       const s = view.village.stores[i];
       const short = Math.max(0, need[i] - s.have);
-      return { resource, need: need[i], have: s.have, short, perHour: s.perHour, hoursByProduction: short === 0 ? 0 : s.perHour > 0 ? Math.round((short / s.perHour) * 10) / 10 : null };
+      // hoursByProduction: nothing short → 0; no production → null; else short / perHour, NOT rounded (2026-11-17: the 0.1 h
+      // rounding gave 0 while short > 0 whenever perHour > 20 × short, e.g. short 1 at 40/h — the value that means "nothing short")
+      return { resource, need: need[i], have: s.have, short, perHour: s.perHour, hoursByProduction: short === 0 ? 0 : s.perHour > 0 ? short / s.perHour : null };
     }).filter(r => r.need > 0);
     const sources = view.places.filter(pl => pl.kind === 'vault' && pl.known).map(pl => ({ placeId: pl.placeId,
       covers: rows.filter(r => r.short > 0).map(r => ({ resource: r.resource, available: pl.stores[names.indexOf(r.resource)].have, short: r.short })).filter(c => c.available > 0) })).filter(s => s.covers.length);
