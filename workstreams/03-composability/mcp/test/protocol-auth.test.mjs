@@ -64,7 +64,9 @@ test('initialize negotiates a supported version; tools/list: one operation per t
     assert.equal(init.json.result.protocolVersion, '2025-06-18');
     assert.ok(init.headers['mcp-session-id']);
     assert.ok(init.json.result.instructions.length <= 512, 'the instructions fit the 512 characters ChatGPT surfaces first');
-    assert.equal((await m.rpc('initialize', { protocolVersion: '1999-01-01' })).json.result.protocolVersion, '2025-11-25');
+    // An unknown version string with otherwise valid params: the latest supported version (2026-11-17: the params are
+    // complete, so this stays the fallback case and not an invalid-params one).
+    assert.equal((await m.rpc('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 't', version: '0' } })).json.result.protocolVersion, '2025-11-25');
     const list = (await m.rpc('tools/list')).json.result.tools;
     assert.deepEqual(list.map(t => t.name), TOOLS.map(t => t.name));
     for (const t of list) {
