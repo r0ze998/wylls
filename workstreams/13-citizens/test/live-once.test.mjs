@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { onceConfig, runOnce, summarizeStep, RESULT_KIND } from '../resident/live/once.mjs';
-import { main, inputOf } from '../bin/live-once.mjs';
+import { main, inputOf, exitOf } from '../bin/live-once.mjs';
 
 const ME = 'Me1111111111111111111111111111111';
 const OK = { heraldUrl: 'http://127.0.0.1:8080', wallet: ME, residentDir: '/srv/resident-a' };
@@ -109,4 +109,46 @@ test('as text: one step only; no timer, loop, signing or sending; the command ru
   assert.match(once, /provider: null, allow: \{\}, authority: \{\}/);
   assert.match(bin, /if \(process\.argv\[1\] && import\.meta\.url === pathToFileURL\(process\.argv\[1\]\)\.href\) process\.exitCode = await main\(\);/);
   assert.equal((bin.match(/await main\(/g) ?? []).length, 1);
+});
+
+// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN) the API checks its own settings: a direct call never reaches make, step or fetch
+test('runOnce called directly with invalid settings: config-missing, and nothing made, stepped or fetched', async () => {
+  let makes = 0, steps = 0, fetches = 0;
+  const make = () => { makes += 1; return { step: async () => { steps += 1; return {}; } }; };
+  const fetchImpl = async () => { fetches += 1; throw new Error('never'); };
+  const acts = { bin: '/b', db: '/d', registry: 'runexec-store:/srv/runs.db', agentId: 'asa' };
+  const bad = [
+    undefined, null, 'x', [], {}, { ...OK, residentDir: undefined }, { ...OK, residentDir: '' }, { ...OK, residentDir: 7 }, { ...OK, wallet: '' },
+    { ...OK, provider: { charges: false, decide: () => ({ choice: 'wait' }) } }, { ...OK, allow: { model: true } }, { ...OK, authority: { sendSign: true } }, { ...OK, execution: { status: async () => null } },
+    { ...OK, rpc: { url: 'http://r', cluster: 'localnet' } }, { ...OK, rpc: { url: 'http://r', cluster: 'localnet', source: 's', extra: 1 } }, { ...OK, rpc: 'http://r' },
+    { ...OK, actsStatus: { ...acts, bridge: 'yes' } }, { ...OK, actsStatus: { ...acts, registry: 'two words' } }, { ...OK, actsStatus: { ...acts, registry: '' } },
+    { ...OK, actsStatus: { ...acts, agentId: 'a'.repeat(65) } }, { ...OK, actsStatus: { ...acts, gatewayPort: '8790' } }, { ...OK, actsStatus: { ...acts, timeoutMs: 1 } },
+  ];
+  for (const input of bad) {
+    const r = await runOnce(input, { make, fetchImpl });
+    assert.equal(r.outcome, 'config-missing', JSON.stringify(input));
+    assert.equal(r.enacted, false);
+    assert.ok(r.missing.length + r.refused.length > 0, JSON.stringify(input));
+  }
+  assert.deepEqual([makes, steps, fetches], [0, 0, 0], 'no factory, no step, no IO for any invalid setting');
+  const ok = await runOnce({ ...OK, actsStatus: { ...acts, gatewayPort: 8790, bridge: false } }, { make, fetchImpl });
+  assert.notEqual(ok.outcome, 'config-missing');
+  assert.deepEqual([makes, steps], [1, 1], 'a valid setting: one factory, one step');
+});
+
+test('the checked settings are a copy: a later change of the caller\'s object changes nothing; exit codes are one classification', () => {
+  const input = { ...OK, actsStatus: { bin: '/b', db: '/d', registry: 'r1', agentId: 'asa' } };
+  const c = onceConfig(input).config;
+  input.actsStatus.registry = 'changed'; input.wallet = 'X';
+  assert.equal(c.actsStatus.registry, 'r1');
+  assert.equal(c.wallet, ME);
+  assert.ok(Object.isFrozen(c) && Object.isFrozen(c.actsStatus));
+  assert.deepEqual(['config-missing', 'usage', 'error', 'stopped', 'wait', 'proposal', 'odd', undefined].map(o => exitOf({ outcome: o })), [64, 64, 1, 0, 0, 0, 1, 1]);
+});
+
+test('runOnce (as text): the check comes before anything is made', () => {
+  const once = readFileSync(new URL('../resident/live/once.mjs', import.meta.url), 'utf8');
+  const body = once.slice(once.indexOf('export async function runOnce('));
+  assert.ok(body.indexOf('const c = onceConfig(input);') < body.indexOf("if (!c.ok) return { kind: RESULT_KIND, outcome: 'config-missing'") && body.indexOf("outcome: 'config-missing'") < body.indexOf('make({'));
+  assert.match(once, /import \{ registryOrigin, AGENT_ID_MAX \} from '\.\.\/ports\/ws04-acts\.mjs';/, 'the registry name under the ports\' contract');
 });

@@ -38,6 +38,9 @@ export function inputOf(v) {
   };
 }
 
+/** (2026-11-17) one classification of results for the command: settings → 64, error → 1, a result → 0. */
+export const exitOf = r => (r?.outcome === 'config-missing' || r?.outcome === 'usage' ? 64 : r?.outcome === 'error' ? 1 : ['stopped', 'wait', 'proposal'].includes(r?.outcome) ? 0 : 1);
+
 export async function main(argv = process.argv.slice(2), { print = s => process.stdout.write(`${s}\n`), run = runOnce } = {}) {
   let v;
   try { ({ values: v } = parseArgs({ args: argv, options: OPTIONS, strict: true, allowPositionals: false })); }
@@ -46,7 +49,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   if (!c.ok) { print(JSON.stringify({ kind: RESULT_KIND, outcome: 'config-missing', missing: c.missing, refused: c.refused })); return 64; }
   const r = await run(c.config);
   print(JSON.stringify(r, null, 2));
-  return r.outcome === 'error' ? 1 : 0;
+  return exitOf(r);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await main();

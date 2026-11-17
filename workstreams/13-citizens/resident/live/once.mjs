@@ -9,6 +9,7 @@
 // Not bin/observe-canonical.mjs: that command prints workstream 12's canonical evidence about counterparties; this one
 // runs the resident's own live step.
 import { createLiveResident } from './factory.mjs';
+import { registryOrigin, AGENT_ID_MAX } from '../ports/ws04-acts.mjs';
 
 export const RESULT_KIND = 'ws13-live-once/1';
 const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -23,7 +24,8 @@ const httpUrl = v => { try { const u = new URL(v); return ['http:', 'https:'].in
  */
 export function onceConfig(input) {
   const missing = [], refused = [];
-  const i = input && typeof input === 'object' ? input : {};
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, config: null, missing: [{ field: '*', why: 'the settings must be an object' }], refused: [] };
+  const i = input;
   for (const k of Object.keys(i)) if (!ALLOWED.has(k)) refused.push(k);   // provider, allow, authority, execution, … are not settings of this entry
   if (!httpUrl(i.heraldUrl)) missing.push({ field: 'heraldUrl', why: 'the herald of the world: an http(s) URL without credentials' });
   if (typeof i.wallet !== 'string' || !B58.test(i.wallet)) missing.push({ field: 'wallet', why: "the resident's own address (base58), given by its owner; none is chosen here" });
@@ -31,17 +33,28 @@ export function onceConfig(input) {
   if (i.boardUrl !== undefined && i.boardUrl !== null && !httpUrl(i.boardUrl)) missing.push({ field: 'boardUrl', why: "workstream 1's board: an http(s) URL without credentials, or absent" });
   if (i.rpc !== undefined && i.rpc !== null) {
     const r = i.rpc;
-    if (!r || !httpUrl(r.url) || typeof r.cluster !== 'string' || !r.cluster || typeof r.source !== 'string' || !r.source) missing.push({ field: 'rpc', why: 'all of url, cluster (the network it serves) and source (who declares it), or none' });
+    if (!r || typeof r !== 'object' || !httpUrl(r.url) || typeof r.cluster !== 'string' || !r.cluster || typeof r.source !== 'string' || !r.source) missing.push({ field: 'rpc', why: 'all of url, cluster (the network it serves) and source (who declares it), or none' });
+    else for (const k of Object.keys(r)) if (!['url', 'cluster', 'source'].includes(k)) refused.push(`rpc.${k}`);
   }
   if (i.actsStatus !== undefined && i.actsStatus !== null) {
     const a = i.actsStatus;
     if (!a || typeof a.bin !== 'string' || !a.bin.startsWith('/') || typeof a.db !== 'string' || !a.db.startsWith('/')) missing.push({ field: 'actsStatus.bin/db', why: 'absolute paths of runexec and its run store' });
-    if (!a || typeof a.registry !== 'string' || !a.registry) missing.push({ field: 'actsStatus.registry', why: "the registry's explicit, non-secret name; never inferred" });
-    if (!a || typeof a.agentId !== 'string' || !a.agentId) missing.push({ field: 'actsStatus.agentId', why: "the resident's agent id in the registry" });
+    const agentOk = !!a && typeof a.agentId === 'string' && a.agentId.length > 0 && a.agentId.length <= AGENT_ID_MAX;
+    if (!agentOk) missing.push({ field: 'actsStatus.agentId', why: `the resident's agent id in the registry (1..${AGENT_ID_MAX} characters)` });
+    // (2026-11-17) the registry name under the same contract as the ports (ws04-acts.mjs registryOrigin)
+    let regOk = false;
+    try { regOk = !!a && !!registryOrigin(agentOk ? a.agentId : 'x', a.registry); } catch { regOk = false; }
+    if (!regOk) missing.push({ field: 'actsStatus.registry', why: "the registry's explicit, non-secret name (no spaces, 1..256 characters); never inferred" });
     if (a && a.gatewayPort !== undefined && a.gatewayPort !== null && !(Number.isInteger(a.gatewayPort) && a.gatewayPort > 0 && a.gatewayPort < 65536)) missing.push({ field: 'actsStatus.gatewayPort', why: 'a port on 127.0.0.1, or absent' });
+    if (a && a.bridge !== undefined && typeof a.bridge !== 'boolean') missing.push({ field: 'actsStatus.bridge', why: 'true, false or absent' });
+    for (const k of Object.keys(a ?? {})) if (!['bin', 'db', 'registry', 'agentId', 'gatewayPort', 'bridge'].includes(k)) refused.push(`actsStatus.${k}`);
   }
   const ok = !missing.length && !refused.length;
-  return { ok, config: ok ? { heraldUrl: i.heraldUrl, boardUrl: i.boardUrl ?? null, wallet: i.wallet, residentDir: i.residentDir, rpc: i.rpc ?? null, actsStatus: i.actsStatus ?? null } : null, missing, refused };
+  // only the checked fields, copied (a later change of the caller's object changes nothing here)
+  const a = i.actsStatus;
+  return { ok, config: ok ? Object.freeze({ heraldUrl: i.heraldUrl, boardUrl: i.boardUrl ?? null, wallet: i.wallet, residentDir: i.residentDir,
+    rpc: i.rpc ? Object.freeze({ url: i.rpc.url, cluster: i.rpc.cluster, source: i.rpc.source }) : null,
+    actsStatus: a ? Object.freeze({ bin: a.bin, db: a.db, registry: a.registry, agentId: a.agentId, gatewayPort: a.gatewayPort ?? null, bridge: a.bridge === true }) : null }) : null, missing, refused };
 }
 
 /** What this step may read and write, said as it is (workstream 4's own behaviour included). */
@@ -95,10 +108,16 @@ export function summarizeStep(r, config) {
 }
 
 /**
- * One step from checked settings. `make` is createLiveResident (a stand-in only for a test). The no-charge rule is
- * fixed: provider null, allow empty, authority empty. → summarizeStep(…) | {kind, outcome: 'error', error: {code, message}}
+ * One step. The settings are checked HERE, whoever calls (2026-11-17: a direct call is not assumed to have checked
+ * them): invalid or foreign settings return {outcome: 'config-missing', missing, refused} before anything is made,
+ * stepped, fetched or run. `make` is createLiveResident (a stand-in only for a test). The no-charge rule is fixed:
+ * provider null, allow empty, authority empty.
+ * → summarizeStep(…) | {kind, outcome: 'config-missing'|'error', …}
  */
-export async function runOnce(config, { fetchImpl = globalThis.fetch, make = createLiveResident } = {}) {
+export async function runOnce(input, { fetchImpl = globalThis.fetch, make = createLiveResident } = {}) {
+  const c = onceConfig(input);
+  if (!c.ok) return { kind: RESULT_KIND, outcome: 'config-missing', enacted: false, missing: c.missing, refused: c.refused };
+  const config = c.config;
   try {
     const r = make({ heraldUrl: config.heraldUrl, boardUrl: config.boardUrl, rpc: config.rpc, wallet: config.wallet, residentDir: config.residentDir, actsStatus: config.actsStatus, provider: null, allow: {}, authority: {}, fetchImpl });
     return summarizeStep(await r.step(), config);

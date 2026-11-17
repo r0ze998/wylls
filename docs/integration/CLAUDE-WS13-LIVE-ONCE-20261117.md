@@ -1,8 +1,17 @@
 # ⑬ operator resident: a one-step, no-charge, non-enacting entry with a readable result (2026-11-17)
 
-**Branch:** `claude/ws13-live-once-20261117`, one commit **on `d00f13b4`** (the resident-view unit, unchanged).
+**Branch:** `claude/ws13-live-once-20261117` **on `d00f13b4`** (the resident-view unit, unchanged).
+- `77f79926` is the first tip.
+- The correction (the second tip) is on top of it.
+- **Do not adopt `77f79926` alone.**
 
-**Adoption:** take this unit's own diff `d00f13b4..<this tip>`, after `8b8e14c6..d00f13b4`. They are separate units.
+**Adoption, and the dependency closure:**
+- **The diff:** take this unit's own diff `d00f13b4..<final>`. It **only adds new files**.
+- **What it uses:**
+  - `factory.mjs` `createLiveResident` with `residentDir` and `actsStatus`: in the aggregate since `2908b7bb` and `1c3f96a5`;
+  - `ports/ws04-acts.mjs` `registryOrigin` and `AGENT_ID_MAX`: from `8b8e14c6`, in the aggregate.
+- **What it does not use:** the resident-view unit (`d00f13b4`: `resident-view.mjs` and the factory's `residentView`/`residentObservePort`) is **not** used here. This unit can be adopted **without** it: its diff applies onto the aggregate `f5461212`, which does not hold `d00f13b4` (checked statically).
+- `d00f13b4`'s diagnostic projection (`ResidentObservationIncomplete`) is a diagnosis, not a running resident.
 
 **Static change, NOT run:**
 - no test, syntax check, import, factory or entry call, HTTP, RPC, runexec, signature, submission, charge or key;
@@ -72,6 +81,26 @@ The live path (`factory.mjs` `createLiveResident(...).step()`) was reachable onl
 - `enacted: false`;
 - workstream 4's client, the board page and the game.
 
+## Second tip: the parent's review of `77f79926`
+
+**The defect:** `runOnce(config)` passed its argument to the factory **without checking it**. Only the command checked, through `onceConfig`. A direct API call without `residentDir` (or with foreign settings) would have reached the live path without the resident's stop or journal. The first report's premise, "the API takes checked settings", **is not guaranteed for an external API, and is corrected here.**
+
+**Now:**
+- **`runOnce(input)` checks its own settings first.** Invalid or foreign settings return `{outcome: 'config-missing', missing, refused, enacted: false}` **before anything is made, stepped, fetched or run.**
+- **The checks are tightened** to the existing contracts:
+  - the settings must be an object;
+  - `residentDir` absolute and non-empty;
+  - `rpc` an object with exactly `url`, `cluster` and `source`;
+  - `actsStatus.agentId` 1..64 characters;
+  - `actsStatus.registry` under the ports' own `registryOrigin` rule (no spaces, 1..256);
+  - `bridge` a boolean, and `gatewayPort` an integer port;
+  - unknown keys inside `rpc` and `actsStatus` refused;
+  - `provider`, `allow`, `authority` and `execution` refused on a direct call too.
+- **The checked settings are a frozen copy:** a later change of the caller's object changes nothing.
+- **The command uses one classification, `exitOf`:** settings → 64, error → 1, a result (stopped, wait, proposal) → 0, anything else → 1.
+- **A valid setting:** one factory, one step.
+- **Unchanged:** the no-charge rule fixed, stop-A, `enacted: false`.
+
 ## Not connected yet: what a real run still needs (facts, not decisions taken here)
 
 1. **A running world for the resident:** a herald (and a board, if requests are wanted) of a continuous ws08 world, and an RPC declared for its network. None is named here.
@@ -98,10 +127,12 @@ The live path (`factory.mjs` `createLiveResident(...).step()`) was reachable onl
   - no proposal when stopped.
 - **The command:** usage and missing settings exit 64 without running; a result 0; nothing defaulted from flags; a malformed port is refused.
 - **As text:** no timer, loop, signing, posting, submitting, registering, cancelling or joining; the fixed no-charge rule; the main guard, with one `await main(`.
+- **(second tip) A direct API call** with every kind of invalid setting returns `config-missing`, and `make`, `step` and `fetch` are never called. These include: no object, empty, no or empty residentDir, a wrong type, foreign settings, a partial or extra rpc, a non-boolean bridge, a bad registry name, a long agent id, a string port and an unknown acts key. A valid one makes and steps once.
+- **(second tip)** the settings copy is frozen and independent of the caller's object; `exitOf`'s classification; as text, the check comes before `make`, and the registry is checked under the ports' contract.
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws13-live-once-20261117`, one commit on `d00f13b4`, all `100644`:
+**Unit:** `claude/ws13-live-once-20261117`, two commits on `d00f13b4` (`77f79926`, then the correction). Take the final tip's diff from `d00f13b4` (new files only; `d00f13b4` itself not required), all `100644`:
 - `workstreams/13-citizens/resident/live/once.mjs` (A)
 - `workstreams/13-citizens/bin/live-once.mjs` (A)
 - `workstreams/13-citizens/test/live-once.test.mjs` (A)
