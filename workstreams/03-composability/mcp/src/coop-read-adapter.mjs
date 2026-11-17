@@ -30,6 +30,7 @@ export const COOP_READ_LIMITATIONS = Object.freeze([
   'Read-only: two GET /coop/config and one GET /coop/view per read; the adapter writes nothing and never POSTs. The board itself may refresh and save its own observation cache while answering /coop/view.',
   'The board is public and viewer is display context, not authentication: the adapter binds viewer to the authenticated owner but proves nothing about the owner itself; the caller\'s authentication does.',
   'nation is the board\'s verified-nation aggregate over the whole single-context board: requests whose requester the board verified as that nation, and counted arrivals whose responder it verified as that nation. There is no per-request verified requester nation, so no same-nation recipient or target list, score, selection, role or send authority is derived.',
+  'nation.nation is the board\'s zero-based faction index as a number (0 to 5; 0 is a nation, not "none"), exactly as the board reports it: not a name, and not the 1-based number a screen may show. Resource names are the board\'s lowercase names (food, wood, stone, ore, arms, gold), not the capitalised names the caravan tools of this server use.',
   'nation.status "unknown" means the board could not verify the owner\'s nationality; its counts are null, not 0.',
   'All amounts are whole-unit lower bounds as the board reports them. entries.counted / myEntries.counted are board-verified counted arrivals; entries.listed / myEntries.listed are every entry the board lists in any state (moving, raided, unproven, duplicate) and are not arrivals or success. A response or a sending is never reported as an arrival or as success.',
   'mine.requests and mine.responses carry request ids, states, needs and counts only: not the other party\'s wallet, not free-form text (the board\'s nation.why / nationWhy included), not the board\'s raw records, signatures or proofs.',
@@ -43,8 +44,23 @@ const SEASON_ID = /^[A-Za-z0-9._-]{1,32}$/;
 const CLUSTER = /^[a-z][a-z0-9-]{0,31}$/;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const WORD = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
-const NATION = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$/;
-const RESOURCE = /^[A-Z][A-Za-z]{1,15}$/;
+// The board's real contract, restated here because this file imports nothing (test/coop-read-*.test.mjs compare these
+// with the board's own source and with the output of the real coopView). See COOP-READ-ADAPTER.md "Real-board contract".
+//   nation: coop/goal.mjs coopView returns nation.nation and personal.nation = the verified Citizen's `faction`
+//     (coop/chain.mjs citizenOf: the decoded Citizen FACTION, a u8 in abi-v2-layouts), a zero-based NUMBER, or null when
+//     unverified. Player factions are 0..=5: permutation-rules/src/frontier/geometry.rs `FACTIONS: u8 = 6` (6 is NEUTRAL,
+//     never a citizen's nation); coop/record.mjs bounds the declared nation the same way (isInt(rec.nation, 0, 5)).
+//   resources: coop/record.mjs RESOURCES, lowercase; needs, counted amounts and myVerified use only these keys.
+//   fulfilment: coop/ws04.mjs fulfilmentOf always returns an object whose status is one of the four below.
+/** Player factions: nation ids are the integers 0 .. COOP_FACTIONS - 1. */
+export const COOP_FACTIONS = 6;
+/** The board's resource names (coop/record.mjs RESOURCES), exactly. */
+export const COOP_RESOURCES = Object.freeze(['food', 'wood', 'stone', 'ore', 'arms', 'gold']);
+/** The statuses of the board's per-request fulfilment (coop/ws04.mjs fulfilmentOf). */
+export const COOP_FULFILMENT_STATUSES = Object.freeze(['none', 'fulfilled', 'not-reached', 'undetermined']);
+/** A faction id as the board sends it: a number, whole, 0..5. No coercion: '0', 0.5, -0, true and names are refused. */
+const isFaction = x => typeof x === 'number' && Number.isSafeInteger(x) && !Object.is(x, -0) && x >= 0 && x < COOP_FACTIONS;
+const isResource = r => typeof r === 'string' && COOP_RESOURCES.includes(r);
 const CONTEXT_KEYS = Object.freeze(['programId', 'seasonId', 'cluster']);
 const CONFIG_PATH = '/coop/config';
 const VIEW_PATH = '/coop/view';
@@ -142,7 +158,8 @@ function projectNation(nation) {
   if (nation.nation === null) {
     return { status: 'unknown', nation: null, requests: null, deliveredFromNation: null, note: UNKNOWN_NATION_NOTE };
   }
-  if (typeof nation.nation !== 'string' || !NATION.test(nation.nation)) reject('malformed', 'view.nation.nation: not a nation name');
+  // A verified nation is the zero-based faction number (0 is a nation). Compared with null above, never by truthiness.
+  if (!isFaction(nation.nation)) reject('malformed', `view.nation.nation: not a faction number 0..${COOP_FACTIONS - 1}`);
   if (!isCount(nation.requests) || !isCount(nation.deliveredFromNation)) reject('malformed', 'view.nation: requests or deliveredFromNation is not a count');
   return { status: 'verified', nation: nation.nation, requests: nation.requests, deliveredFromNation: nation.deliveredFromNation, note: null };
 }
@@ -151,7 +168,7 @@ function cargoOf(need, what) {
   if (!isPlainObject(need)) reject('malformed', `${what}: need is not an object`);
   const out = {};
   for (const [r, v] of Object.entries(need)) {
-    if (!RESOURCE.test(r) || !isCount(v)) reject('malformed', `${what}: need has an entry that is not a whole resource amount`);
+    if (!isResource(r) || !isCount(v)) reject('malformed', `${what}: need has an entry that is not a whole amount of a board resource`);
     out[r] = v;
   }
   return out;
@@ -174,11 +191,10 @@ function arrivalCounts(list, what, responder = null) {
   return { listed: list.length, counted };
 }
 
+/** The status of the board's fulfilment object (coop/ws04.mjs fulfilmentOf). Any other shape or status is refused. */
 function fulfilmentOf(f, what) {
-  if (f === null || f === undefined) return null;
-  if (typeof f === 'string') return WORD.test(f) ? f : reject('malformed', `${what}: fulfilment is not a name`);
-  if (isPlainObject(f)) return typeof f.status === 'string' && WORD.test(f.status) ? f.status : null;
-  reject('malformed', `${what}: fulfilment has an unrecognised shape`);
+  if (!isPlainObject(f) || typeof f.status !== 'string' || !COOP_FULFILMENT_STATUSES.includes(f.status)) reject('malformed', `${what}: fulfilment is not the board's {status} object`);
+  return f.status;
 }
 
 function indexRequests(list) {
@@ -206,7 +222,8 @@ function projectMine(view, owner, world, nationName) {
   const p = view.personal;
   if (!isPlainObject(p)) reject('malformed', 'view.personal: missing although a viewer was named');
   if (p.viewer !== owner) reject('mismatch', 'view.personal.viewer: the board answered for another wallet');
-  if ((p.nation ?? null) !== nationName) reject('malformed', 'view.personal.nation: differs from view.nation.nation');
+  // Strict, with no default: the board always sends personal.nation (the same faction number, or null). 0 !== null.
+  if (p.nation !== nationName) reject('malformed', 'view.personal.nation: differs from view.nation.nation');
   if (!Array.isArray(p.myRequests) || !Array.isArray(p.myResponses) || !Array.isArray(p.left) || !isPlainObject(p.myVerified)) reject('malformed', 'view.personal: myRequests, myResponses, myVerified or left missing');
   if (p.myRequests.length > MAX_LIST || p.myResponses.length > MAX_LIST || p.left.length > MAX_LIST) reject('malformed', 'view.personal: a list is too long');
   const index = indexRequests(view.requests);
@@ -236,7 +253,7 @@ function projectMine(view, owner, world, nationName) {
 
   const verified = {};
   for (const [r, v] of Object.entries(p.myVerified)) {
-    if (!RESOURCE.test(r) || !Number.isSafeInteger(v) || v < 1) reject('malformed', 'view.personal.myVerified: an entry is not a positive whole amount');
+    if (!isResource(r) || !Number.isSafeInteger(v) || v < 1) reject('malformed', 'view.personal.myVerified: an entry is not a positive whole amount');
     verified[r] = v;
   }
   const left = p.left.map(g => (typeof g === 'string' && ID.test(g) ? g : reject('malformed', 'view.personal.left: a goal id is malformed')));
