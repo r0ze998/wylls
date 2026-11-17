@@ -67,8 +67,22 @@ export function worldOfSeason(r, { programId, seasonId, cluster }) {
   return diff.length ? { state: 'different', differs: diff } : { state: 'same' };
 }
 
-/** 板がヘラルド・RPC を読める住所：この機械の loopback の http（TLS は前に置く逆プロキシで終える。板の転送は http だけ）。 */
-export const loopbackHttp = u => { try { const x = new URL(u); return x.protocol === 'http:' && (/^127\./.test(x.hostname) || x.hostname === 'localhost' || x.hostname === '[::1]'); } catch { return false; } };
+/**
+ * 板がヘラルド・RPC を読める住所：この機械の loopback の http（TLS は前に置く逆プロキシで終える。板の転送は http だけ）。
+ * （2026-11-17 訂正）文字列の前方一致ではなく、URL の解析結果で決める：protocol は http:、利用者名・パスワードなし、
+ * ホストは IP の文字そのもの（IPv4 の 127.0.0.0/8 を net.isIPv4 で、または IPv6 の [::1]）。名前（localhost など）は DNS や
+ * hosts の答え次第なので、loopback と断定しない（拒否）。`http://127.attacker.example` は名前なので拒否される。
+ * ポートは何でもよい（fetch と http.request は URL のポート、無ければ 80 へ同じように行く）。
+ */
+export function loopbackHttp(u) {
+  let x;
+  try { x = new URL(u); } catch { return false; }
+  if (x.protocol !== 'http:' || x.username !== '' || x.password !== '') return false;
+  if (x.hostname === '[::1]') return true;
+  return net.isIPv4(x.hostname) && x.hostname.split('.')[0] === '127';
+}
+/** （2026-11-17）public の経路の fetch：転送（redirect）は追わずにエラーにする（loopback の確かめを、転送先へ素通りさせない）。 */
+export const fetchNoRedirect = (u, o = {}) => fetch(u, { ...o, redirect: 'error' });
 
 /**
  * （2026-11-17）`--profile public` の起動の前の確かめ（副作用なし：板を作る・フォルダを作る・聞く前）。問題の一覧（空なら良い）。
@@ -82,8 +96,8 @@ export function checkPublicStart({ cluster, clusterGiven, dataDir, dataGiven, he
   else if (cluster === 'localnet') problems.push('--cluster localnet: a public board must not offer the local Dev Wallet');
   if (!dataGiven) problems.push('--data must be given (the default folder is inside the repository)');
   else if (repoDir && (path.resolve(dataDir) === path.resolve(repoDir) || path.resolve(dataDir).startsWith(path.resolve(repoDir) + path.sep))) problems.push('--data is inside the repository');
-  if (!loopbackHttp(herald)) problems.push('--herald must be http on this machine\'s loopback (TLS ends at the reverse proxy in front)');
-  if (rpc !== null && rpc !== undefined && !loopbackHttp(rpc)) problems.push('--rpc must be http on this machine\'s loopback');
+  if (!loopbackHttp(herald)) problems.push('--herald must be http to a loopback IP written as such (127.x.x.x or [::1]; no name, no user or password; TLS ends at the reverse proxy in front)');
+  if (rpc !== null && rpc !== undefined && !loopbackHttp(rpc)) problems.push('--rpc must be http to a loopback IP written as such (127.x.x.x or [::1]; no name, no user or password)');
   return problems;
 }
 
@@ -112,34 +126,61 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
   const sendCache = new Map();      // 送信の結果（終わったものは変わらないので覚える）
   // 施設の観測（初めて見た時刻）。（2026-11-17）読めないファイルを黙って空にしない：別の名前で残して（消さない・上書きしない）
   // 理由を health と config で言う。残せなかったときは、上書きしないために以後この板は書かない（obsWritable=false）。
-  let obs = { ended: {}, vaults: {} }, obsState = 'new', obsWritable = true;
-  if (fs.existsSync(obsFile)) {
+  // （2026-11-17 訂正）この板が持つのは「名前が一つだけの普通のファイル」だけ。リンク・ディレクトリ・別名（hard link）を持つ
+  // ものは読まず書かず、そのまま残す。退避は新しい名前を排他で作る（既にあれば次の名前。既存の退避や原本を上書きしない）。
+  // 一時ファイルも排他で作る（'wx'：既存のファイルやリンクを開かない）。消すのは、この板がその呼び出しで作った一時ファイルだけ。
+  // obsHealth：'ok'（時刻はそろっている）| 'missing'（読めない原本を退避した：それまでの時刻は失われた）| 'unknown'（退避・保存が
+  // できなかった、または普通のファイルでない：成功を言わない）。
+  const kindOf = p => { let m; try { m = fs.lstatSync(p); } catch (e) { return e?.code === 'ENOENT' ? 'absent' : 'unknown'; } return m.isFile() && m.nlink === 1 ? 'file' : 'other'; };
+  let obs = { ended: {}, vaults: {} }, obsState = 'new', obsHealth = 'ok', obsWritable = true;
+  const obsKind = kindOf(obsFile);
+  if (obsKind === 'other' || obsKind === 'unknown') {
+    obsState = `observed.json is not a plain file of this board (${obsKind}): left as it is, not read or written`; obsHealth = 'unknown'; obsWritable = false;
+  } else if (obsKind === 'file') {
     try {
       const o = JSON.parse(fs.readFileSync(obsFile, 'utf8'));
       if (!o || typeof o !== 'object' || !o.ended || typeof o.ended !== 'object' || !o.vaults || typeof o.vaults !== 'object') throw new Error('shape');
       obs = o; obsState = 'ok';
     } catch {
-      const aside = `${obsFile}.unreadable-${Date.now()}`;
-      try { fs.renameSync(obsFile, aside); obsState = `unreadable: kept as ${path.basename(aside)}; first-seen times start again`; }
-      catch { obsState = 'unreadable: could not be kept aside; not written again until it is'; obsWritable = false; }
+      // 退避：新しい名前へ hard link を排他で作り（同名があれば EEXIST で次へ）、できてから元の名前を外す。中身はそのまま残る。
+      let kept = null;
+      for (let n = 0; n < 100 && kept === null; n++) {
+        const aside = `${obsFile}.unreadable-${Date.now()}-${n}`;
+        try { fs.linkSync(obsFile, aside); kept = aside; } catch (e) { if (e?.code !== 'EEXIST') break; }
+      }
+      if (kept === null) { obsState = 'unreadable: could not be kept aside; left as it is, not written'; obsHealth = 'unknown'; obsWritable = false; }
+      else {
+        try { fs.unlinkSync(obsFile); obsState = `unreadable: kept as ${path.basename(kept)}; first-seen times start again`; obsHealth = 'missing'; }
+        catch { obsState = `unreadable: kept as ${path.basename(kept)}, but the original name could not be released; not written`; obsHealth = 'unknown'; obsWritable = false; }
+      }
     }
   }
-  /** 観測を書き換える：一時ファイル → fsync → rename（途中で止まっても前の版か新しい版のどちらか）。 */
+  let tmpSeq = 0;
+  /** 観測を書き換える：排他で作った一時ファイル → fsync → rename（途中で止まっても前の版か新しい版のどちらか）。 */
   function saveObs() {
     if (!obsWritable) return;
-    const tmp = `${obsFile}.tmp`;
+    const k = kindOf(obsFile);
+    if (k === 'other' || k === 'unknown') { obsState = `not saved: observed.json is no longer a plain file of this board (${k}); left as it is`; obsHealth = 'unknown'; obsWritable = false; return; }
+    const tmp = `${obsFile}.${process.pid}.${Date.now()}.${tmpSeq++}.tmp`;
+    let fd = null, made = false;
     try {
-      const fd = fs.openSync(tmp, 'w');
-      try { fs.writeFileSync(fd, JSON.stringify(obs)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(tmp, obsFile);
-      if (obsState === 'new') obsState = 'ok';
-    } catch (e) { obsState = `not saved: ${String(e?.code ?? e?.message ?? e).slice(0, 60)}`; }
+      fd = fs.openSync(tmp, 'wx'); made = true;
+      fs.writeFileSync(fd, JSON.stringify(obs)); fs.fsyncSync(fd);
+      fs.closeSync(fd); fd = null;
+      fs.renameSync(tmp, obsFile); made = false;
+      if (obsHealth !== 'missing') { obsState = 'ok'; obsHealth = 'ok'; }
+    } catch (e) {
+      if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+      if (made) { try { fs.unlinkSync(tmp); } catch { /* left; named for this process and call */ } }
+      obsState = `not saved: ${String(e?.code ?? e?.message ?? e).slice(0, 60)}`; obsHealth = 'unknown';
+    }
   }
   const citizenCache = new Map();   // 確かめられた結果だけを覚える（未検証は毎回やり直す）。鍵は「文脈|ウォレット」
   const endCache = new Map();       // 隊商の確定・襲撃（チェーンの記録。終わったものは変わらないので覚える）
   const rulesCache = new Map();     // 文脈ごとの規則の版
   const getHerald = fetchHerald ?? (async p => {
-    const r = await fetch(new URL(p, herald));
+    // （2026-11-17）public では転送を追わない（local はこれまでと同じ）
+    const r = await (profile === 'public' ? fetchNoRedirect : fetch)(new URL(p, herald));
     return { status: r.status, json: r.ok ? await r.json() : null };
   });
 
@@ -315,23 +356,25 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
   /**
    * （2026-11-17）板の健康：確かめたこと（ok）・足りないこと（missing）・分からないこと（unknown）を分けて言う。
    * ok は、どれも「ok」のときだけ true。チェーンを読まない板（--rpc なし）は missing（国籍・届け先は未検証のまま）。
+   * （2026-11-17 訂正）--rpc があることは、読めたことではない：この確かめはチェーンを読まないので、設定があっても unknown。
+   * 何かを読んで確かめる新しい probe は足さない（世界との一致や鮮度を、ここで決めない）。
    */
   async function health() {
     const world = await heraldWorld();
     const parts = {
       herald: world.state === 'same' ? 'ok' : world.state === 'different' ? 'missing' : 'unknown',
-      chain: reader ? 'ok' : 'missing',
+      chain: reader ? 'unknown' : 'missing',
       store: storeProblems.length || damaged.length ? 'missing' : 'ok',
-      observed: obsState === 'ok' || obsState === 'new' ? 'ok' : 'missing',
+      observed: obsHealth,
     };
     return {
       ok: Object.values(parts).every(v => v === 'ok'), profile, parts,
       world: { programId, seasonId: String(seasonId), cluster, herald: world },
       store: { problems: storeProblems, damaged: damaged.length, segments: segments.filter(s => s.status !== 'ok').map(s => ({ file: s.file, status: s.status })) },
-      observed: obsState, chain: reader ? 'reads the chain' : 'does not read the chain (no --rpc): nations and destinations stay unverified',
+      observed: obsState, chain: reader ? 'configured (--rpc); not read by this check' : 'does not read the chain (no --rpc): nations and destinations stay unverified',
     };
   }
-  return { submit, view, config, records, caravans, season, contexts, rpc, state, health, heraldWorld };
+  return { submit, view, config, records, caravans, season, contexts, rpc, state, health, heraldWorld, profile };
 }
 
 // ------------------------------------------------------------------ HTTP
@@ -405,7 +448,8 @@ export function createServer(board, { herald }) {
         let body;
         try { body = JSON.parse((await readBody(req)).toString('utf8')); } catch { return send(res, 400, { error: 'bad json' }); }
         if (!READ_METHODS.includes(body?.method)) return send(res, 403, { error: `読むだけ：${READ_METHODS.join('・')}` });
-        const r = await fetch(board.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: body.id ?? 1, method: body.method, params: body.params }) });
+        // （2026-11-17）public では転送を追わない（local はこれまでと同じ）
+        const r = await (board.profile === 'public' ? fetchNoRedirect : fetch)(board.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: body.id ?? 1, method: body.method, params: body.params }) });
         return send(res, r.status, await r.text());
       }
       if (url.pathname === '/coop/view') {
@@ -464,13 +508,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       // ヘラルドの世界がこの板の世界と同じか（板を作る・フォルダを作る前に、読むだけ）
       if (!problems.length) {
         let r;
-        try { const x = await fetch(new URL('/h/season', herald)); r = { status: x.status, json: x.ok ? await x.json() : null }; } catch (e) { r = null; problems.push(`herald unreachable: ${String(e?.code ?? e?.message ?? e).slice(0, 60)}`); }
+        try { const x = await fetchNoRedirect(new URL('/h/season', herald)); r = { status: x.status, json: x.ok ? await x.json() : null }; } catch (e) { r = null; problems.push(`herald unreachable: ${String(e?.code ?? e?.message ?? e).slice(0, 60)}`); }
         const w = r ? worldOfSeason(r, { programId, seasonId, cluster }) : null;
         if (w && w.state !== 'same') problems.push(`herald world ${w.state}${w.differs?.length ? `: ${w.differs.join(', ')}` : ''}${w.why ? ` (${w.why})` : ''}`);
       }
       if (problems.length) { console.error(JSON.stringify({ error: 'public start refused', problems })); process.exit(2); }
     }
-    const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs, segmentBytes, cluster, profile });   // ウォレットのネットワーク（Wallet Standard の chain）   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
+    // （2026-11-17）public では、チェーンを読む RPC も転送を追わない（chain.mjs の rpcReader が受け取る fetchImpl で。chain.mjs は変えない）
+    const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc, profile === 'public' ? { fetchImpl: fetchNoRedirect } : {}) : null, rpc, previous, legacyDirs, segmentBytes, cluster, profile });   // ウォレットのネットワーク（Wallet Standard の chain）   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
     createServer(board, { herald }).listen(port, '127.0.0.1', () => {
       console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}、profile ${profile}）`);
     });

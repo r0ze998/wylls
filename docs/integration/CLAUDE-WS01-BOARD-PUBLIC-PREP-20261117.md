@@ -36,13 +36,28 @@
 - **chain:** `missing` without `--rpc`: nations and destinations stay unverified. Never reported as ok.
 - **store:** a segment problem or a damaged line gives `missing`. The record store itself (`store.mjs`, append-only segments, the manifest by rename) is unchanged.
 
+## Correction (second tip): the parent's review of `a26c27c8`
+
+**Do not adopt `a26c27c8` alone.** All three findings are fixed in `board.mjs`:
+
+| Finding | Before | Now |
+|---|---|---|
+| **(1) The loopback rule** | `/^127\./` on the host string let `http://127.attacker.example` (a DNS name) through, and `localhost` (a name) too. The board's fetches followed redirects, so a loopback start could be sent elsewhere. | `loopbackHttp` decides on the parsed URL, as `fetch` and `http.request` use it: `http:` only; no user and no password; the host an IP written as such (`net.isIPv4`, first octet 127, or `[::1]`). **Any name is refused** (what a name resolves to is not known here). Any port. **Every fetch of the public path refuses redirects** (`fetchNoRedirect`, `redirect: 'error'`): the herald reads (`getHerald`), the start check (`/h/season`), the `/coop/rpc` proxy, and the chain reader (`rpcReader`'s existing `fetchImpl`; `chain.mjs` unchanged). The herald proxy (`http.request`) and the upgrade (`net.connect`) never follow redirects. The local profile is unchanged. |
+| **(2) Health's chain part** | `ok` whenever an RPC was configured | **`unknown` when configured** (this check reads no chain; configured is not observed), `missing` without `--rpc`. No probe was added, and no freshness or world match is assumed. The chain part is therefore never `ok` today, so `ok` stays `false` for a board with an RPC. That is honest, not a failure. |
+| **(3) `observed.json`** | The keep-aside `renameSync` could replace an existing aside of the same name; the save opened `observed.json.tmp` with `'w'`, truncating an existing file or the target of a link there. | **Only a plain file with one name** (`lstat`: regular, `nlink` 1) is read or written; a link, a directory or a second name is left as it is (`unknown`, not written). **Keep-aside:** a hard link to a **new** name made exclusively (`EEXIST`: the next name), then the old name released. The bytes are never copied over or deleted, and an earlier aside is never replaced. **Save:** a temporary file named for this process and call, created with `'wx'` (never an existing file or link), `fsync`, `rename`. Only that file is removed on failure; another process's `.tmp` or an old `observed.json.tmp` is never touched. A failure to keep aside or to save is `unknown` (never ok); a successful keep-aside is `missing` (the earlier times are lost). |
+
+**Still a limit:** the checks are made at each step. A file swapped between the check and the `rename` is not covered (no descriptor-relative operations are used), and a name that resolves to loopback is refused rather than resolved.
+
 ## Regression (written, NOT run): `workstreams/01-national-strategy/test/coop.public-profile.test.mjs`
 
-- **The forwarded address:** a direct client cannot choose it; a proxy's last address is used; `Forwarded`/`X-Real-IP` are dropped.
+- **The forwarded address (first tip):** a direct client cannot choose it; a proxy's last address is used; `Forwarded`/`X-Real-IP` are dropped.
 - **Each public-start refusal,** and the passing case.
 - **`worldOfSeason`:** same, different and unknown.
 - **Health:** the parts, the missing chain without `--rpc`, an unreachable herald (`unknown`), another program (`missing`); public config without the herald, local config with it.
 - **An unreadable `observed.json`:** kept aside byte for byte, reported, then a new file written whole (no `.tmp` left).
+- **(second tip) Every loopback counter-example is refused:** `127.attacker.example`, `127.0.0.1.attacker.example`, `localhost`, a user and/or password, https, ftp, `0.0.0.0`, `10.x`, `[::2]`, not a URL. The four fetches use `fetchNoRedirect` (pinned as text).
+- **(second tip) Health:** a configured RPC gives `unknown`, never ok.
+- **(second tip) `observed.json`:** as a symbolic link or a hard link, it is not read or written, and the outside file is unchanged. With an earlier aside, another process's `.tmp` and an old `observed.json.tmp` present, a new aside is made beside them, all three are untouched, and none of this board's temporary files is left.
 - **Its folders:** made by `mkdtemp` and removed only by the test.
 
 **Existing tests:** no test compares the whole config (`git grep`). The fields the page and the tests read are unchanged. The test proxy (`coop.test.mjs`) ignores headers.
@@ -51,7 +66,7 @@
 
 | | State |
 |---|---|
-| The board refuses a public start with localnet, a repository folder, a non-loopback herald or RPC, or another world | **implemented, not run** |
+| The board refuses a public start with localnet, a repository folder, a herald or RPC that is not a loopback IP over http (names, credentials, redirects refused), or another world | **implemented, not run** |
 | The relay sees the real client address through the board | **implemented, not run** |
 | Health tells ok, missing and unknown apart; the observed times survive a crash | **implemented, not run** |
 | A TLS reverse proxy in front, and where it runs (host, domain) | **not decided** (not chosen here) |
