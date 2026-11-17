@@ -1,4 +1,5 @@
-// 自分・依頼・協力の進捗の往復（2026-11-17。WRITTEN ONLY, NOT RUN）：crosslinks.mjs と、画面の結線（読むだけ）。
+// 自分・依頼・協力の進捗の往復（2026-11-17）：crosslinks.mjs と、画面の結線（読むだけ）。
+// 2026-11-18：coordinator's final rerun, including the blank and padded-string fixtures — 7/7 passed, 0 fail/skip.
 // 鍵・署名・送信・HTTP・起動なし。
 
 import { test } from 'node:test';
@@ -35,6 +36,59 @@ test('not linked when it cannot be one: another world, a progress with an older 
   assert.equal(requestsOfJoint(view([], [{ goalId: G, host: 'A' }]), { goalId: G, host: 'A' }, NOW).state, 'none');
   assert.equal(sameCtx({ programId: 'P', seasonId: 90 }, NOW), true);
   assert.equal(sameCtx({ programId: 'Q', seasonId: '90' }, NOW), false);
+});
+
+test('(2026-11-18) a world that cannot be read is never the same world: unknown, both ways', () => {
+  // the coordinator's repro: board season {programId:'P'} (no seasonId) and requests with the same missing seasonId
+  const noSeason = { programId: 'P' };
+  const v = view([req('r', 'A', noSeason)], [{ goalId: G, host: 'A' }]);
+  assert.equal(jointOfRequest(v, v.requests[0], noSeason).state, 'other-world', 'forward: missing season on both sides is not one');
+  assert.equal(requestsOfJoint(v, v.joint[0], noSeason).state, 'mixed', 'reverse: not ok');
+  for (const [c, s, why] of [
+    [{ programId: 'P' }, { programId: 'P' }, 'both seasonId missing'],
+    [{ programId: 'P', seasonId: null }, { programId: 'P', seasonId: null }, 'both null'],
+    [{ programId: 'P', seasonId: undefined }, { programId: 'P', seasonId: null }, 'undefined vs null'],
+    [{ programId: 'P', seasonId: '' }, { programId: 'P', seasonId: '' }, 'both empty'],
+    [{ programId: 'P', seasonId: 'undefined' }, { programId: 'P' }, 'the string "undefined" vs missing'],
+    [{ programId: 'P', seasonId: 'null' }, { programId: 'P', seasonId: null }, 'the string "null" vs null'],
+    [{ programId: '', seasonId: '90' }, { programId: '', seasonId: '90' }, 'empty programId'],
+    [{ seasonId: '90' }, { seasonId: '90' }, 'missing programId'],
+    [{ programId: 'P', seasonId: { toString: () => '90' } }, NOW, 'an object is not coerced'],
+    [{ programId: 'P', seasonId: ['90'] }, NOW, 'an array is not coerced'],
+    [{ programId: 'P', seasonId: NaN }, { programId: 'P', seasonId: NaN }, 'NaN'],
+    [{ programId: 'P', seasonId: Infinity }, { programId: 'P', seasonId: 'Infinity' }, 'Infinity'],
+    [{ programId: 'P', seasonId: true }, { programId: 'P', seasonId: 'true' }, 'boolean'],
+    [{ programId: 'P', seasonId: ' ' }, { programId: 'P', seasonId: ' ' }, 'space-only seasonId'],
+    [{ programId: 'P', seasonId: '\t' }, { programId: 'P', seasonId: '\t' }, 'tab-only seasonId'],
+    [{ programId: 'P', seasonId: ' \t ' }, { programId: 'P', seasonId: ' \t ' }, 'space/tab seasonId'],
+    [{ programId: ' ', seasonId: '90' }, { programId: ' ', seasonId: '90' }, 'space-only programId'],
+    [{ programId: '\t', seasonId: '90' }, { programId: '\t', seasonId: '90' }, 'tab-only programId'],
+    [{ programId: 'P', seasonId: ' 90' }, NOW, 'padded season is not normalized'],
+    [{ programId: 'P\t', seasonId: '90' }, NOW, 'padded program is not normalized'],
+  ]) {
+    assert.equal(sameCtx(c, s), false, why);
+    assert.equal(sameCtx(s, c), false, `${why} (swapped)`);
+    const w = view([req('r', 'A', c)], [{ goalId: G, host: 'A' }]);
+    assert.notEqual(jointOfRequest(w, w.requests[0], s).state, 'one', `forward: ${why}`);
+    assert.notEqual(requestsOfJoint(w, w.joint[0], s).state, 'ok', `reverse: ${why}`);
+  }
+});
+
+test('(2026-11-18) known worlds still link: numeric and string season, and zero', () => {
+  for (const [c, s, why] of [
+    [{ programId: 'P', seasonId: 90 }, NOW, 'number 90 vs string "90"'],
+    [NOW, { programId: 'P', seasonId: 90 }, 'string "90" vs number 90'],
+    [{ programId: 'P', seasonId: 0 }, { programId: 'P', seasonId: '0' }, 'zero, number vs string'],
+    [{ programId: 'P', seasonId: '0' }, { programId: 'P', seasonId: '0' }, 'zero, strings'],
+    [{ programId: 'P', seasonId: 0 }, { programId: 'P', seasonId: 0 }, 'zero, numbers'],
+    [{ programId: 'P', seasonId: ' 90' }, { programId: 'P', seasonId: ' 90' }, 'non-blank strings compare as they are (trim only tests blankness)'],
+  ]) {
+    assert.equal(sameCtx(c, s), true, why);
+    const w = view([req('r', 'A', c)], [{ goalId: G, host: 'A' }]);
+    assert.deepEqual(jointOfRequest(w, w.requests[0], s), { state: 'one', goalId: G, host: 'A' }, `forward: ${why}`);
+    assert.deepEqual(requestsOfJoint(w, w.joint[0], s), { state: 'ok', ids: ['r'] }, `reverse: ${why}`);
+  }
+  assert.equal(sameCtx({ programId: 'P', seasonId: 89 }, NOW), false, 'a different known season is still another world');
 });
 
 test('my requests and answers link to the requests shown, by id; a missing one says so', () => {
