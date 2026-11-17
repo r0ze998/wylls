@@ -65,3 +65,9 @@ Candidate command (for the coordinator; not run): `node --test workstreams/12-me
   - `workstreams/12-memory/adapters/ws04-receipts.mjs` (M);
   - `workstreams/12-memory/test/receipt-collision-keyfree.test.mjs` (A);
   - `docs/integration/CLAUDE-LANE-C-WS12-RECEIPT-COLLISION-20261117.md` (A).
+
+## Scope (as approved)
+
+- The atomicity contract stays the existing one: **within one receipt**, every fact is checked (`checkFact`) before any is appended. No transaction over several receipts is introduced.
+- The existing sequential behaviour is kept. A valid receipt is added; a malformed one goes to `held` (with its reason); the loop then goes on to the next receipt.
+- The `break` added here leaves only the inner loop over **the current receipt's** facts, after one of its own event facts collided with a fact already kept. Earlier receipts' writes are not undone or delayed, and later receipts are still read. R4 pins that.
