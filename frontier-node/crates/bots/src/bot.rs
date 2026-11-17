@@ -354,6 +354,30 @@ impl<H, R, D> Shared<H, R, D> {
     }
 }
 
+/// The wallet's `/h/me` as one decision reads it (2026-11-17). Only the
+/// herald's 404 means "no Citizen, no holdings" (`MeView::empty`): the
+/// herald has no record of the wallet. A read that failed (transport, a
+/// status other than 200/404, `HttpHerald::get`) or a body that is not the
+/// view is an error, as `/h/season`'s are. Before, both became
+/// `MeView::empty` through `json_of`: a joined bot whose `/h/me` failed once
+/// in the join window decided `Join` again (`policy::decide_with`, step 1) and
+/// dropped its Citizen (`step` sets `citizen` from the observation). As an
+/// error the step does not decide (`step`, the AI re-observe and follow all
+/// stop on it) and the bot keeps what it last read.
+pub fn me_from_answer(
+    wallet: Address,
+    r: crate::ports::PortResult<Option<Vec<u8>>>,
+) -> Result<MeView, String> {
+    match r {
+        Ok(Some(b)) => {
+            let v: Value = serde_json::from_slice(&b).map_err(|e| format!("/h/me: {e}"))?;
+            MeView::from_json(&v).map_err(|e| format!("/h/me: {e}"))
+        }
+        Ok(None) => Ok(MeView::empty(wallet)),
+        Err(e) => Err(format!("/h/me: {e}")),
+    }
+}
+
 async fn json_of<H: HeraldPort>(h: &H, path: &str) -> Option<Value> {
     match h.get(path).await {
         Ok(Some(b)) => serde_json::from_slice(&b).ok(),
@@ -479,10 +503,8 @@ impl Bot {
         let season = sh.season().await?;
         let now = sh.now().unwrap_or(season.latest_unix);
         let wallet = self.wallet.pubkey();
-        let me = match json_of(&sh.herald, &format!("/h/me/{wallet}")).await {
-            Some(v) => MeView::from_json(&v).map_err(|e| e.to_string())?,
-            None => MeView::empty(wallet),
-        };
+        let me_path = format!("/h/me/{wallet}");
+        let me = me_from_answer(wallet, sh.herald.get(&me_path).await)?;
         let mut overviews = vec![];
         for d in 1..season.rings_opened().max(3) {
             if let Some(o) = sh.overview(d).await {
