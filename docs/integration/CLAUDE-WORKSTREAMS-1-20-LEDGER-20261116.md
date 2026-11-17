@@ -499,3 +499,10 @@ only the allowed confirmation of already-submitted work remains within that boun
 - Review found and fixed archive housekeeping on this read; success/refusal/failure leave local stored operations untouched, while existing tools preserve their prior behavior.
 - Independent final verification: **60/60 passed**, zero failures/skips (34 adapter unit + 26 real server/HTTP-handler fixture integration tests); five wiring JavaScript files passed `node --check`, tracked diff passed whitespace check. The initial missing dependency was resolved using existing installed local SDK dependencies, without package/lockfile changes.
 - HTTP verification executes the real `createHandler` with fake request/response streams and an auth stub: it is not a socket, real OAuth, external MCP-client, live-board or game-world test. Real funds, signatures, runtime deployment, main merge and the full historical regression suite were not exercised. Source integration is not production deployment; the feature remains off by default.
+
+
+### 2026-11-17 UTC — official SDK transport follow-up
+
+- Official Opus added five SDK/bridge tests. Independently rerun total: **65/65 passed**, zero fail/skip; integration test syntax check passed. The real pinned MCP SDK Client/StreamableHTTPClientTransport was exercised through injected fetch into the real HTTP handler, with stub authentication. No socket, real OAuth, wallet signature or world startup.
+- Test and evidence documentation saved through `87f39dd5438e1d252f09b71ff8f67620dbcfbaf4`; both remote files exactly matched checked output. CI status/PR workflow queries returned no entries, not a CI pass.
+- No live MCP/board/world process was found. Actual live connection remains open: prior world-start refusals are unresolved and were not bypassed. The SDK fixture step is independent evidence, not completion of real-world verification.
