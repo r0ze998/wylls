@@ -5,6 +5,7 @@ import { pendingSendOf } from './pending.mjs';
 import { deliveredText, FULFILMENT_JA } from './ws04.mjs';
 import { fulfilBoundsText, jointPrecisionText, lowerBoundText } from './fulfil-bounds.mjs';
 import { STATE_JA } from './arrival.mjs';
+import { OUTCOME_JA, requestHistory } from './history.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { parseTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
@@ -196,9 +197,40 @@ function renderRequests() {
         : `${srcPickHtml(q)}<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button>${sendingNow.has(q.id) ? '<span class="note" data-testid="send-busy">送る手続きの途中（ウォレットの画面を確かめてください）</span>' : ''}</div>`) : ''}
       ${!mine && accepted && open && !badDst ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
         <div class="row">${cands === null ? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない（${esc(feed?.why ?? '?')}）。読み直しを続けます</span>` : cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
+      ${historyHtml(q, me)}
     </div>`;
   }).join('') : '<div class="note">依頼はまだない</div>';
 }
+
+/**
+ * （2026-11-17、依頼の記録）この依頼について板が持っている記録を、状態にかかわらず（受付中・取り消し・期限切れ、応答の取り下げ後も）
+ * 読むだけで並べる：送信（sending の記録と、板が表示の度に確かめる結果 outcome）、結び付け（links）、到着（arrivals）、算入（counted）。
+ * 板の記録は追記で保存されるので、読み込み直し・板の再起動の後も同じものが出る。ここからは何も送らない・結び付けない・確かめ直さない
+ * （followSend は結び付けの記録を出すので、ここでは呼ばない）。分からないものは分からないと言い、送っていない・成功・0 にしない。
+ */
+const historyOpen = new Set();   // 開いている「この依頼の記録」（依頼の ID）。読み直しで閉じない
+function historyHtml(q, me) {
+  const { sendings, arrivals } = requestHistory(q, me);
+  const sendRows = sendings === null ? '<li class="warn">送信の記録が読めない（ないとは言わない）</li>'
+    : !sendings.length ? '<li class="note">この依頼への送信の記録はまだない（ゲームの画面から送った隊商は、結び付けた分だけ下の到着に出る）</li>'
+    : sendings.map(z => `<li data-testid="history-sending" data-status="${esc(z.status)}">${z.mine ? '<b>自分</b>' : esc(short(z.responder))}の隊商 #${esc(z.seq ?? '?')}${z.src ? `（送り元 (${esc(z.src.p)},${esc(z.src.q)}) 村${esc(z.src.site)}）` : ''}：${z.cargo ? esc(needText(z.cargo)) : '荷は記録にない'}。<span class="${z.status === 'landed' ? 'ok' : z.status === 'unknown' || !z.known ? 'warn' : 'bad'}">${esc(z.known ? OUTCOME_JA[z.status] : `分からない（${z.status}）`)}</span>${z.link === 'linked' ? '・この依頼に結び付けた' : z.link === 'unlinked' ? '・まだこの依頼に結び付けていない（結び付けるまで数えない）' : ''}${z.why ? `<span class="note">（${esc(z.why)}）</span>` : ''}</li>`).join('');
+  const arrRows = arrivals === null ? '<li class="warn">到着の記録が読めない（ないとは言わない）</li>'
+    : !arrivals.length ? '<li class="note">この依頼に結び付けた隊商の到着はまだない（数えた量はない。届かなかったとは言わない）</li>'
+    : arrivals.map(x => `<li data-testid="history-arrival" data-state="${esc(x.state)}">${esc(short(x.ownerTag))}#${esc(x.seq ?? '?')}：${esc(STATE_JA[x.state] ?? x.state)}・${esc(deliveredText(x.raw, RESOURCE_JA, x.raw.shipped).text)}・${x.counted
+      ? `<span class="ok">数えた量 ${esc(needText(x.counted))}（下限）</span>` : `<span class="note">数えていない（${esc(x.why ?? '理由は記録にない')}${x.final === false ? '。まだ決まっていない' : ''}）</span>`}</li>`).join('');
+  const n = sendings?.length ?? '?', m = arrivals?.length ?? '?';
+  return `<details class="req-history" data-testid="req-history" data-req="${esc(q.id)}"${historyOpen.has(q.id) ? ' open' : ''}>
+        <summary>この依頼の記録（送信 ${n}・到着 ${m}）</summary>
+        <div class="note">板に保存された記録（読み込み直し・板の再起動の後も同じ）。読むだけ：ここからは送らない・結び付けない</div>
+        <div>送信</div><ul>${sendRows}</ul>
+        <div>到着と算入</div><ul>${arrRows}</ul>
+      </details>`;
+}
+document.addEventListener('toggle', e => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.classList.contains('req-history')) return;
+  if (d.open) historyOpen.add(d.dataset.req); else historyOpen.delete(d.dataset.req);
+}, true);
 
 function renderArrivals() {
   const a = view.arrivals;
@@ -285,6 +317,7 @@ function applyFocus() {
   const el = [...document.querySelectorAll('#requests .req')].find(e => e.dataset.req === q.id);
   if (!el) return focusSay('入口で選んだ依頼を表示できませんでした。一覧から選び直してください');
   el.classList.add('focus');
+  if (!focus.seen) { historyOpen.add(q.id); el.querySelector('details.req-history')?.setAttribute('open', ''); }   // 入口から開いた依頼は、その記録も開く（最初の一回）
   if (!focus.seen) el.scrollIntoView?.({ block: 'center' });
   focus.seen = true;
   focusSay('');
