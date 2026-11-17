@@ -63,7 +63,8 @@ function herald(events, { size = 3, fail = new Set(), delay = 0 } = {}) {
     if (delay) await new Promise(r => setTimeout(r, delay));
     if (fail.has(n)) return { ok: false, code: 'Down' };
     const rows = events.filter(e => BigInt(e.seq) > BigInt(after)).slice(0, size);
-    return { ok: true, events: rows, next: rows.at(-1)?.seq ?? null, full: rows.length === size };
+    // (the herald's contract: `next` is the page's newest raw seq, or the cursor asked from on an empty page)
+    return { ok: true, events: rows, next: rows.at(-1)?.seq ?? String(after), full: rows.length === size };
   } };
 }
 
@@ -199,7 +200,8 @@ test('C5: records read twice or out of order give the same summary as a clean re
 
 test('C5: overlapping pages from the herald are read once', async () => {
   let n = 0;
-  const events = async after => { n++; const rows = H.filter(e => BigInt(e.seq) > BigInt(after) - 2n).slice(0, 4); return { ok: true, events: [...rows].reverse(), next: null, full: rows.length === 4 }; };
+  // (served reversed and overlapping; `next` is still the page's newest raw seq, or the cursor asked from on an empty page)
+  const events = async after => { n++; const rows = H.filter(e => BigInt(e.seq) > BigInt(after) - 2n).slice(0, 4); return { ok: true, events: [...rows].reverse(), next: rows.at(-1)?.seq ?? String(after), full: rows.length === 4 }; };
   const got = await RR.createAwayReader({ events }).start({ scope: 's', from: '100' });
   assert.deepEqual(got.records.map(x => x.seq), ['101', '102', '103', '104', '105', '106', '107', '108']);
   assert.ok(n < 10);
@@ -297,8 +299,8 @@ test('after "seen" a reload queues no head notice, so the phone\'s entry line is
   setLang('ja');
   const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
   // the reading queues a head notice (which the entry line is drawn from) unless there is nothing to tell
-  assert.match(app, /if \(!s\.items\.length && !s\.gap && !s\.failed && s\.windowFrom === null && s\.mode !== 'markAhead'\) return;/);
-  const quiet = s => !s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead';
+  assert.match(app, /if \(!s\.items\.length && !s\.gap && !s\.failed && !s\.bad && s\.windowFrom === null && s\.mode !== 'markAhead'\) return;/);
+  const quiet = s => !s.items.length && !s.gap && !s.failed && !s.bad && s.windowFrom === null && s.mode !== 'markAhead';
   const st = storage();
   RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: { ok: true, toSeq: '100', toBell: 299, horizonBell: null, caravans: {} }, at: 1 });
   const first = sum({ records: R, read: { after: '100', complete: true }, marks: RS.loadMarks(st, '7', 'W') });
