@@ -1694,4 +1694,10 @@ export default {
   '読めていません（選ぶと読み直せます）': 'Not loaded (select it to load again)',
   '読み込みの順番待ち': 'Waiting to load',
   'この輪の村の一覧を読めていません（州を選ぶと読み直せます）': 'The list of villages in this ring is not loaded (select a province to load it again)',
+  // (2026-11-17, Lane C ⑦ the march tracker: reads that did not come)
+  'この進軍の到着先の記録を読めていません（{0}）。上の進み具合は、読めたところまでです。結果がないという意味ではありません。': 'The records of this march\'s destination could not be loaded ({0}). The progress above is as far as could be read. This does not mean there is no result.',
+  'この進軍の到着先の記録を読めていません。上の進み具合は、読めたところまでです。結果がないという意味ではありません。': 'The records of this march\'s destination could not be loaded. The progress above is as far as could be read. This does not mean there is no result.',
+  '記録をもう一度読む': 'Load the records again',
+  '読み込んでいます…': 'Loading…',
+  '進軍の記録をまだ読めていません。進軍がないという意味ではありません。次の読み込みで確かめます。': 'The marches have not been loaded yet. This does not mean there are no marches. They are checked again on the next load.',
 };
