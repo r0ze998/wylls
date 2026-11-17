@@ -49,9 +49,11 @@ export function itemText(i) {
 export function headText(s) {
   // (nothing read is "no new records" only when the reading was whole: after a failure, an unfinished reading or a gap,
   // whether there are new records is not known — 2026-11-17)
+  // (and records whose body could not be decoded are records: with nothing readable in range but some undecodable, it is
+  // "none whose contents could be read", never "no new records")
   const unread = !s.read.n && (s.failed || s.incomplete || !!s.gap);
   const range = s.read.n ? L`第${fmtNum(s.read.fromBell)}〜${fmtNum(s.read.toBell)}ターンの記録 ${fmtNum(s.read.n)} 件を読みました。`
-    : unread ? L`新しい記録があるかどうかは、まだわかりません。` : L`新しい記録はありません。`;
+    : unread ? L`新しい記録があるかどうかは、まだわかりません。` : s.bad > 0 ? L`中身を読めた新しい記録はありません。` : L`新しい記録はありません。`;
   const mode = {
     sinceConfirmed: () => L`あなたが確認したのは第${fmtNum(s.since?.bell ?? 0)}ターンまでです。`,
     firstOnDevice: () => L`この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
@@ -75,7 +77,9 @@ export function confirmText(s) {
   const c = s.confirm;
   if (!c?.ok) return c?.why === 'gap' ? L`欠けた記録を読めるまで、確認の位置は進めません（× で閉じても位置は動きません）`
     // (nothing to confirm after a failed or unfinished reading is "nothing read yet", not "nothing new")
-    : s.failed || s.incomplete ? L`まだ記録を読めていないため、確認の位置は進めません` : L`新しく確認する記録はありません`;
+    : s.failed || s.incomplete ? L`まだ記録を読めていないため、確認の位置は進めません`
+    // (how far the mark may move is unchanged: only the words stop saying "nothing new" over undecodable records)
+    : s.bad > 0 ? L`読めない記録のほかに、新しく確認する記録はありません` : L`新しく確認する記録はありません`;
   return c.partial ? L`確認すると、読めた第${fmtNum(c.toBell)}ターンまでを確認済みにします（その先は次に読みます）` : L`確認すると、第${fmtNum(c.toBell)}ターンまでを確認済みにします`;
 }
 

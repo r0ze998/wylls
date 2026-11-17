@@ -2517,9 +2517,15 @@ const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heral
 let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
 // (workstream 07: an NFT resident (⑳) is another viewer than its wallet's own Citizen: its marks are kept apart)
 const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ? (FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : '' });
-/** The pinned world (cluster, program, season account) the away marks belong to; null before a world is pinned (no check then). */
-const awayWorld = () => (FS.pin ? `${FS.pin.cluster ?? ''}|${FS.pin.programId ?? ''}|${FS.pin.seasonAddress ?? ''}` : null);
-const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
+/**
+ * The pinned world the away reading and its marks belong to: cluster, program and season account as fchainio.setPin
+ * pinned them (`addresses.season` is the account setPin derived and checked against the herald's record). null before a
+ * world is pinned: nothing is made up, and with no world there is no away scope (nothing is read, kept or saved).
+ */
+const awayWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+// (the scope names the world too — 2026-11-17: two worlds can share a genesis time, a season number and a wallet, and a
+// late answer read under one must not be taken, kept or confirmed under the other)
+const awayScopeNow = () => { const { season, wallet } = awayWho(), world = awayWorld(); return season && wallet && world ? returnRead.awayScope({ herald: `${String(FS.season?.genesisTs ?? '')}|${world}`, seasonId: season, wallet }) : null; };
 const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
 /** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
 const awayEnds = records => { for (const x of records ?? []) if (x.record?.name === 'CARAVAN_SETTLED' || x.record?.name === 'CARAVAN_RAIDED') { const k = returnSum.caravanKey(x.record); if (k) caravanWatchOf(FS).ended(k); } };
@@ -2547,7 +2553,7 @@ function awayPump() {
         season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion }, world });
       awayBook = s.book; awaySent = s.sent;
       if (!s.items.length && !s.gap && !s.failed && !s.bad && s.windowFrom === null && s.mode !== 'markAhead') return;
-      awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s } },
+      awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s, world } },
         ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
     }).catch(() => {}).finally(() => { awayBusy = false; });
   } else {
@@ -3502,9 +3508,10 @@ export const HUD_ACTIONS = {
   'away-seen': d => {
     const x = (FS.feed ?? []).find(y => y.id === d.id);
     // (only a summary of this scope whose reading has no gap moves the mark: returnsum.confirm; twice is harmless)
-    if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow()) return;
+    // (and only under the world it was read in: the scope names it, and the save uses the world kept with the summary)
+    if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow() || !x.away.world || x.away.world !== awayWorld()) return;
     const { season, wallet } = awayWho();
-    const saved = returnSum.confirm(awayStore(), { seasonId: season, wallet, confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0, world: awayWorld() });
+    const saved = returnSum.confirm(awayStore(), { seasonId: season, wallet, confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0, world: x.away.world });
     if (!saved) {
       // (storage refused: the notice stays, says so, and the next look starts from the same place)
       FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, null), away: { ...y.away, saved: null } } : y));
@@ -3512,7 +3519,11 @@ export const HUD_ACTIONS = {
       return;
     }
     awayConfirmed.add(x.id);
-    FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.scope === x.scope && (y.kind === 'away' || String(y.id).startsWith('aw:'))).map(y => y.id)]);
+    // (the mark moved. When only the device's "last used" could not be saved, the summary's head stays — no second "seen":
+    // the mark is saved — and says so in confirmedText's words; the items go as usual. 2026-11-17)
+    const keepHead = saved.lastSaved === false;
+    FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.scope === x.scope && (y.kind === 'away' || String(y.id).startsWith('aw:')) && !(keepHead && y.id === x.id)).map(y => y.id)]);
+    if (keepHead) FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, saved), away: { ...y.away, ok: false, saved } } : y));
     renderFeed();
   },
   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },

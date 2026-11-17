@@ -7,6 +7,8 @@
 //   T3 marks and "last used" carry the pinned world; another world's mark is not used
 //   T4 the app passes the world and the reader's bad count, and shows a summary that has only bad records
 //   T5 English keys for every new Japanese sentence
+//   T6 the scope names the world (from setPin's checked season account, never made up); "seen" saves under the world the
+//      summary was read in; an auxiliary-only save failure keeps the head with confirmedText's words
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,8 +21,9 @@ const en = read('../../permutation-server/web/lang/en-frontier-play.mjs');
 
 test('T1 unread is not "no new records"; bad records are told', () => {
   assert.ok(rw.includes('const unread = !s.read.n && (s.failed || s.incomplete || !!s.gap);'));
-  assert.ok(rw.includes(': unread ? L`新しい記録があるかどうかは、まだわかりません。` : L`新しい記録はありません。`;'));
-  assert.ok(rw.includes(": s.failed || s.incomplete ? L`まだ記録を読めていないため、確認の位置は進めません` : L`新しく確認する記録はありません`;"));
+  assert.ok(rw.includes(': s.failed || s.incomplete ? L`まだ記録を読めていないため、確認の位置は進めません`'));
+  assert.ok(rw.includes(': s.bad > 0 ? L`読めない記録のほかに、新しく確認する記録はありません` : L`新しく確認する記録はありません`;'));
+  assert.ok(rw.includes(': unread ? L`新しい記録があるかどうかは、まだわかりません。` : s.bad > 0 ? L`中身を読めた新しい記録はありません。` : L`新しい記録はありません。`;'), 'a bad-only reading is not "no new records"');
   assert.ok(rw.includes('const bad = s.bad > 0 ? L`読めない記録が ${fmtNum(s.bad)} 件ありました。その中身は推測しません。` : \'\';'));
   assert.ok(rs.includes('bad: Number.isSafeInteger(read?.bad) && read.bad > 0 ? read.bad : 0,'));
 });
@@ -41,13 +44,24 @@ test('T3 the pinned world in marks and "last used"', () => {
 });
 
 test('T4 the app passes the world and the bad count', () => {
-  assert.ok(app.includes("const awayWorld = () => (FS.pin ? `${FS.pin.cluster ?? ''}|${FS.pin.programId ?? ''}|${FS.pin.seasonAddress ?? ''}` : null);"));
   assert.ok(app.includes('read: { after: r.after, complete: r.complete, failed: r.failed, bad: r.bad }'));
-  assert.ok(app.includes('confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0, world: awayWorld() });'));
   assert.ok(app.includes("if (!s.items.length && !s.gap && !s.failed && !s.bad && s.windowFrom === null && s.mode !== 'markAhead') return;"));
 });
 
 test('T5 English keys', () => {
   for (const k of ['新しい記録があるかどうかは、まだわかりません。', '記録の読み込みに失敗しました。', '記録はまだ続きがあります。', '読めない記録が {0} 件ありました。その中身は推測しません。',
-    'まだ記録を読めていないため、確認の位置は進めません', '第{0}ターンまでを確認済みにしました（この端末で最後に使ったウォレットの記録だけは保存できませんでした）']) assert.ok(en.includes(`  '${k}':`), k);
+    'まだ記録を読めていないため、確認の位置は進めません', '第{0}ターンまでを確認済みにしました（この端末で最後に使ったウォレットの記録だけは保存できませんでした）',
+    '中身を読めた新しい記録はありません。', '読めない記録のほかに、新しく確認する記録はありません']) assert.ok(en.includes(`  '${k}':`), k);
+});
+
+test('T6 one world from reading to saving; an auxiliary-only failure is shown', () => {
+  assert.ok(app.includes("const awayWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
+  assert.ok(app.includes("return season && wallet && world ? returnRead.awayScope({ herald: `${String(FS.season?.genesisTs ?? '')}|${world}`, seasonId: season, wallet }) : null;"), 'no world, no scope');
+  assert.ok(app.includes('away: { ok: s.confirm.ok, summary: s, world } },'), 'the head keeps the world it was read in');
+  assert.ok(app.includes("if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow() || !x.away.world || x.away.world !== awayWorld()) return;"));
+  assert.ok(app.includes('confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0, world: x.away.world });'));
+  assert.ok(app.includes('const keepHead = saved.lastSaved === false;'));
+  assert.ok(app.includes('if (keepHead) FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, saved), away: { ...y.away, ok: false, saved } } : y));'));
+  assert.ok(app.includes('&& !(keepHead && y.id === x.id)).map(y => y.id)]);'), 'the head is not dismissed then');
+  assert.doesNotMatch(app, /FS\.pin\.seasonAddress/, 'setPin has no seasonAddress field: never read as one');
 });

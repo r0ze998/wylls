@@ -81,3 +81,51 @@ The scope boundary is kept, and the mark only ever covers what was read: `confir
   - the away keys in `en-frontier-play.mjs`;
   - the end of `CONTRACTS.ja.md`.
 - **Not verified:** any run, the real away notice on a page, real storage failures.
+
+## Final reverse review: three remaining points, fixed through to the screen (2026-11-17; nothing run)
+
+| # | Problem in `a7aea42e` | Fix |
+|---|---|---|
+| ① | `headText`'s `unread` did not count undecodable records. A whole reading with **only** bad records still said "新しい記録はありません。", and `confirmText` said "新しく確認する記録はありません" | With nothing readable in range but `bad > 0`: "中身を読めた新しい記録はありません。" (with the count line), and "読めない記録のほかに、新しく確認する記録はありません". A failed or unfinished reading keeps the A1 wording. How far the mark moves is unchanged |
+| ② | The world was added to marks, but the reading **scope** was still genesis, season and wallet. In another program or cluster with the same three, a late answer passed `r.scope === awayScopeNow()`, and "seen" could save it under the new world's name. `awayWorld()` also read `FS.pin.seasonAddress`, which **`setPin` does not have** (it returns `{programId, cluster, seasonId, addresses, profile}`), so the season account was always empty | `awayWorld()` uses `FS.pin.addresses.season`: the account `setPin` derives and checks against the herald's record (it throws `PinMismatch` otherwise). It is `null` before a pin, and nothing is made up. `awayScopeNow()` includes the world and is `null` without one: nothing is read, kept or saved, and an earlier scope is reset. The head item keeps `away.world` from when it was read. "seen" requires `x.away.world === awayWorld()` as well as the scope, and saves with `x.away.world`. Existing marks and the compatibility policy are unchanged: a mark without a world still reads |
+| ③ | `confirmedText(lastSaved: false)` existed, but the app's success path dismissed every away row at once, so the warning was never shown | Only when `saved.lastSaved === false`: the head row is **not** dismissed; its text becomes `awayHeadText(summary, saved)` (the success with the note), `away.ok = false` (no second "seen": the mark is saved), and `away.saved` is kept so a language change rewords it (`reword`). The item rows go as usual. Other outcomes are unchanged: a full success dismisses all, and `null` keeps "保存できませんでした" |
+
+**Callers to the UI (static):**
+- `awayPump`: `awayScopeNow()` (world) → `start`/`more` → `r.scope` check → `summarize` → head in `awayQueue` → `tickFeed` → feed and toasts.
+- `away-seen`: scope and world checks → `confirm` (world kept with the summary) → dismiss, or keep the head with `confirmedText`.
+- `renderAwayEntry`: `awayHeadNow` excludes `awayConfirmed`, so no entry line after "seen".
+- `feed.mjs` `itemActions`: "確認した" only while `away.ok !== false`.
+
+**English:** two more keys ("No new records whose contents could be read.", "Apart from the records that could not be read, nothing new to mark as seen"). **Contract:** the away-summary section is updated for ①–③.
+
+**Regression (written, not run):**
+- `web-frontier-ws07-away-return.test.mjs`: the bad-only head and confirm words, in Japanese and English.
+- `web-frontier-ws07-away-return-text.test.mjs`:
+  - T1 for the bad-only words;
+  - T4 adjusted (the old `awayWorld` line removed);
+  - new **T6**: the world in the scope, no scope without a world, the head keeping its world, "seen" saving under it, the head kept on an auxiliary-only failure, and no reading of `FS.pin.seasonAddress`.
+
+**The pre-run audit is unchanged:** the text test is still the only independent, key-free candidate. The behaviour test (30 files; it loads `lang.mjs` and `fi18n.mjs`) is held for the coordinator.
+
+## Final manifest (for D; the aggregate is not changed here)
+
+- **Base:** `2ff95beb9e7bb7f3b72b2bf210f1c08f23cc56cb`.
+- **Branch:** `claude/lane-c-ws07-away-return-flow-20261117`. Commits: `a7aea42e` (A1–A4), then this final review (①–③), which is the tip.
+- **Eight paths:**
+  - `permutation-server/web/frontier/hud/returnsum.mjs`;
+  - `permutation-server/web/frontier/hud/returnwords.mjs`;
+  - `permutation-server/web/frontier/app.mjs` (away path only);
+  - `permutation-server/web/lang/en-frontier-play.mjs`;
+  - `workstreams/07-player-experience/CONTRACTS.ja.md`;
+  - `permutation-gateway/test/web-frontier-ws07-away-return.test.mjs`;
+  - `permutation-gateway/test/web-frontier-ws07-away-return-text.test.mjs`;
+  - this report.
+- **Likely conflict points:**
+  - `app.mjs`: `awayWorld`/`awayScopeNow`, `awayPump` and the `away-seen` action;
+  - the away keys in `en-frontier-play.mjs`;
+  - the end of `CONTRACTS.ja.md`.
+- **Not run:**
+  - every test;
+  - the real away notice on a page;
+  - real storage failures and a real second world.
+- **Candidate command (independent, key-free):** `node --test permutation-gateway/test/web-frontier-ws07-away-return-text.test.mjs`.

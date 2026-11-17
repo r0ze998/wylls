@@ -38,6 +38,12 @@ test('reading: nothing read is "no new records" only when the reading was whole'
 
 test('reading: undecodable records are counted and told, never guessed', () => {
   setLang('ja');
+  // (a reading with only undecodable records in range, whole: not "no new records", and not "nothing new" to confirm)
+  const badOnly = RW.headText(head({ bad: 2 }));
+  assert.match(badOnly, /中身を読めた新しい記録はありません。.*読めない記録が 2 件ありました。/);
+  assert.doesNotMatch(badOnly.replace('中身を読めた新しい記録はありません。', ''), /新しい記録はありません/, 'never the bare "no new records"');
+  assert.equal(RW.confirmText(head({ bad: 2 })), '読めない記録のほかに、新しく確認する記録はありません');
+  assert.equal(RW.confirmText(head({ bad: 2, failed: true, incomplete: true })), 'まだ記録を読めていないため、確認の位置は進めません');
   assert.match(RW.headText(head({ bad: 3 })), /読めない記録が 3 件ありました。その中身は推測しません。/);
   assert.doesNotMatch(RW.headText(head({ bad: 0 })), /読めない記録/);
   const s = RS.summarize({ records: [], read: { after: '100', complete: true, failed: false, bad: 2 }, marks: { confirmedSeq: '100', confirmedBell: 299, caravans: {} }, last: null, season: '7', wallet: 'W', nowBell: 400, me: {} });
@@ -115,6 +121,8 @@ test('English follows', () => {
   setLang('en');
   assert.match(RW.headText(head({ failed: true, incomplete: true, bad: 1 })), /Whether there are new records is not known yet\. .*Reading the records failed\. .*1 records could not be read/);
   assert.equal(RW.confirmText(head({ incomplete: true })), 'No records have been read yet, so the seen mark does not move');
+  assert.match(RW.headText(head({ bad: 1 })), /No new records whose contents could be read\./);
+  assert.equal(RW.confirmText(head({ bad: 1 })), 'Apart from the records that could not be read, nothing new to mark as seen');
   assert.match(RW.confirmedText({ moved: true, lastSaved: false, marks: { confirmedBell: 300 } }), /only this device's note of the wallet used last could not be saved/);
   setLang('ja');
 });
