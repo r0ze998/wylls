@@ -54,6 +54,32 @@
   - local play's own path.
   - `orderUnconfirmed`'s pinned record line stays verbatim: the ordinary path's code is set on the next line.
 
+## Correction (third tip): every exit after the scope may change
+
+The parent's review of `1c543100` found two remaining paths. Reading every exit of the ordinary path found two more of the same kind. All four are fixed in `controller.mjs` (`actOnce`):
+
+| Exit (ordinary path) | Before | Now |
+|---|---|---|
+| **a refused send** (`r.ok` false) after the page moved | `return failed(r)` ran **before** the moved check, so the old world's refusal was said on the new page | `if (!r.ok && moved())` first: nothing said, only this order's own busy notice cleared |
+| **the moved branch's busy notice** | `if (FS.notice?.busy) setNotice(null)` could clear **another** order's busy notice on the new page | `quiet()`: clears only **this** order's busy notice (`myBusy`, the object this order set; updated when the catch-up retry sets its own) |
+| **the NFT generation read** (the one `await` before the `try`) | a late `NftNotHeld` notice, and a write of `FS.resident` for whichever viewer is now shown; a rejection reached the new page's handler | the scope is taken **first** in `actOnce` (before any await). After the read, a moved page returns `ScopeChanged` with no notice and no write. A rejection is thrown as before unless the page moved. |
+| **an exception** inside the `try` after the page moved | rethrown to the new page's handler (its error notice) | logged to the console and returned (`scopeChanged`). Before a move, it is thrown as before. |
+| **the catch-up retry** | its busy notice could go to a moved page | **the retry and its resend are unchanged.** Only the busy notice is skipped for a moved page, and it counts as this order's. |
+
+**Unchanged:**
+- what is sent, when, and how often (the retry's resend included);
+- the double-send guard;
+- local play;
+- the effects bus (landed/refused as before);
+- every rule, permission and signature;
+- unknown outcomes still say what the chain answered, and stay "sent, not confirmed".
+
+**Not done:** no unknown is treated as settled, and no new re-send rule is added.
+
+**This tip is static only.** No syntax check, script, import or test was run. One combined command that included `node --check` and a regex comparison script was refused by the session's safety check, ran nothing, and was not retried. Every edit after that was made by text replacement only. The earlier pin comparison (40 regexes, old vs new text) covered the second tip, not this one; this tip was checked by reading:
+- **The verbatim pin is kept:** `if (!local && !t.ok && retryAfterCatchUp(name, t.code)) {` (`web-frontier-local-play-act.test.mjs`).
+- **No pin is touched:** none of the gateway tests' controller pins mention the other lines touched (`git grep`).
+
 ## Checked against what exists
 
 - **The controller's text pins are unaffected:** all 40 whole-file regex pins in `permutation-gateway/test/*.mjs` (`assert.match` / `doesNotMatch` on `ctl`/`ctrl`) give the same answer on the old and the new text. The local-play send-part pins (`web-frontier-local-play-act.test.mjs` `:455-480`) match unchanged lines.
@@ -70,7 +96,8 @@
 Text pins, as the other controller tests:
 - the scope's definition and its use in `orderOf`, `orderAnswered` and `orderUnconfirmed`;
 - in `actOnce`: the scope taken before the send, and the order of the branches (unknown recorded, then moved shows nothing, then the failure notice, then the landing);
-- the moved branch's content (effects as before, busy cleared, no `done`/`failed`/record/`after`/refresh);
+- the moved branch's content (effects as before, only this order's busy cleared, no `done`/`failed`/record/`after`/refresh);
+- (third tip) the scope taken before the first await; `myBusy`/`quiet`; the generation read's guard; a refused send's moved check before its notice; the retry line verbatim with its busy gated; the `catch` returning for a moved page;
 - the `finally` guard;
 - local play's own unconfirmed branch still first.
 

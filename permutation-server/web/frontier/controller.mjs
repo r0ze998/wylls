@@ -429,6 +429,8 @@ function localMarchFor(h, hostId) {
 // `lo` (local play's six only; null otherwise): `{scope, key, origin}` taken by `act` BEFORE anything was awaited — the
 // scope the order is sent, held and followed under, and the relay it is sent through.
 async function actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early, lo = null) {
+  // (2026-11-17) the viewer and world this order is made under, taken before anything is awaited
+  const scope0 = orderScope();
   // a wide holding among the subjects, or a village order while the village screen shows a wide village: refused
   // before anything is built or sent (fwide.mjs: the one guard every path meets)
   { const wr = fwide.wideRefusal(name, typeof v === 'object' ? v : null, FS); if (wr) return early(wr); }
@@ -436,6 +438,8 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   if (!FS.wallet) return early({ code: 'NoWallet' });
   // (only one of the six reaches here in local play: `act` refused the rest. No session key, no sponsor, no NFT path.)
   const local = lo !== null && localAct.localOrderRoute({ localPlay, name, v, signer, requester }) === 'local-act';
+  // the ordinary path's answer is shown only if the page is still that viewer and world (local play follows its own scope)
+  const moved = () => !local && orderScope() !== scope0;
   if (localPlay && !local) return early(localPlayReadOnly());
   if (local && FS.resident) return early(localPlayReadOnly());
   let sign = null;
@@ -444,7 +448,10 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   let resident = null;
   if (FS.resident && signer !== null && name !== 'JoinResident') {
     if (name === 'SetSession') return early({ code: 'NftNoSession' });
-    const g = await fresident.currentGeneration(FS.wallet.address, FS.resident.asset);
+    // (2026-11-17) a rejection is thrown as before unless the page moved meanwhile (then it is the old order's, below)
+    const g = await fresident.currentGeneration(FS.wallet.address, FS.resident.asset).catch(e => { if (moved()) return undefined; throw e; });
+    // (2026-11-17) another viewer or world now: neither its notice nor the write below
+    if (moved()) return { ok: false, code: 'ScopeChanged', scopeChanged: true, sent: false };
     if (g === null) return early({ code: 'NftNotHeld' });
     FS.resident = { ...FS.resident, generation: g };
     resident = { generation: g, proof: FS.resident.proof };
@@ -459,12 +466,11 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
       sign = { session: FS.session };
     }
   }
-  // (2026-11-17) the viewer and world this order is sent under; the ordinary path's answer is shown only if the page is
-  // still that one when it comes (local play follows its own scope below)
-  const scope0 = orderScope();
-  const moved = () => !local && orderScope() !== scope0;
   let unconfirmed = false;
   busy(label ?? (() => L`送信中…`));
+  // (2026-11-17) this order's own busy notice: only it is ever cleared for a page that moved, never another order's
+  let myBusy = FS.notice;
+  const quiet = () => { if (FS.notice === myBusy) setNotice(null); };
   const fxa = fxAction(name, v, order);
   let fxDone = false, sent = false, code = null;
   fxEmit('action:busy', fxa);
@@ -527,13 +533,16 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     // ask the keeper to catch it up, wait for the herald to show it, and send once more.
     // (never in local play: there a second transaction is only ever the player's own new press)
     if (!local && !t.ok && retryAfterCatchUp(name, t.code)) {
-      busy(() => L`州が追いつくのを待っています…`);
+      // (2026-11-17) the retry is unchanged; only its busy notice is not put on a page that moved, and it is this order's
+      if (!moved()) { busy(() => L`州が追いつくのを待っています…`); myBusy = FS.notice; }
       if (await catchUp(typeof v === 'object' ? (v.province ?? v.holding) : null)) {
         r = await send();
         if (r.ok) onSent?.(r);
         t = r.ok ? await tx.track(r.signature) : r;
       }
     }
+    // (2026-11-17) a refusal answered after the page moved is not said on the new page
+    if (!r.ok && moved()) { code = r.code ?? null; quiet(); return { ...r, scopeChanged: true }; }
     if (!r.ok) { code = r.code ?? null; return failed(r); }
     // sent, and the chain says it failed or it expired: definitely not landed (an unknown outcome is neither)
     if (!t.ok && (t.state === 'failed' || t.state === 'expired')) onLost?.(t);
@@ -550,7 +559,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     if (moved()) {
       code = t.code ?? null;
       if (t.ok) { fxDone = true; fxEmit('action:landed', fxa); }
-      if (FS.notice?.busy) setNotice(null);
+      quiet();
       return { ...t, signature: r.signature, scopeChanged: true };
     }
     if (!t.ok) { code = t.code ?? null; return failed(t); }
@@ -564,6 +573,8 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     return r;
   } catch (e) {
     code = e?.code ?? 'Error';
+    // (2026-11-17) an exception after the page moved is not thrown at the new page's handler (its notice)
+    if (moved()) { console.error('frontier order of another viewer or world:', e); quiet(); return { ok: false, code, scopeChanged: true, sent }; }
     throw e;
   } finally {
     if (!fxDone) { fxEmit('action:refused', fxa); if (!unconfirmed) orderAnswered(order, false, { code, sent }); }

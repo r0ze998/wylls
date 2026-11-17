@@ -34,10 +34,33 @@ test('the ordinary path: the scope is taken before anything is sent, and a late 
   // a moved page: the effects bus is told as before (landed for a landing), the busy notice is cleared, nothing else
   const movedPart = once.slice(mov, fail);
   assert.match(movedPart, /if \(t\.ok\) \{ fxDone = true; fxEmit\('action:landed', fxa\); \}/);
-  assert.match(movedPart, /if \(FS\.notice\?\.busy\) setNotice\(null\);/);
+  assert.match(movedPart, /\n\s+quiet\(\);/);
   assert.doesNotMatch(movedPart, /done\(|failed\(|orderAnswered\(|after\?\.|refresh\(\)/);
   // an unconfirmed order is never then recorded as refused by the finally block
   assert.match(once, /if \(!fxDone\) \{ fxEmit\('action:refused', fxa\); if \(!unconfirmed\) orderAnswered\(order, false, \{ code, sent \}\); \}/);
+});
+
+// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN) every exit of the ordinary path after the scope may have changed
+test('an old answer changes neither the new page notice nor another order busy notice, on every exit', () => {
+  const once = between('async function actOnce(', '/** What an accepted action says');
+  // the scope is the first thing taken, before the first await
+  const taken = 'const scope0 = orderScope();';
+  assert.ok(once.indexOf(taken) >= 0 && once.indexOf(taken) < once.indexOf('await '), 'taken before anything is awaited');
+  // only this order's own busy notice is ever cleared
+  assert.match(once, /let myBusy = FS\.notice;\n\s+const quiet = \(\) => \{ if \(FS\.notice === myBusy\) setNotice\(null\); \};/);
+  assert.doesNotMatch(once, /FS\.notice\?\.busy\) setNotice\(null\)/, 'never "whatever is busy now"');
+  // after the NFT generation read: neither its notice nor the FS.resident write for another viewer or world
+  assert.match(once, /const g = await fresident\.currentGeneration\(FS\.wallet\.address, FS\.resident\.asset\)\.catch\(e => \{ if \(moved\(\)\) return undefined; throw e; \}\);/);
+  const gen = once.indexOf('const g = await fresident.currentGeneration(');
+  const genGuard = once.indexOf("if (moved()) return { ok: false, code: 'ScopeChanged', scopeChanged: true, sent: false };");
+  assert.ok(gen > 0 && gen < genGuard && genGuard < once.indexOf("if (g === null) return early({ code: 'NftNotHeld' });") && genGuard < once.indexOf('FS.resident = { ...FS.resident, generation: g };'));
+  // a refused send: the moved check comes before the failure notice
+  const refusedMoved = once.indexOf('if (!r.ok && moved()) { code = r.code ?? null; quiet(); return { ...r, scopeChanged: true }; }');
+  assert.ok(refusedMoved > 0 && refusedMoved < once.indexOf('if (!r.ok) { code = r.code ?? null; return failed(r); }'));
+  // the catch-up retry is unchanged (pinned elsewhere verbatim); only its busy notice is gated and recorded as this order's
+  assert.match(once, /if \(!local && !t\.ok && retryAfterCatchUp\(name, t\.code\)\) \{\n.*\n\s+if \(!moved\(\)\) \{ busy\(\(\) => L`州が追いつくのを待っています…`\); myBusy = FS\.notice; \}\n\s+if \(await catchUp\(/);
+  // an exception after the page moved is not thrown at the new page's handler; before that, it is thrown as before
+  assert.match(once, /code = e\?\.code \?\? 'Error';\n.*\n\s+if \(moved\(\)\) \{ console\.error\('frontier order of another viewer or world:', e\); quiet\(\); return \{ ok: false, code, scopeChanged: true, sent \}; \}\n\s+throw e;/);
 });
 
 test('local play keeps its own scope and record (unchanged)', () => {
