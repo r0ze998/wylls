@@ -65,7 +65,8 @@ test('O3 one world: as before', () => {
 });
 
 test('O4 app: forget, then apply; the reader names the world', () => {
-  assert.ok(app.includes("import { useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld } from './controller.mjs';"));
+  // (the season-order bundle adds askSeason, takeSeason and seasonStale to this import)
+  assert.match(app, /import \{ useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld[ ,\w]* \} from '\.\/controller\.mjs';/);
   const ls = fnOf(app, 'async function loadSeason(herald) {');
   order(ls, 'FS.pin = setPin({', 'herald.pin(record.season, FS.pin.addresses);', 'adoptPinnedWorld();', 'FS.season = season;', 'applySeasonRecord(FS, record,', 'if (FS.overviewsBooted) loadOverviews(herald)');
   assert.ok(app.includes('return readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,'));

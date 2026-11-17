@@ -759,6 +759,35 @@ async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
  */
 function providerWorld() { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; }
 
+/**
+ * The order of the season record's answers (2026-11-17, ⑦). Two readers ask /h/season of the same herald without waiting
+ * for each other — the season poll (app.mjs loadSeason, which pins) and refreshOverviews (the play poll, a ticket's or a
+ * home's plan) — and the herald client neither shares nor orders their requests, so an answer asked earlier can land
+ * after one asked later. Each read takes a number when it asks (`askSeason`); an answer is applied only when no answer
+ * asked later has been applied (`seasonStale` is false), and it is recorded as applied (`takeSeason`) only after it was
+ * applied in full, in the same stretch without a wait as that check. A failed answer, a refused pin, or a throw while
+ * applying records nothing, so an answer asked earlier may still be applied after it; one asked before an applied
+ * answer does not undo what that answer set. The numbers only grow, so a later read is never held back and a
+ * successful change of world is applied as soon as it is the latest asked.
+ */
+let seasonAsked = 0, seasonTaken = 0;
+export function askSeason() { seasonAsked += 1; return seasonAsked; }
+export function takeSeason(seq) { if (!(seq > seasonTaken)) return false; seasonTaken = seq; return true; }
+export function seasonStale(seq) { return !(seq > seasonTaken); }
+/**
+ * Whether a season record is of the pinned world: cluster, program, season and, when the record names it, the season
+ * account (as fchainio.setPin derived them). refreshOverviews applies only such a record — pinning stays loadSeason's;
+ * a record of another world waits for the season poll, which pins it. False with no pin or a record it cannot read.
+ */
+function recordOfPin(record) {
+  const p = io.pinned();
+  if (!p?.addresses || !record) return false;
+  try {
+    return String(record.cluster || 'localnet') === p.cluster && String(record.programId) === p.programId
+      && String(BigInt(String(record.season))) === p.seasonId && (!record.seasonAddress || record.seasonAddress === p.addresses.season);
+  } catch { return false; }
+}
+
 /** The conquest and S1 state is another world's when its mark is not this world (untagged: world null). */
 function dropOtherWorldConquest(world) {
   if (FS.conquest && (FS.conquest.world ?? null) !== world) FS.conquest = undefined;
@@ -1904,15 +1933,20 @@ function refreshOverviews(b) {
   request.promise = (async () => {
     try {
       try {
+        const seq = askSeason();
         const r = await request.herald.season();
         if (!same()) return;
         // A later bell's read owns the season record; the older caller joins it.
         if (overviewRefresh !== request) return overviewRefresh?.promise;
         // The record, the world's extent and the ring lists move together. Setting
         // FS.record alone left FS.world behind the ticket planner's latest read.
-        if (r?.ok && r.record) {
+        // (2026-11-17, ⑦: only a record of the pinned world, and only when no answer asked later was applied — askSeason.
+        //  Checked, set and recorded without a wait in between; recorded only once set: a throw while applying is caught
+        //  below, keeps the last record as before, and records nothing.)
+        if (r?.ok && r.record && recordOfPin(r.record) && !seasonStale(seq)) {
           applySeasonRecord(FS, r.record, { herald, onRings: () => invalidate('map', 'panel') });
           if (r.season) FS.season = r.season;
+          takeSeason(seq);
         }
       } catch { /* keep the last record */ }
       if (!same()) return;
