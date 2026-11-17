@@ -51,12 +51,28 @@ export class JsonStore {
     const line = `${JSON.stringify(op)}\n`;
     if (!this.archiveFile) { this.memoryArchive.push(line); this.#remember(op, this.memoryArchive.length - 1, -1); delete this.state.operations[op.id]; return; }
     mkdirSync(path.dirname(this.archiveFile), { recursive: true });
-    const fd = openSync(this.archiveFile, 'a', 0o600);
+    // Read and append ('a+': every write still goes to the end). (2026-11-17) A line cut by an earlier crash leaves the
+    // file without a final newline: the new record then starts on a line of its own (one newline written before it,
+    // in the same write), so the cut bytes stay a separate, skipped line instead of joining the new record into one
+    // line that no longer parses after a restart. No byte already in the file is changed or removed.
+    const fd = openSync(this.archiveFile, 'a+', 0o600);
     try {
-      const offset = fstatSync(fd).size;
-      writeSync(fd, line);
+      const size = fstatSync(fd).size;
+      let sep = '';
+      if (size > 0) {
+        const last = Buffer.alloc(1);
+        if (readSync(fd, last, 0, 1, size - 1) !== 1) throw new Error('archive: the last byte could not be read');
+        if (last[0] !== 0x0a) sep = '\n';
+      }
+      // writeSync answers how many bytes it wrote: a short write is not success. Anything less than the whole
+      // separator + record is refused before the sync, the index or the delete, so the operation stays in the main
+      // state; the bytes that did reach the file stay (append-only) as a cut tail, which the next archive closes with
+      // its separator, as above.
+      const bytes = Buffer.from(sep + line, 'utf8');
+      const wrote = writeSync(fd, bytes, 0, bytes.length);
+      if (wrote !== bytes.length) throw new Error(`archive: wrote ${wrote} of ${bytes.length} bytes; nothing moved`);
       fsyncSync(fd);
-      this.#remember(op, offset, Buffer.byteLength(line) - 1);
+      this.#remember(op, size + sep.length, Buffer.byteLength(line) - 1);
     } finally { closeSync(fd); }
     delete this.state.operations[op.id];
   }
@@ -100,7 +116,15 @@ export class JsonStore {
     mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.${process.pid}.tmp`;
     const fd = openSync(tmp, 'w', 0o600);
-    try { writeSync(fd, JSON.stringify(this.state)); fsyncSync(fd); } finally { closeSync(fd); }
+    try {
+      // (2026-11-17) writeSync answers how many bytes it wrote: a short or zero write is refused here, before the
+      // rename, so the last complete state file stays as it was and the next load reads it. The partial temporary
+      // file is left as it is (it is never read: only `this.file` is loaded; the next save rewrites it with 'w').
+      const bytes = Buffer.from(JSON.stringify(this.state), 'utf8');
+      const wrote = writeSync(fd, bytes, 0, bytes.length);
+      if (wrote !== bytes.length) throw new Error(`store: wrote ${wrote} of ${bytes.length} bytes; the state file was not replaced`);
+      fsyncSync(fd);
+    } finally { closeSync(fd); }
     renameSync(tmp, this.file);
     chmodSync(this.file, 0o600);
   }
