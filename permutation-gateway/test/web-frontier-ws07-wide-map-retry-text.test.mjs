@@ -13,8 +13,9 @@
 //   Q3 a read ends: the waiting one starts if the same world is pinned and the province is still selected and a place
 //      is free; the person selected elsewhere, or the world changed: it is let go, its "waiting" word with it
 //   Q4 a later waiting request takes the place of an earlier one (one place, no queue), and clears the earlier one's word
-//   Q5 a change of world: the places, the waits, the read states and the waiting request are all let go; an old read's
-//      end frees only its own token's place and clears only its own "loading"
+//   Q5 a change of world: the names of the reads under way, the waits, the read states and the waiting request are let
+//      go — NOT the places the old requests still take (corrected: web-frontier-ws07-wide-map-slots-text.test.mjs); an
+//      old read's end frees only its own token's place and clears only its own "loading"
 //   Q6 the card: waiting is said as waiting, with no button (it is already asked); a good read clears the state and the
 //      card shows the province
 //   Q7 the limit and the waits of the map's own asks are unchanged
@@ -32,19 +33,19 @@ const wait = fnOf(ctl, 'function startWaiting() {'), start = fnOf(ctl, 'function
 test('Q1 the selected province is held, not lost, when every place is taken', () => {
   assert.ok(ctl.includes('const selectedIs = (p, q) => { const s = FS.selected; return !!s && s.p === p && s.q === q; };'));
   order(wp, 'if (!herald || artWanted.has(key)) return false;', 'if (have && !(have.bell < bell', 'if (!have && fetchedAt.has(key)',
-    'if (artWanted.size >= WANT_IN_FLIGHT) { if (selectedIs(p, q)) holdWant(p, q, onLoad); return false; }', 'startProvinceRead(p, q, onLoad, now);');
+    'if (readsUnderWay.size >= WANT_IN_FLIGHT) { if (selectedIs(p, q)) holdWant(p, q, onLoad); return false; }', 'startProvinceRead(p, q, onLoad, now);');
 });
 
 test('Q2 "read again" always answers what became of the press', () => {
   order(rp, 'if (!herald) return false;', "if (artWanted.has(key)) return 'loading';", 'fetchedAt.delete(key);',
-    "if (artWanted.size >= WANT_IN_FLIGHT) { holdWant(p, q, onLoad); return 'waiting'; }", "return 'started';");
+    "if (readsUnderWay.size >= WANT_IN_FLIGHT) { holdWant(p, q, onLoad); return 'waiting'; }", "return 'started';");
   assert.doesNotMatch(rp, /return wantProvince\(/, 'no path that can answer a bare false for a taken place');
 });
 
 test('Q3 the waiting read starts at a read\'s end, for the same world and selection only', () => {
   order(wait, 'const w = waitingWant;', 'if (!w) return;', 'if (w.world !== providerWorld() || !selectedIs(w.p, w.q)) {', 'waitingWant = null;',
     "if (FS.provinceReads?.get(w.key)?.state === 'waiting') FS.provinceReads.delete(w.key);", 'return;',
-    'if (!herald || artWanted.has(w.key) || artWanted.size >= WANT_IN_FLIGHT) return;', 'waitingWant = null;', 'startProvinceRead(w.p, w.q, w.onLoad, Date.now());');
+    'if (!herald || artWanted.has(w.key) || readsUnderWay.size >= WANT_IN_FLIGHT) return;', 'waitingWant = null;', 'startProvinceRead(w.p, w.q, w.onLoad, Date.now());');
   order(start, 'if (artWanted.get(key) === token) artWanted.delete(key);', 'startWaiting();', 'onLoad();');
 });
 

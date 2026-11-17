@@ -35,7 +35,7 @@ test('F2 a read under way says so; a dropped answer leaves nothing behind', () =
   const wp = fnOf(ctl, 'export function wantProvince(');
   order(wp, 'if (!herald || artWanted.has(key)) return false;',
     'if (!have && fetchedAt.has(key) && now - fetchedAt.get(key) < WANT_REFRESH_MS) return false;',
-    'if (artWanted.size >= WANT_IN_FLIGHT) { if (selectedIs(p, q)) holdWant(p, q, onLoad); return false; }', 'startProvinceRead(p, q, onLoad, now);', 'return true;');
+    'if (readsUnderWay.size >= WANT_IN_FLIGHT) { if (selectedIs(p, q)) holdWant(p, q, onLoad); return false; }', 'startProvinceRead(p, q, onLoad, now);', 'return true;');
   const sr = fnOf(ctl, 'function startProvinceRead(p, q, onLoad, now) {');
   order(sr, 'artWanted.set(key, token);', 'fetchedAt.set(key, now);', "if (!FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'loading', code: null, token });",
     "loadEnvelope(p, q).catch(() => { if (providerWorld() === world && artWanted.get(key) === token && !FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'failed', code: 'Error' }); return null; })",
@@ -45,7 +45,7 @@ test('F2 a read under way says so; a dropped answer leaves nothing behind', () =
 test('F3 reading again at the person\'s request', () => {
   const rp = fnOf(ctl, 'export function retryProvince(');
   order(rp, 'if (!herald) return false;', "if (artWanted.has(key)) return 'loading';", 'fetchedAt.delete(key);',
-    "if (artWanted.size >= WANT_IN_FLIGHT) { holdWant(p, q, onLoad); return 'waiting'; }", 'startProvinceRead(p, q, onLoad, Date.now());', "return 'started';");
+    "if (readsUnderWay.size >= WANT_IN_FLIGHT) { holdWant(p, q, onLoad); return 'waiting'; }", 'startProvinceRead(p, q, onLoad, Date.now());', "return 'started';");
 });
 
 test('F4 the card says how its reads went, never "empty"', () => {
