@@ -326,12 +326,17 @@ export function installSheetFx(fx = pageFx, { bus = pageBus } = {}) {
   on('board:left', a => { if ([a.p, a.q, a.tile].every(Number.isInteger) && !sealed.has(String(a.host ?? '')) && near() && onMap(a) && once(`depart|${a.p},${a.q},${a.tile}`)) playSheet(fx, 'depart', { p: a.p, q: a.q, tile: a.tile, seed: `sheet|depart|${a.host ?? ''}` }); });
   // (added a moment after fx/stage.mjs has staged the scene, at the same clock time, so the sprites are drawn over its figures)
   const scenes = new Map();   // "p,q" → the handles of the sprites of the scene playing there (a scene staged again replaces them)
+  const scenePlays = new Map();   // "p,q" → the play those sprites are of
   on('battle', p => {
     const sc = p.play?.scene;
     if (!sc) return;
     const at = fx.clock.now(), key = `${sc.p},${sc.q}`;
     // (a start the stage has called off — fx/stage.mjs, `battle:ask` — is not played, and what plays there is left alone)
-    Promise.resolve().then(() => { if (p.play.off) return; for (const h of scenes.get(key) ?? []) h.cancel?.(); scenes.set(key, live() ? playBattleSheets(fx, p.play, { focus: !!p.focus, at }) : []); });
+    Promise.resolve().then(() => { if (p.play.off) return; for (const h of scenes.get(key) ?? []) h.cancel?.(); scenes.set(key, live() ? playBattleSheets(fx, p.play, { focus: !!p.focus, at }) : []); scenePlays.set(key, p.play); });
+  });
+  // (2026-11-17, ⑦: a play the page has ended — another pinned world's — takes its sprites with it; another play there stays)
+  on('battle:end', p => {
+    for (const [key, play] of [...scenePlays]) if (play === p?.play) { for (const h of scenes.get(key) ?? []) h.cancel?.(); scenes.delete(key); scenePlays.delete(key); }
   });
   on('keep:captured', e => { if (once(`capture|${e.p},${e.q}@${e.turn ?? ''}`, 30)) playCapture(fx, e); });
 

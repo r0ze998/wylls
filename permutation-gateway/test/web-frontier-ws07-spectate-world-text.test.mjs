@@ -35,8 +35,9 @@ test('W1 the follow compares within one world', () => {
 test('W2 the follow\'s play and fallback hold only while still', () => {
   // (corrected by the source bundle — web-frontier-ws07-spectate-source-text.test.mjs: the same herald and no counted
   //  camera move belong to `still`, and only "no scene" (false) falls back)
-  order(follow, 'const source = heraldRef, moves = mapRef?.moves ?? 0;',
-    "const still = () => momentWorld() === world && heraldRef === source && FS.watch?.auto !== false && !FS.report && (mapRef?.moves ?? 0) === moves;",
+  // (the battle-world bundle adds the map's touch record to `still` — web-frontier-ws07-battle-world-text.test.mjs)
+  order(follow, 'const source = heraldRef, moves = mapRef?.moves ?? 0, touched = mapRef?.touchedAt ?? null;',
+    "const still = () => momentWorld() === world && heraldRef === source && FS.watch?.auto !== false && !FS.report && (mapRef?.moves ?? 0) === moves && (mapRef?.touchedAt ?? null) === touched;",
     'playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (ok === false && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });');
   assert.doesNotMatch(follow, /\{ if \(!ok\) mapRef/, 'no unconditioned fallback flight is left');
 });
@@ -52,7 +53,8 @@ test('W3 playBattle drops a clash the change overtook', () => {
 
 test('W4 the scenes the page plays by itself: one world', () => {
   assert.ok(app.includes('let battleSeenWorld;'));
-  order(auto, 'const world = momentWorld();', 'if (battleSeenWorld !== world) { battleSeen.clear(); battleSeenWorld = world; }', 'for (const [key, env] of FS.provinces) {',
+  // (the battle-world bundle also ends other worlds' scenes there — web-frontier-ws07-battle-world-text.test.mjs)
+  order(auto, 'const world = momentWorld();', 'if (battleSeenWorld !== world) { battleSeen.clear(); battleSeenWorld = world; endOtherWorldBattles(world); }', 'for (const [key, env] of FS.provinces) {',
     'if (env.world !== undefined && env.world !== world) continue;', 'const prev = battleSeen.get(key);', 'if (prev === undefined || prev >= b) continue;',
     'playBattle(env.province.p, env.province.q, b, { auto: true });');
 });
