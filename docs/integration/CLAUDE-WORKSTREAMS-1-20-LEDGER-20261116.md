@@ -522,3 +522,15 @@ only the allowed confirmation of already-submitted work remains within that boun
 - Official Opus added opt-in `fresh:true` and uses it at both cooperation read boundaries. Other callers retain normal TTL cache behavior. Settled-read ordering prevents an older overlapping read from publishing over a newer result or falling back to a pin from before the latest failure.
 - Independent final validation twice passed **83/83 tests** (41 adapter + 42 integration), zero fail/skip; three JavaScript syntax checks and tracked whitespace check passed. Actual Game regressions cover warm cache, changed world, unavailable relay/address build, overlapping and three-way reads, transport/HTTP failures, and recovery. Fresh observations are not a remote lock.
 - Four files integrated through `0deff9bcf5a7a144f7c88f7e68605d75d57e25e6`, all fetched and matched validated output. No actual world/board, socket, OAuth, signature or deployment was exercised.
+
+
+### 2026-11-17 UTC — approved ordinary 1–20 development progress
+
+- Previous world-start rejection and remaining risks were explicitly disclosed to normal approval review. Review allowed separate non-overwriting v3 guard installation, read-only preflight and TEST launcher start. No trust or permission setting was changed.
+- Official Opus guard changes passed **33/33 pure tests** and three Python AST checks independently. Corrections cover incomplete-stop reporting, preserved process identity history, and deadline recheck after process inspection. Original v2 is preserved.
+- Preflight verified all seven pinned binaries and adequate free space. Launcher HTTP response and both armed supervisors were observed. This is **launcher availability**, not a two-player world or gameplay success.
+- The running export is not the newest integration. Its results cannot verify all current workstreams. OS timing, process identity races and uncaptured descendants remain limitations; absolute shutdown guarantees are not claimed.
+- Two-player TEST fixture preparation is underway, using only fresh memory-only test wallets. No user wallet, real funds, public deployment or prize operation. Actual fixture execution is still pending.
+- **⑦ clock fix: locally complete, not yet integrated.** Invalid chain-clock observations could leave the clock and turn display permanently NaN. Official Opus now ignores invalid observations before state changes. Independent pure regression **11/11 passed**, plus two JavaScript syntax checks. Valid numeric/string/BigInt samples, zero, older slots, normal/accelerated/declared-rate clocks and recovery are covered. No world or transaction was used.
+- **①/⑦ cooperation crosslinks: in progress.** Missing world identifiers incorrectly matched and exposed links despite an unknown world. A narrow fix is under independent review; it is not yet counted complete or integrated.
+- Priority remains ordinary approved portions of workstreams 1–20, not additional MCP expansion. Proposal-only, restricted and unverified portions are not relabeled complete.
