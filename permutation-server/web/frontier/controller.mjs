@@ -856,7 +856,7 @@ export function adoptPinnedWorld() {
   // (the candidates for a first village are places of the world that was pinned: a reading still under way writes nothing,
   //  and the list is let go — unless a join / placing is under way: that is confirmHome's own and is left to it, only
   //  its "reading" mark is taken off, since the reading it stood for will write nothing now)
-  ++homesRefresh; if (FS.homeChoice) { if (FS.homeChoice.busy) FS.homeChoice.loading = false; else FS.homeChoice = null; }
+  ++homesRefresh; if (FS.homeChoice) { if (FS.homeChoice.busy) { FS.homeChoice.loading = false; FS.homeChoice.reading = null; } else FS.homeChoice = null; }
   FS.hostPlaces = null;   // (the provinces of the world that was pinned are not this world's)
   nextContext();   // (another world: what was drawn for the former one acts on nothing — FS.incomingRead.ctx)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
@@ -2033,7 +2033,23 @@ export async function refreshHomes({ force = false } = {}) {
   // (2026-11-17, ⑦: the pinned world this reading began under — an answer the change of world overtakes writes nothing:
   //  the candidates are places of that world's map)
   const request = ++homesRefresh, world = providerWorld();
-  FS.homeChoice = { ...old, faction, selected: old.selected?.faction === faction ? old.selected : null, loading: true, error: null };
+  // (`reading`: whose "loading" mark this is. Only this reading takes it off again, and only while it is still its own)
+  FS.homeChoice = { ...old, faction, selected: old.selected?.faction === faction ? old.selected : null, loading: true, reading: request, error: null };
+  // (corrected 2026-11-17: an answer is applied to the choice AS IT STANDS at the answer, never to the copy taken when the
+  //  reading began — that copy put an older selection back and wiped the busy / pending / error of a join or placing
+  //  begun meanwhile.
+  //   - another reading began, or the world changed: nothing is written. A "loading" mark that is still this reading's
+  //     own is taken off (nobody else will); a newer reading's mark is left alone.
+  //   - no choice stands any more (another viewer): nothing.
+  //   - a join / placing is under way (confirmHome writes busy, pending, error and the selection on the choice in
+  //     hand): what was read is let go — confirmHome reads its own place again — and only this reading's mark goes.)
+  const letGo = () => { const c = FS.homeChoice; if (c && c.reading === request) { c.loading = false; c.reading = null; invalidate('panel'); } };
+  const standing = () => {
+    if (request !== homesRefresh || providerWorld() !== world) { letGo(); return null; }
+    const c = FS.homeChoice ?? null;
+    if (!c || c.busy) { letGo(); return null; }
+    return c;
+  };
   invalidate('panel');
   try {
     if (force) FS.overviewsBell = undefined;
@@ -2042,17 +2058,21 @@ export async function refreshHomes({ force = false } = {}) {
     const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
-    if (request !== homesRefresh || providerWorld() !== world) return;
-    // (the choice as it stands NOW: a candidate the person picked on the map while this reading waited — home-pick writes
-    //  it on the choice in hand — is theirs; the choice this reading began with is not put back over it. Whether it is
-    //  kept is decided as before: it must be among the candidates read)
-    const picked = FS.homeChoice?.selected ?? null;
+    const cur = standing();
+    if (!cur) return;
+    // (a candidate the person picked on the map while this reading waited — home-pick writes it on the choice in hand —
+    //  is theirs. Whether it is kept is decided as before: it must be among the candidates read)
+    const picked = cur.selected ?? null;
     const selected = picked && (faction === null || picked.faction === faction) && result.candidates.some(h => sameHome(h, picked)) ? picked : faction !== null ? result.candidates[0] ?? null : null;
-    FS.homeChoice = { ...old, ...result, selected, faction, loadedBell: nowBell(), loading: false,
-      error: result.error ? { code: result.error, text: result.error === 'NoFreeHome' ? L`入植できる土地がまだ見つかりません。候補を更新してください。` : L`土地の情報を読み込めませんでした。もう一度お試しください。` } : null };
+    // (an error a join / placing left on the choice meanwhile is the person's own action's: it is not cleared by a good
+    //  reading, nor replaced by this reading's)
+    FS.homeChoice = { ...cur, ...result, selected, faction, loadedBell: nowBell(), loading: false, reading: null,
+      error: cur.error ?? (result.error ? { code: result.error, text: result.error === 'NoFreeHome' ? L`入植できる土地がまだ見つかりません。候補を更新してください。` : L`土地の情報を読み込めませんでした。もう一度お試しください。` } : null) };
   } catch (e) {
-    if (request !== homesRefresh || providerWorld() !== world) return;
-    FS.homeChoice = { ...old, faction, loading: false, error: { code: e?.code ?? 'Unavailable', text: L`土地の情報を読み込めませんでした。もう一度お試しください。` } };
+    const cur = standing();
+    if (!cur) return;
+    // (a failed reading changes the candidates and the selection of the choice in hand in nothing)
+    FS.homeChoice = { ...cur, faction, loading: false, reading: null, error: cur.error ?? { code: e?.code ?? 'Unavailable', text: L`土地の情報を読み込めませんでした。もう一度お試しください。` } };
   }
   invalidate('panel', 'map');
 }

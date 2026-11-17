@@ -14,11 +14,15 @@
 //      then the order number moves in memory and refreshHomes reads with force
 //   H4 rereadHomes saves nothing on the device, clears no choice, sends nothing
 //   H5 a slow answer: refreshHomes writes nothing when a newer reading began or the world changed (good and failed
-//      answers alike)
-//   H6 a candidate picked on the map while the reading waited is kept if it is among those read; the choice the reading
-//      began with is not put back over it
+//      answers alike); the "loading" mark is taken off only if it is still this reading's own — a newer reading's stays
+//   H6 (corrected) an answer is applied to the choice as it stands at the answer, never to the copy taken at the start:
+//      a candidate picked on the map meanwhile is kept if it is among those read (good answer) and is kept as it is
+//      (failed answer)
 //   H7 a change of world: readings under way answer nothing; the list is let go unless a join / placing is under way,
 //      whose "reading" mark alone is taken off
+//   H10 (corrected) a join / placing begun while the reading waited: the answer, good or failed, writes nothing — busy,
+//      pending, error and the selection stay confirmHome's — and only this reading's own mark goes; an error such an
+//      action left behind is neither cleared by a good reading nor replaced by a failed one
 //   H8 what was there is unchanged: home-refresh (still called from nowhere), home-pick, home-confirm, needsHomeChoice
 //   H9 English for the new sentences; no banned word
 import test from 'node:test';
@@ -66,18 +70,30 @@ test('H4 rereadHomes saves nothing, clears no choice, sends nothing', () => {
   assert.doesNotMatch(rv, /\brefresh\(\)|tx\.|actOnce|sendOrder/, 'the viewer read it leans on is the pure one');
 });
 
+const LET_GO = "const letGo = () => { const c = FS.homeChoice; if (c && c.reading === request) { c.loading = false; c.reading = null; invalidate('panel'); } };";
+
 test('H5 a slow answer writes nothing for another reading or another world', () => {
-  order(rh, 'const request = ++homesRefresh, world = providerWorld();', 'loading: true, error: null };', 'await refreshOverviews(nowBell());', 'const result = await planHomes({',
-    'if (request !== homesRefresh || providerWorld() !== world) return;', 'FS.homeChoice = { ...old, ...result, selected, faction, loadedBell: nowBell(), loading: false,',
-    '} catch (e) {', 'if (request !== homesRefresh || providerWorld() !== world) return;', "FS.homeChoice = { ...old, faction, loading: false, error: { code: e?.code ?? 'Unavailable',");
-  assert.equal(rh.split('if (request !== homesRefresh || providerWorld() !== world) return;').length - 1, 2);
+  order(rh, 'const request = ++homesRefresh, world = providerWorld();', 'loading: true, reading: request, error: null };', LET_GO, 'const standing = () => {',
+    'if (request !== homesRefresh || providerWorld() !== world) { letGo(); return null; }', 'const c = FS.homeChoice ?? null;', 'if (!c || c.busy) { letGo(); return null; }', 'return c;',
+    'await refreshOverviews(nowBell());', 'const result = await planHomes({', 'const cur = standing();', 'if (!cur) return;', 'FS.homeChoice = { ...cur, ...result,',
+    '} catch (e) {', 'const cur = standing();', 'if (!cur) return;', 'FS.homeChoice = { ...cur, faction, loading: false, reading: null,');
+  assert.equal(rh.split('const cur = standing();\n    if (!cur) return;').length - 1, 2, 'the good and the failed answer ask the same question');
   assert.doesNotMatch(rh, /if \(request !== homesRefresh\) return;/);
+  // (only this reading's mark: a newer reading wrote its own number over it)
+  assert.equal(rh.split('c.loading = false').length - 1, 1);
 });
 
-test('H6 the choice picked meanwhile is the one weighed', () => {
-  order(rh, 'if (request !== homesRefresh || providerWorld() !== world) return;', 'const picked = FS.homeChoice?.selected ?? null;',
-    'const selected = picked && (faction === null || picked.faction === faction) && result.candidates.some(h => sameHome(h, picked)) ? picked : faction !== null ? result.candidates[0] ?? null : null;');
-  assert.doesNotMatch(rh, /result\.candidates\.some\(h => sameHome\(h, old\.selected\)\)/);
+test('H6 an answer is applied to the choice as it stands, never to the copy taken at the start', () => {
+  const after = rh.slice(rh.indexOf('const result = await planHomes({'));
+  assert.doesNotMatch(after, /\.\.\.old\b|old\.selected|old\.busy|old\.pending|old\.error/, 'nothing of the starting copy is written back');
+  assert.equal(rh.split('FS.homeChoice = { ...old,').length - 1, 1, 'the starting copy is used once, to begin the reading');
+  order(rh, 'const cur = standing();', 'const picked = cur.selected ?? null;',
+    'const selected = picked && (faction === null || picked.faction === faction) && result.candidates.some(h => sameHome(h, picked)) ? picked : faction !== null ? result.candidates[0] ?? null : null;',
+    'FS.homeChoice = { ...cur, ...result, selected, faction, loadedBell: nowBell(), loading: false, reading: null,');
+  // (a failed reading: the selection in hand is carried by the spread and nothing else names it)
+  const failedLine = rh.split('\n').find(l => l.includes('FS.homeChoice = { ...cur, faction, loading: false, reading: null,'));
+  assert.ok(failedLine);
+  assert.doesNotMatch(failedLine, /selected|candidates/);
   // (what makes it "the choice in hand": home-pick writes on FS.homeChoice itself)
   assert.ok(ctl.includes('FS.homeChoice.selected = h; FS.homeChoice.error = null; FS.homeFocus = h;'));
   // (unchanged: how candidates are found and ordered)
@@ -85,10 +101,25 @@ test('H6 the choice picked meanwhile is the one weighed', () => {
   assert.ok(rh.includes('read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });'));
 });
 
+test('H10 a join or placing begun meanwhile keeps its own state', () => {
+  // (confirmHome writes on the choice in hand; the reading does not replace that object while busy)
+  const ch = fnOf(ctl, 'export async function confirmHome() {');
+  order(ch, 'FS.homeChoice.busy = true; FS.homeChoice.error = null;', 'const pending = p => { FS.homeChoice.pending = p;', 'const error = (code, text) => { FS.homeChoice.error = { code, text };',
+    'finally { if (FS.homeChoice) { FS.homeChoice.busy = false; FS.homeChoice.pending = null; }');
+  assert.ok(rh.includes('if (!c || c.busy) { letGo(); return null; }'));
+  const lg = rh.split('\n').find(l => l.includes('const letGo = () =>'));
+  assert.doesNotMatch(lg, /busy|pending|error|selected|candidates|FS\.homeChoice = /, 'letting go touches the reading mark only');
+  // (an error the action left behind stays; this reading's own error is said only when none stands)
+  assert.ok(rh.includes('error: cur.error ?? (result.error ? { code: result.error,'));
+  assert.ok(rh.includes("error: cur.error ?? { code: e?.code ?? 'Unavailable',"));
+  // (a new reading still begins clean, and never while a join / placing is under way)
+  assert.ok(rh.includes('if (old.busy || (!force &&'));
+});
+
 test('H7 a change of world lets the candidates go', () => {
   const ad = fnOf(ctl, 'export function adoptPinnedWorld() {');
   order(ad, 'if (readsWorld === undefined || readsWorld === world) { readsWorld = world; return false; }', 'FS.incoming = []; FS.incomingRead = null;',
-    '++homesRefresh; if (FS.homeChoice) { if (FS.homeChoice.busy) FS.homeChoice.loading = false; else FS.homeChoice = null; }', 'FS.hostPlaces = null;', 'nextContext();');
+    '++homesRefresh; if (FS.homeChoice) { if (FS.homeChoice.busy) { FS.homeChoice.loading = false; FS.homeChoice.reading = null; } else FS.homeChoice = null; }', 'FS.hostPlaces = null;', 'nextContext();');
   assert.doesNotMatch(ad, /saveHomePatch|saveHome\(/, 'what is saved on the device is not touched here');
 });
 
