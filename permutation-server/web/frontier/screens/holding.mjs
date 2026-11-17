@@ -248,13 +248,48 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
   return true;
 }
 
+/**
+ * How the reads behind the village screen went (2026-11-17, ⑦) — nothing is asked here, only said:
+ *  - `viewer`: 'none' (the viewer's record answered: no village), 'unread' (a wallet whose record has not answered for
+ *    this viewer and world: not "no village"), 'otherWorld' (the villages held were read for another pinned world —
+ *    FS.holdingsWorld, with its generation), 'stale' (the last read failed: the numbers are worked out from the record
+ *    read before), 'ok';
+ *  - `province`: the village's own province record — 'held', or how its read stands (controller's FS.provinceReads:
+ *    'loading', 'waiting', 'failed', 'missing') or 'idle'. The rules' mirror (fland.actionBlocks) answers NotResident
+ *    for a province it has no record of, so every action then reads "this province has not finished its last turn":
+ *    without the record that is not known — the screen says which it is.
+ */
+export function holdingRead(FS) {
+  const h = activeHolding(FS), pin = FS.pin ?? null;
+  const world = pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null;
+  const viewer = !h ? (FS.wallet && !FS.meAnswered ? 'unread' : 'none')
+    : FS.holdingsWorld !== undefined && FS.holdingsWorld !== world ? 'otherWorld'
+    : FS.meStatus === 'error' ? 'stale' : 'ok';
+  const key = h ? `${h.p},${h.q}` : null, st = key && !FS.provinces?.has?.(key) ? FS.provinceReads?.get?.(key) ?? null : null;
+  return { viewer, province: !h ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: h?.p ?? null, q: h?.q ?? null };
+}
+/** The note the village screen carries under its head when a read behind it did not come (holdingRead); '' when all is read. */
+export function renderHoldingRead(FS) {
+  const r = holdingRead(FS), lines = [];
+  if (r.viewer === 'otherWorld') lines.push(html`<p class="notice" role="status">${L`この村は、前に読んだ世界の記録です。いまの世界の記録を読み込んでいます。`}</p>`);
+  else if (r.viewer === 'stale') lines.push(html`<p class="notice error" role="status">${L`いまの読み込みに失敗しています。下の数は、最後に読めた記録から計算したものです。次の読み込みでもう一度確かめます。`}</p>`);
+  if (r.province && r.province !== 'held') {
+    lines.push(r.province === 'failed'
+      ? html`<p class="notice error" role="alert">${L`この村の州の記録を読めていません（${r.code}）。下の行動が「この州はまだ前のターンの決着が済んでいません」と出るのは、記録を読めていないためのことがあります。`}</p>`
+      : html`<p class="muted" role="status">${L`この村の州の記録を、まだ読めていません。読めるまで、下の行動は「この州はまだ前のターンの決着が済んでいません」と出ます。`}</p>`);
+    if (r.province !== 'loading' && r.province !== 'waiting') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="province-reread" data-p="${r.p}" data-q="${r.q}">${icon('return')}${L`もう一度読み込む`}</button></div>`);
+  }
+  return lines.length ? html`<div class="village-read" data-viewer="${r.viewer}" data-province="${r.province ?? ''}">${lines}</div>` : '';
+}
+
 export function render(FS) {
   // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
   // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
   if (FS.wideSelect) { const w = wideHolding.render(FS); if (w) return w; }
   const m = holdingModel(FS);
   const wideStatus = wideHolding.renderWideInventoryStatus(FS);
-  if (!m) return html`${wideStatus}<p>${L`まだ村がありません。`}</p>`;
+  // (2026-11-17, ⑦: "no village yet" only once the viewer's record answered so; before that it is not read — holdingRead)
+  if (!m) return html`${wideStatus}<p${holdingRead(FS).viewer === 'unread' ? html` role="status" data-read="unread"` : ''}>${holdingRead(FS).viewer === 'unread' ? L`村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。` : L`まだ村がありません。`}</p>`;
   const { holding: h, facts: f } = m;
   // (shadows the module's `blockedLine` for this panel: in local play the blocked reasons carry no "catch up" button)
   const blockedLine = blocks => blockedLineOf(blocks, { nudge: !FS.localPlay });
@@ -353,5 +388,8 @@ export function render(FS) {
     </dl>`)}</section>`;
 
   // S1: caravans, storehouses, structures, the fort and the nation (screens/s1.mjs)
-  return [...(wideStatus ? [wideStatus] : []), head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
+  // (2026-11-17, ⑦: the reads behind this screen, said under its head when one did not come — renderHoldingRead; it
+  //  rides with the head, so the list of cards is as long as it was)
+  const readNote = renderHoldingRead(FS);
+  return [...(wideStatus ? [wideStatus] : []), readNote ? html`${head}${readNote}` : head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }
