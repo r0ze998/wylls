@@ -3,7 +3,7 @@
 import { RESOURCE_JA, signRecord, ownerTagOf, RESOURCES } from './record.mjs';
 import { pendingSendOf } from './pending.mjs';
 import { deliveredText, FULFILMENT_JA } from './ws04.mjs';
-import { fulfilBoundsText, jointPrecisionText } from './fulfil-bounds.mjs';
+import { fulfilBoundsText, jointPrecisionText, lowerBoundText } from './fulfil-bounds.mjs';
 import { STATE_JA } from './arrival.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
@@ -117,7 +117,7 @@ function renderPersonal() {
   const p = view.personal;
   $('personal').querySelector('.body').innerHTML = p ? `
     <div>自分の依頼 ${p.myRequests.length} 件・自分の応答 ${p.myResponses.length} 件</div>
-    <div>自分が届けた確定の量：<b data-testid="my-verified">${esc(needText(p.myVerified))}</b></div>
+    <div>自分が届けた確定の到着の量（数えた入荷量の下限。資源ごと）：<b data-testid="my-verified">${esc(lowerBoundText(p.myVerified, RESOURCE_JA))}</b></div>
     ${p.left.length ? '<div class="warn">この目的から抜けている（送った隊商はそのまま届く）</div>' : ''}
     <div class="note">協力しないで自分で進めてもよい。自分の物で建てれば、依頼は「自分で進める」で取り消せる。</div>` : '<div class="note">署名する人を接続すると出る</div>';
 }

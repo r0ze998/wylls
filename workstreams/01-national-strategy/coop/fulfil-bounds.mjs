@@ -47,3 +47,14 @@ export function jointPrecisionText(progress, ja) {
   if (unknown.length) parts.push(`${unknown.map(p => nameOf(p, ja)).join('・')}は数えた到着の件数が示されていないので、精度が分からない`);
   return ['整数単位', ...parts].join('。');
 }
+
+/**
+ * 数えた量（下限）の言い方（表示だけ）。o：{資源: 整数単位の下限}（goal.mjs coopView の personal.myVerified など。数えた到着の counted の和）。
+ * ④ QUANTITY-CONTRACT §3：RuleDerived・Recorded の量は下限［b, b＋1）なので「木材 196 以上」と言う（「確定の量 196」のように正確な量とは言わない）。
+ * 0 以上の安全な整数でない値は推し量らず「量が分からない」。一覧が無い・空なら「—」（これまでと同じ）。
+ */
+export function lowerBoundText(o, ja) {
+  const es = o && typeof o === 'object' && !Array.isArray(o) ? Object.entries(o) : [];
+  if (!es.length) return '—';
+  return es.map(([r, v]) => `${ja?.[r] ?? r} ${Number.isSafeInteger(v) && v >= 0 ? `${v} 以上` : '量が分からない'}`).join('・');
+}
