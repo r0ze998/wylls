@@ -3,7 +3,8 @@
 // player's own orders, each with 見る. It opens from the dial and from the
 // action bar; on a phone it stands as a sheet at the foot of the screen.
 //
-//   orders     `FS.orders` (controller.mjs: every order the page placed, answered: accepted or refused)
+//   orders     `FS.orders` (controller.mjs: every order the page placed, answered: accepted or refused, or sent and
+//              not confirmed — `unconfirmed`, said as such)
 //   next       what the next toll brings (hud/dialcard.mjs nextBellItems): marches that arrive, marches whose seal
 //              opens, hosts that form up or are rested, an exploration's result, buildings done before it, a warning
 //   happened   the notifications of this turn (hud/feed.mjs): the seal of a march opened, a clash resolved, a
@@ -67,6 +68,12 @@ export function turnModel(FS, { next = [], now = FS.chain?.now?.() ?? 0 } = {}) 
   const orders = (FS.orders ?? []).filter(o => o.turn === turn).map(o => {
     const go = o.kind === 'march' && o.tile ? o.tile : o.tile ?? null;
     if (o.state === 'refused') return { id: o.id, icon: ORDER_ICON[o.kind] ?? 'flag', refused: true, text: L`${REFUSED_TEXT[o.kind]?.() ?? ''}は送られていません`, why: o.why ?? (o.code ? clientText(o.code) : ''), go };
+    // (2026-11-17) SENT, OUTCOME NOT KNOWN (controller orderUnconfirmed: local play's, or the ordinary path's unknown):
+    // never said as done ("訓練しました", "建設中（完成）") nor as not sent — what was ordered, that it was sent, and
+    // that it is not confirmed, with its signature; why: the code's own text
+    if (o.state === 'unconfirmed') return { id: o.id, icon: ORDER_ICON[o.kind] ?? 'flag', refused: false, unconfirmed: true,
+      text: `${REFUSED_TEXT[o.kind]?.() ?? ''} — ${L`送信しました。確定はまだ確認できていません。署名 ${String(o.signature ?? '').slice(0, 12)}`}`,
+      why: o.code ? clientText(o.code) : '', go };
     return { id: o.id, icon: ORDER_ICON[o.kind] ?? 'flag', refused: false, text: orderText(FS, o, now), why: '', go };
   }).reverse();
   // (a threat that still stands is said once, among what the next toll holds, with its count as it is now)
@@ -79,7 +86,7 @@ export function turnModel(FS, { next = [], now = FS.chain?.now?.() ?? 0 } = {}) 
 const see = (go, battle = null) => (battle ? html`<button type="button" class="btn small go" data-act="battle-play" data-p="${battle.p}" data-q="${battle.q}" data-bell="${battle.bell}">${L`見る`}${icon('chevron', 'go-ic')}</button>` : go && Number.isInteger(go.p) ? html`<button type="button" class="btn small go" data-act="turn-see" data-p="${go.p}" data-q="${go.q}" data-tile="${Number.isInteger(go.tile) ? go.tile : ''}">${L`見る`}${icon('chevron', 'go-ic')}</button>` : '');
 // (`send`: a banner of the viewer's under threat, prototype rule "banners": the answer is a march that wins the tile)
 const sendTo = s => (s && Number.isInteger(s.tile) ? html`<button type="button" class="btn small primary" data-act="proto-send" data-p="${s.p}" data-q="${s.q}" data-tile="${s.tile}">${L`軍勢を送る`}</button>` : '');
-const row = (x, extra = '') => html`<li class="tl-row${x.refused ? ' refused' : ''}${x.tone === 'warn' ? ' warn' : ''}">${icon(x.icon)}<span class="tl-text">${x.text}${x.why ? html`<span class="tl-why">${x.why}</span>` : ''}</span><span class="tl-acts">${extra}${sendTo(x.send)}${see(x.go, x.battle ?? null)}</span></li>`;
+const row = (x, extra = '') => html`<li class="tl-row${x.refused ? ' refused' : ''}${x.unconfirmed ? ' unconfirmed' : ''}${x.tone === 'warn' ? ' warn' : ''}">${icon(x.icon)}<span class="tl-text">${x.text}${x.why ? html`<span class="tl-why">${x.why}</span>` : ''}</span><span class="tl-acts">${extra}${sendTo(x.send)}${see(x.go, x.battle ?? null)}</span></li>`;
 
 /** The three parts of the list (a part with nothing to say is said in one quiet line, never left out: the player asked what the turn holds). */
 export function renderTurnList(model) {

@@ -51,6 +51,14 @@ const UNSENT = {
   'settle-explore': () => L`探索の結果はまだ受け取れていません。`,
   'settle-transit': () => L`進軍の結果はまだ受け取れていません。`,
 };
+/**
+ * (2026-11-17) A notice of an order that was SENT and whose outcome is not known: local play's (`LocalActUnconfirmed`,
+ * controller localActAsk / actOnce), or the ordinary path's answer of `tx.track` (fplay.mjs: `unknown` → `Unconfirmed`,
+ * `unqueryable` → `TxUnqueryable`). A refusal before sending carries neither.
+ */
+export const unconfirmedNotice = n => !!n && !n.ok && !n.busy && !n.waiting
+  && (n.code === 'LocalActUnconfirmed' || ((n.code === 'Unconfirmed' || n.code === 'TxUnqueryable') && (n.state === 'unknown' || n.state === 'unqueryable')));
+
 /** The line for a refused action: what was not done (null for an action this table does not know). */
 export const unsentText = FS => UNSENT[FS?.lastAct?.name]?.(FS) ?? null;
 
@@ -75,6 +83,10 @@ export function statusOf(FS, { age = 0, canRetry = false } = {}) {
   //  re-run that last control — another order —, so it is not offered)
   if (n.waiting) return { state: 'busy', text: textOf(n) ?? L`送信待ち`, share: null, step: null, steps: null, retry: false };
   if (n.ok) return age > DONE_MS ? null : { state: 'done', text: textOf(n) ?? L`完了しました`, share: 1, step: null, steps: null, retry: false };
+  // (2026-11-17) SENT, OUTCOME NOT KNOWN: not a refusal and not "not sent" — its own state, with its own words (the
+  // code's text, or the page's line with the signature), never "できませんでした" nor what a refused action left undone.
+  // The retry button is offered exactly as before (that rule is the owner's: retry re-runs the last control).
+  if (unconfirmedNotice(n)) return { state: 'unconfirmed', what: null, text: textOf(n) ?? failureText(n), share: null, step: null, steps: null, retry: !!canRetry && n.retry !== false, agentLink: false };
   const what = n.unsent ? UNSENT[n.unsent]?.(FS) ?? null : unsentText(FS);
   return { state: 'refused', what, text: textOf(n) ?? failureText(n), share: null, step: null, steps: null, retry: !!canRetry && n.retry !== false, agentLink: !!n.agentLink };
 }
@@ -88,6 +100,16 @@ export function renderStatus(st) {
       <span class="toast-text"><span class="toast-kind">${L`できませんでした`}</span>${st.what ? html`<strong class="tx-what">${st.what}</strong> ` : ''}<span class="tx-why">${st.text}</span></span>
       <button type="button" class="toast-x" data-act="notice-close" aria-label="${L`閉じる`}">${icon('close')}</button>
       ${st.retry || st.agentLink ? html`<span class="toast-acts">${st.retry ? html`<button type="button" class="btn small primary" data-act="notice-retry">${icon('return')}${L`もう一度`}</button>` : ''}${st.agentLink ? html`<a class="btn small toast-link" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページを開く`}</a>` : ''}</span>` : ''}
+    </div>`;
+  }
+  // (2026-11-17) sent, outcome not known: a status (not an alert), its own words, no "できませんでした"; close and the
+  // retry button as before
+  if (st.state === 'unconfirmed') {
+    return html`<div class="toast tx tx-unconfirmed" role="status">
+      <span class="toast-icon">${icon('alert')}</span>
+      <span class="toast-text"><span class="tx-why">${st.text}</span></span>
+      <button type="button" class="toast-x" data-act="notice-close" aria-label="${L`閉じる`}">${icon('close')}</button>
+      ${st.retry ? html`<span class="toast-acts"><button type="button" class="btn small primary" data-act="notice-retry">${icon('return')}${L`もう一度`}</button></span>` : ''}
     </div>`;
   }
   const done = st.state === 'done';

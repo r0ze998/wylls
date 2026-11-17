@@ -396,7 +396,7 @@ async function localActAsk(name, lo, { order, say, after }) {
     return { ok: true, signature: s.signature, reconciled: true };
   }
   if (s.state === 'failed') { orderAnswered(order, false, { code: s.code, sent: true, signature: s.signature }); return failed({ ok: false, code: s.code }); }
-  orderUnconfirmed(order, s.signature); setNotice({ busy: false, text: localActUnconfirmedText(s.signature) });
+  orderUnconfirmed(order, s.signature); setNotice({ busy: false, text: localActUnconfirmedText(s.signature), code: 'LocalActUnconfirmed' });
   return { ok: false, code: 'LocalActUnconfirmed', signature: s.signature, sent: true };
 }
 
@@ -526,7 +526,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     // The order keeps its signature, is recorded as "sent, not confirmed", and stays held.
     if (local && r.ok && !t.ok && t.state !== 'failed') {
       code = 'LocalActUnconfirmed'; fxDone = true;
-      orderUnconfirmed(order, r.signature); setNotice({ busy: false, text: localActUnconfirmedText(r.signature) });
+      orderUnconfirmed(order, r.signature); setNotice({ busy: false, text: localActUnconfirmedText(r.signature), code: 'LocalActUnconfirmed' });
       return { ok: false, code, signature: r.signature, sent: true };
     }
     // W6-D: a resident action refused because the province fell a bell behind between the check and the landing:
