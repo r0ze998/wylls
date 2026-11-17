@@ -407,11 +407,20 @@ remain historical records; their test passes do not verify the later changes bel
   `main`, deployment, or completion of all twenty workstreams. This update changes this ledger only.
 - The previously assigned Claude Code implementation/integration units have returned their results. Do not read the
   old "started"/"running" rows above as their current state.
-- **Awaiting launch review, not running:** the separate CLI coop read adapter task was refused by review
-  before launch. The owner has since explicitly approved proceeding, and a new approval request is pending.
-  Execution has not been confirmed; there is no completed, verified or integrated deliverable from this attempt.
-  The earlier wording "has started work" described preparation too broadly and is corrected here. Any eventual
-  fixed result must be reviewed separately; this entry does not authorize bypassing the refusal.
+- **Interrupted; partial source saved, not integrated (2026-11-17 16:42 UTC):** the approved CLI
+  coop read adapter was launched; its first attempt timed out, and a second attempt saved
+  `workstreams/03-composability/mcp/src/coop-read-adapter.mjs` (356 lines). The second attempt's
+  recorded worker and monitor processes were no longer present when checked. Its log had no final result;
+  the monitor's old "running" label was stale. Test source and documentation were absent.
+- **Official Agent view migration: blocked before launch.** The installed CLI supports background agents,
+  but the old print-mode job used no session persistence and did not appear in Agent view. A new Opus
+  background launch was attempted and refused because this workspace was not trusted. The interactive
+  trust dialog additionally warned of an inherited Bash pre-approval; it was cancelled without accepting.
+  The new session was not created. Review that configuration through the normal user-facing flow before
+  continuing; do not bypass the trust/permission block.
+- The partial adapter is not registered as an MCP tool, has not been executed or tested, and is not part of
+  the integration checkpoint. Static review identified response-size bounding and free-form error projection
+  for follow-up; these are not fixed or verified.
 
 ### Source integrated versus remaining verification
 
@@ -443,8 +452,9 @@ a shared lock for all state or owner-mode writers.
 
 ### Remaining tasks
 
-- [ ] Obtain a successful launch-review outcome for the CLI coop read adapter; only then begin execution, obtain
-      its fixed scope/evidence, and review before integration. Do not report a pending request as a running task.
+- [ ] Resolve the official CLI workspace-trust/configuration confirmation, then continue the partial coop read
+      adapter with Opus, complete its tests/documentation, independently verify, and review before integration.
+      Do not report a stale monitor label or a rejected launch as a running task.
 - [ ] Resolve the independent-verification block for the provisional random-home candidate before any adoption.
 - [ ] Validate adopted source through separately permitted tests and real-user flows; do not bypass refused tests,
       stale-review guards or equivalent restrictions.
