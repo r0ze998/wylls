@@ -27,8 +27,16 @@ pub use permutation_frontier::{error, heap, markers, Error};
 #[path = "../src/crypto/field.rs"]
 mod field;
 #[path = "../src/crypto/quick.rs"]
+#[expect(
+    dead_code,
+    reason = "path-included whole; this proof binary uses only verification, not seeds or test-key constants"
+)]
 mod quick;
 #[path = "../src/crypto/seal.rs"]
+#[expect(
+    dead_code,
+    reason = "path-included whole; harness = false drops the #[test]s that use `tests::hex`"
+)]
 mod seal;
 // Unchanged real SIMD-0388 arithmetic. The linked program library's host
 // syscalls and gameplay gates remain fail-closed; this adapter is local.

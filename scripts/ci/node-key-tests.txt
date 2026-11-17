@@ -367,6 +367,8 @@ workstreams/01-national-strategy/test/coop.send.test.mjs
 workstreams/01-national-strategy/test/coop.test.mjs
 workstreams/01-national-strategy/test/coop.ws15.test.mjs
 workstreams/03-composability/mcp/test/context-atomic.test.mjs
+workstreams/03-composability/mcp/test/coop-read-adapter.test.mjs
+workstreams/03-composability/mcp/test/coop-read-integration.test.mjs
 workstreams/03-composability/mcp/test/keyfree/capability.test.mjs
 workstreams/03-composability/mcp/test/keyfree/cold-open.test.mjs
 workstreams/03-composability/mcp/test/keyfree/duplicate-lost-answer.test.mjs
@@ -409,6 +411,7 @@ workstreams/06-creation/test/ports-run-view.test.mjs
 workstreams/06-creation/test/required.test.mjs
 workstreams/06-creation/test/resources.test.mjs
 workstreams/06-creation/test/result-log-cap.test.mjs
+workstreams/06-creation/test/result-shape.test.mjs
 workstreams/06-creation/test/review.test.mjs
 workstreams/06-creation/test/review2.test.mjs
 workstreams/06-creation/test/runtime.test.mjs
@@ -496,6 +499,7 @@ permutation-gateway/test/web-frontier-conquest-identity.test.mjs
 permutation-gateway/test/web-frontier-land-freshness.test.mjs
 permutation-gateway/test/web-frontier-local-play-world-expiry.test.mjs
 permutation-gateway/test/web-sdk.test.mjs
+workstreams/01-national-strategy/test/coop.entry-focus-world.test.mjs
 workstreams/03-composability/mcp/test/initialize-params.test.mjs
 workstreams/03-composability/mcp/test/request-id-type.test.mjs
 workstreams/03-composability/mcp/test/session-id-on-success.test.mjs

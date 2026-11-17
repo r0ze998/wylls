@@ -209,10 +209,12 @@ pub fn seal_root_of(commit: &[u8; 32], seal: &[u8; SEAL_LEN]) -> [u8; 32] {
 /// `hex`) the opt-in native dispatcher test of the wide march reuses.
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
+    // Each test imports `super::*` itself: `harness = false` targets
+    // path-include this file under cfg(test) without its #[test] functions.
 
     #[test]
     fn g2_generator_constant_is_arks() {
+        use super::*;
         use super::super::field::from_be;
         use ark_bls12_381::{Fq, Fq2, G2Affine};
         use ark_ec::AffineRepr;
@@ -223,6 +225,7 @@ pub(crate) mod tests {
 
     #[test]
     fn host_opening_is_a_bad_point() {
+        use super::*;
         // No G2 decompression syscall on the host: every seal is code 2
         // there, never "valid".
         assert_eq!(
@@ -233,6 +236,7 @@ pub(crate) mod tests {
 
     #[test]
     fn seal_root_is_the_kernels() {
+        use super::*;
         let seal = [5u8; SEAL_LEN];
         let c = [6u8; 32];
         assert_eq!(seal_root_of(&c, &seal), sha256(&[&c, &sha256(&[&seal])]));
@@ -302,6 +306,7 @@ pub(crate) mod tests {
     /// commitment-mismatch cases), with the vector's validation verdict.
     #[test]
     fn opener_steps_match_the_seal_vectors() {
+        use super::*;
         use ark_bls12_381::{Fr, G2Affine};
         use ark_ec::{AffineRepr, CurveGroup};
         use ark_ff::PrimeField;
@@ -362,6 +367,7 @@ pub(crate) mod tests {
     #[cfg(feature = "wide-world-experimental")]
     #[test]
     fn host_opening_of_a_wide_seal_is_a_bad_point() {
+        use super::*;
         use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
         let k = ProvinceKey::new(
             WorldId::new([0x77; 32]).unwrap(),
@@ -392,6 +398,7 @@ pub(crate) mod tests {
     #[cfg(feature = "wide-world-experimental")]
     #[test]
     fn wide_body_opens_under_the_vectors_recorded_keys() {
+        use super::*;
         use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
         let w = WorldId::new([0x77; 32]).unwrap();
         let key = |p: i64, q: i64| ProvinceKey::new(w, WideCoord::checked(p, q).unwrap());
@@ -447,6 +454,7 @@ pub(crate) mod tests {
     ))]
     #[test]
     fn native_wide_seals_verify_real_pairing_fo_and_body() {
+        use super::*;
         use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
         let world = WorldId::new([0x77; 32]).unwrap();
         let key = |p, q| ProvinceKey::new(world, WideCoord::checked(p, q).unwrap());
@@ -556,6 +564,7 @@ pub(crate) mod tests {
     #[cfg(not(any(feature = "native-crypto-tests", feature = "public-proof-tests")))]
     #[test]
     fn ordinary_host_refuses_even_public_valid_ibe() {
+        use super::*;
         for c in cases() {
             if get(&c, "name") != "valid_q3" && get(&c, "name") != "valid_q4_min" {
                 continue;
