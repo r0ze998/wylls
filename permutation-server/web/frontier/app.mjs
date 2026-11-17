@@ -3821,6 +3821,17 @@ export const HUD_ACTIONS = {
     requestAnimationFrame(() => landS1Plan(id));
   },
   's1-plan-clear': () => clearS1Plan(),
+  // (2026-11-17, ⑦ exploration: another of the viewer's villages has an exploration waiting — that village is taken in
+  //  hand the way 'holding-pick' does, the hosts screen with its explore card opens, and its result is asked for once:
+  //  controller 'explore-check', a read; nothing is settled or sent)
+  'explore-village': d => {
+    const i = num(d.i), h = FS.holdings?.[i];
+    if (!h || FS.mode !== 'play') return;
+    clearWideSelect(FS);
+    FS.activeHolding = i; FS.explore = null; leaveReport(); FS.tab = 'hosts';
+    invalidate('panel', 'tabs', 'rail', 'map');
+    ACTIONS['explore-check']?.();
+  },
   'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },
   'forecast-retry': () => { const c = FS.compose; if (!c || c.sending || !c.forecast?.unread) return; updateForecast({ again: true }); invalidate('panel'); },
   'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
