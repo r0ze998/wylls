@@ -367,6 +367,14 @@ export function resultOfAct(receipt) {
 }
 
 const byName = (res) => Object.fromEntries(CORE_RESOURCES.map((r, i) => [r, res[i]]).filter(([, n]) => n));
+/**
+ * The largest amount a record can carry (2026-11-17): the program's cargo_log is floor(milli / 1000), saturated at
+ * u32 (permutation-frontier/src/proc/caravan.rs cargo_log; ④ QUANTITY-CONTRACT §1, 記録の cargo). A record at the cap
+ * may stand for any larger amount, so "below lower + 1" (or "below logged + 1") is not shown by it: the upper bound is
+ * then not known (null, the same as a record without cargo). The lower bound stays as it is.
+ */
+const LOG_MAX = 4294967295;
+const atCap = (res) => Array.isArray(res) && res.some((n) => n >= LOG_MAX);
 
 /**
  * 06's view of a ④ run: whether it ended, what may be counted, what is
@@ -384,10 +392,10 @@ export function resultOf(run) {
   const verified = (run.state === "Fulfilled" || run.state === "Partial") && (v === "Recorded" || v === "RuleDerived") && Array.isArray(o.delivered);
   let actual;
   if (!o || !final) actual = { kind: "pending" };
-  else if (v === "Recorded" || v === "RuleDerived") actual = { kind: "at-least", lower: byName(o.delivered), below: "lower + 1（資源ごと）" };
+  else if (v === "Recorded" || v === "RuleDerived") actual = { kind: "at-least", lower: byName(o.delivered), below: atCap(o.delivered) ? null : "lower + 1（資源ごと）" };
   else if (v === "KnownZero") actual = { kind: "zero" };
   else if (v === "NotShipped") actual = { kind: "none" };
-  else actual = { kind: "unknown", below: o.cargo_logged ? byName(o.cargo_logged.map((n) => n + 1)) : null };
+  else actual = { kind: "unknown", below: o.cargo_logged && !atCap(o.cargo_logged) ? byName(o.cargo_logged.map((n) => n + 1)) : null };
   return {
     ok: true,
     runId: run.run_id ?? null,
