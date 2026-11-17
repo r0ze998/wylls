@@ -184,8 +184,10 @@ export function itemOf({ seq, record: r }, me, book = null) {
     case 'CARAVAN_SETTLED': {
       // (a burned caravan still walks on, empty, and is logged as delivered: nothing arrived for anyone)
       const facts = { ...who, cargo: cargoOf(r.cargo), seq: r.seq };
-      if (who.holder === 'me') return r.outcome === 1 ? { ...base, tone: 'loss', rank: 3, facts: { ...facts, lost: true } } : { ...base, tone: 'result', rank: 1, facts: { ...facts, delivered: true } };
-      if (who.holder === 'unknown' && who.sender === 'me') return { ...base, tone: 'uncertain', rank: 1, facts: { ...facts, lost: r.outcome === 1 } };
+      // (outcome is caravan_outcome: 0 delivered, 1 lost. Any other value is read as neither — never as delivered, 2026-11-17;
+      // the viewer's own arrival is then told by statussources.arrivalSettled as outcomeUnknown)
+      if (who.holder === 'me') return r.outcome === 1 ? { ...base, tone: 'loss', rank: 3, facts: { ...facts, lost: true } } : { ...base, tone: 'result', rank: 1, facts: { ...facts, ...(r.outcome === 0 ? { delivered: true } : {}) } };
+      if (who.holder === 'unknown' && who.sender === 'me') return { ...base, tone: 'uncertain', rank: 1, facts: { ...facts, lost: r.outcome === 1, delivered: r.outcome === 0 } };
       return null;
     }
     case 'VAULT_SEIZED':

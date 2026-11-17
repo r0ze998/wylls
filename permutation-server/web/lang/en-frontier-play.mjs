@@ -1030,6 +1030,8 @@ export default {
   'あなたが送った隊商が奪われました（ターン {0}）。その前に別の誰かに奪われていたかは、読み込んだ記録からはわかりません{1}': 'A caravan you sent was taken (turn {0}). Whether someone had taken it before is not in the records read{1}',
   'あなたが送った隊商が襲われました（ターン {0}）。いまの持ち主があなたかどうかは、読み込んだ記録からはわかりません': 'A caravan you sent was caught (turn {0}). Whether it is still yours is not in the records read',
   'あなたが送った隊商の到着が記録されました（ターン {0}）。途中で奪われていたなら、受け取ったのは奪った側です（読み込んだ記録からは確かめられません）{1}': 'The arrival of a caravan you sent was logged (turn {0}). If it had been taken on the way, the taker received it (the records read cannot tell){1}',
+  'あなたが送った隊商の行き先がなくなり、積荷が失われたと記録されました（ターン {0}）。途中で奪われていたなら、失ったのは奪った側です（読み込んだ記録からは確かめられません）{1}': 'A caravan you sent was logged as lost, its destination gone (turn {0}). If it had been taken on the way, the loss was the taker\'s (the records read cannot confirm it){1}',
+  'あなたが送った隊商の決着が記録されました（ターン {0}）。結果を記録から読めないため、着いたとも失われたとも言いません{1}': 'The end of a journey of a caravan you sent was logged (turn {0}). Its result cannot be read from the record, so it is not said to have arrived or to be lost{1}',
   'あなたの村がまだ保護期間中です。保護が終わるまで、ほかの村を包囲できません': 'Your village is still under its shield. You cannot besiege another until it ends',
   'この村ではすでに包囲か占領が進んでいます': 'A siege or an occupation of this village is already under way',
   '前の包囲の賭け金の行き先がまだ決まっていません': 'Where the stake of the last siege here goes is not decided yet',
@@ -1426,7 +1428,7 @@ export default {
   '決着しました。入った量はまだ確かめられていません': 'Its journey is concluded. The amount taken in is not verified yet',
   '倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷{0}が載るため、入った量は記録からはわかりません': 'A storehouse cuts what is over its cap, while the record of the journey\'s end keeps the whole cargo{0}; the amount taken in cannot be told from the records',
   '行き先を記録から読めないため、入った量は確かめられません': 'The destination cannot be read from the record, so the amount taken in cannot be verified',
-  '積荷は失われました：{0}': 'The cargo was lost: {0}',
+  '積荷は失われました（記録の積荷：{0}）': 'The cargo was lost (cargo on the record: {0})',
   '積荷は失われました': 'The cargo was lost',
   '行き先が無くなっていたため、どこにも入っていません（確定）': 'Its destination was gone, so it went nowhere (final)',
   '差の理由は、記録で確かめるまで決めません': 'Why the rest is missing is not decided until the records show it',
@@ -1443,6 +1445,7 @@ export default {
   '世界と戦期': 'The world and the war period',
   // workstream 07: the basis of an arrival's comparison and the intake judged apart (hud/statusview.mjs, statussources.mjs)
   '記録の数は、入った量の下限です（記録は 1 未満を切り捨てるので、資源ごとに 1 未満多く入っていることがあります）': 'The recorded amounts are the least that went in (the records drop anything under one, so up to one more of each may have gone in)',
+  '記録の数は、入った量の下限です（記録は 1 未満を切り捨て、{0} で止まります。そこに達した資源は、記録よりどれだけ多く入ったかわかりません）': 'The recorded amounts are the least that went in (the records drop anything under one and stop at {0}; for a resource at that value, how much more went in is not known)',
   '比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません': 'The basis is the amount on the send record. That amount is after the loss on the road: what was first loaded and what the road took cannot be told from this record',
   '送付記録には経路の減少率 {0}% が記されています': 'The send record states a loss on the road of {0}%',
   'このシーズンのプログラムの版では、入った量の確かめ方を確認していません': 'How the intake can be verified has not been checked for this season\'s program version',
@@ -1453,12 +1456,12 @@ export default {
   '送付記録の数量に対して一部が入りました：{0}': 'Part of the send record\'s amount was taken in: {0}',
   '送付記録の数量：{0}': 'Amount on the send record: {0}',
   '送付記録の数量に対して全量が入りました：{0}': 'All of the send record\'s amount was taken in: {0}',
-  // workstream 07: the arrival's bounds and the states 04's contract asks for (hud/statusview.mjs v7: atLeastText, atMostText)
+  // workstream 07: the arrival's bounds and the states 04's contract asks for (hud/statusview.mjs v7: atLeastText; a
+  // storehouse's record as the record's numbers, recordedText, 2026-11-17: no "at most" is made from it)
   '{0} {1} 以上': (r, n) => `at least ${n} ${r}`,
   '0 以上': 'at least 0',
-  '{0} 最大 {1}': (r, n) => `at most ${n} ${r}`,
-  '最大 0': 'at most 0',
-  '到着しましたが、入った量は確認できません（{0}）': 'It arrived, but the amount taken in cannot be verified ({0})',
+  '到着しましたが、入った量は確認できません（記録の積荷：{0}）': 'It arrived, but the amount taken in cannot be verified (cargo on the record: {0})',
+  '記録の数は 1 未満を切り捨て、大きすぎる値は上限で止まるため、入った量の上限も記録からは決まりません': 'The record drops anything under one and stops at its largest value, so it does not give an upper bound for the amount taken in either',
   '到着しましたが、入った量は確認できません': 'It arrived, but the amount taken in cannot be verified',
   '別の場所に着きました（原因を確認中）': 'It ended at another place (the cause is being checked)',
   '送付記録の行き先と違う場所で決着しました。この隊商の到着としては、入った量を数えません': 'Its journey ended at another place than the send record names. Nothing is counted as taken in for this caravan',

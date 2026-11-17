@@ -156,7 +156,8 @@ for (const size of SIZES) {
     const feedText = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.feed ?? []).filter(x => x.away || x.awayOf).map(x => x.text).join('\n'); });
     assert.match(feedText, /直近 144 ターン/);
     assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
-    assert.match(feedText, /到着しましたが、入った量は確認できません（[^）]*最大 [0-9,]*）。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
+    // corrected 2026-11-17 (Lane C): the record's numbers ("記録の積荷"), not "最大": the record is no upper bound
+    assert.match(feedText, /到着しましたが、入った量は確認できません（記録の積荷：[^）]*）。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
     assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|全量が入りました：木材 300 以上|村に入った量：木材 300 以上|隊商が着きました：木材 300/);
     await shot(page, `ws07-s1-page-away-${size.name}`);
     // (a phone shows one notice over the map, the newest — here the turn's card —: the away summary waits under it, and
