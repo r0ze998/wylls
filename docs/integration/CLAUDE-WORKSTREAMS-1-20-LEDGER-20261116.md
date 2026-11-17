@@ -466,3 +466,13 @@ a shared lock for all state or owner-mode writers.
 No new runtime, deployment, funds, signing, transmission, permission expansion or specification adoption is
 authorized or recorded by this ledger update. Stop-A continues to exclude new inference/reservations/actions;
 only the allowed confirmation of already-submitted work remains within that boundary.
+
+### 2026-11-17 16:48 UTC — official Opus background execution confirmed
+
+- After the owner opened the CLI's normal workspace flow, the new official background session was created.
+  The official session list reported `working` / `busy`, and the supervisor reported one live worker.
+- The earlier trust block is no longer the current execution blocker. The initial status read from a restricted
+  context could not reach the local control socket; a permitted direct read confirmed the session was actually live.
+- The task continues from the saved partial coop read adapter using Opus, scoped to the adapter, its test source,
+  and documentation. No second implementation was started. Runtime tests, registration as an MCP tool, integration
+  and game-world operation are still not established.
