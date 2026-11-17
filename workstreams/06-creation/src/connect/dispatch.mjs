@@ -312,13 +312,29 @@ export function fileJournal(path, fs, { pid = process.pid, alive, startOf = proc
     if (alive ? alive(h.pid) !== true : now === null) return false; // no such process
     return !known(h.start) || !known(now) || h.start === now;
   };
-  const create = (file, text) => { const fd = fs.openSync(file, "wx"); try { fs.writeSync(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
+  /**
+   * Writes all of `text` (UTF-8) at `fd` (2026-11-17). writeSync answers how many bytes it wrote: a short write is
+   * continued from where it stopped, and a write that makes no progress is refused, so a lock or a journal is never
+   * linked or renamed into place with only part of its bytes (a cut lock reads as no holder; a cut journal as no JSON).
+   */
+  const writeAll = (fd, text) => {
+    const bytes = Buffer.from(text, "utf8");
+    for (let off = 0; off < bytes.length;) {
+      const n = fs.writeSync(fd, bytes, off, bytes.length - off);
+      if (!Number.isSafeInteger(n) || n <= 0) throw Object.assign(new Error(`journal ${path}: wrote ${off} of ${bytes.length} bytes; nothing put in place`), { code: "JournalShortWrite" });
+      off += n;
+    }
+  };
+  const create = (file, text) => { const fd = fs.openSync(file, "wx"); try { writeAll(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
   const read = (file) => { try { return String(fs.readFileSync(file, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
   /** Puts this open's body at `file` already written: a temporary file, then link (exclusive) or rename (replace). */
   const place = (file, replace) => {
     const tmp = `${file}.${token}.tmp`;
-    create(tmp, body);
-    try { if (replace) fs.renameSync(tmp, file); else fs.linkSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
+    // create is inside the try (2026-11-17): a write that fails or comes up short leaves no temporary file behind.
+    try {
+      create(tmp, body);
+      if (replace) fs.renameSync(tmp, file); else fs.linkSync(tmp, file);
+    } finally { fs.rmSync(tmp, { force: true }); }
   };
   const refuse = (file, h) => Object.assign(new Error(file === lock
     ? `journal ${path} is held by process ${h?.pid ?? "?"}${h?.pid === pid ? " (this process: another open)" : ""}`
@@ -357,9 +373,16 @@ export function fileJournal(path, fs, { pid = process.pid, alive, startOf = proc
     save(obj) {
       if (!holds()) throw Object.assign(new Error(`journal ${path}: this writer no longer holds the lock; nothing written`), { code: "JournalFenced" });
       const tmp = `${path}.${token}.tmp`;
-      const fd = fs.openSync(tmp, "w");
-      try { fs.writeSync(fd, `${JSON.stringify(obj)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(tmp, path);
+      // Complete before it replaces the journal (2026-11-17): a write or rename that fails leaves the journal as it was
+      // and removes this save's temporary file; the error goes to the caller (Dispatch #save), which sends nothing on it.
+      try {
+        const fd = fs.openSync(tmp, "w");
+        try { writeAll(fd, `${JSON.stringify(obj)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+        fs.renameSync(tmp, path);
+      } catch (e) {
+        try { fs.rmSync(tmp, { force: true }); } catch { /* the original error is the one to report */ }
+        throw e;
+      }
       const d = fs.openSync(dir, "r");
       try { fs.fsyncSync(d); } finally { fs.closeSync(d); }
     },
