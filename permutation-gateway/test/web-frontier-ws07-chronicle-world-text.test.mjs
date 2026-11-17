@@ -10,6 +10,7 @@
 //      screen says it is being read — never empty) before the new world's start is read
 //   C2 a page the change overtakes writes nothing (return before any write to FS or the cursor)
 //   C3 FS.isMine reads the viewer's holdings when a line is drawn
+//   C4 no use of `own` outside isMine is left; the incoming warnings take the holdings bound right before them
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -17,6 +18,8 @@ import { readFileSync } from 'node:fs';
 const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
 const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
 const body = ctl.slice(ctl.indexOf('async function refreshChronicle() {'), ctl.indexOf('// Incoming (§7.7)', ctl.indexOf('async function refreshChronicle() {')));
+const fnStart = ctl.indexOf('async function refreshChronicle() {');
+const whole = ctl.slice(fnStart, ctl.indexOf('\n}\n', fnStart) + 2);
 
 test('R1 the pinned world, never made up', () => {
   assert.ok(app.includes("const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
@@ -65,4 +68,15 @@ test('C3 the viewer\'s holdings when a line is drawn', () => {
   const at = body.indexOf('FS.isMine = rec => {');
   assert.ok(at > 0 && body.indexOf('const own = FS.holdings ?? [];', at) > at, 'read inside the function');
   assert.equal(body.slice(0, at).includes('const own = FS.holdings ?? [];'), false, 'not captured before');
+});
+
+test('C4 `own` lives only inside isMine; incoming takes the holdings bound before it', () => {
+  const im = whole.indexOf('FS.isMine = rec => {'), ie = whole.indexOf('};', im);
+  const uses = [...whole.matchAll(/(?<![\w.$])own(?![\w$])/g)].map(m => m.index).filter(i => !whole.slice(Math.max(0, i - 12), i).endsWith("prototype's "));
+  assert.ok(uses.length > 0 && uses.every(i => i > im && i < ie), 'every use of own is inside isMine');
+  const decl = whole.indexOf('const holdingsNow = FS.holdings ?? [];');
+  const use = whole.indexOf('holdings: holdingsNow.map(o => ({');
+  const incoming = whole.indexOf('FS.incoming = FS.citizen ? incomingWarnings({');
+  assert.ok(decl > 0 && incoming > decl && use > incoming, 'bound right before the incoming warnings, and used there');
+  assert.equal(whole.slice(decl, incoming).includes('await'), false, 'no await between the binding and its use');
 });

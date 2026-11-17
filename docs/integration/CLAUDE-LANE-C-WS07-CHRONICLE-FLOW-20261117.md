@@ -67,17 +67,42 @@ Sending, auth, assets, rules, the ABI, MCP and ④.
 
 See the manifest at the end.
 
+## Regression in `c91066cb`, fixed (2026-11-17; nothing run)
+
+**The regression.** D3 moved `const own = FS.holdings ?? []` into `FS.isMine`, but the end of `refreshChronicle` still used `own`:
+
+`FS.incoming = FS.citizen ? incomingWarnings({ …, holdings: own.map(…) … })`
+
+With a citizen, that is a `ReferenceError` on every chronicle refresh after a successful read: it stops `refresh` before `invalidate`, and before the home choice or the auto ticket that follow it.
+
+**The fix.** Right before `FS.incoming`, `const holdingsNow = FS.holdings ?? [];`, and `incomingWarnings` takes `holdingsNow.map(…)`. That is the same holdings at the same moment as before D3: there is no `await` between the end of the page loop and this point. `FS.isMine` still reads the holdings when a line is drawn. The incoming contract is unchanged.
+
+**Static reverse review of every changed path:**
+
+| Path | Result |
+|---|---|
+| Page succeeds, fails, or is empty | The loop logic is unchanged. After the loop, `FS.chronicle`, `FS.chronicleRead`, `isMine` and `incoming` are set as before |
+| A read the change overtakes | `return` right after the await, before any write. `FS.incoming` and the rest stay as they were, and the next call forgets the old world (D1) and recomputes |
+| World or herald switch | Chronicle, read state and life become `undefined` (unknown), and the cursor goes back to the new world's start |
+| "（あなた）" marks | `isMine` reads `FS.holdings` when called |
+| Incoming warnings | `holdingsNow`, bound with no await before use. **Observation, not changed:** after a reset, if the next read also fails, `incoming` is computed from an empty chronicle. That is the same as an existing first load that fails; the incoming contract does not distinguish unread |
+| Life and the moment snapshot | `FS.life` is `undefined` after a reset; every reader handles it (`?? null`, `?? []`, `FS.life ? …`, `?? new Map()`). The moment snapshot's comparison across a real change is still unverified (it needs a page) |
+| Report answer, keep, close | As in D4. A report opened with no pin (world `null`) behaves as before. The extra `world` field on `FS.report` is not read by the report screen |
+| Moved or remaining variables | Every `own` use is inside `isMine` (the other occurrence is the word in a comment). `h0`, `w0` and `worldNow` are defined before the loop. `FS.chronicleSource` and `FS.chronicleWorld` are read only by this function. Nothing serializes or copies `FS` as a whole (searched), so holding the herald object there is safe |
+
+**Regression source (written, not run):** **C4** in `web-frontier-ws07-chronicle-world-text.test.mjs`. It checks that every `own` use is inside `isMine`, and that `holdingsNow` is bound before `FS.incoming`, with no await in between, and used there.
+
 ## Final manifest (for D; the aggregate is not changed here)
 
 - **Base:** `8c7f4de1d9b03665336e0075d4a3e017fe0fa6cf`.
-- **Branch:** `claude/lane-c-ws07-chronicle-flow-20261117`. Commits: `a11962cd` (D4, app), then this commit (D1–D3, controller), which is the final tip.
+- **Branch:** `claude/lane-c-ws07-chronicle-flow-20261117`. Commits: `a11962cd` (D4), `c91066cb` (D1–D3), then this commit (the `own` regression fix), which is the final tip.
 - **Four paths against the base** (mode and git blob at this commit):
 
 | Status | Mode | Blob | Path |
 |---|---|---|---|
 | M | 100644 | `7b787e1024b12494e2133606fd5b0e08c69c7e62` | `permutation-server/web/frontier/app.mjs` |
-| M | 100644 | `06cc0820e143ce8867df4a87a8c82b3f4c33048d` | `permutation-server/web/frontier/controller.mjs` |
-| A | 100644 | `5d2c319e4e61c72774d1125be679021c7159d3b6` | `permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs` |
+| M | 100644 | `fa7cb8ddfb2bc37ba3a0b0ec69df1c7b764cb2ad` | `permutation-server/web/frontier/controller.mjs` |
+| A | 100644 | `c6c97e7f339e5f864a8fb940e10cd4fa6ce7b89c` | `permutation-gateway/test/web-frontier-ws07-chronicle-world-text.test.mjs` |
 | A | 100644 | (this file) | `docs/integration/CLAUDE-LANE-C-WS07-CHRONICLE-FLOW-20261117.md` |
 
 - **Likely conflict points:** `app.mjs` near `openReport` and `loadSeason` (the away bundle adds `awayWorld` near `awayPump`); `controller.mjs` `refreshChronicle` only.

@@ -1140,7 +1140,10 @@ async function refreshChronicle() {
     return { ...x.record, faction: ov && h ? ov.owners[h.site] : null };
   }).filter(d => d.faction !== null && d.faction < 6);
   const k = FS.kernel ?? null;
-  FS.incoming = FS.citizen ? incomingWarnings({ kernel: k, departures, holdings: own.map(o => ({ p: o.p, q: o.q, site: o.site, tile: o.tile, shieldUntilBell: FS.provinces.get(`${o.p},${o.q}`)?.province?.siteMirror?.[o.site]?.shieldUntilBell })), faction: FS.citizen.faction, genesisTs: FS.clock.genesisTs, nowBell: nowBell(), unitOf: () => WARNING_UNIT }) : [];
+  // (the viewer's holdings as they stand after this read — no await since the pages — as before 2026-11-17; isMine reads
+  // them itself when a line is drawn)
+  const holdingsNow = FS.holdings ?? [];
+  FS.incoming = FS.citizen ? incomingWarnings({ kernel: k, departures, holdings: holdingsNow.map(o => ({ p: o.p, q: o.q, site: o.site, tile: o.tile, shieldUntilBell: FS.provinces.get(`${o.p},${o.q}`)?.province?.siteMirror?.[o.site]?.shieldUntilBell })), faction: FS.citizen.faction, genesisTs: FS.clock.genesisTs, nowBell: nowBell(), unitOf: () => WARNING_UNIT }) : [];
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
