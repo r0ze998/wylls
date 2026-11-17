@@ -2517,6 +2517,8 @@ const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heral
 let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
 // (workstream 07: an NFT resident (⑳) is another viewer than its wallet's own Citizen: its marks are kept apart)
 const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ? (FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : '' });
+/** The pinned world (cluster, program, season account) the away marks belong to; null before a world is pinned (no check then). */
+const awayWorld = () => (FS.pin ? `${FS.pin.cluster ?? ''}|${FS.pin.programId ?? ''}|${FS.pin.seasonAddress ?? ''}` : null);
 const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
 const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
 /** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
@@ -2533,17 +2535,18 @@ function awayPump() {
     FS.feed = (FS.feed ?? []).filter(x => !(x.away || x.awayOf) || x.scope === sc);
     awayBook = null; awayQueue = []; caravanWatchOf(FS).reset();
     const { season, wallet } = awayWho(), st = awayStore();
-    const marks = returnSum.loadMarks(st, season, wallet);
+    const world = awayWorld();
+    const marks = returnSum.loadMarks(st, season, wallet, world);
     const head = (() => { try { return FS.record?.headSeq === undefined ? null : BigInt(FS.record.headSeq); } catch { return null; } })();
     const usable = marks && !(head !== null && BigInt(marks.confirmedSeq) > head);
     const from = usable ? marks.confirmedSeq : head === null ? '0' : String(head > BigInt(returnRead.AWAY_REACH) ? head - BigInt(returnRead.AWAY_REACH) : 0n);
     awayReader.start({ scope: sc, from }).then(r => {
       if (r.stale || r.scope !== awayScopeNow()) return;
       awayEnds(r.records);
-      const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
-        season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion } });
+      const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed, bad: r.bad }, marks: returnSum.loadMarks(awayStore(), season, wallet, world), last: returnSum.loadLast(awayStore()),
+        season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion }, world });
       awayBook = s.book; awaySent = s.sent;
-      if (!s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead') return;
+      if (!s.items.length && !s.gap && !s.failed && !s.bad && s.windowFrom === null && s.mode !== 'markAhead') return;
       awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s } },
         ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
     }).catch(() => {}).finally(() => { awayBusy = false; });
@@ -3501,7 +3504,7 @@ export const HUD_ACTIONS = {
     // (only a summary of this scope whose reading has no gap moves the mark: returnsum.confirm; twice is harmless)
     if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow()) return;
     const { season, wallet } = awayWho();
-    const saved = returnSum.confirm(awayStore(), { seasonId: season, wallet, confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0 });
+    const saved = returnSum.confirm(awayStore(), { seasonId: season, wallet, confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0, world: awayWorld() });
     if (!saved) {
       // (storage refused: the notice stays, says so, and the next look starts from the same place)
       FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, null), away: { ...y.away, saved: null } } : y));
