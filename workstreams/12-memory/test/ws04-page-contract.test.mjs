@@ -1,7 +1,8 @@
 // The page contract between 4's producer and 12's held report (2026-11-17). SOURCE-ONLY when written: not run.
 // The page is NOT written here: it is 4's file, workstreams/04-execution/tests/fixtures/observe-page-contract.json,
 // which 4's test (tests/observe_page_contract.rs) requires `read_store_observations` to print exactly. 12 reads the
-// same bytes as runexec's stdout. Synthetic records only, never chain evidence: the page stays held whole.
+// same bytes as runexec's stdout. Synthetic records only, never chain evidence: the page stays held whole. The page
+// is a HAND-WRITTEN expectation, not producer output; until 4's test has run, nothing shows runexec prints it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

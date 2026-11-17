@@ -5,7 +5,7 @@
 **Source only, NOT run:**
 - no `cargo`, `node --test`, import, CLI run, world, RPC, key or signing;
 - no earlier approval reused;
-- the fixture's two body hashes were computed by hand from the PS2 layout (one Python `hashlib` call over bytes built from `frontier_abi::v2::log`'s field list); ④'s test is what checks them.
+- **the fixture is a hand-written expectation, not producer output.** It was written from the serde types; its two body hashes were computed by hand from the PS2 layout (one Python `hashlib` call over bytes built from `frontier_abi::v2::log`'s field list). Until ④'s test has run, nothing shows that runexec prints it.
 
 ## What was missing
 
@@ -35,6 +35,17 @@
 - the same columns, markers and manifest keys as the existing `store_observation.rs` helper, and as findex writes them;
 - bodies built through `frontier_abi::v2::log::field` by name, with no hand offsets;
 - lengths 68 and 99 asserted, the lengths the fixture's hashes were computed for.
+
+## Correction (second tip): the test's store root
+
+**The problem:** the first tip's `tmp()` removed `<temp_dir>/runexec-page-contract-<pid>-<nanos>` (`remove_dir_all`) before `create_dir_all`. If that name already existed, whatever was there would be deleted or reused.
+
+**Now:**
+- the root is made with `fs::create_dir`, which succeeds only for a new path. If it exists, the test fails and leaves it as it is: no removal first, no `create_dir_all`.
+- `archive/` is made inside the root only after the root is owned.
+- **Cleanup is tied to ownership:** an `OwnedRoot` removes its own directory when dropped, also on an assertion's unwind. A path the test did not create is never removed, even when setup fails.
+
+The other three paths are unchanged, except a header line in the ⑫ test saying the page is a hand-written expectation.
 
 ## Counter-review (static, once)
 

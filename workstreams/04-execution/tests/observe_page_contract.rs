@@ -2,8 +2,9 @@
 // The page contract between ④'s producer and ⑫'s held report: `read_store_observations` over a synthetic findex
 // store directory must print EXACTLY the page in tests/fixtures/observe-page-contract.json, which 12's test
 // (workstreams/12-memory/test/ws04-page-contract.test.mjs) reads as runexec's output. One file, both sides.
-// Synthetic records only: not chain evidence. The fixture's body hashes were computed from the PS2 layout by hand
-// (frontier_abi::v2::log: version, kind, bell u32, key, payload, 0 links); this test is what checks them.
+// Synthetic records only: not chain evidence. The fixture is a HAND-WRITTEN expectation, not producer output: it was
+// written from the serde types, and its body hashes were computed by hand from the PS2 layout (frontier_abi::v2::log:
+// version, kind, bell u32, key, payload, 0 links). Until this test has run, nothing shows the producer prints it.
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,12 +37,25 @@ fn units(v: [u32; 8]) -> Vec<u8> {
     v.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
 
-fn tmp() -> PathBuf {
+/// A store root this test created itself, and only that: removed when it goes out of scope (also when an assertion
+/// fails and the test unwinds). A root that cannot be created new is never touched.
+struct OwnedRoot(PathBuf);
+impl Drop for OwnedRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+/// `fs::create_dir` succeeds only for a path that did not exist (no `create_dir_all`, no removal first): if the name
+/// is already taken, the test fails without deleting or reusing anything there.
+fn tmp() -> OwnedRoot {
     let d = std::env::temp_dir().join(format!("runexec-page-contract-{}-{}", std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-    let _ = fs::remove_dir_all(&d);
-    fs::create_dir_all(d.join("archive")).unwrap();
-    d
+    if let Err(e) = fs::create_dir(&d) {
+        panic!("the test's store root must be new; {} was not created ({e}) and is left as it is", d.display());
+    }
+    let root = OwnedRoot(d); // owned from here on
+    fs::create_dir(root.0.join("archive")).expect("archive/ inside the new root");
+    root
 }
 fn store(dir: &Path, settled: &[u8], raided: &[u8]) {
     let db = rusqlite::Connection::open(dir.join("index.sqlite")).unwrap();
@@ -70,9 +84,10 @@ fn the_store_page_is_exactly_the_shared_fixture() {
         &[("choice", &[log::raid_choice::TAKE][..]), ("by", &[log::raid_choice::BY_RAIDER][..]), ("raider_tag", &raider.to_le_bytes()[..]),
           ("taken", &units([0, 1, 0, 0, 0, 0, 0, 0])[..])]);
     assert_eq!((settled.len(), raided.len()), (68, 99), "the PS2 lengths the fixture's hashes were computed for");
-    let d = tmp();
-    store(&d, &settled, &raided);
-    let page = read_store_observations(&d, 0, 10).unwrap();
+    let root = tmp();
+    let d = root.0.as_path();
+    store(d, &settled, &raided);
+    let page = read_store_observations(d, 0, 10).unwrap();
     let printed = serde_json::to_value(&page).unwrap();
     let expected: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
     // field by field first, so a difference names its place; then the whole page
@@ -94,5 +109,5 @@ fn the_store_page_is_exactly_the_shared_fixture() {
     let line = serde_json::to_string(&page).unwrap();
     assert!(!line.contains('\n'));
     assert_eq!(serde_json::from_str::<serde_json::Value>(&line).unwrap(), expected);
-    let _ = fs::remove_dir_all(&d);
+    // `root` is dropped here (or on unwind): only the directory this test created is removed
 }
