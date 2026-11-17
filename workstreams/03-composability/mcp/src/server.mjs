@@ -13,7 +13,7 @@ import { AGENT_PRICE_NOT_READ, prepareNotice } from './confirm.mjs';
 import { LocalReceiptPort, assertReceiptPort, WS04_UNQUERYABLE, readViaOf, ws04ActAfterRead, ws04ActAfterFailedRead } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
-import { REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
+import { COOP_TOOL, REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
 import { toolNamed, unknownToolText } from './dispatch.mjs';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
@@ -47,14 +47,39 @@ function askedCargo(c) {
   return { amounts: cargoArray(c) };
 }
 
+/** The cluster the deployment names for the cooperation board (the same rule as coop-read-adapter.mjs). */
+const COOP_CLUSTER = /^[a-z][a-z0-9-]{0,31}$/;
+/** get_cooperation_status error codes by the adapter's status (coop-read-adapter.mjs COOP_READ_STATUSES). */
+const COOP_ERROR = Object.freeze({
+  disabled: ['CoopReadDisabled', false], refused: ['CoopReadRefused', false], unavailable: ['CoopBoardUnavailable', true], mismatch: ['CoopBoardMismatch', false],
+  changed: ['CoopBoardChanged', true], unsupported: ['CoopBoardUnsupported', false], damaged: ['CoopBoardDamaged', false], malformed: ['CoopBoardMalformed', false],
+});
+
+/**
+ * The cooperation board read, as the deployment configured it (bin/wylls-mcp.mjs from bin/coop-read-settings.mjs):
+ * null/undefined, or an adapter that is not enabled, is off (the tool is neither listed nor callable, and nothing is
+ * fetched). On: `{adapter, cluster}`, the adapter from createCoopReadAdapter with publicViewConfirmed and the cluster
+ * the board must report. Anything else is a deployment error (TypeError), never a quiet off.
+ */
+function coopReadOf(c) {
+  if (c === null || c === undefined) return null;
+  if (typeof c !== 'object' || !c.adapter || typeof c.adapter !== 'object') throw new TypeError('coopRead: {adapter, cluster} (adapter from createCoopReadAdapter) or null');
+  if (c.adapter.enabled === false) return null;
+  if (c.adapter.enabled !== true || typeof c.adapter.read !== 'function') throw new TypeError('coopRead.adapter: an adapter from createCoopReadAdapter');
+  if (typeof c.cluster !== 'string' || !COOP_CLUSTER.test(c.cluster)) throw new TypeError('coopRead.cluster: the cluster the board serves (a-z, 0-9, -; at most 32)');
+  return Object.freeze({ adapter: c.adapter, cluster: c.cluster });
+}
+
 /**
  * @param {object} o
  * @param {Auth} o.auth
  * @param {Game} o.game
  * @param {JsonStore} o.store
+ * @param {{adapter: object, cluster: string} | null} [o.coopRead]  the opt-in cooperation board read (off by default)
  */
-export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null, actsReadVia = null }) {
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null, actsReadVia = null, coopRead = null }) {
   assertReceiptPort(receipts);
+  const coop = coopReadOf(coopRead);
   // How a status call to ④ is asked, from the caller's configuration of ④'s client (bin/wylls-mcp.mjs): 'gateway' |
   // 'store-only' | null (not told). register and list always answer from ④'s store. A path, not freshness or finality.
   const statusVia = readViaOf(actsReadVia);
@@ -809,7 +834,42 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       hold: op.hold?.code ?? null, resultUnknown: resultUnknown(op) })) });
   }
 
-  const tools = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps };
+  /**
+   * get_cooperation_status (only when coopRead is on). No arguments: the viewer is the authenticated owner, the world is
+   * this server's current game context with the configured cluster; nothing of either comes from the caller. The
+   * board is a public read and grants nothing (coop-read-adapter.mjs): no recipient list, no send authority.
+   */
+  async function cooperation(principal, args) {
+    const denied = needScope(principal, SCOPES.READ);
+    if (denied) return denied;
+    if (args === null || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length > 0) {
+      return fail('BadRequest', 'get_cooperation_status takes no arguments: the owner is this connection\'s and the world is the server\'s current one');
+    }
+    const contextOf = async () => {
+      try {
+        const c = await game.context();
+        if (!c || typeof c.programId !== 'string' || (typeof c.seasonId !== 'string' && !Number.isSafeInteger(c.seasonId))) return null;
+        const seasonId = String(c.seasonId);
+        if (typeof c.key === 'string' && c.key !== `${c.programId}:${seasonId}`) return null;
+        return { programId: c.programId, seasonId, key: `${c.programId}:${seasonId}` };
+      } catch { return null; }
+    };
+    const before = await contextOf();
+    if (!before) return fail('ContextUnavailable', 'the current world context could not be read from the relay: the cooperation board was not read', { retryable: true });
+    const r = await coop.adapter.read({ principal: { owner: principal.owner, scopes: principal.scopes }, context: { programId: before.programId, seasonId: before.seasonId, cluster: coop.cluster } });
+    if (!r || typeof r !== 'object' || typeof r.status !== 'string') return fail('InternalError', 'the cooperation board read gave no result');
+    // The relay may have moved to another world while the board was read: the answer would be of the old one.
+    const after = await contextOf();
+    if (!after || after.key !== before.key) return fail('ContextChanged', 'the current world context changed (or could not be read again) while the cooperation board was read: nothing is shown; read again', { retryable: true });
+    if (r.ok === true && r.status === 'ok') return ok(r);
+    const [code, retryable] = COOP_ERROR[r.status] ?? ['CoopBoardMalformed', false];
+    return fail(code, String(r.why ?? r.status), { retryable, cooperation: r });
+  }
+
+  const tools = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps,
+    ...(coop ? { get_cooperation_status: cooperation } : {}) };
+  // What tools/list answers agrees with what tools/call dispatches: the cooperation tool only when it is on.
+  const listed = coop ? Object.freeze([...TOOLS, COOP_TOOL]) : TOOLS;
 
   /** One JSON-RPC message for `principal` (null: unauthenticated) → the response (null for a notification). */
   async function handle(msg, principal) {
@@ -844,7 +904,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       }
       case 'notifications/initialized': case 'notifications/cancelled': return null;
       case 'ping': return reply({});
-      case 'tools/list': return reply({ tools: TOOLS });
+      case 'tools/list': return reply({ tools: listed });
       case 'tools/call': {
         const name = msg.params?.name;
         // Own tool names only: an inherited name (constructor, __proto__, …) or a non-string is an unknown tool (dispatch.mjs).
@@ -854,7 +914,11 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         if (limited(principal)) return reply(fail('RateLimited', 'too many calls: wait a few seconds'));
         let out;
         try { out = reply(await fn(principal, msg.params?.arguments ?? {})); } catch (e) { log(`mcp: ${name} threw ${scrub(e?.message)}`); return reply(fail('InternalError', 'internal error')); }
-        try { archiveFinished(); } catch (e) { log(`mcp: archive failed (nothing moved): ${scrub(e?.message)}`); }
+        // get_cooperation_status stores nothing locally (its description says so): it never runs the archive sweep,
+        // whatever its outcome. Every other tool keeps the sweep exactly as before.
+        if (name !== COOP_TOOL.name) {
+          try { archiveFinished(); } catch (e) { log(`mcp: archive failed (nothing moved): ${scrub(e?.message)}`); }
+        }
         return out;
       }
       default: return notification ? null : error(-32601, `method not found: ${msg.method.slice(0, 40)}`);
