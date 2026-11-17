@@ -1832,4 +1832,8 @@ export default {
   'この村の軍勢の一覧を開く': 'Open the list of this village\'s hosts',
   '編成した軍勢は、記録に出ると「編成の反映待ち」に入ります。進軍の計画は、軍勢の一覧から立てます。': 'A host you form up shows under "waiting to form up" once it is in the record. A march is planned from the list of hosts.',
   '（この州で出した命令です。この村の命令かどうかは、記録からは分かりません。）': ' (An order given in this province. The record does not say whether it is this village\'s.)',
+  // (2026-11-17, ⑦ the first village's place: the candidates read again)
+  '土地の候補を読み直す': 'Load the candidate places again',
+  '土地の候補を読み込んでいます…': 'Loading the candidate places…',
+  'あなたの記録をまだ読めていないので、土地の候補を読み直せませんでした。少し待って、もう一度お試しください。': 'Your record is not loaded yet, so the candidate places could not be loaded again. Wait a little and try once more.',
 };
