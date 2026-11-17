@@ -1,8 +1,15 @@
+// Final coordinator validation 2026-11-17 UTC: corrected-contract suites passed 74/74 (adapter 41 + integration 33).
 // get_cooperation_status wired into the real MCP server logic (src/server.mjs createWyllsMcp → handle), with the real
 // adapter (src/coop-read-adapter.mjs) and the launcher's pure settings (bin/coop-read-settings.mjs). Fixtures only:
 // an injected principal, game, store and auth stub, a fake fetch with fake streamed bodies, idle fake timers. No
 // real keys, signatures, network, child processes or filesystem writes; SDK request timeout timers are real. Written by the implementation session; independently executed by the coordinator on 2026-11-17 UTC:
 // 31/31 passed including SDK transport tests (see COOP-READ-ADAPTER.md); separate from the 34/34 adapter unit suite.
+// 2026-11-18 real-board contract fix: those runs used fixtures with an invented string nation ('North') and capitalised
+// resources ('Stone'), which the real board never sends. The fixtures now use the board's shapes (numeric zero-based
+// faction, lowercase resources, fulfilment {status}), and two regression tests at the end pass the output of the real,
+// pure coopView (coop/goal.mjs) and fold (coop/record.mjs) through the real adapter and the real MCP dispatch. Not
+// createBoard: no board process, no fs write, no signature, no address derivation. The suite as it now stands has NOT
+// been executed by the session that wrote it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createWyllsMcp } from '../src/server.mjs';
@@ -13,6 +20,8 @@ import { STATES, TERMINAL } from '../src/ports.mjs';
 import { createHandler } from '../src/http.mjs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { coopView, GOALS } from '../../../01-national-strategy/coop/goal.mjs';
+import { fold, recordId } from '../../../01-national-strategy/coop/record.mjs';
 
 const OWNER = 'Hv7mQ9xT3kPz2RbW5cYfN8dLsJ4gAeUq6tBnVr1oXy';
 const OTHER = 'Gk3pZ8wR2nTq5vYc7bMd9fHs4jKe6gAu1xWr2tNmPz';
@@ -99,16 +108,16 @@ function configDoc(over = {}) {
     herald: 'http://127.0.0.1:9000', chain: true, damaged: [], relay: '/gw', rpcProxy: false, store: { segments: [], problems: [] }, ...over };
 }
 function viewDoc(over = {}) {
-  const req1 = { id: 'req-000001', goalId: 'g-vault', requester: OWNER, need: { Stone: 300 }, responses: { [OTHER]: { id: 'resp-0001', sig: 'SIG-SECRET' } }, stateNow: 'open',
-    arrivals: [{ responder: OTHER, state: 'delivered', counted: { Stone: 120 } }, { responder: OTHER, state: 'moving', counted: null }], fulfilment: { status: 'Partial' } };
-  const req2 = { id: 'req-000002', goalId: 'g-vault', requester: OTHER, need: { Wood: 50 }, responses: { [OWNER]: { id: 'resp-0002' } }, stateNow: 'open',
-    arrivals: [{ responder: OWNER, state: 'delivered', counted: { Wood: 50 } }], fulfilment: 'Fulfilled' };
+  const req1 = { id: 'req-000001', goalId: 'g-vault', requester: OWNER, need: { stone: 300 }, responses: { [OTHER]: { id: 'resp-0001', sig: 'SIG-SECRET' } }, stateNow: 'open',
+    arrivals: [{ responder: OTHER, state: 'delivered', counted: { stone: 120 } }, { responder: OTHER, state: 'moving', counted: null }], fulfilment: { status: 'undetermined' } };
+  const req2 = { id: 'req-000002', goalId: 'g-vault', requester: OTHER, need: { wood: 50 }, responses: { [OWNER]: { id: 'resp-0002' } }, stateNow: 'open',
+    arrivals: [{ responder: OWNER, state: 'delivered', counted: { wood: 50 } }], fulfilment: { status: 'fulfilled' } };
   return {
     requests: [req1, req2], arrivals: [], joint: [],
-    nation: { nation: 'North', note: 'n', requests: 4, deliveredFromNation: 7 },
-    personal: { viewer: OWNER, nation: 'North', nationWhy: null,
-      myRequests: [{ id: 'req-000001', state: 'open', need: { Stone: 300 }, responses: req1.responses, arrivals: req1.arrivals, fulfilment: req1.fulfilment }],
-      myResponses: [{ id: 'req-000002', requester: OTHER, response: req2.responses[OWNER], arrivals: req2.arrivals }], myVerified: { Wood: 50 }, left: [] },
+    nation: { nation: 2, note: 'n', requests: 4, deliveredFromNation: 7 },
+    personal: { viewer: OWNER, nation: 2, nationWhy: null,
+      myRequests: [{ id: 'req-000001', state: 'open', need: { stone: 300 }, responses: req1.responses, arrivals: req1.arrivals, fulfilment: req1.fulfilment }],
+      myResponses: [{ id: 'req-000002', requester: OTHER, response: req2.responses[OWNER], arrivals: req2.arrivals }], myVerified: { wood: 50 }, left: [] },
     rejected: [], judges: [], heraldFeed: { moving: 0, ended: 0 }, chain: true, damaged: [], contexts: [ctx()], store: { segments: 0, problems: [] }, token: 'TOKEN-SECRET',
     ...over,
   };
@@ -256,8 +265,9 @@ test('the viewer is exactly the authenticated owner and the world is the server\
   assert.equal(s.ok, true);
   assert.equal(s.owner, OWNER);
   assert.deepEqual(s.world, { programId: PROGRAM, seasonId: '3', cluster: 'localnet' });
-  assert.deepEqual(s.nation, { status: 'verified', nation: 'North', requests: 4, deliveredFromNation: 7, note: null });
-  assert.deepEqual(s.mine.requests, [{ id: 'req-000001', state: 'open', need: { Stone: 300 }, entries: { listed: 2, counted: 1 }, fulfilment: 'Partial' }]);
+  assert.deepEqual(s.nation, { status: 'verified', nation: 2, requests: 4, deliveredFromNation: 7, note: null });
+  assert.deepEqual(s.mine.requests, [{ id: 'req-000001', state: 'open', need: { stone: 300 }, entries: { listed: 2, counted: 1 }, fulfilment: 'undetermined' }]);
+  assert.deepEqual(s.mine.verified, { wood: 50 });
   assert.deepEqual(s.mine.responses, [{ id: 'req-000002', responded: true, myEntries: { listed: 1, counted: 1 } }]);
   assert.deepEqual(JSON.parse(r.result.content[0].text), s);
   assert.ok(game.contextCalls >= 1);
@@ -267,7 +277,7 @@ test('the viewer is exactly the authenticated owner and the world is the server\
 });
 
 test('another authenticated owner is read as that owner only', async () => {
-  const fetch = boardFetch({ view: viewDoc({ personal: { viewer: OTHER, nation: 'North', nationWhy: null, myRequests: [], myResponses: [], myVerified: {}, left: [] } }) });
+  const fetch = boardFetch({ view: viewDoc({ personal: { viewer: OTHER, nation: 2, nationWhy: null, myRequests: [], myResponses: [], myVerified: {}, left: [] } }) });
   const { mcp } = server({ fetch });
   const r = await call(mcp, 'get_cooperation_status', {}, principalOf({ owner: OTHER, linkId: 'lnk_test_0002' }));
   assert.equal(fetch.calls[1].url, `${BASE}/coop/view?viewer=${OTHER}`);
@@ -319,7 +329,10 @@ test('the server\'s world changing during the read fails closed', async () => {
 
 test('malformed, changed, multi-context, damaged and unreachable boards fail closed with no partial data', async () => {
   const cases = [
-    [{ view: viewDoc({ nation: { nation: 'North', requests: '4', deliveredFromNation: 7 } }) }, 'CoopBoardMalformed'],
+    [{ view: viewDoc({ nation: { nation: 2, requests: '4', deliveredFromNation: 7 } }) }, 'CoopBoardMalformed'],
+    [{ view: viewDoc({ nation: { nation: 'North', requests: 4, deliveredFromNation: 7 }, personal: { ...viewDoc().personal, nation: 'North' } }) }, 'CoopBoardMalformed'], // a name is not the board's nation
+    [{ view: viewDoc({ nation: { nation: 6, requests: 4, deliveredFromNation: 7 }, personal: { ...viewDoc().personal, nation: 6 } }) }, 'CoopBoardMalformed'],             // beyond the six factions
+    [{ view: viewDoc({ personal: { ...viewDoc().personal, myVerified: { Wood: 50 } } }) }, 'CoopBoardMalformed'],                                                         // capitalised resource
     [{ config2: configDoc({ judge: 'vault' }) }, 'CoopBoardChanged'],
     [{ config2: configDoc({ season: ctx(PROGRAM, '4'), contexts: [ctx(PROGRAM, '4')] }) }, 'CoopBoardChanged'],
     [{ config: configDoc({ contexts: [ctx(), ctx(PROGRAM, '2')] }) }, 'CoopBoardUnsupported'],
@@ -555,7 +568,7 @@ test('SDK transport (in-process HTTP): enabled discovery and a successful read b
       assert.equal(r.isError, false);
       assert.equal(r.structuredContent.owner, OWNER);
       assert.deepEqual(r.structuredContent.world, { programId: PROGRAM, seasonId: '3', cluster: 'localnet' });
-      assert.deepEqual(r.structuredContent.nation, { status: 'verified', nation: 'North', requests: 4, deliveredFromNation: 7, note: null });
+      assert.deepEqual(r.structuredContent.nation, { status: 'verified', nation: 2, requests: 4, deliveredFromNation: 7, note: null });
       assert.deepEqual(board.calls.map(c => c.url), [`${BASE}/coop/config`, `${BASE}/coop/view?viewer=${OWNER}`, `${BASE}/coop/config`]);
       assert.equal(store.saves.n, 0);
       assert.deepEqual(store.archived, []);
@@ -656,4 +669,79 @@ test('initialize and ping are unchanged by the cooperation read', async () => {
   const b = await server({ coop: false }).mcp.handle(init, null);
   assert.deepEqual(a, b);
   assert.deepEqual(await server().mcp.handle({ jsonrpc: '2.0', id: 2, method: 'ping' }, null), { jsonrpc: '2.0', id: 2, result: {} });
+});
+
+// ------------------------------------------------------------------ regression: the REAL coopView through the real adapter and MCP dispatch
+// The view is what coop/board.mjs view() answers, built as it builds it (`{...coopView(...), heraldFeed, chain, damaged,
+// contexts, store}`), without createBoard (which makes a data directory and may write observed.json). The state is the
+// real fold of unsigned fixture records (fold checks shape and state, not signatures). No link records and no herald
+// file, so coopView derives no address. checks.citizens is what coop/chain.mjs citizenOf returns: a numeric faction.
+
+const REAL_CTX = Object.freeze({ programId: PROGRAM, seasonId: '3' });
+const REAL_NOW = 1_800_000_000;
+const citizenKey = wallet => `${PROGRAM}/3|${wallet}`; // goal.mjs: `${ctxKey(season)}|${wallet}`
+
+function realRecords() {
+  const base = { v: 1, sig: 'fixture-not-a-signature', season: { ...REAL_CTX } };
+  const mine = { ...base, kind: 'request', signer: OWNER, at: REAL_NOW - 100, goalId: 'crossing-storehouse-v1', need: { wood: 200, stone: 150 },
+    to: { kind: 'holding', p: 1, q: -2, site: 3, gen: 0 }, nation: 4, expiresAt: REAL_NOW + 86400, nonce: 'fixture-1' };
+  const theirs = { ...base, kind: 'request', signer: OTHER, at: REAL_NOW - 90, goalId: 'crossing-storehouse-v1', need: { food: 40, gold: 5 },
+    to: { kind: 'holding', p: 4, q: 0, site: 1, gen: 0 }, nation: 1, expiresAt: REAL_NOW + 86400, nonce: 'fixture-2' };
+  const reply = { ...base, kind: 'respond', signer: OWNER, at: REAL_NOW - 80, request: recordId(theirs), answer: 'accept', nation: 4, offer: { food: 40 } };
+  return { mine, theirs, reply };
+}
+
+function realBoardView({ records = [], citizens = {}, viewer = OWNER } = {}) {
+  const state = fold(records, { goals: GOALS, contexts: [REAL_CTX], current: REAL_CTX });
+  assert.deepEqual(state.rejected, [], 'the fixture records are accepted by the real fold');
+  assert.equal(state.accepted.length, records.length);
+  const v = coopView({ state, file: null, checks: { citizens, holdings: {} }, viewer, now: REAL_NOW, judgeId: 'arrivals', season: REAL_CTX });
+  return JSON.parse(JSON.stringify({ ...v, heraldFeed: null, chain: false, damaged: [], contexts: [REAL_CTX], store: { segments: 0, problems: [] } }));
+}
+
+test('regression (real coopView): a healthy board with a verified numeric nation 0 and lowercase needs is read, not refused', async () => {
+  const { mine, theirs, reply } = realRecords();
+  const view = realBoardView({
+    records: [mine, theirs, reply],
+    citizens: { [citizenKey(OWNER)]: { status: 'verified', faction: 0, citizen: 'fixture' }, [citizenKey(OTHER)]: { status: 'verified', faction: 2, citizen: 'fixture' } },
+  });
+  assert.strictEqual(view.nation.nation, 0);
+  assert.strictEqual(view.personal.nation, 0);
+  const { mcp, fetch, store } = server({ fetch: boardFetch({ view }) });
+  const r = await call(mcp, 'get_cooperation_status');
+  assert.equal(r.result.isError, false, JSON.stringify(r.result.structuredContent));
+  const s = r.result.structuredContent;
+  assert.equal(s.ok, true);
+  assert.equal(s.owner, OWNER);
+  assert.deepEqual(s.world, { programId: PROGRAM, seasonId: '3', cluster: 'localnet' });
+  assert.deepEqual(s.nation, { status: 'verified', nation: 0, requests: 1, deliveredFromNation: 0, note: null });
+  assert.deepEqual(s.mine, {
+    requests: [{ id: recordId(mine), state: 'open', need: { wood: 200, stone: 150 }, entries: { listed: 0, counted: 0 }, fulfilment: 'none' }],
+    responses: [{ id: recordId(theirs), responded: true, myEntries: { listed: 0, counted: 0 } }],
+    verified: {}, left: [],
+  });
+  assert.equal(s.source.heraldFeed, 'unavailable');
+  assert.deepEqual(JSON.parse(r.result.content[0].text), s);
+  assert.deepEqual(fetch.calls.map(c => c.url), [`${BASE}/coop/config`, `${BASE}/coop/view?viewer=${OWNER}`, `${BASE}/coop/config`]);
+  assert.equal(store.saves.n, 0);
+  const text = JSON.stringify({ ...s, limitations: undefined });
+  for (const leak of [OTHER, 'fixture-not-a-signature', 'fixture-1', view.nation.note, '"to"', '"offer"']) assert.ok(!text.includes(leak), `leaked ${leak}`);
+  for (const k of ['recipients', 'targets', 'score', 'role', 'send', 'grant', 'permission']) assert.ok(!(k in s) && !(k in s.mine) && !(k in s.nation));
+});
+
+test('regression (real coopView): unknown nationality is a successful read with unknown nation and null counts', async () => {
+  const { mine, theirs, reply } = realRecords();
+  const view = realBoardView({ records: [mine, theirs, reply], citizens: {} });
+  assert.strictEqual(view.nation.nation, null);
+  assert.strictEqual(view.personal.nation, null);
+  const r = await call(server({ fetch: boardFetch({ view }) }).mcp, 'get_cooperation_status');
+  assert.equal(r.result.isError, false, JSON.stringify(r.result.structuredContent));
+  const s = r.result.structuredContent;
+  assert.equal(s.nation.status, 'unknown');
+  assert.strictEqual(s.nation.nation, null);
+  assert.strictEqual(s.nation.requests, null);
+  assert.strictEqual(s.nation.deliveredFromNation, null);
+  assert.deepEqual(s.mine.requests.map(q => q.need), [{ wood: 200, stone: 150 }]);
+  const text = JSON.stringify({ ...s, limitations: undefined });
+  for (const leak of [view.nation.why, view.nation.note, view.personal.nationWhy, OTHER]) assert.ok(!text.includes(leak), `leaked ${leak}`);
 });
