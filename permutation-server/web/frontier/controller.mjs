@@ -821,6 +821,11 @@ export function adoptPinnedWorld() {
   //  places (readsUnderWay is NOT emptied here: the limit counts what is really under way). Nothing waits from before)
   artWanted.clear();
   waitingWant = null;
+  // (2026-11-17, ⑦ the march's entry: a draft and a host in hand name a host, a village and a route of the world that
+  //  was pinned: not this world's. A draft that is only a draft is put away — one being sent, waiting to be sent or
+  //  armed is the send's own and is left to it — and the host in hand is let go. The selected place stays the person's.)
+  if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
+  if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
   dropOtherWorldConquest(world);
   return true;
 }
@@ -2079,6 +2084,9 @@ async function setDestination(dest) {
   c.dest = dest; c.route = null; c.routeError = null; c.earliest = null; c.moved = null;
   invalidate('panel');
   const k = await kernelOrNull();
+  // (2026-11-17, ⑦: the rules module may come after the person put the draft away, started another, or chose another
+  //  place: the route written is the one of the place the draft names now, and nothing is written to a draft let go)
+  if (FS.compose !== c || c.dest !== dest) return;
   if (!k) { c.routeError = FS.kernelError ?? 'NoKernel'; invalidate('panel'); return; }
   const seeds = (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed }));
   const r = planRoute(k, { from: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, to: dest, unit: c.host.unit, seeds, blocked: palisadeHexes(FS) });
@@ -2782,6 +2790,12 @@ export const ACTIONS = {
         say: () => (who ? L`${who} の解散を命じました。このターンの決着のあと、兵は控えに戻ります` : L`解散を命じました。このターンの決着のあと、兵は控えに戻ります`) }) });
   },
   compose: d => {
+    // (2026-11-17, ⑦ the march's entry: a host of another of the viewer's villages is composed from its own village —
+    //  as the map's order, 「村へ戻す」 and the keep's march already switch to it first. From the inspector's card and
+    //  the host list it was looked for in the open village only and silently not found: the button did nothing. Only
+    //  the draft's village is chosen here; what may be sent, and the send's own checks, are unchanged.)
+    const hi = holdingIndexOfHost(d.host);
+    if (hi !== null && hi !== (FS.activeHolding ?? 0)) { FS.activeHolding = hi; invalidate('rail'); }
     const r = hostRow(d.host);
     if (!r) return;
     const h = activeHolding(FS);
@@ -2829,10 +2843,13 @@ export const ACTIONS = {
   },
   // back to the village: a march like any other (74 stamina, sealed), with the village as its destination
   'march-home': d => {
-    const h = activeHolding(FS);
-    if (!h) return undefined;
+    if (!activeHolding(FS)) return undefined;
     ACTIONS.compose({ host: d.host, stay: 'map' });
     if (!FS.compose) return undefined;
+    // (2026-11-17, ⑦: "its village" is the host's own — the entry above opens the draft from it, also for a host of a
+    //  village that was not the open one: read after it, so the way home never ends at another village)
+    const h = activeHolding(FS);
+    if (!h) return undefined;
     FS.compose.home = true;
     return setDestination({ p: h.p, q: h.q, tile: h.tile });
   },
