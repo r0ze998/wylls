@@ -47,6 +47,7 @@ import { readResidentState } from './resident-state.mjs';
 import { seasonClock, clockId } from '../frame.mjs';
 import { createActsClient } from '../../../04-execution/clients/acts.mjs';
 import { ws04ActsStatusPort } from '../ports/ws04-acts-status.mjs';
+import { residentObservationOf, observeDeclaration, residentObservePort as makeResidentObservePort } from './resident-view.mjs';
 import { liveStep } from './step.mjs';
 
 const bytesOf = b64 => {
@@ -140,6 +141,12 @@ export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wal
 
   return Object.freeze({
     observe,
+    // (2026-11-17) the resident's shape from one live observation: the grounded part and what is missing (never
+    // complete today); a read only, nothing decided or enacted
+    residentView: async () => residentObservationOf(await observe(), { wallet }),
+    // (2026-11-17) an observe port in the resident's form, declaring the real world and clock from one /h/season read;
+    // each call throws ResidentObservationIncomplete (a resident given it stops at observe: no join, no decision)
+    residentObservePort: async () => makeResidentObservePort({ observe, wallet, declaration: await observeDeclaration({ herald, worldFromSeason, seasonClock }) }),
     step: async ({ stop = null, submittedKeys = [] } = {}) => {
       if (!residentDir) return liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop, submittedKeys, authority });
       // (2026-11-17) the resident's own stop and keys, read now (not at creation); unknown is a stop
