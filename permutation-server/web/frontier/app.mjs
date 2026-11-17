@@ -3621,14 +3621,23 @@ async function seasonKernel() {
 }
 
 /** Open the report of (P, Q, bell): the herald's /h/clash file, the ClashInputs decoded by this page. */
+/**
+ * The pinned world a report is read for: cluster, program and season account as fchainio.setPin pinned them
+ * (`addresses.season`, derived and checked against the herald's record); null before a pin (nothing is made up).
+ */
+const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
 export async function openReport(p, q, bell) {
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return;
-  const rep = { p, q, bell, loading: true };
+  // (2026-11-17: the herald may start serving another season or world while a report is read — loadSeason re-pins every
+  // poll. A report read under one world is never shown, or added to, under another: it is dropped, not told as read)
+  const world = reportWorld();
+  const rep = { p, q, bell, loading: true, world };
   FS.report = rep; FS.practice = null;
   invalidate('panel');
   const r = await heraldRef.clash(p, q, bell);
   if (FS.report !== rep) return;
-  FS.report = r.ok ? { p, q, bell, clash: r } : { p, q, bell, error: r.code ?? 'Error' };
+  if (reportWorld() !== world) { FS.report = null; invalidate('panel'); return; }
+  FS.report = r.ok ? { p, q, bell, world, clash: r } : { p, q, bell, world, error: r.code ?? 'Error' };
   if (r.ok) {
     // the province before the bell (the report's own copy) and, when that bell's clash is the last one resolved there,
     // the province now: the viewer's own side is on the page before anything is verified (screens/report.mjs recordRows)
@@ -3644,7 +3653,7 @@ export async function openReport(p, q, bell) {
   const open = FS.report;
   if (r.ok && conquestEnabled(FS.season) && heraldRef.keep) {
     const k = await heraldRef.keep(p, q).catch(() => null);
-    if (k?.ok && FS.report === open) { open.keep = k.keep; invalidate('panel'); }
+    if (k?.ok && FS.report === open && reportWorld() === world) { open.keep = k.keep; invalidate('panel'); }
   }
 }
 
@@ -3920,6 +3929,7 @@ async function loadSeason(herald) {
   const r = await herald.season();
   if (!r.ok) { clearInspection(FS); clearOutbound(FS); FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
   const { record, season } = r;
+  const reportWas = reportWorld();
   try {
     FS.pin = setPin({ programId: record.programId, cluster: record.cluster, seasonId: record.season, seasonAddress: record.seasonAddress ?? null, rulesetHash: toHex(season.rulesetHash) });
   } catch (e) {
@@ -3929,6 +3939,8 @@ async function loadSeason(herald) {
     return false;
   }
   herald.pin(record.season, FS.pin.addresses);
+  // (a report read under another pinned world is closed: it is not this world's — 2026-11-17)
+  if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
   if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
   FS.season = season;
