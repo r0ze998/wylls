@@ -3988,6 +3988,16 @@ function startSpectate(herald) {
   tick();
 }
 
+/**
+ * The page banner's error from the season poll (2026-11-17, ⑦): a failed read of the season record, a refused pin, a
+ * beacon that does not match. It is marked as the season's (`source: 'season'`), so a later read that succeeds clears
+ * it — and only it: an error of another operation (local play's changed connection, controller.mjs) is neither
+ * replaced by a season failure nor cleared by a season success. A failure or success asked before one already applied
+ * reaches neither (loadSeason returns at seasonStale first).
+ */
+function seasonError(e) { if (!FS.error || FS.error.source === 'season') FS.error = { ...e, source: 'season' }; }
+function seasonRecovered() { if (FS.error?.source === 'season') FS.error = null; }
+
 async function loadSeason(herald) {
   // (2026-11-17, ⑦: refreshOverviews asks the same record on its own, and the answers can cross — controller.askSeason.
   //  An answer, or a failure, asked before one already applied changes nothing: the pin, the record, the season, the
@@ -3999,25 +4009,28 @@ async function loadSeason(herald) {
   const seq = askSeason();
   const r = await herald.season();
   if (seasonStale(seq)) return true;
-  if (!r.ok) { clearInspection(FS); clearOutbound(FS); FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
+  if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) }); invalidate('status'); return false; }
   const { record, season } = r;
   const reportWas = reportWorld();
   try {
     FS.pin = setPin({ programId: record.programId, cluster: record.cluster, seasonId: record.season, seasonAddress: record.seasonAddress ?? null, rulesetHash: toHex(season.rulesetHash) });
   } catch (e) {
     clearInspection(FS); clearOutbound(FS);
-    FS.error = { code: e.code, text: e.message };
+    seasonError({ code: e.code, text: e.message });
     invalidate('status');
     return false;
   }
   herald.pin(record.season, FS.pin.addresses);
   // (2026-11-17, ⑦: the overviews, ring lists, conquest and S1 state read for another pinned world are forgotten before
   //  this world's record is applied — controller.adoptPinnedWorld; the same world forgets nothing)
-  adoptPinnedWorld();
+  const worldChanged = adoptPinnedWorld();
+  // (2026-11-17, ⑦: the read succeeded and the pin was accepted: the season poll's own error, if one stands, is over —
+  //  the beacon below may set its own again. Another operation's error stays)
+  seasonRecovered();
   // (a report read under another pinned world is closed: it is not this world's — 2026-11-17)
   if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
-  if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
+  if (!FS.beacon.ok) seasonError({ code: FS.beacon.code, text: clientText(FS.beacon.code) });
   FS.season = season;
   reconcileExpedition();
   // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
@@ -4032,6 +4045,11 @@ async function loadSeason(herald) {
   setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
+  // (2026-11-17, ⑦: another pinned world's samples are not this world's: its chain time, slot and offset would hold
+  //  this one back — observe drops a sample of a lower slot as "an older answer", and now() never goes back — so a
+  //  restarted local stack's clock stood still and read "behind" for good. The clock starts again with no sample —
+  //  unknown, not fresh — and takes this record's sample just below. The same world keeps its clock)
+  if (worldChanged) FS.chain = new ChainClock();
   FS.chain.setAccelerated(record.cluster === 'localnet');
   FS.chain.observe(record.latestUnix, record.latestSlot);
   // A sample world (the screenshot fixture's world that keeps going, UX design 14.5) says so in its season record and

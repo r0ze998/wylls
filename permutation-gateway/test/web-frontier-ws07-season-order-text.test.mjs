@@ -46,7 +46,8 @@ test('Q2 the order of the answers', () => {
 test('Q3 loadSeason: a stale answer changes nothing', () => {
   assert.match(app, /import \{ useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld, askSeason, takeSeason, seasonStale \} from '\.\/controller\.mjs';/);
   order(ls, 'const seq = askSeason();', 'const r = await herald.season();', 'if (seasonStale(seq)) return true;',
-    "if (!r.ok) { clearInspection(FS); clearOutbound(FS); FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }",
+    // (the recovery bundle sets the season's error through seasonError — web-frontier-ws07-season-recovery-text.test.mjs)
+    "if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) }); invalidate('status'); return false; }",
     'const { record, season } = r;', 'FS.pin = setPin({', '} catch (e) {', 'return false;', 'herald.pin(record.season, FS.pin.addresses);', 'adoptPinnedWorld();',
     'FS.beacon = checkBeacon({', 'FS.season = season;', 'applySeasonRecord(FS, record,', 'FS.clock = seasonClock(season);', 'FS.chain.observe(record.latestUnix, record.latestSlot);',
     "invalidate('chip', 'status', 'map');", 'takeSeason(seq);', 'return true;');
