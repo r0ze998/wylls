@@ -6,7 +6,7 @@ import { deliveredText, FULFILMENT_JA } from './ws04.mjs';
 import { fulfilBoundsText, jointPrecisionText, lowerBoundText } from './fulfil-bounds.mjs';
 import { STATE_JA } from './arrival.mjs';
 import { OUTCOME_JA, requestHistory } from './history.mjs';
-import { jointOfRequest, requestsOfJoint, personalLinks } from './crosslinks.mjs';
+import { jointOfRequest, requestsOfJoint, personalLinks, sameCtx } from './crosslinks.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { parseTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
@@ -356,7 +356,7 @@ function applyFocus() {
   const q = view.requests.find(x => x.id === focus.id);
   if (!q) return focusSay(focus.seen ? '入口で選んだ依頼は、いまの表示にありません（記録が変わったか、別の世界の依頼です）。一覧から選び直してください'
     : '入口で選んだ依頼は、この板にありません（消えたか、別の世界の依頼です）。一覧から選び直してください');
-  const ctxOk = q.ctx && q.ctx.programId === cfg.season.programId && String(q.ctx.seasonId) === String(cfg.season.seasonId);
+  const ctxOk = sameCtx(q.ctx, cfg.season);   // （2026-11-18）世界が読めない依頼・板は同じと言わない（crosslinks.mjs と同じ比べ方）
   const toOk = q.to && [q.to.p, q.to.q, q.to.site, q.to.gen].join(',') === focus.to;
   if (!ctxOk || !toOk) return focusSay('入口で選んだ依頼は、入口の村あての、この板の世界の依頼ではありません。一覧から選び直してください');
   const el = [...document.querySelectorAll('#requests .req')].find(e => e.dataset.req === q.id);
@@ -646,7 +646,8 @@ $('judge').addEventListener('change', refresh);
   const to = qs.get('to');   // ⑦の入口：?to=p,q,site,gen&program=…&season=…（入口の村の世界）
   // （2026-11-17）入口の村の世界（program・シーズン）が、この板のいまの世界と同じときだけ届け先を入れる。違う・分からないときは
   // 入れずに理由を言う（同じ座標でも別の世界の村になるため）。届け先は手で入れられる（依頼の確かめはこれまでどおり）。
-  const sameWorld = qs.get('program') === cfg.season.programId && qs.get('season') === String(cfg.season.seasonId);
+  // （2026-11-18）空・無い世界どうしを同じにしない：比べ方は crosslinks.mjs の sameCtx だけ
+  const sameWorld = sameCtx({ programId: qs.get('program'), seasonId: qs.get('season') }, cfg.season);
   if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to) && sameWorld) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
   else if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) {
     $('entryWarn').textContent = qs.get('program') === null || qs.get('season') === null
