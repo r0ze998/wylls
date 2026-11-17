@@ -96,3 +96,39 @@ Areas already audited in earlier steps (bounds, `underBy`, the counting helper, 
   - No change to `goal.mjs`, `board.mjs`, `/coop/view` data (`personal.myVerified`), the ⑮ export, counts, the verdict, sending or permissions.
   - No new file reaches the browser.
 - **Left undecided, not changed:** `myVerified` drops resources whose total is 0 (`v > 0`), which is data and ①'s decision.
+
+## Pre-run audit of the remaining ① consumer checks (source only; nothing run, 2026-11-17)
+
+**Question:** is any of `test/coop.test.mjs`, `test/coop.e2e.test.mjs` or the browser checks an independent candidate that does not overlap the refused walls, muster, G, runner or world work?
+
+**Method.**
+- Each file's static import closure was resolved by reading the sources (a regex over `import … from` and `import(…)`); no file was executed.
+- Each closure was compared with what the refused tests exercise:
+  - `web-frontier-build-walls-items.test.mjs` exercises `hud/rulebook.mjs`, `screens/holding.mjs`, `hud/orderparts.mjs` and `lang.mjs`;
+  - `web-frontier-muster-province-full.test.mjs` exercises `fland.mjs`, `fi18n.mjs` and `lang.mjs`.
+- Each closure was also checked against the repository's own key classification (`scripts/ci/scan-node-key-tests.mjs` `PAT`, and `scripts/ci/node-key-tests.txt`).
+
+| Candidate | Closure | Overlap with the refused tests' subjects | Key classification | Verdict |
+|---|---|---|---|---|
+| `test/coop.browser.mjs` | 46 files; uses Playwright Chromium | `lang.mjs` only | Signs with keys by design (Dev Wallet `keyFromSeed`, `testSigner`; its own header says "鍵が要る：未実施") | **Held**: key use |
+| `test/coop.browser.nokey.mjs` | 86 files; uses Playwright Chromium; `seal.mjs` has a dynamic `import()` | **`fland.mjs`, `hud/rulebook.mjs`, `fi18n.mjs`, `lang.mjs`**, through `coop/send.mjs` (`storesAt`, `settled`) | — | **Held**: suspected overlap with refused subjects |
+| `test/coop.e2e.test.mjs` | 87 files; `seal.mjs` has a dynamic `import()` | **`fland.mjs`, `hud/rulebook.mjs`, `fi18n.mjs`, `lang.mjs`**, through `test/scenario-e2e.mjs` → `coop/send.mjs` | On `node-key-tests.txt` | **Held**: suspected overlap, and a key-listed file |
+| `test/coop.test.mjs` | 65 files; built-ins `node:http`, `node:net`, `node:fs`, `node:os`, `node:crypto`; no `child_process`, `process.env` or dynamic `import()` | `lang.mjs` only (`herald.mjs` → `land.mjs` → `lang.mjs`; its top level reads `localStorage` and `navigator` defensively, `null` in Node) | **On `node-key-tests.txt`**: in its closure, `coop/record.mjs` (`subtle.generateKey`, `subtle.importKey`, `subtle.sign`, `signMessage`), `web/session.mjs` and `web/frontier/fplay.mjs` name key APIs. The test itself uses `test/nokey.mjs` (`fixedSigner`, `unsignedRecord`, `verifyUnsigned`) and passes `verify: verifyUnsigned` | **Held**: the repository runs listed files only in the manual key-tests job, and `node-keyfree.sh` refuses them. Running it any other way would go around that list and guard |
+
+**What `coop.test.mjs` would do if it were ever run (recorded; not a permission).**
+- Local HTTP servers on `127.0.0.1` port 0 (a fake herald and the board): `test/coop.test.mjs:416-426`.
+- `fetch` only to those local URLs, including the path checks `../etc/passwd` and `frontier-node/Cargo.toml`, which must be 404.
+- The board's `upgrade` path calls `net.connect` only to the configured herald, here the local fake (`coop/board.mjs:319`).
+- The board's command-line start, with its default ports 41873 and 41940, runs only when `board.mjs` is the entry point (`coop/board.mjs:331`), not on import.
+- Writes stay inside `fs.mkdtempSync(os.tmpdir()/ws01-coop-…)` directories: the record store, its appends, a deliberately torn line, and `observed.json` removed inside the directory. The directories are not removed afterwards.
+
+**Result.** There is no runnable independent candidate under the current rules, so none is proposed for running, and this audit is not to be repeated.
+
+**What remains, concretely (proposals; each needs its owner or the coordinator).**
+1. **The reason every ① board or count test is key-listed (①, with the CI list owner).**
+   - `coop/record.mjs` holds both the pure record logic (`fold`, `recordId`, `ownerTagOf`, `RESOURCES`) and the key helpers (`testSigner`, `signRecord`: `subtle.generateKey`, `importKey`, `sign`).
+   - Any test importing `fold` is therefore classified as a key test. Even `coop.nokey.test.mjs` and `coop.ws15.test.mjs` are listed.
+   - Moving the key helpers into their own module would let the scan classify the key-free ① tests as key-free, so they could run under `node-keyfree.sh` with `no-keys-guard.mjs`.
+   - This touches ① sources and the generated list (`scan-node-key-tests.mjs --write`), so it is not done here.
+2. **The `send.mjs` dependency on `fland.mjs` and `hud/rulebook.mjs` (①).** This is what puts the e2e and the no-key browser checks next to the refused subjects. Whether those two checks can be cleared depends on the coordinator's reading of that overlap, not on a code change.
+3. **Undecided data (①):** the `myVerified` 0 exclusion, the `underBy` fixture (kept as made, or regenerated), and the request page with the personal panel on a real screen.
