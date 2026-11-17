@@ -140,7 +140,7 @@ anyOf: [{ properties: { kind: { enum: ['vault'] } } }, { properties: { kind: { e
 | `{"kind":"vault","x":1}` | Invalid | Invalid (`additionalProperties` sees only the sibling `properties`, so the `anyOf` branches neither widen nor narrow it) | Accepted at runtime (not checked); unchanged |
 
 - **Compatibility:**
-  - Every input the runtime accepts is still schema-valid.
+  - Inputs that were both schema-valid and accepted by the runtime remain schema-valid. Existing legacy-resource and extra-property mismatches are unchanged.
   - The only input that became schema-invalid is one the runtime already refused.
   - A client that checks schemas before calling now learns this before the call, not from the error.
 - **Who reads the schema:** only `server.mjs` `tools/list` serves this `TOOLS`. The `permutation-gateway` `TOOLS` are a different file. `test/instructions-flow.test.mjs` and `test/shortfall-coverage.test.mjs` match `tools.mjs` text that is unchanged: `SERVER_INSTRUCTIONS`, the descriptions and the storehouse-coverage sentence.
