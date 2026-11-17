@@ -3888,6 +3888,8 @@ export const HUD_ACTIONS = {
   'host-return': d => {
     const at = hostStill(d); ++hostAsk;
     if (!at || at.row.inTransit || at.row.state !== 1 || (at.row.p === at.h.p && at.row.q === at.h.q && at.row.tile === at.h.tile)) { invalidate('panel'); return; }
+    // (a plan being sent, or armed to be sent once, is the send's own: it is not replaced from here)
+    if (FS.compose && (FS.compose.sending || FS.compose.pending)) { invalidate('panel'); return; }
     const host = String(d.host);
     ACTIONS['march-home']({ host });
     if (!FS.compose || String(FS.compose.host?.id) !== host || FS.compose.home !== true) { invalidate('panel'); return; }
