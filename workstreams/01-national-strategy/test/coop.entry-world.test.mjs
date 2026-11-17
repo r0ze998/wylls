@@ -17,8 +17,49 @@ test('the entry fills the destination only for this board\'s present world', () 
 });
 
 test('a refresh answer older than the one shown, or asked for another viewer, is not applied', () => {
-  const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('document.addEventListener(\'click\''));
+  const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('function staleSay('));
   assert.match(r, /const seq = \+\+refreshSeq, viewerAt = signer\?\.address \?\? null;/);
-  assert.match(r, /if \(seq <= appliedSeq \|\| \(signer\?\.address \?\? null\) !== viewerAt\) return;\n\s+appliedSeq = seq;\n\s+\[view, feed\] = \[v2, f2\];/);
-  assert.ok(r.indexOf('appliedSeq = seq;') < r.indexOf('renderJoint();'), 'rendered only after it is applied');
+  assert.match(r, /if \(seq <= appliedSeq \|\| \(signer\?\.address \?\? null\) !== viewerAt\) return false;/);
+});
+
+// (2026-11-17, read failures; WRITTEN ONLY, NOT RUN) a failed or partial read never shows as success or empty; a view is
+// applied whole or not at all; actions use only the snapshot shown for this viewer; POST outcomes are told apart
+test('reads: GET fails on anything but a 2xx JSON; the config too', () => {
+  const a = ui.slice(ui.indexOf('async function apiRead('), ui.indexOf('const viewShapeOk'));
+  assert.match(a, /if \(!r\.ok\) throw new Error\(`HTTP \$\{r\.status\}`\);/);
+  assert.match(a, /catch \{ throw new Error\('答えが JSON でない'\); \}/);
+  assert.match(ui, /cfg = await apiRead\('\/coop\/config'\);/);
+  assert.match(ui, /apiRead\(`\/coop\/view\?\$\{v\}`\)/);
+  // the POST of a record keeps api(): the board's refusal is a 400 with {ok: false, why}, read by post()
+  assert.match(ui, /r = await api\('\/coop\/records', signed\);/);
+});
+
+test('a view is applied whole: shape checked, five renders or none, the old view and DOM restored on a failure, said as old', () => {
+  const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('function staleSay('));
+  assert.match(r, /if \(!viewShapeOk\(v2\)\) \{ staleSay\('板の答えの形が違う'\); return false; \}/);
+  assert.match(r, /const before = RENDER_TARGETS\.map\(id => \$\(id\)\.querySelector\('\.body'\)\.innerHTML\);/);
+  assert.match(r, /\[view, feed\] = \[pv, pf\];\n\s+RENDER_TARGETS\.forEach\(\(id, i\) => \{ \$\(id\)\.querySelector\('\.body'\)\.innerHTML = before\[i\]; \}\);/);
+  assert.ok(r.indexOf('appliedSeq = seq; shownFor = viewerAt;') > r.indexOf('renderArrivals();'), 'marked applied only after all five renders');
+  assert.match(ui, /RENDER_TARGETS = \['joint', 'nationPanel', 'personal', 'requests', 'arrivals'\]/);
+  assert.match(ui, /表示は \$\{shownAt \? shownAt\.toLocaleTimeString\(\) : '前'\} の読み込みのまま（古い）/);
+  assert.match(ui, /まだ表示できるものがありません/);
+  // the timer does not swallow a failure: refresh never throws and says it
+  assert.match(ui, /setInterval\(\(\) => \{ refresh\(\); \}, 4000\);/);
+  assert.doesNotMatch(ui, /refresh\(\)\.catch\(\(\) => \{\}\)/);
+});
+
+test('actions use only the snapshot shown for this viewer', () => {
+  const c = ui.slice(ui.indexOf("document.addEventListener('click'"), ui.indexOf('async function sendFor('));
+  assert.match(c, /if \(!view \|\| shownFor !== \(signer\?\.address \?\? null\)\) return say\('表示を読み直しています。/);
+  assert.ok(c.indexOf('shownFor !==') < c.indexOf('view.requests.find'), 'checked before the snapshot is used');
+});
+
+test('post: signing failed, not known to have reached the board, refused, and accepted are four different answers', () => {
+  const p = ui.slice(ui.indexOf('async function post('), ui.indexOf('const myNation'));
+  assert.match(p, /catch \(e\) \{ return say\(`署名できない：\$\{e\.message \?\? e\}`, 'bad'\); \}/);
+  assert.match(p, /板に届いたか分からない（\$\{e\.message \?\? e\}）。読み直した表示で確かめてください/);
+  assert.match(p, /受け付けられなかった：\$\{r\?\.why \?\? '理由なし'\}/);
+  // after acceptance, a failed re-read is not "cannot sign": refresh says it on its own line
+  assert.ok(p.lastIndexOf('await refresh();') > p.indexOf('say(done, \'ok\');'));
+  assert.equal((p.match(/署名できない/g) ?? []).length, 1, 'only the signing failure is called that');
 });

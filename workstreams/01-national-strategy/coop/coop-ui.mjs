@@ -32,6 +32,25 @@ async function api(path, body) {
   const r = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
   return r.json();
 }
+/**
+ * （2026-11-17）読むだけ（GET）：2xx の JSON だけを答えにする。それ以外（4xx・5xx・JSON でない・届かない）は失敗として投げる
+ * （空や成功にしない）。POST（記録を出す）は api() のまま：板は断りを 400 の {ok: false, why} で返し、post() がそれを読む。
+ */
+async function apiRead(path) {
+  let r;
+  try { r = await fetch(path); } catch (e) { throw new Error(`届かない（${e.message ?? e}）`); }
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  try { return await r.json(); } catch { throw new Error('答えが JSON でない'); }
+}
+/** （2026-11-17）板の view（goal.mjs coopView ＋ board.mjs view）が、この画面の描く形か。違えば当てない。 */
+const viewShapeOk = v => !!v && typeof v === 'object' && Array.isArray(v.requests) && Array.isArray(v.arrivals) && Array.isArray(v.joint)
+  && (v.nation === null || v.nation === undefined || typeof v.nation === 'object') && (v.personal === null || v.personal === undefined || typeof v.personal === 'object');
+/** （2026-11-17）読み込みの状態の一行（操作の知らせ msg とは別の欄。無ければ作る）。 */
+function readState(text) {
+  let p = document.getElementById('readState');
+  if (!p) { p = document.createElement('p'); p.id = 'readState'; p.className = 'warn'; p.dataset.testid = 'read-state'; $('msg').after(p); }
+  p.textContent = text ?? ''; p.hidden = !text;
+}
 
 /** 板のネットワーク（Wallet Standard の chain）。板の --cluster（既定 localnet）。 */
 const chainOf = () => W.chainOf(cfg?.cluster ?? 'localnet');
@@ -79,13 +98,17 @@ async function connectWallet() {
 /** 記録に署名して板へ出す。 */
 async function post(rec, done) {
   if (!signer) return say('先に署名する人を接続してください', 'warn');
-  try {
-    const signed = await signRecord(signer, { v: 1, season: cfg.season, at: Math.floor(Date.now() / 1000), ...rec });
-    const r = await api('/coop/records', signed);
-    if (!r.ok) return say(`受け付けられなかった：${r.why}`, 'bad');
-    say(done, 'ok');
-    await refresh();
-  } catch (e) { say(`署名できない：${e.message ?? e}`, 'bad'); }
+  // （2026-11-17）三つを分ける：署名できなかった／板に届いたか分からない／受け付けられたあとの読み直しの失敗。
+  // 受け付けられたあとに読み直せなくても「署名できない」「送られていない」とは言わない（読み直しは refresh が状態を言う）。
+  let signed;
+  try { signed = await signRecord(signer, { v: 1, season: cfg.season, at: Math.floor(Date.now() / 1000), ...rec }); }
+  catch (e) { return say(`署名できない：${e.message ?? e}`, 'bad'); }
+  let r;
+  try { r = await api('/coop/records', signed); }
+  catch (e) { await refresh(); return say(`板に届いたか分からない（${e.message ?? e}）。読み直した表示で確かめてください`, 'warn'); }
+  if (!r?.ok) return say(`受け付けられなかった：${r?.why ?? '理由なし'}`, 'bad');
+  say(done, 'ok');
+  await refresh();
 }
 
 const myNation = () => Number($('nation').value);
@@ -184,21 +207,51 @@ function renderArrivals() {
 // （2026-11-17）読み直しは 4 秒ごとと自分の操作のあとに重なりうる。古い答え（先に始めた読み）や、答えが来る前にウォレットが
 // 変わった読みの答えは、新しい表示を上書きしない。最後に当てたものより新しい読みだけを当てる（遅いサーバーでも、来た新しい答えは当たる）。
 let refreshSeq = 0, appliedSeq = 0;
+// （2026-11-17）表示しているものが誰のどの読みか：shownFor（閲覧者）・shownAt（当てた時刻）。操作はこの表示と同じものにだけ行う。
+let shownFor = undefined, shownAt = null;
+const RENDER_TARGETS = ['joint', 'nationPanel', 'personal', 'requests', 'arrivals'];
+/**
+ * 読み直す。投げない（失敗は読み込みの状態の一行で言う）。true：新しい表示を当てた。
+ * （2026-11-17）当てるのは、新しい読み・同じ閲覧者・形の正しい view で、五つの描画がすべて成り立ったときだけ。途中で描画が
+ * 失敗したら、view・feed・五つの欄を元に戻す（古い DOM と新しい view が混ざらない）。前の表示を残すときは、古いことを言う。
+ */
 async function refresh() {
   const seq = ++refreshSeq, viewerAt = signer?.address ?? null;
   const v = new URLSearchParams({ judge: $('judge').value || cfg.judge, ...(signer ? { viewer: signer.address } : {}) });
-  const [v2, f2] = await Promise.all([api(`/coop/view?${v}`), fetch('/h/caravans.json').then(r => (r.ok ? r.json() : null)).catch(() => null)]);
-  if (seq <= appliedSeq || (signer?.address ?? null) !== viewerAt) return;
-  appliedSeq = seq;
-  [view, feed] = [v2, f2];
-  renderJoint(); renderNation(); renderPersonal(); renderRequests(); renderArrivals();
+  let v2, f2;
+  try {
+    [v2, f2] = await Promise.all([apiRead(`/coop/view?${v}`), fetch('/h/caravans.json').then(r => (r.ok ? r.json() : null)).catch(() => null)]);
+  } catch (e) { if (seq > appliedSeq) staleSay(`読み込めない：${e.message ?? e}`); return false; }
+  if (seq <= appliedSeq || (signer?.address ?? null) !== viewerAt) return false;
+  if (!viewShapeOk(v2)) { staleSay('板の答えの形が違う'); return false; }
+  const before = RENDER_TARGETS.map(id => $(id).querySelector('.body').innerHTML);
+  const [pv, pf] = [view, feed];
+  try {
+    [view, feed] = [v2, f2];
+    renderJoint(); renderNation(); renderPersonal(); renderRequests(); renderArrivals();
+  } catch (e) {
+    [view, feed] = [pv, pf];
+    RENDER_TARGETS.forEach((id, i) => { $(id).querySelector('.body').innerHTML = before[i]; });
+    staleSay(`表示できない：${e.message ?? e}`);
+    return false;
+  }
+  appliedSeq = seq; shownFor = viewerAt; shownAt = new Date();
+  readState('');
+  return true;
+}
+/** 最新の読みが当たらなかった：前の表示が残っていれば、それが古いことを言う。 */
+function staleSay(why) {
+  readState(view ? `${why}。表示は ${shownAt ? shownAt.toLocaleTimeString() : '前'} の読み込みのまま（古い）。自動で読み直しを続けます` : `${why}。まだ表示できるものがありません。自動で読み直しを続けます`);
 }
 
 document.addEventListener('click', e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   const id = b.dataset.id;
+  // （2026-11-17）表示しているものと同じ読みにだけ操作する：まだ何も表示していない、または別の閲覧者の表示のままなら何もしない
+  if (!view || shownFor !== (signer?.address ?? null)) return say('表示を読み直しています。表示が新しくなってから、もう一度押してください', 'warn');
   const q = view.requests.find(x => x.id === id);
+  if (!q && b.dataset.act !== undefined) return say('この依頼は、いまの表示にありません。読み直した表示で確かめてください', 'warn');
   switch (b.dataset.act) {
     case 'accept': {
       const offer = Object.fromEntries(Object.entries(q.need));
@@ -314,7 +367,7 @@ $('nation').addEventListener('change', refresh);
 $('judge').addEventListener('change', refresh);
 
 (async () => {
-  cfg = await api('/coop/config');
+  cfg = await apiRead('/coop/config');   // （2026-11-17）読めなければ投げる：下の catch が「読み込めない」と言う
   W.discover();
   W.onChange(renderWallets);
   renderWallets();
@@ -338,5 +391,5 @@ $('judge').addEventListener('change', refresh);
     $('entryWarn').hidden = false;
   } else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
   await refresh();
-  setInterval(() => refresh().catch(() => {}), 4000);
+  setInterval(() => { refresh(); }, 4000);   // （2026-11-17）refresh は投げず、失敗は読み込みの状態の一行で言う（黙らない）
 })().catch(e => say(`読み込めない：${e.message ?? e}`, 'bad'));
