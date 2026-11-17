@@ -22,16 +22,15 @@
 // `agentId`. It is fixed at creation and never inferred: not from a kind label and not from the db file's name. It
 // grants nothing; it is matched against the provenance a journal line recorded (resident.mjs bindingMismatchOf), and
 // `kind` is the registry's kind, the same the resident's own port declares (status-only is `access`, not another kind).
-import { fateOfReceipt, Unqueryable, AGENT_ID_MAX, KEY_MAX } from './ws04-acts.mjs';
+import { fateOfReceipt, Unqueryable, AGENT_ID_MAX, KEY_MAX, REGISTRY_KIND, registryOrigin } from './ws04-acts.mjs';
 
-export const REGISTRY_KIND = 'workstream 4 act registry';
+export { REGISTRY_KIND };
 
 /** → {kind, access: 'status-only', origin, status(key)} */
 export function ws04ActsStatusPort(acts, { agentId, registry }) {
   if (typeof acts?.status !== 'function') throw new TypeError('workstream 4 acts client with status()');
   if (typeof agentId !== 'string' || !agentId || agentId.length > AGENT_ID_MAX) throw new TypeError(`agentId: 1..${AGENT_ID_MAX} characters (workstream 4)`);
-  if (typeof registry !== 'string' || !registry.trim() || registry.length > 256 || /\s/.test(registry)) throw new TypeError('registry: the explicit, non-secret name of the registry this client is connected to (no spaces, at most 256 characters)');
-  const origin = Object.freeze({ kind: REGISTRY_KIND, registry, agentId });
+  const origin = registryOrigin(agentId, registry);   // (2026-11-17) the same contract as the full port (ws04-acts.mjs)
   return Object.freeze({
     kind: REGISTRY_KIND,
     access: 'status-only',

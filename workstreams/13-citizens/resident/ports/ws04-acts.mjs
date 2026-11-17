@@ -56,18 +56,40 @@ export function fateOfReceipt(r) {
 /** ④'s registry limits (workstreams/04-execution/src/acts.rs): agent id up to 64 characters, key up to 128. */
 export const AGENT_ID_MAX = 64, KEY_MAX = 128;
 
+/** (2026-11-17) The kind of registry these ports talk to (a label: never, alone, the identity of a registry). */
+export const REGISTRY_KIND = 'workstream 4 act registry';
+
+/**
+ * (2026-11-17) The origin a port over workstream 4's registry states: {kind, registry, agentId}, frozen. `registry` is
+ * the caller's explicit, non-secret name for the registry its client is connected to (no spaces, 1..256 characters);
+ * it is never inferred (not from a kind, not from a file name) and grants nothing: a journal line records it
+ * (resident.mjs #provenance) and it is matched against (bindingMismatchOf, live/resident-state.mjs). The same
+ * contract for the resident's full port (ws04ActsPort) and the status-only one (ws04-acts-status.mjs).
+ * `agentId` is the port's own, already checked by the port.
+ */
+export function registryOrigin(agentId, registry) {
+  if (typeof registry !== 'string' || !registry.trim() || registry.length > 256 || /\s/.test(registry)) throw new TypeError('registry: the explicit, non-secret name of the registry this client is connected to (no spaces, at most 256 characters)');
+  return Object.freeze({ kind: REGISTRY_KIND, registry, agentId });
+}
+
 /**
  * @param acts     workstream 4's acts client (register, status), or anything with those methods
  * @param agentId  the resident's agent id in the registry
  * @param send     (req) → ActionResult: the actual send, under req.idempotencyKey
  * @param runId    the caller's run id the acts are listed under (optional)
+ * @param registry (2026-11-17, optional) the explicit name of the registry `acts` is connected to: the port then
+ *                 states `origin` {kind, registry, agentId} (registryOrigin), fixed at creation and not writable.
+ *                 Omitted (every earlier caller): no origin, as before; nothing is inferred, and the resident's new
+ *                 journal lines record `execution: null` (held by the live reader). It changes no submit, register,
+ *                 status, send or cancel.
  */
-export function ws04ActsPort(acts, { agentId, send, runId = null }) {
+export function ws04ActsPort(acts, { agentId, send, runId = null, registry = undefined }) {
   if (typeof agentId !== 'string' || !agentId || agentId.length > AGENT_ID_MAX) throw new TypeError(`agentId: 1..${AGENT_ID_MAX} characters (workstream 4)`);
   if (typeof acts?.register !== 'function' || typeof acts?.status !== 'function') throw new TypeError('workstream 4 acts client with register() and status()');
   if (typeof send !== 'function') throw new TypeError('send(req) is required: the registry does not send');
-  return {
-    kind: 'workstream 4 act registry',
+  const origin = registry === undefined || registry === null ? null : registryOrigin(agentId, registry);
+  const port = {
+    kind: REGISTRY_KIND,
     retentionBells: Infinity,
     async submit(req) {
       // A key the registry cannot hold is refused before anything is sent (a definite "not sent").
@@ -87,4 +109,8 @@ export function ws04ActsPort(acts, { agentId, send, runId = null }) {
     },
     async cancel() { return { cancelled: false, reason: 'NotSupported' }; }, // signed bytes cannot be stopped (§3.3)
   };
+  // (2026-11-17) the stated origin, when one was given: enumerable (a caller's `{...port}` keeps it), not writable and
+  // not configurable on this port (a later change of settings never changes it)
+  if (origin) Object.defineProperty(port, 'origin', { value: origin, enumerable: true, writable: false, configurable: false });
+  return port;
 }
