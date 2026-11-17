@@ -4,7 +4,6 @@
 //
 // Never logged: the Authorization header, request bodies, tokens, codes,
 // signatures. A request with a foreign Origin is refused (DNS rebinding).
-import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { toBase64 } from '../../../../permutation-gateway/client/src/bytes.mjs';
 import { commandBytes } from '../../../../permutation-gateway/src/frontier/agent/owner-auth.mjs';
@@ -236,9 +235,5 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
   };
 }
 
-export function listen(handler, { port = 0, host = '127.0.0.1' } = {}) {
-  return new Promise(resolve => {
-    const s = http.createServer(handler);
-    s.listen(port, host, () => resolve(s));
-  });
-}
+// Starting the server (resolves when listening, rejects with a start-up error): src/listen.mjs.
+export { listen } from './listen.mjs';
