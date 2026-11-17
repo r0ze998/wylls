@@ -1,0 +1,130 @@
+diff --git a/frontier-node/crates/verify/src/checks/v0_coverage.rs b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+index ef3f778bf3ac8c0a213cc28ac5a07fda9cefa3ca..93ed3cd0032e9b1df2e762258f4ba6d281a6e123 100644
+--- a/frontier-node/crates/verify/src/checks/v0_coverage.rs
++++ b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+@@ -59,6 +59,20 @@ pub fn known_version(pv: u16) -> bool {
+         || pv == frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1
+ }
+ 
++/// The version bit of the experimental wide-world build
++/// (`frontier_abi::world_index::wide_ix::WIDE_EXPERIMENTAL_VERSION_BIT`,
++/// behind `world-index-experimental`; provisional, not an allocation). Its
++/// seasons are not a known version (no wide rule is modelled), so they are
++/// never a PASS (`UnknownProgramVersion`).
++pub const WIDE_EXPERIMENTAL_VERSION_BIT: u16 = 0x4000;
++
++/// The wide build's provisional tags: the draft band `0xD6..=0xDF`
++/// (`wide_ix::DRAFT_TAG_FIRST..=DRAFT_TAG_LAST`) and WideReveal `0xEE`
++/// (`wide_ix::TAG_REVEAL`). Not an allocation.
++pub fn is_wide_tag(tag: u8) -> bool {
++    (0xD6..=0xDF).contains(&tag) || tag == 0xEE
++}
++
+ /// The workstream a tag outside ABI v2 is allocated to (workstream 4's
+ /// `ABI-ALLOCATION-20261106`, provisional).
+ pub fn allocated_band(tag: u8) -> Option<&'static str> {
+@@ -139,6 +153,16 @@ pub fn judge_outside_v2(
+             ))
+         };
+     }
++    // The wide build's own tags, in its own seasons: left to VW (r16), which
++    // judges the wide event chains and nothing of the wide rules, so they
++    // stay UNVERIFIABLE (`WideUnmodelled`), never a PASS.
++    if is_wide_tag(tag) && pv.is_some_and(|v| v & WIDE_EXPERIMENTAL_VERSION_BIT != 0) {
++        return Some((
++            Unverifiable,
++            WIDE_UNMODELLED,
++            format!("wide instruction 0x{tag:02x} in a wide-world season: left to VW (its event chains); no wide rule is modelled"),
++        ));
++    }
+     let Some(band) = allocated_band(tag) else {
+         // Only a program version this verifier knows refuses the tag: that is
+         // the evidence for a FAIL. Under another version (an experimental
+diff --git a/frontier-node/crates/verify/src/checks/vw_chains.rs b/frontier-node/crates/verify/src/checks/vw_chains.rs
+index d386ebe7618f20f6310e88c14a416ad0a44a9137..29a59834e7af855d60595bd1b61b3d4fd742d174 100644
+--- a/frontier-node/crates/verify/src/checks/vw_chains.rs
++++ b/frontier-node/crates/verify/src/checks/vw_chains.rs
+@@ -42,7 +42,7 @@ pub const WIDE_RECORD_UNDECODABLE: &str = "WideRecordUndecodable";
+ pub const WIDE_CHAIN_BROKEN: &str = "WideChainBroken";
+ pub const WIDE_CHAIN_FINAL_MISMATCH: &str = "WideChainFinalMismatch";
+ pub const WIDE_CHAIN_UNPROVEN: &str = "WideChainUnproven";
+-pub const WIDE_UNMODELLED: &str = "WideUnmodelled";
++pub use crate::codes::WIDE_UNMODELLED;
+ 
+ /// What VW1 found, before it becomes findings (testable without a `Ctx`).
+ #[derive(Clone, Debug, PartialEq, Eq)]
+diff --git a/frontier-node/crates/verify/src/codes.rs b/frontier-node/crates/verify/src/codes.rs
+index ed4e3d1a7dd2d11b0f16a93a97e7e7cf7ed5fd45..f9c2ce4b1ddd2e25c7cbc1ec7121715244775132 100644
+--- a/frontier-node/crates/verify/src/codes.rs
++++ b/frontier-node/crates/verify/src/codes.rs
+@@ -28,6 +28,10 @@ pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
+ pub const MISSING_POST_STATE: &str = "MissingPostState";
+ /// A record no check judges where it stands (UNVERIFIABLE, V0E).
+ pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
++/// A wide-world instruction (experimental band) that no check models yet:
++/// V0 leaves it to VW, which judges only the wide event chains
++/// (UNVERIFIABLE; shared by V0 and VW1).
++pub const WIDE_UNMODELLED: &str = "WideUnmodelled";
+ /// A history no source showed to be complete (UNVERIFIABLE, V0; ⑲ `history`).
+ pub const HISTORY_UNPROVEN: &str = "HistoryUnproven";
+ /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
+diff --git a/frontier-node/crates/verify/tests/new_bands.rs b/frontier-node/crates/verify/tests/new_bands.rs
+index d00ccc053ae55a52249a669e85b8e8977f8172c9..3682d18536cc73cad1db01d8500f68683d32dd7c 100644
+--- a/frontier-node/crates/verify/tests/new_bands.rs
++++ b/frontier-node/crates/verify/tests/new_bands.rs
+@@ -402,17 +402,31 @@ fn tags_outside_abi_v2_are_told_apart() {
+             );
+         }
+     }
+-    // Unallocated tags (the wide-world draft 0xD6–0xDA included) fail under
++    // Unallocated tags (the wide-world draft 0xD6–0xDF and 0xEE included) fail under
+     // every version this verifier knows; under another, or none shown, they
+     // are UNVERIFIABLE (r13): only a known program is evidence of refusal.
+-    for tag in [0xD6, 0xDA, 0xEE, 0xFE] {
+-        for pv in [unknown, None, Some(0x4004)] {
++    for tag in [0xD6, 0xDA, 0xDD, 0xDF, 0xEE, 0xFE] {
++        for pv in [unknown, None] {
+             assert_eq!(
+                 j(tag, &[tag], pv),
+                 Some((Unverifiable, "UnverifiedInstruction")),
+                 "{tag:#x} {pv:?}"
+             );
+         }
++        // r16: in the wide build's seasons (version bit 0x4000), its own
++        // tags are left to VW (`WideUnmodelled`); other tags are not its.
++        let want = if verify_core::checks::v0_coverage::is_wide_tag(tag) {
++            "WideUnmodelled"
++        } else {
++            "UnverifiedInstruction"
++        };
++        for pv in [Some(0x4004), Some(0xC004)] {
++            assert_eq!(
++                j(tag, &[tag], pv),
++                Some((Unverifiable, want)),
++                "{tag:#x} {pv:?}"
++            );
++        }
+         for pv in [s1, nft] {
+             assert_eq!(
+                 j(tag, &[tag], pv),
+@@ -560,3 +574,20 @@ fn no_tag_or_an_unknown_tag_under_a_known_program_fails() {
+         );
+     }
+ }
++
++/// r16: V0's literals for the wide build equal the wide ABI's own constants
++/// (only buildable with the experimental feature).
++#[cfg(feature = "wide-world-experimental")]
++#[test]
++fn v0_wide_literals_are_the_wide_abi() {
++    use frontier_abi::world_index::wide_ix as w;
++    use verify_core::checks::v0_coverage::{is_wide_tag, WIDE_EXPERIMENTAL_VERSION_BIT};
++    assert_eq!(
++        WIDE_EXPERIMENTAL_VERSION_BIT,
++        w::WIDE_EXPERIMENTAL_VERSION_BIT
++    );
++    for t in 0..=255u8 {
++        let abi = (w::DRAFT_TAG_FIRST..=w::DRAFT_TAG_LAST).contains(&t) || t == w::TAG_REVEAL;
++        assert_eq!(is_wide_tag(t), abi, "{t:#x}");
++    }
++}

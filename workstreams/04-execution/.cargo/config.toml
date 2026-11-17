@@ -1,0 +1,4 @@
+# Own build directory (the root .cargo/config.toml would put it under
+# permutation-chain/target). Relative to this directory's parent.
+[build]
+target-dir = "target"

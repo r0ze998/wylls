@@ -1,0 +1,174 @@
+diff --git a/frontier-node/crates/verify/src/checks/v0_evidence.rs b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+index c0d5d97c1447269a26799215ca8b28d7aa778f75..691255e389732fd0faf15fa170b34b78808ef996 100644
+--- a/frontier-node/crates/verify/src/checks/v0_evidence.rs
++++ b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+@@ -34,6 +34,12 @@
+ //!   ABI adds, such as workstream 20's RESIDENT_JOINED, is not a PASS
+ //!   until a check models it and the list names it), or a DIVERT in a
+ //!   transaction without a TRANSIT_SETTLED (V13 judges DIVERTs only there).
++//!   Workstream 20's RESIDENT_JOINED (130, [`CONDITIONAL_CQ_KINDS`]) is
++//!   judged only where the program emits it: a transaction whose top-level
++//!   JoinResident (`resident_wire::JOIN_RESIDENT`) names the record's
++//!   generation and faction (V0 judges that instruction, V9 the record's
++//!   key, V12 its explore floor). Anywhere else, or not matching, it is
++//!   `UnverifiedRecord` (r8).
+ 
+ use std::collections::BTreeSet;
+ 
+@@ -56,6 +62,33 @@ pub const MODELLED_CQ_KINDS: &[u8] = &[
+     80, 81, 82, 83, 84, 85, 86, 87, 88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
+ ];
+ 
++/// Conquest kinds judged only beside the instruction that emits them (see
++/// [`explained`]): ⑳'s RESIDENT_JOINED (130), emitted by JoinResident only.
++pub const CONDITIONAL_CQ_KINDS: &[u8] = &[130];
++
++/// Whether `c` (a kind of [`CONDITIONAL_CQ_KINDS`]) stands beside the
++/// instruction that emits it: a top-level JoinResident of the same
++/// transaction (`tag ‖ generation u32 ‖ faction u8`) with the record's
++/// generation and faction.
++fn explained(w: &crate::world::World, c: &crate::world::CqRec) -> bool {
++    if c.kind as u8 != 130 {
++        return false;
++    }
++    let (Ok(g), [f]) = (
++        <[u8; 4]>::try_from(c.field("generation", true)),
++        c.field("faction", true),
++    ) else {
++        return false;
++    };
++    w.txs.get(c.tx).is_some_and(|t| {
++        t.ixs.iter().any(|ix| {
++            ix.tag() == Some(frontier_abi::resident_wire::JOIN_RESIDENT)
++                && ix.data.get(1..5) == Some(&g[..])
++                && ix.data.get(5) == Some(f)
++        })
++    })
++}
++
+ fn program_kind(data: &[u8]) -> Option<AccountKind> {
+     AccountKind::from_magic(data.get(..8)?.try_into().ok()?)
+ }
+@@ -80,7 +113,10 @@ pub fn run(cx: &mut Ctx) {
+         .map(|(k, _)| *k)
+         .collect();
+     for c in &w.cq_recs {
+-        if !MODELLED_CQ_KINDS.contains(&(c.kind as u8)) {
++        let k = c.kind as u8;
++        let judged = MODELLED_CQ_KINDS.contains(&k)
++            || (CONDITIONAL_CQ_KINDS.contains(&k) && explained(w, c));
++        if !judged {
+             cx.unverifiable(
+                 V,
+                 UNVERIFIED_RECORD,
+diff --git a/frontier-node/crates/verify/tests/new_bands.rs b/frontier-node/crates/verify/tests/new_bands.rs
+index 46065edcd1b6cc07f019dc50d737ebcbcaea13ff..b1fff889d401e9cf582c2d84b13434787984c4e5 100644
+--- a/frontier-node/crates/verify/tests/new_bands.rs
++++ b/frontier-node/crates/verify/tests/new_bands.rs
+@@ -217,21 +217,100 @@ fn a_divert_outside_a_transit_settlement_is_unverifiable() {
+     assert!(n > 0, "no DIVERT case reached V0E");
+ }
+ 
+-/// A conquest kind the ABI adds (⑳'s RESIDENT_JOINED, 130) fails this
+-/// test until a check models it and `MODELLED_CQ_KINDS` names it; until
+-/// then V0E reports its records `UnverifiedRecord`.
++/// A conquest kind the ABI adds fails this test until a check models it
++/// and `MODELLED_CQ_KINDS` names it (or `CONDITIONAL_CQ_KINDS`, judged only
++/// beside the instruction that emits it); until then V0E reports its
++/// records `UnverifiedRecord`.
+ #[test]
+ fn every_conquest_kind_the_abi_knows_is_modelled() {
+-    use verify_core::checks::v0_evidence::MODELLED_CQ_KINDS;
++    use verify_core::checks::v0_evidence::{CONDITIONAL_CQ_KINDS, MODELLED_CQ_KINDS};
+     for k in 0..=255u8 {
+         if frontier_abi::v2::log::CqKind::from_u8(k).is_some() {
+             assert!(
+-                MODELLED_CQ_KINDS.contains(&k),
++                MODELLED_CQ_KINDS.contains(&k) || CONDITIONAL_CQ_KINDS.contains(&k),
+                 "conquest kind {k} is not modelled"
+             );
+         }
+     }
+-    for &k in MODELLED_CQ_KINDS {
++    for &k in MODELLED_CQ_KINDS.iter().chain(CONDITIONAL_CQ_KINDS) {
+         assert!(frontier_abi::v2::log::CqKind::from_u8(k).is_some(), "{k}");
+     }
+ }
++
++/// A well-formed RESIDENT_JOINED (⑳, kind 130: key = the asset's resident
++/// ID, a SHA-256 of a literal asset id; no key is generated or signed).
++fn resident_joined(bell: u32, faction: u8, generation: u32) -> Vec<u8> {
++    let asset = [0x5a; 32];
++    let mut b = vec![frontier_abi::log::VERSION, 130];
++    b.extend_from_slice(&bell.to_le_bytes());
++    b.extend_from_slice(&frontier_abi::resident_citizen::resident_tag15(&asset));
++    b.extend_from_slice(&asset);
++    b.extend_from_slice(&[faction, 0]);
++    b.extend_from_slice(&generation.to_le_bytes());
++    b.extend_from_slice(&bell.to_le_bytes());
++    b.push(0);
++    assert!(frontier_abi::v2::log::decode(&b).is_ok());
++    b
++}
++
++/// The first top-level program instruction's data set to `data`.
++fn redata(base: &Input, t: usize, data: Vec<u8>) -> Option<Input> {
++    let p = base.cfg.program;
++    let mut tx = fclient::tx::from_wire(&base.txs[t].tx).ok()?;
++    let keys = tx.message.account_keys.clone();
++    let c = tx
++        .message
++        .instructions
++        .iter_mut()
++        .find(|c| keys[c.program_id_index as usize] == p)?;
++    c.data = data;
++    let mut inp = base.clone();
++    inp.txs[t].tx = fclient::tx::wire(&tx);
++    Some(inp)
++}
++
++fn unverified_records(r: &verify_core::Report) -> usize {
++    r.findings
++        .iter()
++        .filter(|f| f.check == "V0E" && f.code == "UnverifiedRecord")
++        .count()
++}
++
++/// RESIDENT_JOINED is judged only beside a JoinResident that names its
++/// generation and faction; elsewhere, or not matching, it is
++/// `UnverifiedRecord`, and never a PASS.
++#[test]
++fn a_resident_joined_without_its_join_is_unverifiable() {
++    use frontier_abi::resident_wire::JOIN_RESIDENT;
++    let base = land();
++    let mut n = 0;
++    for (t, bell) in spread(calls(&base), 6) {
++        let line = |g: u32, f: u8| fclient::log::log_line(&resident_joined(bell, f, g));
++        // In a transaction that did not join anyone.
++        let lone = inject(&base, t, line(7, 2)).expect("frame");
++        let r = verify_core::verify(&lone);
++        assert_ne!(r.verdict, Verdict::Pass, "tx#{t}");
++        assert_eq!(unverified_records(&r), 1, "tx#{t}: {}", show(&r));
++        // Beside a JoinResident of another generation or faction.
++        for (g, f) in [(8u32, 2u8), (7, 1)] {
++            let mut d = vec![JOIN_RESIDENT];
++            d.extend_from_slice(&g.to_le_bytes());
++            d.push(f);
++            let inp = redata(&inject(&base, t, line(7, 2)).unwrap(), t, d).unwrap();
++            let r = verify_core::verify(&inp);
++            assert_ne!(r.verdict, Verdict::Pass, "tx#{t}");
++            assert_eq!(unverified_records(&r), 1, "tx#{t} ({g}, {f}): {}", show(&r));
++        }
++        // Beside its own JoinResident: V0E leaves it to V0 (which judges
++        // the instruction), V9 and V12; still not a PASS here.
++        let mut d = vec![JOIN_RESIDENT];
++        d.extend_from_slice(&7u32.to_le_bytes());
++        d.push(2);
++        let inp = redata(&inject(&base, t, line(7, 2)).unwrap(), t, d).unwrap();
++        let r = verify_core::verify(&inp);
++        assert_ne!(r.verdict, Verdict::Pass, "tx#{t}");
++        assert_eq!(unverified_records(&r), 0, "tx#{t}: {}", show(&r));
++        n += 1;
++    }
++    assert!(n > 0);
++}

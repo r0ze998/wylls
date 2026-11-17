@@ -1,0 +1,211 @@
+{
+  "ranAt": "2026-10-31T03:27:31.982Z",
+  "mock": true,
+  "steps": [
+    {
+      "step": 1,
+      "title": "Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision). Assets are minted guarded: Permanent Freeze + Permanent Transfer Delegate = the resident program",
+      "detail": {
+        "coreProgram": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
+        "collection": "3Ufus1…P4y6",
+        "walletA": "66FHe3…Ke6D",
+        "walletB": "J4Bafd…axmw"
+      }
+    },
+    {
+      "step": 2,
+      "title": "A acquires the NFT (payment → mint → the chain shows A as holder). Acquisition IS the waitlist entry.",
+      "detail": {
+        "payment": "settled",
+        "assetId": "BAxzEP…DtSs",
+        "residentId": "4ac1ff67015fb5f49f547d5cde852b",
+        "waitlist": [
+          {
+            "holder": "66FHe3…Ke6D",
+            "status": "eligible"
+          }
+        ]
+      }
+    },
+    {
+      "step": 3,
+      "title": "Before publication: the holder is waitlisted, login answers NotPublished with the entitlement",
+      "detail": {
+        "login": {
+          "refused": "NotPublished"
+        },
+        "entitlementA": {
+          "wallet": "66FHe3FoxWBZFWqsZc3Gz73gdNRX1rZX3enhNmdQKe6D",
+          "published": false,
+          "residents": [
+            {
+              "residentId": "4ac1ff67015fb5f49f547d5cde852b",
+              "assetId": "BAxzEPPbevZx5P6WWv6z3TnwVkxxUeDijYRUdRx4DtSs",
+              "epoch": 0
+            }
+          ],
+          "canLogin": false,
+          "onWaitlist": true
+        },
+        "entitlementB": {
+          "wallet": "J4BafdSfwFYYzQxzoe8aNA6rrfqWzzofkMsBFdFJaxmw",
+          "published": false,
+          "residents": [],
+          "canLogin": false,
+          "onWaitlist": false
+        }
+      }
+    },
+    {
+      "step": 4,
+      "title": "Test publish switch: one flag; the resident record is byte-for-byte the same",
+      "detail": {
+        "recordUnchanged": true,
+        "published": true
+      }
+    },
+    {
+      "step": 5,
+      "title": "A logs in (SIWS-shaped challenge, holder read fresh) and acts: harvest, build, a caravan (cost approval), an MCP capability, an AI delegation (relay record + on-chain SetSession)",
+      "detail": {
+        "epoch": 0,
+        "firstOp": "sent",
+        "agentOp": "sent",
+        "village": {
+          "food": 80,
+          "wood": 35,
+          "ore": 0
+        },
+        "caravansInTransit": 1,
+        "approvalWaiting": "ap_demo-A-cv2"
+      }
+    },
+    {
+      "step": 6,
+      "title": "A transfers the NFT to B (A signed one more operation beforehand, not yet sent)",
+      "detail": {
+        "transfer": "5XRKst1JHSAz",
+        "slot": 1,
+        "registry": "confirmed",
+        "epoch": 1,
+        "holder": "J4Bafd…axmw"
+      }
+    },
+    {
+      "step": 7,
+      "title": "B logs in to the SAME resident (same id, same village, A's history), acts, and the caravan A sent arrives for the resident B now holds",
+      "detail": {
+        "residentId": "4ac1ff67015fb5f49f547d5cde852b",
+        "epoch": 1,
+        "bOp": "sent",
+        "village": {
+          "food": 120,
+          "wood": 35,
+          "ore": 0
+        },
+        "historyLines": 6,
+        "caravansInTransit": 0
+      }
+    },
+    {
+      "step": 8,
+      "title": "A's new operations and A's old delegations are refused everywhere",
+      "detail": {
+        "loginToken": "BadCredential",
+        "mcpCapability": "BadCredential",
+        "aiDelegationViaRelay": "BadCredential",
+        "aiSessionKeyStraightAtChain": {
+          "refused": "NotOwner"
+        },
+        "presignedOpStraightAtChain": {
+          "refused": "NotOwner"
+        },
+        "pendingCostApproval": {
+          "refused": "BadCredential"
+        },
+        "loginAgain": {
+          "refused": "NotHolder"
+        },
+        "villageUnchangedByA": {
+          "food": 120,
+          "wood": 35,
+          "ore": 0
+        }
+      }
+    },
+    {
+      "step": 9,
+      "title": "A look-alike NFT (same name and uri, another collection) held by A gives A nothing",
+      "detail": {
+        "observe": {
+          "refused": "NotInCollection"
+        },
+        "entitlementA": {
+          "wallet": "66FHe3FoxWBZFWqsZc3Gz73gdNRX1rZX3enhNmdQKe6D",
+          "published": true,
+          "residents": [],
+          "canLogin": false,
+          "onWaitlist": false
+        }
+      }
+    },
+    {
+      "step": 10,
+      "title": "A buys the NFT back (the relay observed nothing): the chain's holder generation moved, so nothing issued earlier works, for A or for B",
+      "detail": {
+        "chainGen": 2,
+        "sessionOnChain": null,
+        "aOldLoginToken": "BadCredential",
+        "bLoginToken": "OwnerChanged",
+        "bPresignedOpStraightAtChain": {
+          "refused": "NotOwner"
+        },
+        "aSecondPresignedOpFromBeforeTheSale": {
+          "refused": "StaleGen"
+        },
+        "aFreshLogin": {
+          "epoch": 2,
+          "residentId": "4ac1ff67015fb5f49f547d5cde852b"
+        },
+        "plainCoreTransferByOwner": {
+          "refused": "Frozen"
+        }
+      }
+    },
+    {
+      "step": 11,
+      "title": "Dedicated sale path (TEST VALUES: 25 test units, 250 bps fee): an injected failure after the payment leg leaves nothing behind; then C buys and everything moves in one instruction",
+      "detail": {
+        "injectedFailure": {
+          "state": "failed",
+          "code": "BadData",
+          "after": {
+            "owner": "66FHe3…Ke6D",
+            "gen": 2,
+            "cBalance": "100000000"
+          }
+        },
+        "purchase": {
+          "state": "landed",
+          "gen": 3,
+          "price": "25000000",
+          "fee": "625000"
+        },
+        "owner": "7tyTXr…TtA3",
+        "sessionOnChain": null,
+        "listed": false,
+        "balances": {
+          "A": "24375000",
+          "C": "75000000",
+          "operator": "625000"
+        },
+        "cLogin": {
+          "epoch": 3
+        },
+        "aLoginAgain": {
+          "refused": "NotHolder"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+[package]
+name = "wylls-capacity-bridge10"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Workstream 09 to 10 connection: a workshop job takes ore from a workstream-10 custody lot under a use order, once per deposit id and in whole units, atomically with the job's deposit. Contract tests against workstream 10's real kernel (wylls-custody, lot module)."
+
+# Own workspace and lock. Workstream 10's crates are not in this branch:
+# they sit at ../../10-custody/{custody,adapter-09} on the integration
+# branch, and run.sh checks them out there from a pinned commit
+# (CONNECT-10.ja.md §1).
+[workspace]
+
+[dependencies]
+wylls-capacity = { path = "../kernel" }
+wylls-custody = { path = "../../10-custody/custody", default-features = false }
+wylls-custody-adapter-09 = { path = "../../10-custody/adapter-09" }
+permutation-rules = { path = "../../../permutation-rules", features = ["std"] }
+borsh = { version = "=1.6.1", features = ["derive"] }

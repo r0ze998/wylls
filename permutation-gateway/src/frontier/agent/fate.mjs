@@ -14,8 +14,18 @@
 //            chain does)
 //   pending  not decided yet (not finalized, or still within its lifetime)
 //   unknown  past its lifetime, but this node cannot prove it never landed
-//            (no history from that time, or a read failed): the money stays
-//            where it is and the operator is told; never guessed
+//            (no history from that time, or a read failed), or the node
+//            returned the transaction at finalized without result metadata
+//            (`meta` null, or no `meta.err`): the money stays where it is and
+//            the operator is told; never guessed
+//
+// Every answer also carries (workstream 04, additive; `fate` is unchanged):
+//   commitment   the confirmationStatus the node reported ('processed' |
+//                'confirmed' | 'finalized'), or null with no status. Only
+//                'finalized' decides a fate; the others are progress.
+//   queryFailed  true when a read threw (the node could not be asked): the
+//                fate is then 'pending' or 'unknown' by the rule above, and
+//                says nothing about the transaction itself
 //
 // A node without history answers "no status" for a transaction that landed:
 // reading that as "expired" would give a landed withdrawal's money back to
@@ -30,42 +40,54 @@ const FINAL = 'finalized';
  * @returns {Promise<{fate: 'landed'|'failed'|'expired'|'pending'|'unknown', why: string}>}
  */
 export async function fateOf(connection, { signature, lastValidBlockHeight, slotFloor = null }, { fullHistory = false } = {}) {
+  let commitment = null;
+  const out = (fate, why, queryFailed = false) => ({ fate, why, commitment, queryFailed });
   let st;
   try {
     st = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true }))?.value?.[0] ?? null;
   } catch (e) {
-    return { fate: 'pending', why: `status read failed: ${e.message}` };
+    return out('pending', `status read failed: ${e.message}`, true);
   }
   if (st) {
-    if (st.confirmationStatus !== FINAL) return { fate: 'pending', why: `status ${st.confirmationStatus ?? 'processed'}, not finalized yet` };
-    return st.err ? { fate: 'failed', why: 'finalized with an error' } : { fate: 'landed', why: 'finalized' };
+    commitment = st.confirmationStatus ?? 'processed';
+    if (st.confirmationStatus !== FINAL) return out('pending', `status ${commitment}, not finalized yet`);
+    return st.err ? out('failed', 'finalized with an error') : out('landed', 'finalized');
   }
-  if (!Number.isSafeInteger(lastValidBlockHeight)) return { fate: 'unknown', why: 'no status and no recorded lifetime' };
+  if (!Number.isSafeInteger(lastValidBlockHeight)) return out('unknown', 'no status and no recorded lifetime');
   let height;
   try {
     height = await connection.getBlockHeight(FINAL);
   } catch (e) {
-    return { fate: 'pending', why: `block height read failed: ${e.message}` };
+    return out('pending', `block height read failed: ${e.message}`, true);
   }
-  if (!(height > lastValidBlockHeight)) return { fate: 'pending', why: 'no status yet, still within its lifetime' };
+  if (!(height > lastValidBlockHeight)) return out('pending', 'no status yet, still within its lifetime');
   // Past its lifetime with no status: ask for the transaction itself (a lagging status index can miss one that landed).
   let tx;
   try {
     tx = await connection.getTransaction(signature, { commitment: FINAL, maxSupportedTransactionVersion: 0 });
   } catch (e) {
-    return { fate: 'unknown', why: `transaction read failed: ${e.message}` };
+    return out('unknown', `transaction read failed: ${e.message}`, true);
   }
-  if (tx) return tx.meta?.err ? { fate: 'failed', why: 'found at finalized, with an error' } : { fate: 'landed', why: 'found at finalized' };
-  if (fullHistory) return { fate: 'expired', why: 'past its lifetime; the node keeps all history and has no such transaction' };
-  if (!Number.isSafeInteger(slotFloor)) return { fate: 'unknown', why: 'no slot recorded before it was built: history coverage cannot be shown' };
+  if (tx) {
+    commitment = FINAL;
+    // Only the result metadata says how it ran: `meta.err` null is "no error" (landed), a real error is failed.
+    // web3.js types `meta` as nullable; without it (or without `err`) nothing is shown either way. The node
+    // did return the transaction, so it is never `expired` (not even with fullHistory): unknown until a later read.
+    const err = tx.meta?.err;
+    if (err === null) return out('landed', 'found at finalized, without an error');
+    if (err) return out('failed', 'found at finalized, with an error');
+    return out('unknown', 'found at finalized without result metadata: neither "no error" nor an error is shown yet');
+  }
+  if (fullHistory) return out('expired', 'past its lifetime; the node keeps all history and has no such transaction');
+  if (!Number.isSafeInteger(slotFloor)) return out('unknown', 'no slot recorded before it was built: history coverage cannot be shown');
   let first;
   try {
     first = await connection.getFirstAvailableBlock();
   } catch (e) {
-    return { fate: 'unknown', why: `history coverage read failed: ${e.message}` };
+    return out('unknown', `history coverage read failed: ${e.message}`, true);
   }
-  if (Number.isSafeInteger(first) && first <= slotFloor) return { fate: 'expired', why: `past its lifetime; the node's history starts at slot ${first} ≤ ${slotFloor} and has no such transaction` };
-  return { fate: 'unknown', why: `the node's history starts at slot ${first}, after slot ${slotFloor}: it cannot show the transaction never landed` };
+  if (Number.isSafeInteger(first) && first <= slotFloor) return out('expired', `past its lifetime; the node's history starts at slot ${first} ≤ ${slotFloor} and has no such transaction`);
+  return out('unknown', `the node's history starts at slot ${first}, after slot ${slotFloor}: it cannot show the transaction never landed`);
 }
 
 /** The slot to record before a transaction is built (finalized: at or below any slot the transaction can land in); null when unreadable. */

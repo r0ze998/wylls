@@ -1,0 +1,128 @@
+{
+  "format": "wylls.creation.manifest/0",
+  "name": "front-supply-river",
+  "version": "0.1.0",
+  "author": "$B",
+  "title": "前線補給（鉱山の便を使う）",
+  "note": "材料は自分で運ばず、Mの鉱山の便が自分の峠の倉へ届けた記録を使います。兵器は名前を挙げた届け先へ送ります。",
+  "params": {
+    "workshop": {
+      "type": "workshop",
+      "ja": "使う工房"
+    },
+    "workVault": {
+      "type": "vault",
+      "own": true,
+      "ja": "工房と同じ州の自分の倉"
+    },
+    "receiver": {
+      "type": "place",
+      "ja": "兵器の届け先（味方の砦など）"
+    },
+    "runs": {
+      "type": "int",
+      "min": 1,
+      "max": 6,
+      "default": 3,
+      "ja": "1日に工房を動かす回数"
+    }
+  },
+  "uses": {
+    "ws": {
+      "relation": "connect",
+      "target": {
+        "param": "workshop"
+      },
+      "grant": "use",
+      "amount": {
+        "param": "runs"
+      },
+      "ja": "工房"
+    },
+    "ore": {
+      "relation": "consume",
+      "manifest": {
+        "author": "$M",
+        "name": "mine-delivery",
+        "range": "^1.0.0"
+      },
+      "output": "delivered",
+      "type": "result:delivery",
+      "ja": "Mの鉱山の便が届いた記録"
+    }
+  },
+  "steps": [
+    {
+      "id": "make",
+      "effect": "workshop.run",
+      "after": [
+        {
+          "use": "ore"
+        }
+      ],
+      "args": {
+        "via": {
+          "use": "ws"
+        },
+        "vault": {
+          "param": "workVault"
+        },
+        "runs": {
+          "param": "runs"
+        }
+      }
+    },
+    {
+      "id": "ship",
+      "effect": "caravan.send",
+      "after": [
+        "make"
+      ],
+      "args": {
+        "from": {
+          "param": "workVault"
+        },
+        "to": {
+          "param": "receiver"
+        },
+        "cargo": {
+          "goods": {
+            "arms": {
+              "param": "runs",
+              "times": 4
+            }
+          }
+        }
+      }
+    }
+  ],
+  "trigger": "manual",
+  "limits": {
+    "runsPerDay": 1
+  },
+  "outputs": {
+    "arms": {
+      "from": {
+        "step": "ship",
+        "out": "delivered"
+      }
+    }
+  },
+  "claims": {
+    "trigger": "manual",
+    "runsPerDay": 1,
+    "outputsPerRun": {
+      "arms": 12
+    },
+    "grants": [
+      "use"
+    ],
+    "consumes": [
+      "ore"
+    ],
+    "deliversTo": [
+      "receiver"
+    ],
+    "signer": "wallet-unless-own"
+  }
+}

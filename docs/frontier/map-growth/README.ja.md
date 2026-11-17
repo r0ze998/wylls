@@ -205,6 +205,12 @@
 - 手動の OpenRing がキーパーの待ち方針より早く通ること（§4 の注意）。プログラム上は正しい挙動。
 - 2人を超えるプレイヤーでの検証、devnet・本番での検証。
 
+## 6.1 追記（2026-11-07）：鍵なしの成長検証、画面の更新経路、将来の識別子
+
+- **成長そのものの鍵なしホスト試験**：`permutation-frontier/src/map_growth_runtime_tests.rs` の `map_growth_expansion_*`（3 件）。実物の `dispatch` で FoldOccupancy → ExtendFrontier(5) → OpenRing(5) → OpenProvince×30 → 待ち（1 bell、θ、資金）→ ExtendFrontier(6) → OpenRing(6) → OpenProvince(6,0) → ExtendFrontier(7) を通し、二重送信（AlreadyDone）、上限（ceiling 17 の外・ring 128 の外・ceiling なし）を見る。公開アドレス計算のみで、鍵の生成・署名はない。ConsumeRingSeed だけは実行しない（quicknet の BLS 署名が要る）ので、その 2 フィールドを試験が書く（モジュール doc に明記）。選択：`cargo test -p permutation-frontier --lib map_growth_runtime_tests::map_growth_expansion_ -- --test-threads=1`。
+- **ヘラルド→画面の更新経路の監査**：季節レコードは全モードで 30 秒ごとに再取得され（`app.mjs` の `poll`）、`rMax` は実効値（`r_max_ext` を含む）なので、広がった地図は再読み込みなしで届く。直した 2 点：(1) `controller.refreshOverviews` が `FS.record` だけを差し替え `FS.world` を据え置いていた（インスペクタと境界線が次の poll まで古いまま）。`map/world.mjs` の `applySeasonRecord` に一本化。(2) 概観（overview）は起動時に開いていた輪の分しか読まず、後で開いた輪は地形だけで記録（拠点・所有・野営）が出なかった。`overviewRings` が「新しく開いた輪」「州の数が変わった輪」を求め、季節 poll の後に読む。純粋 JS 試験：`permutation-gateway/test/web-frontier-world-growth.test.mjs`。
+- **将来の無限／多世界の識別子**：[UNBOUNDED-IDENTIFIERS.md](UNBOUNDED-IDENTIFIERS.md)（英語）。20 ビットの州番号を持つ host_id、u16 の輪・i16 の州座標、賞金の 17 輪ビットマップ、移住と資産の同一性、国の境界、地域間移動について、選択肢と未決事項を並べる。経済は決めていない。
+
 ## 7. 再現手順
 
 ```sh

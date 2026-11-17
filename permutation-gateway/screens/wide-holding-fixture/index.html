@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Wide holding fixture · SYNTHETIC · READ ONLY</title>
+<link rel="stylesheet" href="/web/frontier/frontier.css">
+<link rel="stylesheet" href="/web/frontier/people/leaders.css">
+<link rel="stylesheet" href="/web/frontier/proto-hand.css">
+<link rel="stylesheet" href="/web/frontier/proto-board.css">
+<link rel="stylesheet" href="/web/frontier/conquest-hand.css">
+<link rel="stylesheet" href="/web/frontier/uplift.css">
+<link rel="stylesheet" href="/fixture/fixture.css">
+</head>
+<body data-mode="play" data-stage="final" data-drawer="closed" data-doc="" data-sheet="peek" data-fixture="wide-holding">
+<details class="fx-bar" id="fx-bar" open role="region" aria-label="Fixture toolbar (not game UI)">
+  <summary class="fx-badge"><strong>SYNTHETIC FIXTURE · READ ONLY · NO WALLET / CHAIN</strong> <span class="fx-toggle">Fixture controls</span></summary>
+  <div class="fx-controls">
+  <label>Fixture scenario <select id="fx-scenario"></select></label>
+  <button type="button" data-fx="reset">Fixture: Reset</button>
+  <button type="button" data-fx="lang" data-lang="ja">Fixture: JA</button>
+  <button type="button" data-fx="lang" data-lang="en">Fixture: EN</button>
+  <button type="button" data-fx="village">Fixture: Open ordinary village</button>
+  <button type="button" data-fx="map">Fixture: Map / close (resting sheet)</button>
+  <span class="fx-sheet">Fixture sheet (phone QA):
+    <button type="button" data-fx="sheet" data-sheet="peek">peek</button>
+    <button type="button" data-fx="sheet" data-sheet="half">half</button>
+    <button type="button" data-fx="sheet" data-sheet="full">full</button></span>
+  <output class="fx-state" id="fx-state" aria-live="polite">loading…</output>
+  <output class="fx-status" id="fx-status" aria-live="assertive"></output>
+  </div>
+</details>
+<main id="frontier">
+  <div class="fx-map-placeholder" id="fx-map-placeholder" aria-label="Map placeholder">
+    <p>MAP PLACEHOLDER — the fixture renders NO map. This grey area is not game output.</p>
+  </div>
+  <aside class="rail" id="rail"></aside>
+</main>
+<section class="panel" id="panel" data-drawer="closed" data-kind="rest" data-doc="" data-sheet="peek" aria-label="Panel">
+  <button type="button" class="sheet-handle" aria-label="Fixture: sheet handle (inert)"></button>
+  <div class="panel-head"><h2 id="panel-title"></h2>
+    <button type="button" class="btn panel-close" data-act="home" aria-label="close">×</button></div>
+  <div id="panel-body"></div>
+</section>
+<script type="module" src="/fixture/fixture.mjs"></script>
+</body>
+</html>

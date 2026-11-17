@@ -44,7 +44,12 @@ export const formingText = () => L`次のターンで整列`;
 // (the result is told when the exploration's turn has been settled, two turns or so after the order: the flag names no turn it cannot keep)
 export const exploreFlagText = () => L`探索中 · 結果を待っています`;
 export const marchTagText = bell => (Number.isInteger(bell) ? L`ターン ${fmtNum(bell)} に到着 · あなたにだけ見えます` : L`封印済み · あなたにだけ見えます`);
-export const awayText = bell => (Number.isInteger(bell) ? L`軍勢は進軍中 · ターン ${fmtNum(bell)} に到着` : L`軍勢は進軍中`);
+// (round 48, seen in the land2 world: the tag still said "arrives on turn 10" at turn 12, while the province the page
+// held was older than the host's arrival. Once the turn has passed the arrival turn it no longer promises a past
+// arrival: it says the host arrived and that where it stands is being read)
+export const awayText = (bell, nowBell = null) => (Number.isInteger(bell)
+  ? (Number.isInteger(nowBell) && nowBell > bell ? L`軍勢はターン ${fmtNum(bell)} に到着 · 位置を読み込んでいます` : L`軍勢は進軍中 · ターン ${fmtNum(bell)} に到着`)
+  : L`軍勢は進軍中`);
 export const awaitKeyText = () => L`到着 · 開封を待っています（あなたにだけ見えます）`;
 export const gainText = n => L`+${fmtNum(n)} マス測量`;
 export const watchTipText = () => L`見張っている土地：軍勢が立っているあいだ見えている範囲です。軍勢が去れば消えます。`;

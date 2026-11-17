@@ -78,6 +78,28 @@ function hostName(FS, id) {
 }
 
 /** One march card: `m = {entry, transit, facts: {nowBell, pipeline, slotPresent, settled, settleReady}}`. */
+/** The pinned world with its generation, as the controller marks it (providerWorld). */
+const worldOf = FS => { const pin = FS?.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };
+/**
+ * (2026-11-17, ⑦, corrected) Whether the march list on the store (`FS.marches`) is the list OF WHAT THE PAGE IS NOW —
+ * by the mark it was written with (controller readMarches → `FS.marchesRead = {key, world, ctx, viewer, holding}`, each
+ * taken when that reading BEGAN): the pinned world, the context number (it moves with every change of viewer, herald
+ * or world: A → B → A are three), the viewer, and the village in hand (place, site, generation). `{ok, ctx}` — `ctx`
+ * the LIST's own context number (a button drawn from the list carries that, never a number taken at the drawing).
+ * A list read for another village, or before a change, is still on the store until the next reading: it is not
+ * "the marches of this village now", and nothing is drawn or pressed from it as if it were.
+ * (A mark without one of the fields — an older fixture — is not held against it on that field.)
+ */
+export function marchListNow(FS) {
+  const mr = FS?.marchesRead ?? null, h = FS?.holdings?.[FS?.activeHolding ?? 0] ?? null;
+  const ref = h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '';
+  const ok = !!mr && (mr.world === undefined || mr.world === worldOf(FS))
+    && (mr.ctx === undefined || !Number.isInteger(FS.contextSeq) || mr.ctx === FS.contextSeq)
+    && (mr.viewer === undefined || mr.viewer === (FS.resident?.asset ?? FS.wallet?.address ?? null))
+    && (mr.holding === undefined || mr.holding === ref);
+  return { ok, ctx: ok && Number.isInteger(mr.ctx) ? mr.ctx : null };
+}
+
 export function renderMarch(m, FS = null) {
   const t = tracker({ entry: m.entry, transit: m.transit, ...m.facts });
   const own = m.entry ? unpack(materialBytes(m.entry).plain) : null;
@@ -93,7 +115,20 @@ export function renderMarch(m, FS = null) {
   const sealed = own ? html`<p class="march-secret">${icon('lock')}<span class="secret">${[who, STANCE_TEXT[STANCES[own.stance]] ?? ''].filter(Boolean).join(' · ')}</span> <span class="muted">${stepDone('revealed') ? L`（封は開けられました）` : L`（行き先と構えはあなたにだけ見えます）`}</span></p>` : '';
   const state = s => (s.state === 'now' ? html`<span class="visually-hidden">${L`（いま）`}</span>` : s.state === 'done' ? html`<span class="visually-hidden">${L`（済み）`}</span>` : '');
   const slug = host.replace(/\D/g, '').slice(-8);
-  return html`<li class="vcard march-card">
+  // (2026-11-17, ⑦ the keep and the march toward it: a march whose destination is a province with a keep — in the
+  //  conquest record read for the world now pinned — has the way to that keep's tile; where the march's tile is known
+  //  it must be the keep's own. app.mjs 'march-keep' asks again at the press.)
+  const keep = FS && m.dest ? (FS.conquest?.keeps instanceof Map ? FS.conquest.keeps.get(`${m.dest.p},${m.dest.q}`) ?? null : null) : null;
+  // (corrected: `sure` — the march's own tile is known and IS the keep's tile: "see this keep". Only the province
+  //  known: the way goes to the keep of that province, and says only that — whether the march is bound for the keep is
+  //  not known. A march to another tile of the province has no such way. The button is drawn only from a list that is
+  //  the page's own now — marchListNow — and carries the LIST's context number.)
+  const keepOk = !!keep && Number.isInteger(keep.tile) && keep.tile >= 0 && keep.tile < 61;
+  const sure = keepOk && Number.isInteger(m.dest.tile) && m.dest.tile === keep.tile, maybe = keepOk && !Number.isInteger(m.dest.tile);
+  const listNow = FS ? marchListNow(FS) : { ok: false, ctx: null };
+  const keepWay = (sure || maybe) && (FS.mode ?? 'play') === 'play' && listNow.ctx !== null
+    ? html`<button type="button" class="btn small" data-act="march-keep" data-ctx="${listNow.ctx}" data-p="${keep.p}" data-q="${keep.q}" data-tile="${keep.tile}" data-sure="${sure ? 1 : 0}" data-host="${host}">${icon('flag')}${sure ? L`この砦を見る` : L`この州の砦を見る`}</button>` : '';
+  return html`<li class="vcard march-card" data-march-host="${host}">
     <div class="march-top">${icon('banner')}<strong class="march-to">${title}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(t.arriveBell ?? 0)} に到着`}`, resolved ? 'ok' : 'info')}</div>
     ${sealed}
     <ol class="track track-phases" aria-label="${L`進軍の流れ`}">${phasesOf(t).map(s => html`<li class="${s.state}"><span class="track-dot" aria-hidden="true"></span><span class="track-name">${PHASE_TEXT[s.id]()}</span>${state(s)}</li>`)}</ol>
@@ -101,19 +136,26 @@ export function renderMarch(m, FS = null) {
     ${t.closedUnrevealed ? html`<p class="warn">${L`封が開けられないまま、受付が終わりました。軍勢は敗走する（兵・体力・チップの半分を失う）か、同じ国の到着が多すぎたときは損失なしで村へ戻ります。`}</p>` : ''}
     ${t.outcome ? html`<p class="march-out">${TRANSIT_OUTCOME_TEXT[t.outcome] ?? t.outcome}</p>` : ''}
     ${m.entry?.failure ? html`<p class="notice error">${failureText({ code: m.entry.failure })}</p>` : ''}
+    ${m.unread ? html`<div class="march-unread" role="status"><p class="notice error">${m.unread.code ? L`この進軍の到着先の記録を読めていません（${m.unread.code}）。上の進み具合は、読めたところまでです。結果がないという意味ではありません。` : L`この進軍の到着先の記録を読めていません。上の進み具合は、読めたところまでです。結果がないという意味ではありません。`}</p>
+      <div class="actions"><button type="button" class="btn small" data-act="march-reread" data-host="${host}" ${m.rereading ? 'disabled' : ''}>${icon('return')}${m.rereading ? L`読み込んでいます…` : L`記録をもう一度読む`}</button></div></div>` : ''}
     ${m.dest || m.facts?.settleReady ? html`<div class="actions">
       ${m.facts?.settleReady ? html`<button type="button" class="btn primary small" data-act="settle-transit" data-host="${host}" data-slot="${m.entry?.transitSlot ?? m.transit?.slot ?? ''}">${L`結果を受け取る`}</button>` : ''}
       ${m.dest && resolved && Number.isInteger(t.arriveBell) ? html`<button type="button" class="btn${m.facts?.settleReady ? '' : ' primary'} small" data-act="report-open" data-p="${m.dest.p}" data-q="${m.dest.q}" data-bell="${t.arriveBell}">${icon('scroll')}${L`報告`}</button>
         <button type="button" class="btn small" data-act="battle-play" data-p="${m.dest.p}" data-q="${m.dest.q}" data-bell="${t.arriveBell}">${icon('play')}${L`戦いを再生`}</button>` : ''}
-      ${m.dest ? html`<button type="button" class="btn small" data-act="goto" data-p="${m.dest.p}" data-q="${m.dest.q}">${L`地図で見る`}</button>` : ''}</div>` : ''}
+      ${m.dest ? html`<button type="button" class="btn small" data-act="goto" data-p="${m.dest.p}" data-q="${m.dest.q}">${L`地図で見る`}</button>` : ''}${keepWay}</div>` : ''}
     ${fold(`m-steps-${slug}`, L`くわしい段階`, html`<ol class="list track-steps">${t.steps.map(s => html`<li class="${s.state}">${STEP_TEXT[s.id]()}${s.state === 'now' ? html` <span class="muted">${L`（いま）`}</span>` : s.state === 'done' ? html` <span class="muted">${L`（済み）`}</span>` : ''}</li>`)}</ol>`)}
     ${t.locked ? fold(`m-lock-${slug}`, L`この軍勢はまだ動かせません`, html`<p class="locked-note" role="note">${lockedText()}</p>`) : ''}
+    ${FS && (FS.mode ?? 'play') === 'play' ? html`<div class="actions march-back"><button type="button" class="btn small quiet" data-act="tab" data-tab="hosts">${L`軍勢の一覧へ`}</button></div>` : ''}
   </li>`;
 }
 
 export function render(FS) {
   const list = FS.marches ?? [];
-  if (!list.length) return html`<section class="vcard" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><p class="muted">${L`進軍中の軍勢はいません`}</p>
+  // (2026-11-17, ⑦: an empty list is "none" only once the marches were read for this viewer, village and world —
+  //  controller readMarches sets FS.marchesRead beside the list. Before that, for a viewer who may have marches, it is
+  //  "not read yet": said as that, and read by the page's ordinary reading)
+  const unread = !list.length && (FS.mode ?? 'play') === 'play' && !!FS.wallet && !FS.marchesRead && (!!FS.citizen || FS.meStatus !== 'ready');
+  if (!list.length) return html`<section class="vcard" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><p class="muted"${unread ? html` role="status" data-read="unread"` : ''}>${unread ? L`進軍の記録をまだ読めていません。進軍がないという意味ではありません。次の読み込みで確かめます。` : L`進軍中の軍勢はいません`}</p>
     <div class="actions"><button type="button" class="btn" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button></div></section>`;
   return html`<section class="bare" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><ul class="marches">${list.map(m => renderMarch(m, FS))}</ul></section>`;
 }

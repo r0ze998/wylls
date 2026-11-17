@@ -888,6 +888,13 @@ pub fn fast_forward(
     build(a, m, d2::FastForward { to, days }.to_bytes().to_vec())
 }
 
+/// 0xC1 ExtendFrontier (D, S1 map growth): `[payer s,w] [season r]
+/// [frontier w]`: raise the season's outermost ring to `d`.
+pub fn extend_frontier(a: &Addresses, payer: Address, d: u16) -> Instruction {
+    let m = vec![ws(payer), r(a.season), w(a.frontier())];
+    build(a, m, d2::ExtendFrontier { d }.to_bytes().to_vec())
+}
+
 /// 0xB8 SeizeStructure (P, the captor): P + `[structure w] [province w]
 /// [host_holding r] [owner_citizen w]`.
 pub fn seize_structure(
@@ -1206,6 +1213,7 @@ mod tests {
                     ],
                 ),
             ),
+            (Ix::ExtendFrontier, extend_frontier(&a, k, 7)),
         ]
     }
 

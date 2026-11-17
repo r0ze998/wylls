@@ -43,6 +43,11 @@ export const TOOLS = Object.freeze([
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'agent_whoami',
+    description: 'Read only: whether this server\'s capability is the agent\'s current one, for which agent and owner, and what the policy allows now. Records nothing.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'agent_act',
     description: 'Ask for one game action for the agent\'s own village. The relay checks it like any other caller (mode, policy version, mode epoch, allowed action, village, budget, on-chain delegation, game rules). Pass the policyVersion and modeEpoch you read with agent_view: a stop or a policy change since then refuses the request. requestId is your retry key: reuse it to retry the same decision (it is never sent twice), use a new one for a new decision.',
     inputSchema: {
@@ -82,8 +87,11 @@ const fail = (code, message, extra = {}) => { const e = { ok: false, error: { co
  * @param {string} [o.herald]    the herald's base URL for world_read
  * @param {Function} [o.fetch]
  */
-export function createAgentMcp({ relay, agentId, capability, herald = null, fetch: f = globalThis.fetch, log = () => {} }) {
+export function createAgentMcp({ relay, agentId, capability, herald = null, fetch: f = globalThis.fetch, log = () => {}, source = 'mcp' }) {
   if (!relay || !agentId || !capability) throw new Error('relay, agentId and capability are required');
+  // Who acts through this server, as the relay records it: 'mcp' (a person's MCP client, the default) or 'ai' (an
+  // operator-run autopilot). Two clients on one agent stay apart in its history and their idempotency keys never meet.
+  if (source !== 'mcp' && source !== 'ai') throw new Error('source must be mcp or ai');
   const base = String(relay).replace(/\/+$/, '');
   const scrub = s => String(s ?? '').split(capability).join('[capability]');
 
@@ -118,9 +126,9 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     if (v.transport) return fail(v.error.code, v.error.message, { retrySameRequestId: true });
     if (v.status !== 200) return fail(v.json?.code ?? 'RelayError', scrub(v.json?.error ?? `HTTP ${v.status}`));
     const request = {
-      agentId, source: 'mcp',
+      agentId, source,
       // Deterministic: the same requestId is the same idempotency key across retries and restarts of this server.
-      idempotencyKey: `mcp:${args.requestId}`,
+      idempotencyKey: `${source}:${args.requestId}`,
       policyVersion: args.policyVersion, modeEpoch: args.modeEpoch,
       ...(typeof args.reason === 'string' ? { reason: args.reason.slice(0, 200) } : {}),
       action: { name: args.action.name, holding: v.json.village, fields: args.action.fields ?? {} },
@@ -154,7 +162,14 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     return ok(r.json);
   }
 
-  const tools = { agent_view: view, agent_terms: terms, agent_act: act, world_read: world };
+  async function whoami() {
+    const r = await http('POST', `${base}/f/agent/whoami`, { agentId, capability });
+    if (r.transport) return fail(r.error.code, r.error.message);
+    if (r.status !== 200) return fail(r.json?.code ?? 'RelayError', scrub(r.json?.error ?? `HTTP ${r.status}`));
+    return ok(r.json);
+  }
+
+  const tools = { agent_view: view, agent_terms: terms, agent_whoami: whoami, agent_act: act, world_read: world };
 
   /** One JSON-RPC message → the response object (or null for a notification). */
   async function handle(msg) {

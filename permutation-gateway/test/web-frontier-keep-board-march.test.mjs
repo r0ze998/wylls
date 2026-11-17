@@ -120,14 +120,16 @@ test('what the page hands the map: a conquest season\'s keep events and the view
   assert.equal(mountKeepBoard({ map: {} }), null);
   // app.mjs has the one block
   const app = readFileSync(new URL('app.mjs', WEB), 'utf8');
-  assert.equal(app.match(/mountKeepBoard\(\{ map \}\)/g)?.length, 1);
+  // (2026-11-14: the board also gets the page's own herald reader for the battle reports; web-frontier-clash-origin.test.mjs)
+  assert.equal(app.match(/mountKeepBoard\(\{ map, clash: \(p, q, bell\) => herald\.clash\(p, q, bell\) \}\)/g)?.length, 1);
   assert.match(app, /\/\/ >>> keep-board[\s\S]{0,600}\/\/ <<< keep-board/);
 });
 
 test('the map\'s own hooks for the hand: setKeepReach, keepAt, flyToKeep', () => {
   const fmap = readFileSync(new URL('map/fmap.mjs', WEB), 'utf8');
   assert.match(fmap, /setKeepReach\(list = null\) \{ return this\.keeps\.setReach\(list, \{ own: true \}\); \}/);
-  assert.match(fmap, /keepAt\(clientX, clientY\) \{/);
+  // (18823ad2: keepAt also takes `{scan, stats}` — a full projection scan and counters — defaulting to the indexed look-up)
+  assert.match(fmap, /keepAt\(clientX, clientY, \{ scan = false, stats = null \} = \{\}\) \{/);
   assert.match(fmap, /flyToKeep\(at\) \{/);
   // a press on a keep's walls is a press on its tile, and goes on to the page (it is never swallowed)
   assert.match(fmap, /hit = \{ tileQ: h\.q, tileR: h\.r, p: k\.p, q: k\.q, idx: k\.tile, keep: \{ p: k\.p, q: k\.q, reachable: !!it\.reachable \} \};\s+\}\s+this\.onSelect\(hit\);/);

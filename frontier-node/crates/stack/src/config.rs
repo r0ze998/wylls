@@ -151,6 +151,18 @@ pub struct StackConfig {
     /// fast-forwarded when woken instead of written every turn;
     /// `docs/frontier/map-growth/keeper-load-rules.ja.md`). Off by default.
     pub keeper_rest: bool,
+    /// Map growth, a local candidate: keeper A writes `extend = true` and
+    /// sends ExtendFrontier when the season's `r_max_ceiling` allows it
+    /// (keeper cap: ring 17, the prize program's). Off by default.
+    pub keeper_extend: bool,
+    /// Map growth: the season's `r_max_ceiling` (`--r-max-ceiling N`,
+    /// `--conquest` only; above `r_max`, at most 128; with `--prize-so` at
+    /// most 17, the pool's tally). Unset: 0, the preset (no extension).
+    pub r_max_ceiling: Option<u16>,
+    /// First-home placement (`--placement N`, `--conquest` only): 0 the
+    /// wedge rule, 1 dispersed small groups (`geometry::home_nation`). Unset:
+    /// the preset's (0).
+    pub placement: Option<u8>,
     /// Test-asset prize pool: the permutation-prize build to deploy next to
     /// the game (scripts/build-prize.sh). With it the season's join gate is
     /// a key the relay holds, a test mint and the season's pool are created,
@@ -239,12 +251,18 @@ pub struct StackConfig {
     pub pause_at_end: bool,
     /// Send EndSeason once `end_bell` is over (a run that reaches it).
     pub end_season: bool,
+    /// Tracks an explicit TOML request so a later `--continuous` cannot
+    /// silently override a requested EndSeason.
+    pub end_season_requested: bool,
     /// Where run directories live (default `frontier-node/.local/frontier`).
     pub runs_dir: Option<PathBuf>,
     /// W6T-4: CreateSeason gets `end_bell` = the play bells (and
     /// `join_close_bell` scaled below it), so a 1- or 2-day run reaches
     /// `end_bell`, EndSeason and the drain (`--season-end-at-play-end`).
     pub season_end_at_play_end: bool,
+    /// A new S1 world with no time-based end or join deadline. The local
+    /// run still has a bounded play window; it does not settle a prize pool.
+    pub continuous: bool,
     /// Keeper B's `backup_delay_slots` (W6T-2: settles wait this long and
     /// re-read before sending); written only to a keeper that knows the key.
     pub keeper_b_backup_delay_slots: u32,
@@ -291,6 +309,9 @@ impl Default for StackConfig {
             ring_theta_bps: None,
             r_max: None,
             keeper_rest: false,
+            keeper_extend: false,
+            r_max_ceiling: None,
+            placement: None,
             prize_so: None,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
@@ -337,8 +358,10 @@ impl Default for StackConfig {
             viewer_window_hours: 24.0,
             pause_at_end: true,
             end_season: true,
+            end_season_requested: false,
             runs_dir: None,
             season_end_at_play_end: false,
+            continuous: false,
             keeper_b_backup_delay_slots: 8,
             viewer_think_ms: 5_000,
             viewer_follow_status: true,
@@ -359,6 +382,15 @@ fn theta_bps(v: u64) -> Result<u16, String> {
 
 /// `--r-max` / `r_max`: the program's hard maximum (the season's own
 /// validation also wants it above the genesis ring).
+/// `--placement`: 0 (wedge) or 1 (dispersed), as the preset validation.
+fn placement(v: u64) -> Result<u8, String> {
+    if v <= 1 {
+        Ok(v as u8)
+    } else {
+        Err(format!("placement {v}: 0 (wedge) or 1 (dispersed)"))
+    }
+}
+
 fn r_max(v: u64) -> Result<u16, String> {
     if (1..=128).contains(&v) {
         Ok(v as u16)
@@ -449,6 +481,15 @@ impl StackConfig {
         }
         if let Some(v) = b!("keeper_rest") {
             c.keeper_rest = v;
+        }
+        if let Some(v) = b!("keeper_extend") {
+            c.keeper_extend = v;
+        }
+        if let Some(v) = i!("r_max_ceiling") {
+            c.r_max_ceiling = Some(r_max(v as u64)?);
+        }
+        if let Some(v) = i!("placement") {
+            c.placement = Some(placement(v as u64)?);
         }
         if let Some(v) = s!("prize_so") {
             c.prize_so = Some(v.into());
@@ -625,6 +666,12 @@ impl StackConfig {
         if let Some(v) = b!("season_end_at_play_end") {
             c.season_end_at_play_end = v;
         }
+        if let Some(v) = b!("continuous") {
+            c.continuous = v;
+            if v {
+                c.end_season = false;
+            }
+        }
         if let Some(v) = i!("keeper_b_backup_delay_slots") {
             c.keeper_b_backup_delay_slots =
                 u32::try_from(v).map_err(|_| "`keeper_b_backup_delay_slots` too large")?;
@@ -634,6 +681,7 @@ impl StackConfig {
         }
         if let Some(v) = b!("end_season") {
             c.end_season = v;
+            c.end_season_requested = v;
         }
         let _ = &mut take;
         if let Some(k) = m.keys().next() {
@@ -681,6 +729,19 @@ impl StackConfig {
         if !(self.scale > 0.0 && self.scale <= 100_000.0) {
             return Err("scale in (0, 100000]".into());
         }
+        if self.continuous {
+            if !self.conquest {
+                return Err("--continuous needs --conquest (S1 world)".into());
+            }
+            if self.season_end_at_play_end || self.end_season || self.end_season_requested {
+                return Err("--continuous: the world cannot have a season end".into());
+            }
+            if self.prize_so.is_some() {
+                return Err(
+                    "--continuous: the legacy end-of-season prize pool is unavailable".into(),
+                );
+            }
+        }
         if self.prize_so.is_some() {
             if !self.conquest {
                 return Err("--prize-so: the prize pool tallies keeps (needs --conquest)".into());
@@ -692,6 +753,18 @@ impl StackConfig {
             if self.r_max.is_some_and(|r| r > 17) {
                 return Err("--prize-so: the prize pool takes --r-max ≤ 17".into());
             }
+            // Map growth: InitPool refuses a ceiling past its tally too.
+            if self.r_max_ceiling.is_some_and(|r| r > 17) {
+                return Err("--prize-so: the prize pool takes --r-max-ceiling ≤ 17".into());
+            }
+        }
+        if self.placement.is_some() && !self.conquest {
+            return Err(
+                "--placement: first-home placement is an S1 season's (needs --conquest)".into(),
+            );
+        }
+        if self.r_max_ceiling.is_some() && !self.conquest {
+            return Err("--r-max-ceiling: map growth is an S1 season's (needs --conquest)".into());
         }
         if !(self.preseason_scale > 0.0 && self.preseason_scale <= 100_000.0) {
             return Err("preseason_scale in (0, 100000]".into());
@@ -778,6 +851,16 @@ impl StackConfig {
         self.season_end_at_play_end.then(|| self.play_bells())
     }
 
+    /// A continuous world has no post-play EndSeason drain. The bounded
+    /// local run ends after play without changing the world's end gate.
+    pub fn run_drain_bells(&self) -> u32 {
+        if self.continuous {
+            0
+        } else {
+            self.drain_bells
+        }
+    }
+
     /// The viewers' recovery budget: the configured one, else the chaos
     /// restart maximum in wall time at the run's scale plus 2 s (a herald
     /// kill -9 is back within it; §13.4 A3).
@@ -818,6 +901,10 @@ impl StackConfig {
         v["ring_theta_bps"] = json!(self.ring_theta_bps);
         v["r_max"] = json!(self.r_max);
         v["keeper_rest"] = json!(self.keeper_rest);
+        v["continuous"] = json!(self.continuous);
+        v["keeper_extend"] = json!(self.keeper_extend);
+        v["r_max_ceiling"] = json!(self.r_max_ceiling);
+        v["placement"] = json!(self.placement);
         v
     }
 
@@ -949,6 +1036,8 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
             "ring-theta-bps" => c.ring_theta_bps = Some(theta_bps(count(k, v)?)?),
             "r-max" => c.r_max = Some(r_max(count(k, v)?)?),
+            "r-max-ceiling" => c.r_max_ceiling = Some(r_max(count(k, v)?)?),
+            "placement" => c.placement = Some(placement(count(k, v)?)?),
             "prize-so" => c.prize_so = Some(need(k, v)?.into()),
             "entry-fee" => c.entry_fee = count(k, v)?,
             "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
@@ -991,6 +1080,10 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "viewer-start-hours" => c.viewer_start_hours = num(k, v)?.max(0.0),
             "keep-running" => c.pause_at_end = false,
             "conquest" => c.conquest = true,
+            "continuous" => {
+                c.continuous = true;
+                c.end_season = false;
+            }
             "s1" => {
                 c.conquest = true;
                 c.s1 = true;
@@ -1001,6 +1094,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "runs-dir" => c.runs_dir = Some(need(k, v)?.into()),
             "season-end-at-play-end" => c.season_end_at_play_end = true,
             "keeper-rest" => c.keeper_rest = true,
+            "keeper-extend" => c.keeper_extend = true,
             "no-season-end-at-play-end" => c.season_end_at_play_end = false,
             "chaos-force" => c.chaos_force.push(parse_force(&need(k, v)?)?),
             "viewer-think-ms" => c.viewer_think_ms = count(k, v)?,
@@ -1026,6 +1120,7 @@ pub const SWITCHES: &[&str] = &[
     "keep-running",
     "start-paused",
     "conquest",
+    "continuous",
     "s1",
     "no-keeper-b",
     "eager-bots",
@@ -1033,6 +1128,7 @@ pub const SWITCHES: &[&str] = &[
     "season-end-at-play-end",
     "no-season-end-at-play-end",
     "keeper-rest",
+    "keeper-extend",
     "no-viewer-follow-status",
     "json",
     "strict",
@@ -1065,6 +1161,44 @@ pub fn split_flags(args: &[String]) -> Result<Vec<(String, Option<String>)>, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuous_world_refuses_legacy_end_and_prize_settings() {
+        let finite = StackConfig::default();
+        assert!(!finite.continuous);
+        assert!(finite.end_season);
+
+        let mut cfg = StackConfig::default();
+        let flags = split_flags(&["--conquest", "--continuous"].map(String::from)).unwrap();
+        apply_flags(&mut cfg, &flags).unwrap();
+        assert!(cfg.continuous);
+        assert!(!cfg.end_season);
+        assert_eq!(cfg.season_end_bell(), None);
+        assert_eq!(cfg.run_drain_bells(), 0);
+        assert_eq!(cfg.to_json()["continuous"], true);
+
+        let toml = StackConfig::from_toml("conquest = true\ncontinuous = true\n").unwrap();
+        assert!(toml.continuous && !toml.end_season);
+        assert!(StackConfig::from_toml("continuous = true\n").is_err());
+        assert!(StackConfig::from_toml(
+            "conquest = true\ncontinuous = true\nseason_end_at_play_end = true\n"
+        )
+        .is_err());
+        assert!(
+            StackConfig::from_toml("conquest = true\ncontinuous = true\nend_season = true\n")
+                .is_err()
+        );
+        let mut prior_end = StackConfig::from_toml("conquest = true\nend_season = true\n").unwrap();
+        assert!(apply_flags(
+            &mut prior_end,
+            &split_flags(&["--continuous".to_string()]).unwrap()
+        )
+        .is_err());
+        assert!(StackConfig::from_toml(
+            "conquest = true\ncontinuous = true\nprize_so = \"legacy.so\"\n"
+        )
+        .is_err());
+    }
 
     /// The prize pool is an option of a conquest world without bots: its
     /// fee defaults to the owner's 25 test USDC and stays a parameter.
@@ -1340,5 +1474,21 @@ mod tests {
         let f = split_flags(&["--keeper-rest"].map(String::from)).unwrap();
         apply_flags(&mut c, &f).unwrap();
         assert_eq!(c.to_json()["keeper_rest"], json!(true));
+        // --keeper-extend and --r-max-ceiling: off / unset by default
+        assert!(!c.keeper_extend && c.r_max_ceiling.is_none());
+        let f =
+            split_flags(&["--keeper-extend", "--r-max-ceiling", "8"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.to_json()["keeper_extend"], json!(true));
+        assert_eq!(c.to_json()["r_max_ceiling"], json!(8));
+        let f = split_flags(&["--r-max-ceiling", "129"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+        // --placement: unset by default, 0 or 1 only
+        assert!(c.placement.is_none());
+        let f = split_flags(&["--placement", "1"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.to_json()["placement"], json!(1));
+        let f = split_flags(&["--placement", "2"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
     }
 }

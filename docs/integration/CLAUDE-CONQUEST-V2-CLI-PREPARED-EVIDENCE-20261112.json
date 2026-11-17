@@ -1,0 +1,383 @@
+{
+  "budget": {
+    "cu_limit": 1000000,
+    "heap": 262144,
+    "loaded_limit": 67108864
+  },
+  "byte_identical_to_builder": true,
+  "loaded_size_measured": 4502508,
+  "message_b64": "AQAHDbRIBy9GxmUMiOBt2I/B583undQqnTxsOKedhu7iN5A5C3qpdZqwqCNxTBN8BlvDoCfo+ohgHlhu5qW06LaZcJeK6X86GwaC1TawH07GWLn2gQes1X8p7fniMCRt5EQCL64GkJYxqiMq7pe7hY/2LajuWzybc3ksbmQya8JPHkgu2E8eJcWRP546EoimdOd+uD5AgWtMxivN2f/x+SC+z3zf7FnwR8mOOWIGmNOFjgAKSkKmYmL/PG23Wa93sOpl4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAAAvS3nA/laOKuGoq6Cc+M11lIlMHrs9bh4gvlHWm4XTKUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFZWm+/0VDvfgJEyk12TMewvs082c6kViDYa/9mgVFGcWDYsbSGsaa5QWX+nYuaABCXc6LDuVvuKR1c9Jss+uDs4QPrswqsl65qgL/BOSN7HwF3exLoF/9A0T7FvE1oLnhfAZ/Cw/4eDWOCAhGj2TxA8eOv3OgrpvERAQXWwjOfx0FBwAFAkBCDwAHAAkDAAAAAAAAAAAHAAUEAAAABAcABQEAAAQACQwAAAoBAwUMCAsCBAYK2v8CDNr/AQUBAA==",
+  "message_digest": "f36e854f537131e2d1790f3a77ef9ef92f0582fca3f1ad7e8c2ceabf33b15bbc",
+  "prepare_cli": {
+    "exit": 0,
+    "path": "${SCRATCHPAD}/target-cli-reservation/debug/frontier-experimental-conquest-prepare",
+    "report": {
+      "admitted": false,
+      "automatic_send": false,
+      "blocker": null,
+      "blockhash": {
+        "authority_verified": false,
+        "block_height": "774",
+        "coherent": false,
+        "commitment": "confirmed",
+        "hash": "9M9JPhKUX2FHHnHfuUPKT9Edz66SobsS9LsrMTm2JURi",
+        "height_min_context_slot": "774",
+        "last_valid_block_height": "924",
+        "latest_context_slot": "774",
+        "remaining_block_heights": "150",
+        "valid": true,
+        "validity_context_slot": "774"
+      },
+      "deployment_verified": false,
+      "enqueued": false,
+      "host_only": true,
+      "prepared": {
+        "action": "DeclareSiege",
+        "budget": {
+          "cu_limit": 1000000,
+          "cu_price": "0",
+          "heap": 262144,
+          "loaded_limit": 67108864
+        },
+        "dispatch": {
+          "kind": 12,
+          "tag": 218
+        },
+        "fee_payer": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4",
+        "instruction_hex": "daff020cdaff01050100",
+        "message_b64": "AQAHDbRIBy9GxmUMiOBt2I/B583undQqnTxsOKedhu7iN5A5C3qpdZqwqCNxTBN8BlvDoCfo+ohgHlhu5qW06LaZcJeK6X86GwaC1TawH07GWLn2gQes1X8p7fniMCRt5EQCL64GkJYxqiMq7pe7hY/2LajuWzybc3ksbmQya8JPHkgu2E8eJcWRP546EoimdOd+uD5AgWtMxivN2f/x+SC+z3zf7FnwR8mOOWIGmNOFjgAKSkKmYmL/PG23Wa93sOpl4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAAAvS3nA/laOKuGoq6Cc+M11lIlMHrs9bh4gvlHWm4XTKUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFZWm+/0VDvfgJEyk12TMewvs082c6kViDYa/9mgVFGcWDYsbSGsaa5QWX+nYuaABCXc6LDuVvuKR1c9Jss+uDs4QPrswqsl65qgL/BOSN7HwF3exLoF/9A0T7FvE1oLnhfAZ/Cw/4eDWOCAhGj2TxA8eOv3OgrpvERAQXWwjOfx0FBwAFAkBCDwAHAAkDAAAAAAAAAAAHAAUEAAAABAcABQEAAAQACQwAAAoBAwUMCAsCBAYK2v8CDNr/AQUBAA==",
+        "message_digest": "f36e854f537131e2d1790f3a77ef9ef92f0582fca3f1ad7e8c2ceabf33b15bbc",
+        "program": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn",
+        "program_version": "18436",
+        "roles": [
+          {
+            "address": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4",
+            "name": "actor",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4",
+            "name": "payer",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "7pshbHEvHUftsEcrGUPb9FoVXWmV1gEs1R1cZCGXjSCt",
+            "name": "season",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "moy7m23MC8kFPPxQAgY2TJREhCWC8RzF57mcc59uFYz",
+            "name": "citizen",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "CiKkELsLccZjQepUouttjDX9yDGGVBogbhjSfsHcuSbf",
+            "name": "source_holding",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "G56wvQEztph3bfY17D98R3uVMqFxFKitdvGBm3oz5U3q",
+            "name": "target_province",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "9tWgntXb9ipEXApStMuFVNcgzQbrtvb9ukR3k7oM2jfv",
+            "name": "target_roster",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "4Bcuwf3GoigLWNWmPMnCTHs26bi4SLzV6r7MT9d4rYik",
+            "name": "source_province",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "9qsmV6ELyZp7nLyb26BB1GkYZjhqrk59YfLQyMjhj8e6",
+            "name": "target_holding_position",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "AMFmZErViyRW3i5kMH5akqvcsbDXsRyNBM6YGZPcW2Ea",
+            "name": "conquest",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "FZP32J8yHzF1CALLJRJ5DS8D7P5FPXKStLtcRaadxP3y",
+            "name": "capture_escrow",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "name": "system",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "season": "7pshbHEvHUftsEcrGUPb9FoVXWmV1gEs1R1cZCGXjSCt",
+        "shape": {
+          "bytes": 579,
+          "locks": 13,
+          "sigs": 1,
+          "writes": 6
+        },
+        "signers": [
+          "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4"
+        ]
+      },
+      "ready": false,
+      "relay_submission_available": false,
+      "request": {
+        "action": "DeclareSiege",
+        "request_id": "v2-route-run",
+        "schema": "frontier-local-play-conquest-prepare-request-v1",
+        "source_context_slot": "774",
+        "source_request": {
+          "cluster": "localnet",
+          "deployment": {
+            "program_version": "18436",
+            "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+          },
+          "host": "01c125eafbbe1563c4fde011a2e0a72b7f240480b0d65cf87d0c7a0c1bda24e5f70000000000000080000000000000000000000200000000",
+          "min_slot": "774",
+          "operation": "inspect",
+          "original_owner": "moy7m23MC8kFPPxQAgY2TJREhCWC8RzF57mcc59uFYz",
+          "payer": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4",
+          "program": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn",
+          "schema": "frontier-original-expedition-request-v1",
+          "season": "7pshbHEvHUftsEcrGUPb9FoVXWmV1gEs1R1cZCGXjSCt",
+          "standing": {
+            "p": "129",
+            "q": "0"
+          },
+          "wallet": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4"
+        },
+        "source_snapshot_digest": "a6c144355e0eb227bf9ea073d271420400444262aae4222cdaebcd4867b19e9e",
+        "target": {
+          "entry": 0,
+          "site": 1
+        }
+      },
+      "schema": "frontier-local-play-conquest-prepare-report-v1",
+      "signed": false,
+      "source": {
+        "authority_verified": false,
+        "coherent": true,
+        "context_slot": "774",
+        "digest": "7022afe82d52cbb55df3807968d3381fc84621a217520684566d34278ad884db",
+        "request_digest": "b5447a9bcbe2010f6a92d19e0dd5ee4ab2b94719611ea2a227387437aaa39724"
+      },
+      "status": "prepared"
+    },
+    "sha256": "3a7d796fe7900dd036716f2d405e8c45cd64e78bf960e4dcb024867d873d2eb3"
+  },
+  "preview_cli": {
+    "exit": 0,
+    "path": "${SCRATCHPAD}/target-cli-reservation/debug/frontier-original-expedition-preview",
+    "report": {
+      "admitted": false,
+      "automatic_send": false,
+      "blocker": null,
+      "completion_proven": false,
+      "dispatch_available": false,
+      "draft": {
+        "action": "Dissolve",
+        "admitted": false,
+        "dispatch_available": false,
+        "kind": "closed-resident-role-draft",
+        "roles": [
+          {
+            "address": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4",
+            "name": "actor",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4",
+            "name": "payer",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "7pshbHEvHUftsEcrGUPb9FoVXWmV1gEs1R1cZCGXjSCt",
+            "name": "season",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "moy7m23MC8kFPPxQAgY2TJREhCWC8RzF57mcc59uFYz",
+            "name": "citizen",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "CiKkELsLccZjQepUouttjDX9yDGGVBogbhjSfsHcuSbf",
+            "name": "holding",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "G56wvQEztph3bfY17D98R3uVMqFxFKitdvGBm3oz5U3q",
+            "name": "standing",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "9tWgntXb9ipEXApStMuFVNcgzQbrtvb9ukR3k7oM2jfv",
+            "name": "roster",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "4Bcuwf3GoigLWNWmPMnCTHs26bi4SLzV6r7MT9d4rYik",
+            "name": "home",
+            "signer": false,
+            "writable": false
+          }
+        ]
+      },
+      "draft_blocker": null,
+      "enqueued": false,
+      "facts": {
+        "accounts": {
+          "original_holding": "CiKkELsLccZjQepUouttjDX9yDGGVBogbhjSfsHcuSbf",
+          "original_home": "4Bcuwf3GoigLWNWmPMnCTHs26bi4SLzV6r7MT9d4rYik",
+          "owned_bridges": [
+            "3R33TZEQoS3HSZDtiw9YrRgU3TBo7EBNtuk4npWx5Hxe",
+            "2Fwo6VFu1i7SSpjsgubVSwY7SBE3FJqez5GX78K5x1rR",
+            "HJB3nDhZjuCYoBd1F33rjWHkxzkCDVU6ogseiFCEdR6F",
+            "4c77MDpoJUdjmYvM3DdLtSYxez7Y1dtLV4vsubae2Nxj"
+          ],
+          "wide_roster": "9tWgntXb9ipEXApStMuFVNcgzQbrtvb9ukR3k7oM2jfv",
+          "wide_standing": "G56wvQEztph3bfY17D98R3uVMqFxFKitdvGBm3oz5U3q"
+        },
+        "admitted": false,
+        "automatic_send": false,
+        "clock": {
+          "bell": "20",
+          "slot": "774",
+          "status_promoted_by_clock": false,
+          "unix_timestamp": "1785548642"
+        },
+        "coherent": true,
+        "completion_proven": false,
+        "context_slot": "774",
+        "denials": [
+          "OriginalHostDispatchUnavailable",
+          "SourceProvenanceUnverified",
+          "HistoryUnverified",
+          "ExecutionEvidenceUnverified",
+          "SignerAbsent",
+          "SliceDoesNotEnqueue",
+          "WalletAuthorizationAndPlayerPrologueUnverified",
+          "SnapshotCurrencyUnknown"
+        ],
+        "dispatch_available": false,
+        "enqueued": false,
+        "history_verified": false,
+        "host": "01c125eafbbe1563c4fde011a2e0a72b7f240480b0d65cf87d0c7a0c1bda24e5f70000000000000080000000000000000000000200000000",
+        "instruction": null,
+        "key": "original-expedition-review:01c125eafbbe1563c4fde011a2e0a72b7f240480b0d65cf87d0c7a0c1bda24e5f70000000000000080000000000000000000000200000000:01c125eafbbe1563c4fde011a2e0a72b7f240480b0d65cf87d0c7a0c1bda24e5f70000000000000081000000000000000000:moy7m23MC8kFPPxQAgY2TJREhCWC8RzF57mcc59uFYz",
+        "kind": "original-expedition-review",
+        "min_slot": "774",
+        "next_prerequisite": "OwnerDissolve",
+        "observed": {
+          "entry": 0,
+          "kind": "original-host-wide-resident",
+          "pending_bell": "0",
+          "reserve_after": null,
+          "resolved_next": "19",
+          "return_units": null,
+          "state": 1,
+          "troops_milli": "2962565",
+          "unit": 2
+        },
+        "original_owner": "moy7m23MC8kFPPxQAgY2TJREhCWC8RzF57mcc59uFYz",
+        "provenance_verified": false,
+        "signed": false,
+        "standing_key": "01c125eafbbe1563c4fde011a2e0a72b7f240480b0d65cf87d0c7a0c1bda24e5f70000000000000081000000000000000000",
+        "tag": null
+      },
+      "history_verified": false,
+      "request_digest": "b5447a9bcbe2010f6a92d19e0dd5ee4ab2b94719611ea2a227387437aaa39724",
+      "schema": "frontier-original-expedition-preview-v1",
+      "scope": {
+        "cluster": "localnet",
+        "deployment": {
+          "program_version": "18436",
+          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+        },
+        "host": "01c125eafbbe1563c4fde011a2e0a72b7f240480b0d65cf87d0c7a0c1bda24e5f70000000000000080000000000000000000000200000000",
+        "min_slot": "774",
+        "operation": "inspect",
+        "original_owner": "moy7m23MC8kFPPxQAgY2TJREhCWC8RzF57mcc59uFYz",
+        "payer": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4",
+        "program": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn",
+        "schema": "frontier-original-expedition-request-v1",
+        "season": "7pshbHEvHUftsEcrGUPb9FoVXWmV1gEs1R1cZCGXjSCt",
+        "standing": {
+          "p": "129",
+          "q": "0"
+        },
+        "wallet": "D8k65dVGe742uwDJ7sZPVTmN2AxeATYePRL3Uc8YKrE4"
+      },
+      "signed": false,
+      "source": {
+        "authority_verified": false,
+        "coherent": true,
+        "complete_world_view": false,
+        "context_slot": "774",
+        "digest": "a6c144355e0eb227bf9ea073d271420400444262aae4222cdaebcd4867b19e9e",
+        "freshness": "unknown",
+        "kind": "single_snapshot_source",
+        "read_calls": "1",
+        "single_response": true
+      },
+      "stage": "plan",
+      "status": "preview"
+    },
+    "sha256": "cd787bf0ee4f46442eff5676fe3a6ca3874dfeae68a0537b4aba5878799a8c09"
+  },
+  "program_account_data_len": 36,
+  "schema": "claude-conquest-v2-cli-prepared-evidence-v1",
+  "snapshot": {
+    "citizen": {
+      "address": "moy7m23MC8kFPPxQAgY2TJREhCWC8RzF57mcc59uFYz",
+      "bytes": 384,
+      "data_base64": "UFNGMUNJVFoLAAAAAAAAAAIAAAAAAAAAAQAAAAAAAAA6X9ZZEq8bOXa5zvtNsoy+R1zsPQ/8s1xm5cDJR3b0w7RIBy9GxmUMiOBt2I/B583undQqnTxsOKedhu7iN5A5AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlAQAAAAAAAQAAAAAAAAAAAAAAAAAAAHjmAAATGgAAgAAAAAACAAAAAAD/AAAAAAD/AAD/////AAAAAAAAAAAAAAAAAAAAAAt6qXWasKgjozltagAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "executable": false,
+      "lamports": 10000000000,
+      "owner": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn"
+    },
+    "conquest_table": {
+      "absent": true,
+      "address": "AMFmZErViyRW3i5kMH5akqvcsbDXsRyNBM6YGZPcW2Ea"
+    },
+    "province": {
+      "address": "G56wvQEztph3bfY17D98R3uVMqFxFKitdvGBm3oz5U3q",
+      "bytes": 4864,
+      "data_base64": "UFNGWFdQVjELAAAAAAAAAAMAAAAAAAAACQAAAAAAAADPQgdHhC6dyPtCGrMByFE2YSRRwkYOmlq+/4GT/8MNzQAAAAAAAAAIEwAAAAsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAEAAAADAwEBAQMDAAABAQMDAwIAAAECAgMCAgIAAQICAgICAgIAAQICAgICAgIAAgICAgICAgICAgIDAgICAgMDAAAAAAAAAAAAAAEAAAAAAAABAAAAAAAAAAMAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAACYKGQ4SFxwjKCwxNAwA/////////x9jePz8+fv/HwAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAD/////AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABQYAAAAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAP////8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAD/////AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAP////8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAD/////AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAP////8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAD/////AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAP////8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB6eciLehQaywACCgGFNC0AMgAQJxAAAAASAAAAEQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASAAAAAAAAAAAAAAC6CZn0iDCmnQAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/wBIAAAAZAAAAAsAAAAAAAAAAAAAAAAAAAD/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAABzAAAAAwAAAAAAAAAAAAAAAAAAAGQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAEPwSXq+74VY8T94BGi4KcrfyQEgLDWXPh9DHoMG9ok5fcAAAAAAAAAgQAAAAAAAAAAAAAAANGy1wEAAAAAJj1CcB0v+/iSof/2RVtCE6TNkWkAWGF39kYw/BtJpM0A9IIBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "executable": false,
+      "lamports": 25359360,
+      "owner": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn"
+    },
+    "reservation_bell": 20,
+    "slot": 774,
+    "stage": "cli_prepared_before_send",
+    "target_holding": {
+      "absent": true,
+      "address": "9qsmV6ELyZp7nLyb26BB1GkYZjhqrk59YfLQyMjhj8e6"
+    },
+    "unix_timestamp": 1785548642
+  },
+  "synthetic": "memory-only test chain; SYNTHETIC initial state; not natural play; written BEFORE simulate/send"
+}

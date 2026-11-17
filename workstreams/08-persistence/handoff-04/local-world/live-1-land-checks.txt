@@ -1,0 +1,38 @@
+== status
+{'foldBell': 9, 'genesisRing': 4, 'nextExtend': 'AtCeiling', 'nextRing': 'AtMax', 'prizeMaxRing': 17, 'provincesOpened': 217, 'rMax': 8, 'rMaxCeiling': 8, 'rMaxExt': 8, 'rMaxHard': 128, 'rMaxSeason': 5, 'ringsOpened': 9, 'thetaBps': 0}
+== extend (next = 9, past ceiling 8)
+ExtendFrontier(9)
+operator transaction 4BmXhn8hk3JDCsUyvJhy6DMLZtpSdyoJEqr9pDgNeUCP1976g6G8sBBA1UKjyqb5Gz1nR8z7AnYhhtCD3o9H5UTq failed: {"InstructionError":[3,{"Custom":1}]} (code Some(1))
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ByohdhxRPUroTsMe2vRqj41Nk7poCtvStSHp6n5LYTqZ failed: custom program error: 0x1
+exit=1
+== extend --at 8 (already inside)
+ExtendFrontier(8)
+operator transaction Roxs6t3DoiFgfCgShZZeyTspsrQcRnpuXiu4uHfQGZhZQKjGwpes4NNRnyacsc72ZR79n4K7KD3rCDMzXtg4PhK failed: {"InstructionError":[3,{"Custom":52}]} (code Some(52))
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ByohdhxRPUroTsMe2vRqj41Nk7poCtvStSHp6n5LYTqZ failed: custom program error: 0x34
+== open-ring 9
+OpenRing(9)
+operator transaction JbXGri2YV4iHeEU9qZHzqRS4aATo98DjLkSgPgTYwvycpwgLbrcsWAzx8YAYXefT6Rrfnc6RBkLCcMzbrKWaaXf failed: {"InstructionError":[3,{"Custom":1}]} (code Some(1))
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ByohdhxRPUroTsMe2vRqj41Nk7poCtvStSHp6n5LYTqZ failed: custom program error: 0x1
+== open-province (9,0)
+OpenProvince(9,0) (ring 9)
+operator transaction 5gjih8ZkfA454fsLsySNb7xTUXoJqg6vsen5cN1Uv4eVMjwXBvy7SX6kzV7NXLzee6APpRK3BfQo1NUHPeGhrKtm failed: {"InstructionError":[3,{"Custom":1}]} (code Some(1))
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ByohdhxRPUroTsMe2vRqj41Nk7poCtvStSHp6n5LYTqZ failed: custom program error: 0x1
+== open-province (8,0) again
+OpenProvince(8,0) (ring 8)
+operator transaction 37crv7zNoGJQ4NWCseQHXHgVYVwtqur14xSA6L4p46v4mDeDojGDRqoSmmfTqam34SA6NHgEABUVuEdViuMbSHpN failed: {"InstructionError":[3,{"Custom":52}]} (code Some(52))
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ComputeBudget111111111111111111111111111111 success
+Program ByohdhxRPUroTsMe2vRqj41Nk7poCtvStSHp6n5LYTqZ failed: custom program error: 0x34

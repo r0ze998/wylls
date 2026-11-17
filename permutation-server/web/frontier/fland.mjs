@@ -6,9 +6,9 @@
 // does, queue, reserve, transits, dormancy), the hosts of a holding, and
 // what each resident action needs before it is sent. Pure functions over
 // decoded accounts; the program decides every action.
-import { TRAIN_ARMS_PER_100, WORKSHOP, s1On } from './fs1.mjs';
+import { TRAIN_ARMS_PER_100, WORKSHOP, s1On, seasonBase } from './fs1.mjs';
 import { rent } from '../sdk/frontier/fees.mjs';
-import { ringOf, wedgeOf, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
+import { ringOf, wedgeOf, homeNation, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
 import { ACCOUNTS } from './abi.mjs';
 import { hostParts } from './faddr.mjs';
 import { bellStart, bellEnd } from './clock.mjs';
@@ -134,13 +134,40 @@ export function freeByWedge(overviews) {
   return out;
 }
 
+/**
+ * Free sites per nation from the ring overviews, under the season's first-home placement (home.mjs seasonPlace;
+ * fgeo homeNation, the rule the home planner reads): what the nation choice shows a player. Without a placement, or
+ * under placement 0, the same six numbers as `freeByWedge` (the wedge is the nation's land). Under the dispersed
+ * placement a province counts for the nation whose first homes it takes, so a nation's number is its scattered
+ * provinces', not its wedge's. A placement the page cannot read (placement 1 without its 32-byte seed, or one the
+ * page does not know) gives null: the count is unavailable, never zero and never the wedge's. The same upper bound
+ * as `freeByWedge`; `freeByWedge` itself stays the program's per-wedge accounting (the §5.9 overflow rule).
+ * `ringsOpen`: the rings a first village may be placed in (home.mjs homeRingsOpen: the open rings, no further than
+ * the heartland on a v2 Season); rings from it on are left out of the count, under either rule. Unbounded by default.
+ */
+export function freeByNation(overviews, place = undefined, { ringsOpen = Infinity } = {}) {
+  const within = ov => ov?.provinces && ov.ring >= FIRST_TICKET_RING && ov.ring < ringsOpen;
+  if (place == null || Number(place.placement) === 0) return freeByWedge(new Map([...overviews].filter(([, ov]) => within(ov))));
+  if (Number(place.placement) !== 1 || !place.genesisSeed || typeof place.genesisSeed === 'string' || place.genesisSeed.length !== 32) return null;
+  const out = [0, 0, 0, 0, 0, 0];
+  for (const ov of overviews.values()) {
+    if (!within(ov)) continue;
+    for (const pr of ov.provinces) {
+      const f = homeNation(pr.p, pr.q, place);
+      if (f === null) continue;
+      out[f] += pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
+    }
+  }
+  return out;
+}
+
 /** Provinces of the home wedge worth opening in the site picker (open rings ≥ 2, some free site), nearest ring first. */
-export function candidateProvinces(overviews, faction) {
+export function candidateProvinces(overviews, faction, place = undefined) {
   const w = homeWedge(faction), out = [];
   for (const ov of overviews.values()) {
     if (!ov?.provinces || ov.ring < FIRST_TICKET_RING) continue;
     for (const pr of ov.provinces) {
-      if (wedgeOf(pr.p, pr.q) !== w) continue;
+      if ((place ? homeNation(pr.p, pr.q, place) : wedgeOf(pr.p, pr.q)) !== w) continue;
       const free = pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
       if (free > 0) out.push({ p: pr.p, q: pr.q, ring: ringOf(pr.p, pr.q), free });
     }
@@ -272,7 +299,11 @@ export function projectedHolding(holding, now) {
       h.queue[i]=null;
     }
     if(Number(h.tier)!==oldTier) {
-      const before=baseProduction(oldTier),after=baseProduction(Number(h.tier));
+      // (lane C E1, 2026-11-16 — S1: the program's settle_tiered applies arms::base_production, whose ore entry is the
+      //  village's terrain ore under the tier bonus; while the terrain is not known the M1 base is used, as rulebook
+      //  copyNumber does. Off S1 seasonBase returns the M1 base unchanged.)
+      const tierBase=t=>{ const m1=baseProduction(t); return seasonBase(m1,holding,{bonusPct:TIER_BONUS_PCT[t]??0}).map((v,i)=>v ?? m1[i]); };
+      const before=tierBase(oldTier),after=tierBase(Number(h.tier));
       h.production=h.production.map((p,i)=>p+after[i]-before[i]);
     }
     rates(next);
@@ -343,6 +374,24 @@ export function hostsIn(province, holding, nowBell) {
       pending: e.pendOp, fromBell: e.fromBell, inTransit: hostInTransit(holding, e.id), entry: e }));
 }
 
+// ------------------------------------------------------------------ the capture lock (MC §5.8)
+/**
+ * frontier-abi `prologue::capture_locked` on the village's OWN Province: its site is mirrored as a holding (state 1) of
+ * the next generation (u8, wrapping) — the village is being captured, and the program refuses its resident actions with
+ * CapturePending. False for any other Province (a host elsewhere, or no Province read yet).
+ */
+export function captureLocked(province, holding) {
+  if (!province || !holding || province.p !== holding.p || province.q !== holding.q) return false;
+  return mirrorLocked(province, holding);
+}
+/** The mirror check alone, for a Province already known to be the village's own (fconquest capturePending looks it up by key). */
+export function mirrorLocked(province, holding) {
+  const m = province?.siteMirror?.[holding?.site];
+  return m?.state === 1 && Number(m.gen) === ((Number(holding.gen) + 1) & 255);
+}
+/** The page's action names the program puts behind that lock (see actionBlocks). */
+export const CAPTURE_LOCKED_ACTIONS = new Set(['Harvest', 'Build', 'Train', 'Muster', 'Garrison', 'Explore', 'Dissolve', 'Depart']);
+
 // ------------------------------------------------------------------ resident actions (I-29, I-44)
 /**
  * What blocks an action now (`[]` = send it): program error names the
@@ -353,8 +402,14 @@ export function actionBlocks(name, ctx) {
   const out = [];
   const resident = ['Muster', 'Dissolve', 'Garrison', 'Explore', 'Depart'].includes(name);
   if (!ctx.holding) return ['NoTicket'];
+  // (2026-11-16: the program's capture lock — CapturePending — before the other checks, as the program orders them:
+  //  always for the actions on the village's own province (holding.rs own_province_unlocked for Harvest/Build/Train,
+  //  host.rs lock_own for Muster/Garrison), and for Explore/Dissolve/Depart only when the host's province — the one
+  //  `ctx.province` names here — is the village's own (holding.rs explore_as, host.rs dissolve_as/depart_as))
+  if (CAPTURE_LOCKED_ACTIONS.has(name) && captureLocked(ctx.province, ctx.holding)) out.push('CapturePending');
   if (resident && !isFinal(ctx.holding, ctx.province, ctx.now ?? 0, ctx.nowBell ?? 0)) out.push('NotFinal');
   if (resident && (!ctx.province || ctx.province.resolvedNext + 1 < ctx.nowBell)) out.push('NotResident');
+  if (name === 'Muster' && ctx.province && ctx.province.p === ctx.holding.p && ctx.province.q === ctx.holding.q && provinceFull(ctx.province, ctx.holding.faction)) out.push('ProvinceFull');
   if (['Dissolve', 'Explore', 'Depart'].includes(name)) {
     const h = ctx.host;
     if (!h || h.state !== 1) out.push('HostBusy');
@@ -366,6 +421,39 @@ export function actionBlocks(name, ctx) {
   if (name === 'Explore' && ctx.host && ctx.host.unit !== SCOUT) out.push('NotScout');
   if (name === 'Explore' && ctx.holding.explore?.state) out.push('Explored');
   return out;
+}
+
+// (2026-11-16: host.rs muster_as counts the village's own Province before it writes the new host: hosts standing or
+//  forming (entry states 1 and 2) — PROVINCE_HOST_CAP of them in all, FACTION_RESIDENT_CAP of the village's nation —
+//  and a free entry; any of them → ProvinceFull. The page offered the Muster and only the send was refused.)
+/** permutation-rules host.rs PROVINCE_HOST_CAP, FACTION_RESIDENT_CAP; clash.rs Occupancy::STORAGE (the Province's entries). */
+export const PROVINCE_HOST_CAP = 48, FACTION_RESIDENT_CAP = 8, PROVINCE_ENTRIES = 56;
+/** host.rs muster_as's ProvinceFull on a decoded Province, for a host of `faction`. The free-entry check needs every entry (a full decode). */
+export function provinceFull(province, faction) {
+  const es = Array.isArray(province?.entries) ? province.entries : null;
+  if (!es) return false;
+  const standing = es.filter(e => e?.state === 1 || e?.state === 2);
+  if (standing.length >= PROVINCE_HOST_CAP || standing.filter(e => e.faction === faction).length >= FACTION_RESIDENT_CAP) return true;
+  return es.length >= PROVINCE_ENTRIES && !es.some(e => e?.state === 0);
+}
+
+// (2026-11-16: host.rs garrison_as → GarrisonState::change: the pending changes of turns before resolved_next are applied
+//  (clamped to 0…30,000), then a positive change above the room left (30,000 less the troops and the changes still
+//  pending) is refused (HOST_TOO_LARGE). The page's form sent any number.)
+/** permutation-rules host.rs MAX_HOST_TROOPS (whole troops); frontier-abi province.rs NO_BELL. */
+export const GARRISON_MAX_TROOPS = 30_000, NO_BELL = 0xffffffff;
+const bigOf = x => { try { return BigInt(x ?? 0); } catch { return 0n; } };
+/** GarrisonState::room of a decoded site mirror at the province's `resolvedNext`, in whole troops (a change of n fits when n ≤ it). */
+export function garrisonRoom(mirror, resolvedNext) {
+  const MAX = BigInt(GARRISON_MAX_TROOPS) * 1000n, rn = Number(resolvedNext);
+  const pend = [[mirror?.pend0Bell, mirror?.pend0Delta], [mirror?.pend1Bell, mirror?.pend1Delta]]
+    .map(([b, d]) => [Number(b), bigOf(d)]).filter(([b, d]) => b !== NO_BELL && d !== 0n).sort((x, y) => x[0] - y[0]);
+  let troops = bigOf(mirror?.garrison), left = 0n;
+  for (const [b, d] of pend) {
+    if (b < rn) { troops += d; troops = troops < 0n ? 0n : troops > MAX ? MAX : troops; } else left += d;
+  }
+  const room = MAX - (troops + left);
+  return Number((room < 0n ? 0n : room > MAX ? MAX : room) / 1000n);
 }
 
 const TILE_AT = new Map(TILE_OFFSETS.map((o, i) => [`${o.q},${o.r}`, i]));

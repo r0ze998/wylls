@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>初期配置の比較（試作）</title>
+  <link rel="stylesheet" href="table.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>初期配置の比較 <span class="tag">試作</span></h1>
+      <p class="sub">A：同国がまとまる（現行の基準）／B：同国が小集団で散る（最初の試作候補）／C：国に関係なく散る ・ <a href="index.html">国の卓へ</a></p>
+    </div>
+    <div class="controls" id="controls">
+      <label class="ev">配置
+        <select id="scheme">
+          <option value="B">B：小集団で散る</option>
+          <option value="A">A：同国がまとまる</option>
+          <option value="C">C：国に関係なく散る</option>
+        </select>
+      </label>
+      <label class="ev">小集団の人数
+        <select id="group">
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </label>
+      <label class="ev">国ごとの人数
+        <select id="sizes">
+          <option value="6,6,6,6,6,6">各国6人</option>
+          <option value="12,8,6,4,2,1">多い国と少ない国（12・8・6・4・2・1）</option>
+          <option value="3,3,2,2,1,1">少人数（3・3・2・2・1・1）</option>
+          <option value="20,20,20,20,20,20">各国20人</option>
+        </select>
+      </label>
+      <label class="ev">乱数 <input id="seed" type="number" value="7" min="1" max="999" inputmode="numeric"></label>
+      <button type="button" data-ui="late">国0に途中参加 +2</button>
+      <button type="button" data-ui="leave">国0から1人離脱</button>
+      <button type="button" data-ui="reset">元に戻す</button>
+    </div>
+  </header>
+
+  <p class="notice" role="note">比較検証のための模型です。本番の配置ルールではありません。地図の形（中心の Concord、リング1の首都、6つの扇形、リング2〜3の最初の村）は S1 の事実に合わせ、
+    州の豊かさと道のりは仮の値です。この画面の操作や自動テストは、人間が面白いと感じた証拠になりません。</p>
+
+  <main class="grid placement">
+    <section class="col" aria-labelledby="h-map">
+      <h2 id="h-map">地図 <small>（州ごと。点は村。色は国。中心の塔は Concord の鐘楼＝描画だけの目印）</small></h2>
+      <div id="map" class="mapbox"></div>
+      <p class="small" id="legend"></p>
+    </section>
+    <section class="col" aria-labelledby="h-sum">
+      <h2 id="h-sum">比べる数字</h2>
+      <div id="summary"></div>
+      <h2>国ごとの平均</h2>
+      <div id="nations"></div>
+    </section>
+    <section class="col" aria-labelledby="h-pick">
+      <h2 id="h-pick">選んだ村</h2>
+      <div id="pick"><p class="empty">地図の点を押すと、その村から見た数字が出る。</p></div>
+      <h2>この配置で国の卓を開く</h2>
+      <div id="table"></div>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="placement-ui.mjs"></script>
+</body>
+</html>

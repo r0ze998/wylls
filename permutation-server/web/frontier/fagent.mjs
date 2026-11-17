@@ -26,6 +26,7 @@ import { decode as fromBase58 } from '../sdk/base58.mjs';
 import * as io from './fchainio.mjs';
 import { tokenUnits, loadPrize, faucet } from './fprize.mjs';
 import { submit, track, accountsFor } from './fplay.mjs';
+import { sendView, renderStatus } from './hud/statusview.mjs';
 
 export const PREFIX = 'Wylls agent wallet command v1\n';
 export const GROUPS = Object.freeze(['economy', 'explore', 'military', 'vigil']);
@@ -105,6 +106,7 @@ export function historyRows(view) {
       case 'spend': text = h.category === 'inference' ? (h.ok === false ? L`判断（失敗も1回分）` : h.late ? L`判断（遅れて届いた結果）` : L`判断`) : h.category === 'game' ? L`ゲーム内の支払い` : L`手数料`; break;
       case 'network': text = L`手数料は運営が負担（SOL ${fmtNum(h.lamports)} lamports）`; break;
       case 'action': text = L`行動 ${h.name}：${h.status === 'sent' ? L`送信` : h.status === 'refused' ? L`拒否（${h.code ?? ''}）` : L`失敗（${h.code ?? ''}）`}`; break;
+      // (workstream 07: what became of a sent action is 04's state, read by its key — fates; see renderHistory)
       case 'release': text = h.reason === 'operator-refund' ? L`運営が返金` : L`予約を戻した（${h.reason}）`; break;
       case 'unresolved': text = L`判断の結果が届かず、運営の確認待ち`; break;
       case 'withdraw': text = L`引き出し ${usdc(h.amount)}`; break;
@@ -119,7 +121,7 @@ export function historyRows(view) {
     }
     // A decision's fee is the `spend` line's amount; the decision line names it in its text only, so one call is never counted twice in the amount column.
     const amount = h.type !== 'decision' && h.amount != null && h.type !== 'network' ? usdc(h.amount) : null;
-    rows.push({ at: h.at, kind: h.type, category: h.type === 'decision' ? null : h.category ?? null, amount, text, source: h.source ?? null, signature: h.signature ?? null, reason: h.reason ?? null });
+    rows.push({ at: h.at, kind: h.type, category: h.type === 'decision' ? null : h.category ?? null, amount, text, source: h.source ?? null, signature: h.signature ?? null, reason: h.reason ?? null, key: h.type === 'action' ? h.key ?? null : null });
   }
   return rows.reverse();
 }
@@ -212,6 +214,15 @@ export function depositMessage({ owner, terms, amount, feePayer, blockhash, ata,
 export const loadTerms = opts => io.request('GET', '/f/agent/terms', opts);
 export const loadMine = (owner, opts) => io.request('GET', `/f/agent/by-owner?owner=${encodeURIComponent(owner)}`, opts);
 export const loadAgent = (id, opts) => io.request('GET', `/f/agent?id=${encodeURIComponent(id)}`, opts);
+/** GET /f/agent/fate: one action by its idempotency key (workstream 04, EXECUTION-CONTRACT-20261106 §1–§2). */
+export const loadFate = (id, key, opts) => io.request('GET', `/f/agent/fate?id=${encodeURIComponent(id)}&key=${encodeURIComponent(key)}`, opts);
+/**
+ * (workstream 07) The state of a sent action as 04 names it: the relay's `state` when it answered with one of the seven,
+ * else `unqueryable` — a read that failed says nothing of the transaction, and is never told as a failure.
+ */
+export const fateState = r => (r?.ok && ['not-sent', 'landed', 'failed', 'expired', 'pending', 'unknown', 'unqueryable'].includes(r.state) ? r.state : 'unqueryable');
+/** The actions whose fate is asked: the newest `n` with a key that may have left the relay (sent, or failed after it). */
+export const fateKeys = (view, n = 10) => (view?.history ?? []).filter(h => h.type === 'action' && h.key && h.status !== 'refused').slice(-n).map(h => h.key);
 export const sendCommand = (signed, opts) => io.request('POST', '/f/agent/command', { ...opts, body: signed });
 
 /** Build, sign (wallet) and send a sponsored deposit; returns the relay's answer. */
@@ -302,11 +313,17 @@ export function renderMoney(view, { walletBalance = null } = {}) {
   </section>`;
 }
 
-export function renderHistory(view) {
+/**
+ * The history. `fates`: Map key → 04's state of that action (fateState), or undefined while not read; `read`: `{ok,
+ * code}` of the last read of the agent (workstream 07: a history not read is not an empty one).
+ */
+export function renderHistory(view, { fates = null, read = null } = {}) {
   const rows = historyRows(view);
-  return html`<section class="agent-card" aria-labelledby="hist-title"><h3 id="hist-title">${L`履歴（費目別）`}</h3>
+  const stale = read && !read.ok ? html`<p class="blocked" role="status" data-read="stale">${L`代理人の最新の履歴を読み込めませんでした（${read.code ?? '?'}）。ここに出ているのは前に読めた分です`}</p>` : '';
+  const fateOf = r => (r.key && fates?.has(r.key) ? renderStatus(sendView({ state: fates.get(r.key) })) : '');
+  return html`<section class="agent-card" aria-labelledby="hist-title"><h3 id="hist-title">${L`履歴（費目別）`}</h3>${stale}
     ${rows.length ? html`<table class="agent-history"><thead><tr><th>${L`時刻`}</th><th>${L`費目`}</th><th>${L`額`}</th><th>${L`内容`}</th></tr></thead><tbody>
-      ${rows.slice(0, 60).map(r => html`<tr class="row-${r.kind}"><td>${new Date(r.at).toLocaleTimeString()}</td><td>${r.category ? categoryName(r.category) : ''}</td><td>${r.amount ?? ''}</td><td>${r.text}${r.source ? html` <span class="muted">(${r.source})</span>` : ''}${r.reason ? html`<br><span class="agent-reason">${L`理由（モデルの説明・未検証）：${r.reason}`}</span>` : ''}</td></tr>`)}
+      ${rows.slice(0, 60).map(r => html`<tr class="row-${r.kind}"><td>${new Date(r.at).toLocaleTimeString()}</td><td>${r.category ? categoryName(r.category) : ''}</td><td>${r.amount ?? ''}</td><td>${r.text}${fateOf(r)}${r.source ? html` <span class="muted">(${r.source})</span>` : ''}${r.reason ? html`<br><span class="agent-reason">${L`理由（モデルの説明・未検証）：${r.reason}`}</span>` : ''}</td></tr>`)}
     </tbody></table>` : html`<p class="muted">${L`まだ何もありません`}</p>`}
   </section>`;
 }
@@ -352,7 +369,7 @@ export function restoreForm(root, name, typed) {
 }
 
 export async function mountAgentPage({ root, wallet, fsession, herald, prize }) {
-  const S = { wallet: null, pin: null, terms: null, mine: [], view: null, capability: null, note: null, busy: false, walletBalance: null, session: null };
+  const S = { wallet: null, pin: null, terms: null, mine: [], view: null, capability: null, note: null, busy: false, walletBalance: null, session: null, fates: new Map(), viewRead: null };
   const say = (text, tone = '') => { S.note = { text, tone }; draw(); };
   const draw = () => setHtml(root, render());
   const render = () => {
@@ -369,11 +386,23 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
       return parts;
     }
     if (S.capability) parts.push(renderCapability(S.capability));
-    parts.push(renderBalance(S.view), renderMode(S.view), renderDelegation(S.view), renderMoney(S.view, { walletBalance: S.walletBalance }), renderPolicy(S.view), renderHistory(S.view));
+    parts.push(renderBalance(S.view), renderMode(S.view), renderDelegation(S.view), renderMoney(S.view, { walletBalance: S.walletBalance }), renderPolicy(S.view), renderHistory(S.view, { fates: S.fates, read: S.viewRead }));
     return parts;
   };
   const refresh = async () => {
-    if (S.view) { const v = await loadAgent(S.view.agentId); if (v.ok) S.view = v; }
+    if (S.view) {
+      const id = S.view.agentId;
+      const v = await loadAgent(id).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
+      if (S.view?.agentId !== id) return;
+      // (workstream 07: a failed read keeps what was read and says it is older; the sent actions' states are 04's)
+      S.viewRead = { ok: !!v.ok, code: v.ok ? null : String(v.code ?? v.error ?? 'Unavailable') };
+      if (v.ok) S.view = v;
+      for (const key of fateKeys(S.view)) {
+        const f = await loadFate(id, key).catch(() => null);
+        if (S.view?.agentId !== id) return;
+        S.fates.set(key, fateState(f));
+      }
+    }
     if (S.wallet && prize) { const p = await prize.loadPrize(S.wallet.address); if (p.ok && p.pool?.wallet) S.walletBalance = p.pool.wallet.balance; }
     draw();
   };
@@ -392,12 +421,18 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
       await wallet.connect(entry, { chain: wallet.chainOf(S.pin.cluster) });
       S.wallet = wallet.connected();
       S.session = await fsession.restore({ cluster: S.pin.cluster, programId: S.pin.programId, seasonId: S.pin.seasonId }, S.wallet.address);
-      const mine = await loadMine(S.wallet.address);
+      const mine = await loadMine(S.wallet.address).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
       if (mine.ok) S.mine = mine.agents;
+      // (workstream 07: not read is not "you have no agent")
+      else say(L`このウォレットの代理人を読み込めませんでした（${String(mine.code ?? mine.error ?? '?')}）。代理人がいないという意味ではありません`, 'bad');
       if (S.mine.length === 1) { const v = await loadAgent(S.mine[0].agentId); if (v.ok) S.view = v; }
       await refresh();
     },
-    async open(d) { const v = await loadAgent(d.id); if (v.ok) { S.view = v; S.capability = null; } draw(); },
+    async open(d) {
+      const v = await loadAgent(d.id).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
+      if (v.ok) { S.view = v; S.capability = null; S.fates = new Map(); S.viewRead = null; await refresh(); return; }
+      say(L`代理人を読み込めませんでした（${String(v.code ?? v.error ?? '?')}）`, 'bad');
+    },
     async mode(d) { const r = await command('mode', { mode: d.mode }); if (!r.ok) return say(r.error, 'bad'); S.view = { ...S.view, ...r.agent }; say(d.mode === 'auto' ? L`自動にしました` : L`止めました（サーバー側）`); await refresh(); },
     async rotate() { const r = await command('rotate-capability'); if (!r.ok) return say(r.error, 'bad'); S.capability = r.capability; draw(); },
     async faucet() { const r = await prize.faucet(S.wallet.address); say(r.ok ? L`テストUSDCを受け取りました` : r.error, r.ok ? '' : 'bad'); await refresh(); },

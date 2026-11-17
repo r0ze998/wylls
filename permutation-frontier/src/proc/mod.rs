@@ -53,16 +53,61 @@
 //! (`frontier_abi::v2::prologue::accounts_of`); a v1 tag keeps M1's list.
 
 pub mod beacon;
+/// Preview (`capacity-preview`): workstream 09's capacity instructions on
+/// the provisional band 0xF0–0xFD; absent from every default build.
+#[cfg(feature = "capacity-preview")]
+pub mod capacity;
 pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
+#[cfg(feature = "custody-preview")]
+pub mod custody;
 pub mod defence;
 pub mod holding;
 pub mod host;
+/// Preview (`land-preview`): FoldLand / ClaimLandYield on the provisional
+/// tags 0xCD / 0xCE; absent from every default build.
+#[cfg(feature = "land-preview")]
+pub mod land;
 pub mod map;
 pub mod nation;
+pub mod resident;
 pub mod reveal;
+#[cfg(feature = "rights-experimental")]
+pub mod rights;
 pub mod season;
 pub mod structure;
 pub mod transit;
+/// Experimental (`wide-world-experimental`): the draft wide land handlers
+/// on the provisional band 0xD6–0xDA; absent from every default build.
+#[cfg(feature = "wide-world-experimental")]
+pub mod wide;
+/// Experimental (`wide-world-experimental`): the pure S1 economy preview
+/// over detached wide holding and province snapshots (no accounts, routes
+/// or events of its own); absent from every default build. Since phase B
+/// it is the economic body the authenticated 0xDA op 3 handler in `wide`
+/// runs over records it loaded and checked itself; a preview from any
+/// other caller stays an unauthenticated snapshot and is never applied.
+#[cfg(feature = "wide-world-experimental")]
+pub mod wide_economy;
+
+/// Who must sign for the Citizen of a player instruction (every handler that
+/// runs the player prologue has an `_as` form taking this; the plain handler
+/// is that form under [`Auth::Wallet`], so the dispatch and the handler
+/// signature of the module note are unchanged).
+#[cfg_attr(not(feature = "nft-experimental"), allow(dead_code))]
+pub(crate) enum Auth<'a, 'b> {
+    /// The Citizen's wallet or its unexpired Frontier session, at the
+    /// wallet-derived Citizen address (the player prologue, §5.6).
+    Wallet,
+    /// An NFT resident's Citizen (experimental, `resident::start`): the
+    /// actor is the asset's current Core owner, or the session the owner set
+    /// in the resident program in the current holder generation; `proof` is
+    /// `[policy, link, asset, resident]`, read-only; `generation` is the
+    /// holder generation the actor signed in the instruction data.
+    Resident {
+        proof: &'a [solana_program::account_info::AccountInfo<'b>],
+        generation: u32,
+    },
+}

@@ -20,6 +20,7 @@ import { accountSpec, decodeIxData, encodeIxData, ixOf, TAGS } from './codec.mjs
 import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
 import { SYSTEM_PROGRAM } from './addresses.mjs';
 import { compileMessage } from '../solana-tx.mjs';
+import { classifyResident, isResidentTag } from './resident.mjs';
 
 /** The tag of the instruction named `name` (ABI v2's tags extend M1's, same numbers). */
 const tagOf = name => TAGS_V2.instructions.find(i => i.name === name).tag;
@@ -53,7 +54,7 @@ const refuse = (code, problem) => ({ ok: false, code, problem });
  * `{ok: true, kind: 'player'|'settle', tag, name, feePayer, authority, signers, accounts: {name → key}, keys, data, budget, cu}`
  * or `{ok: false, code: 'UseRevealRoute'|'RelayRejected', problem}`.
  */
-export function classify(tx, { programId, wireBytes, profile = 1 } = {}) {
+export function classify(tx, { programId, wireBytes, profile = 1, budget: budgetOverride } = {}) {
   const ixs = tx.instructions;
   // A Reveal anywhere is refused first, whatever else the transaction holds.
   if (ixs.some(ix => ix.programId === programId && ix.data[0] === REVEAL_TAG)) {
@@ -66,12 +67,17 @@ export function classify(tx, { programId, wireBytes, profile = 1 } = {}) {
   }
   const ix = ixs[3];
   if (ix.programId !== programId) return refuse('RelayRejected', 'the fourth instruction must be the Frontier program\'s');
+  // ⑳ (provisional): JoinResident and ResidentAct (resident.mjs); a
+  // ResidentAct's inner player shape comes back here with its budget.
+  if (budgetOverride === undefined && isResidentTag(ix.data[0])) {
+    return classifyResident(tx, { programId, wireBytes, profile, prefix: cb.map(x => x.value), prefixPrograms: [COMPUTE_BUDGET_PROGRAM] }, classify);
+  }
   const tag = ix.data[0];
   const row = ixOf(tag, profile);
   const kind = row?.relay_player_shape ? 'player' : row?.relay_settle_shape ? 'settle' : null;
   if (!kind) return refuse('RelayRejected', `instruction tag 0x${(tag ?? 0).toString(16)} is not a sponsored shape`);
   const abi = ixOf(tag, profile);
-  const budget = budgetOf(tag, profile);
+  const budget = budgetOverride ?? budgetOf(tag, profile);
   const [limit, price, loaded] = cb.map(x => x.value);
   if (price !== 0n) return refuse('RelayRejected', 'SetComputeUnitPrice must be 0 on a sponsored shape');
   if (limit !== budget.cuLimit) return refuse('RelayRejected', `SetComputeUnitLimit must be ${budget.cuLimit} for ${abi.name} (the budgets table)`);

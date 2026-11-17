@@ -72,6 +72,10 @@ export default {
   '額': 'Amount',
   '内容': 'What',
   'まだ何もありません': 'Nothing yet',
+  // workstream 07: reads that fail are not empty answers (fagent.mjs)
+  '代理人の最新の履歴を読み込めませんでした（{0}）。ここに出ているのは前に読めた分です': 'The agent\'s latest history could not be loaded ({0}). What is shown here is what was loaded before',
+  '代理人を読み込めませんでした（{0}）': 'The agent could not be loaded ({0})',
+  'このウォレットの代理人を読み込めませんでした（{0}）。代理人がいないという意味ではありません': 'This wallet\'s agents could not be loaded ({0}). This does not mean it has none',
   '接続用トークン（この一度だけ表示）': 'Connection token (shown only once)',
   '外部の AI や MCP にこのトークンを渡すと、許可した行動を予算の中で要求できます。作成・入金・停止・引き出しはできません。無くしたら再発行してください。': 'Give this token to an outside AI or MCP server: it can request the allowed actions within the budget. It cannot create, deposit, stop or withdraw. Reissue it if it is lost.',
   '再発行（古いトークンは無効）': 'Reissue (the old token stops working)',

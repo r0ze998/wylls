@@ -1,0 +1,902 @@
+{
+  "depart": [
+    {
+      "admitted": false,
+      "arriveBell": 12,
+      "commitHex": "3131313131313131313131313131313131313131313131313131313131313131",
+      "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000",
+      "hostFields": {
+        "gen": 2,
+        "p": "128",
+        "q": "0",
+        "seq": 7,
+        "site": 1,
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "hostHex": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000",
+      "hostId": "857954429301686279",
+      "name": "standing-is-home",
+      "payer": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+      "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+      "programHex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "roles": [
+        {
+          "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+          "addressHex": "0707070707070707070707070707070707070707070707070707070707070707",
+          "name": "actor",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+          "addressHex": "0808080808080808080808080808080808080808080808080808080808080808",
+          "name": "payer",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+          "addressHex": "0505050505050505050505050505050505050505050505050505050505050505",
+          "name": "season",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+          "addressHex": "10060fa6b704f21d698e875bf76e893d79fa5cb8ebe7b414afc6c7f5fccb1843",
+          "name": "citizen",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+          "addressHex": "9bbff143586e88539c09eff8bef64ed60fd1baf1d698af9caa2455808e10bfa5",
+          "name": "holding",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+          "addressHex": "9b5df50c1f2bd48bcde936ce81de515d8ab98a4982d52303d617c733eab26d18",
+          "name": "province",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "addressHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "system",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+          "addressHex": "9b5df50c1f2bd48bcde936ce81de515d8ab98a4982d52303d617c733eab26d18",
+          "name": "holding_province",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "2vJVrGaHk5Xe8jVRZmXAwdo15Dde9B2W4MvzWyd9ABkY",
+          "addressHex": "1c8341124ea9577d1604ffedfa60f3f9b53757439e44542e613df085d6bf4d2d",
+          "name": "transit",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "sealHex": "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "sealVerified": false,
+      "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "seasonHex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "standing": {
+        "p": "128",
+        "q": "0"
+      },
+      "tip": "2500",
+      "transitSlot": 0,
+      "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+      "wireHex": "daff01060115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000000c000000c4090000000000003131313131313131313131313131313131313131313131313131313131313131800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    },
+    {
+      "admitted": false,
+      "arriveBell": 12,
+      "commitHex": "3131313131313131313131313131313131313131313131313131313131313131",
+      "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000",
+      "hostFields": {
+        "gen": 2,
+        "p": "128",
+        "q": "0",
+        "seq": 7,
+        "site": 1,
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "hostHex": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000",
+      "hostId": "857954429301686279",
+      "name": "actor-payer-and-standing-home-aliases",
+      "payer": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+      "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+      "programHex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "roles": [
+        {
+          "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+          "addressHex": "0707070707070707070707070707070707070707070707070707070707070707",
+          "name": "actor",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+          "addressHex": "0707070707070707070707070707070707070707070707070707070707070707",
+          "name": "payer",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+          "addressHex": "0505050505050505050505050505050505050505050505050505050505050505",
+          "name": "season",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+          "addressHex": "10060fa6b704f21d698e875bf76e893d79fa5cb8ebe7b414afc6c7f5fccb1843",
+          "name": "citizen",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+          "addressHex": "9bbff143586e88539c09eff8bef64ed60fd1baf1d698af9caa2455808e10bfa5",
+          "name": "holding",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+          "addressHex": "9b5df50c1f2bd48bcde936ce81de515d8ab98a4982d52303d617c733eab26d18",
+          "name": "province",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "addressHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "system",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+          "addressHex": "9b5df50c1f2bd48bcde936ce81de515d8ab98a4982d52303d617c733eab26d18",
+          "name": "holding_province",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "W5hZQdiXHSrvRYGVsmmSwB6z5dAF7LzSuDhxPwwL2hA",
+          "addressHex": "0773282eeb873a47c5dd55d9b611642fd2809e048ce6afa27650b93f43386b55",
+          "name": "transit",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "sealHex": "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "sealVerified": false,
+      "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "seasonHex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "standing": {
+        "p": "128",
+        "q": "0"
+      },
+      "tip": "2500",
+      "transitSlot": 3,
+      "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+      "wireHex": "daff01060115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000030c000000c4090000000000003131313131313131313131313131313131313131313131313131313131313131800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    },
+    {
+      "admitted": false,
+      "arriveBell": 12,
+      "commitHex": "3131313131313131313131313131313131313131313131313131313131313131",
+      "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f000000000000000000010207000000",
+      "hostFields": {
+        "gen": 2,
+        "p": "127",
+        "q": "0",
+        "seq": 7,
+        "site": 1,
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "hostHex": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f000000000000000000010207000000",
+      "hostId": "844549183535841287",
+      "name": "different-issuer-and-current-origin",
+      "payer": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+      "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+      "programHex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "roles": [
+        {
+          "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+          "addressHex": "0707070707070707070707070707070707070707070707070707070707070707",
+          "name": "actor",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+          "addressHex": "0808080808080808080808080808080808080808080808080808080808080808",
+          "name": "payer",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+          "addressHex": "0505050505050505050505050505050505050505050505050505050505050505",
+          "name": "season",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+          "addressHex": "10060fa6b704f21d698e875bf76e893d79fa5cb8ebe7b414afc6c7f5fccb1843",
+          "name": "citizen",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "J2TxhvUicYQQaRSTmi3rjbjeCCsfJ3TRPVSg4bTssxnu",
+          "addressHex": "fcf6be29bd363fada02c4587674188b1c6e2b24821ef61cbe04141a68a5e9d52",
+          "name": "holding",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+          "addressHex": "9b5df50c1f2bd48bcde936ce81de515d8ab98a4982d52303d617c733eab26d18",
+          "name": "province",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "addressHex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "system",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "G1z9sqgkRBDMadJaiUi9XhAgeDoHgmWNHs3jVBp6WHKy",
+          "addressHex": "df1fed5303bbf5b3c41542451ae7f3cb29c47c669c64af7be2be7200d0f56144",
+          "name": "holding_province",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "6TLpRRbHTfSY14VrhJmvjqXbENkhA38sPjdsQ6MLprPF",
+          "addressHex": "5109f1899191f1bbb07ff3a2296ac9a3c58f07c299e902ac9308d3367d5a01b6",
+          "name": "transit",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "sealHex": "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "sealVerified": false,
+      "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "seasonHex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "standing": {
+        "p": "128",
+        "q": "0"
+      },
+      "tip": "2500",
+      "transitSlot": 2,
+      "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+      "wireHex": "daff01060115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f000000000000000000010207000000020c000000c4090000000000003131313131313131313131313131313131313131313131313131313131313131800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    }
+  ],
+  "genericPlain": [
+    {
+      "accountKeys": [
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000001050020000000000000",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff"
+      ],
+      "arriveBell": 42,
+      "directions": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        0,
+        5
+      ],
+      "endpoint": {
+        "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000001050020000000000000",
+        "p": "9007199254740993",
+        "q": "-1",
+        "ring": "9007199254740993",
+        "tile": 35,
+        "tileQ": "81064793292668934",
+        "tileR": "-36028797018963981",
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff010207000000",
+      "hostFields": {
+        "gen": 2,
+        "p": "9007199254740993",
+        "q": "-2",
+        "seq": 7,
+        "site": 1,
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "hostHex": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff010207000000",
+      "name": "generic-wide-host-full-width",
+      "origin": {
+        "p": "9007199254740993",
+        "q": "-2",
+        "tile": 60
+      },
+      "pathHex": "88c6a2000000000000000000",
+      "pathLen": 8,
+      "plainHex": "020115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff0102070000002a0000000115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000001050020000000000000230101000888c6a20000000000000000000000000000000000",
+      "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+      "programHex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "retreatBps": 1,
+      "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "seasonHex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "stance": 1,
+      "steps": [
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 4,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963982",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 9,
+          "tileQ": "81064793292668935",
+          "tileR": "-36028797018963983",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 8,
+          "tileQ": "81064793292668935",
+          "tileR": "-36028797018963984",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 2,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963984",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff",
+          "p": "9007199254740993",
+          "q": "-2",
+          "ring": "9007199254740993",
+          "tile": 59,
+          "tileQ": "81064793292668933",
+          "tileR": "-36028797018963983",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff",
+          "p": "9007199254740993",
+          "q": "-2",
+          "ring": "9007199254740993",
+          "tile": 60,
+          "tileQ": "81064793292668933",
+          "tileR": "-36028797018963982",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 4,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963982",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000001050020000000000000",
+          "p": "9007199254740993",
+          "q": "-1",
+          "ring": "9007199254740993",
+          "tile": 35,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963981",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        }
+      ],
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    }
+  ],
+  "geometry": [
+    {
+      "accountKeys": [
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000001050020000000000000",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff"
+      ],
+      "directions": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        0,
+        5
+      ],
+      "endpoint": {
+        "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000001050020000000000000",
+        "p": "9007199254740993",
+        "q": "-1",
+        "ring": "9007199254740993",
+        "tile": 35,
+        "tileQ": "81064793292668934",
+        "tileR": "-36028797018963981",
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "name": "positive-past-js-safe-integer",
+      "origin": {
+        "p": "9007199254740993",
+        "q": "-2",
+        "tile": 60
+      },
+      "steps": [
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 4,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963982",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 9,
+          "tileQ": "81064793292668935",
+          "tileR": "-36028797018963983",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 8,
+          "tileQ": "81064793292668935",
+          "tileR": "-36028797018963984",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 2,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963984",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff",
+          "p": "9007199254740993",
+          "q": "-2",
+          "ring": "9007199254740993",
+          "tile": 59,
+          "tileQ": "81064793292668933",
+          "tileR": "-36028797018963983",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000105001fffffffffffff",
+          "p": "9007199254740993",
+          "q": "-2",
+          "ring": "9007199254740993",
+          "tile": 60,
+          "tileQ": "81064793292668933",
+          "tileR": "-36028797018963982",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000002050020000000000000",
+          "p": "9007199254740994",
+          "q": "-2",
+          "ring": "9007199254740994",
+          "tile": 4,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963982",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490020000000000001050020000000000000",
+          "p": "9007199254740993",
+          "q": "-1",
+          "ring": "9007199254740993",
+          "tile": 35,
+          "tileQ": "81064793292668934",
+          "tileR": "-36028797018963981",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        }
+      ],
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    },
+    {
+      "accountKeys": [
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff2",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff1"
+      ],
+      "directions": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "endpoint": {
+        "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff2",
+        "p": "-9007199254740994",
+        "q": "16",
+        "ring": "9007199254740994",
+        "tile": 40,
+        "tileQ": "-81064793292668881",
+        "tileR": "36028797018964057",
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "name": "negative-past-js-safe-integer",
+      "origin": {
+        "p": "-9007199254740993",
+        "q": "17",
+        "tile": 0
+      },
+      "steps": [
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff1",
+          "p": "-9007199254740994",
+          "q": "17",
+          "ring": "9007199254740994",
+          "tile": 56,
+          "tileQ": "-81064793292668874",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff1",
+          "p": "-9007199254740994",
+          "q": "17",
+          "ring": "9007199254740994",
+          "tile": 50,
+          "tileQ": "-81064793292668875",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff1",
+          "p": "-9007199254740994",
+          "q": "17",
+          "ring": "9007199254740994",
+          "tile": 43,
+          "tileQ": "-81064793292668876",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff1",
+          "p": "-9007199254740994",
+          "q": "17",
+          "ring": "9007199254740994",
+          "tile": 35,
+          "tileQ": "-81064793292668877",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff1",
+          "p": "-9007199254740994",
+          "q": "17",
+          "ring": "9007199254740994",
+          "tile": 26,
+          "tileQ": "-81064793292668878",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff2",
+          "p": "-9007199254740994",
+          "q": "16",
+          "ring": "9007199254740994",
+          "tile": 55,
+          "tileQ": "-81064793292668879",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff2",
+          "p": "-9007199254740994",
+          "q": "16",
+          "ring": "9007199254740994",
+          "tile": 48,
+          "tileQ": "-81064793292668880",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849002000000000000202001ffffffffffff2",
+          "p": "-9007199254740994",
+          "q": "16",
+          "ring": "9007199254740994",
+          "tile": 40,
+          "tileQ": "-81064793292668881",
+          "tileR": "36028797018964057",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        }
+      ],
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    },
+    {
+      "accountKeys": [],
+      "directions": [],
+      "endpoint": {
+        "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000",
+        "p": "128",
+        "q": "0",
+        "ring": "128",
+        "tile": 25,
+        "tileQ": "1151",
+        "tileR": "-508",
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "name": "empty-path-is-geometry-only",
+      "origin": {
+        "p": "128",
+        "q": "0",
+        "tile": 25
+      },
+      "steps": [],
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    }
+  ],
+  "plain": [
+    {
+      "accountKeys": [
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000001",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000"
+      ],
+      "arriveBell": 12,
+      "directions": [
+        0,
+        0
+      ],
+      "endpoint": {
+        "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000001",
+        "p": "128",
+        "q": "1",
+        "ring": "129",
+        "tile": 5,
+        "tileQ": "1153",
+        "tileR": "-508",
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000",
+      "hostFields": {
+        "gen": 2,
+        "p": "128",
+        "q": "0",
+        "seq": 7,
+        "site": 1,
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "hostHex": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010207000000",
+      "name": "boundary-128-to-129",
+      "origin": {
+        "p": "128",
+        "q": "0",
+        "tile": 25
+      },
+      "pathHex": "000000000000000000000000",
+      "pathLen": 2,
+      "plainHex": "020115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed10284900000000000000800000000000000000000102070000000c0000000115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000008100000000000000000105000000020000000000000000000000000000000000000000",
+      "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+      "programHex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "retreatBps": 0,
+      "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "seasonHex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "stance": 0,
+      "steps": [
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000",
+          "p": "128",
+          "q": "0",
+          "ring": "128",
+          "tile": 34,
+          "tileQ": "1152",
+          "tileR": "-508",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000001",
+          "p": "128",
+          "q": "1",
+          "ring": "129",
+          "tile": 5,
+          "tileQ": "1153",
+          "tileR": "-508",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        }
+      ],
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    },
+    {
+      "accountKeys": [
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000001",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000"
+      ],
+      "arriveBell": 4294967295,
+      "directions": [
+        0,
+        0
+      ],
+      "endpoint": {
+        "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000001",
+        "p": "128",
+        "q": "1",
+        "ring": "129",
+        "tile": 5,
+        "tileQ": "1153",
+        "tileR": "-508",
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f000000000000000000010207000000",
+      "hostFields": {
+        "gen": 2,
+        "p": "127",
+        "q": "0",
+        "seq": 7,
+        "site": 1,
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "hostHex": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f000000000000000000010207000000",
+      "name": "different-issuer-and-current-origin",
+      "origin": {
+        "p": "128",
+        "q": "0",
+        "tile": 25
+      },
+      "pathHex": "000000000000000000000000",
+      "pathLen": 2,
+      "plainHex": "020115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f000000000000000000010207000000ffffffff0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000001050360ea020000000000000000000000000000000000000000",
+      "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+      "programHex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "retreatBps": 60000,
+      "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "seasonHex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "stance": 3,
+      "steps": [
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000",
+          "p": "128",
+          "q": "0",
+          "ring": "128",
+          "tile": 34,
+          "tileQ": "1152",
+          "tileR": "-508",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000001",
+          "p": "128",
+          "q": "1",
+          "ring": "129",
+          "tile": 5,
+          "tileQ": "1153",
+          "tileR": "-508",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        }
+      ],
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    },
+    {
+      "accountKeys": [
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081030000000000000000",
+        "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080030000000000000000"
+      ],
+      "arriveBell": 500,
+      "directions": [
+        3,
+        3
+      ],
+      "endpoint": {
+        "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081030000000000000000",
+        "p": "-129",
+        "q": "0",
+        "ring": "129",
+        "tile": 56,
+        "tileQ": "-1157",
+        "tileR": "512",
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f030000000000000000010207000000",
+      "hostFields": {
+        "gen": 2,
+        "p": "-127",
+        "q": "0",
+        "seq": 7,
+        "site": 1,
+        "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+      },
+      "hostHex": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f030000000000000000010207000000",
+      "name": "negative-original-boundary",
+      "origin": {
+        "p": "-128",
+        "q": "0",
+        "tile": 6
+      },
+      "pathHex": "1b0000000000000000000000",
+      "pathLen": 2,
+      "plainHex": "020115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000007f030000000000000000010207000000f40100000115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849000000000000008103000000000000000038023930021b00000000000000000000000000000000000000",
+      "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+      "programHex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "retreatBps": 12345,
+      "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "seasonHex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "stance": 2,
+      "steps": [
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080030000000000000000",
+          "p": "-128",
+          "q": "0",
+          "ring": "128",
+          "tile": 0,
+          "tileQ": "-1156",
+          "tileR": "512",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        },
+        {
+          "key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081030000000000000000",
+          "p": "-129",
+          "q": "0",
+          "ring": "129",
+          "tile": 56,
+          "tileQ": "-1157",
+          "tileR": "512",
+          "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+        }
+      ],
+      "world": "15f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed102849"
+    }
+  ],
+  "provenance": "synthetic-public-codec-vectors-not-native-execution",
+  "schema": 1
+}

@@ -1,0 +1,208 @@
+From d5e4e5a8f85cf5397c5edf0d76e906ef04b8dc52 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 14:55:29 +0000
+Subject: [PATCH 5/5] =?UTF-8?q?=E2=91=A4=200006:=20one=20send=20lane=20per?=
+ =?UTF-8?q?=20Citizen=20(=E2=91=A3=20AUTH-ROUTES=20B1);=20a=20SendCaravan?=
+ =?UTF-8?q?=20Duplicate=20is=20not=20'not=20sent'?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From workstream 05, for workstream 04 to integrate (shared core).
+
+- CitizenLanes: every action of an owner's agents (one Citizen, one
+  session key) runs build -> sign -> send one at a time, in arrival
+  order, in this relay process; a failure frees the lane; other
+  Citizens are not held up. submit queues #run on laneOf(rec); the gate
+  and the hold still run synchronously when the turn comes; a replay of
+  a remembered key does not queue.
+- A Duplicate of a seq action (SendCaravan) is answered as failed with
+  sent: null and the earlier transaction's signature (the relay's
+  Duplicate carries it) and lifetime: the same bytes already left, so it
+  is followed by fate and held while unknown, never read as not-sent.
+  This request's own hold is released (it sent nothing itself).
+
+Not covered: other relay processes or machines (the lane is in-process).
+
+Test agent-wallet-citizen-lane (no key made or used, nothing signed):
+3 pass; with sender-capability and run-facts: 10 pass.
+---
+ .../src/frontier/agent/gateway.mjs            | 47 +++++++++++-
+ .../test/agent-wallet-citizen-lane.test.mjs   | 72 +++++++++++++++++++
+ 2 files changed, 116 insertions(+), 3 deletions(-)
+ create mode 100644 permutation-gateway/test/agent-wallet-citizen-lane.test.mjs
+
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index dccf6a49..8e89a2e1 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -65,6 +65,30 @@ export const INFERENCE_HOLD_TTL_MS = 10 * 60_000;
+ export const DUPLICATE_REBUILDS = 2;
+ /** Actions that carry the Citizen's sequence number: never rebuilt on a Duplicate (workstream 04 AUTH-ROUTES §4). */
+ export const SEQ_ACTIONS = Object.freeze(new Set(['SendCaravan']));
++
++/**
++ * One lane per Citizen (workstream 04 AUTH-ROUTES B1): every action for agents of the same owner (one Citizen, one
++ * session key) runs its build → sign → send one at a time, in arrival order, in THIS relay process. A failure or a
++ * refusal frees the lane for the next. Other relay processes and other machines are not in this lane (see
++ * workstream 05 CONNECT-7 §3: the agent wallet's own state file allows one relay process).
++ */
++export class CitizenLanes {
++  constructor() { this.tails = new Map(); this.depth = new Map(); }
++  run(key, fn) {
++    const prev = this.tails.get(key) ?? Promise.resolve();
++    this.depth.set(key, (this.depth.get(key) ?? 0) + 1);
++    const p = prev.then(fn, fn);
++    const tail = p.then(() => {}, () => {}).finally(() => {
++      const d = this.depth.get(key) - 1;
++      if (d === 0) { this.depth.delete(key); if (this.tails.get(key) === tail) this.tails.delete(key); } else this.depth.set(key, d);
++    });
++    this.tails.set(key, tail);
++    return p;
++  }
++  waiting(key) { return this.depth.get(key) ?? 0; }
++}
++/** The lane of an agent: its owner's Citizen (all of an owner's agents act through the one Citizen and its session key). */
++export const laneOf = rec => `citizen-of:${rec.owner}`;
+ /** Default per-call test price of one model call (base units; 0.01 test USDC). TEST VALUE. */
+ export const DEFAULT_INFERENCE_PRICE = '10000';
+ 
+@@ -177,7 +201,9 @@ export class AgentGateway {
+    * @param {object} [o.prices]  {inference: base units per model call, game: {actionName: base units}}
+    * @param {object} [o.waits]   {withdraw: {tries, every}} how long `withdraw` waits for the chain before leaving it to reconcile
+    */
+-  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, fullHistory = false, now = Date.now, log = () => {} }) {
++  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, fullHistory = false, now = Date.now, log = () => {}, lanes = new CitizenLanes() }) {
++    /** Per-Citizen serial lanes (B1): build, sign and send of one Citizen's actions never overlap in this process. */
++    this.lanes = lanes;
+     /** The node keeps every transaction (the in-process local chain): see fate.mjs. Off: the node must prove its history. */
+     this.fullHistory = fullHistory === true;
+     /** The proposed deadline rule (§6.5): null keeps unresolved holds until the operator decides. Not a default. */
+@@ -528,7 +554,9 @@ export class AgentGateway {
+       if (!prior.result) throw new AgentError(ERR.SEND_FAILED, 'this action key has a saved request without a final response; inspect its prior signature', 409, { signature: prior.signature ?? null });
+       return { ...prior.result, replayed: true, balance: this.ledger.balance(rec.agentId) };
+     }
+-    const promise = this.#run(rec, r, hash).finally(() => this.inflight.delete(flightKey));
++    // The idempotency record above is per request; the lane orders the Citizen's sends (B1). The gate and the hold run
++    // when the request's turn comes, still synchronously before #run's first await.
++    const promise = this.lanes.run(laneOf(rec), () => this.#run(rec, r, hash)).finally(() => this.inflight.delete(flightKey));
+     this.inflight.set(flightKey, { hash, promise });
+     return promise;
+   }
+@@ -611,6 +639,7 @@ export class AgentGateway {
+       let sent;
+       for (let attempt = 0; ; attempt++) {
+         const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r, avoid);
++        const built = { lastValidBlockHeight, slotFloor };
+         try {
+           sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
+             tx, wire, shape, lastValidBlockHeight, viaAgent: true,
+@@ -629,6 +658,10 @@ export class AgentGateway {
+           // CARAVANS counter): a Duplicate there may be this Citizen's own earlier caravan with the same seq, and a
+           // rebuild with another fee payer could pay a second fee for the same seq (workstream 04 AUTH-ROUTES §4).
+           if (!sending && e instanceof RouteError && e.code === 'Duplicate' && attempt < DUPLICATE_REBUILDS && !SEQ_ACTIONS.has(r.action.name)) { avoid.add(shape.feePayer); continue; }
++          // A Duplicate of a seq action is NOT proof that nothing of it was sent: these exact bytes (the same Citizen
++          // seq, so the same effect) already left in an earlier submission. It goes back as `failed` with `sent: null`
++          // and that transaction's signature, so the caller follows its fate and holds while the fate is unknown.
++          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && SEQ_ACTIONS.has(r.action.name)) e.duplicateOf = { signature: e.extra?.signature ?? null, ...built };
+           throw e;
+         }
+         break;
+@@ -641,7 +674,15 @@ export class AgentGateway {
+       this.log(`agent wallet: ${rec.agentId} ${r.action.name} sent ${sent.signature} (${r.source}, key ${key})`);
+     } catch (e) {
+       if (this.ledger.actionWritesFailed) throw e;
+-      if (!sending) {
++      if (!sending && e.duplicateOf) {
++        // Nothing of THIS request left, so its own hold comes back; but the same bytes did leave before: not `not-sent`.
++        this.ledger.release(rec.agentId, hold.id, 'duplicate');
++        const d = e.duplicateOf;
++        res = refused(e, RESULT_STATUS.FAILED, [], d.signature
++          ? { sent: null, duplicateOf: d.signature, signature: d.signature, lastValidBlockHeight: d.lastValidBlockHeight ?? null, slotFloor: d.slotFloor ?? null }
++          : { sent: null });
++        this.log(`agent wallet: ${rec.agentId} ${r.action.name} is a duplicate of ${d.signature ?? 'an earlier submission'}; follow it, do not resend`);
++      } else if (!sending) {
+         // Nothing left this process: the hold comes back whole.
+         this.ledger.release(rec.agentId, hold.id, 'refused');
+         // A refusal of the gateway's or the relay's (a RouteError) is 'refused'; an exception on the way (RPC down) is 'failed'.
+diff --git a/permutation-gateway/test/agent-wallet-citizen-lane.test.mjs b/permutation-gateway/test/agent-wallet-citizen-lane.test.mjs
+new file mode 100644
+index 00000000..3de401db
+--- /dev/null
++++ b/permutation-gateway/test/agent-wallet-citizen-lane.test.mjs
+@@ -0,0 +1,72 @@
++// Workstream 04 AUTH-ROUTES B1, by workstream 05: one lane per Citizen in the relay process; and a SendCaravan
++// Duplicate is never "not sent". No key is generated, derived or used and nothing is signed: the lanes are tested on
++// plain functions, submit on agent records of plain data in manual mode (every request stops at the gate), and the
++// Duplicate record through actionFateView (the code path that writes it builds and signs, so it is not run here).
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { AgentLedger } from '../src/frontier/agent/ledger.mjs';
++import { AgentGateway, CitizenLanes, actionFateView, laneOf } from '../src/frontier/agent/gateway.mjs';
++import { normalisePolicy } from '../src/frontier/agent/policy.mjs';
++
++const tick = () => new Promise(r => setImmediate(r));
++
++test('a lane runs one Citizen\'s work one at a time, in order; other Citizens go on; a failure frees the lane', async () => {
++  const lanes = new CitizenLanes();
++  const log = [];
++  let open = 0, most = 0;
++  const job = (name, { fail = false, wait = 3 } = {}) => async () => {
++    open++; most = Math.max(most, open); log.push(`start ${name}`);
++    for (let i = 0; i < wait; i++) await tick();
++    log.push(`end ${name}`); open--;
++    if (fail) throw new Error(`${name} failed`);
++    return name;
++  };
++  const a = [lanes.run('C1', job('a1')), lanes.run('C1', job('a2', { fail: true })), lanes.run('C1', job('a3'))];
++  assert.equal(lanes.waiting('C1'), 3);
++  const r = await Promise.allSettled(a);
++  assert.deepEqual(r.map(x => x.status), ['fulfilled', 'rejected', 'fulfilled']);
++  assert.deepEqual(log, ['start a1', 'end a1', 'start a2', 'end a2', 'start a3', 'end a3']);
++  assert.equal(most, 1, 'never two at once in one lane');
++  assert.equal(lanes.waiting('C1'), 0);
++  // Two Citizens: their work overlaps.
++  most = 0; open = 0;
++  await Promise.all([lanes.run('C1', job('x', { wait: 5 })), lanes.run('C2', job('y', { wait: 5 }))]);
++  assert.equal(most, 2);
++  assert.equal(lanes.tails.size, 0, 'nothing is kept once a lane is empty');
++});
++
++test('submit goes through the owner\'s lane: two agents of one owner share it; another owner has its own', async () => {
++  const seen = [];
++  const lanes = new CitizenLanes();
++  const orig = lanes.run.bind(lanes);
++  lanes.run = (key, fn) => { seen.push(key); return orig(key, fn); };
++  const ledger = new AgentLedger({ store: { state: {}, save() {} } });
++  const pol = normalisePolicy({ allowed: ['Train'], budget: { total: '1000', perDay: '100' } });
++  const mk = (agentId, owner) => ledger.create({ agentId, owner, agentKey: `Key${agentId}`.padEnd(44, '1'), village: [1, 2, 3], policy: pol });
++  mk('a1', 'OwnerA'.padEnd(44, '1')); mk('a2', 'OwnerA'.padEnd(44, '1')); mk('b1', 'OwnerB'.padEnd(44, '1'));
++  const g = new AgentGateway({ ctx: { addresses: { citizen: () => 'Citizen' } }, ledger, keyring: null, lanes });
++  const req = (agentId, n) => ({ agentId, source: 'ai', idempotencyKey: `ai:${agentId}:${n}`, policyVersion: 1, action: { name: 'Train', holding: [1, 2, 3], fields: { unit: 0, n: 1 } } });
++  const rs = await Promise.all([g.submit(req('a1', 1), { runner: true }), g.submit(req('a2', 1), { runner: true }), g.submit(req('b1', 1), { runner: true })]);
++  assert.deepEqual(rs.map(r => r.error?.code), ['AgentStopped', 'AgentStopped', 'AgentStopped'], 'manual mode: refused at the gate');
++  assert.deepEqual(seen, [laneOf({ owner: 'OwnerA'.padEnd(44, '1') }), laneOf({ owner: 'OwnerA'.padEnd(44, '1') }), laneOf({ owner: 'OwnerB'.padEnd(44, '1') })]);
++  // A replay of a remembered key does not queue again.
++  const again = await g.submit(req('a1', 1), { runner: true });
++  assert.equal(again.replayed, true);
++  assert.equal(seen.length, 3);
++});
++
++test('a SendCaravan Duplicate is recorded as failed with sent: null: followed by the earlier transaction\'s signature, held while unknown', () => {
++  // The record #run writes for a seq action's Duplicate (with and without the relay's signature of the earlier send).
++  const withSig = { type: 'action', key: 'mcp:c1', status: 'failed', code: 'Duplicate', sent: null, duplicateOf: 'sigEarlier', signature: 'sigEarlier', lastValidBlockHeight: 150, slotFloor: 400 };
++  const noSig = { type: 'action', key: 'mcp:c2', status: 'failed', code: 'Duplicate', sent: null };
++  assert.equal(actionFateView(noSig).state, 'unknown', 'no signature: result unknown, never not-sent');
++  const fate = f => actionFateView(withSig, { fate: f, why: f, commitment: null, queryFailed: false });
++  assert.equal(fate('pending').state, 'pending');
++  assert.equal(fate('unknown').state, 'unknown', 'the earlier send cannot be proved absent: hold');
++  assert.equal(actionFateView(withSig, { fate: 'pending', why: 'rpc down', commitment: null, queryFailed: true }).state, 'unqueryable');
++  assert.equal(fate('landed').state, 'landed', 'the same bytes landed: this act\'s effect happened');
++  assert.equal(fate('expired').state, 'expired', 'only a proved absence frees it for a new attempt');
++  assert.equal(actionFateView(withSig).signature, 'sigEarlier');
++  // A refusal that is not a Duplicate stays not-sent.
++  assert.equal(actionFateView({ type: 'action', key: 'k', status: 'refused', code: 'StalePolicy' }).state, 'not-sent');
++});
+-- 
+2.43.0
+

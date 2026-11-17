@@ -1,0 +1,14 @@
+# permutation-gateway: node --test test/*.test.mjs screens/logic.screen.mjs
+== base 4cd901de
+# tests 1942
+# pass 1858
+# fail 83
+# cancelled 0
+# skipped 1
+== with patches
+# tests 1942
+# pass 1858
+# fail 83
+# cancelled 0
+# skipped 1
+== failing tests identical in both: yes

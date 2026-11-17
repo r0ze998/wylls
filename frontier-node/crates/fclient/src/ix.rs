@@ -649,6 +649,51 @@ pub struct Displaced {
     pub faction: u8,
 }
 
+/// The Citizen a keeper write names and its JoinShard index, as the
+/// program reads them: the address and the Citizen's own `JOIN_SHARD`.
+/// A wallet Citizen is at `citizen(wallet)` with shard
+/// `join_shard_of(wallet)`; a ⑳ NFT-resident Citizen is at
+/// `resident_citizen(asset)` with shard `join_shard_of(asset)` (its
+/// `WALLET` is zero, so the wallet builders would name the wrong account).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CitizenAt {
+    pub citizen: Address,
+    pub shard: u8,
+}
+
+impl CitizenAt {
+    pub fn wallet(a: &Addresses, wallet: &Address) -> CitizenAt {
+        CitizenAt {
+            citizen: a.citizen(wallet),
+            shard: addr::join_shard_of(&wallet.to_bytes()),
+        }
+    }
+    pub fn resident(a: &Addresses, asset: &Address) -> CitizenAt {
+        CitizenAt {
+            citizen: a.resident_citizen(asset),
+            shard: addr::join_shard_of(&asset.to_bytes()),
+        }
+    }
+    /// From a decoded Citizen at `citizen`, when that is the address its
+    /// own bytes derive (`None` otherwise: a reader never trusts an
+    /// address the account does not derive).
+    pub fn of_account(a: &Addresses, citizen: &Address, data: &[u8]) -> Option<CitizenAt> {
+        let c = crate::decode::Citizen::decode(data).ok()?;
+        (a.citizen_of(data)? == *citizen).then_some(CitizenAt {
+            citizen: *citizen,
+            shard: c.join_shard,
+        })
+    }
+}
+
+/// [`Displaced`] by its Citizen ([`CitizenAt`]), for NFT and wallet holders.
+#[derive(Clone, Copy, Debug)]
+pub struct DisplacedAt {
+    pub rent_payer: Address,
+    pub at: CitizenAt,
+    pub faction: u8,
+}
+
 /// 0x34 SettleTicket(k): `[payer s,w] [season] [citizen w] [holding w] [province w] [joinshard w] [seedcache r] [anchor|archive r]
 /// [other ticket provinces w × ≤ 2] [displaced_rent_payer w?] [displaced_citizen w?] [displaced_joinshard w?] [system]`.
 #[allow(clippy::too_many_arguments)]
@@ -664,15 +709,47 @@ pub fn settle_ticket(
     src: SeedSource,
     displaced: Option<&Displaced>,
 ) -> Instruction {
+    let d = displaced.map(|dp| DisplacedAt {
+        rent_payer: dp.rent_payer,
+        at: CitizenAt::wallet(a, &dp.wallet),
+        faction: dp.faction,
+    });
+    settle_ticket_at(
+        a,
+        payer,
+        CitizenAt::wallet(a, wallet),
+        faction,
+        k,
+        site,
+        ticket_bell,
+        all_sites,
+        src,
+        d.as_ref(),
+    )
+}
+
+/// [`settle_ticket`] by the Citizens' [`CitizenAt`] (NFT or wallet).
+#[allow(clippy::too_many_arguments)]
+pub fn settle_ticket_at(
+    a: &Addresses,
+    payer: Address,
+    at: CitizenAt,
+    faction: u8,
+    k: u8,
+    site: Site,
+    ticket_bell: u32,
+    all_sites: &[Site],
+    src: SeedSource,
+    displaced: Option<&DisplacedAt>,
+) -> Instruction {
     let (pi, qi) = (site.p as i32, site.q as i32);
-    let shard = addr::join_shard_of(&wallet.to_bytes());
     let mut m = vec![
         ws(payer),
         r(a.season),
-        w(a.citizen(wallet)),
+        w(at.citizen),
         w(a.holding(pi, qi, site.site)),
         w(a.province(pi, qi)),
-        w(a.join_shard(faction, shard)),
+        w(a.join_shard(faction, at.shard)),
     ];
     m.extend(seed_pair(a, ticket_bell, region_of(pi, qi), src));
     for (pp, qq) in ticket_provinces(all_sites) {
@@ -681,10 +758,9 @@ pub fn settle_ticket(
         }
     }
     if let Some(dp) = displaced {
-        let dshard = addr::join_shard_of(&dp.wallet.to_bytes());
         m.push(w(dp.rent_payer));
-        m.push(w(a.citizen(&dp.wallet)));
-        m.push(w(a.join_shard(dp.faction, dshard)));
+        m.push(w(dp.at.citizen));
+        m.push(w(a.join_shard(dp.faction, dp.at.shard)));
     }
     m.push(r(addr::system_program()));
     build(a, m, Data::new(tag::SETTLE_TICKET).u8(k))
@@ -716,14 +792,25 @@ pub fn release_dormant(
     faction: u8,
     rent_payer: Address,
 ) -> Instruction {
-    let shard = addr::join_shard_of(&wallet.to_bytes());
+    release_dormant_at(a, any, h, CitizenAt::wallet(a, wallet), faction, rent_payer)
+}
+
+/// [`release_dormant`] by the owner's [`CitizenAt`] (NFT or wallet).
+pub fn release_dormant_at(
+    a: &Addresses,
+    any: Address,
+    h: HoldingRef,
+    at: CitizenAt,
+    faction: u8,
+    rent_payer: Address,
+) -> Instruction {
     let m = vec![
         rs(any),
         r(a.season),
         w(h.address(a)),
         w(h.province(a)),
-        w(a.citizen(wallet)),
-        w(a.join_shard(faction, shard)),
+        w(at.citizen),
+        w(a.join_shard(faction, at.shard)),
         w(rent_payer),
         w(a.defence_pool()),
     ];
@@ -863,12 +950,20 @@ pub fn settle_explore(
     region: u8,
     src: SeedSource,
 ) -> Instruction {
-    let mut m = vec![
-        ws(payer),
-        r(a.season),
-        w(h.address(a)),
-        w(a.citizen(wallet)),
-    ];
+    settle_explore_at(a, payer, h, &a.citizen(wallet), bell, region, src)
+}
+
+/// [`settle_explore`] by the owner's Citizen address (NFT or wallet).
+pub fn settle_explore_at(
+    a: &Addresses,
+    payer: Address,
+    h: HoldingRef,
+    citizen: &Address,
+    bell: u32,
+    region: u8,
+    src: SeedSource,
+) -> Instruction {
+    let mut m = vec![ws(payer), r(a.season), w(h.address(a)), w(*citizen)];
     m.extend(seed_pair(a, bell, region, src));
     build(a, m, Data::new(tag::SETTLE_EXPLORE))
 }
@@ -1356,6 +1451,83 @@ pub fn claim_defence(a: &Addresses, keeper: Address, day: u32, slots: &[ClaimSlo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⑳: literal addresses only; no key is generated, derived or signed.
+    #[test]
+    fn citizen_at_names_the_nft_citizen_and_keeps_wallet_builders_unchanged() {
+        let a = Addresses {
+            program: Address::new_from_array([0x11; 32]),
+            season_id: 7,
+            season: Address::new_from_array([0x22; 32]),
+            bump: 255,
+        };
+        let payer = Address::new_from_array([0x31; 32]);
+        let wallet = Address::new_from_array([0x07; 32]);
+        let asset = Address::new_from_array([0x5a; 32]);
+        let site = Site {
+            p: 2,
+            q: 0,
+            site: 3,
+        };
+        let src = SeedSource::Cache { nonce: 0 };
+        // The wallet builder is the CitizenAt builder with the wallet's.
+        let old = settle_ticket(&a, payer, &wallet, 1, 0, site, 9, &[site], src, None);
+        let new = settle_ticket_at(
+            &a,
+            payer,
+            CitizenAt::wallet(&a, &wallet),
+            1,
+            0,
+            site,
+            9,
+            &[site],
+            src,
+            None,
+        );
+        assert_eq!(old, new);
+        // The NFT Citizen: its resident address and its asset's shard.
+        let at = CitizenAt::resident(&a, &asset);
+        assert_eq!(at.citizen, a.resident_citizen(&asset));
+        assert_eq!(at.shard, addr::join_shard_of(&asset.to_bytes()));
+        let ix = settle_ticket_at(&a, payer, at, 1, 0, site, 9, &[site], src, None);
+        assert_eq!(ix.accounts[2].pubkey, at.citizen);
+        assert_eq!(ix.accounts[5].pubkey, a.join_shard(1, at.shard));
+        assert_ne!(
+            ix.accounts[2].pubkey,
+            a.citizen(&Address::new_from_array([0; 32]))
+        );
+        let h = HoldingRef {
+            p: 2,
+            q: 0,
+            site: 3,
+        };
+        let rd = release_dormant_at(&a, payer, h, at, 1, payer);
+        assert_eq!(rd.accounts[4].pubkey, at.citizen);
+        let ex = settle_explore_at(&a, payer, h, &at.citizen, 9, 0, src);
+        assert_eq!(ex.accounts[3].pubkey, at.citizen);
+        // of_account: only at the address the bytes derive.
+        use frontier_abi::v2::layout::player::citizen as C2;
+        let mut d = vec![0u8; size_of_citizen()];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut d,
+            frontier_abi::v2::layout::AccountKind::Citizen,
+            7
+        ));
+        assert!(frontier_abi::resident_citizen::mark(
+            &mut d,
+            &asset.to_bytes()
+        ));
+        d[C2::JOIN_SHARD] = at.shard;
+        assert_eq!(CitizenAt::of_account(&a, &at.citizen, &d), Some(at));
+        assert_eq!(
+            CitizenAt::of_account(&a, &a.citizen(&Address::new_from_array([0; 32])), &d),
+            None
+        );
+    }
+
+    fn size_of_citizen() -> usize {
+        crate::abi::size::CITIZEN
+    }
 
     /// W5-A R5: the float close appends `[target w] [recipient w]` pairs to
     /// the ten fixed accounts of CloseSeason (the svm builder's shape).

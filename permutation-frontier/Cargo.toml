@@ -10,6 +10,21 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+# This target imports production crypto sources with a real host adapter.
+# Its main runs only the public-fixture proof, never the imported unit tests.
+[[test]]
+name = "public_seal_verification"
+path = "tests/public_seal_verification.rs"
+harness = false
+
+# Synthetic wide body over a published IBE block, memory-only and never a
+# production sealer. The original legacy verification target stays separate.
+[[test]]
+name = "public_wide_seal_verification"
+path = "tests/public_wide_seal_verification.rs"
+harness = false
+required-features = ["wide-world-experimental"]
+
 # M1 contract §3.2: the crate builds, clippies and tests on the host with the
 # default features (the entrypoint and the custom heap are
 # `cfg(target_os = "solana")`-gated); `--no-default-features` leaves the
@@ -20,6 +35,13 @@ default = ["program", "custom-heap"]
 # Instruction handlers, account initialisation, the prologue wrapper and the
 # entrypoint.
 program = []
+# Explicit opt-in for real native BLS math in unit tests only.
+# Non-test host libraries still fail closed; SBF never includes this adapter.
+native-crypto-tests = []
+# Public-fixture proof tests only: real native BLS math in cfg(test),
+# without enabling any gameplay gate. Linked host libraries stay closed;
+# lib.rs refuses SBF and native-crypto-tests/test-beacon/oracle combinations.
+public-proof-tests = []
 no-entrypoint = []
 # Our own 256-KiB-aware bump allocator (heap.rs, I-50) instead of the
 # entrypoint's default one.
@@ -35,6 +57,75 @@ oracle = []
 # `drand-replay --test-key` and its own QUICKNET_PK_HASH; marker
 # PSF_TEST_BEACON_BUILD, never deployable.
 test-beacon = []
+# Local development only: unallocated wire tag, no deployment or stable ABI.
+nft-experimental = ["program"]
+# Workstream 10 (custody), a preview: the custody instructions, embedding
+# RULESET_HASH_V4 and program_version 5 (so it refuses every S1 season, and
+# the default S1 build refuses every custody tag). Marker
+# PSF_CUSTODY_PREVIEW_BUILD; never deployable until LiteSVM tests, measured
+# budgets and the verifier's V26 exist.
+custody-preview = []
+# Workstream 09 (capacity lending), a preview: the capacity instructions
+# 0xF0–0xFD (`proc::capacity`, workstream 4's provisional band), dispatched
+# before the v2 tags; the build carries the `0x1000` program-version bit (provisional, workstream 4 2026-11-08; ② rights has 0x2000)
+# (workstream 09's proposal) so its Seasons never mix with others. No PS2
+# record (the kinds are not allocated). Not deployable.
+capacity-preview = [
+    "program",
+    "frontier-abi/capacity-preview",
+    "permutation-rules/capacity-preview",
+]
+# Local development only (2026-11-07): the draft wide land write path on the
+# provisional band 0xD6–0xDA (`proc::wide`), the wide terrain kernel and the
+# `world_index` identity models; the build carries the `0x4000` program
+# version bit so its Seasons never mix with production ones. Not deployable;
+# no stable ABI, no allocated numbers.
+# Workstream 02-rights, local development only (2026-11-08): the
+# workshop-stock swap Grant on the provisional tags 0xD0–0xD5
+# (`proc::rights`), its PS2 records (provisional kinds 114–119) and errors
+# (200–213). The build carries the provisional `0x2000` program version
+# bit (`frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT`) so its
+# Seasons never mix with production ones; the default build refuses the
+# tags as unknown. Not deployable: StockSwap is not adopted, its economic
+# terms are undecided, and workstream 4 fixes the numbers.
+rights-experimental = ["program"]
+wide-world-experimental = [
+    "program",
+    "frontier-abi/world-index-experimental",
+    "permutation-rules/wide-terrain-experimental",
+]
+# Host-only executable expedition revision; exact separate Season version.
+expedition-dispatch-experimental = ["wide-world-experimental"]
+# Isolated localnet SBF lane of that revision only (never deployable):
+# allows the SBF build of the version-0x4804 expedition wrapper, runs only
+# under the dedicated program id [0x45; 32] (refused at runtime otherwise),
+# carries marker PSF_LOCALNET_EXPEDITION_SBF_BUILD (refused by
+# build-frontier.sh's plain build); built only by
+# scripts/build-frontier-localnet-expedition-sbf.sh. Raw departure, conquest
+# and wide→wide debit gates are unchanged.
+localnet-expedition-sbf = ["expedition-dispatch-experimental"]
+# Host-only: routes the expedition wrapper's provisional conquest kinds 12–17
+# to the EXISTING Free City lifecycle consumers (DeclareSiege,
+# ResolveWithConquest, SettleCapture, SettleSiege, CloseConquest,
+# CloseCaptureEscrow), each with its unchanged authentication. The raw
+# `CONQUEST_LIFECYCLE_ENABLED = false` gate and every production gate stay.
+conquest-dispatch-experimental = ["expedition-dispatch-experimental", "frontier-abi/conquest-dispatch-experimental"]
+# Isolated localnet SBF lane of the expedition revision PLUS those conquest
+# kinds (never deployable): a separate artefact carrying BOTH markers
+# PSF_LOCALNET_EXPEDITION_SBF_BUILD and PSF_LOCALNET_CONQUEST_SBF_BUILD,
+# built only by scripts/build-frontier-localnet-conquest-sbf.sh, same
+# program id [0x45; 32] and version 0x4804.
+localnet-conquest-sbf = ["localnet-expedition-sbf", "conquest-dispatch-experimental"]
+# "Standing Ground" land, a preview (local development only, 2026-11-15):
+# FoldLand / ClaimLandYield on the PROVISIONAL, unallocated tags 0xCD / 0xCE
+# (`proc::land`; ABI-ALLOCATION rev 6 lists 0xCD-0xCF as free), dispatched
+# before the v2 tags; their own land record,
+# no existing account's layout changed. No version bit, no marker of its own.
+# Not deployable; the integrator allocates tags.
+land-preview = ["program", "frontier-abi/land-preview", "permutation-rules/land-preview"]
+# The localnet conquest lane plus the land preview (one feature value for
+# cargo-build-sbf), built only by scripts/build-frontier-localnet-land-sbf.sh.
+localnet-land-sbf = ["localnet-conquest-sbf", "land-preview"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.
@@ -49,3 +140,6 @@ frontier-abi = { path = "../frontier-abi" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("custom-panic"))'] }
+
+[target.'cfg(not(target_os = "solana"))'.dev-dependencies]
+solana-bls12-381-syscall = "=0.1.1"

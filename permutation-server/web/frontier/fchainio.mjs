@@ -14,6 +14,7 @@
 // relay co-signs, the message must come back unchanged.
 //
 // Every call answers `{…body, ok, httpStatus, code, error}` and never rejects.
+import { isResidentTag } from '../sdk/frontier/resident.mjs';
 import { equal, toBase64 } from '../sdk/bytes.mjs';
 import { COMPUTE_BUDGET_PROGRAM, messageOf, parseMessage, pubkeyString } from '../sdk/solana-tx.mjs';
 import { profileForHash } from '../sdk/frontier/profile.mjs';
@@ -30,6 +31,13 @@ export const relay = () => relayBase;
 
 let pin = null;
 /**
+ * The pin's generation (2026-11-17, ⑦): it moves by one each time a pin SUCCEEDS with another identity (cluster, program,
+ * season account) than the last successful one — never on a re-pin of the same identity (each season poll pins again),
+ * never on a pin that fails (it throws before anything is kept). A → B → A gives three generations, so a read started
+ * under the first A is not taken for one under the last. Readers compare it, not the identity string.
+ */
+let pinGen = 0, pinIdentity = null;
+/**
  * Pin the season this page plays from the herald's season record and the
  * decoded Season account: `{programId, cluster, seasonId}` + addresses.
  * Throws `{code: 'PinMismatch' | 'RulesetMismatch'}`.
@@ -39,7 +47,9 @@ export function setPin({ programId, cluster, seasonId, seasonAddress = null, rul
   if (seasonAddress && seasonAddress !== addresses.season) throw Object.assign(new Error(L`シーズンの記録の宛先が、プログラムから導いたものと一致しません`), { code: 'PinMismatch' });
   const profile = rulesetHash === null ? 1 : profileForHash(rulesetHash);
   if (!profile) throw Object.assign(new Error(L`このシーズンは別のルールで動いています`), { code: 'RulesetMismatch' });
-  pin = Object.freeze({ programId: addresses.programId, cluster: String(cluster || 'localnet'), seasonId: addresses.seasonId, addresses, profile });
+  const identity = `${String(cluster || 'localnet')}|${addresses.programId}|${addresses.season}`;
+  if (identity !== pinIdentity) { pinGen += 1; pinIdentity = identity; }
+  pin = Object.freeze({ programId: addresses.programId, cluster: String(cluster || 'localnet'), seasonId: addresses.seasonId, addresses, profile, gen: pinGen });
   return pin;
 }
 export const pinned = () => pin;
@@ -156,7 +166,7 @@ export function messageProblems(message, { feePayer, blockhash, tag, signers = [
   else {
     const t = f.data[0];
     if (t === REVEAL_TAG) out.push('UseRevealRoute');
-    else if (!PLAYER_TAGS.includes(t) && !SETTLE_TAGS.includes(t)) out.push(`tag 0x${t?.toString(16)} is not a player or settle shape`);
+    else if (!PLAYER_TAGS.includes(t) && !SETTLE_TAGS.includes(t) && !isResidentTag(t)) out.push(`tag 0x${t?.toString(16)} is not a player or settle shape`);
     else if (tag !== undefined && t !== tag) out.push(`tag 0x${t.toString(16)} is not the expected 0x${tag.toString(16)}`);
   }
   for (const i of ix) if (i.programId !== COMPUTE_BUDGET_PROGRAM && i.programId !== pin.programId) out.push(`unexpected program ${i.programId}`);

@@ -108,6 +108,12 @@ test('every field of every account decodes from its offset (random bytes, 3 roun
     for (let round = 0; round < 3; round++) {
       const b = Uint8Array.from(randomBytes(layout.size));
       b.set(Buffer.from(layout.magic, 'latin1'), 0);
+      if (kind === 'Season') {
+        // The decoder rightly rejects a mixed layout/program version. Keep
+        // the M1 header valid while checking the offsets of its random fields.
+        b.set([1, 0], 16); // LAYOUT_VERSION = 1
+        b.set([2, 0], 138); // PROGRAM_VERSION = 2
+      }
       const d = codec.decode(kind, b);
       for (const f of layout.fields) {
         if (f[3] === 'rsv') { assert.ok(!(codec.camel(f[0]) in d), `${kind}: reserved ${f[0]} left out`); continue; }

@@ -34,6 +34,7 @@
 //! are no-ops.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound::{Excluded, Unbounded};
 use std::sync::Arc;
 
 use base64::Engine;
@@ -42,6 +43,7 @@ use sha2::{Digest, Sha256};
 use solana_address::Address;
 
 use fclient::decode::{chained_header, AnchorArchive, Province, Season};
+#[cfg(not(feature = "expedition-records-experimental"))]
 use fclient::log::bodies_from_logs;
 use fclient::ports::TxRecord;
 use frontier_abi::addr::AddrCtx;
@@ -58,6 +60,9 @@ use crate::overview;
 use crate::records::{self, B64};
 use crate::roster;
 
+#[path = "player_host_index.rs"]
+mod player_host_index;
+
 /// What the fold needs to know besides the records.
 #[derive(Clone)]
 pub struct FoldCfg {
@@ -69,6 +74,56 @@ pub struct FoldCfg {
     /// (`findex::Enriched`): a recomputed clash that differs is then
     /// reported `unchecked`, not `MISMATCH`.
     pub exact_post: bool,
+}
+
+/// Whether the ingest loop is keeping up (`/h/status`). A pull that keeps
+/// failing (a history gap, a transaction the client cannot read, an RPC
+/// error) leaves the published views where they were: readers must be able
+/// to see that they are not current.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IngestHealth {
+    /// The last failed pull's error while pulls keep failing; `None` once a
+    /// pull succeeds.
+    pub error: Option<String>,
+    /// Consecutive failed pulls.
+    pub failures: u64,
+    /// Unix milliseconds of the first failure of this run of failures.
+    pub since_ms: u64,
+    /// The store failed (findex poisoned): ingest has stopped until the
+    /// herald reopens it.
+    pub stopped: bool,
+    /// What the archived history covers, as the source reports it
+    /// (findex `RpcPoll::coverage`: `gap`, `not_fetched`, `unverifiable`
+    /// or `cross_checked`); `None` for an ordered feed. Kept across
+    /// failures and successes alike.
+    pub coverage: Option<Value>,
+}
+
+impl IngestHealth {
+    pub fn ok(&mut self) {
+        *self = IngestHealth {
+            coverage: self.coverage.take(),
+            ..IngestHealth::default()
+        };
+    }
+
+    pub fn failed(&mut self, e: &str, now_ms: u64, stopped: bool) {
+        if self.failures == 0 {
+            self.since_ms = now_ms;
+        }
+        self.failures += 1;
+        self.error = Some(e.to_string());
+        self.stopped |= stopped;
+    }
+
+    pub fn json(&self) -> Value {
+        json!({
+            "state": if self.stopped { "stopped" } else if self.error.is_some() { "failing" } else { "ok" },
+            "error": self.error, "failures": self.failures,
+            "sinceMs": (self.failures > 0).then_some(self.since_ms),
+            "coverage": self.coverage,
+        })
+    }
 }
 
 /// One account's bytes as written by the transaction at archive `tx`.
@@ -217,7 +272,19 @@ pub struct ProvMeta {
 /// Bells one transaction may close at most (a SkipQuiet skips ≤ 24).
 const MAX_CLOSE: u32 = 4_096;
 
+#[cfg(test)]
+#[derive(Default)]
+struct RebuildCopy {
+    current: usize,
+    peak: usize,
+    records: usize,
+    total: usize,
+}
+
 pub struct Fold {
+    // Logical temporary source-payload bytes only, not allocator/RSS or indexes.
+    #[cfg(test)]
+    rebuild_copy: RebuildCopy,
     pub cfg: FoldCfg,
     pub ctx: AddrCtx,
     pub st: State,
@@ -228,6 +295,9 @@ pub struct Fold {
     pub regions: BTreeMap<u8, BTreeSet<(i16, i16)>>,
     /// Citizen address → wallet.
     pub wallet_of: BTreeMap<[u8; 32], [u8; 32]>,
+    /// Derived from captures, never checkpointed. Update through the capture
+    /// lifecycle (or rebuild with `with_state`), not direct account-map edits.
+    pub(crate) player_hosts: player_host_index::PlayerHostIndex,
     /// Diffs produced since the last [`Fold::take_diffs`].
     pub diffs: Vec<Diff>,
     /// Bumped by every applied transaction (cache key of live views).
@@ -235,12 +305,21 @@ pub struct Fold {
     /// The chain's latest `(slot, Clock unix time)` as last observed by the
     /// ingest loop (live views only; never folded into files).
     pub live: Option<(u64, i64)>,
+    /// The ingest loop's health as last observed (live views only; never
+    /// folded into files or checkpoints).
+    pub ingest: IngestHealth,
     // MC hook: the conquest state (CONQUEST-CONTRACT §4.5, §8.4)
     pub cq: crate::conquest::Cq,
     // MC hook end
     /// Resting S1 Provinces projected past `resolved_next` (`crate::rest`;
     /// not checkpointed).
     pub rest: crate::rest::Rests,
+    /// The recorded wide world (`crate::wide`, feature
+    /// `wide-world-experimental`): derived from the captured Provinces like
+    /// `provinces`, moved only when one is first captured or closed; not
+    /// checkpointed (rebuilt by `with_state`).
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide: Option<crate::wide::WideIndex>,
 }
 
 fn kind_of(d: &[u8]) -> Option<AccountKind> {
@@ -264,9 +343,15 @@ impl Fold {
     /// A fold resuming from a saved state (derived indexes rebuilt).
     pub fn with_state(cfg: FoldCfg, out: Out, st: State) -> Fold {
         let ctx = findex::addr_ctx(&cfg.program, cfg.season_id);
+        #[cfg(feature = "wide-world-experimental")]
+        let wide = crate::wide::WideIndex::for_ctx(&ctx);
         let mut f = Fold {
+            #[cfg(test)]
+            rebuild_copy: RebuildCopy::default(),
             cfg,
             ctx,
+            #[cfg(feature = "wide-world-experimental")]
+            wide,
             st,
             out,
             season: None,
@@ -274,21 +359,45 @@ impl Fold {
             rings: BTreeMap::new(),
             regions: BTreeMap::new(),
             wallet_of: BTreeMap::new(),
+            player_hosts: Default::default(),
             diffs: vec![],
             version: 0,
             live: None,
+            ingest: IngestHealth::default(),
             // MC hook: the conquest state
             cq: Default::default(),
             // MC hook end
             rest: Default::default(),
         };
-        let all: Vec<([u8; 32], Vec<u8>)> =
-            f.st.accounts
-                .iter()
-                .map(|(k, c)| (*k, c.data.clone()))
-                .collect();
-        for (k, d) in all {
+        // Keep every capture available: wide index replay reads its slot from
+        // State. The index hooks must not mutate accounts. Seek strictly after
+        // the last address, retaining the old sorted order even at [255; 32].
+        // This trades O(N) traversal for O(N log N) seeks, but only one source
+        // payload is copied at a time (O(max payload), not O(total payload)).
+        // State, decoder allocations and growing derived indexes still exist.
+        let mut after = None;
+        loop {
+            let next = match after {
+                None => f.st.accounts.first_key_value(),
+                Some(k) => f.st.accounts.range((Excluded(k), Unbounded)).next(),
+            }
+            .map(|(k, c)| (*k, c.data.clone()));
+            let Some((k, d)) = next else { break };
+            #[cfg(test)]
+            {
+                f.rebuild_copy.current += d.len();
+                f.rebuild_copy.peak = f.rebuild_copy.peak.max(f.rebuild_copy.current);
+                f.rebuild_copy.records += 1;
+                f.rebuild_copy.total += d.len();
+            }
             f.index_account(&k, &d);
+            after = Some(k);
+            // Drop before the next seek/clone, including in instrumented tests.
+            drop(d);
+            #[cfg(test)]
+            {
+                f.rebuild_copy.current = 0;
+            }
         }
         f
     }
@@ -303,6 +412,11 @@ impl Fold {
     }
 
     fn index_account(&mut self, k: &[u8; 32], d: &[u8]) {
+        self.player_hosts.replace(k, d);
+        #[cfg(feature = "wide-world-experimental")]
+        if crate::wide::index_capture(self, k, d) {
+            return;
+        }
         match kind_of(d) {
             Some(AccountKind::Province) => {
                 if let Ok(pv) = Province::decode(d) {
@@ -323,11 +437,17 @@ impl Fold {
                         .entry(pv.region)
                         .or_default()
                         .insert((pv.p, pv.q));
+                    // the recorded wide world: a no-op for a Province already recorded open from this bell
+                    #[cfg(feature = "wide-world-experimental")]
+                    if let Some(w) = self.wide.as_mut() {
+                        w.observe_open(pv.p, pv.q, first);
+                    }
                 }
             }
             Some(AccountKind::Citizen) => {
-                if let Some(w) = d.get(64..96) {
-                    self.wallet_of.insert(*k, w.try_into().unwrap_or_default());
+                // The `/h/me` key: the wallet, or a ⑳ NFT Citizen's asset.
+                if let Some(w) = crate::conquest::me_key(d) {
+                    self.wallet_of.insert(*k, w);
                 }
             }
             Some(AccountKind::Season) if *k == self.ctx.season => {
@@ -338,6 +458,7 @@ impl Fold {
     }
 
     fn unindex_account(&mut self, k: &[u8; 32], d: &[u8]) {
+        self.player_hosts.remove(k);
         match kind_of(d) {
             Some(AccountKind::Province) => {
                 let pq = (
@@ -352,12 +473,40 @@ impl Fold {
                         s.remove(&pq);
                     }
                 }
+                // the recorded wide world: a closed account is a known closed record, not an unknown one
+                #[cfg(feature = "wide-world-experimental")]
+                {
+                    let at = self.st.last_slot;
+                    if let Some(w) = self.wide.as_mut() {
+                        w.observe_closed(pq.0, pq.1, at);
+                    }
+                }
             }
             Some(AccountKind::Citizen) => {
                 self.wallet_of.remove(k);
             }
             _ => {}
         }
+    }
+
+    #[cfg(feature = "wide-world-experimental")]
+    fn capture_wide_post(
+        &mut self,
+        key: &[u8; 32],
+        account: Option<&fclient::ports::Account>,
+        tx: &TxRecord,
+    ) -> bool {
+        if !crate::wide::capture_post(self, key, account, tx) {
+            return false;
+        }
+        // Wide handling can replace an old legacy record, or refuse a
+        // replacement and retain it. Index the surviving capture, never the
+        // proposed post-state. Kept separate from apply's event/file output.
+        match self.st.accounts.get(key) {
+            Some(c) => self.player_hosts.replace(key, &c.data),
+            None => self.player_hosts.remove(key),
+        }
+        true
     }
 
     fn scope_of_account(&self, kind: AccountKind, d: &[u8]) -> Scope {
@@ -384,9 +533,10 @@ impl Fold {
                 pq(64)
             }
             AccountKind::ArrivalSlot | AccountKind::ArrivalDay if d.len() >= 20 => pq(16),
-            AccountKind::Citizen if d.len() >= 96 => {
-                Scope::Wallet(d[64..96].try_into().unwrap_or_default())
-            }
+            AccountKind::Citizen if d.len() >= 96 => match crate::conquest::me_key(d) {
+                Some(w) => Scope::Wallet(w),
+                None => Scope::None,
+            },
             AccountKind::BellAnchor
             | AccountKind::SeedCache
             | AccountKind::AnchorArchive
@@ -428,6 +578,14 @@ impl Fold {
         let mut rings_touched: BTreeSet<u16> = BTreeSet::new();
         for (k, a) in &tx.post {
             let key = k.to_bytes();
+            #[cfg(feature = "wide-world-experimental")]
+            if self.capture_wide_post(&key, a.as_ref(), tx) {
+                continue;
+            }
+            #[cfg(feature = "land-preview")]
+            if self.capture_land_post(&key, a.as_ref(), tx) {
+                continue;
+            }
             let new = a.as_ref().and_then(|a| {
                 (a.owner == self.cfg.program
                     && a.data.len() >= 16
@@ -436,6 +594,14 @@ impl Fold {
                 .then(|| a.data.clone())
             });
             let old = self.st.accounts.get(&key).cloned();
+            // A verified account snapshot (capture `tx` 0: only the opt-in
+            // local-play bootstrap writes one; feed sequences start at 1) read at
+            // context slot S already reflects every transaction of a slot ≤ S.
+            // Replaying such an older transaction keeps the snapshot's bytes for
+            // this account; its events and records are folded as usual below.
+            if old.as_ref().is_some_and(|o| o.tx == 0 && o.slot >= tx.slot) {
+                continue;
+            }
             match (old, new) {
                 (None, None) => {}
                 (Some(o), None) => {
@@ -545,6 +711,20 @@ impl Fold {
             }
         }
         // 2. The records.
+        #[cfg(feature = "expedition-records-experimental")]
+        let bodies = match findex::expedition_records::transaction(tx, &self.cfg.program, &self.ctx)
+        {
+            Ok(records) => records
+                .into_iter()
+                .filter(|r| r.format() == "PS2")
+                .map(|r| r.body().to_vec())
+                .collect::<Vec<_>>(),
+            Err(_) => {
+                self.st.alarms.bad_records += 1;
+                vec![]
+            }
+        };
+        #[cfg(not(feature = "expedition-records-experimental"))]
         let bodies = match bodies_from_logs(&tx.logs, &self.cfg.program) {
             Ok(b) => b,
             Err(_) => {
@@ -553,6 +733,26 @@ impl Fold {
             }
         };
         for body in &bodies {
+            #[cfg(feature = "expedition-records-experimental")]
+            if matches!(body.get(1), Some(145..=149)) {
+                match findex::expedition_records::decode(&self.ctx, body) {
+                    Ok(Some(record)) => {
+                        self.st.events += 1;
+                        self.diffs.push(Diff {
+                            kind: "event",
+                            key: format!("EXPERIMENTAL_PS2_{}:{}", record.kind, record.bell),
+                            slot: tx.slot,
+                            head: None,
+                            bytes: body.clone(),
+                            scope: Scope::None,
+                            t_ms: 0,
+                            wire: Default::default(),
+                        });
+                    }
+                    _ => self.st.alarms.bad_records += 1,
+                }
+                continue;
+            }
             // MC hook: record kinds 80–89 (CONQUEST-CONTRACT §6, §8.4)
             if crate::conquest::on_record(self, tx, body) {
                 continue;
@@ -706,6 +906,41 @@ impl Fold {
         self.st.accounts.get(a)
     }
 
+    /// Land preview (feature `land-preview`): a program-owned land record of
+    /// this season (`PSFLAND1`, short header) is kept as a capture of its
+    /// own, outside the account kinds and their indexes and diffs; it rides
+    /// the province envelope as `land`. `true` when `key` was one (handled).
+    #[cfg(feature = "land-preview")]
+    fn capture_land_post(
+        &mut self,
+        key: &[u8; 32],
+        a: Option<&fclient::ports::Account>,
+        tx: &TxRecord,
+    ) -> bool {
+        use frontier_abi::land_preview::land as LD;
+        let is_land = |d: &[u8]| {
+            d.len() == LD::SIZE && d[..8] == LD::MAGIC && season_of(d) == Some(self.cfg.season_id)
+        };
+        match a {
+            Some(acc) if acc.owner == self.cfg.program && is_land(&acc.data) => {
+                self.st.accounts.insert(
+                    *key,
+                    Capture {
+                        slot: tx.slot,
+                        tx: tx.seq,
+                        data: acc.data.clone(),
+                    },
+                );
+                true
+            }
+            None if self.st.accounts.get(key).is_some_and(|c| is_land(&c.data)) => {
+                self.st.accounts.remove(key);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The §9.2 envelope of `(P, Q)` at `bell` from the current captures.
     pub fn envelope(&self, pq: (i16, i16), bell: u32) -> Option<Value> {
         let (p, q) = (pq.0 as i32, pq.1 as i32);
@@ -731,11 +966,21 @@ impl Fold {
                 json!({"key": format!("ci:{p},{q},{bell}"), "seq": s.to_string(), "head": hex::encode(h), "bytes": B64.encode(&c.data)})
             })
             .unwrap_or(Value::Null);
-        Some(json!({
+        #[allow(unused_mut)]
+        let mut env = json!({
             "v": 1, "key": format!("pv:{p},{q}"), "bell": bell, "slot": pv.slot,
             "seq": seq.to_string(), "head": hex::encode(head), "bytes": B64.encode(&pv.data),
             "slots": slots, "day": day_v, "inputs": inputs,
-        }))
+        });
+        // land preview: the province's land record, when one exists
+        #[cfg(feature = "land-preview")]
+        if let Some(c) = self.cap(&frontier_abi::land_preview::land_address(
+            &self.ctx, pq.0, pq.1,
+        )) {
+            env["land"] =
+                json!({"key": format!("ld:{p},{q}"), "slot": c.slot, "bytes": B64.encode(&c.data)});
+        }
+        Some(env)
     }
 
     fn close_bell(&mut self, pq: (i16, i16), b: u32) {
@@ -1236,3 +1481,11 @@ impl Fold {
         self.cap(a)
     }
 }
+
+#[cfg(test)]
+#[path = "player_host_index_tests.rs"]
+mod player_host_index_tests;
+
+#[cfg(test)]
+#[path = "rebuild_capture_tests.rs"]
+mod rebuild_capture_tests;

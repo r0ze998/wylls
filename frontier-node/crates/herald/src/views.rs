@@ -30,7 +30,8 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     let c = f.account(&addr)?;
     let se = f.season.as_ref()?;
     let mut rings: std::collections::BTreeMap<u16, [u8; 32]> = f.st.ring_seeds.clone();
-    for d in 0..=se.r_max.min(128) {
+    let r_max = crate::world::r_max(f).unwrap_or(se.r_max);
+    for d in 0..=r_max.min(128) {
         if let Some(rc) = f.account(&f.ctx.ring_seed(d)) {
             // status 2 = seeded; the seed at 40.
             if rc.data.get(18) == Some(&2) {
@@ -54,6 +55,7 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
         "v": 1,
         "programId": f.cfg.program.to_string(),
         "cluster": s.cluster,
+        "sample": s.cluster.trim().eq_ignore_ascii_case("fixture"),
         "season": f.cfg.season_id.to_string(),
         "seasonAddress": Address::new_from_array(addr).to_string(),
         "genesisTs": se.genesis_ts,
@@ -69,7 +71,7 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
             "genesis": s.drand.genesis_time,
         },
         "rulesetHash": hex::encode(se.ruleset_hash),
-        "rMax": se.r_max,
+        "rMax": r_max,
         "wedgeOpen": wedge_open,
         "wedgeOccupied": wedge_occupied,
         "rings": rings.iter().map(|(d, seed)| json!({"d": d, "seed": hex::encode(seed)})).collect::<Vec<_>>(),
@@ -92,6 +94,22 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     let states = crate::world::ring_states(f);
     v["ringsOpened"] = json!(states.len());
     v["ringProvinces"] = json!(states.iter().map(|r| r.provinces).collect::<Vec<_>>());
+    // Read from the captured Season bytes; an absent or inconsistent flag
+    // never changes the page into a continuous-world view.
+    v["continuous"] = json!(se.world_continues());
+    // Map growth and first-home placement (the same as the Season bytes say;
+    // spelled out for readers that do not decode them): the ceiling (0: none),
+    // the hard limit, the prize tally's last ring, the placement, the
+    // heartland rings and the genesis seed `home_nation` reads.
+    v["rMaxCeiling"] = json!(crate::world::r_max_ceiling(f));
+    v["rMaxHard"] = json!(permutation_rules::frontier::geometry::R_MAX_HARD);
+    v["prizeMaxRing"] = json!(crate::world::PRIZE_MAX_RING);
+    v["placement"] = json!(crate::world::placement(f));
+    v["heartlandMaxRing"] = se
+        .conquest
+        .as_ref()
+        .map_or(Value::Null, |c| json!(c.heartland_max_ring));
+    v["genesisSeed"] = json!(hex::encode(se.genesis_seed));
     Some(v)
 }
 
@@ -124,7 +142,7 @@ fn acct(f: &Fold, a: &[u8; 32]) -> Value {
 /// hosts wherever they stand, transit records, open ArrivalSlots, settled
 /// seal codes, and the relay quota (`quota`, fetched by the caller).
 pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
-    let ca = f.ctx.citizen(&wallet.to_bytes());
+    let ca = crate::conquest::me_citizen(f, &wallet.to_bytes());
     let citizen = f.account(&ca).and_then(|c| Citizen::decode(&c.data).ok());
     let mut holdings = vec![];
     let mut keys = vec![];
@@ -161,41 +179,15 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
     let mut hosts = vec![];
     let mut slots = vec![];
     if !keys.is_empty() {
-        for c in f.st.accounts.values() {
-            match c
-                .data
-                .get(..8)
-                .and_then(|m| AccountKind::from_magic(m.try_into().ok()?))
-            {
-                Some(AccountKind::Province) => {
-                    let Ok(pv) = Province::decode(&c.data) else {
-                        continue;
-                    };
-                    for e in pv.entries.iter().filter(|e| e.state != 0) {
-                        if keys.contains(&holding_key_of_host(e.id)) {
-                            hosts.push(json!({
-                                "id": e.id.to_string(), "province": [pv.p, pv.q], "state": e.state,
-                                "faction": e.faction, "unit": e.unit, "tile": e.tile, "troops": e.troops,
-                                "readyBell": e.ready_bell, "fromBell": e.from_bell,
-                            }));
-                        }
-                    }
+        hosts = f.player_hosts.hosts(&keys);
+        if let Some(ci) = &citizen {
+            for address in f.player_hosts.arrivals(ci.citizen_tag) {
+                if let Some(c) = f.account(address) {
+                    let key = crate::records::account_key(AccountKind::ArrivalSlot, &c.data, "");
+                    slots.push(
+                        json!({"key": key, "slot": c.slot, "bytes_b64": B64.encode(&c.data)}),
+                    );
                 }
-                Some(AccountKind::ArrivalSlot) => {
-                    let tag = citizen.as_ref().map(|c| c.citizen_tag);
-                    let st = c
-                        .data
-                        .get(40..48)
-                        .map(|b| u64::from_le_bytes(b.try_into().unwrap_or_default()));
-                    if tag.is_some() && st == tag {
-                        let key =
-                            crate::records::account_key(AccountKind::ArrivalSlot, &c.data, "");
-                        slots.push(
-                            json!({"key": key, "slot": c.slot, "bytes_b64": B64.encode(&c.data)}),
-                        );
-                    }
-                }
-                _ => {}
             }
         }
     }
@@ -217,6 +209,15 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
         "quota": quota,
         "latestSlot": f.st.last_slot,
     });
+    #[cfg(feature = "wide-world-experimental")]
+    {
+        // The viewer's wide inventory, kept apart from `holdings` (never a
+        // legacy Holding at (0,0)): the identity envelope every entry is
+        // checked against, then the slots. Both additive; a page reads them
+        // together or not at all.
+        v["wideContext"] = crate::wide::context_for_citizen(f, &ca);
+        v["wideHoldings"] = crate::wide::holdings_for_citizen(f, &ca);
+    }
     // MC (CQ2-E, §8.4): `alerts[]`, `sieges[]` and the caller's players
     // row; an M1 season's answer is unchanged.
     if let (Some((alerts, sieges, player)), Some(o)) = (

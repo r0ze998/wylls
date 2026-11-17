@@ -1,0 +1,1 @@
+{'genesisRing': 4, 'placement': 1, 'prizeMaxRing': 17, 'provinces': 217, 'rMax': 8, 'rMaxCeiling': 8, 'rMaxHard': 128, 'rMaxSeason': 5, 'ringsOpened': 9, 'season': '81', 'v': 1}

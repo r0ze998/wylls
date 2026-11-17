@@ -373,9 +373,11 @@ fn anchor_time(
     Ok(an.a)
 }
 
-/// The reveal window of `bell` has closed (`TooEarly` otherwise).
+/// The reveal window of `bell` has closed (`TooEarly` otherwise). Shared
+/// with the experimental wide resolve (`proc::wide`), which authenticates
+/// THE anchor of its province's stored region the same way.
 #[allow(clippy::too_many_arguments)]
-fn window_closed(
+pub(crate) fn window_closed(
     program: &Pubkey,
     ctx: &AddrCtx,
     sid: u64,
@@ -580,8 +582,24 @@ fn gather_position(
     if !live || !gathers_gen(&hd, parts.gen) {
         return Ok(true);
     }
+    // Preflight every slot before a matching legacy slot can return early.
+    #[cfg(feature = "wide-world-experimental")]
+    let occupancy =
+        frontier_abi::prologue::holding_transit_occupancy(ctx, &holding.key.to_bytes(), &hd)?;
     for t in 0..H::TRANSIT_N {
         let o = H::transit(t);
+        // A bridge has no legacy arrival result or destination to stamp.
+        // Validate before any host/bell filtering: malformed is never SETTLED.
+        #[cfg(feature = "wide-world-experimental")]
+        {
+            use frontier_abi::prologue::TransitOccupancy;
+            if matches!(
+                occupancy[t],
+                TransitOccupancy::Bridge(_) | TransitOccupancy::Reverse(_)
+            ) {
+                continue;
+            }
+        }
         let tr: &[u8; T::SIZE] = hd
             .get(o..o + T::SIZE)
             .and_then(|x| x.try_into().ok())

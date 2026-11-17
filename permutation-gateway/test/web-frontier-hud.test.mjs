@@ -206,6 +206,23 @@ test('wantProvince: at most 12 in flight, slots free when a load ends, a stale c
   STORE.provinces = new Map();
 });
 
+// (workstream 07, workstream 16's §29.32: a Province whose read fails never enters FS.provinces, so the refresh interval
+// was skipped and each finished load's redraw asked for it again at once — hundreds of requests a minute for a 404)
+test('wantProvince: a Province whose read failed is not asked for again within WANT_REFRESH_MS, and is after it', async () => {
+  let asked = 0;
+  CTRL.useHerald({ province: async () => { asked++; return { ok: false, code: 'NotFound' }; } });
+  STORE.provinces = new Map();
+  assert.equal(CTRL.wantProvince(40, 1, () => {}, { now: 0, bell: 7 }), true, 'first asked');
+  await new Promise(r => setTimeout(r, 0)); await new Promise(r => setTimeout(r, 0));
+  assert.equal(STORE.provinces.has('40,1'), false, 'the failed read stored nothing');
+  assert.equal(CTRL.wantProvince(40, 1, () => {}, { now: 1000, bell: 7 }), false, 'not again at once (the redraw after the failure)');
+  assert.equal(CTRL.wantProvince(40, 1, () => {}, { now: CTRL.WANT_REFRESH_MS - 1, bell: 8 }), false, 'not within the interval, even at a new bell');
+  assert.equal(CTRL.wantProvince(40, 1, () => {}, { now: CTRL.WANT_REFRESH_MS + 1, bell: 8 }), true, 'asked again after it');
+  await new Promise(r => setTimeout(r, 0)); await new Promise(r => setTimeout(r, 0));
+  assert.equal(asked, 2);
+  STORE.provinces = new Map();
+});
+
 import * as FEED from '../../permutation-server/web/frontier/hud/feed.mjs';
 
 test('feed: changes between two polls become notifications; a turned bell folds into a summary; nothing at first sight', () => {

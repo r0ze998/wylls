@@ -46,6 +46,9 @@ impl ExploreDuty {
         seeds: &mut SeedFinder,
         anchors: &BTreeMap<(u32, u8), AnchorInfo>,
     ) -> PortResult<()> {
+        if !index.feed.gate(engine, None)? {
+            return Ok(());
+        }
         let eff = t.season.effective_status(t.now);
         if !t.cfg.has_role("explore")
             || !(eff == status::RUNNING || eff == status::ENDED)
@@ -81,8 +84,7 @@ impl ExploreDuty {
                 else {
                     continue;
                 };
-                let Some((wallet, _)) = index.citizen_of(port, t.addrs, &h.owner_citizen).await?
-                else {
+                let Some((at, _)) = index.citizen_of(port, t.addrs, &h.owner_citizen).await? else {
                     continue;
                 };
                 let a = t.addrs.clone();
@@ -101,8 +103,14 @@ impl ExploreDuty {
                         bell: Some(ex.bell),
                         region: Some(region),
                         build: Arc::new(move |c: &BuildCtx| {
-                            vec![ix::settle_explore(
-                                &a, c.payer, href, &wallet, bell, region, src,
+                            vec![ix::settle_explore_at(
+                                &a,
+                                c.payer,
+                                href,
+                                &at.citizen,
+                                bell,
+                                region,
+                                src,
                             )]
                         }),
                         deadline_slot: None,

@@ -1,0 +1,144 @@
+{
+  "format": "wylls.creation.manifest/0",
+  "name": "front-supply",
+  "version": "1.0.0",
+  "author": "$A",
+  "title": "前線補給（工房を借りて兵器を送る）",
+  "note": "工房の州に自分の倉を置き、そこへ鉱石と木材を運び、Wの工房を使用権の札で動かして、できた兵器を前線の倉へ送ります。峠を通るので襲われることがあります。",
+  "params": {
+    "source": {
+      "type": "vault",
+      "own": true,
+      "ja": "材料を出す倉",
+      "default": "vault:A-mine"
+    },
+    "workshop": {
+      "type": "workshop",
+      "ja": "使う工房",
+      "default": "village:W"
+    },
+    "workVault": {
+      "type": "vault",
+      "own": true,
+      "ja": "工房と同じ州の自分の倉",
+      "default": "vault:A-work"
+    },
+    "receiver": {
+      "type": "place",
+      "ja": "兵器の届け先",
+      "default": "vault:A-fort"
+    },
+    "runs": {
+      "type": "int",
+      "min": 1,
+      "default": 3,
+      "ja": "1日に工房を動かす回数"
+    }
+  },
+  "uses": {
+    "ws": {
+      "relation": "connect",
+      "target": {
+        "param": "workshop"
+      },
+      "grant": "use",
+      "amount": {
+        "param": "runs"
+      },
+      "ja": "工房"
+    }
+  },
+  "steps": [
+    {
+      "id": "haul",
+      "effect": "caravan.send",
+      "args": {
+        "from": {
+          "param": "source"
+        },
+        "to": {
+          "param": "workVault"
+        },
+        "cargo": {
+          "goods": {
+            "ore": {
+              "param": "runs",
+              "times": 8
+            },
+            "wood": {
+              "param": "runs",
+              "times": 4
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "make",
+      "effect": "workshop.run",
+      "after": [
+        "haul"
+      ],
+      "args": {
+        "via": {
+          "use": "ws"
+        },
+        "vault": {
+          "param": "workVault"
+        },
+        "runs": {
+          "param": "runs"
+        }
+      }
+    },
+    {
+      "id": "ship",
+      "effect": "caravan.send",
+      "after": [
+        "make"
+      ],
+      "args": {
+        "from": {
+          "param": "workVault"
+        },
+        "to": {
+          "param": "receiver"
+        },
+        "cargo": {
+          "goods": {
+            "arms": {
+              "param": "runs",
+              "times": 4
+            }
+          }
+        }
+      }
+    }
+  ],
+  "trigger": "manual",
+  "limits": {
+    "runsPerDay": 1
+  },
+  "outputs": {
+    "arms": {
+      "from": {
+        "step": "ship",
+        "out": "delivered"
+      }
+    }
+  },
+  "claims": {
+    "trigger": "manual",
+    "runsPerDay": 1,
+    "outputsPerRun": {
+      "arms": 12
+    },
+    "grants": [
+      "use"
+    ],
+    "deliversTo": [
+      "receiver"
+    ],
+    "signer": "wallet-unless-own"
+  }
+}

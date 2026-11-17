@@ -248,6 +248,16 @@ export function burn(a, env) {
 const aimZoom = fx => { try { const z = fx.map?.view?.zoom; return z > 0 ? z : null; } catch { return null; } };
 
 const staged = new Map();   // "p,q" → the handles of the scene playing there
+/**
+ * Call off what this layer staged for one play (2026-11-17, ⑦: the page ends a scene of a pinned world it has left — app
+ * endOtherWorldBattles — and its dimming, figures and title must not go on over the new world's map). Only that play's
+ * handles: a later scene staged at the same place is another play and is left alone. True when something was called off.
+ */
+export function cancelStagedPlay(play) {
+  let n = 0;
+  for (const h of [...staged.values()]) if (h.play === play) { h.cancel(); n++; }
+  return n > 0;
+}
 
 /**
  * Stage a playing scene (`startBattle`'s `{scene, t0, speed}`) on the
@@ -329,7 +339,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     play.t0 = -1e9;
     for (const T of fights) for (const side of T.sides) if (side.loss) keep(fx.play('label', { x: T.c.x + side.sgn * RADIUS * 1.1, y: T.c.y, text: texts.lossText(side.loss), color: '#ffb7a3', size: 24, lift: 0.9, dur: 3, seed: `${id}|loss|${side.sgn}`, mode: level }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0, dur: 2.8, seed: `${id}|title`, mode: level }));
-    const h = { cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); } };
+    const h = { play, cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
   }
@@ -346,7 +356,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     } }));
     keep(fx.piece('battle', { dur: hold, tiles, stage: takes }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: takes ? 'stage' : null, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
-    const h = { cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); } };
+    const h = { play, cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
   }
@@ -412,7 +422,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     const st = battleStage(T, z, fit, layout);
     keep(fx.play('burn', { x: st.right.x + st.s * 0.45, y: st.cy + st.s * 0.1, size: st.s * 1.7, dur: 3.3 / speed + 0.4, delay: at(PHASE.fates + 0.12), seed: `${id}|burn|${T.idx}` }));
   }
-  const h = { cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); }, title, dur };
+  const h = { play, cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); }, title, dur };
   staged.set(key, h);
   return h;
 }

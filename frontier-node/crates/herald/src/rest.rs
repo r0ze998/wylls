@@ -146,9 +146,12 @@ pub fn advance(f: &mut Fold, written: &[(i16, i16)]) -> Vec<Bell> {
 /// A Province's projection from its stored bytes.
 fn start(d: &[u8], prm: &StepParams) -> Proj {
     let rn = rd_u32(d, P::RESOLVED_NEXT).unwrap_or(0);
+    // Whether it rests at all: a limit past `rn` with `t = rn + 1` is the
+    // same answer as with any later `t`, without scanning camp days up to
+    // the season's end (a continuous world's end is `NO_END_BELL`).
     let rests = is_v2_province(d)
         && rest_model::resting(d).unwrap_or(false)
-        && rest_model::rest_limit(d, u32::MAX, prm).is_ok_and(|t| t > rn);
+        && rest_model::rest_limit(d, rn.saturating_add(1), prm).is_ok_and(|t| t > rn);
     Proj {
         pd: if rests { d.to_vec() } else { vec![] },
         through: rn,

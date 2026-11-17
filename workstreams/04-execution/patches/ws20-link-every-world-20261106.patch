@@ -1,0 +1,259 @@
+diff --git a/frontier-abi/src/resident_binding.rs b/frontier-abi/src/resident_binding.rs
+index 05b2720b..d4d62ad0 100644
+--- a/frontier-abi/src/resident_binding.rs
++++ b/frontier-abi/src/resident_binding.rs
+@@ -1,5 +1,13 @@
+ //! Experimental immutable NFT-to-Citizen binding record.
+ //!
++//! One record per asset, for every world (the link is global): it binds the
++//! asset to its resident account, once and for good ("one NFT, one
++//! account"). `citizen` is the Citizen the NFT created first, in whichever
++//! world that was: a fact of history kept as written, **not** the Citizen a
++//! later world must use. Each world's NFT Citizen is at that world's
++//! `citizen_by_tag15(resident id)` and carries the asset in its own resident
++//! fields; the runtime checks those, and [`same_identity`] here.
++//!
+ //! This codec does not establish account ownership or canonical addresses;
+ //! the runtime adapter must check those before using or creating a record.
+ 
+@@ -30,6 +38,12 @@ pub fn matches(record: &Record, asset: &[u8; 32], resident: &[u8; 32], citizen:
+     &record.asset == asset && &record.resident == resident && &record.citizen == citizen
+ }
+ 
++/// The record binds exactly this asset to exactly this resident account, in
++/// any world (the stored first Citizen is not compared).
++pub fn same_identity(record: &Record, asset: &[u8; 32], resident: &[u8; 32]) -> bool {
++    &record.asset == asset && &record.resident == resident
++}
++
+ /// Write exactly once to an entirely zeroed record. The caller must first
+ /// verify program ownership, writable status, canonical address and authority.
+ pub fn write_once(data: &mut [u8], record: &Record) -> bool {
+diff --git a/permutation-frontier/src/resident_binding.rs b/permutation-frontier/src/resident_binding.rs
+index ac8e53ce..39f0a723 100644
+--- a/permutation-frontier/src/resident_binding.rs
++++ b/permutation-frontier/src/resident_binding.rs
+@@ -7,7 +7,12 @@
+ //! signed instruction data, never untrusted substitutions. The configuration
+ //! account creation helper below has not been exercised in a runtime test.
+ //! The link and the policy are global to this Frontier program; the NFT
+-//! Citizen is per Season, at `citizen_by_tag15(resident id)`.
++//! Citizen is per Season, at `citizen_by_tag15(resident id)`. The link binds
++//! the asset to its resident account once, for every Season; the Citizen it
++//! names is the first one (history). A Season's NFT Citizen is checked by its
++//! canonical address, its presence in that Season and its own resident mark
++//! (the asset), not by the link's first Citizen — so the same NFT can join a
++//! later Season (2026-11-06 candidate, workstream 04 for 20's U45).
+ 
+ use frontier_abi::{resident_auth, resident_binding, resident_policy};
+ use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
+@@ -188,14 +193,12 @@ pub fn authorize(
+     )?;
+     let data = link.try_borrow_data()?;
+     let record = resident_binding::read(&data).ok_or(ProgramError::InvalidAccountData)?;
+-    if !resident_binding::matches(
+-        &record,
+-        asset.key.as_array(),
+-        resident.key.as_array(),
+-        citizen.key.as_array(),
+-    ) {
++    if !resident_binding::same_identity(&record, asset.key.as_array(), resident.key.as_array()) {
+         return Err(ProgramError::InvalidAccountData);
+     }
++    // This Season's Citizen is checked by its canonical address and its
++    // presence in this Season (`check_addresses`), and its resident mark (the
++    // asset) by the caller (`proc::resident::check`).
+     check_actor(
+         &policy,
+         asset,
+@@ -212,10 +215,12 @@ pub fn authorize(
+ /// `citizen_by_tag15(resident id)`) and the resident at the asset's canonical
+ /// addresses, the Citizen absent, and the actor the asset's current owner (no
+ /// session) at the signed generation with the transfer guard in place, create
+-/// the link if it is absent; an existing link must name exactly this asset,
+-/// resident and Citizen. The caller creates and writes the Citizen. One NFT
+-/// has one link and one Citizen address per Season, so a second Join of the
+-/// same NFT finds the Citizen present and is refused.
++/// the link if it is absent (recording this Citizen as the first); an
++/// existing link must bind exactly this asset and resident — the Citizen it
++/// recorded first, in another Season, is history and not compared. The
++/// caller creates and writes the Citizen. One NFT has one link and one
++/// Citizen address per Season, so a second Join of the same NFT in the same
++/// Season finds the Citizen present and is refused.
+ #[cfg(feature = "nft-experimental")]
+ #[allow(clippy::too_many_arguments)]
+ pub(crate) fn join_accounts<'a>(
+@@ -272,7 +277,11 @@ pub(crate) fn join_accounts<'a>(
+         }
+         let data = link.try_borrow_data()?;
+         match resident_binding::read(&data) {
+-            Some(found) if found == record => Ok(()),
++            Some(found)
++                if resident_binding::same_identity(&found, &record.asset, &record.resident) =>
++            {
++                Ok(())
++            }
+             _ => Err(crate::error::BAD_ACCOUNT),
+         }
+     }
+diff --git a/permutation-frontier/src/resident_runtime_tests.rs b/permutation-frontier/src/resident_runtime_tests.rs
+index 36a22363..c436171d 100644
+--- a/permutation-frontier/src/resident_runtime_tests.rs
++++ b/permutation-frontier/src/resident_runtime_tests.rs
+@@ -624,36 +624,137 @@ fn unsigned_unguarded_and_substituted_accounts_are_refused() {
+     assert_eq!(w.vigil(A, true, 0), Ok(()));
+ }
+ 
++/// A later Season of the same program, sharing this world's global
++/// accounts (policy, link, asset, resident record): the NFT and its one
++/// account are the same; only the Season (and so the Citizen's address) is
++/// new.
++fn later_season(first: &World, season_id: u64) -> World {
++    let mut w = World::new(season_id);
++    w.config = first.config.clone();
++    w.link = first.link.clone();
++    w.asset = first.asset.clone();
++    w.resident = first.resident.clone();
++    w.generation = first.generation;
++    w
++}
++
+ #[test]
+-fn a_second_season_cannot_log_in_with_todays_link() {
+-    // Finding (not a decision): the link is per asset and global, and it
+-    // records the first Season's Citizen. In another Season the NFT's
+-    // Citizen has another address, so JoinResident is refused there.
++fn the_same_nft_joins_a_later_season_with_its_one_link() {
++    // 2026-11-06 candidate for U45: the link binds the asset to its resident
++    // account for every Season; the Citizen it names is the first (history).
+     let _g = begin();
+     let w1 = World::new(7);
+     assert_eq!(w1.join(A, 0), Ok(()));
+-    let w2 = World::new(8);
++    let link_before = w1.link.try_borrow_data().unwrap().to_vec();
++    let w2 = later_season(&w1, 8);
+     assert_ne!(w1.citizen.key, w2.citizen.key, "per-Season Citizen address");
+-    // The same link account, as written in Season 7.
+-    let link = w1.link.clone();
++    assert_eq!(w2.join(A, 0), Ok(()), "the same NFT joins Season 8");
++    // One link, unchanged: it still names Season 7's Citizen as the first.
++    assert_eq!(w1.link.try_borrow_data().unwrap().to_vec(), link_before);
++    let link = frontier_abi::resident_binding::read(&link_before).unwrap();
++    assert_eq!(link.citizen, w1.citizen.key.to_bytes());
++    // Season 8's Citizen is this asset's, under the same resident id.
++    let cd = w2.citizen.try_borrow_data().unwrap().to_vec();
++    assert_eq!(rc::resident_asset(&cd), Some(ASSET));
++    assert_eq!(rc::record_tag15(&cd), Some(rc::resident_tag15(&ASSET)));
++    // Still one Citizen per NFT per Season.
++    assert_eq!(w2.join(A, 0), Err(crate::FrontierError::AlreadyDone as u32));
++    assert_eq!(w1.join(A, 0), Err(crate::FrontierError::AlreadyDone as u32));
++    // The owner acts in both Seasons through the same link.
++    assert_eq!(w1.vigil(A, true, 0), Ok(()));
++    assert_eq!(w2.vigil(A, true, 0), Ok(()));
++    // The Seasons are not mixed: Season 7's Citizen in Season 8 is refused.
+     let mut a = vec![
+         w2.actor(A, true),
+         w2.payer.clone(),
+         w2.season_ai.clone(),
+-        w2.frontier.clone(),
+-        w2.citizen.clone(),
+-        w2.system.clone(),
+-        w2.config.clone(),
+-        link,
+-        w2.asset.clone(),
+-        w2.resident.clone(),
++        w1.citizen.clone(),
+     ];
+-    a.shrink_to_fit();
+-    let mut d = vec![wire::JOIN_RESIDENT];
++    a.extend(w2.proof());
++    let mut d = vec![wire::RESIDENT_ACT];
+     d.extend_from_slice(&0u32.to_le_bytes());
+-    d.push(2);
+-    assert_eq!(run(&a, &d), Err(bad_account()));
+-    let _ = (w2.season, w2.ctx);
++    d.push(frontier_abi::v2::Ix::SetVigil.tag());
++    d.extend_from_slice(&600u16.to_le_bytes());
++    assert_eq!(
++        crate::dispatch(&Pubkey::new_from_array(PROGRAM), &a, &d).map_err(ProgramError::from),
++        Err(ProgramError::InvalidAccountData),
++        "another Season's Citizen is refused"
++    );
++}
++
++#[test]
++fn a_transfer_moves_the_one_account_in_every_season_at_once() {
++    let _g = begin();
++    let mut w1 = World::new(7);
++    assert_eq!(w1.join(A, 0), Ok(()));
++    let w2 = later_season(&w1, 8);
++    assert_eq!(w2.join(A, 0), Ok(()));
++    // A → B (generation 1): the resident record is global, so both Seasons
++    // follow it at once.
++    w1.transfer(&B, None);
++    at_day(10);
++    for w in [&w1, &w2] {
++        assert_eq!(w.vigil(A, true, 0), Err(STALE));
++        assert_eq!(w.vigil(A, true, 1), Err(NOT_CURRENT));
++        assert_eq!(w.vigil(B, true, 1), Ok(()));
++    }
++    // A new Season after the transfer: only the current owner joins.
++    let w3 = later_season(&w1, 9);
++    assert_eq!(w3.join(A, 1), Err(NOT_CURRENT));
++    assert_eq!(w3.join(A, 0), Err(STALE));
++    assert_eq!(w3.join(B, 1), Ok(()));
++    assert_eq!(w3.vigil(B, true, 1), Ok(()));
++}
++
++#[test]
++fn a_later_season_refuses_a_link_of_another_asset_or_resident() {
++    let _g = begin();
++    let w1 = World::new(7);
++    assert_eq!(w1.join(A, 0), Ok(()));
++    let w2 = later_season(&w1, 8);
++    let keep = w1.link.try_borrow_data().unwrap().to_vec();
++    // The link's resident (bytes 40..72) altered: not this account's link.
++    w1.link.try_borrow_mut_data().unwrap()[40] ^= 1;
++    assert_eq!(w2.join(A, 0), Err(bad_account()));
++    w1.link
++        .try_borrow_mut_data()
++        .unwrap()
++        .copy_from_slice(&keep);
++    // The link's asset (bytes 8..40) altered.
++    w1.link.try_borrow_mut_data().unwrap()[8] ^= 1;
++    assert_eq!(w2.join(A, 0), Err(bad_account()));
++    w1.link
++        .try_borrow_mut_data()
++        .unwrap()
++        .copy_from_slice(&keep);
++    // Restored, it joins; the link is still write-once.
++    assert_eq!(w2.join(A, 0), Ok(()));
++    assert_eq!(w1.link.try_borrow_data().unwrap().to_vec(), keep);
++}
++
++#[test]
++fn a_citizen_without_this_assets_mark_is_refused() {
++    // The link no longer names the Season's Citizen, so the Citizen's own
++    // resident mark (the asset) carries that check (proc::resident::check).
++    let _g = begin();
++    let w1 = World::new(7);
++    assert_eq!(w1.join(A, 0), Ok(()));
++    let w2 = later_season(&w1, 8);
++    assert_eq!(w2.join(A, 0), Ok(()));
++    let keep = w2.citizen.try_borrow_data().unwrap().to_vec();
++    let mut other = keep.clone();
++    assert!(rc::mark(&mut other, &[0x6b; 32]));
++    assert_ne!([0x6b; 32], ASSET);
++    w2.citizen
++        .try_borrow_mut_data()
++        .unwrap()
++        .copy_from_slice(&other);
++    assert_eq!(w2.vigil(A, true, 0), Err(bad_account()));
++    w2.citizen
++        .try_borrow_mut_data()
++        .unwrap()
++        .copy_from_slice(&keep);
++    assert_eq!(w2.vigil(A, true, 0), Ok(()));
+ }
+ 
+ #[test]

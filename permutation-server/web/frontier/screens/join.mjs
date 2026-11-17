@@ -11,7 +11,9 @@ import { territoryEnabled } from '../territory.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
-import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
+import { freeByNation, ticketTimes } from '../fland.mjs';
+import { homeRingsOpen, seasonPlace } from '../home.mjs';
+import { contiguousRings, worldOf } from '../map/world.mjs';
 import { dueHtml } from './shell.mjs';
 import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
@@ -29,6 +31,8 @@ import { leaderWords } from '../map/waitview.mjs';
 import { renderJoinTerms } from './prize.mjs';
 import { tokenUnits } from '../fprize.mjs';
 import { renderDelegated } from '../fdelegation.mjs';
+import { deadlineLine, wrongStatusWhy } from '../seasonterms.mjs';
+import { renderWorldLines } from '../hud/worldclock.mjs';
 
 const FACTIONS = [0, 1, 2, 3, 4, 5];
 /** A candidate place by the name a village there would carry, never by its number or its coordinates (the row flies there). */
@@ -46,10 +50,20 @@ function renderWallets(FS) {
     ${walletButtons(FS)}</section>`;
 }
 
-/** The faction cards: name, colour, doctrine, free land of the home wedge (an upper bound from the overviews). */
+/**
+ * The faction cards: name, colour, doctrine, free land of the nation's home region (an upper bound from the
+ * overviews, under the season's first-home placement: fland.mjs freeByNation). `free` is null when the placement
+ * cannot be read (the dispersed placement without its seed): the count is unavailable, and the confirm line says so
+ * rather than a number of the wedge. The count stops at the rings a first village may be placed in (home.mjs
+ * homeRingsOpen: the open rings, no further than the heartland on a v2 Season), so land a grown map opened past the
+ * heartland is not counted as a place for a village; with no season record yet the overviews alone bound it.
+ */
 export function factionCards(FS) {
-  const free = freeByWedge(FS.overviews ?? new Map());
-  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free[homeWedge(f)], chosen: FS.joinDraft?.faction === f }));
+  // (the rings a first village may be in are counted from the Concord without a gap — map/world.mjs contiguousRings —
+  //  never by the record's length: a sparse world that seeds ring 128 alone has one entry and no ring 0)
+  const open = FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : undefined;
+  const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
+  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free ? free[f] : null, chosen: FS.joinDraft?.faction === f }));
 }
 
 /**
@@ -66,6 +80,12 @@ export function factionCards(FS) {
  * shows one). On a phone the banners are compact (crest, name, doctrine: all six in sight) and the confirm line
  * carries the rest. Without a wallet the confirm line offers to connect one first; the choice is already made.
  */
+/**
+ * (2026-11-17, ⑦) Under a failed or empty reading of the first village's candidates: the way to read them again, in
+ * another order (controller rereadHomes — reads only). Not while a join / placing or a reading is under way.
+ */
+const homeReread = (FS, busy) => (FS.mode === 'play' ? html`<div class="actions"><button type="button" class="btn small" data-act="home-reread" ${raw(busy || FS.homeChoice?.loading ? 'disabled' : '')}>${icon('return')}${L`土地の候補を読み直す`}</button></div>` : '');
+
 export function renderNations(FS) {
   const cards = factionCards(FS);
   const pick = cards.find(c => c.chosen) ?? null;
@@ -74,6 +94,9 @@ export function renderNations(FS) {
   // Before the first turn the program has no turn to place a village in (PlaceHome: WrongStatus): say so, no button to fail.
   const now = FS.chain?.now?.() ?? null, g = FS.clock?.genesisTs;
   const early = instant && now !== null && Number.isFinite(g) && now < g ? Math.max(1, Math.ceil((g - now) / 60)) : 0;
+  // the season's deadlines, read from the season (frontier/seasonterms.mjs): after the join deadline the program refuses
+  // the join (WrongStatus); the button says why instead of failing
+  const closed = wrongStatusWhy(FS, 'join');
   // The season's join gate (I-51), or a relay that answered InviteRequired.
   // A season with a prize pool is joined by paying its fee (x402), not with an invite.
   const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
@@ -90,11 +113,14 @@ export function renderNations(FS) {
     <div class="nc-what">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
     <div class="nc-go">
       ${gated ? html`<label class="field nc-invite">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}"></label>` : ''}
-      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}`
+      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
-    ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>` : ''}
-    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
+    ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}` : ''}
+    ${instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
+    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
+    ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}
+    ${renderWorldLines(FS)}
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
@@ -105,6 +131,13 @@ export function renderNations(FS) {
 }
 
 function renderSessionFix(FS) {
+  // A different registered key can belong to another app or device. SetSession
+  // replaces that key on chain; never describe this as merely restoring a
+  // missing local key when it can revoke an existing delegation.
+  if (FS.sessionProblem === 'SessionMismatch' && FS.citizen?.session) return html`<section class="vcard" aria-labelledby="join-key">${cardHead({ id: 'join-key', ic: 'lock', title: L`ゲーム内の鍵` })}
+    <p>${L`登録されている鍵は、この端末のゲーム内の鍵と異なります。別のアプリや端末に操作を任せている可能性があります。`}</p>
+    <p>${L`自分で操作するために鍵を変更すると、現在登録されている鍵は使えなくなります。`}</p>
+    <div class="actions"><button type="button" class="btn primary" data-act="session">${L`登録鍵を変更して自分で操作する`}</button></div></section>`;
   return html`<section class="vcard" aria-labelledby="join-key">${cardHead({ id: 'join-key', ic: 'lock', title: L`ゲーム内の鍵` })}
     <p>${L`この端末にはこのシーズンのゲーム内の鍵がありません。ウォレットで同じ文面に署名すると、同じ鍵を作り直せます。`}</p>
     <div class="actions"><button type="button" class="btn primary" data-act="session">${L`鍵を作り直す`}</button></div></section>`;
@@ -301,10 +334,39 @@ function renderInstantPlacing(FS) {
   return html`<section class="vcard wait-card" aria-labelledby="join-sites" aria-busy="${busy ? 'true' : 'false'}">
     ${waitHead(FS, title, 'instant')}
     ${busy ? html`<p class="home-status" role="status">${(pending[choice.pending] ?? pending.confirming)()}</p>` : html`<p>${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</p>`}
-    ${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>` : ''}
+    ${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>${homeReread(FS, busy)}` : ''}
+    ${choice.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
     ${!FS.citizen ? renderJoinTerms(FS) : ''}
     ${!busy ? html`<div class="actions"><button type="button" class="btn primary" data-act="home-confirm">${icon('home')}${L`村を築いて始める`}</button></div>` : ''}
   </section>`;
+}
+
+const shortKey = k => `${String(k).slice(0, 4)}…${String(k).slice(-4)}`;
+
+/**
+ * ⑳ (provisional): the wallet's resident NFTs — one NFT, one Citizen. A
+ * joined NFT is played at once; a new one joins the chosen nation first.
+ * While an NFT is played, the wallet signs every action (no in-game key).
+ */
+export function renderNfts(FS) {
+  if (FS.resident) {
+    return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`NFTで遊んでいます` })}
+      <p>${L`住民NFT ${shortKey(FS.resident.asset)} の住民として遊んでいます。操作のたびにウォレットが署名を求めます。NFTを譲渡すると、この端末からは操作できなくなります。`}</p>
+      <div class="actions"><button type="button" class="btn" data-act="nft-logout">${L`ウォレットの住民に戻る`}</button></div></section>`;
+  }
+  // (workstream 07: a list that could not be read is not an empty one: say so, and offer nothing from it)
+  if (FS.wallet && FS.nftsRead && !FS.nftsRead.ok) return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
+    <p class="blocked" role="status" data-read="unread">${L`このウォレットの住民NFTを読み込めませんでした（${FS.nftsRead.code ?? '?'}）。NFTが無いという意味ではありません。もう一度読み込むと、また確かめます`}</p></section>`;
+  const list = FS.nfts?.residents ?? [];
+  if (!FS.wallet || !list.length) return '';
+  const pick = Number.isInteger(FS.joinDraft?.faction);
+  return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
+    <p class="muted">${L`1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。`}</p>
+    <ul class="wallet-list">${list.map(n => {
+      const ok = Number.isInteger(n.generation);
+      const label = !ok ? L`住民の記録がありません` : n.joined ? L`このNFTで遊ぶ` : pick ? L`このNFTで参加する` : L`国を選ぶと参加できます`;
+      return html`<li><button type="button" class="btn" data-act="nft-login" data-asset="${n.asset}" ${raw(ok && (n.joined || pick) ? '' : 'disabled')}>${label}</button> <span class="muted">${shortKey(n.asset)}</span></li>`;
+    })}</ul></section>`;
 }
 
 /** Keep the nation choice; newer seasons place its first final village immediately. */
@@ -312,11 +374,12 @@ export function render(FS) {
   const stage = FS.land?.stage ?? 'none';
   const instant = Number(FS.season?.programVersion ?? 1) >= 2;
   if (instant && FS.homeGrant?.state === 2) return renderGrant(FS);
-  if (stage === 'none') return renderNations(FS);
+  if (stage === 'none') return html`${renderNfts(FS)}${renderNations(FS)}`;
   if (!FS.wallet) return renderWallets(FS);
   // The key is the owner's agent's (handed over on the agent page): say so, rather than "this device has no game key".
   if (FS.sessionProblem === 'SessionMismatch' && FS.delegation) return renderDelegated(FS.delegation);
-  if (!FS.session || FS.sessionProblem) return renderSessionFix(FS);
+  // ⑳: an NFT Citizen has no in-game key (its wallet signs); no key to fix.
+  if (!FS.resident && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;

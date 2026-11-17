@@ -1,0 +1,7 @@
+# patch 0001 applied on 4cd901de in a temporary worktree; permutation-frontier/svm-tests: cargo check --tests --locked (Rust 1.95.0), 2026-10-30. Compiles only: running needs the SBF .so (Agave 3.1.9 not installed here).
+    Checking tlock v0.0.10
+    Checking tokio v1.53.1
+    Checking fclient v0.1.0 (<worktree>/frontier-node/crates/fclient)
+    Checking permutation-frontier-svm-tests v0.1.0 (<worktree>/permutation-frontier/svm-tests)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 02s
+rc=0

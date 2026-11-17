@@ -40,7 +40,9 @@ const heraldUrl = opt('herald', 'http://127.0.0.1:41040');
 for (const u of [rpcUrl, relayUrl, heraldUrl]) assert.ok(['127.0.0.1', 'localhost'].includes(new URL(u).hostname), 'local test chain only');
 const outDir = opt('out', '.');
 const PARAMS_FILE = new URL('../src/frontier/prize-params.json', import.meta.url);
-const params = JSON.parse(readFileSync(PARAMS_FILE, 'utf8'));
+const paramsBytes = readFileSync(PARAMS_FILE);
+const params = JSON.parse(paramsBytes);
+const paramsHash = createHash('sha256').update(paramsBytes).digest('hex');
 const TALLY_CHUNK = 16;
 const NATIONS = 6;
 
@@ -183,6 +185,7 @@ const step = (name, v) => { transcript.steps.push({ name, ...v }); console.log(n
 let season = await seasonOf();
 assert.equal(Number(season.STATUS), 4, `the game's Season is not Ended (status ${season.STATUS}): nothing can be counted`);
 let pool = await poolOf();
+assert.equal(toHex(pool.paramsHash), paramsHash, 'local prize rules differ from the on-chain Pool; refusing settlement');
 const { provinces } = await keepProvinces();
 if (pool.state === POOL_STATE.OPEN) {
   // Permissionless: a key nobody knows, funded by the local airdrop.
@@ -241,7 +244,7 @@ const estimatePool = { ...pool, mode: scored.mode === 'refund' ? SHARE_MODE.REFU
 const ledger = {
   version: 1, testAssetsOnly: true, token: 'test USDC (a local test mint; no value)',
   provisional: true, provisionalRules: params.provisionalRules, decided: params.decided, paramsFile: 'permutation-gateway/src/frontier/prize-params.json',
-  paramsHash: createHash('sha256').update(readFileSync(PARAMS_FILE)).digest('hex'), poolParamsHash: toHex(pool.paramsHash),
+  paramsHash, poolParamsHash: toHex(pool.paramsHash),
   season: info.seasonId, programId: info.programId, prize, endBell: Number(season.END_BELL),
   result: { area: pool.area, territoryBells: pool.bells.map(String), winners: pool.winners, state: ['open', 'final', 'shares'][pool.state] },
   kinds: KINDS, weights: params.contribution,
@@ -274,6 +277,7 @@ console.log(`\nPROVISIONAL rules in force: ${params.provisionalRules.map((r, i) 
 // ------------------------------------------------------------------ SetShares (deferred step)
 
 if (flag('set-shares')) {
+  assert.deepEqual(readFileSync(PARAMS_FILE), paramsBytes, 'prize rules changed during settlement; refusing SetShares');
   assert.ok(opt('operator-seed-file'), '--set-shares needs --operator-seed-file (the season authority)');
   const operator = Keypair.fromSeed(Buffer.from(readFileSync(opt('operator-seed-file'), 'utf8').trim(), 'hex'));
   assert.equal(operator.publicKey.toBase58(), pool.operator, 'that key is not the pool\'s operator');

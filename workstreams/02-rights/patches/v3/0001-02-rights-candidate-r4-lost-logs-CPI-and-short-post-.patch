@@ -1,0 +1,592 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 00:24:38 +0000
+Subject: [PATCH] 02-rights candidate r4: lost logs, CPI and short post-states
+ are never a PASS
+
+VR and V7 now meet workstream 11's evidence rules on their own, without
+contradicting its V0E:
+
+- A Grant instruction whose record is absent while the logs show they
+  were cut, lost their tail, or show no invocation is UNVERIFIABLE
+  (MissingData), not RightsRecordMissing; the Grant is then not judged
+  past the gap. V7 does the same for the holdings it wrote. With whole
+  logs both stay FAILs.
+- A Grant record or Grant write from the program run inside another
+  program (CPI) is UNVERIFIABLE, not an orphan or unexplained account.
+- A program account a Grant instruction holds writable without a
+  post-state is UNVERIFIABLE.
+
+Tests: the base fixture's own verdict is FAIL, so "verdict is not PASS"
+proved nothing; tests now require the change itself to add a FAIL or an
+UNVERIFIABLE finding. New unsigned tests for lost logs (three ways),
+whole logs, CPI with and without logs, and short post-states.
+ABI numbers, check names and codes stay provisional.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bMRw3LSNvj17s1QPg
+---
+ .../crates/verify/src/checks/v7_replay.rs     |  11 +
+ .../crates/verify/src/checks/vr_rights.rs     | 186 ++++++++++++--
+ .../crates/verify/tests/rights_replay.rs      | 233 +++++++++++++++++-
+ 3 files changed, 414 insertions(+), 16 deletions(-)
+
+diff --git a/frontier-node/crates/verify/src/checks/v7_replay.rs b/frontier-node/crates/verify/src/checks/v7_replay.rs
+index 2745467e..ee32415a 100644
+--- a/frontier-node/crates/verify/src/checks/v7_replay.rs
++++ b/frontier-node/crates/verify/src/checks/v7_replay.rs
+@@ -994,6 +994,17 @@ fn continuity(cx: &mut Ctx) {
+                     // S1 1b/1d: BuildVault, BuildStructure and a caravan's holding source pay
+                     // after an owner touch; a delivery settles and credits.
+                     (what, want)
++                } else if let Some(why) = super::vr_rights::holding_unjudged(w, cx.input, t, k) {
++                    // 02-rights (candidate, r4): its records may be in the
++                    // part of the logs the archive lost.
++                    cx.missing(
++                        V,
++                        format!("holding ({}, {}, {})", pqs.0, pqs.1, pqs.2),
++                        bell,
++                        Some(t),
++                        format!("a Grant instruction wrote it and {why}"),
++                    );
++                    continue;
+                 } else if let Some((what, want)) =
+                     super::vr_rights::holding_write(w, f, t, k, before)
+                 {
+diff --git a/frontier-node/crates/verify/src/checks/vr_rights.rs b/frontier-node/crates/verify/src/checks/vr_rights.rs
+index ae4075dd..15a3e8e9 100644
+--- a/frontier-node/crates/verify/src/checks/vr_rights.rs
++++ b/frontier-node/crates/verify/src/checks/vr_rights.rs
+@@ -26,8 +26,21 @@
+ //!   a transaction with no Grant instruction, is `RightsUnexplainedAccount`;
+ //!   a program account of no known kind at all is `UnknownAccount`.
+ //! - **Evidence.** A Grant instruction whose post-states are not in the
+-//!   archive, or a holding it names whose state before it is unknown, is
++//!   archive, or a holding it names whose state before it is unknown, or
++//!   a program account it holds writable without a post-state (r4), is
+ //!   UNVERIFIABLE (`MissingData`), never a PASS.
++//! - **Lost logs and inner calls** (r4, in step with workstream 11's V0E,
++//!   which this does not replace). When a transaction's logs were cut
++//!   (`Log truncated`), lost their tail (an invocation of the program with
++//!   no `success` line) or show no invocation of the program at all, a
++//!   Grant instruction without its record is UNVERIFIABLE (`MissingData`),
++//!   not `RightsRecordMissing`: the record may be in the part the archive
++//!   lost. When the program ran inside another program (`invoke [n]`,
++//!   n > 1), a Grant record or Grant write with no top-level Grant
++//!   instruction is UNVERIFIABLE, not `RightsRecordOrphan` /
++//!   `RightsUnexplainedAccount`: the archive keeps top-level instructions
++//!   only. Neither case is ever a PASS; with intact logs and no inner call
++//!   both stay FAILs.
+ 
+ use std::collections::BTreeMap;
+ 
+@@ -183,6 +196,37 @@ impl Model {
+ }
+ 
+ /// Whether a program account's magic names a kind the verifier knows.
++/// Why the archive may lack some of the program's records in a
++/// successful transaction (`None`: its logs are whole). Mirrors workstream
++/// 11's V0E (`MissingLogs`, `TruncatedLogs`, `IncompleteLogs`), so that
++/// this check reaches the same verdict with or without it.
++pub fn records_lost(program: &str, logs: &[String]) -> Option<&'static str> {
++    let invoke = format!("Program {program} invoke [");
++    let ran = logs.iter().filter(|l| l.starts_with(&invoke)).count();
++    let ended = logs
++        .iter()
++        .filter(|l| **l == format!("Program {program} success"))
++        .count();
++    if logs.iter().any(|l| l == "Log truncated") {
++        Some("the runtime cut the transaction's logs: its records may be after the cut")
++    } else if ran == 0 {
++        Some("the logs show no invocation of the program: its records are not in the archive")
++    } else if ended < ran {
++        Some("an invocation of the program has no `success` line: the archive lost the tail of the logs")
++    } else {
++        None
++    }
++}
++
++/// Whether the program ran inside another program in this transaction
++/// (`Program <id> invoke [n]`, n > 1): the archive has no instruction for
++/// what it did there.
++pub fn ran_inside(program: &str, logs: &[String]) -> bool {
++    let invoke = format!("Program {program} invoke [");
++    logs.iter()
++        .any(|l| l.starts_with(&invoke) && !l.ends_with("[1]"))
++}
++
+ fn known_magic(d: &[u8]) -> bool {
+     let Some(m) = d.get(..8).and_then(|m| <[u8; 8]>::try_from(m).ok()) else {
+         return false;
+@@ -194,8 +238,23 @@ pub fn run(cx: &mut Ctx) {
+     let w = cx.w;
+     let f = cx.f;
+     let sid = cx.cfg.season_id;
++    let program = cx.cfg.program.to_string();
++    let input = cx.input;
+     let mut models: BTreeMap<Key, Model> = BTreeMap::new();
+     let mut issued: std::collections::BTreeSet<Key> = Default::default();
++    // Grants whose records the archive lost part of (r4): from there on
++    // their state cannot be rebuilt, so nothing about them is judged.
++    let mut gapped: std::collections::BTreeSet<Key> = Default::default();
++    // Accounts the archive shows the program owns (a post-state or a
++    // final state).
++    let program_owned: std::collections::BTreeSet<Key> = w
++        .txs
++        .iter()
++        .flat_map(|t| t.post.iter())
++        .chain(w.finals.iter())
++        .filter(|(_, a)| a.as_ref().is_some_and(|a| a.owner.to_bytes() == w.program))
++        .map(|(k, _)| *k)
++        .collect();
+     // Records of the Grant kinds, per transaction, in log order.
+     let mut by_tx: BTreeMap<usize, Vec<&crate::world::CqRec>> = BTreeMap::new();
+     for r in &w.cq_recs {
+@@ -209,6 +268,9 @@ pub fn run(cx: &mut Ctx) {
+         }
+         let mut recs = by_tx.remove(&t).unwrap_or_default();
+         recs.sort_by_key(|r| r.pos);
++        let logs = input.txs.get(t).map(|r| r.logs.as_slice()).unwrap_or(&[]);
++        let lost = records_lost(&program, logs);
++        let inner = ran_inside(&program, logs);
+         let mut recs = recs.into_iter();
+         let mut rights_ix = false;
+         for ix in &tx.ixs {
+@@ -254,16 +316,39 @@ pub fn run(cx: &mut Ctx) {
+                 continue;
+             }
+             let grant = ix.accounts[gi].0;
+-            let Some(r) = recs.next() else {
+-                cx.fail(
++            if gapped.contains(&grant) {
++                let r = recs.next();
++                cx.missing(
+                     V,
+-                    RIGHTS_RECORD_MISSING,
+                     ent("grant", &grant),
+-                    0,
++                    r.map_or(0, |r| r.bell),
+                     Some(t),
+-                    format!("the instruction logged no {kind:?}"),
++                    "an earlier record of this Grant is not in the archive: its state cannot be rebuilt",
+                 );
+                 continue;
++            }
++            let Some(r) = recs.next() else {
++                if let Some(why) = lost {
++                    cx.missing(
++                        V,
++                        ent("grant", &grant),
++                        0,
++                        Some(t),
++                        format!("no {kind:?} in the archive, and {why}"),
++                    );
++                    models.remove(&grant);
++                    gapped.insert(grant);
++                } else {
++                    cx.fail(
++                        V,
++                        RIGHTS_RECORD_MISSING,
++                        ent("grant", &grant),
++                        0,
++                        Some(t),
++                        format!("the instruction logged no {kind:?}"),
++                    );
++                }
++                continue;
+             };
+             if r.kind != kind {
+                 cx.fail(
+@@ -309,6 +394,22 @@ pub fn run(cx: &mut Ctx) {
+                 );
+                 continue;
+             }
++            // Evidence (r4): every program account the instruction holds
++            // writable has its post-state (a Citizen's chain head, a
++            // holding), as workstream 11's V0E asks of all program
++            // accounts; this check asks it of its own instructions, with
++            // or without V0E. The Grant's own is judged below.
++            for (k, wr) in &ix.accounts {
++                if *wr && *k != grant && program_owned.contains(k) && !tx.post.contains_key(k) {
++                    cx.missing(
++                        V,
++                        ent("account", k),
++                        r.bell,
++                        Some(t),
++                        "a program account the Grant instruction holds writable has no post-state in the archive",
++                    );
++                }
++            }
+             let named = |site: u8, p: i32, q: i32| f.ctx.holding(p, q, site);
+             let rule = |cx: &mut Ctx, what: String| {
+                 cx.fail(V, RIGHTS_RULE, ent("grant", &grant), r.bell, Some(t), what)
+@@ -611,14 +712,27 @@ pub fn run(cx: &mut Ctx) {
+             }
+         }
+         for r in recs {
+-            cx.fail(
+-                V,
+-                RIGHTS_RECORD_ORPHAN,
+-                format!("tx#{t}"),
+-                r.bell,
+-                Some(t),
+-                format!("{:?} without its Grant instruction", r.kind),
+-            );
++            if inner {
++                cx.missing(
++                    V,
++                    format!("tx#{t}"),
++                    r.bell,
++                    Some(t),
++                    format!(
++                        "{:?} logged by the program run inside another program: the archive has no instruction to judge it against",
++                        r.kind
++                    ),
++                );
++            } else {
++                cx.fail(
++                    V,
++                    RIGHTS_RECORD_ORPHAN,
++                    format!("tx#{t}"),
++                    r.bell,
++                    Some(t),
++                    format!("{:?} without its Grant instruction", r.kind),
++                );
++            }
+         }
+         // A Grant written by a transaction with no Grant instruction.
+         if !rights_ix {
+@@ -626,6 +740,16 @@ pub fn run(cx: &mut Ctx) {
+                 if a.as_ref().is_some_and(|a| {
+                     a.owner.to_bytes() == w.program && a.data.get(..8) == Some(&G::MAGIC[..])
+                 }) {
++                    if inner {
++                        cx.missing(
++                            V,
++                            ent("grant", k),
++                            0,
++                            Some(t),
++                            "a Grant written by the program run inside another program: the archive has no instruction to judge it against",
++                        );
++                        continue;
++                    }
+                     cx.fail(
+                         V,
+                         RIGHTS_UNEXPLAINED_ACCOUNT,
+@@ -672,6 +796,16 @@ pub fn run(cx: &mut Ctx) {
+             continue;
+         }
+         if a.data.get(..8) == Some(&G::MAGIC[..]) {
++            if gapped.contains(k) {
++                cx.missing(
++                    V,
++                    ent("grant", k),
++                    0,
++                    None,
++                    "final state: part of this Grant's records is not in the archive",
++                );
++                continue;
++            }
+             match models.get(k) {
+                 None => cx.fail(
+                     V,
+@@ -716,6 +850,26 @@ pub fn run(cx: &mut Ctx) {
+     let _ = issued;
+ }
+ 
++/// Why V7 cannot rebuild holding `k` in transaction `t` from its Grant
++/// records (r4): a Grant instruction of `t` writes it and the logs may
++/// have lost records ([`records_lost`]). `None`: not a Grant write, or
++/// the logs are whole.
++pub fn holding_unjudged(
++    w: &crate::world::World,
++    input: &crate::input::Input,
++    t: usize,
++    k: &Key,
++) -> Option<&'static str> {
++    let writes = w.txs[t].ixs.iter().any(|ix| {
++        ix.tag().and_then(kind_of).is_some() && ix.accounts.iter().any(|(a, wr)| a == k && *wr)
++    });
++    if !writes {
++        return None;
++    }
++    let logs = input.txs.get(t).map(|r| r.logs.as_slice()).unwrap_or(&[]);
++    records_lost(&input.cfg.program.to_string(), logs)
++}
++
+ /// The expected bytes of holding `k` after a Grant instruction of
+ /// transaction `t` wrote it: its state `before`, settled to the block
+ /// time without an owner touch, then every Grant record of `t` that names
+@@ -723,6 +877,10 @@ pub fn run(cx: &mut Ctx) {
+ /// `None` when no Grant instruction of `t` writes `k` (not this rule's);
+ /// when one does but no record names `k`, the unchanged bytes (so V7's
+ /// byte-identity reports the unrecorded write).
++///
++/// V7 asks [`holding_unjudged`] first: a Grant write in a transaction
++/// whose logs may have lost records is UNVERIFIABLE, not rebuilt from
++/// what is left.
+ pub fn holding_write(
+     w: &crate::world::World,
+     f: &crate::facts::Facts,
+diff --git a/frontier-node/crates/verify/tests/rights_replay.rs b/frontier-node/crates/verify/tests/rights_replay.rs
+index d271bec2..ce443a54 100644
+--- a/frontier-node/crates/verify/tests/rights_replay.rs
++++ b/frontier-node/crates/verify/tests/rights_replay.rs
+@@ -679,6 +679,28 @@ fn has(found: &[(String, verify_core::Severity)], code: &str) -> bool {
+         .any(|(l, s)| l.contains(code) && *s == verify_core::Severity::Fail)
+ }
+ 
++/// The base's own verdict is FAIL (an M1 season judged as S1: V2's
++/// `RulesetMismatch`, V7's base mismatches, CQ2's artefact), so "the
++/// verdict is not PASS" proves nothing on it. What proves it: the change
++/// itself adds a FAIL or an UNVERIFIABLE finding (the CQ2 artefact, one
++/// per injected transaction, excepted), which alone keeps the verdict
++/// from PASS on any base.
++fn not_a_pass_by_itself(found: &[(String, verify_core::Severity)]) -> bool {
++    found.iter().any(|(l, s)| {
++        !l.starts_with("CQ2 SeasonIdentity Season")
++            && matches!(
++                s,
++                verify_core::Severity::Fail | verify_core::Severity::Unverifiable
++            )
++    })
++}
++
++#[test]
++fn the_base_is_not_a_pass_so_verdicts_alone_prove_nothing() {
++    let b = base();
++    assert_eq!(verify_core::verify(&b.inp).verdict, Verdict::Fail);
++}
++
+ #[test]
+ fn the_honest_flow_adds_no_finding() {
+     let b = base();
+@@ -796,7 +818,7 @@ fn an_issue_without_its_record_is_not_invisible() {
+     let found = new_findings(&b.inp, &inp);
+     assert!(has(&found, RIGHTS_RECORD_MISSING), "{found:#?}");
+     assert!(has(&found, RIGHTS_UNEXPLAINED_ACCOUNT), "{found:#?}");
+-    assert_eq!(verify_core::verify(&inp).verdict, Verdict::Fail);
++    assert!(not_a_pass_by_itself(&found), "{found:#?}");
+ }
+ 
+ #[test]
+@@ -861,7 +883,7 @@ fn missing_evidence_is_never_a_pass() {
+             .any(|(l, s)| l.contains(MISSING_DATA) && *s == verify_core::Severity::Unverifiable),
+         "{found:#?}"
+     );
+-    assert_ne!(verify_core::verify(&fl.inp).verdict, Verdict::Pass);
++    assert!(not_a_pass_by_itself(&found), "{found:#?}");
+ }
+ 
+ /// The control of round 2, kept: a swap-shaped holding write with no
+@@ -915,3 +937,210 @@ fn vr_finds_nothing_on_the_recorded_fixtures() {
+         assert!(r.checks_run.contains(&"VR:rights"), "{name}");
+     }
+ }
++
++/// Findings of check `check` with severity `sev` among `found`.
++fn of(
++    found: &[(String, verify_core::Severity)],
++    check: &str,
++    sev: verify_core::Severity,
++) -> Vec<String> {
++    found
++        .iter()
++        .filter(|(l, s)| l.starts_with(&format!("{check} ")) && *s == sev)
++        .map(|(l, _)| l.clone())
++        .collect()
++}
++
++/// r4 (workstream 11's lost-log cases, judged by VR and V7 themselves):
++/// the execute's logs cut by the runtime, cut without the runtime's
++/// marker, or absent. Its record may be in the part the archive lost, so
++/// VR and V7 say UNVERIFIABLE (`MissingData`), not a FAIL; the verdict is
++/// never PASS. The later records of the same Grant are not judged either
++/// (its state cannot be rebuilt past the gap), instead of being refused.
++#[test]
++fn a_grant_record_lost_with_the_logs_is_unverifiable_never_a_pass() {
++    use verify_core::Severity::{Fail, Unverifiable};
++    let b = base();
++    let (fl, _) = honest(&b);
++    let t = fl.inp.txs.len() - 5;
++    let head = fl.inp.txs[t].logs[..1].to_vec(); // `invoke [1]` only
++    let mut cut = head.clone();
++    cut.push("Log truncated".into());
++    for (name, logs) in [("cut", cut), ("tail lost", head), ("no logs", vec![])] {
++        let mut inp = fl.inp.clone();
++        inp.txs[t].logs = logs;
++        let found = new_findings(&b.inp, &inp);
++        for check in ["VR", "V7"] {
++            assert!(
++                of(&found, check, Fail).is_empty(),
++                "{name}: {check} accuses on lost logs: {found:#?}"
++            );
++            assert!(
++                of(&found, check, Unverifiable)
++                    .iter()
++                    .any(|l| l.contains(MISSING_DATA)),
++                "{name}: {check} says nothing: {found:#?}"
++            );
++        }
++        assert!(not_a_pass_by_itself(&found), "{name}: {found:#?}");
++    }
++}
++
++/// The same logs, whole, still FAIL: the relaxation above needs a sign
++/// that the archive lost logs.
++#[test]
++fn whole_logs_without_the_record_still_fail() {
++    let b = base();
++    let (mut fl, _) = honest(&b);
++    let t = fl.inp.txs.len() - 5;
++    let program = fl.inp.cfg.program;
++    fl.inp.txs[t].logs = fclient::log::in_frame(&program, Vec::<String>::new());
++    let found = new_findings(&b.inp, &fl.inp);
++    assert!(has(&found, RIGHTS_RECORD_MISSING), "{found:#?}");
++    assert!(has(&found, HOLDING_REPLAY_MISMATCH), "{found:#?}");
++}
++
++/// Transaction `t` rebuilt as if another program had called the Grant
++/// instruction (a CPI): the top-level instruction is the other program's,
++/// with the same accounts and the program's id; unsigned placeholders.
++fn as_cpi(inp: &mut Input, t: usize, with_logs: bool) {
++    let program = inp.cfg.program;
++    let other = Address::new_from_array([0x77; 32]);
++    let old = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
++    let m = &old.message;
++    let keys = &m.account_keys;
++    let h = &m.header;
++    let nsig = h.num_required_signatures as usize;
++    let writable = |i: usize| {
++        if i < nsig {
++            i < nsig - h.num_readonly_signed_accounts as usize
++        } else {
++            i < keys.len() - h.num_readonly_unsigned_accounts as usize
++        }
++    };
++    let ci = m
++        .instructions
++        .iter()
++        .find(|ci| keys[ci.program_id_index as usize] == program)
++        .expect("the Grant instruction");
++    let mut accounts: Vec<AccountMeta> = ci
++        .accounts
++        .iter()
++        .map(|&a| {
++            let a = a as usize;
++            let mut meta = if writable(a) {
++                AccountMeta::new(keys[a], a < nsig)
++            } else {
++                AccountMeta::new_readonly(keys[a], a < nsig)
++            };
++            meta.is_signer = a < nsig;
++            meta
++        })
++        .collect();
++    accounts.push(AccountMeta::new_readonly(program, false));
++    let outer = Instruction {
++        program_id: other,
++        accounts,
++        data: vec![0x01],
++    };
++    let budget = fclient::tx::TxBudget {
++        cu_limit: 200_000,
++        cu_price: 0,
++        loaded_limit: 1 << 20,
++        heap: None,
++    };
++    let msg = fclient::tx::message(&[outer], &budget, &keys[0], &m.recent_blockhash);
++    let n = msg.header.num_required_signatures as usize;
++    let mut wire = vec![n as u8];
++    for i in 0..n {
++        wire.extend_from_slice(&[0x31u8.wrapping_add(i as u8 * 16); 64]);
++    }
++    wire.extend_from_slice(&msg.serialize());
++    let tx = fclient::tx::from_wire(&wire).expect("the unsigned wire decodes");
++    let lines: Vec<String> = inp.txs[t]
++        .logs
++        .iter()
++        .filter(|l| l.starts_with("Program data: "))
++        .cloned()
++        .collect();
++    let r = &mut inp.txs[t];
++    r.tx = wire;
++    r.signature = fclient::tx::signature(&tx);
++    r.logs = if with_logs {
++        let mut v = vec![
++            format!("Program {other} invoke [1]"),
++            format!("Program {program} invoke [2]"),
++        ];
++        v.extend(lines);
++        v.push(format!("Program {program} success"));
++        v.push(format!("Program {other} success"));
++        v
++    } else {
++        vec![]
++    };
++}
++
++/// r4: a Grant instruction reached by CPI. The archive keeps top-level
++/// instructions only, so VR cannot pair the record with an instruction:
++/// UNVERIFIABLE, not `RightsRecordOrphan`. V7 still FAILs the holdings
++/// it wrote (no top-level instruction explains them). Without logs, the
++/// Grant write is unexplained (FAIL). Never a PASS either way.
++#[test]
++fn a_grant_instruction_reached_by_cpi_is_never_a_pass() {
++    use verify_core::Severity::{Fail, Unverifiable};
++    let b = base();
++    let (fl, _) = honest(&b);
++    let t = fl.inp.txs.len() - 5;
++    let mut inp = fl.inp.clone();
++    as_cpi(&mut inp, t, true);
++    let found = new_findings(&b.inp, &inp);
++    assert!(!has(&found, RIGHTS_RECORD_ORPHAN), "{found:#?}");
++    assert!(
++        of(&found, "VR", Unverifiable)
++            .iter()
++            .any(|l| l.contains(MISSING_DATA)),
++        "{found:#?}"
++    );
++    assert!(!of(&found, "V7", Fail).is_empty(), "{found:#?}");
++    assert!(not_a_pass_by_itself(&found), "{found:#?}");
++
++    let mut inp = fl.inp.clone();
++    as_cpi(&mut inp, t, false);
++    let found = new_findings(&b.inp, &inp);
++    assert!(has(&found, RIGHTS_UNEXPLAINED_ACCOUNT), "{found:#?}");
++    assert!(not_a_pass_by_itself(&found), "{found:#?}");
++}
++
++/// r4: post-states short of what the instruction wrote. The Grant's is
++/// covered by `missing_evidence_is_never_a_pass`; here the holdings'
++/// (the station's, then both) and the Citizen's are dropped from the
++/// execute. Never a PASS.
++#[test]
++fn post_states_short_of_the_writes_are_never_a_pass() {
++    let b = base();
++    let (fl, _) = honest(&b);
++    let t = fl.inp.txs.len() - 5;
++    let st = Address::new_from_array(b.station);
++    let fa = Address::new_from_array(b.facility);
++    let gc = Address::new_from_array(b.grantee_c);
++    for (name, drop) in [
++        ("station", vec![st]),
++        ("both holdings", vec![st, fa]),
++        ("grantee citizen", vec![gc]),
++    ] {
++        let mut inp = fl.inp.clone();
++        inp.txs[t].post.retain(|(k, _)| !drop.contains(k));
++        let found = new_findings(&b.inp, &inp);
++        assert!(not_a_pass_by_itself(&found), "{name}: {found:#?}");
++        if name == "grantee citizen" {
++            // Without workstream 11's V0E, only VR's own evidence rule
++            // sees this one.
++            assert!(
++                of(&found, "VR", verify_core::Severity::Unverifiable)
++                    .iter()
++                    .any(|l| l.contains(MISSING_DATA)),
++                "{found:#?}"
++            );
++        }
++    }
++}

@@ -35,6 +35,10 @@ struct ApiState {
     /// The accept path against chain (W3-C); `None` queues after the shape
     /// checks only (unit tests of the routes).
     gate: Option<Arc<dyn RevealGate>>,
+    /// The keeper's journal (⑱): accepted material is written there before
+    /// `202` is answered, so a restart before the play duty takes it from
+    /// the queue loses nothing. `None` keeps it in memory (unit tests).
+    journal: Option<Arc<std::path::PathBuf>>,
 }
 
 fn lock(s: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
@@ -179,6 +183,28 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
         hex::encode(fclient::seal::commit(&req.plain, &req.salt))
     );
     let mut s = lock(&st.shared);
+    if s.feed_paused {
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "DiscoveryUnavailable",
+            "keeper discovery is incomplete or unsupported; automatic game writes are paused",
+        );
+    }
+    // What this journal acknowledged before a restart, read once before the
+    // first id is given (⑱); unreadable: refused as a failed write is.
+    if let (Some(path), false) = (&st.journal, s.owner_tracks_restored) {
+        if crate::journal::Journal::open(path)
+            .and_then(|j| restore_owner_tracks(&mut s, &j))
+            .is_err()
+        {
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "JournalUnavailable",
+                "owner material could not be stored",
+            );
+        }
+        s.owner_tracks_restored = true;
+    }
     if let Some(id) = s.reveal_keys.get(&dedupe).cloned() {
         return (
             StatusCode::ACCEPTED,
@@ -188,6 +214,34 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
     }
     s.next_track += 1;
     let id = format!("r{}", s.next_track);
+    if let Some(path) = &st.journal {
+        // Durable before it is acknowledged (⑱): the material waits for
+        // THE anchor and T(arrive), possibly across a restart.
+        let p = fclient::seal::unpack(&req.plain);
+        let row = crate::journal::OwnerRow {
+            host: p.host_id,
+            bell: p.arrive_bell,
+            track: id.clone(),
+            holding: req.holding.to_string(),
+            transit_slot: req.transit_slot,
+            plain: req.plain.to_vec(),
+            salt: req.salt.to_vec(),
+            ct_hash: req.ct_hash.to_vec(),
+        };
+        if crate::journal::Journal::open(path)
+            .and_then(|j| j.save_owner_material(&row))
+            .is_err()
+        {
+            s.next_track -= 1;
+            // Journal errors can include local filesystem paths. Refuse the
+            // request without exposing those details to the API caller.
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "JournalUnavailable",
+                "owner material could not be stored",
+            );
+        }
+    }
     s.tracks.insert(id.clone(), json!({"state": "queued"}));
     s.reveal_keys.insert(dedupe, id.clone());
     s.reveals.push((id.clone(), item));
@@ -219,6 +273,13 @@ async fn nudge(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) -
         .and_then(|p| p.as_array())
         .map(|a| (a[0].as_i64().unwrap_or(0), a[1].as_i64().unwrap_or(0)));
     let mut s = lock(&st.shared);
+    if s.feed_paused {
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "DiscoveryUnavailable",
+            "keeper discovery is incomplete or unsupported; automatic game writes are paused",
+        );
+    }
     let blocking = pq
         .and_then(|(p, q)| s.blocking.get(&format!("{p},{q}")).cloned())
         .unwrap_or_default();
@@ -246,10 +307,21 @@ pub fn router_with(
     token: String,
     gate: Option<Arc<dyn RevealGate>>,
 ) -> Router {
+    router_full(shared, token, gate, None)
+}
+
+/// [`router_with`] that journals accepted reveal material before `202`.
+pub fn router_full(
+    shared: Arc<Mutex<Shared>>,
+    token: String,
+    gate: Option<Arc<dyn RevealGate>>,
+    journal: Option<std::path::PathBuf>,
+) -> Router {
     let st = ApiState {
         shared,
         token: Arc::new(token),
         gate,
+        journal: journal.map(Arc::new),
     };
     Router::new()
         .route("/v1/status", get(status))
@@ -288,6 +360,18 @@ pub async fn serve_with(
     token: String,
     gate: Option<Arc<dyn RevealGate>>,
 ) -> Result<Running, String> {
+    serve_full(addr, shared, token, gate, None).await
+}
+
+/// [`serve_with`] with the keeper's journal: accepted reveal material is
+/// journalled before `202` (⑱).
+pub async fn serve_full(
+    addr: SocketAddr,
+    shared: Arc<Mutex<Shared>>,
+    token: String,
+    gate: Option<Arc<dyn RevealGate>>,
+    journal: Option<std::path::PathBuf>,
+) -> Result<Running, String> {
     if !addr.ip().is_loopback() {
         return Err(format!("the keeper API binds loopback only, not {addr}"));
     }
@@ -298,11 +382,43 @@ pub async fn serve_with(
         .await
         .map_err(|e| format!("bind {addr}: {e}"))?;
     let addr = l.local_addr().map_err(|e| e.to_string())?;
-    let app = router_with(shared, token, gate);
+    let app = router_full(shared, token, gate, journal);
     let task = tokio::spawn(async move {
         let _ = axum::serve(l, app).await;
     });
     Ok(Running { addr, task })
+}
+
+/// What `/v1/reveal` acknowledged before a restart (⑱): track ids go on
+/// after the highest one journalled (a new march's track never takes the
+/// id of a restored one), and the same material answers the track it was
+/// journalled under (no second track for one submission).
+pub fn restore_owner_tracks(s: &mut Shared, j: &crate::journal::Journal) -> Result<(), String> {
+    let n = |t: &str| t.strip_prefix('r').and_then(|x| x.parse::<u64>().ok());
+    for (track, _, _) in j.owner_tracks()? {
+        if let Some(i) = n(&track) {
+            s.next_track = s.next_track.max(i);
+        }
+    }
+    for r in j.owner_materials()? {
+        if let Some(i) = n(&r.track) {
+            s.next_track = s.next_track.max(i);
+        }
+        let (Ok(plain), Ok(salt)) = (
+            <[u8; 37]>::try_from(r.plain.as_slice()),
+            <[u8; 32]>::try_from(r.salt.as_slice()),
+        ) else {
+            continue;
+        };
+        let dedupe = format!(
+            "{}:{}:{}",
+            r.holding,
+            r.transit_slot,
+            hex::encode(fclient::seal::commit(&plain, &salt))
+        );
+        s.reveal_keys.entry(dedupe).or_insert(r.track);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -419,6 +535,300 @@ mod tests {
             call(a, "GET", "/v1/track/nope", Some(&tok), None).await.0,
             404
         );
+        r.stop();
+    }
+
+    #[tokio::test]
+    async fn journal_failure_refuses_without_leaking_or_queueing() {
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        // An existing directory cannot be opened as the SQLite journal file.
+        let journal_dir = std::env::temp_dir();
+        let r = serve_full(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            None,
+            Some(journal_dir.clone()),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 42,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+
+        // Repeating the same request must not turn a failed write into a
+        // deduplicated 202 or leave an in-memory track behind.
+        for _ in 0..2 {
+            let (status, response) =
+                call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body.clone())).await;
+            assert_eq!(status, 503);
+            assert_eq!(
+                response,
+                json!({
+                    "error": "JournalUnavailable",
+                    "code": "JournalUnavailable",
+                    "detail": "owner material could not be stored",
+                })
+            );
+            assert!(!response
+                .to_string()
+                .contains(&journal_dir.to_string_lossy().to_string()));
+            let state = lock(&shared);
+            assert_eq!(state.next_track, 0);
+            assert!(state.reveals.is_empty());
+            assert!(state.reveal_keys.is_empty());
+            assert!(state.tracks.is_empty());
+        }
+        r.stop();
+    }
+
+    #[tokio::test]
+    async fn a_restart_keeps_track_ids_and_answers_the_same_material() {
+        // ⑱: a second process on the same journal. The same material is
+        // answered with the track it was acknowledged under (no second
+        // track); another march's track takes an id after every journalled
+        // one, never a restored march's id.
+        let journal_path = std::env::temp_dir().join(format!(
+            "wylls-journal-restart-tracks-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let tok = "t".repeat(32);
+        let body = |host: u64, salt: u8| {
+            let p = fclient::seal::Plain {
+                version: 1,
+                host_id: host,
+                arrive_bell: 9,
+                stance: 1,
+                ..Default::default()
+            };
+            json!({
+                "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+                "transit_slot": 1,
+                "plain_b64": B64.encode(fclient::seal::pack(&p)),
+                "salt_b64": B64.encode([salt; 32]),
+                "ct_hash_b64": B64.encode([2u8; 32]),
+            })
+        };
+        let post = |addr, b: Value| {
+            let tok = tok.clone();
+            async move {
+                let (c, v) = call(addr, "POST", "/v1/reveal", Some(&tok), Some(b)).await;
+                assert_eq!(c, 202, "{v}");
+                v["track"].as_str().unwrap().to_string()
+            }
+        };
+        // First process: march 43 twice (two materials: two tracks), march 44.
+        {
+            let shared: Arc<Mutex<Shared>> = Default::default();
+            let r = serve_full(
+                "127.0.0.1:0".parse().unwrap(),
+                shared,
+                tok.clone(),
+                None,
+                Some(journal_path.clone()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(post(r.addr, body(43, 1)).await, "r1");
+            assert_eq!(
+                post(r.addr, body(43, 1)).await,
+                "r1",
+                "same material, same track"
+            );
+            assert_eq!(post(r.addr, body(43, 5)).await, "r2");
+            assert_eq!(post(r.addr, body(44, 1)).await, "r3");
+            r.stop();
+        }
+        // Second process.
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let r = serve_full(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            None,
+            Some(journal_path.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            post(r.addr, body(43, 5)).await,
+            "r2",
+            "journalled material: its track"
+        );
+        assert_eq!(post(r.addr, body(44, 1)).await, "r3");
+        assert_eq!(
+            post(r.addr, body(45, 1)).await,
+            "r4",
+            "a new march: after every journalled id"
+        );
+        assert_eq!(
+            lock(&shared).reveals.len(),
+            1,
+            "only the new material is queued again"
+        );
+        r.stop();
+        let j = crate::journal::Journal::open_existing(&journal_path).unwrap();
+        let tracks: Vec<(String, u64)> = j
+            .owner_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|(t, h, _)| (t, h))
+            .collect();
+        assert_eq!(
+            tracks,
+            vec![
+                ("r1".into(), 43),
+                ("r2".into(), 43),
+                ("r3".into(), 44),
+                ("r4".into(), 45)
+            ]
+        );
+        drop(j);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", journal_path.display()));
+        }
+    }
+
+    #[tokio::test]
+    async fn journal_write_failure_refuses_without_leaking_or_queueing() {
+        let journal_path = std::env::temp_dir().join(format!(
+            "wylls-journal-write-fail-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // Opening and initializing the journal succeeds. Only the later
+        // owner-material INSERT fails, with a diagnostic that must stay local.
+        crate::journal::Journal::open(&journal_path).unwrap();
+        {
+            let conn = rusqlite::Connection::open(&journal_path).unwrap();
+            conn.execute_batch(
+                "CREATE TRIGGER fail_owner_material BEFORE INSERT ON owner_material
+                 BEGIN SELECT RAISE(ABORT, 'journal-private-sentinel'); END;",
+            )
+            .unwrap();
+        }
+        crate::journal::Journal::open(&journal_path).unwrap();
+
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        let r = serve_full(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            None,
+            Some(journal_path.clone()),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 43,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+        for _ in 0..2 {
+            let (status, response) =
+                call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body.clone())).await;
+            assert_eq!(status, 503);
+            assert_eq!(
+                response,
+                json!({
+                    "error": "JournalUnavailable",
+                    "code": "JournalUnavailable",
+                    "detail": "owner material could not be stored",
+                })
+            );
+            let text = response.to_string();
+            assert!(!text.contains("journal-private-sentinel"));
+            assert!(!text.contains(&journal_path.to_string_lossy().to_string()));
+            let state = lock(&shared);
+            assert_eq!(state.next_track, 0);
+            assert!(state.reveals.is_empty());
+            assert!(state.reveal_keys.is_empty());
+            assert!(state.tracks.is_empty());
+        }
+        r.stop();
+        let conn = rusqlite::Connection::open(&journal_path).unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM owner_material", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+        drop(conn);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", journal_path.display()));
+        }
+    }
+
+    #[tokio::test]
+    async fn audit_chain_unavailable_rpc_message_in_response() {
+        let port = crate::testkit::FakePort::default();
+        *port.rpc_error.lock().unwrap() =
+            Some("RPC_PRIVATE_SENTINEL /internal/rpc/endpoint".into());
+        let gate = crate::reveal_accept::ChainGate {
+            port,
+            addrs: fclient::addr::Addresses::new(
+                solana_address::Address::new_from_array([1; 32]),
+                1,
+            ),
+        };
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        let r = serve_with(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            Some(Arc::new(gate)),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 42,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+        let (status, response) = call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body)).await;
+        assert_eq!(status, 503);
+        assert_eq!(response["code"], "ChainUnavailable");
+        assert_eq!(response["detail"], "chain state unavailable");
+        assert!(!response.to_string().contains("RPC_PRIVATE_SENTINEL"));
+        assert!(!response.to_string().contains("/internal/rpc/endpoint"));
+        assert!(lock(&shared).reveals.is_empty());
         r.stop();
     }
 

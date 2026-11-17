@@ -22,6 +22,20 @@
 //! | [`play`] | decrypt, the reveal pipeline, SettleDeparture and returns, the gather/resolve/skip scheduler, SettleTransit, closes, claims (W4-C) |
 //! | [`conquest`] | MC (CQ2-D): contested bells, fold-driven skips, SettleCapture, SettleSiege, FoldMarch, the horn watcher, the season-end flush, CloseMarch |
 //! | [`api`] | the loopback API (`/v1/*`, `/metrics`) |
+//! | `wideindex` (feature `wide-world-experimental`) | **read-only** discovery of the wide world from explicitly supplied, authenticated PSW1 bodies: provinces, full holding and host references, transit slots, reveals, settlements, closes; read-account plans only, no duty, no write |
+//! | `wideclaim` (feature `wide-world-experimental`) | **read-only, unsigned** WideClaimDefence planning from selected full slot identities and pinned account reads; shared caps, rent shortfall and payment predictions, with a sealed-snapshot entry point; no admission, signing or send |
+//! | `wideclaim_preview` (feature `wide-world-experimental`) | bounded, one-shot keyless claim-preview input and JSON facts over one coherent snapshot; separate opt-in executable, no keeper startup, transaction output or send |
+//! | `wideproof` (feature `wide-world-experimental`) | **read-only**: the Depart commitment and 264-byte seal of a committed WideDepart, taken from a feed record's wire and bound to the `Departed` record inside the same instruction's log frame; unavailable on any CPI, rollback or mismatch; no signature verified, no key |
+//! | `wideduty` (feature `wide-world-experimental`) | **read-only, unsigned**: WideSettleDeparture, WideReturn, WideGather and WideResolve instructions planned from current account reads with the dispatcher's tables and refusals (the gather's arrival evidence is the wide ArrivalDay account, never the absence of feed events; the resolve replays the ABI's `resolve_bell` on scratch bytes; WideSettleTransit is not planned); explicit block reasons; never signed, simulated, sent or queued |
+//! | `wideexpedition` (feature `wide-world-experimental`) | **read-only, non-executable** original-host bridge and wide resident next-step inspection; canonical original Holding/home, owned bridge v2, current-generation voluntary Leave and original reserve prediction; same-response snapshot and explicit missing-dispatch/provenance denials, never an instruction |
+//! | `widereveal` (feature `wide-world-experimental`) | **read-only, unsigned**: a WideReveal candidate planned from a `wideproof::DepartProof`, a caller-supplied seal opening and current account reads; the handler's timing, latch, path, shield, quota and ArrivalDay rules replayed; a matching commitment is never called a cryptographic verification |
+//! | `widesettle` (feature `wide-world-experimental`) | **read-only, unsigned**: the WideSettleTransit candidate of a march whose seal opens under the anchor's own public round signature and whose host is in the resolved final set with a fate that does not come home; the outcome and payments from the shared `frontier_abi::world_index::settle` functions the program calls; bad seals, absent destinations, bounces, routs, returns home and camp loot refused, not planned; no tick wiring yet |
+//! | `widereview` (feature `wide-world-experimental`) | **read-only** admission review of a wide candidate against the engine's public state: a typed full-identity key, kind, tag, class and concrete denials; never a `WriteSpec`, never `ensure`/`poll`/`send` |
+//! | `widesnapshot` (feature `wide-world-experimental`) | the additive same-response account snapshot (`SnapshotPort`, default `Unsupported`; the JSON-RPC port implements it): all keys + Clock (+ Rent) in one `getMultipleAccounts` response with its context slot; coherence, never currency or permission |
+//! | `widefees` (feature `wide-world-experimental`) | what executing a wide candidate requires of its fee payer, calculated only from a same-response Rent sysvar and payer account (ABI sizes), every assumption named, unmet or unknown declared |
+//! | `widetick` (feature `wide-world-experimental`) | the bounded per-tick **read-only** review of the observer's candidates for `/v1/status` (`Keeper::enable_wide_review`): plans and reviews, enqueues nothing; over one snapshot response through the keeper's own port when `Keeper::enable_wide_snapshot_via_port` was called; reveal hints only from proofs extracted from the observer-accepted feed prefix, a verified public beacon and the public opening, when the runtime has them |
+//! | `widefollow` (feature `wide-world-experimental`) | **read-only, opt-in** (`Keeper::enable_wide_follow`): after the legacy feed gate blocks, bounded pulls from the follower's own cursor shown to the same observer and proof store; never a legacy cursor, gate, signature or completeness claim |
+//! | `widereconcile` (feature `wide-world-experimental`) | **read-only** diagnostics: the observer's PSW1 chain head of a province or holding against the account's own `EVENT_SEQ`/`EVENT_HEAD` in one coherent snapshot — agree / lag / behind / mismatch / stale / missing / closed / closed-but-present / identity / scope / unknown; cross-input consistency only (the records' and the snapshot's source relationship unverified), never authenticity, completeness or permission |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
 //! duty from chain reads (the chain is the state), then lets the engine
@@ -40,7 +54,15 @@ pub mod caravans;
 pub mod config;
 pub mod conquest;
 pub mod engine;
+/// Bounded one-shot preparation of the wallet-signed wide DeclareSiege (conquest lane).
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_conquest_prepare;
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_expedition_depart_prepare;
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_expedition_prepare;
 pub mod explore;
+pub mod feedguard;
 pub mod fold;
 pub mod genesis;
 pub mod holdings;
@@ -57,6 +79,36 @@ pub mod seeds;
 #[cfg(test)]
 pub(crate) mod testkit;
 pub mod tickets;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideclaim;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideclaim_preview;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideduty;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideexpedition;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideexpedition_preview;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widefees;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widefollow;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideindex;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideproof;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widereconcile;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widereveal;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widereview;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widesettle;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widesnapshot;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widetick;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -70,17 +122,17 @@ use fclient::budgets::Budgets;
 use fclient::clock::SeasonClock;
 use fclient::decode::Season;
 use fclient::fees;
-use fclient::ports::{ChainPort, DrandPort};
+use fclient::ports::{ChainPort, DrandPort, Signature, Status};
 
 use crate::archive::ArchiveDuty;
 use crate::beacon::BeaconDuty;
 use crate::config::KeeperConfig;
-use crate::engine::{BuildCtx, Engine, EngineParams, Outcome, WriteSpec};
+use crate::engine::{BuildCtx, Engine, EngineParams, Outcome, WriteSpec, PAYER_CARE_KIND};
 use crate::explore::ExploreDuty;
 use crate::fold::FoldDuty;
 use crate::genesis::GenesisDuty;
 use crate::holdings::HoldingDuty;
-use crate::journal::Journal;
+use crate::journal::{Attempt, Journal};
 use crate::landindex::LandIndex;
 use crate::play::PlayDuty;
 use crate::pools::Payers;
@@ -178,6 +230,8 @@ pub struct Tick<'a> {
 pub struct Shared {
     /// The status snapshot of the last tick (published after its sends).
     pub status: Value,
+    /// Discovery is incomplete or has an unsupported record; do not accept new work.
+    pub feed_paused: bool,
     pub metrics: String,
     /// Owner reveal material queued by `/v1/reveal` (W3-C accepts, W4-C sends).
     pub reveals: Vec<(String, Value)>,
@@ -186,6 +240,9 @@ pub struct Shared {
     pub tracks: BTreeMap<String, Value>,
     pub nudges: Vec<Value>,
     pub next_track: u64,
+    /// `/v1/reveal` read the journal's acknowledged tracks (⑱: ids go on
+    /// after them, the same material answers its journalled track).
+    pub owner_tracks_restored: bool,
     /// `"P,Q"` → what holds the province now (W4-C, `/v1/nudge`).
     pub blocking: BTreeMap<String, Vec<Value>>,
 }
@@ -270,10 +327,45 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     wrong_key_alerted: bool,
     /// The last payer care: `(slot, Clock now, transfers planned)`.
     care_last: Option<(u64, i64, usize)>,
+    /// Older keepers recorded care attempts as "expired" from slot age,
+    /// without proving that the transfer never landed. Requires an operator
+    /// reconciliation before care can safely resume.
+    care_legacy_unknown: bool,
     /// The season's ABI the engine's budgets follow (R-22: an MC season
     /// takes `frontier-abi/vectors/v2/budgets.json` unless `budgets_file`
     /// overrides it).
     budgets_version: u16,
+    /// The read-only wide observer (feature `wide-world-experimental`),
+    /// enabled by [`Keeper::enable_wide_observation`]: shown the same feed
+    /// pages the legacy discovery pulls, before the legacy guard ingests
+    /// them. It never plans, sends, signs or unblocks anything.
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_observer: Option<wideindex::WideObserver>,
+    /// The bounded read-only review of the observer's candidates
+    /// (`widetick`), enabled by [`Keeper::enable_wide_review`]. It plans
+    /// and reviews; it enqueues, signs and sends nothing.
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_review: Option<widetick::WideReview>,
+    /// The review's own verified beacon cache (`widetick::BeaconCache`),
+    /// separate from the beacon duty's `rounds` so a review ask never
+    /// changes what the beacon duty asks or sends. Set with the review.
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_beacon: Option<widetick::BeaconCache>,
+    /// How the wide review takes its same-response snapshot: off, through
+    /// the keeper's own read port (`enable_wide_snapshot_via_port`, when
+    /// `P: SnapshotPort`), or through a separately attached source whose
+    /// relation to the read port is not verified (`enable_wide_snapshot`).
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_snapshot: widesnapshot::SnapshotMode<P>,
+    /// The read-only observation follower (`widefollow`), enabled by
+    /// [`Keeper::enable_wide_follow`]: pulls from its own cursor only in
+    /// ticks the legacy discovery did not pull.
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_follow: Option<widefollow::WideFollow>,
+    /// Whether `refresh_discovery` pulled feed pages this tick (the
+    /// follower stands aside then).
+    #[cfg(feature = "wide-world-experimental")]
+    wide_legacy_pulled: bool,
 }
 
 /// Slots between two cares while a pool is below its minimum (the top-up
@@ -307,6 +399,30 @@ pub fn care_due(
         || (low && planned > 0 && slot >= s0 + CARE_LOW_GAP_SLOTS)
 }
 
+/// Refuse a logically invalid journal before asking RPC to resolve it. A
+/// filtered signature list would shift later responses onto the wrong rows.
+fn recovery_signatures(attempts: &[Attempt]) -> Result<Vec<Signature>, String> {
+    attempts
+        .iter()
+        .map(|a| {
+            a.sig
+                .parse()
+                .map_err(|_| "invalid signature in keeper journal; refusing restart".into())
+        })
+        .collect()
+}
+
+/// A partial RPC reply must not drop an undecided attempt from adoption.
+fn recovery_statuses(
+    attempts: &[Attempt],
+    statuses: Vec<Option<Status>>,
+) -> Result<impl Iterator<Item = (&Attempt, Option<Status>)>, String> {
+    if attempts.len() != statuses.len() {
+        return Err("incomplete keeper signature statuses; refusing restart".into());
+    }
+    Ok(attempts.iter().zip(statuses))
+}
+
 impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// A keeper over `port` and `drand` with payers derived from `master`.
     pub fn new(
@@ -337,10 +453,12 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             per_write_cap: cfg.per_write_cap_lamports,
             d_resend_slots: cfg.d_resend_slots,
             cap_resend_slots: cfg.cap_resend_slots,
+            max_unknown_w_versions: cfg.max_unknown_w_versions,
             ..EngineParams::default()
         };
         let pk96 = drand.info().public_key;
         let mut engine = Engine::new(budgets, params);
+        engine.restore_feed_block(journal.as_ref())?;
         // Payer care: plain System transfers (tag 0 is no Frontier instruction).
         engine.budgets.set(
             0,
@@ -371,6 +489,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             // Never `null` (W6T-2): the API answers from the process start.
             shared: Arc::new(Mutex::new(Shared {
                 status: json!({"starting": true}),
+                feed_paused: true,
                 ..Shared::default()
             })),
             last_slot: None,
@@ -380,11 +499,135 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             season_read_slot: None,
             wrong_key_alerted: false,
             care_last: None,
+            care_legacy_unknown: false,
             budgets_version: abi::PROGRAM_VERSION_V1,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_observer: None,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_review: None,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_beacon: None,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_snapshot: widesnapshot::SnapshotMode::Off,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_follow: None,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_legacy_pulled: false,
             cfg,
             port,
             drand,
         })
+    }
+
+    /// Enables the bounded read-only review of the wide observer's
+    /// candidates under a pinned deployment (`widetick`). Requires the
+    /// observer. Adds at most `widetick::CANDIDATES_PER_TICK` plans of
+    /// account reads per tick and a `review` entry under `wide` in the
+    /// status; no write gate, cursor or signer changes.
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_review(&mut self, deployment: wideduty::Deployment) -> Result<(), String> {
+        if self.wide_observer.is_none() {
+            return Err(
+                "wide review needs the wide observer (enable_wide_observation first)".into(),
+            );
+        }
+        self.wide_review = Some(widetick::WideReview::new(deployment));
+        // The review verifies the rounds it asks for under the drand port's
+        // published key; the planner's gate re-checks that key's hash
+        // against the Season's pin.
+        self.wide_beacon = Some(widetick::BeaconCache::new(self.drand.info().public_key));
+        Ok(())
+    }
+
+    /// Takes the wide review's same-response snapshot through the keeper's
+    /// **own** read port — the preferred form: the same node and client
+    /// the keeper already reads through, no second relation to trust.
+    /// Callable only where the port's type is known to implement
+    /// `SnapshotPort` (the JSON-RPC port does); the runtime keeps a
+    /// function pointer and calls it where it only knows `P: ChainPort`.
+    /// Requires the review. Read only; no gate, cursor or signer changes.
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_snapshot_via_port(&mut self) -> Result<(), String>
+    where
+        P: widesnapshot::SnapshotPort,
+    {
+        if self.wide_review.is_none() {
+            return Err(
+                "the wide snapshot needs the wide review (enable_wide_review first)".into(),
+            );
+        }
+        self.wide_snapshot = widesnapshot::SnapshotMode::ViaPort(widesnapshot::snapshot_via::<P>);
+        Ok(())
+    }
+
+    /// Takes the wide review's snapshot through a **separately attached**
+    /// source. Its relation to the keeper's read port (the same node or
+    /// not) is the operator's claim and is **not** verified here; every
+    /// response is still bound to its own keys, context slot and sysvars.
+    /// Prefer [`Keeper::enable_wide_snapshot_via_port`]. Requires the
+    /// review. Read only.
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_snapshot(
+        &mut self,
+        source: Box<dyn widesnapshot::SnapshotSource>,
+    ) -> Result<(), String> {
+        if self.wide_review.is_none() {
+            return Err(
+                "the wide snapshot needs the wide review (enable_wide_review first)".into(),
+            );
+        }
+        self.wide_snapshot = widesnapshot::SnapshotMode::Separate(source);
+        Ok(())
+    }
+
+    /// Enables the read-only observation follower (`widefollow`): in ticks
+    /// the legacy discovery does not pull (its feed gate blocked, or no
+    /// gameplay role), at most `widefollow::PAGES_PER_TICK` pages are
+    /// pulled from the follower's own cursor — starting after what the
+    /// observer has processed — and shown to the observer and the review's
+    /// proof store exactly as the legacy pull shows them. Requires the
+    /// observer. Touches no legacy cursor, gate or signer; claims no
+    /// completeness.
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_follow(&mut self) -> Result<(), String> {
+        match self.wide_observer.as_ref() {
+            Some(o) => {
+                self.wide_follow = Some(widefollow::WideFollow::from_observer(o));
+                Ok(())
+            }
+            None => {
+                Err("wide follow needs the wide observer (enable_wide_observation first)".into())
+            }
+        }
+    }
+
+    /// Enables the read-only wide observer over this Season's one legacy
+    /// world (`WorldId::derive_legacy_season` of the public Season PDA and
+    /// program id). Observation only: the legacy feed guard, the legacy
+    /// cursors and every write gate are untouched; the observer's status
+    /// always reports `automatic_writes: false` and `source_complete:
+    /// false`. Starts empty on every process start (no journal).
+    /// Includes scoped original-expedition and paired resident receipts, plus
+    /// lifecycle commitments in an observation-only lane outside discovery.
+    /// Original history, semantic replay and completion remain unverified.
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_observation(&mut self, limits: wideindex::Limits) -> Result<(), String> {
+        let world = frontier_abi::world_index::WorldId::derive_legacy_season(
+            &self.addrs.season.to_bytes(),
+            &self.addrs.program.to_bytes(),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        self.wide_observer = Some(wideindex::WideObserver::new_with_expedition(
+            wideindex::Scope {
+                program: self.addrs.program,
+                season: self.addrs.season,
+                world,
+                source: "keeper feed pages shared with the legacy discovery; program invocation frames decoded by fclient::typed_log; source completeness not established"
+                    .into(),
+            },
+            limits,
+        )?);
+        Ok(())
     }
 
     /// Sets the ClaimDefence signer: the beneficiary's key (§5.12: the
@@ -421,30 +664,210 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         let mut adopted = 0;
         if let Some(j) = &self.journal {
             let inflight = j.in_flight()?;
-            let sigs: Vec<fclient::ports::Signature> =
-                inflight.iter().filter_map(|a| a.sig.parse().ok()).collect();
+            let sigs = recovery_signatures(&inflight)?;
             let sts = self.port.statuses(&sigs).await.map_err(|e| e.to_string())?;
             let mut keep = vec![];
-            for (a, st) in inflight.iter().zip(sts) {
+            for (a, st) in recovery_statuses(&inflight, sts)? {
                 match st {
                     Some(st) => {
-                        let s = if st.err.is_none() { "landed" } else { "failed" };
-                        j.set_status(&a.sig, s, Some(st.slot), st.code)?;
+                        let s = if st.err.is_none() {
+                            "landed"
+                        } else if a
+                            .tag
+                            .zip(st.code)
+                            .is_some_and(|(tag, code)| abi::err::is_done(tag, code))
+                        {
+                            "done"
+                        } else {
+                            "failed"
+                        };
+                        j.record_recovered_finality(a, s, st.slot, st.code)?;
+                        self.engine.charge_recovered(a);
+                        if a.kind == PAYER_CARE_KIND {
+                            self.engine.note_care_settled(st.slot);
+                        }
                     }
-                    None if clock.slot > a.first_valid_slot + 151 => {
-                        j.set_status(&a.sig, "expired", None, None)?;
-                    }
+                    // Slot age is not proof that this signature never landed:
+                    // a null status can also mean RPC history is unavailable.
                     None => keep.push(a.clone()),
                 }
             }
             adopted = keep.len();
-            self.engine.adopt(&keep);
+            self.engine.adopt(&keep)?;
+            // A restarted process has the signatures but not the original
+            // retry ladder, fee cap and duty plan. Never spend another fee
+            // against an old write by re-planning it with current settings.
+            // Keep observing every unknown signature and unblock this key
+            // only after they all have a definitive result. New rows carry
+            // a write ID so observations can be matched to their generation;
+            // legacy rows remain ungrouped and are held just as strictly.
+            let mut checked = BTreeSet::new();
+            for a in &keep {
+                if checked.insert(a.object_key.clone()) {
+                    self.engine.hold_adopted_until_known(&a.object_key);
+                }
+            }
+            // Older keepers labelled care attempts "expired" from 151 slots
+            // alone. Query their signatures again; only a finalized result
+            // may clear that ambiguous status.
+            let legacy = j.expired_attempts_of_kind(PAYER_CARE_KIND)?;
+            let sigs = recovery_signatures(&legacy)?;
+            let statuses = self.port.statuses(&sigs).await.map_err(|e| e.to_string())?;
+            for (a, st) in recovery_statuses(&legacy, statuses)? {
+                if let Some(st) = st {
+                    let s = if st.err.is_none() { "landed" } else { "failed" };
+                    j.record_recovered_finality(a, s, st.slot, st.code)?;
+                    self.engine.charge_recovered(a);
+                    self.engine.note_care_settled(st.slot);
+                }
+            }
+            if let Some(slot) = j.latest_settled_slot(PAYER_CARE_KIND)? {
+                self.engine.note_care_settled(slot);
+            }
+            self.care_legacy_unknown = j.has_expired_attempt(PAYER_CARE_KIND)?;
+        }
+        if self.care_legacy_unknown {
+            self.alert(
+                clock.slot,
+                "care-unknown-legacy",
+                "old payer-care 'expired' attempts need reconciliation before another transfer"
+                    .into(),
+            );
         }
         self.payers
-            .refresh(&self.port, clock.slot)
+            .refresh_at_least(
+                &self.port,
+                clock.slot,
+                self.engine.care_settled_slot().unwrap_or(0),
+            )
             .await
             .map_err(|e| e.to_string())?;
         Ok(adopted)
+    }
+
+    /// One feed pass shared by both legacy indexes. Never advance past a
+    /// blocker, and never plan from a partial restart prefix. Beacon-only
+    /// deployments need no gameplay feed and keep their previous behavior.
+    async fn refresh_discovery(&mut self) -> Result<(), String> {
+        #[cfg(feature = "wide-world-experimental")]
+        {
+            self.wide_legacy_pulled = false;
+        }
+        if !LAND_ROLES
+            .iter()
+            .chain(PLAY_ROLES.iter())
+            .any(|r| self.cfg.has_role(r))
+            && !self.cfg.has_role("rings")
+            && !self.cfg.has_role("archive")
+        {
+            return Ok(());
+        }
+        self.engine.restore_feed_block(self.journal.as_ref())?;
+        if let Some(block) = self.engine.feed_block().cloned() {
+            self.index.feed.restore(block.clone());
+            self.play.index.feed.restore(block);
+        }
+        self.engine.set_feed_ready(false);
+        self.shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .feed_paused = true;
+        let result = if self.index.feed.blocked().is_some()
+            || self.play.index.feed.blocked().is_some()
+        {
+            Ok(())
+        } else if self.index.cursor == self.play.index.cursor {
+            #[cfg(feature = "wide-world-experimental")]
+            {
+                self.wide_legacy_pulled = true;
+            }
+            self.index.feed.begin_pull();
+            self.play.index.feed.begin_pull();
+            let mut result = Ok(());
+            for _ in 0..crate::landindex::PAGES_PER_TICK {
+                let page = match self.port.feed(self.index.cursor).await {
+                    Ok(page) => page,
+                    Err(e) => {
+                        result = Err(e.to_string());
+                        break;
+                    }
+                };
+                // The read-only wide observer sees the same page before
+                // the legacy guard ingests it; it changes nothing below.
+                #[cfg(feature = "wide-world-experimental")]
+                let accepted = match self.wide_observer.as_mut() {
+                    Some(o) => {
+                        o.observe_page(&page, &self.addrs.program);
+                        o.accepted_prefix
+                    }
+                    None => 0,
+                };
+                // The read-only wide review's proof store sees exactly the
+                // records the observer processed from this page (its
+                // `accepted_prefix`: none when it was blocked already or
+                // refused the page's order, the records before the one
+                // that blocked it otherwise); the rest are dropped and
+                // counted; committed WideDeparts are extracted by
+                // `wideproof` (wire and frame bound, signatures
+                // unverified), at most `MAX_EXTRACT_PER_PAGE` per page.
+                #[cfg(feature = "wide-world-experimental")]
+                if let Some(r) = self.wide_review.as_mut() {
+                    r.proofs.observe_page(
+                        &page,
+                        &wideproof::ProofScope {
+                            program: self.addrs.program,
+                            season: self.addrs.season,
+                        },
+                        accepted,
+                    );
+                }
+                if page.is_empty() {
+                    self.index.feed.caught_up();
+                    self.play.index.feed.caught_up();
+                    break;
+                }
+                self.index.ingest_page(&page, &self.addrs);
+                self.play.index.ingest_page(&page, &self.addrs);
+                if self.index.feed.blocked().is_some() || self.play.index.feed.blocked().is_some() {
+                    break;
+                }
+            }
+            result
+        } else {
+            #[cfg(feature = "wide-world-experimental")]
+            {
+                self.wide_legacy_pulled = true;
+            }
+            let land = self.index.pull(&self.port, &self.addrs).await;
+            let play = self.play.index.pull(&self.port, &self.addrs).await;
+            land.and(play).map(|_| ()).map_err(|e| e.to_string())
+        };
+        if let Some(block) = self
+            .index
+            .feed
+            .blocked()
+            .or(self.play.index.feed.blocked())
+            .cloned()
+        {
+            self.engine.block_feed(block.clone());
+            self.index.feed.restore(block.clone());
+            self.play.index.feed.restore(block);
+        }
+        // Latch in memory before the fallible durable write. A storage error
+        // cannot accidentally authorize the next tick or direct Engine send.
+        self.engine.persist_feed_block(self.journal.as_ref())?;
+        self.engine
+            .set_feed_ready(self.index.feed.ready() && self.play.index.feed.ready());
+        self.play.feed_read = true;
+        self.shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .feed_paused = !self.engine.feed_writes_allowed();
+        if self.engine.feed_block().is_some() {
+            Ok(())
+        } else {
+            result
+        }
     }
 
     /// R-22: an MC season's writes take the v2 budgets table (`L(kind)`
@@ -588,14 +1011,14 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             < fclient::payers::MIN_REVEAL.min(self.payers.reveal.keys.len())
             || self.payers.effective_n(Class::D)
                 < fclient::payers::MIN_DELAY.min(self.payers.delay.keys.len());
-        let care_pending = self
-            .engine
-            .pending_keys()
-            .iter()
-            .any(|k| k.starts_with("care:"));
+        let care_pending = self.care_legacy_unknown || self.engine.care_unresolved();
         if care_due(&self.cfg, self.care_last, slot, now, low, care_pending) {
             self.payers
-                .refresh(&self.port, slot)
+                .refresh_at_least(
+                    &self.port,
+                    slot,
+                    self.engine.care_settled_slot().unwrap_or(0),
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             let planned = self.plan_care(slot);
@@ -628,6 +1051,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .poll(&self.port, self.journal.as_ref(), slot)
             .await;
         for (k, o) in &r.outcomes {
+            // A retry window ending without a definitive chain status is
+            // not a program refusal. Do not trigger duty failure handlers.
+            if matches!(o, Outcome::Unresolved { .. }) {
+                continue;
+            }
             if let Outcome::Landed { .. } = o {
                 self.archive.on_landed(k, &mut self.beacon.anchors);
                 self.fold.on_landed(k);
@@ -662,23 +1090,17 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 );
             }
             // Roles the program lacks (99) are off for the rest of the run.
-            let cfg_eff;
-            let cfg = if self.unsupported_roles.is_empty() {
-                &self.cfg
-            } else {
-                let mut c = self.cfg.clone();
-                c.roles
-                    .retain(|r| !self.unsupported_roles.contains(r.as_str()));
-                cfg_eff = c;
-                &cfg_eff
-            };
+            let mut cfg = self.cfg.clone();
+            cfg.roles
+                .retain(|r| !self.unsupported_roles.contains(r.as_str()));
+            let addrs = self.addrs.clone();
             let t = Tick {
                 slot,
                 now,
                 season: &season,
                 clock: sclock,
-                addrs: &self.addrs,
-                cfg,
+                addrs: &addrs,
+                cfg: &cfg,
             };
             if key_ok {
                 self.genesis
@@ -736,44 +1158,93 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 rep.chain_at_send = self.engine.last_send_chain_slot;
             }
             phase(&mut rep, "send0", 0);
-            // One feed read for both indexes (W6T-2): while their cursors
-            // agree (always, from a start), a page is read once and ingested
-            // by the land and the play index. A restarted keeper re-reads
-            // the whole feed; two readers made its catch-up ticks ≈ 0.45 s,
-            // longer than a 20× slot (R2).
-            let play_pulls = PLAY_ROLES.iter().any(|r| t.cfg.has_role(r))
-                && matches!(
-                    season.effective_status(now),
-                    status::RUNNING | status::ENDED
-                );
-            let shared_read = LAND_ROLES.iter().any(|r| t.cfg.has_role(r))
-                && play_pulls
-                && self.index.cursor == self.play.index.cursor;
-            if shared_read {
-                for _ in 0..crate::landindex::PAGES_PER_TICK {
-                    let page = self
-                        .port
-                        .feed(self.index.cursor)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    if page.is_empty() {
-                        break;
-                    }
-                    self.index.ingest_page(&page, &self.addrs);
-                    self.play.index.ingest_page(&page, &self.addrs);
-                }
+            // Keep beacon publication ahead of the potentially slow feed
+            // catch-up. No game write is sent until this shared gate runs.
+            let result = self.refresh_discovery().await;
+            // The read-only observation follower (feature
+            // `wide-world-experimental`, opt in): in a tick the legacy
+            // discovery did not pull, bounded pages from its own cursor
+            // to the same observer and proof store. No legacy cursor, no
+            // gate, no readiness change; the discovery result stands.
+            #[cfg(feature = "wide-world-experimental")]
+            if let (Some(o), Some(f)) = (self.wide_observer.as_mut(), self.wide_follow.as_mut()) {
+                let scope = wideproof::ProofScope {
+                    program: self.addrs.program,
+                    season: self.addrs.season,
+                };
+                let proofs = self.wide_review.as_mut().map(|r| &mut r.proofs);
+                let pulled = f
+                    .step(&self.port, o, proofs, &scope, self.wide_legacy_pulled)
+                    .await;
+                phase(&mut rep, "wide-follow", pulled);
             }
-            // The play duty's own read is skipped this tick (the cursors
-            // stay together).
-            self.play.feed_read = shared_read;
-            // Land (W3-C).
-            if LAND_ROLES.iter().any(|r| t.cfg.has_role(r)) {
-                if !shared_read {
-                    self.index
-                        .pull(&self.port, &self.addrs)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                }
+            // The bounded read-only wide review (feature
+            // `wide-world-experimental`): plans and reviews, enqueues
+            // nothing; runs before the status is published, whether or not
+            // the discovery pull failed or the legacy guard has fired, and
+            // leaves the discovery result and every gate as they were.
+            #[cfg(feature = "wide-world-experimental")]
+            if let (Some(o), Some(r)) = (self.wide_observer.as_ref(), self.wide_review.as_mut()) {
+                // Reveal inputs exist only once the Season has been read
+                // (its clock names the beacon round) and the review's own
+                // verified beacon cache is set; the beneficiary is the
+                // configured public address. Without them no reveal hint
+                // is listed and the status names the gap.
+                let mut publications =
+                    self.wide_beacon
+                        .as_mut()
+                        .map(|cache| widetick::DrandPublications {
+                            drand: &self.drand,
+                            cache,
+                        });
+                let inputs = match (self.season.as_ref(), publications.as_mut()) {
+                    (Some(s), Some(p)) => Some(widetick::RevealInputs {
+                        season: s,
+                        beacon: p,
+                        beneficiary: self.cfg.beneficiary,
+                    }),
+                    _ => None,
+                };
+                // The snapshot source: the keeper's own read port through
+                // the function pointer taken when `P: SnapshotPort` was
+                // known, a separately attached source, or none.
+                let via = match &self.wide_snapshot {
+                    widesnapshot::SnapshotMode::ViaPort(f) => Some(widesnapshot::PortSnapshot {
+                        port: &self.port,
+                        f: *f,
+                    }),
+                    _ => None,
+                };
+                let snapshot: Option<&dyn widesnapshot::SnapshotSource> = match &self.wide_snapshot
+                {
+                    widesnapshot::SnapshotMode::Off => None,
+                    widesnapshot::SnapshotMode::ViaPort(_) => {
+                        via.as_ref().map(|v| v as &dyn widesnapshot::SnapshotSource)
+                    }
+                    widesnapshot::SnapshotMode::Separate(b) => Some(b.as_ref()),
+                };
+                // The observer is lent read-only for the reconciliation
+                // diagnostics (observed chain heads against the snapshot's
+                // account chain fields): nothing it holds is moved.
+                let plans = r
+                    .step_observing(
+                        &self.port,
+                        &self.engine,
+                        &o.model,
+                        self.addrs.program,
+                        self.addrs.season,
+                        slot,
+                        snapshot,
+                        inputs,
+                        Some(o),
+                    )
+                    .await;
+                phase(&mut rep, "wide-review", plans);
+            }
+            self.publish(slot, now, bell);
+            result?;
+            // Both indexes are gated before the land and play duties.
+            if self.engine.feed_writes_allowed() && LAND_ROLES.iter().any(|r| t.cfg.has_role(r)) {
                 self.fold
                     .plan(&t, &self.port, &mut self.engine)
                     .await
@@ -821,7 +1292,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             phase(&mut rep, "land", 0);
         }
         // Play (W4-C).
-        let play_on = PLAY_ROLES.iter().any(|r| self.cfg.has_role(r))
+        let play_on = self.engine.feed_writes_allowed()
+            && PLAY_ROLES.iter().any(|r| self.cfg.has_role(r))
             && !PLAY_ROLES
                 .iter()
                 .all(|r| self.unsupported_roles.contains(r));
@@ -999,6 +1471,16 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// Alerts and duty reactions for what a step reported: dead and
     /// failed writes, contested bells, retry-ladder rungs.
     fn note_step(&mut self, slot: u64, r: &crate::engine::StepReport) {
+        for event in &r.cancelled_landed {
+            self.alert(
+                slot,
+                "cancelled-late-landed",
+                format!(
+                    "{}: signature {} landed in slot {} after {:?} cancellation; reconcile chain state before re-planning",
+                    event.key, event.sig, event.slot, event.reason
+                ),
+            );
+        }
         for (k, o) in &r.outcomes {
             match o {
                 Outcome::Dead { code, reason } => {
@@ -1023,6 +1505,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     }
                 }
                 Outcome::Landed { .. } => {}
+                Outcome::Unresolved { .. } => {}
                 Outcome::Failed { code, err, .. } => {
                     // Expected refusals of a re-planned write: an anchor or
                     // seed not there yet, a fold part of an older bell, a
@@ -1073,7 +1556,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             self.engine.ensure(
                 WriteSpec {
                     key: format!("care:{}:{}:{slot}", tr.from, tr.to),
-                    kind: "payer-care",
+                    kind: PAYER_CARE_KIND,
                     tag: 0,
                     class: Class::N,
                     bell: None,
@@ -1091,13 +1574,13 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
 
     /// The status JSON (`GET /v1/status`).
     pub fn status_json(&self, slot: u64, now: i64, bell: Option<u32>) -> Value {
-        let kinds: BTreeMap<&str, Value> = self
+        let kinds: BTreeMap<String, Value> = self
             .engine
             .stats
             .iter()
             .map(|(k, s)| {
                 (
-                    *k,
+                    k.clone(),
                     json!({
                         "writes": s.writes, "versions": s.versions, "landed": s.landed, "failed": s.failed,
                         "dead": s.dead, "fees_charged": s.fees_charged,
@@ -1108,7 +1591,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             })
             .collect();
         let pool_sum = |ks: Vec<Address>| ks.iter().map(|k| self.payers.balance(k)).sum::<u64>();
-        json!({
+        let mut status = json!({
             "slot": slot, "now": now, "bell": bell,
             "season": self.season.as_ref().map(|s| json!({
                 "id": s.h.season_id, "status": s.effective_status(now), "genesis_ts": s.genesis_ts,
@@ -1124,6 +1607,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "provinces_opened": self.rings.opened.len(),
                 "rings_complete": self.rings.complete.iter().collect::<Vec<_>>(),
                 "ring_waiting": self.rings.waiting.as_ref().map(|w| format!("{w:?}")),
+                "extend_waiting": self.rings.extend_waiting.as_ref().map(|w| format!("{w:?}")),
                 "rings_unsupported": self.rings.unsupported,
                 "folded_bells": self.fold.folded.len(),
                 "tickets_open": self.index.tickets.len(),
@@ -1137,6 +1621,12 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "land_unsupported": self.unsupported_roles.iter().collect::<Vec<_>>(),
                 "archive_unsupported": self.archive.unsupported,
                 "archived_bells": self.archive.archived_bells,
+            },
+            "discovery": {
+                "automatic_writes": self.engine.feed_writes_allowed(),
+                "blocker": self.engine.feed_block().map(crate::feedguard::FeedBlock::status),
+                "land_cursor": self.index.cursor.0, "play_cursor": self.play.index.cursor.0,
+                "land": self.index.feed.status(), "play": self.play.index.feed.status(),
             },
             "pending": self.engine.pending_len(),
             "kinds": kinds,
@@ -1156,7 +1646,44 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             "conquest": self.play.conquest.status(bell),
             "spend_by_day": self.spend_by_day,
             "alerts": self.alerts.len(),
+        });
+        // The read-only wide observation (feature `wide-world-experimental`):
+        // counts and the blocker; never a readiness or completeness claim.
+        if let Some(wide) = self.wide_status() {
+            status["wide"] = wide;
+        }
+        status
+    }
+
+    /// The `wide` status entry: the observer's status, or the explicit
+    /// "disabled" shape; `None` in a build without the feature.
+    #[cfg(feature = "wide-world-experimental")]
+    fn wide_status(&self) -> Option<Value> {
+        Some(match &self.wide_observer {
+            Some(o) => {
+                let mut v = o.status();
+                v["review"] = match &self.wide_review {
+                    Some(r) => r.status(),
+                    None => json!({"mode": "disabled", "automatic_writes": false}),
+                };
+                v["snapshot_mode"] = json!(self.wide_snapshot.label());
+                v["follow"] = match &self.wide_follow {
+                    Some(f) => f.status(),
+                    None => {
+                        json!({"mode": "disabled", "automatic_writes": false, "source_complete": false})
+                    }
+                };
+                v
+            }
+            None => {
+                json!({"mode": "disabled", "automatic_writes": false, "source_complete": false})
+            }
         })
+    }
+
+    #[cfg(not(feature = "wide-world-experimental"))]
+    fn wide_status(&self) -> Option<Value> {
+        None
     }
 
     /// Prometheus text (`GET /metrics`).
@@ -1230,6 +1757,14 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         line(
             "frontier_keeper_rounds_bad_total",
             self.rounds.bad.to_string(),
+        );
+        line(
+            "frontier_keeper_discovery_blocked",
+            u8::from(self.engine.feed_block().is_some()).to_string(),
+        );
+        line(
+            "frontier_keeper_game_writes_paused",
+            u8::from(!self.engine.feed_writes_allowed()).to_string(),
         );
         let ps = &self.play.stats;
         for (k, v) in [
@@ -1308,6 +1843,476 @@ pub const W2F_TAGS: [u8; 9] = [
 mod tests {
     use super::*;
 
+    #[test]
+    fn locally_cancelled_landing_creates_distinct_alert() {
+        let cfg = KeeperConfig::new(
+            Address::new_from_array([0x5f; 32]),
+            7,
+            Address::new_from_array([0xbe; 32]),
+        );
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut keeper = Keeper::new(
+            cfg,
+            crate::testkit::FakePort::default(),
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        let mut report = crate::engine::StepReport::default();
+        report
+            .cancelled_landed
+            .push(crate::engine::CancelledLanding {
+                key: "seed:5:3:42".into(),
+                sig: Signature::default(),
+                slot: 12,
+                reason: crate::engine::CancelReason::SupersededNonce,
+            });
+        keeper.note_step(13, &report);
+        assert_eq!(keeper.alerts.len(), 1);
+        assert_eq!(keeper.alerts[0].1, "cancelled-late-landed");
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .alerts("cancelled-late-landed")
+            .unwrap()[0]
+            .1
+            .contains("SupersededNonce"));
+        assert!(report.outcomes.is_empty());
+    }
+
+    fn recovery_attempt(sig: String) -> Attempt {
+        Attempt {
+            sig,
+            write_id: None,
+            tag: None,
+            kind: "anchor".into(),
+            object_key: "anchor:5:3".into(),
+            bell: Some(5),
+            region: Some(3),
+            class: "D".into(),
+            payer: "P".into(),
+            bid_milli: 100,
+            fee: 5_000,
+            cu_limit: 345_000,
+            heap: None,
+            first_valid_slot: 10,
+            sent_slot: 10,
+            last_valid_block_height: None,
+            landed_slot: None,
+            status: "sent".into(),
+            code: None,
+        }
+    }
+
+    #[test]
+    fn restart_rejects_invalid_journal_signature_before_status_lookup() {
+        let valid = recovery_attempt(Signature::default().to_string());
+        let invalid = recovery_attempt("not a signature".into());
+        assert!(recovery_signatures(&[valid, invalid]).is_err());
+    }
+
+    #[test]
+    fn restart_rejects_incomplete_or_excess_status_reply_before_reconciliation() {
+        let attempts = [recovery_attempt(Signature::default().to_string())];
+        assert!(recovery_statuses(&attempts, vec![]).is_err());
+        assert!(recovery_statuses(&attempts, vec![None, None]).is_err());
+        let pairs: Vec<_> = recovery_statuses(&attempts, vec![None]).unwrap().collect();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0.sig, attempts[0].sig);
+    }
+
+    #[tokio::test]
+    async fn restart_accounts_for_an_attempt_that_landed_before_adoption() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let attempt = recovery_attempt(sig.to_string());
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: Some("AlreadyDone".into()),
+                code: Some(52),
+            },
+        );
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+        assert!(k.journal.as_ref().unwrap().in_flight().unwrap().is_empty());
+        // Re-reading startup cannot charge the settled journal row again.
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    #[tokio::test]
+    async fn restart_records_tag_specific_already_done_as_done_without_replaying_duty() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::from([4u8; 64]);
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.write_id = Some(sig.to_string());
+        attempt.tag = Some(tag::POST_ANCHOR);
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: Some("AlreadyDone".into()),
+                code: Some(abi::err::ALREADY_DONE),
+            },
+        );
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 0);
+        let recovered = keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .attempts_of("anchor:5:3")
+            .unwrap();
+        assert_eq!(recovered[0].status, "done");
+        assert_eq!(keeper.engine.stats["anchor"].fees_charged, attempt.fee);
+        assert_eq!(keeper.engine.stats["anchor"].landed, 0);
+    }
+
+    #[tokio::test]
+    async fn restart_holds_unknown_signature_when_sibling_already_settled() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut failed = recovery_attempt(Signature::default().to_string());
+        failed.status = "failed".into();
+        let sig = Signature::from([2u8; 64]);
+        let mut unknown = recovery_attempt(sig.to_string());
+        unknown.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&failed).unwrap();
+        journal.record_attempt(&unknown).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        let make_spec = |key: &str| WriteSpec {
+            key: key.into(),
+            kind: "anchor",
+            tag: tag::POST_ANCHOR,
+            class: Class::D,
+            bell: Some(5),
+            region: Some(3),
+            build: Arc::new(|_| vec![]),
+            deadline_slot: None,
+            not_before_slot: 0,
+            fixed_payer: None,
+        };
+        assert!(!keeper.engine.ensure(make_spec("anchor:5:3"), 12));
+        assert!(keeper.engine.ensure(make_spec("anchor:5:4"), 12));
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 13,
+                err: Some("rejected".into()),
+                code: Some(8),
+            },
+        );
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), 13)
+            .await;
+        assert!(keeper.engine.ensure(make_spec("anchor:5:3"), 14));
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .in_flight()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn restart_holds_even_a_single_unknown_signature_until_chain_reconciliation() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::from([3u8; 64]);
+        let mut unknown = recovery_attempt(sig.to_string());
+        unknown.write_id = Some(sig.to_string());
+        unknown.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&unknown).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        let spec = || WriteSpec {
+            key: "anchor:5:3".into(),
+            kind: "anchor",
+            tag: tag::POST_ANCHOR,
+            class: Class::D,
+            bell: Some(5),
+            region: Some(3),
+            build: Arc::new(|_| vec![]),
+            deadline_slot: None,
+            not_before_slot: 0,
+            fixed_payer: None,
+        };
+        assert!(!keeper.engine.ensure(spec(), 200));
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 201,
+                err: None,
+                code: None,
+            },
+        );
+        let report = keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), 202)
+            .await;
+        assert!(
+            report.outcomes.is_empty(),
+            "a recovered signature is observation only"
+        );
+        assert!(keeper.engine.ensure(spec(), 203));
+        let attempts = keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .attempts_of("anchor:5:3")
+            .unwrap();
+        assert_eq!(
+            attempts[0].write_id.as_deref(),
+            Some(sig.to_string().as_str())
+        );
+        assert_eq!(attempts[0].status, "landed");
+    }
+
+    #[tokio::test]
+    async fn restart_adopts_old_unknown_attempt_and_later_counts_its_fee_once() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        let late = attempt.first_valid_slot + crate::engine::EXPIRY_SLOTS + 1;
+        port.set_clock(late, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        assert_eq!(
+            keeper.journal.as_ref().unwrap().in_flight().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            keeper.engine.stats.get("anchor").map(|s| s.fees_charged),
+            None
+        );
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: late,
+                err: None,
+                code: None,
+            },
+        );
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), late + 1)
+            .await;
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), late + 2)
+            .await;
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .in_flight()
+            .unwrap()
+            .is_empty());
+        assert_eq!(keeper.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    #[tokio::test]
+    async fn restart_keeps_unknown_care_and_blocks_a_new_plan_after_151_slots() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        cfg.roles.clear();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut attempt = recovery_attempt(Signature::default().to_string());
+        attempt.kind = PAYER_CARE_KIND.into();
+        attempt.object_key = "care:old:transfer:1".into();
+        attempt.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(k.start().await.unwrap(), 1);
+        assert!(k.engine.care_unresolved());
+        k.tick().await.unwrap();
+        assert!(
+            k.care_last.is_none(),
+            "adopted unknown care prevents a new plan"
+        );
+        assert!(k.port.sent.lock().unwrap().is_empty());
+        assert_eq!(k.journal.as_ref().unwrap().in_flight().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_expired_care_requires_finalized_reconciliation() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        cfg.roles.clear();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.kind = PAYER_CARE_KIND.into();
+        attempt.object_key = "care:old:transfer:1".into();
+        attempt.status = "expired".into();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        k.start().await.unwrap();
+        assert!(k.care_legacy_unknown);
+        k.tick().await.unwrap();
+        assert!(k.care_last.is_none());
+        assert!(k
+            .journal
+            .as_ref()
+            .unwrap()
+            .has_expired_attempt(PAYER_CARE_KIND)
+            .unwrap());
+
+        // A later finalized result can reconcile the old row. The next
+        // balance read must include the transfer's actual landing slot.
+        k.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 199,
+                err: None,
+                code: None,
+            },
+        );
+        k.start().await.unwrap();
+        assert!(!k.care_legacy_unknown);
+        assert!(!k
+            .journal
+            .as_ref()
+            .unwrap()
+            .has_expired_attempt(PAYER_CARE_KIND)
+            .unwrap());
+        assert_eq!(k.engine.care_settled_slot(), Some(199));
+        assert_eq!(k.port.min_context_slots.lock().unwrap().last(), Some(&199));
+    }
+
+    #[tokio::test]
+    async fn finalized_failed_care_requires_fresh_fee_balance_at_restart() {
+        use std::sync::atomic::Ordering;
+
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.kind = PAYER_CARE_KIND.into();
+        attempt.object_key = "care:old:transfer:1".into();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(101, 1_000);
+        port.max_context_slot.store(94, Ordering::SeqCst);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 95,
+                err: Some("insufficient funds".into()),
+                code: None,
+            },
+        );
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert!(k
+            .start()
+            .await
+            .unwrap_err()
+            .contains("account context too old"));
+        assert_eq!(k.engine.care_settled_slot(), Some(95));
+        k.port.max_context_slot.store(101, Ordering::SeqCst);
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.port.min_context_slots.lock().unwrap().last(), Some(&95));
+        assert_eq!(
+            k.journal
+                .as_ref()
+                .unwrap()
+                .latest_settled_slot(PAYER_CARE_KIND)
+                .unwrap(),
+            Some(95)
+        );
+    }
+
     /// W6-C (W5-B F1): payer care runs on a game-time cadence as well as a
     /// slot one, at once (after a block) when a pool is below its minimum
     /// and the last care planned top-ups, and never over pending transfers.
@@ -1383,12 +2388,12 @@ mod tests {
     }
 
     /// R-22 (MC §5.1, §5.4): the keeper's budgets follow the season's
-    /// ABI. An MC season (program_version 2) takes the v2 table (`L(kind)`
+    /// ABI. An MC season (program_version 3) takes the v2 table (`L(kind)`
     /// for the new kinds), an M1 season keeps v1's; the status carries the
     /// `conquest` block and `/metrics` the `fk_` lines (§8.2).
     #[tokio::test]
     async fn cq_keeper_follows_the_season_abi() {
-        use fclient::abi::layout::season as ls;
+        use fclient::abi::layout::{h, season as ls};
         let program = Address::new_from_array([0x5F; 32]);
         let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xBE; 32]));
         cfg.roles = vec![];
@@ -1398,6 +2403,12 @@ mod tests {
         let season_bytes = |version: u16| {
             let mut d = vec![0u8; fclient::abi::size::SEASON];
             crate::testkit::put(&mut d, 0, fclient::abi::magic::SEASON);
+            let layout = if version >= abi::PROGRAM_VERSION_V2 {
+                abi::LAYOUT_VERSION_V2
+            } else {
+                1
+            };
+            crate::testkit::put(&mut d, h::LAYOUT_VERSION, &layout.to_le_bytes());
             d[ls::STATUS] = status::SEEDED;
             crate::testkit::put(&mut d, ls::PROGRAM_VERSION, &version.to_le_bytes());
             crate::testkit::put(&mut d, ls::END_BELL, &1_008u32.to_le_bytes());

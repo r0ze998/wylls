@@ -44,6 +44,7 @@ pub fn json(r: &Report) -> Value {
         },
         "checks_run": r.checks_run,
         "provenance": r.provenance,
+        "history": r.history,
         "mutated_build": crate::mutated(),
     });
     if r.checks_run.iter().any(|c| c.starts_with("CQ")) && !r.checks_run.contains(&"V5") {
@@ -69,6 +70,22 @@ pub fn markdown(r: &Report) -> String {
     ));
     if !r.provenance.is_empty() {
         s.push_str(&format!("- Input: {}\n", r.provenance));
+    }
+    if let Some(h) = &r.history {
+        s.push_str(&format!(
+            "- History: source {}, basis {}{}{}\n",
+            h["source"].as_str().unwrap_or("?"),
+            h["basis"].as_str().unwrap_or("?"),
+            h["state"]
+                .as_str()
+                .map(|x| format!(", coverage {x}"))
+                .unwrap_or_default(),
+            if h["complete"] == serde_json::json!(false) {
+                " — not shown to be the whole history"
+            } else {
+                " — dataset-only verdict, not a whole-chain claim"
+            }
+        ));
     }
     s.push_str(&format!("- Checks run: {}\n", r.checks_run.join(", ")));
     let c = &r.counts;

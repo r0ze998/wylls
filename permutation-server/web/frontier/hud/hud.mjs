@@ -33,6 +33,7 @@ import { tileWhat, provinceName } from './place.mjs';
 import { viewerState } from './drawer.mjs';
 import { conquestEnabled, renderStandings as renderConquestStandings } from '../screens/conquest.mjs';
 import { raidOffers } from '../screens/s1.mjs';
+import { renderWidePips, renderWideInventoryStatus } from '../screens/wideholding.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -344,7 +345,7 @@ export function renderNextRow(next) {
  */
 export function waitingLine(FS) {
   if (Number(FS.season?.programVersion ?? 1) >= 2 && !['ticket', 'refugee'].includes(FS.land?.stage) && !(Number(FS.citizen?.flags ?? 0) & (32 | 4))) {
-    return FS.homeChoice?.busy || FS.homeChoice?.pending ? L`村を準備しています…` : FS.homeChoice?.error ? failureText(FS.homeChoice.error) : L`村を築ける土地を探しています…`;
+    return FS.homeChoice?.busy || FS.homeChoice?.pending ? L`村を準備しています…` : FS.homeChoice?.error ? (FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)) : L`村を築ける土地を探しています…`;
   }
   const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state ?? null;
   if (stage === 'ticket') {
@@ -422,7 +423,30 @@ export function renderPlate(FS) {
  * The spectator sees the standings there instead.
  */
 export function renderRail(FS, { todoOpen = false } = {}) {
-  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p></div>`;
+  if (FS.mode === 'spectate') {
+    // (no false state at load, UX design 12.3: until the season's record or an overview has answered, the six nations
+    // stood at 「村 0 · 0 州」 as if the world were empty — and for good when the season could not be read. The plate
+    // says that the record is being read, or that it could not be; the standings come with the first answer.)
+    const unread = !FS.season && !(FS.overviews?.size > 0);
+    const body = unread
+      ? html`<p class="read-state" role="status" data-read="${FS.error ? 'unread' : 'waiting'}">${icon(FS.error ? 'alert' : 'hourglass')}<span>${FS.error ? html`${L`シーズンの記録を読めません`}<span class="read-more">${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</span>` : L`記録を読み込んでいます…`}</span></p>`
+      : html`${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p>`;
+    return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${body}</div>`;
+  }
   if (FS.mode !== 'play') return '';
-  return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}`;
+  // (the wide pips: the viewer's wide inventory slots, read-only, beside the plate and never among its legacy pips)
+  return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}${renderWideInventoryStatus(FS)}${renderWidePips(FS)}`;
+}
+
+/**
+ * The phone sheet's resting content (app.mjs `restMarkup`, where `aside#rail` is hidden): the plate, then the same
+ * read-only wide pips the desktop rail carries (never among the plate's legacy pips), the one "next thing" row the
+ * caller passes, the to-do lines. One composition for both widths, so a phone has the wide selector too.
+ */
+export function renderRest(FS, { next = '', todoMax = 8 } = {}) {
+  // (workstream 07: the wide inventory's status line stands AFTER the "next thing", not between it and the plate: on a
+  // herald without the wide index every player has that line, and above the next thing it pushed the next thing out of
+  // the phone's peek — the sheet at rest shows the plate and the next thing whole, interaction.screen.mjs. The line and
+  // the pips are unchanged; only the order is.)
+  return [renderPlate(FS), html`${renderWidePips(FS)}`, next, html`${renderWideInventoryStatus(FS)}`, renderTodo(FS, { max: todoMax, open: true })];
 }

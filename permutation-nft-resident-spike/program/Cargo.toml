@@ -1,0 +1,29 @@
+# The resident program of the spike (R2, approved scope: InitConfig, SetPrice,
+# MintResident, TransferResident, SetSession, Op). Its own workspace, built with
+# cargo-build-sbf 3.1.9 / platform-tools v1.52 (docs/ENV-RECORD.ja.md). Not the
+# Frontier program: an isolated crate whose instruction layouts are the
+# proposal for ④ (docs/MINT-FLOW.ja.md §4, docs/INTEGRATION-04.ja.md).
+[package]
+name = "wylls-resident-program"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+solana-program = "3"
+mpl-core = "=0.12.1"
+solana-system-interface = { version = "2", features = ["bincode"] }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1

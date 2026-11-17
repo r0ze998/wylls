@@ -34,6 +34,26 @@ hyper.workspace = true
 hyper-util.workspace = true
 flate2.workspace = true
 
+[features]
+default = []
+# Experimental, opt-in: the read-only recorded wide world (`src/wide.rs`,
+# `/h/world/wide`) over frontier-abi's `world_index`. Off by default: the
+# default build compiles none of it and answers `503 WideWorldUnavailable`
+# on that path. No new dependency.
+wide-world-experimental = ["frontier-abi/world-index-experimental"]
+# Explicit read-only external index, independent of the legacy ingest path.
+wide-index-read-experimental = ["wide-world-experimental", "findex/wide-records-experimental"]
+# Opt-in: `--local-play-metadata FILE` seeds an empty fold with the temporary
+# local-play chain's four synthetic first-world accounts (src/local_play.rs).
+# Off by default; no new dependency.
+local-play-bootstrap = []
+# Typed experimental PS2 + paired wide observations, never the default reader.
+expedition-records-experimental = ["findex/expedition-records-experimental"]
+# Opt-in, TEST-ONLY: the land preview's land records (PSFLAND1) kept as
+# captures and served inside the province envelope as `land`. Off by default:
+# the default build drops them like any unknown account. No new dependency.
+land-preview = ["frontier-abi/land-preview"]
+
 [dev-dependencies]
 # W3-D (request R4): `tests/real_chain.rs` drives the keeper over the
 # in-process chain with the keeper tests' harness (included by path).

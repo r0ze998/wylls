@@ -44,6 +44,71 @@
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
 
+// Unallocated wide ABI must not become a deployable SBF binary. Host-only
+// until complete lifecycle, ruleset and allocation have been reviewed.
+// The one exception is the isolated localnet lane below (dedicated id,
+// marker and build script); every other wide SBF build stays refused.
+#[cfg(all(
+    target_os = "solana",
+    feature = "wide-world-experimental",
+    not(feature = "localnet-expedition-sbf")
+))]
+compile_error!("wide-world-experimental is a host-only draft, not deployable");
+// The localnet SBF lane uses the real SBF syscalls only: no host proof,
+// native-crypto, oracle, test-beacon, trace or other preview substitutes.
+#[cfg(all(
+    feature = "localnet-expedition-sbf",
+    any(
+        feature = "public-proof-tests",
+        feature = "native-crypto-tests",
+        feature = "oracle",
+        feature = "test-beacon",
+        feature = "trace",
+        feature = "runtime-contract-tests"
+    )
+))]
+compile_error!("localnet-expedition-sbf cannot combine with host proof, crypto, oracle, beacon or trace features");
+
+// The conquest kinds 12–17 never reach an SBF artefact except through the
+// dedicated conquest lane, so an expedition-lane (or any other) SBF build can
+// never accept them without carrying PSF_LOCALNET_CONQUEST_SBF_BUILD.
+#[cfg(all(
+    target_os = "solana",
+    feature = "conquest-dispatch-experimental",
+    not(feature = "localnet-conquest-sbf")
+))]
+compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest-sbf (its marker and build script)");
+#[cfg(all(
+    feature = "localnet-conquest-sbf",
+    not(feature = "localnet-expedition-sbf")
+))]
+compile_error!("localnet-conquest-sbf extends the localnet-expedition-sbf lane only");
+
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    any(
+        feature = "nft-experimental",
+        feature = "rights-experimental",
+        feature = "capacity-preview",
+        feature = "custody-preview"
+    )
+))]
+compile_error!("expedition-dispatch-experimental has an isolated host-only program version");
+
+// Public-fixture proof arithmetic is confined to host unit tests. It must
+// never enable the separate native gameplay experiment or another beacon.
+#[cfg(all(target_os = "solana", feature = "public-proof-tests"))]
+compile_error!("public-proof-tests is host-test-only, not deployable");
+#[cfg(all(
+    feature = "public-proof-tests",
+    any(
+        feature = "native-crypto-tests",
+        feature = "test-beacon",
+        feature = "oracle"
+    )
+))]
+compile_error!("public-proof-tests cannot combine with native-crypto-tests, test-beacon or oracle");
+
 extern crate alloc;
 
 pub mod addr;
@@ -59,10 +124,24 @@ pub mod markers;
 
 #[cfg(feature = "program")]
 pub mod init;
+#[cfg(feature = "nft-experimental")]
+mod nft_registration;
 #[cfg(feature = "program")]
 pub mod proc;
 #[cfg(feature = "program")]
 pub mod prologue;
+#[cfg(feature = "program")]
+pub mod resident_binding;
+#[cfg(all(test, feature = "nft-experimental"))]
+mod resident_runtime_tests;
+// Key-free host harness of map growth through the real `dispatch`: the
+// dispersed first home and its release (PlaceHome, ReleaseDormant) and the
+// growing map (FoldOccupancy, ExtendFrontier, OpenRing, OpenProvince;
+// `map_growth_expansion_*`). A separate module so a run can be filtered to
+// `map_growth_runtime_tests::`. Under `wide-world-experimental` it also
+// hosts the wide land harness as a child module (`wide_land::`).
+#[cfg(all(test, feature = "program"))]
+mod map_growth_runtime_tests;
 
 pub use error::{CqError, Error, FrontierError, R};
 
@@ -79,7 +158,17 @@ pub use error::{CqError, Error, FrontierError, R};
 /// it refuses every MC Season and an MC program refuses every S1 Season
 /// (redesign 30, J5: stage 1 runs in a new season). MC seasons keep the MC
 /// release `.so`.
+///
+/// **Custody preview (workstream 10, feature `custody-preview`):** the
+/// binary is a different program: it embeds `RULESET_HASH_V4` and writes
+/// `program_version` 5, so it refuses every S1 Season, and dispatches the
+/// custody tags 0xC2–0xCC, which the S1 build refuses (`BadData`). Hash,
+/// version and dispatch switch together; there is no build that runs
+/// custody under the S1 hash.
+#[cfg(not(feature = "custody-preview"))]
 pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V3;
+#[cfg(feature = "custody-preview")]
+pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V4;
 
 /// The MC program's ruleset hash (`5fbaf678…1a8b`), for the record and the
 /// tests that show an MC Season is refused.
@@ -91,7 +180,10 @@ pub const RULESET_HASH_M1: [u8; 32] = frontier_abi::presets::RULESET_HASH;
 
 /// The rules version CreateSeason writes (`RULES_VERSION_FRONTIER_V3` 12,
 /// the S1 rules).
+#[cfg(not(feature = "custody-preview"))]
 pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_S1;
+#[cfg(feature = "custody-preview")]
+pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_CUSTODY;
 
 /// `sha256` of the beacon public key this binary verifies against: the
 /// quicknet group key, or the local test key in a `test-beacon` build
@@ -102,7 +194,97 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 /// with every deployable change. Version 3 integrates first homes and
 /// authoritative province-time scoring on the conquest layout (version 2);
 /// version 4 is the S1 program (the arms economy on the same layout).
-pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+#[cfg(all(
+    not(feature = "custody-preview"),
+    not(feature = "expedition-dispatch-experimental")
+))]
+pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
+    | if cfg!(feature = "nft-experimental") {
+        0x8000
+    } else {
+        0
+    }
+    | if cfg!(feature = "wide-world-experimental") {
+        0x4000
+    } else {
+        0
+    }
+    | if cfg!(feature = "rights-experimental") {
+        frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT
+    } else {
+        0
+    }
+    | capacity_bit();
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
+
+/// The only program id the `localnet-expedition-sbf` lane runs under. Not a
+/// keypair's public key; production ids come from deploy keypairs and are
+/// never this value.
+pub const LOCALNET_EXPEDITION_PROGRAM_ID: [u8; 32] = [0x45; 32];
+
+/// `program_id` is the localnet lane's dedicated id (keeps its marker alive).
+#[cfg(feature = "localnet-expedition-sbf")]
+#[inline(always)]
+pub fn localnet_identity_ok(program_id: &solana_program::pubkey::Pubkey) -> bool {
+    markers::touch_localnet_expedition_sbf();
+    program_id.to_bytes() == LOCALNET_EXPEDITION_PROGRAM_ID
+}
+
+#[cfg(all(test, feature = "localnet-expedition-sbf"))]
+mod localnet_identity_tests {
+    use solana_program::pubkey::Pubkey;
+
+    #[test]
+    fn only_the_dedicated_id_reaches_any_route() {
+        let ok = Pubkey::new_from_array(super::LOCALNET_EXPEDITION_PROGRAM_ID);
+        assert!(super::localnet_identity_ok(&ok));
+        for other in [[0x12; 32], [0; 32], [0x44; 32]] {
+            let p = Pubkey::new_from_array(other);
+            assert!(!super::localnet_identity_ok(&p));
+            // refused before any routing, whatever the bytes
+            for data in [&[][..], &[0xda, 0xff, 0x02, 0x00], &[0x01]] {
+                assert_eq!(
+                    super::dispatch(&p, &[], data),
+                    Err(super::FrontierError::BadAddress.into())
+                );
+            }
+        }
+    }
+}
+/// Custody remains a separate preview. No version is allocated for its
+/// combination with NFT residents or the host-only wide writer.
+#[cfg(feature = "custody-preview")]
+pub const PROGRAM_VERSION: u16 =
+    frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY | capacity_bit();
+
+/// Workstream 09's capacity preview (`capacity-preview`): the `0x1000` bit (provisional, workstream 4; ② rights has 0x2000)
+/// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
+/// a capacity build's Seasons are its own; with custody it is the custody
+/// build's version with the bit (lots feed jobs there).
+#[cfg(not(feature = "expedition-dispatch-experimental"))]
+const fn capacity_bit() -> u16 {
+    #[cfg(feature = "capacity-preview")]
+    {
+        frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT
+    }
+    #[cfg(not(feature = "capacity-preview"))]
+    {
+        0
+    }
+}
+#[cfg(all(feature = "capacity-preview", feature = "rights-experimental"))]
+compile_error!("capacity-preview and rights-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "capacity-preview", feature = "nft-experimental"))]
+compile_error!("capacity-preview and nft-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "capacity-preview", feature = "wide-world-experimental"))]
+compile_error!("capacity-preview and wide-world-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "custody-preview", feature = "nft-experimental"))]
+compile_error!("custody-preview and nft-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "custody-preview", feature = "rights-experimental"))]
+compile_error!("custody-preview and rights-experimental together: the ruleset and program version are undecided (workstream 4)");
+#[cfg(all(feature = "custody-preview", feature = "wide-world-experimental"))]
+compile_error!("custody-preview and wide-world-experimental together: the ruleset and program version are undecided");
 
 /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
 /// M1's 51 tags, 0xA0–0xA3, 0xA5–0xA7 and S1's 0xB0–0xBE). Unknown and reserved tags
@@ -114,6 +296,57 @@ pub fn dispatch(
     accounts: &[solana_program::account_info::AccountInfo],
     data: &[u8],
 ) -> R<()> {
+    // Isolated localnet lane: only under its dedicated program id, on every
+    // path (before any routing).
+    #[cfg(feature = "localnet-expedition-sbf")]
+    if !localnet_identity_ok(program_id) {
+        return Err(FrontierError::BadAddress.into());
+    }
+    #[cfg(feature = "nft-experimental")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::resident_wire::is_resident_tag(*t))
+    {
+        return nft_registration::dispatch(program_id, accounts, data);
+    }
+    // Experimental wide land (provisional band 0xD6–0xDF): a default build
+    // never reaches this arm and refuses the bytes as unknown tags below.
+    #[cfg(feature = "wide-world-experimental")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::world_index::wide_ix::is_draft_tag(*t))
+    {
+        return proc::wide::dispatch(program_id, accounts, data);
+    }
+    // Workstream 02-rights (proposal, `rights-experimental` only): the
+    // workshop-stock swap Grant on the provisional tags 0xD0–0xD5. A
+    // default build never reaches this arm and refuses the bytes as
+    // unknown tags below.
+    #[cfg(feature = "rights-experimental")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::v2::rights::is_rights_tag(*t))
+    {
+        return proc::rights::dispatch(program_id, accounts, data);
+    }
+    // Workstream 09's capacity preview (band 0xF0–0xFD): a default build
+    // never reaches this arm and refuses the bytes as unknown tags below.
+    #[cfg(feature = "capacity-preview")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::capacity::is_capacity_tag(*t))
+    {
+        return proc::capacity::dispatch(program_id, accounts, data);
+    }
+    // The land preview (provisional 0xCD/0xCE): a default build never
+    // reaches this arm and refuses the bytes as unknown tags below.
+    #[cfg(feature = "land-preview")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::land_preview::is_land_tag(*t))
+    {
+        return proc::land::dispatch(program_id, accounts, data);
+    }
     use frontier_abi::v2::Ix;
     use proc::*;
     markers::touch();
@@ -216,9 +449,58 @@ pub fn dispatch(
         Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
         // S1 (map growth): a resting Province in closed form.
         Ix::FastForward => clash::fast_forward(p, a, data),
+        Ix::ExtendFrontier => map::extend_frontier(p, a, data),
+        // Custody (workstream 10): the `custody-preview` build only; the
+        // S1 build refuses the tags as it refuses a reserved tag.
+        Ix::OpenLot
+        | Ix::SetLotQuota
+        | Ix::DepositLot
+        | Ix::SetLotOrder
+        | Ix::RevokeLotOrder
+        | Ix::ShipLot
+        | Ix::SettleCustody
+        | Ix::ConsumeLot
+        | Ix::ReconcileLot
+        | Ix::CloseLot
+        | Ix::WithdrawLot => custody_dispatch(ix, p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r
+}
+
+/// The custody instructions (feature `custody-preview`); `BadData` in every
+/// other build.
+#[cfg(feature = "program")]
+fn custody_dispatch(
+    ix: frontier_abi::v2::tags::Ix,
+    p: &solana_program::pubkey::Pubkey,
+    a: &[solana_program::account_info::AccountInfo],
+    d: &[u8],
+) -> R<()> {
+    #[cfg(feature = "custody-preview")]
+    {
+        use frontier_abi::v2::tags::Ix;
+        use proc::custody;
+        match ix {
+            Ix::OpenLot => custody::open_lot(p, a, d),
+            Ix::SetLotQuota => custody::set_lot_quota(p, a, d),
+            Ix::DepositLot => custody::deposit_lot(p, a, d),
+            Ix::SetLotOrder => custody::set_lot_order(p, a, d),
+            Ix::RevokeLotOrder => custody::revoke_lot_order(p, a, d),
+            Ix::ShipLot => custody::ship_lot(p, a, d),
+            Ix::SettleCustody => custody::settle_custody(p, a, d),
+            Ix::ConsumeLot => custody::consume_lot(p, a, d),
+            Ix::ReconcileLot => custody::reconcile_lot(p, a, d),
+            Ix::CloseLot => custody::close_lot(p, a, d),
+            Ix::WithdrawLot => custody::withdraw_lot(p, a, d),
+            _ => Err(FrontierError::BadData.into()),
+        }
+    }
+    #[cfg(not(feature = "custody-preview"))]
+    {
+        let _ = (ix, p, a, d);
+        Err(FrontierError::BadData.into())
+    }
 }
 
 /// ResolveClash (0x62) exists only in the `oracle` build (tests); in every

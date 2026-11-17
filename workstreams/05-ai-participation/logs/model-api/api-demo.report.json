@@ -1,0 +1,3715 @@
+{
+  "label": "LOCAL FIXTURE. Not a live call, not a production price, not a production success.",
+  "flows": [
+    {
+      "name": "Claude",
+      "summary": {
+        "provider": "anthropic",
+        "model": "claude-fixture-model",
+        "ticks": [
+          {
+            "runId": "eb80225a:t1",
+            "status": "done",
+            "inference": "ok",
+            "outcome": "ok",
+            "game": "R-1=sent",
+            "receipt": {
+              "seq": {
+                "observed": 4,
+                "closed": 6
+              },
+              "acts": [
+                "mcp:p05.64192810fc1413db6c5e58355fc63b330f2f1015:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "eb80225a:t2",
+            "status": "done",
+            "inference": "inference-failed",
+            "outcome": "unknown",
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "12050",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "eb80225a:t3",
+            "status": "stopped-by-budget",
+            "inference": "stopped-by-budget",
+            "outcome": null,
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "eb80225a:t4",
+            "status": "done",
+            "inference": "ok",
+            "outcome": "ok",
+            "game": "R-2=sent",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 8
+              },
+              "acts": [
+                "mcp:p05.9af313648c0c72b371003b55fe1c1b093f9fda94:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          }
+        ],
+        "costs": {
+          "reserved": "0",
+          "settled": "3000",
+          "undecided": "12050",
+          "released": "0",
+          "available": "184950",
+          "gameReserve": "0",
+          "withdrawable": "184950",
+          "overruns": 0
+        },
+        "overruns": [],
+        "modelRequests": 3,
+        "gameSends": 2,
+        "books": "sound"
+      },
+      "stages": [
+        {
+          "stage": "budget",
+          "title": "1 予算設定",
+          "boundary": "MOCK: RunCostMock stands in for ④'s cost contract (bd415e7 not received); FIXTURE price book (invented prices; no production model or price)",
+          "available": "200000",
+          "caps": {
+            "perCall": null,
+            "perDay": null,
+            "total": "200000"
+          },
+          "priceBook": {
+            "version": "fixture-2026-10-30",
+            "status": "FIXTURE",
+            "currency": "USD",
+            "models": {
+              "anthropic/claude-fixture-model": {
+                "input": "1000000",
+                "cacheRead": "100000",
+                "cacheWrite5m": "1250000",
+                "cacheWrite1h": "2000000",
+                "output": "5000000"
+              },
+              "openai/gpt-fixture-model": {
+                "input": "1000000",
+                "cacheRead": "100000",
+                "cacheWrite": "1250000",
+                "output": "5000000"
+              }
+            },
+            "rate": {
+              "baseUnitsPerMicroUnit": "1",
+              "source": "FIXTURE: 1 micro-USD = 1 test-USDC base unit",
+              "status": "FIXTURE"
+            },
+            "source": {
+              "url": null,
+              "retrieved": null,
+              "note": "invented numbers; not a provider price list"
+            }
+          }
+        },
+        {
+          "stage": "start",
+          "title": "2 自動開始",
+          "boundary": "REAL: relay mode and on-chain delegation read through MCP agent_view (the chain is the gateway tests' scripted fake). The autopilot never sets the mode or a session key",
+          "status": {
+            "state": "running",
+            "stoppedBy": null,
+            "ticks": 0,
+            "scope": "one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)",
+            "executionPath": {
+              "via": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+              "fourIntegrated": false,
+              "notIntegrated": [
+                "④ Run (the execution unit)",
+                "④ cancel / stop contract",
+                "④ reconcile of signed requests and their costs"
+              ],
+              "why": "④ bd415e7 not received"
+            }
+          }
+        },
+        {
+          "stage": "decide",
+          "title": "3 判断",
+          "boundary": "FIXTURE: the HTTP fixture on 127.0.0.1 answers in the provider's documented shape. Not a model, not a provider, not a live call",
+          "record": {
+            "status": "ok",
+            "outcome": "ok",
+            "called": true,
+            "replayed": false,
+            "requestKey": "d05-267e341d1686360c8a9a1bd585852774d9a94bfb",
+            "provider": "anthropic",
+            "configuredModel": "claude-fixture-model",
+            "servedModel": "claude-fixture-model",
+            "preflight": [],
+            "errors": [],
+            "attempts": [
+              {
+                "key": "d05-267e341d1686360c8a9a1bd585852774d9a94bfb#0",
+                "outcome": "ok",
+                "stop": null,
+                "cost": {
+                  "measured": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "possibleDoubleBilling": null
+          },
+          "capSet": "17256"
+        },
+        {
+          "stage": "act",
+          "title": "4 許可範囲のゲーム操作",
+          "boundary": "REAL: ⑤'s guard, the EXISTING MCP agent_act and relay checks. NOT ④: ④'s Run / cancel / reconcile are not received and not integrated. FAKE: the chain and the game's effects (emulated)",
+          "game": [
+            {
+              "requestId": "R-1",
+              "proposed": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "outcome": "sent",
+              "code": null,
+              "decidedBy": "existing relay (via MCP agent_act)",
+              "signature": "2CMucpX6XpXzPWGuXDfcLeCJQuW6k1z3r8pPzf528BYjNLveuYM7CLiiSNQEgqF4tEuH2jZM1PBEDYK5BADHqZB1"
+            }
+          ],
+          "sent": 1
+        },
+        {
+          "stage": "reconcile",
+          "title": "5 費用照合",
+          "boundary": "FIXTURE CONTRACT: measured = fixture usage × fixture book, matched to a fixture provider record. Sending a client request id is documented; querying billing by it is NOT verified in production. Unmatched costs stay held (no 0, no refund on the operator's word)",
+          "timedOut": {
+            "status": "inference-failed",
+            "outcome": "unknown",
+            "called": true,
+            "replayed": false,
+            "requestKey": "d05-52b02d965c54dd530da5380fbd4af6bb42f28000",
+            "provider": "anthropic",
+            "configuredModel": "claude-fixture-model",
+            "servedModel": null,
+            "preflight": [],
+            "errors": [],
+            "attempts": [
+              {
+                "key": "d05-52b02d965c54dd530da5380fbd4af6bb42f28000#0",
+                "outcome": "unknown",
+                "stop": null,
+                "cost": {
+                  "measured": null,
+                  "unknown": true
+                }
+              }
+            ],
+            "possibleDoubleBilling": null
+          },
+          "undecidedBefore": "12050",
+          "reconcile": [
+            {
+              "key": "d05-52b02d965c54dd530da5380fbd4af6bb42f28000#0",
+              "contract": "fixture",
+              "productionVerified": false,
+              "result": "undecided",
+              "why": "no id the record could be matched by (no client id, no request id): stays undecided, held, not withdrawable"
+            }
+          ],
+          "after": {
+            "reserved": "0",
+            "settled": "1500",
+            "undecided": "12050",
+            "released": "0",
+            "available": "186450",
+            "gameReserve": "0",
+            "withdrawable": "186450",
+            "overruns": 0
+          }
+        },
+        {
+          "stage": "stop",
+          "title": "6 上限停止",
+          "boundary": "MOCK: the inference total cap of RunCostMock; the stop itself is ⑤'s autopilot (REAL code, one process)",
+          "state": {
+            "state": "stopped-by-budget",
+            "stoppedBy": "CategoryTotalLimit",
+            "ticks": 3,
+            "scope": "one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)",
+            "executionPath": {
+              "via": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+              "fourIntegrated": false,
+              "notIntegrated": [
+                "④ Run (the execution unit)",
+                "④ cancel / stop contract",
+                "④ reconcile of signed requests and their costs"
+              ],
+              "why": "④ bd415e7 not received"
+            }
+          },
+          "last": {
+            "runId": "eb80225a:t3",
+            "status": "stopped-by-budget",
+            "stoppedBy": "CategoryTotalLimit",
+            "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+            "fourIntegrated": false,
+            "inference": {
+              "status": "stopped-by-budget",
+              "outcome": null,
+              "called": false,
+              "replayed": false,
+              "requestKey": "d05-438368028fad5ff91c1365366da67f33da162184",
+              "provider": "anthropic",
+              "configuredModel": "claude-fixture-model",
+              "servedModel": null,
+              "preflight": [
+                "CategoryTotalLimit"
+              ],
+              "errors": [],
+              "attempts": [],
+              "possibleDoubleBilling": null
+            },
+            "game": [],
+            "notes": [
+              "CategoryTotalLimit"
+            ],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "eb80225a:t3",
+              "run4Id": null,
+              "agentId": "eb80225a-5074-4ac3-9d76-2b465658186b",
+              "citizen": "5xfGjrJXBamYWPXFpjMjzsvtpUanoef3GX8rWLHJgf1Q",
+              "decisionKey": "d05-438368028fad5ff91c1365366da67f33da162184",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "state": "closed",
+              "inference": {
+                "status": "stopped-by-budget",
+                "outcome": null,
+                "called": false,
+                "replayed": false,
+                "attempts": []
+              },
+              "acts": [],
+              "costs": {
+                "inference": {
+                  "settled": "0",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                },
+                "inferenceIn4Names": {
+                  "unit": "test-USDC base units",
+                  "reserved": "0",
+                  "charged": "0",
+                  "unconfirmed": "0",
+                  "released": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage",
+                "cancel.until"
+              ]
+            }
+          },
+          "skippedAfterStop": {
+            "skipped": true,
+            "state": "stopped-by-budget"
+          },
+          "modelRequestsAfterStop": 0
+        },
+        {
+          "stage": "resume",
+          "title": "7 手動復帰",
+          "boundary": "REAL code; the owner is a test keypair; the cap change is on the mock",
+          "status": {
+            "state": "running",
+            "stoppedBy": "CategoryTotalLimit",
+            "ticks": 4,
+            "scope": "one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)",
+            "executionPath": {
+              "via": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+              "fourIntegrated": false,
+              "notIntegrated": [
+                "④ Run (the execution unit)",
+                "④ cancel / stop contract",
+                "④ reconcile of signed requests and their costs"
+              ],
+              "why": "④ bd415e7 not received"
+            }
+          },
+          "record": {
+            "runId": "eb80225a:t4",
+            "status": "done",
+            "stoppedBy": null,
+            "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+            "fourIntegrated": false,
+            "inference": {
+              "status": "ok",
+              "outcome": "ok",
+              "called": true,
+              "replayed": false,
+              "requestKey": "d05-0d66b44ff453d9d28482532762fb6b0d759a6caf",
+              "provider": "anthropic",
+              "configuredModel": "claude-fixture-model",
+              "servedModel": "claude-fixture-model",
+              "preflight": [],
+              "errors": [],
+              "attempts": [
+                {
+                  "key": "d05-0d66b44ff453d9d28482532762fb6b0d759a6caf#0",
+                  "outcome": "ok",
+                  "stop": null,
+                  "cost": {
+                    "measured": "1500",
+                    "unknown": false
+                  }
+                }
+              ],
+              "possibleDoubleBilling": null
+            },
+            "game": [
+              {
+                "requestId": "R-2",
+                "proposed": {
+                  "name": "Train",
+                  "fields": {
+                    "unit": 0,
+                    "n": 100
+                  }
+                },
+                "outcome": "sent",
+                "code": null,
+                "decidedBy": "existing relay (via MCP agent_act)",
+                "signature": "48UjAc7KQDP6CTc9AuNET65cLt3Tzd8cZC9W4auuKmn5tDvHUa4rdPYAVmbRhsV1xmtZ5uA4e9gomRZ1HR19apSQ"
+              }
+            ],
+            "notes": [],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "eb80225a:t4",
+              "run4Id": null,
+              "agentId": "eb80225a-5074-4ac3-9d76-2b465658186b",
+              "citizen": "5xfGjrJXBamYWPXFpjMjzsvtpUanoef3GX8rWLHJgf1Q",
+              "decisionKey": "d05-0d66b44ff453d9d28482532762fb6b0d759a6caf",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 6,
+                "closed": 8
+              },
+              "state": "closed",
+              "inference": {
+                "status": "ok",
+                "outcome": "ok",
+                "called": true,
+                "replayed": false,
+                "attempts": [
+                  {
+                    "key": "d05-0d66b44ff453d9d28482532762fb6b0d759a6caf#0",
+                    "outcome": "ok",
+                    "stop": null,
+                    "cost": {
+                      "measured": "1500",
+                      "unknown": false
+                    }
+                  }
+                ]
+              },
+              "acts": [
+                {
+                  "requestId": "p05.9af313648c0c72b371003b55fe1c1b093f9fda94",
+                  "idempotencyKey": "mcp:p05.9af313648c0c72b371003b55fe1c1b093f9fda94",
+                  "source": "mcp",
+                  "action": {
+                    "name": "Train",
+                    "fields": {
+                      "unit": 0,
+                      "n": 100
+                    }
+                  },
+                  "status": "sent",
+                  "code": null,
+                  "signature": "48UjAc7KQDP6CTc9AuNET65cLt3Tzd8cZC9W4auuKmn5tDvHUa4rdPYAVmbRhsV1xmtZ5uA4e9gomRZ1HR19apSQ",
+                  "signedAt": null,
+                  "fate": "unknown",
+                  "gameCharge": {
+                    "reserved": "0",
+                    "state": "none or settled (see history)"
+                  },
+                  "cancellable": null
+                }
+              ],
+              "costs": {
+                "inference": {
+                  "settled": "1500",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                },
+                "inferenceIn4Names": {
+                  "unit": "test-USDC base units",
+                  "reserved": "0",
+                  "charged": "1500",
+                  "unconfirmed": "0",
+                  "released": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage",
+                "cancel.until"
+              ]
+            }
+          }
+        }
+      ],
+      "autopilotEvents": [
+        {
+          "at": 1800108000,
+          "op": "start",
+          "by": "owner"
+        },
+        {
+          "at": 1800108120,
+          "op": "stop",
+          "by": "budget",
+          "code": "CategoryTotalLimit"
+        },
+        {
+          "at": 1800108120,
+          "op": "resume",
+          "by": "owner",
+          "note": "the owner raised the inference total cap by 30000"
+        },
+        {
+          "at": 1800108120,
+          "op": "start",
+          "by": "owner"
+        },
+        {
+          "at": 1800108180,
+          "op": "stop",
+          "by": "owner"
+        }
+      ],
+      "journal": [
+        {
+          "seq": 1,
+          "at": 1800108000000,
+          "runId": "eb80225a:t1",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108000,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 5000,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 2000,
+            "Gold": 1000
+          },
+          "reserve": {
+            "Spearman": 0
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 2,
+          "at": 1800108000000,
+          "runId": "eb80225a:t1",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 3,
+          "at": 1800108000000,
+          "runId": "eb80225a:t1",
+          "step": "plan",
+          "by": "api:anthropic:claude-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-267e341d1686360c8a9a1bd585852774d9a94bfb",
+            "boundary": "fixture",
+            "provider": "anthropic",
+            "configuredModel": "claude-fixture-model",
+            "servedModel": "claude-fixture-model",
+            "called": true,
+            "preflight": [],
+            "status": "ok",
+            "outcome": "ok",
+            "attempts": [
+              {
+                "key": "d05-267e341d1686360c8a9a1bd585852774d9a94bfb#0",
+                "outcome": "ok",
+                "stop": null,
+                "providerRequestId": "req_fixture_0",
+                "cost": {
+                  "quote": "12756",
+                  "measured": "1500",
+                  "settled": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "quote": "12756",
+            "answer": "valid",
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "1500",
+              "undecided": "0",
+              "released": "0",
+              "available": "198500",
+              "gameReserve": "0",
+              "withdrawable": "198500",
+              "overruns": 0
+            }
+          },
+          "proposals": [
+            {
+              "requestId": "R-1",
+              "command": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "reason": "one batch fits the owner's limits"
+            }
+          ],
+          "notes": []
+        },
+        {
+          "seq": 4,
+          "at": 1800108000000,
+          "runId": "eb80225a:t1",
+          "step": "guard",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-1|Train|m1",
+          "requestId": "R-1",
+          "by": "api:anthropic:claude-fixture-model",
+          "command": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null
+        },
+        {
+          "seq": 5,
+          "at": 1800108000000,
+          "runId": "eb80225a:t1",
+          "step": "act-begin",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-1|Train|m1",
+          "requestId": "R-1",
+          "attemptId": "p05.64192810fc1413db6c5e58355fc63b330f2f1015",
+          "outcome": "acting",
+          "args": {
+            "requestId": "p05.64192810fc1413db6c5e58355fc63b330f2f1015",
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-1: one batch fits the owner's limits"
+          },
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "gamePrice": "0",
+          "worldSec": 1800108000,
+          "unitName": "Spearman",
+          "baseline": 0
+        },
+        {
+          "seq": 6,
+          "at": 1800108000000,
+          "runId": "eb80225a:t1",
+          "step": "act-result",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-1|Train|m1",
+          "requestId": "R-1",
+          "attemptId": "p05.64192810fc1413db6c5e58355fc63b330f2f1015",
+          "outcome": "sent",
+          "code": null,
+          "signature": "2CMucpX6XpXzPWGuXDfcLeCJQuW6k1z3r8pPzf528BYjNLveuYM7CLiiSNQEgqF4tEuH2jZM1PBEDYK5BADHqZB1",
+          "replayed": false,
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "worldSec": 1800108000,
+          "attempts": 1
+        },
+        {
+          "seq": 7,
+          "at": 1800108060000,
+          "step": "verify",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-1|Train|m1",
+          "requestId": "R-1",
+          "signature": "2CMucpX6XpXzPWGuXDfcLeCJQuW6k1z3r8pPzf528BYjNLveuYM7CLiiSNQEgqF4tEuH2jZM1PBEDYK5BADHqZB1",
+          "tx": "landed",
+          "outcome": "contributed",
+          "effect": {
+            "confirmed": true,
+            "seen": 100,
+            "expected": 100
+          }
+        },
+        {
+          "seq": 8,
+          "at": 1800108060000,
+          "step": "memory",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-1|Train|m1",
+          "outcome": "contributed",
+          "verified": true,
+          "requestId": "R-1",
+          "action": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "signature": "2CMucpX6XpXzPWGuXDfcLeCJQuW6k1z3r8pPzf528BYjNLveuYM7CLiiSNQEgqF4tEuH2jZM1PBEDYK5BADHqZB1"
+        },
+        {
+          "seq": 9,
+          "at": 1800108060000,
+          "runId": "eb80225a:t2",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108060,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4940,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1980,
+            "Gold": 990
+          },
+          "reserve": {
+            "Spearman": 100
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 10,
+          "at": 1800108060000,
+          "runId": "eb80225a:t2",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 11,
+          "at": 1800108060000,
+          "runId": "eb80225a:t2",
+          "step": "plan",
+          "by": "api:anthropic:claude-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-52b02d965c54dd530da5380fbd4af6bb42f28000",
+            "boundary": "fixture",
+            "provider": "anthropic",
+            "configuredModel": "claude-fixture-model",
+            "servedModel": null,
+            "called": true,
+            "preflight": [],
+            "status": "inference-failed",
+            "outcome": "unknown",
+            "attempts": [
+              {
+                "key": "d05-52b02d965c54dd530da5380fbd4af6bb42f28000#0",
+                "outcome": "unknown",
+                "stop": null,
+                "providerRequestId": null,
+                "cost": {
+                  "quote": "12050",
+                  "measured": null,
+                  "unknown": true
+                }
+              }
+            ],
+            "quote": "12050",
+            "answer": null,
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "1500",
+              "undecided": "12050",
+              "released": "0",
+              "available": "186450",
+              "gameReserve": "0",
+              "withdrawable": "186450",
+              "overruns": 0
+            }
+          },
+          "proposals": [],
+          "notes": [
+            {
+              "code": "InferenceFailed",
+              "reason": "推論が使える答えを返さなかった（unknown）。この回は何も送らない。費用は確認待ちとして予約に残る"
+            }
+          ]
+        },
+        {
+          "seq": 12,
+          "at": 1800108120000,
+          "runId": "eb80225a:t3",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108120,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4940,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1980,
+            "Gold": 990
+          },
+          "reserve": {
+            "Spearman": 100
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 13,
+          "at": 1800108120000,
+          "runId": "eb80225a:t3",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 14,
+          "at": 1800108120000,
+          "runId": "eb80225a:t3",
+          "step": "plan",
+          "by": null,
+          "charged": "1500",
+          "cause": "CategoryTotalLimit",
+          "inference": {
+            "requestKey": "d05-438368028fad5ff91c1365366da67f33da162184",
+            "boundary": "fixture",
+            "provider": "anthropic",
+            "configuredModel": "claude-fixture-model",
+            "servedModel": null,
+            "called": false,
+            "preflight": [
+              {
+                "code": "CategoryTotalLimit",
+                "detail": "inference total cap 17256: 13550 used or held + quote 12050"
+              }
+            ],
+            "status": "stopped-by-budget",
+            "outcome": null,
+            "attempts": [],
+            "quote": "12050",
+            "answer": null,
+            "errors": [],
+            "costs": {
+              "reserved": "0",
+              "settled": "1500",
+              "undecided": "12050",
+              "released": "0",
+              "available": "186450",
+              "gameReserve": "0",
+              "withdrawable": "186450",
+              "overruns": 0
+            }
+          },
+          "proposals": [],
+          "notes": [
+            {
+              "code": "CategoryTotalLimit",
+              "reason": "モデルを呼ばない（予約も請求もなし）: inference total cap 17256: 13550 used or held + quote 12050"
+            }
+          ]
+        },
+        {
+          "seq": 15,
+          "at": 1800108180000,
+          "runId": "eb80225a:t4",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108180,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4940,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1980,
+            "Gold": 990
+          },
+          "reserve": {
+            "Spearman": 100
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 16,
+          "at": 1800108180000,
+          "runId": "eb80225a:t4",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 17,
+          "at": 1800108180000,
+          "runId": "eb80225a:t4",
+          "step": "plan",
+          "by": "api:anthropic:claude-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-0d66b44ff453d9d28482532762fb6b0d759a6caf",
+            "boundary": "fixture",
+            "provider": "anthropic",
+            "configuredModel": "claude-fixture-model",
+            "servedModel": "claude-fixture-model",
+            "called": true,
+            "preflight": [],
+            "status": "ok",
+            "outcome": "ok",
+            "attempts": [
+              {
+                "key": "d05-0d66b44ff453d9d28482532762fb6b0d759a6caf#0",
+                "outcome": "ok",
+                "stop": null,
+                "providerRequestId": "req_fixture_2",
+                "cost": {
+                  "quote": "12050",
+                  "measured": "1500",
+                  "settled": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "quote": "12050",
+            "answer": "valid",
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "3000",
+              "undecided": "12050",
+              "released": "0",
+              "available": "184950",
+              "gameReserve": "0",
+              "withdrawable": "184950",
+              "overruns": 0
+            }
+          },
+          "proposals": [
+            {
+              "requestId": "R-2",
+              "command": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "reason": "one batch fits the owner's limits"
+            }
+          ],
+          "notes": []
+        },
+        {
+          "seq": 18,
+          "at": 1800108180000,
+          "runId": "eb80225a:t4",
+          "step": "guard",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-2|Train|m1",
+          "requestId": "R-2",
+          "by": "api:anthropic:claude-fixture-model",
+          "command": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null
+        },
+        {
+          "seq": 19,
+          "at": 1800108180000,
+          "runId": "eb80225a:t4",
+          "step": "act-begin",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-2|Train|m1",
+          "requestId": "R-2",
+          "attemptId": "p05.9af313648c0c72b371003b55fe1c1b093f9fda94",
+          "outcome": "acting",
+          "args": {
+            "requestId": "p05.9af313648c0c72b371003b55fe1c1b093f9fda94",
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-2: one batch fits the owner's limits"
+          },
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "gamePrice": "0",
+          "worldSec": 1800108180,
+          "unitName": "Spearman",
+          "baseline": 100
+        },
+        {
+          "seq": 20,
+          "at": 1800108180000,
+          "runId": "eb80225a:t4",
+          "step": "act-result",
+          "key": "eb80225a-5074-4ac3-9d76-2b465658186b|R-2|Train|m1",
+          "requestId": "R-2",
+          "attemptId": "p05.9af313648c0c72b371003b55fe1c1b093f9fda94",
+          "outcome": "sent",
+          "code": null,
+          "signature": "48UjAc7KQDP6CTc9AuNET65cLt3Tzd8cZC9W4auuKmn5tDvHUa4rdPYAVmbRhsV1xmtZ5uA4e9gomRZ1HR19apSQ",
+          "replayed": false,
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "worldSec": 1800108180,
+          "attempts": 1
+        }
+      ]
+    },
+    {
+      "name": "GPT",
+      "summary": {
+        "provider": "openai",
+        "model": "gpt-fixture-model",
+        "ticks": [
+          {
+            "runId": "c96bebc1:t1",
+            "status": "done",
+            "inference": "ok",
+            "outcome": "ok",
+            "game": "R-1=sent",
+            "receipt": {
+              "seq": {
+                "observed": 4,
+                "closed": 6
+              },
+              "acts": [
+                "mcp:p05.8a27bd4586f04519515967b9bd25c61535017873:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "c96bebc1:t2",
+            "status": "done",
+            "inference": "inference-failed",
+            "outcome": "unknown",
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "8305",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "c96bebc1:t3",
+            "status": "done",
+            "inference": "ok",
+            "outcome": "ok",
+            "game": "R-2=sent",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 8
+              },
+              "acts": [
+                "mcp:p05.9fba417eb97555f43522bd034c7342354eb8d33c:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "c96bebc1:t4",
+            "status": "done",
+            "inference": "ok",
+            "outcome": "ok",
+            "game": "R-3=sent",
+            "receipt": {
+              "seq": {
+                "observed": 8,
+                "closed": 10
+              },
+              "acts": [
+                "mcp:p05.5daa0e060a3dc6bf0c4f65457f4617b9a594573c:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "c96bebc1:t5",
+            "status": "stopped-by-budget",
+            "inference": "stopped-by-budget",
+            "outcome": null,
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 10,
+                "closed": 10
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          },
+          {
+            "runId": "c96bebc1:t6",
+            "status": "done",
+            "inference": "ok",
+            "outcome": "ok",
+            "game": "R-4=sent",
+            "receipt": {
+              "seq": {
+                "observed": 10,
+                "closed": 12
+              },
+              "acts": [
+                "mcp:p05.1f42bdac8922cf31ccd68ac51af0252c381a12d2:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
+          }
+        ],
+        "costs": {
+          "reserved": "0",
+          "settled": "7500",
+          "undecided": "0",
+          "released": "0",
+          "available": "192500",
+          "gameReserve": "0",
+          "withdrawable": "192500",
+          "overruns": 0
+        },
+        "overruns": [],
+        "modelRequests": 5,
+        "gameSends": 4,
+        "books": "sound"
+      },
+      "stages": [
+        {
+          "stage": "budget",
+          "title": "1 予算設定",
+          "boundary": "MOCK: RunCostMock stands in for ④'s cost contract (bd415e7 not received); FIXTURE price book (invented prices; no production model or price)",
+          "available": "200000",
+          "caps": {
+            "perCall": null,
+            "perDay": null,
+            "total": "200000"
+          },
+          "priceBook": {
+            "version": "fixture-2026-10-30",
+            "status": "FIXTURE",
+            "currency": "USD",
+            "models": {
+              "anthropic/claude-fixture-model": {
+                "input": "1000000",
+                "cacheRead": "100000",
+                "cacheWrite5m": "1250000",
+                "cacheWrite1h": "2000000",
+                "output": "5000000"
+              },
+              "openai/gpt-fixture-model": {
+                "input": "1000000",
+                "cacheRead": "100000",
+                "cacheWrite": "1250000",
+                "output": "5000000"
+              }
+            },
+            "rate": {
+              "baseUnitsPerMicroUnit": "1",
+              "source": "FIXTURE: 1 micro-USD = 1 test-USDC base unit",
+              "status": "FIXTURE"
+            },
+            "source": {
+              "url": null,
+              "retrieved": null,
+              "note": "invented numbers; not a provider price list"
+            }
+          }
+        },
+        {
+          "stage": "start",
+          "title": "2 自動開始",
+          "boundary": "REAL: relay mode and on-chain delegation read through MCP agent_view (the chain is the gateway tests' scripted fake). The autopilot never sets the mode or a session key",
+          "status": {
+            "state": "running",
+            "stoppedBy": null,
+            "ticks": 0,
+            "scope": "one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)",
+            "executionPath": {
+              "via": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+              "fourIntegrated": false,
+              "notIntegrated": [
+                "④ Run (the execution unit)",
+                "④ cancel / stop contract",
+                "④ reconcile of signed requests and their costs"
+              ],
+              "why": "④ bd415e7 not received"
+            }
+          }
+        },
+        {
+          "stage": "decide",
+          "title": "3 判断",
+          "boundary": "FIXTURE: the HTTP fixture on 127.0.0.1 answers in the provider's documented shape. Not a model, not a provider, not a live call",
+          "record": {
+            "status": "ok",
+            "outcome": "ok",
+            "called": true,
+            "replayed": false,
+            "requestKey": "d05-dd78c24b1ad5713fb4276f2253e0cf516e59b9c5",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": "gpt-fixture-model",
+            "preflight": [],
+            "errors": [],
+            "attempts": [
+              {
+                "key": "d05-dd78c24b1ad5713fb4276f2253e0cf516e59b9c5#0",
+                "outcome": "ok",
+                "stop": null,
+                "cost": {
+                  "measured": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "possibleDoubleBilling": null
+          },
+          "capSet": "13247"
+        },
+        {
+          "stage": "act",
+          "title": "4 許可範囲のゲーム操作",
+          "boundary": "REAL: ⑤'s guard, the EXISTING MCP agent_act and relay checks. NOT ④: ④'s Run / cancel / reconcile are not received and not integrated. FAKE: the chain and the game's effects (emulated)",
+          "game": [
+            {
+              "requestId": "R-1",
+              "proposed": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "outcome": "sent",
+              "code": null,
+              "decidedBy": "existing relay (via MCP agent_act)",
+              "signature": "2HUAxaQ3219eSv9nZYGcdVGXPhtnivNL4TLbKK5sBA6aGxKihXwQBZ9UfcNMWzoNsN6gTVGPutgmoUNuGyCGmKi3"
+            }
+          ],
+          "sent": 1
+        },
+        {
+          "stage": "reconcile",
+          "title": "5 費用照合",
+          "boundary": "FIXTURE CONTRACT: measured = fixture usage × fixture book, matched to a fixture provider record. Sending a client request id is documented; querying billing by it is NOT verified in production. Unmatched costs stay held (no 0, no refund on the operator's word)",
+          "timedOut": {
+            "status": "inference-failed",
+            "outcome": "unknown",
+            "called": true,
+            "replayed": false,
+            "requestKey": "d05-0ff14528254cc92591e73e91bb8c3c1ac8d7aa37",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": null,
+            "preflight": [],
+            "errors": [],
+            "attempts": [
+              {
+                "key": "d05-0ff14528254cc92591e73e91bb8c3c1ac8d7aa37#0",
+                "outcome": "unknown",
+                "stop": null,
+                "cost": {
+                  "measured": null,
+                  "unknown": true
+                }
+              }
+            ],
+            "possibleDoubleBilling": null
+          },
+          "undecidedBefore": "8305",
+          "reconcile": [
+            {
+              "key": "d05-0ff14528254cc92591e73e91bb8c3c1ac8d7aa37#0",
+              "contract": "fixture",
+              "productionVerified": false,
+              "result": "settled",
+              "matchedBy": "client request id (fixture contract)",
+              "measured": "1500",
+              "settled": "1500"
+            }
+          ],
+          "after": {
+            "reserved": "0",
+            "settled": "3000",
+            "undecided": "0",
+            "released": "0",
+            "available": "197000",
+            "gameReserve": "0",
+            "withdrawable": "197000",
+            "overruns": 0
+          }
+        },
+        {
+          "stage": "stop",
+          "title": "6 上限停止",
+          "boundary": "MOCK: the inference total cap of RunCostMock; the stop itself is ⑤'s autopilot (REAL code, one process)",
+          "state": {
+            "state": "stopped-by-budget",
+            "stoppedBy": "CategoryTotalLimit",
+            "ticks": 5,
+            "scope": "one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)",
+            "executionPath": {
+              "via": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+              "fourIntegrated": false,
+              "notIntegrated": [
+                "④ Run (the execution unit)",
+                "④ cancel / stop contract",
+                "④ reconcile of signed requests and their costs"
+              ],
+              "why": "④ bd415e7 not received"
+            }
+          },
+          "last": {
+            "runId": "c96bebc1:t5",
+            "status": "stopped-by-budget",
+            "stoppedBy": "CategoryTotalLimit",
+            "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+            "fourIntegrated": false,
+            "inference": {
+              "status": "stopped-by-budget",
+              "outcome": null,
+              "called": false,
+              "replayed": false,
+              "requestKey": "d05-3ebca7d87519e20ca613e7a8b8dd8c37516d98db",
+              "provider": "openai",
+              "configuredModel": "gpt-fixture-model",
+              "servedModel": null,
+              "preflight": [
+                "CategoryTotalLimit"
+              ],
+              "errors": [],
+              "attempts": [],
+              "possibleDoubleBilling": null
+            },
+            "game": [],
+            "notes": [
+              "CategoryTotalLimit"
+            ],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "c96bebc1:t5",
+              "run4Id": null,
+              "agentId": "c96bebc1-5df9-49c9-856d-2606f886a866",
+              "citizen": "GbFtQ6kfmc7dXrVrBxY5unMQ8ioV6sqvX38XMjecJZ3g",
+              "decisionKey": "d05-3ebca7d87519e20ca613e7a8b8dd8c37516d98db",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 10,
+                "closed": 10
+              },
+              "state": "closed",
+              "inference": {
+                "status": "stopped-by-budget",
+                "outcome": null,
+                "called": false,
+                "replayed": false,
+                "attempts": []
+              },
+              "acts": [],
+              "costs": {
+                "inference": {
+                  "settled": "0",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                },
+                "inferenceIn4Names": {
+                  "unit": "test-USDC base units",
+                  "reserved": "0",
+                  "charged": "0",
+                  "unconfirmed": "0",
+                  "released": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage",
+                "cancel.until"
+              ]
+            }
+          },
+          "skippedAfterStop": {
+            "skipped": true,
+            "state": "stopped-by-budget"
+          },
+          "modelRequestsAfterStop": 0
+        },
+        {
+          "stage": "resume",
+          "title": "7 手動復帰",
+          "boundary": "REAL code; the owner is a test keypair; the cap change is on the mock",
+          "status": {
+            "state": "running",
+            "stoppedBy": "CategoryTotalLimit",
+            "ticks": 6,
+            "scope": "one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)",
+            "executionPath": {
+              "via": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+              "fourIntegrated": false,
+              "notIntegrated": [
+                "④ Run (the execution unit)",
+                "④ cancel / stop contract",
+                "④ reconcile of signed requests and their costs"
+              ],
+              "why": "④ bd415e7 not received"
+            }
+          },
+          "record": {
+            "runId": "c96bebc1:t6",
+            "status": "done",
+            "stoppedBy": null,
+            "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
+            "fourIntegrated": false,
+            "inference": {
+              "status": "ok",
+              "outcome": "ok",
+              "called": true,
+              "replayed": false,
+              "requestKey": "d05-41e0330adbb0996dcaeaf083a6be88939635e9f4",
+              "provider": "openai",
+              "configuredModel": "gpt-fixture-model",
+              "servedModel": "gpt-fixture-model",
+              "preflight": [],
+              "errors": [],
+              "attempts": [
+                {
+                  "key": "d05-41e0330adbb0996dcaeaf083a6be88939635e9f4#0",
+                  "outcome": "ok",
+                  "stop": null,
+                  "cost": {
+                    "measured": "1500",
+                    "unknown": false
+                  }
+                }
+              ],
+              "possibleDoubleBilling": null
+            },
+            "game": [
+              {
+                "requestId": "R-4",
+                "proposed": {
+                  "name": "Train",
+                  "fields": {
+                    "unit": 0,
+                    "n": 100
+                  }
+                },
+                "outcome": "sent",
+                "code": null,
+                "decidedBy": "existing relay (via MCP agent_act)",
+                "signature": "3JFUkZ2ecPcRgjnTuuFfpQKV2YymsFxVGRxPBX9rTkwQAuQGkoZCD4hZ172MjzdGza7QdxyapCie3K27YcGab24r"
+              }
+            ],
+            "notes": [],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "c96bebc1:t6",
+              "run4Id": null,
+              "agentId": "c96bebc1-5df9-49c9-856d-2606f886a866",
+              "citizen": "GbFtQ6kfmc7dXrVrBxY5unMQ8ioV6sqvX38XMjecJZ3g",
+              "decisionKey": "d05-41e0330adbb0996dcaeaf083a6be88939635e9f4",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 10,
+                "closed": 12
+              },
+              "state": "closed",
+              "inference": {
+                "status": "ok",
+                "outcome": "ok",
+                "called": true,
+                "replayed": false,
+                "attempts": [
+                  {
+                    "key": "d05-41e0330adbb0996dcaeaf083a6be88939635e9f4#0",
+                    "outcome": "ok",
+                    "stop": null,
+                    "cost": {
+                      "measured": "1500",
+                      "unknown": false
+                    }
+                  }
+                ]
+              },
+              "acts": [
+                {
+                  "requestId": "p05.1f42bdac8922cf31ccd68ac51af0252c381a12d2",
+                  "idempotencyKey": "mcp:p05.1f42bdac8922cf31ccd68ac51af0252c381a12d2",
+                  "source": "mcp",
+                  "action": {
+                    "name": "Train",
+                    "fields": {
+                      "unit": 0,
+                      "n": 100
+                    }
+                  },
+                  "status": "sent",
+                  "code": null,
+                  "signature": "3JFUkZ2ecPcRgjnTuuFfpQKV2YymsFxVGRxPBX9rTkwQAuQGkoZCD4hZ172MjzdGza7QdxyapCie3K27YcGab24r",
+                  "signedAt": null,
+                  "fate": "unknown",
+                  "gameCharge": {
+                    "reserved": "0",
+                    "state": "none or settled (see history)"
+                  },
+                  "cancellable": null
+                }
+              ],
+              "costs": {
+                "inference": {
+                  "settled": "1500",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                },
+                "inferenceIn4Names": {
+                  "unit": "test-USDC base units",
+                  "reserved": "0",
+                  "charged": "1500",
+                  "unconfirmed": "0",
+                  "released": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage",
+                "cancel.until"
+              ]
+            }
+          }
+        }
+      ],
+      "autopilotEvents": [
+        {
+          "at": 1800108000,
+          "op": "start",
+          "by": "owner"
+        },
+        {
+          "at": 1800108240,
+          "op": "stop",
+          "by": "budget",
+          "code": "CategoryTotalLimit"
+        },
+        {
+          "at": 1800108240,
+          "op": "resume",
+          "by": "owner",
+          "note": "the owner raised the inference total cap by 30000"
+        },
+        {
+          "at": 1800108240,
+          "op": "start",
+          "by": "owner"
+        },
+        {
+          "at": 1800108300,
+          "op": "stop",
+          "by": "owner"
+        }
+      ],
+      "journal": [
+        {
+          "seq": 1,
+          "at": 1800108000000,
+          "runId": "c96bebc1:t1",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108000,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 5000,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 2000,
+            "Gold": 1000
+          },
+          "reserve": {
+            "Spearman": 0
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 2,
+          "at": 1800108000000,
+          "runId": "c96bebc1:t1",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 3,
+          "at": 1800108000000,
+          "runId": "c96bebc1:t1",
+          "step": "plan",
+          "by": "api:openai:gpt-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-dd78c24b1ad5713fb4276f2253e0cf516e59b9c5",
+            "boundary": "fixture",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": "gpt-fixture-model",
+            "called": true,
+            "preflight": [],
+            "status": "ok",
+            "outcome": "ok",
+            "attempts": [
+              {
+                "key": "d05-dd78c24b1ad5713fb4276f2253e0cf516e59b9c5#0",
+                "outcome": "ok",
+                "stop": null,
+                "providerRequestId": "req_fixture_0",
+                "cost": {
+                  "quote": "8747",
+                  "measured": "1500",
+                  "settled": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "quote": "8747",
+            "answer": "valid",
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "1500",
+              "undecided": "0",
+              "released": "0",
+              "available": "198500",
+              "gameReserve": "0",
+              "withdrawable": "198500",
+              "overruns": 0
+            }
+          },
+          "proposals": [
+            {
+              "requestId": "R-1",
+              "command": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "reason": "one batch fits the owner's limits"
+            }
+          ],
+          "notes": []
+        },
+        {
+          "seq": 4,
+          "at": 1800108000000,
+          "runId": "c96bebc1:t1",
+          "step": "guard",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-1|Train|m1",
+          "requestId": "R-1",
+          "by": "api:openai:gpt-fixture-model",
+          "command": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null
+        },
+        {
+          "seq": 5,
+          "at": 1800108000000,
+          "runId": "c96bebc1:t1",
+          "step": "act-begin",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-1|Train|m1",
+          "requestId": "R-1",
+          "attemptId": "p05.8a27bd4586f04519515967b9bd25c61535017873",
+          "outcome": "acting",
+          "args": {
+            "requestId": "p05.8a27bd4586f04519515967b9bd25c61535017873",
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-1: one batch fits the owner's limits"
+          },
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "gamePrice": "0",
+          "worldSec": 1800108000,
+          "unitName": "Spearman",
+          "baseline": 0
+        },
+        {
+          "seq": 6,
+          "at": 1800108000000,
+          "runId": "c96bebc1:t1",
+          "step": "act-result",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-1|Train|m1",
+          "requestId": "R-1",
+          "attemptId": "p05.8a27bd4586f04519515967b9bd25c61535017873",
+          "outcome": "sent",
+          "code": null,
+          "signature": "2HUAxaQ3219eSv9nZYGcdVGXPhtnivNL4TLbKK5sBA6aGxKihXwQBZ9UfcNMWzoNsN6gTVGPutgmoUNuGyCGmKi3",
+          "replayed": false,
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "worldSec": 1800108000,
+          "attempts": 1
+        },
+        {
+          "seq": 7,
+          "at": 1800108060000,
+          "step": "verify",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-1|Train|m1",
+          "requestId": "R-1",
+          "signature": "2HUAxaQ3219eSv9nZYGcdVGXPhtnivNL4TLbKK5sBA6aGxKihXwQBZ9UfcNMWzoNsN6gTVGPutgmoUNuGyCGmKi3",
+          "tx": "landed",
+          "outcome": "contributed",
+          "effect": {
+            "confirmed": true,
+            "seen": 100,
+            "expected": 100
+          }
+        },
+        {
+          "seq": 8,
+          "at": 1800108060000,
+          "step": "memory",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-1|Train|m1",
+          "outcome": "contributed",
+          "verified": true,
+          "requestId": "R-1",
+          "action": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "signature": "2HUAxaQ3219eSv9nZYGcdVGXPhtnivNL4TLbKK5sBA6aGxKihXwQBZ9UfcNMWzoNsN6gTVGPutgmoUNuGyCGmKi3"
+        },
+        {
+          "seq": 9,
+          "at": 1800108060000,
+          "runId": "c96bebc1:t2",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108060,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4940,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1980,
+            "Gold": 990
+          },
+          "reserve": {
+            "Spearman": 100
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 10,
+          "at": 1800108060000,
+          "runId": "c96bebc1:t2",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 11,
+          "at": 1800108060000,
+          "runId": "c96bebc1:t2",
+          "step": "plan",
+          "by": "api:openai:gpt-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-0ff14528254cc92591e73e91bb8c3c1ac8d7aa37",
+            "boundary": "fixture",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": null,
+            "called": true,
+            "preflight": [],
+            "status": "inference-failed",
+            "outcome": "unknown",
+            "attempts": [
+              {
+                "key": "d05-0ff14528254cc92591e73e91bb8c3c1ac8d7aa37#0",
+                "outcome": "unknown",
+                "stop": null,
+                "providerRequestId": null,
+                "cost": {
+                  "quote": "8305",
+                  "measured": null,
+                  "unknown": true
+                }
+              }
+            ],
+            "quote": "8305",
+            "answer": null,
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "1500",
+              "undecided": "8305",
+              "released": "0",
+              "available": "190195",
+              "gameReserve": "0",
+              "withdrawable": "190195",
+              "overruns": 0
+            }
+          },
+          "proposals": [],
+          "notes": [
+            {
+              "code": "InferenceFailed",
+              "reason": "推論が使える答えを返さなかった（unknown）。この回は何も送らない。費用は確認待ちとして予約に残る"
+            }
+          ]
+        },
+        {
+          "seq": 12,
+          "at": 1800108120000,
+          "runId": "c96bebc1:t3",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108120,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4940,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1980,
+            "Gold": 990
+          },
+          "reserve": {
+            "Spearman": 100
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 13,
+          "at": 1800108120000,
+          "runId": "c96bebc1:t3",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 14,
+          "at": 1800108120000,
+          "runId": "c96bebc1:t3",
+          "step": "plan",
+          "by": "api:openai:gpt-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-16db8d300db5910bef7056b57884344622dc0499",
+            "boundary": "fixture",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": "gpt-fixture-model",
+            "called": true,
+            "preflight": [],
+            "status": "ok",
+            "outcome": "ok",
+            "attempts": [
+              {
+                "key": "d05-16db8d300db5910bef7056b57884344622dc0499#0",
+                "outcome": "ok",
+                "stop": null,
+                "providerRequestId": "req_fixture_2",
+                "cost": {
+                  "quote": "8305",
+                  "measured": "1500",
+                  "settled": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "quote": "8305",
+            "answer": "valid",
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "4500",
+              "undecided": "0",
+              "released": "0",
+              "available": "195500",
+              "gameReserve": "0",
+              "withdrawable": "195500",
+              "overruns": 0
+            }
+          },
+          "proposals": [
+            {
+              "requestId": "R-2",
+              "command": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "reason": "one batch fits the owner's limits"
+            }
+          ],
+          "notes": []
+        },
+        {
+          "seq": 15,
+          "at": 1800108120000,
+          "runId": "c96bebc1:t3",
+          "step": "guard",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-2|Train|m1",
+          "requestId": "R-2",
+          "by": "api:openai:gpt-fixture-model",
+          "command": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null
+        },
+        {
+          "seq": 16,
+          "at": 1800108120000,
+          "runId": "c96bebc1:t3",
+          "step": "act-begin",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-2|Train|m1",
+          "requestId": "R-2",
+          "attemptId": "p05.9fba417eb97555f43522bd034c7342354eb8d33c",
+          "outcome": "acting",
+          "args": {
+            "requestId": "p05.9fba417eb97555f43522bd034c7342354eb8d33c",
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-2: one batch fits the owner's limits"
+          },
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "gamePrice": "0",
+          "worldSec": 1800108120,
+          "unitName": "Spearman",
+          "baseline": 100
+        },
+        {
+          "seq": 17,
+          "at": 1800108120000,
+          "runId": "c96bebc1:t3",
+          "step": "act-result",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-2|Train|m1",
+          "requestId": "R-2",
+          "attemptId": "p05.9fba417eb97555f43522bd034c7342354eb8d33c",
+          "outcome": "sent",
+          "code": null,
+          "signature": "5VWvs3vRXkJSesjPzeY68kuJyqxJPCLAqSKz4nc5EMGViBSme97H2RbjGbUWJMHGqAR59YYHstCburutsxWCTape",
+          "replayed": false,
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "worldSec": 1800108120,
+          "attempts": 1
+        },
+        {
+          "seq": 18,
+          "at": 1800108180000,
+          "step": "verify",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-2|Train|m1",
+          "requestId": "R-2",
+          "signature": "5VWvs3vRXkJSesjPzeY68kuJyqxJPCLAqSKz4nc5EMGViBSme97H2RbjGbUWJMHGqAR59YYHstCburutsxWCTape",
+          "tx": "landed",
+          "outcome": "contributed",
+          "effect": {
+            "confirmed": true,
+            "seen": 200,
+            "expected": 200
+          }
+        },
+        {
+          "seq": 19,
+          "at": 1800108180000,
+          "step": "memory",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-2|Train|m1",
+          "outcome": "contributed",
+          "verified": true,
+          "requestId": "R-2",
+          "action": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "signature": "5VWvs3vRXkJSesjPzeY68kuJyqxJPCLAqSKz4nc5EMGViBSme97H2RbjGbUWJMHGqAR59YYHstCburutsxWCTape"
+        },
+        {
+          "seq": 20,
+          "at": 1800108180000,
+          "runId": "c96bebc1:t4",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108180,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4880,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1960,
+            "Gold": 980
+          },
+          "reserve": {
+            "Spearman": 200
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 21,
+          "at": 1800108180000,
+          "runId": "c96bebc1:t4",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 22,
+          "at": 1800108180000,
+          "runId": "c96bebc1:t4",
+          "step": "plan",
+          "by": "api:openai:gpt-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-cd3778b7ccd6ca1fbcc50b3f7ffab40314b7c55b",
+            "boundary": "fixture",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": "gpt-fixture-model",
+            "called": true,
+            "preflight": [],
+            "status": "ok",
+            "outcome": "ok",
+            "attempts": [
+              {
+                "key": "d05-cd3778b7ccd6ca1fbcc50b3f7ffab40314b7c55b#0",
+                "outcome": "ok",
+                "stop": null,
+                "providerRequestId": "req_fixture_3",
+                "cost": {
+                  "quote": "7863",
+                  "measured": "1500",
+                  "settled": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "quote": "7863",
+            "answer": "valid",
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "6000",
+              "undecided": "0",
+              "released": "0",
+              "available": "194000",
+              "gameReserve": "0",
+              "withdrawable": "194000",
+              "overruns": 0
+            }
+          },
+          "proposals": [
+            {
+              "requestId": "R-3",
+              "command": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "reason": "one batch fits the owner's limits"
+            }
+          ],
+          "notes": []
+        },
+        {
+          "seq": 23,
+          "at": 1800108180000,
+          "runId": "c96bebc1:t4",
+          "step": "guard",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-3|Train|m1",
+          "requestId": "R-3",
+          "by": "api:openai:gpt-fixture-model",
+          "command": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null
+        },
+        {
+          "seq": 24,
+          "at": 1800108180000,
+          "runId": "c96bebc1:t4",
+          "step": "act-begin",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-3|Train|m1",
+          "requestId": "R-3",
+          "attemptId": "p05.5daa0e060a3dc6bf0c4f65457f4617b9a594573c",
+          "outcome": "acting",
+          "args": {
+            "requestId": "p05.5daa0e060a3dc6bf0c4f65457f4617b9a594573c",
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-3: one batch fits the owner's limits"
+          },
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "gamePrice": "0",
+          "worldSec": 1800108180,
+          "unitName": "Spearman",
+          "baseline": 200
+        },
+        {
+          "seq": 25,
+          "at": 1800108180000,
+          "runId": "c96bebc1:t4",
+          "step": "act-result",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-3|Train|m1",
+          "requestId": "R-3",
+          "attemptId": "p05.5daa0e060a3dc6bf0c4f65457f4617b9a594573c",
+          "outcome": "sent",
+          "code": null,
+          "signature": "3peVMRQdPh67haJZUo6Z5wVV1so6FxLypU3rhn2MA4Zd2zaeebyhPYPHEgeFdRcQZ5Q3H5jqvmPuZuV5YXX8CXyz",
+          "replayed": false,
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "worldSec": 1800108180,
+          "attempts": 1
+        },
+        {
+          "seq": 26,
+          "at": 1800108240000,
+          "step": "verify",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-3|Train|m1",
+          "requestId": "R-3",
+          "signature": "3peVMRQdPh67haJZUo6Z5wVV1so6FxLypU3rhn2MA4Zd2zaeebyhPYPHEgeFdRcQZ5Q3H5jqvmPuZuV5YXX8CXyz",
+          "tx": "landed",
+          "outcome": "contributed",
+          "effect": {
+            "confirmed": true,
+            "seen": 300,
+            "expected": 300
+          }
+        },
+        {
+          "seq": 27,
+          "at": 1800108240000,
+          "step": "memory",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-3|Train|m1",
+          "outcome": "contributed",
+          "verified": true,
+          "requestId": "R-3",
+          "action": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "signature": "3peVMRQdPh67haJZUo6Z5wVV1so6FxLypU3rhn2MA4Zd2zaeebyhPYPHEgeFdRcQZ5Q3H5jqvmPuZuV5YXX8CXyz"
+        },
+        {
+          "seq": 28,
+          "at": 1800108240000,
+          "runId": "c96bebc1:t5",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108240,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4820,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1940,
+            "Gold": 970
+          },
+          "reserve": {
+            "Spearman": 300
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 29,
+          "at": 1800108240000,
+          "runId": "c96bebc1:t5",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 30,
+          "at": 1800108240000,
+          "runId": "c96bebc1:t5",
+          "step": "plan",
+          "by": null,
+          "charged": "6000",
+          "cause": "CategoryTotalLimit",
+          "inference": {
+            "requestKey": "d05-3ebca7d87519e20ca613e7a8b8dd8c37516d98db",
+            "boundary": "fixture",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": null,
+            "called": false,
+            "preflight": [
+              {
+                "code": "CategoryTotalLimit",
+                "detail": "inference total cap 13247: 6000 used or held + quote 7420"
+              }
+            ],
+            "status": "stopped-by-budget",
+            "outcome": null,
+            "attempts": [],
+            "quote": "7420",
+            "answer": null,
+            "errors": [],
+            "costs": {
+              "reserved": "0",
+              "settled": "6000",
+              "undecided": "0",
+              "released": "0",
+              "available": "194000",
+              "gameReserve": "0",
+              "withdrawable": "194000",
+              "overruns": 0
+            }
+          },
+          "proposals": [],
+          "notes": [
+            {
+              "code": "CategoryTotalLimit",
+              "reason": "モデルを呼ばない（予約も請求もなし）: inference total cap 13247: 6000 used or held + quote 7420"
+            }
+          ]
+        },
+        {
+          "seq": 31,
+          "at": 1800108300000,
+          "runId": "c96bebc1:t6",
+          "step": "observe",
+          "ok": true,
+          "worldSec": 1800108300,
+          "policyVersion": 1,
+          "modeEpoch": 1,
+          "mode": "auto",
+          "delegated": true,
+          "stores": {
+            "Food": 4820,
+            "Wood": 100,
+            "Stone": 100,
+            "Ore": 1940,
+            "Gold": 970
+          },
+          "reserve": {
+            "Spearman": 300
+          },
+          "requests": [
+            {
+              "id": "R-1",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-2",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-3",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-4",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-5",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-6",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-7",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            },
+            {
+              "id": "R-8",
+              "nation": 2,
+              "ask": {
+                "kind": "train",
+                "unit": 0,
+                "n": 100
+              },
+              "deadlineSec": 1800129600
+            }
+          ]
+        },
+        {
+          "seq": 32,
+          "at": 1800108300000,
+          "runId": "c96bebc1:t6",
+          "step": "grant",
+          "ok": true,
+          "reasons": [],
+          "allowed": [
+            "Train"
+          ],
+          "deniedByPolicy": [],
+          "limits": {
+            "perRequest": {
+              "Food": 60,
+              "Ore": 20,
+              "Gold": 10
+            },
+            "perDay": {
+              "Food": 600,
+              "Ore": 200,
+              "Gold": 100
+            },
+            "troopsPerRequest": 100
+          },
+          "versions": {
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "mandateId": "north-op",
+            "mandateVersion": 1
+          }
+        },
+        {
+          "seq": 33,
+          "at": 1800108300000,
+          "runId": "c96bebc1:t6",
+          "step": "plan",
+          "by": "api:openai:gpt-fixture-model",
+          "charged": "0",
+          "cause": null,
+          "attempts": [],
+          "configuredModel": null,
+          "servedModel": null,
+          "modelFile": null,
+          "reportedAlias": null,
+          "modelError": null,
+          "inference": {
+            "requestKey": "d05-41e0330adbb0996dcaeaf083a6be88939635e9f4",
+            "boundary": "fixture",
+            "provider": "openai",
+            "configuredModel": "gpt-fixture-model",
+            "servedModel": "gpt-fixture-model",
+            "called": true,
+            "preflight": [],
+            "status": "ok",
+            "outcome": "ok",
+            "attempts": [
+              {
+                "key": "d05-41e0330adbb0996dcaeaf083a6be88939635e9f4#0",
+                "outcome": "ok",
+                "stop": null,
+                "providerRequestId": "req_fixture_4",
+                "cost": {
+                  "quote": "7420",
+                  "measured": "1500",
+                  "settled": "1500",
+                  "unknown": false
+                }
+              }
+            ],
+            "quote": "7420",
+            "answer": "valid",
+            "errors": [],
+            "replayed": false,
+            "possibleDoubleBilling": null,
+            "costs": {
+              "reserved": "0",
+              "settled": "7500",
+              "undecided": "0",
+              "released": "0",
+              "available": "192500",
+              "gameReserve": "0",
+              "withdrawable": "192500",
+              "overruns": 0
+            }
+          },
+          "proposals": [
+            {
+              "requestId": "R-4",
+              "command": {
+                "name": "Train",
+                "fields": {
+                  "unit": 0,
+                  "n": 100
+                }
+              },
+              "reason": "one batch fits the owner's limits"
+            }
+          ],
+          "notes": []
+        },
+        {
+          "seq": 34,
+          "at": 1800108300000,
+          "runId": "c96bebc1:t6",
+          "step": "guard",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-4|Train|m1",
+          "requestId": "R-4",
+          "by": "api:openai:gpt-fixture-model",
+          "command": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 100
+            }
+          },
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null
+        },
+        {
+          "seq": 35,
+          "at": 1800108300000,
+          "runId": "c96bebc1:t6",
+          "step": "act-begin",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-4|Train|m1",
+          "requestId": "R-4",
+          "attemptId": "p05.1f42bdac8922cf31ccd68ac51af0252c381a12d2",
+          "outcome": "acting",
+          "args": {
+            "requestId": "p05.1f42bdac8922cf31ccd68ac51af0252c381a12d2",
+            "policyVersion": 1,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-4: one batch fits the owner's limits"
+          },
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "gamePrice": "0",
+          "worldSec": 1800108300,
+          "unitName": "Spearman",
+          "baseline": 300
+        },
+        {
+          "seq": 36,
+          "at": 1800108300000,
+          "runId": "c96bebc1:t6",
+          "step": "act-result",
+          "key": "c96bebc1-5df9-49c9-856d-2606f886a866|R-4|Train|m1",
+          "requestId": "R-4",
+          "attemptId": "p05.1f42bdac8922cf31ccd68ac51af0252c381a12d2",
+          "outcome": "sent",
+          "code": null,
+          "signature": "3JFUkZ2ecPcRgjnTuuFfpQKV2YymsFxVGRxPBX9rTkwQAuQGkoZCD4hZ172MjzdGza7QdxyapCie3K27YcGab24r",
+          "replayed": false,
+          "cost": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "worldSec": 1800108300,
+          "attempts": 1
+        }
+      ]
+    }
+  ]
+}

@@ -77,7 +77,7 @@ test('a priced action is held before the send, settled when the transaction land
   sound(r);
 });
 
-test('20 concurrent priced requests over a balance for 10: exactly 10 are sent, 10 refused, the books balance', async () => {
+test('20 concurrent priced requests over a balance for 10: one sends while relay finality is pending, and the books balance', async () => {
   const chain = fakeChain();
   chain.getAccountInfo = slow(chain.getAccountInfo);
   chain.getBalance = slow(chain.getBalance);
@@ -86,23 +86,23 @@ test('20 concurrent priced requests over a balance for 10: exactly 10 are sent, 
   const results = await Promise.all(Array.from({ length: 20 }, (_, i) => a.act({ key: `c${i}` })));
   const sent = results.filter(x => x.status === 'sent');
   const refused = results.filter(x => x.status === 'refused');
-  assert.equal(sent.length, 10, JSON.stringify(results.map(x => x.status)));
-  assert.equal(refused.length, 10);
-  assert.ok(refused.every(x => x.error.code === ERR.INSUFFICIENT_BALANCE));
-  assert.equal(r.chain.sent.length, 10);
-  assert.equal(new Set(sent.map(x => x.signature)).size, 10, 'ten distinct transactions');
-  assert.deepEqual([r.gateway.view(a.agentId).balance.available, r.gateway.view(a.agentId).balance.reserved], ['0', '10000']);
+  assert.equal(sent.length, 1, JSON.stringify(results.map(x => [x.status, x.error?.code])));
+  assert.equal(refused.length, 19);
+  assert.equal(refused.filter(x => x.error.code === 'RelayPending').length, 9, 'the relay pauses concurrent writes until its first send is finalized');
+  assert.equal(refused.filter(x => x.error.code === ERR.INSUFFICIENT_BALANCE).length, 10, 'holds cannot overdraw the balance while requests prepare');
+  assert.equal(r.chain.sent.length, 1);
+  assert.deepEqual([r.gateway.view(a.agentId).balance.available, r.gateway.view(a.agentId).balance.reserved], ['9000', '1000']);
   sound(r);
-  assert.equal((await r.gateway.reconcile()).settled, 10);
-  assert.equal(r.gateway.view(a.agentId).balance.spent.game, '10000');
+  assert.equal((await r.gateway.reconcile()).settled, 1);
+  assert.equal(r.gateway.view(a.agentId).balance.spent.game, '1000');
   // The same 20 keys again: every answer is the recorded one, nothing new is sent.
   const again = await Promise.all(Array.from({ length: 20 }, (_, i) => a.act({ key: `c${i}` })));
   assert.ok(again.every(x => x.replayed === true));
-  assert.equal(r.chain.sent.length, 10);
+  assert.equal(r.chain.sent.length, 1);
   // Concurrent repeats of one new key share one send.
   await deposit(r, a.o, a.agentId, 1_000n);
   const same = await Promise.all([0, 1, 2].map(() => a.act({ key: 'shared' })));
-  assert.equal(r.chain.sent.length, 11);
+  assert.equal(r.chain.sent.length, 2);
   assert.equal(same.filter(x => x.status === 'sent').length, 3);
   assert.equal(same.filter(x => x.replayed).length, 2);
   sound(r);
@@ -132,13 +132,12 @@ test('a stop or a new policy while the action is being prepared refuses it right
 
 test('a send that throws after signing leaves the hold to the chain\'s answer: expired gives it back, landed spends it; a free action has nothing to keep', async () => {
   const chain = fakeChain();
-  const send = chain.sendRawTransaction;
   chain.sendRawTransaction = async () => { throw new Error('node down'); };
   const r = relay({ chain, prices: { game: { Harvest: '1000' } } });
   const a = await ready(r, { balance: 5_000n });
   const res = await a.act({ key: 'f1' });
   assert.equal(res.status, 'failed');
-  assert.equal(res.error.code, ERR.SEND_FAILED);
+  assert.equal(res.error.code, 'RelayOutcomeUnknown');
   assert.deepEqual(res.charges, [{ category: 'game', amount: '1000', state: 'reserved' }]);
   const hold = Object.values(r.gateway.ledger.get(a.agentId).holds)[0];
   assert.equal(hold.state, 'sending');
@@ -154,17 +153,26 @@ test('a send that throws after signing leaves the hold to the chain\'s answer: e
   chain.getFirstAvailableBlock = async () => 0;
   assert.equal((await r.gateway.reconcile()).released, 1);
   assert.equal(r.gateway.view(a.agentId).balance.available, '5000');
-  // The same with a transaction that did reach the chain: settled on reconcile.
-  const two = await a.act({ key: 'f2' });
+  // The relay cannot use an expired agent hold as proof that its own durable
+  // send attempt was not accepted. It blocks the next write until finality.
+  const blocked = await a.act({ key: 'new-after-unknown' });
+  assert.equal(blocked.error.code, 'RelayPending');
+  assert.equal(chain.sent.length, 0);
+  // A separate transaction that did reach the chain: settled on reconcile.
+  const landedChain = fakeChain();
+  const landedSend = landedChain.sendRawTransaction;
+  landedChain.sendRawTransaction = async raw => { await landedSend(raw); throw new Error('node timeout after acceptance'); };
+  const landed = relay({ chain: landedChain, prices: { game: { Harvest: '1000' } } });
+  const c = await ready(landed, { balance: 5_000n });
+  const two = await c.act({ key: 'f2' });
   assert.equal(two.status, 'failed');
-  const h2 = Object.values(r.gateway.ledger.get(a.agentId).holds)[0];
-  chain.statuses.set(h2.signature, { slot: 80, err: null, confirmationStatus: 'finalized' });
-  assert.equal((await r.gateway.reconcile()).settled, 1);
-  assert.equal(r.gateway.view(a.agentId).balance.spent.game, '1000');
+  assert.equal(two.error.code, 'RelayOutcomeUnknown');
+  assert.equal((await landed.gateway.reconcile()).settled, 1);
+  assert.equal(landed.gateway.view(c.agentId).balance.spent.game, '1000');
   // The replayed answer of a failed send is the recorded failure, not a new attempt.
-  chain.sendRawTransaction = send;
-  assert.equal((await a.act({ key: 'f2' })).status, 'failed');
-  assert.equal(r.chain.sent.length, 0);
+  landedChain.sendRawTransaction = landedSend;
+  assert.equal((await c.act({ key: 'f2' })).status, 'failed');
+  assert.equal(landed.chain.sent.length, 1);
   // Free actions: the throw charges nothing and keeps nothing.
   const free = relay({ chain: fakeChain() });
   free.chain.sendRawTransaction = async () => { throw new Error('node down'); };
@@ -174,6 +182,7 @@ test('a send that throws after signing leaves the hold to the chain\'s answer: e
   assert.deepEqual(fr.charges, []);
   assert.equal(Object.keys(free.gateway.ledger.get(b.agentId).holds).length, 0);
   sound(r);
+  sound(landed);
   sound(free);
 });
 
@@ -310,6 +319,183 @@ test('after a restart: held holds are given back, sending ones wait for the chai
     // The custody view is public keys only.
     assert.deepEqual(Object.keys(r.custody.toJSON()).sort(), ['account', 'authority', 'mint']);
     assert.ok(decodeTokenAccount(r.chain.accounts.get(r.custody.account).data));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a send followed by a crash before the result cannot reuse its action key after restart or settlement', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'agent-keys-'));
+  try {
+    const r = relay({ prices: { game: { Harvest: '1000' } }, keyringDir: dir });
+    const a = await ready(r, { balance: 5_000n });
+    r.gateway.ledger.remember = () => { throw new Error('crash after send, before response save'); };
+    await assert.rejects(a.act({ key: 'crash-key' }), /crash after send/);
+    assert.equal(r.chain.sent.length, 1);
+    const saved = JSON.parse(r.agentStore.json);
+    const entry = saved.agentWallet.agents[a.agentId].requests['crash-key'];
+    assert.match(entry.hash, /^[0-9a-f]{64}$/);
+    assert.equal(entry.result, null);
+    assert.ok(entry.signature, 'the signed transaction is recorded before the send');
+    const again = relay({ chain: r.chain, prices: { game: { Harvest: '1000' } }, keyringDir: dir, agentState: saved });
+    const retry = () => again.gateway.submit(actionRequest(a.agentId, { key: 'crash-key' }), { capability: a.capability });
+    const beforeRetry = again.gateway.view(a.agentId).balance;
+    await assert.rejects(retry(), e => e.code === ERR.SEND_FAILED && e.status === 409);
+    await assert.rejects(again.gateway.submit(actionRequest(a.agentId, { key: 'crash-key', name: 'Train', fields: { unit: 1, n: 1 } }), { capability: a.capability }), e => e.code === ERR.IDEMPOTENCY_CONFLICT);
+    assert.equal(again.chain.sent.length, 1, 'no second send before reconciliation');
+    assert.deepEqual(again.gateway.view(a.agentId).balance, beforeRetry, 'retry does not reserve a second charge');
+    assert.equal((await again.gateway.reconcile()).settled, 1);
+    assert.equal(again.gateway.ledger.get(a.agentId).requests['crash-key'].result, null, 'the key remains a tombstone after finalization');
+    await assert.rejects(retry(), e => e.code === ERR.SEND_FAILED && e.status === 409);
+    assert.equal(again.chain.sent.length, 1, 'no second send after finalization');
+    const persisted = JSON.parse(again.agentStore.json);
+    const third = relay({ chain: r.chain, prices: { game: { Harvest: '1000' } }, keyringDir: dir, agentState: persisted });
+    assert.equal(third.gateway.ledger.get(a.agentId).requests['crash-key'].result, null, 'the finalized tombstone is durable across another restart');
+    await assert.rejects(third.gateway.submit(actionRequest(a.agentId, { key: 'crash-key' }), { capability: a.capability }), e => e.code === ERR.SEND_FAILED && e.status === 409);
+    assert.equal(third.chain.sent.length, 1);
+    sound(again);
+    sound(third);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('concurrent calls with the same action key still share one in-flight send', async () => {
+  const r = relay({ prices: { game: { Harvest: '1000' } } });
+  const a = await ready(r, { balance: 5_000n });
+  const results = await Promise.all([a.act({ key: 'same-key' }), a.act({ key: 'same-key' }), a.act({ key: 'same-key' })]);
+  assert.equal(r.chain.sent.length, 1);
+  assert.ok(results.every(x => x.status === 'sent'));
+  assert.equal(results.filter(x => x.replayed).length, 2);
+  assert.equal(Object.keys(r.gateway.ledger.get(a.agentId).holds).length, 1);
+  sound(r);
+});
+
+test('a legacy signed hold without a request hash blocks its key before and after reconciliation', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'agent-keys-'));
+  try {
+    const r = relay({ prices: { game: { Harvest: '1000' } }, keyringDir: dir });
+    const a = await ready(r, { balance: 5_000n });
+    const sent = await a.act({ key: 'old-key' });
+    assert.equal(sent.status, 'sent');
+    const legacy = JSON.parse(r.agentStore.json);
+    const rec = legacy.agentWallet.agents[a.agentId];
+    delete rec.requests['old-key'];
+    const hold = Object.values(rec.holds).find(h => h.key === 'old-key');
+    delete hold.requestHash;
+    const again = relay({ chain: r.chain, prices: { game: { Harvest: '1000' } }, keyringDir: dir, agentState: legacy });
+    const retry = () => again.gateway.submit(actionRequest(a.agentId, { key: 'old-key' }), { capability: a.capability });
+    await assert.rejects(retry(), e => e.code === ERR.SEND_FAILED && e.status === 409);
+    assert.equal((await again.gateway.reconcile()).settled, 1);
+    const tombstone = again.gateway.ledger.get(a.agentId).requests['old-key'];
+    assert.equal(tombstone.hash, null);
+    assert.equal(tombstone.signature, sent.signature);
+    await assert.rejects(retry(), e => e.code === ERR.SEND_FAILED && e.status === 409);
+    assert.equal(again.chain.sent.length, 1);
+    sound(again);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a full action request journal refuses new sends without evicting earlier keys', async () => {
+  const r = relay({ prices: { game: { Harvest: '1000' } } });
+  const a = await ready(r, { balance: 5_000n });
+  const rec = r.gateway.ledger.get(a.agentId);
+  for (let i = 0; i < 2_000; i++) rec.requests[`old-${i}`] = { hash: 'a'.repeat(64), result: null, at: i };
+  r.gateway.ledger.save();
+  await assert.rejects(a.act({ key: 'over-limit' }), e => e.code === ERR.SEND_FAILED && e.status === 503);
+  assert.equal(Object.keys(rec.requests).length, 2_000);
+  assert.ok(rec.requests['old-0']);
+  assert.equal(r.chain.sent.length, 0);
+  sound(r);
+});
+
+test('a failed action state write prevents sends until restart and audit', async () => {
+  const r = relay({ prices: { game: { Harvest: '1000' } } });
+  const a = await ready(r, { balance: 5_000n });
+  const durable = r.agentStore.json;
+  r.agentStore.save = () => { throw new Error('state disk full'); };
+  await assert.rejects(a.act({ key: 'failed-write' }), /state disk full/);
+  assert.equal(r.chain.sent.length, 0);
+  assert.equal(r.gateway.ledger.actionWritesFailed, true);
+  await assert.rejects(a.act({ key: 'after-failure' }), e => e.code === ERR.SEND_FAILED && e.status === 503);
+  assert.equal(r.chain.sent.length, 0);
+  assert.equal(JSON.parse(durable).agentWallet.agents[a.agentId].requests['failed-write'], undefined);
+});
+
+test('a failed wallet save also stops deposits, withdrawals and reconciliation in the same process', async () => {
+  const r = relay();
+  const a = await ready(r, { balance: 5_000n });
+  const save = r.agentStore.save;
+  r.agentStore.save = () => { throw new Error('wallet disk unavailable'); };
+  assert.throws(() => r.gateway.ledger.save(), /wallet disk unavailable/);
+  r.agentStore.save = save;
+  const before = JSON.stringify(r.agentStore.state.agentWallet);
+  const blocked = e => e.code === ERR.SEND_FAILED && e.status === 503;
+  await assert.rejects(r.gateway.deposit(a.agentId, 'x'.repeat(64)), blocked);
+  await assert.rejects(r.gateway.sponsorDeposit(a.agentId, { tx: null }), blocked);
+  await assert.rejects(r.gateway.withdraw(a.agentId, a.o, { amount: '1000' }), blocked);
+  await assert.rejects(r.gateway.reconcile(), blocked);
+  assert.throws(() => r.gateway.ledger.credit(a.agentId, 'y'.repeat(64), '1000'), blocked);
+  assert.throws(() => r.gateway.ledger.holdWithdraw(a.agentId, '1000'), blocked);
+  assert.equal(JSON.stringify(r.agentStore.state.agentWallet), before, 'poisoned wallet state is not changed again');
+  assert.equal(r.chain.sent.length, 0);
+});
+
+test('restart returns a persisted withdrawal reserved before signing, without sending money', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'agent-keys-'));
+  try {
+    const r = relay({ keyringDir: dir });
+    const a = await ready(r, { balance: 5_000n });
+    const w = r.gateway.ledger.holdWithdraw(a.agentId, '1000');
+    assert.equal(w.state, 'pending');
+    assert.equal(w.signature, undefined);
+    const saved = JSON.parse(r.agentStore.json);
+    const suspicious = JSON.parse(JSON.stringify(saved));
+    suspicious.agentWallet.agents[a.agentId].withdrawals[w.id].signature = 'possible-signed-send';
+    assert.throws(() => relay({ chain: r.chain, keyringDir: dir, agentState: suspicious }), /pending withdrawal has a signature/, 'an ambiguous old record needs an audit');
+    const resumed = relay({ chain: r.chain, keyringDir: dir, agentState: saved });
+    const record = resumed.gateway.ledger.get(a.agentId).withdrawals[w.id];
+    assert.equal(record.state, 'failed');
+    assert.equal(record.reason, 'restart-before-send');
+    assert.equal(resumed.gateway.view(a.agentId).balance.available, '5000');
+    assert.equal(resumed.gateway.view(a.agentId).balance.pendingWithdraw, '0');
+    assert.equal(resumed.chain.sent.length, 0);
+    const again = relay({ chain: r.chain, keyringDir: dir, agentState: JSON.parse(resumed.agentStore.json) });
+    assert.equal(again.gateway.ledger.get(a.agentId).withdrawals[w.id].state, 'failed');
+    assert.equal(again.gateway.view(a.agentId).balance.available, '5000');
+    assert.equal(again.gateway.view(a.agentId).history.filter(h => h.type === 'withdraw-failed' && h.reason === 'restart-before-send').length, 1);
+    sound(resumed);
+    sound(again);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failed signature save never sends a withdrawal and the pending reservation is recovered', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'agent-keys-'));
+  try {
+    const r = relay({ keyringDir: dir });
+    const a = await ready(r, { balance: 5_000n });
+    const save = r.agentStore.save;
+    let writes = 0;
+    r.agentStore.save = () => {
+      if (++writes === 2) throw new Error('signature save unavailable');
+      save();
+    };
+    await assert.rejects(r.gateway.withdraw(a.agentId, a.o, { amount: '1000' }), /signature save unavailable/);
+    assert.equal(r.chain.sent.length, 0, 'custody calls onSigned before any network send');
+    assert.equal(r.gateway.ledger.actionWritesFailed, true);
+    const persisted = JSON.parse(r.agentStore.json);
+    const pending = Object.values(persisted.agentWallet.agents[a.agentId].withdrawals)[0];
+    assert.equal(pending.state, 'pending');
+    assert.equal(pending.signature, undefined);
+    const resumed = relay({ chain: r.chain, keyringDir: dir, agentState: persisted });
+    assert.equal(resumed.gateway.view(a.agentId).balance.pendingWithdraw, '0');
+    assert.equal(resumed.gateway.view(a.agentId).balance.available, '5000');
+    assert.equal(resumed.chain.sent.length, 0);
+    sound(resumed);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

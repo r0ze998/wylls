@@ -61,7 +61,7 @@ pub fn plan(info: &ChainInfo, g0: i64, pre_days: f64, days: f64, margin_secs: i6
 pub enum Fetcher {
     /// `fclient::http` (plain `http://` only).
     Native,
-    /// `curl -sfS` (any scheme curl supports; needed for `https://`).
+    /// `fclient::http::curl_get` (verified `https://`, or loopback `http://`).
     Curl,
 }
 
@@ -105,40 +105,9 @@ pub struct Report {
     pub complete: bool,
 }
 
-/// Whether a URL's host is loopback (`127.0.0.1`, `[::1]`, `localhost`).
-///
-/// The authority (up to the first `/`, `?` or `#`) must be exactly
-/// `host[:port]` with a numeric port: an authority with userinfo
-/// (`127.0.0.1:x@api.drand.sh`, which curl sends to the public host), a
-/// backslash, a percent-escape or whitespace is never loopback (integ-W2
-/// review of W2-C: the O-M1-12 guard and the public rate cap key on this).
-pub fn is_loopback(url: &str) -> bool {
-    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
-    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..end];
-    if authority
-        .chars()
-        .any(|c| matches!(c, '@' | '\\' | '%') || c.is_whitespace() || c.is_control())
-    {
-        return false;
-    }
-    let (host, port) = if let Some(h) = authority.strip_prefix('[') {
-        match h.split_once(']') {
-            Some((host, tail)) => (host, tail),
-            None => return false,
-        }
-    } else {
-        match authority.find(':') {
-            Some(i) => (&authority[..i], &authority[i..]),
-            None => (authority, ""),
-        }
-    };
-    let port_ok = port.is_empty()
-        || port.strip_prefix(':').is_some_and(|p| {
-            !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit())
-        });
-    port_ok && matches!(host, "127.0.0.1" | "::1" | "localhost")
-}
+/// Whether a URL's host is loopback: `fclient::http::is_loopback` (one
+/// function for this guard and the keeper's config check).
+pub use fclient::http::is_loopback;
 
 /// Refuses endpoints the options do not allow (checked before any request).
 pub fn check_endpoints(o: &Options) -> Result<(), String> {
@@ -176,31 +145,12 @@ async fn get_body(fetcher: Fetcher, url: &str) -> Result<(u16, Vec<u8>), String>
             .await
             .map(|r| (r.status, r.body))
             .map_err(|e| format!("{e:?}")),
-        Fetcher::Curl => {
-            let url = url.to_string();
-            let out = tokio::task::spawn_blocking(move || {
-                std::process::Command::new("curl")
-                    .args(["-sS", "--max-time", "15", "-w", "\n%{http_code}", &url])
-                    .output()
-            })
+        // The hardened curl GET (`-q`, `--proto`, no redirects, verified
+        // TLS for https, size and time bounds) shared with the keeper.
+        Fetcher::Curl => fclient::http::curl_get(url)
             .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| format!("curl: {e}"))?;
-            if !out.status.success() {
-                return Err(format!("curl: {}", String::from_utf8_lossy(&out.stderr)));
-            }
-            let mut b = out.stdout;
-            let nl = b
-                .iter()
-                .rposition(|&c| c == b'\n')
-                .ok_or("curl: no status")?;
-            let code = std::str::from_utf8(&b[nl + 1..])
-                .ok()
-                .and_then(|s| s.trim().parse().ok())
-                .ok_or("curl: bad status")?;
-            b.truncate(nl);
-            Ok((code, b))
-        }
+            .map(|r| (r.status, r.body))
+            .map_err(|e| format!("{e:?}")),
     }
 }
 

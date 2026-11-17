@@ -1,0 +1,25 @@
+# Workstream 11: a declarative extension kernel (proposal B), host-only
+# prototype. Its own workspace and lock (copied from the root lock, so every
+# shared crate keeps the root's version); nothing in the core depends on it.
+[package]
+name = "wylls-ext-kernel"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+description = "Workstream 11 prototype: a manifest of declared state and closed effects, interpreted by the core, pinned by content hash, with grants, receipts and a three-valued verifier"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+# The core's own rules kernel: Holding::pay / Holding::credit are the only
+# way the prototype moves a core resource, and `hash::sha256` is the one the
+# program uses (sol_sha256 on Solana, bit-identical).
+permutation-rules = { path = "../../../permutation-rules" }
+# The core's version constants (PROGRAM_VERSION_S1, RULESET_HASH_V3) that a
+# manifest pins.
+frontier-abi = { path = "../../../frontier-abi" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

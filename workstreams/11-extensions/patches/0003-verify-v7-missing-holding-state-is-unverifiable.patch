@@ -1,0 +1,129 @@
+diff --git a/frontier-node/crates/verify/src/checks/v7_replay.rs b/frontier-node/crates/verify/src/checks/v7_replay.rs
+index c1109f82..08e9d4fa 100644
+--- a/frontier-node/crates/verify/src/checks/v7_replay.rs
++++ b/frontier-node/crates/verify/src/checks/v7_replay.rs
+@@ -851,8 +851,47 @@ fn continuity(cx: &mut Ctx) {
+     let w = cx.w;
+     let f = cx.f;
+     if !w.has_post {
++        // Workstream 11 (patch 0003): without post-states no Holding write
++        // is judged here; say so instead of passing in silence.
++        if w.txs.iter().any(|t| t.ok && !t.ixs.is_empty()) {
++            cx.missing(
++                V,
++                "holdings",
++                0,
++                None,
++                "no post-states: Holding continuity is not judged",
++            );
++        }
+         return;
+     }
++    // Workstream 11 (patch 0003): a successful transaction that held a
++    // known Holding writable but whose archive has no post-state of it
++    // (a gap): its write is not judged, so UNVERIFIABLE.
++    {
++        use std::collections::BTreeSet;
++        let known: BTreeSet<crate::world::Key> = w
++            .txs
++            .iter()
++            .flat_map(|t| t.post.iter())
++            // and the final states (a Holding written once has one post).
++            .chain(w.finals.iter())
++            .filter(|(_, a)| a.as_ref().is_some_and(|a| a.data.starts_with(&H::MAGIC)))
++            .map(|(k, _)| *k)
++            .collect();
++        for (t, tx) in w.txs.iter().enumerate().filter(|(_, x)| x.ok && !x.ixs.is_empty()) {
++            for (k, wr) in &tx.keys {
++                if *wr && known.contains(k) && !tx.post.contains_key(k) {
++                    cx.missing(
++                        V,
++                        "holding",
++                        0,
++                        Some(t),
++                        "a transaction wrote a Holding the archive has no post-state of",
++                    );
++                }
++            }
++        }
++    }
+     // FileOutpost's anchor write (the touch and the settler cost, logged
+     // as a HARVEST) is replayed by `owner_actions` on a conquest season.
+     let owner = [
+@@ -976,6 +1015,16 @@ fn continuity(cx: &mut Ctx) {
+                 ("the founding SETTLE", want)
+             } else {
+                 let Some(before) = w.state_before(k, t) else {
++                    // Workstream 11 (patch 0003): a Holding written with no
++                    // earlier post-state of it (an archive with a gap) is
++                    // not judged: UNVERIFIABLE, not a silent pass.
++                    cx.missing(
++                        V,
++                        format!("holding ({}, {}, {})", pqs.0, pqs.1, pqs.2),
++                        bell,
++                        Some(t),
++                        "a Holding write with no earlier post-state of it",
++                    );
+                     continue;
+                 };
+                 if before.len() != H::SIZE || before[..8] != H::MAGIC {
+diff --git a/frontier-node/crates/verify/tests/missing_state.rs b/frontier-node/crates/verify/tests/missing_state.rs
+new file mode 100644
+index 00000000..207fbe38
+--- /dev/null
++++ b/frontier-node/crates/verify/tests/missing_state.rs
+@@ -0,0 +1,54 @@
++//! Workstream 11, patch 0003: Holding continuity (V7) that could not be
++//! judged for lack of post-states is UNVERIFIABLE, not a silent PASS.
++
++mod common;
++
++use common::*;
++use verify_core::Verdict;
++
++const HOLD: &[u8; 8] = b"PSF1HOLD";
++
++fn holding_keys(inp: &verify_core::input::Input, t: usize) -> Vec<fclient::Address> {
++    inp.txs[t]
++        .post
++        .iter()
++        .filter(|(_, a)| a.as_ref().is_some_and(|a| a.data.starts_with(HOLD)))
++        .map(|(k, _)| *k)
++        .collect()
++}
++
++fn v7_missing(r: &verify_core::Report) -> bool {
++    r.findings
++        .iter()
++        .any(|f| f.check == "V7" && f.code == "MissingData")
++}
++
++#[test]
++fn a_holding_write_with_no_earlier_post_state_is_not_a_pass() {
++    let base = land();
++    let mut n = 0;
++    // Every Holding post-state of the archive, dropped one at a time.
++    for t in 0..base.txs.len() {
++        for k in holding_keys(&base, t) {
++            let mut inp = base.clone();
++            inp.txs[t].post.retain(|(x, _)| *x != k);
++            let r = verify_core::verify(&inp);
++            assert_ne!(r.verdict, Verdict::Pass, "tx#{t} {k}: {}", show(&r));
++            assert!(v7_missing(&r), "tx#{t} {k}: {}", show(&r));
++            n += 1;
++        }
++    }
++    println!("{n} dropped Holding post-states: none is a PASS");
++    assert!(n > 0);
++}
++
++#[test]
++fn an_archive_without_post_states_says_continuity_is_unjudged() {
++    let mut inp = land();
++    for r in inp.txs.iter_mut() {
++        r.post.clear();
++    }
++    let r = verify_core::verify(&inp);
++    assert_eq!(r.verdict, Verdict::Unverifiable, "{}", show(&r));
++    assert!(v7_missing(&r), "{}", show(&r));
++}

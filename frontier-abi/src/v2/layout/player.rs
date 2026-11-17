@@ -115,7 +115,7 @@ pub mod holding {
         UPKEEP @ 536 : "[i64;8]" = 64;
         QUEUE @ 600 : "rec:QueueItem x4" = 96;
         WALLS @ 696 : "u32" = 4;
-        RSV_700 @ 700 : "rsv" = 4;
+        LENT_WORKSHOPS @ 700 : "u32" = 4;
         WALLS_COMMITTED_BEFORE @ 704 : "i64" = 8;
         FOOD_SHORTFALL @ 712 : "i64" = 8;
         RESERVE @ 720 : "[u32;8]" = 32;
@@ -188,7 +188,10 @@ mod tests {
             ),
             (312, 313, 314, 315, 316, 320, 328, 344)
         );
-        same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV"]);
+        // Stage 2 proposal (workstream 09): the reserve at 700 holds the
+        // lent workshop copies (`Holding::lent_workshops`).
+        same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV", "RSV_700"]);
+        assert_eq!(holding::LENT_WORKSHOPS, 700);
         assert_eq!(citizen::SIEGES_TODAY, 145);
         assert_eq!(citizen::SIEGE_DAY, 150);
         assert_eq!(citizen::SLOTS, 187);

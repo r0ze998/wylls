@@ -15,6 +15,7 @@
 //! | [`ws`] | RFC 6455 frames, subscriptions, per-socket sequence and resync |
 //! | [`viewers`] | the viewer load generator (`frontier-viewers`) |
 //! | [`fixture`] | a synthetic mini-season archive (tests, load runs) |
+//! | `wide` | feature `wide-world-experimental` only: the captured Provinces as a read-only, paginated wide-coordinate world (`/h/world/wide`) |
 //!
 //! The herald is never a trust root: every answer carries raw account bytes
 //! with their slot and event head, and the clash report says which builder
@@ -34,6 +35,8 @@ pub mod standings;
 pub mod files;
 pub mod fixture;
 pub mod fold;
+#[cfg(feature = "local-play-bootstrap")]
+pub mod local_play;
 pub mod nation;
 pub mod overview;
 pub mod records;
@@ -44,6 +47,12 @@ pub mod server;
 pub mod structure;
 pub mod viewers;
 pub mod views;
+/// Experimental and opt-in (`--features wide-world-experimental`): the
+/// read-only recorded wide world over `frontier-abi`'s `world_index`.
+/// Absent from a default build, whose `/h/world/wide` answers
+/// `503 WideWorldUnavailable`.
+#[cfg(feature = "wide-world-experimental")]
+pub mod wide;
 pub mod world;
 pub mod ws;
 
@@ -92,3 +101,6 @@ mod tests {
         assert!(!super::port_allowed(8_080));
     }
 }
+
+#[cfg(feature = "wide-index-read-experimental")]
+pub mod wide_read;

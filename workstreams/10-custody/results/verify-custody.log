@@ -1,0 +1,8 @@
+test a_failed_custody_instruction_is_not_flagged ... ok
+test a_lot_account_in_a_season_without_custody_fails ... ok
+test a_custody_season_is_never_a_pass ... ok
+test custody_fields_in_a_vault_or_caravan_fail ... ok
+test baselines_are_not_flagged ... ok
+test a_landed_custody_instruction_in_a_season_without_custody_fails ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.76s
+exit=0

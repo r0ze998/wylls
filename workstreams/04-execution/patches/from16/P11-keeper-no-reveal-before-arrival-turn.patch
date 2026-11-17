@@ -1,0 +1,62 @@
+diff --git a/frontier-node/crates/keeper/src/play.rs b/frontier-node/crates/keeper/src/play.rs
+index 7000c43b..cdbc4a4b 100644
+--- a/frontier-node/crates/keeper/src/play.rs
++++ b/frontier-node/crates/keeper/src/play.rs
+@@ -1047,6 +1047,10 @@ impl PlayDuty {
+             if d.arrive >= t.season.end_bell {
+                 continue;
+             }
++            // ⑯ P11: no Reveal before the arrival turn starts, whatever holds the plaintext.
++            if t.now < t.season.genesis_ts + 600 * d.arrive as i64 {
++                continue;
++            }
+             let Some(st) = self.transits.get(k) else {
+                 continue;
+             };
+diff --git a/frontier-node/crates/keeper/src/reveal_accept.rs b/frontier-node/crates/keeper/src/reveal_accept.rs
+index 8db6eb3e..a95ecb2c 100644
+--- a/frontier-node/crates/keeper/src/reveal_accept.rs
++++ b/frontier-node/crates/keeper/src/reveal_accept.rs
+@@ -148,6 +148,23 @@ pub fn judge(req: &RevealReq, r: &Reads, now: i64) -> Result<Accepted, Refusal>
+             ),
+         ));
+     }
++    // ⑯ P11: the owner's plaintext is taken from the arrival turn's start,
++    // never earlier (this crate's play.rs table: "owner material from
++    // `/v1/reveal` (from the bell start)"; M1 contract §9.3 for the page).
++    // Earlier, a Reveal would put the destination on chain while the march
++    // is still on the road.
++    let opens = s.genesis_ts + 600 * tr.arrive_bell as i64;
++    if now < opens {
++        return Err(refuse(
++            425,
++            "TooEarly",
++            format!(
++                "arrival bell {} starts at {opens}: owner material is taken from then ({} s early)",
++                tr.arrive_bell,
++                opens - now
++            ),
++        ));
++    }
+     // 2. The plaintext against the transit.
+     let p = seal::unpack(&req.plain);
+     seal::validate(&p, tr.host_id, tr.arrive_bell)
+diff --git a/frontier-node/crates/keeper/tests/reveal_accept.rs b/frontier-node/crates/keeper/tests/reveal_accept.rs
+index d983d4e2..b0bcd21b 100644
+--- a/frontier-node/crates/keeper/tests/reveal_accept.rs
++++ b/frontier-node/crates/keeper/tests/reveal_accept.rs
+@@ -141,6 +141,14 @@ async fn reveal_accept_over_localnet() {
+         "ct_hash_b64": B64.encode(ct),
+     });
+ 
++    // ⑯ P11: before the arrival turn starts, the material is refused (425 TooEarly) and nothing is queued.
++    let (c, v) = call(a, &token, good.clone()).await;
++    assert_eq!((c, v["code"].as_str()), (425, Some("TooEarly")), "{v}");
++    assert_eq!(k.shared.lock().unwrap().reveals.len(), 0);
++    while w.now() < s.genesis_ts + 600 * arrive as i64 {
++        k.tick().await.unwrap();
++        w.step();
++    }
+     // Accepted, queued once.
+     let (c, v) = call(a, &token, good.clone()).await;
+     assert_eq!(c, 202, "{v}");

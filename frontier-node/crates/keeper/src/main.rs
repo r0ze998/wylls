@@ -1,10 +1,10 @@
-//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed]`
+//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed] [--require-existing-journal] [--observe-wide]`
 //!
 //! Loads `keeper.toml` (M1 contract §8.2), takes the process lock of its
 //! journal, reconciles in-flight attempts, then ticks once per slot against
 //! the first RPC URL (the local chain node or a validator) and the drand
-//! URLs (`drand-replay` on loopback; HTTPS endpoints wait for a TLS client,
-//! W1-F request R4). The loopback API serves when `api` is set, with the
+//! URLs (`drand-replay` on loopback over http, or live drand over https
+//! through fclient's verified curl GET; the chain is pinned, see below). The loopback API serves when `api` is set, with the
 //! `/v1/reveal` accept path reading the same RPC (W3-C).
 //! `--init-seed` writes a fresh 32-byte master seed (mode 0600) and exits.
 //! With `FRONTIER_KEEPER_TICK_LOG=1` every tick prints one `TICK` line to
@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use fclient::beacon::{parse_info_json, HttpDrand};
+use fclient::beacon::HttpDrand;
 use fclient::rpc::RpcPort;
 use keeper_core::config::KeeperConfig;
 use keeper_core::journal::{self, Journal};
@@ -23,9 +23,13 @@ use keeper_core::{api, Keeper};
 
 fn usage() -> ! {
     eprintln!(
-        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed]"
+        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide] [--follow-wide] [--review-wide <version_hex>:<ruleset_hash_hex>]"
     );
     std::process::exit(2);
+}
+
+fn fatal_tick_error(error: &str) -> bool {
+    error.contains(keeper_core::play::FATAL_JOURNAL_MARKER)
 }
 
 fn read_seed(p: &PathBuf) -> Result<[u8; 32], String> {
@@ -59,7 +63,17 @@ fn write_seed(p: &PathBuf) -> Result<(), String> {
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut cfg_path = None;
-    let (mut dev, mut init) = (false, false);
+    let (mut dev, mut init, mut require_existing_journal) = (false, false, false);
+    #[cfg(feature = "wide-world-experimental")]
+    let mut observe_wide = false;
+    // `--follow-wide`: the read-only observation follower after the legacy
+    // feed gate (needs `--observe-wide`). Off unless named.
+    #[cfg(feature = "wide-world-experimental")]
+    let mut follow_wide = false;
+    // `--review-wide <program_version_hex>:<ruleset_hash_hex>`: the pinned
+    // deployment of the read-only wide review (needs `--observe-wide`).
+    #[cfg(feature = "wide-world-experimental")]
+    let mut review_wide: Option<keeper_core::wideduty::Deployment> = None;
     let mut peace: Option<f64> = None;
     let mut i = 1;
     while i < args.len() {
@@ -69,6 +83,26 @@ async fn main() {
                 i += 1;
             }
             "--dev" => dev = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--observe-wide" => observe_wide = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--follow-wide" => follow_wide = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--review-wide" => {
+                let spec = args.get(i + 1).cloned().unwrap_or_else(|| usage());
+                let (v, h) = spec.split_once(':').unwrap_or_else(|| usage());
+                let program_version =
+                    u16::from_str_radix(v.trim_start_matches("0x"), 16).unwrap_or_else(|_| usage());
+                let ruleset_hash: [u8; 32] = hex::decode(h)
+                    .ok()
+                    .and_then(|b| b.try_into().ok())
+                    .unwrap_or_else(|| usage());
+                review_wide = Some(keeper_core::wideduty::Deployment {
+                    program_version,
+                    ruleset_hash,
+                });
+                i += 1;
+            }
             "--peace-start" => {
                 let f: f64 = args
                     .get(i + 1)
@@ -79,11 +113,20 @@ async fn main() {
                 i += 1;
             }
             "--init-seed" => init = true,
+            "--require-existing-journal" => require_existing_journal = true,
             _ => usage(),
         }
         i += 1;
     }
     let Some(cfg_path) = cfg_path else { usage() };
+    if init && require_existing_journal {
+        usage();
+    }
+    #[cfg(feature = "wide-world-experimental")]
+    if follow_wide && !observe_wide {
+        eprintln!("--follow-wide needs --observe-wide");
+        usage();
+    }
     let text = std::fs::read_to_string(&cfg_path).unwrap_or_else(|e| {
         eprintln!("{cfg_path}: {e}");
         std::process::exit(2)
@@ -124,7 +167,12 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(1)
     });
-    let journal = Journal::open(&jpath).unwrap_or_else(|e| {
+    let journal = (if require_existing_journal {
+        Journal::open_existing(&jpath)
+    } else {
+        Journal::open(&jpath)
+    })
+    .unwrap_or_else(|e| {
         eprintln!("{}: {e}", jpath.display());
         std::process::exit(1)
     });
@@ -136,31 +184,32 @@ async fn main() {
         eprintln!("keeper.toml: `drand` is empty");
         std::process::exit(2)
     }
-    // Chain info from the first drand URL that answers (drand-replay serves
-    // the test key's info in --test-key mode, I-53).
+    // The pinned chain the drand URLs serve: quicknet, or the I-53 test key
+    // when every URL is loopback (drand-replay --test-key). Served info that
+    // differs from the pin in any field is refused (live drand over https
+    // goes through fclient's verified curl GET).
+    let pins = fclient::beacon::pins_for(&cfg.drand);
     let mut info = None;
+    let mut why = String::new();
     for _attempt in 0..40 {
-        for u in &cfg.drand {
-            let url = format!("{}/info", u.trim_end_matches('/'));
-            if let Ok(r) = fclient::http::get(&url).await {
-                if let Some(i) = serde_json::from_slice(&r.body)
-                    .ok()
-                    .and_then(|v| parse_info_json(&v))
-                {
-                    info = Some(i);
-                    break;
-                }
+        match fclient::beacon::discover_pinned(&cfg.drand, &pins).await {
+            Ok(i) => {
+                info = Some(i);
+                break;
             }
-        }
-        if info.is_some() {
-            break;
+            Err(e) => why = e,
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     let Some(info) = info else {
-        eprintln!("no drand URL answered /info");
+        eprintln!("no drand URL served a pinned chain: {why}");
         std::process::exit(1)
     };
+    eprintln!(
+        "frontier-keeper: drand chain {} ({})",
+        hex::encode(info.chain_hash),
+        info.beacon_id
+    );
     let port = RpcPort::localnet(rpc.clone(), cfg.program);
     // The `/v1/reveal` accept path reads the chain through its own client.
     let gate: std::sync::Arc<dyn keeper_core::reveal_accept::RevealGate> =
@@ -189,6 +238,41 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(2)
     });
+    // Explicit read-only observation; this never relaxes the feed/write guards.
+    #[cfg(feature = "wide-world-experimental")]
+    if observe_wide {
+        k.enable_wide_observation(keeper_core::wideindex::Limits::default())
+            .unwrap_or_else(|e| {
+                eprintln!("wide observation: {e}");
+                std::process::exit(2)
+            });
+    }
+    // Read-only observation after the legacy feed gate blocks: the
+    // follower's own cursor, the same observer; no legacy cursor, gate,
+    // signature or completeness claim.
+    #[cfg(feature = "wide-world-experimental")]
+    if follow_wide {
+        k.enable_wide_follow().unwrap_or_else(|e| {
+            eprintln!("wide follow: {e}");
+            std::process::exit(2)
+        });
+    }
+    // Read-only review of the observer's candidates under the pinned
+    // deployment; plans and reviews only, never enqueues.
+    #[cfg(feature = "wide-world-experimental")]
+    if let Some(dep) = review_wide {
+        k.enable_wide_review(dep).unwrap_or_else(|e| {
+            eprintln!("wide review: {e}");
+            std::process::exit(2)
+        });
+        // The same-response snapshot through the keeper's own read port
+        // (the JSON-RPC port implements `SnapshotPort`): one
+        // getMultipleAccounts per reviewed plan, no second client.
+        k.enable_wide_snapshot_via_port().unwrap_or_else(|e| {
+            eprintln!("wide snapshot: {e}");
+            std::process::exit(2)
+        });
+    }
     if let Some(seed) = claim_seed {
         let kp = fclient::Keypair::new_from_array(seed);
         if let Err(e) = k.set_claim_key(kp) {
@@ -198,7 +282,7 @@ async fn main() {
     }
     let running = match api_addr {
         Some(a) => Some(
-            api::serve_with(a, k.shared.clone(), token, Some(gate))
+            api::serve_full(a, k.shared.clone(), token, Some(gate), Some(jpath.clone()))
                 .await
                 .unwrap_or_else(|e| {
                     eprintln!("api: {e}");
@@ -229,6 +313,10 @@ async fn main() {
                         eprintln!("IDLE{}", &r.line(t0.elapsed().as_millis() as u64)[4..]);
                     }
                     Ok(_) => {}
+                    Err(e) if fatal_tick_error(&e) => {
+                        eprintln!("tick: {e}; stopping keeper to preserve accepted Reveal material");
+                        std::process::exit(1);
+                    }
                     Err(e) => eprintln!("tick: {e}"),
                 }
             }
@@ -237,5 +325,19 @@ async fn main() {
     }
     if let Some(r) = running {
         r.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reveal_journal_failure_stops_keeper_but_transient_tick_error_does_not() {
+        assert!(fatal_tick_error(&format!(
+            "Io(\"{} owner material read failed\")",
+            keeper_core::play::FATAL_JOURNAL_MARKER
+        )));
+        assert!(!fatal_tick_error("Io(\"temporary RPC timeout\")"));
     }
 }

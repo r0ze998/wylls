@@ -20,6 +20,13 @@
 //! (integ-W2 review of W2-F). A segment shorter than its manifest entry is
 //! corruption and refuses to open.
 //!
+//! **Codec (round 13, TEST-ONLY, a new archive only).** [`Archive::open_with`] with [`Codec::GzipV1`] stores each
+//! frame's payload gzip-compressed (the frame's length and sha256 prefix are those of the STORED bytes, so the frame
+//! check, the torn-tail truncation and the sealed segments' sha256 work as before) and records `"codec": "gzip-v1"` in
+//! the manifest. Every read decodes, bounded by [`crate::codec::FRAME_DECODE_MAX`], before the record and its sequence are
+//! checked as before. An archive is never reopened with another codec than it records ([`Archive::open_with`] refuses).
+//! [`Archive::open`] is [`Codec::Plain`]: no `codec` key, the same bytes as before.
+//!
 //! **Group commit (W5-C).** With [`Archive::commit_every`] = 0 (the
 //! default) every [`Archive::append`] is durable when it returns: the
 //! batch's frames are synced once, then the manifest. With an interval
@@ -40,6 +47,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::codec::{Codec, FRAME_DECODE_MAX};
 use fclient::ports::{Account, TxRecord};
 use fclient::rpc::{account_json, parse_account};
 
@@ -241,15 +249,37 @@ pub struct Archive {
     unsynced: Option<File>,
     /// The in-memory manifest differs from the durable one.
     dirty: bool,
+    /// How frame payloads are stored (module note); recorded in the manifest unless the default.
+    codec: Codec,
+    /// The most one frame's payload may decode to (with a codec, enforced on write and on read).
+    frame_max: usize,
 }
 
 impl Archive {
     /// Opens (or creates) the archive in `dir`; segments roll at `segment_bytes`.
     pub fn open(dir: &Path, segment_bytes: u64) -> io::Result<Archive> {
+        Archive::open_with(dir, segment_bytes, Codec::Plain)
+    }
+
+    /// [`Archive::open`] with a frame codec (module note). A new archive records it; an existing one must record the
+    /// same codec, or nothing is opened (never a mixed archive).
+    pub fn open_with(dir: &Path, segment_bytes: u64, codec: Codec) -> io::Result<Archive> {
         fs::create_dir_all(dir)?;
         let mp = dir.join("manifest.json");
         let manifest = if mp.exists() {
             let v: Value = serde_json::from_slice(&fs::read(&mp)?).map_err(io_err)?;
+            let recorded = match v.get("codec") {
+                None => Codec::Plain,
+                Some(Value::String(w)) => Codec::from_word(Some(w)).map_err(io_err)?,
+                Some(_) => return Err(io_err("manifest: codec")),
+            };
+            if recorded != codec {
+                return Err(io_err(format!(
+                    "the archive records codec {:?}, it was opened with {:?}: a store is never reopened in another codec",
+                    recorded.word().unwrap_or("plain"),
+                    codec.word().unwrap_or("plain")
+                )));
+            }
             Manifest::from_json(&v).map_err(io_err)?
         } else {
             Manifest {
@@ -298,6 +328,8 @@ impl Archive {
             last_commit: std::time::Instant::now(),
             unsynced: None,
             dirty: false,
+            codec,
+            frame_max: FRAME_DECODE_MAX,
         };
         a.write_manifest()?;
         Ok(a)
@@ -306,7 +338,11 @@ impl Archive {
     fn write_manifest(&self) -> io::Result<()> {
         let tmp = self.dir.join("manifest.json.tmp");
         let mut f = File::create(&tmp)?;
-        f.write_all(&serde_json::to_vec_pretty(&self.manifest.to_json()).map_err(io_err)?)?;
+        let mut m = self.manifest.to_json();
+        if let Some(w) = self.codec.word() {
+            m["codec"] = json!(w);
+        }
+        f.write_all(&serde_json::to_vec_pretty(&m).map_err(io_err)?)?;
         f.sync_all()?;
         fs::rename(&tmp, self.dir.join("manifest.json"))?;
         if let Ok(d) = File::open(&self.dir) {
@@ -331,11 +367,49 @@ impl Archive {
     /// the frames of one segment are written through one handle and synced
     /// once, before the segment is sealed or a manifest names them.
     pub fn append(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
+        self.append_inner(recs, cursor, false)
+    }
+
+    /// [`Archive::append`] for an ordered feed whose `seq` is the node's
+    /// ledger number (`LocalnetFeed`): each frame also keeps that number as
+    /// `feed_seq` ([`Archive::for_each_after_feed`]), since the archive
+    /// renumbers `seq` with its own sequence.
+    pub fn append_feed(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
+        self.append_inner(recs, cursor, true)
+    }
+
+    fn append_inner(
+        &mut self,
+        recs: &[TxRecord],
+        cursor: Value,
+        keep_feed_seq: bool,
+    ) -> io::Result<Vec<TxRecord>> {
         let mut out = Vec::with_capacity(recs.len());
-        for r in recs {
+        // (round 13 review: every frame of the batch is built and checked BEFORE any is written. With a codec, a record
+        //  whose JSON is longer than a frame may decode to is refused and nothing of the batch is written — never a record
+        //  this archive could not read back. The default is unchanged: no limit, the same bytes.)
+        let mut staged = Vec::with_capacity(recs.len());
+        for (i, r) in recs.iter().enumerate() {
             let mut r = r.clone();
-            r.seq = self.manifest.next_seq;
-            let payload = serde_json::to_vec(&record_to_json(&r)).map_err(io_err)?;
+            let feed_seq = r.seq;
+            r.seq = self.manifest.next_seq + i as u64;
+            let mut v = record_to_json(&r);
+            if keep_feed_seq {
+                v["feed_seq"] = json!(feed_seq);
+            }
+            let raw = serde_json::to_vec(&v).map_err(io_err)?;
+            if self.codec != Codec::Plain && raw.len() > self.frame_max {
+                return Err(io_err(format!(
+                    "record {} is {} B as JSON, over the {} B a {} frame may decode to: refused, nothing of this batch written",
+                    r.seq,
+                    raw.len(),
+                    self.frame_max,
+                    self.codec.word().unwrap_or("plain")
+                )));
+            }
+            staged.push((r, self.codec.encode(&raw)));
+        }
+        for (r, payload) in staged {
             let fr = frame(&payload);
             let roll = match self.manifest.segments.last() {
                 None => true,
@@ -417,6 +491,16 @@ impl Archive {
         Ok(())
     }
 
+    /// Every record with `seq > after` and its `feed_seq`, in order.
+    pub fn read_after_feed(&self, after: u64) -> io::Result<Vec<(TxRecord, Option<u64>)>> {
+        let mut out = vec![];
+        self.for_each_after_feed(after, |r, f| {
+            out.push((r, f));
+            Ok(())
+        })?;
+        Ok(out)
+    }
+
     /// Every record with `seq > after`, in order.
     pub fn read_after(&self, after: u64) -> io::Result<Vec<TxRecord>> {
         let mut out = vec![];
@@ -431,22 +515,65 @@ impl Archive {
     /// memory at a time (a season's archive does not fit in memory as
     /// records; the herald's catch-up reads it this way). Returns the
     /// number of records given to `f`; an error of `f` stops the walk.
+    ///
+    /// A segment that does not read back as its manifest entry says (bytes,
+    /// record count, contiguous sequence from `first_seq`) is an error
+    /// naming it: a damaged or rewritten part of the archive must never read
+    /// as a shorter one (the herald's fold and the index would be short
+    /// with no sign of it). Sealing, compaction or checkpoints added later
+    /// keep this: a reader gets every record of its range or an error.
+    ///
+    /// This checks what the archive holds against its own manifest, nothing
+    /// more. Passing it does not make the history complete: transactions the
+    /// archive never received (a first pull, a missing or older cursor, a
+    /// range a node lacks in the middle) leave no damaged segment, so the
+    /// walk succeeds without them.
     pub fn for_each_after(
         &self,
         after: u64,
         mut f: impl FnMut(TxRecord) -> io::Result<()>,
+    ) -> io::Result<u64> {
+        self.for_each_after_feed(after, |r, _| f(r))
+    }
+
+    /// [`Archive::for_each_after`] with each record's `feed_seq` (the
+    /// node's ledger number, kept by [`Archive::append_feed`]; `None` for a
+    /// record appended without it, e.g. archived before it was kept).
+    pub fn for_each_after_feed(
+        &self,
+        after: u64,
+        mut f: impl FnMut(TxRecord, Option<u64>) -> io::Result<()>,
     ) -> io::Result<u64> {
         let mut n = 0;
         for s in &self.manifest.segments {
             if s.records == 0 || s.last_seq <= after {
                 continue;
             }
-            let (frames, _) = read_frames(&self.dir.join(&s.name), s.bytes)?;
-            for p in frames {
+            let (frames, good) = read_frames(&self.dir.join(&s.name), s.bytes)?;
+            if good != s.bytes || frames.len() as u64 != s.records {
+                return Err(io_err(format!(
+                    "{}: {good} of {} B and {} of {} records readable: the archive is damaged",
+                    s.name,
+                    s.bytes,
+                    frames.len(),
+                    s.records
+                )));
+            }
+            for (expect, p) in (s.first_seq..).zip(frames) {
+                let p = self
+                    .codec
+                    .decode(&p, self.frame_max)
+                    .map_err(|e| io_err(format!("{}: {e}", s.name)))?;
                 let v: Value = serde_json::from_slice(&p).map_err(io_err)?;
                 let r = record_from_json(&v).map_err(io_err)?;
+                if r.seq != expect {
+                    return Err(io_err(format!(
+                        "{}: seq {}, expected {expect}: the archive is damaged",
+                        s.name, r.seq
+                    )));
+                }
                 if r.seq > after {
-                    f(r)?;
+                    f(r, v.get("feed_seq").and_then(|x| x.as_u64()))?;
                     n += 1;
                 }
             }
@@ -477,6 +604,10 @@ impl Archive {
                 return Err(format!("{}: corrupt frame after {good} B", s.name));
             }
             for f in frames {
+                let f = self
+                    .codec
+                    .decode(&f, self.frame_max)
+                    .map_err(|e| format!("{}: {e}", s.name))?;
                 let v: Value = serde_json::from_slice(&f).map_err(|e| e.to_string())?;
                 let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
                 if seq != expect {
@@ -493,6 +624,11 @@ impl Archive {
             ));
         }
         Ok(expect - 1)
+    }
+
+    /// The codec this archive stores frames with.
+    pub fn codec(&self) -> Codec {
+        self.codec
     }
 
     /// Byte size of the open segment on disk (tests).
@@ -649,6 +785,58 @@ mod tests {
         );
         assert_eq!(Archive::open(&d, 600).unwrap().verify(), Ok(12));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn with_a_codec_a_record_it_could_not_read_back_is_refused_before_anything_is_written() {
+        let d = tmp("frame-limit");
+        let mut a = Archive::open_with(&d, 600_000, Codec::GzipV1).unwrap();
+        a.append(&[rec(1)], json!(1)).unwrap();
+        a.commit().unwrap();
+        let (seq, len, m) = (
+            a.manifest.next_seq,
+            a.open_segment_len().unwrap(),
+            fs::read(d.join("manifest.json")).unwrap(),
+        );
+        // the limit just under the second record's JSON: the batch is refused, the record before it in the batch too
+        let big = {
+            let mut r = rec(3);
+            r.post[0].1.as_mut().unwrap().data = vec![7; 4096];
+            r
+        };
+        a.frame_max = serde_json::to_vec(&record_to_json(&TxRecord {
+            seq: seq + 1,
+            ..big.clone()
+        }))
+        .unwrap()
+        .len()
+            - 1;
+        let e = a
+            .append(&[rec(2), big.clone()], json!(2))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("refused, nothing of this batch written"), "{e}");
+        assert_eq!(a.manifest.next_seq, seq, "no sequence taken");
+        assert_eq!(a.open_segment_len().unwrap(), len, "no byte written");
+        a.commit().unwrap();
+        assert_eq!(
+            fs::read(d.join("manifest.json")).unwrap(),
+            m,
+            "the manifest is as it was"
+        );
+        // the archive goes on: a record within the limit is appended and every record reads back
+        a.append(&[rec(2)], json!(3)).unwrap();
+        a.commit().unwrap();
+        assert_eq!(a.read_after(0).unwrap().len(), 2);
+        assert_eq!(a.verify().unwrap(), 2);
+        // the default has no such limit: the same record is stored as before
+        let p = tmp("frame-limit-plain");
+        let mut b = Archive::open(&p, 600_000).unwrap();
+        b.frame_max = 10;
+        b.append(&[big], json!(1)).unwrap();
+        assert_eq!(b.read_after(0).unwrap().len(), 1);
+        let _ = fs::remove_dir_all(d);
+        let _ = fs::remove_dir_all(p);
     }
 
     #[test]

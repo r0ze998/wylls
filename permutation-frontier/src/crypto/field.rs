@@ -64,12 +64,13 @@ pub fn sqr<F: ark_ff::Field>(a: F) -> F {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use ark_bls12_381::Fq;
-    use ark_ff::{One, Zero};
-
+    // Imports live inside the test: `harness = false` targets path-include
+    // this file under cfg(test) without its #[test] functions.
     #[test]
     fn be_codec_round_trips_and_refuses_non_canonical() {
+        use super::*;
+        use ark_bls12_381::Fq;
+        use ark_ff::{One, Zero};
         let x: Fq = from_be_mod(&[0xAB; 64]);
         let mut b = [0u8; 48];
         to_be::<Fq, 6>(&x, &mut b);

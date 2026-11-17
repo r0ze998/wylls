@@ -18,7 +18,7 @@ use fclient::decode::Frontier;
 use fclient::ix;
 use fclient::ports::{ChainPort, PortResult};
 
-use crate::engine::{BuildCtx, Engine, WriteSpec};
+use crate::engine::{BuildCtx, CancelReason, Engine, WriteSpec};
 use crate::Tick;
 
 pub fn fold_key(bell: u32, part: u8) -> String {
@@ -77,7 +77,7 @@ impl FoldDuty {
         // A part of an older bell is stale: drop it.
         if let Some((b, p)) = self.pending {
             if b != bell {
-                engine.cancel(&fold_key(b, p));
+                engine.cancel(&fold_key(b, p), CancelReason::StaleBell);
                 self.pending = None;
             } else if engine.is_pending(&fold_key(b, p)) {
                 return Ok(());

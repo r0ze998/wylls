@@ -45,6 +45,14 @@ use crate::cqfmt::{
 use crate::fold::{Diff, Fold, Scope};
 use crate::OVERVIEW_RECORD;
 
+#[path = "player_siege_index.rs"]
+mod player_siege_index;
+pub use player_siege_index::SiegeHistories;
+
+#[cfg(test)]
+#[path = "player_siege_index_tests.rs"]
+mod player_siege_index_tests;
+
 /// Alerts kept per wallet for `/h/me` (newest last).
 pub const ALERTS_PER_WALLET: usize = 32;
 /// Control bells a day file waits after its last bell, so that MARCH_FOLD
@@ -160,7 +168,7 @@ pub struct Cq {
     /// Events of the days not yet written (and of later ones).
     pub days: BTreeMap<u32, Vec<ConquestEvent>>,
     /// Every siege of the season.
-    pub sieges: BTreeMap<(i16, i16, u8, u32), SiegeHistory>,
+    pub sieges: SiegeHistories,
     /// The latest siege declared on a site.
     pub site_siege: BTreeMap<(i16, i16, u8), u32>,
     pub keeps: BTreeMap<(i16, i16), KeepHistory>,
@@ -251,6 +259,8 @@ fn record_key(kind: CqKind, key: &[u8]) -> String {
             (_, 1) => rd_u8(key, o).map(|x| x.to_string()),
             (_, 4) => rd_u32(key, o).map(|x| x.to_string()),
             (_, 8) => rd_u64(key, o).map(|x| x.to_string()),
+            // ⑳ RESIDENT_JOINED's resident ID (the only 15-B key field).
+            ("resident", 15) => key.get(o..o + 15).map(hex::encode),
             _ => None,
         };
         parts.push(v.unwrap_or_default());
@@ -303,19 +313,20 @@ impl Cq {
         std::mem::take(&mut f.cq)
     }
 
-    /// Citizen tags → wallet and faction, from every captured Citizen.
+    /// Citizen tags → the `/h/me` key and faction, from every captured
+    /// Citizen. The key is the wallet; for a ⑳ NFT-resident Citizen
+    /// (WALLET zero, `nft-experimental` programs) it is the Core asset, so
+    /// NFT Citizens' alerts never pool under the zero wallet. A flagged
+    /// Citizen without a resident asset is not indexed.
     fn index_tags(&mut self, f: &Fold, tx: Option<&TxRecord>) {
         use frontier_abi::layout::player::citizen as C;
         let mut add = |d: &[u8]| {
             if kind_v1(d) != Some(frontier_abi::layout::AccountKind::Citizen) {
                 return;
             }
-            if let (Some(tag), Some(w), Some(fac)) = (
-                rd_u64(d, C::CITIZEN_TAG),
-                d.get(C::WALLET..C::WALLET + 32)
-                    .and_then(|x| <[u8; 32]>::try_from(x).ok()),
-                rd_u8(d, C::FACTION),
-            ) {
+            if let (Some(tag), Some(w), Some(fac)) =
+                (rd_u64(d, C::CITIZEN_TAG), me_key(d), rd_u8(d, C::FACTION))
+            {
                 if tag != 0 {
                     self.tags.insert(tag, (w, fac));
                 }
@@ -389,6 +400,12 @@ impl Cq {
         let d = *self.site_siege.get(&(p, q, site))?;
         self.sieges.get_mut(&(p, q, site, d))
     }
+
+    fn end_siege(&mut self, p: i16, q: i16, site: u8, end: SiegeEnd) {
+        if let Some(&d) = self.site_siege.get(&(p, q, site)) {
+            self.sieges.end((p, q, site, d), end);
+        }
+    }
 }
 
 // ------------------------------------------------------------------ hook 1: records
@@ -398,7 +415,9 @@ impl Cq {
 pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     let Ok(r) = v2log::decode(body) else {
         // An undecodable body of an MC kind is counted here, not as M1's.
-        if body.len() >= 2 && (80..=94).contains(&body[1]) {
+        if body.len() >= 2
+            && ((80..=94).contains(&body[1]) || body[1] == CqKind::RESIDENT_JOINED as u8)
+        {
             f.st.alarms.bad_records += 1;
             f.cq.alarms.bad_records += 1;
             return true;
@@ -452,6 +471,8 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
             .and_then(|e| e.province())
             .map_or(Scope::None, |(p, q)| Scope::Province(p, q)),
         CqKind::MARCH_FOLD => Scope::None,
+        // ⑳: a Citizen's start has no Province (its key is a resident ID).
+        CqKind::RESIDENT_JOINED => Scope::None,
         CqKind::RETIRE => rd_u64(r.key, 0)
             .and_then(frontier_abi::addr::split_host_id)
             .map_or(Scope::None, |h| Scope::Province(h.province.p, h.province.q)),
@@ -551,6 +572,10 @@ fn fold_record(
         detail,
     };
     match kind {
+        // ⑳ RESIDENT_JOINED: numbered and sent as an event above; the
+        // Citizen itself is indexed from its account (`index_tags`, keyed by
+        // its Core asset), as a JOINed Citizen is.
+        CqKind::RESIDENT_JOINED => {}
         CqKind::SIEGE_DECLARED => {
             let site = rd_u8(r.key, 8).unwrap_or(0);
             let target = p8(r, "target");
@@ -815,6 +840,25 @@ fn fold_record(
         | CqKind::NATION_DECIDED
         | CqKind::RAID_OPENED
         | CqKind::FORT_GARRISONED => {}
+        // Custody (workstream 10): no herald feed yet (the lots feed is an
+        // integration item, `workstreams/10-custody/02-contract.ja.md` §10).
+        CqKind::LOT_OPENED
+        | CqKind::LOT_QUOTA
+        | CqKind::LOT_INBOUND
+        | CqKind::LOT_SHIPPED
+        | CqKind::LOT_SETTLED
+        | CqKind::LOT_ORDER
+        | CqKind::LOT_REVOKED
+        | CqKind::LOT_CONSUMED
+        | CqKind::LOT_LOSS => {}
+        // 02-rights (proposal): the Grant's records are not conquest events
+        // either; no herald feed reads them yet.
+        CqKind::GRANT_ISSUED
+        | CqKind::SWAP_RESERVED
+        | CqKind::SWAP_EXECUTED
+        | CqKind::SWAP_RELEASED
+        | CqKind::GRANT_REVOKED
+        | CqKind::GRANT_CLOSED => {}
         // Map growth: a FastForward's rest. Its bells reach the files
         // through the Province's bytes (`after_records`) or, earlier, the
         // herald's own projection (`crate::rest`); the record's digest is
@@ -836,6 +880,10 @@ fn fold_record(
                 }
             }
         }
+        // ExtendFrontier (map growth): the new outermost ring is the
+        // Frontier account's `r_max_ext`, read by `/h/world` and the
+        // season record (`world::r_max`); the record names no Province.
+        CqKind::FRONTIER_EXTENDED => {}
     }
 }
 
@@ -975,16 +1023,17 @@ fn conquest_event(
                 ),
                 wt,
             );
-            if let Some(t) = cq.track_mut(p16, q16, site) {
-                if t.end.is_none() {
-                    t.end = Some(SiegeEnd {
-                        bell: b,
-                        outcome: SiegeOutcome::Failed,
-                        broken_by_defender: detail_bit,
-                        credited: None,
-                    });
-                }
-            }
+            cq.end_siege(
+                p16,
+                q16,
+                site,
+                SiegeEnd {
+                    bell: b,
+                    outcome: SiegeOutcome::Failed,
+                    broken_by_defender: detail_bit,
+                    credited: None,
+                },
+            );
         }
         event::OCCUPIED => {
             cq.contest.sieges_completed += 1;
@@ -1008,16 +1057,17 @@ fn conquest_event(
                 ),
                 wt,
             );
-            if let Some(t) = cq.track_mut(p16, q16, site) {
-                if t.end.is_none() {
-                    t.end = Some(SiegeEnd {
-                        bell: b,
-                        outcome: SiegeOutcome::Occupied,
-                        broken_by_defender: false,
-                        credited: None,
-                    });
-                }
-            }
+            cq.end_siege(
+                p16,
+                q16,
+                site,
+                SiegeEnd {
+                    bell: b,
+                    outcome: SiegeOutcome::Occupied,
+                    broken_by_defender: false,
+                    credited: None,
+                },
+            );
             let a = json!({"v": 1, "kind": "occupied", "bell": b, "p": p, "q": q, "site": site,
                 "faction": e.faction, "seq": seq.to_string(), "sig": sig});
             cq.alert(f, owner, a, tx.slot);
@@ -1054,16 +1104,17 @@ fn conquest_event(
                 ),
                 wt,
             );
-            if let Some(t) = cq.track_mut(p16, q16, site) {
-                if t.end.is_none() {
-                    t.end = Some(SiegeEnd {
-                        bell: b,
-                        outcome: SiegeOutcome::CaptureDue,
-                        broken_by_defender: false,
-                        credited: Some(detail_bit),
-                    });
-                }
-            }
+            cq.end_siege(
+                p16,
+                q16,
+                site,
+                SiegeEnd {
+                    bell: b,
+                    outcome: SiegeOutcome::CaptureDue,
+                    broken_by_defender: false,
+                    credited: Some(detail_bit),
+                },
+            );
             let a = json!({"v": 1, "kind": "captured", "bell": b, "p": p, "q": q, "site": site,
                 "faction": e.faction, "seq": seq.to_string(), "sig": sig});
             cq.alert(f, owner, a, tx.slot);
@@ -2046,7 +2097,8 @@ fn overview2(cq: &mut Cq, f: &mut Fold, slot: u64) {
         let mut b = start;
         while b < next && b - start < MAX_STEP {
             let rel = format!("h/overview/{d}/{b}.bin");
-            if let Some(v1) = f.out.path(&rel).and_then(|p| std::fs::read(p).ok()) {
+            // (files.rs `Out::read`: the same bytes in the default output; decompressed in the compact one)
+            if let Some(v1) = f.out.read(&rel) {
                 if let Some(file) = ov2_of(cq, f, &v1, d, b) {
                     match file.encode() {
                         Ok(bytes) => {
@@ -2319,19 +2371,12 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
         bells: vec![],
         banners: BTreeMap::new(),
     };
-    let first = (0..end).find(|b| {
-        f.out
-            .path(&format!("h/control/{b}.bin"))
-            .is_some_and(|p| p.is_file())
-    });
+    // (files.rs `Out::exists` / `Out::read`: the plain file in the default output, the `.gz` in the compact one)
+    let first = (0..end).find(|b| f.out.exists(&format!("h/control/{b}.bin")));
     let mut last_bytes = vec![];
     if let Some(first) = first {
         for b in first..end {
-            let Some(bytes) = f
-                .out
-                .path(&format!("h/control/{b}.bin"))
-                .and_then(|p| std::fs::read(p).ok())
-            else {
+            let Some(bytes) = f.out.read(&format!("h/control/{b}.bin")) else {
                 continue;
             };
             if let Ok(file) = ControlFile::decode(&bytes) {
@@ -2407,16 +2452,15 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
     // every siege's history (lapsed sieges end at end_bell)
     let keys: Vec<(i16, i16, u8, u32)> = cq.sieges.keys().copied().collect();
     for k in keys {
-        if let Some(t) = cq.sieges.get_mut(&k) {
-            if t.end.is_none() {
-                t.end = Some(SiegeEnd {
-                    bell: end,
-                    outcome: SiegeOutcome::Lapsed,
-                    broken_by_defender: false,
-                    credited: None,
-                });
-            }
-        }
+        cq.sieges.end(
+            k,
+            SiegeEnd {
+                bell: end,
+                outcome: SiegeOutcome::Lapsed,
+                broken_by_defender: false,
+                credited: None,
+            },
+        );
         if let Some(t) = cq.sieges.get(&k) {
             if let Ok(j) = t.to_json() {
                 let rel = format!("h/siege/{},{},{}/{}.json", k.0, k.1, k.2, k.3);
@@ -2448,6 +2492,43 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
 
 // ------------------------------------------------------------------ /h/me
 
+/// The `/h/me` key of a Citizen's bytes: its wallet, or the Core asset of
+/// a ⑳ NFT-resident Citizen (`None`: a flagged Citizen without an asset).
+pub(crate) fn me_key(d: &[u8]) -> Option<[u8; 32]> {
+    use frontier_abi::layout::player::citizen as C;
+    use frontier_abi::resident_citizen as rc;
+    if rc::is_flagged(d) {
+        return rc::resident_asset(d);
+    }
+    d.get(C::WALLET..C::WALLET + 32)
+        .and_then(|x| <[u8; 32]>::try_from(x).ok())
+}
+
+/// The Citizen address `/h/me/{key}` reads: the wallet's Citizen when it
+/// exists; otherwise the ⑳ NFT-resident Citizen of asset `key` when one
+/// exists and names that asset; otherwise the wallet's (absent) address,
+/// as before. A wallet Citizen's answer is unchanged.
+pub fn me_citizen(f: &Fold, key: &[u8; 32]) -> [u8; 32] {
+    me_citizen_in(&f.ctx, key, |a| f.account(a).map(|c| c.data.as_slice()))
+}
+
+fn me_citizen_in<'a>(
+    ctx: &frontier_abi::addr::AddrCtx,
+    key: &[u8; 32],
+    get: impl Fn(&[u8; 32]) -> Option<&'a [u8]>,
+) -> [u8; 32] {
+    use frontier_abi::resident_citizen as rc;
+    let wallet = ctx.citizen(key);
+    if get(&wallet).is_some() {
+        return wallet;
+    }
+    let nft = ctx.citizen_by_tag15(&rc::resident_tag15(key));
+    match get(&nft) {
+        Some(d) if rc::resident_asset(d) == Some(*key) => nft,
+        _ => wallet,
+    }
+}
+
 /// `/h/me` additions for an MC season: the wallet's alerts, the sieges
 /// on its holdings or by it, and its own `players.json` row (§8.4: "the
 /// caller's row via `/h/me`"; `null` before it has one).
@@ -2458,11 +2539,11 @@ pub fn me_additions(f: &Fold, wallet: &[u8; 32]) -> Option<(Value, Value, Value)
     use frontier_abi::layout::player::citizen as C;
     let alerts = Value::Array(f.cq.alerts.get(wallet).cloned().unwrap_or_default());
     let tag = f
-        .account(&f.ctx.citizen(wallet))
+        .account(&me_citizen(f, wallet))
         .and_then(|c| rd_u64(&c.data, C::CITIZEN_TAG));
     let mut sieges = vec![];
     if let Some(tag) = tag {
-        for t in f.cq.sieges.values().filter(|t| t.end.is_none()) {
+        for t in f.cq.sieges.active_for(tag) {
             let role = if t.owner == Some(tag) {
                 "owner"
             } else if t.attacker == tag {
@@ -2839,7 +2920,7 @@ pub fn status_json(f: &Fold) -> Value {
     let a = c.alarms;
     json!({
         "v": 1, "conquest": c.on, "controlNext": c.ct_next, "dayNext": c.day_next,
-        "sieges": c.sieges.values().filter(|s| s.end.is_none()).count(),
+        "sieges": c.sieges.active_count(),
         "keepsContested": c.keeps.values().filter(|k| k.contests.last().is_some_and(|x| x.outcome == ContestOutcome::Running)).count(),
         "standingsHours": c.series.as_ref().map_or(0, |s| s.hours.len()),
         "final": c.final_done,
@@ -2858,11 +2939,94 @@ pub fn tag_hex_of(tag: u64) -> String {
 mod tests {
     use super::*;
 
+    /// ⑳: literal addresses only — no key is generated, derived or signed.
+    mod resident {
+        use super::super::{me_citizen_in, me_key};
+        use frontier_abi::addr::AddrCtx;
+        use frontier_abi::resident_citizen::{mark, FLAG_RESIDENT, RESIDENT_FLAGS};
+        use frontier_abi::v2::layout::player::citizen as C;
+        use std::collections::BTreeMap;
+
+        const ASSET: [u8; 32] = [0x5a; 32];
+        const WALLET: [u8; 32] = [0x07; 32];
+
+        fn ctx() -> AddrCtx {
+            AddrCtx {
+                season: [0x22; 32],
+                program: [0x11; 32],
+            }
+        }
+        fn wallet_citizen() -> Vec<u8> {
+            let mut d = vec![0u8; C::SIZE];
+            d[C::WALLET..C::WALLET + 32].copy_from_slice(&WALLET);
+            d
+        }
+        fn nft_citizen() -> Vec<u8> {
+            let mut d = vec![0u8; C::SIZE];
+            assert!(mark(&mut d, &ASSET));
+            d
+        }
+
+        #[test]
+        fn a_resident_joined_record_is_keyed_by_its_resident_id() {
+            use frontier_abi::v2::log::CqKind;
+            let k = super::super::record_key(CqKind::RESIDENT_JOINED, &[0xab; 15]);
+            assert_eq!(k, format!("RESIDENT_JOINED:{}", "ab".repeat(15)));
+        }
+
+        #[test]
+        fn the_me_key_is_the_wallet_or_the_asset_never_zero() {
+            assert_eq!(me_key(&wallet_citizen()), Some(WALLET));
+            assert_eq!(me_key(&nft_citizen()), Some(ASSET));
+            let mut bad = wallet_citizen();
+            bad[RESIDENT_FLAGS] = FLAG_RESIDENT;
+            assert_eq!(me_key(&bad), None);
+        }
+
+        #[test]
+        fn me_reads_the_wallet_citizen_first_then_the_nft_citizen() {
+            let c = ctx();
+            let mut accts: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
+            let get = |m: &BTreeMap<[u8; 32], Vec<u8>>, k: &[u8; 32]| {
+                me_citizen_in(&c, k, |a| m.get(a).map(|d| d.as_slice()))
+            };
+            // Nothing captured: the wallet's address, as before.
+            assert_eq!(get(&accts, &ASSET), c.citizen(&ASSET));
+            accts.insert(c.citizen(&WALLET), wallet_citizen());
+            assert_eq!(get(&accts, &WALLET), c.citizen(&WALLET));
+            let nft = c.citizen_by_tag15(&frontier_abi::resident_citizen::resident_tag15(&ASSET));
+            accts.insert(nft, nft_citizen());
+            assert_eq!(get(&accts, &ASSET), nft);
+            // The zero wallet does not reach the NFT Citizen.
+            assert_eq!(get(&accts, &[0; 32]), c.citizen(&[0; 32]));
+            // An account at the NFT address naming another asset is not it.
+            let mut other = vec![0u8; C::SIZE];
+            assert!(mark(&mut other, &[0x6b; 32]));
+            accts.insert(nft, other);
+            assert_eq!(get(&accts, &ASSET), c.citizen(&ASSET));
+        }
+    }
+
     #[test]
     fn cq_empty_state_round_trips() {
         let c = Cq::default();
         let j = c.to_json();
         let d = Cq::from_json(&j).expect("decodes");
         assert_eq!(d.to_json(), j);
+    }
+
+    /// ExtendFrontier's record as the local world logged it (ring 5 → 6,
+    /// ceiling 8; `/h/events` `decoded`).
+    #[test]
+    fn record_json_names_a_frontier_extension() {
+        use base64::Engine;
+        let body = base64::engine::general_purpose::STANDARD
+            .decode("AWgDAAAABgAFAAgAAQITAAAAAAAAAIY5I3lZl64YQf+5mEzsYTDQTSoEcE/CD/007LR2fBEr")
+            .unwrap();
+        let j = record_json(&body).expect("decoded");
+        assert_eq!(j["name"], "FRONTIER_EXTENDED");
+        assert_eq!(j["key"]["d"], 6);
+        assert_eq!(j["payload"]["from"], 5);
+        assert_eq!(j["payload"]["ceiling"], 8);
     }
 }

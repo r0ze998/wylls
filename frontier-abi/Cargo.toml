@@ -21,5 +21,26 @@ path = "src/bin/abi-vectors.rs"
 [dependencies]
 permutation-rules = { path = "../permutation-rules" }
 
+[features]
+default = []
+# Experimental, opt-in reader and geometry foundation: `world_index` (wide i64
+# province coordinates, world-scoped keys, versioned host references and
+# a sparse paginated opened-province index). Off by default, so the
+# program, the vectors and every hash are built exactly as before; it adds
+# no dependency (I-03 holds).
+world-index-experimental = []
+# Host/localnet-only: the expedition dispatch wrapper's provisional conquest
+# kinds 12–17 (`world_index::expedition_dispatch_ix`). Off by default, so the
+# default decoder keeps refusing them; never a deployed allocation.
+conquest-dispatch-experimental = ["world-index-experimental"]
+# Workstream 09 (capacity lending), a preview: `capacity`, the instruction
+# tags 0xF0-0xFD, their data, account lists and addresses. Off by default:
+# no vector, hash or default-build change; no new dependency.
+capacity-preview = []
+# "Standing Ground" land, a preview: `land_preview`, the land record and its
+# reading of a v2 Province. Off by default: no vector, hash or default-build
+# change; no existing account written; no new dependency.
+land-preview = ["permutation-rules/land-preview"]
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

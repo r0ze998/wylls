@@ -62,7 +62,7 @@ function fakeChain() {
       const post = BigInt(c.accounts.get(payer)?.lamports ?? 0) - 5_000n * BigInt(tx.signers.length);
       return { value: { err: null, logs: [], unitsConsumed: 9_000, accounts: cfg.accounts.addresses.map(a => (a === payer ? { lamports: Number(post), data: ['', 'base64'] } : null)) } };
     },
-    sendRawTransaction: async raw => { const tx = parseTransaction(new Uint8Array(raw)); c.sent.push(tx); const sig = base58(tx.signatures[0]); if (c.landAll) c.statuses.set(sig, { slot: 88, confirmationStatus: 'confirmed', err: null }); return sig; },
+    sendRawTransaction: async raw => { const tx = parseTransaction(new Uint8Array(raw)); c.sent.push(tx); const sig = base58(tx.signatures[0]); if (c.landAll) c.statuses.set(sig, { slot: 88, confirmationStatus: 'finalized', err: null }); return sig; },
     getSignatureStatuses: async sigs => ({ value: sigs.map(s => c.statuses.get(s) ?? null) }),
   };
   return c;
@@ -159,13 +159,22 @@ test('sendWalls says why when the relay refuses (no holding read yet, a lost tra
   const io = await makeIo();
   assert.equal((await io.sendWalls()).code, 'NoHolding', 'nothing is sent before the seat\'s holding has been read');
   await io.readSeat();
+  const before = chain.sent.length;
   chain.landAll = false;
   try {
     const r = await io.sendWalls();
     assert.equal(r.ok, false);
     assert.equal(r.state, 'unknown');
     assert.equal(r.code, 'Unconfirmed');
-  } finally { chain.landAll = true; }
+  } finally {
+    chain.landAll = true;
+    // The shared relay keeps the uncertain attempt until chain finality.
+    // Resolve this fixture's send before the next test uses that relay.
+    if (chain.sent.length > before) {
+      const sig = base58(chain.sent.at(-1).signatures[0]);
+      chain.statuses.set(sig, { slot: 88, confirmationStatus: 'finalized', err: null });
+    }
+  }
 });
 
 test('the whole finaliser over the real chain I/O: nothing before the flip is due, one Build of walls at the first due bell, then it waits to see the village final', async () => {

@@ -46,37 +46,58 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; c
  * open learns it at its next season poll), `pause(on)` stops and restarts the clock; `world()` is the live world
  * (its `orders`, `summary()`, `now()`, `turn()`), or null.
  */
-export async function startServer({ port: listenPort = 0, bootstrap = false } = {}) {
-  const v = await W.viewer();
+export async function startServer({ port: listenPort = 0, bootstrap = false, keyless = false } = {}) {
+  // (workstream 07: `keyless` — the viewer is named without deriving a key; for tests that connect no wallet)
+  const v = await W.viewer({ keyless });
   let stage = 'none';
   let live = null, liveOpts = {};
+  let meWith = null;
+  // (workstream 07: map growth in this fixture, set only by a test that asks for it.
+  //  `openRings(n)`: the season record lists the seeds of rings below n — the fixture's own pattern, ring d's seed =
+  //  byte d+1 repeated, as rings 0–2. `seasonWith(f)`: the season record passed through f (e.g. workstream 08's
+  //  test/fixtures/frontier/growth-route.mjs withGrowth). A ring's overview and roster answer when the season record
+  //  lists its seed, as a herald's do once the ring is seeded. Neither set (the default): rings 0–2, exactly as before)
+  let ringsOpen = null, seasonWith = null;
+  const seasonNow = () => {
+    let r = W.seasonRecord();
+    if (ringsOpen !== null) r = { ...r, rings: Array.from({ length: ringsOpen }, (_, d) => r.rings.find(x => x.d === d) ?? { d, seed: (d + 1).toString(16).padStart(2, '0').repeat(32) }) };
+    if (seasonWith) r = seasonWith(r);
+    return r;
+  };
+  const ringOpen = d => d < seasonNow().rings.length;
   const requests = [];
   const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); return code; };
   const readJson = req => new Promise(resolve => { const parts = []; req.on('data', c => parts.push(c)); req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(parts).toString() || '{}')); } catch { resolve(null); } }); req.on('error', () => resolve(null)); });
 
-  async function herald(path, res) {
+  async function herald(path, res, url = null) {
     let m;
-    if (path === '/h/season') return json(res, 200, W.seasonRecord());
+    if (path === '/h/season') return json(res, 200, seasonNow());
     if ((m = /^\/h\/overview\/(\d+)\/(?:latest|\d+)\.bin$/.exec(path))) {
       const d = Number(m[1]);
-      if (d > 2) return json(res, 404, { code: 'NotFound' });
+      if (!ringOpen(d)) return json(res, 404, { code: 'NotFound' });
       res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(W.overview(d));
       return 200;
     }
     if ((m = /^\/h\/roster\/(\d+)\/latest\.bin$/.exec(path))) {
       const d = Number(m[1]);
-      if (d > 2) return json(res, 404, { code: 'NotFound' });
+      if (!ringOpen(d)) return json(res, 404, { code: 'NotFound' });
       res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(W.roster(d));
       return 200;
     }
     if ((m = /^\/h\/province\/(-?\d+),(-?\d+)\/(latest|\d+)$/.exec(path))) return json(res, 200, W.provinceEnvelope(Number(m[1]), Number(m[2]), m[3] === 'latest' ? W.BELL : Number(m[3]), stage));
     if ((m = /^\/h\/bell\/(\d+)\/region\/(\d+)$/.exec(path))) return json(res, 200, W.bellRegion(Number(m[1]), Number(m[2])));
-    if ((m = /^\/h\/me\/(\w+)$/.exec(path))) return m[1] === v.wallet ? json(res, 200, W.meRecord(v, stage)) : json(res, 200, W.meRecord({ ...v, wallet: m[1] }, 'none'));
+    // (workstream 07: `meWith` — set only by a test that asks for it, e.g. ws07/wide-stage.mjs — rewrites the viewer's
+    // record; unset, the answer is exactly world.mjs's)
+    if ((m = /^\/h\/me\/(\w+)$/.exec(path))) return m[1] === v.wallet ? json(res, 200, meWith ? meWith(W.meRecord(v, stage), stage) : W.meRecord(v, stage)) : json(res, 200, W.meRecord({ ...v, wallet: m[1] }, 'none'));
     if (path === '/h/events') {
-      const list = W.events();
-      return json(res, 200, { events: list, next: list[list.length - 1].seq, full: false });
+      // (workstream 07: the page as the herald serves it — v 1, string cursors, only events after `after`, `next` the
+      // last one sent or `after` itself — which the herald client checks since workstream 4's aa20628a)
+      let after = 0n;
+      try { after = BigInt(url?.searchParams?.get('after') ?? '0'); } catch { after = 0n; }
+      const list = W.events().filter(e => BigInt(e.seq) > after);
+      return json(res, 200, { v: 1, events: list, next: list.length ? list[list.length - 1].seq : String(after), full: false });
     }
     if ((m = /^\/h\/clash\/(-?\d+),(-?\d+)\/(\d+)$/.exec(path))) {
       if (Number(m[1]) === W.HOME.p && Number(m[2]) === W.HOME.q && Number(m[3]) === W.REPORT_BELL) return json(res, 200, W.clashReport());
@@ -121,11 +142,13 @@ export async function startServer({ port: listenPort = 0, bootstrap = false } = 
         res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`const values=${JSON.stringify(storage)};for(const [k,v] of Object.entries(values))if(localStorage.getItem(k)===null)localStorage.setItem(k,v);location.replace('/frontier/index.html');`); code = 200;
       } else if (path === '/favicon.ico') { res.writeHead(204); res.end(); code = 204; }
+      // (workstream 07: no cooperation board on this server — hud/coopboard.mjs; 204 says so without a 404 in the console)
+      else if (path === '/coop/config') { res.writeHead(204, { 'Cache-Control': 'no-store' }); res.end(); code = 204; }
       else if (path.startsWith('/h/')) {
         // the live world answers the files it keeps (the clock, the provinces of its rings, the viewer, the log,
         // its clashes); everything else is the still fixture's
         const r = live ? live.herald(path, url) : null;
-        code = r ? json(res, r.status, r.body) : await herald(path, res);
+        code = r ? json(res, r.status, r.body) : await herald(path, res, url);
       } else if (path.startsWith('/gw/')) {
         // the live relay answers what it plays; everything else gets the fixture's own answer
         const r = live ? await live.relay(req.method, path, req.method === 'POST' ? await readJson(req) : null) : null;
@@ -143,9 +166,15 @@ export async function startServer({ port: listenPort = 0, bootstrap = false } = 
     url: `http://127.0.0.1:${port}`,
     port,
     viewer: v,
-    stage: s => { const next = W.STAGES.includes(s) ? s : 'none'; if (live && next !== stage) live = createLive({ viewer: v, ...liveOpts, stage: next }); stage = next; },
-    live: (on = true, opts = {}) => { liveOpts = opts; live = on ? createLive({ viewer: v, ...opts, stage }) : null; W.setLiveStorage(!!on); return live; },
+    stage: s => { const next = W.STAGES.includes(s) ? s : 'none'; if (live && next !== stage) live = createLive({ viewer: v, keyless, ...liveOpts, stage: next }); stage = next; },
+    live: (on = true, opts = {}) => { liveOpts = opts; live = on ? createLive({ viewer: v, keyless, ...opts, stage }) : null; W.setLiveStorage(!!on); return live; },
     advance: opts => live?.advance(opts) ?? null,
+    // (workstream 07: a test's own rewrite of the viewer's /h/me record, `(record, stage) → record`; null removes it)
+    meWith: f => { meWith = typeof f === 'function' ? f : null; },
+    // (workstream 07: map growth in this fixture — `n` rings open (n > 3), or null for the default 0–2; or the season
+    // record through `f`, or null)
+    openRings: n => { ringsOpen = Number.isInteger(n) && n > 3 ? n : null; },
+    seasonWith: f => { seasonWith = typeof f === 'function' ? f : null; },
     pause: (on = true) => live?.pause(on) ?? null,
     world: () => live,
     requests,

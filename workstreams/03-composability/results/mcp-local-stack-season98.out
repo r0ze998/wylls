@@ -1,0 +1,176 @@
+✓ stack {
+  "season": "98",
+  "programId": "C93q4cnaTgwACPgFU9ot2bMtJWQ68EUKPX5Jkiv93ri6",
+  "profile": 3,
+  "agentWallet": true
+}
+✓ owner-joined {
+  "wallet": "59DvEeFGJAsYnuHDPPjnoqCWZNF47Vk9EAqHP1hRztgF",
+  "nation": 0,
+  "join": "5acVpe6gzyJ69d2Pvz2hbhk9WUBYNT6QCjEPmRkznHVg7BZoA6strcNqgdLh1uijrirJtdqEb3MU6nSkdKSMqkU2",
+  "village": [
+    3,
+    0,
+    1
+  ],
+  "tile": 20
+}
+✓ storehouse-built {
+  "tile": 2,
+  "signature": "nFWgzMBX8PQxXWbhXG95updDgz2DTBtYgxMomgUoj42cqJH8tfgBEcsLMQSjNmdRqRXdiffuu9J1mtDo3U9xLg9"
+}
+✓ agent-delegated {
+  "agentId": "6e95ebde-4ec5-4fee-b1e5-e2ff1993d2f4",
+  "agentKey": "4muva6dX3sSxGdA8Mvo6fpTqn5k9d7XxvJLBQaraHhJR",
+  "allowed": [
+    "SendCaravan"
+  ],
+  "setSession": "Uy1VAxrGN6jF4LTznmfpR29yrZKhopBtGgCzwoYoA5JRghkWB6RX28iLdLVQEJdbsTJDCXJ1WWajGubuaKvSngZ"
+}
+✓ mcp-connected {
+  "issuer": "http://127.0.0.1:33961",
+  "scope": "wylls.read wylls.caravan"
+}
+✓ village-status {
+  "village": {
+    "placeId": "village:3,0,1",
+    "p": 3,
+    "q": 0,
+    "site": 1,
+    "stores": [
+      {
+        "resource": "Food",
+        "have": 300,
+        "perHour": 40,
+        "cap": 2000
+      },
+      {
+        "resource": "Wood",
+        "have": 100,
+        "perHour": 30,
+        "cap": 2000
+      },
+      {
+        "resource": "Stone",
+        "have": 0,
+        "perHour": 20,
+✓ shortfall {
+  "goal": {
+    "kind": "amounts",
+    "amounts": {
+      "Stone": 500
+    }
+  },
+  "rows": [
+    {
+      "resource": "Stone",
+      "need": 500,
+      "have": 0,
+      "short": 500,
+      "perHour": 20,
+      "hoursByProduction": 25
+    }
+  ],
+  "enough": false,
+  "storehouseSources": []
+}
+✓ caravan-1-village-to-storehouse {
+  "plan": {
+    "from": "village:3,0,1",
+    "to": "vault:3,0,2",
+    "cargo": {
+      "Food": 100
+    },
+    "steps": 3,
+    "estimatedMinutes": 18,
+    "seq": 0
+  },
+  "states": [
+    "accepted",
+    "processing",
+    "completed"
+  ],
+  "receipt": {
+    "operationId": "op_ac4487ec5fda4bfba018545b",
+    "signature": "4TNJeX2Lr6Z4fE9fJ99xw2JEcpSaFBxwtLK6wjghBjPT4uiysq594GFSvDtfinoge4WVC7SCm8cCvZ
+✓ storehouse-filled {
+  "food": 100,
+  "shortfall": {
+    "goal": {
+      "kind": "amounts",
+      "amounts": {
+        "Food": 316
+      }
+    },
+    "rows": [
+      {
+        "resource": "Food",
+        "need": 316,
+        "have": 216,
+        "short": 100,
+        "perHour": 40,
+        "hoursByProduction": 2.5
+      }
+    ],
+    "enough": false,
+    "storehouseSources": [
+      {
+        "placeId": "vault:3,0,2"
+✓ refusals {
+  "strangersPlace": "NotYourPlace",
+  "readOnlyConnection": "InsufficientScope"
+}
+✓ ws04-vocabulary {
+  "caravan1": {
+    "contract": "④ workstreams/04-execution @ 2e536b6b119d8eaa4e9f4d795e856b696249a664 (CONTRACTS 0.2, proposal)",
+    "state": "DeliveredUnverified",
+    "held_reason": null,
+    "outcome": {
+      "delivered": null,
+      "verification": "Unverifiable",
+      "cargo_logged": {
+        "Food": 100
+      },
+      "effects": [
+        "caravan_sent cv:76eb171a695105e8:0",
+        
+✓ caravan-2-storehouse-to-village {
+  "plan": {
+    "from": "vault:3,0,2",
+    "to": "village:3,0,1",
+    "cargo": {
+      "Food": 100
+    },
+    "steps": 3,
+    "estimatedMinutes": 18,
+    "seq": 1
+  },
+  "states": [
+    "accepted",
+    "processing",
+    "completed"
+  ],
+  "receipt": {
+    "operationId": "op_0e763e394d049862a35c98b6",
+    "signature": "RBavDwr8xVZKHPCeuv3FkfsUBeX7sGpPPzP6j8kvxKyNKWtP6dZq8Jens5qEHMjjCA46we38C8vzQH
+✓ grant-limit {
+  "code": "GrantLimitReached",
+  "maxSends": 2
+}
+✓ no-secret-in-transcript {}
+✓ owner-view-after-revocation {
+  "cancellation": {
+    "contract": "wylls.mock-run-receipt/0+ws04-proposal-0.2",
+    "mock": true,
+    "newRequests": "stopped",
+    "since": "2026-10-30T13:28:56.601Z",
+    "awaitingReconciliation": [],
+    "state": "done",
+    "ws04": {
+      "op_7434d944300e87d6859f06d5": {
+        "phase": "Completed",
+        "effects": []
+      },
+      "op_0e763e394d049862a35c98b6": {
+        "phase": "C
+mcp local-stack e2e: 15 checks passed; transcript /home/user/wylls/workstreams/03-composability/results/mcp-local-stack.json

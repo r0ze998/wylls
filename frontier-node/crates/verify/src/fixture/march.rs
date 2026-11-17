@@ -1560,6 +1560,19 @@ pub fn march() -> crate::Input {
     };
     let _ = s.keeper_budget_price;
     // ---- citizens, one ticket cohort (bell 0), holdings (bell 2)
+    //
+    // KNOWN DEFECT (workstream 04, 2026-11-07): the FileTickets below do not
+    // follow the program's placement rule (`proc/citizen.rs::wedge_allowed`,
+    // also at the M1 exit commit 629d007): the citizens of nations 1 and 2
+    // file in provinces B, C and E, which lie in wedges 4, 4 and 5, neither
+    // their own wedge nor an adjacent one. V11 judges tickets since the
+    // map-growth port (dd79c59a) and fails these six. The committed fixture
+    // keeps them (re-recording signs with the test keys, which the owner's
+    // rule forbids here); tests pin exactly these findings
+    // (`tests/common::MARCH_SYNTH_IMPOSSIBLE_TICKETS`). When re-recording is
+    // allowed, give each citizen a faction whose wedge its province is (or an
+    // adjacent wedge's outermost open ring when its own is full) and keep the
+    // marches' sides, then drop the pinned findings.
     let (a_, b_, c_, d_, e_) = (prov[0], prov[1], prov[2], prov[3], prov[4]);
     let plan: [(u8, (i32, i32), u8); 10] = [
         (0, a_, 0),

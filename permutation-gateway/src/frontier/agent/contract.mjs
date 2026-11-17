@@ -32,6 +32,9 @@ export const ACTION_GROUPS = Object.freeze({
   explore: Object.freeze(['Explore']),
   military: Object.freeze(['Depart', 'Dissolve']),
   vigil: Object.freeze(['SetVigil']),
+  // S1 (workstream 03 patch 0005): a caravan from the agent's village to another of the owner's places. The
+  // session key cannot send to another player (caravan.rs WalletRequired), so this never moves goods away.
+  transport: Object.freeze(['SendCaravan']),
 });
 export const AGENT_ACTIONS = Object.freeze(Object.values(ACTION_GROUPS).flat());
 
@@ -60,6 +63,9 @@ export const ERR = Object.freeze({
   BUDGET_EXCEEDED: 'BudgetExceeded',
   DAILY_LIMIT: 'DailyLimitReached',
   CALL_LIMIT: 'CallLimitReached',
+  PER_CALL_LIMIT: 'PerCallLimit',
+  CATEGORY_LIMIT: 'CategoryLimit',
+  POLICY_EXPIRED: 'PolicyExpired',
   INSUFFICIENT_BALANCE: 'InsufficientBalance',
   IDEMPOTENCY_CONFLICT: 'IdempotencyConflict',
   SESSION_NOT_DELEGATED: 'SessionNotDelegated',
@@ -113,8 +119,35 @@ export function parseActionRequest(r) {
   if (!Array.isArray(a.holding) || a.holding.length !== 3 || !a.holding.every(Number.isInteger)) bad('action.holding must be [p, q, site]');
   const fields = a.fields ?? {};
   if (typeof fields !== 'object' || Array.isArray(fields)) bad('action.fields must be an object');
+  const route = a.route === undefined ? undefined : parseRoute(a.route, bad);
+  if (a.name === 'SendCaravan' && !route) bad('SendCaravan needs action.route {dst, provinces}');
   return { agentId: r.agentId, source: r.source, idempotencyKey: r.idempotencyKey, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch, reason: r.reason,
-    action: { name: a.name, holding: [...a.holding], fields } };
+    action: { name: a.name, holding: [...a.holding], fields, ...(route ? { route } : {}) } };
+}
+
+/**
+ * A SendCaravan's accounts that its data does not name (workstream 03 patch
+ * 0005): the destination place `{kind: 'holding', p, q, site}` or
+ * `{kind: 'vault', p, q, tile}`, the path's Provinces `[{p, q}]` (1–4, the
+ * origin's first) and optionally the source: one of the owner's vaults
+ * `{kind: 'vault', p, q, tile}` (default: the agent's village). The program
+ * checks that the source is the owner's (NotOwner) and that a session key
+ * sends only between the owner's own places (WalletRequired).
+ */
+function parseRoute(x, bad) {
+  const int = v => Number.isInteger(v) && Math.abs(v) < 1 << 15;
+  if (!x || typeof x !== 'object') bad('action.route must be an object');
+  const place = (d, what) => {
+    if (!d || (d.kind !== 'holding' && d.kind !== 'vault') || !int(d.p) || !int(d.q)) bad(`action.route.${what} must be {kind: holding|vault, p, q, site|tile}`);
+    const at = d.kind === 'vault' ? d.tile : d.site;
+    if (!Number.isInteger(at) || at < 0 || at > 255) bad(`action.route.${what} needs its site (holding) or tile (vault)`);
+    return d.kind === 'vault' ? { kind: 'vault', p: d.p, q: d.q, tile: at } : { kind: 'holding', p: d.p, q: d.q, site: at };
+  };
+  const dst = place(x.dst, 'dst');
+  const src = x.src === undefined || x.src === null ? null : place(x.src, 'src');
+  if (src && src.kind !== 'vault') bad('action.route.src is one of the owner\'s vaults (the village is the default source)');
+  if (!Array.isArray(x.provinces) || x.provinces.length < 1 || x.provinces.length > 4 || !x.provinces.every(v => v && int(v.p) && int(v.q))) bad('action.route.provinces must be 1–4 {p, q}');
+  return { ...(src ? { src } : {}), dst, provinces: x.provinces.map(v => ({ p: v.p, q: v.q })) };
 }
 
 /**
@@ -122,13 +155,19 @@ export function parseActionRequest(r) {
  * key, so a retry returns the same object with `replayed: true`):
  *
  *   { ok, requestId, agentId, status: 'sent'|'refused'|'failed',
- *     signature?, charges: [{category, amount, state}], error?: {code, message},
+ *     sent: boolean,                       // whether signed bytes left the relay (workstream 04)
+ *     signature?, lastValidBlockHeight?, slotFloor?, signedAt?,   // when sent: fixed as the bytes left
+ *     charges: [{category, amount, state}], error?: {code, message},
  *     balance: {available, reserved, spent, withdrawn, pendingWithdraw} }
  *
- * 'sent' means the relay accepted and sent the transaction (its on-chain
- * result is GET /f/tx/{signature}); 'refused' means nothing was sent and
- * nothing was charged; 'failed' means an attempt was made and any charge it
- * carries is listed.
+ * 'sent' means the relay accepted and sent the transaction; 'refused' means
+ * nothing was sent and nothing was charged; 'failed' means an attempt was
+ * made and any charge it carries is listed. A 'failed' with `sent: true`
+ * left the relay signed: it may still land, and its signature and lifetime
+ * are given so the caller can follow it. The chain's answer for either is
+ * GET /f/agent/fate?id=&key= (finalized-only fates, the commitment seen, and
+ * whether the node could be asked); GET /f/tx/{signature} is coarser
+ * (confirmed reads 'landed', and 'expired' is not a proof).
  */
 export const RESULT_STATUS = Object.freeze({ SENT: 'sent', REFUSED: 'refused', FAILED: 'failed' });
 

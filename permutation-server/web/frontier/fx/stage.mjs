@@ -31,7 +31,7 @@ import { UNIT_KINDS, routePoints } from '../people/units.mjs';
 import { bus as defaultBus } from './bus.mjs';
 import { TONE, bannerGone } from './effects.mjs';
 import { installPieces, FLY_LANDS, SEAL_PX, COLUMN_SECS, FORMING_SECS } from './pieces.mjs';
-import { stageBattle } from './battle.mjs';
+import { stageBattle, cancelStagedPlay } from './battle.mjs';
 import { endBattle } from '../people/battle.mjs';
 import { installIdle } from './idle.mjs';
 import { NARROW } from './safe.mjs';
@@ -601,6 +601,9 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     if (h && sc) for (const T of sc.tiles ?? []) hold(`${sc.p},${sc.q},${T.idx}`, fx.clock.now() + (h.dur ?? 3));
     if (h && sc) { const until = fx.clock.now() + (h.dur ?? 3); sceneUntil = Math.max(sceneUntil, until); fought.set(`${sc.p},${sc.q}`, Math.max(fought.get(`${sc.p},${sc.q}`) ?? -Infinity, until)); }
   });
+
+  // (2026-11-17, ⑦: a play the page has ended — another pinned world's — is called off here too)
+  on('battle:end', p => { if (p?.play) cancelStagedPlay(p.play); });
 
   // ---- moments: one thing is not announced twice; many at once (a bell resolving a whole view) follow one
   // another a tenth of a second apart, and past MOMENTS_AT_ONCE only the viewer's own play in full (the rest

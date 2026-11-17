@@ -1,0 +1,1606 @@
+{
+  "summary": {
+    "payer": "random",
+    "seeds": "1..900",
+    "maxDelayMs": 0,
+    "runs": 900,
+    "failing": 6,
+    "budgetUnsafe": 0,
+    "signatures": {
+      "twoSent+thirdStopped | a=[[\"R-1\",\"sent\",null]] b=[[\"R-2\",\"refused\",\"Duplicate\"]] c=done": [
+        172,
+        491,
+        617,
+        644,
+        839,
+        863
+      ]
+    }
+  },
+  "failing": [
+    {
+      "seed": 172,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362762578,
+        "dayKey": "2026-10-30",
+        "end": 1793362762624,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "Duplicate"
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "sent"
+        }
+      ],
+      "payerDraws": [
+        39,
+        39,
+        23
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "84981322a84c7c05"
+        },
+        {
+          "feePayer": "",
+          "signature": "097a6b5cf15fd3b1"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "refused",
+            "Duplicate"
+          ]
+        ]
+      },
+      "c": {
+        "status": "done",
+        "stoppedBy": null
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": false,
+        "thirdStopped": false,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    },
+    {
+      "seed": 491,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362778470,
+        "dayKey": "2026-10-30",
+        "end": 1793362778523,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "Duplicate"
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "sent"
+        }
+      ],
+      "payerDraws": [
+        129,
+        129,
+        109
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "7a46ac6ef45b3b66"
+        },
+        {
+          "feePayer": "",
+          "signature": "7a33afc2395d9b8c"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "refused",
+            "Duplicate"
+          ]
+        ]
+      },
+      "c": {
+        "status": "done",
+        "stoppedBy": null
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": false,
+        "thirdStopped": false,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    },
+    {
+      "seed": 617,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362784958,
+        "dayKey": "2026-10-30",
+        "end": 1793362785007,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "Duplicate"
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "sent"
+        }
+      ],
+      "payerDraws": [
+        98,
+        98,
+        71
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "cee5a9b1492f3450"
+        },
+        {
+          "feePayer": "",
+          "signature": "df109fff6bcc57e9"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "refused",
+            "Duplicate"
+          ]
+        ]
+      },
+      "c": {
+        "status": "done",
+        "stoppedBy": null
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": false,
+        "thirdStopped": false,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    },
+    {
+      "seed": 644,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362786410,
+        "dayKey": "2026-10-30",
+        "end": 1793362786457,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "Duplicate"
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "sent"
+        }
+      ],
+      "payerDraws": [
+        140,
+        140,
+        137
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "ef50972633b0a8e6"
+        },
+        {
+          "feePayer": "",
+          "signature": "e5e8ca67d19d50ed"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "refused",
+            "Duplicate"
+          ]
+        ]
+      },
+      "c": {
+        "status": "done",
+        "stoppedBy": null
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": false,
+        "thirdStopped": false,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    },
+    {
+      "seed": 839,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362796074,
+        "dayKey": "2026-10-30",
+        "end": 1793362796115,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "Duplicate"
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "sent"
+        }
+      ],
+      "payerDraws": [
+        82,
+        82,
+        126
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "9e83c8aff43c8cd6"
+        },
+        {
+          "feePayer": "",
+          "signature": "0c3a06729cc847d7"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "refused",
+            "Duplicate"
+          ]
+        ]
+      },
+      "c": {
+        "status": "done",
+        "stoppedBy": null
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": false,
+        "thirdStopped": false,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    },
+    {
+      "seed": 863,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362797131,
+        "dayKey": "2026-10-30",
+        "end": 1793362797180,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "Duplicate"
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "sent"
+        }
+      ],
+      "payerDraws": [
+        65,
+        65,
+        34
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "8680d2c283909088"
+        },
+        {
+          "feePayer": "",
+          "signature": "cbf5d8355351b6fe"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "refused",
+            "Duplicate"
+          ]
+        ]
+      },
+      "c": {
+        "status": "done",
+        "stoppedBy": null
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": false,
+        "thirdStopped": false,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    }
+  ],
+  "sample": [
+    {
+      "seed": 1,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362753644,
+        "dayKey": "2026-10-30",
+        "end": 1793362753782,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "BudgetExceeded"
+        }
+      ],
+      "payerDraws": [
+        117,
+        4
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "a195b45f00264b24"
+        },
+        {
+          "feePayer": "",
+          "signature": "57e60705afced75f"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "c": {
+        "status": "stopped-by-budget",
+        "stoppedBy": "BudgetExceeded"
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": true,
+        "thirdStopped": true,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    },
+    {
+      "seed": 2,
+      "payer": "random",
+      "maxDelayMs": 0,
+      "wall": {
+        "start": 1793362753782,
+        "dayKey": "2026-10-30",
+        "end": 1793362753836,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "BudgetExceeded"
+        }
+      ],
+      "payerDraws": [
+        83,
+        78
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "08d78622c896c955"
+        },
+        {
+          "feePayer": "",
+          "signature": "86e63f33680bf4a2"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "c": {
+        "status": "stopped-by-budget",
+        "stoppedBy": "BudgetExceeded"
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": true,
+        "thirdStopped": true,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    }
+  ]
+}

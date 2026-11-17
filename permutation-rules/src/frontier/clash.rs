@@ -86,6 +86,24 @@
 //! table for the withdraw search), digest-identical to the step-by-step
 //! reference [`resolve_clash_ref`], which host builds keep as the oracle
 //! (`tests/frontier_clash_equiv.rs`).
+//!
+//! **One algorithm, two identity schemes** (experimental, 2026-11-07). Both
+//! bodies are generic over [`ClashIdentity`]: the scheme that names hosts
+//! and garrisons, derives the clash seed from the province and the bell,
+//! gives each host its tie key, keys each engagement's variance dice and
+//! names the retreat direction's wedge. The legacy scheme is `u64` (the
+//! dense host id, the `i32` province pair, `tie_key`, [`clash_seed`], the
+//! 9-byte `city ‖ LE64(id)` engagement key, `ProvinceCoord::wedge`), and
+//! [`resolve_clash`] / [`resolve_clash_ref`] are that instantiation,
+//! byte for byte the kernel of before: every hash takes the same bytes,
+//! every sort the same total key. A wide scheme over a full host reference
+//! lives in `frontier-abi` (`world_index::march`); it is an experimental
+//! proposal, decides no production rule, and the `RULESET_HASH` does not
+//! change for it. **Compact unit indices** (the `Unit` array position, the
+//! tile buckets) order result arrays and iteration only; every ranking,
+//! tie, variance die and ownership check reads the identity through the
+//! scheme, so a host's outcome never depends on which other hosts were
+//! inserted (`frontier_clash_identity` tests).
 
 /// Version of this kernel, bound into `RULESET_HASH` (`super::KERNEL_VERSIONS`):
 /// bump it whenever an honest outcome changes. v2: M1 W1-A CL-10 (one-pass cap recount, civilians never contest), I-43 storage room, Phase A body (digest-identical to the reference).
@@ -109,8 +127,10 @@ pub const CLASH_VERSION_V4: u16 = 4;
 /// the defender's the same over `h[16..24]`. Phase A drew three hashes (the
 /// engagement id, then `combat::variance` per side).
 #[inline]
-fn engagement_variances(rules: &Ruleset, cs: &Seed, id: &[u8; 18]) -> (Bps, Bps) {
-    let h = sha256(&[cs, &[3u8], b"eng", id]);
+fn engagement_variances(rules: &Ruleset, cs: &Seed, a_key: &[u8], d_key: &[u8]) -> (Bps, Bps) {
+    // `id` = attacker key ‖ defender key, hashed as one byte string: the
+    // same preimage whether the keys are the legacy 9 bytes or wider.
+    let h = sha256(&[cs, &[3u8], b"eng", a_key, d_key]);
     let die = |b: &[u8]| {
         let mut w = [0u8; 8];
         w.copy_from_slice(b);
@@ -336,10 +356,10 @@ pub(crate) fn sort_by_key3<T: Copy>(v: &mut [T], key: impl Fn(&T) -> Key3) {
     v.copy_from_slice(&out);
 }
 
-/// [`Unit::order`] as a [`sort_by_key3`] key: fewer troops later, then
-/// the tie key, then the id.
+/// [`Unit::order`] as a sort key: fewer troops later, then the tie key,
+/// then the identity (the scheme's own order, [`ClashIdentity::sort_by_order`]).
 #[inline(always)]
-fn order_key(u: &Unit) -> Key3 {
+fn order_key<I: ClashIdentity>(u: &Unit<I>) -> (u64, u64, I) {
     ((u32::MAX - u.troops) as u64, u.tie, u.id)
 }
 
@@ -566,10 +586,12 @@ impl RelationsLog {
     }
 }
 
-/// A host in the clash: a resident of the frozen roster, or an arrival.
+/// A host in the clash: a resident of the frozen roster, or an arrival,
+/// named by the identity scheme `I` ([`ClashIdentity`]; the legacy
+/// [`Fighter`] is `FighterOf<u64>`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct Fighter {
-    pub id: u64,
+pub struct FighterOf<I> {
+    pub id: I,
     pub faction: u8,
     pub unit: UnitType,
     pub troops: MilliTroops,
@@ -588,16 +610,88 @@ pub struct Fighter {
     pub dealt_bps: Bps,
 }
 
-/// A holding's garrison and walls, fighting as a virtual host.
+/// The legacy host: the dense `u64` host id.
+pub type Fighter = FighterOf<u64>;
+
+/// A holding's garrison and walls, fighting as a virtual host, named by
+/// the identity scheme `I` (the legacy [`Garrison`] is `GarrisonOf<u64>`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct Garrison {
-    /// The holding's id.
-    pub id: u64,
+pub struct GarrisonOf<I> {
+    /// The holding's id (legacy: `host_id(P, Q, site, gen, 0)`; wide: the
+    /// host reference of the holding with `seq` 0).
+    pub id: I,
     pub faction: u8,
     pub tile: u8,
     pub troops: MilliTroops,
     pub walls: bool,
     pub posture: Posture,
+}
+
+/// The legacy garrison: the holding's dense `u64` key.
+pub type Garrison = GarrisonOf<u64>;
+
+/// How a clash names its hosts and garrisons and derives its seeds: the
+/// one place identity enters the algorithm (module doc, "one algorithm,
+/// two identity schemes"). Every ranking, tie, variance die and ownership
+/// comparison goes through this trait; unit indices never do.
+///
+/// The legacy scheme is [`u64`]: the dense host id over the `i32` province
+/// pair, with [`clash_seed`], `rng::tie_key`, the 9-byte `city ‖ LE64(id)`
+/// engagement key and `ProvinceCoord::wedge`, sorted by the kernel's
+/// [`sort_by_key3`]. A scheme over a full host reference is defined in
+/// `frontier-abi` (`world_index::march`, experimental).
+pub trait ClashIdentity: Copy + Ord + Eq + core::fmt::Debug {
+    /// What the clash knows of the province: the legacy `ProvinceCoord`,
+    /// or a world-scoped full-coordinate key.
+    type Province: Copy + core::fmt::Debug + PartialEq + Eq;
+    /// The bytes of a combatant's engagement key (`city ‖ identity`).
+    type Key: AsRef<[u8]> + Copy;
+    /// The clash's own seed from the bell seed, the province and the bell.
+    fn clash_seed(seed: &Seed, province: &Self::Province, bell: u32) -> Seed;
+    /// The wedge that turns the withdraw search's neighbour order (the
+    /// legacy `ProvinceCoord::wedge`, 0 for the Concord).
+    fn wedge(province: &Self::Province) -> u8;
+    /// A host's tie key under the clash seed.
+    fn tie(cs: &Seed, id: &Self) -> u64;
+    /// The engagement key of this identity as a host (`city = false`) or a
+    /// garrison (`true`).
+    fn key(&self, city: bool) -> Self::Key;
+    /// Stable sort of `v` by `(mass word, tie, identity)`: the mass order.
+    fn sort_by_order<T: Copy>(v: &mut [T], key: impl Fn(&T) -> (u64, u64, Self));
+    /// Stable sort of `v` by identity alone.
+    fn sort_by_id<T: Copy>(v: &mut [T], key: impl Fn(&T) -> Self);
+}
+
+impl ClashIdentity for u64 {
+    type Province = ProvinceCoord;
+    type Key = [u8; 9];
+    #[inline(always)]
+    fn clash_seed(seed: &Seed, province: &ProvinceCoord, bell: u32) -> Seed {
+        clash_seed(seed, *province, bell)
+    }
+    #[inline(always)]
+    fn wedge(province: &ProvinceCoord) -> u8 {
+        province.wedge().unwrap_or(0)
+    }
+    #[inline(always)]
+    fn tie(cs: &Seed, id: &u64) -> u64 {
+        tie_key(cs, *id)
+    }
+    #[inline(always)]
+    fn key(&self, city: bool) -> [u8; 9] {
+        let mut k = [0u8; 9];
+        k[0] = city as u8;
+        k[1..].copy_from_slice(&self.to_le_bytes());
+        k
+    }
+    #[inline(always)]
+    fn sort_by_order<T: Copy>(v: &mut [T], key: impl Fn(&T) -> (u64, u64, u64)) {
+        sort_by_key3(v, key)
+    }
+    #[inline(always)]
+    fn sort_by_id<T: Copy>(v: &mut [T], key: impl Fn(&T) -> u64) {
+        sort_by_key3(v, |t| (key(t), 0, 0))
+    }
 }
 
 /// The province's storage room at the clash (I-43): what the Province's
@@ -633,27 +727,58 @@ impl Default for Occupancy {
     }
 }
 
-/// Everything one clash reads.
+/// Everything one clash reads, under the identity scheme `I` (the legacy
+/// [`ClashInput`] is `ClashInputOf<u64>`).
 #[derive(Clone, Copy, Debug)]
-pub struct ClashInput<'a> {
-    pub province: ProvinceCoord,
+pub struct ClashInputOf<'a, I: ClashIdentity> {
+    pub province: I::Province,
     pub bell: u32,
     /// The bell seed `S(b, r)` of the province's region (drand round after
     /// the region's reveal close, §8.5).
     pub seed: Seed,
     pub terrain: &'a ProvinceTerrain,
     /// The roster frozen at the start of `bell`.
-    pub residents: &'a [Fighter],
-    pub garrisons: &'a [Garrison],
+    pub residents: &'a [FighterOf<I>],
+    pub garrisons: &'a [GarrisonOf<I>],
     /// Revealed arrivals of `bell` (unrevealed ones were routed and are
     /// not here).
-    pub arrivals: &'a [Fighter],
+    pub arrivals: &'a [FighterOf<I>],
     pub relations: Relations,
     /// The storage room (I-43); [`Occupancy::EMPTY`] where nothing is
     /// pending or departed.
     pub occupancy: Occupancy,
 }
 
+/// The legacy input: dense `u64` ids over a `ProvinceCoord`.
+pub type ClashInput<'a> = ClashInputOf<'a, u64>;
+
+/// Why a clash refuses its input, naming the offending host or garrison by
+/// the identity scheme (the legacy [`ClashError`] names a `u64`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClashErrorOf<I> {
+    TooManyResidents,
+    TooManyArrivals,
+    TooManyGarrisons,
+    BadTile(I),
+    /// A faction id above [`NEUTRAL`] (CL-06).
+    BadFaction(I),
+    DuplicateId(I),
+    /// Two garrisons on one tile.
+    SharedTile(u8),
+    /// An arrival's stance comes from its revealed commitment.
+    ArrivalWithoutStance(I),
+    /// A host or garrison above `MAX_HOST_TROOPS` (CL-01).
+    TroopsAboveCap(I),
+    /// A host above `STAMINA_CAP` (CL-01).
+    StaminaAboveCap(I),
+    /// A doctrine multiplier outside `[BPS_ONE, COMBAT_MAX_BPS]` (CL-01,
+    /// CL-14).
+    BadMultiplier(I),
+    /// A retreat ratio above [`RETREAT_MAX_BPS`] (CL-01, I-27).
+    BadRetreat(I),
+}
+
+/// The legacy refusal (a real enum, so `use ClashError::*` keeps working).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClashError {
     TooManyResidents,
@@ -678,6 +803,25 @@ pub enum ClashError {
     BadRetreat(u64),
 }
 
+impl From<ClashErrorOf<u64>> for ClashError {
+    fn from(e: ClashErrorOf<u64>) -> ClashError {
+        match e {
+            ClashErrorOf::TooManyResidents => ClashError::TooManyResidents,
+            ClashErrorOf::TooManyArrivals => ClashError::TooManyArrivals,
+            ClashErrorOf::TooManyGarrisons => ClashError::TooManyGarrisons,
+            ClashErrorOf::BadTile(i) => ClashError::BadTile(i),
+            ClashErrorOf::BadFaction(i) => ClashError::BadFaction(i),
+            ClashErrorOf::DuplicateId(i) => ClashError::DuplicateId(i),
+            ClashErrorOf::SharedTile(t) => ClashError::SharedTile(t),
+            ClashErrorOf::ArrivalWithoutStance(i) => ClashError::ArrivalWithoutStance(i),
+            ClashErrorOf::TroopsAboveCap(i) => ClashError::TroopsAboveCap(i),
+            ClashErrorOf::StaminaAboveCap(i) => ClashError::StaminaAboveCap(i),
+            ClashErrorOf::BadMultiplier(i) => ClashError::BadMultiplier(i),
+            ClashErrorOf::BadRetreat(i) => ClashError::BadRetreat(i),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Fate {
     /// Holds (or shares) the field on `tile`; arrivals join the roster
@@ -696,9 +840,11 @@ pub enum Fate {
     Destroyed,
 }
 
+/// A host's result, named by the identity scheme (the legacy
+/// [`FighterResult`] is `FighterResultOf<u64>`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct FighterResult {
-    pub id: u64,
+pub struct FighterResultOf<I> {
+    pub id: I,
     pub arrival: bool,
     pub troops: MilliTroops,
     pub stamina: u16,
@@ -707,9 +853,13 @@ pub struct FighterResult {
     pub engaged: bool,
 }
 
+pub type FighterResult = FighterResultOf<u64>;
+
+/// A garrison's result, named by the identity scheme (the legacy
+/// [`GarrisonResult`] is `GarrisonResultOf<u64>`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct GarrisonResult {
-    pub id: u64,
+pub struct GarrisonResultOf<I> {
+    pub id: I,
     pub troops: MilliTroops,
     /// Hosts hostile to the owner hold the holding's hex (siege input).
     /// Scouts never count.
@@ -720,6 +870,21 @@ pub struct GarrisonResult {
     /// A host of the owner or a non-hostile faction stands on the hex
     /// (scouts never count).
     pub defender_present: bool,
+}
+
+pub type GarrisonResult = GarrisonResultOf<u64>;
+
+/// What the generic bodies return: the results without the province (the
+/// legacy [`ClashOutcome`] adds its `ProvinceCoord`; a wide wrapper adds
+/// its own key).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoreOutcome<I> {
+    pub bell: u32,
+    /// Sorted by identity.
+    pub fighters: Vec<FighterResultOf<I>>,
+    /// Sorted by identity.
+    pub garrisons: Vec<GarrisonResultOf<I>>,
+    pub engagements: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -772,8 +937,8 @@ enum St {
     Out(Fate),
 }
 
-struct Unit {
-    id: u64,
+struct Unit<I> {
+    id: I,
     city: bool,
     faction: u8,
     unit: Option<UnitType>,
@@ -789,7 +954,7 @@ struct Unit {
     st: St,
 }
 
-impl Unit {
+impl<I: ClashIdentity> Unit<I> {
     fn strength(&self) -> u64 {
         match self.unit {
             Some(u) => strength(u, self.troops),
@@ -816,90 +981,89 @@ impl Unit {
     fn fights(&self) -> bool {
         self.troops > 0 && self.holds()
     }
-    fn key(&self) -> [u8; 9] {
-        let mut k = [0u8; 9];
-        k[0] = self.city as u8;
-        k[1..].copy_from_slice(&self.id.to_le_bytes());
-        k
+    /// The engagement key: `city ‖ identity` through the scheme.
+    fn key(&self) -> I::Key {
+        self.id.key(self.city)
     }
-    /// Mass order: more troops first, then the lower tie key, then id (the
-    /// host-only reference; the on-chain body sorts by [`order_key`]).
+    /// Mass order: more troops first, then the lower tie key, then the
+    /// identity (the host-only reference; the on-chain body sorts by
+    /// [`order_key`] through [`ClashIdentity::sort_by_order`]).
     #[cfg(any(
         test,
         feature = "std",
         not(any(target_os = "solana", target_arch = "wasm32"))
     ))]
-    fn order(&self) -> (core::cmp::Reverse<MilliTroops>, u64, u64) {
+    fn order(&self) -> (core::cmp::Reverse<MilliTroops>, u64, I) {
         (core::cmp::Reverse(self.troops), self.tie, self.id)
     }
 }
 
-fn check_fighter(f: &Fighter) -> Result<(), ClashError> {
+fn check_fighter<I: ClashIdentity>(f: &FighterOf<I>) -> Result<(), ClashErrorOf<I>> {
     use super::doctrine::bounds::COMBAT_MAX_BPS;
     if f.tile as usize >= PROVINCE_TILES {
-        return Err(ClashError::BadTile(f.id));
+        return Err(ClashErrorOf::BadTile(f.id));
     }
     if !valid_faction(f.faction, true) {
-        return Err(ClashError::BadFaction(f.id));
+        return Err(ClashErrorOf::BadFaction(f.id));
     }
     if f.troops > MAX_HOST_TROOPS {
-        return Err(ClashError::TroopsAboveCap(f.id));
+        return Err(ClashErrorOf::TroopsAboveCap(f.id));
     }
     if f.stamina > STAMINA_CAP {
-        return Err(ClashError::StaminaAboveCap(f.id));
+        return Err(ClashErrorOf::StaminaAboveCap(f.id));
     }
     if !(BPS_ONE..=COMBAT_MAX_BPS).contains(&f.dealt_bps) {
-        return Err(ClashError::BadMultiplier(f.id));
+        return Err(ClashErrorOf::BadMultiplier(f.id));
     }
     if f.retreat_bps.is_some_and(|r| r > RETREAT_MAX_BPS as Bps) {
-        return Err(ClashError::BadRetreat(f.id));
+        return Err(ClashErrorOf::BadRetreat(f.id));
     }
     Ok(())
 }
 
-fn validate(inp: &ClashInput) -> Result<(), ClashError> {
+fn validate<I: ClashIdentity>(inp: &ClashInputOf<I>) -> Result<(), ClashErrorOf<I>> {
     if inp.residents.len() > PROVINCE_HOST_CAP {
-        return Err(ClashError::TooManyResidents);
+        return Err(ClashErrorOf::TooManyResidents);
     }
     if inp.arrivals.len() > MAX_ARRIVALS {
-        return Err(ClashError::TooManyArrivals);
+        return Err(ClashErrorOf::TooManyArrivals);
     }
     // MC K-21: 12 site garrisons (or 11 and the camp) and the keep. An
     // M1 input never has more than 12, so its outcome is unchanged.
     if inp.garrisons.len() > MAX_GARRISONS_WITH_KEEP {
-        return Err(ClashError::TooManyGarrisons);
+        return Err(ClashErrorOf::TooManyGarrisons);
     }
-    let mut ids: Vec<u64> = Vec::with_capacity(inp.residents.len() + inp.arrivals.len());
+    let mut ids: Vec<I> = Vec::with_capacity(inp.residents.len() + inp.arrivals.len());
     for f in inp.residents.iter().chain(inp.arrivals.iter()) {
         check_fighter(f)?;
         ids.push(f.id);
     }
     for a in inp.arrivals {
         if a.posture == Posture::Disarray {
-            return Err(ClashError::ArrivalWithoutStance(a.id));
+            return Err(ClashErrorOf::ArrivalWithoutStance(a.id));
         }
     }
-    sort_by_key3(&mut ids, |&x| (x, 0, 0));
+    I::sort_by_id(&mut ids, |&x| x);
     if let Some(w) = ids.windows(2).find(|w| w[0] == w[1]) {
-        return Err(ClashError::DuplicateId(w[0]));
+        return Err(ClashErrorOf::DuplicateId(w[0]));
     }
     let mut tiles: Vec<u8> = Vec::new();
-    let mut gids: Vec<u64> = Vec::new();
+    let mut gids: Vec<I> = Vec::new();
     for g in inp.garrisons {
         if g.tile as usize >= PROVINCE_TILES {
-            return Err(ClashError::BadTile(g.id));
+            return Err(ClashErrorOf::BadTile(g.id));
         }
         if !valid_faction(g.faction, true) {
-            return Err(ClashError::BadFaction(g.id));
+            return Err(ClashErrorOf::BadFaction(g.id));
         }
         if g.troops > MAX_HOST_TROOPS {
-            return Err(ClashError::TroopsAboveCap(g.id));
+            return Err(ClashErrorOf::TroopsAboveCap(g.id));
         }
         if tiles.contains(&g.tile) {
-            return Err(ClashError::SharedTile(g.tile));
+            return Err(ClashErrorOf::SharedTile(g.tile));
         }
         if gids.contains(&g.id) {
-            return Err(ClashError::DuplicateId(g.id));
+            return Err(ClashErrorOf::DuplicateId(g.id));
         }
         tiles.push(g.tile);
         gids.push(g.id);
@@ -936,7 +1100,12 @@ fn side_of(factions: &[u8], rel: Relations) -> [u8; FACTION_LIMIT as usize] {
 /// Hex fair share: indices of `cands` (sorted by mass order) admitted
 /// into `cap` slots. Each side is guaranteed `min(its hosts, ⌊cap /
 /// sides⌋)`, its heaviest first; the rest go by mass.
-fn fair_share(units: &[Unit], cands: &[usize], cap: usize, rel: Relations) -> Vec<usize> {
+fn fair_share<I: ClashIdentity>(
+    units: &[Unit<I>],
+    cands: &[usize],
+    cap: usize,
+    rel: Relations,
+) -> Vec<usize> {
     if cands.len() <= cap {
         return cands.to_vec();
     }
@@ -989,7 +1158,12 @@ fn vec_of<T: Clone>(v: T, n: usize) -> Vec<T> {
 /// Step 2b on one hex: `cands` are its hosts still in, sorted by mass
 /// order, `garrison` the holding on it. Bounces the hosts the fair share
 /// leaves out; returns whether it bounced any.
-fn share_hex(units: &mut [Unit], cands: &[usize], garrison: Option<usize>, rel: Relations) -> bool {
+fn share_hex<I: ClashIdentity>(
+    units: &mut [Unit<I>],
+    cands: &[usize],
+    garrison: Option<usize>,
+    rel: Relations,
+) -> bool {
     if cands.len() <= OWNER_HEX_SLOTS {
         return false;
     }
@@ -1010,7 +1184,7 @@ fn share_hex(units: &mut [Unit], cands: &[usize], garrison: Option<usize>, rel: 
                 .copied()
                 .filter(|&i| !rel.hostile(units[i].faction, owner))
                 .collect();
-            sort_by_key3(&mut own, |&i| {
+            I::sort_by_order(&mut own, |&i| {
                 let (a, b, c) = order_key(&units[i]);
                 ((((units[i].faction != owner) as u64) << 32) | a, b, c)
             });
@@ -1034,8 +1208,8 @@ fn share_hex(units: &mut [Unit], cands: &[usize], garrison: Option<usize>, rel: 
 /// `FACTION_RESIDENT_CAP` of the arrival's faction, counting the pending
 /// musters and every host still in, and fewer than
 /// `occupancy.storage_free` arrivals in (I-43).
-fn admit_by_room(
-    units: &mut [Unit],
+fn admit_by_room<I: ClashIdentity>(
+    units: &mut [Unit<I>],
     n_hosts: usize,
     occ: &Occupancy,
     order: &[usize],
@@ -1062,8 +1236,8 @@ fn admit_by_room(
 
 /// The room's counts: hosts per faction and in all (pending musters and
 /// every host still in), and arrivals in.
-fn room_counts(
-    units: &[Unit],
+fn room_counts<I: ClashIdentity>(
+    units: &[Unit<I>],
     n_hosts: usize,
     occ: &Occupancy,
 ) -> ([usize; FACTION_LIMIT as usize], usize, usize) {
@@ -1091,8 +1265,8 @@ fn room_counts(
 /// the arrivals the hex fair share would admit without bouncing anyone, so
 /// a re-admitted arrival never displaces a host already admitted and one
 /// pass reaches stable counts. Returns the tiles that gained a host.
-fn readmit_free_slots(
-    units: &mut [Unit],
+fn readmit_free_slots<I: ClashIdentity>(
+    units: &mut [Unit<I>],
     n_hosts: usize,
     occ: &Occupancy,
     order: &[usize],
@@ -1146,14 +1320,22 @@ fn readmit_free_slots(
 /// quiet bell before its seed exists; skipping it gives exactly the state
 /// resolving it would.
 pub fn is_quiet(rules: &Ruleset, inp: &ClashInput) -> Result<bool, ClashError> {
+    is_quiet_core::<u64>(rules, inp).map_err(ClashError::from)
+}
+
+/// [`is_quiet`] under any identity scheme.
+pub fn is_quiet_core<I: ClashIdentity>(
+    rules: &Ruleset,
+    inp: &ClashInputOf<I>,
+) -> Result<bool, ClashErrorOf<I>> {
     if !inp.arrivals.is_empty() {
         return Ok(false);
     }
-    let probe = ClashInput {
+    let probe = ClashInputOf {
         seed: [0u8; 32],
         ..*inp
     };
-    let o = resolve_clash(rules, &probe)?;
+    let o = resolve_clash_core(rules, &probe)?;
     let same = o.engagements == 0
         && o.fighters.iter().all(|f| {
             inp.residents.iter().any(|r| {
@@ -1172,17 +1354,20 @@ pub fn is_quiet(rules: &Ruleset, inp: &ClashInput) -> Result<bool, ClashError> {
     Ok(same)
 }
 
-/// Hosts in id order, then garrisons in id order (both bodies).
-fn build_units(inp: &ClashInput, cs: &Seed) -> (Vec<Unit>, usize) {
-    let mut units: Vec<Unit> =
+/// Hosts in identity order, then garrisons in identity order (both
+/// bodies). The array position a unit gets here is a compact index: it
+/// orders iteration and result arrays and nothing else (every ranking
+/// reads `tie` and `id` through the scheme).
+fn build_units<I: ClashIdentity>(inp: &ClashInputOf<I>, cs: &Seed) -> (Vec<Unit<I>>, usize) {
+    let mut units: Vec<Unit<I>> =
         Vec::with_capacity(inp.residents.len() + inp.arrivals.len() + inp.garrisons.len());
-    let mut hosts: Vec<(&Fighter, bool)> = inp
+    let mut hosts: Vec<(&FighterOf<I>, bool)> = inp
         .residents
         .iter()
         .map(|f| (f, false))
         .chain(inp.arrivals.iter().map(|f| (f, true)))
         .collect();
-    sort_by_key3(&mut hosts, |h| (h.0.id, 0, 0));
+    I::sort_by_id(&mut hosts, |h| h.0.id);
     for (f, arrival) in hosts {
         units.push(Unit {
             id: f.id,
@@ -1197,13 +1382,13 @@ fn build_units(inp: &ClashInput, cs: &Seed) -> (Vec<Unit>, usize) {
             retreat_bps: if arrival { f.retreat_bps } else { None },
             dealt_bps: f.dealt_bps,
             walls: false,
-            tie: tie_key(cs, f.id),
+            tie: I::tie(cs, &f.id),
             st: St::In,
         });
     }
     let n_hosts = units.len();
-    let mut gs: Vec<&Garrison> = inp.garrisons.iter().collect();
-    sort_by_key3(&mut gs, |g| (g.id, 0, 0));
+    let mut gs: Vec<&GarrisonOf<I>> = inp.garrisons.iter().collect();
+    I::sort_by_id(&mut gs, |g| g.id);
     for g in gs {
         units.push(Unit {
             id: g.id,
@@ -1228,15 +1413,15 @@ fn build_units(inp: &ClashInput, cs: &Seed) -> (Vec<Unit>, usize) {
 /// Step 2a's first pass: every arrival still in (not retreated) starts
 /// refused and is admitted by room in mass order. Returns the mass order
 /// and the refused marks.
-fn first_admission(
-    units: &mut [Unit],
+fn first_admission<I: ClashIdentity>(
+    units: &mut [Unit<I>],
     n_hosts: usize,
     occ: &Occupancy,
 ) -> (Vec<usize>, [bool; MAX_UNITS]) {
     let mut order: Vec<usize> = (0..n_hosts)
         .filter(|&i| units[i].arrival && units[i].st == St::In)
         .collect();
-    sort_by_key3(&mut order, |&i| order_key(&units[i]));
+    I::sort_by_order(&mut order, |&i| order_key(&units[i]));
     let mut capped = [false; MAX_UNITS];
     for &i in &order {
         units[i].st = St::Out(Fate::Bounced);
@@ -1249,7 +1434,13 @@ fn first_admission(
 /// Engagement damage of one half: `raw` scaled by the stance table, the
 /// dealer's doctrine multiplier, its number of engagements on the hex and
 /// the half weight. Cannot overflow (CL-14 asserts above).
-fn scale(raw: MilliTroops, from: &Unit, to: &Unit, n: u64, half: u64) -> u64 {
+fn scale<I: ClashIdentity>(
+    raw: MilliTroops,
+    from: &Unit<I>,
+    to: &Unit<I>,
+    n: u64,
+    half: u64,
+) -> u64 {
     raw as u64 * damage_bps(from.posture, to.posture) as u64 / BPS_ONE as u64
         * from.dealt_bps as u64
         / BPS_ONE as u64
@@ -1269,11 +1460,31 @@ fn scale(raw: MilliTroops, from: &Unit, to: &Unit, n: u64, half: u64) -> u64 {
     not(any(target_os = "solana", target_arch = "wasm32"))
 ))]
 pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, ClashError> {
+    let c = resolve_clash_ref_core::<u64>(rules, inp).map_err(ClashError::from)?;
+    Ok(ClashOutcome {
+        province: inp.province,
+        bell: c.bell,
+        fighters: c.fighters,
+        garrisons: c.garrisons,
+        engagements: c.engagements,
+    })
+}
+
+/// [`resolve_clash_ref`] under any identity scheme (host-only).
+#[cfg(any(
+    test,
+    feature = "std",
+    not(any(target_os = "solana", target_arch = "wasm32"))
+))]
+pub fn resolve_clash_ref_core<I: ClashIdentity>(
+    rules: &Ruleset,
+    inp: &ClashInputOf<I>,
+) -> Result<CoreOutcome<I>, ClashErrorOf<I>> {
     validate(inp)?;
-    let cs = clash_seed(&inp.seed, inp.province, inp.bell);
+    let cs = I::clash_seed(&inp.seed, &inp.province, inp.bell);
     let rel = inp.relations;
     let (mut units, n_hosts) = build_units(inp, &cs);
-    let garrison_on = |units: &[Unit], tile: u8| -> Option<usize> {
+    let garrison_on = |units: &[Unit<I>], tile: u8| -> Option<usize> {
         (n_hosts..units.len()).find(|&g| units[g].tile == tile)
     };
 
@@ -1298,7 +1509,7 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
     let (order, mut capped) = first_admission(&mut units, n_hosts, &inp.occupancy);
 
     // 2b. Hex fair share; 2c. the cap recount (CL-10).
-    let tiles_in = |units: &[Unit]| -> Vec<u8> {
+    let tiles_in = |units: &[Unit<I>]| -> Vec<u8> {
         let mut t: Vec<u8> = units[..n_hosts]
             .iter()
             .filter(|u| u.st == St::In)
@@ -1388,10 +1599,8 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
                         attacker_exhausted: a.stamina < ENGAGE_STAMINA,
                         ..Situation::default()
                     };
-                    let mut id = [0u8; 18];
-                    id[..9].copy_from_slice(&a.key());
-                    id[9..].copy_from_slice(&d.key());
-                    let (va, vd) = engagement_variances(rules, &cs, &id);
+                    let (ak, dk) = (a.key(), d.key());
+                    let (va, vd) = engagement_variances(rules, &cs, ak.as_ref(), dk.as_ref());
                     let (to_def, to_att) =
                         resolve_engagement(rules, a.combatant(), d.combatant(), sit, va, vd);
                     let x_def = scale(to_def, a, d, count(ai), half);
@@ -1510,7 +1719,7 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
     for &i in &withdrawing {
         units[i].st = St::Out(Fate::Bounced);
     }
-    let k = inp.province.wedge().unwrap_or(0);
+    let k = I::wedge(&inp.province);
     for &i in &withdrawing {
         if units[i].arrival {
             continue;
@@ -1549,7 +1758,7 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
             St::In => Fate::Stays { tile: u.tile },
             St::Out(f) => f,
         };
-        fighters.push(FighterResult {
+        fighters.push(FighterResultOf {
             id: u.id,
             arrival: u.arrival,
             troops: u.troops,
@@ -1560,7 +1769,7 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
     }
     let mut garrisons = Vec::with_capacity(n - n_hosts);
     for g in &units[n_hosts..] {
-        let stay = |u: &Unit| {
+        let stay = |u: &Unit<I>| {
             !u.city
                 && u.holds()
                 && u.tile == g.tile
@@ -1576,7 +1785,7 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
         let defender_present = units
             .iter()
             .any(|u| stay(u) && !rel.hostile(u.faction, g.faction));
-        garrisons.push(GarrisonResult {
+        garrisons.push(GarrisonResultOf {
             id: g.id,
             troops: g.troops,
             attackers_hold,
@@ -1584,8 +1793,7 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
             defender_present,
         });
     }
-    Ok(ClashOutcome {
-        province: inp.province,
+    Ok(CoreOutcome {
         bell: inp.bell,
         fighters,
         garrisons,
@@ -1673,10 +1881,29 @@ const NB0: [[u8; 6]; PROVINCE_TILES] = {
     t
 };
 
-/// Resolve the clash of `inp.province` at `inp.bell` (Phase A body).
+/// Resolve the clash of `inp.province` at `inp.bell` (Phase A body): the
+/// legacy instantiation of [`resolve_clash_core`] over `u64`.
 pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, ClashError> {
+    let c = resolve_clash_core::<u64>(rules, inp).map_err(ClashError::from)?;
+    Ok(ClashOutcome {
+        province: inp.province,
+        bell: c.bell,
+        fighters: c.fighters,
+        garrisons: c.garrisons,
+        engagements: c.engagements,
+    })
+}
+
+/// The Phase A body under any identity scheme `I` (module doc, "one
+/// algorithm, two identity schemes"). Every hash, sort and comparison that
+/// involves a host goes through [`ClashIdentity`]; the unit array
+/// positions and tile buckets only order iteration and result arrays.
+pub fn resolve_clash_core<I: ClashIdentity>(
+    rules: &Ruleset,
+    inp: &ClashInputOf<I>,
+) -> Result<CoreOutcome<I>, ClashErrorOf<I>> {
     validate(inp)?;
-    let cs = clash_seed(&inp.seed, inp.province, inp.bell);
+    let cs = I::clash_seed(&inp.seed, &inp.province, inp.bell);
     let rel = inp.relations;
     // hostile_to[f]: bit g set iff rel.hostile(g, f) (argument order kept).
     let mut hostile_to = [0u8; FACTION_LIMIT as usize];
@@ -1759,7 +1986,7 @@ pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, 
         if cands.len() <= OWNER_HEX_SLOTS {
             continue;
         }
-        sort_by_key3(&mut cands, |&i| order_key(&units[i]));
+        I::sort_by_order(&mut cands, |&i| order_key(&units[i]));
         bounced |= share_hex(&mut units, &cands, garrison, rel);
     }
     if bounced {
@@ -1839,10 +2066,8 @@ pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, 
                         attacker_exhausted: a.stamina < ENGAGE_STAMINA,
                         ..Situation::default()
                     };
-                    let mut id = [0u8; 18];
-                    id[..9].copy_from_slice(&a.key());
-                    id[9..].copy_from_slice(&d.key());
-                    let (va, vd) = engagement_variances(rules, &cs, &id);
+                    let (ak, dk) = (a.key(), d.key());
+                    let (va, vd) = engagement_variances(rules, &cs, ak.as_ref(), dk.as_ref());
                     let (to_def, to_att) =
                         resolve_engagement(rules, a.combatant(), d.combatant(), sit, va, vd);
                     let x_def = scale(to_def, a, d, cnt[ax], half);
@@ -1967,7 +2192,7 @@ pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, 
             }
         }
     }
-    sort_by_key3(&mut withdrawing, |&i| order_key(&units[i]));
+    I::sort_by_order(&mut withdrawing, |&i| order_key(&units[i]));
     for &i in &withdrawing {
         units[i].st = St::Out(Fate::Bounced);
     }
@@ -1985,7 +2210,7 @@ pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, 
                 }
             }
         }
-        let k = (inp.province.wedge().unwrap_or(0) % 6) as usize;
+        let k = (I::wedge(&inp.province) % 6) as usize;
         for &i in &withdrawing {
             if units[i].arrival {
                 continue;
@@ -2017,7 +2242,7 @@ pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, 
             St::In => Fate::Stays { tile: u.tile },
             St::Out(f) => f,
         };
-        fighters.push(FighterResult {
+        fighters.push(FighterResultOf {
             id: u.id,
             arrival: u.arrival,
             troops: u.troops,
@@ -2036,7 +2261,7 @@ pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, 
     for g in &units[n_hosts..] {
         let s = staying[g.tile as usize];
         let h = hostile_to[g.faction as usize];
-        garrisons.push(GarrisonResult {
+        garrisons.push(GarrisonResultOf {
             id: g.id,
             troops: g.troops,
             attackers_hold: s & h != 0,
@@ -2045,8 +2270,7 @@ pub fn resolve_clash(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutcome, 
         });
     }
     crate::probe::probe("K6 field");
-    Ok(ClashOutcome {
-        province: inp.province,
+    Ok(CoreOutcome {
         bell: inp.bell,
         fighters,
         garrisons,

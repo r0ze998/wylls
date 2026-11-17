@@ -104,7 +104,7 @@ export function s1Marks(s1, { own = null, bell = null, provinces = null } = {}) 
     const end = x => ({ p: x.p, q: x.q, tile: x.tile });
     const at = held.get(caravanId(c.ownerTag, c.seq)) ?? null;
     out.caravans.push({
-      kind: 'caravan', ownerTag: c.ownerTag, seq: c.seq, faction: c.faction, own: isOwn(c.ownerTag, own), raided: c.raided || !!at, held: !!at,
+      kind: 'caravan', ownerTag: c.ownerTag, seq: c.seq, faction: c.faction, own: isOwn(c.holderTag ?? c.ownerTag, own), raided: c.raided || !!at, held: !!at,
       from: at ?? end(c.src), to: at ?? end(c.dst), cargo: c.cargo, share: at ? 0 : caravanShare(c, bell), arriveBell: caravanArriveBell(c),
     });
   }

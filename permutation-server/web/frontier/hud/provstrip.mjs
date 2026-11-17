@@ -18,9 +18,11 @@ import { factionName } from '../fi18n.mjs';
 import { scoreRows } from '../screens/conquest.mjs';
 import { prizeModel } from '../fprize.mjs';
 import { icon } from './icons.mjs';
+import { worldContinues } from '../clock.mjs';
 import { crest, conquestOn } from './keephand.mjs';
 
-const ended = FS => (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
+// A continuous world never ends: no season-end card (war periods are undecided).
+const ended = FS => !worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
 
 /**
  * The strip's model, or null (no conquest season, or no readable record yet): `{rows: [{faction, provinces, mine,
@@ -112,7 +114,7 @@ export function renderSeasonEnd(m) {
   if (!m) return '';
   return html`<section class="se-card${m.mine ? ' se-mine' : ''}" role="status" aria-labelledby="se-title">
     <button type="button" class="se-x" data-act="se-close" aria-label="${L`閉じる`}">${icon('close')}</button>
-    <p class="se-kicker">${icon('flag')}<span>${L`シーズンは終わりました`}</span></p>
+    <p class="se-kicker">${icon('flag')}<span>${L`この征服戦（旧方式のシーズン）は終わりました`}</span></p>
     <h2 id="se-title" class="se-line">${m.winners.map(f => crest(f, 34))}<span>${seasonEndLine(m)}</span></h2>
     <ol class="se-area" aria-label="${L`国ごとの州の数`}">${m.area.map((n, f) => html`<li class="kh-n${f}${m.winners.includes(f) ? ' se-win' : ''}">${crest(f, 22)}<span class="se-name">${factionName(f)}</span><strong class="num">${fmtNum(n)}</strong></li>`)}</ol>
     <p class="se-note">${m.source === 'pool' ? L`賞金プールの集計（Tally と Finalize）がチェーンで確定しました。州の数はチェーンの記録を数えたものです。` : L`最終の順位の記録が確定しました。州の数はチェーンの記録を数えたものです。`}${m.mine ? html` <strong>${L`あなたの国の勝利です。`}</strong>` : ''}</p>

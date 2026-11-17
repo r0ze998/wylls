@@ -1,0 +1,56 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (/home/user/wylls/permutation-frontier/svm-tests/target/debug/deps/wylls_courier_tests-551ed0ab9f49f8d7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/courier.rs (/home/user/wylls/permutation-frontier/svm-tests/target/debug/deps/courier-a416bcb233e68630)
+
+running 16 tests
+svm-tests: TestBeacon /home/user/wylls/permutation-frontier/target/deploy-test-beacon/permutation_frontier.so (1392824 B, sha256 676e84f5620a9406006ca4a679b5d1306b5be8d0957c99a49e90fb49c08195f5, built 1597s ago)
+test t02_unsigned_or_wrong_signer_is_refused_by_the_core ... ok
+[t01] direct cu=27809 courier cu=34023 (+6214)
+test t03_someone_elses_source_is_refused ... ok
+test t01_signed_send_through_the_courier_equals_the_direct_call ... ok
+test t04_session_key_limits_hold_through_the_courier ... ok
+test t06_missing_or_malformed_accounts_are_refused ... ok
+test t08_no_receipt_before_arrival ... ok
+test t07_duplicate_requests_do_not_multiply ... ok
+test t05_wrong_pda_or_owning_program_is_refused ... ok
+test t11_a_hostile_wrapper_cannot_go_around_the_core ... ok
+test t10_transport_raid_and_generation_rules_hold ... ok
+test t09_version_mismatch_is_refused_before_the_cpi ... ok
+[t12] delegated cu=39127 tx_bytes=648 loaded=64673
+test t12_delegated_send_lands_without_the_owners_signature ... ok
+test t14_mandate_setup_is_the_owners_alone ... ok
+[t21] {"register_mandate_cu":8562,"register_mandate_rent":1422400,"mandate_size":152,"set_session_cu":5240,"delegated_send_cu":39127,"settle_cu":11274,"settle_fee_to_settler_net_of_tx_fee":45000,"revoke_cu":999,"revoke_refund":1422400,"tx_fee_per_signature":5000}
+test t21_measure_delegation_setup_and_settle ... ok
+[t20] {"path":"direct","cu":27809,"cu_limit_budget":140000,"within_cu_budget":true,"tx_bytes":515,"tx_contract":1000,"loaded_harness_rule":1754527,"loaded_validator_rule":1754527,"loaded_need_pages":1769472,"l_kind_harness":1802240,"loaded_limit_relay":1835008,"within_relay_loaded_limit":true,"fee":5000,"payer_moved":2325840,"caravan_lamports":2325840}
+test t13_delegation_limits ... ok
+[t20] {"path":"courier-signed","cu":34023,"cu_limit_budget":140000,"within_cu_budget":true,"tx_bytes":550,"tx_contract":1000,"loaded_harness_rule":64307,"loaded_validator_rule":1809312,"loaded_need_pages":1835008,"l_kind_harness":1802240,"loaded_limit_relay":1835008,"within_relay_loaded_limit":true,"fee":5000,"payer_moved":2325840,"caravan_lamports":2325840}
+[t20] {"path":"courier-delegated","cu":39127,"cu_limit_budget":140000,"within_cu_budget":true,"tx_bytes":648,"tx_contract":1000,"loaded_harness_rule":64587,"loaded_validator_rule":1809592,"loaded_need_pages":1835008,"l_kind_harness":1802240,"loaded_limit_relay":1835008,"within_relay_loaded_limit":true,"fee":5000,"payer_moved":2325840,"caravan_lamports":2325840}
+test t20_measure_direct_signed_and_delegated ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+     Running tests/matrix.rs (/home/user/wylls/permutation-frontier/svm-tests/target/debug/deps/matrix-19963554951cebd9)
+
+running 1 test
+test matrix_generate ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/validator_drill.rs (/home/user/wylls/permutation-frontier/svm-tests/target/debug/deps/validator_drill-64b2dc7c177cfd4a)
+
+running 1 test
+test drill_cpi_target_programdata_counts ... ignored, needs the drill validator: drill/cpi-loaded-drill.sh
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests wylls_courier_tests
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

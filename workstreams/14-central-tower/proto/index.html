@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中央塔の試作</title>
+<style>
+:root {
+  --bg: #f6f3ec; --panel: #fffdf8; --ink: #2a2620; --muted: #6d665a; --line: #ddd5c4;
+  --accent: #2f6f62; --accent-ink: #fff; --warn: #a3471f; --good: #2f6f62; --chip: #efe9dc;
+  --w0: #c0573e; --w1: #3f7fb0; --w2: #6a9a3a; --w3: #8a5ab0; --w4: #c99a2e; --w5: #3a9a96;
+  --concord: #efe6cf; --heat: 214, 76, 40;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1b1a17; --panel: #24221e; --ink: #ece6d8; --muted: #a59d8d; --line: #3a362f;
+  --accent: #6fbfa9; --accent-ink: #0f1a17; --warn: #e08a5f; --good: #6fbfa9; --chip: #2e2b25; --concord: #4a4436; --heat: 240, 120, 80;
+} }
+:root[data-theme="dark"] {
+  --bg: #1b1a17; --panel: #24221e; --ink: #ece6d8; --muted: #a59d8d; --line: #3a362f;
+  --accent: #6fbfa9; --accent-ink: #0f1a17; --warn: #e08a5f; --good: #6fbfa9; --chip: #2e2b25; --concord: #4a4436; --heat: 240, 120, 80;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header { padding: 16px; border-bottom: 1px solid var(--line); }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.note { color: var(--muted); font-size: 13px; margin: 0; }
+main { display: grid; grid-template-columns: 340px 1fr; gap: 16px; padding: 16px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+main > div { min-width: 0; }
+select { max-width: 100%; text-overflow: ellipsis; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 12px; min-width: 0; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 6px 0 2px; }
+select, input { width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+.cases { display: grid; gap: 6px; }
+.case { border: 1px solid var(--line); border-radius: 6px; padding: 8px; cursor: pointer; }
+.case[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.case b { display: block; }
+.case p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.tabs button[aria-selected="false"] { background: transparent; color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+canvas { width: 100%; height: auto; display: block; background: var(--bg); border-radius: 6px; }
+.opts { display: grid; gap: 6px; }
+.opt { text-align: left; background: var(--chip); color: var(--ink); border: 1px solid var(--line); }
+.opt small { display: block; color: var(--muted); }
+.opt:hover { border-color: var(--accent); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { background: var(--chip); border-radius: 999px; padding: 2px 8px; font-size: 12.5px; }
+.log { max-height: 260px; overflow: auto; font-size: 12.5px; font-family: ui-monospace, monospace; }
+.log div { border-bottom: 1px dashed var(--line); padding: 2px 0; }
+.bar { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; }
+.scroll { overflow-x: auto; }
+.warn { color: var(--warn); }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>中央塔の試作（⑭）：塔の役割を同じ初期状態で比べる</h1>
+  <p class="note">玩具の模型です。結果は人間にとっての面白さの証拠ではありません。数字はすべて仮で、左の欄から切り替えられます。世界は終わらず、リセットもしません。勝敗は決めず、塔の状態と行動の事実だけを出します（評価は⑮）。①の依頼・⑧の分散配置は資料未受領のため仮置きです。</p>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>案</h2>
+      <div class="cases" id="cases"></div>
+    </section>
+    <section>
+      <h2>状況（同じ種なら同じ初期状態）</h2>
+      <label for="scenario">試す状況</label>
+      <select id="scenario"></select>
+      <div class="row">
+        <div><label for="seed">種</label><input id="seed" type="number" min="1" value="1"></div>
+        <div><label for="days">観察する日数</label><input id="days" type="number" min="2" max="28" value="14"></div>
+      </div>
+      <details>
+        <summary>仮の数字を切り替える</summary>
+        <div id="params"></div>
+      </details>
+      <p><button id="reset">この条件でやり直す</button></p>
+    </section>
+    <section>
+      <h2>あなたの村</h2>
+      <label for="me">操作する村（他はAIが同じ選択肢から選びます）</label>
+      <select id="me"></select>
+      <p class="note" id="medesc"></p>
+    </section>
+  </div>
+  <div>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="play">遊ぶ</button>
+      <button role="tab" aria-selected="false" data-tab="compare">3案を比べる</button>
+    </div>
+    <div id="tab-play">
+      <div class="grid2">
+        <section>
+          <h2 id="clock">—</h2>
+          <canvas id="map" width="640" height="560" aria-label="地図：州の環、村、荷の通り道の濃さ"></canvas>
+          <p class="note">中央の六角が大協約（塔）。色は国、濃い赤は荷の通った量。白丸があなたの村。</p>
+        </section>
+        <section>
+          <h2>あなたの番</h2>
+          <div id="mine"></div>
+          <div class="opts" id="opts"></div>
+          <p style="display:flex;gap:6px;flex-wrap:wrap"><button id="next">次の自分の番まで進める</button><button class="ghost" id="auto">観察の終わりまでAIに任せる</button><button class="ghost" id="more">さらに7日観察する</button></p>
+          <p class="note">世界は終わりません。「日数」は観察する長さで、区切りが来ても村・物資・隊商・塔はそのまま続きます。</p>
+        </section>
+      </div>
+      <div class="grid2">
+        <section><h2>塔の状態（事実）</h2><div id="tower"></div></section>
+        <section><h2>出来事</h2><div class="log" id="log"></div></section>
+      </div>
+      <section><h2>この回の測定（勝敗ではありません）</h2><div class="scroll" id="run"></div></section>
+    </div>
+    <div id="tab-compare" class="hidden">
+      <section>
+        <h2>同じ初期状態から3案を走らせて比べる</h2>
+        <div class="row">
+          <div><label for="cseeds">種の数</label><input id="cseeds" type="number" min="1" max="60" value="10"></div>
+          <div><label for="cscope">範囲</label><select id="cscope"><option value="one">選んだ状況だけ</option><option value="all">すべての状況</option></select></div>
+        </div>
+        <p><button id="crun">比べる</button> <span class="note" id="cstatus"></span></p>
+        <div class="scroll" id="ctable"></div>
+      </section>
+    </div>
+  </div>
+</main>
+<script type="module" src="./ui.mjs"></script>
+</body>
+</html>

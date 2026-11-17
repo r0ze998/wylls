@@ -181,13 +181,24 @@ fn structure_of(
 /// [holding_province r|w] [province w] [structure w] [system]` (1d
 /// contract §3.4, 1e contract §2).
 pub fn build_structure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    build_structure_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`build_structure`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn build_structure_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     check_accounts_v2(Ix2::BuildStructure, a, None)?;
     let x = ix2::BuildStructure::decode(d)?;
     if x.notify > TW::NOTIFY_FACTION || !kt::KINDS.contains(&x.kind) {
         return Err(FrontierError::BadData.into());
     }
     let count = counter(x.kind)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, holding, holding_province, province, structure, _system] = a
     else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -373,10 +384,21 @@ pub fn build_structure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// w] [host_holding r] [owner_citizen w]` (1d contract §3.5; a fort must
 /// have fallen, 1e §2.6).
 pub fn seize_structure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    seize_structure_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`seize_structure`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn seize_structure_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     use frontier_abi::layout::province::entry as E;
     check_accounts_v2(Ix2::SeizeStructure, a, None)?;
     let x = ix2::SeizeStructure::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, structure, province, host_holding, owner_citizen] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -551,9 +573,20 @@ pub fn seize_structure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xB9 CloseStructure: P + `[structure w] [province w] [rent_to w]`, by
 /// the wallet (1d contract §3.6; a fort's troops are disbanded).
 pub fn close_structure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    close_structure_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`close_structure`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn close_structure_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     check_accounts_v2(Ix2::CloseStructure, a, None)?;
     let _ = ix2::CloseStructure::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     if pl.pc.by_session {
         return Err(cq(CqError::WalletRequired));
     }
@@ -635,13 +668,24 @@ pub fn close_structure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xBA FortGarrison(troops): P + `[holding w] [province w] [structure r]`
 /// (1e contract §2.6; module note).
 pub fn fort_garrison(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    fort_garrison_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`fort_garrison`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn fort_garrison_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     use frontier_abi::v2::layout::province::fort_record as FR;
     check_accounts_v2(Ix2::FortGarrison, a, None)?;
     let x = ix2::FortGarrison::decode(d)?;
     if x.troops == 0 || x.troops > kt::FORT_MAX_TROOPS {
         return Err(FrontierError::BadData.into());
     }
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, holding, province, structure] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };

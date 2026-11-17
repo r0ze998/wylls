@@ -33,6 +33,15 @@ export const revealClose = (a, w) => a + w;
 /** S(b, r) = first round at or after A + W + Δ. */
 export const seedRound = (drand, close, margin) => firstRoundFrom(drand.genesis, drand.period, close + margin);
 
+/**
+ * A continuous world is shown only when its chain-derived flag and end bell
+ * agree. A missing field or an inconsistent record must not imply that a
+ * season can no longer end. War-period rules remain undecided.
+ */
+const NO_END_BELL = 4294967295;
+export const worldContinues = season => Number(season?.endBell) === NO_END_BELL
+  && (Number(season?.conquestParams?.continuous ?? 0) === 1 || season?.continuous === true);
+
 /** The clock parameters of a decoded Season (numbers, not BigInts). */
 export function seasonClock(season) {
   return {
@@ -41,10 +50,25 @@ export function seasonClock(season) {
     margin: Number(season.seedMargin),
     window: b => Number(windowAt(season, b)),
     endBell: Number(season.endBell),
+    continuous: worldContinues(season),
   };
 }
 
 // ------------------------------------------------------------------ the chain clock
+/**
+ * A herald sample field as a finite number, or null: a finite number, a BigInt, or a non-blank numeric string
+ * (as `Number` reads it). Anything else — missing, null, a boolean, an object or array (never coerced, so no
+ * valueOf / toString runs), a symbol, or a value that reads as NaN or ±Infinity — is null.
+ */
+function sampleNumber(v) {
+  let x;
+  if (typeof v === 'number') x = v;
+  else if (typeof v === 'bigint') x = Number(v);
+  else if (typeof v === 'string' && v.trim() !== '') x = Number(v);
+  else return null;
+  return Number.isFinite(x) ? x : null;
+}
+
 /**
  * "Now" on the chain: the herald's latest (slot, unix) sample, advanced by
  * local elapsed time. The rate is **1** unless the clock is `accelerated`
@@ -91,9 +115,15 @@ export class ChainClock {
     return true;
   }
 
-  /** A herald sample: the Clock sysvar's unix time at a slot. */
+  /**
+   * A herald sample: the Clock sysvar's unix time at a slot. A sample whose unix time or slot is not a finite
+   * number (a number, a numeric string or a BigInt) is ignored whole: it changes nothing, so one bad record can
+   * never leave the clock NaN for every later sample.
+   */
   observe(unix, slot) {
-    const s = { unix: Number(unix), slot: Number(slot), at: this.wall() };
+    const u = sampleNumber(unix), n = sampleNumber(slot);
+    if (u === null || n === null) return;
+    const s = { unix: u, slot: n, at: this.wall() };
     if (this.last && s.slot < this.last.slot) return; // an older answer arriving late
     if (this.accelerated && this.declared === null && this.last && s.at - this.last.at >= 2000 && s.unix > this.last.unix) {
       const r = (s.unix - this.last.unix) / ((s.at - this.last.at) / 1000);
@@ -156,7 +186,7 @@ export function bellChip(clock, now) {
   if (now === null || now === undefined) return { bell: null, secondsLeft: null, beforeGenesis: false, ended: false };
   const b = bellAt(clock.genesisTs, now);
   if (b === null) return { bell: null, secondsLeft: Math.ceil(clock.genesisTs - now), beforeGenesis: true, ended: false };
-  return { bell: b, secondsLeft: Math.ceil(bellEnd(clock.genesisTs, b) - now), beforeGenesis: false, ended: b >= clock.endBell };
+  return { bell: b, secondsLeft: Math.ceil(bellEnd(clock.genesisTs, b) - now), beforeGenesis: false, ended: !clock.continuous && b >= clock.endBell };
 }
 
 // ------------------------------------------------------------------ the bell pipeline (§6.2)

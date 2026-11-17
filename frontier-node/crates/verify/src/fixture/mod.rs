@@ -380,6 +380,8 @@ impl Gen {
             program_hashes: vec![],
             provenance: provenance.into(),
             scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
+            history: Default::default(),
+            resident_feed: None,
         }
     }
 

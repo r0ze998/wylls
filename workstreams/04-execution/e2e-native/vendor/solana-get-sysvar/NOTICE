@@ -1,0 +1,6 @@
+solana-get-sysvar 1.0.0, from crates.io (https://crates.io/crates/solana-get-sysvar,
+repository https://github.com/anza-xyz/solana-sdk), Apache-2.0, by Anza Maintainers.
+Vendored by workstream 04 for its host test harness only, with one change marked
+"WORKSTREAM 04 HOST HOOK" in src/lib.rs (off-chain sysvar reads go to a hook the
+harness installs). The crates.io package carries no LICENSE file; the license is
+the one its manifest names (Apache-2.0).

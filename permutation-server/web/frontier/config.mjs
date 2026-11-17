@@ -11,9 +11,11 @@ export function config(loc = globalThis.location, doc = globalThis.document) {
   const origin = loc?.origin ?? '';
   const host = loc?.hostname ?? '';
   const dev = LOOPBACK(host);
-  let herald = origin;
+  let herald = origin, devWalletOff = false;
   try {
-    const o = new URL(loc?.href ?? origin).searchParams.get('herald');
+    const params = new URL(loc?.href ?? origin).searchParams;
+    devWalletOff = dev && params.get('devWallet') === 'off';
+    const o = params.get('herald');
     if (o && dev) {
       const u = new URL(o);
       if ((u.protocol === 'http:' || u.protocol === 'https:') && LOOPBACK(u.hostname)) herald = u.origin;
@@ -25,6 +27,9 @@ export function config(loc = globalThis.location, doc = globalThis.document) {
     herald,
     relay: `${herald}/gw`,
     dev,
+    // Inspect a local season with an external wallet (or no wallet) without
+    // generating a Dev Wallet. This is an opt-out only, never a remote opt-in.
+    ...(devWalletOff ? { devWallet: false } : {}),
     mode: mode === 'practice' || mode === 'spectate' ? mode : 'play',
   };
 }

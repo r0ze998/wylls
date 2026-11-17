@@ -17,6 +17,7 @@
 //! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
 //! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
 //! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
+//! | `custody` (0xC2–0xCC, the `custody-preview` build) | workstream 10 (Pending) |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (73 tags), so the MC and S1 instructions are in
@@ -44,6 +45,7 @@ pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
+pub mod custody;
 pub mod defence;
 pub mod holding;
 pub mod host;
@@ -164,6 +166,19 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::RaidDomestic => caravan::RAID_DOMESTIC,
         // S1 (map growth)
         I::FastForward => rest::FAST_FORWARD,
+        I::ExtendFrontier => map::EXTEND_FRONTIER,
+        // Custody (workstream 10): the custody-preview build only.
+        I::OpenLot
+        | I::SetLotQuota
+        | I::DepositLot
+        | I::SetLotOrder
+        | I::RevokeLotOrder
+        | I::ShipLot
+        | I::SettleCustody
+        | I::ConsumeLot
+        | I::ReconcileLot
+        | I::CloseLot
+        | I::WithdrawLot => custody::CUSTODY,
     }
 }
 
@@ -215,6 +230,7 @@ pub fn pending() -> Vec<(&'static str, &'static str)> {
         structure::PENDING,
         nation::PENDING,
         rest::PENDING,
+        custody::PENDING,
     ]
     .concat()
 }

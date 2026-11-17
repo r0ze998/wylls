@@ -38,6 +38,9 @@ import { conquestOn, crest, holdTurns } from './keephand.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { compareKey, forecastKey } from './forecast.mjs';
+/** The stamina cap and what a fight on arrival costs unless refunded (permutation-rules host.rs STAMINA_CAP, ENGAGE_STAMINA). */
+const STAMINA_CAP = 120, ENGAGE_STAMINA = 20;
+import { pendable } from '../flocalplay-pending.mjs';
 
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
 const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退`, custom: () => L`倍率を指定する` };
@@ -110,7 +113,8 @@ export function renderForecast(fc) {
   const fates = Object.entries(fc.fates).sort((a, b) => b[1] - a[1]);
   return html`<div class="mc-fc"><p><strong>${fc.troops.min === fc.troops.max ? L`残る兵 ${fmtNum(fc.troops.min)}` : L`残る兵 ${fmtNum(fc.troops.min)}〜${fmtNum(fc.troops.max)}`}</strong> <span class="muted">${L`（出発時 ${fmtNum(fc.troops.start)}）`}</span></p>
     <ul class="mc-fates">${fates.map(([k, n]) => html`<li class="mc-fate-${k}">${bar(n, fc.runs)}<span>${FATE_SHORT[k]?.() ?? k}</span><span class="muted">${L`${fmtNum(n)}/${fmtNum(fc.runs)}回`}</span></li>`)}</ul>
-    <p class="muted">${L`ルールで${fmtNum(fc.runs)}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
+    ${fc.worn?.bps ? html`<p>${L`道の途中で戦争中の国の物見櫓の見張りの中を歩くため、着く前に兵が ${fmtNum(fc.worn.before)} → ${fmtNum(fc.worn.after)}（${fmtNum(fc.worn.bps / 100)}%）に減ります。`}</p>` : ''}
+    <p class="muted">${L`ルールで${fmtNum(fc.runs)}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}${fc.model ? html` ${L`砦・要塞の守備兵と物見櫓の減りは、いま立っているもので数えています。`}`: ''}</p></div>`;
 }
 
 /**
@@ -138,21 +142,49 @@ const topFate = fc => Object.entries(fc.fates ?? {}).sort((a, b) => b[1] - a[1])
  * when it arrives, what it costs the host, who is there, and the rules' forecast, tagged 予測 so it is never read as
  * a result. Each cell says where its figure comes from in one short line.
  */
+/**
+ * When the host may set out again after this march (round 33), on the program's own rules: a Depart in turn `b` with
+ * stamina `s` is charged when it settles, on b + 1: min(120, s + 1) − 74 stored at b + 1 (permutation-rules host.rs
+ * Host::settle, effective_bell); the arrival brings min(120, that + max(0, a − (b + 1))) (frontier-abi clash_model.rs arrival_stamina), stored at the arrival turn
+ * `a`, +1 a turn after. Unopposed it may depart from a + 1; after a fight from a + 2 (ready_bell_after,
+ * BATTLE_COOLDOWN_BELLS 1), and the fight costs ENGAGE_STAMINA 20 (saturating at 0) unless the damage-ratio refund
+ * applies. `calm`: no fight; `fought`: a fight on arrival without the refund (the latest of the two). Both assume it
+ * sets out in turn b, survives, and meets no other fight; null when it cannot set out now (or no arrival turn is
+ * known). The card said b + 148 − s: "turn 34" for a host that fought at a defended keep and could set out only from
+ * turn 55 (a ×10 world; its entry, decoded from that world's records: 29 stored at turn 10).
+ */
+export function readyAgain(s, b, a) {
+  if (!Number.isInteger(s) || !Number.isInteger(b) || !Number.isInteger(a) || s < DEPART_STAMINA || a <= b) return null;
+  // (round 33c: the march's stamina is charged when the Depart settles, on turn b + 1 (host.rs effective_bell, Host::settle
+  //  reading stamina.at(b + 1)), not on b: seen in a ×10 world's records — 76 at turn 38, 3 stored at 39, 4 at arrival 40)
+  const spent = Math.min(STAMINA_CAP, s + 1) - DEPART_STAMINA;
+  const arrive = Math.min(STAMINA_CAP, spent + Math.max(0, a - (b + 1)));
+  const at = (v, readyBell) => Math.max(readyBell, a + Math.max(0, DEPART_STAMINA - v));
+  return { calm: at(arrive, a + 1), fought: at(Math.max(0, arrive - ENGAGE_STAMINA), a + 2), arrive };
+}
+
 export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
   const cell = (k, v, note, cls = '') => html`<div class="mo-cell ${cls}"><span class="mo-k">${k}</span><strong class="mo-v">${v}</strong>${note ? html`<span class="mo-n">${note}</span>` : ''}</div>`;
-  const next = stam !== null && stam >= DEPART_STAMINA ? L`次はターン ${fmtNum(nowB + Math.max(0, 2 * DEPART_STAMINA - stam))} から` : '';
+  const rt = w && stam !== null ? readyAgain(stam, nowB, w.value) : null;
+  const next = rt ? L`見込み（今出発し、軍勢が残り、ほかの戦いがない場合）：次はターン ${fmtNum(rt.calm)} から。到着で戦った場合は遅くともターン ${fmtNum(rt.fought)} から` : '';
   const foe = def ? (def.total ? L`守り ${fmtNum(def.total)}` : L`守り手なし`) : L`わからない`;
   const foeNote = def ? (def.total ? odds?.text ?? '' : '') : sight < 3 ? L`見えていない土地` : '';
   // (a forecast of a march nobody opposes says only that the host arrives whole: no cell for it)
   const fcCell = !def?.total ? '' : fc?.pending ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`計算中…`, '', 'mo-fc')
     : fc?.ok ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`残る兵 ${leftText(fc)}`, L`ルールで ${fmtNum(fc.runs)} 回試した幅`, 'mo-fc')
     : fc?.why === 'OutOfSight' ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`出しません`, L`見えていない土地です（ほかの軍勢がいるかわかりません）`, 'mo-fc')
+    : fc?.why === 'PalisadeOnRoad' ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`この道は通れません`, L`戦争中の国の柵が道にあります。封が開くときに進軍は認められません`, 'mo-fc')
+    : fc?.unread ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`見込みはまだわかりません`, fc.why === 'NoRecord' ? L`行き先の州の記録をまだ読めていません` : L`規則を読めていません`, 'mo-fc')
     : fc ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`見込みはまだ出せません`, L`行き先の州の記録がそろうと出ます`, 'mo-fc') : '';
+  // (2026-11-17, ⑦: a forecast that was not read — the rules module or the destination's record — is not "no danger":
+  //  said as not known, with the draft kept and one button that asks again; shown whether or not the defenders are known)
+  const fcRetry = fc?.unread ? html`<p class="mc-fc-unread" role="status">${fc.why === 'NoRecord' ? L`見込みはまだわかりません（行き先の州の記録を読めていません）。下書きはそのままです。` : L`見込みはまだわかりません（規則を読めていません）。下書きはそのままです。`}
+    <button type="button" class="btn small" data-act="forecast-retry">${icon('return')}${L`見込みをもう一度計算する`}</button></p>` : '';
   return html`<div class="mc-outlook" role="group" aria-label="${L`この命令の見通し`}">
     ${w ? cell(L`到着`, L`ターン ${fmtNum(w.value)}`, awayLine) : ''}
     ${cell(L`費用`, L`体力 −${fmtNum(DEPART_STAMINA)}`, next)}
     ${cell(L`相手`, foe, foeNote)}
-    ${fcCell}</div>`;
+    ${fcCell}</div>${fcRetry}`;
 }
 
 /**
@@ -203,6 +235,18 @@ function coordsForm(c) {
     <label>${L`マス`}<input name="tile" type="number" min="0" max="60" inputmode="numeric" value="${c.dest?.tile ?? ''}"></label><button type="submit" class="btn">${L`決める`}</button></form>`;
 }
 
+/**
+ * A wait the card says, from game seconds. TEST-ONLY capture demo (`FS.localPlay.clockScale`, the launcher's checked word, 10..60):
+ * the world's clock runs that many times faster, so 「約 37 分後」 in game minutes came about a minute later on the wall (trial 2,
+ * 2026-11-14); there the wait is said in the wall's own time and named the test clock. Every other world: as it was.
+ */
+export function waitWords(FS, gameSecs) {
+  const k = FS?.localPlay?.clockScale;
+  if (!(Number.isInteger(k) && k > 1)) return L`約 ${fmtNum(Math.max(1, Math.round(gameSecs / 60)))} 分後`;
+  const s = Math.max(1, gameSecs / k);
+  return s < 90 ? L`試験の時計で約 ${fmtNum(Math.round(s))} 秒後` : L`試験の時計で約 ${fmtNum(Math.round(s / 60))} 分後`;
+}
+
 /** The order (the drawer while a march is composed). */
 export function render(FS) {
   const c = FS.compose;
@@ -212,7 +256,7 @@ export function render(FS) {
   // how far off the arrival is, in minutes from now: the one other time on the card, and it counts as the dial does
   // (the second review: the arrival turn, a bare clock time and the road's minutes stood beside a dial at 9:12)
   const nowTs = FS.chain?.now?.() ?? null;
-  const away = w && FS.clock && Number.isFinite(nowTs) ? Math.max(1, Math.round((bellStart(FS.clock.genesisTs, w.value) - nowTs) / 60)) : null;
+  const awaySecs = w && FS.clock && Number.isFinite(nowTs) ? bellStart(FS.clock.genesisTs, w.value) - nowTs : null;
   // (the banner prototype says its counts by the sample world's own, faster clock — 「（約16秒）」 — and this card said
   // the same wait in the game's minutes beside them, 「約 19 分後」: two clocks on one screen. While the prototype is
   // on, this line is said in the clock its lines use)
@@ -220,7 +264,7 @@ export function render(FS) {
   // whose words change every second is laid out again every second, under the finger that presses its seal)
   const wallTurn = FS.proto ? protoTurnSecs(FS) : null;
   const awayWall = w && Number.isInteger(FS.nowBell) && wallTurn !== null ? Math.max(1, w.value - FS.nowBell) * wallTurn : null;
-  const awayLine = !FS.proto ? (away !== null ? L`約 ${fmtNum(away)} 分後` : '') : awayWall !== null ? L`${protoAbout(awayWall)}後` : '';
+  const awayLine = !FS.proto ? (awaySecs !== null ? waitWords(FS, awaySecs) : '') : awayWall !== null ? L`${protoAbout(awayWall)}後` : '';
   // (the forecast follows the survey like every other surface: of a tile the viewer does not have in sight the card
   // says no number of defenders. The second review: 「守り手なし · 守り 0」 for a tile the map draws as unsurveyed)
   const sight = c.dest && FS.survey && !FS.survey.showAll ? FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) : 3;
@@ -239,10 +283,27 @@ export function render(FS) {
   // the arrival turn's end plus the reveal window, rounded to a beacon round (fland.mjs ticketTimes)
   const resultTurn = timing && FS.clock ? bellAt(FS.clock.genesisTs, timing.resultAbout) : null;
   const resultWait = !timing ? ''
-    : !FS.proto ? L`約 ${fmtNum(Math.max(1, Math.round(timing.resultIn / 60)))} 分後`
+    : !FS.proto ? waitWords(FS, timing.resultIn)
     : wallTurn !== null && Number.isInteger(resultTurn) && Number.isInteger(FS.nowBell) ? L`${protoAbout(Math.max(1, resultTurn - FS.nowBell) * wallTurn)}後` : '';
   const resultLine = !Number.isInteger(resultTurn) ? '' : resultWait ? L`結果はターン ${fmtNum(resultTurn)} ごろ（${resultWait}）` : L`結果はターン ${fmtNum(resultTurn)} ごろ`;
   const stance = STANCES[m.stance] ?? 'Hold';
+  // (TEST-ONLY local play, the march's test entry only: "press now, send when ready" — flocalplay-pending.mjs. Offered
+  //  only while every problem is the province settling its previous turn; one press arms ONE send of this exact order)
+  const localWait = !!FS.localPlay && FS.localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(FS.localPlay.worldEndsAt);
+  const waiting = localWait && !!c.pending;
+  const waitLine = waiting ? html`<p class="order-pending" role="status">${icon('hourglass')}<span>${L`送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(c.pending.untilBell)} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。`}</span></p>` : '';
+  // (round 12, 2026-11-14: on the local test march the footer never changes shape. A ×30 two-person world showed a press
+  //  aimed at 「決着を待って送る」 landing on the warning line when the turn finished (the two swapped places), and a press on
+  //  the seal finding it disabled a moment later. Now ONE main button stays in one place, 「確認した命令で出発」, on the same
+  //  handler as before (controller.mjs armMarchWait, which looks again at the press: ready → the ordinary single send;
+  //  only the province finishing its turn → the waiting send of this same order, withdrawn if the order — the arrival turn
+  //  included — changes); its cancel is always there (off until a send waits), and one line always says what a press does.
+  //  The general wallet's card is unchanged.)
+  const mainOk = !busy && !waiting && !!c.route && (problems.length === 0 || pendable(problems));
+  const localActs = html`<button type="button" class="btn primary seal-btn" data-act="march-send-wait" ${raw(mainOk ? '' : 'disabled')}>${icon('seal')}${waiting ? L`送信待ち` : L`確認した命令で出発`}</button>
+      <button type="button" class="btn quiet" data-act="march-wait-cancel" ${raw(waiting ? '' : 'disabled')}>${L`送信待ちを取り消す`}</button>
+      <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`;
+  const localRule = html`<p class="order-irrev order-local-rule">${icon('lock')}<span>${L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（到着ターンなどが変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`}</span></p>`;
   const ch = composerChoices(FS);
   const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
   const faction = FS.citizen?.faction;
@@ -299,6 +360,8 @@ export function render(FS) {
     ${label(L`行き先`)}
     <div class="mc-dest"><strong class="mc-dest-name">${destName}</strong>
       <span class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}${!c.route && NO_ROUTE.includes(c.routeError) && !territoryEnabled(FS) ? html` ${reachLink(FS)}` : ''}</span>
+      ${!c.route && c.routeUnread ? html`<span class="mc-route-unread" role="status">${L`道のりはまだわかっていません。行き先と設定はそのままです。着くターンは、道のりがわかってから決まります。`}
+        <button type="button" class="btn small" data-act="dest-retry" ${raw(busy ? 'disabled' : '')}>${icon('return')}${L`道のりをもう一度調べる`}</button></span>` : ''}
       ${keepLine}
       <span class="mc-sealed">${icon('lock')}<span>${sealLine()}</span></span></div>
     ${outlook({ w, awayLine, stam, nowB, def, odds, fc: fcNow, sight })}
@@ -334,9 +397,10 @@ export function render(FS) {
         ${custom ? html`<label class="count-field">${L`倍率（守り手 ÷ 自軍、0.0001〜6）`}<input data-bind="ratio" type="number" step="0.05" min="0.0001" max="6" value="${m.retreat.ratio ?? ''}"></label>` : ''}</div>
       ${label(L`座標で指定する`)}${coordsForm(c)}`)}
     ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
-    ${problems.includes('NotResident') ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`この州の処理を進める`}</button>` : ''}
+    ${problems.includes('NotResident') && !FS.localPlay ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`この州の処理を進める`}</button>` : ''}
+    ${waitLine}
     ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}</div>
-    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}${!busy && !c.step && !problems.length && c.route && w ? html`<p class="order-irrev">${icon('lock')}<span>${L`送ったら取り消せません。行き先と構えはターン ${fmtNum(w.value)} が終わるまで封印されます。`}</span></p>` : ''}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
+    ${localWait ? foot(html`${movedFoot}${protoLine}${sum}${localRule}`, localActs) : foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}${!busy && !c.step && !problems.length && c.route && w ? html`<p class="order-irrev">${icon('lock')}<span>${L`送ったら取り消せません。行き先と構えはターン ${fmtNum(w.value)} が終わるまで封印されます。`}</span></p>` : ''}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
       <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`)}
   </section>`;
 }

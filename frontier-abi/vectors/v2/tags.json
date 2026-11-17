@@ -5481,6 +5481,1034 @@
           ]
         }
       ]
+    },
+    {
+      "name": "ExtendFrontier",
+      "tag": 193,
+      "class": "D",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [3, 3],
+      "data": [
+        {
+          "name": "d",
+          "len": 2
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "frontier",
+              "kind": "Frontier",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "OpenLot",
+      "tag": 194,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [6, 6],
+      "data": [
+        {
+          "name": "resource",
+          "len": 1
+        },
+        {
+          "name": "quota",
+          "len": 4
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "owner_citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SetLotQuota",
+      "tag": 195,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [5, 5],
+      "data": [
+        {
+          "name": "quota",
+          "len": 4
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DepositLot",
+      "tag": 196,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [30, 30],
+      "data": [
+        {
+          "name": "seq",
+          "len": 4
+        },
+        {
+          "name": "qty",
+          "len": 4
+        },
+        {
+          "name": "steps",
+          "len": 1
+        },
+        {
+          "name": "path",
+          "len": 12
+        },
+        {
+          "name": "fee",
+          "len": 8
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "src",
+              "kind": "Holding|Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 4,
+          "accounts": [
+            {
+              "name": "path_province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SetLotOrder",
+      "tag": 197,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [23, 23],
+      "data": [
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "nonce",
+          "len": 4
+        },
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "qty",
+          "len": 4
+        },
+        {
+          "name": "expires_bell",
+          "len": 4
+        },
+        {
+          "name": "dst_p",
+          "len": 2
+        },
+        {
+          "name": "dst_q",
+          "len": 2
+        },
+        {
+          "name": "dst_tile",
+          "len": 1
+        },
+        {
+          "name": "dst_gen",
+          "len": 1
+        },
+        {
+          "name": "purpose",
+          "len": 2
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "grantee_citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "dst_vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RevokeLotOrder",
+      "tag": 198,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [6, 6],
+      "data": [
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ShipLot",
+      "tag": 199,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [35, 35],
+      "data": [
+        {
+          "name": "seq",
+          "len": 4
+        },
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        },
+        {
+          "name": "qty",
+          "len": 4
+        },
+        {
+          "name": "steps",
+          "len": 1
+        },
+        {
+          "name": "path",
+          "len": 12
+        },
+        {
+          "name": "fee",
+          "len": 8
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "dst_vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "dst_lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 4,
+          "accounts": [
+            {
+              "name": "path_province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SettleCustody",
+      "tag": 200,
+      "class": "D",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [33, 33],
+      "data": [
+        {
+          "name": "beneficiary",
+          "len": 32
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "fee_payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "dst_vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "beneficiary",
+              "kind": "wallet",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "rent_to",
+              "kind": "wallet",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 4,
+          "accounts": [
+            {
+              "name": "path_province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ConsumeLot",
+      "tag": 201,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [12, 12],
+      "data": [
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        },
+        {
+          "name": "qty",
+          "len": 4
+        },
+        {
+          "name": "purpose",
+          "len": 2
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ReconcileLot",
+      "tag": 202,
+      "class": "D",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [1, 1],
+      "data": [],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "fee_payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 0,
+          "max": 4,
+          "accounts": [
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CloseLot",
+      "tag": 203,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [1, 1],
+      "data": [],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "rent_to",
+              "kind": "wallet",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WithdrawLot",
+      "tag": 204,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [37, 37],
+      "data": [
+        {
+          "name": "seq",
+          "len": 4
+        },
+        {
+          "name": "qty",
+          "len": 4
+        },
+        {
+          "name": "dst_kind",
+          "len": 1
+        },
+        {
+          "name": "dst_p",
+          "len": 2
+        },
+        {
+          "name": "dst_q",
+          "len": 2
+        },
+        {
+          "name": "dst_at",
+          "len": 1
+        },
+        {
+          "name": "dst_gen",
+          "len": 1
+        },
+        {
+          "name": "steps",
+          "len": 1
+        },
+        {
+          "name": "path",
+          "len": 12
+        },
+        {
+          "name": "fee",
+          "len": 8
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "dst",
+              "kind": "Holding|Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 4,
+          "accounts": [
+            {
+              "name": "path_province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
     }
   ],
   "reserved_tags": [

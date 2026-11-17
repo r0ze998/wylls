@@ -1,0 +1,1261 @@
+{
+ "description": "妨害の比較の基準。協力の基本形に、要塞の動き（50 で n1 が逆転、300 で n0 が再逆転）を足す",
+ "events": [
+  {
+   "at": 20,
+   "goal": "J-north-fort",
+   "id": "ws01:0",
+   "kind": "project.open",
+   "project": "P-north",
+   "seq": 0,
+   "steward": "n1-0",
+   "stream": "ws01",
+   "structure": "fort",
+   "verified": "chain"
+  },
+  {
+   "actor": "n1-0",
+   "at": 25,
+   "id": "ws01:1",
+   "kind": "contribute",
+   "lot": "init:n1-0:wood",
+   "project": "P-north",
+   "qty": 300,
+   "seq": 1,
+   "stream": "ws01",
+   "verified": "chain"
+  },
+  {
+   "actor": "n1-0",
+   "at": 25,
+   "id": "ws01:2",
+   "kind": "contribute",
+   "lot": "init:n1-0:stone",
+   "project": "P-north",
+   "qty": 300,
+   "seq": 2,
+   "stream": "ws01",
+   "verified": "chain"
+  },
+  {
+   "actor": "n1-0",
+   "at": 25,
+   "id": "ws01:3",
+   "kind": "contribute",
+   "lot": "init:n1-0:arms",
+   "project": "P-north",
+   "qty": 30,
+   "seq": 3,
+   "stream": "ws01",
+   "verified": "chain"
+  },
+  {
+   "actor": "n1-0",
+   "at": 25,
+   "id": "ws01:4",
+   "kind": "contribute",
+   "lot": "init:n1-0:gold",
+   "project": "P-north",
+   "qty": 100,
+   "seq": 4,
+   "stream": "ws01",
+   "verified": "chain"
+  },
+  {
+   "at": 30,
+   "from": "n2-0",
+   "id": "chain:0",
+   "kind": "ship.send",
+   "qty": 300,
+   "resource": "stone",
+   "seq": 0,
+   "ship": "c-n2-stone",
+   "stream": "chain",
+   "to": "project:P-north",
+   "verified": "chain"
+  },
+  {
+   "at": 40,
+   "id": "chain:1",
+   "kind": "ship.arrive",
+   "qty": 300,
+   "seq": 1,
+   "ship": "c-n2-stone",
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 30,
+   "from": "n2-0",
+   "id": "chain:2",
+   "kind": "ship.send",
+   "qty": 50,
+   "resource": "gold",
+   "seq": 2,
+   "ship": "c-n2-gold",
+   "stream": "chain",
+   "to": "project:P-north",
+   "verified": "chain"
+  },
+  {
+   "at": 40,
+   "id": "chain:3",
+   "kind": "ship.arrive",
+   "qty": 50,
+   "seq": 3,
+   "ship": "c-n2-gold",
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 40,
+   "from": "n3-0",
+   "id": "chain:4",
+   "kind": "ship.send",
+   "qty": 200,
+   "resource": "wood",
+   "seq": 4,
+   "ship": "c-n3-wood",
+   "stream": "chain",
+   "to": "project:P-north",
+   "verified": "chain"
+  },
+  {
+   "at": 55,
+   "id": "chain:5",
+   "kind": "ship.arrive",
+   "qty": 200,
+   "seq": 5,
+   "ship": "c-n3-wood",
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 40,
+   "from": "n3-0",
+   "id": "chain:6",
+   "kind": "ship.send",
+   "qty": 200,
+   "resource": "stone",
+   "seq": 6,
+   "ship": "c-n3-stone",
+   "stream": "chain",
+   "to": "project:P-north",
+   "verified": "chain"
+  },
+  {
+   "at": 55,
+   "id": "chain:7",
+   "kind": "ship.arrive",
+   "qty": 200,
+   "seq": 7,
+   "ship": "c-n3-stone",
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 40,
+   "from": "n3-0",
+   "id": "chain:8",
+   "kind": "ship.send",
+   "qty": 20,
+   "resource": "arms",
+   "seq": 8,
+   "ship": "c-n3-arms",
+   "stream": "chain",
+   "to": "project:P-north",
+   "verified": "chain"
+  },
+  {
+   "at": 55,
+   "id": "chain:9",
+   "kind": "ship.arrive",
+   "qty": 20,
+   "seq": 9,
+   "ship": "c-n3-arms",
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 40,
+   "from": "n3-0",
+   "id": "chain:10",
+   "kind": "ship.send",
+   "qty": 50,
+   "resource": "gold",
+   "seq": 10,
+   "ship": "c-n3-gold",
+   "stream": "chain",
+   "to": "project:P-north",
+   "verified": "chain"
+  },
+  {
+   "at": 55,
+   "id": "chain:11",
+   "kind": "ship.arrive",
+   "qty": 50,
+   "seq": 11,
+   "ship": "c-n3-gold",
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 100,
+   "id": "chain:12",
+   "kind": "build.complete",
+   "project": "P-north",
+   "seq": 12,
+   "stream": "chain",
+   "structure": "S-north-fort",
+   "verified": "chain"
+  },
+  {
+   "actor": "n1-1",
+   "at": 110,
+   "how": "garrison",
+   "id": "chain:13",
+   "kind": "use",
+   "qty": 200,
+   "seq": 13,
+   "stream": "chain",
+   "structure": "S-north-fort",
+   "verified": "chain"
+  },
+  {
+   "actor": "n2-1",
+   "at": 120,
+   "how": "garrison",
+   "id": "chain:14",
+   "kind": "use",
+   "qty": 200,
+   "seq": 14,
+   "stream": "chain",
+   "structure": "S-north-fort",
+   "verified": "chain"
+  },
+  {
+   "at": 50,
+   "id": "chain:15",
+   "keep": "k0",
+   "kind": "keep.set",
+   "nation": "n1",
+   "seq": 15,
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 50,
+   "id": "chain:16",
+   "keep": "k1",
+   "kind": "keep.set",
+   "nation": "n1",
+   "seq": 16,
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 300,
+   "id": "chain:17",
+   "keep": "k0",
+   "kind": "keep.set",
+   "nation": "n0",
+   "seq": 17,
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 300,
+   "id": "chain:18",
+   "keep": "k1",
+   "kind": "keep.set",
+   "nation": "n0",
+   "seq": 18,
+   "stream": "chain",
+   "verified": "chain"
+  },
+  {
+   "at": 300,
+   "id": "chain:19",
+   "keep": "k4",
+   "kind": "keep.set",
+   "nation": "n0",
+   "seq": 19,
+   "stream": "chain",
+   "verified": "chain"
+  }
+ ],
+ "name": "chapter-no-sabotage",
+ "state": {
+  "actors": [
+   {
+    "id": "n0-0",
+    "kind": "human",
+    "nation": "n0"
+   },
+   {
+    "id": "n0-1",
+    "kind": "human",
+    "nation": "n0"
+   },
+   {
+    "id": "n0-2",
+    "kind": "human",
+    "nation": "n0"
+   },
+   {
+    "id": "n0-3",
+    "kind": "human",
+    "nation": "n0"
+   },
+   {
+    "id": "n0-4",
+    "kind": "human",
+    "nation": "n0"
+   },
+   {
+    "id": "n0-5",
+    "kind": "human",
+    "nation": "n0"
+   },
+   {
+    "id": "n1-0",
+    "kind": "human",
+    "nation": "n1"
+   },
+   {
+    "id": "n1-1",
+    "kind": "human",
+    "nation": "n1"
+   },
+   {
+    "id": "n1-2",
+    "kind": "human",
+    "nation": "n1"
+   },
+   {
+    "id": "n1-3",
+    "kind": "human",
+    "nation": "n1"
+   },
+   {
+    "id": "n2-0",
+    "kind": "human",
+    "nation": "n2"
+   },
+   {
+    "id": "n2-1",
+    "kind": "human",
+    "nation": "n2"
+   },
+   {
+    "id": "n2-2",
+    "kind": "human",
+    "nation": "n2"
+   },
+   {
+    "id": "n3-0",
+    "kind": "human",
+    "nation": "n3"
+   },
+   {
+    "id": "n3-1",
+    "kind": "human",
+    "nation": "n3"
+   },
+   {
+    "id": "n3-2",
+    "kind": "human",
+    "nation": "n3"
+   },
+   {
+    "id": "n4-0",
+    "kind": "human",
+    "nation": "n4"
+   },
+   {
+    "id": "n4-1",
+    "kind": "human",
+    "nation": "n4"
+   },
+   {
+    "id": "n5-0",
+    "kind": "human",
+    "nation": "n5"
+   }
+  ],
+  "keeps": [
+   {
+    "keep": "k0",
+    "nation": "n0"
+   },
+   {
+    "keep": "k1",
+    "nation": "n0"
+   },
+   {
+    "keep": "k2",
+    "nation": "n0"
+   },
+   {
+    "keep": "k3",
+    "nation": "n0"
+   },
+   {
+    "keep": "k4",
+    "nation": "n1"
+   },
+   {
+    "keep": "k5",
+    "nation": "n1"
+   },
+   {
+    "keep": "k6",
+    "nation": "n1"
+   },
+   {
+    "keep": "k7",
+    "nation": "n2"
+   },
+   {
+    "keep": "k8",
+    "nation": "n2"
+   },
+   {
+    "keep": "k9",
+    "nation": "n3"
+   },
+   {
+    "keep": "k10",
+    "nation": "n3"
+   },
+   {
+    "keep": "k11",
+    "nation": "n4"
+   }
+  ],
+  "lots": [
+   {
+    "lot": "init:n0-0:food",
+    "owner": "n0-0",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-0:wood",
+    "owner": "n0-0",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-0:stone",
+    "owner": "n0-0",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-0:ore",
+    "owner": "n0-0",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-0:arms",
+    "owner": "n0-0",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-0:gold",
+    "owner": "n0-0",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-1:food",
+    "owner": "n0-1",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-1:wood",
+    "owner": "n0-1",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-1:stone",
+    "owner": "n0-1",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-1:ore",
+    "owner": "n0-1",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-1:arms",
+    "owner": "n0-1",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-1:gold",
+    "owner": "n0-1",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-2:food",
+    "owner": "n0-2",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-2:wood",
+    "owner": "n0-2",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-2:stone",
+    "owner": "n0-2",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-2:ore",
+    "owner": "n0-2",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-2:arms",
+    "owner": "n0-2",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-2:gold",
+    "owner": "n0-2",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-3:food",
+    "owner": "n0-3",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-3:wood",
+    "owner": "n0-3",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-3:stone",
+    "owner": "n0-3",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-3:ore",
+    "owner": "n0-3",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-3:arms",
+    "owner": "n0-3",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-3:gold",
+    "owner": "n0-3",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-4:food",
+    "owner": "n0-4",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-4:wood",
+    "owner": "n0-4",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-4:stone",
+    "owner": "n0-4",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-4:ore",
+    "owner": "n0-4",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-4:arms",
+    "owner": "n0-4",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-4:gold",
+    "owner": "n0-4",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-5:food",
+    "owner": "n0-5",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-5:wood",
+    "owner": "n0-5",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-5:stone",
+    "owner": "n0-5",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-5:ore",
+    "owner": "n0-5",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-5:arms",
+    "owner": "n0-5",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n0-5:gold",
+    "owner": "n0-5",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-0:food",
+    "owner": "n1-0",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-0:wood",
+    "owner": "n1-0",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-0:stone",
+    "owner": "n1-0",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-0:ore",
+    "owner": "n1-0",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-0:arms",
+    "owner": "n1-0",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-0:gold",
+    "owner": "n1-0",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-1:food",
+    "owner": "n1-1",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-1:wood",
+    "owner": "n1-1",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-1:stone",
+    "owner": "n1-1",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-1:ore",
+    "owner": "n1-1",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-1:arms",
+    "owner": "n1-1",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-1:gold",
+    "owner": "n1-1",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-2:food",
+    "owner": "n1-2",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-2:wood",
+    "owner": "n1-2",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-2:stone",
+    "owner": "n1-2",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-2:ore",
+    "owner": "n1-2",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-2:arms",
+    "owner": "n1-2",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-2:gold",
+    "owner": "n1-2",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-3:food",
+    "owner": "n1-3",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-3:wood",
+    "owner": "n1-3",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-3:stone",
+    "owner": "n1-3",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-3:ore",
+    "owner": "n1-3",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-3:arms",
+    "owner": "n1-3",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n1-3:gold",
+    "owner": "n1-3",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-0:food",
+    "owner": "n2-0",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-0:wood",
+    "owner": "n2-0",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-0:stone",
+    "owner": "n2-0",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-0:ore",
+    "owner": "n2-0",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-0:arms",
+    "owner": "n2-0",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-0:gold",
+    "owner": "n2-0",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-1:food",
+    "owner": "n2-1",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-1:wood",
+    "owner": "n2-1",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-1:stone",
+    "owner": "n2-1",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-1:ore",
+    "owner": "n2-1",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-1:arms",
+    "owner": "n2-1",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-1:gold",
+    "owner": "n2-1",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-2:food",
+    "owner": "n2-2",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-2:wood",
+    "owner": "n2-2",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-2:stone",
+    "owner": "n2-2",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-2:ore",
+    "owner": "n2-2",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-2:arms",
+    "owner": "n2-2",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n2-2:gold",
+    "owner": "n2-2",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-0:food",
+    "owner": "n3-0",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-0:wood",
+    "owner": "n3-0",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-0:stone",
+    "owner": "n3-0",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-0:ore",
+    "owner": "n3-0",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-0:arms",
+    "owner": "n3-0",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-0:gold",
+    "owner": "n3-0",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-1:food",
+    "owner": "n3-1",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-1:wood",
+    "owner": "n3-1",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-1:stone",
+    "owner": "n3-1",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-1:ore",
+    "owner": "n3-1",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-1:arms",
+    "owner": "n3-1",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-1:gold",
+    "owner": "n3-1",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-2:food",
+    "owner": "n3-2",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-2:wood",
+    "owner": "n3-2",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-2:stone",
+    "owner": "n3-2",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-2:ore",
+    "owner": "n3-2",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-2:arms",
+    "owner": "n3-2",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n3-2:gold",
+    "owner": "n3-2",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-0:food",
+    "owner": "n4-0",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-0:wood",
+    "owner": "n4-0",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-0:stone",
+    "owner": "n4-0",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-0:ore",
+    "owner": "n4-0",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-0:arms",
+    "owner": "n4-0",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-0:gold",
+    "owner": "n4-0",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-1:food",
+    "owner": "n4-1",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-1:wood",
+    "owner": "n4-1",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-1:stone",
+    "owner": "n4-1",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-1:ore",
+    "owner": "n4-1",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-1:arms",
+    "owner": "n4-1",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n4-1:gold",
+    "owner": "n4-1",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n5-0:food",
+    "owner": "n5-0",
+    "qty": 400,
+    "resource": "food",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n5-0:wood",
+    "owner": "n5-0",
+    "qty": 400,
+    "resource": "wood",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n5-0:stone",
+    "owner": "n5-0",
+    "qty": 500,
+    "resource": "stone",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n5-0:ore",
+    "owner": "n5-0",
+    "qty": 200,
+    "resource": "ore",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n5-0:arms",
+    "owner": "n5-0",
+    "qty": 40,
+    "resource": "arms",
+    "verified": "chain"
+   },
+   {
+    "lot": "init:n5-0:gold",
+    "owner": "n5-0",
+    "qty": 150,
+    "resource": "gold",
+    "verified": "chain"
+   }
+  ],
+  "nations": [
+   "n0",
+   "n1",
+   "n2",
+   "n3",
+   "n4",
+   "n5"
+  ],
+  "period": {
+   "endsAt": 480,
+   "id": "P1",
+   "opensAt": 0
+  },
+  "streams": {
+   "chain": {
+    "from": 0
+   },
+   "ws01": {
+    "from": 0
+   }
+  },
+  "world": {
+   "id": "ws15-model-world"
+  }
+ }
+}

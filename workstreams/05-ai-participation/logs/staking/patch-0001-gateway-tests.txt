@@ -1,0 +1,12 @@
+# patch 0001 on 7ac94cc1 (worktree), npm test in permutation-gateway, 2026-10-30T00:19:08Z
+# tests 2534
+# pass 2533
+# fail 0
+# cancelled 0
+# skipped 1
+# ok 672 - T-S1 fixture is the vocabulary of the model file on this disk (header only, no tensors read; skipped when the file is absent) # SKIP model file not on this machine (the Gemma 4 GGUF is absent)
+ok 83 - the policy keeps the new limits only when given, and refuses malformed ones
+ok 84 - perCall: one priced action or one model call above the cap is refused before anything is held or sent
+ok 85 - byCategory: model calls and game spending have their own day and total caps, under the whole budget
+ok 86 - expiresAt: past the owner's permission no action is sent and no model call is made; the owner can extend it
+ok 87 - a metered model call: held at its quote, settled at its measured cost, the rest comes back; the served model is recorded next to the configured one

@@ -9,8 +9,8 @@ use solana_address::Address;
 use solana_hash::Hash;
 
 use fclient::ports::{
-    Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
-    TxRecord,
+    Account, ChainPort, ClockSysvar, Cursor, FeedScan, PortError, PortResult, Signature, SimResult,
+    Status, TxRecord,
 };
 
 use crate::chain::{BlockReport, Chain, Config};
@@ -84,6 +84,22 @@ impl ChainPort for InProcess {
             .into_iter()
             .map(|l| l.record())
             .collect())
+    }
+
+    async fn feed_scan(&self, after: Cursor) -> PortResult<(Vec<TxRecord>, Option<FeedScan>)> {
+        let c = self.lock();
+        let (records, s) = c.feed_scan(after.0, 10_000, self.program.as_ref());
+        Ok((
+            records.into_iter().map(|l| l.record()).collect(),
+            Some(FeedScan {
+                scanned_through: s.scanned_through,
+                ledger_len: s.ledger_len,
+                at_after: s.at_after,
+                run_id: Some(hex::encode(c.run_id())),
+                ledger_bytes: Some(c.wal_offset()),
+                durable: Some(c.config().data_dir.is_some() && c.config().fsync),
+            }),
+        ))
     }
 
     async fn blockhash(&self) -> PortResult<(Hash, u64)> {

@@ -11,6 +11,7 @@
 //!
 //! | module | check |
 //! |---|---|
+//! | [`checks::v0_coverage`] | V0 the instructions and program versions this verifier can judge (an unknown or unmodelled one is never a PASS) |
 //! | [`checks::v1_chains`] | V1 entity chains, final heads, duplicates, K4 state |
 //! | [`checks::v2_program`] | V2 program id, `.so` hash, ruleset hash, announce → create |
 //! | [`checks::v3_random`] | V3 anchors, caches, beacons, genesis and ring rounds (blstrs) |
@@ -39,11 +40,31 @@ pub mod conquest;
 pub mod cqrec;
 pub mod facts;
 pub mod fixture;
+pub mod history;
 pub mod holding;
 pub mod input;
 pub mod report;
+pub mod resident_feed;
 pub mod skip;
 pub mod tamper;
+/// Detached invocation-scoped conditional siege settlement proof only.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_conquest_settle;
+/// Supplied-state WideClaimDefence consistency only; not authenticated replay.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_defence;
+/// Experimental, opt-in (`wide-economy-experimental`): the independent
+/// state-transition replay of one wide S1 economy receipt (event kinds 15
+/// and 16) over caller-supplied snapshots. Not a check of [`verify`]; it
+/// produces no season verdict.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_economy;
+/// Detached original-origin resident transition replay; never a season verdict.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_expedition_resident;
+/// One-transition kind-17 replay only; never a whole-season verdict.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_garrison;
 pub mod world;
 
 use serde_json::Value;
@@ -188,6 +209,9 @@ pub struct Report {
     /// The checks that ran (a `mutate-*` build lists fewer).
     pub checks_run: Vec<&'static str>,
     pub provenance: String,
+    /// Where the transactions came from and whether that shows them to be
+    /// the whole history ([`history::History::report`]); set by [`verify`].
+    pub history: Option<Value>,
 }
 
 impl Report {
@@ -220,10 +244,13 @@ pub fn exit_code(v: Verdict) -> i32 {
 /// (CQ1 walks every chain in V1's place).
 pub fn verify(input: &Input) -> Report {
     let base = checks::run(input);
-    if !conquest::applies(input) {
-        return base;
-    }
-    merge(base, conquest::verify(input))
+    let r = if conquest::applies(input) {
+        merge(base, conquest::verify(input))
+    } else {
+        base
+    };
+    // An unproven history is never PASS; only self-contained failures remain FAIL.
+    history::apply(&input.history, r)
 }
 
 /// One report of two suites over the same input: the worse verdict, every

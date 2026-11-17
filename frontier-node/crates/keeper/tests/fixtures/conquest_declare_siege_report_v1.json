@@ -1,0 +1,167 @@
+{
+ "admitted": false,
+ "automatic_send": false,
+ "blocker": null,
+ "blockhash": {
+  "authority_verified": false,
+  "block_height": "200",
+  "coherent": false,
+  "commitment": "confirmed",
+  "hash": "2d46SEBFCA8SMB1BUAq3z1XJrp3qAXUgQnzkQ85Nvzjy",
+  "height_min_context_slot": "101",
+  "last_valid_block_height": "210",
+  "latest_context_slot": "100",
+  "remaining_block_heights": "10",
+  "valid": true,
+  "validity_context_slot": "101"
+ },
+ "deployment_verified": false,
+ "enqueued": false,
+ "host_only": true,
+ "prepared": {
+  "action": "DeclareSiege",
+  "budget": {
+   "cu_limit": 400000,
+   "cu_price": "0",
+   "heap": 262144,
+   "loaded_limit": 1048576
+  },
+  "dispatch": {
+   "kind": 12,
+   "tag": 218
+  },
+  "fee_payer": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+  "instruction_hex": "daff020cdaff01050102",
+  "message_b64": "AQAHDQcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHAhJGPChWAamEhaxpsJguH26C6MwQHuA0vLGbxvOeBk0SjImld5Ry2WRp2/7gey2whhBIa17szSLIPNOB3D6HHFI+GGyO4pTGsQNMWUcUUxs2f8h8gyhyUupklZSKXh9Rll4gIBoKXmqxGeYng0IrxosiSg+BLJzEKOUpxJKpHtrnpPqj9eDsw7WTIhf7QG5y08KSZn+i5YxJIHCqGnHavQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBDhbgevAW9wqn2T/kygaPS7c6XljYy6ZxTOcvD/n/vKBSDDqx5lkxN8Me2Sv8bSRu2R2uZt0paeUwfb6F3LDAa2qajKyUItfLuCThMjfShe3JxTGtITMGim4J9Gq4qh28+d98Q1FrdAZWxmNJVYwndQ2vUFptPhfwzvodFNojU38GBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgFBwAFAoAaBgAHAAkDAAAAAAAAAAAHAAUEAAAQAAcABQEAAAQACAwAAAwEAwUJCwoCAQYK2v8CDNr/AQUBAg==",
+  "message_digest": "18edf30c5b56d1be5231a494ece88a691a361e20e15d87fe9a89eabb927f4c0a",
+  "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+  "program_version": "18436",
+  "roles": [
+   {
+    "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "name": "actor",
+    "signer": true,
+    "writable": true
+   },
+   {
+    "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "name": "payer",
+    "signer": true,
+    "writable": true
+   },
+   {
+    "address": "GaeZaA1pcq4CgNzntZmp4Pgfv7LWreDV2xo8dhAgko8f",
+    "name": "season",
+    "signer": false,
+    "writable": false
+   },
+   {
+    "address": "B7yQBg4KBnypKx7TQRSaZFDD17hfhry5JN51dmz88rX3",
+    "name": "citizen",
+    "signer": false,
+    "writable": true
+   },
+   {
+    "address": "6Y3ME4FT5YzcirEF7whsjSbqZiW7tsTozXz9gmUwGSWc",
+    "name": "source_holding",
+    "signer": false,
+    "writable": true
+   },
+   {
+    "address": "GbF61zufjdgcZWosBoqKfDV3c58RDcgnGyTJcGjPJbic",
+    "name": "target_province",
+    "signer": false,
+    "writable": true
+   },
+   {
+    "address": "4nzm8FGABrjx577F2PRXhGUqoz6YoPxD1g8h2EFQ2GBA",
+    "name": "target_roster",
+    "signer": false,
+    "writable": false
+   },
+   {
+    "address": "CUEEP53Qp2TnruBjtLEctoBLLkZyezZRKCfW7CbBV3S2",
+    "name": "source_province",
+    "signer": false,
+    "writable": false
+   },
+   {
+    "address": "5rocmqe4JDLwnVMpWcBfgc5SaYcXtewfXSrJiWfw1mRn",
+    "name": "target_holding_position",
+    "signer": false,
+    "writable": false
+   },
+   {
+    "address": "2FQdb17yDvGxvE8MsP1NDtHvHQgqYBBY7ag94sTzm4uy",
+    "name": "conquest",
+    "signer": false,
+    "writable": true
+   },
+   {
+    "address": "95ygjSbooXb3fXRFwJSgr2322FHz2iyLo5PDcyJQMTr",
+    "name": "capture_escrow",
+    "signer": false,
+    "writable": true
+   },
+   {
+    "address": "11111111111111111111111111111111",
+    "name": "system",
+    "signer": false,
+    "writable": false
+   }
+  ],
+  "season": "GaeZaA1pcq4CgNzntZmp4Pgfv7LWreDV2xo8dhAgko8f",
+  "shape": {
+   "bytes": 579,
+   "locks": 13,
+   "sigs": 1,
+   "writes": 6
+  },
+  "signers": [
+   "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  ]
+ },
+ "ready": false,
+ "relay_submission_available": false,
+ "request": {
+  "action": "DeclareSiege",
+  "request_id": "cq_1",
+  "schema": "frontier-local-play-conquest-prepare-request-v1",
+  "source_context_slot": "80",
+  "source_request": {
+   "cluster": "localnet",
+   "deployment": {
+    "program_version": "18436",
+    "ruleset_hash": "0909090909090909090909090909090909090909090909090909090909090909"
+   },
+   "host": "01e69b8f3172ce598c69ebf4fa0d661311fdd7cd4277c235e7af9f387ff8d219610000000000000080000000000000000000010200000000",
+   "min_slot": "80",
+   "operation": "inspect",
+   "original_owner": "B7yQBg4KBnypKx7TQRSaZFDD17hfhry5JN51dmz88rX3",
+   "payer": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+   "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+   "schema": "frontier-original-expedition-request-v1",
+   "season": "GaeZaA1pcq4CgNzntZmp4Pgfv7LWreDV2xo8dhAgko8f",
+   "standing": {
+    "p": "129",
+    "q": "0"
+   },
+   "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  },
+  "source_snapshot_digest": "abababababababababababababababababababababababababababababababab",
+  "target": {
+   "entry": 2,
+   "site": 1
+  }
+ },
+ "schema": "frontier-local-play-conquest-prepare-report-v1",
+ "signed": false,
+ "source": {
+  "authority_verified": false,
+  "coherent": true,
+  "context_slot": "100",
+  "digest": "1f62a204bc448f130dc12e14ec72a788f29dcbe778be9142ed643a364ea0db04",
+  "request_digest": "05d3d65af399470b54d72a7472313c7228b070c58820930d4baeafefa9e2a1aa"
+ },
+ "status": "prepared"
+}

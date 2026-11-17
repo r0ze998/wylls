@@ -27,8 +27,9 @@
 // file. Pure layout first; the painters are context-tolerant.
 import { FLATTEN, RADIUS, project } from '../../map.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
-import { ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
-import { FIRST_TICKET_RING, homeWedge } from '../fland.mjs';
+import { tileHex } from '../fgeo.mjs';
+import { FIRST_TICKET_RING } from '../fland.mjs';
+import { homeRegionFrom } from './homeland.mjs';
 import { FACTION_COLORS, factionName } from '../fi18n.mjs';
 import { placeName } from '../people/identity.mjs';
 import { provincePixel, SIGILS } from './layers.mjs';
@@ -267,15 +268,16 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
 
 // ------------------------------------------------------------------ the surveyors' marks, the player's spot
 /**
- * Where a village may be placed in `faction`'s home wedge: its free sites in the open rings from FIRST_TICKET_RING on
- * (the same reading as the page's count of free land: a site the overview says is free and unowned), each with its
- * tile and its place: `[{p, q, site, tile, x, y}]`. `recs`: Map "p,q" → overview record; `terrainOf(p, q)` →
- * `{sites}` or null while the rules module loads (those provinces are left out until it has).
+ * Where a village may be placed in `faction`'s home region (map/homeland.mjs: the wedge, or under the dispersed
+ * placement the nation's scattered provinces): its free sites in the open rings from FIRST_TICKET_RING on (the same
+ * reading as the page's count of free land: a site the overview says is free and unowned), each with its tile and
+ * its place: `[{p, q, site, tile, x, y}]`. `recs`: Map "p,q" → overview record; `terrainOf(p, q)` → `{sites}` or
+ * null while the rules module loads (those provinces are left out until it has). `place`: the season's placement
+ * (home.mjs seasonPlace); without a readable one there is no mark anywhere (never the wedge's).
  */
-export function wedgeSites(faction, ringsOpen, recs, terrainOf) {
-  const w = homeWedge(faction), out = [];
-  for (let d = FIRST_TICKET_RING; d < Math.max(1, ringsOpen ?? 1); d++) for (const pr of ringProvinces(d)) {
-    if (wedgeOf(pr.p, pr.q) !== w || ringOf(pr.p, pr.q) < FIRST_TICKET_RING) continue;
+export function wedgeSites(faction, ringsOpen, recs, terrainOf, place = undefined) {
+  const out = [];
+  for (const pr of homeRegionFrom(faction, Math.max(1, ringsOpen ?? 1), place, FIRST_TICKET_RING)) {
     const rec = recs?.get?.(`${pr.p},${pr.q}`), sites = terrainOf?.(pr.p, pr.q)?.sites;
     if (!rec || !sites) continue;
     sites.forEach((tile, j) => {

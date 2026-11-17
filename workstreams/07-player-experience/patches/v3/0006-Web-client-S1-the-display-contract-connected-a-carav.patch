@@ -1,0 +1,412 @@
+From edd54eb80649b85471920d82c74a81ea5abb87d3 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 12:55:49 +0000
+Subject: [PATCH 6/8] =?UTF-8?q?Web=20client=20(S1):=20the=20display=20cont?=
+ =?UTF-8?q?ract=20connected=20=E2=80=94=20a=20caravan's=20arrival=20from?=
+ =?UTF-8?q?=20the=20records,=2004's=20and=2005's=20sources?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+hud/statussources.mjs says where each state comes from. A caravan's
+arrival is the S1 data the page already reads: on the road past its arrival
+turn with no settlement read it is "not verified" (under the row that says
+到着済み（決着待ち）), and a settlement read with its send read too compares
+CARAVAN_SENT's cargo with CARAVAN_SETTLED's (partial or full, no cause
+named). 04's cancel of a caravan, 05's costs of a village and 05's switch
+back to manual play come from sources their owners register; with none
+registered the S1 village card is as it was. Needs 0003 and 0004.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../test/web-frontier-ws07-connect.test.mjs   | 110 ++++++++++++++++++
+ permutation-server/web/frontier/app.mjs       |   8 +-
+ .../web/frontier/hud/returnsum.mjs            |  35 ++++--
+ .../web/frontier/hud/returnwords.mjs          |   3 +
+ .../web/frontier/hud/statussources.mjs        |  57 +++++++++
+ .../web/frontier/hud/statusview.mjs           |   3 +-
+ .../web/frontier/screens/s1.mjs               |  14 ++-
+ .../web/lang/en-frontier-play.mjs             |   7 ++
+ 8 files changed, 223 insertions(+), 14 deletions(-)
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-connect.test.mjs
+ create mode 100644 permutation-server/web/frontier/hud/statussources.mjs
+
+diff --git a/permutation-gateway/test/web-frontier-ws07-connect.test.mjs b/permutation-gateway/test/web-frontier-ws07-connect.test.mjs
+new file mode 100644
+index 00000000..b852044a
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-connect.test.mjs
+@@ -0,0 +1,110 @@
++// Workstream 07: the display contract connected on the S1 page (hud/statussources.mjs). A caravan's arrival comes
++// from the S1 data the page already reads — the caravans feed, CARAVAN_SENT and CARAVAN_SETTLED —; 04's cancel and
++// 05's costs come from the sources they register, and with none registered the village card is as it was.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { LOGS } from '../../permutation-server/web/sdk/frontier/abi-v2-logs.mjs';
++import { toBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
++import { decodeRecord } from '../../permutation-server/web/frontier/flog.mjs';
++import * as SRC from '../../permutation-server/web/frontier/hud/statussources.mjs';
++import * as RS from '../../permutation-server/web/frontier/hud/returnsum.mjs';
++import * as RW from '../../permutation-server/web/frontier/hud/returnwords.mjs';
++import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++// ---------------------------------------------------------------- an S1 village with a caravan on the road (as web-frontier-s1.test.mjs builds it)
++const ALL = (1n << 61n) - 1n;
++const store = units => ({ value: BigInt(units) * 1000n, rate: 0n, cap: 10n ** 12n, t0: 10n ** 12n, frac: 0n });
++const holding = (p, q, site, tile) => ({ p, q, site, tile, gen: 1, state: 2, tier: 1, faction: 1, stores: Array.from({ length: 8 }, () => store(1000)), reserve: [300, 0, 0, 0, 0, 0, 0, 0], queue: [],
++  ownerCitizen: new Uint8Array([5, 0, 0, 0, 0, 0, 0, 0, ...Array(24).fill(0)]) });
++const prov = (p, q) => ({ p, q, layoutVersion: 2, passableMask: ALL, roughMask: 0n, roadMask: 0n, siteCount: 1, sites: [5], siteMirror: [{ state: 1, faction: 1 }], camp: { state: 1, tile: 7 }, keep: { tile: 8, holder: 1 }, resolvedNext: 10, structures: [], forts: [], caravans: [] });
++const place = (kind, tile) => ({ kind, p: 0, q: 0, at: 2, gen: 1, tile });
++const caravan = { ownerTag: '5', seq: 2, faction: 1, src: place(1, 30), dst: place(2, 40), steps: 7, cargo: [400, 0, 0, 0, 0, 0, 0, 0], arriveTs: 1790000000,
++  runs: [{ p: 0, q: 0, firstBell: 290, n: 2 }], raided: false, path: [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], provinces: [[0, 0]] };
++const world = nowBell => ({ mode: 'play', nowBell, chain: { now: () => 1000 }, citizen: { faction: 1, vaults: 0, towers: 0, palisades: 0, forts: 0, caravans: 4, voted: [0, 0, 0, 0] },
++  holdings: [holding(0, 0, 0, 30)], activeHolding: 0, provinces: new Map([['0,0', { province: prov(0, 0) }]]),
++  s1: { caravans: { moving: [caravan], vaults: [{ p: 0, q: 0, tile: 40, ownerTag: '5', faction: 1, gen: 1 }] }, structures: { structures: [], sightings: [] }, nations: null } });
++const card = fs => String(SCR.renderS1Village(fs));
++
++test('a caravan past its arrival turn and not settled yet: "the amount that arrived is not verified" under its row', () => {
++  setLang('ja');
++  const before = card(world(291));
++  assert.match(before, /ターン 292 に到着/);
++  assert.doesNotMatch(before, /到着量はまだ確かめられていません/);
++  const after = card(world(300));
++  assert.match(after, /到着済み（決着待ち）/, 'the page\'s own words stay');
++  assert.match(after, /role="status" data-key="arrival:unverified"[\s\S]*到着量はまだ確かめられていません/);
++  assert.doesNotMatch(after, /400 が着|全部着きました|一部が着きました/, 'no amount is told as arrived');
++  assert.deepEqual([SRC.arrivalOnRoad({ arriveBell: 292 }, 291), SRC.arrivalOnRoad({ arriveBell: 292 }, 292), SRC.arrivalOnRoad({ arriveBell: null }, 999)], [null, { state: 'unverified' }, null]);
++});
++
++test('with nothing registered the village card shows no cancel, no costs and no manual line', () => {
++  const html = card(world(300));
++  assert.doesNotMatch(html, /data-key="cancel:|data-key="cost:|data-key="manual"|使える量/);
++});
++
++test('04\'s cancel shows under the caravan its source names; 05\'s costs and manual play over the caravans', () => {
++  setLang('ja');
++  const off1 = SRC.registerStatusSource('caravanCancel', (fs, c) => (c.seq === 2 ? { stage: 'awaitSigned', signedPending: 1 } : null));
++  const off2 = SRC.registerStatusSource('villageCosts', () => ({ costs: [{ phase: 'reserved', amounts: [100, 0, 0, 0, 0, 0, 0, 0] }, { phase: 'unsettled' }], committedInHave: true }));
++  const off3 = SRC.registerStatusSource('manualPlay', () => ({ signedPending: 2 }));
++  try {
++    const html = card(world(300));
++    assert.match(html, /data-key="cancel:awaitSigned"[\s\S]*署名済みの要求 1 件の確認を待っています/);
++    assert.match(html, /data-key="cost:reserved"[\s\S]*予約：食料 100/);
++    assert.match(html, /data-key="cost:unsettled"/);
++    assert.match(html, /使える量（未確定の費用を最大で引いた見込み）：食料 900/, 'the stores less the reservation, said as an estimate while a cost is unsettled');
++    assert.match(html, /data-key="manual"[\s\S]*すでに署名した操作 2 件は止まらずに進みます/);
++    assert.ok(html.indexOf('data-key="manual"') < html.indexOf('道中の隊商'), 'over the caravans');
++  } finally { off1(); off2(); off3(); }
++  // 05 must say whether committed costs already left the stores: without it the card says it cannot tell
++  const off = SRC.registerStatusSource('villageCosts', () => ({ costs: [{ phase: 'committed', amounts: [10, 0, 0, 0, 0, 0, 0, 0] }] }));
++  try { assert.match(card(world(300)), /使える量を出せません：committedInHave: missing/); } finally { off(); }
++  // a source that throws says nothing
++  const bad = SRC.registerStatusSource('caravanCancel', () => { throw new Error('x'); });
++  try { assert.doesNotMatch(card(world(300)), /data-key="cancel:/); } finally { bad(); }
++  assert.throws(() => SRC.registerStatusSource('somethingElse', () => null), TypeError);
++});
++
++// ---------------------------------------------------------------- partial and full arrivals, from the records
++function body(name, bell, fields = {}) {
++  const spec = LOGS.kinds.find(k => k.name === name), parts = [...spec.key, ...spec.payload];
++  const b = new Uint8Array(6 + parts.reduce((a, f) => a + f.len, 0) + 1), v = new DataView(b.buffer);
++  b[0] = 1; b[1] = spec.kind; v.setUint32(2, bell, true);
++  let o = 6;
++  for (const f of parts) { const x = fields[f.name]; if (x instanceof Uint8Array) b.set(x.subarray(0, f.len), o); else if (x !== undefined) { if (f.len === 8) v.setBigUint64(o, BigInt(x), true); else if (f.len === 4) v.setInt32(o, Number(x), true); else if (f.len === 2) v.setUint16(o, Number(x), true); else if (f.len === 1) b[o] = Number(x); } o += f.len; }
++  return toBase64(b);
++}
++const cargo = arr => { const b = new Uint8Array(32), v = new DataView(b.buffer); arr.forEach((n, i) => v.setUint32(i * 4, n, true)); return b; };
++const rec = (seq, name, bell, f) => ({ seq: String(seq), record: decodeRecord(body(name, bell, f)) });
++const me = { tag: 5n, faction: 1, holdings: [{ p: 0, q: 0, site: 0 }], hostOf: () => null };
++const sum = records => RS.summarize({ records, read: { after: '100', complete: true }, marks: { confirmedSeq: '100', confirmedBell: 280, caravans: {} }, last: null, season: '7', wallet: 'W', nowBell: 320, me });
++
++test('a delivery with its send read: CARAVAN_SENT\'s cargo against CARAVAN_SETTLED\'s — partial or full, no cause named', () => {
++  setLang('ja');
++  const partial = sum([rec(101, 'CARAVAN_SENT', 285, { owner_tag: 5, seq: 2, faction: 1, cargo: cargo([400, 0, 0, 0, 0, 0, 0, 0]) }), rec(102, 'CARAVAN_SETTLED', 292, { owner_tag: 5, seq: 2, outcome: 0, cargo: cargo([352, 0, 0, 0, 0, 0, 0, 0]) })]);
++  const it = partial.items.find(i => i.kind === 'CARAVAN_SETTLED');
++  assert.deepEqual(it.facts.arrival, { state: 'partial', sent: [400, 0, 0, 0, 0, 0, 0, 0], arrived: [352, 0, 0, 0, 0, 0, 0, 0] });
++  assert.match(RW.itemText(it), /一部が着きました：食料 352。送った量：食料 400。差の理由（略奪・道中の減り・置き場の上限）は、記録で確かめるまで決めません/);
++  const full = sum([rec(101, 'CARAVAN_SENT', 285, { owner_tag: 5, seq: 2, faction: 1, cargo: cargo([400, 0, 0, 0, 0, 0, 0, 0]) }), rec(102, 'CARAVAN_SETTLED', 292, { owner_tag: 5, seq: 2, outcome: 0, cargo: cargo([400, 0, 0, 0, 0, 0, 0, 0]) })]);
++  assert.equal(full.items.find(i => i.kind === 'CARAVAN_SETTLED').facts.arrival.state, 'full');
++  assert.match(RW.itemText(full.items.find(i => i.kind === 'CARAVAN_SETTLED')), /^隊商が着きました：食料 400$/);
++  // the send not read: nothing is compared
++  const alone = sum([rec(102, 'CARAVAN_SETTLED', 292, { owner_tag: 5, seq: 2, outcome: 0, cargo: cargo([352, 0, 0, 0, 0, 0, 0, 0]) })]);
++  assert.equal(alone.items.find(i => i.kind === 'CARAVAN_SETTLED').facts.arrival, undefined);
++  // between two looks the sends read before are carried on
++  const first = sum([rec(101, 'CARAVAN_SENT', 285, { owner_tag: 5, seq: 2, faction: 1, cargo: cargo([400, 0, 0, 0, 0, 0, 0, 0]) })]);
++  const { items } = RS.itemsSince([rec(102, 'CARAVAN_SETTLED', 292, { owner_tag: 5, seq: 2, outcome: 0, cargo: cargo([352, 0, 0, 0, 0, 0, 0, 0]) })], me, first.book, first.sent);
++  assert.equal(items[0].facts.arrival.state, 'partial');
++  assert.deepEqual([SRC.arrivalSettled(null, [1, 0, 0, 0, 0, 0, 0, 0]), SRC.arrivalSettled([1, 0, 0, 0, 0, 0, 0, 0], [2, 0, 0, 0, 0, 0, 0, 0]).state], [null, 'full']);
++});
++
++test('English words for the connected states', () => {
++  setLang('en');
++  const off = SRC.registerStatusSource('villageCosts', () => ({ costs: [{ phase: 'reserved', amounts: [100, 0, 0, 0, 0, 0, 0, 0] }], committedInHave: true }));
++  try {
++    const html = card(world(300)).replace(/<[^>]+>/g, ' ');
++    assert.match(html, /The amount that arrived is not verified yet/);
++    assert.match(html, /Usable \(after reservations\): Food 900/);
++  } finally { off(); setLang('ja'); }
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index 461e58d1..6efc9341 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -2279,7 +2279,7 @@ const awayMe = () => ({ tag: (() => { try { return BigInt(ownTag(FS) ?? 0); } ca
+  * gap) and one notice per item; after it, the S1 records read since, with the caravans' holders carried on.
+  */
+ const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heraldRef.events(a) : Promise.resolve({ ok: false })) });
+-let awayBusy = false, awayBook = null, awayQueue = [];
++let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
+ const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ?? '' });
+ const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
+ const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
+@@ -2303,7 +2303,7 @@ function awayPump() {
+       if (r.stale || r.scope !== awayScopeNow()) return;
+       const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
+         season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe() });
+-      awayBook = s.book;
++      awayBook = s.book; awaySent = s.sent;
+       if (!s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead') return;
+       awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s } },
+         ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
+@@ -2311,8 +2311,8 @@ function awayPump() {
+   } else {
+     awayReader.more().then(r => {
+       if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
+-      const { items, book } = returnSum.itemsSince(r.records, awayMe(), awayBook);
+-      awayBook = book;
++      const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent);
++      awayBook = book; awaySent = sent;
+       awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));
+     }).catch(() => {}).finally(() => { awayBusy = false; });
+   }
+diff --git a/permutation-server/web/frontier/hud/returnsum.mjs b/permutation-server/web/frontier/hud/returnsum.mjs
+index 111947f8..df8c3cc7 100644
+--- a/permutation-server/web/frontier/hud/returnsum.mjs
++++ b/permutation-server/web/frontier/hud/returnsum.mjs
+@@ -43,6 +43,7 @@
+ // A loss is told only from the record that logged it, with the amounts the
+ // record carries; nothing is estimated.
+ import { TRANSIT_OUTCOMES } from '../flog.mjs';
++import { arrivalSettled } from './statussources.mjs';
+ 
+ 
+ export const STORE_VERSION = 2;
+@@ -225,14 +226,33 @@ export function itemOf({ seq, record: r }, me, book = null) {
+  * The items of records read after a summary (between two looks), with the book carried on: → `{items, book}`. The
+  * book is not changed in place.
+  */
+-export function itemsSince(records, me, book) {
+-  const b = new Map(book ?? []), items = [];
++export function itemsSince(records, me, book, sent = null) {
++  const b = new Map(book ?? []), sn = new Map(sent ?? []), items = [];
+   for (const x of normalizeRecords(records).records) {
+-    const it = itemOf(x, me, b);
++    const it = withArrival(itemOf(x, me, b), x.record, sn);
+     if (it) items.push(it);
+     fold(b, x.record);
++    foldSent(sn, x.record);
+   }
+-  return { items, book: b };
++  return { items, book: b, sent: sn };
++}
++
++/**
++ * The cargo each caravan was sent with, from CARAVAN_SENT (key → eight
++ * amounts), forgotten at its settlement. Not kept with the mark: a caravan
++ * whose send was not read is not compared.
++ */
++function foldSent(sent, r) {
++  const key = caravanKey(r);
++  if (!key) return;
++  if (r.name === 'CARAVAN_SENT') { const c = cargoOf(r.cargo); if (c) sent.set(key, c); }
++  else if (r.name === 'CARAVAN_SETTLED') sent.delete(key);
++}
++/** A delivery of the viewer's own caravan (never taken), with what was sent when its send was read: `facts.arrival`. */
++function withArrival(it, r, sent) {
++  if (!it || it.kind !== 'CARAVAN_SETTLED' || !it.facts?.delivered || it.facts.sender !== 'me' || it.facts.holder !== 'me') return it;
++  const a = arrivalSettled(sent.get(caravanKey(r)) ?? null, it.facts.cargo);
++  return a ? { ...it, facts: { ...it.facts, arrival: a } } : it;
+ }
+ 
+ /**
+@@ -269,11 +289,12 @@ export function summarize({ records: raw, read, marks: given, last, season, wall
+   // (a first look that could not reach back to its window's first turn says from which turn it read)
+   const windowFrom = !since && from !== null && from > 0n && records.length && bellOf(records[0]) > firstBell ? bellOf(records[0]) : null;
+   // who holds each caravan, record by record, from the mark's own book on
+-  const book = caravanBook(marks?.caravans ?? {}, []), items = [], want = new Set(inRange);
++  const book = caravanBook(marks?.caravans ?? {}, []), sent = new Map(), items = [], want = new Set(inRange);
+   for (const x of records) {
+-    const it = want.has(x) ? itemOf(x, me, book) : null;
++    const it = want.has(x) ? withArrival(itemOf(x, me, book), x.record, sent) : null;
+     if (it) items.push(it);
+     fold(book, x.record);
++    foldSent(sent, x.record);
+   }
+   const counts = {};
+   for (const i of items) counts[i.tone] = (counts[i.tone] ?? 0) + 1;
+@@ -289,6 +310,6 @@ export function summarize({ records: raw, read, marks: given, last, season, wall
+     read: { after: from === null ? null : String(from), toSeq: lastRead?.seq ?? null, fromBell: bells.length ? Math.min(...bells) : null, toBell: bells.length ? Math.max(...bells) : null, n: inRange.length, dups: norm.dups, reordered: norm.reordered },
+     gap, incomplete: read?.complete === false, failed: read?.failed === true,
+     items: sorted.slice(0, SUMMARY_MAX), more: Math.max(0, sorted.length - SUMMARY_MAX), counts,
+-    book, confirm: confirmOut,
++    book, sent, confirm: confirmOut,
+   };
+ }
+diff --git a/permutation-server/web/frontier/hud/returnwords.mjs b/permutation-server/web/frontier/hud/returnwords.mjs
+index b62f3a64..5d2c6b95 100644
+--- a/permutation-server/web/frontier/hud/returnwords.mjs
++++ b/permutation-server/web/frontier/hud/returnwords.mjs
+@@ -5,6 +5,7 @@ import { L, fmtNum, lang } from '../../lang.mjs';
+ import { RESOURCES, factionName } from '../fi18n.mjs';
+ import { RESOURCE_ORDER } from '../resources.mjs';
+ import { FIRST_LOOK_BELLS } from './returnsum.mjs';
++import { arrivalView } from './statusview.mjs';
+ 
+ const cargo = c => (c ? c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(L`・`) : '');
+ const nation = f => (Number.isInteger(f) && f >= 0 && f <= 6 ? factionName(f) : L`他国`);
+@@ -23,6 +24,8 @@ export function itemText(i) {
+     case 'RAID_OPENED': return i.tone === 'uncertain' ? L`あなたが送った隊商が襲われました（ターン ${fmtNum(i.bell)}）。いまの持ち主があなたかどうかは、読み込んだ記録からはわかりません` : L`隊商が襲われ、相手が奪うか焼くかを決めるところです（ターン ${fmtNum(i.bell)}）`;
+     case 'CARAVAN_SETTLED':
+       if (i.tone === 'uncertain') return L`あなたが送った隊商の到着が記録されました（ターン ${fmtNum(i.bell)}）。途中で奪われていたなら、受け取ったのは奪った側です（読み込んだ記録からは確かめられません）${c ? L`：${c}` : ''}`;
++      // (a partial delivery, against the cargo the send logged: the contract's words, with no cause named — statusview.mjs)
++      if (!f.lost && f.arrival?.state === 'partial') { const v = arrivalView(f.arrival); return L`隊商が着きました（ターン ${fmtNum(i.bell)}）。${v.text}。${v.details.join(L`。`)}`; }
+       return f.lost ? L`隊商の行き先がなくなり、積荷が失われました${c ? L`：${c}` : ''}` : L`隊商が着きました${c ? L`：${c}` : ''}`;
+     case 'VAULT_SEIZED': case 'STRUCTURE_SEIZED': return i.tone === 'loss' ? L`${what(f.what)}を奪われました（ターン ${fmtNum(i.bell)}）` : L`${what(f.what)}を奪いました（ターン ${fmtNum(i.bell)}）`;
+     case 'SIEGE_DECLARED': return L`${nation(f.attacker)}があなたの村の包囲を宣言しました（ターン ${fmtNum(i.bell)}）。陥落には、包囲側がマスを保つターンが ${fmtNum(f.required)} 要ります（夜番の時間と、守り手がいるターンは数えません）`;
+diff --git a/permutation-server/web/frontier/hud/statussources.mjs b/permutation-server/web/frontier/hud/statussources.mjs
+new file mode 100644
+index 00000000..43c9ba1a
+--- /dev/null
++++ b/permutation-server/web/frontier/hud/statussources.mjs
+@@ -0,0 +1,57 @@
++// Where the display contract's states come from (workstream 07; the views
++// are hud/statusview.mjs). Two kinds of source:
++//
++//   from the S1 records, here     a caravan's arrival: on the road past its
++//                                 arrival turn with no settlement read yet is
++//                                 "unverified" (the caravans feed still lists
++//                                 it: screens/s1.mjs says 到着済み（決着待ち）);
++//                                 a settlement read with its send also read
++//                                 compares CARAVAN_SENT's cargo with
++//                                 CARAVAN_SETTLED's ("partial" or "full")
++//   registered by their owners    04's cancel of a caravan, 05's costs of a
++//                                 village and its switch back to manual play.
++//                                 With nothing registered nothing is shown:
++//                                 the page has no cancel and no reservation
++//                                 of its own, and none is invented here.
++//
++// A source returns the contract's plain object (statusview.mjs names its
++// fields) or null when it has nothing to say; a source that throws says
++// nothing.
++
++const sources = new Map();
++/** The kinds a source may be registered for, and who owns them. */
++export const SOURCE_KINDS = Object.freeze({
++  caravanCancel: '04', // (FS, caravan {ownerTag, seq, …}) → cancelView input | null
++  villageCosts: '05', // (FS, holding) → {costs: [costView input], committedInHave: boolean} | null
++  manualPlay: '05', // (FS) → manualView input | null
++});
++
++/** Register a source for one kind (a second replaces the first). Returns a function that removes it. */
++export function registerStatusSource(kind, fn) {
++  if (!Object.hasOwn(SOURCE_KINDS, kind) || typeof fn !== 'function') throw new TypeError(`status source: one of ${Object.keys(SOURCE_KINDS).join(', ')}, and a function`);
++  sources.set(kind, fn);
++  return () => { if (sources.get(kind) === fn) sources.delete(kind); };
++}
++/** What the source of `kind` says, or null (none registered, nothing to say, or it threw). */
++export function statusFrom(kind, ...args) {
++  const fn = sources.get(kind);
++  if (!fn) return null;
++  try { return fn(...args) ?? null; } catch { return null; }
++}
++
++/** A caravan still on the road (the caravans feed): unverified once its arrival turn has come, else nothing yet. */
++export function arrivalOnRoad(c, nowBell) {
++  const at = c?.arriveBell;
++  return Number.isFinite(at) && at <= Number(nowBell ?? 0) ? { state: 'unverified' } : null;
++}
++
++/**
++ * A settlement read, against its send when that was read too: `sent` and
++ * `arrived` are the records' cargo (eight whole amounts). → arrivalView
++ * input, or null when the send was not read (nothing is then compared).
++ */
++export function arrivalSettled(sent, arrived) {
++  const ok = c => Array.isArray(c) && c.length === 8;
++  if (!ok(sent) || !ok(arrived)) return null;
++  return { state: arrived.every((n, i) => n >= sent[i]) ? 'full' : 'partial', sent, arrived };
++}
+diff --git a/permutation-server/web/frontier/hud/statusview.mjs b/permutation-server/web/frontier/hud/statusview.mjs
+index 0159abfd..47c14654 100644
+--- a/permutation-server/web/frontier/hud/statusview.mjs
++++ b/permutation-server/web/frontier/hud/statusview.mjs
+@@ -33,7 +33,8 @@ export const COST_PHASES = Object.freeze(['reserved', 'committed', 'unsettled',
+ 
+ const count = n => (Number.isInteger(n) && n >= 0 ? n : null);
+ const isCargo = c => Array.isArray(c) && c.length === 8 && c.every(n => Number.isFinite(n) && n >= 0);
+-const cargoText = c => c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(L`・`) || L`なし`;
++/** Eight whole amounts in the page's resource order, in words ("食料 400・木材 50", or "なし"). */
++export const cargoText = c => c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || L`なし`;
+ const notReceived = (key, errors) => ({ ok: false, key, symbol: '?', text: L`状態を受け取れていません`, details: [], tone: 'unknown', errors });
+ 
+ /**
+diff --git a/permutation-server/web/frontier/screens/s1.mjs b/permutation-server/web/frontier/screens/s1.mjs
+index d32f2ac7..b81eccab 100644
+--- a/permutation-server/web/frontier/screens/s1.mjs
++++ b/permutation-server/web/frontier/screens/s1.mjs
+@@ -30,6 +30,8 @@ import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
+ import { cardHead, chip, fold, label } from './parts.mjs';
+ import { swatch } from './shell.mjs';
+ import { renderCoopSlot } from '../hud/coopentry.mjs';
++import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
++import { arrivalOnRoad, statusFrom } from '../hud/statussources.mjs';
+ 
+ // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
+ /** structure::KIND_*. */
+@@ -439,7 +441,15 @@ export function renderS1Village(FS) {
+   // (another's village may share a province with the viewer's: its tile tells them apart)
+   const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）`
+     : d.other || m.destinations.some(x => x.other && x.kind === 'holding' && x.p === d.p && x.q === d.q) ? L`${L`村`}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
+-  const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null ? (c.arriveBell <= bell ? L`到着済み（決着待ち）` : L`ターン ${fmtNum(c.arriveBell)} に到着`) : ''}</span></li>`)}</ul>` : '';
++  // (workstream 07: under each caravan, its arrival once its turn has come — unverified until the settlement is read —
++  // and 04's cancel when 04 registers it: hud/statussources.mjs, hud/statusview.mjs)
++  const caravanStatus = c => { const a = arrivalOnRoad(c, bell), x = statusFrom('caravanCancel', FS, c); return html`${a ? renderStatus(arrivalView(a)) : ''}${x ? renderStatus(cancelView(x)) : ''}`; };
++  const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null ? (c.arriveBell <= bell ? L`到着済み（決着待ち）` : L`ターン ${fmtNum(c.arriveBell)} に到着`) : ''}</span>${caravanStatus(c)}</li>`)}</ul>` : '';
++  // (05's costs of this village and its switch back to manual play, when 05 registers them; nothing otherwise)
++  const costs = statusFrom('villageCosts', FS, m.holding), manual = statusFrom('manualPlay', FS);
++  const free = costs ? spendable(m.have, costs.costs ?? [], { committedInHave: costs.committedInHave }) : null;
++  const spend = costs ? html`${label(L`費用の状態`)}${(costs.costs ?? []).map(x => renderStatus(costView(x)))}${free?.ok ? html`<p class="muted">${free.uncertain ? L`使える量（未確定の費用を最大で引いた見込み）：${spendText(free.free)}` : L`使える量（予約を引いたあと）：${spendText(free.free)}`}</p>` : html`<p class="blocked">${L`使える量を出せません：${free.errors.join(', ')}`}</p>`}` : '';
++  const manualLine = manual ? renderStatus(manualView(manual)) : '';
+   const owned = m.vaults.length || m.structures.length ? html`${label(L`あなたの貯蔵庫と建物`)}<ul class="list">${[
+     ...m.vaults.map(v => html`<li>${icon('crate')}${S1_WORDS.vault()} <span class="muted">${v.p}, ${v.q} · ${v.tile}</span>${Array.isArray(v.stores)
+       ? html` <span class="muted">${v.stores.some(x => Number(x) > 0) ? costLine(v.stores.map(Number)) : L`空`}${v.cap ? L`（上限 ${fmtNum(v.cap)}）` : ''}</span>` : ''}</li>`),
+@@ -488,7 +498,7 @@ export function renderS1Village(FS) {
+   return html`<section class="vcard vcard-folds s1-card" aria-labelledby="s1-title">
+     ${cardHead({ id: 's1-title', ic: 'flag', title: L`交易と防備` })}
+     ${m.oreStarved ? html`<p class="blocked">${L`工房が鉱石をすべて使っていて、鉱石が増えていません。兵の訓練にも鉱石が要るので、鉱山を建てるまで訓練できなくなります。`}</p>` : ''}
+-    ${caravans}${owned}
++    ${manualLine}${spend}${caravans}${owned}
+     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
+     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
+     ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index c8456a51..235f6ace 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -1380,4 +1380,11 @@ export default {
+   '署名済みで進行中の操作はありません': 'No signed order is under way',
+   'すでに署名した操作 {0} 件は止まらずに進みます': n => `${plural(Number(String(n).replace(/,/g, '')), '{0} order already signed goes', '{0} orders already signed go')} on without stopping`,
+   'いまは使えません（理由を受け取れていません）': 'Not available now (no reason was received)',
++  // workstream 07: where the contract's states come from on the S1 page (hud/statussources.mjs)
++  '費用の状態': 'State of costs',
++  '使える量（未確定の費用を最大で引いた見込み）：{0}': 'Usable (with unsettled costs taken at their most, an estimate): {0}',
++  '使える量（予約を引いたあと）：{0}': 'Usable (after reservations): {0}',
++  '使える量を出せません：{0}': 'Cannot say what is usable: {0}',
++  '隊商が着きました（ターン {0}）。{1}。{2}': 'Your caravan arrived (turn {0}). {1}. {2}',
++  '。': '. ',
+ };
+-- 
+2.43.0
+

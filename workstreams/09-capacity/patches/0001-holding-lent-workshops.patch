@@ -1,0 +1,404 @@
+diff --git a/frontier-abi/src/v2/layout/player.rs b/frontier-abi/src/v2/layout/player.rs
+index 6453bde6..859126f9 100644
+--- a/frontier-abi/src/v2/layout/player.rs
++++ b/frontier-abi/src/v2/layout/player.rs
+@@ -115,7 +115,7 @@ pub mod holding {
+         UPKEEP @ 536 : "[i64;8]" = 64;
+         QUEUE @ 600 : "rec:QueueItem x4" = 96;
+         WALLS @ 696 : "u32" = 4;
+-        RSV_700 @ 700 : "rsv" = 4;
++        LENT_WORKSHOPS @ 700 : "u32" = 4;
+         WALLS_COMMITTED_BEFORE @ 704 : "i64" = 8;
+         FOOD_SHORTFALL @ 712 : "i64" = 8;
+         RESERVE @ 720 : "[u32;8]" = 32;
+@@ -188,7 +188,10 @@ mod tests {
+             ),
+             (312, 313, 314, 315, 316, 320, 328, 344)
+         );
+-        same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV"]);
++        // Stage 2 proposal (workstream 09): the reserve at 700 holds the
++        // lent workshop copies (`Holding::lent_workshops`).
++        same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV", "RSV_700"]);
++        assert_eq!(holding::LENT_WORKSHOPS, 700);
+         assert_eq!(citizen::SIEGES_TODAY, 145);
+         assert_eq!(citizen::SIEGE_DAY, 150);
+         assert_eq!(citizen::SLOTS, 187);
+diff --git a/frontier-abi/vectors/v2/layouts.json b/frontier-abi/vectors/v2/layouts.json
+index 37caf566..13ae36c2 100644
+--- a/frontier-abi/vectors/v2/layouts.json
++++ b/frontier-abi/vectors/v2/layouts.json
+@@ -1470,10 +1470,10 @@
+           "ty": "u32"
+         },
+         {
+-          "name": "RSV_700",
++          "name": "LENT_WORKSHOPS",
+           "off": 700,
+           "len": 4,
+-          "ty": "rsv"
++          "ty": "u32"
+         },
+         {
+           "name": "WALLS_COMMITTED_BEFORE",
+diff --git a/frontier-node/crates/verify/src/holding.rs b/frontier-node/crates/verify/src/holding.rs
+index 4dd420a8..e6445fe0 100644
+--- a/frontier-node/crates/verify/src/holding.rs
++++ b/frontier-node/crates/verify/src/holding.rs
+@@ -163,6 +163,7 @@ pub fn read(d: &[u8]) -> Result<KHolding, String> {
+         walls: u32_at(d, H::WALLS)?,
+         walls_committed_before: i64_at(d, H::WALLS_COMMITTED_BEFORE)?,
+         food_shortfall: i64_at(d, H::FOOD_SHORTFALL)?,
++        lent_workshops: u32_at(d, frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS)?,
+     })
+ }
+ 
+@@ -223,6 +224,11 @@ pub fn write(d: &mut [u8], h: &KHolding, now: i64) -> Result<(), String> {
+         &h.walls_committed_before.to_le_bytes(),
+     )?;
+     put(d, H::FOOD_SHORTFALL, &h.food_shortfall.to_le_bytes())?;
++    put(
++        d,
++        frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS,
++        &h.lent_workshops.to_le_bytes(),
++    )?;
+     let flags = u8_at(d, H::FLAGS)?;
+     let dormant = if h.is_dormant(now) {
+         H::FLAG_DORMANT_CACHE
+diff --git a/permutation-frontier/src/proc/conquest.rs b/permutation-frontier/src/proc/conquest.rs
+index 48bb2979..b323254e 100644
+--- a/permutation-frontier/src/proc/conquest.rs
++++ b/permutation-frontier/src/proc/conquest.rs
+@@ -1404,6 +1404,7 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         let doctrine = *of_faction(captor_faction).ok_or(BAD_ACCOUNT)?;
+         let eff = capture_effects(&h, doctrine);
+         h.walls = eff.walls;
++        h.lent_workshops = eff.lent_workshops;
+         if !credited {
+             for s in h.stores.iter_mut() {
+                 s.value = 0;
+diff --git a/permutation-frontier/src/proc/holding.rs b/permutation-frontier/src/proc/holding.rs
+index 05b9946c..87aede6e 100644
+--- a/permutation-frontier/src/proc/holding.rs
++++ b/permutation-frontier/src/proc/holding.rs
+@@ -400,6 +400,7 @@ pub fn read_holding(d: &[u8]) -> R<KHolding> {
+         walls: r.u32(H::WALLS)?,
+         walls_committed_before: r.i64(H::WALLS_COMMITTED_BEFORE)?,
+         food_shortfall: r.i64(H::FOOD_SHORTFALL)?,
++        lent_workshops: r.u32(H2::LENT_WORKSHOPS)?,
+     })
+ }
+ 
+@@ -466,6 +467,8 @@ pub fn write_holding(d: &mut [u8], h: &KHolding, now: i64) -> R<()> {
+     b[w..w + 4].copy_from_slice(&h.walls.to_le_bytes());
+     kb_put_i64(b, H::WALLS_COMMITTED_BEFORE, h.walls_committed_before);
+     kb_put_i64(b, H::FOOD_SHORTFALL, h.food_shortfall);
++    let l = H2::LENT_WORKSHOPS - H::STORES;
++    b[l..l + 4].copy_from_slice(&h.lent_workshops.to_le_bytes());
+     Ok(())
+ }
+ 
+diff --git a/permutation-frontier/svm-tests/src/world/holding.rs b/permutation-frontier/svm-tests/src/world/holding.rs
+index c3dd3d9a..f5e7c244 100644
+--- a/permutation-frontier/svm-tests/src/world/holding.rs
++++ b/permutation-frontier/svm-tests/src/world/holding.rs
+@@ -184,8 +184,12 @@ pub fn write_kholding(d: &mut [u8], h: &KHolding) {
+         &h.walls_committed_before.to_le_bytes(),
+     );
+     put(d, H::FOOD_SHORTFALL, &h.food_shortfall.to_le_bytes());
++    put(d, H2_LENT, &h.lent_workshops.to_le_bytes());
+ }
+ 
++/// The lent workshop copies' offset (v2 Holding; workstream 09 proposal).
++const H2_LENT: usize = frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS;
++
+ /// Reads the kernel holding from Holding data (the program's codec).
+ pub fn read_kholding(d: &[u8]) -> KHolding {
+     let i64_at = |o: usize| le(&d[o..o + 8]) as i64;
+@@ -235,6 +239,7 @@ pub fn read_kholding(d: &[u8]) -> KHolding {
+         walls: le(&d[H::WALLS..H::WALLS + 4]) as u32,
+         walls_committed_before: i64_at(H::WALLS_COMMITTED_BEFORE),
+         food_shortfall: i64_at(H::FOOD_SHORTFALL),
++        lent_workshops: u32_at(d, H2_LENT),
+     }
+ }
+ 
+diff --git a/permutation-rules/src/frontier/arms.rs b/permutation-rules/src/frontier/arms.rs
+index 753fd68e..1d83dbfc 100644
+--- a/permutation-rules/src/frontier/arms.rs
++++ b/permutation-rules/src/frontier/arms.rs
+@@ -401,6 +401,87 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn lent_workshops_leave_the_holding_as_if_never_built() {
++        // k of 3 workshops lent at T0 + 1 h: from then on the holding
++        // settles exactly as one with 3 − k workshops (stores, rates and
++        // the dry-out switch), whatever the inputs.
++        for (ore, wood, oph, wph) in [(500, 500, 0, 0), (40, 300, 6, 9), (0, 0, 30, 30)] {
++            for k in 0..=3u32 {
++                let lend_at = T0 + HOUR;
++                let end = T0 + 13 * HOUR + 77;
++                let mut lent = converting(ore, wood, oph, wph, 3);
++                lent.lend_workshops(lend_at, k).unwrap();
++                lent.settle(end).unwrap();
++                let mut fewer = converting(ore, wood, oph, wph, 3);
++                fewer.settle(lend_at).unwrap();
++                fewer.production[ARMS as usize] = (3 - k as i64) * WORKSHOP_DELTA;
++                fewer.touch_owner(lend_at).unwrap();
++                fewer.last_owner_action = lent.last_owner_action;
++                fewer.settle(end).unwrap();
++                assert_eq!(lent.stores, fewer.stores, "k {k} ore {ore} wood {wood}");
++                // The copies stay built: the next Build still pays copy 4.
++                assert_eq!(lent.workshops(), 3);
++                assert_eq!(workshops_built(&lent.production), 3);
++            }
++        }
++    }
++
++    #[test]
++    fn lending_is_path_independent_and_bounded() {
++        let end = T0 + 9 * HOUR + 5;
++        let mut once = converting(30, 40, 3, 5, 2);
++        once.lend_workshops(T0 + 600, 1).unwrap();
++        once.settle(end).unwrap();
++        let mut steps = converting(30, 40, 3, 5, 2);
++        steps.settle(T0 + 300).unwrap();
++        steps.lend_workshops(T0 + 600, 1).unwrap();
++        let mut t = T0 + 600;
++        while t < end {
++            t = (t + 777).min(end);
++            steps.settle(t).unwrap();
++        }
++        assert_eq!(once, steps);
++        assert_eq!(
++            once.clone().lend_workshops(end, 2),
++            Err(crate::frontier::holding::HoldingError::Insufficient),
++            "only 1 copy left to lend"
++        );
++        assert_eq!(
++            once.clone().reclaim_workshops(end, 2),
++            Err(crate::frontier::holding::HoldingError::Insufficient)
++        );
++        // With inputs to spare, lending and reclaiming move the arms rate
++        // by one copy each.
++        let mut back = converting(900, 900, 0, 0, 2);
++        back.lend_workshops(T0, 1).unwrap();
++        assert_eq!(back.stores[ARMS as usize].rate, WORKSHOP_DELTA);
++        assert_eq!(back.stores[Resource::Ore as usize].rate, -8 * MILLI);
++        back.reclaim_workshops(T0 + HOUR, 1).unwrap();
++        assert_eq!(back.lent_workshops, 0);
++        assert_eq!(back.stores[ARMS as usize].rate, 2 * WORKSHOP_DELTA);
++        assert_eq!(stock(&back, ARMS), 4 * MILLI);
++    }
++
++    #[test]
++    fn all_lent_makes_no_arms_and_uses_no_inputs() {
++        let mut h = converting(100, 100, 0, 0, 2);
++        h.lend_workshops(T0, 2).unwrap();
++        h.settle(T0 + 10 * HOUR).unwrap();
++        assert_eq!(stock(&h, ARMS), 0);
++        assert_eq!(stock(&h, Resource::Ore), 100 * MILLI);
++        assert_eq!(stock(&h, Resource::Wood), 100 * MILLI);
++        assert!(h.stores.iter().all(|s| s.rate == 0));
++    }
++
++    #[test]
++    fn a_capture_ends_the_lending() {
++        let mut h = converting(0, 0, 0, 0, 2);
++        h.lend_workshops(T0, 1).unwrap();
++        let e = crate::frontier::holding::capture_effects(&h, NEUTRAL);
++        assert_eq!(e.lent_workshops, 0);
++    }
++
+     #[test]
+     fn the_workshop_is_build_item_8() {
+         let (c, e, secs) = building(ITEM_WORKSHOP, 1, &NEUTRAL).unwrap();
+diff --git a/permutation-rules/src/frontier/holding.rs b/permutation-rules/src/frontier/holding.rs
+index 3c010c6a..f931f1a4 100644
+--- a/permutation-rules/src/frontier/holding.rs
++++ b/permutation-rules/src/frontier/holding.rs
+@@ -18,6 +18,17 @@
+ //! change once the input has stock again. A holding without arms
+ //! production (every M1 and MC holding) settles exactly as before.
+ //!
++//! **Lent workshops (stage 2 proposal, workstream 09).** An owner can take
++//! workshop copies out of the holding's own conversion and lend their
++//! capacity to others ([`Holding::lend_workshops`]): the holding then runs
++//! only `workshops − lent` of them (its arms production less
++//! `lent × WORKSHOP_DELTA`, with the inputs that share used), from the
++//! owner's action on. The copies stay built, so the copy count the next
++//! Build pays for (read from `production`) does not change. The borrowers'
++//! conversion uses their own inputs, outside the holding's stores. With
++//! nothing lent (every holding before this) the holding settles exactly
++//! as before.
++//!
+ //! Numbers marked [design] are placeholders for the M0 host simulator to
+ //! tune; the kernels do not depend on their values.
+ 
+@@ -34,7 +45,7 @@ pub const HOLDING_VERSION_V3: u16 = 3;
+ /// conversion (module note). [`HOLDING_VERSION_V3`] keeps the MC value.
+ pub const HOLDING_VERSION_V4: u16 = 4;
+ 
+-use super::arms::{ARMS, ORE_PER_ARM, WOOD_PER_ARM};
++use super::arms::{ARMS, ORE_PER_ARM, WOOD_PER_ARM, WORKSHOP_DELTA};
+ use crate::economy::upkeep_of_effective;
+ use crate::fixed::{Bps, Milli, MilliTroops, BPS_ONE, MILLI};
+ use crate::units::{stats, UnitType};
+@@ -371,6 +382,9 @@ pub struct Holding {
+     /// Starving seconds are not tracked; the food shortfall is summed here
+     /// (milli-units) for the troop-attrition rule.
+     pub food_shortfall: Milli,
++    /// Workshop copies lent out of the holding's own conversion (module
++    /// note): at most the copies built. 0 for every M1 and MC holding.
++    pub lent_workshops: u32,
+ }
+ 
+ impl Holding {
+@@ -390,6 +404,7 @@ impl Holding {
+             walls: 0,
+             walls_committed_before: i64::MIN,
+             food_shortfall: 0,
++            lent_workshops: 0,
+         }
+     }
+ 
+@@ -458,10 +473,20 @@ impl Holding {
+         }
+     }
+ 
++    /// The holding's own arms production (milli per hour) before
++    /// dormancy: its workshops' production less the lent copies'.
++    fn own_arms(&self) -> i64 {
++        let lent = (self.lent_workshops as i64).saturating_mul(WORKSHOP_DELTA);
++        self.production[ARMS as usize]
++            .clamp(0, MAX_PRODUCTION_PER_HOUR)
++            .saturating_sub(lent)
++            .max(0)
++    }
++
+     /// Arms production (milli per hour) after dormancy, 0 if none: the
+-    /// workshops' output at full speed.
++    /// holding's own workshops' output at full speed.
+     fn arms_out(&self, dormant: bool) -> i64 {
+-        let prod = self.production[ARMS as usize].clamp(0, MAX_PRODUCTION_PER_HOUR);
++        let prod = self.own_arms();
+         if dormant {
+             prod * DORMANT_PRODUCTION_BPS as i64 / BPS_ONE as i64
+         } else {
+@@ -479,6 +504,7 @@ impl Holding {
+                 rates[r] = rates[r].saturating_sub(out.saturating_mul(per));
+             }
+         }
++        rates[ARMS as usize] -= self.lent_arms(dormant);
+         rates
+     }
+ 
+@@ -489,6 +515,7 @@ impl Holding {
+         let mut rates: [i64; RESOURCES] = core::array::from_fn(|r| self.net_rate(r, dormant));
+         let out = self.arms_out(dormant);
+         if out == 0 {
++            rates[ARMS as usize] -= self.lent_arms(dormant);
+             return rates;
+         }
+         let one = BPS_ONE as i128;
+@@ -503,16 +530,29 @@ impl Holding {
+         }
+         let lost = out as i128 - out as i128 * share / one;
+         rates[ARMS as usize] = (rates[ARMS as usize] as i128 - lost) as i64;
++        rates[ARMS as usize] -= self.lent_arms(dormant);
+         rates
+     }
+ 
++    /// The lent copies' share of the arms net rate: `net_rate` counts the
++    /// whole arms production, the holding makes only its own.
++    fn lent_arms(&self, dormant: bool) -> i64 {
++        let all = self.production[ARMS as usize].clamp(0, MAX_PRODUCTION_PER_HOUR);
++        let all = if dormant {
++            all * DORMANT_PRODUCTION_BPS as i64 / BPS_ONE as i64
++        } else {
++            all
++        };
++        all - self.arms_out(dormant)
++    }
++
+     /// Whole seconds until the first workshop input would fall below 0 at
+     /// `rates`, from the stores' last settle (`None`: no input falls). A
+     /// store's exact amount is `value × HOUR + frac` (milli-seconds-hours),
+     /// which moves by exactly `rate` per second, so the answer does not
+     /// depend on how often the stores were settled before.
+     fn dry_after(&self, rates: &[i64; RESOURCES]) -> Option<i64> {
+-        if self.production[ARMS as usize] <= 0 {
++        if self.own_arms() <= 0 {
+             return None;
+         }
+         let mut first: Option<i64> = None;
+@@ -534,7 +574,7 @@ impl Holding {
+     /// [`Self::dry_after`]. `None` when it makes no arms, runs limited, or
+     /// no input falls.
+     fn dry_at(&self) -> Option<i64> {
+-        if self.production[ARMS as usize] <= 0 {
++        if self.own_arms() <= 0 {
+             return None;
+         }
+         let t = self.stores[0].t0;
+@@ -801,6 +841,41 @@ impl Holding {
+         self.apply_rates(now);
+         Ok(())
+     }
++
++    /// Workshop copies built (`arms::workshops_built`), lent or not.
++    pub fn workshops(&self) -> u32 {
++        let n = self.production[ARMS as usize].clamp(0, MAX_PRODUCTION_PER_HOUR) / WORKSHOP_DELTA;
++        n as u32
++    }
++
++    /// Lend `n` more workshop copies from `now` (module note): settle, then
++    /// the holding runs `workshops − lent` of them. Refused
++    /// (`Insufficient`) past the copies built.
++    pub fn lend_workshops(&mut self, now: i64, n: u32) -> Result<(), HoldingError> {
++        self.settle(now)?;
++        let lent = self
++            .lent_workshops
++            .checked_add(n)
++            .ok_or(HoldingError::Insufficient)?;
++        if lent > self.workshops() {
++            return Err(HoldingError::Insufficient);
++        }
++        self.lent_workshops = lent;
++        self.apply_rates(now);
++        Ok(())
++    }
++
++    /// Take `n` lent copies back from `now`. Refused (`Insufficient`) past
++    /// the copies lent.
++    pub fn reclaim_workshops(&mut self, now: i64, n: u32) -> Result<(), HoldingError> {
++        self.settle(now)?;
++        self.lent_workshops = self
++            .lent_workshops
++            .checked_sub(n)
++            .ok_or(HoldingError::Insufficient)?;
++        self.apply_rates(now);
++        Ok(())
++    }
+ }
+ 
+ // ====================================================================
+@@ -1000,6 +1075,9 @@ pub struct CaptureEffects {
+     pub tier: Tier,
+     pub queue_kept: bool,
+     pub shield_until: i64,
++    /// Lent workshops after the capture: 0, the captor runs every copy
++    /// (the victim's lending ends with the generation).
++    pub lent_workshops: u32,
+ }
+ 
+ /// [`CaptureEffects`] of capturing `h` by a faction of `captor_doctrine`.
+@@ -1017,6 +1095,7 @@ pub fn capture_effects(h: &Holding, captor_doctrine: super::doctrine::Doctrine)
+         tier: h.tier,
+         queue_kept: true,
+         shield_until: 0,
++        lent_workshops: 0,
+     }
+ }
+ 

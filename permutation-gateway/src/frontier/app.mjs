@@ -31,8 +31,15 @@ import { prizeRoutes } from './routes/prize.mjs';
 import { agentRoutes } from './routes/agent.mjs';
 import { relayRoutes } from './routes/relay.mjs';
 import { seasonRoutes } from './routes/season.mjs';
+import { residentRoutes } from './routes/residents.mjs';
+import { createExpeditionPreview, EXPEDITION_MAX_REQUEST_BYTES, EXPEDITION_PREVIEW_ROUTE, EXPEDITION_TIMEOUT_MS } from './expedition-preview.mjs';
+import { expeditionPreviewRoutes } from './routes/expedition-preview.mjs';
+import { createExpeditionPrepare, EXPEDITION_PREPARE_ROUTE, PREPARE_MAX_REQUEST_BYTES, PREPARE_TIMEOUT_MS } from './expedition-prepare.mjs';
+import { expeditionPrepareRoutes } from './routes/expedition-prepare.mjs';
+import { createExpeditionDepartPrepare, EXPEDITION_DEPART_PREPARE_ROUTE, DEPART_PREPARE_MAX_REQUEST_BYTES, DEPART_PREPARE_TIMEOUT_MS } from './expedition-depart-prepare.mjs';
+import { expeditionDepartPrepareRoutes } from './routes/expedition-depart-prepare.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes, ...expeditionPreviewRoutes, ...expeditionPrepareRoutes, ...expeditionDepartPrepareRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
@@ -40,7 +47,14 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'POST /f/relay', 'POST /f/join', 'POST /f/reveal', 'POST /f/nudge',
   'GET /f/prize', 'GET /f/prize/ledger', 'POST /f/faucet', 'POST /f/x402/join', 'POST /f/prize/claim',
   // The agent wallet (404 AgentWalletDisabled unless --agent-wallet); the operator's reconcile is not public.
-  'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action',
+  'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/fate', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action', 'POST /f/agent/whoami',
+  // ⑳ (provisional): the NFT choice of the first login.
+  'GET /f/residents',
+  // Inspection only, disabled unless the operator supplies the separate keyless CLI and deployment pins.
+  EXPEDITION_PREVIEW_ROUTE,
+  EXPEDITION_PREPARE_ROUTE,
+  // Unsigned original-host Depart preparation: its own opt-in adapter (503 ExpeditionDepartPrepareDisabled without it); never signs or sends.
+  EXPEDITION_DEPART_PREPARE_ROUTE,
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
@@ -48,6 +62,9 @@ export const FRONTIER_FUNDED_ROUTES = Object.freeze(['POST /f/relay', 'POST /f/j
 
 /** Per client address on the public listener (burst, then a steady rate; §8.3). */
 export const FRONTIER_IP_LIMITS = Object.freeze({
+  [EXPEDITION_PREVIEW_ROUTE]: { burst: 4, perSecond: 0.2 },
+  [EXPEDITION_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
+  [EXPEDITION_DEPART_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
   'POST /f/relay': { burst: 40, perSecond: 2 },
   'POST /f/join': { burst: 10, perSecond: 0.2 },
   'POST /f/reveal': { burst: 40, perSecond: 2 },
@@ -56,6 +73,8 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   'GET /f/season': { burst: 20, perSecond: 2 },
   'GET /f/quota': { burst: 20, perSecond: 2 },
   'GET /f/tx/': { burst: 40, perSecond: 4 },
+  // ⑳: one getProgramAccounts per call.
+  'GET /f/residents': { burst: 5, perSecond: 0.2 },
   'GET /f/prize': { burst: 20, perSecond: 2 },
   'GET /f/prize/ledger': { burst: 10, perSecond: 1 },
   'POST /f/faucet': { burst: 5, perSecond: 0.1 },
@@ -64,9 +83,11 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   'POST /f/agent/command': { burst: 20, perSecond: 0.5 },
   'POST /f/agent/deposit': { burst: 10, perSecond: 0.2 },
   'POST /f/agent/action': { burst: 40, perSecond: 2 },
+  'POST /f/agent/whoami': { burst: 20, perSecond: 1 },
   'GET /f/agent': { burst: 40, perSecond: 3 },
   'GET /f/agent/terms': { burst: 20, perSecond: 2 },
   'GET /f/agent/session-terms': { burst: 20, perSecond: 2 },
+  'GET /f/agent/fate': { burst: 20, perSecond: 2 },
   'GET /f/agent/by-owner': { burst: 20, perSecond: 2 },
 });
 
@@ -88,18 +109,28 @@ export function clientAddress(req, { heraldPeer }) {
   return isIP(last) ? last : peer;
 }
 
-function readJson(req, limit) {
+function readJson(req, limit, signal) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    const cancel = () => reject(['ExpeditionPreviewTimeout', 'ExpeditionPrepareTimeout', 'ExpeditionDepartPrepareTimeout'].includes(signal?.reason)
+      ? new RouteError(504, 'request timed out', 'RequestTimeout') : new RouteError(499, 'request cancelled', 'RequestAborted'));
+    const cleanup = () => signal?.removeEventListener('abort', cancel);
+    if (signal?.aborted) { cancel(); return; }
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (/^\d+$/.test(req.headers?.['content-length'] ?? '') && BigInt(req.headers['content-length']) > BigInt(limit)) {
+      cleanup(); reject(new RouteError(413, 'request body too large', 'BodyTooLarge')); return;
+    }
     req.on('data', c => {
-      if (size > limit) return;
+      if (size > limit || signal?.aborted) return;
       size += c.length;
-      if (size > limit) { reject(new RouteError(413, 'request body too large', 'BodyTooLarge')); return; }
+      if (size > limit) { cleanup(); reject(new RouteError(413, 'request body too large', 'BodyTooLarge')); return; }
       chunks.push(c);
     });
-    req.on('error', reject);
+    req.on('error', error => { cleanup(); reject(error); });
+    req.on('aborted', () => { cleanup(); cancel(); });
     req.on('end', () => {
+      cleanup();
       const text = Buffer.concat(chunks).toString('utf8');
       try {
         const v = text ? JSON.parse(text) : {};
@@ -124,10 +155,13 @@ function readJson(req, limit) {
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
  */
 export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, faucetKey = null, store = { state: {}, save() {} }, now = Date.now,
-  log = console.log, limiter, funds, blockhashes }) {
+  log = console.log, limiter, funds, blockhashes, expeditionPreview, expeditionPrepare, expeditionDepartPrepare }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
     cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log, now, addresses,
+    expeditionPreview: expeditionPreview === undefined ? createExpeditionPreview({ cfg, season: addresses.season }) : expeditionPreview,
+    expeditionPrepare: expeditionPrepare === undefined ? createExpeditionPrepare({ cfg, season: addresses.season }) : expeditionPrepare,
+    expeditionDepartPrepare: expeditionDepartPrepare === undefined ? createExpeditionDepartPrepare({ cfg, season: addresses.season }) : expeditionDepartPrepare,
     /** The season's prize pool `{program, pool, vault, mint}`, or null (no pool configured). */
     prize: cfg.prizeProgram ? prizeAddresses({ prizeProgram: cfg.prizeProgram, gameProgram: addresses.programId, seasonId: BigInt(cfg.seasonId), mint: cfg.prizeMint }) : null,
     programId: addresses.programId,
@@ -137,7 +171,7 @@ export function createFrontierContext({ cfg, connection, pool, keeper = null, in
     relayed: new ReplayCache({ now }),
     blockhashes: blockhashes ?? new BlockhashBook(connection, { now }),
     funds: funds ?? FundsGuard.forSol({ read: () => pool.refresh(connection), minSol: cfg.minPoolSol, now, log }),
-    /** Signatures this relay sent → {lastValidBlockHeight, kind} (GET /f/tx expiry); the oldest forgotten past 10,000. */
+    /** Signatures this relay sent → {lastValidBlockHeight, kind}; the oldest forgotten past 10,000. */
     sent: boundedMap(10_000),
   };
 }
@@ -171,8 +205,18 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       return res.end(toJson({ error: 'bad request URL', code: 'BadRequest' }));
     }
     const ip = clientAddress(req, { heraldPeer: ctx.cfg.heraldPeer });
+    const preview = `${req.method} ${url.pathname}` === EXPEDITION_PREVIEW_ROUTE;
+    const prepare = `${req.method} ${url.pathname}` === EXPEDITION_PREPARE_ROUTE;
+    const departPrepare = `${req.method} ${url.pathname}` === EXPEDITION_DEPART_PREPARE_ROUTE;
+    const bounded = preview || prepare || departPrepare;
+    const controller = bounded ? new AbortController() : null;
+    const abort = () => controller?.abort();
+    const disconnect = () => { if (!res.writableEnded) abort(); };
+    if (bounded) { req.once('aborted', abort); res.once('close', disconnect); }
+    const deadline = bounded ? setTimeout(() => controller.abort(departPrepare ? 'ExpeditionDepartPrepareTimeout' : prepare ? 'ExpeditionPrepareTimeout' : 'ExpeditionPreviewTimeout'), departPrepare ? DEPART_PREPARE_TIMEOUT_MS : prepare ? PREPARE_TIMEOUT_MS : EXPEDITION_TIMEOUT_MS) : null;
     let body;
-    const request = { method: req.method, url, headers: req.headers, surface, ip, json: () => (body ??= readJson(req, FRONTIER_MAX_BODY_BYTES)) };
+    const request = { method: req.method, url, headers: req.headers, surface, ip, signal: controller?.signal,
+      json: () => (body ??= readJson(req, departPrepare ? DEPART_PREPARE_MAX_REQUEST_BYTES : prepare ? PREPARE_MAX_REQUEST_BYTES : preview ? EXPEDITION_MAX_REQUEST_BYTES : FRONTIER_MAX_BODY_BYTES, controller?.signal)) };
     let out;
     try {
       const [key, route] = findRoute(routes, req.method, url.pathname);
@@ -184,7 +228,10 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       const r = errorResponse(e);
       if (r.log) ctx.log(`${req.method} ${url.pathname}: ${e.message}`);
       out = r;
+    } finally {
+      if (bounded) { clearTimeout(deadline); req.off('aborted', abort); res.off('close', disconnect); }
     }
+    if (bounded && (res.destroyed || req.aborted)) return;
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(pub ? { 'X-Content-Type-Options': 'nosniff' } : {}), ...(out.headers ?? {}) };
     res.writeHead(out.status ?? 200, headers);
     res.end(toJson(out.body));

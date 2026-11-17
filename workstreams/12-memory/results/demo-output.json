@@ -1,0 +1,898 @@
+{
+ "contract": "wylls.memory12.demo/v4",
+ "policy": "reference-v4 (deterministic; not a language model)",
+ "bell": 300,
+ "arms": {
+  "none": {
+   "first_exchange": {},
+   "commitments": [],
+   "reliability_B": {
+    "E": 0.5,
+    "r": 0,
+    "s": 0,
+    "verified": {
+     "fulfilled": 0,
+     "late": 0,
+     "partial": 0,
+     "not_sent": 0
+    },
+    "claims": {
+     "consistent": 0,
+     "contradicted": 0,
+     "mismatch": 0,
+     "unverified": 0
+    },
+    "unresolved": 0
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "memory_delta": {
+    "offer-C": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-D": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-B": {
+     "verified": 0,
+     "caution": 0
+    }
+   },
+   "cite": [],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1620
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1640
+    }
+   },
+   "ineligible": [],
+   "memory_block": "",
+   "reassessed": null,
+   "decision_input_sha256": "50fa97ad5f1eb0a86e8d25ef6dc1dc0213067eceeb91c14adee17d2bb478a969"
+  },
+  "kept": {
+   "first_exchange": {
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd",
+    "note": "631953959584af9d"
+   },
+   "commitments": [
+    {
+     "id": "f6053dbb25754692",
+     "debtor": "B",
+     "state": "fulfilled",
+     "reasons": [],
+     "coverage_gaps": [],
+     "delivered": [
+      100,
+      100
+     ],
+     "credit": [
+      {
+       "basis": "exec_record",
+       "unit": "whole_units",
+       "inputs": [
+        "4c64a0f41681548c"
+       ],
+       "exec": {
+        "sig": "settle-p1B7",
+        "ix": 0
+       }
+      }
+     ],
+     "claims": [],
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26",
+      "015109c7af9f6f6a",
+      "08bf63f4338ebbf4",
+      "bd4e05fa39d14b2d",
+      "9fa387ca247546cd",
+      "4c64a0f41681548c"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.636252,
+    "r": 0.749154,
+    "s": 0,
+    "verified": {
+     "fulfilled": 1,
+     "late": 0,
+     "partial": 0,
+     "not_sent": 0
+    },
+    "claims": {
+     "consistent": 0,
+     "contradicted": 0,
+     "mismatch": 0,
+     "unverified": 0
+    },
+    "unresolved": 0
+   },
+   "choice": "offer-B",
+   "without_memory": "offer-C",
+   "memory_changed_choice": true,
+   "memory_delta": {
+    "offer-B": {
+     "verified": -163.5024,
+     "caution": 0
+    },
+    "offer-C": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-D": {
+     "verified": 0,
+     "caution": 0
+    }
+   },
+   "cite": [
+    "f6053dbb25754692"
+   ],
+   "why": "offer-B: lowest expected cost 1476.4976 (goods 1000, travel 40, risk 436.4976 at E=0.636252, caution 0); without memory offer-C",
+   "terms": {
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 436.4976,
+     "caution": 0,
+     "E": 0.636252,
+     "open_overdue": 0,
+     "cost": 1476.4976
+    },
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1620
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 015109c7af9f6f6a,08bf63f4338ebbf4,402a376887ef51ff,4c64a0f41681548c,5eb139a0613bcf26,9fa387ca247546cd,bd4e05fa39d14b2d,f6053dbb25754692}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26,015109c7af9f6f6a,08bf63f4338ebbf4,bd4e05fa39d14b2d,9fa387ca247546cd,4c64a0f41681548c}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 631953959584af9d,f6053dbb25754692,4c64a0f41681548c}",
+   "reassessed": null,
+   "decision_input_sha256": "092803a2a331efd7351311bae4c410b074eb4d2e05e15d7acfc93fc9c4ee6bd9"
+  },
+  "not_sent": {
+   "first_exchange": {
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "claim": "fe3aaf49a6c1bcdf",
+    "coverage": "32261dcb479413a2"
+   },
+   "commitments": [
+    {
+     "id": "f6053dbb25754692",
+     "debtor": "B",
+     "state": "not_sent",
+     "reasons": [],
+     "coverage_gaps": [],
+     "delivered": [
+      0,
+      0
+     ],
+     "credit": [],
+     "claims": [
+      {
+       "id": "fe3aaf49a6c1bcdf",
+       "kind": "claim_sent",
+       "status": "contradicted",
+       "criterion": "no_caravan_to_place_in_complete_index",
+       "basis": [
+        "32261dcb479413a2"
+       ]
+      }
+     ],
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "fe3aaf49a6c1bcdf",
+      "32261dcb479413a2"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.317841,
+    "r": 0,
+    "s": 1.146229,
+    "verified": {
+     "fulfilled": 0,
+     "late": 0,
+     "partial": 0,
+     "not_sent": 1
+    },
+    "claims": {
+     "consistent": 0,
+     "contradicted": 1,
+     "mismatch": 0,
+     "unverified": 0
+    },
+    "unresolved": 0
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "memory_delta": {
+    "offer-C": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-D": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-B": {
+     "verified": 218.5908,
+     "caution": 0
+    }
+   },
+   "cite": [
+    "f6053dbb25754692"
+   ],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1620
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 818.5908,
+     "caution": 0,
+     "E": 0.317841,
+     "open_overdue": 0,
+     "cost": 1858.5908
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [verified] B: verified 0 fulfilled, 0 late, 0 partial, 1 not sent; 0 open or unconfirmed; 0 neutral; claims 1 false, 0 mismatched, 0 unverified; reliability estimate 0.317841 (verified evidence only) {src: 32261dcb479413a2,402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf}\n- [verified] B -> A: 100 wood due bell 130: not sent: a sufficient index (world, registered partition, every send route, gapless, finalized) shows no caravan to the promised place; claim sent: contradicted (false: a sufficient coverage (world, registered partition, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim) {src: 402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf,32261dcb479413a2}",
+   "reassessed": null,
+   "decision_input_sha256": "1e762751a335f944a170e7822344c838be2aa200069fd54df7eae5896b3978e9"
+  },
+  "claim_no_record": {
+   "first_exchange": {
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "claim": "fe3aaf49a6c1bcdf"
+   },
+   "commitments": [
+    {
+     "id": "f6053dbb25754692",
+     "debtor": "B",
+     "state": "unconfirmed",
+     "reasons": [
+      "no_record_found"
+     ],
+     "coverage_gaps": [],
+     "delivered": [
+      0,
+      0
+     ],
+     "credit": [],
+     "claims": [
+      {
+       "id": "fe3aaf49a6c1bcdf",
+       "kind": "claim_sent",
+       "status": "unverified",
+       "criterion": null,
+       "basis": []
+      }
+     ],
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "fe3aaf49a6c1bcdf"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.5,
+    "r": 0,
+    "s": 0,
+    "verified": {
+     "fulfilled": 0,
+     "late": 0,
+     "partial": 0,
+     "not_sent": 0
+    },
+    "claims": {
+     "consistent": 0,
+     "contradicted": 0,
+     "mismatch": 0,
+     "unverified": 1
+    },
+    "unresolved": 1
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "memory_delta": {
+    "offer-C": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-D": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-B": {
+     "verified": 0,
+     "caution": 120
+    }
+   },
+   "cite": [
+    "f6053dbb25754692"
+   ],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1620
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 600,
+     "caution": 120,
+     "E": 0.5,
+     "open_overdue": 1,
+     "cost": 1760
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 1 unverified; reliability estimate 0.5 (verified evidence only) {src: 402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf}\n- [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (no record found); claim sent: unverified {src: 402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf}",
+   "reassessed": null,
+   "decision_input_sha256": "319e7f780e46becb466492b2f562de29c2c08250c3cb54cad452baee9e2f9dad"
+  },
+  "record_delayed": {
+   "first_exchange": {
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd"
+   },
+   "commitments": [
+    {
+     "id": "f6053dbb25754692",
+     "debtor": "B",
+     "state": "unconfirmed",
+     "reasons": [
+      "caravan_unknown"
+     ],
+     "coverage_gaps": [],
+     "delivered": [
+      0,
+      100
+     ],
+     "credit": [
+      null
+     ],
+     "claims": [],
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.5,
+    "r": 0,
+    "s": 0,
+    "verified": {
+     "fulfilled": 0,
+     "late": 0,
+     "partial": 0,
+     "not_sent": 0
+    },
+    "claims": {
+     "consistent": 0,
+     "contradicted": 0,
+     "mismatch": 0,
+     "unverified": 0
+    },
+    "unresolved": 1
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "memory_delta": {
+    "offer-C": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-D": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-B": {
+     "verified": 0,
+     "caution": 120
+    }
+   },
+   "cite": [
+    "f6053dbb25754692"
+   ],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1620
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 600,
+     "caution": 120,
+     "E": 0.5,
+     "open_overdue": 1,
+     "cost": 1760
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.5 (verified evidence only) {src: 402a376887ef51ff,5eb139a0613bcf26,f6053dbb25754692}\n- [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (credited 0 of 100 so far; up to 100 still possible) (the allocated caravan has no departure record yet) {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26}",
+   "reassessed": {
+    "decision": "0b975e0f07e62f4d",
+    "bell": 300,
+    "observed_by": 320,
+    "original": {
+     "chosen": "offer-C",
+     "policy": "reference-v4",
+     "cited": [
+      "f6053dbb25754692"
+     ],
+     "input_sha256": "00b7872e22de7830ecd0789b482bcce13b3f59facb44efb186db405b7451839a"
+    },
+    "then_reproducible": true,
+    "reference_then": "offer-C",
+    "reference_now": "offer-B",
+    "would_differ": true,
+    "changed_commitments": [
+     {
+      "commitment": "f6053dbb25754692",
+      "debtor": "B",
+      "then": "unconfirmed",
+      "now": "fulfilled"
+     }
+    ],
+    "late_arrivals": [
+     {
+      "id": "08bf63f4338ebbf4",
+      "type": "fact",
+      "kind": "identity_alias",
+      "bell": 102,
+      "created_bell": 310
+     },
+     {
+      "id": "015109c7af9f6f6a",
+      "type": "fact",
+      "kind": "caravan_sent",
+      "bell": 102,
+      "created_bell": 310
+     },
+     {
+      "id": "bd4e05fa39d14b2d",
+      "type": "fact",
+      "kind": "caravan_settled",
+      "bell": 120,
+      "created_bell": 310
+     },
+     {
+      "id": "4c64a0f41681548c",
+      "type": "fact",
+      "kind": "caravan_credited",
+      "bell": 120,
+      "created_bell": 310
+     },
+     {
+      "id": "9fa387ca247546cd",
+      "type": "fact",
+      "kind": "place_owner",
+      "bell": 120,
+      "created_bell": 310
+     }
+    ],
+    "later_events": [],
+    "backdated": [],
+    "terms_then": {
+     "offer-C": {
+      "goods": 900,
+      "travel": 40,
+      "risk": 600,
+      "caution": 0,
+      "E": 0.5,
+      "open_overdue": 0,
+      "cost": 1540
+     },
+     "offer-D": {
+      "goods": 900,
+      "travel": 120,
+      "risk": 600,
+      "caution": 0,
+      "E": 0.5,
+      "open_overdue": 0,
+      "cost": 1620
+     },
+     "offer-B": {
+      "goods": 1000,
+      "travel": 40,
+      "risk": 600,
+      "caution": 120,
+      "E": 0.5,
+      "open_overdue": 1,
+      "cost": 1760
+     }
+    },
+    "terms_now": {
+     "offer-B": {
+      "goods": 1000,
+      "travel": 40,
+      "risk": 436.4976,
+      "caution": 0,
+      "E": 0.636252,
+      "open_overdue": 0,
+      "cost": 1476.4976
+     },
+     "offer-C": {
+      "goods": 900,
+      "travel": 40,
+      "risk": 600,
+      "caution": 0,
+      "E": 0.5,
+      "open_overdue": 0,
+      "cost": 1540
+     },
+     "offer-D": {
+      "goods": 900,
+      "travel": 120,
+      "risk": 600,
+      "caution": 0,
+      "E": 0.5,
+      "open_overdue": 0,
+      "cost": 1620
+     }
+    }
+   },
+   "decision_input_sha256": "00b7872e22de7830ecd0789b482bcce13b3f59facb44efb186db405b7451839a"
+  },
+  "kept_but_cheaper_C": {
+   "first_exchange": {
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd",
+    "note": "631953959584af9d"
+   },
+   "commitments": [
+    {
+     "id": "f6053dbb25754692",
+     "debtor": "B",
+     "state": "fulfilled",
+     "reasons": [],
+     "coverage_gaps": [],
+     "delivered": [
+      100,
+      100
+     ],
+     "credit": [
+      {
+       "basis": "exec_record",
+       "unit": "whole_units",
+       "inputs": [
+        "4c64a0f41681548c"
+       ],
+       "exec": {
+        "sig": "settle-p1B7",
+        "ix": 0
+       }
+      }
+     ],
+     "claims": [],
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26",
+      "015109c7af9f6f6a",
+      "08bf63f4338ebbf4",
+      "bd4e05fa39d14b2d",
+      "9fa387ca247546cd",
+      "4c64a0f41681548c"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.636252,
+    "r": 0.749154,
+    "s": 0,
+    "verified": {
+     "fulfilled": 1,
+     "late": 0,
+     "partial": 0,
+     "not_sent": 0
+    },
+    "claims": {
+     "consistent": 0,
+     "contradicted": 0,
+     "mismatch": 0,
+     "unverified": 0
+    },
+    "unresolved": 0
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "memory_delta": {
+    "offer-C": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-B": {
+     "verified": -163.5024,
+     "caution": 0
+    },
+    "offer-D": {
+     "verified": 0,
+     "caution": 0
+    }
+   },
+   "cite": [
+    "f6053dbb25754692"
+   ],
+   "why": "offer-C: lowest expected cost 1340 (goods 700, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 700,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1340
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 436.4976,
+     "caution": 0,
+     "E": 0.636252,
+     "open_overdue": 0,
+     "cost": 1476.4976
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1620
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 015109c7af9f6f6a,08bf63f4338ebbf4,402a376887ef51ff,4c64a0f41681548c,5eb139a0613bcf26,9fa387ca247546cd,bd4e05fa39d14b2d,f6053dbb25754692}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26,015109c7af9f6f6a,08bf63f4338ebbf4,bd4e05fa39d14b2d,9fa387ca247546cd,4c64a0f41681548c}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 631953959584af9d,f6053dbb25754692,4c64a0f41681548c}",
+   "reassessed": null,
+   "decision_input_sha256": "5816e8bc1697f7446d316598c20c1713e8358f6b07fe29293b39e35aa1689fb4"
+  },
+  "kept_but_no_stock": {
+   "first_exchange": {
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd",
+    "note": "631953959584af9d"
+   },
+   "commitments": [
+    {
+     "id": "f6053dbb25754692",
+     "debtor": "B",
+     "state": "fulfilled",
+     "reasons": [],
+     "coverage_gaps": [],
+     "delivered": [
+      100,
+      100
+     ],
+     "credit": [
+      {
+       "basis": "exec_record",
+       "unit": "whole_units",
+       "inputs": [
+        "4c64a0f41681548c"
+       ],
+       "exec": {
+        "sig": "settle-p1B7",
+        "ix": 0
+       }
+      }
+     ],
+     "claims": [],
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26",
+      "015109c7af9f6f6a",
+      "08bf63f4338ebbf4",
+      "bd4e05fa39d14b2d",
+      "9fa387ca247546cd",
+      "4c64a0f41681548c"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.636252,
+    "r": 0.749154,
+    "s": 0,
+    "verified": {
+     "fulfilled": 1,
+     "late": 0,
+     "partial": 0,
+     "not_sent": 0
+    },
+    "claims": {
+     "consistent": 0,
+     "contradicted": 0,
+     "mismatch": 0,
+     "unverified": 0
+    },
+    "unresolved": 0
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "memory_delta": {
+    "offer-C": {
+     "verified": 0,
+     "caution": 0
+    },
+    "offer-D": {
+     "verified": 0,
+     "caution": 0
+    }
+   },
+   "cite": [],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "caution": 0,
+     "E": 0.5,
+     "open_overdue": 0,
+     "cost": 1620
+    }
+   },
+   "ineligible": [
+    {
+     "id": "offer-B",
+     "reason": "stock_below_qty"
+    }
+   ],
+   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 015109c7af9f6f6a,08bf63f4338ebbf4,402a376887ef51ff,4c64a0f41681548c,5eb139a0613bcf26,9fa387ca247546cd,bd4e05fa39d14b2d,f6053dbb25754692}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26,015109c7af9f6f6a,08bf63f4338ebbf4,bd4e05fa39d14b2d,9fa387ca247546cd,4c64a0f41681548c}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 631953959584af9d,f6053dbb25754692,4c64a0f41681548c}",
+   "reassessed": null,
+   "decision_input_sha256": "f06872d3cfa7abd76a12d54dc63abf061cee0543de53db9c62e20a93406a5944"
+  }
+ }
+}

@@ -1,0 +1,127 @@
+{
+  "label": "LOCAL FIXTURE: real relay/agent wallet/MCP code over a scripted chain; program effects emulated; models are scripted stand-ins, not LLMs",
+  "adapters": {
+    "grant": "provisional: ② rights contract not received; reads the agent wallet policy + mode + delegation, narrowed by the owner's local mandate",
+    "command": "provisional: ③ command contract not received; derived from the program ABI (ixOf) and the agent gateway (accountsFor)",
+    "run": "provisional: ④ Run contract not received; a local append-only journal over the gateway's ActionResult and GET /f/tx"
+  },
+  "variations": [
+    {
+      "id": "A",
+      "mandate": "基準：北方拠点に協力、1件あたり兵200・食料120、部分協力可、担当官の依頼だけに従う",
+      "status": "done",
+      "blocked": [],
+      "sent": [
+        "N-1 Train n=200"
+      ],
+      "toOwner": [
+        "N-2 WalletRequired",
+        "N-4 NotImplemented",
+        "N-3 DecidedNotForProxy"
+      ],
+      "refused": [],
+      "contributed": [
+        "N-1"
+      ],
+      "spearmenAfter": 200
+    },
+    {
+      "id": "B",
+      "mandate": "上限を下げる：1件あたり兵100",
+      "status": "done",
+      "blocked": [],
+      "sent": [
+        "N-1 Train n=100"
+      ],
+      "toOwner": [
+        "N-2 WalletRequired",
+        "N-4 NotImplemented",
+        "N-3 DecidedNotForProxy"
+      ],
+      "refused": [],
+      "contributed": [
+        "N-1"
+      ],
+      "spearmenAfter": 100
+    },
+    {
+      "id": "C",
+      "mandate": "部分協力を許さず、上限は兵100のまま",
+      "status": "done",
+      "blocked": [],
+      "sent": [],
+      "toOwner": [
+        "N-1 ExceedsMandate",
+        "N-2 WalletRequired",
+        "N-4 NotImplemented",
+        "N-3 DecidedNotForProxy"
+      ],
+      "refused": [],
+      "contributed": [],
+      "spearmenAfter": 0
+    },
+    {
+      "id": "D",
+      "mandate": "委任を収穫だけにする（訓練は任せない）",
+      "status": "done",
+      "blocked": [],
+      "sent": [],
+      "toOwner": [
+        "N-1 NotInMandate",
+        "N-2 WalletRequired",
+        "N-4 NotImplemented",
+        "N-3 DecidedNotForProxy"
+      ],
+      "refused": [],
+      "contributed": [],
+      "spearmenAfter": 0
+    },
+    {
+      "id": "E",
+      "mandate": "国の誰の依頼にも従う（担当官を絞らない）、1日の上限は2倍",
+      "status": "done",
+      "blocked": [],
+      "sent": [
+        "N-1 Train n=200",
+        "X-1 Train n=200"
+      ],
+      "toOwner": [
+        "N-2 WalletRequired",
+        "N-4 NotImplemented",
+        "N-3 DecidedNotForProxy"
+      ],
+      "refused": [],
+      "contributed": [
+        "N-1",
+        "X-1"
+      ],
+      "spearmenAfter": 400
+    },
+    {
+      "id": "F",
+      "mandate": "本人が停止（manual）",
+      "status": "blocked",
+      "blocked": [
+        "AgentStopped"
+      ],
+      "sent": [],
+      "toOwner": [],
+      "refused": [],
+      "contributed": [],
+      "spearmenAfter": 0
+    },
+    {
+      "id": "G",
+      "mandate": "委任条件の期限切れ",
+      "status": "blocked",
+      "blocked": [
+        "MandateExpired"
+      ],
+      "sent": [],
+      "toOwner": [],
+      "refused": [],
+      "contributed": [],
+      "spearmenAfter": 0
+    }
+  ]
+}

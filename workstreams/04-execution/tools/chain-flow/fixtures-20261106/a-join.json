@@ -1,0 +1,16 @@
+{
+  "stage": "A",
+  "source": "workstreams/04-execution/e2e-native/tests/chain_nft.rs",
+  "program": "1111111111111111111111111111111111111111111111111111111111111111",
+  "season_id": 7,
+  "season": "0279b161f9d6c5d680144a7198e1b2023184d3bd11916180a86effd069821be8",
+  "asset": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+  "citizen": "51131d2e35af611b6ec091b9699ac0ec8654b67f5ec846c15611b5f2e8e09487",
+  "citizen_tag": "1973050754706772817",
+  "citizen_tag_hex": "1b61af352e1d1351",
+  "resident_tag15": "7dafd5ae07208e40dfbeffaaf34603",
+  "joined_by": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "owner_after_transfer": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+  "generation": 1,
+  "resident_joined_record": "0182010000007dafd5ae07208e40dfbeffaaf346035a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a0200000000000100000000"
+}

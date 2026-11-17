@@ -102,7 +102,7 @@ pub mod season {
 pub mod frontier {
     crate::layout::chained!(b"PSF1FRNT", 512;
         RINGS_OPENED @ 64 : "u16" = 2;
-        RSV_66 @ 66 : "rsv" = 2;
+        R_MAX_EXT @ 66 : "u16" = 2;
         LAST_RING_OPEN_BELL @ 68 : "u32" = 4;
         LAST_RING_OPEN_TS @ 72 : "i64" = 8;
         FOLD_BELL @ 80 : "u32" = 4;

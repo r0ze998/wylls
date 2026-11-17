@@ -1,0 +1,56 @@
+# 2026-11-05T23:29:59Z 2aceaf4770878d001457f29eb6007bc70f07de8b+r6 working tree rustc 1.89.0 (29483883e 2025-08-04)
+fmt-ok
+clippy-ok
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test b01_pieces_in_any_order_with_repeats_then_the_hash_then_it_runs ... ok
+test b02_every_order_of_five_pieces_gives_the_same_id ... ok
+test b03_a_missing_piece_is_unfinished_and_runs_nothing ... ok
+test b04_a_piece_that_changes_written_bytes_is_refused_whole ... ok
+test b05_bytes_that_are_not_the_promised_content_never_register ... ok
+test b06_a_matching_hash_still_needs_a_valid_manifest ... ok
+test b07_bounds_and_ownership_of_a_buffer ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test c01_the_world_continues_through_a_boundary ... ok
+test c02_new_rules_open_the_exit_and_nothing_is_lost ... ok
+test c03_a_re_created_holding_still_receives_what_is_owed ... ok
+test c04_an_obligation_waits_for_the_owner_however_long ... ok
+test c05_an_extensions_own_deadline_is_not_the_worlds ... ok
+test c06_a_restart_does_not_run_anything_twice ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test e01_an_ended_grant_opens_the_exit_once ... ok
+test e02_a_core_upgrade_opens_the_exit ... ok
+test e03_the_exit_goes_to_the_users_own_holding_only ... ok
+test e04_nothing_to_return_is_refused ... ok
+test e05_a_replayed_exit_does_not_verify ... ok
+test e06_every_short_history_conserves_and_lets_the_user_out ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+test f01_author_publishes_user_grants_and_calls_third_party_verifies ... ok
+test f02_the_same_inputs_give_the_same_receipts ... ok
+test f03_core_resources_are_conserved_across_calls ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test g01_twenty_thousand_calls_verify_window_by_window ... ok
+test g02_a_full_counter_does_not_trap_the_escrow ... ok
+test g03_limits_refuse_instead_of_wrapping ... ok
+test g04_state_is_bounded_by_the_declared_number_of_owners ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+test n01_no_mutation_of_the_evidence_is_a_pass ... ok
+test n02_unknown_or_missing_is_unverifiable_not_fail ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test r01_no_one_uses_anothers_keys_holding_or_grant ... ok
+test r02_the_grant_caps_what_a_call_may_take ... ok
+test r03_a_call_runs_once ... ok
+test r04_an_update_does_not_change_what_the_user_granted ... ok
+test r05_a_manifest_for_another_core_does_not_run ... ok
+test r06_stops_refuse_new_calls_keep_what_was_done_and_let_users_out ... ok
+test r07_publication_refuses_unbounded_or_unknown_manifests ... ok
+test r08_state_creation_is_bounded ... ok
+test r09_an_extension_cannot_mint_or_write_balances ... ok
+test r10_a_failure_after_a_payment_undoes_the_payment ... ok
+test r11_the_description_warns_of_resources_that_never_return ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test v01_a_forged_receipt_fails ... ok
+test v02_a_completion_that_did_not_happen_fails ... ok
+test v03_what_the_verifier_does_not_know_is_never_a_pass ... ok
+test v04_a_fail_outranks_an_unverifiable ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

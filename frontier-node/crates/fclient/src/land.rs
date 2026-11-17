@@ -21,10 +21,12 @@ use crate::decode::{Citizen, Cohort, Frontier, Holding, Season};
 pub const TICKET_COHORT_BELLS: u32 = 24;
 /// `Citizen.ticket_bell` when no ticket is open.
 pub const NO_TICKET: u32 = u32::MAX;
-/// Rent of a Province (`(128 + 4,096) × 5,080`, §4.2).
-pub const PROVINCE_RENT: u64 = (128 + 4_096) * 5_080;
+/// Rent of an M1 Province (4,096 data bytes, §4.2).
+pub const PROVINCE_RENT: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE);
+/// Rent of an MC/S1 Province (4,736 data bytes, MC §5.2.1).
+pub const PROVINCE_RENT_V2: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE_V2);
 /// Rent of a ProvinceFund (`(128 + 128) × 5,080`).
-pub const FUND_RENT: u64 = (128 + 128) * 5_080;
+pub const FUND_RENT: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE_FUND);
 
 /// `rng::rand(S, "site", P ‖ Q ‖ site ‖ citizen_tag)`.
 pub fn ticket_score(seed: &[u8; 32], p: i32, q: i32, site: u8, citizen_tag: u64) -> u64 {
@@ -149,7 +151,8 @@ pub fn theta_bps(s: &Season, now: i64) -> u16 {
 pub enum RingWait {
     /// Not Running (genesis rings open while Seeded; crowding rings need Running).
     NotRunning,
-    /// `d > r_max`.
+    /// `d > r_max` (the effective one: the Season's, or the Frontier's
+    /// `r_max_ext` after ExtendFrontier).
     AtMax,
     /// Less than one bell since the last ring opened.
     TooSoon,
@@ -168,7 +171,7 @@ pub fn ring_open_check(
     now: i64,
 ) -> Result<(), RingWait> {
     let d = fr.rings_opened;
-    if d > s.r_max {
+    if d > s.r_max.max(fr.r_max_ext) {
         return Err(RingWait::AtMax);
     }
     if s.effective_status(now) != crate::abi::status::RUNNING {
@@ -186,12 +189,77 @@ pub fn ring_open_check(
     if !crowded {
         return Err(RingWait::NotCrowded);
     }
+    let province_rent = if s.is_v2() {
+        PROVINCE_RENT_V2
+    } else {
+        PROVINCE_RENT
+    };
     for (w, &l) in fund_lamports.iter().enumerate() {
-        if l.saturating_sub(FUND_RENT) < d as u64 * PROVINCE_RENT {
+        if l.saturating_sub(FUND_RENT) < d as u64 * province_rent {
             return Err(RingWait::Fund(w as u8));
         }
     }
     Ok(())
+}
+
+/// Why ExtendFrontier(d) cannot land yet (map growth, S1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExtendWait {
+    /// The season has no `r_max_ceiling` (0): its `r_max` is final.
+    NoCeiling,
+    /// The effective `r_max` is already the ceiling.
+    AtCeiling,
+    /// Not Running.
+    NotRunning,
+    /// Some ring up to the effective `r_max` is not opened yet.
+    RingsNotOpened,
+    /// Less than one bell since the last ring opened.
+    TooSoon,
+    /// No wedge has `wedge_occupied ≥ θ × wedge_open` on the folded values.
+    NotCrowded,
+    /// The season's end bell has come: a finite season does not grow from
+    /// it on (the program's `WrongStatus`), even before EndSeason.
+    PastEnd,
+}
+
+/// The ExtendFrontier rule (`proc/map.rs` `extend_frontier`) on the
+/// decoded accounts: `Ok(d)` with `d = effective r_max + 1` when the
+/// program would accept ExtendFrontier(d) now. The same checks, in the
+/// program's order: a ceiling, `d ≤ ceiling`, Running, `rings_opened ==
+/// d` (every ring up to the effective `r_max` opened), before the
+/// season's end bell, a bell since the last ring opening, some wedge
+/// crowded past θ.
+pub fn frontier_extend_check(s: &Season, fr: &Frontier, now: i64) -> Result<u16, ExtendWait> {
+    let ceiling = s.conquest.as_ref().map_or(0, |c| c.r_max_ceiling);
+    if ceiling == 0 {
+        return Err(ExtendWait::NoCeiling);
+    }
+    let d = s.r_max.max(fr.r_max_ext).saturating_add(1);
+    if d > ceiling {
+        return Err(ExtendWait::AtCeiling);
+    }
+    if s.effective_status(now) != crate::abi::status::RUNNING {
+        return Err(ExtendWait::NotRunning);
+    }
+    if fr.rings_opened != d {
+        return Err(ExtendWait::RingsNotOpened);
+    }
+    let bell = crate::clock::bell_at(s.genesis_ts, now).unwrap_or(0);
+    if bell >= s.end_bell {
+        return Err(ExtendWait::PastEnd);
+    }
+    if bell < fr.last_ring_open_bell.saturating_add(1) {
+        return Err(ExtendWait::TooSoon);
+    }
+    let theta = theta_bps(s, now) as u64;
+    let crowded = (0..6).any(|w| {
+        let open = fr.wedge_open[w] as u64;
+        open > 0 && fr.wedge_occupied[w] as u64 * 10_000 >= theta * open
+    });
+    if !crowded {
+        return Err(ExtendWait::NotCrowded);
+    }
+    Ok(d)
 }
 
 /// A ring opening the chain is in (W6-C: the stack's `frontier-fund` hold
@@ -321,6 +389,8 @@ mod tests {
         put(&mut d, l::THETA_LATE_BPS, &6_500u16.to_le_bytes());
         put(&mut d, l::THETA_SWITCH_SECS, &259_200u32.to_le_bytes());
         put(&mut d, l::RELEASE_AFTER_SECS, &864_000u32.to_le_bytes());
+        // A 7-day season (end bell 1,008), as M1_LOCAL_7D.
+        put(&mut d, l::END_BELL, &1_008u32.to_le_bytes());
         Season::decode(&d).unwrap()
     }
 
@@ -367,17 +437,116 @@ mod tests {
         assert_eq!(ring_open_check(&s, &fr, &poor, now), Err(RingWait::Fund(5)));
         poor[5] += 1;
         assert_eq!(ring_open_check(&s, &fr, &poor, now), Ok(()));
+        // MC/S1 writes the larger Province2 account. A fund that sufficed
+        // for M1 must not be reported ready before OpenRing can pay its rent.
+        let mut s2 = s.clone();
+        s2.program_version = crate::abi::PROGRAM_VERSION_V2;
+        assert_eq!(PROVINCE_RENT, frontier_abi::layout::rent(4_096));
+        assert_eq!(PROVINCE_RENT_V2, frontier_abi::layout::rent(4_736));
+        assert_eq!(
+            ring_open_check(&s2, &fr, &poor, now),
+            Err(RingWait::Fund(5))
+        );
+        poor[5] = FUND_RENT + 4 * PROVINCE_RENT_V2 - 1;
+        assert_eq!(
+            ring_open_check(&s2, &fr, &poor, now),
+            Err(RingWait::Fund(5))
+        );
+        poor[5] += 1;
+        assert_eq!(ring_open_check(&s2, &fr, &poor, now), Ok(()));
         assert_eq!(
             ring_open_check(&s, &fr, &rich, g - 1),
             Err(RingWait::NotRunning)
         );
         let fr = frontier(17, 3, [100; 6], [100; 6]);
         assert_eq!(ring_open_check(&s, &fr, &rich, now), Err(RingWait::AtMax));
+        // Map growth: past the Season's r_max (16) once ExtendFrontier
+        // raised the Frontier's `r_max_ext` to 17 (not 18).
+        let mut fr = frontier(17, 3, [100; 6], [100; 6]);
+        fr.r_max_ext = 17;
+        assert_eq!(ring_open_check(&s, &fr, &rich, now), Ok(()));
+        fr.rings_opened = 18;
+        assert_eq!(ring_open_check(&s, &fr, &rich, now), Err(RingWait::AtMax));
         // A wedge with nothing open is never crowded.
         let fr = frontier(4, 3, [0; 6], [0; 6]);
         assert_eq!(
             ring_open_check(&s, &fr, &rich, now),
             Err(RingWait::NotCrowded)
+        );
+    }
+
+    /// Map growth: the ExtendFrontier rule, in the program's order.
+    #[test]
+    fn the_extend_frontier_rule() {
+        let g = 1_000_000;
+        let now = g + 10 * 600;
+        let mut s = season(g);
+        // r_max 16, rings 0..=16 opened (rings_opened 17), wedge 2 crowded.
+        let fr = frontier(17, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
+        // No conquest block, or a ceiling of 0: never.
+        assert_eq!(
+            frontier_extend_check(&s, &fr, now),
+            Err(ExtendWait::NoCeiling)
+        );
+        let mut cq = frontier_abi::v2::presets::FRONTIER_7;
+        s.conquest = Some(cq);
+        assert_eq!(
+            frontier_extend_check(&s, &fr, now),
+            Err(ExtendWait::NoCeiling)
+        );
+        cq.r_max_ceiling = 18;
+        s.conquest = Some(cq);
+        assert_eq!(frontier_extend_check(&s, &fr, now), Ok(17));
+        // From the season's end bell on (Running until EndSeason): never.
+        // (Past the θ switch the late θ, 65 %, applies: wedge 2 at 70 %.)
+        let end = g + s.end_bell as i64 * 600;
+        let late = frontier(17, 3, [100; 6], [0, 0, 70, 0, 0, 0]);
+        assert_eq!(
+            frontier_extend_check(&s, &late, end - 1),
+            Ok(17),
+            "the last bell still grows"
+        );
+        assert_eq!(
+            frontier_extend_check(&s, &late, end),
+            Err(ExtendWait::PastEnd)
+        );
+        // Not Running yet.
+        assert_eq!(
+            frontier_extend_check(&s, &fr, g - 1),
+            Err(ExtendWait::NotRunning)
+        );
+        // Ring 16 not opened yet.
+        let fr16 = frontier(16, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
+        assert_eq!(
+            frontier_extend_check(&s, &fr16, now),
+            Err(ExtendWait::RingsNotOpened)
+        );
+        // A ring opened this bell; nothing crowded.
+        let fr = frontier(17, 10, [100; 6], [0, 0, 60, 0, 0, 0]);
+        assert_eq!(
+            frontier_extend_check(&s, &fr, now),
+            Err(ExtendWait::TooSoon)
+        );
+        let fr = frontier(17, 3, [100; 6], [0, 0, 54, 0, 0, 0]);
+        assert_eq!(
+            frontier_extend_check(&s, &fr, now),
+            Err(ExtendWait::NotCrowded)
+        );
+        // Extended to 17: ring 17 not opened, then the next is 18 = ceiling,
+        // then nothing above the ceiling.
+        let mut fr = frontier(17, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
+        fr.r_max_ext = 17;
+        assert_eq!(
+            frontier_extend_check(&s, &fr, now),
+            Err(ExtendWait::RingsNotOpened)
+        );
+        fr.rings_opened = 18;
+        assert_eq!(frontier_extend_check(&s, &fr, now), Ok(18));
+        fr.r_max_ext = 18;
+        fr.rings_opened = 19;
+        assert_eq!(
+            frontier_extend_check(&s, &fr, now),
+            Err(ExtendWait::AtCeiling)
         );
     }
 

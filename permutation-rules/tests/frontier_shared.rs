@@ -1292,20 +1292,63 @@ fn ruleset_hash_binds_versions_and_catalog() {
         &names[v2_names.len()..],
         &["arms", "caravan", "structure", "nation"]
     );
+    // S1 with custody (`KERNEL_VERSIONS_V4`, workstream 10) appends
+    // `custody` to the S1 list and binds every module of the tree; the S1
+    // list and hash do not change.
+    let v3_names = names;
+    let names: Vec<&str> = permutation_rules::frontier::KERNEL_VERSIONS_V4
+        .iter()
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(&names[..v3_names.len()], &v3_names[..], "v4 appends to v3");
+    assert_eq!(&names[v3_names.len()..], &["custody"]);
+    let v4 = permutation_rules::frontier::ruleset_hash_input_v4();
+    assert!(v4.starts_with(permutation_rules::frontier::RULESET_DOMAIN_V4));
+    let v3 = permutation_rules::frontier::ruleset_hash_input_v3();
+    assert!(v4.len() > v3.len());
+    assert_ne!(
+        permutation_rules::frontier::ruleset_hash_v4(),
+        permutation_rules::frontier::ruleset_hash_v3()
+    );
     let src = include_str!("../src/frontier/mod.rs");
+    // Off-by-default previews, each behind its own feature and bound to no
+    // ruleset hash until a build gives it a version (named here, not
+    // hidden): workstream 09's capacity rules (until workstream 4 gives a
+    // capacity build its version) and the "Standing Ground" land preview.
+    // Each must appear exactly once, behind exactly its feature, and in no
+    // version list.
+    let previews: [(&str, &str); 2] = [
+        (r#"#[cfg(feature = "capacity-preview")]"#, "capacity"),
+        (r#"#[cfg(feature = "land-preview")]"#, "land"),
+    ];
+    let mut previews_seen = [0usize; 2];
     let mut modules = 0;
+    let mut previous = "";
     for line in src.lines() {
         if let Some(m) = line
             .strip_prefix("pub mod ")
             .and_then(|r| r.strip_suffix(';'))
         {
+            if let Some(i) = previews.iter().position(|(cfg, _)| previous == *cfg) {
+                assert_eq!(m, previews[i].1, "{} gates the wrong module", previews[i].0);
+                assert!(!names.contains(&m), "preview {m} is bound to a hash");
+                previews_seen[i] += 1;
+                previous = line;
+                continue;
+            }
+            assert!(
+                !previews.iter().any(|(_, p)| *p == m),
+                "preview module {m} is not behind its feature"
+            );
             assert!(
                 names.contains(&m),
                 "module {m} has no KERNEL_VERSIONS entry"
             );
             modules += 1;
         }
+        previous = line;
     }
+    assert_eq!(previews_seen, [1, 1], "each preview module exactly once");
     assert_eq!(modules + 1, names.len(), "one entry per module + frontier");
     // Golden value: a change to any bound constant or table changes it on
     // purpose (update here, in frontier-abi and in the notes). Moved from

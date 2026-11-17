@@ -1,0 +1,37 @@
+# LiteSVM tests of the resident program against the real Metaplex Core binary
+# (read from mainnet by program id; docs/ENV-RECORD.ja.md). Own workspace,
+# the same pins as permutation-frontier/svm-tests (LiteSVM 0.16 needs Rust 1.95).
+[package]
+name = "wylls-resident-svm-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+publish = false
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+litesvm = "=0.16.0"
+solana-account = "=4.3.2"
+solana-address = { version = "=2.6.1", features = ["curve25519", "sha2", "decode"] }
+solana-clock = "=3.1.1"
+solana-hash = "=4.5.0"
+solana-instruction = "=3.4.1"
+solana-keypair = "=3.1.2"
+solana-message = "=4.4.1"
+solana-rent = "=4.3.0"
+solana-signature = "=3.4.1"
+solana-signer = "=3.0.1"
+solana-transaction = { version = "=4.1.6", features = ["serde", "wincode", "verify"] }
+mpl-core = "=0.12.1"
+wylls-resident-program = { path = "../program", features = ["no-entrypoint"] }
+sha2 = "=0.10.9"
+hex = "=0.4.3"
+serde_json = "1"
+bincode = "=1.3.3"
+
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3

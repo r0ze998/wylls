@@ -1,0 +1,14 @@
+{
+  "citizen_tag": "1973050754706772817",
+  "receipts": [
+    "caravan_sent",
+    "caravan_settled"
+  ],
+  "run_id": "chain-1",
+  "source": "workstreams/04-execution/tests/chain_caravan.rs",
+  "stage": "B",
+  "state": "Fulfilled",
+  "store": "b-store.sqlite",
+  "subject": "cv:1b61af352e1d1351:0",
+  "world": "game:1111111111111111111111111111111111111111111111111111111111111111/season:0279b161f9d6c5d680144a7198e1b2023184d3bd11916180a86effd069821be8"
+}

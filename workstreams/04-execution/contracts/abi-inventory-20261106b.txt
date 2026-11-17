@@ -1,0 +1,28 @@
+== 02: 27 entries not in base code
+== 08: 4 entries not in base code
+== 09: 42 entries not in base code
+== 10: 114 entries not in base code
+== 11: 18 entries not in base code
+== 20: 17 entries not in base code
+== CAND: 17 entries not in base code
+== collisions: 20
+err-game:94 10:CustodyCapacity(patch) | base:ContinuousWorld(code)
+kind:104 08:FRONTIER_EXTENDED(code) | 10:LOT_OPENED(patch)
+seed:mc base:MARCH(code) | base:MarchState(code)
+tag:193 08:ExtendFrontier(code) | 09:OpenCapacityPool(doc) | 10:OpenLot(doc) | 10:OpenLot(patch)
+tag:194 09:LendCapacity(doc) | 10:SetLotQuota(doc) | 10:SetLotQuota(patch)
+tag:195 09:ReclaimCapacity(doc) | 10:DepositLot(doc) | 10:DepositLot(patch)
+tag:196 09:GrantCapacity(doc) | 10:SetLotOrder(doc) | 10:SetLotOrder(patch)
+tag:197 09:RevokeCapacity(doc) | 10:RevokeLotOrder(doc) | 10:RevokeLotOrder(patch)
+tag:198 09:ReserveCapacity(doc) | 10:ShipLot(doc) | 10:ShipLot(patch)
+tag:199 09:DepositToJob(doc) | 10:SettleCustody(doc) | 10:SettleCustody(patch)
+tag:200 09:SettleJob(doc) | 10:ConsumeLot(doc) | 10:ConsumeLot(patch)
+tag:201 09:CancelJob(doc) | 10:ReconcileLot(doc) | 10:ReconcileLot(patch)
+tag:202 09:ClaimJob(doc) | 10:CloseLot(doc) | 10:CloseLot(patch)
+tag:203 09:RecordFacilityLoss(doc) | 10:WithdrawLot(doc) | 10:WithdrawLot(patch)
+tag:208 02:ISSUE_GRANT(code) | 02:ISSUE_GRANT(patch) | 02:IssueGrant(doc) | 11:ExtWriteManifest(doc)
+tag:209 02:RESERVE_SWAP(code) | 02:RESERVE_SWAP(patch) | 02:ReserveSwap(doc) | 11:ExtPublish(doc)
+tag:210 02:EXECUTE_SWAP(code) | 02:EXECUTE_SWAP(patch) | 02:ExecuteSwap(doc) | 11:ExtSetStatus(doc)
+tag:211 02:RELEASE_SWAP(code) | 02:RELEASE_SWAP(patch) | 02:ReleaseSwap(doc) | 11:ExtGrant(doc)
+tag:212 02:REVOKE_GRANT(code) | 02:REVOKE_GRANT(patch) | 02:RevokeGrant(doc) | 11:ExtCall(doc)
+tag:213 02:CLOSE_GRANT(code) | 02:CLOSE_GRANT(patch) | 02:CloseGrant(doc) | 11:ExtWithdraw(doc)

@@ -19,6 +19,12 @@ import { provinceName } from '../hud/place.mjs';
 import { cardHead, stamp, bar } from './parts.mjs';
 
 /** Every host of the viewer's first holding in the provinces the page holds (home and destinations). */
+/**
+ * (workstream 07) The village's own province not read yet (or its read failed): its hosts come from that record, so
+ * "no host" is not known. The troops screen and the guide say so instead of "none" (and offer no Train or Muster).
+ */
+export const homeProvinceUnread = (FS, h = activeHolding(FS)) => !!h && !FS?.provinces?.has?.(`${h.p},${h.q}`);
+
 export function hostRows(FS) {
   const h = activeHolding(FS);
   if (!h) return [];
@@ -30,6 +36,86 @@ export function hostRows(FS) {
 }
 
 const PENDING_TEXT = { 0: () => '', 1: () => L`出発の手続き中`, 2: () => L`分割待ち`, 3: () => L`合流待ち`, 4: () => L`合流される`, 5: () => L`解散待ち（決着のあと控えに戻る）`, 6: () => L`封が正しくなかったため失われます` };
+
+/** A village's own mark, as the controller writes it (holdingRef): place, site, generation. */
+const refOf = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
+/**
+ * (2026-11-17, ⑦ the hosts screen) The viewer's OTHER villages, each with the hosts the page can list for it now:
+ * `[{name, hosts, p, q, site, gen}]`. The count is of the provinces the page holds — a host in a province that is not
+ * read is not in it (unreadHostPlaces says which those are).
+ */
+export function otherVillages(FS) {
+  const active = activeHolding(FS) ?? null, bell = FS.nowBell ?? 0;
+  return (FS.holdings ?? []).filter(o => o !== active).map(o => {
+    let hosts = 0;
+    for (const env of FS.provinces?.values() ?? []) hosts += hostsIn(env.province, o, bell).length;
+    return { name: holdingName(o), hosts, p: o.p, q: o.q, site: o.site, gen: o.gen ?? 0 };
+  });
+}
+/** The pinned world with its generation, as the controller marks it (providerWorld). */
+const worldOf = FS => { const pin = FS?.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };
+/**
+ * The provinces the viewer's record says its hosts stand in (controller `FS.hostPlaces`) that the page does NOT hold:
+ * `{known, places: [{p, q, state, code}]}` — `state`: how the last read of that province went (FS.provinceReads:
+ * 'loading' | 'waiting' | 'failed' | 'missing'), or 'idle' when none is recorded.
+ * `known` (corrected 2026-11-17 — the first version looked at `places.length` only, so "the list is not there" read as
+ * "no province is unread" and the screen fell to "you have no hosts"): true only when the list WAS read for what the
+ * page is now — the same context number (viewer, herald) and the same pinned world. `FS.hostPlaces` null (let go at a
+ * change, or not read yet), another context's or another world's → `known: false`: where the hosts stand is NOT KNOWN,
+ * and neither "none unread" nor "no host" follows from it. A store that carries no `hostPlaces` at all (an older
+ * fixture: undefined) is read as before — known, nothing unread.
+ */
+export function unreadHostPlaces(FS) {
+  const hp = FS.hostPlaces;
+  if (hp === undefined) return { known: true, places: [] };
+  const mine = !!hp && Array.isArray(hp.places) && !(Number.isInteger(hp.ctx) && Number.isInteger(FS.contextSeq) && hp.ctx !== FS.contextSeq) && (hp.world === undefined || hp.world === worldOf(FS));
+  if (!mine) return { known: false, places: [] };
+  return { known: true, places: hp.places.filter(x => !FS.provinces?.has?.(`${x.p},${x.q}`)).map(x => { const st = FS.provinceReads?.get?.(`${x.p},${x.q}`) ?? null; return { p: x.p, q: x.q, state: st?.state ?? 'idle', code: st?.code ?? null }; }) };
+}
+/**
+ * (2026-11-17, ⑦, corrected twice) What stands of a march plan for this host — `FS.compose` for it — said by what the
+ * page KNOWS of THIS plan, and nothing more. `null` when the plan is not this host's; else one of:
+ *   'new'      this plan never entered the send (controller sendTheMarch sets `step` on the plan at its start and never
+ *              removes it; plans are made in one place, without the field) and waits for nothing
+ *   'sending'  being sent now (`sending`)
+ *   'waiting'  armed to be sent once when the province's turn is resolved (`pending`, the local waiting send)
+ *   'tried'    the plan entered the send at least once. HOW that went is not on the plan: nothing ties an order record
+ *              to the plan, or to this try of it.
+ * (First version: "not sent yet" whenever the plan was not being sent. Second: the host's latest march order in
+ * the page's order records was read as the outcome of this plan's try — but the send writes its order record only AFTER its wait;
+ * a try that throws, or is still to answer, leaves the host's EARLIER record — another plan's, another try's, another
+ * turn's or world's — standing as the latest, and it was told as this one's. A host's id and a record's place in the
+ * list are not evidence of which try a record belongs to. So no outcome is said here at all: the marches screen and
+ * the turn's list, which read the order records as records, say what was sent and what became of it.)
+ */
+export function hostPlanState(FS, r) {
+  const c = FS.compose ?? null;
+  if (!c?.host || String(c.host.id) !== String(r.id)) return null;
+  if (c.sending) return 'sending';
+  if (c.pending) return 'waiting';
+  return Object.hasOwn(c, 'step') ? 'tried' : 'new';
+}
+const PLAN_TEXT = {
+  new: () => L`この軍勢の、書きかけの進軍の計画があります。この計画は、まだ送信を試していません。`,
+  sending: () => L`この軍勢の進軍の命令を、いま送っています。`,
+  waiting: () => L`この軍勢の進軍の命令は、送信待ちです。州のターンの決着がつき次第、1回だけ送ります。`,
+  tried: () => L`この軍勢の進軍の計画は、送信を試したあとです。送れたかどうか、どうなったかは、この計画からは分かりません（送っていない、という意味ではありません）。進軍の画面と、このターンの一覧で確かめてください。`,
+};
+/** The lines under the list: the provinces not read (with the existing pure re-read of each), and the other villages with the way to each. */
+function hostsAround(FS, h) {
+  const play = (FS.mode ?? null) === 'play', ctx = Number.isInteger(FS.contextSeq) ? FS.contextSeq : null;
+  const un = unreadHostPlaces(FS), others = otherVillages(FS);
+  const unread = un.places.length ? html`<div class="hosts-unread" role="status"><p class="notice error">${L`あなたの軍勢がいる州のうち、${fmtNum(un.places.length)} 州の記録を読めていません。そこにいる軍勢は、この一覧に出ていません（いない、という意味ではありません）。`}</p>
+    <ul class="list">${un.places.slice(0, 6).map(x => html`<li>${provinceName(FS, x.p, x.q)} <span class="muted">${x.state === 'loading' ? L`読み込んでいます…` : x.state === 'waiting' ? L`読み込みの順番を待っています` : x.state === 'failed' ? L`読み込めませんでした（${x.code}）`
+      : x.state === 'missing' ? L`記録がまだ届いていません` : L`まだ読み込んでいません`}</span>${play && x.state !== 'loading' && x.state !== 'waiting' ? html` <button type="button" class="btn small" data-act="province-reread" data-p="${x.p}" data-q="${x.q}">${icon('return')}${L`もう一度読み込む`}</button>` : ''}</li>`)}</ul></div>` : '';
+  const other = others.length ? html`<div class="hosts-others"><p class="muted">${L`ほかの村の軍勢`}</p><ul class="list">${others.map(o => html`<li>${icon('home')}<strong>${o.name}</strong> <span class="muted">${L`軍勢 ${fmtNum(o.hosts)}`}</span>
+    ${play && ctx !== null ? html`<button type="button" class="btn small" data-act="hosts-village" data-ctx="${ctx}" data-p="${o.p}" data-q="${o.q}" data-site="${o.site}" data-gen="${o.gen}">${L`この村の軍勢を見る`}</button>` : ''}</li>`)}</ul>
+    <p class="muted">${L`数は、いま読めている州にいる軍勢だけです。`}</p></div>` : '';
+  const of = h && (FS.holdings ?? []).length > 1 ? html`<p class="muted hosts-of" data-village="${refOf(h)}">${L`${holdingName(h)}の軍勢を出しています。`}</p>` : '';
+  // (where the hosts stand is not known for what the page is now: said, so that a short list is not read as the whole)
+  const unknown = !un.known ? html`<p class="muted" role="status" data-hosts="unknown">${L`あなたの軍勢がどの州にいるかの一覧を、まだ読めていません。この一覧に出ていない軍勢が、いないとは限りません。`}</p>` : '';
+  return html`${of}${unknown}${unread}${other}`;
+}
 
 /** The locked host's line (I-44). */
 export const lockedText = () => L`進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。`;
@@ -50,14 +136,38 @@ export function hostState(r, nowBell) {
 export function render(FS) {
   const rows = hostRows(FS);
   const h = activeHolding(FS);
+  // (2026-11-17, ⑦: which village this is, the provinces not read, the other villages — under every state of the screen)
+  // (corrected: `placesKnown` false — the list of where the hosts stand is not there for what the page is now — is
+  //  NOT "nothing unread": "you have no hosts" is said only of a list that is known and has nothing unread)
+  const un = unreadHostPlaces(FS), around = hostsAround(FS, h), unreadPlaces = un.places.length, placesKnown = un.known;
+  if (!rows.length && homeProvinceUnread(FS, h)) {
+    return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
+      <p role="status"><strong>${L`記録をまだ読み込めていません`}</strong> ${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</p>
+      <div class="actions"><button type="button" class="btn" data-act="reload">${L`読み込み直す`}</button></div></section>${around}`;
+  }
+  // (round 43, seen in live33: a host on the march is in no province record the page holds until its arrival is read;
+  // "no host, train some" was said then. The viewer's own marches say otherwise: the host is away, see Marches)
+  if (!rows.length && (FS.marches ?? []).length) {
+    return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
+      <p role="status">${L`あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。`}</p>
+      <div class="actions"><button type="button" class="btn primary" data-act="tab" data-tab="marches">${L`進軍を開く`}</button></div></section>${around}`;
+  }
   if (!rows.length) {
     return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
-      <p>${L`軍勢はいません。村で兵を訓練し、軍勢を編成してください。`}</p>
-      ${h ? html`<div class="actions"><button type="button" class="btn primary" data-act="tab" data-tab="holding">${L`村を開く`}</button></div>` : ''}</section>`;
+      <p${unreadPlaces || !placesKnown ? html` role="status" data-hosts="${placesKnown ? 'unread' : 'unknown'}"` : ''}>${!placesKnown ? L`いま読めている州には、この村の軍勢は出ていません。軍勢がどの州にいるかの一覧をまだ読めていないので、軍勢がいない、という意味ではありません。`
+        : unreadPlaces ? L`いま読めている州には、この村の軍勢はいません。読めていない州があるので、軍勢がいない、という意味ではありません。` : L`軍勢はいません。村で兵を訓練し、軍勢を編成してください。`}</p>
+      ${h ? html`<div class="actions"><button type="button" class="btn primary" data-act="tab" data-tab="holding">${L`村を開く`}</button></div>` : ''}</section>${around}`;
   }
   const bell = FS.nowBell ?? 0;
   const f = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : 0;
   const ctx = r => ({ holding: h, province: r.province, nowBell: bell, now: FS.chain?.now() ?? 0, host: r });
+  const play = (FS.mode ?? null) === 'play', ctxNow = Number.isInteger(FS.contextSeq) ? FS.contextSeq : null;
+  // (a plan being sent, or armed to be sent, is the send's own: no new plan is opened over it from this screen)
+  const planBusy = !!FS.compose && (!!FS.compose.sending || !!FS.compose.pending);
+  // (round 49, the owner's decision of 2026-11-15: while the host's province is still resolving the last turn —
+  // NotResident, and only that — its March opens the order card, as the action bar's March always did; the card's send
+  // waits for the province as it already does (the local waiting send; the chain's wait for the turn). The reason line
+  // still says so. Every other block — rest, stamina, another refusal — keeps the button closed)
   return html`<section class="bare host-list" aria-labelledby="hosts-title"><h3 id="hosts-title" class="visually-hidden">${L`軍勢`}</h3><ul class="hosts">${rows.map(r => {
     const blocks = actionBlocks('Depart', ctx(r));
     const st = hostState(r, bell);
@@ -66,6 +176,19 @@ export function render(FS) {
     const formWait = due === null ? null : Math.max(0, due - (FS.chain?.now?.() ?? 0));
     const home = h && r.p === h.p && r.q === h.q && r.tile === h.tile;
     const name = unitCount(UNIT_ORDER[r.unit], r.troops);
+    // (2026-11-17, ⑦ the ways on from a host — each only OPENS something that exists: its march's tracker, the plan of a
+    //  march home, its place on the map; app.mjs asks hostStill first: the context number and the village this list
+    //  was drawn for must still be the ones in hand, and the host must still be in this list)
+    const moving = r.inTransit || r.state === 3, away = !moving && !home && r.state === 1;
+    const tok = h && play && ctxNow !== null ? html`data-ctx="${ctxNow}" data-p="${h.p}" data-q="${h.q}" data-site="${h.site}" data-gen="${h.gen ?? 0}" data-host="${String(r.id)}"` : null;
+    const ways = tok ? html`<div class="actions host-ways">
+        ${moving ? html`<button type="button" class="btn small" data-act="host-track" ${tok}>${icon('banner')}${L`この進軍の追跡を見る`}</button>` : ''}
+        ${away ? html`<button type="button" class="btn small" data-act="host-return" ${tok} ${raw(locked || planBusy || bell < r.readyBell || blocks.some(b => b !== 'NotResident') || r.stamina < DEPART_STAMINA ? 'disabled' : '')}>${icon('return')}${L`村へ戻す計画を開く`}</button>` : ''}
+        <button type="button" class="btn small" data-act="host-show" ${tok}>${L`地図で見る`}</button></div>` : '';
+    // (corrected: what stands of this host's plan, by what is known OF THIS PLAN — hostPlanState; "not tried" is said
+    //  only of a plan that never entered the send, and no order record is read as this plan's outcome)
+    const plan = hostPlanState(FS, r);
+    const draft = plan && play ? html`<p class="${plan === 'tried' ? 'notice' : 'muted'}" role="status" data-host-plan="${plan}">${PLAN_TEXT[plan]()} <button type="button" class="btn small" data-act="tab" data-tab="marches">${L`計画を開く`}</button></p>` : '';
     return html`<li class="vcard host-card${r.inTransit ? ' locked' : ''}" data-unit="${r.unit}">
       <img class="unit-card f${f}" src="${miniCardUrl(f, MINI_KINDS[r.unit])}" alt="" width="60" height="75" loading="lazy" decoding="async">
       <div class="host-main">
@@ -75,12 +198,13 @@ export function render(FS) {
       </div>
       ${r.state === 2 ? html`<p class="muted">${formWait > 0 ? L`編成の反映の目安まで ${countdown(formWait)}（ゲーム内）` : L`世界の処理で編成が反映されるのを待っています。`}</p>` : ''}
       <div class="actions host-acts">
-        <button type="button" class="btn primary small" data-act="compose" data-host="${String(r.id)}" ${raw(locked || bell < r.readyBell || blocks.length || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay="map">${icon('banner')}${L`進軍させる`}</button>
+        <button type="button" class="btn primary small" data-act="compose" data-host="${String(r.id)}" ${raw(locked || bell < r.readyBell || blocks.some(b => b !== 'NotResident') || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay="map">${icon('banner')}${L`進軍させる`}</button>
         ${r.unit === SCOUT ? html`<button type="button" class="btn small" data-act="explore-open" data-host="${String(r.id)}" ${raw(locked || actionBlocks('Explore', ctx(r)).length ? 'disabled' : '')}>${icon('scout')}${L`探索`}</button>` : ''}
         <button type="button" class="btn small quiet" data-act="dissolve" data-host="${String(r.id)}" aria-label="${L`${name}を解散する`}" ${raw(locked || actionBlocks('Dissolve', ctx(r)).length ? 'disabled' : '')}>${L`解散`}</button>
       </div>
-      ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
+      ${ways}${draft}
+      ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
     </li>`;
   })}</ul>
-  <p class="foot-note">${L`出発には行き先にかかわらず体力 ${DEPART_STAMINA} を使います（道のりは封の中にあるため）。`}</p></section>`;
+  <p class="foot-note">${L`出発には行き先にかかわらず体力 ${DEPART_STAMINA} を使います（道のりは封の中にあるため）。`}</p></section>${around}`;
 }

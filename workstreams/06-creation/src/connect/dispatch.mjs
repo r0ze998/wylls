@@ -1,0 +1,498 @@
+/**
+ * Dispatching an adopted caravan plan: run ids fixed from the plan, a
+ * journal written before every outside call, and retries that only ever
+ * repeat the same call.
+ *
+ * Two routes, one journal:
+ *   run route  06 → ④ accept(RunSpec) / view(run id)       (arrival and amount judged by ④)
+ *   act route  06 → ③ send(prepare, requestId, run id)      (④'s act registry knows the send only)
+ *
+ * The ports (adapters for ④ cf517b55's `runexec run accept|view` and ③
+ * 84f710d5's MCP tools are in ports.mjs):
+ *
+ *   run4 = { accept(spec, requester) -> { result: "Created"|"Existing" }
+ *              throws { definitive: true, code } for a refusal (NotAuthorized, Conflict, BadRequest),
+ *              anything else for no answer;
+ *            view(runId)  -> ④ run view | null (no record)          (throws: could not ask) }
+ *   act  = { prepare({ from, to, cargo }) -> { planId }                (③ prepare_caravan; throws: no answer)
+ *            send({ planId, requestId, runId }) -> { ok } | throws { code: "PlanAgain" } | throws
+ *            status(runId, requestId) -> ④ act receipt (p04-acts/0.1) | null   (throws: could not ask) }
+ *   journal = { load() -> object | null, save(object) }   (save is durable before it returns)
+ *
+ * The requester of a run (who asks, for ④'s intake) is the one the
+ * gateway's credential layer authenticated: { actor, generation, citizen,
+ * authenticatedBy }. 06 takes it from its caller as it is, keeps it with the
+ * run request and hands it to ④ unchanged; 06 never writes authenticatedBy
+ * and never authenticates anyone.
+ *
+ * What never happens here, whatever the outside answers or fails to answer:
+ *   - a new run id or requestId for the same plan, request and step;
+ *   - a second spec under one run id (an inbound, once bound, stays bound);
+ *   - a re-send after an act read `unknown`, or any re-send after `landed`;
+ *   - "complete" from a send, from an unverified arrival or from a held run.
+ * A new attempt after a proved non-send (`expired`, `not-sent`) is a new 06
+ * run request: a new nonce, so new ids. This module never makes one itself.
+ */
+
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { contentHash } from "../canonical.mjs";
+import { bindInbound, resultOfAct, resultOfRun4, toMcpCaravans, toRunSpecs } from "./caravan.mjs";
+
+export const JOURNAL_FORMAT = "wylls.creation.dispatch/0";
+
+const digest = (spec) => contentHash(spec);
+const clone = (v) => JSON.parse(JSON.stringify(v));
+
+export class Dispatch {
+  constructor({ journal, run4 = null, act = null }) {
+    this.journal = journal;
+    this.run4 = run4;
+    this.act = act;
+    const j = journal.load();
+    this.data = j ? clone(j) : { format: JOURNAL_FORMAT, plans: {} };
+    if (this.data.format !== JOURNAL_FORMAT) throw new Error(`journal format ${this.data.format}`);
+    this.#remember(this.data);
+  }
+
+  /**
+   * Each plan as it was last seen on the journal: as loaded, or as written by a save that returned (2026-11-17). A
+   * plan that differs from it (new, or changed since) is not known to be saved: a save that throws does not show what
+   * is on disk (the journal may have been renamed into place before a later step failed), so nothing is taken back
+   * from memory, and the plan reads as not saved until a save returns. Every save writes the whole journal.
+   */
+  #saved = new Map();
+
+  #remember(data) {
+    this.#saved = new Map(Object.entries(data.plans ?? {}).map(([k, p]) => [k, JSON.stringify(p)]));
+  }
+
+  /** Whether this key's plan, as it is in memory now, was seen saved. Reads only. */
+  #isSaved(key) {
+    const p = this.data.plans[key];
+    return p !== undefined && this.#saved.get(key) === JSON.stringify(p);
+  }
+
+  #save() {
+    const snapshot = clone(this.data);
+    this.journal.save(snapshot);
+    this.#remember(snapshot);
+  }
+
+  /** Key of one run request of one plan: the plan hash and the request's nonce. */
+  static key(planHash, nonce) {
+    return `${planHash}:${nonce}`;
+  }
+
+  /**
+   * Fix the run ids (and requestIds) of one run request, in the journal,
+   * before anything is sent. The same request again returns what is there;
+   * the same key with other content is refused, never replaced.
+   */
+  plan({ route, plan, planHash, env, nonce, requester, ...rest }) {
+    const key = Dispatch.key(planHash, nonce);
+    if (route === "run") {
+      // nobody authenticated a requester: closed, as workstream 13's port answers (NoAuthenticatedRequester)
+      if (requester === undefined || requester === null) return { ok: false, findings: [{ code: "NoAuthenticatedRequester", detail: "a run needs the requester the gateway authenticated; 06 never makes one" }] };
+      const bad = requesterProblem(requester);
+      if (bad) return { ok: false, findings: [{ code: "REQUESTER", detail: bad }] };
+    }
+    // The plan and the definition are the ones their hashes name (2026-11-17), before any id is made from them.
+    const mismatch = hashProblem({ plan, planHash, env });
+    if (mismatch) return { ok: false, findings: [mismatch] };
+    const made = route === "run"
+      ? toRunSpecs({ plan, planHash, env, nonce, ...rest })
+      : route === "act" ? toMcpCaravans({ plan, planHash, env, nonce, ...rest }) : { ok: false, findings: [{ code: "SHAPE", detail: "route: run | act" }] };
+    if (!made.ok) return made;
+    const steps = route === "run"
+      ? made.runs.map((r) => ({ step: r.step, runId: r.spec.run_id, awaits: r.awaits, spec: r.spec, specDigest: digest(r.spec), bound: null, state: "planned", pin: r.pin }))
+      : made.calls.map((c) => ({ step: c.step, runId: c.runId, requestId: c.requestId, prepare: c.prepare, state: "planned", pin: c.pin }));
+    const fresh = { route, key, steps, ...(route === "run" ? { requester: clone(requester) } : {}) };
+    const had = this.data.plans[key];
+    if (had) {
+      const same = contentHash({ route: had.route, requester: had.requester ?? null, steps: had.steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) })
+        === contentHash({ route, requester: fresh.requester ?? null, steps: steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) });
+      if (!same) return { ok: false, findings: [{ code: "CONFLICT", key, detail: "this run request was planned with other content" }] };
+      // The same request again, but its earlier save threw: it is saved now, and answered only if that succeeds
+      // (a save that throws again throws to the caller, as the first one did). Never "already" while not saved.
+      if (!this.#isSaved(key)) { this.#save(); return { ok: true, key, steps: clone(had.steps) }; }
+      return { ok: true, key, already: true, steps: clone(had.steps) };
+    }
+    this.data.plans[key] = fresh;
+    this.#save();
+    return { ok: true, key, steps: clone(steps) };
+  }
+
+  /**
+   * One pass over a planned request: each step does at most one outside
+   * call, recorded before it is made. Call it again (after a lost answer,
+   * after a restart) to continue: it repeats only the same calls.
+   */
+  async advance(key) {
+    const p = this.data.plans[key];
+    if (!p) return { ok: false, code: "NO_RECORD" };
+    // one pass per key at a time in this process: a second caller gets the state, not a second call outside
+    if (this.#busy.has(key)) return { ...this.status(key), busy: true };
+    this.#busy.add(key);
+    try {
+      for (const s of p.steps) {
+        if (p.route === "run") await this.#advanceRun(p, s);
+        else await this.#advanceAct(s);
+      }
+    } finally {
+      this.#busy.delete(key);
+    }
+    return this.status(key);
+  }
+
+  #busy = new Set();
+
+  async #advanceRun(p, s) {
+    if (s.state === "held" || s.final) return;
+    // bind the inbound once, from the earlier run's view, and keep it
+    if (s.awaits && !s.bound) {
+      const prev = p.steps.find((x) => x.step === s.awaits);
+      if (!prev?.view) return;
+      const b = bindInbound({ step: s.step, awaits: s.awaits, spec: s.spec }, { step: prev.step, spec: prev.spec }, prev.view);
+      if (!b.ok) {
+        if (b.code === "INBOUND_STOPPED") { s.state = "held"; s.why = b.why; this.#save(); }
+        return;
+      }
+      s.bound = { spec: b.spec, specDigest: digest(b.spec) };
+      this.#save();
+    }
+    const spec = s.bound ? s.bound.spec : s.spec;
+    if (s.awaits && !s.bound) return;
+    if (s.state === "accepting") {
+      // an earlier accept may have reached ④ and lost its answer: look before asking again
+      let v;
+      try { v = await this.run4.view(s.runId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+      if (v !== null) { s.state = "accepted"; this.#save(); }
+    }
+    if (s.state === "planned" || s.state === "accepting") {
+      s.state = "accepting";
+      s.attempts = (s.attempts ?? 0) + 1;
+      this.#save(); // before the call: a restart repeats the same accept
+      let r;
+      try { r = await this.run4.accept(spec, p.requester); } catch (e) {
+        s.lastError = `${e.code ?? "Error"}: ${String(e.message ?? e)}`;
+        // a refusal is an answer: held for a person (NotAuthorized: the requester is not the pass's holder;
+        // Conflict: another spec under this run id; BadRequest), never retried with new ids
+        if (e.definitive) { s.state = "held"; s.why = s.lastError; }
+        this.#save();
+        return;
+      }
+      if (r?.result !== "Created" && r?.result !== "Existing") { s.lastError = `unexpected accept answer ${JSON.stringify(r)}`; this.#save(); return; }
+      s.state = "accepted";
+      this.#save();
+    }
+    if (s.state === "accepted") {
+      let v;
+      try { v = await this.run4.view(s.runId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+      if (v === null) { s.state = "held"; s.why = "④ has no record of an accepted run"; this.#save(); return; }
+      const r = resultOfRun4(v);
+      if (!r.ok) { s.lastError = r.detail; this.#save(); return; }
+      s.view = v;
+      s.result = r;
+      s.final = r.final;
+      this.#save();
+    }
+  }
+
+  async #advanceAct(s) {
+    if (s.final) return;
+    if (s.state === "held") {
+      // held on a result-unknown send: keep READING ④ (never send); a later final fate ends the hold.
+      // Held on a refusal (s.unknown not set): nothing to read.
+      if (!s.unknown) return;
+      let rec;
+      try { rec = await this.act.status(s.runId, s.requestId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+      if (rec === null) return;
+      const r = resultOfAct(rec);
+      if (!r.ok) { s.lastError = r.detail; this.#save(); return; }
+      s.result = r;
+      if (r.sendFinal) { s.final = true; s.state = "sent-requested"; s.unknown = false; s.why = null; }
+      else if (!r.hold) { s.state = "sent-requested"; s.unknown = false; s.why = null; }
+      this.#save();
+      return;
+    }
+    if (s.state === "sending") {
+      // an earlier send may have reached ③ and lost its answer: if ④ has the act, do not call ③ again
+      let rec;
+      try { rec = await this.act.status(s.runId, s.requestId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+      if (rec !== null) { s.state = "sent-requested"; this.#save(); }
+    }
+    if (s.state === "planned" || s.state === "sending") {
+      if (!s.planId) {
+        // ③ plans the road and fixes the fields; a plan is valid for minutes and sends nothing
+        let pl;
+        try { pl = await this.act.prepare(s.prepare); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+        if (!pl?.planId) { s.lastError = JSON.stringify(pl); this.#save(); return; }
+        s.planId = pl.planId;
+        this.#save();
+      }
+      s.state = "sending";
+      s.attempts = (s.attempts ?? 0) + 1;
+      this.#save(); // before the call: a restart repeats the same send, same planId and requestId
+      try {
+        const r = await this.act.send({ planId: s.planId, requestId: s.requestId, runId: s.runId });
+        if (!r?.ok) { s.lastError = JSON.stringify(r); this.#save(); return; }
+      } catch (e) {
+        s.lastError = `${e.code ?? "Error"}: ${String(e.message ?? e)}`;
+        // ③ sent nothing under this requestId and the plan is gone (unknown, expired, stale; PlanUsed is held):
+        // a new plan, the same requestId and run id (③ answers a requestId it already sent before it looks at the plan)
+        if (e.code === "PlanAgain") s.planId = null;
+        else if (e.definitive) { s.state = "held"; s.why = s.lastError; }
+        this.#save();
+        return;
+      }
+      s.state = "sent-requested";
+      this.#save();
+    }
+    let rec;
+    try { rec = await this.act.status(s.runId, s.requestId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+    if (rec === null) return; // not registered yet: read again later; never a reason to send again
+    const r = resultOfAct(rec);
+    if (!r.ok) { s.lastError = r.detail; this.#save(); return; }
+    s.result = r;
+    if (r.hold) { s.state = "held"; s.why = r.says; s.unknown = true; }
+    if (r.sendFinal) s.final = true;
+    this.#save();
+  }
+
+  /** The request's state. `complete` only when every step's arrival was verified in full by ④. */
+  status(key) {
+    const p = this.data.plans[key];
+    if (!p) return { ok: false, code: "NO_RECORD" };
+    // (2026-11-17) Each step also says which definition it runs and where its result was read. `pin` is what plan()
+    // fixed beside the run id (caravan.mjs: ④'s Run has no field for the definition it came from): the plan hash, the
+    // manifest's author, name, version and hash, and the confirmed effect revision. It is never replaced — a plan
+    // under the same key with other content is CONFLICT, the same request answers what is there — so a re-edited
+    // definition (a new version, so a new plan hash and a new key) never changes the version an earlier run shows.
+    // Before, it was kept in the journal and shown nowhere. `resultFrom` names the record `result` was read from:
+    // ④'s run view (run route, resultOfRun4) or ④'s act registry receipt read through ③ (act route, resultOfAct);
+    // null while there is no result. Neither adds a call or changes what any other field means.
+    const resultFrom = p.route === "run" ? "④ run view" : "④ act registry receipt (p04-acts/0.1), read through ③";
+    const steps = p.steps.map((s) => ({ step: s.step, runId: s.runId, requestId: s.requestId ?? null, state: s.state, final: !!s.final, result: s.result ?? null, why: s.why ?? null, attempts: s.attempts ?? 0, pin: s.pin ? clone(s.pin) : null, resultFrom: s.result ? resultFrom : null }));
+    const complete = p.route === "run" && steps.every((s) => s.final && s.result?.state === "Fulfilled" && s.result.evidence?.usable);
+    // `saved: false` (2026-11-17): what is shown here is newer than anything seen saved — the last save of this request
+    // threw, so the journal on disk may hold this or an older state (a restart reads that one). Only about the journal:
+    // whether anything outside happened is what each step's state and result say. Absent when it was seen saved.
+    return { ok: true, key, route: p.route, complete, held: steps.some((s) => s.state === "held"), steps, ...(this.#isSaved(key) ? {} : { saved: false }) };
+  }
+}
+
+/**
+ * Why a run request's content is not what its hashes name, or null (2026-11-17). The plan hash is the plan's content
+ * hash (plan.mjs preparePlan, verifyPlanSignature) and an adoption is keyed by it (adoption.mjs); the definition's hash
+ * is its manifest's content hash (registry.mjs). intake asks the adoption of `planHash` and then plans `plan`; before,
+ * nothing here checked that one is the other's hash, so an adopted hash could carry other places, cargo or parameters,
+ * and ④'s run ids (`ws06:<planHash>:…`) and each step's pin named an adoption that never covered them. toRunSpecs
+ * compares the plan's manifest fields with `env`, not `env.hash` with `env.manifest`. Now each is recomputed; content
+ * that cannot be hashed is refused as SHAPE. Nothing is planned, saved or called on a refusal.
+ */
+export function hashProblem({ plan, planHash, env }) {
+  let p, m;
+  try { p = contentHash(plan); m = contentHash(env?.manifest); } catch { return { code: "SHAPE", detail: "the plan or the definition is not canonical content" }; }
+  if (p !== planHash) return { code: "PLAN_HASH_MISMATCH", detail: "planHash is not the content hash of the plan given" };
+  if (m !== env?.hash) return { code: "DEFINITION_HASH_MISMATCH", detail: "env.hash is not the content hash of env.manifest" };
+  return null;
+}
+
+const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/** Why a requester cannot be handed to ④ as it is (④ clients/runs.mjs requesterFile), or null. */
+export function requesterProblem(r) {
+  if (!r || typeof r !== "object") return "a run needs the requester the gateway authenticated";
+  for (const k of Object.keys(r)) if (!["actor", "generation", "citizen", "authenticatedBy"].includes(k)) return `unknown requester member ${k}`;
+  if (typeof r.actor !== "string" || !B58.test(r.actor)) return "requester.actor: the authenticated signer (base58)";
+  if (typeof r.citizen !== "string" || !B58.test(r.citizen)) return "requester.citizen: the Citizen acted for (base58)";
+  if (!Number.isInteger(r.generation) || r.generation < 0 || r.generation > 0xffffffff) return "requester.generation: the pass generation (u32)";
+  if (typeof r.authenticatedBy !== "string" || !r.authenticatedBy.trim()) return "requester.authenticatedBy: named by the layer that authenticated it, not by 06";
+  return null;
+}
+
+/**
+ * A journal in one JSON file, written to a temporary file, fsynced, renamed
+ * over the old one, and the directory fsynced (so the rename survives a power
+ * loss). One writer at a time, fenced:
+ *
+ *   - Opening takes `<path>.lock` by exclusive create. The lock names its
+ *     holder: pid, the process's start time (/proc/<pid>/stat, so a reused
+ *     pid is not mistaken for the holder) and a token of this open. It is
+ *     written to a temporary file first and linked in, so no reader ever
+ *     sees it empty (an empty file would read as "no holder").
+ *   - A lock whose holder still runs is refused (JournalLocked) — the same
+ *     process included: a second open in one process is refused, not merged.
+ *     A lock left by a previous run (its pid gone, or the same pid with
+ *     another start time: a restart) is taken over.
+ *   - A takeover holds `<path>.lock.takeover` (taken the same way) while it
+ *     re-reads the lock and replaces it (rename) only if it is still the one
+ *     judged stale. A takeover mutex left by a dead taker is itself taken
+ *     over the same way, under `<path>.lock.takeover.takeover`; no process
+ *     ever removes a file that another process holds, so two live openers
+ *     can never hold the same mutex, and only one can replace the lock.
+ *   - Every save first checks that the lock still carries this open's token;
+ *     a writer that lost the lock is refused (JournalFenced) and writes nothing.
+ *   - close() removes the lock only if it is still this open's.
+ *
+ * A holder with this open's pid and start time is this process and is never
+ * taken over, even when the process table has no entry for it. `alive(pid)`,
+ * when given (tests, probes), answers whether a pid exists in place of the
+ * process table; start times still come from `startOf`.
+ *
+ * Limits: the holder check reads the local process table, so writers on
+ * other machines or pid namespaces sharing the file are not told apart. A
+ * live holder's lock removed or replaced outside this code (a temp cleaner,
+ * a hand edit) inside a save's window lets that one save land after another
+ * holder's (docs/12 §8.3); closing that needs a kernel lock, so keep the
+ * journal out of directories that are cleaned automatically.
+ */
+export function fileJournal(path, fs, { pid = process.pid, alive, startOf = procStart, token = randomToken() } = {}) {
+  const lock = `${path}.lock`;
+  const mine = { pid, start: startOf(pid), token };
+  const body = JSON.stringify(mine);
+  const parse = (text) => {
+    if (/^\s*\d+\s*$/.test(text ?? "")) return { pid: Number(text) }; // a lock of the earlier format: only a pid
+    try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; }
+  };
+  const known = (s) => s !== null && s !== undefined;
+  /**
+   * Whether the holder a lock names is a running process (the same pid with another start time is not).
+   * A holder with this pid and this start time is this process, whatever the process table says.
+   * `alive(pid)`, when given, answers whether a pid exists in place of the process table.
+   */
+  const running = (h) => {
+    if (!h || !Number.isSafeInteger(h.pid) || h.pid <= 0) return false;
+    if (h.pid === pid && (h.start === mine.start || (!known(h.start) && !known(mine.start)))) return true;
+    const now = startOf(h.pid);
+    if (alive ? alive(h.pid) !== true : now === null) return false; // no such process
+    return !known(h.start) || !known(now) || h.start === now;
+  };
+  /**
+   * Writes all of `text` (UTF-8) at `fd` (2026-11-17). writeSync answers how many bytes it wrote: a short write is
+   * continued from where it stopped, and a write that makes no progress is refused, so a lock or a journal is never
+   * linked or renamed into place with only part of its bytes (a cut lock reads as no holder; a cut journal as no JSON).
+   */
+  const writeAll = (fd, text) => {
+    const bytes = Buffer.from(text, "utf8");
+    for (let off = 0; off < bytes.length;) {
+      const n = fs.writeSync(fd, bytes, off, bytes.length - off);
+      if (!Number.isSafeInteger(n) || n <= 0) throw Object.assign(new Error(`journal ${path}: wrote ${off} of ${bytes.length} bytes; nothing put in place`), { code: "JournalShortWrite" });
+      off += n;
+    }
+  };
+  /**
+   * Creates `tmp` exclusively and writes `text` and a newline to it, whole and synced. Returns only once the file is
+   * this call's: `owned()` is called right after the exclusive create, so a caller removes a temporary file only when
+   * it made it. A temporary file already there is not this call's (2026-11-17): it is left as it is and refused as
+   * JournalTmpExists, never taken for the lock existing (EEXIST), so acquire does not loop on it.
+   */
+  const createTmp = (tmp, text, owned) => {
+    let fd;
+    try { fd = fs.openSync(tmp, "wx"); } catch (e) {
+      if (e.code === "EEXIST") throw Object.assign(new Error(`journal ${path}: ${tmp} already exists and is not this attempt's; left as it is`), { code: "JournalTmpExists" });
+      throw e;
+    }
+    owned();
+    try { writeAll(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  };
+  const read = (file) => { try { return String(fs.readFileSync(file, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
+  /** Puts this open's body at `file` already written: a temporary file, then link (exclusive) or rename (replace). */
+  const place = (file, replace) => {
+    const tmp = `${file}.${token}.tmp`;
+    // Only a temporary file this attempt made is removed (2026-11-17): a write, sync, close, link or rename that
+    // fails leaves none of ours behind, and one that was already there is not touched.
+    let made = false;
+    try {
+      createTmp(tmp, body, () => { made = true; });
+      if (replace) fs.renameSync(tmp, file); else fs.linkSync(tmp, file);
+    } finally { if (made) fs.rmSync(tmp, { force: true }); }
+  };
+  const refuse = (file, h) => Object.assign(new Error(file === lock
+    ? `journal ${path} is held by process ${h?.pid ?? "?"}${h?.pid === pid ? " (this process: another open)" : ""}`
+    : `journal ${path}: process ${h?.pid ?? "?"} is taking the stale lock over`), { code: "JournalLocked" });
+  /**
+   * Takes `file` (the lock, or a takeover mutex): an exclusive link when it is absent; when it names a
+   * holder that no longer runs, a replace done only while holding `<file>.takeover` (taken the same way)
+   * and only if `file` is still the one judged stale. Nobody removes a file another process holds.
+   */
+  const acquire = (file, depth) => {
+    if (depth > 8) throw refuse(file, null);
+    for (;;) {
+      try { place(file, false); return; } catch (e) { if (e.code !== "EEXIST") throw e; }
+      const seen = read(file);
+      if (seen === null) continue; // released meanwhile
+      const h = parse(seen);
+      if (running(h)) throw refuse(file, h);
+      const sub = `${file}.takeover`;
+      acquire(sub, depth + 1);
+      try {
+        if (read(file) === seen) { place(file, true); return; }
+      } finally {
+        fs.rmSync(sub, { force: true });
+      }
+      // replaced meanwhile: look again
+    }
+  };
+  const open = () => acquire(lock, 0);
+  open();
+  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) || "/" : ".";
+  const holds = () => parse(read(lock))?.token === token;
+  return {
+    load() {
+      try { return JSON.parse(fs.readFileSync(path, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+    },
+    save(obj) {
+      if (!holds()) throw Object.assign(new Error(`journal ${path}: this writer no longer holds the lock; nothing written`), { code: "JournalFenced" });
+      const tmp = `${path}.${token}.tmp`;
+      // Complete before it replaces the journal (2026-11-17): a write or rename that fails leaves the journal as it was
+      // and removes this save's temporary file; the error goes to the caller (Dispatch #save), which sends nothing on it.
+      // The temporary file is created exclusively and removed on failure only when this save made it.
+      let made = false;
+      try {
+        createTmp(tmp, JSON.stringify(obj), () => { made = true; });
+        fs.renameSync(tmp, path);
+      } catch (e) {
+        if (made) { try { fs.rmSync(tmp, { force: true }); } catch { /* the original error is the one to report */ } }
+        throw e;
+      }
+      const d = fs.openSync(dir, "r");
+      try { fs.fsyncSync(d); } finally { fs.closeSync(d); }
+    },
+    close() {
+      if (holds()) fs.rmSync(lock, { force: true });
+    },
+  };
+}
+
+/**
+ * A process's start time: a string from /proc/<pid>/stat (field 22); null only when it is known that there is no such
+ * process; undefined when it runs (or may run) and its start time is not known.
+ *
+ * (2026-11-18) A missing /proc/<pid>/stat says "no such process" only where /proc is there at all. Before, ENOENT was
+ * read as "gone" on every platform, and macOS (no /proc) reported every live lock holder dead, so concurrent openers
+ * each took the "stale" lock over and all held it. Now ENOENT is "gone" only when /proc/self/stat (this process) can be
+ * read: the facility exists and the pid is not in it (Linux, unchanged, start times still tell a reused pid apart).
+ * Without /proc the process is asked by signal 0: ESRCH is "gone"; success, EPERM (it exists, another user's) and any
+ * other error are "runs, start unknown", so a lock is never taken from a holder that is not proven gone. Without start
+ * times a reused pid cannot be told apart there: its lock is refused (conservative), never taken over.
+ * Any other /proc read error (EACCES under hidepid, …) asks by signal as before.
+ */
+export function processStart(pid, { read = readFileSync, kill = process.kill.bind(process) } = {}) {
+  let stat;
+  try { stat = read(`/proc/${pid}/stat`, "utf8"); } catch (e) {
+    if (e?.code === "ENOENT" && procfs(read)) return null;
+    try { kill(pid, 0); return undefined; } catch (k) { return k?.code === "ESRCH" ? null : undefined; }
+  }
+  return String(stat).slice(String(stat).lastIndexOf(")") + 2).split(" ")[19];
+}
+/** Whether a Linux-style /proc is mounted here: this process's own stat file can be read. */
+function procfs(read) {
+  try { read("/proc/self/stat", "utf8"); return true; } catch { return false; }
+}
+const procStart = (pid) => processStart(pid);
+
+function randomToken() {
+  return randomUUID();
+}

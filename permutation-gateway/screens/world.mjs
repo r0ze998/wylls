@@ -29,7 +29,7 @@ import { ACCOUNTS } from '../../permutation-server/web/frontier/abi.mjs';
 import { decode as decodeAccount } from '../../permutation-server/web/frontier/fcodec.mjs';
 import { minTipLamports } from '../../permutation-server/web/sdk/frontier/fees.mjs';
 import { toHex } from '../../permutation-server/web/sdk/bytes.mjs';
-import { decode as fromBase58 } from '../../permutation-server/web/sdk/base58.mjs';
+import { decode as fromBase58, encode as toBase58 } from '../../permutation-server/web/sdk/base58.mjs';
 import { KINDS } from '../../permutation-server/web/frontier/flog.mjs';
 import { ringProvinces, regionOf, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { seasonAddresses, hostId } from '../../permutation-server/web/frontier/faddr.mjs';
@@ -63,10 +63,21 @@ export const HOSTS = Object.freeze({
   scout: hostId({ ...HOME, seq: 9 }),
 });
 
-/** Keys and addresses of the viewer (async: WebCrypto Ed25519). */
-export async function viewer() {
-  const wallet = (await keyFromSeed(DEV_SEED)).publicKey;
-  const session = (await keyFromSeed(SESSION_SEED)).publicKey;
+/**
+ * (workstream 07) A viewer's wallet and session as plain 32-byte names, made from no key: for the screen tests that
+ * connect no wallet (a visitor, a spectator). They are not the public keys of DEV_SEED and SESSION_SEED, so a page that
+ * connects the dev wallet from storageFor() would not find itself: those tests use the default viewer() below.
+ */
+export const KEYLESS_WALLET = toBase58(new Uint8Array(32).fill(0x5a));
+export const KEYLESS_SESSION = toBase58(new Uint8Array(32).fill(0x5b));
+
+/**
+ * Keys and addresses of the viewer (async: WebCrypto Ed25519). `keyless`: names made from no key (KEYLESS_WALLET,
+ * KEYLESS_SESSION) instead of the public keys of DEV_SEED and SESSION_SEED, which keyFromSeed derives.
+ */
+export async function viewer({ keyless = false } = {}) {
+  const wallet = keyless ? KEYLESS_WALLET : (await keyFromSeed(DEV_SEED)).publicKey;
+  const session = keyless ? KEYLESS_SESSION : (await keyFromSeed(SESSION_SEED)).publicKey;
   const A = seasonAddresses(PROGRAM, SEASON_ID);
   return { wallet, session, citizen: A.of('Citizen', { wallet }), holding: A.of('Holding', HOME), A };
 }

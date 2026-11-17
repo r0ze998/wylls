@@ -107,6 +107,35 @@ pub fn caravan(ctx: &AddrCtx, owner_tag: u64, seq: u32) -> [u8; 32] {
     ctx.of(&caravan_seed(owner_tag, seq))
 }
 
+/// The Lot seed tag (workstream 10: custody).
+pub const LOT: [u8; 2] = *b"cl";
+/// Raw key length of a Lot (`p i16, q i16, tile u8, gen u8, owner_tag u64,
+/// resource u8`).
+pub const LOT_RAW_LEN: usize = permutation_rules::frontier::custody::layout::LOT_RAW_LEN;
+
+/// `cl‖hex(le16 p ‖ le16 q ‖ tile ‖ gen ‖ le64 owner_tag ‖ resource)`: 32
+/// bytes, the longest seed `create_with_seed` takes.
+pub fn lot_seed(p: i16, q: i16, tile: u8, gen: u8, owner_tag: u64, resource: u8) -> Seed {
+    let raw = permutation_rules::frontier::custody::layout::lot_raw_key(
+        p, q, tile, gen, owner_tag, resource,
+    );
+    Seed::new(LOT, &raw)
+}
+
+/// The Lot address of `owner_tag`'s goods of `resource` in the vault on
+/// tile `tile` of Province `(p, q)`, generation `gen`.
+pub fn lot(
+    ctx: &AddrCtx,
+    p: i16,
+    q: i16,
+    tile: u8,
+    gen: u8,
+    owner_tag: u64,
+    resource: u8,
+) -> [u8; 32] {
+    ctx.of(&lot_seed(p, q, tile, gen, owner_tag, resource))
+}
+
 /// The seed tag of each v2 kind (`None` for the Season PDA).
 pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
     match kind {
@@ -115,6 +144,7 @@ pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
         AccountKind::Caravan => Some(CARAVAN),
         AccountKind::Structure => Some(STRUCTURE),
         AccountKind::Nation => Some(NATION),
+        AccountKind::Lot => Some(LOT),
         k => crate::addr::tag_of(k.to_v1()?),
     }
 }
@@ -127,6 +157,7 @@ pub fn raw_len(kind: AccountKind) -> usize {
         AccountKind::Caravan => CARAVAN_RAW_LEN,
         AccountKind::Structure => STRUCTURE_RAW_LEN,
         AccountKind::Nation => NATION_RAW_LEN,
+        AccountKind::Lot => LOT_RAW_LEN,
         k => k.to_v1().map(crate::addr::raw_len).unwrap_or(0),
     }
 }
@@ -172,5 +203,23 @@ mod tests {
         assert_ne!(VAULT, STRUCTURE);
         assert_ne!(CARAVAN, STRUCTURE);
         assert_eq!(raw_len(AccountKind::Province), 8);
+    }
+
+    #[test]
+    fn lot_seed_fits_and_is_new() {
+        let s = lot_seed(-3, 7, 60, 255, u64::MAX, 3);
+        assert_eq!(s.len(), 32);
+        assert_eq!(&s.as_bytes()[..2], b"cl");
+        for t in [VAULT, CARAVAN, STRUCTURE, NATION, MARCH] {
+            assert_ne!(t, LOT);
+        }
+        for k in crate::layout::AccountKind::ALL {
+            assert_ne!(crate::addr::tag_of(k), Some(LOT), "{}", k.name());
+        }
+        let ctx = AddrCtx {
+            season: [1; 32],
+            program: [2; 32],
+        };
+        assert_ne!(lot(&ctx, 1, 2, 3, 1, 9, 3), lot(&ctx, 1, 2, 3, 2, 9, 3));
     }
 }

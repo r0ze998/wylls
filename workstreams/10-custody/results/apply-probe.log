@@ -1,0 +1,3 @@
+origin/preserve/ws08-cont-verify-b519cd18 -> 0001:ok 0002:CONFLICT[frontier-abi/src/v2/budgets.rs,frontier-abi/src/v2/error.rs,frontier-abi/src/v2/ix.rs,frontier-abi/src/v2/log.rs,frontier-abi/src/v2/prologue.rs,frontier-abi/src/v2/tags.rs,frontier-abi/vectors/v2/budgets.json,frontier-abi/vectors/v2/errors.json,frontier-abi/vectors/v2/logs.json,frontier-abi/vectors/v2/tags.json,]
+origin/fix/ws18-clippy-hostile-20261103 -> 0001:ok 0002:ok 0003:ok 0004:ok 0005:ok 0006:ok 0007:ok 0008:ok 0009:ok
+origin/preserve/ws02-rights-dc3bd3d -> 0001:ok 0002:ok 0003:ok 0004:ok 0005:ok 0006:ok 0007:ok 0008:ok 0009:ok

@@ -117,3 +117,30 @@ test('a lost book: keepers reveal; the book stays bounded', () => {
   assert.equal(book.length, mb.MAX_ENTRIES);
   assert.equal(book.at(-1).arriveBell, 999);
 });
+
+test('self-reveal never before T(arrive) is published (⑱): notBefore holds the material in the browser', () => {
+  const start = 1_800_060_000, tPub = start + 600 + 1 + mb.REVEAL_PUBLISH_MARGIN;
+  let e = { ...mb.entryOf(sealed(), () => 0.5), state: 'landed' };
+  const d = e.revealDelay;
+  for (const now of [start, start + d, start + 300, tPub - 1, tPub + d - 1]) {
+    assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub }), { action: 'wait', at: tPub + d }, `now ${now}`);
+  }
+  assert.deepEqual(mb.revealStep(e, { now: tPub + d, bellStart: start, notBefore: tPub }), { action: 'send' });
+  // The retry keeps the same floor and its 60 s.
+  const book = mb.recordAttempt([e], e, { t: tPub + d, route: 'self', result: 'accepted' });
+  assert.deepEqual(mb.revealStep(book[0], { now: tPub + d + 59, bellStart: start, notBefore: tPub }), { action: 'wait', at: tPub + d + 60 });
+  // Without notBefore the old timing (bell start) is unchanged.
+  assert.deepEqual(mb.revealStep(e, { now: start + d, bellStart: start }), { action: 'send' });
+});
+
+test('notBefore is judged on the chain time the herald observed, as the bots do (⑱)', () => {
+  const start = 1_800_060_000, tPub = start + 600 + 1 + mb.REVEAL_PUBLISH_MARGIN;
+  const e = { ...mb.entryOf(sealed(), () => 0.5), state: 'landed' };
+  const now = tPub + e.revealDelay + 30;
+  // The extrapolated clock is past tPub but the herald's last sample is not: wait.
+  assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub, seen: tPub - 1 }), { action: 'wait', at: tPub });
+  assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub, seen: tPub }), { action: 'send' });
+  // seen defaults to now; without notBefore it does not hold anything.
+  assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub }), { action: 'send' });
+  assert.deepEqual(mb.revealStep(e, { now: start + e.revealDelay, bellStart: start, seen: 0 }), { action: 'send' });
+});

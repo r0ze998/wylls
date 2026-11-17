@@ -1,0 +1,84 @@
+diff --git a/frontier-node/crates/verify/src/checks/v0_coverage.rs b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+index 09e9f1f..55c372c 100644
+--- a/frontier-node/crates/verify/src/checks/v0_coverage.rs
++++ b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+@@ -94,6 +94,12 @@ pub fn run(cx: &mut Ctx) {
+                 continue;
+             };
+             let Some(known) = Ix::from_tag(tag) else {
++                // 02-rights (candidate): a Grant instruction is outside the
++                // v2 table by design; in an S1 season VR judges it (its
++                // tag, data, record and Grant). Anywhere else it is unknown.
++                if s1 && frontier_abi::v2::rights::is_rights_tag(tag) {
++                    continue;
++                }
+                 cx.fail(
+                     V,
+                     UNKNOWN_INSTRUCTION,
+diff --git a/frontier-node/crates/verify/src/checks/vr_rights.rs b/frontier-node/crates/verify/src/checks/vr_rights.rs
+index ae4075d..75a7dcd 100644
+--- a/frontier-node/crates/verify/src/checks/vr_rights.rs
++++ b/frontier-node/crates/verify/src/checks/vr_rights.rs
+@@ -4,12 +4,10 @@
+ //!
+ //! What it judges, over every successful program instruction:
+ //!
+-//! - **Coverage.** An instruction in the rights block 0xD0–0xDF that is not
+-//!   one of the six Grant instructions, or whose data does not decode, is
+-//!   a FAIL (`UnknownInstruction`, `RightsMalformed`); so is a successful
+-//!   instruction whose tag is neither ABI v2 nor a Grant tag (until the
+-//!   general coverage check of workstream 18 lands; then this branch
+-//!   duplicates it).
++//! - **Coverage.** A Grant instruction whose data or account list does not
++//!   decode is a FAIL (`RightsMalformed`); every other tag outside ABI v2 is
++//!   workstream 18's V0 (`UnknownInstruction`), which hands the Grant tags
++//!   to this check in an S1 season.
+ //! - **Records.** Each Grant instruction logged exactly one record of its
+ //!   kind (Issue → GRANT_ISSUED … Close → GRANT_CLOSED), for the Grant it
+ //!   names; a missing one is `RightsRecordMissing`, a record without its
+@@ -212,29 +210,15 @@ pub fn run(cx: &mut Ctx) {
+         let mut recs = recs.into_iter();
+         let mut rights_ix = false;
+         for ix in &tx.ixs {
++            // An instruction without data is V0's.
+             let Some(tag) = ix.tag() else {
+-                cx.fail(
+-                    V,
+-                    UNKNOWN_INSTRUCTION,
+-                    format!("tx#{t}"),
+-                    0,
+-                    Some(t),
+-                    "a program instruction without data",
+-                );
+                 continue;
+             };
+             if frontier_abi::v2::Ix::from_tag(tag).is_some() {
+                 continue;
+             }
++            // Any other tag outside ABI v2 is V0's (UnknownInstruction).
+             let Some(kind) = kind_of(tag) else {
+-                cx.fail(
+-                    V,
+-                    UNKNOWN_INSTRUCTION,
+-                    format!("tx#{t}"),
+-                    0,
+-                    Some(t),
+-                    format!("tag {tag:#04x} is neither ABI v2 nor a Grant instruction"),
+-                );
+                 continue;
+             };
+             rights_ix = true;
+diff --git a/frontier-node/crates/verify/src/codes.rs b/frontier-node/crates/verify/src/codes.rs
+index 819f29a..31ee9b5 100644
+--- a/frontier-node/crates/verify/src/codes.rs
++++ b/frontier-node/crates/verify/src/codes.rs
+@@ -177,9 +177,6 @@ pub const WARN_CODES: &[&str] = &[
+ ];
+ 
+ // VR — the workshop-stock swap Grant (02-rights, candidate; provisional).
+-/// A successful program instruction whose tag is neither ABI v2 nor a Grant
+-/// tag (the same name as workstream 18's V0 code, which supersedes it).
+-pub const UNKNOWN_INSTRUCTION: &str = "UnknownInstruction";
+ /// A Grant instruction whose data or account list does not decode.
+ pub const RIGHTS_MALFORMED: &str = "RightsMalformed";
+ /// A Grant instruction that logged no record of its kind.

@@ -17,18 +17,22 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { icon } from '../hud/icons.mjs';
 import { RESOURCES, RESOURCE_ORDER, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, hostOfHolding, SCOUT } from '../fland.mjs';
+import { storesAt, hostOfHolding, SCOUT, isFinal, finalityDue } from '../fland.mjs';
 import { SIEGE_ARMS, s1On } from '../fs1.mjs';
 import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
-import { keepFromProvince } from '../fconquest.mjs';
+import { keepFromProvince, capturePending } from '../fconquest.mjs';
 import { hostParts } from '../faddr.mjs';
 import { hexDistance, ringOf, wedgeOf } from '../fgeo.mjs';
 import { ownTag } from '../people/ui.mjs';
 import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
 import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
+import { renderVillageOrders, S1_ORDER_KINDS } from './villageorders.mjs';
 import { swatch } from './shell.mjs';
+import { renderCoopSlot } from '../hud/coopentry.mjs';
+import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
+import { arrivalOnRoad, createCaravanWatch, statusFrom } from '../hud/statussources.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
 /** structure::KIND_*. */
@@ -79,7 +83,12 @@ export function expelOffer(FS, sel) {
   if ((FS.holdings ?? []).some(h => h.p === sel.p && h.q === sel.q && h.site === j)) return null;
   const nation = s1VillageModel(FS).nation;
   if (!nation) return null;
-  const blocks = [...(nation.expelled ? ['Expelled'] : []), ...(!nation.eligible ? ['NotVoter'] : []), ...(nation.full ? ['ProposalsFull'] : []), ...(nation.ownOpen ? ['ProposalOpen'] : [])];
+  // (2026-11-16: nation.rs propose_as KIND_EXPEL refuses a village whose Citizen is already expelled — `since == 0`
+  //  required, ProposalState —; the doc above said so but the code did not check it. The nation's expelled list names
+  //  each expelled village's holdings (herald /h/nations.json; an older herald names none: then the program decides))
+  const already = (nation.out ?? []).some(x => (x.holdings ?? []).some(h => h.p === sel.p && h.q === sel.q && h.site === j));
+  const blocks = [...(nation.expelled ? ['Expelled'] : []), ...(!nation.eligible ? ['NotVoter'] : []), ...(already ? ['TargetExpelled'] : []),
+    ...(nation.full ? ['ProposalsFull'] : []), ...(nation.ownOpen ? ['ProposalOpen'] : [])];
   return { p: sel.p, q: sel.q, site: j, blocks };
 }
 const NATIONS = 6;
@@ -89,6 +98,8 @@ export { caravanId };
 /** The viewer's citizen tag (bigint) or null (people/ui.mjs ownTag). */
 export const viewerTag = FS => ownTag(FS);
 const isMine = (tag, mine) => mine !== null && mine !== undefined && BigInt(tag) === BigInt(mine);
+/** ⑯ P3: whose a caravan is now: the holder a raid named (herald `holderTag`), else its sender. */
+const holderOf = c => c.holderTag ?? c.ownerTag;
 
 /** Whole units the village in hand holds now, by resource. */
 function haveOf(FS, h) {
@@ -128,7 +139,11 @@ export function s1TileModel(FS, sel) {
   const h = activeHolding(FS), have = haveOf(FS, h);
   const site = siteProblem(prov, idx), siteBlock = site === 'Unknown' ? 'Unknown' : site ? 'Site' : null;
   const c = FS.citizen ?? {};
-  const common = [...(h ? [] : ['NoHolding']), ...(siteBlock ? [siteBlock] : [])];
+  // (2026-11-16: the program's capture lock — holding.rs own_province_unlocked → capture_lock, CapturePending — refuses a
+  //  storehouse and every structure while the village in hand is being captured; the card offered them and only the send
+  //  was refused. The same mirror-generation rule as the program: fconquest.mjs capturePending.)
+  const locked = !!h && capturePending(FS, h);
+  const common = [...(h ? [] : ['NoHolding']), ...(locked ? ['CapturePending'] : []), ...(siteBlock ? [siteBlock] : [])];
   const vaultBlocks = [...common, ...(vault ? ['Taken'] : []), ...(Number(c.vaults ?? 0) >= MAX_VAULTS ? ['VaultLimit'] : []), ...(shortOf(VAULT_COST, have).length ? ['Insufficient'] : [])];
   const live = (prov?.structures ?? []).filter(e => Number(e.kind) !== 0);
   const forts = (prov?.forts ?? []).filter(f => Number(f.state) !== 0);
@@ -174,7 +189,9 @@ export function seizeOffer(FS, prov, idx, target, kind) {
     ...(target.ownerCitizen ? [] : ['OwnerUnknown']),
     ...(kind === 'vault' && Number(c.vaults ?? 0) >= MAX_VAULTS ? ['VaultLimit'] : []),
     ...(kind !== 'vault' && Number(c[{ 1: 'towers', 2: 'palisades', 3: 'forts' }[target.kind]] ?? 0) >= (STRUCTURE_MAX[target.kind] ?? 0) ? ['StructureLimit'] : []),
-    ...(kind !== 'vault' && Number(target.kind) === KIND.fort && (prov?.forts ?? []).some(f => Number(f.tile) === idx && Number(f.state) !== 0 && Number(f.troops) > 0) ? ['FortManned'] : []),
+    // (structure.rs fort_troops: troops + pending troops; a fort whose garrison is still coming in is manned too — the page
+    //  read troops only and offered such a fort, refused on send: 2026-11-16)
+    ...(kind !== 'vault' && Number(target.kind) === KIND.fort && (prov?.forts ?? []).some(f => Number(f.tile) === idx && Number(f.state) !== 0 && (Number(f.troops) > 0 || Number(f.pend ?? 0) > 0)) ? ['FortManned'] : []),
   ];
   return { entry, hostHolding, ownerCitizen: target.ownerCitizen ?? null, blocks };
 }
@@ -183,6 +200,8 @@ export function seizeOffer(FS, prov, idx, target, kind) {
 export const SIEGE_STAKE_GOLD = 500;
 /** SeasonParams v2 `sieges_per_day` of every preset (presets.rs: 2). */
 export const SIEGES_PER_DAY = 2;
+/** Province v2 conquest record flags that owe something (layout conquest_record OWED_MASK). */
+const SIEGE_OWED_MASK = (1 << 1) | (1 << 2) | (1 << 5);
 /** Province v2 site mirror states (layout `site::STATE_*`). */
 const SITE_HOLDING = 1, SITE_FREE_CITY = 5;
 
@@ -224,12 +243,23 @@ export function siegeOffer(FS, sel) {
   // `Heartland` (the S1 program's relation is always Rivalry, never War; a nation's stance does not change it)
   const ring = ringOf(sel.p, sel.q), maxRing = Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3);
   const heartland = state === SITE_HOLDING && ring >= 2 && ring <= maxRing && wedgeOf(sel.p, sel.q) === Number(mirror.faction);
+  // (2026-11-16: conquest.rs declare_siege_as step 2 — the declaring village must be final; the lazy flip applies only
+  //  when its own Province is the target's — and step 3 — the target Province resolved: resident_ok, NotResident —;
+  //  the page offered both cases and they were refused on send)
+  const now = Number(FS.chain?.now?.() ?? 0), nowBell = Number(FS.nowBell ?? 0);
+  const srcFinal = !src || Number(src.state) === 2 || (src.p === sel.p && src.q === sel.q && finalityDue(src, prov, now, nowBell));
   const blocks = [
+    ...(srcFinal ? [] : ['NotFinal']),
+    ...(rn + 1 < nowBell ? ['NotResident'] : []),
     ...(heartland ? ['Heartland'] : []),
     ...(shielded ? ['Shielded'] : []),
     ...(entry < 0 ? ['NoFighterHere'] : []),
     ...(src && shortOf(cost, have).length ? ['Insufficient'] : []),
     ...(Number(c.siegeDay ?? -1) === today && Number(c.siegesToday ?? 0) >= SIEGES_PER_DAY ? ['SiegeCap'] : []),
+    // conquest.rs declare_siege step 8: the declarer's own village under its shield is refused `Shielded` (the player
+    // acting now is not dormant); step 5: a site whose conquest record is busy (`SiegeBusy`) or still owes a stake
+    ...(src && Number(src.shieldUntil ?? 0) > Number(FS.chain?.now?.() ?? 0) ? ['SourceShielded'] : []),
+    ...(prov.conquest?.[j] && Number(prov.conquest[j].kind) !== 0 ? ['SiegeBusy'] : prov.conquest?.[j] && (Number(prov.conquest[j].flags) & SIEGE_OWED_MASK) !== 0 ? ['StakeUnsettled'] : []),
   ];
   return { site: j, entry, src: src && { p: src.p, q: src.q, site: src.site, gen: src.gen ?? 0 }, target: { p: sel.p, q: sel.q, site: j }, freeCity: state === SITE_FREE_CITY, cost, have, blocks };
 }
@@ -268,15 +298,77 @@ export function raidOffers(FS) {
  * village's province, and the nation (stances, proposals, the viewer's
  * votes).
  */
+/** The pinned world (with its generation) and the viewer a trade plan is made for — the same marks controller.planS1Place writes. */
+const planScope = FS => { const pin = FS.pin ?? null; return { world: pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null, viewer: FS.resident?.asset ?? FS.wallet?.address ?? null }; };
+/**
+ * (2026-11-17, ⑦ from the map to the trade card) What stands on a tile that a caravan may go to or leave from, in the
+ * very shapes the caravan form's lists use (s1VillageModel sources / destinations, othersPlaces): a storehouse of the
+ * caravans feed (the viewer's, or another's — only once whose is whose is known), one of the viewer's villages, or
+ * another's village the province's record shows on that tile. Null when the page holds no such thing there — a tile
+ * whose lists or province are not read gives null, never a guessed place.
+ */
+export function s1PlaceAt(FS, sel) {
+  if (!sel || !Number.isInteger(sel.p) || !Number.isInteger(sel.q) || !Number.isInteger(sel.idx)) return null;
+  const { p, q, idx } = sel, mine = viewerTag(FS);
+  const v = (FS.s1?.caravans?.vaults ?? []).find(x => x.p === p && x.q === q && x.tile === idx);
+  if (v) {
+    if (mine === null || mine === undefined) return null;
+    return isMine(v.ownerTag, mine) ? { kind: 'vault', p, q, tile: idx, gen: v.gen } : { kind: 'vault', p, q, tile: idx, gen: v.gen, other: true, faction: v.faction };
+  }
+  const own = (FS.holdings ?? []).find(o => o.p === p && o.q === q && o.tile === idx);
+  if (own) return { kind: 'holding', p, q, site: own.site, gen: own.gen ?? 0, tile: own.tile };
+  const prov = FS.provinces?.get?.(`${p},${q}`)?.province;
+  const n = prov ? Math.min(Number(prov.siteCount ?? 0), 12) : 0;
+  for (let j = 0; j < n; j++) {
+    const mirror = prov.siteMirror?.[j];
+    if (!mirror || Number(mirror.state) !== SITE_HOLDING || Number(prov.sites?.[j]) !== idx) continue;
+    if ((FS.holdings ?? []).some(o => o.p === p && o.q === q && o.site === j)) continue;
+    return { kind: 'holding', p, q, site: j, gen: null, tile: idx, other: true, faction: Number(mirror.faction) };
+  }
+  return null;
+}
+/**
+ * The plan as it holds NOW: `FS.s1Plan` only names a tile, a world and a viewer; here it is looked up again. Null with
+ * no plan, or one made for another pinned world or another viewer (never used). `{role, place}` for a caravan's end;
+ * `{role: 'fort', p, q, tile}` for a fort; `lost: true` when nothing of that kind stands on the tile in what the page
+ * holds now (the place is not put in the form, and the card says so).
+ */
+export function s1PlanNow(FS) {
+  const pl = FS.s1Plan ?? null, sc = planScope(FS);
+  if (!pl || pl.world !== sc.world || pl.viewer !== sc.viewer) return null;
+  if (pl.role === 'fort') return { id: pl.id ?? null, role: 'fort', p: pl.p, q: pl.q, tile: pl.tile, place: null, lost: false };
+  const place = s1PlaceAt(FS, { p: pl.p, q: pl.q, idx: pl.tile });
+  const fits = !!place && (pl.role === 'dst' || (pl.role === 'src' && place.kind === 'vault' && !place.other));
+  return { id: pl.id ?? null, role: pl.role, p: pl.p, q: pl.q, tile: pl.tile, place: fits ? place : null, lost: !fits };
+}
+/**
+ * What the map's tile card may hand to the trade card for this tile: `{place, dst, src, fort, why}`. `dst`: a caravan can
+ * be sent THERE (a place stands on it and some source is another place); `src`: a caravan can leave FROM there (the
+ * viewer's own storehouse); `fort`: the viewer's own fort in the province of the village in hand. Only what the forms
+ * themselves list is offered; whether the caravan can be sent is the form's and the program's to say.
+ */
+export function s1PlanOffers(FS, sel) {
+  const h = activeHolding(FS), place = s1PlaceAt(FS, sel);
+  if (!h) return { place, dst: false, src: false, fort: false, why: place ? 'NoHolding' : null };
+  const m = s1VillageModel(FS);
+  const dst = !!place && m.sources.some(s => !samePlace(s, place));
+  const src = !!place && place.kind === 'vault' && !place.other;
+  const fort = !!sel && sel.p === h.p && sel.q === h.q && m.forts.some(f => f.tile === sel.idx);
+  return { place, dst, src, fort, why: place && !dst && !src ? 'SamePlace' : null };
+}
+
 export function s1VillageModel(FS) {
   const s1 = FS.s1 ?? {}, mine = viewerTag(FS), h = activeHolding(FS);
   const vaults = (s1.caravans?.vaults ?? []).filter(v => isMine(v.ownerTag, mine));
-  const caravans = (s1.caravans?.moving ?? []).filter(c => isMine(c.ownerTag, mine)).map(c => ({ ...c, arriveBell: caravanArriveBell(c) }));
+  const caravans = (s1.caravans?.moving ?? []).filter(c => isMine(holderOf(c), mine)).map(c => ({ ...c, arriveBell: caravanArriveBell(c) }));
   const structures = (s1.structures?.structures ?? []).filter(s => isMine(s.ownerTag, mine)).map(s => ({ ...s, name: KIND_NAME[s.kind] }));
   // where a caravan may leave from: the village in hand (its stores now) or one of the viewer's storehouses (the stores
   // the herald read from its account; a storehouse whose stores are not known yet offers nothing to send)
+  // (2026-11-16: the capture lock — caravan.rs send_caravan_as for a village source, structure.rs fort_garrison_as —
+  //  refuses while the village in hand is being captured: CapturePending; a storehouse source is not locked)
+  const locked = !!h && capturePending(FS, h);
   const sources = [
-    ...(h ? [{ kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0, tile: h.tile, have: haveOf(FS, h) }] : []),
+    ...(h ? [{ kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0, tile: h.tile, have: haveOf(FS, h), locked }] : []),
     ...vaults.map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen, known: Array.isArray(v.stores), have: Array.isArray(v.stores) ? v.stores.map(Number) : Array(8).fill(0), cap: Number(v.cap ?? 0) })),
   ];
   const destinations = [
@@ -321,7 +413,23 @@ export function s1VillageModel(FS) {
     // (production[4]: the Horses slot, the workshops' arms under S1)
     oreStarved = Number(h.production?.[4] ?? 0) > 0 && !!ore && ore.perHour <= 0 && ore.value < 100;
   }
-  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved };
+  // (2026-11-16: structure.rs fort_garrison_as also refuses a village that is not final after the lazy flip (NotFinal)
+  //  and a Province behind the turn (NotResident, prologue::resident_ok); the form offered both)
+  const nowBell = Number(FS.nowBell ?? 0), now = FS.chain?.now?.() ?? 0;
+  const fortBlocks = !h ? [] : [...(locked ? ['CapturePending'] : []), ...(!isFinal(h, prov, now, nowBell) ? ['NotFinal'] : []),
+    ...(!prov || Number(prov.resolvedNext) + 1 < nowBell ? ['NotResident'] : [])];
+  // (2026-11-17, ⑦: the place chosen on the map — s1PlanNow — takes its place in the form's own lists: a destination the
+  //  list does not hold (another's place beyond the nearest OTHER_PLACES) is added at its END, so no other index moves;
+  //  a source is one of the sources or nothing; a fort is one of this village's forts or nothing)
+  const pn = s1PlanNow(FS);
+  let plan = null;
+  if (pn) {
+    plan = { id: pn.id, role: pn.role, dst: null, src: null, fort: null, lost: pn.lost };
+    if (pn.role === 'dst' && pn.place) { let i = destinations.findIndex(x => samePlace(x, pn.place)); if (i < 0) { destinations.push(pn.place); i = destinations.length - 1; } plan.dst = i; }
+    else if (pn.role === 'src' && pn.place) { const i = sources.findIndex(x => samePlace(x, pn.place)); if (i >= 0) plan.src = i; else plan.lost = true; }
+    else if (pn.role === 'fort') { if (h && pn.p === h.p && pn.q === h.q && forts.some(f => f.tile === pn.tile)) plan.fort = pn.tile; else plan.lost = true; }
+  }
+  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved, fortBlocks, plan };
 }
 
 /** How many of other players' places the caravan form lists, the nearest first. */
@@ -365,18 +473,44 @@ export const samePlace = (a, b) => !!a && !!b && a.kind === b.kind && a.p === b.
  */
 export function caravanProblem(src, dst, cargo) {
   if (!src || !dst) return 'NoPlace';
+  // (the program refuses a village source being captured before it reads the destination or the cargo)
+  if (src.kind === 'holding' && src.locked) return 'CapturePending';
   if (samePlace(src, dst)) return 'SamePlace';
   if (!cargo.some(v => v > 0)) return 'NoCargo';
   if (cargo.some((v, i) => v > Math.floor(src.have?.[i] ?? 0))) return 'Insufficient';
   return null;
 }
 
+/**
+ * Why FortGarrison(tile, troops) would be refused for the numbers given, or null (structure.rs fort_garrison_as, in its
+ * order: troops 1..FORT_MAX_TROOPS, the fort's room after its pending troops — StructureLimit —, then the reserve's
+ * Spearmen — Insufficient): `{code, room?}`. The village-wide blocks are `m.fortBlocks`.
+ */
+export function fortGarrisonProblem(m, tile, troops) {
+  if (m?.fortBlocks?.length) return { code: m.fortBlocks[0] };
+  const f = (m?.forts ?? []).find(x => x.tile === tile);
+  if (!f) return { code: 'NoFort' };
+  if (!Number.isInteger(troops) || troops < 1 || troops > FORT_MAX_TROOPS) return { code: 'BadTroops' };
+  if (troops > f.room) return { code: 'FortFull', room: f.room };
+  if (troops > (m.spearmen ?? 0)) return { code: 'Insufficient' };
+  return null;
+}
+/** The words for an expulsion's blocks (expelOffer). */
+export const expelBlockText = b => (b === 'Expelled' ? L`あなたの村は国を追放されているため、投票も提案もできません。`
+  : b === 'TargetExpelled' ? L`この村はもう追放されています（国に戻す提案は、追放された村の一覧から出せます）。` : errorText(b));
+/** The words for fortGarrisonProblem. */
+export const fortProblemText = pr => (pr.code === 'FortFull' ? L`この要塞にはあと ${fmtNum(pr.room)} 人まで入れられます`
+  : pr.code === 'NoFort' ? L`要塞を選んでください` : pr.code === 'BadTroops' ? L`入れる人数は 1 から ${fmtNum(FORT_MAX_TROOPS)} までです` : errorText(pr.code));
+
 // ------------------------------------------------------------------ words
 const S1_BLOCK = { NoHolding: () => L`村を選んでください（費用は選んだ村から払います）`, Taken: () => L`このマスにはもう建っています`, Unknown: () => L`この州のようすをまだ読み込んでいません`,
   Site: () => errorText('StructureSite'), NoFighterHere: () => L`この村のマスに、着いて落ち着いたあなたの戦う軍勢（斥候以外）がいません。進軍で送り、守りに勝ってから包囲を宣言します`,
   NoHostHere: () => L`このマスに、着いて落ち着いたあなたの軍勢がいません（進軍で送り、次のターンを待ってください）`,
   OwnerUnknown: () => L`持ち主の情報をまだ読み込んでいません。少し待ってください`,
-  Heartland: () => L`この村は持ち主の国の本国の中にあるため、包囲できません。本国の外の村か自由都市をねらってください` };
+  Heartland: () => L`この村は持ち主の国の本国の中にあるため、包囲できません。本国の外の村か自由都市をねらってください`,
+  SourceShielded: () => L`あなたの村がまだ保護期間中です。保護が終わるまで、ほかの村を包囲できません`,
+  SiegeBusy: () => L`この村ではすでに包囲か占領が進んでいます`,
+  StakeUnsettled: () => L`前の包囲の賭け金の行き先がまだ決まっていません` };
 const blockText = b => (S1_BLOCK[b] ?? (() => errorText(b)))();
 /** What the village in hand lacks for `cost`, in words ("足りない：石材 173 · 兵器 20"). */
 export const shortText = (cost, have) => L`足りない：${shortOf(cost, have ?? []).map(x => `${RESOURCES[RESOURCE_ORDER[x.r]]} ${fmtNum(Math.ceil(x.need))}`).join(' · ')}`;
@@ -402,49 +536,128 @@ export function renderS1Tile(FS, sel) {
     <p>${L`このマスに立つあなたの軍勢が、持ち主に代わってこの${target.word}を自分のものにします。持ち主の軍勢がいると奪えません。`}</p>
     <div class="actions">${btn('s1-seize', { p: m.p, q: m.q, tile: m.idx, what: target.kind }, L`${target.word}を奪う`, { primary: true, disabled: m.seize.blocks.length > 0 })}</div>
     ${m.seize.blocks.length ? html`<p class="blocked">${m.seize.blocks.map(blockText).join(' / ')}</p>` : ''}</div>` : '';
+  // (2026-11-17, ⑦: the place on this tile, handed to the village's caravan or fort form — app.mjs 's1-plan')
+  const po = s1PlanOffers(FS, sel);
+  const planData = role => ({ p: m.p, q: m.q, tile: m.idx, role });
+  const plan = po.dst || po.src || po.fort || po.why ? html`<div class="s1-plan">${label(L`交易と防備の計画に入れる`)}
+    ${po.dst || po.src || po.fort ? html`<div class="actions">${po.dst ? btn('s1-plan', planData('dst'), L`ここへ隊商を送る`) : ''}${po.src ? btn('s1-plan', planData('src'), L`ここから隊商を送る`) : ''}${po.fort ? btn('s1-plan', planData('fort'), L`この要塞に兵を入れる`) : ''}</div>` : ''}
+    ${po.why === 'NoHolding' ? html`<p class="blocked">${blockText('NoHolding')}</p>` : po.why === 'SamePlace' ? html`<p class="muted">${L`ここは、いま隊商を出せるただ一つの場所です。同じ場所へは送れません。`}</p>` : ''}
+    ${po.dst && po.place?.other ? html`<p class="muted">${L`ここはほかの人の場所です。着いた荷はその人のものになります。`}</p>` : ''}
+    <p class="muted">${L`押すと、村の画面の「交易と防備」が開き、この場所が入ります。運ぶものと量は、そこであなたが入れます。まだ何も送りません。`}</p></div>` : '';
   const eo = expelOffer(FS, sel);
   const expel = eo ? html`<div class="s1-expel">${label(L`国の議会に提案する`)}
     <p>${L`この村は同じ国の村です。国から追放する提案を出すと、国の村が1日のあいだ投票します。追放された村は、国の村の柵に止められるようになり、投票も提案もできなくなります。`}</p>
     <div class="actions">${btn('s1-expel', { p: eo.p, q: eo.q, site: eo.site }, L`この村の追放を提案する`, { disabled: eo.blocks.length > 0 })}</div>
-    ${eo.blocks.length ? html`<p class="blocked">${eo.blocks.map(b => (b === 'Expelled' ? L`あなたの村は国を追放されているため、投票も提案もできません。` : errorText(b))).join(' / ')}</p>` : ''}</div>` : '';
+    ${eo.blocks.length ? html`<p class="blocked">${eo.blocks.map(expelBlockText).join(' / ')}</p>` : ''}</div>` : '';
   const so = siegeOffer(FS, sel);
   const siege = so ? html`<div class="s1-siege">${label(so.freeCity ? L`自由都市を包囲する` : L`この村を包囲する`)}
     <p>${so.freeCity ? L`包囲が続けば自由都市を取り、あなたの村になります。` : L`包囲が続けば、最初の村なら占領、ほかの村なら奪取になります。`} ${L`宣言には軍勢の村から金 ${fmtNum(SIEGE_STAKE_GOLD)}（包囲の結果で返るか失われます）と兵器 ${fmtNum(SIEGE_ARMS)} を使います。宣言は公開され、守り手に知らされます。`}</p>
     <div class="actions">${btn('s1-siege', { p: sel.p, q: sel.q, tile: sel.idx }, L`包囲を宣言する`, { primary: true, disabled: so.blocks.length > 0 })}</div>
-    ${so.blocks.length ? html`<p class="blocked">${so.blocks.map(b => (b === 'Insufficient' ? shortText(so.cost, so.have) : blockText(b))).join(' / ')}</p>` : ''}</div>` : '';
+    ${so.blocks.length ? html`<p class="blocked">${so.blocks.map(b => (b === 'Insufficient' ? shortText(so.cost, so.have) : blockText(b))).join(' / ')}</p>` : ''}
+    <p class="muted">${L`宣言したあとにプログラムが判定すること：占領後の免除、先頭の軍勢、遅れて置かれた村の保護、奪う枠の空き、シーズン終了までに終わるか。`}</p></div>` : '';
   // a tile already taken offers nothing to build: what stands there (and what can be done to it) is said above
   const build = m.site === 'Unknown' || m.vault || m.structure ? '' : html`${fold('s1-build', html`${icon('hammer')}${L`ここに建てる`}`, html`<ul class="list s1-offers">
     ${offer('s1-vault', { p: m.p, q: m.q, tile: m.idx }, L`${S1_WORDS.vault()}を建てる`, m.build.vault)}
     ${m.build.structures.map(o => offer('s1-structure', { p: m.p, q: m.q, tile: m.idx, kind: o.kind }, L`${kindWord(o.kind)}を建てる`, o))}</ul>
     <p class="muted">${L`費用は選んでいる村の蔵から払います。物見櫓はまわりの動きを知らせ、柵と要塞は通る敵を止めます。`}</p>`)}`;
-  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${raids}${seize}${siege}${expel}${build}</div>`;
+  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${plan}${raids}${seize}${siege}${expel}${build}</div>`;
 }
 
 /** The village's S1 card (screens/holding.mjs). */
+/**
+ * (workstream 07) The viewer's caravans that left the road's list while this page was open, with no end read yet
+ * (hud/statussources.mjs createCaravanWatch), one watch per page state. app.mjs tells it the ends it reads (the away
+ * reader's settlements and raids) and resets it with the away reader's scope.
+ */
+const watches = new WeakMap();
+/**
+ * (2026-11-17, ⑦) How the three S1 feeds behind this card were read (controller refreshS1 `FS.s1.read`), each as
+ * 'ok' (read now, or the herald has no file and nothing was read before: an empty feed), 'stale' (the latest read
+ * failed; what is shown was read before), 'staleMissing' (corrected 2026-11-17: the herald has no file NOW and a list
+ * read before is kept — it is not the latest read's, and is not said as if it were), 'unreadFailed' (the latest read failed and nothing is held) or 'unread' (not read yet). A feed that is not
+ * read is NOT an empty feed: "no caravans", "no storehouses", "no council" are said only of a feed that was read.
+ * `reread`: the person's own re-read (controller rereadS1) — 'loading', 'failed' (it could not be made at all) or null.
+ */
+export function s1ReadState(FS) {
+  const s1 = FS.s1 ?? null;
+  const feed = n => { const held = !!s1 && s1[n] !== null && s1[n] !== undefined, mark = s1?.read?.[n]; return held ? (mark === 'failed' ? 'stale' : mark === 'missingKept' ? 'staleMissing' : 'ok') : mark === 'failed' ? 'unreadFailed' : 'unread'; };
+  const feeds = { caravans: feed('caravans'), structures: feed('structures'), nations: feed('nations') };
+  return { ...feeds, any: Object.values(feeds).some(x => x !== 'ok'), reread: FS.s1Reread?.state ?? null, can: FS.mode === 'play' };
+}
+const FEED_NAME = { caravans: () => L`隊商と貯蔵庫の一覧`, structures: () => L`建物の一覧`, nations: () => L`国の方針と議題` };
+/** The note of s1ReadState under the card's head: one line per feed that is not read as it should be, the re-read's own line, and the button; '' when all are read. */
+export function renderS1Read(FS) {
+  const r = s1ReadState(FS), lines = [];
+  for (const n of ['caravans', 'structures', 'nations']) {
+    const name = FEED_NAME[n]();
+    if (r[n] === 'unread') lines.push(html`<p class="muted" role="status" data-feed="${n}">${L`${name}を、まだ読めていません。ないという意味ではありません。`}</p>`);
+    else if (r[n] === 'unreadFailed') lines.push(html`<p class="notice error" role="alert" data-feed="${n}">${L`${name}を読み込めませんでした。ないという意味ではありません。`}</p>`);
+    else if (r[n] === 'staleMissing') lines.push(html`<p class="notice error" role="status" data-feed="${n}">${L`${name}は、最新の読み込みでは見つかりませんでした。下に出ているのは、前に読めたものです。いまもそのとおりかどうかは、分かりません。`}</p>`);
+    else if (r[n] === 'stale') lines.push(html`<p class="notice error" role="status" data-feed="${n}">${L`${name}の最新の読み込みに失敗しています。下に出ているのは、最後に読めたものです。`}</p>`);
+  }
+  if (r.reread === 'loading') lines.push(html`<p class="muted" role="status">${L`一覧を読み直しています…`}</p>`);
+  else if (r.reread === 'failed') lines.push(html`<p class="notice error" role="alert">${L`一覧を読み直せませんでした。前に読めたものは、そのまま残しています。`}</p>`);
+  if (r.can && (r.any || r.reread === 'failed') && r.reread !== 'loading') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="s1-reread">${icon('return')}${L`一覧を読み直す`}</button></div>`);
+  return lines.length ? html`<div class="s1-read" data-caravans="${r.caravans}" data-structures="${r.structures}" data-nations="${r.nations}">${lines}</div>` : '';
+}
+
+export const caravanWatchOf = FS => { let w = watches.get(FS); if (!w) { w = createCaravanWatch(); watches.set(FS, w); } return w; };
 export function renderS1Village(FS) {
   const m = s1VillageModel(FS);
   if (!m.holding) return '';
   const bell = Number(FS.nowBell ?? 0);
+  // (2026-11-17, ⑦: how the feeds behind this card were read — a feed not read is not an empty feed)
+  const rd = s1ReadState(FS), listsRead = rd.caravans !== 'unread' && rd.caravans !== 'unreadFailed', builtRead = rd.structures !== 'unread' && rd.structures !== 'unreadFailed';
+  const readNote = renderS1Read(FS);
+  // (what became of the caravans and fort orders given from this village this turn — screens/villageorders.mjs; an order
+  //  whose outcome is not confirmed offers the lists' re-read, unless the note above already does)
+  const orderNote = renderVillageOrders(FS, m.holding, FS.chain?.now?.() ?? 0, { kinds: S1_ORDER_KINDS, rereadShown: !!readNote && rd.reread !== 'loading' && (rd.any || rd.reread === 'failed'),
+    reread: { act: 's1-reread', label: L`一覧を読み直す`, offered: rd.can && rd.reread !== 'loading' } });
   // (another's village may share a province with the viewer's: its tile tells them apart)
   const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）`
     : d.other || m.destinations.some(x => x.other && x.kind === 'holding' && x.p === d.p && x.q === d.q) ? L`${L`村`}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
-  const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null ? (c.arriveBell <= bell ? L`到着済み（決着待ち）` : L`ターン ${fmtNum(c.arriveBell)} に到着`) : ''}</span></li>`)}</ul>` : '';
+  // (workstream 07: under each caravan, its arrival once its turn has come — past the turn is not "arrived": the line
+  // says it is not settled yet; 04's own arrival replaces it when 04 registers one — and 04's cancel when registered:
+  // hud/statussources.mjs, hud/statusview.mjs)
+  const caravanStatus = c => { const a = statusFrom('caravanArrival', FS, c) ?? arrivalOnRoad(c, bell), x = statusFrom('caravanCancel', FS, c); return html`${a ? renderStatus(arrivalView(a)) : ''}${x ? renderStatus(cancelView(x)) : ''}`; };
+  // (a caravan gone from the list is not said to have arrived: until its end is read, its state is unknown)
+  const gone = Array.isArray(FS.s1?.caravans?.moving) ? caravanWatchOf(FS).observe(m.caravans).filter(g => isMine(g.ownerTag, viewerTag(FS))) : [];
+  const caravans = m.caravans.length || gone.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null && c.arriveBell > bell ? L`ターン ${fmtNum(c.arriveBell)} に到着` : ''}</span>${caravanStatus(c)}</li>`)}${gone.map(() => html`<li>${icon('flag')}${S1_WORDS.caravan()}${renderStatus(arrivalView({ state: 'unread' }))}</li>`)}</ul>` : '';
+  // (05's costs of this village and its switch back to manual play, when 05 registers them; nothing otherwise)
+  const costs = statusFrom('villageCosts', FS, m.holding), manual = statusFrom('manualPlay', FS);
+  const free = costs ? spendable(m.have, costs.costs ?? [], { committedInHave: costs.committedInHave }) : null;
+  const spend = costs ? html`${label(L`費用の状態`)}${(costs.costs ?? []).map(x => renderStatus(costView(x)))}${free?.ok ? html`<p class="muted">${free.uncertain ? L`使える量（未確定の費用を最大で引いた見込み）：${spendText(free.free)}` : L`使える量（予約を引いたあと）：${spendText(free.free)}`}</p>` : html`<p class="blocked">${L`使える量を出せません：${free.errors.join(', ')}`}</p>`}` : '';
+  const manualLine = manual ? renderStatus(manualView(manual)) : '';
   const owned = m.vaults.length || m.structures.length ? html`${label(L`あなたの貯蔵庫と建物`)}<ul class="list">${[
     ...m.vaults.map(v => html`<li>${icon('crate')}${S1_WORDS.vault()} <span class="muted">${v.p}, ${v.q} · ${v.tile}</span>${Array.isArray(v.stores)
       ? html` <span class="muted">${v.stores.some(x => Number(x) > 0) ? costLine(v.stores.map(Number)) : L`空`}${v.cap ? L`（上限 ${fmtNum(v.cap)}）` : ''}</span>` : ''}</li>`),
-    ...m.structures.map(s => html`<li>${icon('shield')}${kindWord(s.kind)} <span class="muted">${s.p}, ${s.q} · ${s.tile}</span></li>`)]}</ul>` : html`<p class="muted">${L`貯蔵庫や物見櫓・柵・要塞は、地図でマスを選ぶと建てられます。`}</p>`;
+    ...m.structures.map(s => html`<li>${icon('shield')}${kindWord(s.kind)} <span class="muted">${s.p}, ${s.q} · ${s.tile}</span></li>`)]}</ul>` : listsRead && builtRead ? html`<p class="muted">${L`貯蔵庫や物見櫓・柵・要塞は、地図でマスを選ぶと建てられます。`}</p>` : '';
   // the goods a caravan carries (caravan.rs: the first six; arms and influence stay), the most any source holds
   const most = i => Math.max(0, ...m.sources.map(s => Math.floor(s.have?.[i] ?? 0)));
   const sendable = RESOURCE_ORDER.map((r, i) => ({ r, i, have: most(i) })).filter(x => x.have > 0 && x.i < 6);
   // (another player's place is never chosen by default: what arrives there is theirs)
-  const firstDst = m.destinations.findIndex(x => !x.other && !samePlace(m.sources[0], x));
+  // (2026-11-17, ⑦: the place chosen on the map is the form's first choice — only where the view starts from its own
+  //  markup; a choice the person already made in the form, and every amount, is theirs and is not written over)
+  const pl = m.plan;
+  const firstDst = pl?.dst ?? m.destinations.findIndex(x => !x.other && !samePlace(m.sources[0], x));
+  const firstSrc = pl?.src ?? (pl?.dst !== null && pl?.dst !== undefined && samePlace(m.sources[0], m.destinations[pl.dst]) ? m.sources.findIndex(x => !samePlace(x, m.destinations[pl.dst])) : -1);
+  const planned = pl?.dst !== null && pl?.dst !== undefined ? m.destinations[pl.dst] : pl?.src !== null && pl?.src !== undefined ? m.sources[pl.src] : null;
+  // (corrected 2026-11-17: the note says what was chosen on the map and that it is the field's FIRST choice — not that
+  //  it "is" the destination: a choice the person makes in the field afterwards is what is sent, and the note must not
+  //  contradict the field. `data-plan-id`: the plan's number, for app.mjs landS1Plan.)
+  const unpick = html`<button type="button" class="btn small" data-act="s1-plan-clear">${L`選択を外す`}</button>`;
+  const planNote = !pl ? '' : pl.lost ? html`<p class="notice error" role="status" data-plan="lost" data-plan-id="${pl.id ?? ''}">${L`地図で選んだ場所を、いま読めている一覧では確かめられません。計画には入れていません。`} ${unpick}</p>`
+    : planned ? html`<p class="notice" role="status" data-plan="${pl.dst !== null ? 'dst' : 'src'}" data-plan-id="${pl.id ?? ''}">${pl.dst !== null
+      ? L`地図で選んだ場所：${placeWord(planned)}。行き先の欄の最初の選択にしました。欄で選び直すと、送るのは選び直した場所です。`
+      : L`地図で選んだ場所：${placeWord(planned)}。出発地の欄の最初の選択にしました。欄で選び直すと、出発するのは選び直した場所です。`}${planned.other ? L`ここはほかの人の場所です。着いた荷はその人のものになります。` : ''}${L`運ぶものと量は、あなたが入れてください。`} ${unpick}</p>`
+    : pl.fort !== null ? html`<p class="notice" role="status" data-plan="fort" data-plan-id="${pl.id ?? ''}">${L`地図で選んだ要塞：マス ${pl.fort}。要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。`} ${unpick}</p>` : '';
   const haveText = s => (s.kind === 'vault' && !s.known ? L`在庫はまだ読み込んでいません`
     : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
   const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
-    <label class="field">${L`出発地`}<select name="src">${m.sources.map((s, i) => html`<option value="${i}">${placeWord(s)} — ${haveText(s)}</option>`)}</select></label>
-    <label class="field">${L`行き先`}<select name="dst">${otherDst.length
+    <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
+    <label class="field">${L`行き先`}<select name="dst" data-plan="${pl?.dst ?? ''}">${otherDst.length
       ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
       : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
     ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${x.have}" step="1" value="0" inputmode="numeric"></div>`)}
@@ -452,11 +665,12 @@ export function renderS1Village(FS) {
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
     ${otherDst.length ? html`<p class="muted">${L`ほかの人の村や貯蔵庫へ送ると、着いた荷はその人のものになります。ほかの人あての隊商は、ゲーム内の鍵ではなくウォレットで署名して送ります。`}</p>` : ''}
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
-    : html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>`;
+    : listsRead ? html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>` : html`<p class="muted">${L`貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。`}</p>`;
   const fort = m.forts.length ? html`<form class="vform" data-form="s1-fort">
-    <label class="field">${L`要塞`}<select name="tile">${m.forts.map(f => html`<option value="${f.tile}">${L`マス ${f.tile}（兵 ${fmtNum(f.troops)} / ${fmtNum(FORT_MAX_TROOPS)}）`}</option>`)}</select></label>
+    <label class="field">${L`要塞`}<select name="tile" data-plan="${pl?.fort ?? ''}">${m.forts.map(f => html`<option value="${f.tile}" ${raw(pl?.fort === f.tile ? 'selected' : '')}>${L`マス ${f.tile}（兵 ${fmtNum(f.troops)} / ${fmtNum(FORT_MAX_TROOPS)}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="s1-ft">${L`入れる槍兵（控えから）`}<span class="muted"> / ${fmtNum(m.spearmen)}</span></label><input id="s1-ft" name="troops" type="number" min="1" max="${Math.min(m.spearmen, FORT_MAX_TROOPS)}" step="1" value="${Math.min(100, m.spearmen) || 1}" inputmode="numeric"></div>
-    <div class="actions"><button type="submit" class="btn" ${raw(m.spearmen > 0 ? '' : 'disabled')}>${L`要塞に兵を入れる`}</button></div>
+    <div class="actions"><button type="submit" class="btn" ${raw(m.spearmen > 0 && !m.fortBlocks.length ? '' : 'disabled')}>${L`要塞に兵を入れる`}</button></div>
+    ${m.fortBlocks.length ? html`<p class="blocked">${m.fortBlocks.map(blockText).join(' / ')}</p>` : ''}
     <p class="muted">${L`兵は次のターンから要塞を守ります。`}</p></form>` : '';
   const n = m.nation;
   const nation = n ? html`${label(L`国の方針`)}
@@ -474,13 +688,15 @@ export function renderS1Village(FS) {
       <label class="field">${L`方針`}<select name="value">${STANCES.map((s, i) => html`<option value="${i}">${stanceText(s)}</option>`)}</select></label>
       <div class="actions"><button type="submit" class="btn">${L`方針の変更を提案する`}</button></div>
       <p class="muted">${L`提案は1日のあいだ投票を受け、賛成が3票以上かつ反対より多ければ決まります。`}</p></form>`}` : '';
-  return html`<section class="vcard vcard-folds s1-card" aria-labelledby="s1-title">
+  return html`<section class="vcard vcard-folds s1-card" id="hp-trade" aria-labelledby="s1-title">
     ${cardHead({ id: 's1-title', ic: 'flag', title: L`交易と防備` })}
     ${m.oreStarved ? html`<p class="blocked">${L`工房が鉱石をすべて使っていて、鉱石が増えていません。兵の訓練にも鉱石が要るので、鉱山を建てるまで訓練できなくなります。`}</p>` : ''}
-    ${caravans}${owned}
-    ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
-    ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
-    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}</section>`;
+    ${readNote}${orderNote}${manualLine}${spend}${caravans}${owned}
+    ${planNote}
+    ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send, { open: !!pl && !pl.lost && pl.fort === null })}
+    ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort, { open: !!pl && pl.fort !== null }) : ''}
+    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
+    ${renderCoopSlot(FS)}</section>`;
 }
 
 /** A proposal in words. */

@@ -267,3 +267,45 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
   keepState(el, () => { cur = build(); }, null);
   assert.equal(cur.fold.open, false, 'a different view starts from its own markup');
 });
+
+// round 43 (seen in live33, turn 27): the only host on the march is in no province record the page holds until its
+// arrival is read; the Hosts tab said "No hosts yet. Train troops and form a host" then. Now it says the host is away
+// and opens Marches; with no march either, the old line stands.
+test('the Hosts tab while the only host is on the march: it is away (Marches), not "no hosts, train some"', () => {
+  for (const lang of ['ja', 'en']) {
+    setLang(lang);
+    const { FS } = world({ entries: [] });
+    FS.marches = [{ entry: { host: '7', state: 1 }, transit: null, facts: null }];
+    const away = String(hostScreen.render(FS));
+    assert.match(text(away), lang === 'en' ? /Your host is away on a march\. See Marches for its arrival and result\./ : /あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。/);
+    assert.match(away, /data-act="tab" data-tab="marches"/);
+    assert.doesNotMatch(text(away), lang === 'en' ? /train|No hosts/i : /訓練し/);
+    if (lang === 'en') assert.doesNotMatch(text(away), JP);
+    FS.marches = [];
+    const none = String(hostScreen.render(FS));
+    assert.match(text(none), lang === 'en' ? /train/i : /訓練し/, 'with no march either, the old line stands');
+    assert.doesNotMatch(none, /data-tab="marches"/);
+  }
+  setLang('ja');
+});
+
+// round 49 (the owner's decision, 2026-11-15; reported from land1 at ×30): while the host's province is still resolving
+// the last turn (NotResident, and only that), the Hosts tab's March opens the order card, as the action bar's March
+// always did; the card's send waits for the province. The reason line still says so; any other block still closes it.
+test('the Hosts tab: March opens while the province is only resolving the last turn; rest, stamina and other blocks still close it', () => {
+  const marchButton = (out, id) => (String(out).match(new RegExp(`<button[^>]*data-act="compose"[^>]*data-host="${id}"[^>]*>`)) ?? [''])[0];
+  const id7 = String(hostId({ p: 2, q: 0, site: 3, gen: 1, seq: 7 }));
+  setLang('en');
+  const behind = world(); behind.FS.nowBell = 44;   // the province resolved up to 41: two turns behind at 44
+  const out = String(hostScreen.render(behind.FS));
+  assert.match(text(out), /still resolving the last turn/, 'the reason line still says so');
+  assert.ok(marchButton(out, id7), 'the March button is there');
+  assert.doesNotMatch(marchButton(out, id7), /disabled/, 'March opens while the province only catches up');
+  // a host short of stamina, its province also behind: still closed
+  const tired = world({ entries: [{ ID: hostId({ p: 2, q: 0, site: 3, gen: 1, seq: 7 }), FACTION: 0, UNIT: 0, TILE: 30, STATE: 1, TROOPS: 600_000, STAMINA_VALUE: 20, STAMINA_BELL: 44, READY_BELL: 0 }] });
+  tired.FS.nowBell = 44;
+  assert.match(marchButton(hostScreen.render(tired.FS), id7), /disabled/, 'short of stamina: closed');
+  // not behind: as before (open for a rested host with stamina)
+  assert.doesNotMatch(marchButton(hostScreen.render(world().FS), id7), /disabled/);
+  setLang('ja');
+});

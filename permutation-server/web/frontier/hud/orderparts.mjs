@@ -85,6 +85,7 @@ export function whyText(code, x = {}) {
   switch (code) {
     case 'QueueFull': return Number.isInteger(x.tier) ? (x.freeIn > 0 ? L`建設は同時に ${QUEUE_SLOTS[x.tier]} つまで（${TIERS[x.tier]}）。あと ${took(x.freeIn)} で空きます` : L`建設は同時に ${QUEUE_SLOTS[x.tier]} つまで（${TIERS[x.tier]}）`) : errorText(code);
     case 'Promoting': return L`昇格は一度にひとつです`;
+    case 'WallsBusy': return L`城壁の工事は 2 つ先までです。前の工事が仕上がり、そのターンが決着してからです`;
     case 'TopTier': return L`いちばん上の段階です`;
     case 'AboveCap': return x.walls ? L`城壁はこれ以上高くできません（${fmtNum(WALLS.max)} まで）` : L`これ以上は増やせません`;
     case 'Insufficient': return x.short?.length ? shortWords(x.short) : errorText(code);

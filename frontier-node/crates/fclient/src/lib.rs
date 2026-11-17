@@ -23,11 +23,16 @@
 pub mod abi;
 pub mod addr;
 pub mod beacon;
+/// Bounded public blockhash reads; no signing or transaction admission.
+pub mod blockhash_preflight;
 pub mod budgets;
 pub mod clash_model;
 pub mod clock;
 pub mod conquest;
 pub mod decode;
+/// Explicit unsigned messages for the separate host-only execution revision.
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_expedition_message;
 pub mod fees;
 pub mod http;
 pub mod ix;
@@ -36,10 +41,40 @@ pub mod log;
 pub mod payers;
 pub mod play;
 pub mod ports;
+/// Opt-in bounded HTTPS transport restricted to public read-only RPC methods.
+pub mod readonly_https_rpc;
 pub mod rpc;
 pub mod seal;
+#[cfg(feature = "snapshot")]
+pub mod snapshot;
 pub mod tx;
+#[cfg(feature = "wide-records-experimental")]
+pub mod typed_log;
+/// Keyless legacy-message shape and external blockhash observation checks.
+pub mod unsigned_message_preflight;
 pub mod vectors;
+/// Closed account/byte proposal of the one player-signed conquest step
+/// (wide DeclareSiege by an original host); never an executable instruction.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_conquest_draft;
+/// Closed resident account/byte proposals, never an executable instruction.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_resident_draft;
+/// Real 264-byte wide march seals (fresh key, stock tlock); legacy `seal` untouched.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_seal;
+
+/// Closed original-host outbound account and byte proposals only.
+#[cfg(feature = "wide-records-experimental")]
+pub mod original_expedition_depart_draft;
+
+/// Read-only original source/route/Clock context, never execution admission.
+#[cfg(all(feature = "snapshot", feature = "wide-records-experimental"))]
+pub mod original_outbound_snapshot;
+
+/// Closed original resolved-member settlement account and byte proposals.
+#[cfg(feature = "wide-records-experimental")]
+pub mod original_expedition_settlement_draft;
 
 pub use solana_address::Address;
 pub use solana_hash::Hash;

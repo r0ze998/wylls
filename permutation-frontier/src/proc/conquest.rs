@@ -44,7 +44,7 @@
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
-use frontier_abi::addr::{citizen_tag, citizen_tag15, day_of, host_id, split_host_id, AddrCtx};
+use frontier_abi::addr::{citizen_tag, day_of, host_id, split_host_id, AddrCtx};
 use frontier_abi::conquest_model::Record;
 use frontier_abi::entry::read_entry;
 use frontier_abi::log::{divert_reason, NO_BELL};
@@ -60,7 +60,7 @@ use frontier_abi::v2::tags::Ix as Ix2;
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::doctrine::of_faction_v3 as of_faction;
-use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::geometry::{self, ProvinceCoord};
 use permutation_rules::frontier::holding::{capture_effects, Holding as KHolding, Resource, Tier};
 use permutation_rules::frontier::siege::{self, HoldingKind, Relation, SiegeCheckV3, SiegeRefusal};
 
@@ -210,12 +210,22 @@ fn cq_u32(sd: &[u8], off: usize) -> R<u32> {
 /// The player prologue (§5.6) of an MC instruction over `[actor, payer,
 /// season, citizen, …]`: as M1's (`citizen::player`) with the v2 ruleset,
 /// and the Citizen a v2 account.
-pub(crate) fn player_v2(p: &Pubkey, a: &[AccountInfo]) -> R<Player> {
+/// Under `auth`: the wallet prologue, or for an NFT resident's Citizen the
+/// resident checks (`super::resident`) in place of the wallet and Frontier
+/// session; the rest is the same.
+pub(crate) fn player_v2_as(p: &Pubkey, a: &[AccountInfo], auth: &super::Auth) -> R<Player> {
     let [actor, payer, season_ai, citizen, ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let now = prologue::now()?;
-    let start = {
+    let start = if let Some((proof, generation)) = super::resident::proof_of(auth) {
+        let st = super::resident::start(p, a, proof, generation, true, now.ts)?;
+        let sd = season_ai.try_borrow_data()?;
+        if !is_mc_season(&sd)? {
+            return Err(FrontierError::RulesetMismatch.into());
+        }
+        st
+    } else {
         let sd = season_ai.try_borrow_data()?;
         let sv = view(season_ai, &sd);
         let s = ap::read_season(&sv, p.as_array(), now.ts)?;
@@ -260,8 +270,7 @@ fn citizen_v2(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(u64, 
     present_v2(ai, p, K2::Citizen, sid)?;
     let d = ai.try_borrow_data()?;
     let r = Ro(&d);
-    let wallet: [u8; 32] = r.arr(C::WALLET)?;
-    expect_key(ai, &ctx.citizen_by_tag15(&citizen_tag15(&wallet)))?;
+    super::resident::expect_citizen_address(ctx, ai, &d)?;
     let tag = r.u64(C::CITIZEN_TAG)?;
     if tag != citizen_tag(ai.key.as_array()) {
         return Err(BAD_ACCOUNT);
@@ -347,7 +356,7 @@ const GOLD: usize = Resource::Gold as usize;
 
 /// Credits `amount` milli-Gold to a settled kernel holding, up to the
 /// store cap: returns `(credited, burned)` (§5.5 SettleSiege).
-fn credit_capped(h: &mut KHolding, amount: i64) -> (i64, i64) {
+pub(crate) fn credit_capped(h: &mut KHolding, amount: i64) -> (i64, i64) {
     let s = &mut h.stores[GOLD];
     let room = (s.cap - s.value).max(0);
     let add = amount.min(room).max(0);
@@ -368,8 +377,10 @@ pub mod cqlog {
     use crate::error::{Error, BAD_ACCOUNT, OVERFLOW};
     use crate::layout::{chain_of, set_chain};
 
-    /// Highest kind code a v2 record carries (103: S1's REST).
-    pub const MAX_KIND: usize = 103;
+    /// Highest kind code a v2 record carries: the program's
+    /// `events::MAX_KIND_V2` (134, for ⑳'s RESIDENT_JOINED = 130; 02-rights'
+    /// proposal 114–119; 120–129 and 131–134 undefined).
+    pub const MAX_KIND: usize = crate::events::MAX_KIND_V2;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {
@@ -548,10 +559,21 @@ fn refusal(r: SiegeRefusal) -> crate::Error {
 
 /// 0xA0 DeclareSiege(site, entry, nearby_site): P (§3.4, §5.5).
 pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    declare_siege_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`declare_siege`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn declare_siege_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     check_accounts_v2(Ix2::DeclareSiege, a, None)?;
     let x = ix2::DeclareSiege::decode(d)?;
     // 1. Running, now_bell < end_bell (the player prologue).
-    let pl = player_v2(p, a)?;
+    let pl = player_v2_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, src, province, target_h, owner_c, nearby, _system, holding_province] =
         a
     else {
@@ -767,7 +789,35 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             frontier_protect_after_secs: fp_after as i64,
             genesis_ts: pl.pc.season.genesis_ts,
         };
-        siege::may_besiege_v3(&check).map_err(refusal)?;
+        // Placement (frontier-abi `cq_layout::PLACEMENT`): under the
+        // dispersed placement the heartland is `home_nation`'s, not the
+        // wedge's, so the kernel's wedge test is switched off (an empty ring
+        // range) and the same refusal, still the last step, is made here.
+        let (placement, genesis_seed) = {
+            let sd = season_ai.try_borrow_data()?;
+            (
+                cq_u8(&sd, CQ::PLACEMENT)?,
+                Ro(&sd).arr::<32>(crate::layout::season::GENESIS_SEED)?,
+            )
+        };
+        if placement == geometry::PLACEMENT_WEDGE {
+            siege::may_besiege_v3(&check).map_err(refusal)?;
+        } else {
+            siege::may_besiege_v3(&SiegeCheckV3 {
+                heartland_max_ring: 1,
+                ..check
+            })
+            .map_err(refusal)?;
+            if geometry::is_home_heartland(
+                check.province,
+                check.owner_faction,
+                placement,
+                heartland_max_ring,
+                &genesis_seed,
+            ) {
+                return Err(refusal(SiegeRefusal::Heartland));
+            }
+        }
     } else {
         // A Free City skips step 8 except the Seat and Concord test.
         let c = ProvinceCoord::new(tp as i32, tq as i32);
@@ -803,6 +853,15 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let mut cost = permutation_rules::frontier::arms::siege_cost();
     cost[GOLD] = (stake_gold as i64).checked_mul(MILLI).ok_or(OVERFLOW)?;
     h.pay(now, &cost).map_err(hold::holding_err)?;
+    // Experimental wide land: a pending wide ticket keeps its holding rent
+    // in its own record, not in this shared escrow, so it must not be
+    // counted here at the deployed rent; while one is pending no capture
+    // reservation is taken (`proc::wide`). Absent from every default build.
+    #[cfg(feature = "wide-world-experimental")]
+    if slot != 0 {
+        let cd = citizen.try_borrow_data()?;
+        super::wide::refuse_wide_ticket(&cd)?;
+    }
     let mut topped = 0u64;
     if slot != 0 {
         let ticket = cslots & C::SLOTS_TICKET_MASK;
@@ -810,9 +869,12 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // Any open ticket (slot 1 included) holds one rent in the escrow:
         // FileTicket sizes it `rent × (1 + reservations)` and SettleTicket
         // takes one rent when the ticket wins (W2R2-C1).
-        let n = (ticket != 0) as u64
-            + (reserved & C::SLOTS_RESERVED_2 != 0) as u64
-            + (reserved & C::SLOTS_RESERVED_3 != 0) as u64;
+        #[cfg(feature = "wide-world-experimental")]
+        let legacy = frontier_abi::world_index::conquest::legacy_reservations(reserved)
+            .map_err(|_| BAD_ACCOUNT)?;
+        #[cfg(not(feature = "wide-world-experimental"))]
+        let legacy = reserved & (C::SLOTS_RESERVED_2 | C::SLOTS_RESERVED_3);
+        let n = (ticket != 0) as u64 + legacy.count_ones() as u64;
         let want = init::rent(H::SIZE)?.checked_mul(n).ok_or(OVERFLOW)?;
         topped = want.saturating_sub(cescrow);
         if topped > payer.lamports() {
@@ -1015,6 +1077,15 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (stake, slot, after) = settle_plan(&rec, (pp, pq, x.site), ended)?;
     if stake.is_none() && slot.is_none() {
         return Err(FrontierError::AlreadyDone.into());
+    }
+    // Refuse a wide-owned reservation before any stake credit or other write.
+    // Its rent, binding and recipient belong to the wide escrow record.
+    #[cfg(feature = "wide-world-experimental")]
+    if let Some((s, _)) = slot {
+        let cd = slot_citizen.try_borrow_data()?;
+        let slots = Ro(&cd).u8(C::SLOTS)?;
+        frontier_abi::world_index::conquest::ensure_legacy_slot(slots, s)
+            .map_err(|_| BAD_ACCOUNT)?;
     }
     // The stake: to the recipient Holding at the owed generation, or
     // burned.
@@ -1238,6 +1309,9 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.arr::<32>(C::TICKET_FUNDER)?,
         )
     };
+    #[cfg(feature = "wide-world-experimental")]
+    frontier_abi::world_index::conquest::ensure_legacy_slot(cslots, slot)
+        .map_err(|_| BAD_ACCOUNT)?;
     if cslots & C::reserved_bit(slot) == 0 {
         return Err(kernel(sub::CAPTURE_RULE));
     }
@@ -1309,6 +1383,13 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     } else {
         // 3. The captured Holding and its victim.
         present_v2(holding, p, K2::Holding, sid)?;
+        // Reject malformed later slots before any refund or account mutation.
+        #[cfg(feature = "wide-world-experimental")]
+        let occupancy = frontier_abi::prologue::holding_transit_occupancy(
+            &ctx,
+            &key(holding),
+            &holding.try_borrow_data()?,
+        )?;
         let (hgen, horder, owner_key, rent_payer) = {
             let hd = holding.try_borrow_data()?;
             let r = Ro(&hd);
@@ -1319,6 +1400,43 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 r.arr::<32>(H::RENT_PAYER)?,
             )
         };
+        // A reverse reservation preserves full immutable owner identity in its
+        // external record, and relies on this one capture-history generation.
+        // Never overwrite that history while a prior reverse remains active.
+        // All validation precedes the first bond refund/account mutation.
+        #[cfg(feature = "wide-world-experimental")]
+        if occupancy
+            .iter()
+            .any(|slot| matches!(slot, ap::TransitOccupancy::Reverse(_)))
+        {
+            let hd = holding.try_borrow_data()?;
+            let r = Ro(&hd);
+            for (i, slot) in occupancy.iter().enumerate() {
+                if matches!(slot, ap::TransitOccupancy::Reverse(_)) {
+                    let id = r.u64(H::transit(i) + crate::layout::transit::HOST_ID)?;
+                    let parts = split_host_id(id).ok_or(BAD_ACCOUNT)?;
+                    if parts.gen != hgen || parts.seq >= r.u32(H::HOST_SEQ)? {
+                        return Err(FrontierError::NotImplemented.into());
+                    }
+                }
+            }
+            let bonded = occupancy
+                .iter()
+                .enumerate()
+                .try_fold(0u64, |total, (i, slot)| {
+                    let flags = r.u8(H::transit(i) + crate::layout::transit::FLAGS)?;
+                    if *slot != ap::TransitOccupancy::Free
+                        && flags & crate::layout::transit::FLAG_BOND_ESCROWED != 0
+                    {
+                        total.checked_add(seal_bond).ok_or(OVERFLOW)
+                    } else {
+                        Ok(total)
+                    }
+                })?;
+            if r.u64(H::ESCROW)? < bonded || cescrow < rent {
+                return Err(FrontierError::Insufficient.into());
+            }
+        }
         if hgen.wrapping_add(1) != mgen {
             return Err(BAD_ACCOUNT);
         }
@@ -1348,13 +1466,20 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // The victim's escrowed seal bonds, refunded at once (§3.6).
         for i in 0..H::TRANSIT_N {
             let o = H::transit(i);
-            let (st, fl) = {
+            let (occupied, fl) = {
                 let hd = holding.try_borrow_data()?;
                 let r = Ro(&hd);
-                (r.u8(o)?, r.u8(o + crate::layout::transit::FLAGS)?)
+                #[cfg(feature = "wide-world-experimental")]
+                let occupied = {
+                    use frontier_abi::prologue::TransitOccupancy;
+                    occupancy[i] != TransitOccupancy::Free
+                };
+                #[cfg(not(feature = "wide-world-experimental"))]
+                let occupied = crate::layout::transit::in_transit(r.u8(o)?);
+                (occupied, r.u8(o + crate::layout::transit::FLAGS)?)
             };
             let bonded = fl & crate::layout::transit::FLAG_BOND_ESCROWED != 0;
-            if !crate::layout::transit::in_transit(st) || !bonded {
+            if !occupied || !bonded {
                 continue;
             }
             {
@@ -1404,6 +1529,7 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let doctrine = *of_faction(captor_faction).ok_or(BAD_ACCOUNT)?;
         let eff = capture_effects(&h, doctrine);
         h.walls = eff.walls;
+        h.lent_workshops = eff.lent_workshops;
         if !credited {
             for s in h.stores.iter_mut() {
                 s.value = 0;
@@ -1597,6 +1723,12 @@ pub const fn home_ref(home_key: u64) -> u32 {
 /// 0xA6 RetireHost(entry): P (the victim) during the season, N after
 /// `end_bell` (K-27, §5.5).
 pub fn retire_host(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    retire_host_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`retire_host`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn retire_host_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::RetireHost, a, None)?;
     let x = ix2::RetireHost::decode(d)?;
     let now = prologue::now()?;
@@ -1632,29 +1764,64 @@ pub fn retire_host(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         )
     };
     expect_key(captured, &ctx.holding(cp as i32, cq_ as i32, csite))?;
-    // During the season only the victim (wallet or live session) retires.
+    // During the season only the victim (wallet or live session; for an NFT
+    // resident's Citizen, its current owner or the owner's current session)
+    // retires.
     if in_season {
-        let (tag, _, _) = citizen_v2(p, &ctx, sid, victim_c)?;
-        let (wallet, session, expiry) = {
-            let cd = victim_c.try_borrow_data()?;
-            let r = Ro(&cd);
-            (
-                r.arr::<32>(C::WALLET)?,
-                r.arr::<32>(C::SESSION)?,
-                r.i64(C::SESSION_EXPIRY)?,
-            )
-        };
-        let k = actor.key.to_bytes();
-        let by_session = k != wallet;
-        if by_session && (session == [0u8; 32] || k != session) {
-            return Err(FrontierError::Auth.into());
+        if let Some((proof, generation)) = super::resident::proof_of(auth) {
+            if !actor.is_signer {
+                return Err(FrontierError::Auth.into());
+            }
+            super::resident::check(
+                p,
+                actor,
+                victim_c,
+                proof,
+                generation,
+                now.ts,
+                true,
+                season_ai.key,
+                sid,
+            )?;
+            // The resident checks put the Citizen at its asset's canonical
+            // address; its tag is still the one derived from that address.
+            let tag = {
+                let cd = victim_c.try_borrow_data()?;
+                Ro(&cd).u64(C::CITIZEN_TAG)?
+            };
+            if tag != citizen_tag(victim_c.key.as_array()) {
+                return Err(BAD_ACCOUNT);
+            }
+            if tag != prev_owner {
+                return Err(cq(CqError::NotLead));
+            }
+        } else {
+            let (tag, _, _) = citizen_v2(p, &ctx, sid, victim_c)?;
+            let (wallet, session, expiry) = {
+                let cd = victim_c.try_borrow_data()?;
+                let r = Ro(&cd);
+                (
+                    r.arr::<32>(C::WALLET)?,
+                    r.arr::<32>(C::SESSION)?,
+                    r.i64(C::SESSION_EXPIRY)?,
+                )
+            };
+            let k = actor.key.to_bytes();
+            let by_session = k != wallet;
+            if by_session && (session == [0u8; 32] || k != session) {
+                return Err(FrontierError::Auth.into());
+            }
+            if by_session && now.ts >= expiry {
+                return Err(FrontierError::SessionExpired.into());
+            }
+            if tag != prev_owner {
+                return Err(cq(CqError::NotLead));
+            }
         }
-        if by_session && now.ts >= expiry {
-            return Err(FrontierError::SessionExpired.into());
-        }
-        if tag != prev_owner {
-            return Err(cq(CqError::NotLead));
-        }
+    } else if super::resident::proof_of(auth).is_some() {
+        // After the season RetireHost is anyone's (class N); the resident
+        // proof belongs to the in-season path only.
+        return Err(FrontierError::TooManyAccounts.into());
     }
     if flags & H::CAPTURE_FLAG_CAPTURED == 0 || prev_home == 0 {
         return Err(FrontierError::NotOwner.into());
@@ -1920,3 +2087,13 @@ mod tests {
         assert_eq!(siege::required_bells(150, 0), 39);
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "wide-world-experimental",
+    feature = "runtime-contract-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+#[path = "conquest_reverse_capture_tests.rs"]
+mod reverse_capture_tests;

@@ -30,6 +30,24 @@ test('the four states of a place, from the season record', () => {
   assert.equal(W.placeOf(w, -3, -4), 'outside', 'every direction');
 });
 
+test('a growing map (ExtendFrontier): the herald\'s rMax rises and the border moves out with it', () => {
+  // Before: the season ends at ring 6 and every ring is open.
+  const before = W.worldOf({ rings: rings(7), ringsOpened: 7, rMax: 6, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
+  assert.equal(W.placeOf(before, 6, 0), 'open');
+  assert.equal(W.placeOf(before, 7, 0), 'outside');
+  // After ExtendFrontier(7): ring 7 is inside the map, not yet opened; ring 8 still outside.
+  const raised = W.worldOf({ rings: rings(7), ringsOpened: 7, rMax: 7, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
+  assert.equal(W.placeOf(raised, 6, 0), 'open', 'the old land is unchanged');
+  assert.equal(W.placeOf(raised, 7, 0), 'unopened');
+  assert.equal(W.placeOf(raised, 8, 0), 'outside');
+  // Then OpenRing(7): pending until its seed and Provinces land.
+  const opening = W.worldOf({ rings: rings(7), ringsOpened: 8, rMax: 7, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
+  assert.equal(W.placeOf(opening, 7, 0), 'pending');
+  // The border is drawn from the current rMax: 12·rMax + 6 sides.
+  assert.equal(W.edgeSegments(6).length, 12 * 6 + 6);
+  assert.equal(W.edgeSegments(7).length, 12 * 7 + 6);
+});
+
 test('an older herald (no ringsOpened, no ringProvinces) answers as before', () => {
   const w = W.worldOf({ rings: rings(5), rMax: 16 });
   assert.equal(w.ringsOpened, 5);
@@ -73,23 +91,23 @@ test('the season border: the outward sides of ring rMax, 12·rMax + 6 of them, e
 });
 
 test('the words: each state says itself, in both languages', () => {
-  assert.equal(W.ringText('outside', 7), '第7輪（このシーズンの地図の外）');
+  assert.equal(W.ringText('outside', 7), '第7輪（いまの地図の外）');
   assert.equal(W.ringText('unopened', 6), '第6輪（まだひらいていません）');
   assert.equal(W.ringText('pending', 5), '第5輪（生まれるところです）');
   assert.equal(W.ringText('open', 4), '第4輪');
-  assert.equal(W.PLACE_NOTE.outside(), 'ここはこのシーズンの地図の外です');
+  assert.equal(W.PLACE_NOTE.outside(), 'ここはいまの地図の外です');
   assert.equal(W.PLACE_NOTE.unopened(), 'まだひらいていない土地です');
   setLang('en');
-  assert.equal(W.ringText('outside', 7), 'Ring 7 (outside this season’s map)');
+  assert.equal(W.ringText('outside', 7), 'Ring 7 (outside the map as it is now)');
   assert.equal(W.ringText('pending', 5), 'Ring 5 (being made)');
-  assert.equal(W.PLACE_NOTE.outside(), 'This is outside this season’s map');
+  assert.equal(W.PLACE_NOTE.outside(), 'This is outside the map as it is now');
   assert.equal(W.PLACE_NOTE.pending(), 'This land is being made (a moment, please)');
 });
 
 test('the inspector names the state of the ring under the selection', () => {
   const FS = { record: REC, world: W.worldOf(REC), selected: { p: 7, q: 0 }, mode: 'play' };
   assert.equal(inspect.inspectModel(FS, null).place, 'outside');
-  assert.match(String(inspect.render(FS, null)), /第7輪（このシーズンの地図の外）/);
+  assert.match(String(inspect.render(FS, null)), /第7輪（いまの地図の外）/);
   FS.selected = { p: 6, q: 0 };
   assert.match(String(inspect.render(FS, null)), /第6輪（まだひらいていません）/);
   FS.selected = { p: 5, q: 0 };

@@ -36,7 +36,6 @@ use solana_program::{
     program::{invoke, invoke_signed},
     pubkey::Pubkey,
     rent::Rent,
-    sysvar::Sysvar,
 };
 
 use frontier_abi::layout::player::holding as H;
@@ -81,7 +80,12 @@ impl SeasonSigner {
 
 /// The rent-exempt minimum of `space` bytes (Rent sysvar).
 pub fn rent(space: usize) -> R<u64> {
-    Ok(Rent::get()?.minimum_balance(space))
+    // Tests only: the host build cannot read the Rent sysvar (see
+    // `prologue::set_test_clock`); the default rent stands in.
+    #[cfg(test)]
+    return Ok(Rent::default().minimum_balance(space));
+    #[cfg(not(test))]
+    Ok(<Rent as solana_program::sysvar::Sysvar>::get()?.minimum_balance(space))
 }
 
 /// Absent: owned by the System program with no data (lamports ignored).
@@ -160,6 +164,47 @@ pub fn init_pda<'a>(
         &system_ix(vec![AccountMeta::new(*target.key, true)], d),
         core::slice::from_ref(target),
         &[&seeds],
+    )?;
+    Ok(())
+}
+
+/// Experimental non-Season PDA allocation for NFT records. The caller must
+/// authorize the operation and supply fixed, program-defined seeds. Like the
+/// existing allocator this permits prefunding and never uses CreateAccount.
+/// No current instruction calls this function.
+pub(crate) fn init_nft_pda<'a>(
+    payer: &AccountInfo<'a>,
+    target: &AccountInfo<'a>,
+    seeds: &[&[u8]],
+    space: usize,
+    program: &Pubkey,
+) -> R<()> {
+    if !payer.is_signer || !payer.is_writable || !target.is_writable || !is_absent(target) {
+        return Err(BAD_ACCOUNT);
+    }
+    let (expected, bump) = Pubkey::try_find_program_address(seeds, program).ok_or(BAD_ACCOUNT)?;
+    if target.key != &expected {
+        return Err(FrontierError::BadAddress.into());
+    }
+    top_up(payer, target, rent(space)?)?;
+    let bump_seed = [bump];
+    let mut signer = seeds.to_vec();
+    signer.push(&bump_seed);
+    let mut d = Vec::with_capacity(12);
+    d.extend_from_slice(&sys_ix::ALLOCATE.to_le_bytes());
+    d.extend_from_slice(&(space as u64).to_le_bytes());
+    invoke_signed(
+        &system_ix(vec![AccountMeta::new(*target.key, true)], d),
+        core::slice::from_ref(target),
+        &[&signer],
+    )?;
+    let mut d = Vec::with_capacity(36);
+    d.extend_from_slice(&sys_ix::ASSIGN.to_le_bytes());
+    d.extend_from_slice(program.as_ref());
+    invoke_signed(
+        &system_ix(vec![AccountMeta::new(*target.key, true)], d),
+        core::slice::from_ref(target),
+        &[&signer],
     )?;
     Ok(())
 }

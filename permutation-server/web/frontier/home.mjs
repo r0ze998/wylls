@@ -1,7 +1,7 @@
 // First-home planning. Only decoded open Provinces supply candidates; the
 // program rechecks occupancy and ownership when PlaceHome lands.
 import { candidateProvinces, freeSitesOf, COHORT_BELLS } from './fland.mjs';
-import { ringOf, wedgeOf } from './fgeo.mjs';
+import { ringOf, homeNation } from './fgeo.mjs';
 import { hash32 } from './fjoin.mjs';
 
 export const HOME_GRANTED = 32;
@@ -24,21 +24,44 @@ export function saveHome(storage, key, patch) {
   storage.set(key, JSON.stringify(v));
   return loadHome(storage, key);
 }
+/** The season's placement for `homeNation`, or undefined for explicit legacy placement. Missing dispersed evidence never falls back. */
+export function seasonPlace(season) {
+  const cq = season?.conquestParams ?? season ?? {};
+  const placement = Number(cq.placement ?? 0), seed = season?.genesisSeed ?? cq.genesisSeed;
+  if (placement === 0) return undefined;
+  return { placement, heartlandMaxRing: Number(cq.heartlandMaxRing ?? 3), genesisSeed: seed };
+}
 export const grantId = h => `${h.p},${h.q},${h.site},${h.gen}`;
 
+/**
+ * The rings a first village may be placed in, as a count like `ringsOpen` (rings 0 .. n−1): the season's open
+ * rings, and on a v2 Season (a conquest block with `heartlandMaxRing`) no further than the heartland, since PlaceHome
+ * refuses a ring above `heartland_max_ring` (ReservedSite) whether or not it is open. A map that has grown past the
+ * heartland (OpenRing, ExtendFrontier) opens land for marches and outposts, not for first homes: every reader of the
+ * home candidates (the planner, the tap on a tile, the nation choice's count, the wait view's site marks) takes this
+ * count, so none offers a site the program would refuse. A season without the block (M1 tickets) keeps its open rings.
+ */
+export function homeRingsOpen(season, ringsOpen) {
+  const open = Number.isInteger(ringsOpen) ? Math.max(0, ringsOpen) : 0;
+  const hmr = Number(season?.conquestParams?.heartlandMaxRing ?? season?.heartlandMaxRing);
+  return Number.isInteger(hmr) && hmr >= 0 ? Math.min(open, hmr + 1) : open;
+}
+
 /** Unsettled legacy tickets retain their claim on a whole Province. */
-export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = Infinity } = {}) {
+/** `place` = {placement, heartlandMaxRing, genesisSeed} (fgeo `homeNation`); absent: the wedge rule. */
+export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = Infinity, place = undefined } = {}) {
   if (!province || ringOf(province.p, province.q) < 2 || ringOf(province.p, province.q) >= ringsOpen) return [];
-  const f = wedgeOf(province.p, province.q);
+  const f = homeNation(province.p, province.q, place);
   if (f === null || (faction !== null && f !== faction)) return [];
   if ((province.ticketCohorts ?? []).some(c => c.filed > c.settled && nowBell < c.bell + COHORT_BELLS)) return [];
   return freeSitesOf(province).map(s => ({ ...s, faction: f, gen: province.siteMirror[s.site].gen ?? 0 }));
 }
 
 /** At most 24 reads, different nations before joining, different places after. */
-export async function planHomes({ overviews, read, faction = null, nowBell = 0, ringsOpen = Infinity, seed = '', rotation = 0, max = 3 }) {
+export async function planHomes({ overviews, read, faction = null, nowBell = 0, ringsOpen = Infinity, seed = '', rotation = 0, max = 3, place = undefined }) {
+  if (place && (Number(place.placement) !== 1 || !place.genesisSeed || place.genesisSeed.length !== 32)) return { candidates: [], error: 'Unavailable', reads: 0 };
   const factions = faction === null ? Array.from({ length: 6 }, (_, i) => (i + rotation) % 6) : [faction];
-  const lists = factions.map(f => candidateProvinces(overviews, f).sort((a, b) => a.ring - b.ring || hash32(`${seed}|${a.p},${a.q}`) - hash32(`${seed}|${b.p},${b.q}`)));
+  const lists = factions.map(f => candidateProvinces(overviews, f, place).sort((a, b) => a.ring - b.ring || hash32(`${seed}|${a.p},${a.q}`) - hash32(`${seed}|${b.p},${b.q}`)));
   const candidates = [];
   let reads = 0, failures = 0;
   for (let round = 0; reads < 24 && lists.some(l => l[round]); round++) {
@@ -48,7 +71,7 @@ export async function planHomes({ overviews, read, faction = null, nowBell = 0, 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       if (r.status !== 'fulfilled' || !r.value) { failures++; continue; }
-      const sites = homeSites(r.value, { faction, nowBell, ringsOpen }).sort((a, b) => hash32(`${seed}|${a.p},${a.q},${a.site}`) - hash32(`${seed}|${b.p},${b.q},${b.site}`));
+      const sites = homeSites(r.value, { faction, nowBell, ringsOpen, place }).sort((a, b) => hash32(`${seed}|${a.p},${a.q},${a.site}`) - hash32(`${seed}|${b.p},${b.q},${b.site}`));
       if (sites.length) candidates.push(sites[0]);
       if (candidates.length >= max) return { candidates, error: null, reads };
     }

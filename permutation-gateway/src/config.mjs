@@ -5,7 +5,7 @@
 // Keys live under .local/keys (git-ignored). They are disposable
 // localnet/devnet keys; the gateway never creates or funds mainnet keys.
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_GATEWAY, DEFAULT_SERVER } from '../client/src/http.mjs';
@@ -256,11 +256,22 @@ export function createStateStore(file) {
     /** Write `state` (and make it the live state). */
     save(state = this.state) {
       if (!state) throw new Error('no season state to save');
-      this.state = state;
       mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = `${file}.${process.pid}.tmp`;
-      writeFileSync(tmp, JSON.stringify(state, null, 2));
-      renameSync(tmp, file);
+      const tmp = `${file}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+      try {
+        const fd = openSync(tmp, 'wx', 0o600);
+        try {
+          writeFileSync(fd, JSON.stringify(state, null, 2));
+          fsyncSync(fd);
+        } finally { closeSync(fd); }
+        renameSync(tmp, file);
+        const dir = openSync(path.dirname(file), 'r');
+        try { fsyncSync(dir); } finally { closeSync(dir); }
+      } catch (e) {
+        try { unlinkSync(tmp); } catch { /* renamed or absent */ }
+        throw e;
+      }
+      this.state = state;
       return state;
     },
   };

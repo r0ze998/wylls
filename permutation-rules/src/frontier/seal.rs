@@ -278,6 +278,47 @@ pub fn body_xor(k: &[u8; K_LEN], pt: &[u8; PLAIN_LEN]) -> [u8; PLAIN_LEN] {
     out
 }
 
+/// The longest body [`keystream_xor`] covers: the one-byte block counter
+/// of the deployed keystream gives 256 blocks of 32 bytes.
+pub const MAX_KEYSTREAM_LEN: usize = 256 * 32;
+
+/// A body longer than [`MAX_KEYSTREAM_LEN`]: the counter would wrap and a
+/// keystream block would repeat. Refused, nothing is written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeystreamTooLong {
+    pub len: usize,
+}
+
+/// The keystream of `k` over a body of up to [`MAX_KEYSTREAM_LEN`] bytes:
+/// block `c` is `sha256("PS-KS" ‖ k ‖ [c])`, `c = 0, 1, …, 255`. Over 37
+/// bytes it is exactly [`body_xor`]'s two blocks, so the legacy body is
+/// unchanged; a wider plaintext (`frontier-abi`'s experimental wide seal)
+/// continues the counter. An involution. A longer body is refused
+/// untouched (no counter wrap, no repeated block).
+pub fn keystream_xor(k: &[u8; K_LEN], data: &mut [u8]) -> Result<(), KeystreamTooLong> {
+    if data.len() > MAX_KEYSTREAM_LEN {
+        return Err(KeystreamTooLong { len: data.len() });
+    }
+    let mut i = 0;
+    let mut c = 0u8;
+    while i < data.len() {
+        let blk = sha256(&[DOMAIN_KS, k, &[c]]);
+        let n = (data.len() - i).min(32);
+        for j in 0..n {
+            data[i + j] ^= blk[j];
+        }
+        i += 32;
+        c = c.wrapping_add(1);
+    }
+    Ok(())
+}
+
+/// `sha256(domain ‖ plain ‖ salt)` over a plaintext of any length: the
+/// legacy [`commit`] is this with [`DOMAIN_MARCH`] and 37 bytes.
+pub fn commit_slice(domain: &[u8], plain: &[u8], salt: &[u8; 32]) -> [u8; 32] {
+    sha256(&[domain, plain, salt])
+}
+
 /// The body of a seal.
 pub fn seal_body(seal: &[u8; SEAL_LEN]) -> [u8; PLAIN_LEN] {
     let mut b = [0u8; PLAIN_LEN];
@@ -392,5 +433,59 @@ mod tests {
         let c = commit(&pt, &salt_of(&k));
         assert_eq!(open_body(&k, &seal, &c), Some(pt));
         assert_eq!(open_body(&[0u8; 16], &seal, &c), None);
+    }
+
+    /// The length-generic keystream and commitment are the legacy ones
+    /// over 37 bytes, byte for byte, and continue past them.
+    #[test]
+    fn generic_keystream_and_commit_are_the_legacy_ones_over_37_bytes() {
+        let k = [0x42u8; 16];
+        let pt = pack(&sample());
+        let mut g = pt;
+        assert_eq!(keystream_xor(&k, &mut g), Ok(()));
+        assert_eq!(g, body_xor(&k, &pt));
+        assert_eq!(keystream_xor(&k, &mut g), Ok(()));
+        assert_eq!(g, pt, "an involution");
+        let salt = salt_of(&k);
+        assert_eq!(commit_slice(DOMAIN_MARCH, &pt, &salt), commit(&pt, &salt));
+        assert_ne!(
+            commit_slice(b"PS-FRONTIER-MARCH-WIDE-v1", &pt, &salt),
+            commit(&pt, &salt),
+            "another domain is another commitment"
+        );
+        // a wider body: the first 37 bytes see the same two blocks, the
+        // rest the continued counter
+        let mut wide = [0x5au8; 136];
+        let before = wide;
+        assert_eq!(keystream_xor(&k, &mut wide), Ok(()));
+        let mut head = [0x5au8; 37];
+        assert_eq!(keystream_xor(&k, &mut head), Ok(()));
+        assert_eq!(&wide[..37], &head[..]);
+        assert_ne!(&wide[37..], &before[37..]);
+        let blk = sha256(&[DOMAIN_KS, &k, &[4u8]]);
+        assert_eq!(wide[128], 0x5a ^ blk[0], "block 4 covers bytes 128..136");
+        assert_eq!(keystream_xor(&k, &mut wide), Ok(()));
+        assert_eq!(wide, before);
+    }
+
+    /// The counter never wraps: the longest body is 256 blocks, its last
+    /// block is `c = 255`, and one byte more is refused untouched.
+    #[test]
+    fn keystream_covers_8192_bytes_and_refuses_8193() {
+        let k = [0x42u8; 16];
+        assert_eq!(MAX_KEYSTREAM_LEN, 8_192);
+        let mut full = alloc::vec![0u8; MAX_KEYSTREAM_LEN];
+        assert_eq!(keystream_xor(&k, &mut full), Ok(()));
+        let last = sha256(&[DOMAIN_KS, &k, &[255u8]]);
+        assert_eq!(&full[8_160..], &last[..], "block 255 is the last");
+        let first = sha256(&[DOMAIN_KS, &k, &[0u8]]);
+        assert_eq!(&full[..32], &first[..]);
+        assert_ne!(&full[..32], &full[8_160..], "no repeated block");
+        let mut over = alloc::vec![0x11u8; MAX_KEYSTREAM_LEN + 1];
+        assert_eq!(
+            keystream_xor(&k, &mut over),
+            Err(KeystreamTooLong { len: 8_193 })
+        );
+        assert!(over.iter().all(|b| *b == 0x11), "refused untouched");
     }
 }

@@ -1,0 +1,220 @@
+// Writes scripts/ci/node-key-tests.txt: the Node test files that generate,
+// derive or sign with a key, by a static scan that follows relative imports
+// into the package's own test helpers (not into src/: what a test reaches in
+// src is caught at run time by no-keys-guard.mjs, and such files are added
+// below `# seen by the guard` by hand). Read-only except the list.
+//   node scripts/ci/scan-node-key-tests.mjs [--check]   (--check: fail if the list is not current)
+//   node scripts/ci/scan-node-key-tests.mjs --covers <repo-relative file>...
+//     (exit 4 naming every file the scan does not examine: node-keyfree.sh runs only examined files)
+//   WS04_SCAN_ROOT=<dir>: scan another tree (the scan's own fixture test); the list is then neither read nor written there
+//     unless --check or the default mode is given.
+//
+// Two kinds of package are scanned (2026-11-08, ④: the list once missed workstream 06's roles.test.mjs, which calls
+// generateKey(), because only the two SETS packages were scanned):
+//   - SETS: as before, unchanged.
+//   - every other git-tracked `*.test.mjs` (workstreams/*, the other permutation-* packages): helpers are the files a
+//     test imports relatively from inside its own test directory (the nearest ancestor named test or tests, else its
+//     own directory), never src/.
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = process.env.WS04_SCAN_ROOT ? resolve(process.env.WS04_SCAN_ROOT) : resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+export const PAT = /Keypair\.generate|Keypair\.fromSeed|Keypair\.fromSecretKey|generateKeyPair|generateKey\(|createPrivateKey|subtle\.(sign|generateKey|importKey)|signTransaction|signMessage|\.sign\(|partialSign|ed25519\.|secp256k1\.|nacl|keygen|secretKey|privateKey/;
+const SETS = [
+  ['permutation-gateway', ['test', 'screens'], f => /\.test\.mjs$/.test(f) || f === 'screens/logic.screen.mjs', ['test']],
+  ['permutation-state-solana-receipt-spike', ['client', 'server'], f => /\.test\.mjs$/.test(f), ['client', 'server']],
+];
+// `import … from './x'`, `export … from './x'`, `import('./x')` and the bare `import './x'` (side effects only).
+const imports = src => [...src.matchAll(/(?:import|export)[^'"]*?from\s*['"](\.[^'"]+)['"]|import\(\s*['"](\.[^'"]+)['"]\s*\)|(?:^|[;\s])import\s*['"](\.[^'"]+)['"]/gm)].map(m => m[1] ?? m[2] ?? m[3]);
+
+function keyed(file, helperDirs, pkg, seen = new Set()) {
+  if (seen.has(file)) return null;
+  seen.add(file);
+  const src = readFileSync(file, 'utf8');
+  if (PAT.test(src)) return file;
+  for (const spec of imports(src)) {
+    const t = resolve(dirname(file), spec);
+    if (!existsSync(t)) continue;
+    const rel = relative(pkg, t);
+    if (!helperDirs.some(d => rel.startsWith(d + '/'))) continue;
+    const hit = keyed(t, helperDirs, pkg, seen);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** The directory a generic test's helpers must lie in: its nearest ancestor named test/tests, else its own directory. */
+function testRoot(rel) {
+  const parts = rel.split('/').slice(0, -1);
+  for (let i = 0; i < parts.length; i++) if (parts[i] === 'test' || parts[i] === 'tests') return parts.slice(0, i + 1).join('/');
+  return parts.join('/');
+}
+function keyedIn(file, base, seen = new Set()) {
+  if (seen.has(file)) return null;
+  seen.add(file);
+  const src = readFileSync(file, 'utf8');
+  if (PAT.test(src)) return file;
+  for (const spec of imports(src)) {
+    const t = resolve(dirname(file), spec);
+    if (!existsSync(t)) continue;
+    const rel = relative(base, t);
+    if (rel.startsWith('..') || rel.split(sep).includes('src') || rel.split(sep).includes('node_modules')) continue;
+    const hit = keyedIn(t, base, seen);
+    if (hit) return hit;
+  }
+  return null;
+}
+const inSets = rel => SETS.some(([dir]) => rel.startsWith(dir + '/'));
+const tracked = () => {
+  try { return execFileSync('git', ['ls-files', '-z', '--', '*.test.mjs'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean); }
+  catch { return walk(root, ''); }
+};
+function walk(dir, pre) {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name === '.git') continue;
+    const rel = pre ? `${pre}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...walk(join(dir, e.name), rel));
+    else if (/\.test\.mjs$/.test(e.name)) out.push(rel);
+  }
+  return out;
+}
+
+const old = existsSync(join(root, 'scripts/ci/node-key-tests.txt')) ? readFileSync(join(root, 'scripts/ci/node-key-tests.txt'), 'utf8') : '';
+const seenByGuard = old.includes('# seen by the guard') ? old.slice(old.indexOf('# seen by the guard')).split('\n').slice(1).filter(l => l && !l.startsWith('#')) : [];
+const out = [];
+const examined = new Set();
+for (const [dir, roots, isTest, helperDirs] of SETS) {
+  const pkg = join(root, dir);
+  for (const r of roots) {
+    const d = join(pkg, r);
+    if (!existsSync(d)) continue;
+    for (const f of readdirSync(d).sort()) {
+      const rel = `${r}/${f}`;
+      if (!isTest(rel)) continue;
+      examined.add(`${dir}/${rel}`);
+      const hit = keyed(join(pkg, rel), helperDirs, pkg);
+      if (hit) out.push(`${dir}/${rel}`);
+    }
+  }
+}
+for (const rel of tracked().filter(f => !inSets(f)).sort()) {
+  examined.add(rel);
+  if (keyedIn(join(root, rel), join(root, testRoot(rel)))) out.push(rel);
+}
+// Through src/ (2026-11-08, ④): every relative import, src/ and other packages included (not node_modules). A test
+// whose import closure reaches a file that names a key API is a CONSERVATIVE exclusion: the closure names one, a call is
+// not proven (definitions and mentions count too). A test shown by a static call-path review not to call it stays
+// runnable only when named in scripts/ci/node-key-reviewed.txt with its reason (`<path>  # <why>`); a direct or helper
+// hit above can never be reviewed away.
+// Code a test runs that the literal-import walk cannot follow: a child process (node:child_process), a worker
+// (node:worker_threads), or an import() whose argument is not a string literal (⑯'s finding, 2026-11-08). A test whose
+// closure does any of these is UNFOLLOWED: a conservative exclusion until a review names it with its reason.
+// A new Function body can also execute source read outside the import closure; its review must pin that source in targets=.
+const UNFOLLOWED = /\bnew\s+Function\s*\(|['"](?:node:)?(?:child_process|worker_threads)['"]|\bimport\(\s*(?!['"`]\.?[^'"`]*['"`]\s*\))[^)\s]/;
+function closureUnfollowed(file, seen = new Set()) {
+  if (seen.has(file)) return null;
+  seen.add(file);
+  const src = readFileSync(file, 'utf8');
+  if (UNFOLLOWED.test(src)) return file;
+  for (const spec of imports(src)) {
+    const t = resolve(dirname(file), spec);
+    if (!existsSync(t) || t.split(sep).includes('node_modules')) continue;
+    const hit = closureUnfollowed(t, seen);
+    if (hit) return hit;
+  }
+  return null;
+}
+function closureHit(file, seen = new Set()) {
+  if (seen.has(file)) return null;
+  seen.add(file);
+  const src = readFileSync(file, 'utf8');
+  if (PAT.test(src)) return file;
+  for (const spec of imports(src)) {
+    const t = resolve(dirname(file), spec);
+    if (!existsSync(t) || t.split(sep).includes('node_modules')) continue;
+    const hit = closureHit(t, seen);
+    if (hit) return hit;
+  }
+  return null;
+}
+// A review is pinned to what it read (⑯'s finding, 2026-11-08: a path and a reason alone go stale when a dependency
+// changes): `closure=` is sha256 over the sorted "path<TAB>sha256(bytes)" of every file in the literal-import closure of
+// the test and of each `targets=` file (what the review read behind a computed import or a spawn). Any change there,
+// a comment included, fails the scan (exit 5) until the file is reviewed again and the new digest written.
+function closureFiles(file, seen = new Set()) {
+  if (seen.has(file) || !existsSync(file)) return seen;
+  seen.add(file);
+  for (const spec of imports(readFileSync(file, 'utf8'))) {
+    const t = resolve(dirname(file), spec);
+    if (t.split(sep).includes('node_modules')) continue;
+    closureFiles(t, seen);
+  }
+  return seen;
+}
+export function reviewDigest(rel, targets = []) {
+  const all = new Set();
+  for (const f of [rel, ...targets]) closureFiles(join(root, f), all);
+  const rows = [...all].map(f => `${relative(root, f)}\t${createHash('sha256').update(readFileSync(f)).digest('hex')}`).sort();
+  return createHash('sha256').update(rows.join('\n')).digest('hex');
+}
+if (process.argv.includes('--digest')) {
+  const [rel, ...targets] = process.argv.slice(process.argv.indexOf('--digest') + 1);
+  console.log(`closure=${reviewDigest(rel, targets)}${targets.length ? `  targets=${targets.join(',')}` : ''}`);
+  process.exit(0);
+}
+const reviewedPath = join(root, 'scripts/ci/node-key-reviewed.txt');
+const reviewed = new Map();
+const reviewBad = [];
+if (existsSync(reviewedPath)) {
+  for (const l of readFileSync(reviewedPath, 'utf8').split('\n')) {
+    if (!l.trim() || l.startsWith('#')) continue;
+    const m = /^(\S+)\s+closure=([0-9a-f]{64})(?:\s+targets=(\S+))?\s+#\s*(\S.*)$/.exec(l);
+    if (!m) { reviewBad.push(`needs '<path>  closure=<sha256>  [targets=a,b]  # why': ${l}`); continue; }
+    const targets = m[3] ? m[3].split(',') : [];
+    const missingT = targets.filter(t => !existsSync(join(root, t)));
+    if (missingT.length) { reviewBad.push(`target not found (${missingT.join(', ')}): ${m[1]}`); continue; }
+    const now = existsSync(join(root, m[1])) ? reviewDigest(m[1], targets) : null;
+    if (now !== m[2]) { reviewBad.push(`stale review (what it read changed; review again): ${m[1]}  closure=${now}`); continue; }
+    reviewed.set(m[1], m[4]);
+  }
+}
+const viaSrc = [], unfollowed = [];
+for (const f of [...examined].sort()) {
+  if (out.includes(f)) { if (reviewed.has(f)) reviewBad.push(`a direct or helper hit cannot be reviewed away: ${f}`); continue; }
+  const hit = closureHit(join(root, f));
+  const loose = hit ? null : closureUnfollowed(join(root, f));
+  if (!hit && !loose) { if (reviewed.has(f)) reviewBad.push(`reviewed but its closure names no key API and follows every import (remove it): ${f}`); continue; }
+  if (reviewed.has(f)) continue;
+  (hit ? viaSrc : unfollowed).push(f);
+}
+for (const f of reviewed.keys()) if (!examined.has(f)) reviewBad.push(`reviewed but not examined: ${f}`);
+if (reviewBad.length) { console.error(`scripts/ci/node-key-reviewed.txt:\n${reviewBad.map(x => `  ${x}`).join('\n')}`); process.exit(5); }
+if (process.argv.includes('--covers')) {
+  const asked = process.argv.slice(process.argv.indexOf('--covers') + 1);
+  const missing = asked.filter(f => !examined.has(f));
+  if (missing.length) { console.error(`not examined by scripts/ci/scan-node-key-tests.mjs (not run):\n${missing.map(f => `  ${f}`).join('\n')}`); process.exit(4); }
+  process.exit(0);
+}
+const guardOnly = seenByGuard.filter(l => !out.includes(l) && !viaSrc.includes(l) && !unfollowed.includes(l));
+const body = [
+  '# Node test files that generate, derive or sign with a key: never run by the key-free CI jobs,',
+  '# only by the manual key-tests job. Written by scripts/ci/scan-node-key-tests.mjs (the file itself',
+  '# or a test helper it imports names a key API).',
+  ...out,
+  '# by the scan through src/ (conservative: its import closure reaches a file that names a key API; a call is not',
+  '# proven. A file a static call-path review clears goes in scripts/ci/node-key-reviewed.txt, with its reason)',
+  ...viaSrc,
+  '# unfollowed (conservative: its closure starts a child process or a worker, or imports a computed path, which the',
+  '# scan cannot follow; listed until a review names it in scripts/ci/node-key-reviewed.txt with its reason)',
+  ...unfollowed,
+  '# seen by the guard (they reach a key API in src/ at run time; added by hand)',
+  ...guardOnly,
+].join('\n') + '\n';
+if (process.argv.includes('--check')) {
+  if (body !== old) { console.error('scripts/ci/node-key-tests.txt is not current: run node scripts/ci/scan-node-key-tests.mjs'); process.exit(3); }
+} else writeFileSync(join(root, 'scripts/ci/node-key-tests.txt'), body);
+console.log(`${out.length} by the scan, ${viaSrc.length} through src/ (conservative), ${unfollowed.length} unfollowed (conservative), ${reviewed.size} reviewed and runnable, ${guardOnly.length} seen by the guard`);

@@ -1,0 +1,60 @@
+--- a/frontier-node/crates/keeper/tests/play.rs
++++ b/frontier-node/crates/keeper/tests/play.rs
+@@ -70,6 +70,8 @@
+ }
+ 
+ thread_local! {
++    /// Workstream 04: the keepers' `w_max_in_flight` for the next scenario.
++    static W_CAP: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+     /// Workstream 04: owner material in Shared right after the POSTs.
+     static API_QUEUED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+     /// Workstream 04: `(host, HTTP status)` of each owner-material POST.
+@@ -397,6 +399,7 @@
+     }
+     let mut cfg = keeper_cfg(w, ben.pubkey());
+     cfg.peace_start = peace;
++    cfg.w_max_in_flight = W_CAP.with(|c| c.get());
+     let mut k = Keeper::new(
+         cfg,
+         Watch { ip: w.ip.clone(), program: w.program },
+@@ -2189,3 +2192,40 @@
+     assert!(!codes.is_empty() && codes.iter().all(|c| c.1 != 202), "{codes:?}");
+     assert_eq!(queued, 0, "nothing queued in memory");
+ }
++
++/// Workstream 04 (AlreadyDone waste, opt-in `w_max_in_flight`): the
++/// retries case with at most 2 Reveal versions out per march. Every march
++/// that the uncapped run reveals is still revealed Ok and settled; the
++/// versions that land `AlreadyDone` drop to at most 1 per march. Secrecy
++/// is not judged here (the base still sends early; workstream 18's fix).
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_retries_with_in_flight_cap() {
++    let o = || Opts { hold_slots: Some((1_900, 10)), peace_start: Some(0.25), ..Default::default() };
++    W_CAP.with(|c| c.set(0));
++    let Some(r0) = scenario(o()).await else {
++        return;
++    };
++    let want = revealed_hosts(&r0);
++    let _ = audit("cap off", &r0);
++    W_CAP.with(|c| c.set(2));
++    let Some(r) = scenario(o()).await else {
++        return;
++    };
++    W_CAP.with(|c| c.set(0));
++    let fails = audit("cap 2", &r);
++    same_marches("cap 2", &want, &r);
++    let c = r.w.ip.lock();
++    let all = OUT.with(|o| o.borrow().clone());
++    for m in &r.marches {
++        let errs = all
++            .iter()
++            .filter(|x| x.kind == "send" && x.data.windows(32).any(|w| w == m.ct_hash))
++            .filter_map(|x| x.sig.and_then(|s| c.transaction(&s)))
++            .filter(|l| l.err.is_some())
++            .count();
++        assert!(errs <= 1, "host {}: {errs} versions landed with an error under the cap", m.host);
++    }
++    drop(c);
++    let only_early: Vec<_> = fails.iter().filter(|f| !f.contains("after publication")).collect();
++    assert!(only_early.is_empty(), "{only_early:?}");
++}

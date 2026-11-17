@@ -1,0 +1,181 @@
+# WS04: held observations read from a findex store directory (2026-11-17)
+
+**Branch:** `claude/ws04-store-dir-observation-20261117`, an integration branch from candidate d16048aa. It merges:
+- `codex/ws04-read-observation-20261116` @ 7baa4d93 (4's reader);
+- `claude/findex-observed-source-20261117` @ a99b961f (findex's `observed` epochs).
+
+The two touch no common file; static checks found no secrets in either. The candidate, the canon, and both source branches are not changed.
+
+**Written only:** no compile, test, syntax check, import, RPC, launch or world run.
+
+## What was added
+
+**`observation::read_store_observations(store_dir, after, limit)`:** the same `ws04-observation/0` page as `read_observations`, read from a findex store directory (`index.sqlite` and `archive/manifest.json`, findex `lib.rs` `Findex`), with diagnostics.
+
+1. **Symbolic links** are refused at the directory, `index.sqlite`, `archive/` and the manifest. Checked before opening, and only as the last part of each path.
+2. **Reads, in this order:**
+   1. the manifest, as a plain file (≤ 16 MiB);
+   2. the index page, in the one read-only transaction `read_observations` already uses. That transaction now also reads `MAX(tx.seq)` (`read_observations_with_last`; the public `read_observations` is unchanged);
+   3. the manifest again.
+
+   No `Findex::open` or `Archive::open`: those write and recover. The reader makes no write or recovery of its own. **No file change is not guaranteed:** findex keeps the index in WAL mode (`index.rs`), and a read-only SQLite connection may still create its `-shm` side file.
+3. **The manifest is validated by findex's own rules for `observed`** (a99b961f): version 1; `next_seq ≥ 1`; epochs strictly increasing, each `1 ≤ from_seq < next_seq`; `source` a string; `program_configured` / `commitment_requested` a string or null. Anything else refuses the whole read. `genesis_hash`, `endpoint` and other keys are not read.
+4. **Per row, `archive_epoch: {epoch, why}`:**
+   - `covered_by_epoch`: the epoch whose range covers the row's `archive_sequence`;
+   - `before_first_epoch`: `epoch: null`;
+   - `past_manifest_end`: `epoch: null`; the index row is at or past the durable manifest's `next_seq` (findex commits the index at once, the archive up to a second later);
+   - `manifest_changed_during_read`: `epoch: null` for every row.
+5. **The page's `store`:**
+   - `same_directory` (the one directory the caller named);
+   - `index_last_seq`;
+   - `manifest_next_seq_before` / `_after`;
+   - `manifest_stable`;
+   - `generation`: `index_matches_manifest`, `index_ahead_of_manifest`, `index_behind_manifest` or `manifest_changed_during_read`;
+   - `limits`.
+6. **Holds:**
+   - every hold is kept: the four per row, and the three per page;
+   - two are added to the page: `store_pairing_is_not_a_snapshot_or_proof` and `archive_epoch_is_producer_setting_not_evidence`;
+   - `basis` stays `unproven`, and `world` / `finality` / `complete` stay null.
+
+## What it is not
+
+- **Not proof that the index was built from this archive.** One directory named by a caller is not that proof, even though findex keeps `index.sqlite`'s `tx.seq` equal to the archive's sequence when it opens the store itself.
+- **Not one snapshot:** the two files are read one after the other.
+- **Not evidence:** an epoch is the producer's kind and settings (the program as configured, the commitment as requested; no endpoint, no genesis hash). It is not world, finality, record identity or authenticity evidence, and it lifts no hold.
+
+## Compatibility
+
+- **The plain reader's page is byte-for-byte as before:** `store` and `archive_epoch` are skipped when absent, and its three page holds are unchanged.
+- **12's held report** (`heldFromWs04Observation`, on `claude/ws12-13-live-observation-20261116`) reads named fields only, keeps 4's reasons verbatim and requires the four per-row holds. The extra page holds and fields are ignored, not rejected.
+
+**Tests (written, not run):** `tests/store_observation.rs`.
+- epochs per row, with all holds kept;
+- `past_manifest_end` and `index_ahead_of_manifest`;
+- no epochs → `before_first_epoch`;
+- a malformed manifest or epoch list, a missing manifest, or another version refuses the read;
+- symbolic links refused, both a linked manifest and a linked store directory;
+- the reader makes no write to either file (size, modification time and bytes); SQLite's side files are not covered;
+- the plain reader's page unchanged.
+
+**Not covered:** the manifest changing between its two reads, which would need a concurrent writer.
+
+**Out of scope:** 13's branch, bcd29aac, a CLI or runtime wiring (the reader is still not on runexec's command line), and any admission rule.
+
+## Reverse review (2026-11-17, source only)
+
+**Fixed** (evidence: e83ea04e's own source):
+1. **The write claim.** The doc said "nothing is written", while findex opens the index with `PRAGMA journal_mode=WAL` (`findex/src/index.rs:174`), and a read-only SQLite connection may create the `-shm` side file.
+   - Now: no application write or recovery, and **no claim** that no file changes. No `immutable=1` or other way around WAL is used: a reader that ignores the WAL could read a stale index.
+2. **The plain reader had gained a query.** `read_observations(db_path)` ran `MAX(tx.seq)`, a new query and a new way to fail.
+   - Now only the store reader asks for it (`want_last`). The plain reader's queries, failures and page are as in 7baa4d93.
+3. **The manifest parser was looser than findex's.** It did not require `segment_bytes` or `segments` (each with `name`, `first_seq`, `last_seq`, `records`, `bytes`), nor check a `codec` key.
+   - Now a manifest findex's `Manifest::from_json` (or its open's codec check) refuses is refused here too.
+   - The `observed` rules were already the same: from_seq strictly increasing and in range, `source` a string, the two settings a string or null.
+4. **Rows did not say what the page says.** Each row's `archive_epoch` now carries `pairing: "same_directory_not_proof_of_same_archive"`.
+5. **A path of another kind could block forever.** Only symbolic links were refused: a FIFO (or a device) at the manifest or index path could block an open with no end.
+   - Now the directory and `archive/` must be directories, and the index and manifest regular files (not followed), checked before each open, including before the second manifest read.
+
+**Checked, no change needed:**
+- **Sequence 0 and negative values:** a row with sequence 0 or a negative integer is refused by the existing checks (`seq == 0`, `u64::try_from`); a negative `MAX` is refused the same way.
+- **The manifest changing during the read:** detected by comparing the bytes of the two reads; then every row's epoch is `null`.
+- **The index ahead of the manifest:** those rows are `past_manifest_end`.
+- **The index behind the manifest:** each row is still within the manifest.
+- **Old consumers:** 12's `heldFromWs04Observation` reads named fields only. `store`, `archive_epoch` and the extra page holds are ignored, not refused, and the four per-row holds it requires are unchanged. No Rust code outside `observation.rs` builds an `Observation` or an `ObservationPage`.
+
+**Tests updated (written, not run):**
+- per-row `pairing`;
+- five manifests findex refuses;
+- a directory in place of the manifest or index, and a file as the store;
+- the plain reader's call (pinned as text);
+- the no-write test, now limited to the reader's own writes.
+
+**Not verified:** no compile, no run, no real store. Nothing is connected: no CLI or runtime calls `read_store_observations`.
+
+## The command line: `runexec observe store|db` (2026-11-17, written, not run)
+
+- **Dispatched first** in `main`: before `run`, `act` and the old `--db` commands (pinned as text).
+- **`observe()` names no run-store or network code:** no `Store::`, `open_read_only`, gateway, intake, executor, sim, acts, HTTP or RPC (pinned as text).
+- **Two explicit modes:** `store --store <dir>` and `db --db <index.sqlite>`. There is no automatic choice, and the other mode's option is refused as unknown.
+- **Options** are checked with the existing `run_opts`:
+  - unknown, repeated and valueless options are refused;
+  - so is a value that is another option (`--…`);
+  - `--after` and `--limit` must be plain decimal digits: no sign or space, since `u64::from_str` alone accepts `+5`;
+  - `--after` must be ≤ `i64::MAX`, and `--limit` in 1..=256 (`MAX_ROWS`);
+  - each failure is exit 2 `BadRequest`.
+- **A read refused or failed is exit 1 `ObservationNotRead`,** never `NoRecord` (exit 3), and never a statement about a run or a caravan.
+- **The output is the page as it is,** so 12's consumer reads it unchanged. `store` mode carries `store.limits`, including the `-shm` note.
+- **Existing commands are unchanged.** The only other edit is one more usage word in the bare-command message (stderr).
+- **Tests (written, not run):** `tests/observe_cli.rs`, as a separate process:
+  - 19 bad requests;
+  - missing paths are `ObservationNotRead`, and nothing is created there;
+  - the store mode's page and the db mode's plain page;
+  - the dispatch order and the forbidden names.
+- **Usage in `README.ja.md`,** marked never run.
+
+**Reverse review (static):**
+- The only reachable code is `run_opts`, the two readers and `serde_json`.
+- A missing `--db` file is not created: the reader opens with `SQLITE_OPEN_READ_ONLY`, without `CREATE`.
+- A FIFO or device at a store path is refused before opening (`check_store_paths`). The `db` mode has no such check: it opens the given path with SQLite as `read_observations` always did, so a FIFO given as `--db` could block. That is unchanged from 7baa4d93, and stated here as a limit.
+
+**Not done:** build, run, real store, any consumer wiring (13), any admission.
+
+## Reverse review: the command line → 12's held report (2026-11-17, source only)
+
+**Fixed:**
+1. **An empty value was not a bad request.** `--store ""` / `--db ""` passed `run_opts` and failed later as `ObservationNotRead` (exit 1), which looks like an unreadable store. It is now exit 2 `BadRequest`.
+2. **A non-UTF-8 argument panicked.** `std::env::args()` panics on one, giving exit 101 and no JSON, so a non-UTF-8 path broke `observe`'s JSON error contract.
+   - `main` now reads the arguments as OS strings first, and only for `observe`: a non-UTF-8 argument is exit 2 `BadRequest` in JSON.
+   - Every other command still collects `std::env::args()` exactly as before, so its behaviour, including that panic, is unchanged.
+
+**Checked against 12's consumer, no change needed** (`claude/ws12-13-live-observation-20261116` @ 5b2bed58, read only):
+- **u64 `owner` / `raider`** (the event's key and the raider's tag, often above 2^53) are written as JSON numbers. 13's command reads the page with `parseJsonU64`, which keeps exactly those two keys as decimal strings, and 12's held report does not use them.
+- **`event_cursor`, `archive_sequence`, `ps2_ordinal`, `transaction_slot`:** a value above 2^53 fails 12's `Number.isSafeInteger` and is reported as `…_malformed`, held: refused, not misread.
+- **The store mode's extra numbers** (`store.*`, `archive_epoch.epoch.from_seq`) are not read by 12.
+- **The error line `{"error", "message"}`,** if fed to 12 as a page, has no `format`, so it is held as `ws04_observation_format:…`, never read as observations.
+- **The page format, `basis` and the four per-row holds 12 requires** are unchanged. The extra page holds are kept, not refused.
+
+**Found in 12 (read only, not changed):** 12's `triple` display (`signature|ps2_ordinal|body_sha256`) interpolates `ps2_ordinal` even when it is unsafe and already flagged `_malformed`. The displayed string can then carry a rounded number. This is display only, but it is 12's to fix (for example, by leaving `triple` null when the ordinal is not safe).
+
+**Unchanged and noted:** 4's frame branch (`396a9911`, a decimal-string contract) was not read into this branch, and nothing here duplicates it.
+
+**Tests (written, not run):** `tests/observe_cli.rs` gains two empty values as bad requests, a non-UTF-8 path as JSON `BadRequest` (unix), and the dispatch pin moved to the new `observe` check.
+
+## One guarded run of the three test files (2026-11-17, at 0ef28f57)
+
+**Command, run once** (from `workstreams/04-execution`):
+
+```
+cargo test --offline --locked --test observation --test store_observation --test observe_cli
+```
+
+**Under the session's unchanged guards:** `floor21.sh` (sha256 `99dbed44…`: 21 GiB free floor, a 30-minute deadline), which runs `conquest-guard.sh` (sha256 `94baeb7d…`: a dedicated new target of at most 4 GiB, at least 20 GiB free, 30 minutes). `TMPDIR` was a new, dedicated, empty directory.
+
+**Conditions checked before starting:**
+- both guard hashes;
+- the process list readable (`ps -ax`; `pgrep -P` proven on a test child), with no cargo or rustc running;
+- the target and `TMPDIR` new;
+- 49.2 GiB free;
+- the worktree status recorded.
+
+The refused gateway tests (`web-frontier-build-walls-items`, `web-frontier-muster-province-full`), their runner, any world, any equivalent path, RPC, signing and network were not involved.
+
+**Result:**
+- `observation.rs`: 4 passed;
+- `observe_cli.rs`: 5 passed;
+- `store_observation.rs`: 7 passed;
+- **16 / 16 in all.** Compiling took 7.04 s, the whole run about 10 s.
+- Both guards: `rc=0`, `stop=none`, peak target 176,896 KiB.
+- No download (offline, locked), 66 crates compiled, 0 warnings.
+
+**After the run:**
+- no cargo, rustc or runexec process left;
+- target 173 MiB, kept;
+- 49.0 GiB free;
+- the dedicated `TMPDIR` empty (the tests removed their own fixtures);
+- no `runexec-*` entries in `/tmp`;
+- the worktree's `git status` identical to the one recorded before (the same unstaged media deletions, which are not this work's), nothing staged.
+
+**What it shows, and what it does not:**
+- These tests use hand-made **synthetic** stores and records. They show that the readers and the command behave as written on those inputs.
+- They show nothing about a real findex store, the chain, finality, world binding or any consumer.
+- Nothing is admitted, and every hold remains.

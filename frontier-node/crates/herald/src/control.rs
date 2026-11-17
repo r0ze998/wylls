@@ -494,7 +494,15 @@ impl Series {
 pub fn movement(s: &Series, metas: &[ProvMeta], hmr: u8, end_bell: u32) -> crate::cqfmt::Movement {
     use crate::cqfmt::{Movement, Ratio};
     let changes = control::lasting_changes(&s.bells, control::LASTING_MIN_BELLS);
-    let days = end_bell.div_ceil(144).max(1) as usize;
+    // An existing continuous account uses u32::MAX for its end bell. Never
+    // allocate one entry per day up to that sentinel; report only the days
+    // represented by the captured series. Finite seasons keep their end.
+    let horizon = if end_bell == u32::MAX {
+        s.bells.last().map_or(1, |(b, _)| b.saturating_add(1))
+    } else {
+        end_bell
+    };
+    let days = horizon.div_ceil(144).max(1) as usize;
     let mut by_day = vec![0u32; days];
     for c in &changes {
         let d = (c.bell / 144) as usize;
@@ -558,7 +566,7 @@ pub fn movement(s: &Series, metas: &[ProvMeta], hmr: u8, end_bell: u32) -> crate
         }
     }
     // 10e′ and 10e
-    let last = end_bell.saturating_sub(1);
+    let last = horizon.saturating_sub(1);
     let net = |set: &mut dyn Iterator<Item = (&ProvMeta, u32)>| -> Ratio {
         let mut r = Ratio::default();
         for (m, rb) in set {
@@ -676,6 +684,29 @@ pub fn site_tile(pd: &[u8], s: usize) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuous_movement_uses_the_captured_horizon() {
+        let mut series = Series {
+            bells: vec![(0, vec![0]), (300, vec![1])],
+            banners: BTreeMap::new(),
+        };
+        let metas = [ProvMeta {
+            index: 0,
+            ring: 2,
+            first: 0,
+        }];
+        let ongoing = movement(&series, &metas, 1, u32::MAX);
+        let bounded = movement(&series, &metas, 1, 301);
+        assert_eq!(ongoing.lasting_by_day, bounded.lasting_by_day);
+        assert_eq!(ongoing.net_movement, bounded.net_movement);
+        assert!(ongoing.lasting_by_day.len() <= 3);
+        series.bells.clear();
+        assert_eq!(
+            movement(&series, &metas, 1, u32::MAX).lasting_by_day.len(),
+            1
+        );
+    }
 
     /// 10b counts game days 2..=D and 10d divides by the Marches with an
     /// opened member (`frontier-sim` `mapmove::metrics`' definitions).

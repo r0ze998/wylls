@@ -163,7 +163,7 @@ export const doneAfterQueue = (h, now, secs) => Math.max(now, ...(h?.queue ?? []
  * holding; `have` its stores in whole units by resource index. Codes: QueueFull (the tier's slots are taken; one
  * promotion at a time), Insufficient, AboveCap (walls at their most), TopTier.
  */
-export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, s1 = false } = {}) {
+export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, s1 = false, mirror = null, resolvedNext = null } = {}) {
   const slots = queueSlots(h.tier);
   const under = (h.queue ?? []).filter(q => isQueuedAt(q, now));
   const full = under.length >= slots;
@@ -179,8 +179,24 @@ export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, 
   });
   const stone = [0, 0, wallStone(faction), 0, 0, 0, 0, 0];
   const wallsNow = Number(walls ?? h.walls ?? 0) + under.filter(q => q.kind === QUEUE_KIND.WALLS).reduce((n, q) => n + Number(q.delta ?? WALLS.step), 0);
-  out.push(offer({ item: ITEM_WALLS, kind: 'walls', resource: 'Walls', perHour: 0, n: Math.floor(wallsNow / WALLS.step) + 1, cost: stone, secs: WALLS.secs, walls: wallsNow }, wallsNow + WALLS.step > WALLS.max ? ['AboveCap'] : []));
+  // (2026-11-16: the program also writes each walls order into one of the TWO wall items of the village's site in its
+  //  province, and answers QueueFull when both still wait for their turn — proc/holding.rs wall_item: an item is free
+  //  once its turn (effective bell) is ≤ the province's resolved_next. The page offered a third and only the send
+  //  was refused. `mirror` is the village's site mirror, `resolvedNext` its province's.)
+  const wallBlocks = [...(wallsNow + WALLS.step > WALLS.max ? ['AboveCap'] : []), ...(wallItemsBusy(mirror, resolvedNext) ? ['WallsBusy'] : [])];
+  out.push(offer({ item: ITEM_WALLS, kind: 'walls', resource: 'Walls', perHour: 0, n: Math.floor(wallsNow / WALLS.step) + 1, cost: stone, secs: WALLS.secs, walls: wallsNow }, wallBlocks));
   return out;
+}
+
+/**
+ * proc/holding.rs `wall_item`: both wall items of the site mirror still wait for their turn (delta > 0 and effective
+ * bell > the province's `resolved_next`), so a walls order has no item to write and the program answers QueueFull.
+ * False without a mirror (nothing to read: the program decides).
+ */
+export function wallItemsBusy(mirror, resolvedNext) {
+  if (!mirror) return false;
+  const rn = Number(resolvedNext);
+  return [[mirror.wallItem0Bell, mirror.wallItem0Delta], [mirror.wallItem1Bell, mirror.wallItem1Delta]].every(([b, d]) => Number(d) > 0 && !(Number(b) <= rn));
 }
 
 /**

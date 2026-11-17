@@ -32,7 +32,7 @@ export const FACTIONS = 6;
 /** permutation-prize's errors (`Custom(code)`). */
 export const PRIZE_ERRORS = Object.freeze({ 0x100: 'BadData', 0x101: 'BadAccount', 0x102: 'BadParams', 0x103: 'NotOperator', 0x104: 'WrongState', 0x105: 'AlreadyPaid',
   0x106: 'SeasonNotEnded', 0x107: 'ProvinceNotFinal', 0x108: 'NoKeep', 0x109: 'TallyIncomplete', 0x10A: 'BadShares', 0x10B: 'BadProof', 0x10C: 'NotWinner',
-  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount' });
+  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x112: 'ContinuousSeason' });
 /** What Pay adds to a Join's compute-unit and loaded-data limits (the prize and token programs, five more accounts). */
 export const PAID_JOIN_EXTRA_CU = 80_000;
 export const PAID_JOIN_EXTRA_LOADED = 524_288;

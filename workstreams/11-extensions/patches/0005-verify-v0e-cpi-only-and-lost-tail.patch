@@ -1,0 +1,186 @@
+diff --git a/frontier-node/crates/verify/src/checks/v0_evidence.rs b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+index 85cb8944..ece65e8b 100644
+--- a/frontier-node/crates/verify/src/checks/v0_evidence.rs
++++ b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+@@ -8,9 +8,15 @@
+ //! PASS, never a FAIL: the program may well have run correctly):
+ //!
+ //! - `MissingLogs`: it calls the program at top level, and its logs show no
+-//!   invocation of the program at all (an archive without logs);
++//!   invocation of the program at all (an archive without logs); or it only
++//!   names the program among its accounts (a possible CPI) and has no logs
++//!   at all (r6);
+ //! - `TruncatedLogs`: the runtime cut its logs (`Log truncated`), so
+-//!   records after the cut are absent;
++//!   records after the cut are absent (also when it only names the program,
++//!   r6);
++//! - `IncompleteLogs` (r6): an invocation of the program has no `success`
++//!   line, though the transaction succeeded: the archive lost the tail of
++//!   its logs without the runtime's marker;
+ //! - `UnverifiedInnerInstruction`: the program ran inside another program
+ //!   (`Program <id> invoke [n]`, n > 1). The archive keeps top-level
+ //!   instructions only; V0 never sees these;
+@@ -76,8 +82,16 @@ pub fn run(cx: &mut Ctx) {
+             .filter(|l| l.starts_with(&invoke) && !l.ends_with("[1]"))
+             .count();
+         let truncated = logs.iter().any(|l| l == LOG_TRUNCATED);
++        // Calls it at top level, or names it among its accounts (it may
++        // have been reached by CPI: ③'s courier; ⑯ P1's A8).
++        let reaches = !t.ixs.is_empty() || t.keys.iter().any(|(k, _)| *k == w.program);
+         // Cut before the program's first line: the cut, not an absent log.
+-        if !t.ixs.is_empty() && top == 0 && nested == 0 && !truncated {
++        // A transaction that only names the program, with logs that show
++        // it never ran, is harmless (V2 warns); with no logs at all, nothing
++        // tells whether it ran (r6).
++        let no_logs_for_a_call = !t.ixs.is_empty() && top == 0 && nested == 0;
++        let no_logs_for_a_mention = t.ixs.is_empty() && reaches && logs.is_empty();
++        if (no_logs_for_a_call || no_logs_for_a_mention) && !truncated {
+             cx.unverifiable(
+                 V,
+                 MISSING_LOGS,
+@@ -87,7 +101,7 @@ pub fn run(cx: &mut Ctx) {
+                 "it calls the program and its logs show no invocation of it: its records are not in the archive",
+             );
+         }
+-        if (!t.ixs.is_empty() || top > 0 || nested > 0) && truncated {
++        if (reaches || top > 0 || nested > 0) && truncated {
+             cx.unverifiable(
+                 V,
+                 TRUNCATED_LOGS,
+@@ -97,6 +111,26 @@ pub fn run(cx: &mut Ctx) {
+                 "the runtime cut its logs: records after the cut are not in the archive",
+             );
+         }
++        // Every invocation of the program in a successful transaction ends
++        // with its `success` line; fewer means the archive lost the tail of
++        // the logs without the runtime's marker (r6).
++        let ended = logs
++            .iter()
++            .filter(|l| **l == format!("Program {program} success"))
++            .count();
++        if !truncated && ended < top + nested {
++            cx.unverifiable(
++                V,
++                INCOMPLETE_LOGS,
++                format!("tx#{i}"),
++                0,
++                Some(i),
++                format!(
++                    "the program was invoked {} time(s) and {ended} invocation(s) end in the logs: the rest of its records are not in the archive",
++                    top + nested
++                ),
++            );
++        }
+         if nested > 0 {
+             cx.unverifiable(
+                 V,
+diff --git a/frontier-node/crates/verify/src/codes.rs b/frontier-node/crates/verify/src/codes.rs
+index 0c5084cc..09d5945a 100644
+--- a/frontier-node/crates/verify/src/codes.rs
++++ b/frontier-node/crates/verify/src/codes.rs
+@@ -20,6 +20,8 @@ pub const UNKNOWN_PROGRAM_VERSION: &str = "UnknownProgramVersion";
+ pub const MISSING_LOGS: &str = "MissingLogs";
+ /// A successful program call whose logs the runtime cut (UNVERIFIABLE, V0E).
+ pub const TRUNCATED_LOGS: &str = "TruncatedLogs";
++/// A program invocation of a successful transaction without its `success` line (UNVERIFIABLE, V0E).
++pub const INCOMPLETE_LOGS: &str = "IncompleteLogs";
+ /// The program run inside another program; no inner instruction archived (UNVERIFIABLE, V0E).
+ pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
+ /// A written program account with no post-state in the archive (UNVERIFIABLE, V0E).
+diff --git a/frontier-node/crates/verify/tests/evidence.rs b/frontier-node/crates/verify/tests/evidence.rs
+index dbd61aa2..e2dc0f59 100644
+--- a/frontier-node/crates/verify/tests/evidence.rs
++++ b/frontier-node/crates/verify/tests/evidence.rs
+@@ -224,3 +224,92 @@ fn a_written_account_without_its_post_state_is_not_a_pass() {
+     }
+     c.done("dropped post-states");
+ }
++
++// ---- r6 (⑪, 2026-11-06): the paths 0004 left open --------------------------
++
++/// A CPI-only transaction (the program named among its accounts, called by
++/// another program) whose logs are absent: nothing tells whether, or what,
++/// the program ran (⑯ P1's A8 without logs).
++#[test]
++fn a_cpi_only_transaction_without_logs_is_not_a_pass() {
++    let mut c = Count::default();
++    for (fx, base, n) in fixtures() {
++        for t in spread(calls(&base), n) {
++            let Some(mut inp) = cpi_shaped(&base, t) else {
++                continue;
++            };
++            // A transaction whose every program call went under the wrapper.
++            if fclient::tx::from_wire(&inp.txs[t].tx).is_ok_and(|tx| {
++                let k = &tx.message.account_keys;
++                tx.message
++                    .instructions
++                    .iter()
++                    .any(|c| k[c.program_id_index as usize] == base.cfg.program)
++            }) {
++                continue;
++            }
++            inp.txs[t].logs.clear();
++            c.check(&inp, "MissingLogs", &format!("{fx} tx#{t}"));
++        }
++    }
++    c.done("cpi-only, no logs");
++}
++
++/// Logs that lose their tail without the runtime's `Log truncated` marker:
++/// cut at the last record line (`Program data:`), so at least one record
++/// and the program's `success` line are gone.
++#[test]
++fn logs_that_lose_their_tail_are_not_a_pass() {
++    let mut c = Count::default();
++    for (fx, base, n) in fixtures() {
++        for t in spread(calls(&base), n) {
++            let Some(cut) = base.txs[t]
++                .logs
++                .iter()
++                .rposition(|l| l.starts_with("Program data: "))
++            else {
++                continue;
++            };
++            let mut inp = base.clone();
++            inp.txs[t].logs.truncate(cut);
++            c.check(&inp, "IncompleteLogs", &format!("{fx} tx#{t}"));
++        }
++    }
++    c.done("tail lost, no marker");
++}
++
++/// The control: a transaction that only names the program, whose complete
++/// logs show the program never ran, is not V0E's to report (V2 warns, as
++/// before; whatever else the change breaks is the other checks').
++#[test]
++fn a_mention_whose_logs_show_no_run_is_not_reported() {
++    let base = land();
++    let program = base.cfg.program;
++    let mut checked = 0;
++    for t in spread(calls(&base), 40) {
++        let Some(mut inp) = cpi_shaped(&base, t) else {
++            continue;
++        };
++        // Drop the program's frames from the logs: it never ran.
++        let mut out = Vec::new();
++        let mut depth = 0usize;
++        for l in &inp.txs[t].logs {
++            if l.starts_with(&format!("Program {program} invoke [")) {
++                depth += 1;
++                continue;
++            }
++            if depth > 0 {
++                if *l == format!("Program {program} success") {
++                    depth -= 1;
++                }
++                continue;
++            }
++            out.push(l.clone());
++        }
++        inp.txs[t].logs = out;
++        let r = verify_core::verify(&inp);
++        assert!(v0e(&r).is_empty(), "tx#{t}: {}", show(&r));
++        checked += 1;
++    }
++    assert!(checked > 0);
++}

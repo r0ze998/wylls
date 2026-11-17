@@ -1,0 +1,6 @@
+drill: big program 1392400 B (Frontier .so 1392304 B), max_len 1740800
+drill: big ProgramData 1740845 B, courier ProgramData 57333 B
+drill: (a) top-level big no-op: min limit 1741159 B, outcome None
+drill: (b) courier -> CPI -> big no-op: min limit 1798656 B, outcome None
+drill: (c) courier listing big, no CPI: min limit 1798656 B, outcome Some(Object {"InstructionError": Array [Number(1), Object {"Custom": Number(9002)}]})
+drill: RESULT the CPI target's ProgramData IS counted (b = 1798656 vs courier ProgramData + big ProgramData = 1798178)

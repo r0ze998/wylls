@@ -1,0 +1,4 @@
+== fmt, clippy
+    Checking wylls-custody v0.1.0 (/home/user/wylls/workstreams/10-custody/custody)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.35s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.82s

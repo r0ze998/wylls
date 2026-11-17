@@ -1,0 +1,1055 @@
+{
+ "source": {
+  "workstream": "06-creation",
+  "commit": "517796dce6dec5c1496775d73ad84a0cb8befa09",
+  "generator": "workstreams/11-extensions/creation-bridge/vectors/gen.mjs"
+ },
+ "domains": {
+  "publish": "wylls.creation.publish/0",
+  "status": "wylls.creation.status/0",
+  "plan": "wylls.creation.plan/0",
+  "end": "wylls.creation.adoption-end/0",
+  "run": "wylls.creation.run/0"
+ },
+ "pubs": {
+  "A": "bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5",
+  "B": "55154f42065ea5a1bea05463826be2684eb92df92c100027aabaae57ca554207",
+  "W": "d404bc44565aedbb899150e5b0b3b32b9441bf0cb7884c33130da8dbc27dd2cf",
+  "M": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+  "D": "4e6008b01b74e49e38d8b11392bfaccc7b5bff86ca2048cbb0f783633a61e2dd"
+ },
+ "canonical": [
+  {
+   "json": "{\"a\":1,\"B\":2,\"_\":3,\"\":4,\"aa\":5,\"é\":6,\"😀\":7,\"Ａ\":8,\"z\":[true,false,null]}",
+   "canonical": "{\"\":4,\"B\":2,\"_\":3,\"a\":1,\"aa\":5,\"z\":[true,false,null],\"é\":6,\"😀\":7,\"Ａ\":8}",
+   "hash": "5ed22c430cae2b2533eff6a4ad450cf31387820a599c2f2c361faacbf415a070"
+  },
+  {
+   "json": "{\"s\":\"quote \\\" backslash \\\\ slash / tab \\t nl \\n cr \\r bs \\b ff \\f nul \\u0000 us \\u001f del  nbsp   ls   emoji 😀\"}",
+   "canonical": "{\"s\":\"quote \\\" backslash \\\\ slash / tab \\t nl \\n cr \\r bs \\b ff \\f nul \\u0000 us \\u001f del  nbsp   ls   emoji 😀\"}",
+   "hash": "fe8609bb4dc3da99dce2073dbc26dc5f5431d5bb8fbdcd8fd6b74b42c51fcc04"
+  },
+  {
+   "json": "{\"n\":[0,0,1,-1,100,100,9007199254740991,-9007199254740991]}",
+   "canonical": "{\"n\":[0,0,1,-1,100,100,9007199254740991,-9007199254740991]}",
+   "hash": "2e55f2864ce0ca835d24e2ff3262f244496bc087b9731b4569eb611b191ef018"
+  },
+  {
+   "json": "{\"nested\":{\"b\":{\"d\":1,\"c\":2},\"a\":[{\"y\":1,\"x\":2}]}}",
+   "canonical": "{\"nested\":{\"a\":[{\"x\":2,\"y\":1}],\"b\":{\"c\":2,\"d\":1}}}",
+   "hash": "f992b5332987dc185696584ef7026135cd100e6ebf418d67696b0d3b8541824c"
+  }
+ ],
+ "refused": [
+  {
+   "json": "{\"n\":1.5}",
+   "error": "CanonicalError"
+  },
+  {
+   "json": "{\"n\":9007199254740992}",
+   "error": "CanonicalError"
+  },
+  {
+   "json": "{\"n\":1e+300}",
+   "error": "CanonicalError"
+  }
+ ],
+ "manifests": {
+  "ok/front-supply.json": {
+   "manifest": {
+    "format": "wylls.creation.manifest/0",
+    "name": "front-supply",
+    "version": "1.0.0",
+    "author": "bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5",
+    "title": "前線補給（工房を借りて兵器を送る）",
+    "note": "工房の州に自分の倉を置き、そこへ鉱石と木材を運び、Wの工房を使用権の札で動かして、できた兵器を前線の倉へ送ります。峠を通るので襲われることがあります。",
+    "params": {
+     "source": {
+      "type": "vault",
+      "own": true,
+      "ja": "材料を出す倉",
+      "default": "vault:A-mine"
+     },
+     "workshop": {
+      "type": "workshop",
+      "ja": "使う工房",
+      "default": "village:W"
+     },
+     "workVault": {
+      "type": "vault",
+      "own": true,
+      "ja": "工房と同じ州の自分の倉",
+      "default": "vault:A-work"
+     },
+     "receiver": {
+      "type": "place",
+      "ja": "兵器の届け先",
+      "default": "vault:A-fort"
+     },
+     "runs": {
+      "type": "int",
+      "min": 1,
+      "max": 6,
+      "default": 3,
+      "ja": "1日に工房を動かす回数"
+     }
+    },
+    "uses": {
+     "ws": {
+      "relation": "connect",
+      "target": {
+       "param": "workshop"
+      },
+      "grant": "use",
+      "amount": {
+       "param": "runs"
+      },
+      "ja": "工房"
+     }
+    },
+    "steps": [
+     {
+      "id": "haul",
+      "effect": "caravan.send",
+      "args": {
+       "from": {
+        "param": "source"
+       },
+       "to": {
+        "param": "workVault"
+       },
+       "cargo": {
+        "goods": {
+         "ore": {
+          "param": "runs",
+          "times": 8
+         },
+         "wood": {
+          "param": "runs",
+          "times": 4
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "make",
+      "effect": "workshop.run",
+      "after": [
+       "haul"
+      ],
+      "args": {
+       "via": {
+        "use": "ws"
+       },
+       "vault": {
+        "param": "workVault"
+       },
+       "runs": {
+        "param": "runs"
+       }
+      }
+     },
+     {
+      "id": "ship",
+      "effect": "caravan.send",
+      "after": [
+       "make"
+      ],
+      "args": {
+       "from": {
+        "param": "workVault"
+       },
+       "to": {
+        "param": "receiver"
+       },
+       "cargo": {
+        "goods": {
+         "arms": {
+          "param": "runs",
+          "times": 4
+         }
+        }
+       }
+      }
+     }
+    ],
+    "trigger": "manual",
+    "limits": {
+     "runsPerDay": 1
+    },
+    "outputs": {
+     "arms": {
+      "from": {
+       "step": "ship",
+       "out": "delivered"
+      }
+     }
+    },
+    "claims": {
+     "trigger": "manual",
+     "runsPerDay": 1,
+     "outputsPerRun": {
+      "arms": 12
+     },
+     "grants": [
+      "use"
+     ],
+     "deliversTo": [
+      "receiver"
+     ],
+     "signer": "wallet-unless-own"
+    }
+   },
+   "canonical": "{\"author\":\"bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5\",\"claims\":{\"deliversTo\":[\"receiver\"],\"grants\":[\"use\"],\"outputsPerRun\":{\"arms\":12},\"runsPerDay\":1,\"signer\":\"wallet-unless-own\",\"trigger\":\"manual\"},\"format\":\"wylls.creation.manifest/0\",\"limits\":{\"runsPerDay\":1},\"name\":\"front-supply\",\"note\":\"工房の州に自分の倉を置き、そこへ鉱石と木材を運び、Wの工房を使用権の札で動かして、できた兵器を前線の倉へ送ります。峠を通るので襲われることがあります。\",\"outputs\":{\"arms\":{\"from\":{\"out\":\"delivered\",\"step\":\"ship\"}}},\"params\":{\"receiver\":{\"default\":\"vault:A-fort\",\"ja\":\"兵器の届け先\",\"type\":\"place\"},\"runs\":{\"default\":3,\"ja\":\"1日に工房を動かす回数\",\"max\":6,\"min\":1,\"type\":\"int\"},\"source\":{\"default\":\"vault:A-mine\",\"ja\":\"材料を出す倉\",\"own\":true,\"type\":\"vault\"},\"workVault\":{\"default\":\"vault:A-work\",\"ja\":\"工房と同じ州の自分の倉\",\"own\":true,\"type\":\"vault\"},\"workshop\":{\"default\":\"village:W\",\"ja\":\"使う工房\",\"type\":\"workshop\"}},\"steps\":[{\"args\":{\"cargo\":{\"goods\":{\"ore\":{\"param\":\"runs\",\"times\":8},\"wood\":{\"param\":\"runs\",\"times\":4}}},\"from\":{\"param\":\"source\"},\"to\":{\"param\":\"workVault\"}},\"effect\":\"caravan.send\",\"id\":\"haul\"},{\"after\":[\"haul\"],\"args\":{\"runs\":{\"param\":\"runs\"},\"vault\":{\"param\":\"workVault\"},\"via\":{\"use\":\"ws\"}},\"effect\":\"workshop.run\",\"id\":\"make\"},{\"after\":[\"make\"],\"args\":{\"cargo\":{\"goods\":{\"arms\":{\"param\":\"runs\",\"times\":4}}},\"from\":{\"param\":\"workVault\"},\"to\":{\"param\":\"receiver\"}},\"effect\":\"caravan.send\",\"id\":\"ship\"}],\"title\":\"前線補給（工房を借りて兵器を送る）\",\"trigger\":\"manual\",\"uses\":{\"ws\":{\"amount\":{\"param\":\"runs\"},\"grant\":\"use\",\"ja\":\"工房\",\"relation\":\"connect\",\"target\":{\"param\":\"workshop\"}}},\"version\":\"1.0.0\"}",
+   "hash": "c47b10b76faef7e352bd10d1be5f2a4c21c84e2a1cfea912c59bc36856f015b1"
+  },
+  "ok/mine-delivery.json": {
+   "manifest": {
+    "format": "wylls.creation.manifest/0",
+    "name": "mine-delivery",
+    "version": "1.0.0",
+    "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+    "title": "鉱山の便（鉱石と木材を届ける）",
+    "note": "買い手の倉へ、鉱石と木材を荷車で届けます。代金の受け渡しは引き換えの預かりで別に行います。",
+    "params": {
+     "mine": {
+      "type": "vault",
+      "own": true,
+      "ja": "出す鉱山の倉",
+      "default": "vault:M-mine"
+     },
+     "buyer": {
+      "type": "vault",
+      "ja": "買い手の倉"
+     },
+     "ore": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "default": 24,
+      "ja": "鉱石の量"
+     },
+     "wood": {
+      "type": "int",
+      "min": 0,
+      "max": 100,
+      "default": 12,
+      "ja": "木材の量"
+     }
+    },
+    "uses": {},
+    "steps": [
+     {
+      "id": "ship",
+      "effect": "caravan.send",
+      "args": {
+       "from": {
+        "param": "mine"
+       },
+       "to": {
+        "param": "buyer"
+       },
+       "cargo": {
+        "goods": {
+         "ore": {
+          "param": "ore"
+         },
+         "wood": {
+          "param": "wood"
+         }
+        }
+       }
+      }
+     }
+    ],
+    "trigger": "manual",
+    "limits": {
+     "runsPerDay": 4
+    },
+    "outputs": {
+     "delivered": {
+      "from": {
+       "step": "ship",
+       "out": "delivered"
+      }
+     }
+    },
+    "claims": {
+     "outputsPerRun": {
+      "ore": 24,
+      "wood": 12
+     },
+     "deliversTo": [
+      "buyer"
+     ],
+     "signer": "wallet-unless-own"
+    }
+   },
+   "canonical": "{\"author\":\"ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05\",\"claims\":{\"deliversTo\":[\"buyer\"],\"outputsPerRun\":{\"ore\":24,\"wood\":12},\"signer\":\"wallet-unless-own\"},\"format\":\"wylls.creation.manifest/0\",\"limits\":{\"runsPerDay\":4},\"name\":\"mine-delivery\",\"note\":\"買い手の倉へ、鉱石と木材を荷車で届けます。代金の受け渡しは引き換えの預かりで別に行います。\",\"outputs\":{\"delivered\":{\"from\":{\"out\":\"delivered\",\"step\":\"ship\"}}},\"params\":{\"buyer\":{\"ja\":\"買い手の倉\",\"type\":\"vault\"},\"mine\":{\"default\":\"vault:M-mine\",\"ja\":\"出す鉱山の倉\",\"own\":true,\"type\":\"vault\"},\"ore\":{\"default\":24,\"ja\":\"鉱石の量\",\"max\":200,\"min\":0,\"type\":\"int\"},\"wood\":{\"default\":12,\"ja\":\"木材の量\",\"max\":100,\"min\":0,\"type\":\"int\"}},\"steps\":[{\"args\":{\"cargo\":{\"goods\":{\"ore\":{\"param\":\"ore\"},\"wood\":{\"param\":\"wood\"}}},\"from\":{\"param\":\"mine\"},\"to\":{\"param\":\"buyer\"}},\"effect\":\"caravan.send\",\"id\":\"ship\"}],\"title\":\"鉱山の便（鉱石と木材を届ける）\",\"trigger\":\"manual\",\"uses\":{},\"version\":\"1.0.0\"}",
+   "hash": "acbf59029d840361b6db8352b6235c86a3892d47af8594e2199f0b3d32bc17f0"
+  },
+  "ok/front-supply-river.json": {
+   "manifest": {
+    "format": "wylls.creation.manifest/0",
+    "name": "front-supply-river",
+    "version": "0.1.0",
+    "author": "55154f42065ea5a1bea05463826be2684eb92df92c100027aabaae57ca554207",
+    "title": "前線補給（鉱山の便を使う）",
+    "note": "材料は自分で運ばず、Mの鉱山の便が自分の峠の倉へ届けた記録を使います。兵器は名前を挙げた届け先へ送ります。",
+    "params": {
+     "workshop": {
+      "type": "workshop",
+      "ja": "使う工房"
+     },
+     "workVault": {
+      "type": "vault",
+      "own": true,
+      "ja": "工房と同じ州の自分の倉"
+     },
+     "receiver": {
+      "type": "place",
+      "ja": "兵器の届け先（味方の砦など）"
+     },
+     "runs": {
+      "type": "int",
+      "min": 1,
+      "max": 6,
+      "default": 3,
+      "ja": "1日に工房を動かす回数"
+     }
+    },
+    "uses": {
+     "ws": {
+      "relation": "connect",
+      "target": {
+       "param": "workshop"
+      },
+      "grant": "use",
+      "amount": {
+       "param": "runs"
+      },
+      "ja": "工房"
+     },
+     "ore": {
+      "relation": "consume",
+      "manifest": {
+       "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+       "name": "mine-delivery",
+       "range": "^1.0.0"
+      },
+      "output": "delivered",
+      "type": "result:delivery",
+      "ja": "Mの鉱山の便が届いた記録"
+     }
+    },
+    "steps": [
+     {
+      "id": "make",
+      "effect": "workshop.run",
+      "after": [
+       {
+        "use": "ore"
+       }
+      ],
+      "args": {
+       "via": {
+        "use": "ws"
+       },
+       "vault": {
+        "param": "workVault"
+       },
+       "runs": {
+        "param": "runs"
+       }
+      }
+     },
+     {
+      "id": "ship",
+      "effect": "caravan.send",
+      "after": [
+       "make"
+      ],
+      "args": {
+       "from": {
+        "param": "workVault"
+       },
+       "to": {
+        "param": "receiver"
+       },
+       "cargo": {
+        "goods": {
+         "arms": {
+          "param": "runs",
+          "times": 4
+         }
+        }
+       }
+      }
+     }
+    ],
+    "trigger": "manual",
+    "limits": {
+     "runsPerDay": 1
+    },
+    "outputs": {
+     "arms": {
+      "from": {
+       "step": "ship",
+       "out": "delivered"
+      }
+     }
+    },
+    "claims": {
+     "trigger": "manual",
+     "runsPerDay": 1,
+     "outputsPerRun": {
+      "arms": 12
+     },
+     "grants": [
+      "use"
+     ],
+     "consumes": [
+      "ore"
+     ],
+     "deliversTo": [
+      "receiver"
+     ],
+     "signer": "wallet-unless-own"
+    }
+   },
+   "canonical": "{\"author\":\"55154f42065ea5a1bea05463826be2684eb92df92c100027aabaae57ca554207\",\"claims\":{\"consumes\":[\"ore\"],\"deliversTo\":[\"receiver\"],\"grants\":[\"use\"],\"outputsPerRun\":{\"arms\":12},\"runsPerDay\":1,\"signer\":\"wallet-unless-own\",\"trigger\":\"manual\"},\"format\":\"wylls.creation.manifest/0\",\"limits\":{\"runsPerDay\":1},\"name\":\"front-supply-river\",\"note\":\"材料は自分で運ばず、Mの鉱山の便が自分の峠の倉へ届けた記録を使います。兵器は名前を挙げた届け先へ送ります。\",\"outputs\":{\"arms\":{\"from\":{\"out\":\"delivered\",\"step\":\"ship\"}}},\"params\":{\"receiver\":{\"ja\":\"兵器の届け先（味方の砦など）\",\"type\":\"place\"},\"runs\":{\"default\":3,\"ja\":\"1日に工房を動かす回数\",\"max\":6,\"min\":1,\"type\":\"int\"},\"workVault\":{\"ja\":\"工房と同じ州の自分の倉\",\"own\":true,\"type\":\"vault\"},\"workshop\":{\"ja\":\"使う工房\",\"type\":\"workshop\"}},\"steps\":[{\"after\":[{\"use\":\"ore\"}],\"args\":{\"runs\":{\"param\":\"runs\"},\"vault\":{\"param\":\"workVault\"},\"via\":{\"use\":\"ws\"}},\"effect\":\"workshop.run\",\"id\":\"make\"},{\"after\":[\"make\"],\"args\":{\"cargo\":{\"goods\":{\"arms\":{\"param\":\"runs\",\"times\":4}}},\"from\":{\"param\":\"workVault\"},\"to\":{\"param\":\"receiver\"}},\"effect\":\"caravan.send\",\"id\":\"ship\"}],\"title\":\"前線補給（鉱山の便を使う）\",\"trigger\":\"manual\",\"uses\":{\"ore\":{\"ja\":\"Mの鉱山の便が届いた記録\",\"manifest\":{\"author\":\"ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05\",\"name\":\"mine-delivery\",\"range\":\"^1.0.0\"},\"output\":\"delivered\",\"relation\":\"consume\",\"type\":\"result:delivery\"},\"ws\":{\"amount\":{\"param\":\"runs\"},\"grant\":\"use\",\"ja\":\"工房\",\"relation\":\"connect\",\"target\":{\"param\":\"workshop\"}}},\"version\":\"0.1.0\"}",
+   "hash": "db3c34bf84afb6f6ae63acc2b7f15f36890d70efe0079a739e23e46b55656cf5"
+  },
+  "ok/base-only-caravan.json": {
+   "manifest": {
+    "format": "wylls.creation.manifest/0",
+    "name": "plain-caravan",
+    "version": "1.0.0",
+    "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+    "title": "鉱山の便（鉱石と木材を届ける）",
+    "note": "買い手の倉へ、鉱石と木材を荷車で届けます。代金の受け渡しは引き換えの預かりで別に行います。",
+    "params": {
+     "mine": {
+      "type": "vault",
+      "own": true,
+      "ja": "出す鉱山の倉",
+      "default": "vault:M-mine"
+     },
+     "buyer": {
+      "type": "vault",
+      "ja": "買い手の倉"
+     },
+     "ore": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "default": 24,
+      "ja": "鉱石の量"
+     },
+     "wood": {
+      "type": "int",
+      "min": 0,
+      "max": 100,
+      "default": 12,
+      "ja": "木材の量"
+     }
+    },
+    "uses": {},
+    "steps": [
+     {
+      "id": "ship",
+      "effect": "caravan.send",
+      "args": {
+       "from": {
+        "param": "mine"
+       },
+       "to": {
+        "param": "buyer"
+       },
+       "cargo": {
+        "goods": {
+         "ore": {
+          "param": "ore"
+         },
+         "wood": {
+          "param": "wood"
+         }
+        }
+       }
+      }
+     }
+    ],
+    "trigger": "manual",
+    "limits": {
+     "runsPerDay": 4
+    },
+    "outputs": {
+     "delivered": {
+      "from": {
+       "step": "ship",
+       "out": "delivered"
+      }
+     }
+    },
+    "claims": {
+     "outputsPerRun": {
+      "ore": 24,
+      "wood": 12
+     },
+     "deliversTo": [
+      "buyer"
+     ],
+     "signer": "wallet-unless-own"
+    }
+   },
+   "canonical": "{\"author\":\"ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05\",\"claims\":{\"deliversTo\":[\"buyer\"],\"outputsPerRun\":{\"ore\":24,\"wood\":12},\"signer\":\"wallet-unless-own\"},\"format\":\"wylls.creation.manifest/0\",\"limits\":{\"runsPerDay\":4},\"name\":\"plain-caravan\",\"note\":\"買い手の倉へ、鉱石と木材を荷車で届けます。代金の受け渡しは引き換えの預かりで別に行います。\",\"outputs\":{\"delivered\":{\"from\":{\"out\":\"delivered\",\"step\":\"ship\"}}},\"params\":{\"buyer\":{\"ja\":\"買い手の倉\",\"type\":\"vault\"},\"mine\":{\"default\":\"vault:M-mine\",\"ja\":\"出す鉱山の倉\",\"own\":true,\"type\":\"vault\"},\"ore\":{\"default\":24,\"ja\":\"鉱石の量\",\"max\":200,\"min\":0,\"type\":\"int\"},\"wood\":{\"default\":12,\"ja\":\"木材の量\",\"max\":100,\"min\":0,\"type\":\"int\"}},\"steps\":[{\"args\":{\"cargo\":{\"goods\":{\"ore\":{\"param\":\"ore\"},\"wood\":{\"param\":\"wood\"}}},\"from\":{\"param\":\"mine\"},\"to\":{\"param\":\"buyer\"}},\"effect\":\"caravan.send\",\"id\":\"ship\"}],\"title\":\"鉱山の便（鉱石と木材を届ける）\",\"trigger\":\"manual\",\"uses\":{},\"version\":\"1.0.0\"}",
+   "hash": "5c2fa952dd7573f85e644847040258f9fdc635f4e9730105704e07737d92908b"
+  }
+ },
+ "envelopes": {
+  "ok/front-supply.json": {
+   "manifest": {
+    "format": "wylls.creation.manifest/0",
+    "name": "front-supply",
+    "version": "1.0.0",
+    "author": "bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5",
+    "title": "前線補給（工房を借りて兵器を送る）",
+    "note": "工房の州に自分の倉を置き、そこへ鉱石と木材を運び、Wの工房を使用権の札で動かして、できた兵器を前線の倉へ送ります。峠を通るので襲われることがあります。",
+    "params": {
+     "source": {
+      "type": "vault",
+      "own": true,
+      "ja": "材料を出す倉",
+      "default": "vault:A-mine"
+     },
+     "workshop": {
+      "type": "workshop",
+      "ja": "使う工房",
+      "default": "village:W"
+     },
+     "workVault": {
+      "type": "vault",
+      "own": true,
+      "ja": "工房と同じ州の自分の倉",
+      "default": "vault:A-work"
+     },
+     "receiver": {
+      "type": "place",
+      "ja": "兵器の届け先",
+      "default": "vault:A-fort"
+     },
+     "runs": {
+      "type": "int",
+      "min": 1,
+      "max": 6,
+      "default": 3,
+      "ja": "1日に工房を動かす回数"
+     }
+    },
+    "uses": {
+     "ws": {
+      "relation": "connect",
+      "target": {
+       "param": "workshop"
+      },
+      "grant": "use",
+      "amount": {
+       "param": "runs"
+      },
+      "ja": "工房"
+     }
+    },
+    "steps": [
+     {
+      "id": "haul",
+      "effect": "caravan.send",
+      "args": {
+       "from": {
+        "param": "source"
+       },
+       "to": {
+        "param": "workVault"
+       },
+       "cargo": {
+        "goods": {
+         "ore": {
+          "param": "runs",
+          "times": 8
+         },
+         "wood": {
+          "param": "runs",
+          "times": 4
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "make",
+      "effect": "workshop.run",
+      "after": [
+       "haul"
+      ],
+      "args": {
+       "via": {
+        "use": "ws"
+       },
+       "vault": {
+        "param": "workVault"
+       },
+       "runs": {
+        "param": "runs"
+       }
+      }
+     },
+     {
+      "id": "ship",
+      "effect": "caravan.send",
+      "after": [
+       "make"
+      ],
+      "args": {
+       "from": {
+        "param": "workVault"
+       },
+       "to": {
+        "param": "receiver"
+       },
+       "cargo": {
+        "goods": {
+         "arms": {
+          "param": "runs",
+          "times": 4
+         }
+        }
+       }
+      }
+     }
+    ],
+    "trigger": "manual",
+    "limits": {
+     "runsPerDay": 1
+    },
+    "outputs": {
+     "arms": {
+      "from": {
+       "step": "ship",
+       "out": "delivered"
+      }
+     }
+    },
+    "claims": {
+     "trigger": "manual",
+     "runsPerDay": 1,
+     "outputsPerRun": {
+      "arms": 12
+     },
+     "grants": [
+      "use"
+     ],
+     "deliversTo": [
+      "receiver"
+     ],
+     "signer": "wallet-unless-own"
+    }
+   },
+   "hash": "c47b10b76faef7e352bd10d1be5f2a4c21c84e2a1cfea912c59bc36856f015b1",
+   "signature": "3452f99a75051cfb8640451f0c9aa677c5538af4abdac39cb6e82ccda7d04be1c487ff2d279f347d5822f8a044ed185261ed6fa6f73959b4b0d29f824a5a6703"
+  },
+  "ok/mine-delivery.json": {
+   "manifest": {
+    "format": "wylls.creation.manifest/0",
+    "name": "mine-delivery",
+    "version": "1.0.0",
+    "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+    "title": "鉱山の便（鉱石と木材を届ける）",
+    "note": "買い手の倉へ、鉱石と木材を荷車で届けます。代金の受け渡しは引き換えの預かりで別に行います。",
+    "params": {
+     "mine": {
+      "type": "vault",
+      "own": true,
+      "ja": "出す鉱山の倉",
+      "default": "vault:M-mine"
+     },
+     "buyer": {
+      "type": "vault",
+      "ja": "買い手の倉"
+     },
+     "ore": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "default": 24,
+      "ja": "鉱石の量"
+     },
+     "wood": {
+      "type": "int",
+      "min": 0,
+      "max": 100,
+      "default": 12,
+      "ja": "木材の量"
+     }
+    },
+    "uses": {},
+    "steps": [
+     {
+      "id": "ship",
+      "effect": "caravan.send",
+      "args": {
+       "from": {
+        "param": "mine"
+       },
+       "to": {
+        "param": "buyer"
+       },
+       "cargo": {
+        "goods": {
+         "ore": {
+          "param": "ore"
+         },
+         "wood": {
+          "param": "wood"
+         }
+        }
+       }
+      }
+     }
+    ],
+    "trigger": "manual",
+    "limits": {
+     "runsPerDay": 4
+    },
+    "outputs": {
+     "delivered": {
+      "from": {
+       "step": "ship",
+       "out": "delivered"
+      }
+     }
+    },
+    "claims": {
+     "outputsPerRun": {
+      "ore": 24,
+      "wood": 12
+     },
+     "deliversTo": [
+      "buyer"
+     ],
+     "signer": "wallet-unless-own"
+    }
+   },
+   "hash": "acbf59029d840361b6db8352b6235c86a3892d47af8594e2199f0b3d32bc17f0",
+   "signature": "e4ccc2ee1e44618a3236380507a7b039128b75793ef8685a8ecb87af8251490c2100fa4d13a413d11d2a23982ecd9ae8adb5f1837d43c0153da57af93c6c7a0c"
+  }
+ },
+ "registry": {
+  "entries": {
+   "bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5/front-supply": {
+    "author": "bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5",
+    "name": "front-supply",
+    "status": "withdrawn",
+    "statusLog": [
+     {
+      "status": "listed",
+      "day": 12,
+      "version": "1.0.0"
+     },
+     {
+      "status": "withdrawn",
+      "day": 12,
+      "seq": 1
+     }
+    ],
+    "versions": {
+     "1.0.0": {
+      "manifest": {
+       "format": "wylls.creation.manifest/0",
+       "name": "front-supply",
+       "version": "1.0.0",
+       "author": "bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5",
+       "title": "前線補給（工房を借りて兵器を送る）",
+       "note": "工房の州に自分の倉を置き、そこへ鉱石と木材を運び、Wの工房を使用権の札で動かして、できた兵器を前線の倉へ送ります。峠を通るので襲われることがあります。",
+       "params": {
+        "source": {
+         "type": "vault",
+         "own": true,
+         "ja": "材料を出す倉",
+         "default": "vault:A-mine"
+        },
+        "workshop": {
+         "type": "workshop",
+         "ja": "使う工房",
+         "default": "village:W"
+        },
+        "workVault": {
+         "type": "vault",
+         "own": true,
+         "ja": "工房と同じ州の自分の倉",
+         "default": "vault:A-work"
+        },
+        "receiver": {
+         "type": "place",
+         "ja": "兵器の届け先",
+         "default": "vault:A-fort"
+        },
+        "runs": {
+         "type": "int",
+         "min": 1,
+         "max": 6,
+         "default": 3,
+         "ja": "1日に工房を動かす回数"
+        }
+       },
+       "uses": {
+        "ws": {
+         "relation": "connect",
+         "target": {
+          "param": "workshop"
+         },
+         "grant": "use",
+         "amount": {
+          "param": "runs"
+         },
+         "ja": "工房"
+        }
+       },
+       "steps": [
+        {
+         "id": "haul",
+         "effect": "caravan.send",
+         "args": {
+          "from": {
+           "param": "source"
+          },
+          "to": {
+           "param": "workVault"
+          },
+          "cargo": {
+           "goods": {
+            "ore": {
+             "param": "runs",
+             "times": 8
+            },
+            "wood": {
+             "param": "runs",
+             "times": 4
+            }
+           }
+          }
+         }
+        },
+        {
+         "id": "make",
+         "effect": "workshop.run",
+         "after": [
+          "haul"
+         ],
+         "args": {
+          "via": {
+           "use": "ws"
+          },
+          "vault": {
+           "param": "workVault"
+          },
+          "runs": {
+           "param": "runs"
+          }
+         }
+        },
+        {
+         "id": "ship",
+         "effect": "caravan.send",
+         "after": [
+          "make"
+         ],
+         "args": {
+          "from": {
+           "param": "workVault"
+          },
+          "to": {
+           "param": "receiver"
+          },
+          "cargo": {
+           "goods": {
+            "arms": {
+             "param": "runs",
+             "times": 4
+            }
+           }
+          }
+         }
+        }
+       ],
+       "trigger": "manual",
+       "limits": {
+        "runsPerDay": 1
+       },
+       "outputs": {
+        "arms": {
+         "from": {
+          "step": "ship",
+          "out": "delivered"
+         }
+        }
+       },
+       "claims": {
+        "trigger": "manual",
+        "runsPerDay": 1,
+        "outputsPerRun": {
+         "arms": 12
+        },
+        "grants": [
+         "use"
+        ],
+        "deliversTo": [
+         "receiver"
+        ],
+        "signer": "wallet-unless-own"
+       }
+      },
+      "hash": "c47b10b76faef7e352bd10d1be5f2a4c21c84e2a1cfea912c59bc36856f015b1",
+      "signature": "3452f99a75051cfb8640451f0c9aa677c5538af4abdac39cb6e82ccda7d04be1c487ff2d279f347d5822f8a044ed185261ed6fa6f73959b4b0d29f824a5a6703",
+      "publishedDay": 12
+     }
+    }
+   },
+   "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05/mine-delivery": {
+    "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+    "name": "mine-delivery",
+    "status": "listed",
+    "statusLog": [
+     {
+      "status": "listed",
+      "day": 12,
+      "version": "1.0.0"
+     },
+     {
+      "status": "suspended",
+      "day": 12,
+      "seq": 1
+     },
+     {
+      "status": "listed",
+      "day": 12,
+      "seq": 2
+     }
+    ],
+    "versions": {
+     "1.0.0": {
+      "manifest": {
+       "format": "wylls.creation.manifest/0",
+       "name": "mine-delivery",
+       "version": "1.0.0",
+       "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+       "title": "鉱山の便（鉱石と木材を届ける）",
+       "note": "買い手の倉へ、鉱石と木材を荷車で届けます。代金の受け渡しは引き換えの預かりで別に行います。",
+       "params": {
+        "mine": {
+         "type": "vault",
+         "own": true,
+         "ja": "出す鉱山の倉",
+         "default": "vault:M-mine"
+        },
+        "buyer": {
+         "type": "vault",
+         "ja": "買い手の倉"
+        },
+        "ore": {
+         "type": "int",
+         "min": 0,
+         "max": 200,
+         "default": 24,
+         "ja": "鉱石の量"
+        },
+        "wood": {
+         "type": "int",
+         "min": 0,
+         "max": 100,
+         "default": 12,
+         "ja": "木材の量"
+        }
+       },
+       "uses": {},
+       "steps": [
+        {
+         "id": "ship",
+         "effect": "caravan.send",
+         "args": {
+          "from": {
+           "param": "mine"
+          },
+          "to": {
+           "param": "buyer"
+          },
+          "cargo": {
+           "goods": {
+            "ore": {
+             "param": "ore"
+            },
+            "wood": {
+             "param": "wood"
+            }
+           }
+          }
+         }
+        }
+       ],
+       "trigger": "manual",
+       "limits": {
+        "runsPerDay": 4
+       },
+       "outputs": {
+        "delivered": {
+         "from": {
+          "step": "ship",
+          "out": "delivered"
+         }
+        }
+       },
+       "claims": {
+        "outputsPerRun": {
+         "ore": 24,
+         "wood": 12
+        },
+        "deliversTo": [
+         "buyer"
+        ],
+        "signer": "wallet-unless-own"
+       }
+      },
+      "hash": "acbf59029d840361b6db8352b6235c86a3892d47af8594e2199f0b3d32bc17f0",
+      "signature": "e4ccc2ee1e44618a3236380507a7b039128b75793ef8685a8ecb87af8251490c2100fa4d13a413d11d2a23982ecd9ae8adb5f1837d43c0153da57af93c6c7a0c",
+      "publishedDay": 12
+     }
+    }
+   }
+  }
+ },
+ "statusSignatures": [
+  {
+   "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+   "name": "mine-delivery",
+   "status": "suspended",
+   "seq": 1,
+   "message": "c7c1f684245b759c454b7cdea2269371d4a482ca8b3e92148dd05a8584e56b8f",
+   "signature": "0871e8187b304167bd684ecee66e6d2930d5fa2a445d3e059dc93cfa5d720084b3f904c91cf4e3b4be27e2d9f301d4f45452801f0a791bd8b8dfd4c2e1b71906"
+  },
+  {
+   "author": "ed3234b276d4ceda57d59bad14fbaf5a773c0f318c999de3a60d53c5a5b34c05",
+   "name": "mine-delivery",
+   "status": "listed",
+   "seq": 2,
+   "message": "56f732e477eb09a197a05e4c9547833d64a87cce33cc0390becda77e9053cdfe",
+   "signature": "5e96f10e65e097bd618dc5948093930e1cbd692f63e64db323d0f4de29d82dc1b68bbec9ac9909a47d5b772b21b9d0cb1b39451a7e148898e9db9abeab07e20c"
+  },
+  {
+   "author": "bc7cbcb5636375fa1d82434d466724d92377f53b980695dd49d26d0ce12205a5",
+   "name": "front-supply",
+   "status": "withdrawn",
+   "seq": 1,
+   "message": "0bd8eea6270288b349982aa575b87978fcff1bb750c923b8e55e5bed24e57c98",
+   "signature": "fb47bffbbacd930c3ec8f4fc42e14c7519a8787d1a4c8a198c05da109a7e574a873a6ee92ea3e6693d3bdabf0a0a405b279c4d9475c9d58c7b2244106460590c"
+  }
+ ]
+}

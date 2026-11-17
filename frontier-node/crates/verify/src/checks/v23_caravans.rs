@@ -196,7 +196,7 @@ fn land_of(pd: &[u8]) -> Result<Land, String> {
     })
 }
 
-fn slots_of(pd: &[u8]) -> Result<Vec<CaravanSlot>, String> {
+pub(crate) fn slots_of(pd: &[u8]) -> Result<Vec<CaravanSlot>, String> {
     (0..MAX_CARAVAN_SLOTS)
         .map(|i| {
             pd.get(CS::at(i)..CS::at(i) + CS::SIZE)
@@ -303,23 +303,27 @@ pub fn judge_build_vault(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resul
 
 // ------------------------------------------------------------ SendCaravan
 
+/// Shared in the crate (④, 2026-11-08) so V26 can judge a custody send by the same
+/// walk the program's custody `send` runs (`proc::caravan::route`, the same arguments):
+/// visibility only, no change in meaning.
+///
 /// What a walk and its schedule must leave: the arrival, the last slot
 /// bell, the slots, per Province key, and the tower wear (1d: the seconds
 /// in the hostile coverage of the towers standing before the instruction).
-struct Routed {
-    arrive: i64,
-    last_bell: u32,
-    slots: Vec<(Key, CaravanSlot)>,
-    worn: u16,
+pub(crate) struct Routed {
+    pub(crate) arrive: i64,
+    pub(crate) last_bell: u32,
+    pub(crate) slots: Vec<(Key, CaravanSlot)>,
+    pub(crate) worn: u16,
 }
 
 /// `cargo` worn by `bps` (`tower::wear_i64` each).
-fn worn_cargo(cargo: &[i64; RES], bps: u16) -> [i64; RES] {
+pub(crate) fn worn_cargo(cargo: &[i64; RES], bps: u16) -> [i64; RES] {
     cargo.map(|c| permutation_rules::frontier::structure::wear_i64(c, bps))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn route(
+pub(crate) fn route(
     s: &dyn States,
     provinces: &[Key],
     origin: (ProvinceCoord, u8),
@@ -405,7 +409,7 @@ fn route(
 
 /// The Caravan a send leaves, against the rules'.
 #[allow(clippy::too_many_arguments)]
-fn check_caravan(
+pub(crate) fn check_caravan(
     cd: &[u8],
     owner: &Key,
     seq: u32,
@@ -457,7 +461,7 @@ fn check_caravan(
     Ok(())
 }
 
-fn check_slots(s: &dyn States, r: &Routed) -> Result<(), Wrong> {
+pub(crate) fn check_slots(s: &dyn States, r: &Routed) -> Result<(), Wrong> {
     for (k, want) in &r.slots {
         let pd = s
             .after(k)
@@ -476,6 +480,16 @@ fn check_slots(s: &dyn States, r: &Routed) -> Result<(), Wrong> {
 /// SendCaravan (accounts: 0 actor, 3 citizen, 4 src, 5 dst, 6 caravan, 8..
 /// path Provinces).
 pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
+    judge_send_caravan_as(ix, s, at).map(|_| ())
+}
+
+/// [`judge_send_caravan`], and whether the send needs the Citizen's owner
+/// itself (⑳, 2026-11-08): a send to another player needs the wallet; for an
+/// NFT resident's Citizen (no wallet) the program needs the pass's current
+/// Core owner, not its session (`resident::check`'s `by_session`). That is
+/// not judged here (the pass's holder is not in this check's evidence):
+/// `Ok(true)` hands it to V28.
+pub fn judge_send_caravan_as(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<bool, Wrong> {
     let x = ix2::SendCaravan::decode(&ix.data).map_err(|_| caravan_wrong("does not decode"))?;
     let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
     if keys.len() < 9 {
@@ -507,8 +521,11 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
     if (dp.kind, dp.p, dp.q, dp.at, dp.gen) != (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen) {
         return Err(caravan_wrong("the destination is not the one named"));
     }
-    // Plan §1-11: a send to another player is signed by the wallet.
-    if down != citizen && key_at(&cb, C2::WALLET).ok() != Some(actor) {
+    // Plan §1-11: a send to another player is signed by the wallet; an NFT
+    // Citizen's by the pass's owner (V28 judges it).
+    let nft = frontier_abi::resident_citizen::resident_asset(&cb).is_some();
+    let owner_only = down != citizen && nft;
+    if down != citizen && !nft && key_at(&cb, C2::WALLET).ok() != Some(actor) {
         return Err(caravan_wrong("a send to another player without the wallet"));
     }
     let cargo = ix2::cargo_milli(&x.cargo).ok_or_else(|| caravan_wrong("cargo"))?;
@@ -543,7 +560,7 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
             return Err(vault_wrong("the source vault is not debited by the cargo"));
         }
     }
-    Ok(())
+    Ok(owner_only)
 }
 
 // ------------------------------------------------------------ SettleCaravan
@@ -1093,6 +1110,7 @@ pub fn run(cx: &mut Ctx) {
     }
     let genesis_ts = cx.f.genesis_ts;
     let mut found: Vec<(usize, u32, &'static str, String)> = vec![];
+    let mut owner_required: Vec<(usize, usize)> = vec![];
     for (t, tx) in w.txs.iter().enumerate().filter(|(_, tx)| tx.ok) {
         let bell = frontier_abi::prologue::bell_at(genesis_ts, tx.time).unwrap_or(0);
         let at = At {
@@ -1105,7 +1123,15 @@ pub fn run(cx: &mut Ctx) {
             let Some(tag) = ix.tag() else { continue };
             let r = match V2Ix::from_tag(tag) {
                 Some(V2Ix::BuildVault) => judge_build_vault(ix, &st, at),
-                Some(V2Ix::SendCaravan) => judge_send_caravan(ix, &st, at),
+                Some(V2Ix::SendCaravan) => match judge_send_caravan_as(ix, &st, at) {
+                    Ok(owner_only) => {
+                        if owner_only {
+                            owner_required.push((t, ix.index));
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                },
                 Some(V2Ix::SettleCaravan) => {
                     judge_settle_caravan(ix, &st, at, settled_outcome(cx, t))
                 }
@@ -1177,6 +1203,7 @@ pub fn run(cx: &mut Ctx) {
     for (t, bell, code, detail) in found {
         cx.fail(V, code, "caravans", bell, Some(t), detail);
     }
+    cx.owner_required.extend(owner_required);
 }
 
 #[cfg(test)]

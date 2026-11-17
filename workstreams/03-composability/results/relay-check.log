@@ -1,0 +1,35 @@
+TAP version 13
+# [relay] SendCaravan cuLimit 140000, loadedLimit 1835008, txCeiling 1000
+# Subtest: [SIMULATED] SendCaravan is a sponsored player shape; the direct call passes the relay's allowlist
+ok 1 - [SIMULATED] SendCaravan is a sponsored player shape; the direct call passes the relay's allowlist
+  ---
+  duration_ms: 6.738691
+  type: 'test'
+  ...
+# Subtest: [SIMULATED] the courier's owner-signed shape is refused: the fourth instruction is not the Frontier program's
+ok 2 - [SIMULATED] the courier's owner-signed shape is refused: the fourth instruction is not the Frontier program's
+  ---
+  duration_ms: 2.429971
+  type: 'test'
+  ...
+# Subtest: [SIMULATED] the courier's delegated shape is refused for the same reason; its payer is not the relay either
+ok 3 - [SIMULATED] the courier's delegated shape is refused for the same reason; its payer is not the relay either
+  ---
+  duration_ms: 3.34515
+  type: 'test'
+  ...
+# Subtest: [SIMULATED] the relay's budget for SendCaravan, against the local measurements of the courier paths
+ok 4 - [SIMULATED] the relay's budget for SendCaravan, against the local measurements of the courier paths
+  ---
+  duration_ms: 1.420608
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 96.759049

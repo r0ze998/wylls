@@ -1329,7 +1329,113 @@ fn files() -> Vec<(&'static str, String)> {
         ("v2/budgets.json", v2_budgets().render()),
         ("v2/conquest.json", v2_conquest().render()),
         ("v2/web-rules.json", v2_web_rules().render()),
+        ("v2/resident-citizen.json", v2_resident_citizen().render()),
     ]
+}
+
+/// `vectors/v2/resident-citizen.json` (workstream 20): an NFT resident's
+/// Citizen as the program writes it (`resident_citizen::mark` on a v2
+/// Citizen), beside a wallet Citizen and two flagged Citizens the program
+/// never writes, each with `resident_citizen::resident_asset`'s answer and
+/// the Citizen address the herald's `/h/me/{key}` serves for that key
+/// (`me_citizen`: the wallet's Citizen, else the resident id's). The web
+/// client decodes these bytes with its own codec and checks its `/h/me`
+/// read against them (`web-frontier-resident-me.test.mjs`), so a reader that
+/// assumes an NFT Citizen names its asset as the wallet fails there.
+/// Synthetic public bytes only: no key is made, derived or used.
+fn v2_resident_citizen() -> J {
+    use frontier_abi::layout::player::holding_ref as R;
+    use frontier_abi::resident_citizen as rc;
+    use frontier_abi::v2::layout::player::citizen as C;
+    let ctx = test_ctx();
+    // The asset the real resident program minted in the spike (resident_citizen tests).
+    let asset: [u8; 32] = {
+        let h = "1e0472eeda371c36b8209aa20a7ec299e99fb803f918adafebb81ab58cc08ddc";
+        let mut a = [0u8; 32];
+        for (i, x) in a.iter_mut().enumerate() {
+            *x = u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap_or(0);
+        }
+        a
+    };
+    let wallet = sha256(&[b"frontier-abi vectors: wallet"]);
+    const SEASON_ID: u64 = 5;
+    // A v2 Citizen of season 5: faction 2, the slot refs home (2,0,3) gen 1,
+    // a wide ref (0,0,12) gen 0 and an empty slot, no ticket.
+    let citizen = |w: &[u8; 32]| {
+        let mut c = vec![0u8; C::SIZE];
+        c[C::HDR_MAGIC..C::HDR_MAGIC + 8].copy_from_slice(&C::MAGIC);
+        c[C::SEASON_ID..C::SEASON_ID + 8].copy_from_slice(&SEASON_ID.to_le_bytes());
+        c[C::LAYOUT_VERSION..C::LAYOUT_VERSION + 2].copy_from_slice(&2u16.to_le_bytes());
+        c[C::WALLET..C::WALLET + 32].copy_from_slice(w);
+        c[C::FACTION] = 2;
+        for (i, (p, q, site, gen)) in [(2i16, 0i16, 3u8, 1u8), (0, 0, 12, 0), (0, 0, 0, 255)]
+            .into_iter()
+            .enumerate()
+        {
+            let o = C::HOLDING + i * R::SIZE;
+            c[o + R::P..o + R::P + 2].copy_from_slice(&p.to_le_bytes());
+            c[o + R::Q..o + R::Q + 2].copy_from_slice(&q.to_le_bytes());
+            c[o + R::SITE] = site;
+            c[o + R::GEN] = gen;
+        }
+        c[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        c
+    };
+    let wallet_citizen = citizen(&wallet);
+    let mut nft = wallet_citizen.clone();
+    assert!(rc::mark(&mut nft, &asset), "mark a v2 Citizen");
+    let mut with_wallet = nft.clone();
+    with_wallet[C::WALLET] = 1;
+    let mut no_asset = nft.clone();
+    no_asset[rc::RESIDENT_ASSET..rc::RESIDENT_ASSET + 32].fill(0);
+    let tag = rc::resident_tag15(&asset);
+    let case = |name: &str, key: &[u8; 32], bytes: &[u8], served: [u8; 32]| {
+        o(vec![
+            ("case", st(name)),
+            ("key", J::S(b58(key))),
+            ("flagged", J::B(rc::is_flagged(bytes))),
+            (
+                "resident_asset",
+                rc::resident_asset(bytes).map_or(J::Null, |a| J::S(b58(&a))),
+            ),
+            ("citizen_address", J::S(b58(&served))),
+            ("bytes", J::S(hex(bytes))),
+        ])
+    };
+    let mut v = header_v2(
+        "NFT resident Citizens (workstream 20): the program's marked v2 Citizen, a wallet Citizen and two flagged Citizens the program never writes",
+    );
+    v.push(("season_pda", J::S(b58(&ctx.season))));
+    v.push(("program_id", J::S(b58(&ctx.program))));
+    v.push(("season_id", n(SEASON_ID)));
+    v.push(("resident_asset_off", n(rc::RESIDENT_ASSET as u64)));
+    v.push(("resident_flags_off", n(rc::RESIDENT_FLAGS as u64)));
+    v.push(("flag_resident", n(rc::FLAG_RESIDENT)));
+    v.push(("asset", J::S(b58(&asset))));
+    v.push(("resident_tag15", J::S(hex(&tag))));
+    v.push((
+        "cases",
+        J::A(vec![
+            case("wallet", &wallet, &wallet_citizen, ctx.citizen(&wallet)),
+            case("nft", &asset, &nft, ctx.citizen_by_tag15(&tag)),
+            // Never written by the program: the herald's `me_citizen` does not
+            // take them for the asset (`resident_asset` is None), and the
+            // client refuses them as the asset's Citizen.
+            case(
+                "flagged_with_wallet",
+                &asset,
+                &with_wallet,
+                ctx.citizen_by_tag15(&tag),
+            ),
+            case(
+                "flagged_zero_asset",
+                &asset,
+                &no_asset,
+                ctx.citizen_by_tag15(&tag),
+            ),
+        ]),
+    ));
+    done(v)
 }
 
 /// `vectors/v2/web-rules.json`: the rule figures the web client computes

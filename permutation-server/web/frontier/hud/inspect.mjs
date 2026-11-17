@@ -10,7 +10,7 @@ import { icon } from './icons.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName, unitCount } from '../fi18n.mjs';
-import { UNIT_ORDER } from '../fland.mjs';
+import { UNIT_ORDER, hostsIn } from '../fland.mjs';
 import { miniCardUrl } from '../people/minis.mjs';
 import { ringOf } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
@@ -25,13 +25,14 @@ import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
 import { placeName, placeWhere } from '../map/names.mjs';
-import { PLACE, placeNow, ringText } from '../map/world.mjs';
+import { PLACE, placeNow, ringText, ringSeeded } from '../map/world.mjs';
 import { TERRAIN_TEXT, villageDrawn, provinceName, provinceCoords, tileName } from './place.mjs';
 import { unpack } from '../seal.mjs';
 import { materialBytes } from '../marchbook.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
 import { conquestEnabled, keepFor, renderKeep, renderOutpost } from '../screens/conquest.mjs';
 import { territoryEnabled, territoryOf, territoryOwner } from '../territory.mjs';
+import { landOf, landTile, landTileLines } from '../land.mjs';
 import { s1On } from '../fs1.mjs';
 import { renderS1Tile, raidOffers } from '../screens/s1.mjs';
 
@@ -70,7 +71,13 @@ export function inspectModel(FS, terrainOf) {
   const owners = rec ? [...new Set(rec.owners.filter((f, j) => rec.sites[j] === 1 && f < 6 && (!sv || lv(t?.sites?.[j]) >= 2)))] : [];
   // what the place is before any survey (map/world.mjs): open land, being made, not open yet, or beyond the season's map
   const place = placeNow(FS, s.p, s.q) ?? (rec ? PLACE.open : PLACE.unopened);
-  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
+  // (2026-11-17, ⑦ the wide map: how the reads this card stands on went — the province's own record (controller
+  //  loadEnvelope / wantProvince: loading, failed with a code, missing) and whether the ring's overview has been read at
+  //  all. Not read is not empty: without the overview the card knows no village of this province, and says so)
+  const read = prov ? null : FS.provinceReads?.get?.(`${s.p},${s.q}`) ?? null;
+  // (only a ring that has an overview to read — map/world.mjs ringSeeded, as map/overviews.mjs asks it — can be "not read")
+  const ringRead = !!rec || !FS.world || !ringSeeded(FS.world, ringOf(s.p, s.q)) || !!FS.overviews?.has?.(ringOf(s.p, s.q));
+  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, read, ringRead, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
     relation: Number.isInteger(viewer) && prov ? owners.filter(f => f !== viewer).map(f => ({ faction: f, friendly: friendly(prov.relations, viewer, f) })) : [],
     reportBell: top === 3 ? prov?.resolveSummary?.bell || null : null, tile: null };
   if (!Number.isInteger(s.idx)) return out;
@@ -80,7 +87,7 @@ export function inspectModel(FS, terrainOf) {
   if (j >= 0 && here >= 2) {
     const m = here === 3 ? prov?.siteMirror?.[j] : null;
     // (the v2 mirror: 3 is a released site, free again; 5 a genesis Free City, `site::STATE_FREE_CITY`)
-    const state = m ? (m.state === 5 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
+    const state = m ? (m.state === 5 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : rec?.siteKinds?.[j] === 2 ? 'freeCity' : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
     const faction = m ? m.faction : rec?.owners?.[j];
     const mine = (FS.holdings ?? []).find(h => h.p === s.p && h.q === s.q && h.site === j) ?? null;
     const holder = state === 'holding' ? FS.roster?.ownerOf(s.p, s.q, j) ?? null : null;
@@ -104,8 +111,35 @@ export function inspectModel(FS, terrainOf) {
   // Ownership is current server state, so it is only shown while this tile is in sight.
   const territory = here === 3 ? territoryOf(FS, s.p, s.q) : null;
   if (territory) tile.territory = { owner: territoryOwner(FS, s.p, s.q, s.idx), since: territory.since[s.idx] };
+  // the land preview (a TEST-ONLY world with land records): who holds this tile and any count running on it, in sight only
+  const land = here === 3 && !territoryEnabled(FS) ? landOf(FS, s.p, s.q) : null;
+  if (land) tile.land = landTile(land, s.idx);
   out.tile = tile;
   return out;
+}
+
+/**
+ * How the reads behind the card went (2026-11-17, ⑦ the wide map), for open land only: the province's record being
+ * read, not read (with the herald's code) or not there yet, and the ring's overview not read — each said as what it is,
+ * never as an empty province, with one button that reads again (app `province-reread`). Nothing when all is read.
+ */
+function readState(m) {
+  if (!m.opened) return '';
+  const again = html`<button type="button" class="btn small" data-act="province-reread" data-p="${m.p}" data-q="${m.q}">${icon('return')}${L`もう一度読み込む`}</button>`;
+  const lines = [];
+  if (!m.loaded) {
+    const st = m.read?.state ?? 'idle';
+    if (st === 'failed') lines.push(html`<p class="notice error" role="alert">${L`この州のようすを読み込めませんでした（${m.read.code}）。何もない州という意味ではありません。`}</p>`);
+    else if (st === 'missing') lines.push(html`<p class="muted" role="status">${L`この州の記録は、まだ届いていません。何もない州という意味ではありません。`}</p>`);
+    else if (st === 'waiting') lines.push(html`<p class="muted" role="status">${L`この州の読み込みは、順番を待っています。空きしだい読み込みます。`}</p>`);
+    else if (st === 'loading') lines.push(html`<p class="muted" role="status">${L`この州のようすを読み込んでいます…`}</p>`);
+    // (nothing under way and nothing held: not asked yet, or an answer that was let go — said as that, with the button)
+    else lines.push(html`<p class="muted" role="status">${L`この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。`}</p>`);
+  }
+  if (!m.ringRead) lines.push(html`<p class="muted" role="status">${L`この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。`}</p>`);
+  if (!lines.length) return '';
+  const retry = !m.ringRead || (!m.loaded && m.read?.state !== 'loading' && m.read?.state !== 'waiting');
+  return html`<div class="insp-read" data-read="${!m.loaded ? m.read?.state ?? 'idle' : 'ring'}">${lines}${retry ? html`<div class="actions">${again}</div>` : ''}</div>`;
 }
 
 /** What a place `{p, q, tile}` is called and where it is (map/names.mjs): `{name, where}`, by the same rules as the selection. */
@@ -116,7 +150,21 @@ export function placeAt(FS, place, terrainOf = null) {
 
 /** The viewer's hosts standing on a tile and able to march (state 1, not on the road): `[{id, troops, unit}]` (`unit` the kernel's name). */
 export function ownHostsOn(FS, p, q, idx) {
-  try { return hostRows(FS).filter(r => r.p === p && r.q === q && r.tile === idx && r.state === 1 && !r.inTransit && !r.pending).map(r => ({ id: String(r.id), troops: r.troops, unit: UNIT_ORDER[r.unit] ?? null })); } catch { return []; }
+  try {
+    const out = hostRows(FS).filter(r => r.p === p && r.q === q && r.tile === idx && r.state === 1 && !r.inTransit && !r.pending).map(r => ({ id: String(r.id), troops: r.troops, unit: UNIT_ORDER[r.unit] ?? null, holdingIndex: FS.activeHolding ?? 0, other: false }));
+    // (2026-11-17, ⑦ the march's entry: the hosts of the viewer's OTHER villages standing here too — hostRows reads the
+    //  open village only, and the card showed such a host with no way to send it. `other`: its village is not the open
+    //  one; the march's entry switches to it — controller ACTIONS.compose)
+    const prov = FS.provinces?.get?.(`${p},${q}`)?.province ?? null;
+    (FS.holdings ?? []).forEach((h, i) => {
+      if (!prov || !h || i === (FS.activeHolding ?? 0)) return;
+      for (const r of hostsIn(prov, h, FS.nowBell ?? 0)) {
+        if (r.tile !== idx || r.state !== 1 || r.inTransit || r.pending || out.some(x => x.id === String(r.id))) continue;
+        out.push({ id: String(r.id), troops: r.troops, unit: UNIT_ORDER[r.unit] ?? null, holdingIndex: i, other: true });
+      }
+    });
+    return out;
+  } catch { return []; }
 }
 
 /**
@@ -156,7 +204,8 @@ export function inspectActions(FS, m) {
   if (t?.site?.mine) out.push({ act: 'holding-pick', data: { i: t.site.holdingIndex }, text: L`この村を開く`, primary: true });
   if (FS.compose && t && !FS.compose.sending) out.push({ act: 'dest-from-map', data: {}, text: L`ここを進軍の行き先にする`, primary: true });
   // the viewer's own ready hosts on this tile can be sent from here (the march card then opens on the map)
-  if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: L`${unitCount(h.unit, h.troops)} を進軍させる`, primary: true });
+  // (a host of another of the viewer's villages says so: pressing it opens the march from that village)
+  if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: h.other ? L`${unitCount(h.unit, h.troops)} を進軍させる（別の村の軍勢：その村から出します）` : L`${unitCount(h.unit, h.troops)} を進軍させる`, primary: true });
   // no site picking from the map (owner decision V2: the first village is placed automatically)
   if (m.reportBell) out.push({ act: 'battle-play', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`戦いを再生` });
   if (m.reportBell) out.push({ act: 'report-open', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`ターン ${fmtNum(m.reportBell)} の衝突の報告` });
@@ -194,16 +243,21 @@ export function render(FS, terrainOf, activities = null) {
   const terrain = t?.terrain ? (TERRAIN_TEXT[t.terrain]?.() ?? t.terrain) : null;
   const held = site?.state === 'holding';
   const s1 = t?.s1?.[0] ?? null;
-  const name = held ? holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : site && site.state !== 'free' ? SITE_TEXT[site.state]() : s1 ? S1_WORDS[s1.kind]?.() ?? terrain : terrain;
+  // (a conquest season: the tile the province's keep stands on is that keep, by its holder — a spectator who pressed the
+  // castle on the map read 「森」 as the card's name, and found the keep only in the plate further down)
+  const keep = conquestEnabled(FS) && !territoryEnabled(FS) ? keepFor(FS, m.p, m.q) : null;
+  const keepHere = !!keep && !!t && Number.isInteger(keep.tile) && keep.tile !== 255 && keep.tile === t.idx && !held && !t.camp;
+  const keepName = keepHere ? (Number(keep.holder) < 6 ? L`${factionName(Number(keep.holder))}の砦` : L`この州の砦`) : null;
+  const name = held ? holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : keepName ?? (site && site.state !== 'free' ? SITE_TEXT[site.state]() : s1 ? S1_WORDS[s1.kind]?.() ?? terrain : terrain);
   // under the name: what the land is, then where it is in words (the province by a village of the viewer's or by the
   // nation on whose side it lies; a village is itself the place: nothing more is said); the coordinates wait under
   // "details" (UX design 11.13)
   const where = [name && terrain && name !== terrain ? terrain : null, site && site.state === 'free' ? SITE_TEXT.free() : null, t && !held ? provinceName(FS, m.p, m.q) : null].filter(Boolean).join(' · ');
-  const mark = held ? 'home' : t?.camp ? 'tent' : t?.hosts?.length ? 'sword' : s1 ? 'shield' : t ? 'mountain' : 'chart';
+  const mark = held ? 'home' : t?.camp ? 'tent' : keepHere ? 'flag' : t?.hosts?.length ? 'sword' : s1 ? 'shield' : t ? 'mountain' : 'chart';
   const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${raw(leaderHex(site.faction, { size: 30 }))}${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad')
     : s1 ? (s1.own ? chip(L`あなたのもの`, 'you') : chip(html`${swatch(s1.faction)}${factionName(s1.faction)}`)) : '';
   const chips = [];
-  if (held && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
+  if ((held || site?.state === 'freeCity') && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);
   if (m.clash) chips.push(chip(L`このターンに衝突あり`, 'bad', 'swords'));
   // every chip explains itself (UX design 12.6; the second check: the viewer's own village carried 「シンダー 敵対」 with
@@ -212,8 +266,8 @@ export function render(FS, terrainOf, activities = null) {
   const stance = r => (r.friendly ? L`あなたの国と友好` : L`あなたの国と敵対`);
   const theirs = held && !site.mine ? m.relation.find(r => r.faction === site.faction) ?? null : null;
   if (theirs) chips.push(chip(stance(theirs), theirs.friendly ? 'ok' : 'bad', theirs.friendly ? 'check' : 'swords'));
+  for (const line of landTileLines(t?.land ?? null, { viewer: FS.citizen?.faction ?? null, nameOf: factionName })) chips.push(chip(line.text, line.tone, 'banner'));
   if (t?.territory) chips.push(chip(t.territory.owner === null ? L`どの国の領地でもありません` : t.territory.owner === FS.citizen?.faction ? L`あなたの国の領地` : L`${factionName(t.territory.owner)}の領地`, t.territory.owner === FS.citizen?.faction ? 'you' : '', 'banner'));
-  const keep = conquestEnabled(FS) && !territoryEnabled(FS) ? keepFor(FS, m.p, m.q) : null;
   // (a keep's holder, garrison and contest are the season's public record: the control snapshot and the reach list already
   // say them of every province, surveyed or not, so the panel stands for any province the player goes to: "go there" from
   // the reach list leads to the keep and its march button, not to a card that only says "unsurveyed")
@@ -240,8 +294,8 @@ export function render(FS, terrainOf, activities = null) {
     ${hosts}${doing}
     ${s1On() && FS.mode === 'play' && t && (m.level === 3 || ownHostsOn(FS, m.p, m.q, t.idx).length || raidOffers(FS).some(r => r.p === m.p && r.q === m.q && r.tile === t.idx)) ? renderS1Tile(FS, { p: m.p, q: m.q, idx: t.idx }) : ''}
     ${keepVisible && m.ring >= 2 ? renderKeep(FS, keep) : ''}
-    ${site && ['free', 'freeCity'].includes(site.state) && m.level === 3 && !territoryEnabled(FS) ? renderOutpost(FS, { p: m.p, q: m.q, site: site.index }) : ''}
-    ${!m.loaded && m.opened ? html`<p class="muted">${L`この州のようすを読み込んでいます…`}</p>` : ''}
+    ${site?.state === 'free' && m.level === 3 && !territoryEnabled(FS) ? renderOutpost(FS, { p: m.p, q: m.q, site: site.index }) : ''}
+    ${readState(m)}
     ${fold('i-more', L`くわしく`, html`<dl class="facts">${facts}</dl>${pin ? html`<div class="actions">${html`<button type="button" class="btn small" data-act="${pin.act}" ${dataAttrs(pin.data)}>${icon('pin')}${pin.text}</button>`}</div>` : ''}`)}
   </section>`;
 }

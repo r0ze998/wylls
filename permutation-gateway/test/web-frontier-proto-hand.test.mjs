@@ -163,7 +163,7 @@ test('off: the hand, the plate, this turn\'s list and the notices are as they we
   FS.orders = [{ id: 'o1', kind: 'muster', turn: 42, unit: 0, troops: 300, tile: { p: 2, q: 0, tile: 31 }, state: 'accepted' }];
   FS.feed = [{ id: 'bd:1', kind: 'build', bell: 42, p: 2, q: 0, text: '伐採場が完成しました' }];
   const list = turnlist.turnModel(FS, { next: protoHud.turnItems(FS) });
-  assert.deepEqual(list.orders.map(o => o.text), ['槍兵 300 を編成 — 次のターンに整列します']);
+  assert.deepEqual(list.orders.map(o => o.text), ['槍兵 300 を編成 — このターンの決着のあとに整列します']);
   assert.deepEqual(list.happened.map(o => o.text), ['伐採場が完成しました']);
   assert.doesNotMatch(flat(turnlist.renderTurnList(list)), /proto|試作|軍勢を送る/);
   assert.doesNotMatch(flat(feed.renderToast(FS.feed[0])), /proto-send|試作/);
@@ -800,7 +800,9 @@ test('the raise card says when the place was chosen for more tiles than the worl
 
 test('the order card says its wait in the clock the prototype\'s lines use; with the prototype off, in the game\'s minutes as before', () => {
   const src = read('frontier/hud/marchcard.mjs');
-  assert.match(src, /const awayLine = !FS\.proto \? \(away !== null \? L`約 \$\{fmtNum\(away\)\} 分後` : ''\) : awayWall !== null \? L`\$\{protoAbout\(awayWall\)\}後` : '';/);
+  // (2026-11-14: the non-prototype wait is waitWords — game minutes as before, or the wall time of a capture-demo test clock;
+  //  web-frontier-test-clock-wait.test.mjs)
+  assert.match(src, /const awayLine = !FS\.proto \? \(awaySecs !== null \? waitWords\(FS, awaySecs\) : ''\) : awayWall !== null \? L`\$\{protoAbout\(awayWall\)\}後` : '';/);
   assert.match(src, /const awayWall = w && Number\.isInteger\(FS\.nowBell\) && wallTurn !== null \? Math\.max\(1, w\.value - FS\.nowBell\) \* wallTurn : null;/, 'in whole turns: the words change at a toll, not every second');
   assert.equal(pm.turnWallSecs({ sample: { rate: 30 } }), 20); assert.equal(pm.aboutTime(16), '約16秒');
 });
@@ -1291,8 +1293,9 @@ test('the truth of the words: territory only for the prototype\'s score, no chai
   const files = dir => readdirSync(new URL(dir, WEB), { withFileTypes: true }).flatMap(e => (e.isDirectory() ? files(`${dir}${e.name}/`) : e.name.endsWith('.mjs') ? [`${dir}${e.name}`] : []));
   const OWN = new Set(['frontier/hud/proto.mjs', 'frontier/proto/hand-model.mjs']);
   // (the conquest client names 領土 where the chain's keeps and control decide it, and the arrival-control development world
-  // where its own record does: those files may say 領土, never the prototype's "your land")
-  const AUTHORITATIVE = new Set(['frontier/fi18n.mjs', 'frontier/controller.mjs', 'frontier/app.mjs', 'frontier/screens/onboarding.mjs', 'frontier/screens/territory.mjs', 'frontier/screens/conquest.mjs', 'frontier/screens/shell.mjs', 'frontier/hud/drawer.mjs']);
+  // where its own record does, and the land preview's reader of the program's own land record: those files may say 領土, never
+  // the prototype's "your land")
+  const AUTHORITATIVE = new Set(['frontier/land.mjs', 'frontier/fi18n.mjs', 'frontier/controller.mjs', 'frontier/app.mjs', 'frontier/screens/onboarding.mjs', 'frontier/screens/territory.mjs', 'frontier/screens/conquest.mjs', 'frontier/screens/shell.mjs', 'frontier/hud/drawer.mjs']);
   for (const f of files('frontier/')) if (!OWN.has(f)) assert.doesNotMatch(read(f), AUTHORITATIVE.has(f) ? /L`[^`]*(あなたの土地 |あなたの名で)/ : /L`[^`]*(領土|あなたの土地 |あなたの名で)/, f);
   // and those files draw only under the switch: every exported renderer of hud/proto.mjs starts from FS.proto
   const src = read('frontier/hud/proto.mjs');

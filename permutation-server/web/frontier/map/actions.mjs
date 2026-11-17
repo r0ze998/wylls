@@ -36,6 +36,7 @@ import { errorText, unitCount } from '../fi18n.mjs';
 import { SCOUT, UNIT_ORDER, actionBlocks, exploreTargets, hostsIn } from '../fland.mjs';
 import { DEPART_STAMINA, freeTransitSlot } from '../fmarch.mjs';
 import { reachSteps, reachTiles } from '../hud/reach.mjs';
+import { marchCheck } from '../hud/subject.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { YOU, fxNow } from './chart.mjs';
 import { upright } from './tilt.mjs';
@@ -70,7 +71,7 @@ const calm = (relations, a, b) => a === b || bit(relations, (a % 8) * 8 + (b % 8
 
 /**
  * What a reached tile is, for the viewer: 'home' (one of the viewer's own
- * villages), 'attack' (a camp, a hostile nation's village that is not under
+ * villages), 'attack' (a Free City, a camp, a hostile nation's village that is not under
  * protection, a hostile host), else 'move'. `level` is the survey's for the
  * tile: below 2 the map draws nothing there, so the tile is a plain move; at
  * 2 it draws villages only.
@@ -79,6 +80,8 @@ export function kindOf(prov, idx, { faction = null, level = 3, own = null, nowBe
   if (!prov || level < 2) return 'move';
   const j = Array.from(prov.sites ?? []).indexOf(idx);
   const m = j >= 0 ? prov.siteMirror?.[j] : null;
+  // Neutral Free Cities are siege targets before player diplomacy or holding protection (siege.rs).
+  if (m?.state === 5) return 'attack';
   if (m && m.state === 1) {
     if (own?.has(`${prov.p},${prov.q},${idx}`)) return 'home';
     const shielded = m.shieldUntilBell > nowBell && m.shieldUntilBell !== NO_BELL;
@@ -118,7 +121,10 @@ export function actorsAt(state, p, q, idx) {
         try { targets = eb.length ? [] : exploreTargets(prov, row); } catch { targets = []; }
         explore = { ok: !eb.length && targets.length > 0, blocks: eb, targets };
       }
-      out.push({ id: String(row.id), unit: row.unit, troops: row.troops, stamina: row.stamina, p, q, tile: idx, holding, holdingIndex, row, march: { ok: !mb.length, blocks: mb }, explore });
+      // (lane B D1, 2026-11-16: the tag says the same sentence as the tap's refusal — hud/subject.mjs marchCheck —, so the
+      //  map's round-37 equality check draws one block once; it said the generic Cooldown/TransitState words beside it)
+      const why = mb.length ? marchCheck({ nowBell, chain: { now: () => now } }, { ...row, id: String(row.id), holding, province: prov }).text : '';
+      out.push({ id: String(row.id), unit: row.unit, troops: row.troops, stamina: row.stamina, p, q, tile: idx, holding, holdingIndex, row, march: { ok: !mb.length, blocks: mb, why }, explore });
     }
   });
   const rank = a => (a.march.ok && a.unit !== SCOUT ? 0 : a.explore?.ok ? 1 : a.march.ok ? 2 : 3);
@@ -158,7 +164,7 @@ export function litTiles({ origin, stamina = 0, faction = null, provinceOf = () 
 /** The host's name on the map: its unit and troops, counted as everywhere else ("槍兵 600" / "600 Spearmen": fi18n.mjs unitCount). */
 export const actorText = a => unitCount(UNIT_ORDER[a.unit], a.troops);
 /** Why an acting host lights nothing (the first thing that blocks it), or ''. */
-export const blockText = a => { const c = a?.march?.ok || a?.explore?.ok ? null : a?.march?.blocks?.[0] ?? null; return c ? errorText(c) : ''; };
+export const blockText = a => { const c = a?.march?.ok || a?.explore?.ok ? null : a?.march?.blocks?.[0] ?? null; return c ? (a.march.why || errorText(c)) : ''; };
 
 /**
  * The page's actions for its selection, kept between frames.

@@ -1,0 +1,5 @@
+{'rMax': 6, 'rMaxSeason': 5, 'rMaxExt': 6, 'rMaxCeiling': 6, 'rMaxHard': 128, 'prizeMaxRing': 17, 'ringsOpened': 7, 'nextRing': 'AtMax', 'nextExtend': 'AtCeiling'}
+ExtendFrontier(7)
+operator transaction 3a63chRhmXJSR6cGeyCrZcqx8dJtxx1ZvZZeMViRpChPwA9waRfyTYWNFVfgtzGGf4fnRZvANJhoHujmwV4LKgWY failed: {"InstructionError":[3,{"Custom":1}]} (code Some(1))
+Program H3UmiRdJNzbAsBNzjxtDwQxG7P8oQFdpJEV4kZSyZSkP failed: custom program error: 0x1
+[('extend-frontier:6', 'landed')]

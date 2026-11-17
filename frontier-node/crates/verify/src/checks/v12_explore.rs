@@ -26,6 +26,17 @@ pub fn run(cx: &mut Ctx) {
     let f = cx.f;
     let mut floor: HashMap<Key, u8> = HashMap::new();
     let mut pending: HashMap<u64, usize> = HashMap::new();
+    // ⑳: an NFT-resident Citizen (RESIDENT_JOINED, kind 130) starts with the
+    // same explore floor as a JOINed one.
+    for c in w
+        .cq_recs
+        .iter()
+        .filter(|c| c.kind == frontier_abi::v2::log::CqKind::RESIDENT_JOINED)
+    {
+        if let Some(tag15) = crate::facts::resident_joined_tag(c) {
+            floor.insert(f.ctx.citizen_by_tag15(&tag15), C::EXPLORES_FLOOR);
+        }
+    }
     for (n, r) in w.recs.iter().enumerate() {
         match r.kind {
             Kind::JOIN => {

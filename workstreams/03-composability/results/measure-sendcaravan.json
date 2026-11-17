@@ -1,0 +1,5 @@
+[
+  {"path":"direct","cu":27809,"cu_limit_budget":140000,"within_cu_budget":true,"tx_bytes":515,"tx_contract":1000,"loaded_harness_rule":1754527,"loaded_validator_rule":1754527,"loaded_need_pages":1769472,"l_kind_harness":1802240,"loaded_limit_relay":1835008,"within_relay_loaded_limit":true,"fee":5000,"payer_moved":2325840,"caravan_lamports":2325840},
+  {"path":"courier-signed","cu":34023,"cu_limit_budget":140000,"within_cu_budget":true,"tx_bytes":550,"tx_contract":1000,"loaded_harness_rule":64307,"loaded_validator_rule":1809312,"loaded_need_pages":1835008,"l_kind_harness":1802240,"loaded_limit_relay":1835008,"within_relay_loaded_limit":true,"fee":5000,"payer_moved":2325840,"caravan_lamports":2325840},
+  {"path":"courier-delegated","cu":39127,"cu_limit_budget":140000,"within_cu_budget":true,"tx_bytes":648,"tx_contract":1000,"loaded_harness_rule":64587,"loaded_validator_rule":1809592,"loaded_need_pages":1835008,"l_kind_harness":1802240,"loaded_limit_relay":1835008,"within_relay_loaded_limit":true,"fee":5000,"payer_moved":2325840,"caravan_lamports":2325840}
+]

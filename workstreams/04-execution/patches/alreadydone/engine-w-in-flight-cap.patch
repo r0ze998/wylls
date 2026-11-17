@@ -1,0 +1,202 @@
+diff --git a/frontier-node/crates/keeper/src/config.rs b/frontier-node/crates/keeper/src/config.rs
+index 3a6e0750..f69b3b5f 100644
+--- a/frontier-node/crates/keeper/src/config.rs
++++ b/frontier-node/crates/keeper/src/config.rs
+@@ -200,6 +200,9 @@ pub struct KeeperConfig {
+     pub daily_budget_lamports: u64,
+     /// Most lamports the versions of one write may cost (§8.2 duplicates bound).
+     pub per_write_cap_lamports: u64,
++    /// W writes: most versions in flight before the next waits (0 = no
++    /// limit, the default; [`crate::engine::EngineParams::w_max_in_flight`]).
++    pub w_max_in_flight: u32,
+     pub beneficiary: Address,
+     pub api: Option<SocketAddr>,
+     pub token_file: Option<PathBuf>,
+@@ -280,6 +283,7 @@ impl KeeperConfig {
+             delay_floor: fclient::payers::DELAY_FLOOR_DEFAULT,
+             daily_budget_lamports: 50_000_000_000,
+             per_write_cap_lamports: 20_000_000,
++            w_max_in_flight: 0,
+             beneficiary,
+             api: None,
+             token_file: None,
+@@ -380,6 +384,7 @@ impl KeeperConfig {
+         num!("delay_floor", delay_floor, u64);
+         num!("daily_budget_lamports", daily_budget_lamports, u64);
+         num!("per_write_cap_lamports", per_write_cap_lamports, u64);
++        num!("w_max_in_flight", w_max_in_flight, u32);
+         num!("fallback_lag_slots", fallback_lag_slots, u64);
+         num!("contested_slots", contested_slots, u64);
+         num!("nonce_switch_slots", nonce_switch_slots, u64);
+diff --git a/frontier-node/crates/keeper/src/engine.rs b/frontier-node/crates/keeper/src/engine.rs
+index 18926536..8161b4c6 100644
+--- a/frontier-node/crates/keeper/src/engine.rs
++++ b/frontier-node/crates/keeper/src/engine.rs
+@@ -132,6 +132,13 @@ pub struct EngineParams {
+     /// D and N writes with a version in flight: slots between versions at
+     /// the class cap.
+     pub cap_resend_slots: u64,
++    /// W writes: most versions in flight (sent, status unknown, blockhash
++    /// valid) before the next one waits; 0 = no limit (every slot, the
++    /// contract's default). Versions adopted after a restart count. Only
++    /// one version can take effect; the rest land `AlreadyDone` and still
++    /// pay, so this bounds that waste at `w_max_in_flight - 1` per write,
++    /// at the price of the bid rising more slowly while versions are out.
++    pub w_max_in_flight: u32,
+ }
+ 
+ impl Default for EngineParams {
+@@ -148,6 +155,7 @@ impl Default for EngineParams {
+             max_versions: 64,
+             d_resend_slots: 2,
+             cap_resend_slots: 16,
++            w_max_in_flight: 0,
+         }
+     }
+ }
+@@ -918,7 +926,15 @@ impl Engine {
+     /// sending the next one now (module docs, "Resend cadence").
+     fn resend_waits(&self, p: &Pending, bid: u64, slot: u64) -> bool {
+         if p.spec.class == Class::W {
+-            return false;
++            // Settled (status known) versions and expired ones are not in
++            // flight; a write whose version landed is no longer pending.
++            let cap = self.params.w_max_in_flight;
++            return cap > 0
++                && p.versions
++                    .iter()
++                    .filter(|v| !p.settled.contains(&v.sig) && slot <= v.sent_slot + EXPIRY_SLOTS)
++                    .count()
++                    >= cap as usize;
+         }
+         let Some(last) = p.versions.last() else {
+             return false;
+@@ -1161,6 +1177,116 @@ mod tests {
+         assert_eq!(n, 1);
+     }
+ 
++    /// Workstream 04 (AlreadyDone waste, opt-in): with `w_max_in_flight`,
++    /// a W write sends no further version while that many are out with an
++    /// unknown status; it resumes when one is known to have failed or has
++    /// expired; once one landed, nothing more goes out; versions adopted
++    /// after a restart count as out. 0 keeps the every-slot behaviour.
++    #[tokio::test]
++    async fn w_in_flight_cap_unknown_confirmed_and_restart() {
++        let capped = || {
++            Engine::new(
++                Budgets::placeholder(),
++                EngineParams {
++                    w_max_in_flight: 2,
++                    ..EngineParams::default()
++                },
++            )
++        };
++        // Unknown: nothing lands; two versions, then the write waits.
++        let port = Script::default();
++        let mut pay = payers();
++        pay.refresh(&port, 0).await.unwrap();
++        let mut e = capped();
++        e.ensure(spec("w", Class::W, abi::tag::REVEAL), 10);
++        let mut sent = vec![];
++        for s in 10..20 {
++            sent.push(e.step(&port, &mut pay, None, s).await.sent);
++        }
++        assert_eq!(sent.iter().sum::<usize>(), 2, "two in flight, then wait: {sent:?}");
++        // Expired: the first two fall out of their blockhash window, two more go.
++        let mut later = 0;
++        for s in [10 + EXPIRY_SLOTS + 1, 10 + EXPIRY_SLOTS + 2, 10 + EXPIRY_SLOTS + 3] {
++            later += e.step(&port, &mut pay, None, s).await.sent;
++        }
++        assert_eq!(later, 2, "versions past expiry no longer count");
++
++        // A known failure (the retry ladder's case) frees its place at once.
++        let port = Script::default();
++        *port.answer.lock().unwrap() = Box::new(|_| {
++            Some(Status {
++                slot: 11,
++                err: Some("InstructionError(3, ComputationalBudgetExceeded)".into()),
++                code: None,
++            })
++        });
++        let mut pay = payers();
++        pay.refresh(&port, 0).await.unwrap();
++        let mut e = capped();
++        e.ensure(spec("f", Class::W, abi::tag::REVEAL), 10);
++        let mut n = 0;
++        for s in 10..14 {
++            n += e.step(&port, &mut pay, None, s).await.sent;
++        }
++        assert!(n >= 3, "failures are not in flight: {n}");
++
++        // Confirmed: the first version lands; nothing more goes out.
++        let port = Script::default();
++        *port.answer.lock().unwrap() = Box::new(|_| Some(Status { slot: 11, err: None, code: None }));
++        let mut pay = payers();
++        pay.refresh(&port, 0).await.unwrap();
++        let mut e = capped();
++        e.ensure(spec("c", Class::W, abi::tag::REVEAL), 10);
++        let mut n = 0;
++        for s in 10..20 {
++            n += e.step(&port, &mut pay, None, s).await.sent;
++        }
++        assert_eq!(n, 1, "a landed write sends nothing more");
++
++        // After a restart: two versions from the journal are still out.
++        let port = Script::default();
++        let mut pay = payers();
++        pay.refresh(&port, 0).await.unwrap();
++        let mut e = capped();
++        let payer = pay.reveal.addresses()[0];
++        let att = |i: u8| crate::journal::Attempt {
++            sig: Signature::from([i; 64]).to_string(),
++            kind: "test".into(),
++            object_key: "r".into(),
++            bell: Some(3),
++            region: Some(4),
++            class: "W".into(),
++            payer: payer.to_string(),
++            bid_milli: 433,
++            cu_limit: 200_000,
++            heap: None,
++            first_valid_slot: 9,
++            sent_slot: 9,
++            landed_slot: None,
++            status: "sent".into(),
++            code: None,
++        };
++        e.adopt(&[att(1), att(2)]);
++        e.ensure(spec("r", Class::W, abi::tag::REVEAL), 10);
++        let mut n = 0;
++        for s in 10..20 {
++            n += e.step(&port, &mut pay, None, s).await.sent;
++        }
++        assert_eq!(n, 0, "adopted versions in flight count");
++
++        // Off (0): every slot, as the contract says.
++        let port = Script::default();
++        let mut pay = payers();
++        pay.refresh(&port, 0).await.unwrap();
++        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
++        e.ensure(spec("o", Class::W, abi::tag::REVEAL), 10);
++        let mut n = 0;
++        for s in 10..16 {
++            n += e.step(&port, &mut pay, None, s).await.sent;
++        }
++        assert_eq!(n, 6);
++    }
++
+     /// The first version fails ComputationalBudgetExceeded, the second a
+     /// heap fault; the third (1.4M-limit rung ladder + heap frame) lands.
+     #[tokio::test]
+diff --git a/frontier-node/crates/keeper/src/lib.rs b/frontier-node/crates/keeper/src/lib.rs
+index df08d424..93c5ba98 100644
+--- a/frontier-node/crates/keeper/src/lib.rs
++++ b/frontier-node/crates/keeper/src/lib.rs
+@@ -337,6 +337,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
+             per_write_cap: cfg.per_write_cap_lamports,
+             d_resend_slots: cfg.d_resend_slots,
+             cap_resend_slots: cfg.cap_resend_slots,
++            w_max_in_flight: cfg.w_max_in_flight,
+             ..EngineParams::default()
+         };
+         let pk96 = drand.info().public_key;

@@ -1,0 +1,16 @@
+{
+ "repo": "r0ze998/wylls",
+ "commit": "bde8d1c1a92b5766b79bf0af7aae69052ca8ea34",
+ "tree": "99b73ee4d29dd897754c9bebf2080d3f13188b88",
+ "prerequisite": "7d7f2143d6f2696a3bc323d1d619b1d6961a7b18 (origin/preserve/ws14-7d7f2143)",
+ "handoff": "ws14-handoff-bde8d1c1.tar.gz, SHA-256 8a53f297ac573b0f36590ab8472dff4e4f16da93679e9b8533400e50bb80e8f4",
+ "contract": "wylls.ws14.tower-facts/1 (workstreams/14-central-tower/CONTRACT.ja.md, proto/contract.mjs)",
+ "generator": "gen-fixture.mjs of the handoff: createSim({seed: 1, days: 21, periodHours: 168, case}), run, toFacts; checkFacts reports nothing",
+ "files": {
+  "ws14-v1-bde8d1c1-caseA.json": { "was": "tower-facts-v1-caseA-seed1-21d-period168h.json", "sha256": "90fbd11750ffc3870f64f20f37c35795c91b022a6c33ebd3b4d29b83d97a2746" },
+  "ws14-v1-bde8d1c1-caseB.json": { "was": "tower-facts-v1-caseB-seed1-21d-period168h.json", "sha256": "59d692bb11d5802a81136c5bb5ac0ef5143db2805a889c30ed00a9a441bd1c3e" },
+  "ws14-v1-bde8d1c1-caseC.json": { "was": "tower-facts-v1-caseC-seed1-21d-period168h.json", "sha256": "ab90c2ad273cbde0491bf0b975a9eb9b661dd7de804f8845aec69e4aca63fd01" }
+ },
+ "checked_by_ws15": "bytes equal to the handoff's SHA256SUMS; regenerated with gen-fixture.mjs from a checkout of bde8d1c1: identical bytes",
+ "note": "Facts of ⑭'s comparison model (all verified: unverified). Not chain records. The boundaries are marks the model was asked to make, not war periods."
+}

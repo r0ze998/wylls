@@ -851,7 +851,51 @@ fn continuity(cx: &mut Ctx) {
     let w = cx.w;
     let f = cx.f;
     if !w.has_post {
+        // Workstream 11 (patch 0003): without post-states no Holding write
+        // is judged here; say so instead of passing in silence.
+        if w.txs.iter().any(|t| t.ok && !t.ixs.is_empty()) {
+            cx.missing(
+                V,
+                "holdings",
+                0,
+                None,
+                "no post-states: Holding continuity is not judged",
+            );
+        }
         return;
+    }
+    // Workstream 11 (patch 0003): a successful transaction that held a
+    // known Holding writable but whose archive has no post-state of it
+    // (a gap): its write is not judged, so UNVERIFIABLE.
+    {
+        use std::collections::BTreeSet;
+        let known: BTreeSet<crate::world::Key> = w
+            .txs
+            .iter()
+            .flat_map(|t| t.post.iter())
+            // and the final states (a Holding written once has one post).
+            .chain(w.finals.iter())
+            .filter(|(_, a)| a.as_ref().is_some_and(|a| a.data.starts_with(&H::MAGIC)))
+            .map(|(k, _)| *k)
+            .collect();
+        for (t, tx) in w
+            .txs
+            .iter()
+            .enumerate()
+            .filter(|(_, x)| x.ok && !x.ixs.is_empty())
+        {
+            for (k, wr) in &tx.keys {
+                if *wr && known.contains(k) && !tx.post.contains_key(k) {
+                    cx.missing(
+                        V,
+                        "holding",
+                        0,
+                        Some(t),
+                        "a transaction wrote a Holding the archive has no post-state of",
+                    );
+                }
+            }
+        }
     }
     // FileOutpost's anchor write (the touch and the settler cost, logged
     // as a HARVEST) is replayed by `owner_actions` on a conquest season.
@@ -976,6 +1020,16 @@ fn continuity(cx: &mut Ctx) {
                 ("the founding SETTLE", want)
             } else {
                 let Some(before) = w.state_before(k, t) else {
+                    // Workstream 11 (patch 0003): a Holding written with no
+                    // earlier post-state of it (an archive with a gap) is
+                    // not judged: UNVERIFIABLE, not a silent pass.
+                    cx.missing(
+                        V,
+                        format!("holding ({}, {}, {})", pqs.0, pqs.1, pqs.2),
+                        bell,
+                        Some(t),
+                        "a Holding write with no earlier post-state of it",
+                    );
                     continue;
                 };
                 if before.len() != H::SIZE || before[..8] != H::MAGIC {
@@ -993,6 +1047,23 @@ fn continuity(cx: &mut Ctx) {
                 } else if let Some((what, want)) = caravan_holding_write(w, tx, t, k, before) {
                     // S1 1b/1d: BuildVault, BuildStructure and a caravan's holding source pay
                     // after an owner touch; a delivery settles and credits.
+                    (what, want)
+                } else if let Some(why) = super::vr_rights::holding_unjudged(w, cx.input, t, k) {
+                    // 02-rights (candidate, r4): its records may be in the
+                    // part of the logs the archive lost.
+                    cx.missing(
+                        V,
+                        format!("holding ({}, {}, {})", pqs.0, pqs.1, pqs.2),
+                        bell,
+                        Some(t),
+                        format!("a Grant instruction wrote it and {why}"),
+                    );
+                    continue;
+                } else if let Some((what, want)) =
+                    super::vr_rights::holding_write(w, f, t, k, before)
+                {
+                    // 02-rights (candidate): a Grant instruction settles
+                    // without a touch and moves exactly its records' amounts.
                     (what, want)
                 } else if conquest_settlement_writes(tx, k) {
                     // SettleSiege (the stake returned), SettleCapture (the

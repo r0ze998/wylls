@@ -6,7 +6,7 @@
 //! | `record` | PS2 record of a **successful** transaction (a failed transaction's state is rolled back, so its logged records are not events) |
 //! | `link` | chain link of a record's tail, with the entity's address |
 //! | `entity` | chained entity: its latest `(seq, head)` from the logs |
-//! | `snapshot` | post-transaction state of a program-owned (or closed) account the transaction wrote |
+//! | `snapshot` | the archived bytes of a program-owned (or closed) account the transaction wrote: its exact post-state from the local feed, the state at a slot ≥ the transaction's from a public RPC ([`crate::provenance`]) |
 //! | `account` | latest snapshot per address |
 //! | `event` | PS2 record of a successful transaction, numbered 1, 2, … in archive order (`ev`): the herald's `/h/events?after=` pages (W3-D) |
 //! | `meta` | `last_seq` (the archive sequence indexed through), `schema` |
@@ -23,6 +23,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 use solana_address::Address;
 
+#[cfg(not(feature = "expedition-records-experimental"))]
 use fclient::log::bodies_from_logs;
 use fclient::ports::TxRecord;
 use frontier_abi::addr::AddrCtx;
@@ -31,6 +32,97 @@ use frontier_abi::v2::log as v2log;
 
 /// Index schema: 2 adds the `event` numbering (W3-D).
 pub const SCHEMA: i64 = 2;
+/// A separate marker: schema 2 alone was also used when unknown records were
+/// silently skipped and cannot establish complete indexing.
+// v1 silently ignored PSW1; never reuse its coverage as complete.
+const STRICT_RECORDS_KEY: &str = "strict_ps2_v2_reject_psw1";
+const BLOCKED_KEY: &str = "strict_ps2_blocked";
+
+fn require_supported_mode(conn: &Connection) -> Result<(), String> {
+    #[cfg(not(feature = "expedition-records-experimental"))]
+    {
+        let typed: Option<i64> = sql(conn
+            .query_row(
+                "SELECT v FROM meta WHERE k='expedition_records_v1'",
+                [],
+                |r| r.get(0),
+            )
+            .optional())?;
+        if typed.is_some() {
+            return Err("cache requires expedition-records-experimental".into());
+        }
+    }
+    #[cfg(feature = "expedition-records-experimental")]
+    let _ = conn;
+    Ok(())
+}
+
+fn require_readable(conn: &Connection) -> Result<(), String> {
+    require_supported_mode(conn)?;
+    let blocked: Option<i64> = sql(conn
+        .query_row(
+            "SELECT v FROM meta WHERE k = ?1",
+            params![BLOCKED_KEY],
+            |r| r.get(0),
+        )
+        .optional())?;
+    if blocked != Some(0) {
+        return Err(
+            "index coverage is blocked or unknown; resolve the archive before serving".into(),
+        );
+    }
+    Ok(())
+}
+
+fn decode_index_body(body: &[u8]) -> Result<v2log::Record<'_>, frontier_abi::log::LogError> {
+    v2log::decode(body)
+}
+
+#[cfg(test)]
+mod strict_guard_tests {
+    use super::{decode_index_body, require_readable, BLOCKED_KEY};
+    use frontier_abi::log::{self, Kind, LogError};
+    use rusqlite::{params, Connection};
+
+    // In-memory SQLite and literal values only: no common fixture, address or
+    // key generation/derivation, signatures, network, files, or test server.
+    #[test]
+    fn unknown_or_blocked_coverage_refuses_readers() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE meta(k TEXT PRIMARY KEY, v INTEGER NOT NULL);")
+            .unwrap();
+        assert!(require_readable(&conn).is_err());
+        conn.execute("INSERT INTO meta(k, v) VALUES(?1, 0)", params![BLOCKED_KEY])
+            .unwrap();
+        assert!(require_readable(&conn).is_ok());
+        conn.execute("UPDATE meta SET v = 1 WHERE k = ?1", params![BLOCKED_KEY])
+            .unwrap();
+        assert!(require_readable(&conn).is_err());
+        conn.execute("DELETE FROM meta WHERE k = ?1", params![BLOCKED_KEY])
+            .unwrap();
+        assert!(require_readable(&conn).is_err());
+    }
+
+    // Literal byte buffers only; this exercises the decoder used by index_one.
+    #[test]
+    fn strict_index_decoder_preserves_join_and_rejects_unknown() {
+        let mut legacy = [0u8; 96];
+        let n = log::write_body(Kind::JOIN, 1, &[3; 15], &[4; 74], &mut legacy).unwrap();
+        log::write_tail(&[], &mut legacy, n).unwrap();
+        let record = decode_index_body(&legacy).unwrap();
+        assert!(matches!(
+            record.kind,
+            frontier_abi::v2::log::AnyKind::V1(Kind::JOIN)
+        ));
+        assert_eq!(record.key, &[3; 15]);
+        assert_eq!(record.payload, &[4; 74]);
+        assert!(matches!(
+            decode_index_body(&[1, 255, 0, 0, 0, 0, 0]),
+            Err(LogError::UnknownKind(255))
+        ));
+        assert!(decode_index_body(&legacy[..95]).is_err());
+    }
+}
 
 pub struct Index {
     pub conn: Connection,
@@ -41,6 +133,8 @@ pub struct Index {
     pub rebuilds: u32,
     /// Roll-backs to the durable archive since open ([`Index::truncate_to`]).
     pub truncations: u32,
+    /// How snapshot `data` is stored ([`crate::codec`]; [`Index::use_snapshot_codec`]); the default stores it as is.
+    snapshot_codec: crate::codec::Codec,
 }
 
 /// One decoded PS2 record as stored.
@@ -99,27 +193,57 @@ impl Index {
                  kind INTEGER, present INTEGER NOT NULL);
              CREATE TABLE IF NOT EXISTS event(ev INTEGER PRIMARY KEY, seq INTEGER NOT NULL, idx INTEGER NOT NULL);",
         ))?;
+        require_supported_mode(&conn)?;
+        #[cfg(feature = "expedition-records-experimental")]
+        sql(conn.execute_batch("CREATE TABLE IF NOT EXISTS typed_observation(seq INTEGER NOT NULL, ordinal INTEGER NOT NULL, format TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(seq,ordinal));"))?;
         // An index written before the `event` table (schema 1) is emptied;
         // `Findex::open` then rebuilds it from the archive.
         let schema: Option<i64> = sql(conn
             .query_row("SELECT v FROM meta WHERE k = 'schema'", [], |r| r.get(0))
             .optional())?;
+        let last: Option<i64> = sql(conn
+            .query_row("SELECT v FROM meta WHERE k = 'last_seq'", [], |r| r.get(0))
+            .optional())?;
+        let strict: Option<i64> = sql(conn
+            .query_row(
+                "SELECT v FROM meta WHERE k = ?1",
+                params![STRICT_RECORDS_KEY],
+                |r| r.get(0),
+            )
+            .optional())?;
+        if last.unwrap_or(0) > 0 && (schema.unwrap_or(1) < SCHEMA || strict != Some(1)) {
+            return Err("existing index may have skipped PS2 or PSW1 records; rebuild from the archive in a separate index before serving".into());
+        }
         if schema.unwrap_or(1) < SCHEMA {
             sql(conn.execute_batch(
                 "DELETE FROM meta; DELETE FROM tx; DELETE FROM record; DELETE FROM link;
                  DELETE FROM entity; DELETE FROM snapshot; DELETE FROM account; DELETE FROM event;",
             ))?;
+            #[cfg(feature = "expedition-records-experimental")]
+            sql(conn.execute("DELETE FROM typed_observation", []))?;
             sql(conn.execute(
                 "INSERT INTO meta(k, v) VALUES('schema', ?1)",
                 params![SCHEMA],
             ))?;
         }
+        sql(conn.execute(
+            "INSERT OR IGNORE INTO meta(k, v) VALUES(?1, 1)",
+            params![STRICT_RECORDS_KEY],
+        ))?;
+        // Only the archive/index coordinator may establish complete coverage.
+        sql(conn.execute(
+            "INSERT OR IGNORE INTO meta(k, v) VALUES(?1, 1)",
+            params![BLOCKED_KEY],
+        ))?;
+        // (round 13 review: the codec this index RECORDS, so an index opened directly reads and writes its own codec)
+        let snapshot_codec = recorded_snapshot_codec(&conn)?;
         Ok(Index {
             conn,
             ctx,
             program,
             rebuilds: 0,
             truncations: 0,
+            snapshot_codec,
         })
     }
 
@@ -139,18 +263,46 @@ impl Index {
         let last = self.last_seq()?;
         let program = self.program;
         let ctx = self.ctx;
-        let t = sql(self.conn.transaction())?;
-        let mut n = 0;
-        for r in recs.iter().filter(|r| r.seq > last) {
-            index_one(&t, r, &program, ctx.as_ref())?;
-            sql(t.execute(
-                "INSERT INTO meta(k, v) VALUES('last_seq', ?1) ON CONFLICT(k) DO UPDATE SET v = ?1",
-                params![r.seq as i64],
-            ))?;
-            n += 1;
+        let result = (|| {
+            let t = sql(self.conn.transaction())?;
+            let mut n = 0;
+            let mut expected = last.checked_add(1).ok_or("archive sequence overflow")?;
+            for r in recs.iter().filter(|r| r.seq > last) {
+                if r.seq != expected || r.seq > i64::MAX as u64 {
+                    return Err(format!(
+                        "index sequence gap: expected {expected}, got {}",
+                        r.seq
+                    ));
+                }
+                index_one(&t, r, &program, ctx.as_ref(), self.snapshot_codec)?;
+                sql(t.execute("INSERT INTO meta(k, v) VALUES('last_seq', ?1) ON CONFLICT(k) DO UPDATE SET v = ?1", params![r.seq as i64]))?;
+                n += 1;
+                expected = expected.checked_add(1).ok_or("archive sequence overflow")?;
+            }
+            sql(t.commit())?;
+            Ok(n)
+        })();
+        if let Err(e) = &result {
+            self.mark_incomplete()
+                .map_err(|m| format!("{e}; unable to persist blocked status: {m}"))?;
         }
-        sql(t.commit())?;
-        Ok(n)
+        result
+    }
+
+    pub(crate) fn mark_incomplete(&self) -> Result<(), String> {
+        sql(self.conn.execute(
+            "INSERT INTO meta(k, v) VALUES(?1, 1) ON CONFLICT(k) DO UPDATE SET v = 1",
+            params![BLOCKED_KEY],
+        ))?;
+        Ok(())
+    }
+
+    pub(crate) fn mark_complete(&self) -> Result<(), String> {
+        sql(self.conn.execute(
+            "INSERT INTO meta(k, v) VALUES(?1, 0) ON CONFLICT(k) DO UPDATE SET v = 0",
+            params![BLOCKED_KEY],
+        ))?;
+        Ok(())
     }
 
     /// Rolls the index back to archive sequence `cut` (wave-5 review of
@@ -164,6 +316,8 @@ impl Index {
     pub fn truncate_to(&mut self, cut: u64) -> Result<(), String> {
         let c = cut as i64;
         let t = sql(self.conn.transaction())?;
+        #[cfg(feature = "expedition-records-experimental")]
+        sql(t.execute("DELETE FROM typed_observation WHERE seq > ?1", params![c]))?;
         sql(t.execute_batch(&format!(
             "DELETE FROM tx WHERE seq > {c};
              DELETE FROM record WHERE seq > {c};
@@ -228,19 +382,46 @@ impl Index {
 
     /// Drops every row and indexes `recs` again.
     pub fn rebuild_from(&mut self, recs: &[TxRecord]) -> Result<usize, String> {
-        self.rebuilds += 1;
-        sql(self.conn.execute_batch(
+        let program = self.program;
+        let ctx = self.ctx;
+        let t = sql(self.conn.transaction())?;
+        sql(t.execute_batch(
             "DELETE FROM meta; DELETE FROM tx; DELETE FROM record; DELETE FROM link;
              DELETE FROM entity; DELETE FROM snapshot; DELETE FROM account; DELETE FROM event;",
         ))?;
-        sql(self.conn.execute(
+        #[cfg(feature = "expedition-records-experimental")]
+        sql(t.execute("DELETE FROM typed_observation", []))?;
+        sql(t.execute(
             "INSERT INTO meta(k, v) VALUES('schema', ?1)",
             params![SCHEMA],
         ))?;
-        self.add(recs)
+        sql(t.execute(
+            "INSERT INTO meta(k, v) VALUES(?1, 1)",
+            params![STRICT_RECORDS_KEY],
+        ))?;
+        sql(t.execute("INSERT INTO meta(k, v) VALUES(?1, 1)", params![BLOCKED_KEY]))?;
+        let mut expected = 1u64;
+        for r in recs {
+            if r.seq != expected || r.seq > i64::MAX as u64 {
+                return Err(format!(
+                    "index sequence gap: expected {expected}, got {}",
+                    r.seq
+                ));
+            }
+            index_one(&t, r, &program, ctx.as_ref(), self.snapshot_codec)?;
+            sql(t.execute(
+                "INSERT INTO meta(k, v) VALUES('last_seq', ?1) ON CONFLICT(k) DO UPDATE SET v = ?1",
+                params![r.seq as i64],
+            ))?;
+            expected = expected.checked_add(1).ok_or("archive sequence overflow")?;
+        }
+        sql(t.commit())?;
+        self.rebuilds += 1;
+        Ok(recs.len())
     }
 
     pub fn tx_count(&self) -> Result<(u64, u64), String> {
+        require_readable(&self.conn)?;
         sql(self.conn.query_row(
             "SELECT COUNT(*), COALESCE(SUM(err IS NOT NULL), 0) FROM tx",
             [],
@@ -250,6 +431,7 @@ impl Index {
 
     /// Records of `kind` with `bell` in `[from, to]`, in feed order.
     pub fn records(&self, kind: u8, from: u32, to: u32) -> Result<Vec<StoredRecord>, String> {
+        require_readable(&self.conn)?;
         let mut st = sql(self.conn.prepare(
             "SELECT seq, idx, kind, bell, key, payload, body FROM record
              WHERE kind = ?1 AND bell BETWEEN ?2 AND ?3 ORDER BY seq, idx",
@@ -270,6 +452,7 @@ impl Index {
 
     /// Latest `(entity seq, head)` of a chained entity from the logs.
     pub fn entity_head(&self, a: &Address) -> Result<Option<(u64, [u8; 32])>, String> {
+        require_readable(&self.conn)?;
         sql(self
             .conn
             .query_row(
@@ -288,6 +471,7 @@ impl Index {
 
     /// Count of links whose address could not be resolved.
     pub fn unresolved_links(&self) -> Result<u64, String> {
+        require_readable(&self.conn)?;
         sql(self
             .conn
             .query_row("SELECT COUNT(*) FROM link WHERE address IS NULL", [], |r| {
@@ -296,9 +480,43 @@ impl Index {
             .map(|n| n as u64))
     }
 
+    /// TEST-ONLY (round 13): the codec of snapshot `data` ([`crate::codec`]). A store records it in its `meta` row
+    /// `snapshot_codec` (1 = gzip-v1; no row = stored as is). The default records nothing and changes nothing. Another
+    /// codec than the recorded one is accepted only for an index that holds nothing yet (it is then recorded);
+    /// otherwise it is refused: an index is never read or written in a codec other than its own.
+    pub fn use_snapshot_codec(&mut self, codec: crate::codec::Codec) -> Result<(), String> {
+        use crate::codec::Codec;
+        let recorded = recorded_snapshot_codec(&self.conn)?;
+        if recorded != codec {
+            let empty: i64 = sql(self.conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM tx) + (SELECT COUNT(*) FROM snapshot)",
+                [],
+                |r| r.get(0),
+            ))?;
+            if recorded != Codec::Plain
+                || codec != Codec::GzipV1
+                || empty != 0
+                || self.last_seq()? != 0
+            {
+                return Err(format!(
+                    "the index records snapshot codec {:?}, it was opened with {:?}: a store is never reopened in another codec",
+                    recorded.word().unwrap_or("plain"),
+                    codec.word().unwrap_or("plain")
+                ));
+            }
+            sql(self
+                .conn
+                .execute("INSERT INTO meta(k, v) VALUES('snapshot_codec', 1)", []))?;
+        }
+        self.snapshot_codec = codec;
+        Ok(())
+    }
+
     /// The latest snapshot of `a` at or before archive sequence `at`.
     pub fn snapshot_at(&self, a: &Address, at: u64) -> Result<Option<Snapshot>, String> {
-        sql(self
+        require_readable(&self.conn)?;
+        let codec = self.snapshot_codec;
+        let found = sql(self
             .conn
             .query_row(
                 "SELECT seq, slot, lamports, owner, kind, data FROM snapshot
@@ -316,7 +534,14 @@ impl Index {
                     })
                 },
             )
-            .optional())
+            .optional())?;
+        match found {
+            Some(mut s) => {
+                s.data = codec.decode(&s.data, crate::codec::SNAPSHOT_DECODE_MAX)?;
+                Ok(Some(s))
+            }
+            None => Ok(None),
+        }
     }
 
     /// The latest snapshot of `a`.
@@ -326,6 +551,7 @@ impl Index {
 
     /// Addresses of present accounts of `kind` (latest snapshot).
     pub fn present_of_kind(&self, kind: AccountKind) -> Result<Vec<Address>, String> {
+        require_readable(&self.conn)?;
         let mut st = sql(self.conn.prepare(
             "SELECT address FROM account WHERE kind = ?1 AND present = 1 ORDER BY address",
         ))?;
@@ -361,6 +587,17 @@ impl Reader {
             path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ))?;
+        let strict: Option<i64> = sql(conn
+            .query_row(
+                "SELECT v FROM meta WHERE k = ?1",
+                params![STRICT_RECORDS_KEY],
+                |r| r.get(0),
+            )
+            .optional())?;
+        if strict != Some(1) {
+            return Err("index may have skipped PS2 records; rebuild from the archive in a separate index before serving".into());
+        }
+        require_readable(&conn)?;
         Ok(Reader { conn })
     }
 
@@ -376,6 +613,7 @@ impl Reader {
 }
 
 fn events_after(conn: &Connection, after: u64, limit: usize) -> Result<Vec<EventRow>, String> {
+    require_readable(conn)?;
     let mut st = sql(conn.prepare_cached(
         "SELECT e.ev, e.seq, t.slot, t.sig, r.kind, r.bell, r.body FROM event e
          JOIN record r ON r.seq = e.seq AND r.idx = e.idx JOIN tx t ON t.seq = e.seq
@@ -396,6 +634,7 @@ fn events_after(conn: &Connection, after: u64, limit: usize) -> Result<Vec<Event
 }
 
 fn last_event(conn: &Connection) -> Result<u64, String> {
+    require_readable(conn)?;
     sql(
         conn.query_row("SELECT COALESCE(MAX(ev), 0) FROM event", [], |r| {
             r.get::<_, i64>(0)
@@ -422,11 +661,26 @@ fn fee_payer(wire: &[u8]) -> Option<Address> {
         .and_then(|t| t.message.account_keys.first().copied())
 }
 
+/// The snapshot codec an index records in `meta` (no row: stored as is); an unknown value is refused.
+fn recorded_snapshot_codec(conn: &Connection) -> Result<crate::codec::Codec, String> {
+    match sql(conn
+        .query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .optional())?
+    {
+        None => Ok(crate::codec::Codec::Plain),
+        Some(1) => Ok(crate::codec::Codec::GzipV1),
+        Some(v) => Err(format!("index: unknown snapshot codec {v}")),
+    }
+}
+
 fn index_one(
     t: &rusqlite::Transaction<'_>,
     r: &TxRecord,
     program: &Address,
     ctx: Option<&AddrCtx>,
+    codec: crate::codec::Codec,
 ) -> Result<(), String> {
     sql(t.execute(
         "INSERT INTO tx(seq, slot, sig, block_time, err, code, units, fee, fee_payer)
@@ -466,6 +720,17 @@ fn index_one(
             Some(a) if !fclient::decode::is_absent(&a.owner, &a.data) => continue,
             _ => (None, None, None, vec![], false),
         };
+        // (stored through the index's codec: as is by default; gzip-v1 only in a store created so — crate::codec; with a
+        //  codec, never a blob the index could not read back)
+        if codec != crate::codec::Codec::Plain && data.len() > crate::codec::SNAPSHOT_DECODE_MAX {
+            return Err(format!(
+                "snapshot of {k} at archive sequence {} is {} B, over the {} B a snapshot may decode to: refused",
+                r.seq,
+                data.len(),
+                crate::codec::SNAPSHOT_DECODE_MAX
+            ));
+        }
+        let data = codec.encode(&data);
         sql(t.execute(
             "INSERT OR REPLACE INTO snapshot(address, seq, slot, lamports, owner, kind, data)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -508,20 +773,47 @@ fn index_one(
         ))?;
     }
     // PS2 records and their chain links.
-    // Only the program's own frame (fclient::log); an undecodable body is
-    // skipped, never an error that would wedge the index (wave-3 review).
-    let bodies = bodies_from_logs(&r.logs, program).unwrap_or_default();
-    let mut idx = 0usize;
-    for body in bodies.iter() {
+    // Do not advance coverage past a program-frame record we cannot decode.
+    // The SQLite transaction rolls back; the raw archive remains the source.
+    #[cfg(feature = "expedition-records-experimental")]
+    let bodies: Vec<Vec<u8>> = {
+        let ctx = ctx.ok_or("typed stream requires pinned Season context")?;
+        let records = crate::expedition_records::transaction(r, program, ctx)?;
+        sql(t.execute("INSERT INTO meta(k,v) VALUES('expedition_records_v1',1) ON CONFLICT(k) DO UPDATE SET v=1", []))?;
+        let mut ps2 = vec![];
+        for (ordinal, record) in records.iter().enumerate() {
+            let ordinal = i64::try_from(ordinal).map_err(|_| "record ordinal overflow")?;
+            sql(t.execute(
+                "INSERT INTO typed_observation(seq,ordinal,format,body) VALUES(?1,?2,?3,?4)",
+                params![r.seq as i64, ordinal, record.format(), record.body()],
+            ))?;
+            if record.format() == "PS2" {
+                ps2.push(record.body().to_vec());
+            }
+        }
+        ps2
+    };
+    #[cfg(not(feature = "expedition-records-experimental"))]
+    let bodies = bodies_from_logs(&r.logs, program).map_err(|e| {
+        format!(
+            "cannot read program logs at archive sequence {}: {e:?}",
+            r.seq
+        )
+    })?;
+    for (idx, body) in bodies.iter().enumerate() {
+        #[cfg(feature = "expedition-records-experimental")]
+        if index_expedition_body(t, r, program, ctx, idx, body)? {
+            continue;
+        }
         // MC (CQ2-E, R-22): the v2 decoder reads M1's kinds exactly as
         // `log::decode` does and MC's 80–89 (entity kind 8 in tails), so
         // an MC season's `/h/events` numbering matches the herald fold's.
-        let Ok(rec) = v2log::decode(body) else {
-            continue;
-        };
-        let this = idx;
-        idx += 1;
-        let idx = this;
+        let rec = decode_index_body(body).map_err(|e| {
+            format!(
+                "unsupported or malformed PS2 record at archive sequence {}: {e:?}",
+                r.seq
+            )
+        })?;
         sql(t.execute(
             "INSERT INTO record(seq, idx, kind, bell, key, payload, body) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
@@ -693,6 +985,9 @@ mod tests {
         ];
         assert_eq!(ix.add(&recs).unwrap(), 5);
         assert_eq!(ix.add(&recs).unwrap(), 0, "idempotent by sequence");
+        // The fixture is the entire synthetic archive; the real coordinator
+        // performs this only after checking the archive/index boundary.
+        ix.mark_complete().unwrap();
         assert_eq!(ix.tx_count().unwrap(), (5, 1));
         assert_eq!(ix.records(Kind::ANCHOR as u8, 0, 10).unwrap().len(), 1);
         assert_eq!(
@@ -731,15 +1026,15 @@ mod tests {
         assert_eq!(ix.last_event().unwrap(), 3);
         // Rebuild gives the same answers.
         assert_eq!(ix.rebuild_from(&recs).unwrap(), 5);
+        ix.mark_complete().unwrap();
         assert_eq!(ix.entity_head(&season).unwrap(), Some((l2.seq, l2.head)));
         assert_eq!(ix.last_event().unwrap(), 3, "renumbered from 1");
     }
 
-    /// Wave-3 review (W3-D): a garbage PS2 body in the program's frame and
-    /// a well-formed one in another program's frame neither fail the batch
-    /// nor take an event number.
+    /// A malformed program-frame body stops the batch; foreign frames are
+    /// ignored. A later batch cannot move the index across the missing seq.
     #[test]
-    fn garbage_and_foreign_records_are_skipped() {
+    fn garbage_stops_index_and_foreign_records_are_skipped() {
         let program = Address::new_from_array([0xAB; 32]);
         let other = Address::new_from_array([0xCD; 32]);
         let ctx = crate::addr_ctx(&program, 3);
@@ -766,11 +1061,211 @@ mod tests {
                 false,
             ),
         ];
-        assert_eq!(ix.add(&recs).unwrap(), 3);
+        assert!(ix.add(&recs).is_err());
+        assert_eq!(ix.last_seq().unwrap(), 0);
+        assert!(ix.last_event().is_err());
+        assert!(
+            ix.add(&recs[1..]).is_err(),
+            "cannot skip archive sequence 1"
+        );
+        let mut repaired = recs;
+        repaired[0].logs.clear();
+        assert_eq!(ix.add(&repaired).unwrap(), 3);
+        ix.mark_complete().unwrap();
         let ev = ix.events_after(0, 10).unwrap();
         assert_eq!(
             ev.iter().map(|e| (e.ev, e.seq)).collect::<Vec<_>>(),
             vec![(1, 3)]
         );
+    }
+}
+
+#[cfg(feature = "expedition-records-experimental")]
+fn index_expedition_body(
+    t: &rusqlite::Transaction<'_>,
+    tx: &TxRecord,
+    program: &Address,
+    ctx: Option<&AddrCtx>,
+    idx: usize,
+    body: &[u8],
+) -> Result<bool, String> {
+    if !matches!(body.get(1), Some(145..=149)) {
+        return Ok(false);
+    }
+    let ctx = ctx.ok_or("experimental PS2 requires a pinned Season context")?;
+    if ctx.program != program.to_bytes() {
+        return Err("experimental PS2 context mismatch".into());
+    }
+    let record =
+        crate::expedition_records::decode(ctx, body)?.ok_or("missing experimental record")?;
+    // Exact opaque body, not a fabricated legacy key/payload schema.
+    sql(t.execute(
+        "INSERT INTO record(seq,idx,kind,bell,key,payload,body) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        params![
+            tx.seq as i64,
+            idx as i64,
+            record.kind as i64,
+            record.bell as i64,
+            Vec::<u8>::new(),
+            body,
+            body
+        ],
+    ))?;
+    sql(t.execute(
+        "INSERT INTO event(seq,idx) VALUES(?1,?2)",
+        params![tx.seq as i64, idx as i64],
+    ))?;
+    for (n, link) in record.links.iter().enumerate() {
+        let mut candidates = tx.post.iter().filter_map(|(key, a)| {
+            let a = a.as_ref()?;
+            let h = fclient::decode::chained_header(&a.data)?;
+            (a.owner == *program
+                && crate::expedition_records::account_matches_entity(&a.data, link.entity)
+                && h.event_seq == link.seq
+                && h.event_head == link.head)
+                .then_some(*key)
+        });
+        let first = candidates.next();
+        let address = if candidates.next().is_none() {
+            first
+        } else {
+            None
+        };
+        sql(t.execute("INSERT INTO link(seq,idx,n,entity_kind,address,eseq,head) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![tx.seq as i64,idx as i64,n as i64,link.entity as u8 as i64,address.map(|a|a.to_string()),link.seq as i64,link.head.to_vec()]))?;
+        if let Some(a) = address {
+            sql(t.execute("INSERT INTO entity(address,entity_kind,eseq,head,tx_seq) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(address) DO UPDATE SET eseq=?3,head=?4,tx_seq=?5 WHERE ?3 > entity.eseq",params![a.to_string(),link.entity as u8 as i64,link.seq as i64,link.head.to_vec(),tx.seq as i64]))?;
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(all(test, feature = "expedition-records-experimental"))]
+mod expedition_index_tests {
+    use super::*;
+    #[test]
+    fn stream_numbering_pairs_and_lifecycle_are_atomic() {
+        let (ctx, txs) = crate::expedition_records::fixture::trace();
+        let p = Address::new_from_array(ctx.program);
+        let mut index = Index::open(Path::new(":memory:"), p, Some(ctx)).unwrap();
+        index.add(&txs).unwrap();
+        let ps2: usize = txs
+            .iter()
+            .map(|tx| {
+                crate::expedition_records::transaction(tx, &p, &ctx)
+                    .unwrap()
+                    .iter()
+                    .filter(|r| r.format() == "PS2")
+                    .count()
+            })
+            .sum();
+        let total: usize = txs
+            .iter()
+            .map(|tx| {
+                crate::expedition_records::transaction(tx, &p, &ctx)
+                    .unwrap()
+                    .len()
+            })
+            .sum();
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM event", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            ps2 as i64
+        );
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM typed_observation", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            total as i64
+        );
+        let before = index.last_seq().unwrap();
+        let mut bad = txs[0].clone();
+        bad.seq = before + 1;
+        bad.logs = fclient::log::in_frame(
+            &p,
+            vec![format!(
+                "Program data: UFMy {}",
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [1u8, 146])
+            )],
+        );
+        assert!(index.add(&[bad]).is_err());
+        assert_eq!(index.last_seq().unwrap(), before);
+        index.truncate_to(0).unwrap();
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM typed_observation", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        index.add(&txs).unwrap();
+        index.rebuild_from(&txs).unwrap();
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM typed_observation", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            total as i64
+        );
+    }
+}
+
+#[cfg(all(test, feature = "expedition-records-experimental"))]
+mod browser_expedition_tests {
+    use super::*;
+    #[test]
+    fn actual_browser_archive_reopens_and_attributes_all_three_entity_families() {
+        let (ctx, txs) = crate::expedition_records::browser_trace();
+        let program = Address::new_from_array(ctx.program);
+        assert_eq!(txs.last().unwrap().slot, 212);
+        assert!(txs.last().unwrap().err.is_none());
+        let file = std::env::temp_dir().join(format!(
+            "wylls-event-reopen-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(!file.exists());
+        let mut index = Index::open(&file, program, Some(ctx)).unwrap();
+        index.add(&txs).unwrap();
+        index.mark_complete().unwrap();
+        assert_eq!(index.last_seq().unwrap(), 6);
+        let links: i64 = index
+            .conn
+            .query_row(
+                "SELECT COUNT(DISTINCT address) FROM link WHERE seq=6",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(links, 3);
+        let before = index.dump_rows().unwrap();
+        drop(index);
+        let index = Index::open(&file, program, Some(ctx)).unwrap();
+        assert_eq!(index.dump_rows().unwrap(), before);
+        assert!(index
+            .events_after(0, 100)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == 146));
+        // Small unique test artifact intentionally retained, not user data removed.
+    }
+}
+#[cfg(all(test, not(feature = "expedition-records-experimental")))]
+mod default_expedition_guard_tests {
+    use super::*;
+    #[test]
+    fn default_reader_refuses_explicit_typed_mode_cache() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE meta(k TEXT PRIMARY KEY,v INTEGER NOT NULL);INSERT INTO meta VALUES('expedition_records_v1',1);").unwrap();
+        assert!(require_supported_mode(&conn).is_err());
+        assert!(decode_index_body(&[1, 146, 0, 0, 0, 0, 0]).is_err());
     }
 }

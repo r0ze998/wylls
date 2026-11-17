@@ -50,6 +50,12 @@ pub struct IngestCfg {
     /// Test hook: a pause inside every checkpoint save (integ-W6t review:
     /// proves the ingest does not wait for the save). Zero in service.
     pub checkpoint_pause: Duration,
+    /// Compact output (files.rs: the `.gz` alone), for a new world's data
+    /// directory only ([`crate::files::output_mode`]). Off by default.
+    pub compact_output: bool,
+    /// The findex store codec (round 14, TEST-ONLY): `GzipV1` only with compact output (`--output compact-v2`), for a
+    /// new world's data directory only. The default stores as before.
+    pub store_codec: findex::codec::Codec,
 }
 
 impl IngestCfg {
@@ -64,6 +70,32 @@ impl IngestCfg {
             segment_bytes: findex::archive::SEGMENT_BYTES,
             archive_commit: Duration::from_secs(1),
             checkpoint_pause: Duration::ZERO,
+            compact_output: false,
+            store_codec: findex::codec::Codec::Plain,
+        }
+    }
+    /// The output word this configuration records ([`crate::files::output_mode_word`]); a compressed store without
+    /// compact output is not a mode (refused).
+    pub fn output_word(&self) -> Result<Option<&'static [u8]>, String> {
+        use findex::codec::Codec;
+        match (self.compact_output, self.store_codec) {
+            (false, Codec::Plain) => Ok(None),
+            (true, Codec::Plain) => Ok(Some(crate::files::OUTPUT_COMPACT_V1)),
+            (true, Codec::GzipV1) => Ok(Some(crate::files::OUTPUT_COMPACT_V2)),
+            (false, Codec::GzipV1) => Err(
+                "a compressed findex store is only with compact output (--output compact-v2)"
+                    .into(),
+            ),
+        }
+    }
+    /// The output writer/reader of this data directory (compact or default),
+    /// for the fold and for the server alike.
+    pub fn out(&self) -> Out {
+        let o = Out::new(self.files_dir());
+        if self.compact_output {
+            o.compact()
+        } else {
+            o
         }
     }
     pub fn findex_dir(&self) -> PathBuf {
@@ -116,11 +148,14 @@ impl Ingest {
     /// Opens the store, restores the fold and catches it up with the archive.
     pub fn open(cfg: IngestCfg, diffs: broadcast::Sender<Arc<Diff>>) -> Result<Ingest, String> {
         std::fs::create_dir_all(&cfg.data).map_err(|e| e.to_string())?;
-        let findex = Findex::open(
+        // (before anything is written: a compact world only in a new data directory, never reopened in the other mode)
+        crate::files::output_mode_word(&cfg.data, &cfg.files_dir(), cfg.output_word()?)?;
+        let findex = Findex::open_with(
             &cfg.findex_dir(),
             cfg.program,
             Some(cfg.season_id),
             cfg.segment_bytes,
+            cfg.store_codec,
         )
         .map_err(|e| e.to_string())?;
         let mut findex = findex;
@@ -131,7 +166,7 @@ impl Ingest {
             builder: cfg.builder.clone(),
             exact_post: cfg.exact_post,
         };
-        let out = Out::new(cfg.files_dir());
+        let out = cfg.out();
         let st = checkpoint::load_full(
             &cfg.checkpoint_path(),
             &cfg.program.to_bytes(),
@@ -295,6 +330,27 @@ impl Ingest {
         Ok(got.len())
     }
 
+    /// Records the last pull's outcome for `/h/status` (`None`: it
+    /// succeeded; `Some((error, store failed))`: it failed).
+    pub fn note_ingest(&self, failed: Option<(&str, bool)>) {
+        if let Ok(mut f) = self.fold.write() {
+            match failed {
+                None if f.ingest.failures > 0 => f.ingest.ok(),
+                None => {}
+                Some((e, stopped)) => f.ingest.failed(e, unix_ms(), stopped),
+            }
+        }
+    }
+
+    /// Records the source's coverage report for `/h/status`.
+    pub fn note_coverage(&self, c: Option<serde_json::Value>) {
+        if let Ok(mut f) = self.fold.write() {
+            if f.ingest.coverage != c {
+                f.ingest.coverage = c;
+            }
+        }
+    }
+
     /// Records the chain's latest slot and Clock for the live views.
     pub fn observe_clock(&self, slot: u64, unix: i64) {
         if let Ok(mut f) = self.fold.write() {
@@ -317,9 +373,22 @@ pub async fn run<S: Source, P: fclient::ports::ChainPort>(
         if *stop.borrow() {
             break;
         }
-        let n = match ing.step(&mut src).await {
-            Ok(n) => n,
+        let step = ing.step(&mut src).await;
+        ing.note_coverage(src.coverage());
+        let n = match step {
+            Ok(n) => {
+                ing.note_ingest(None);
+                n
+            }
             Err(e) => {
+                let poisoned = ing.findex.is_poisoned();
+                ing.note_ingest(Some((&e, poisoned)));
+                if poisoned {
+                    // The in-memory archive may contain an incomplete batch.
+                    // Checkpointing or pulling again could make a gap durable;
+                    // only reopening from its durable manifest is safe.
+                    return Err(format!("herald: ingest store failed; reopen required: {e}"));
+                }
                 eprintln!("herald: ingest: {e}");
                 0
             }

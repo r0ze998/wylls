@@ -191,6 +191,8 @@ impl World {
             program_hashes: vec![(0, so_hash)],
             provenance: provenance.into(),
             scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
+            history: Default::default(),
+            resident_feed: None,
         }
     }
 }
@@ -287,4 +289,48 @@ pub fn show(r: &verify_core::Report) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The six tickets of the committed synthetic march season
+/// (`fixtures/verify/march-synth.json`) that its M1 program could never
+/// have filed: the generator (`verify_core::fixture::march`) puts the
+/// citizens of nations 1 and 2 in provinces B, C and E, which lie in
+/// wedges 4, 4 and 5, not their own wedge and not an adjacent one
+/// (`proc/citizen.rs::wedge_allowed`, the same at the M1 exit commit
+/// 629d007). V11 judges tickets since the map-growth port (dd79c59a) and
+/// rightly fails them. Re-recording the fixture with valid sites signs with
+/// the test keys, which the owner's rule does not allow here, so the tests
+/// pin exactly these findings: any other finding, a missing one, or a
+/// different detail fails them (workstream 04, 2026-11-07).
+pub const MARCH_SYNTH_IMPOSSIBLE_TICKETS: [&str; 6] = [
+    "site 0 (0, -2, 0) is outside the placement rule of nation 1",
+    "site 0 (0, -2, 1) is outside the placement rule of nation 1",
+    "site 0 (1, -3, 0) is outside the placement rule of nation 2",
+    "site 0 (1, -3, 1) is outside the placement rule of nation 2",
+    "site 0 (3, -3, 0) is outside the placement rule of nation 2",
+    "site 0 (3, -3, 1) is outside the placement rule of nation 2",
+];
+
+/// The synthetic march season's report holds, as its only FAIL or
+/// UNVERIFIABLE findings, exactly the six impossible tickets (one V11
+/// `TicketPlacementMismatch` each, at bell 0), and so its verdict is FAIL.
+pub fn assert_only_the_impossible_tickets(r: &verify_core::Report) {
+    use verify_core::{Severity, Verdict};
+    let bad: Vec<_> = r
+        .findings
+        .iter()
+        .filter(|f| f.severity != Severity::Warn)
+        .collect();
+    assert_eq!(bad.len(), 6, "{}", show(r));
+    for want in MARCH_SYNTH_IMPOSSIBLE_TICKETS {
+        let hit: Vec<_> = bad.iter().filter(|f| f.detail.contains(want)).collect();
+        assert_eq!(hit.len(), 1, "{want}: {}", show(r));
+        let f = hit[0];
+        assert!(
+            f.fail() && f.check == "V11" && f.code == "TicketPlacementMismatch" && f.bell == 0,
+            "{want}: {}",
+            show(r)
+        );
+    }
+    assert_eq!(r.verdict, Verdict::Fail, "{}", show(r));
 }

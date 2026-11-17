@@ -43,7 +43,17 @@ export function hudInsets(doc = globalThis.document) {
   if (b && shown(bar, view) && b.height > 0 && b.top < c.bottom) out.bottom = Math.max(out.bottom, c.bottom - b.top);
   // (and its card while a tile is being chosen on the board for it: the board's subject is framed above the card)
   const card = doc.getElementById('hand-pop'), k = rectOf(card);
-  if (k && shown(card, view) && card.dataset.mode === 'card' && (card.dataset.pop === 'muster' || card.dataset.pop === 'keeps' || card.dataset.pick === 'dress' || (CARDS_OVER_BOARD.includes(card.dataset.pop) && (view?.innerWidth ?? 1440) >= 760)) && k.height > 0 && k.top < c.bottom) out.bottom = Math.max(out.bottom, c.bottom - k.top);
+  if (k && shown(card, view) && card.dataset.mode === 'card' && (card.dataset.pop === 'muster' || card.dataset.pop === 'keeps' || card.dataset.pop === 'expedition-compose' || card.dataset.pick === 'dress' || (CARDS_OVER_BOARD.includes(card.dataset.pop) && (view?.innerWidth ?? 1440) >= 760)) && k.height > 0 && k.top < c.bottom) out.bottom = Math.max(out.bottom, c.bottom - k.top);
+  // The phone's notices span the board. A boundary editor must frame its
+  // next tile between those notices and the compact route card.
+  if ((view?.innerWidth ?? 1440) < 760 && shown(card, view) && card?.dataset.pop === 'expedition-compose') {
+    for (const el of doc.querySelectorAll?.('#feed > *') ?? []) {
+      const r = rectOf(el);
+      if (r && shown(el, view) && r.width >= c.width * 0.5 && r.height > 0) {
+        out.top = Math.max(out.top, Math.min(r.bottom - c.top, c.height - out.bottom - 96));
+      }
+    }
+  }
   // a phone with the prototype rule "banners" on: its chip, its score and the notices under them stand across the top
   // of the map, one under the other. A notice's 見る flew to the banner it told of and set it down under that very
   // notice (the loss states on real records, 2026-10-11: the pole and its count were not in sight). They are counted

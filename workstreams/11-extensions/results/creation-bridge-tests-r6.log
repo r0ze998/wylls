@@ -1,0 +1,17 @@
+# 2026-11-05T23:29:21Z creation-bridge, tests that verify no signature (k03-k07 not run this round)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test k09_goods_follow_the_cores_slots_and_units ... ok
+test k10_no_eleven_manifest_becomes_a_06_definition ... ok
+test k11_publication_and_execution_status_stay_apart ... ok
+test k08_only_same_meaning_fields_map ... ok
+test k01_the_vectors_are_06s_at_517796dc ... ok
+test k02_canonical_form_and_hash_match_06 ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+test src/lib.rs - (line 29) - compile fail ... ok
+test src/lib.rs - (line 23) - compile fail ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+test src/lib.rs - (line 36) - compile fail ... ok
+test src/lib.rs - (line 30) - compile fail ... ok
+test src/lib.rs - (line 24) ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s

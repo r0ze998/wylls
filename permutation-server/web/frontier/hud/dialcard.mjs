@@ -89,7 +89,7 @@ export function renderDialCard(chip, items = [], list = '') {
   const running = chip && chip.bell !== null && !chip.beforeGenesis && !chip.ended;
   const head = !chip || (chip.bell === null && !chip.beforeGenesis) ? html`<strong>${L`ターン —`}</strong>`
     : chip.beforeGenesis ? html`<strong>${L`開始まで`}</strong><span class="dial-pop-left"><span class="num" data-dial-left>${countdown(chip.secondsLeft)}</span></span>`
-      : html`<strong>${L`ターン ${fmtNum(chip.bell)}`}</strong>${chip.ended ? html`<span class="dial-pop-left">${L`終了`}</span>` : html`<span class="dial-pop-left">${L`次のターンまで`} <span class="num" data-dial-left>${countdown(chip.secondsLeft)}</span></span>`}`;
+      : html`<strong>${L`ターン ${fmtNum(chip.bell)}`}</strong>${chip.ended ? html`<span class="dial-pop-left">${L`受付終了`}</span>` : html`<span class="dial-pop-left">${L`次のターンまで`} <span class="num" data-dial-left>${countdown(chip.secondsLeft)}</span></span>`}`;
   return html`<p class="dial-pop-now">${icon('bell')}${head}</p>
     <p class="dial-pop-what">${TERMS.bell.text()}</p>
     ${running && list ? list : running ? html`<h4 class="dial-pop-h">${L`次のターンで`}</h4>${items.length

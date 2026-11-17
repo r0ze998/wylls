@@ -27,7 +27,10 @@ export function tileWhat(FS, p, q, tile) {
   const j = Number.isInteger(tile) ? sites.indexOf(tile) : -1;
   const m = j >= 0 ? prov?.siteMirror?.[j] : null;
   if (m?.state === 1) return { kind: 'holding', name: holdingName({ p, q, site: j }, m.tier ?? 0), terrain, site: j, faction: m.faction };
-  if (m?.state === 3) return { kind: 'freeCity', name: L`自由都市`, terrain };
+  // A fetched Province may cover land not yet surveyed by this player.
+  if (m?.state === 5 && (!FS?.survey || FS.survey.showAll || FS.survey.levelOf(p, q, tile) >= 2)) {
+    return { kind: 'freeCity', name: L`自由都市`, terrain };
+  }
   return { kind: 'land', name: terrain, terrain };
 }
 

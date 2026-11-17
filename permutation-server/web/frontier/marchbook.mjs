@@ -21,6 +21,10 @@
 // Self-reveal (§9.1): at bell_start(arrive) + the delay, once; again only
 // if the ArrivalSlot is still absent 60 s later and the window is open;
 // never before the arrival bell starts, never after the window closed.
+// ⑱ (2026-10-31): with `notBefore` (the publication time of T(arrive) plus
+// a margin) never before the round that opens the seal exists either — the
+// material posted earlier sat with the relay and the keeper ≈ 600 s before
+// drand published that round; the Reveal cannot land before THE anchor anyway.
 import { fromBase64, fromHex, toBase64, toHex } from '../sdk/bytes.mjs';
 
 export const STATES = Object.freeze(['sealed', 'sent', 'landed', 'revealing', 'revealed', 'settled', 'failed']);
@@ -28,6 +32,8 @@ export const MAX_ENTRIES = 64;
 export const REVEAL_DELAY_MAX = 20;
 export const RETRY_AFTER = 60;
 export const MAX_SELF_ATTEMPTS = 2;
+/** Seconds after T(arrive)'s round time before the material may leave (quicknet publishes within ≈ 2 s). */
+export const REVEAL_PUBLISH_MARGIN = 5;
 /** Keys an entry may never carry (the seal key and σ, web design §12). */
 const FORBIDDEN = ['k', 'sigma', 'k_b64', 'sigma_b64', 'key'];
 
@@ -125,11 +131,15 @@ export function recordAttempt(book, m, attempt) {
 /**
  * What the self-reveal timer should do for one entry at chain time `now`:
  *   {action: 'send'} | {action: 'wait', at} | {action: 'none', reason}
- * `bellStart` is bell_start(arriveBell); `windowOpen` whether THE anchor's
+ * `bellStart` is bell_start(arriveBell); `notBefore` the earliest time the
+ * material may leave this browser (T(arrive)'s publication time + margin,
+ * ⑱); `windowOpen` whether THE anchor's
  * window is still open (true before the anchor exists); `slotPresent`
- * whether the herald shows this march's ArrivalSlot.
+ * whether the herald shows this march's ArrivalSlot. `seen` the chain time
+ * the herald has observed (default `now`): `notBefore` is judged on it, not
+ * on the extrapolated `now`, as the bots do (agents `owner_reveal_open`).
  */
-export function revealStep(entry, { now, bellStart, windowOpen = true, slotPresent = false }) {
+export function revealStep(entry, { now, bellStart, notBefore = -Infinity, windowOpen = true, slotPresent = false, seen = now }) {
   if (!entry) return { action: 'none', reason: 'noEntry' };
   if (['revealed', 'settled', 'failed'].includes(entry.state)) return { action: 'none', reason: entry.state };
   if (entry.state === 'sealed' || entry.state === 'sent') return { action: 'none', reason: 'notLanded' };
@@ -137,8 +147,10 @@ export function revealStep(entry, { now, bellStart, windowOpen = true, slotPrese
   if (!windowOpen) return { action: 'none', reason: 'windowClosed' };
   const self = entry.attempts.filter(a => a.route === 'self');
   if (self.length >= MAX_SELF_ATTEMPTS) return { action: 'none', reason: 'attempted' };
-  const due = self.length === 0 ? bellStart + (entry.revealDelay ?? 0) : Math.max(bellStart, self[self.length - 1].t + RETRY_AFTER);
-  if (now < bellStart || now < due) return { action: 'wait', at: due };
+  const from = Math.max(bellStart, notBefore);
+  const due = self.length === 0 ? from + (entry.revealDelay ?? 0) : Math.max(from, self[self.length - 1].t + RETRY_AFTER);
+  if (now < from || now < due) return { action: 'wait', at: due };
+  if (seen < notBefore) return { action: 'wait', at: notBefore };
   return { action: 'send' };
 }
 

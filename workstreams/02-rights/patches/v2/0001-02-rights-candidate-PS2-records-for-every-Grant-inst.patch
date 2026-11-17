@@ -1,0 +1,1229 @@
+From a4e95798251a8e1d6d5c3a0036150e72c20adc97 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 23:41:19 +0000
+Subject: [PATCH 1/3] 02-rights candidate: PS2 records for every Grant
+ instruction
+
+Every Grant instruction now logs one chained PS2 record: GRANT_ISSUED,
+SWAP_RESERVED, SWAP_EXECUTED, SWAP_RELEASED, GRANT_REVOKED and
+GRANT_CLOSED. The kind codes 200-205 are provisional and not
+allocated: they are far from 104-112, which workstreams 8 and 10
+propose, and the integrator confirms or moves them. The kinds join the
+shared v2 log table, because CQ1 decodes records only through it, with
+entity tables (chains_of) that name each holding a record moved and no
+optional link. Payload encoders live in frontier_abi::v2::rights::record
+for the program and the verifier alike. The record-width bounds
+(events::MAX_KIND_V2, cqlog::MAX_KIND) rise to 205.
+
+Host tests capture sol_log_data through a cfg(test) syscall stub,
+decode every record with the ABI decoder, check that its amounts are
+what the holdings moved, and check that each link equals the chain
+header of the account chains_of names. No key is generated or used.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bMRw3LSNvj17s1QPg
+---
+ frontier-abi/src/v2/log.rs                    |  71 ++++-
+ frontier-abi/src/v2/rights.rs                 | 292 ++++++++++++++++++
+ permutation-frontier/src/events.rs            |   5 +-
+ permutation-frontier/src/host_test.rs         |  35 +++
+ permutation-frontier/src/proc/conquest.rs     |   5 +-
+ permutation-frontier/src/proc/rights.rs       | 282 +++++++++++++++--
+ permutation-frontier/src/proc/rights_tests.rs | 199 ++++++++++++
+ 7 files changed, 853 insertions(+), 36 deletions(-)
+
+diff --git a/frontier-abi/src/v2/log.rs b/frontier-abi/src/v2/log.rs
+index 652027c..a662650 100644
+--- a/frontier-abi/src/v2/log.rs
++++ b/frontier-abi/src/v2/log.rs
+@@ -9,7 +9,7 @@
+ //! exception like M1's CLASH and DEPART (notes D-4).
+ 
+ use crate::addr::split_host_id;
+-use crate::bytes::{rd_arr, rd_i16, rd_i32, rd_u32, rd_u64, rd_u8, Cursor, Writer};
++use crate::bytes::{rd_arr, rd_i16, rd_i32, rd_i64, rd_u32, rd_u64, rd_u8, Cursor, Writer};
+ use crate::log::{
+     self as v1, chains_of as chains_of_v1, field as field_v1, CitizenRef, EntityKind as V1Entity,
+     EntityRef, Kind as V1Kind, HEAD_LEN, MAX_LINKS, VERSION,
+@@ -143,6 +143,16 @@ cq_kinds! {
+     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
+     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
+     REST = 103; key ["p": 4, "q": 4, "from": 4]; payload ["to": 4, "holder": 1, "territory": 4, "spawns": 1, "digest": 32];
++    // Workstream 02-rights (proposal, NOT allocated): the Grant records.
++    // Codes 200–205 are provisional (far from 104–112, which workstreams 8
++    // and 10 propose); the integrator confirms or moves them. Key: the
++    // Grant (issuer tag, nonce); amounts in milli-units.
++    GRANT_ISSUED = 200; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "facility_gen": 1, "station_site": 1, "station_gen": 1, "max_swaps": 2, "max_units": 4, "expires_ts": 8, "rent": 8];
++    SWAP_RESERVED = 201; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
++    SWAP_EXECUTED = 202; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
++    SWAP_RELEASED = 203; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
++    GRANT_REVOKED = 204; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
++    GRANT_CLOSED = 205; key ["issuer_tag": 8, "nonce": 4]; payload ["rent": 8, "rent_to": 8];
+ }
+ 
+ /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
+@@ -814,6 +824,59 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
+             let (p, q) = pq()?;
+             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+         }
++        // 02-rights (proposal): the issuer's Citizen (its P prologue).
++        CqKind::GRANT_ISSUED => {
++            let issuer = CitizenRef::Tag8(rd_u64(key, 0)?);
++            c.push(E::Citizen, Base(EntityRef::Citizen(issuer)), false);
++        }
++        // The grantee's Citizen, then the station, then the facility (the
++        // program's order; the sort is stable within one entity kind).
++        CqKind::SWAP_RESERVED | CqKind::SWAP_EXECUTED => {
++            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
++            let grantee = CitizenRef::Tag8(rd_u64(pay("grantee_tag")?, 0)?);
++            c.push(E::Citizen, Base(EntityRef::Citizen(grantee)), false);
++            let station = rd_u8(pay("station_site")?, 0)?;
++            let facility = rd_u8(pay("facility_site")?, 0)?;
++            c.push(
++                E::Holding,
++                Base(EntityRef::Holding {
++                    p,
++                    q,
++                    site: station,
++                }),
++                false,
++            );
++            c.push(
++                E::Holding,
++                Base(EntityRef::Holding {
++                    p,
++                    q,
++                    site: facility,
++                }),
++                false,
++            );
++        }
++        // An undo chains exactly the holdings it credited (named by the
++        // returned amounts, never optional: two optional Holding links
++        // could not be told apart); a revoke also the issuer's Citizen.
++        CqKind::SWAP_RELEASED | CqKind::GRANT_REVOKED => {
++            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
++            if k == CqKind::GRANT_REVOKED {
++                let issuer = CitizenRef::Tag8(rd_u64(key, 0)?);
++                c.push(E::Citizen, Base(EntityRef::Citizen(issuer)), false);
++            }
++            let amt = |n: &str| -> Option<i64> { rd_i64(pay(n)?, 0) };
++            if amt("ret_ore")? > 0 || amt("ret_wood")? > 0 {
++                let site = rd_u8(pay("station_site")?, 0)?;
++                c.push(E::Holding, Base(EntityRef::Holding { p, q, site }), false);
++            }
++            if amt("ret_arms")? > 0 {
++                let site = rd_u8(pay("facility_site")?, 0)?;
++                c.push(E::Holding, Base(EntityRef::Holding { p, q, site }), false);
++            }
++        }
++        // The Grant is not chained; its CLOSE chains nothing.
++        CqKind::GRANT_CLOSED => {}
+     }
+     c.sort();
+     Some(c)
+@@ -1071,7 +1134,11 @@ mod tests {
+                 k.body_len()
+             );
+         }
+-        assert_eq!(CQ_SPECS.len(), 23, "MC's 9 and S1's 14");
++        assert_eq!(
++            CQ_SPECS.len(),
++            29,
++            "MC's 9, S1's 14 and 02-rights' 6 (proposal)"
++        );
+         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
+         assert_eq!(
+             AnyKind::Cq(CqKind::CONQUEST).payload_len(),
+diff --git a/frontier-abi/src/v2/rights.rs b/frontier-abi/src/v2/rights.rs
+index 8887ed1..57f4d10 100644
+--- a/frontier-abi/src/v2/rights.rs
++++ b/frontier-abi/src/v2/rights.rs
+@@ -284,6 +284,249 @@ ix_rights! {
+     CloseGrant = tag::CLOSE_GRANT {}
+ }
+ 
++// ------------------------------------------------------------ PS2 records
++
++/// The Grant's PS2 records (kinds `GRANT_ISSUED` … `GRANT_CLOSED` of
++/// [`crate::v2::log::CqKind`], **provisional codes 200–205**): one shared
++/// encoding for the program that logs them and the verifier that replays
++/// them. Every record is keyed by the Grant (`issuer_tag ‖ nonce`).
++pub mod record {
++    use crate::bytes::{rd_i32, rd_i64, rd_u16, rd_u32, rd_u64, rd_u8};
++    use crate::v2::log::CqKind;
++
++    pub const ISSUED: CqKind = CqKind::GRANT_ISSUED;
++    pub const RESERVED: CqKind = CqKind::SWAP_RESERVED;
++    pub const EXECUTED: CqKind = CqKind::SWAP_EXECUTED;
++    pub const RELEASED: CqKind = CqKind::SWAP_RELEASED;
++    pub const REVOKED: CqKind = CqKind::GRANT_REVOKED;
++    pub const CLOSED: CqKind = CqKind::GRANT_CLOSED;
++
++    /// Who undid an escrow (`by` of RELEASED and REVOKED).
++    pub mod by {
++        pub const GRANTEE: u8 = 0;
++        pub const AFTER_EXPIRY: u8 = 1;
++        pub const STALE_HOLDING: u8 = 2;
++        pub const ISSUER: u8 = 3;
++    }
++
++    /// Whether `k` is one of the Grant's record kinds.
++    pub fn is_rights(k: CqKind) -> bool {
++        matches!(
++            k,
++            CqKind::GRANT_ISSUED
++                | CqKind::SWAP_RESERVED
++                | CqKind::SWAP_EXECUTED
++                | CqKind::SWAP_RELEASED
++                | CqKind::GRANT_REVOKED
++                | CqKind::GRANT_CLOSED
++        )
++    }
++
++    /// The record key: the Grant's issuer tag and nonce.
++    pub fn key(issuer_tag: u64, nonce: u32) -> [u8; 12] {
++        let mut k = [0u8; 12];
++        k[..8].copy_from_slice(&issuer_tag.to_le_bytes());
++        k[8..].copy_from_slice(&nonce.to_le_bytes());
++        k
++    }
++
++    /// `(issuer_tag, nonce)` of a record key.
++    pub fn of_key(k: &[u8]) -> Option<(u64, u32)> {
++        Some((rd_u64(k, 0)?, rd_u32(k, 8)?))
++    }
++
++    /// GRANT_ISSUED's payload (42 B).
++    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
++    pub struct Issued {
++        pub grantee_tag: u64,
++        pub p: i32,
++        pub q: i32,
++        pub facility_site: u8,
++        pub facility_gen: u8,
++        pub station_site: u8,
++        pub station_gen: u8,
++        pub max_swaps: u16,
++        pub max_units: u32,
++        pub expires_ts: i64,
++        pub rent: u64,
++    }
++
++    impl Issued {
++        pub const LEN: usize = 42;
++        pub fn to_bytes(&self) -> [u8; Self::LEN] {
++            let mut b = [0u8; Self::LEN];
++            b[0..8].copy_from_slice(&self.grantee_tag.to_le_bytes());
++            b[8..12].copy_from_slice(&self.p.to_le_bytes());
++            b[12..16].copy_from_slice(&self.q.to_le_bytes());
++            b[16] = self.facility_site;
++            b[17] = self.facility_gen;
++            b[18] = self.station_site;
++            b[19] = self.station_gen;
++            b[20..22].copy_from_slice(&self.max_swaps.to_le_bytes());
++            b[22..26].copy_from_slice(&self.max_units.to_le_bytes());
++            b[26..34].copy_from_slice(&self.expires_ts.to_le_bytes());
++            b[34..42].copy_from_slice(&self.rent.to_le_bytes());
++            b
++        }
++        pub fn from_bytes(b: &[u8]) -> Option<Issued> {
++            if b.len() != Self::LEN {
++                return None;
++            }
++            Some(Issued {
++                grantee_tag: rd_u64(b, 0)?,
++                p: rd_i32(b, 8)?,
++                q: rd_i32(b, 12)?,
++                facility_site: rd_u8(b, 16)?,
++                facility_gen: rd_u8(b, 17)?,
++                station_site: rd_u8(b, 18)?,
++                station_gen: rd_u8(b, 19)?,
++                max_swaps: rd_u16(b, 20)?,
++                max_units: rd_u32(b, 22)?,
++                expires_ts: rd_i64(b, 26)?,
++                rent: rd_u64(b, 34)?,
++            })
++        }
++    }
++
++    /// SWAP_RESERVED's and SWAP_EXECUTED's payload (48 B): what moved.
++    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
++    pub struct Swap {
++        pub grantee_tag: u64,
++        pub p: i32,
++        pub q: i32,
++        pub facility_site: u8,
++        pub station_site: u8,
++        pub seq: u16,
++        pub units: u32,
++        /// Milli-units: the station's ore and wood, the facility's arms.
++        pub ore: i64,
++        pub wood: i64,
++        pub arms: i64,
++    }
++
++    impl Swap {
++        pub const LEN: usize = 48;
++        pub fn to_bytes(&self) -> [u8; Self::LEN] {
++            let mut b = [0u8; Self::LEN];
++            b[0..8].copy_from_slice(&self.grantee_tag.to_le_bytes());
++            b[8..12].copy_from_slice(&self.p.to_le_bytes());
++            b[12..16].copy_from_slice(&self.q.to_le_bytes());
++            b[16] = self.facility_site;
++            b[17] = self.station_site;
++            b[18..20].copy_from_slice(&self.seq.to_le_bytes());
++            b[20..24].copy_from_slice(&self.units.to_le_bytes());
++            b[24..32].copy_from_slice(&self.ore.to_le_bytes());
++            b[32..40].copy_from_slice(&self.wood.to_le_bytes());
++            b[40..48].copy_from_slice(&self.arms.to_le_bytes());
++            b
++        }
++        pub fn from_bytes(b: &[u8]) -> Option<Swap> {
++            if b.len() != Self::LEN {
++                return None;
++            }
++            Some(Swap {
++                grantee_tag: rd_u64(b, 0)?,
++                p: rd_i32(b, 8)?,
++                q: rd_i32(b, 12)?,
++                facility_site: rd_u8(b, 16)?,
++                station_site: rd_u8(b, 17)?,
++                seq: rd_u16(b, 18)?,
++                units: rd_u32(b, 20)?,
++                ore: rd_i64(b, 24)?,
++                wood: rd_i64(b, 32)?,
++                arms: rd_i64(b, 40)?,
++            })
++        }
++    }
++
++    /// SWAP_RELEASED's and GRANT_REVOKED's payload (59 B): what went back
++    /// and what stays in the Grant.
++    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
++    pub struct Undo {
++        pub by: u8,
++        pub p: i32,
++        pub q: i32,
++        pub facility_site: u8,
++        pub station_site: u8,
++        /// Milli-units returned: ore and wood to the station, arms to the
++        /// facility.
++        pub returned: [i64; 3],
++        /// Milli-units still escrowed (no live holding to go back to).
++        pub kept: [i64; 3],
++    }
++
++    impl Undo {
++        pub const LEN: usize = 59;
++        pub fn to_bytes(&self) -> [u8; Self::LEN] {
++            let mut b = [0u8; Self::LEN];
++            b[0] = self.by;
++            b[1..5].copy_from_slice(&self.p.to_le_bytes());
++            b[5..9].copy_from_slice(&self.q.to_le_bytes());
++            b[9] = self.facility_site;
++            b[10] = self.station_site;
++            for i in 0..3 {
++                b[11 + 8 * i..19 + 8 * i].copy_from_slice(&self.returned[i].to_le_bytes());
++                b[35 + 8 * i..43 + 8 * i].copy_from_slice(&self.kept[i].to_le_bytes());
++            }
++            b
++        }
++        pub fn from_bytes(b: &[u8]) -> Option<Undo> {
++            if b.len() != Self::LEN {
++                return None;
++            }
++            let mut returned = [0i64; 3];
++            let mut kept = [0i64; 3];
++            for i in 0..3 {
++                returned[i] = rd_i64(b, 11 + 8 * i)?;
++                kept[i] = rd_i64(b, 35 + 8 * i)?;
++            }
++            Some(Undo {
++                by: rd_u8(b, 0)?,
++                p: rd_i32(b, 1)?,
++                q: rd_i32(b, 5)?,
++                facility_site: rd_u8(b, 9)?,
++                station_site: rd_u8(b, 10)?,
++                returned,
++                kept,
++            })
++        }
++    }
++
++    /// GRANT_CLOSED's payload (16 B): the rent and the first 8 bytes of
++    /// its recipient.
++    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
++    pub struct Closed {
++        pub rent: u64,
++        pub rent_to8: u64,
++    }
++
++    impl Closed {
++        pub const LEN: usize = 16;
++        pub fn to_bytes(&self) -> [u8; Self::LEN] {
++            let mut b = [0u8; Self::LEN];
++            b[..8].copy_from_slice(&self.rent.to_le_bytes());
++            b[8..].copy_from_slice(&self.rent_to8.to_le_bytes());
++            b
++        }
++        pub fn from_bytes(b: &[u8]) -> Option<Closed> {
++            if b.len() != Self::LEN {
++                return None;
++            }
++            Some(Closed {
++                rent: rd_u64(b, 0)?,
++                rent_to8: rd_u64(b, 8)?,
++            })
++        }
++    }
++
++    /// The first 8 bytes of a key as a little-endian tag.
++    pub fn tag8(k: &[u8; 32]) -> u64 {
++        let mut b = [0u8; 8];
++        b.copy_from_slice(&k[..8]);
++        u64::from_le_bytes(b)
++    }
++}
++
+ // ------------------------------------------------------------ pure rules
+ 
+ /// The quota check of ReserveSwap: `units` in `1..=MAX_UNITS_PER_SWAP`,
+@@ -368,6 +611,55 @@ mod tests {
+         assert!(ReserveSwap::decode(&ExecuteSwap { seq: 2 }.to_bytes()).is_err());
+     }
+ 
++    #[test]
++    fn record_payloads_match_the_log_table() {
++        use crate::v2::log::AnyKind;
++        let len = |k| AnyKind::Cq(k).payload_len();
++        assert_eq!(len(record::ISSUED), record::Issued::LEN);
++        assert_eq!(len(record::RESERVED), record::Swap::LEN);
++        assert_eq!(len(record::EXECUTED), record::Swap::LEN);
++        assert_eq!(len(record::RELEASED), record::Undo::LEN);
++        assert_eq!(len(record::REVOKED), record::Undo::LEN);
++        assert_eq!(len(record::CLOSED), record::Closed::LEN);
++        for k in [
++            record::ISSUED,
++            record::RESERVED,
++            record::EXECUTED,
++            record::RELEASED,
++            record::REVOKED,
++            record::CLOSED,
++        ] {
++            assert_eq!(AnyKind::Cq(k).key_len(), 12);
++            assert!(record::is_rights(k));
++            // Provisional codes: outside every other proposal (8: 104,
++            // 10: 104–112) and the base table (up to 103).
++            assert!((200..=205).contains(&(k as u8)));
++        }
++        let s = record::Swap {
++            grantee_tag: 7,
++            p: -3,
++            q: 9,
++            facility_site: 1,
++            station_site: 2,
++            seq: 4,
++            units: 5,
++            ore: 10_000,
++            wood: 5_000,
++            arms: 5_000,
++        };
++        assert_eq!(record::Swap::from_bytes(&s.to_bytes()), Some(s));
++        let u = record::Undo {
++            by: record::by::ISSUER,
++            p: 1,
++            q: 2,
++            facility_site: 0,
++            station_site: 3,
++            returned: [1, 2, 3],
++            kept: [4, 5, 6],
++        };
++        assert_eq!(record::Undo::from_bytes(&u.to_bytes()), Some(u));
++    }
++
+     #[test]
+     fn quota_and_terms() {
+         assert_eq!(quota_allows(3, 0, 30, 0, 10), Ok(()));
+diff --git a/permutation-frontier/src/events.rs b/permutation-frontier/src/events.rs
+index 3641f7f..4d62fb6 100644
+--- a/permutation-frontier/src/events.rs
++++ b/permutation-frontier/src/events.rs
+@@ -161,7 +161,10 @@ pub fn emit(
+ // ------------------------------------------------------------ ABI v2
+ 
+ /// Highest record kind code of ABI v2 (S1 map growth: REST; 89 reserved, MC §6).
+-pub const MAX_KIND_V2: usize = 103;
++/// 02-rights (proposal): 205, the provisional Grant records 200–205; the
++/// codes between are undefined in [`WIDTHS_V2`] and refused by
++/// [`write_body_v2`] as before.
++pub const MAX_KIND_V2: usize = 205;
+ 
+ /// `(defined, key width, payload width)` per record kind code of ABI v2:
+ /// [`WIDTHS`] for M1's kinds and `frontier_abi::v2::log::CQ_SPECS` for
+diff --git a/permutation-frontier/src/host_test.rs b/permutation-frontier/src/host_test.rs
+index da1b12a..0f3acd2 100644
+--- a/permutation-frontier/src/host_test.rs
++++ b/permutation-frontier/src/host_test.rs
+@@ -172,3 +172,38 @@ std::thread_local! {
+     /// The program id the harness runs (the caller of every CPI).
+     pub static PROGRAM: Cell<Pubkey> = const { Cell::new(Pubkey::new_from_array([0; 32])) };
+ }
++
++// ------------------------------------------------------------ log capture
++
++std::thread_local! {
++    /// `sol_log_data` calls of this thread, field by field.
++    static LOGS: core::cell::RefCell<std::vec::Vec<std::vec::Vec<std::vec::Vec<u8>>>> =
++        const { core::cell::RefCell::new(std::vec::Vec::new()) };
++}
++
++/// Syscall stubs that keep each thread's `sol_log_data` (the PS2 records)
++/// and drop text logs. Every other stub is the default.
++struct Capture;
++
++impl solana_program::program_stubs::SyscallStubs for Capture {
++    fn sol_log(&self, _message: &str) {}
++    fn sol_log_data(&self, fields: &[&[u8]]) {
++        LOGS.with(|l| {
++            l.borrow_mut()
++                .push(fields.iter().map(|f| f.to_vec()).collect())
++        });
++    }
++}
++
++/// Installs the capturing stubs (once per process).
++pub fn capture_logs() {
++    static ONCE: std::sync::Once = std::sync::Once::new();
++    ONCE.call_once(|| {
++        let _ = solana_program::program_stubs::set_syscall_stubs(Box::new(Capture));
++    });
++}
++
++/// This thread's captured `sol_log_data` calls since the last take.
++pub fn take_logs() -> std::vec::Vec<std::vec::Vec<std::vec::Vec<u8>>> {
++    LOGS.with(|l| core::mem::take(&mut *l.borrow_mut()))
++}
+diff --git a/permutation-frontier/src/proc/conquest.rs b/permutation-frontier/src/proc/conquest.rs
+index 48bb297..4974862 100644
+--- a/permutation-frontier/src/proc/conquest.rs
++++ b/permutation-frontier/src/proc/conquest.rs
+@@ -368,8 +368,9 @@ pub mod cqlog {
+     use crate::error::{Error, BAD_ACCOUNT, OVERFLOW};
+     use crate::layout::{chain_of, set_chain};
+ 
+-    /// Highest kind code a v2 record carries (103: S1's REST).
+-    pub const MAX_KIND: usize = 103;
++    /// Highest kind code a v2 record carries (103: S1's REST; 02-rights
++    /// proposal: 205, its provisional Grant records 200–205).
++    pub const MAX_KIND: usize = 205;
+ 
+     /// `(defined, key width, payload width)` per kind: M1's and MC's.
+     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {
+diff --git a/permutation-frontier/src/proc/rights.rs b/permutation-frontier/src/proc/rights.rs
+index 4c97d6b..d148a41 100644
+--- a/permutation-frontier/src/proc/rights.rs
++++ b/permutation-frontier/src/proc/rights.rs
+@@ -34,10 +34,13 @@
+ //!   burned; ReleaseSwap that can return nothing is `ReturnBlocked`, and
+ //!   CloseGrant waits (`StillLive`). A store above its cap keeps a return
+ //!   (`Accrual::add` may exceed the cap; settle never lowers it).
+-//! - **No log record yet.** The PS2 log has no kind for these (contract
+-//!   §8): the handlers write holdings without a chained record, and the
+-//!   verifier's holding continuity (V7) reports such a write as
+-//!   `HoldingReplayMismatch` (reproduced in `workstreams/02-rights`).
++//! - **Records (candidate, provisional kinds 200–205).** Every instruction
++//!   logs one PS2 record (`frontier_abi::v2::rights::record`): GRANT_ISSUED
++//!   chains the issuer's Citizen; SWAP_RESERVED and SWAP_EXECUTED the
++//!   grantee's Citizen, the station and the facility; SWAP_RELEASED the
++//!   holdings it credited; GRANT_REVOKED the issuer's Citizen and the
++//!   holdings it credited; GRANT_CLOSED nothing. The amounts are the ones
++//!   the holdings moved, so a replay rebuilds every write from the record.
+ 
+ use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
+ 
+@@ -53,10 +56,13 @@ use super::conquest::cq;
+ use super::holding::{self as hold, Player};
+ use crate::addr;
+ use crate::error::{BAD_ACCOUNT, OVERFLOW};
++use crate::events::{emit_v2, ChainedV2};
+ use crate::init::{self, SeasonSigner, Sink};
+ use crate::layout::{citizen as C, holding as H, Ro, Rw};
+ use crate::prologue::{self, expect_key, key, present_v2, view};
+ use crate::{FrontierError, R};
++use frontier_abi::v2::log::EntityKind as E2;
++use frontier_abi::v2::rights::record as rec;
+ 
+ /// Routes one rights instruction (tags 0xD0–0xD5).
+ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+@@ -92,6 +98,10 @@ struct Grant {
+     state: u8,
+     p: i16,
+     q: i16,
++    issuer_tag: u64,
++    nonce: u32,
++    facility_site: u8,
++    station_site: u8,
+     issuer: [u8; 32],
+     grantee: [u8; 32],
+     facility: [u8; 32],
+@@ -134,6 +144,10 @@ fn load_grant(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Grant>
+         state: r.u8(G::STATE)?,
+         p: r.i16(G::P)?,
+         q: r.i16(G::Q)?,
++        issuer_tag: r.u64(G::ISSUER_TAG)?,
++        nonce: r.u32(G::NONCE)?,
++        facility_site: r.u8(G::FACILITY_SITE)?,
++        station_site: r.u8(G::STATION_SITE)?,
+         issuer: r.arr(G::ISSUER_CITIZEN)?,
+         grantee: r.arr(G::GRANTEE_CITIZEN)?,
+         facility: r.arr(G::FACILITY)?,
+@@ -179,6 +193,120 @@ fn escrow_of(units: u32) -> R<[i64; 3]> {
+     ])
+ }
+ 
++// ------------------------------------------------------------ records
++
++/// Logs one Grant record (provisional kind) chaining `chained`.
++fn emit(
++    kind: rec_kind,
++    bell: u32,
++    g: &Grant,
++    payload: &[u8],
++    chained: &mut [ChainedV2<'_>],
++) -> R<()> {
++    emit_v2(
++        kind as u8,
++        bell,
++        &rec::key(g.issuer_tag, g.nonce),
++        payload,
++        chained,
++    )
++}
++
++#[allow(non_camel_case_types)]
++type rec_kind = frontier_abi::v2::log::CqKind;
++
++/// The swap payload of RESERVED and EXECUTED.
++fn swap_payload(g: &Grant, grantee_tag: u64, seq: u16, units: u32, e: [i64; 3]) -> rec::Swap {
++    rec::Swap {
++        grantee_tag,
++        p: g.p as i32,
++        q: g.q as i32,
++        facility_site: g.facility_site,
++        station_site: g.station_site,
++        seq,
++        units,
++        ore: e[0],
++        wood: e[1],
++        arms: e[2],
++    }
++}
++
++/// What an undo did: amounts returned and kept, per side.
++struct Undone {
++    returned: [i64; 3],
++    kept: [i64; 3],
++}
++
++impl Undone {
++    fn payload(&self, g: &Grant, by: u8) -> rec::Undo {
++        rec::Undo {
++            by,
++            p: g.p as i32,
++            q: g.q as i32,
++            facility_site: g.facility_site,
++            station_site: g.station_site,
++            returned: self.returned,
++            kept: self.kept,
++        }
++    }
++    fn station_back(&self) -> bool {
++        self.returned[0] > 0 || self.returned[1] > 0
++    }
++    fn facility_back(&self) -> bool {
++        self.returned[2] > 0
++    }
++}
++
++/// Logs an undo record chaining `first` (the issuer's Citizen for a
++/// revoke) and exactly the holdings it credited, station then facility.
++#[allow(clippy::too_many_arguments)]
++fn emit_undo(
++    kind: rec_kind,
++    bell: u32,
++    g: &Grant,
++    by: u8,
++    u: &Undone,
++    first: Option<&AccountInfo>,
++    station: &AccountInfo,
++    facility: &AccountInfo,
++) -> R<()> {
++    let payload = u.payload(g, by).to_bytes();
++    let mut cd = match first {
++        Some(c) => Some(c.try_borrow_mut_data()?),
++        None => None,
++    };
++    let mut sd = if u.station_back() {
++        Some(station.try_borrow_mut_data()?)
++    } else {
++        None
++    };
++    let mut fd = if u.facility_back() {
++        Some(facility.try_borrow_mut_data()?)
++    } else {
++        None
++    };
++    let mut chained: alloc::vec::Vec<ChainedV2<'_>> = alloc::vec::Vec::with_capacity(3);
++    if let Some(d) = cd.as_mut() {
++        chained.push(ChainedV2 {
++            entity: E2::Citizen,
++            data: d,
++        });
++    }
++    if let Some(d) = sd.as_mut() {
++        chained.push(ChainedV2 {
++            entity: E2::Holding,
++            data: d,
++        });
++    }
++    if let Some(d) = fd.as_mut() {
++        chained.push(ChainedV2 {
++            entity: E2::Holding,
++            data: d,
++        });
++    }
++    emit(kind, bell, g, &payload, &mut chained)
++}
++
+ fn cost(ore: i64, wood: i64, arms_: i64) -> [i64; RESOURCES] {
+     let mut c = [0i64; RESOURCES];
+     c[Resource::Ore as usize] = ore;
+@@ -301,8 +429,7 @@ fn place_now(
+ /// capture (redesign 20 §5, adopted: a captured store's contents are the
+ /// captor's). A side whose holding is gone (closed, released) is **kept
+ /// in the Grant**, not burned. A capture not yet settled waits
+-/// (`CapturePending`). Returns whether anything went back (or nothing was
+-/// escrowed).
++/// (`CapturePending`). Returns what went back and what stays.
+ #[allow(clippy::too_many_arguments)]
+ fn unwind(
+     p: &Pubkey,
+@@ -314,9 +441,12 @@ fn unwind(
+     facility: &AccountInfo,
+     station: &AccountInfo,
+     province: &AccountInfo,
+-) -> R<bool> {
++) -> R<Undone> {
+     if g.open_units == 0 {
+-        return Ok(true);
++        return Ok(Undone {
++            returned: [0; 3],
++            kept: [0; 3],
++        });
+     }
+     let st = place_now(p, sid, station, &g.station)?;
+     let fa = place_now(p, sid, facility, &g.facility)?;
+@@ -328,17 +458,21 @@ fn unwind(
+         [st_back, fa_back].into_iter().flatten().collect();
+     province_unlocked(p, ctx, sid, g, province, &live)?;
+     let mut kept = g.open;
++    let mut returned = [0i64; 3];
+     if st_back.is_some() {
+         credit(
+             station,
+             now,
+             &[(Resource::Ore, g.open[0]), (Resource::Wood, g.open[1])],
+         )?;
++        returned[0] = g.open[0];
++        returned[1] = g.open[1];
+         kept[0] = 0;
+         kept[1] = 0;
+     }
+     if fa_back.is_some() {
+         credit(facility, now, &[(arms::ARMS, g.open[2])])?;
++        returned[2] = g.open[2];
+         kept[2] = 0;
+     }
+     if kept == [0; 3] {
+@@ -346,7 +480,7 @@ fn unwind(
+     } else {
+         write_open(grant, g.open_units, g.open_ts, kept)?;
+     }
+-    Ok(st_back.is_some() || fa_back.is_some())
++    Ok(Undone { returned, kept })
+ }
+ 
+ // ------------------------------------------------------------ 0xD0 IssueGrant
+@@ -441,7 +575,32 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+     w.set_u16(G::MAX_SWAPS, x.max_swaps)?;
+     w.set_u32(G::MAX_UNITS, x.max_units)?;
+     w.set_arr(G::RENT_TO, payer.key.as_ref())?;
+-    Ok(())
++    drop(gd);
++    let payload = rec::Issued {
++        grantee_tag: addr::citizen_tag(&key(grantee)),
++        p: fh.p as i32,
++        q: fh.q as i32,
++        facility_site: fh.site,
++        facility_gen: fh.gen,
++        station_site: sh.site,
++        station_gen: sh.gen,
++        max_swaps: x.max_swaps,
++        max_units: x.max_units,
++        expires_ts: x.expires_ts,
++        rent,
++    }
++    .to_bytes();
++    let mut cd = citizen.try_borrow_mut_data()?;
++    emit_v2(
++        rec::ISSUED as u8,
++        pl.pc.now_bell,
++        &rec::key(tag, x.nonce),
++        &payload,
++        &mut [ChainedV2 {
++            entity: E2::Citizen,
++            data: &mut cd,
++        }],
++    )
+ }
+ 
+ // ------------------------------------------------------------ swap
+@@ -451,7 +610,10 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+ /// both holdings pinned and unlocked.
+ struct Swap<'x, 'a> {
+     now: i64,
++    bell: u32,
++    grantee_tag: u64,
+     g: Grant,
++    citizen: &'x AccountInfo<'a>,
+     grant: &'x AccountInfo<'a>,
+     facility: &'x AccountInfo<'a>,
+     station: &'x AccountInfo<'a>,
+@@ -481,13 +643,47 @@ fn swap_prologue<'x, 'a>(p: &Pubkey, a: &'x [AccountInfo<'a>]) -> R<Swap<'x, 'a>
+     province_unlocked(p, &pl.ctx, sid, &g, province, &[&fh, &sh])?;
+     Ok(Swap {
+         now: pl.now.ts,
++        bell: pl.pc.now_bell,
++        grantee_tag: pl.pc.citizen_tag,
+         g,
++        citizen,
+         grant,
+         facility,
+         station,
+     })
+ }
+ 
++impl Swap<'_, '_> {
++    /// Logs RESERVED or EXECUTED: the grantee's Citizen, the station, the
++    /// facility.
++    fn emit(&self, kind: rec_kind, seq: u16, units: u32, e: [i64; 3]) -> R<()> {
++        let payload = swap_payload(&self.g, self.grantee_tag, seq, units, e).to_bytes();
++        let mut cd = self.citizen.try_borrow_mut_data()?;
++        let mut sd = self.station.try_borrow_mut_data()?;
++        let mut fd = self.facility.try_borrow_mut_data()?;
++        emit(
++            kind,
++            self.bell,
++            &self.g,
++            &payload,
++            &mut [
++                ChainedV2 {
++                    entity: E2::Citizen,
++                    data: &mut cd,
++                },
++                ChainedV2 {
++                    entity: E2::Holding,
++                    data: &mut sd,
++                },
++                ChainedV2 {
++                    entity: E2::Holding,
++                    data: &mut fd,
++                },
++            ],
++        )
++    }
++}
++
+ /// 0xD1 ReserveSwap(units): the station's ore and wood and the facility's
+ /// arms for `units` go into the Grant; all or nothing (`Insufficient`: no
+ /// queue, no waiting state; the grantee may try again later).
+@@ -511,7 +707,8 @@ pub fn reserve_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         .map_err(hold::holding_err)?;
+     store(u.station, &sh, u.now)?;
+     store(u.facility, &fh, u.now)?;
+-    write_open(u.grant, x.units, u.now, e)
++    write_open(u.grant, x.units, u.now, e)?;
++    u.emit(rec::RESERVED, x.seq, x.units, e)
+ }
+ 
+ /// 0xD2 ExecuteSwap: the escrowed arms to the station, the escrowed ore and
+@@ -540,20 +737,22 @@ pub fn execute_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         w.set_u16(G::SWAPS, swaps)?;
+         w.set_u32(G::UNITS_SWAPPED, units)?;
+     }
+-    write_open(u.grant, 0, 0, [0; 3])
++    write_open(u.grant, 0, 0, [0; 3])?;
++    u.emit(rec::EXECUTED, x.seq, g.open_units, g.open)
+ }
+ 
+ // ------------------------------------------------------------ 0xD3 ReleaseSwap
+ 
+ /// The Season at its PDA in any status (Release and Close run after the
+ /// season's end too).
+-fn season_any(p: &Pubkey, season_ai: &AccountInfo, now: i64) -> R<(u64, AddrCtx)> {
++fn season_any(p: &Pubkey, season_ai: &AccountInfo, now: i64) -> R<(u64, AddrCtx, u32)> {
+     let sd = season_ai.try_borrow_data()?;
+     let s = frontier_abi::prologue::read_season(&view(season_ai, &sd), p.as_array(), now)?;
+     if addr::season_pda(s.id, s.bump, p.as_array()) != key(season_ai) {
+         return Err(FrontierError::BadAddress.into());
+     }
+-    Ok((s.id, addr::ctx(&key(season_ai), &p.to_bytes())))
++    let bell = s.bell(now).unwrap_or(frontier_abi::log::NO_BELL);
++    Ok((s.id, addr::ctx(&key(season_ai), &p.to_bytes()), bell))
+ }
+ 
+ /// 0xD3 ReleaseSwap: `[actor s] [season r] [grantee_citizen r] [grant w]
+@@ -571,7 +770,7 @@ pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         writable(ai)?;
+     }
+     let now = prologue::now()?.ts;
+-    let (sid, ctx) = season_any(p, season_ai, now)?;
++    let (sid, ctx, bell) = season_any(p, season_ai, now)?;
+     let g = load_grant(p, &ctx, sid, grant)?;
+     if g.open_units == 0 {
+         return Err(err(RightsError::NoReservation));
+@@ -589,6 +788,7 @@ pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+                 && k != [0u8; 32]
+                 && now < r.i64(C::SESSION_EXPIRY)?)
+     };
++    let mut by = rec::by::GRANTEE;
+     if !by_grantee {
+         let stale = |ai: &AccountInfo, want: &[u8; 32], gen: u8, owner: &[u8; 32]| {
+             matches!(
+@@ -596,18 +796,21 @@ pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+                 Err(e) if e == err(RightsError::StaleHolding)
+             )
+         };
+-        let crank = now >= g.expires_ts
+-            || stale(station, &g.station, g.station_gen, &g.grantee)
+-            || stale(facility, &g.facility, g.facility_gen, &g.issuer);
+-        if !crank {
++        by = if now >= g.expires_ts {
++            rec::by::AFTER_EXPIRY
++        } else if stale(station, &g.station, g.station_gen, &g.grantee)
++            || stale(facility, &g.facility, g.facility_gen, &g.issuer)
++        {
++            rec::by::STALE_HOLDING
++        } else {
+             return Err(err(RightsError::NotGrantee));
+-        }
++        };
+     }
+-    if unwind(p, &ctx, sid, now, &g, grant, facility, station, province)? {
+-        Ok(())
+-    } else {
+-        Err(err(RightsError::ReturnBlocked))
++    let u = unwind(p, &ctx, sid, now, &g, grant, facility, station, province)?;
++    if !u.station_back() && !u.facility_back() {
++        return Err(err(RightsError::ReturnBlocked));
+     }
++    emit_undo(rec::RELEASED, bell, &g, by, &u, None, station, facility)
+ }
+ 
+ // ------------------------------------------------------------ 0xD4 RevokeGrant
+@@ -633,14 +836,25 @@ pub fn revoke_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+     if g.state != rt::STATE_ACTIVE {
+         return Err(err(RightsError::Revoked));
+     }
+-    let _ = unwind(
++    let u = unwind(
+         p, &pl.ctx, sid, pl.now.ts, &g, grant, facility, station, province,
+     )?;
+-    let mut gd = grant.try_borrow_mut_data()?;
+-    let mut w = Rw(&mut gd);
+-    w.set_u8(G::STATE, rt::STATE_REVOKED)?;
+-    w.set_i64(G::REVOKED_TS, pl.now.ts)?;
+-    Ok(())
++    {
++        let mut gd = grant.try_borrow_mut_data()?;
++        let mut w = Rw(&mut gd);
++        w.set_u8(G::STATE, rt::STATE_REVOKED)?;
++        w.set_i64(G::REVOKED_TS, pl.now.ts)?;
++    }
++    emit_undo(
++        rec::REVOKED,
++        pl.pc.now_bell,
++        &g,
++        rec::by::ISSUER,
++        &u,
++        Some(citizen),
++        station,
++        facility,
++    )
+ }
+ 
+ // ------------------------------------------------------------ 0xD5 CloseGrant
+@@ -659,7 +873,7 @@ pub fn close_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+     writable(grant)?;
+     writable(rent_to)?;
+     let now = prologue::now()?.ts;
+-    let (sid, ctx) = season_any(p, season_ai, now)?;
++    let (sid, ctx, bell) = season_any(p, season_ai, now)?;
+     let g = load_grant(p, &ctx, sid, grant)?;
+     if key(rent_to) != g.rent_to {
+         return Err(err(RightsError::BadGrant));
+@@ -669,6 +883,12 @@ pub fn close_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+     if g.open_units != 0 || !done {
+         return Err(err(RightsError::StillLive));
+     }
++    let payload = rec::Closed {
++        rent: grant.lamports(),
++        rent_to8: rec::tag8(&key(rent_to)),
++    }
++    .to_bytes();
++    emit(rec::CLOSED, bell, &g, &payload, &mut [])?;
+     init::close_to(p, grant, rent_to, &Sink::Never, 0)?;
+     Ok(())
+ }
+diff --git a/permutation-frontier/src/proc/rights_tests.rs b/permutation-frontier/src/proc/rights_tests.rs
+index 608442f..73304ca 100644
+--- a/permutation-frontier/src/proc/rights_tests.rs
++++ b/permutation-frontier/src/proc/rights_tests.rs
+@@ -56,6 +56,8 @@ struct World {
+     season: Pubkey,
+     sid: u64,
+     accts: BTreeMap<[u8; 32], AccountInfo<'static>>,
++    /// The PS2 bodies the last successful instruction logged.
++    records: Vec<Vec<u8>>,
+ }
+ 
+ fn leak<T>(v: T) -> &'static mut T {
+@@ -80,6 +82,7 @@ impl World {
+         let program = pk([0x77; 32]);
+         host_test::PROGRAM.with(|p| p.set(program));
+         host_test::set_now(NOW);
++        host_test::capture_logs();
+         let bump = 254;
+         let season = addr::season_pda(sid, bump, &program.to_bytes());
+         let mut w = World {
+@@ -87,6 +90,7 @@ impl World {
+             season: pk(season),
+             sid,
+             accts: BTreeMap::new(),
++            records: Vec::new(),
+         };
+         let mut d = std::vec![0u8; SE::SIZE];
+         assert!(write_header(&mut d, K2::Season, sid));
+@@ -169,9 +173,22 @@ impl World {
+                 i
+             })
+             .collect();
++        let _ = host_test::take_logs();
+         let r = crate::dispatch(&self.program, &infos, data);
++        let logs = host_test::take_logs();
+         if r.is_ok() {
+             self.runtime_rules(&snap, metas);
++            // Every `sol_log_data` of the program is `[b"PS2", body]`.
++            self.records = logs
++                .into_iter()
++                .map(|f| {
++                    assert_eq!(f.len(), 2, "a PS2 log line has two fields");
++                    assert_eq!(f[0], frontier_abi::log::PREFIX, "the PS2 prefix");
++                    f[1].clone()
++                })
++                .collect();
++        } else {
++            self.records.clear();
+         }
+         if r.is_err() {
+             for (k, d, l, o) in snap {
+@@ -1546,3 +1563,185 @@ fn a_grantee_session_also_acts_on_the_grantees_other_assets() {
+     );
+     assert_eq!(last, NOW);
+ }
++
++// ------------------------------------------------------------ round 3: PS2 records
++
++/// The single record the last instruction logged, checked against the
++/// shared ABI (`frontier_abi::v2::log`): its kind and bell, the key naming
++/// grant `nonce` of A, and every link — its entity in `chains_of` order,
++/// resolved to the account that entity names, whose chain header now
++/// equals the link. Returns the payload and the linked accounts in order.
++fn the_record(sc: &Sc, kind: CqKind, nonce: u32, bell: u32) -> (Vec<u8>, Vec<[u8; 32]>) {
++    use frontier_abi::log::{CitizenRef, EntityRef};
++    use frontier_abi::v2::log::{self as l2, AnyKind, EntityRefV2};
++    assert_eq!(sc.w.records.len(), 1, "one record per instruction");
++    let body = &sc.w.records[0];
++    let r = l2::decode(body).expect("the record decodes with the ABI decoder");
++    assert_eq!(r.kind, AnyKind::Cq(kind));
++    assert_eq!(r.bell, bell);
++    let tag = addr::citizen_tag(&sc.a_c);
++    assert_eq!(r.key, &rec::key(tag, nonce)[..]);
++    let expect = l2::chains_of(r.kind, r.key, r.payload).expect("an entity table");
++    let links: Vec<_> = r.links.iter().take(r.n_links).flatten().copied().collect();
++    assert_eq!(
++        links.len(),
++        expect.iter().count(),
++        "one link per expected entity"
++    );
++    let citizens = [sc.a_c, sc.b_c, sc.c_c];
++    let mut linked = vec![];
++    for (e, l) in expect.iter().zip(&links) {
++        assert_eq!(e.entity, l.entity);
++        assert!(!e.optional, "no optional links in a Grant record");
++        let k = match e.who {
++            EntityRefV2::Base(EntityRef::Citizen(CitizenRef::Tag8(t))) => *citizens
++                .iter()
++                .find(|c| addr::citizen_tag(c) == t)
++                .expect("a citizen of the scene"),
++            EntityRefV2::Base(EntityRef::Holding { p, q, site }) => sc.w.ctx().holding(p, q, site),
++            ref w => panic!("unexpected entity {w:?}"),
++        };
++        let d = sc.w.data(&k);
++        assert_eq!(
++            crate::layout::chain_of(&d).unwrap(),
++            (l.seq, l.head),
++            "the account's chain header is the link"
++        );
++        linked.push(k);
++    }
++    (r.payload.to_vec(), linked)
++}
++
++/// The bell of `NOW` (genesis `T0`, 600-second bells).
++const BELL: u32 = ((NOW - T0) / 600) as u32;
++
++use frontier_abi::v2::log::CqKind;
++use frontier_abi::v2::rights::record as rec;
++
++#[test]
++fn every_grant_instruction_logs_its_record() {
++    let mut sc = scene();
++    let g = sc.issue(0);
++    let (pl, linked) = the_record(&sc, rec::ISSUED, 0, BELL);
++    let x = rec::Issued::from_bytes(&pl).unwrap();
++    assert_eq!(x.grantee_tag, addr::citizen_tag(&sc.b_c));
++    assert_eq!((x.p, x.q), (PQ.0 as i32, PQ.1 as i32));
++    assert_eq!((x.facility_site, x.station_site), (0, 1));
++    assert_eq!((x.facility_gen, x.station_gen), (1, 1));
++    assert_eq!((x.max_swaps, x.max_units), (3, 30));
++    // The rent-exempt minimum the Grant needs (the harness pre-funds every
++    // address it creates, so the account may hold more).
++    assert_eq!(x.rent, frontier_abi::layout::rent(G::SIZE));
++    assert!(sc.w.lamports(&g) >= x.rent);
++    assert_eq!(linked, vec![sc.a_c]);
++
++    let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
++    sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
++    let (pl, linked) = the_record(&sc, rec::RESERVED, 0, BELL);
++    let x = rec::Swap::from_bytes(&pl).unwrap();
++    let (f1, s1) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
++    assert_eq!((x.seq, x.units), (0, 10));
++    assert_eq!(x.grantee_tag, addr::citizen_tag(&sc.b_c));
++    // The amounts are exactly what left the holdings.
++    assert_eq!(x.ore, s0[ORE] - s1[ORE]);
++    assert_eq!(x.wood, s0[WOOD] - s1[WOOD]);
++    assert_eq!(x.arms, f0[ARMS] - f1[ARMS]);
++    assert_eq!(linked, vec![sc.b_c, sc.s, sc.f]);
++
++    sc.execute(sc.b, sc.b_c, g).unwrap();
++    let (pl, linked) = the_record(&sc, rec::EXECUTED, 0, BELL);
++    let y = rec::Swap::from_bytes(&pl).unwrap();
++    let (f2, s2) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
++    assert_eq!(
++        (y.seq, y.units, y.ore, y.wood, y.arms),
++        (0, 10, x.ore, x.wood, x.arms)
++    );
++    assert_eq!(y.arms, s2[ARMS] - s1[ARMS]);
++    assert_eq!((y.ore, y.wood), (f2[ORE] - f1[ORE], f2[WOOD] - f1[WOOD]));
++    assert_eq!(linked, vec![sc.b_c, sc.s, sc.f]);
++
++    sc.reserve(sc.b, sc.b_c, g, 4).unwrap();
++    let (pl, _) = the_record(&sc, rec::RESERVED, 0, BELL);
++    assert_eq!(rec::Swap::from_bytes(&pl).unwrap().seq, 1);
++    sc.release(sc.b, g).unwrap();
++    let (pl, linked) = the_record(&sc, rec::RELEASED, 0, BELL);
++    let u = rec::Undo::from_bytes(&pl).unwrap();
++    assert_eq!(u.by, rec::by::GRANTEE);
++    assert_eq!(u.returned, [units(8), units(4), units(4)]);
++    assert_eq!(u.kept, [0; 3]);
++    assert_eq!(linked, vec![sc.s, sc.f]);
++
++    // A revoke with nothing escrowed chains the issuer alone.
++    sc.revoke(sc.a, sc.a_c, g).unwrap();
++    let (pl, linked) = the_record(&sc, rec::REVOKED, 0, BELL);
++    let u = rec::Undo::from_bytes(&pl).unwrap();
++    assert_eq!(
++        (u.by, u.returned, u.kept),
++        (rec::by::ISSUER, [0; 3], [0; 3])
++    );
++    assert_eq!(linked, vec![sc.a_c]);
++
++    let rent = sc.w.lamports(&g);
++    let rent_to = sc.a;
++    sc.close(sc.c, g, rent_to).unwrap();
++    let (pl, linked) = the_record(&sc, rec::CLOSED, 0, BELL);
++    let c = rec::Closed::from_bytes(&pl).unwrap();
++    assert_eq!((c.rent, c.rent_to8), (rent, rec::tag8(&rent_to)));
++    assert!(linked.is_empty());
++}
++
++#[test]
++fn undo_records_name_only_what_went_back() {
++    let mut sc = scene();
++    let g = sc.issue(0);
++    sc.reserve(sc.b, sc.b_c, g, 5).unwrap();
++    // S closed: the revoke returns the arms only and keeps the inputs.
++    sc.w.close_account(&sc.s);
++    sc.revoke(sc.a, sc.a_c, g).unwrap();
++    let (pl, linked) = the_record(&sc, rec::REVOKED, 0, BELL);
++    let u = rec::Undo::from_bytes(&pl).unwrap();
++    assert_eq!(u.returned, [0, 0, units(5)]);
++    assert_eq!(u.kept, [units(10), units(5), 0]);
++    assert_eq!(linked, vec![sc.a_c, sc.f]);
++    // Nothing more can go back: refused, and no record survives.
++    assert_eq!(sc.release(sc.c, g), rerr(E::ReturnBlocked));
++    assert!(sc.w.records.is_empty());
++}
++
++#[test]
++fn releases_say_who_undid_them() {
++    // After the expiry, by anyone.
++    let mut sc = scene();
++    let g = sc.issue(0);
++    sc.reserve(sc.b, sc.b_c, g, 2).unwrap();
++    let later = NOW + 86_400;
++    host_test::set_now(later);
++    sc.release(sc.c, g).unwrap();
++    let bell = ((later - T0) / 600) as u32;
++    let (pl, _) = the_record(&sc, rec::RELEASED, 0, bell);
++    assert_eq!(
++        rec::Undo::from_bytes(&pl).unwrap().by,
++        rec::by::AFTER_EXPIRY
++    );
++    // After a capture, by anyone: the facility side goes to F as it stands.
++    let mut sc = scene();
++    let g = sc.issue(0);
++    sc.reserve(sc.b, sc.b_c, g, 2).unwrap();
++    let (f, prov, c_c) = (sc.f, sc.prov, sc.c_c);
++    sc.w.capture(&f, &prov, 0, &c_c);
++    sc.release(sc.c, g).unwrap();
++    let (pl, linked) = the_record(&sc, rec::RELEASED, 0, BELL);
++    let u = rec::Undo::from_bytes(&pl).unwrap();
++    assert_eq!(u.by, rec::by::STALE_HOLDING);
++    assert_eq!(linked, vec![sc.s, sc.f]);
++}
++
++#[test]
++fn a_refused_instruction_leaves_no_record() {
++    let mut sc = scene();
++    let g = sc.issue(0);
++    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 31), rerr(E::QuotaExceeded));
++    assert!(sc.w.records.is_empty());
++    assert_eq!(sc.execute(sc.b, sc.b_c, g), rerr(E::NoReservation));
++    assert!(sc.w.records.is_empty());
++}
+-- 
+2.43.0
+

@@ -1,0 +1,573 @@
+{
+ "schema": "wylls.ws14.tower-facts/1",
+ "source": "model: workstreams/14-central-tower/proto (a toy model; not chain records)",
+ "world": {
+  "ends": false
+ },
+ "time": {
+  "unit": "model hour",
+  "bellsPerHour": 6,
+  "observedUntilHour": 504,
+  "atHour": 504
+ },
+ "case": "A",
+ "params": {
+  "seed": 1,
+  "case": "A",
+  "days": 21,
+  "periodHours": 168,
+  "nations": [
+   10,
+   10,
+   6,
+   6,
+   3,
+   3
+  ],
+  "placement": "compact",
+  "lateShare": 0.2,
+  "lateDay": 5,
+  "poorShare": 0.25,
+  "poorIncome": 0.4,
+  "sessionsPerDay": [
+   2,
+   4,
+   6
+  ],
+  "actionsPerSession": 2,
+  "strongIncome": 3,
+  "weakIncome": 0.6,
+  "oreRichNations": 2,
+  "landMix": 0.3,
+  "growCost": {
+   "food": 20,
+   "wood": 20,
+   "stone": 20,
+   "ore": 10
+  },
+  "reserveFactor": 1.5,
+  "tradeAmount": 15,
+  "requestVisibility": "nation",
+  "lossPerProvince": 0.01,
+  "raidLoss": 0.35,
+  "raidHours": 6,
+  "saboteurs": 2,
+  "sabotage": "brink",
+  "sabotageAt": 0.8,
+  "selfishShare": 0.2,
+  "leavers": 3,
+  "leaveDay": 7,
+  "alliance": null,
+  "monopolist": null,
+  "boardWaitHours": 6,
+  "boardFee": {
+   "food": 2
+  },
+  "boardExposure": 0.03,
+  "stageNeed": [
+   {
+    "wood": 8,
+    "stone": 8,
+    "food": 4
+   },
+   {
+    "wood": 6,
+    "stone": 10,
+    "ore": 2,
+    "food": 4
+   },
+   {
+    "stone": 12,
+    "ore": 4,
+    "food": 6
+   }
+  ],
+  "stageDays": 4,
+  "refund": "refund",
+  "access": "open",
+  "relayCap": [
+   0,
+   8,
+   16,
+   28
+  ],
+  "upkeepFood": 12,
+  "escortHours": 6,
+  "escortCut": 0.3,
+  "escortCap": 0.8,
+  "towerWill": 0.6,
+  "pledgeAmount": 15,
+  "carryLoad": 15
+ },
+ "tower": null,
+ "boundaries": [
+  {
+   "index": 1,
+   "hour": 168
+  },
+  {
+   "index": 2,
+   "hour": 336
+  }
+ ],
+ "events": [
+  {
+   "seq": 0,
+   "hour": 0,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 1,
+   "hour": 24,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 2,
+   "hour": 36,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 3,
+   "hour": 45,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 4,
+   "hour": 60,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 5,
+   "hour": 81,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 6,
+   "hour": 96,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 7,
+   "hour": 105,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 8,
+   "hour": 120,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 9,
+   "hour": 129,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 10,
+   "hour": 132,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 11,
+   "hour": 141,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 12,
+   "hour": 144,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 13,
+   "hour": 165,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 14,
+   "hour": 168,
+   "kind": "period.boundary",
+   "actor": null,
+   "nation": null,
+   "verified": "unverified",
+   "index": 1
+  },
+  {
+   "seq": 15,
+   "hour": 168,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 16,
+   "hour": 177,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 17,
+   "hour": 177,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 18,
+   "hour": 201,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 19,
+   "hour": 201,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 20,
+   "hour": 204,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 21,
+   "hour": 213,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 22,
+   "hour": 237,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 23,
+   "hour": 240,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 24,
+   "hour": 252,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 25,
+   "hour": 261,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 26,
+   "hour": 261,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 27,
+   "hour": 273,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 28,
+   "hour": 285,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 29,
+   "hour": 288,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 30,
+   "hour": 336,
+   "kind": "period.boundary",
+   "actor": null,
+   "nation": null,
+   "verified": "unverified",
+   "index": 2
+  },
+  {
+   "seq": 31,
+   "hour": 345,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 32,
+   "hour": 345,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 33,
+   "hour": 360,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 34,
+   "hour": 372,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 35,
+   "hour": 384,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 36,
+   "hour": 417,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 37,
+   "hour": 420,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 38,
+   "hour": 429,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 39,
+   "hour": 453,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 40,
+   "hour": 453,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 41,
+   "hour": 465,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 42,
+   "hour": 468,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 43,
+   "hour": 468,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 44,
+   "hour": 477,
+   "kind": "centre.raid",
+   "actor": 20,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  },
+  {
+   "seq": 45,
+   "hour": 480,
+   "kind": "centre.raid",
+   "actor": 22,
+   "nation": 2,
+   "verified": "unverified",
+   "stage": 0,
+   "fraction": 1
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+nation 1 home -2,0 site 10 ring 2 wedge 3 assigned 1 OK
+nation 5 home 2,-2 site 11 ring 2 wedge 5 assigned 5 OK
+nation 3 home 0,-2 site 9 ring 2 wedge 4 assigned 3 OK
+nation 2 home -1,-1 site 7 ring 2 wedge 3 assigned 2 OK
+nation 4 home 1,-2 site 11 ring 2 wedge 4 assigned 4 OK
+nation 0 home 2,-1 site 6 ring 2 wedge 5 assigned 0 OK
+homes 6 nations 6 match 6 outside own wedge 4

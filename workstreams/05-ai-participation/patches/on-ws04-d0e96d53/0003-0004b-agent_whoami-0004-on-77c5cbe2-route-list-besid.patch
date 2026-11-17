@@ -1,0 +1,214 @@
+From e0570e003c26641bcc88843cd1835a32b3156fff Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 23:43:40 +0000
+Subject: [PATCH 3/5] =?UTF-8?q?=E2=91=A4=200004b:=20agent=5Fwhoami=20(0004?=
+ =?UTF-8?q?=20on=20=E2=91=A3=2077c5cbe2;=20route=20list=20beside=20GET=20/?=
+ =?UTF-8?q?f/agent/fate)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ permutation-gateway/mcp/agent-mcp.mjs         | 14 ++++-
+ .../src/frontier/agent/gateway.mjs            | 11 ++++
+ permutation-gateway/src/frontier/app.mjs      |  3 +-
+ .../src/frontier/routes/agent.mjs             | 10 ++++
+ .../test/agent-wallet-mcp.test.mjs            |  6 +--
+ .../test/agent-wallet-whoami.test.mjs         | 51 +++++++++++++++++++
+ 6 files changed, 90 insertions(+), 5 deletions(-)
+ create mode 100644 permutation-gateway/test/agent-wallet-whoami.test.mjs
+
+diff --git a/permutation-gateway/mcp/agent-mcp.mjs b/permutation-gateway/mcp/agent-mcp.mjs
+index 8fd7cdf8..4a011f6b 100644
+--- a/permutation-gateway/mcp/agent-mcp.mjs
++++ b/permutation-gateway/mcp/agent-mcp.mjs
+@@ -42,6 +42,11 @@ export const TOOLS = Object.freeze([
+     description: 'The relay\'s terms: the per-call inference price, the game price table (empty: game actions stay free or resource-paid), who pays network fees. Test assets only.',
+     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+   },
++  {
++    name: 'agent_whoami',
++    description: 'Read only: whether this server\'s capability is the agent\'s current one, for which agent and owner, and what the policy allows now. Records nothing.',
++    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
++  },
+   {
+     name: 'agent_act',
+     description: 'Ask for one game action for the agent\'s own village. The relay checks it like any other caller (mode, policy version, mode epoch, allowed action, village, budget, on-chain delegation, game rules). Pass the policyVersion and modeEpoch you read with agent_view: a stop or a policy change since then refuses the request. requestId is your retry key: reuse it to retry the same decision (it is never sent twice), use a new one for a new decision.',
+@@ -157,7 +162,14 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
+     return ok(r.json);
+   }
+ 
+-  const tools = { agent_view: view, agent_terms: terms, agent_act: act, world_read: world };
++  async function whoami() {
++    const r = await http('POST', `${base}/f/agent/whoami`, { agentId, capability });
++    if (r.transport) return fail(r.error.code, r.error.message);
++    if (r.status !== 200) return fail(r.json?.code ?? 'RelayError', scrub(r.json?.error ?? `HTTP ${r.status}`));
++    return ok(r.json);
++  }
++
++  const tools = { agent_view: view, agent_terms: terms, agent_whoami: whoami, agent_act: act, world_read: world };
+ 
+   /** One JSON-RPC message → the response object (or null for a notification). */
+   async function handle(msg) {
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 02b80c0e..704d6f48 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -512,6 +512,17 @@ export class AgentGateway {
+     return promise;
+   }
+ 
++  /**
++   * Read-only: whether `credential` is this agent's current capability, and what it may ask for. Authenticates exactly as
++   * submit does, and writes nothing (no idempotency record, no history, no hold). A refusal throws as submit's would.
++   */
++  whoami(agentId, credential = {}) {
++    const rec = this.ledger.get(agentId);
++    this.#authenticate(rec, credential);
++    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, mode: rec.mode, modeEpoch: rec.modeEpoch,
++      policyVersion: rec.policy.version, allowed: [...rec.policy.allowed], village: [...rec.village] };
++  }
++
+   #authenticate(rec, credential) {
+     if (credential.runner === true) return;
+     if (typeof credential.owner === 'string') {
+diff --git a/permutation-gateway/src/frontier/app.mjs b/permutation-gateway/src/frontier/app.mjs
+index e2403cb2..c6077443 100644
+--- a/permutation-gateway/src/frontier/app.mjs
++++ b/permutation-gateway/src/frontier/app.mjs
+@@ -41,7 +41,7 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
+   'POST /f/relay', 'POST /f/join', 'POST /f/reveal', 'POST /f/nudge',
+   'GET /f/prize', 'GET /f/prize/ledger', 'POST /f/faucet', 'POST /f/x402/join', 'POST /f/prize/claim',
+   // The agent wallet (404 AgentWalletDisabled unless --agent-wallet); the operator's reconcile is not public.
+-  'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/fate', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action',
++  'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/fate', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action', 'POST /f/agent/whoami',
+   // ⑳ (provisional): the NFT choice of the first login.
+   'GET /f/residents',
+ ]);
+@@ -69,6 +69,7 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
+   'POST /f/agent/command': { burst: 20, perSecond: 0.5 },
+   'POST /f/agent/deposit': { burst: 10, perSecond: 0.2 },
+   'POST /f/agent/action': { burst: 40, perSecond: 2 },
++  'POST /f/agent/whoami': { burst: 20, perSecond: 1 },
+   'GET /f/agent': { burst: 40, perSecond: 3 },
+   'GET /f/agent/terms': { burst: 20, perSecond: 2 },
+   'GET /f/agent/session-terms': { burst: 20, perSecond: 2 },
+diff --git a/permutation-gateway/src/frontier/routes/agent.mjs b/permutation-gateway/src/frontier/routes/agent.mjs
+index 3b1480e3..dd243640 100644
+--- a/permutation-gateway/src/frontier/routes/agent.mjs
++++ b/permutation-gateway/src/frontier/routes/agent.mjs
+@@ -21,6 +21,7 @@
+ //                                            the relay co-signs, simulates, sends, waits and credits (the browser's path)
+ //   POST /f/agent/action  {capability, request}  an ActionRequest with the agent's capability token (source 'ai' or 'mcp')
+ //                                                → ActionResult (always 200: `ok`, `status`, `error.code` say what happened)
++//   POST /f/agent/whoami   {agentId, capability} read only: is this the agent's current capability (records nothing)
+ //   POST /f/agent/reconcile                      operator only: settle sent holds and withdrawals by the chain's answer
+ //   GET  /f/agent/unresolved                     operator only: model calls whose outcome was unknown, and the operator's cost record
+ //   POST /f/agent/settle {agentId, holdId, outcome: charge|refund, note?, by?, evidence?}   operator only: decide one unresolved call (audited:
+@@ -132,6 +133,15 @@ export const agentRoutes = {
+     return { body: await g.submit({ ...r, source }, { capability: b.capability }) };
+   },
+ 
++  // Read-only: is this capability the agent's current one? Nothing is recorded (agent wallet AgentGateway.whoami).
++  'POST /f/agent/whoami': async (ctx, req) => {
++    const g = agents(ctx);
++    const b = await req.json();
++    const agentId = str(b.agentId, 'agentId');
++    ctx.limiter.check(`f-agent-whoami:${agentId}`, { burst: 10, perSecond: 1 }, 'capability checks for this agent');
++    return { body: { ok: true, ...g.whoami(agentId, { capability: b.capability }) } };
++  },
++
+   'POST /f/agent/reconcile': async (ctx, req) => {
+     requireFrontierOperator(ctx, req);
+     return { body: { ok: true, ...(await agents(ctx).reconcile()) } };
+diff --git a/permutation-gateway/test/agent-wallet-mcp.test.mjs b/permutation-gateway/test/agent-wallet-mcp.test.mjs
+index edd0fe6d..756aa615 100644
+--- a/permutation-gateway/test/agent-wallet-mcp.test.mjs
++++ b/permutation-gateway/test/agent-wallet-mcp.test.mjs
+@@ -41,7 +41,7 @@ async function ready(r, { balance = 0n, p = policy(['economy']), auto = true, de
+ const rpc = (server, method, params, id = 1) => server.handle({ jsonrpc: '2.0', id, method, params });
+ const tool = async (server, name, args = {}) => (await rpc(server, 'tools/call', { name, arguments: args })).result;
+ 
+-test('MCP: initialize and tools/list expose reads and agent_act only, never an owner command', async () => {
++test('MCP: initialize and tools/list expose reads (agent_whoami included) and agent_act only, never an owner command', async () => {
+   const r = relay();
+   const a = await ready(r);
+   const s = createAgentMcp({ relay: RELAY, agentId: a.agentId, capability: a.capability, fetch: fetchOver(r) });
+@@ -50,7 +50,7 @@ test('MCP: initialize and tools/list expose reads and agent_act only, never an o
+   assert.deepEqual(init.result.capabilities, { tools: { listChanged: false } });
+   assert.equal(await s.handle({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
+   const list = (await rpc(s, 'tools/list')).result.tools.map(t => t.name);
+-  assert.deepEqual(list.sort(), ['agent_act', 'agent_terms', 'agent_view', 'world_read']);
++  assert.deepEqual(list.sort(), ['agent_act', 'agent_terms', 'agent_view', 'agent_whoami', 'world_read']);
+   for (const forbidden of ['create', 'policy', 'mode', 'withdraw', 'rotate', 'deposit', 'settle', 'stop']) {
+     assert.equal(list.some(n => n.includes(forbidden)), false, forbidden);
+     const res = await rpc(s, 'tools/call', { name: `agent_${forbidden}`, arguments: {} });
+@@ -188,7 +188,7 @@ test('MCP: the stdio transport is one JSON-RPC message per line', async () => {
+   assert.equal(msgs.length, 3, 'no answer to the notification');
+   assert.equal(msgs.find(m => m.id === 7).result.serverInfo.name, 'wylls-agent-wallet');
+   assert.equal(msgs.find(m => m.id === null).error.code, -32700);
+-  assert.equal(msgs.find(m => m.id === 8).result.tools.length, 4);
++  assert.equal(msgs.find(m => m.id === 8).result.tools.length, 5);
+ });
+ 
+ test('an MCP server can declare who acts through it: source ai keeps an autopilot apart from a person\'s MCP client on the same agent', async () => {
+diff --git a/permutation-gateway/test/agent-wallet-whoami.test.mjs b/permutation-gateway/test/agent-wallet-whoami.test.mjs
+new file mode 100644
+index 00000000..70fba6cf
+--- /dev/null
++++ b/permutation-gateway/test/agent-wallet-whoami.test.mjs
+@@ -0,0 +1,51 @@
++// A read-only capability check (proposed for ④/the agent wallet: ⑤ patch 0004). It authenticates exactly as submit does
++// and records nothing — unlike asking for an action, which always leaves an idempotency record.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { Keypair } from '@solana/web3.js';
++import { createAgentMcp } from '../mcp/agent-mcp.mjs';
++import { call, createAgent, delegate, ownerCommand, policy, relay } from './agent-wallet-fixtures.mjs';
++
++async function ready() {
++  const r = relay();
++  const owner = Keypair.generate();
++  const made = await createAgent(r, owner, { policy: policy(['economy']) });
++  await call(r.public, 'POST', '/f/agent/command', { body: ownerCommand(owner, 'mode', { agentId: made.agentId, params: { mode: 'auto' } }), ip: '127.0.0.1' });
++  delegate(r, owner.publicKey.toBase58(), made.agentKey);
++  const fetch = async (url, init = {}) => { const u = new URL(url); const res = await call(r.public, init.method ?? 'GET', u.pathname + u.search, { body: init.body === undefined ? undefined : JSON.parse(init.body) }); return { status: res.status, json: async () => res.json }; };
++  return { r, owner, ...made, fetch };
++}
++
++test('whoami: the current capability is named with its agent, owner and policy; nothing is recorded', async () => {
++  const w = await ready();
++  const rec = () => w.r.gateway.ledger.get(w.agentId);
++  const before = { saves: w.r.agentStore.saves, requests: Object.keys(rec().requests).length, history: rec().history.length };
++  const res = await call(w.r.public, 'POST', '/f/agent/whoami', { body: { agentId: w.agentId, capability: w.capability }, ip: '127.0.0.1' });
++  assert.equal(res.status, 200);
++  assert.deepEqual([res.json.agentId, res.json.owner, res.json.mode, res.json.policyVersion], [w.agentId, w.owner.publicKey.toBase58(), 'auto', 1]);
++  assert.equal(JSON.stringify(res.json).includes(w.capability), false, 'the token is never echoed');
++  assert.deepEqual({ saves: w.r.agentStore.saves, requests: Object.keys(rec().requests).length, history: rec().history.length }, before);
++});
++
++test('whoami: an old (rotated) capability, another agent\'s, or none is refused as submit would refuse it', async () => {
++  const w = await ready();
++  const other = await createAgent(w.r, Keypair.generate(), { policy: policy(['economy']) });
++  const rot = await call(w.r.public, 'POST', '/f/agent/command', { body: ownerCommand(w.owner, 'rotate-capability', { agentId: w.agentId }), ip: '127.0.0.1' });
++  assert.equal(rot.status, 200);
++  for (const capability of [w.capability, other.capability, undefined]) {
++    const res = await call(w.r.public, 'POST', '/f/agent/whoami', { body: { agentId: w.agentId, capability }, ip: '127.0.0.1' });
++    assert.equal(res.status, 401);
++    assert.equal(res.json.code, 'BadCapability');
++  }
++});
++
++test('whoami through MCP: agent_whoami is listed and answers; a stale token gives BadCapability', async () => {
++  const w = await ready();
++  const m = createAgentMcp({ relay: 'http://relay.test', agentId: w.agentId, capability: w.capability, fetch: w.fetch });
++  assert.ok(m.tools.includes('agent_whoami'));
++  const t = await m.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'agent_whoami', arguments: {} } });
++  assert.equal(t.result.structuredContent.agentId, w.agentId);
++  await call(w.r.public, 'POST', '/f/agent/command', { body: ownerCommand(w.owner, 'rotate-capability', { agentId: w.agentId }), ip: '127.0.0.1' });
++  const t2 = await m.handle({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent_whoami', arguments: {} } });
++  assert.equal(t2.result.structuredContent.error.code, 'BadCapability');
++});
+-- 
+2.43.0
+

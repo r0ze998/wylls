@@ -1122,13 +1122,24 @@ pub fn situation(inp: &Inputs, quota: (u32, u32)) -> Value {
     } else {
         RESOURCE_NAMES
     };
+    // The raw Season bytes are the authority. Neither a missing end time nor
+    // an inconsistent flag makes this an endless world.
+    let world_continues = obs
+        .season
+        .season
+        .as_ref()
+        .is_some_and(|s| s.world_continues());
+    let secs_left = (!world_continues)
+        .then(|| obs.season.genesis_ts + obs.season.end_bell() as i64 * 600 - now);
+    let end_bell = (!world_continues).then(|| obs.season.end_bell());
     json!({
         "resources": resources,
         "bell": bell,
         "day": bell / BELLS_PER_DAY,
         "bell_in_day": bell % BELLS_PER_DAY,
-        "secs_left": obs.season.genesis_ts + obs.season.end_bell() as i64 * 600 - now,
-        "end_bell": obs.season.end_bell(),
+        "secs_left": secs_left,
+        "end_bell": end_bell,
+        "world_continues": world_continues,
         "me": {
             "faction": h.faction,
             "doctrine": doctrine.name,

@@ -1,0 +1,87 @@
+// ⑭'s centre facts (`wylls.ws14.centre-facts/1`, game/centre.mjs at 88cf67c0; d9c8b81d had no per-resource cargo): what the herald's public S1 feeds
+// show at the centre (rings 0-1), in one snapshot. Read here as an aggregate of facts, reported only:
+//   - nothing is turned into evaluator events. The feeds are the current state with no time (sightings excepted),
+//     and no rule says what a vault, a structure or a transit at the centre earns. Goals, awards, scores and prizes
+//     are not touched (undecided).
+//   - `verified: 'derived'` (the herald folded them from chain records). Not ⑭'s model facts (`unverified`).
+//   - `centre.transit.cargo` is the sum over resources of a caravan's cargo (⑭ `sumCargo`), and the summary's cargo
+//     shares are built on it. The evaluator keeps resources apart, so neither is used. `cargoByResource` (88cf67c0,
+//     the herald's 8 slots) is read per resource; Science and Influence (slots 6, 7) are reported apart, not kept.
+//   - a sighting names its tower's owner and its subject (88cf67c0) as the herald gives them (u64 tags as strings).
+//     Who a sighting earns anything for is not decided: it is credited to no one.
+//   - provenance: the herald's fold position read before and after the feeds. Moving (`stable: false`) or not
+//     stated (`from: null`) is reported as such; the facts are still listed, never dated by a guess.
+import { SLOT_RESOURCES } from './s1-chain.mjs';
+
+export const CENTRE_SCHEMA = 'wylls.ws14.centre-facts/1';
+const KINDS = new Set(['centre.vault', 'centre.structure', 'centre.transit', 'centre.sighting']);
+const NOT_USED = Object.freeze([
+  'centre.transit.cargo: a sum over resources (the evaluator keeps resources apart)',
+  'summary.cargoInnerShare / cargoConcordShare: built on that sum',
+  'summary.*: recounted here from the facts, not taken',
+]);
+
+/** The centre facts as a report, or `{status: 'refused', reasons}`. Never events. */
+export function readCentreFacts(doc) {
+  if (!doc || doc.schema !== CENTRE_SCHEMA) return { status: 'refused', reasons: [`schema ${doc?.schema ?? 'missing'}, expected ${CENTRE_SCHEMA}`] };
+  if (doc.refused) return { status: 'refused', reasons: [...doc.refused] };
+  if (!Array.isArray(doc.facts)) return { status: 'refused', reasons: ['no facts list'] };
+  const refusedFacts = [];
+  const facts = [];
+  for (const f of doc.facts) {
+    if (!KINDS.has(f?.kind)) refusedFacts.push({ seq: f?.seq ?? null, why: `unknown kind ${f?.kind}` });
+    else if (f.verified !== 'derived') refusedFacts.push({ seq: f.seq ?? null, why: `verified ${f.verified}, expected derived` });
+    else facts.push(f);
+  }
+  const p = doc.provenance ?? {};
+  const status = p.from === null || p.from === undefined ? 'source_unknown' : p.stable === true ? 'snapshot' : 'between';
+  const of = k => facts.filter(f => f.kind === k);
+  const count = (list, pred = () => true) => list.filter(pred).length;
+  const byKind = {};
+  for (const s of of('centre.structure')) byKind[s.structureKind] = (byKind[s.structureKind] ?? 0) + 1;
+  const byFaction = {};
+  for (const f of facts) {
+    if (f.kind === 'centre.sighting' || f.faction === null || f.faction === undefined) continue;
+    const k = String(f.faction);
+    byFaction[k] ??= { vaults: 0, structures: 0, transits: 0 };
+    byFaction[k][{ 'centre.vault': 'vaults', 'centre.structure': 'structures', 'centre.transit': 'transits' }[f.kind]]++;
+  }
+  const transits = of('centre.transit');
+  // Per resource, never summed: the herald's slots as ⑭ passes them (cargoByResource); a transit without it is counted
+  // as "not given", not as zero.
+  const cargo = { byResource: Object.fromEntries(SLOT_RESOURCES.filter(Boolean).map(r => [r, { centre: 0, concord: 0 }])), notKept: {}, notGiven: 0 };
+  for (const t of transits) {
+    if (!Array.isArray(t.cargoByResource) || t.cargoByResource.length !== 8 || !t.cargoByResource.every(q => Number.isSafeInteger(q) && q >= 0)) { cargo.notGiven++; continue; }
+    t.cargoByResource.forEach((q, i) => {
+      if (!q) return;
+      const r = SLOT_RESOURCES[i];
+      const slot = r ? cargo.byResource[r] : (cargo.notKept[['science', 'influence'][i - 6]] ??= { centre: 0, concord: 0 });
+      slot.centre += q;
+      if (t.throughConcord) slot.concord += q;
+    });
+  }
+  return {
+    status,
+    reasons: status === 'snapshot' ? [] : [p.why ?? 'no /h/status read with the feeds'],
+    schema: CENTRE_SCHEMA,
+    verified: 'derived',
+    counted: false, // reported only: no goal, award, score or prize reads these
+    world: { ends: false },
+    observedAt: doc.observedAt ?? null,
+    asOf: p.after ?? null,
+    slotCommitment: p.slotCommitment ?? 'not stated by the herald',
+    counts: {
+      vaults: { centre: count(of('centre.vault')), concord: count(of('centre.vault'), f => f.concord) },
+      structures: { centre: count(of('centre.structure')), concord: count(of('centre.structure'), f => f.concord), byKind },
+      transits: { centre: transits.length, concord: count(transits, f => f.throughConcord), raided: count(transits, f => f.raided) },
+      sightings: count(of('centre.sighting')),
+    },
+    cargo,
+    byFaction,
+    transitOwners: transits.map(f => ({ ownerTag: String(f.ownerTag), seq: f.seqOfOwner ?? null, faction: f.faction ?? null, throughConcord: !!f.throughConcord })),
+    sightings: of('centre.sighting').map(f => ({ bell: f.bell ?? null, what: f.what ?? null, towerFaction: f.towerFaction ?? null, faction: f.faction ?? null,
+      towerOwnerTag: f.towerOwnerTag === undefined || f.towerOwnerTag === null ? null : String(f.towerOwnerTag), subject: f.subject === undefined || f.subject === null ? null : String(f.subject), creditedTo: null })),
+    notUsed: NOT_USED,
+    refusedFacts,
+  };
+}

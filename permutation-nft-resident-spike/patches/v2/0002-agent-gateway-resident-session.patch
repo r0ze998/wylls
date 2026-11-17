@@ -1,0 +1,63 @@
+From ffdd8ffabc3fbee9917d6d03de98b3966a2a7d80 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 12:59:21 +0000
+Subject: [PATCH 2/3] agent wallet: an agent acts for a resident only as the
+ current holder's session of the current generation
+
+Shared-core diff 2 of 3 for NFT-bound residents (workstream 20); replaces
+spike patch 03, which checked the agent's owner: after a buy-back
+(A to B to A) the owner holds again, and A's agent from before the sale
+acted again without a new delegation. #build now asks the gate about the
+agent's key, so only a delegation the current holder made in the current
+holder generation stands; delegation() reports delegated: false with
+the reason. Without ctx.residents nothing changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2aAnhS2uns3RrMveq4
+---
+ permutation-gateway/src/frontier/agent/gateway.mjs | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 03e05945..6be79fe6 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -14,6 +14,8 @@
+ //     / DailyLimitReached; the price table is empty: existing actions stay
+ //     free or resource-paid)
+ //   → on chain, the Citizen's session key is the agent's key and unexpired
++//     (and, with `ctx.residents`, the resident's current holder set it in the
++//     current holder generation)
+ //   → the transaction is built here (accountsFor), signed by the agent's
+ //     key, and goes through the relay's own `sponsor()` (shape allowlist,
+ //     quota, simulation, drain guard); `beforeSend` re-checks mode and
+@@ -35,7 +37,7 @@ import { signatureOf, signedBy } from '../../cosign.mjs';
+ import { simulateWatching } from '../chain.mjs';
+ import { drainGuard } from '../shapes.mjs';
+ import { landed } from '../routes/prize.mjs';
+-import { citizenQuota, signAs } from '../routes/relay.mjs';
++import { citizenQuota, residentRefusal, signAs } from '../routes/relay.mjs';
+ import { PublicKey } from '@solana/web3.js';
+ import { RouteError } from '../../routes/errors.mjs';
+ import { feeOf } from '../shapes.mjs';
+@@ -480,6 +482,10 @@ export class AgentGateway {
+     if (!citizen) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the owner has no Citizen this season', 409);
+     const live = base58(citizen.SESSION) === rec.agentKey && BigInt(citizen.SESSION_EXPIRY) > BigInt(clock.unixTimestamp);
+     if (!live) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the agent\'s key is not the Citizen\'s unexpired session key (the owner sets it with SetSession)', 409, { agentKey: rec.agentKey, sessionExpiry: String(citizen.SESSION_EXPIRY) });
++    // NFT-bound residents: the agent's key must be the session the resident's current holder set in the
++    // current holder generation. A transfer ends every delegation of an earlier holder, also after a buy-back.
++    const resident = await residentRefusal(ctx, ctx.addresses.citizen(rec.owner), rec.agentKey);
++    if (resident) throw new AgentError(ERR.SESSION_NOT_DELEGATED, `the agent's key is not the current session of the resident's holder (${resident}); the holder delegates again`, 409, { agentKey: rec.agentKey, resident });
+     const profile = profileForSeason(season);
+     const fields = normaliseFields(r.action.name, r.action.fields, profile);
+     const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, profile });
+@@ -628,7 +634,8 @@ export class AgentGateway {
+     if (!citizen) return { citizen: false, delegated: false, session: null, expiry: null, now: clock.unixTimestamp };
+     const session = base58(citizen.SESSION);
+     const expiry = Number(citizen.SESSION_EXPIRY);
+-    return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp, session, expiry, now: clock.unixTimestamp };
++    const resident = await residentRefusal(this.ctx, this.ctx.addresses.citizen(rec.owner), rec.agentKey);
++    return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp && !resident, session, expiry, now: clock.unixTimestamp, ...(resident ? { resident } : {}) };
+   }
+ 
+   /**

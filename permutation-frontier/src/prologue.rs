@@ -33,8 +33,27 @@ pub struct Now {
     pub slot: u64,
 }
 
+// Tests only: the host build cannot read the Clock sysvar (the sysvar
+// getter returns `UnsupportedSysvar` off chain, with no hook), so the
+// key-free runtime harness (`resident_runtime_tests`) sets the time with
+// `set_test_clock`. Not compiled into any build.
+#[cfg(test)]
+std::thread_local! {
+    static TEST_NOW: core::cell::Cell<Option<(i64, u64)>> = const { core::cell::Cell::new(None) };
+}
+
+/// Tests only: the time [`now`] returns on this thread.
+#[cfg(test)]
+pub fn set_test_clock(ts: i64, slot: u64) {
+    TEST_NOW.with(|c| c.set(Some((ts, slot))));
+}
+
 /// Reads the Clock sysvar.
 pub fn now() -> R<Now> {
+    #[cfg(test)]
+    if let Some((ts, slot)) = TEST_NOW.with(|c| c.get()) {
+        return Ok(Now { ts, slot });
+    }
     let c = Clock::get()?;
     Ok(Now {
         ts: c.unix_timestamp,

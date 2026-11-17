@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>国際供給網（試作）</title>
+  <link rel="stylesheet" href="table.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>国際供給網 <span class="tag">試作</span></h1>
+      <p class="sub">A国の採掘者・B国の工房・C国の中継役（配置は固定）・ <a href="index.html">国の卓</a> ・ <a href="placement.html">初期配置の比較</a></p>
+    </div>
+    <div class="clock" id="clock" aria-live="polite"></div>
+    <div class="controls">
+      <button type="button" data-ui="advance" data-n="1">1ターン進める</button>
+      <button type="button" data-ui="advance" data-n="6">6ターン進める</button>
+      <label class="ev">出来事 <select id="event"></select></label>
+      <button type="button" data-ui="inject">起こす</button>
+      <button type="button" data-ui="reset">やり直す</button>
+    </div>
+  </header>
+
+  <p class="notice" role="note">比較検証のための試作です。勝利条件は採用していません。報酬・賞金はありません。交換は②の「素材と生産済み武具の交換権」を模したもの（②の実装ではない）で、
+    到着の確定は④を模したものです。この画面の操作や自動テストは、人間が面白いと感じた証拠になりません。</p>
+
+  <nav class="who" id="who" aria-label="誰の立場で見るか"></nav>
+
+  <main class="grid">
+    <section class="col" aria-labelledby="h-joint">
+      <h2 id="h-joint">共同成果</h2>
+      <div id="joint"></div>
+      <h2>個人と国の評価 <small>（共同成果とは別）</small></h2>
+      <div id="evals"></div>
+    </section>
+    <section class="col" aria-labelledby="h-flow">
+      <h2 id="h-flow">交換の申し出</h2>
+      <div id="offers"></div>
+      <h2>荷車</h2>
+      <div id="ships"></div>
+    </section>
+    <section class="col decide" aria-labelledby="h-decide">
+      <h2 id="h-decide">次に必要な判断</h2>
+      <div id="decisions"></div>
+      <h2>手元</h2>
+      <div id="mine"></div>
+    </section>
+  </main>
+  <section class="logwrap" aria-labelledby="h-log">
+    <h2 id="h-log">記録</h2>
+    <ol id="log" class="log" reversed></ol>
+  </section>
+  <details class="howto">
+    <summary>試し方（5分）</summary>
+    <ol>
+      <li>ナギで、トウに「鉱石120と兵器30」を申し出る。トウに切り替えて受ける。</li>
+      <li>リンで、トウかセナに兵器を申し出る（トウの兵器はナギに渡すと足りなくなる）。</li>
+      <li>13ターン進め、ナギで、届いた兵器をリンの木材700と交換する。6ターン進めて、ナギは昇格、リンは訓練。</li>
+      <li>「共同成果」の表で、届いた量・送った量・使った量・数えた量を見る。往復や通り抜けは数えない。</li>
+      <li>やり直して、「条件を変える」「施設を失う」「途中で退出する」「到着が未検証」「国の頼み」を試す。</li>
+    </ol>
+  </details>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="supply-ui.mjs"></script>
+</body>
+</html>

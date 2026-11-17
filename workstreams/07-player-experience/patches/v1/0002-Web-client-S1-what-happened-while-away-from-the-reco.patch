@@ -1,0 +1,483 @@
+From 0a555909cca47f26768824d7d43d577b4471b6b7 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 00:01:10 +0000
+Subject: [PATCH 2/3] Web client (S1): what happened while away, from the
+ records; S1 losses as notices
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Connection patch of workstream 07 (player experience), claim 3 and brief
+item 1.
+
+The page's first look was never news (hud/feed.mjs: "A first snapshot (prev
+null) is not news"), and no S1 record became a notice: a caravan raided or
+lost, a storehouse or structure seized, a siege declared on the viewer's
+village, a vote of the nation decided. On an S1 season the first look now
+tells, from the chronicle the page has read, what happened since the
+player's own "seen" mark on this device (hud/returnsum.mjs, the workstream's
+model; hud/returnwords.mjs its words): a head notice that says what it
+covers — since the mark, or a stated window on a first visit, another
+device, another wallet or a new season — and names a gap in what was read
+without filling it, then one notice per item. "Seen" moves the mark;
+closing does not. Between two looks the S1 records read since the last
+tick become notices. Nothing is told that no record logged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../test/web-frontier-ws07-s1walk.test.mjs    |  36 ++++
+ permutation-server/web/frontier/app.mjs       |  48 ++++-
+ permutation-server/web/frontier/hud/feed.mjs  |   6 +-
+ .../web/frontier/hud/returnsum.mjs            | 175 ++++++++++++++++++
+ .../web/frontier/hud/returnwords.mjs          |  49 +++++
+ .../web/lang/en-frontier-play.mjs             |  44 +++++
+ 6 files changed, 355 insertions(+), 3 deletions(-)
+ create mode 100644 permutation-server/web/frontier/hud/returnsum.mjs
+ create mode 100644 permutation-server/web/frontier/hud/returnwords.mjs
+
+diff --git a/permutation-gateway/test/web-frontier-ws07-s1walk.test.mjs b/permutation-gateway/test/web-frontier-ws07-s1walk.test.mjs
+index 68a5a10d..061394ce 100644
+--- a/permutation-gateway/test/web-frontier-ws07-s1walk.test.mjs
++++ b/permutation-gateway/test/web-frontier-ws07-s1walk.test.mjs
+@@ -142,3 +142,39 @@ test('the envelope keeps the Province bytes it decoded; the march wear reads the
+   } finally { S1.setS1(null); }
+   assert.equal(toBase64(parsed.provinceBytes), REC.province_before_b64);
+ });
++
++// ---------------------------------------------------------------- the away summary in the feed
++import * as feed from '../../permutation-server/web/frontier/hud/feed.mjs';
++import * as returnSum from '../../permutation-server/web/frontier/hud/returnsum.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++test('the away notice offers "seen" (which moves the player\'s mark) beside its ×, and an S1 notice goes to its place', () => {
++  setLang('ja');
++  const away = String(feed.renderToast({ id: 'away:9', kind: 'away', bell: 610, text: 'x', away: { toSeq: '9', toBell: 610 } }));
++  assert.match(away, /data-act="away-seen"[^>]*data-id="away:9"/);
++  assert.match(away, /留守のあいだ/);
++  assert.match(away, /data-act="feed-dismiss"/, 'closing stays possible, and does not confirm');
++  assert.match(String(feed.renderToast({ id: 'aw:5', kind: 's1', bell: 600, text: 'y', p: 1, q: 0 })), /data-act="feed-go"/);
++  // the web copy of the model is the workstream's (same items from the same records)
++  assert.equal(typeof returnSum.summarize, 'function');
++  assert.equal(returnSum.storeKey('7', 'W'), 'ws07-return:7:W');
++});
++
++test('the away items read the codes as the program numbers them: proposals 1 stance, 2 expulsion, 3 readmission; a march\'s result 1 Stays … 8 BadSeal', async () => {
++  const { decodeRecord, KINDS } = await import('../../permutation-server/web/frontier/flog.mjs');
++  const { LOGS } = await import('../../permutation-server/web/sdk/frontier/abi-v2-logs.mjs');
++  const words = await import('../../permutation-server/web/frontier/hud/returnwords.mjs');
++  const enc = (kind, bell, f, parts) => { const b = new Uint8Array(6 + parts.reduce((a, [, n]) => a + n, 0) + 1), v = new DataView(b.buffer); b[0] = 1; b[1] = kind; v.setUint32(2, bell, true); let o = 6;
++    for (const [name, n] of parts) { const x = f[name]; if (x !== undefined) { if (n === 8) v.setBigUint64(o, BigInt(x), true); else if (n === 4) v.setUint32(o, Number(x), true); else if (n === 2) v.setUint16(o, Number(x), true); else if (n === 1) b[o] = Number(x); } o += n; }
++    return decodeRecord(b); };
++  const spec = LOGS.kinds.find(k => k.name === 'NATION_DECIDED');
++  const decided = kind => enc(spec.kind, 9, { faction: 2, id: 1, passed: 1, kind, target_faction: 4, value: 1, yes: 3, no: 1 }, [...spec.key, ...spec.payload].map(x => [x.name, x.len]));
++  const me = { tag: 5n, faction: 2, holdings: [], hostOf: () => ({ p: 0, q: 0, site: 0 }) };
++  setLang('ja');
++  assert.equal(returnSum.itemOf({ seq: '1', record: decided(1) }, me).facts.proposal, 'stance');
++  assert.equal(returnSum.itemOf({ seq: '1', record: decided(2) }, me).facts.proposal, 'expel');
++  assert.equal(returnSum.itemOf({ seq: '1', record: decided(3) }, me).facts.proposal, 'readmit');
++  assert.match(words.itemText(returnSum.itemOf({ seq: '1', record: decided(1) }, me)), /への方針を「通行」に/);
++  const ts = outcome => returnSum.itemOf({ seq: '2', record: enc(34, 9, { host_id: 77n, outcome, troops: 120_000 }, [...KINDS[34].key, ...KINDS[34].payload]) }, me);
++  assert.deepEqual([ts(1).facts.outcome, ts(1).tone, ts(5).facts.outcome, ts(5).tone, ts(8).facts.outcome], ['Stays', 'result', 'Destroyed', 'loss', 'BadSeal']);
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index 4fdea0bf..1f89c200 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -46,6 +46,8 @@ import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES, u
+ import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
+ import { toHex } from '../sdk/bytes.mjs';
+ import { html, setHtml } from '../util.mjs';
++import * as returnSum from './hud/returnsum.mjs';
++import * as returnWords from './hud/returnwords.mjs';
+ import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
+ import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
+ import { mountProtoBoard } from './proto/board-mount.mjs';
+@@ -2263,12 +2265,49 @@ function renderSound() {
+ 
+ // ------------------------------------------------------------------ notifications (hud/feed.mjs)
+ let feedPrev = null;
++/** The player's own marks on this device (hud/returnsum.mjs): what they said they have seen, per season and wallet. */
++const awayStore = () => { try { return globalThis.localStorage ?? null; } catch { return null; } };
++const awayMe = () => ({ tag: (() => { try { return BigInt(ownTag(FS) ?? 0); } catch { return null; } })(), faction: FS.citizen?.faction, holdings: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, site: h.site })),
++  hostOf: id => { try { const h = hostParts(id); return h ? (FS.holdings ?? []).find(o => o.p === h.p && o.q === h.q && o.site === h.site) ?? null : null; } catch { return null; } } });
++let awaySeq = null;
++/**
++ * The page's first look: what the records read say happened since the player last said "seen" on this device (or,
++ * with no such mark, in the last turns), as one head notice with "seen" and one notice per item. Nothing is told that
++ * no record logged; what was not read (the chronicle starts behind the head) is named as a gap.
++ */
++function awayItems() {
++  const records = FS.chronicle ?? [];
++  awaySeq = records.at(-1)?.seq ?? null;
++  const season = String(FS.season?.seasonId ?? ''), wallet = FS.wallet?.address ?? '';
++  if (!season || !wallet) return [];
++  const st = awayStore();
++  const s = returnSum.summarize({ records, read: { after: records.length ? String(BigInt(records[0].seq) - 1n) : null, complete: true }, marks: returnSum.loadMarks(st, season, wallet), last: returnSum.loadLast(st), season, wallet, nowBell: FS.nowBell ?? 0, me: awayMe() });
++  if (!s.items.length && !s.gap) return [];
++  const bell = FS.nowBell ?? null, toSeq = records.at(-1)?.seq ?? null;
++  return [{ id: `away:${toSeq}`, kind: 'away', bell, text: returnWords.headText(s), away: { toSeq, toBell: s.read.toBell, summary: s } },
++    ...s.items.map(awayItem)];
++}
++/** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
++const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
++/** The away notices in the page's language (they are kept as words; the language may change after they were told). */
++const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: returnWords.headText(x.away.summary) } : x)); };
++/** Between two looks: the S1 records read since the last tick (hud/feed.mjs diffFeed knows none of them). */
++const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
++function s1Items() {
++  const records = FS.chronicle ?? [], after = awaySeq === null ? null : BigInt(awaySeq);
++  if (records.length) awaySeq = records.at(-1).seq;
++  if (after === null) return [];
++  const me = awayMe();
++  return records.filter(x => BigInt(x.seq) > after && S1_NEWS.has(x.record?.name)).map(x => returnSum.itemOf(x, me)).filter(Boolean).map(awayItem);
++}
++onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
+ let feedBell = null;
+ /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */
+ function tickFeed() {
+   if (FS.mode !== 'play' || !FS.citizen || !FS.chronicle) return;
++  const first = feedPrev === null;
+   const snap = feed.snapshot(FS, undefined, feedPrev);
+-  let fresh = feed.diffFeed(feedPrev, snap);
++  let fresh = [...feed.diffFeed(feedPrev, snap), ...(!s1On() ? [] : first ? awayItems() : s1Items())];
+   feedPrev = snap;
+   // (a battle in the viewer's province that is no march's of this browser: who fought there and on which tile is in
+   // the clash's own report, which is read first — clashTold — and the line is told then, by what the report says)
+@@ -3093,6 +3132,13 @@ export const HUD_ACTIONS = {
+   'turn-go': d => { const x = turnStrip?.items.find(y => y.id === d.id); if (x) goToItem({ p: x.p, q: x.q, tile: Number.isInteger(x.tile) ? x.tile : undefined, tab: 'map' }); },
+   'turn-dismiss': () => { if (turnStrip) turnStrip.dismissed = true; renderFeed(); },
+   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
++  // the away summary's "seen": the player's own mark moves to the last record it told (closing it with × does not)
++  'away-seen': d => {
++    const x = (FS.feed ?? []).find(y => y.id === d.id);
++    if (x?.away) returnSum.confirm(awayStore(), { seasonId: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ?? '', toSeq: x.away.toSeq, toBell: x.away.toBell, at: FS.chain?.now?.() ?? 0 });
++    FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.kind === 'away' || String(y.id).startsWith('aw:')).map(y => y.id)]);
++    renderFeed();
++  },
+   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },
+   // the status at the map: put a refusal away, or send the refused action once more
+   'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },
+diff --git a/permutation-server/web/frontier/hud/feed.mjs b/permutation-server/web/frontier/hud/feed.mjs
+index 192576a7..de37e2c7 100644
+--- a/permutation-server/web/frontier/hud/feed.mjs
++++ b/permutation-server/web/frontier/hud/feed.mjs
+@@ -235,13 +235,13 @@ export function pushFeed(feed, items, at = Date.now()) {
+ }
+ 
+ /** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
+-export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag' });
++export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag', away: 'bell', s1: 'flag' });
+ /** A notification's words in a list: a line of the prototype rule "banners" says 試作 first (its toast says so in its heading). */
+ export const lineText = x => (x.proto ? L`試作：${x.text}` : x.text);
+ /** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
+ const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
+ // (`proto`: a line of the prototype rule "banners", which only a sample world that serves it writes: it says 試作 on itself)
+-const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, explore: () => L`探索`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, territory: () => L`領地`, keep: () => L`砦`, summary: () => L`まとめ`, proto: () => L`旗（試作）` };
++const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, explore: () => L`探索`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, territory: () => L`領地`, keep: () => L`砦`, summary: () => L`まとめ`, proto: () => L`旗（試作）`, away: () => L`留守のあいだ`, s1: () => L`隊商と国` };
+ /** The viewer's nation's part in a keep notification, as a tag after the text. */
+ const sideTag = x => (SIDE_TEXT[x.side] ? html` <span class="tag feed-side-${x.side}">${SIDE_TEXT[x.side]()}</span>` : '');
+ 
+@@ -255,6 +255,8 @@ function itemActions(x) {
+     acts.push(html`<button type="button" class="btn small go" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}${icon('chevron', 'go-ic')}</button>`);
+     acts.push(html`<button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`);
+   } else if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small go" data-act="feed-go" data-id="${x.id}">${L`見る`}${icon('chevron', 'go-ic')}</button>`);
++  // (the away summary: "seen" moves the player's own mark; closing it does not — hud/returnsum.mjs)
++  if (x.kind === 'away' && x.away) acts.push(html`<button type="button" class="btn small primary" data-act="away-seen" data-id="${x.id}">${L`確認した`}</button>`);
+   // (a banner of the viewer's under threat, prototype rule "banners": the answer is a march that wins the tile)
+   if (x.send && Number.isInteger(x.send.tile)) acts.push(html`<button type="button" class="btn small primary" data-act="proto-send" data-p="${x.send.p}" data-q="${x.send.q}" data-tile="${x.send.tile}">${icon('march')}${L`軍勢を送る`}</button>`);
+   return acts;
+diff --git a/permutation-server/web/frontier/hud/returnsum.mjs b/permutation-server/web/frontier/hud/returnsum.mjs
+new file mode 100644
+index 00000000..f84b5001
+--- /dev/null
++++ b/permutation-server/web/frontier/hud/returnsum.mjs
+@@ -0,0 +1,175 @@
++// What happened while the viewer was away, from the season's records and
++// from nothing else (workstream 07; app.mjs tickFeed tells it on the page's
++// first look, and the S1 records it reads between two looks).
++//
++// Today (hud/feed.mjs diffFeed): a page's first snapshot "is not news", so a
++// player who opens the page sees no notification of anything that happened
++// before; the chronicle starts CHRONICLE_WINDOW (500) events behind the
++// head and keeps 400 (controller.mjs), and diffFeed knows no S1 record — a
++// caravan raided or lost, a storehouse or a structure seized, a siege
++// declared on the viewer's village, a nation's vote decided. The herald
++// keeps every event (/h/events?after=, frontier-node herald server.rs over
++// the findex index), and the page decodes every S1 kind (flog.mjs with the
++// v2 log table), so the summary needs no new record and no new instruction.
++// The words are hud/returnwords.mjs's.
++//
++// Two marks are kept apart:
++//   fetched    the events this page has read (seq range, turns), told as
++//              such ("records read up to turn N")
++//   confirmed  the last event the player said they have seen, by pressing
++//              "確認した"; only that moves the next summary's start
++// and the summary says which case it is in: the first time on this device
++// for this season and wallet (which is also what another device or a
++// cleared browser looks like: the page cannot tell them apart and says so),
++// another wallet on this device, a new season, or a gap — events between
++// the confirmed mark and the first one read that the page did not get —
++// which it names as a gap and never fills in.
++//
++// A loss is told only from the record that logged it, with the amounts the
++// record carries; nothing is estimated.
++import { TRANSIT_OUTCOMES } from '../flog.mjs';
++
++
++export const STORE_VERSION = 1;
++/** nation.rs proposal kinds: 1 a stance, 2 an expulsion, 3 a readmission (screens/s1.mjs PROPOSE_*). */
++export const PROPOSAL_KIND = Object.freeze({ 1: 'stance', 2: 'expel', 3: 'readmit' });
++/** How many turns back a first summary on a device looks (the page cannot know the player's last visit). */
++export const FIRST_LOOK_BELLS = 144;
++/** Most items the summary lists before "and N more in the chronicle". */
++export const SUMMARY_MAX = 6;
++
++const big = v => { try { return BigInt(v ?? 0); } catch { return null; } };
++const same = (a, b) => a !== null && b !== null && a !== undefined && b !== undefined && big(a) === big(b);
++
++/** The cargo of a record (`[u8; 32]`: eight u32 whole units, caravan.rs cargo_log) as numbers. */
++export function cargoOf(bytes) {
++  if (!(bytes instanceof Uint8Array) || bytes.length !== 32) return null;
++  const v = new DataView(bytes.buffer, bytes.byteOffset, 32);
++  return Array.from({ length: 8 }, (_, i) => v.getUint32(i * 4, true));
++}
++
++/** The device's key for a season and a wallet. */
++export const storeKey = (seasonId, wallet) => `ws07-return:${seasonId}:${wallet}`;
++
++/** Read the stored marks (`{v, seasonId, wallet, confirmedSeq, confirmedBell, confirmedAt}`), null when none or unreadable. */
++export function loadMarks(storage, seasonId, wallet) {
++  try {
++    const raw = storage?.getItem?.(storeKey(seasonId, wallet));
++    const m = raw ? JSON.parse(raw) : null;
++    return m && m.v === STORE_VERSION && String(m.seasonId) === String(seasonId) && m.wallet === wallet ? m : null;
++  } catch { return null; }
++}
++/** What this device last used: `{seasonId, wallet}` or null (to tell "another wallet" and "a new season"). */
++export function loadLast(storage) {
++  try { const m = JSON.parse(storage?.getItem?.('ws07-return:last') ?? 'null'); return m && m.seasonId !== undefined ? m : null; } catch { return null; }
++}
++/** The player pressed "確認した": the summary's end becomes the next one's start. Returns the marks written, or null when storage refused. */
++export function confirm(storage, { seasonId, wallet, toSeq, toBell, at }) {
++  const m = { v: STORE_VERSION, seasonId: String(seasonId), wallet, confirmedSeq: String(toSeq), confirmedBell: toBell, confirmedAt: at };
++  try {
++    storage.setItem(storeKey(seasonId, wallet), JSON.stringify(m));
++    storage.setItem('ws07-return:last', JSON.stringify({ seasonId: String(seasonId), wallet }));
++    return m;
++  } catch { return null; }
++}
++
++/**
++ * One record as a summary item, or null when it is not the viewer's news.
++ * `me`: `{tag (citizen tag), faction, holdings: [{p, q, site}], hostOf(id) →
++ * holding or null}`. Items: `{seq, bell, kind, tone ('loss' | 'threat' |
++ * 'gain' | 'nation' | 'result'), rank (3 most pressing), facts, at: {p, q,
++ * tile?}}`.
++ */
++export function itemOf({ seq, record: r }, me, holders = null) {
++  // (a caravan's records keep the SENDER's tag after a take — caravan.rs: OWNER_TAG "stays the address seed" — so who
++  // holds it now comes from the takes read before this record; `holders` is summarize's map, else the sender)
++  const key = r.owner_tag !== undefined && r.seq !== undefined ? `${r.owner_tag}:${r.seq}` : null;
++  const held = key && holders?.has(key) ? holders.get(key) : r.owner_tag;
++  const mineHolding = (p, q, site) => (me.holdings ?? []).some(h => h.p === p && h.q === q && (site === undefined || h.site === site));
++  const base = { seq: String(seq), bell: Number(r.bell ?? r.logBell), kind: r.name };
++  switch (r.name) {
++    case 'CARAVAN_RAIDED':
++      // (the raider first: a sender who takes back a caravan taken from it gained, it did not lose)
++      if (same(r.raider_tag, me.tag)) return { ...base, tone: 'gain', rank: 1, at: { p: r.p, q: r.q }, facts: { choice: r.choice === 1 ? 'burn' : 'take', byDefault: r.by === 1, cargo: cargoOf(r.taken) } };
++      if (same(held, me.tag)) return { ...base, tone: 'loss', rank: 3, at: { p: r.p, q: r.q }, facts: { choice: r.choice === 1 ? 'burn' : 'take', byDefault: r.by === 1, cargo: cargoOf(r.taken), seq: r.seq } };
++      return null;
++    case 'RAID_OPENED':
++      // (the raid is decided within RAID_DECIDE_BELLS by the raider, else by default: the outcome is CARAVAN_RAIDED's)
++      return same(held, me.tag) ? { ...base, tone: 'threat', rank: 2, at: { p: r.p, q: r.q }, facts: { seq: r.seq } } : null;
++    case 'CARAVAN_SETTLED':
++      // (a burned caravan still walks on, empty, and is logged as delivered: nothing arrived for anyone)
++      if (!same(held, me.tag)) return null;
++      return r.outcome === 1 ? { ...base, tone: 'loss', rank: 3, facts: { lost: true, cargo: cargoOf(r.cargo), seq: r.seq } } : { ...base, tone: 'result', rank: 1, facts: { delivered: true, cargo: cargoOf(r.cargo), seq: r.seq } };
++    case 'VAULT_SEIZED':
++    case 'STRUCTURE_SEIZED':
++      if (same(r.prev_tag, me.tag)) return { ...base, tone: 'loss', rank: 3, at: { p: r.p, q: r.q, tile: r.tile }, facts: { what: r.name === 'VAULT_SEIZED' ? 'vault' : (['', 'tower', 'palisade', 'fort'][r.kind] ?? 'structure') } };
++      if (same(r.captor_tag, me.tag)) return { ...base, tone: 'gain', rank: 1, at: { p: r.p, q: r.q, tile: r.tile }, facts: { what: r.name === 'VAULT_SEIZED' ? 'vault' : (['', 'tower', 'palisade', 'fort'][r.kind] ?? 'structure') } };
++      return null;
++    case 'SIEGE_DECLARED':
++      return same(r.owner_tag, me.tag) ? { ...base, tone: 'threat', rank: 3, at: { p: r.p, q: r.q }, facts: { attacker: r.attacker, required: r.required } } : null;
++    case 'CAPTURE_SETTLED':
++      if (same(r.victim_tag, me.tag)) return { ...base, tone: 'loss', rank: 3, at: { p: r.p, q: r.q }, facts: { village: true } };
++      if (same(r.captor_tag, me.tag)) return { ...base, tone: 'gain', rank: 2, at: { p: r.p, q: r.q }, facts: { village: true } };
++      return null;
++    case 'NATION_DECIDED':
++      if (r.faction !== me.faction) return null;
++      return { ...base, tone: 'nation', rank: same(r.target_tag, me.tag) ? 3 : 2, facts: { passed: r.passed === 1, proposal: PROPOSAL_KIND[r.kind] ?? 'other', target: r.target_faction, value: r.value, aboutMe: same(r.target_tag, me.tag), yes: r.yes, no: r.no } };
++    case 'NATION_PROPOSED':
++      if (r.faction !== me.faction) return null;
++      return { ...base, tone: 'nation', rank: same(r.target_tag, me.tag) ? 3 : 1, facts: { open: true, proposal: PROPOSAL_KIND[r.kind] ?? 'other', target: r.target_faction, value: r.value, closeBell: r.close_bell, aboutMe: same(r.target_tag, me.tag) } };
++    case 'TRANSIT_SETTLED': {
++      const h = me.hostOf?.(r.host_id);
++      if (!h) return null;
++      // (frontier-abi log transit_outcome: 1 Stays … 8 BadSeal, as screens/chronicle.mjs reads them)
++      const outcome = TRANSIT_OUTCOMES[Number(r.outcome) - 1] ?? 'Other';
++      const bad = outcome === 'Destroyed' || outcome === 'BadSeal' || outcome === 'Routed';
++      return { ...base, tone: bad ? 'loss' : 'result', rank: bad ? 3 : 1, facts: { outcome, troops: Math.floor(Number(r.troops ?? 0) / 1000) } };
++    }
++    case 'CLASH':
++      return mineHolding(r.p, r.q) && Number(r.engagements ?? 0) > 0 ? { ...base, tone: 'threat', rank: 2, at: { p: r.p, q: r.q }, facts: { engagements: Number(r.engagements) }, battle: { p: r.p, q: r.q, bell: Number(r.bell) } } : null;
++    default:
++      return null;
++  }
++}
++
++/**
++ * The summary. `records`: the decoded events read, oldest first (`[{seq,
++ * record}]`, flog.mjs decodePage). `read`: `{fromSeq, toSeq, complete}` —
++ * the range the page asked for and whether it reached the head. `marks`:
++ * loadMarks(); `last`: loadLast(); `season`, `wallet`, `nowBell`.
++ * → `{mode, since: {seq, bell} | null, read: {fromSeq, toSeq, fromBell,
++ * toBell, n}, gap: {afterSeq, beforeSeq} | null, incomplete, items (most
++ * pressing first, at most SUMMARY_MAX), more, counts: {tone: n}}`.
++ */
++export function summarize({ records, read, marks, last, season, wallet, nowBell, me }) {
++  const mode = marks ? 'sinceConfirmed'
++    : last && String(last.seasonId) !== String(season) ? 'newSeason'
++    : last && last.wallet !== wallet ? 'otherWallet'
++    : 'firstOnDevice';
++  const since = marks ? { seq: String(marks.confirmedSeq), bell: marks.confirmedBell } : null;
++  const after = since ? big(since.seq) : null;
++  const firstBell = since ? null : Math.max(0, Number(nowBell ?? 0) - FIRST_LOOK_BELLS);
++  const inRange = records.filter(x => (after !== null ? big(x.seq) > after : Number(x.record.bell ?? x.record.logBell) >= firstBell));
++  // (a gap: the page read from a cursor later than the confirmed mark, so the events in between were not read)
++  const from = read?.after !== undefined && read?.after !== null ? big(read.after) : records.length ? big(records[0].seq) - 1n : null;
++  const gap = after !== null && from !== null && from > after ? { afterSeq: String(after), beforeSeq: String(from + 1n) } : null;
++  // who holds each caravan, record by record: a take moves it to the raider, a burn leaves nothing to deliver. A take
++  // before the records read is not known: such a caravan is taken to be its sender's (REPORT §7)
++  const holders = new Map(), items = [], want = new Set(inRange);
++  for (const x of records) {
++    const r = x.record;
++    const it = want.has(x) ? itemOf(x, me, holders) : null;
++    if (it) items.push(it);
++    if (r?.name === 'CARAVAN_RAIDED') holders.set(`${r.owner_tag}:${r.seq}`, r.choice === 1 ? null : r.raider_tag);
++  }
++  const counts = {};
++  for (const i of items) counts[i.tone] = (counts[i.tone] ?? 0) + 1;
++  const sorted = [...items].sort((a, b) => b.rank - a.rank || b.bell - a.bell || (big(b.seq) > big(a.seq) ? 1 : -1));
++  const bells = inRange.map(x => Number(x.record.bell ?? x.record.logBell)).filter(Number.isFinite);
++  return {
++    mode, since, firstBell,
++    read: { after: from === null ? null : String(from), toSeq: records.at(-1)?.seq ?? null, fromBell: bells.length ? Math.min(...bells) : null, toBell: bells.length ? Math.max(...bells) : null, n: inRange.length },
++    gap, incomplete: read?.complete === false,
++    items: sorted.slice(0, SUMMARY_MAX), more: Math.max(0, sorted.length - SUMMARY_MAX), counts,
++  };
++}
+diff --git a/permutation-server/web/frontier/hud/returnwords.mjs b/permutation-server/web/frontier/hud/returnwords.mjs
+new file mode 100644
+index 00000000..1a125b6c
+--- /dev/null
++++ b/permutation-server/web/frontier/hud/returnwords.mjs
+@@ -0,0 +1,49 @@
++// The away summary in words (hud/returnsum.mjs is the model): one sentence per
++// item, and the head that says what the summary covers and what it cannot.
++// An amount is only ever the record's own.
++import { L, fmtNum } from '../../lang.mjs';
++import { RESOURCES, factionName } from '../fi18n.mjs';
++import { RESOURCE_ORDER } from '../resources.mjs';
++import { FIRST_LOOK_BELLS } from './returnsum.mjs';
++
++const cargo = c => (c ? c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(L`・`) : '');
++const nation = f => (Number.isInteger(f) && f >= 0 && f <= 6 ? factionName(f) : L`他国`);
++const stance = v => [() => L`戦争`, () => L`通行`, () => L`同盟`][v]?.() ?? '';
++const what = w => ({ vault: () => L`貯蔵庫`, tower: () => L`物見櫓`, palisade: () => L`柵`, fort: () => L`要塞` }[w]?.() ?? L`建物`);
++const OUTCOME = { Stays: () => L`着いた場所に残りました`, Withdrew: () => L`退きました`, Bounced: () => L`押し戻されました`, Retreated: () => L`退却しました`, Destroyed: () => L`全滅しました`, BouncedUnranked: () => L`押し戻されました`, Routed: () => L`敗走しました（体力 0 で戻ります）`, BadSeal: () => L`封が正しくなく失われました` };
++
++/** One item of the summary as a sentence. */
++export function itemText(i) {
++  const f = i.facts, c = cargo(f.cargo);
++  switch (i.kind) {
++    case 'CARAVAN_RAIDED':
++      if (i.tone === 'loss') return f.choice === 'burn' ? L`隊商が略奪され、積荷は焼かれました（ターン ${fmtNum(i.bell)}）${c ? L`：${c}` : ''}` : L`隊商が積荷ごと奪われました（ターン ${fmtNum(i.bell)}）${c ? L`：${c}` : ''}`;
++      return f.choice === 'burn' ? L`あなたの軍勢が隊商を焼きました${c ? L`：${c}` : ''}` : L`あなたの軍勢が隊商を奪いました${c ? L`：${c}` : ''}`;
++    case 'RAID_OPENED': return L`隊商が襲われ、相手が奪うか焼くかを決めるところです（ターン ${fmtNum(i.bell)}）`;
++    case 'CARAVAN_SETTLED': return f.lost ? L`隊商の行き先がなくなり、積荷が失われました${c ? L`：${c}` : ''}` : L`隊商が着きました${c ? L`：${c}` : ''}`;
++    case 'VAULT_SEIZED': case 'STRUCTURE_SEIZED': return i.tone === 'loss' ? L`${what(f.what)}を奪われました（ターン ${fmtNum(i.bell)}）` : L`${what(f.what)}を奪いました（ターン ${fmtNum(i.bell)}）`;
++    case 'SIEGE_DECLARED': return L`${nation(f.attacker)}があなたの村の包囲を宣言しました（ターン ${fmtNum(i.bell)}）。陥落には、包囲側がマスを保つターンが ${fmtNum(f.required)} 要ります（夜番の時間と、守り手がいるターンは数えません）`;
++    case 'CAPTURE_SETTLED': return i.tone === 'loss' ? L`村を奪われました（ターン ${fmtNum(i.bell)}）` : L`村を奪いました（ターン ${fmtNum(i.bell)}）`;
++    case 'NATION_DECIDED': {
++      const w = f.proposal === 'stance' ? L`${nation(f.target)}への方針を「${stance(f.value)}」に` : f.proposal === 'expel' ? (f.aboutMe ? L`あなたの村の追放` : L`村の追放`) : L`村を国に戻すこと`;
++      return f.passed ? L`国の議題が可決されました：${w}（賛成 ${fmtNum(f.yes)}・反対 ${fmtNum(f.no)}）` : L`国の議題が否決されました：${w}（賛成 ${fmtNum(f.yes)}・反対 ${fmtNum(f.no)}）`;
++    }
++    case 'NATION_PROPOSED': return !f.aboutMe ? L`国の議題が出ています（ターン ${fmtNum(f.closeBell)} まで）` : f.proposal === 'readmit' ? L`あなたの村を国に戻すことが国の議題に出ています（ターン ${fmtNum(f.closeBell)} まで）` : L`あなたの村の追放が国の議題に出ています（ターン ${fmtNum(f.closeBell)} まで）`;
++    case 'TRANSIT_SETTLED': return L`進軍の結果：${OUTCOME[f.outcome]?.() ?? f.outcome}（残る兵 ${fmtNum(f.troops)}）`;
++    case 'CLASH': return L`あなたの村のある州で戦いがありました（ターン ${fmtNum(i.bell)}）`;
++    default: return i.kind;
++  }
++}
++
++/** The head: what the summary covers (the player's own mark, or a stated window) and what it cannot (a gap). */
++export function headText(s) {
++  const range = s.read.n ? L`第${fmtNum(s.read.fromBell)}〜${fmtNum(s.read.toBell)}ターンの記録 ${fmtNum(s.read.n)} 件を読みました。` : L`新しい記録はありません。`;
++  const mode = {
++    sinceConfirmed: () => L`あなたが確認したのは第${fmtNum(s.since?.bell ?? 0)}ターンまでです。`,
++    firstOnDevice: () => L`この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
++    otherWallet: () => L`この端末で前に使ったウォレットとは別です。そのウォレットの記録は使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
++    newSeason: () => L`新しいシーズンです。前のシーズンの出来事は含みません。`,
++  }[s.mode]?.() ?? '';
++  const gap = s.gap ? L`その間の記録の一部を読めていません。欠けた分の出来事は推測しません。` : '';
++  return `${mode}${range}${gap}`;
++}
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index 7913408b..88f7cb4c 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -918,6 +918,50 @@ export default {
+   'あなたの提案がまだ投票中です。ターン {0} の締め切りのあとで次の提案を出せます（提案は一人ひとつずつ）。': 'Your proposal is still being voted on. You can make the next one after it closes at turn {0} (one open proposal each).',
+   'この村は持ち主の国の本国の中にあるため、包囲できません。本国の外の村か自由都市をねらってください': 'This village lies in its owner\'s heartland and cannot be besieged. Aim for a village outside a heartland, or a Free City',
+   // workstream 07: the refusals of a siege the page tells before it is sent, and the S1 forecast's wear
++  '留守のあいだ': 'While you were away',
++  '隊商と国': 'Caravans and nation',
++  '確認した': 'Mark as seen',
++  '・': ', ',
++  '他国': 'another nation',
++  '通行': 'passage',
++  '着いた場所に残りました': 'stayed where it arrived',
++  '退きました': 'withdrew',
++  '押し戻されました': 'was pushed back',
++  '退却しました': 'retreated',
++  '全滅しました': 'was destroyed',
++  '敗走しました（体力 0 で戻ります）': 'was routed (it comes back with no stamina)',
++  '封が正しくなく失われました': 'was lost to a bad seal',
++  '隊商が略奪され、積荷は焼かれました（ターン {0}）{1}': 'Your caravan was raided and its cargo burned (turn {0}){1}',
++  '隊商が積荷ごと奪われました（ターン {0}）{1}': 'Your caravan was taken with its cargo (turn {0}){1}',
++  '：{0}': ': {0}',
++  'あなたの軍勢が隊商を焼きました{0}': 'Your host burned a caravan{0}',
++  'あなたの軍勢が隊商を奪いました{0}': 'Your host took a caravan{0}',
++  '隊商が襲われ、相手が奪うか焼くかを決めるところです（ターン {0}）': 'Your caravan was caught; the raider is deciding whether to take or burn it (turn {0})',
++  '隊商の行き先がなくなり、積荷が失われました{0}': 'Your caravan\'s destination was gone; its cargo was lost{0}',
++  '隊商が着きました{0}': 'Your caravan arrived{0}',
++  '{0}を奪われました（ターン {1}）': 'Your {0} was seized (turn {1})',
++  '{0}を奪いました（ターン {1}）': 'You seized a {0} (turn {1})',
++  '{0}があなたの村の包囲を宣言しました（ターン {1}）。陥落には、包囲側がマスを保つターンが {2} 要ります（夜番の時間と、守り手がいるターンは数えません）': '{0} declared a siege of your village (turn {1}). It falls after {2} turns in which the besiegers hold the hex (turns in your vigil, or with a defender there, do not count)',
++  'あなたの村を国に戻すことが国の議題に出ています（ターン {0} まで）': 'Your nation is voting on readmitting your village (until turn {0})',
++  '村を奪われました（ターン {0}）': 'Your village was captured (turn {0})',
++  '村を奪いました（ターン {0}）': 'You captured a village (turn {0})',
++  '{0}への方針を「{1}」に': 'the stance toward {0} as {1}',
++  'あなたの村の追放': 'expelling your village',
++  '村の追放': 'expelling a village',
++  '村を国に戻すこと': 'readmitting a village',
++  '国の議題が可決されました：{0}（賛成 {1}・反対 {2}）': 'Your nation passed {0} ({1} for, {2} against)',
++  '国の議題が否決されました：{0}（賛成 {1}・反対 {2}）': 'Your nation rejected {0} ({1} for, {2} against)',
++  'あなたの村の追放が国の議題に出ています（ターン {0} まで）': 'Your nation is voting on expelling your village (until turn {0})',
++  '国の議題が出ています（ターン {0} まで）': 'A vote is open in your nation (until turn {0})',
++  '進軍の結果：{0}（残る兵 {1}）': 'March result: it {0} ({1} left)',
++  'あなたの村のある州で戦いがありました（ターン {0}）': 'A battle in a province of your village (turn {0})',
++  '第{0}〜{1}ターンの記録 {2} 件を読みました。': 'Read {2} records of turns {0}–{1}.',
++  '新しい記録はありません。': 'No new records.',
++  'あなたが確認したのは第{0}ターンまでです。': 'You marked up to turn {0} as seen.',
++  'この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 {0} ターンだけを見ています。': 'This device holds no "seen" mark for this season and wallet (a first visit, another device, or cleared browser data). Only the last {0} turns are shown.',
++  'この端末で前に使ったウォレットとは別です。そのウォレットの記録は使いません。直近 {0} ターンだけを見ています。': 'This is not the wallet last used on this device; its marks are not used. Only the last {0} turns are shown.',
++  '新しいシーズンです。前のシーズンの出来事は含みません。': 'A new season. Nothing of the earlier season is included.',
++  'その間の記録の一部を読めていません。欠けた分の出来事は推測しません。': 'Some records in between could not be read; nothing is guessed for them.',
+   'あなたの村がまだ保護期間中です。保護が終わるまで、ほかの村を包囲できません': 'Your village is still under its shield. You cannot besiege another until it ends',
+   'この村ではすでに包囲か占領が進んでいます': 'A siege or an occupation of this village is already under way',
+   '前の包囲の賭け金の行き先がまだ決まっていません': 'Where the stake of the last siege here goes is not decided yet',
+-- 
+2.43.0
+

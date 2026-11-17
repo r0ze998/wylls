@@ -9,6 +9,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setLang } from '../../permutation-server/web/lang.mjs';
+import * as marchbook from '../../permutation-server/web/frontier/marchbook.mjs';
 import * as fi18n from '../../permutation-server/web/frontier/fi18n.mjs';
 import * as place from '../../permutation-server/web/frontier/hud/place.mjs';
 import * as rep from '../../permutation-server/web/frontier/screens/report.mjs';
@@ -21,6 +22,7 @@ import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { placeName } from '../../permutation-server/web/frontier/people/identity.mjs';
 import enFrontier from '../../permutation-server/web/lang/en-frontier.mjs';
 import enPlay from '../../permutation-server/web/lang/en-frontier-play.mjs';
+import enHand from '../../permutation-server/web/lang/en-frontier-hand.mjs';
 
 const WEB = fileURLToPath(new URL('../../permutation-server/web/frontier/', import.meta.url));
 const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? (/[\\/](council|wasm|art)$/.test(p) ? [] : walk(p)) : /\.(mjs|html)$/.test(n) ? [p] : []; });
@@ -45,10 +47,10 @@ test('every number is a turn\'s: no numbered bell in the client\'s strings or in
   }
   // the one line that ties the two, in the help
   setLang('ja');
-  assert.match(TERMS.bell.text(), /10分ごとの区切りがターンです。/);
+  assert.match(TERMS.bell.text(), /10 分ごとの区切りがターンです。/);
   assert.equal(TERMS.bell.name(), 'ターン');
   setLang('en');
-  assert.match(TERMS.bell.text(), /A turn is the ten-minute step of the game\./);
+  assert.match(TERMS.bell.text(), /A turn is the step of the game, every 10 minutes\./);
   setLang('ja');
 });
 
@@ -73,6 +75,13 @@ test('the internal words are off the play screen: where each may still be said',
       if (detail.test(out)) assert.match(key, /ビーコン|乱数|ランポート|frontier\.wasm|キーパー|要約|quicknet|ローカルネット|公開の乱数/, `${name} ${JSON.stringify(key)}: an internal word in the English of a play-screen text`);
     }
   }
+});
+
+test('round 40: the action bar\'s English says no "settle" either (決着 "resolved", 納める "store", 確定 "confirmed")', () => {
+  // (a key whose Japanese still says 精算 is the Japanese check's to flag — the test above —, not this one's)
+  const settle = /\b(is|are|was|be|been|not|until) settled\b|\bsettl(e|es|ing)\b|settlement/i;
+  const said = Object.entries(enHand).filter(([key, value]) => !/精算/.test(key) && settle.test(typeof value === 'function' ? value(2, 2, 2, 2) : value)).map(([key]) => key);
+  assert.deepEqual(said, [], 'en-frontier-hand: "settle" in the English');
 });
 
 test('a unit with its count, a province in words: names before coordinates', () => {
@@ -221,7 +230,9 @@ test('a sealed march names its owner; the seal is one sentence; the inspector ke
   // the seal's one sentence speaks of who can OPEN the seal (the rule locks it to the end of the arrival turn; the
   // sender's own device may reveal from the start of that turn), and the help says so after it
   assert.equal(sealLine(), '行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。');
-  assert.match(TERMS.seal.text(), /到着のターンが始まると、あなたの端末が先に封を開けることがあります。/);
+  // (workstream 07: when the device opens its own seal follows the march book's rule — workstream 18's
+  // REVEAL_PUBLISH_MARGIN waits for the key; without it, from the start of the arrival turn: hud/glossary.mjs selfOpenLine)
+  assert.match(TERMS.seal.text(), typeof marchbook.REVEAL_PUBLISH_MARGIN === 'number' ? /封を開ける鍵が出たあと、あなたの端末が自分の封を開けます。/ : /到着のターンが始まると、あなたの端末が先に封を開けることがあります。/);
   for (const f of ['hud/marchcard.mjs', 'map/legend.mjs', 'screens/onboarding.mjs']) assert.match(readFileSync(join(WEB, f), 'utf8'), /sealLine\(\)/, `${f} says the one sentence`);
   setLang('en');
   assert.equal(sealLine(), 'The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends.');

@@ -1,0 +1,5 @@
+# Host checks of the program crate use 1.95.0 (solana-program 3 needs a newer
+# compiler than the root's 1.89.0); the SBF build uses platform-tools v1.52's own rustc.
+[toolchain]
+channel = "1.95.0"
+profile = "minimal"

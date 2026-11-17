@@ -798,7 +798,14 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
   const close = html`<button type="button" class="btn small quiet report-x" data-act="report-close">${icon('return')}${L`戻る`}</button>`;
   const head = html`<header class="doc-head"><span class="doc-titles"><h3 id="report-title"><span class="doc-kicker">${L`衝突の報告`}</span><span class="doc-place">${provinceName(FS, r.p, r.q)}</span></h3></span>${chip(html`${icon('bell')}${L`ターン ${fmtNum(r.bell)}`}`)}${close}</header>`;
   if (r.loading) return html`<section aria-labelledby="report-title" class="report doc">${head}<div class="wait-row">${ring(null)}<p class="muted">${L`読み込み中…`}</p></div></section>`;
-  if (r.error) return html`<section aria-labelledby="report-title" class="report doc">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p></section>`;
+  // (2026-11-17, ⑦: a report that could not be read is not the end of the way: the same request can be made again from
+  //  here — app `report-open` → openReport, which keeps its own checks of the world and of the last request — and the
+  //  place can still be gone to. It said only that it could not be read, with 戻る: the person had to find the entry
+  //  again. Not read is not "no clash": said as that.)
+  if (r.error) return html`<section aria-labelledby="report-title" class="report doc">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p>
+    <p class="muted">${L`戦いがなかったという意味ではありません。もう一度読み込めます。`}</p>
+    <div class="actions"><button type="button" class="btn primary" data-act="report-open" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${icon('return')}${L`もう一度読み込む`}</button>
+      <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div></section>`;
   const rep = r.clash?.report ?? {};
   const v = r.verify;
   // (before verification: the records the page holds, the viewer's own side among them: recordRows)
@@ -842,7 +849,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
         <details class="report-proof fold" data-fold="rep-proof"><summary><span class="fold-sum">${L`検証の詳細`}</span>${icon('chevron', 'fold-mark')}</summary><div class="fold-body">${provenance}${steps}</div></details>
       </div>
     </div>
-    <footer class="doc-foot">${cq ? html`<p class="rep-recheck">${icon('check')}<span><strong>${L`戦い：公開された記録から、このブラウザで計算し直します`}</strong>${Number.isFinite(Number(rep.slot)) && rep.slot !== null && rep.slot !== undefined ? html` <span class="muted">${L`（記録のスロット ${fmtNum(Number(rep.slot))}）`}</span>` : ''}</span></p>` : ''}<div class="actions"><button type="button" class="btn" data-act="report-verify" ${raw(r.verifying ? 'disabled' : '')}>${icon('check')}${r.verifying ? L`確かめています…` : L`このブラウザで確かめる`}</button>
+    <footer class="doc-foot">${cq ? html`<p class="rep-recheck">${icon('check')}<span><strong>${L`戦い：公開された記録から、このブラウザで計算し直します`}</strong>${Number.isFinite(Number(rep.slot)) && rep.slot !== null && rep.slot !== undefined ? html` <span class="muted">${L`（記録のスロット ${fmtNum(Number(rep.slot))}）`}</span>` : ''}</span></p>` : ''}<div class="actions"><button type="button" class="btn" data-act="report-verify" ${raw(r.verifying ? 'disabled' : '')}>${icon('check')}${r.verifying ? L`照合しています…` : L`このブラウザで確かめる`}</button>
       ${whatIf ? html`<button type="button" class="btn" data-act="report-whatif" ${raw(v?.args ? '' : 'disabled')}>${icon('swords')}${L`練習で試す（もしも）`}</button>` : ''}</div>
       ${verdict}
       ${whatIf && !v?.args ? html`<p class="muted">${v?.result === 'match' ? (rows.some(x => x.keep) ? L`「練習で試す」は、この戦いでは使えません（砦の守備兵がいる戦いは、まだ練習に写せません）。` : L`「練習で試す」は、この戦いでは使えません。`) : L`「練習で試す」は、このブラウザで確かめた後に使えます。`}</p>` : ''}</footer>
@@ -894,8 +901,12 @@ export const stamp = (key, tone = key) => html`<p class="stamp stamp-${tone}"><s
 
 /** The headline: the stamp, the viewer's result and losses, whether the march got there, the leader's line; replay and map buttons. */
 function renderHeadline(sum, r) {
+  // (2026-11-17, ⑦: the replay is read while the report stays open — app playAsked: reading, or not loaded with the
+  //  report kept and the same button to read again)
+  const playState = r.playing ? html`<p class="muted" role="status">${L`戦いを読み込んでいます…`}</p>`
+    : r.playFailed ? html`<p class="notice error" role="alert">${L`戦いを読み込めませんでした。報告はそのまま残しています。もう一度押すと読み直します。`}</p>` : '';
   const buttons = html`<div class="actions"><button type="button" class="btn primary" data-act="battle-play" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${icon('play')}${L`戦いを再生`}</button>
-    <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div>`;
+    <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div>${playState}`;
   if (!sum.mine) {
     return html`<div class="report-head report-head-watch">${stamp('watch')}<p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの国がぶつかった`}</strong></p>
       <p class="muted">${L`全体の損害 ${fmtNum(sum.lost)}`}</p>${sum.leader !== null ? leaderLine(sum.leader, 'watch') : ''}${buttons}</div>`;

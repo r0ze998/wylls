@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>国の卓（試作）</title>
+  <link rel="stylesheet" href="table.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>国の卓 <span class="tag">試作</span></h1>
+      <p class="sub">作例：国境の共同拠点を準備する ・ 1ターン＝10分（S1） ・ <a href="placement.html">初期配置の比較</a></p>
+    </div>
+    <div class="clock" id="clock" aria-live="polite"></div>
+    <div class="controls">
+      <button type="button" data-ui="advance" data-n="1">1ターン進める</button>
+      <button type="button" data-ui="advance" data-n="6">6ターン進める</button>
+      <label class="ev">出来事
+        <select id="event"></select>
+      </label>
+      <button type="button" data-ui="inject">起こす</button>
+      <label class="ev">始め方
+        <select id="preset">
+          <option value="preparing">準備中から（申し出がそろった所）</option>
+          <option value="start">最初から（ケイの提案の直後）</option>
+        </select>
+      </label>
+      <button type="button" data-ui="reset">やり直す</button>
+    </div>
+  </header>
+
+  <p class="notice" role="note">これは判断と失敗を試すための試作です。人物は架空、数字の多くは仮の値です（各所に［事実］［仮］を記載）。
+    この画面の操作や自動テスト、AI による試遊は、人間が面白いと感じた証拠にはなりません。</p>
+
+  <nav class="who" id="who" aria-label="誰の立場で見るか"></nav>
+
+  <main class="grid">
+    <section class="col goals" aria-labelledby="h-goals">
+      <h2 id="h-goals">共同目標</h2>
+      <div id="goals"></div>
+    </section>
+    <section class="col flow" aria-labelledby="h-flow">
+      <h2 id="h-flow">物の流れ</h2>
+      <div id="flow"></div>
+      <h2>申し出</h2>
+      <div id="pledges"></div>
+      <h2>拠点と峠の建物</h2>
+      <div id="sites"></div>
+    </section>
+    <section class="col decide" aria-labelledby="h-decide">
+      <h2 id="h-decide">次に必要な判断</h2>
+      <div id="decisions"></div>
+      <h2>あなたの手元</h2>
+      <div id="mine"></div>
+      <h2>ほかの人</h2>
+      <div id="others"></div>
+    </section>
+  </main>
+
+  <section class="logwrap" aria-labelledby="h-log">
+    <h2 id="h-log">記録 <small>（国の仲間は誰でも見られる。護衛の中身は出ない）</small></h2>
+    <ol id="log" class="log" reversed></ol>
+  </section>
+
+  <details class="howto">
+    <summary>試し方（5分）</summary>
+    <ol>
+      <li>「準備中から」で始める。右上の人物を切り替えると、その人の手元と判断が出る。</li>
+      <li>ソウタで倉の完成を待って（3ターン）食料を送る。ミラで残りの兵器を送る。</li>
+      <li>出来事「物流の遅延」を起こす。ケイ（調整役）・ミラ・ソウタで、待つ以外に何が選べるか見る。</li>
+      <li>やり直して、「参加者の退出」「施設を失う」「方針の対立」「所有者の不在」も試す。</li>
+      <li>条件が「今そろっている」になったあとに「倉を奪われる」「砦を失う」を起こし、期限のターン（48）の判定がどう変わるか見る。</li>
+      <li>物の流れの各カードで、提供した人・今の持ち主・着いた後の持ち主・使う人を確かめる。</li>
+    </ol>
+  </details>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="ui.mjs"></script>
+</body>
+</html>

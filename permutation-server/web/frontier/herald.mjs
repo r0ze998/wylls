@@ -13,8 +13,12 @@
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { encode as toB58 } from '../sdk/base58.mjs';
 import { decode } from './fcodec.mjs';
+import { residentCitizen } from '../sdk/frontier/resident.mjs';
 import { parseTerritory } from './territory.mjs';
+import { parseLand } from './land.mjs';
 import { provincesWithin, provinceFromIndex, provinceIndex, cellOf, provinceCentre, ringOf } from './fgeo.mjs';
+import { parseWideIndexStatus, parseWideIndexPage } from './map/widehistory.mjs';
+import { parseWideManifest, parseWidePage, parseWideInt, PAGE_DEFAULT as WIDE_PAGE_DEFAULT } from './map/wide.mjs';
 
 // ------------------------------------------------------------------ HTTP
 /** A failed read (never thrown). */
@@ -33,6 +37,52 @@ async function get(f, url, { binary = false, timeoutMs = 12_000 } = {}) {
   } catch {
     return fail('BadBody', 'the herald answered something unreadable', r.status);
   }
+}
+
+/**
+ * A read whose refusal names its case: the herald's `{ok: false, code}` body comes back as `code` (a 503
+ * `WideWorldUnavailable` is that, never `HTTP503`), a missing route is `NotFound`, an abort is `Aborted`. The
+ * caller's `signal` wins over the timeout. Used by the recorded wide world only (`get` above is unchanged).
+ */
+async function getCoded(f, url, { signal = null, timeoutMs = 12_000, maxBytes = null } = {}) {
+  let r;
+  try {
+    r = await f(url, { cache: 'no-store', signal: signal ?? AbortSignal.timeout?.(timeoutMs) });
+  } catch (e) {
+    return fail(signal?.aborted || e?.name === 'AbortError' ? 'Aborted' : 'network');
+  }
+  let json = null;
+  try {
+    if (maxBytes === null) json = await r.json();
+    else {
+      if (Number(r.headers?.get?.('content-length') ?? 0) > maxBytes) { await r.body?.cancel?.(); return fail('ResponseTooLarge'); }
+      const reader = r.body?.getReader?.();
+      if (reader) {
+        let n = 0; const chunks = [];
+        try {
+          for (;;) {
+            const { done, value } = await reader.read(); if (done) break;
+            n += value.byteLength;
+            if (n > maxBytes) { await reader.cancel(); return fail('ResponseTooLarge'); }
+            chunks.push(value);
+          }
+        } finally { reader.releaseLock(); }
+        const bytes = new Uint8Array(n); let at = 0;
+        for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
+        json = JSON.parse(new TextDecoder().decode(bytes));
+      } else {
+        const text = await r.text();
+        if (new TextEncoder().encode(text).length > maxBytes) return fail('ResponseTooLarge');
+        json = JSON.parse(text);
+      }
+    }
+  } catch { json = null; }
+  if (!r.ok) {
+    const code = typeof json?.code === 'string' && /^[A-Za-z0-9]{1,40}$/.test(json.code) ? json.code : r.status === 404 ? 'NotFound' : `HTTP${r.status}`;
+    return fail(code, `HTTP ${r.status}`, r.status);
+  }
+  if (json === null || typeof json !== 'object') return fail('BadBody', 'the herald answered something unreadable', r.status);
+  return { ok: true, json };
 }
 
 // ------------------------------------------------------------------ small LRU
@@ -71,7 +121,8 @@ export function parseEnvelope(env, { seasonId, p, q, bell } = {}) {
   check(m, 'BadEnvelope', `key ${env.key}`);
   const [P, Q] = [+m[1], +m[2]];
   if (p !== undefined) check(P === p && Q === q, 'WrongKey', `asked for pv:${p},${q}, got ${env.key}`);
-  const province = decode('Province', bytesOf(env.bytes) ?? new Uint8Array(0), { seasonId });
+  const provinceBytes = bytesOf(env.bytes) ?? new Uint8Array(0);
+  const province = decode('Province', provinceBytes, { seasonId });
   check(province.p === P && province.q === Q, 'WrongKey', 'the Province bytes are another province');
   const slots = (env.slots ?? []).map(s => {
     const k = KEY.ar.exec(s.key ?? '');
@@ -101,8 +152,10 @@ export function parseEnvelope(env, { seasonId, p, q, bell } = {}) {
     check(!day || day.day === Math.floor(bell / 144), 'WrongKey', 'the day of another bell');
     check(!inputs || inputs.bell === bell, 'WrongKey', 'the inputs of another bell');
   }
-  return { bell: env.bell, slot: env.slot, seq: String(env.seq ?? ''), head: env.head ?? null, province, slots, day, inputs,
+  return { bell: env.bell, slot: env.slot, seq: String(env.seq ?? ''), head: env.head ?? null, province, provinceBytes, slots, day, inputs,
     ...(env.sampleTerritory ? { sampleTerritory: parseTerritory(env.sampleTerritory) } : {}),
+    // (`land`: the land preview's record of this province, only from a world started with that option)
+    ...(env.land ? { land: parseLand(env.land, { p: P, q: Q, seasonId }) } : {}),
     // (`proto`: what a sample world adds beside the chain-shaped bytes — the labelled prototype of a designed rule,
     // PROTOTYPE-SPEC section 6 — carried as it came and only when it came: no real herald sends it)
     ...(env.proto && typeof env.proto === 'object' ? { proto: env.proto } : {}) };
@@ -232,11 +285,19 @@ export function staleness({ latestUnix, chainNow, behind: measured }) {
  * check of integ-W2): the Citizen at the canonical address of `wallet` and
  * naming it; each Holding at its canonical address, owned by that Citizen
  * and one of the Citizen's holdings; at most three. Throws HeraldError.
+ *
+ * Workstream 20: `/h/me/{key}` serves the wallet's Citizen, else the NFT
+ * Citizen of the asset `key` (herald `me_citizen`). An NFT Citizen (its
+ * bytes carry the resident mark, fcodec `residentAsset`) must name `key` as
+ * its asset and sit at the resident id's address (`residentCitizen`); an
+ * invalid mark is refused. Its holdings are owned by that address.
  */
 export function checkMe(addresses, wallet, record, citizen, holdings) {
-  const want = addresses.of('Citizen', { wallet });
+  const nft = citizen?.residentAsset !== undefined;
+  if (nft) check(citizen.residentAsset !== null && toB58(citizen.residentAsset) === wallet, 'WrongKey', 'the NFT Citizen names another asset');
+  const want = nft ? residentCitizen(addresses, wallet) : addresses.of('Citizen', { wallet });
   if (citizen) {
-    check(toB58(citizen.wallet) === wallet, 'WrongKey', 'the Citizen names another wallet');
+    if (!nft) check(toB58(citizen.wallet) === wallet, 'WrongKey', 'the Citizen names another wallet');
     if (record.citizen?.address !== undefined) check(record.citizen.address === want, 'WrongKey', 'the Citizen is not at its canonical address');
   }
   check(holdings.length <= 3, 'BadRecord', 'more than three holdings');
@@ -340,6 +401,49 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;
     },
+    /**
+     * GET /h/world/wide (the recorded wide world, read-only, experimental; map/wide.mjs): the manifest, checked
+     * against the pinned season and the extra `pins` (`seasonAddress`, `programId`). A herald without it answers
+     * `WideWorldUnavailable` (its own 503 code, or a 404 of an older herald): explicit, never a dense fallback.
+     */
+    async wideWorld({ signal = null, pins = {} } = {}) {
+      const r = await getCoded(f, `${root}/h/world/wide`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideWorldUnavailable', 'this herald serves no recorded wide world', r.httpStatus) : r;
+      return guard(() => ({ manifest: parseWideManifest(r.json, { ...pins, seasonId: pins.seasonId ?? pinned ?? undefined }) }));
+    },
+    /**
+     * GET /h/world/wide/page?limit=&after=: one page as the herald sent it (`json`), for a WideWalk to check
+     * against its world, snapshot and cursor (map/wide.mjs). Never cached: a page is bound to a snapshot.
+     */
+    async wideWorldPage({ limit = WIDE_PAGE_DEFAULT, after = null, signal = null } = {}) {
+      const q = `limit=${encodeURIComponent(String(limit))}${after ? `&after=${encodeURIComponent(String(after))}` : ''}`;
+      const r = await getCoded(f, `${root}/h/world/wide/page?${q}`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideWorldUnavailable', 'this herald serves no recorded wide world', r.httpStatus) : r;
+      return { ok: true, json: r.json };
+    },
+    /** One bounded captured snapshot for the exact route provinces. */
+    async wideRoute({ places, signal = null } = {}) {
+      try {
+        if (!Array.isArray(places) || places.length < 1 || places.length > 4) return fail('RoutePlaces');
+        const coords = places.map(at => `${parseWideInt(at.p)},${parseWideInt(at.q)}`);
+        if (new Set(coords).size !== coords.length) return fail('RoutePlaces');
+        return await getCoded(f, `${root}/h/world/wide/route?at=${encodeURIComponent(coords.join(';'))}`, { signal, maxBytes: 64 * 1024 });
+      } catch { return fail('RoutePlaces'); }
+    },
+    /** Separate read-only index observations. Never a map/capture verification. */
+    async wideIndexStatus({ signal = null, pins = {} } = {}) {
+      const r = await getCoded(f, `${root}/h/wide-index/status`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideIndexUnavailable') : r;
+      return guard(() => ({ status: parseWideIndexStatus(r.json, pins) }));
+    },
+    async wideIndexEvents({ signal = null, pins = {}, through, snapshot, after = 0n, limit = 20 } = {}) {
+      const q = `through=${encodeURIComponent(String(through))}&snapshot=${encodeURIComponent(String(snapshot))}&after=${encodeURIComponent(String(after))}&limit=${encodeURIComponent(String(limit))}`;
+      const r = await getCoded(f, `${root}/h/wide-index/events?${q}`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideIndexUnavailable') : r;
+      return guard(() => ({ page: parseWideIndexPage(r.json, { pins, through, snapshot, after, limit }) }));
+    },
+    /** A page decoded on its own (tests, tools): parseWidePage with the walk's expectations. */
+    parseWidePage,
     async conquestDay(day) {
       const r = await get(f, `${root}/h/conquest/${day}.json`);
       return r.ok ? guard(() => ({ day: parseConquestDay(r.json) })) : r;
@@ -393,23 +497,40 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
         // A holding the Citizen names that the fold has not captured (or
         // closed) is listed as null: skipped, never a failed view (wave-3
         // review, W3-E/W3-F); the checks see the same, aligned list.
-        const j = { ...r.json, holdings: (r.json?.holdings ?? []).filter(h => h !== null && h !== undefined) };
+        check(r.json && r.json.v === 1 && Array.isArray(r.json.holdings) && Array.isArray(r.json.slots), 'BadRecord', 'incomplete me record');
+        const j = { ...r.json, holdings: r.json.holdings.filter(h => h !== null && h !== undefined) };
         const opts = { seasonId: pinned ?? undefined };
         const citizen = j.citizen?.bytes_b64 ? decode('Citizen', bytesOf(j.citizen.bytes_b64), opts) : null;
         const holdings = j.holdings.map(h => decode('Holding', bytesOf(h.bytes_b64), opts));
         if (addrs) checkMe(addrs, wallet, j, citizen, holdings);
         // The viewer's own ArrivalSlots, of any bell, decoded (the record lists them from the moment a Reveal lands;
-        // a province's `latest` envelope carries only the slots of the bell it resolves next). One that cannot be
-        // read is left out: the view itself never fails for it.
-        const slots = [];
-        for (const s of Array.isArray(j.slots) ? j.slots : []) { try { slots.push(decode('ArrivalSlot', bytesOf(s.bytes_b64), opts)); } catch { /* left out */ } }
+        // a province's `latest` envelope carries only the slots of the bell it resolves next).
+        // Unsupported or corrupt bytes are an incomplete view, never a missing arrival.
+        const slots = j.slots.map(s => decode('ArrivalSlot', bytesOf(s?.bytes_b64), opts));
         return { record: j, citizen, holdings, slots };
       });
     },
     /** GET /h/events?after={seq}: a page of PS2 records. */
     async events(after = 0) {
       const r = await get(f, `${root}/h/events?after=${encodeURIComponent(String(after))}`);
-      return r.ok ? { ok: true, events: Array.isArray(r.json?.events) ? r.json.events : [], next: r.json?.next ?? null, full: r.json?.full === true } : r;
+      if (!r.ok) return r;
+      return guard(() => {
+        const j = r.json;
+        check(j && j.v === 1 && Array.isArray(j.events) && typeof j.next === 'string', 'BadRecord', 'incomplete event page');
+        const cursor = s => {
+          check(typeof s === 'string' && /^(0|[1-9][0-9]*)$/.test(s) && s.length <= 20, 'BadRecord', 'event cursor');
+          const n = BigInt(s); check(n <= 0xffffffffffffffffn, 'BadRecord', 'event cursor overflow'); return n;
+        };
+        let last = cursor(String(after));
+        for (const row of j.events) {
+          check(row && typeof row === 'object' && !Array.isArray(row) && typeof row.body_b64 === 'string' && row.body_b64.length > 0, 'BadRecord', 'event row');
+          const seq = cursor(row.seq); check(seq > last, 'BadRecord', 'event order'); last = seq;
+        }
+        check(cursor(j.next) === last, 'BadRecord', 'event page cursor mismatch');
+        check(typeof j.full === 'boolean', 'BadRecord', 'event page fullness');
+        check(!j.full || j.events.length > 0, 'BadRecord', 'empty full page');
+        return { events: j.events, next: j.next, full: j.full === true };
+      });
     },
     /** GET /h/clash/{P},{Q}/{bell}: the clash report (immutable). */
     clash(p, q, bell) {
@@ -862,6 +983,9 @@ function caravanOf(v, at) {
       return { p: intOf(ro, 'p', -COORD, COORD, a), q: intOf(ro, 'q', -COORD, COORD, a), firstBell: intOf(ro, 'firstBell', 0, U32, a), n: intOf(ro, 'n', 0, 255, a) };
     }),
     raided,
+    // ⑯ P3: the holder a raid named (a take, herald caravan.rs) and the send's tower wear; older heralds write neither
+    holderTag: Object.hasOwn(o, 'holderTag') ? decOf(o, 'holderTag', at) : null,
+    wornBps: Object.hasOwn(o, 'wornBps') ? intOf(o, 'wornBps', 0, 10000, at) : null,
     // the packed walk and the Provinces it enters, the origin's first (a checkpoint older than them has neither)
     path: Object.hasOwn(o, 'path') ? (() => { const a = arrOf(o, 'path', at); check(a.length === 12, 'BadSchema', `${at}: path is not 12 bytes`); return a.map((_, i) => intOf(a, i, 0, 255, `${at}.path`)); })() : null,
     provinces: Object.hasOwn(o, 'provinces') ? arrOf(o, 'provinces', at).map((x, i) => {

@@ -86,6 +86,9 @@ impl HoldingDuty {
         index: &mut LandIndex,
         provinces: &BTreeSet<(i32, i32)>,
     ) -> PortResult<()> {
+        if !index.feed.gate(engine, None)? {
+            return Ok(());
+        }
         let dormancy = t.cfg.has_role("dormancy");
         let sweep = t.cfg.has_role("sweep");
         let eff = t.season.effective_status(t.now);
@@ -160,8 +163,7 @@ impl HoldingDuty {
                 }
             }
             for (addr, h) in need_citizen {
-                let Some((wallet, faction)) =
-                    index.citizen_of(port, t.addrs, &h.owner_citizen).await?
+                let Some((at, faction)) = index.citizen_of(port, t.addrs, &h.owner_citizen).await?
                 else {
                     continue;
                 };
@@ -178,8 +180,8 @@ impl HoldingDuty {
                         "release-dormant",
                         tag::RELEASE_DORMANT,
                         move |c| {
-                            vec![ix::release_dormant(
-                                &a, c.payer, href, &wallet, faction, rent_payer,
+                            vec![ix::release_dormant_at(
+                                &a, c.payer, href, at, faction, rent_payer,
                             )]
                         },
                     ),

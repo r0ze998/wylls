@@ -14,7 +14,7 @@
 import { L } from '../../lang.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS } from '../map/layers.mjs';
 import { project, RADIUS } from '../../map.mjs';
-import { ringProvinces, tileHex, TILE_OFFSETS } from '../fgeo.mjs';
+import { ringProvinces, tileHex, TILE_OFFSETS, R_MAX_HARD } from '../fgeo.mjs';
 import { hexKey, keyHex } from '../map/survey.mjs';
 import { landTiles } from '../map/ownland.mjs';
 import { FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
@@ -53,7 +53,7 @@ export function frameOf(rings, px = MINIMAP_PX) {
  * `dpr`): `{recs: Map "P,Q" → overview record, rings, own: [{p, q}], view,
  * size}` (`view` and `size` the main map's, for the frame).
  */
-export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, quad = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [], survey = null, now = 0 }) {
+function paintMinimapBase(ctx, { recs, rings, own, px, dpr, lens, survey, seeded = null }) {
   // with a survey (the play page): the open world is chart, the surveyed tiles are painted on it, and the
   // viewer is a gold pip that breathes; without one (the spectator) every province shows its realm, as before
   const limited = !!survey && !survey.showAll;
@@ -66,10 +66,21 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
   const r = PROVINCE_CIRCUMRADIUS * fr.k * 1.02;
   const hex = (cx, cy, rr) => { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.closePath(); };
   const all = [{ p: 0, q: 0, d: 0 }];
-  for (let d = 1; d <= rings; d++) for (const pr of ringProvinces(d)) all.push({ ...pr, d });
+  // `rings` counts open rings, so the last open ring is rings - 1.
+  // Only the neutral rim uses coordinates beyond the legacy disk. Never ask
+  // provinceFromIndex/ringProvinces for ring 129, where it returns nulls.
+  // (a sparse world, map/world.mjs `seeded`: only the rings that have a seed have provinces. A world that seeds ring
+  // 128 alone is its 768 provinces, not the 49,537 of a full disk: the rings between lie under the plate's own dark)
+  const has = Array.isArray(seeded) ? new Set(seeded) : null;
+  for (let d = 1; d < rings; d++) if (!has || has.has(d)) for (const pr of ringProvinces(d)) all.push({ ...pr, d });
+  for (let side = 0; side < 6; side++) for (let i = 0; i < rings; i++) {
+    let p = rings - i, q = i;
+    for (let turn = 0; turn < side; turn++) [p, q] = [-q, p + q];
+    all.push({ p, q, d: rings });
+  }
   for (const pr of all) {
     const c = (pp => fr.toPx(pp.x, pp.y))(provincePixel(pr.p, pr.q));
-    const rec = recs.get(`${pr.p},${pr.q}`);
+    const rec = pr.d < rings ? recs.get(`${pr.p},${pr.q}`) : null;
     const owner = rec ? majority(rec) : null;
     hex(c.x, c.y, r);
     const sv = limited && rec ? survey.province(pr.p, pr.q) : null;
@@ -109,6 +120,49 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     const c = (pp => fr.toPx(pp.x, pp.y))(provincePixel(o.p, o.q));
     ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 2; hex(c.x, c.y, r * 1.05); ctx.stroke();
   }
+}
+
+// Cache only with an explicit caller revision: a Map can be mutated in place,
+// and the original app constructs a fresh Map wrapper while the camera moves.
+// The revision must change whenever overview contents change. Survey identity
+// and the small own-place list are checked independently; camera/pins/time are
+// drawn below and never invalidate the static land layer.
+const backgrounds = new WeakMap();
+function backgroundCanvas(ctx, width, height) {
+  try {
+    if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(width, height);
+    const cv = ctx.canvas?.ownerDocument?.createElement?.('canvas');
+    if (cv) { cv.width = width; cv.height = height; return cv; }
+  } catch { /* Canvas unavailable: preserve the direct painter. */ }
+  return null;
+}
+
+/** An optional immutable `revision` token enables the cached land layer. */
+export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, quad = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [], survey = null, now = 0, revision = null, seeded = null }) {
+  rings = Number.isFinite(rings) ? Math.max(1, Math.min(R_MAX_HARD + 1, Math.floor(rings))) : 1;
+  const limited = !!survey && !survey.showAll;
+  const fr = frameOf(rings + 1, px);
+  const options = { recs, rings, own, px, dpr, lens, survey, seeded };
+  const seededKey = Array.isArray(seeded) ? seeded.join(',') : null;
+  let background = revision === null ? null : backgrounds.get(ctx);
+  const ownKey = own.map(o => `${o.p},${o.q}`).join(';');
+  if (revision !== null && (!background || background.revision !== revision || background.rings !== rings
+      || background.px !== px || background.dpr !== dpr || background.lens !== lens
+      || background.survey !== survey || background.ownKey !== ownKey || background.seededKey !== seededKey)) {
+    const width = Math.ceil(px * dpr), cv = backgroundCanvas(ctx, width, width), g = cv?.getContext?.('2d');
+    if (g) {
+      paintMinimapBase(g, options);
+      background = { cv, revision, rings, px, dpr, lens, survey, ownKey, seededKey };
+      backgrounds.set(ctx, background);
+    } else { background = null; backgrounds.delete(ctx); }
+  }
+  if (background) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, px * dpr, px * dpr);
+    ctx.drawImage(background.cv, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalAlpha = 1;
+  } else paintMinimapBase(ctx, options);
   // the viewer's pins: gold dots with a dark rim
   for (const pn of pins) {
     const c = (pp => fr.toPx(pp.x, pp.y))(provincePixel(pn.p, pn.q));
@@ -125,7 +179,11 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     const a = fr.toPx(view.x - size.width / 2 / view.zoom, view.y - size.height / 2 / view.zoom);
     const b = fr.toPx(view.x + size.width / 2 / view.zoom, view.y + size.height / 2 / view.zoom);
     ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 1.6;
-    ctx.strokeRect(Math.max(1, a.x), Math.max(1, a.y), Math.min(px - 2, b.x) - Math.max(1, a.x), Math.min(px - 2, b.y) - Math.max(1, a.y));
+    // Intersect, rather than draw a negative-sized rectangle when the camera is
+    // beyond the minimap. Canvas reverses negative sizes and paints a false frame.
+    const left = Math.max(1, a.x), top = Math.max(1, a.y);
+    const right = Math.min(px - 2, b.x), bottom = Math.min(px - 2, b.y);
+    if (right > left && bottom > top) ctx.strokeRect(left, top, right - left, bottom - top);
   }
   // where the viewer is: the active village, in gold, breathing
   const home = limited && survey.home ? tileHex(survey.home.p, survey.home.q, survey.home.tile) : null;

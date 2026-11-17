@@ -1,0 +1,27 @@
+# Workstream 11: read workstream 06's published definitions (canonical
+# JSON hash, Ed25519 envelopes, the registry's status log) and map the parts
+# that mean the same thing on both sides. Its own workspace; the lock is
+# frontier-node's, pruned, so every crate keeps a version the project
+# already pins. Nothing in the core or in 06 depends on it.
+[package]
+name = "wylls-creation-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+description = "Workstream 11: workstream 06's published definitions read and checked in Rust, and the 06/11 boundary (06 registers, pins and publishes status; 11 checks at run time)"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+wylls-ext-kernel = { path = "../ext-kernel" }
+# The core's cargo conversion (whole units × 1,000), not re-implemented.
+frontier-abi = { path = "../../../frontier-abi" }
+serde_json = "=1.0.151"
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std"] }
+sha2 = "=0.10.9"
+
+[dev-dependencies]
+# The rules kernel's ARMS slot, for the contract test.
+permutation-rules = { path = "../../../permutation-rules" }

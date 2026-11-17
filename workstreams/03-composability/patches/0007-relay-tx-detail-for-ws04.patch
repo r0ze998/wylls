@@ -1,0 +1,116 @@
+diff --git a/permutation-gateway/src/frontier/routes/season.mjs b/permutation-gateway/src/frontier/routes/season.mjs
+index b1a3be81..7fc55990 100644
+--- a/permutation-gateway/src/frontier/routes/season.mjs
++++ b/permutation-gateway/src/frontier/routes/season.mjs
+@@ -3,12 +3,17 @@
+ //   GET /f/season              {programId, season, seasonId, cluster, relayPool, quotas, heraldUrl, joinGate, inviteRequired, tipMin, tipPresets, marchFee, sealBond}
+ //   GET /f/quota?citizen=      {left, resetsAt, lamportsLeft}   (citizen: the Citizen account's address)
+ //   GET /f/tx/{signature}      {state: "landed|failed|expired|unknown", slot?, code?}
++//   GET /f/tx/{signature}?detail=1   the same, plus `detail` (workstream 03 patch 0007, for ④'s executor):
++//                              {commitment, fee, lastValidBlockHeight, absence: {proven, fate, why}}. `expired` above
++//                              is the confirmed height passing the blockhash with no status seen; `absence.proven` is
++//                              true only when agent/fate.mjs (finalized, history coverage shown) says so.
+ import { encode as base58, decode as fromBase58 } from '../../../client/src/base58.mjs';
+ import { programError } from '../../../client/src/frontier/codec.mjs';
+ import { seasonTipMin, tipPresets } from '../../../client/src/frontier/fees.mjs';
+ import { RouteError } from '../../routes/errors.mjs';
+ import { dailyTxs, gameDay, QUOTA } from '../quota.mjs';
+ import { lamportsPerDay } from '../shapes.mjs';
++import { fateOf } from '../agent/fate.mjs';
+ 
+ const isKey = (s, n = 32) => {
+   try { return typeof s === 'string' && fromBase58(s).length === n; } catch { return false; }
+@@ -47,15 +52,35 @@ export const seasonRoutes = {
+     if (!isKey(sig, 64)) throw new RouteError(400, 'a transaction signature (base58, 64 bytes) is required', 'BadRequest');
+     const r = await ctx.connection.getSignatureStatuses([sig], { searchTransactionHistory: true });
+     const st = r?.value?.[0] ?? null;
+-    if (st) {
+-      if (st.err) {
+-        const pe = programError(st.err);
+-        return { body: { state: 'failed', slot: st.slot, code: pe?.name ?? (typeof st.err === 'string' ? st.err : 'TransactionFailed'), programCode: pe?.code } };
+-      }
+-      if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return { body: { state: 'landed', slot: st.slot } };
+-    }
+     const known = ctx.sent.get(sig);
+-    if (known?.lastValidBlockHeight && (await ctx.connection.getBlockHeight('confirmed')) > known.lastValidBlockHeight) return { body: { state: 'expired' } };
+-    return { body: { state: 'unknown' } };
++    let body;
++    if (st?.err) {
++      const pe = programError(st.err);
++      body = { state: 'failed', slot: st.slot, code: pe?.name ?? (typeof st.err === 'string' ? st.err : 'TransactionFailed'), programCode: pe?.code };
++    } else if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) body = { state: 'landed', slot: st.slot };
++    else if (known?.lastValidBlockHeight && (await ctx.connection.getBlockHeight('confirmed')) > known.lastValidBlockHeight) body = { state: 'expired' };
++    else body = { state: 'unknown' };
++    if (req.url.searchParams?.get('detail') !== '1') return { body };
++    return { body: { ...body, detail: await txDetail(ctx, sig, st, known, body.state) } };
+   },
+ };
++
++/**
++ * What ④'s executor needs beside the state (patch 0007): the commitment the status was read at, the fee the chain
++ * charged (null when not known: never 0), the lifetime the relay recorded, and whether absence is *proven*. Reads that
++ * fail leave their field null; nothing here is guessed.
++ */
++async function txDetail(ctx, signature, st, known, state) {
++  const detail = { commitment: st?.confirmationStatus ?? null, fee: null, lastValidBlockHeight: known?.lastValidBlockHeight ?? null, absence: { proven: false, fate: null, why: null } };
++  if (state === 'landed' || state === 'failed') {
++    try {
++      const tx = await ctx.connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
++      detail.fee = Number.isSafeInteger(tx?.meta?.fee) ? tx.meta.fee : null;
++    } catch { /* fee stays null */ }
++    return detail;
++  }
++  if (!known?.lastValidBlockHeight) { detail.absence.why = 'the relay has no recorded lifetime for this signature'; return detail; }
++  const f = await fateOf(ctx.connection, { signature, lastValidBlockHeight: known.lastValidBlockHeight, slotFloor: known.slotFloor ?? null }, { fullHistory: ctx.fullHistory === true });
++  detail.absence = { proven: f.fate === 'expired', fate: f.fate, why: f.why };
++  return detail;
++}
+diff --git a/permutation-gateway/test/frontier-relay.test.mjs b/permutation-gateway/test/frontier-relay.test.mjs
+index 0bddd0ff..b311bfde 100644
+--- a/permutation-gateway/test/frontier-relay.test.mjs
++++ b/permutation-gateway/test/frontier-relay.test.mjs
+@@ -570,6 +570,44 @@ test('X-Forwarded-For is trusted only from the herald\'s peer; loopback clients
+   assert.equal(bots.filter(c => c === 'RateLimited').length, 0);
+ });
+ 
++test('GET /f/tx/{signature}?detail=1 (workstream 03 patch 0007): commitment, fee, lifetime, and absence only when proven', async () => {
++  const r = relay();
++  const fp = await feePayerOf(r);
++  const res = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Harvest', feePayer: fp }) }, ip: '203.0.113.9' });
++  const sig = res.json.signature;
++  const get = async () => (await call(r.public, 'GET', `/f/tx/${sig}?detail=1`, { ip: '203.0.113.9' })).json;
++  // Within its lifetime: unknown, not absent.
++  let j = await get();
++  assert.equal(j.state, 'unknown');
++  assert.deepEqual([j.detail.lastValidBlockHeight, j.detail.absence.proven, j.detail.absence.fate], [150, false, 'pending']);
++  // Past the confirmed height: the old answer says expired; absence is not proven (no transaction read).
++  r.chain.height = 151;
++  j = await get();
++  assert.equal(j.state, 'expired');
++  assert.deepEqual([j.detail.absence.proven, j.detail.absence.fate], [false, 'unknown']);
++  // Even with the transaction absent at finalized and full history from slot 0: the relay recorded no slot before the
++  // transaction was built, so coverage cannot be shown and absence stays unproven (recording it is the next step).
++  r.chain.getTransaction = async () => null;
++  r.chain.getFirstAvailableBlock = async () => 0;
++  j = await get();
++  assert.deepEqual([j.state, j.detail.absence.proven, j.detail.absence.fate], ['expired', false, 'unknown']);
++  assert.match(j.detail.absence.why, /no slot recorded/);
++  // Landed: the fee from the transaction's meta; never 0 when unknown.
++  r.chain.statuses.set(sig, { slot: 9, confirmationStatus: 'confirmed', err: null });
++  r.chain.getTransaction = async () => ({ meta: { fee: 5000, err: null } });
++  j = await get();
++  assert.deepEqual([j.state, j.slot, j.detail.commitment, j.detail.fee], ['landed', 9, 'confirmed', 5000]);
++  r.chain.getTransaction = async () => { throw new Error('rpc down'); };
++  assert.equal((await get()).detail.fee, null, 'not known is null, not 0');
++  // Failed: charged too.
++  r.chain.statuses.set(sig, { slot: 9, confirmationStatus: 'finalized', err: { InstructionError: [3, { Custom: 58 }] } });
++  r.chain.getTransaction = async () => ({ meta: { fee: 5000, err: {} } });
++  j = await get();
++  assert.deepEqual([j.state, j.code, j.detail.commitment, j.detail.fee], ['failed', 'HostInTransit', 'finalized', 5000]);
++  // Without ?detail the answer is exactly what it was.
++  assert.deepEqual((await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json, { state: 'failed', slot: 9, code: 'HostInTransit', programCode: 58 });
++});
++
+ test('GET /f/tx/{signature}: landed, failed with the program error, expired, unknown', async () => {
+   const r = relay();
+   const fp = await feePayerOf(r);

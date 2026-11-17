@@ -1,0 +1,15 @@
+--- a/permutation-server/web/frontier/fsession.mjs	2026-10-31 00:54:57.575167025 +0000
++++ b/permutation-server/web/frontier/fsession.mjs	2026-10-31 00:54:57.603845291 +0000
+@@ -108,7 +108,11 @@
+  * Whether a key is the one the Citizen registered (`Citizen.session`, 32
+  * bytes, zero = none) and still valid at chain time `now` (s).
+  */
+-export function matchesCitizen(session, citizen, now) {
++export function matchesCitizen(session, citizen, now, resident = null) {
++  // NFT-bound residents (permutation-nft-resident-spike): when the page knows
++  // the asset's current holder, a key of a wallet that no longer holds the
++  // resident is `ResidentHolderChanged`, not a key to regenerate.
++  if (resident?.holder && session?.wallet && resident.holder !== session.wallet) return { ok: false, code: 'ResidentHolderChanged', holder: resident.holder };
+   const reg = citizen?.session;
+   if (!reg || reg.every?.(x => x === 0)) return { ok: false, code: 'NoSession' };
+   if (toBase58(reg) !== session.publicKey) return { ok: false, code: 'SessionMismatch' };

@@ -175,3 +175,21 @@ pub const CLOSE_PROVINCE: &[Cover] = &[
     ),
     Cover::Test("citizen::g01_land_other_instructions", &[Loaded]),
 ];
+
+/// ExtendFrontier (0xC1, S1 map growth): `tests/map_extend.rs`.
+pub const EXTEND_FRONTIER: &[Cover] = &[
+    Cover::Test(
+        "map_extend::extend_frontier_refused_without_a_ceiling",
+        &[Err(E::BadData)],
+    ),
+    Cover::Test(
+        "map_extend::extend_frontier_grows_one_ring_and_keeps_the_old_land",
+        &[
+            Err(E::TooEarly),
+            Err(E::AlreadyDone),
+            Err(E::BadData),
+            Err(E::Capacity),
+            Lands("ExtendFrontier"),
+        ],
+    ),
+];

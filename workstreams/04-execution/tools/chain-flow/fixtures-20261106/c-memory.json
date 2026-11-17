@@ -1,0 +1,108 @@
+{
+  "stage": "C",
+  "reader": "workstreams/12-memory adapters (readWs04Store, ingestReceipts), unchanged",
+  "ingest": {
+    "added": 4,
+    "duplicate": 1,
+    "collision": 0,
+    "refused": 0,
+    "held": []
+  },
+  "again": {
+    "added": 0,
+    "duplicate": 5
+  },
+  "facts": [
+    {
+      "kind": "identity_alias",
+      "bell": 0,
+      "sender": null,
+      "data": {
+        "partition": "season-7",
+        "tag": "1b61af352e1d1351",
+        "principal": "75hbt6uvDqjPZ9WgFtMhBnTeyHw7cinoHiz4FD2vEz2d"
+      }
+    },
+    {
+      "kind": "caravan_sent",
+      "bell": 2,
+      "sender": "1b61af352e1d1351",
+      "data": {
+        "caravan": {
+          "partition": "season-7",
+          "sender": "1b61af352e1d1351",
+          "seq": 0
+        },
+        "dst": {
+          "partition": "season-7",
+          "kind": 2,
+          "p": 1,
+          "q": 0,
+          "at": 5,
+          "gen": 1
+        },
+        "cargo": {
+          "wood": 4
+        },
+        "eta_bell": null
+      }
+    },
+    {
+      "kind": "caravan_settled",
+      "bell": 22,
+      "sender": "1b61af352e1d1351",
+      "data": {
+        "caravan": {
+          "partition": "season-7",
+          "sender": "1b61af352e1d1351",
+          "seq": 0
+        },
+        "outcome": 0,
+        "dst": {
+          "partition": "season-7",
+          "kind": 2,
+          "p": 1,
+          "q": 0,
+          "at": 5,
+          "gen": 1
+        },
+        "cargo_recorded": {
+          "wood": 4
+        }
+      }
+    },
+    {
+      "kind": "caravan_credited",
+      "bell": 22,
+      "sender": "1b61af352e1d1351",
+      "data": {
+        "caravan": {
+          "partition": "season-7",
+          "sender": "1b61af352e1d1351",
+          "seq": 0
+        },
+        "place": {
+          "partition": "season-7",
+          "kind": 2,
+          "p": 1,
+          "q": 0,
+          "at": 5,
+          "gen": 1
+        },
+        "credited": {
+          "wood": 4
+        },
+        "unit": "whole_units",
+        "basis": "exec_record",
+        "exec": {
+          "sig": "settle|cv:1b61af352e1d1351:0",
+          "ix": 0
+        }
+      }
+    }
+  ],
+  "mock": [
+    "bell = slot",
+    "every slot final"
+  ]
+}

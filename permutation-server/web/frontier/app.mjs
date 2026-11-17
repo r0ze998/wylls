@@ -1,5 +1,6 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
-import { setS1, setOreExtraProvider } from './fs1.mjs';
+import { landOf, landSummary, landElsewhere, renderLandChip } from './land.mjs';
+import { setS1, setOreExtraProvider, s1On } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
@@ -17,8 +18,15 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // page; their logic is in screens/{report,practice,onboarding,spectate}.mjs
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
+import { localPlayRequested, openLocalPlayGate } from './flocalplay.mjs';
+import { staleBannerView, rereadLabel } from './stale-banner.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
+import { clearWideSelect, selectedWide } from './fwide.mjs';
+import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
+import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
+import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn, prepareLocalPlayConquest, sendLocalPlayConquest, reconcileLocalPlayConquest, readLocalPlayConquestOrders } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
+import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
 import { ChainClock, bellChip, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
@@ -31,10 +39,19 @@ import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions, actorsAt } from './map/actions.mjs';
-import { PLACE, PLACE_NOTE, partialRings, placeNow, worldOf } from './map/world.mjs';
+import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeNow, worldOf, seededRings, contiguousRings } from './map/world.mjs';
+// The world's extent as the map, the roster and the minimap read it: FS.world (map/world.mjs), never the length of
+// the record's `rings`. A sparse world (one far ring seeded alone) has `ringsOpen` = one past its outermost seeded
+// ring, its `seeded` rings, and no land on the others.
+const worldNow = () => FS.world ?? worldOf(FS.record);
+const ringsOpenNow = () => Math.max(1, worldNow().ringsOpen);
+const seededNow = () => seededRings(worldNow());
+import { readOverviews } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
+import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
+import { installCoopBoard } from './hud/coopboard.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -46,9 +63,17 @@ import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES, u
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
-import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
+import * as returnSum from './hud/returnsum.mjs';
+import * as returnWords from './hud/returnwords.mjs';
+import * as returnRead from './hud/awayread.mjs';
+import { caravanWatchOf } from './screens/s1.mjs';
+import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
+import { ACTIONS, FORMS, bind, startPlay, wantProvince, retryProvince, rereadMarchFacts, planS1Place, clearS1Plan, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick, localSyncTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
+// the recorded wide world, read-only (map/widemode.mjs): a button beside the map tools and a sheet over the map;
+// the ordinary map is not changed by it
+import { mountWideMode } from './map/widemode.mjs';
 import { provinceName as placeProvinceName } from './hud/place.mjs';
 // the prototype rule "banners" (a design tried in the sample world: hud/proto.mjs, proto/hand-model.mjs)
 import * as protoHud from './hud/proto.mjs';
@@ -123,8 +148,10 @@ import * as practiceScreen from './screens/practice.mjs';
 import * as onboardingCard from './screens/onboarding.mjs';
 import * as spectateScreen from './screens/spectate.mjs';
 import { FLAG, withFlag, restoreFlags } from './onboarding.mjs';
-import { useHerald, refresh as refreshPlay } from './controller.mjs';
+import { useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld, askSeason, takeSeason, seasonStale } from './controller.mjs';
+import { createPollLoop } from './poll-loop.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
+import { createRouteCache } from './map/routecache.mjs';
 import { scope } from './fchainio.mjs';
 import { hostParts } from './faddr.mjs';
 import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, departMargin, planRoute, earliestBell, arrivalWindow, marchCosts } from './fmarch.mjs';
@@ -147,21 +174,22 @@ import * as profile from './people/profile.mjs';
 import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
-import { forecast, forecastKey, compareStances, compareKey } from './hud/forecast.mjs';
+import { forecast, forecastKey, compareStances, compareKey, COMPARE_RUNS } from './hud/forecast.mjs';
+import { modelForecast } from './hud/forecastmodel.mjs';
 import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
 import { mountRadioKeys } from './hud/radiokeys.mjs';
 import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
-import { battleScene, startBattle, battleLive, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
+import { battleScene, startBattle, battleLive, endBattle, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
 import { decode as decodeAccount } from './fcodec.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
-import { tileHex, ringProvinces, wedgeOf } from './fgeo.mjs';
+import { tileHex, ringProvinces, homeNation, locate } from './fgeo.mjs';
 import { project, RADIUS } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
-import { instantHomeEnabled, homeSites, sameHome } from './home.mjs';
+import { instantHomeEnabled, homeSites, homeRingsOpen, seasonPlace, sameHome } from './home.mjs';
 
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
@@ -174,7 +202,8 @@ const setText = (id, text) => { const el = $(id); if (el && el.textContent !== t
 export function chipText(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
-  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 終了`;
+  // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
+  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
   return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
 }
 
@@ -182,7 +211,7 @@ export function chipText(chip) {
 export function dialParts(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
   if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
-  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`終了` : countdown(chip.secondsLeft) };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
 }
 
 /**
@@ -223,8 +252,20 @@ function renderChip() {
   FS.stale = staleness({ latestUnix: FS.record?.latestUnix, chainNow: now, behind: FS.chain?.behind() ?? null });
   const banner = $('stale-banner');
   if (banner) {
-    banner.hidden = !FS.stale.stale;
-    if (FS.stale.stale) banner.textContent = L`表示が ${Math.round(FS.stale.behind)} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください。`;
+    const v = staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
+    banner.hidden = v.hidden;
+    if (!v.hidden) {
+      // (local play: the words and one re-read button, made once and kept, so a press is never lost to the redraw)
+      let text = banner.querySelector('.stale-text'), btn = banner.querySelector('[data-act="state-reread"]');
+      if (!text || !!btn !== v.reread) {
+        text = document.createElement('span'); text.className = 'stale-text';
+        const parts = [text];
+        if (v.reread) { btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn small'; btn.dataset.act = 'state-reread'; parts.push(' ', btn); }
+        banner.replaceChildren(...parts);
+      }
+      if (text.textContent !== v.text) text.textContent = v.text;
+      if (v.reread && btn.textContent !== rereadLabel()) btn.textContent = rereadLabel();
+    }
   }
 }
 
@@ -247,15 +288,25 @@ function renderSampleTag() {
   if (el.title !== long) { el.title = long; el.setAttribute('aria-label', long); }
 }
 
+/**
+ * The page banner's words for an error (display only; exported for the tests). A read that failed by its HTTP status
+ * has no text of its own, and the banner read 「不明なエラー（HTTP503）」: nothing a reader can use. Before any season
+ * is read it is the season's record that could not be read: said so, with the code. Every other error keeps its text.
+ */
+export function bannerText(error, haveSeason = false) {
+  return !haveSeason && /^HTTP\d{3}$/.test(String(error?.code ?? '')) ? L`${clientText('WorldUnavailable')}（${error.code}）` : error?.text ?? '';
+}
+
 function renderStatus() {
   renderSampleTag();
   renderProto();
   const s = FS.season;
-  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : L`読み込み中…`;
+  // (the season could not be read: the word is not 「読み込み中…」 for good — the banner below says what happened)
+  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : FS.error ? '' : L`読み込み中…`;
   // the beacon's kind is a detail: "More → details" names it (detailsMarkup)
   setText('season-status', status);
   const err = $('error-line');
-  if (err) { err.hidden = !FS.error; err.textContent = FS.error ? FS.error.text : ''; }
+  if (err) { err.hidden = !FS.error; err.textContent = FS.error ? bannerText(FS.error, !!s) : ''; }
 }
 
 /** Whether a host or holding id is the viewer's (its province, site and generation are one of the viewer's holdings). */
@@ -332,8 +383,9 @@ function moreFolds(FS) {
  * closed drawer is empty.
  */
 export function restMarkup(FS) {
-  // (without a village the plate carries its own one button: no second prompt beside it)
-  return [hud.renderPlate(FS), holdsLand(FS) ? hud.renderNextRow(nextNow()) : '', hud.renderTodo(FS, { max: 8, open: true })];
+  // (without a village the plate carries its own one button: no second prompt beside it; the wide pips stand with the
+  // plate here as they do in the desktop rail — hud/hud.mjs renderRest is the one composition for both widths)
+  return hud.renderRest(FS, { next: holdsLand(FS) ? hud.renderNextRow(nextNow()) : '', todoMax: 8 });
 }
 
 /**
@@ -416,6 +468,93 @@ export function modePanel(FS) {
  * back after the new markup. `scroller` null: a different view, which starts
  * from its own markup (only typed values are carried).
  */
+/**
+ * (2026-11-17, ⑦ the keep and the march toward it) Whether a press that names a keep still belongs to what the page is
+ * now: the context number it was drawn under is the number NOW, the conquest record is the pinned world's, and the keep
+ * of that province still stands on that tile. Answers the keep, or null. Reads only.
+ */
+let keepAsk = 0;
+function keepStill(d) {
+  if (FS.mode !== 'play' || !Number.isInteger(FS.contextSeq) || String(FS.contextSeq) !== String(d.ctx ?? '')) return null;
+  const cq = FS.conquest ?? null;
+  if (!cq || !(cq.keeps instanceof Map) || (cq.world ?? null) !== momentWorld()) return null;
+  const k = cq.keeps.get(`${num(d.p)},${num(d.q)}`) ?? null;
+  return k && Number.isInteger(k.tile) && k.tile === num(d.tile) ? k : null;
+}
+
+/**
+ * (corrected) Whether the march a press names is still what the button said of it: the march list is the page's own NOW
+ * (screens/tracker.mjs marchListNow — pinned world, context number, viewer, village in hand — and its own context
+ * number is the button's), the list holds a march of that host whose destination is the keep's province, and
+ *   `sure` = 1: the march's tile is known and IS the keep's tile (the button said "bound for this keep");
+ *   `sure` = 0: the march's tile is still not known (the button said only "to this province").
+ * A march that turned out to be for another tile, or whose list is another village's, does not answer. Reads only.
+ */
+function keepMarch(d, k, host) {
+  const now = trackerScreen.marchListNow(FS);
+  if (!now.ok || now.ctx === null || String(now.ctx) !== String(d.ctx ?? '')) return false;
+  const sure = String(d.sure ?? '') === '1';
+  return (FS.marches ?? []).some(m => {
+    const dest = m?.entry ? m.dest : m?.readDest ?? m?.dest ?? null;
+    if (String(m.entry?.host ?? m.transit?.hostId ?? '') !== host || !dest || dest.p !== k.p || dest.q !== k.q) return false;
+    return sure ? Number.isInteger(dest.tile) && dest.tile === k.tile : !Number.isInteger(dest.tile);
+  });
+}
+
+/**
+ * (2026-11-17, ⑦ the hosts screen) Whether a press from the hosts screen still belongs to what the page is now: the
+ * context number it was drawn under is the number NOW (it moves with every change of viewer, herald or pinned world),
+ * the village the list was drawn for (place, site, generation) is the village in hand, and — unless `row: false` — the
+ * host is still in that village's list. Answers `{h, row}` or null. Reads only.
+ */
+let hostAsk = 0;
+function hostStill(d, { row: needRow = true } = {}) {
+  if (FS.mode !== 'play' || !Number.isInteger(FS.contextSeq) || String(FS.contextSeq) !== String(d.ctx ?? '')) return null;
+  const h = FS.holdings?.[FS.activeHolding ?? 0] ?? null;
+  if (!h || h.p !== num(d.p) || h.q !== num(d.q) || h.site !== num(d.site) || (h.gen ?? 0) !== num(d.gen)) return null;
+  const row = hostScreen.hostRows(FS).find(r => String(r.id) === String(d.host ?? '')) ?? null;
+  return needRow && !row ? null : { h, row };
+}
+
+/**
+ * (2026-11-17, ⑦ the warning's way on, corrected) Whether a press from the warning card still belongs to what the page
+ * is now: the judging it was drawn from is the one standing (its context number — it moves with every change of viewer,
+ * herald or pinned world), that judging's world is the world pinned and its viewer the viewer now, the warning it names
+ * (village and turn) is still among the warnings, and the village is among the viewer's with the same generation.
+ * Answers `{w, h, i}` — that warning, that village and its place in the list as it is NOW — or null. Reads only.
+ */
+let incomingAsk = 0;
+function incomingStill(d) {
+  const r = FS.incomingRead ?? null;
+  // (corrected: the judging's number is compared with the number NOW — `FS.contextSeq` —, and the button's with both:
+  //  a judging left standing from an earlier context, and the buttons drawn from it, act on nothing)
+  if (FS.mode !== 'play' || !r || !Number.isInteger(r.ctx) || !Number.isInteger(FS.contextSeq) || r.ctx !== FS.contextSeq || String(r.ctx) !== String(d.read ?? '') || r.world !== momentWorld()
+    || (r.viewer ?? null) !== (FS.resident?.asset ?? FS.wallet?.address ?? null)) return null;
+  const p = num(d.p), q = num(d.q), site = num(d.site), gen = num(d.gen), bell = num(d.bell);
+  const w = (Array.isArray(FS.incoming) ? FS.incoming : []).find(x => x.holding.p === p && x.holding.q === q && x.holding.site === site && (x.holding.gen ?? 0) === gen && x.bell === bell) ?? null;
+  const i = w ? (FS.holdings ?? []).findIndex(o => o.p === p && o.q === q && o.site === site && (o.gen ?? 0) === gen) : -1;
+  return i >= 0 ? { w, h: FS.holdings[i], i } : null;
+}
+
+/**
+ * (2026-11-17, ⑦ from the map to the trade card) Once the card of plan `id` is drawn (its note carries the number): the
+ * select the plan names takes the plan's value — ONCE, at the press; a later choice of the person's in the same select
+ * is theirs and is kept by keepState —, the form's fold and the folds around the card open, and the card comes into
+ * view. No amount field is touched and nothing is submitted. A card that does not come within a few frames (no village
+ * in hand, another plan pressed meanwhile) is left alone.
+ */
+function landS1Plan(id, tries = 6) {
+  const card = globalThis.document?.getElementById?.('hp-trade'), note = card?.querySelector?.(`[data-plan-id="${id}"]`);
+  if (!note) { if (tries > 0) requestAnimationFrame(() => landS1Plan(id, tries - 1)); return; }
+  if (note.dataset.plan !== 'lost') {
+    for (const x of card.querySelectorAll('select[data-plan]')) { const v = x.dataset.plan; if (v !== '' && [...x.options].some(o => o.value === v)) x.value = v; }
+    const f = card.querySelector(`details[data-fold="${note.dataset.plan === 'fort' ? 's1-fort' : 's1-send'}"]`);
+    if (f) f.open = true;
+  }
+  for (let x = card.closest?.('details'); x; x = x.parentElement?.closest?.('details')) x.open = true;
+  card.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+}
+
 export function keepState(el, render, scroller = el) {
   if (!el?.querySelectorAll) { render(); return; }
   const keyOf = x => { const f = x.closest('form[data-form]')?.dataset.form ?? x.closest('[data-bind]')?.dataset.bind ?? ''; return `${f}|${x.name || x.dataset.bind || x.id}`; };
@@ -434,19 +573,34 @@ export function keepState(el, render, scroller = el) {
   const active = globalThis.document?.activeElement;
   const inside = !!active && el.contains(active);
   const focusKey = inside && active.matches?.('input, select, textarea') ? keyOf(active) : null;
+  // the caret of the focused field (a field without a selection API — a number — answers null and gets the end)
+  let caret = null;
+  if (focusKey) { try { caret = Number.isInteger(active.selectionStart) ? [active.selectionStart, active.selectionEnd] : null; } catch { caret = null; } }
   const focusAct = inside && !focusKey && scroller && active.matches?.('button, summary, a') ? { key: actOf(active), nth: nthOf(active), tag: active.tagName } : null;
   const top = scroller?.scrollTop ?? 0;
   // a part that scrolls by itself (the order's body above its seal: `data-scroll`) keeps its place too
   const inner = scroller ? new Map([...el.querySelectorAll('[data-scroll]')].map(x => [x.dataset.scroll, x.scrollTop])) : new Map();
   render();
+  // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
+  // typing in the Muster form opened from its fold lost the focus at the first key's redraw
+  for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
   if (typed.size || picked.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
     const k = keyOf(x);
     if (x.type === 'radio') { if (picked.get(k) === x.value) x.checked = true; }
     else if (x.tagName === 'SELECT') { if (picked.has(k) && [...x.options].some(o => o.value === picked.get(k))) x.value = picked.get(k); }
     else if (typed.has(k) && x.type !== 'checkbox') x.value = typed.get(k);
-    if (k === focusKey && (x.type !== 'radio' || x.checked)) x.focus({ preventScroll: true });
+    if (k === focusKey && (x.type !== 'radio' || x.checked)) {
+      x.focus({ preventScroll: true });
+      // the caret where it was: a new field takes the focus with its caret at the start, and the next keys typed went
+      // in front of what was typed (a count typed as 120 across two redraws read 021)
+      if (x.tagName !== 'SELECT' && x.type !== 'radio' && x.type !== 'checkbox') {
+        try {
+          if (caret && typeof x.setSelectionRange === 'function') x.setSelectionRange(caret[0], caret[1]);
+          else { const v = x.value; x.value = ''; x.value = v; }
+        } catch { const v = x.value; x.value = ''; x.value = v; }
+      }
+    }
   }
-  for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
   for (const x of inner.size ? el.querySelectorAll('[data-scroll]') : []) { const y = inner.get(x.dataset.scroll); if (y && x.scrollTop !== y) x.scrollTop = y; }
@@ -502,14 +656,73 @@ function applyDrawer(d) {
 }
 
 let lastPanelView = null;
+/** The selection whose card headed the drawer at its last render (`drawerHeadFor`); null when none did. */
+let lastHeadSelection = null;
+/**
+ * Where the reader's last press or key began: inside the drawer's sheet (a key of the chronicle, a fold, a field) or
+ * anywhere else (the map, the dock, a list of the HUD). Read in the capture phase and only read: no press is changed.
+ */
+let inputInDrawer = false;
+for (const ev of ['pointerdown', 'keydown']) globalThis.document?.addEventListener?.(ev, e => { inputInDrawer = !!e.target?.closest?.('#panel-body'); }, true);
+
+/**
+ * A press inside the drawer holds the drawer's redraws until it is released. The drawer is written again whenever a
+ * number in it changes (stores, countdowns: several times a second on a fast test clock, now and then on the real
+ * one), and each write replaces its buttons: a press that began on a button and ended on its replacement made no
+ * click, so a player's tap could be lost. While a pointer is down in the drawer a redraw is kept as pending; on
+ * release it runs right after the click (a macrotask after pointerup). A press held longer than `maxHoldMs` (a drag,
+ * a long press) no longer holds anything, so the drawer never freezes.
+ */
+export function makePressGate({ maxHoldMs = 2000, now = () => Date.now() } = {}) {
+  let downAt = null, pending = null;
+  return {
+    down() { downAt = now(); },
+    /** The redraw kept while pressed (to run after the click), or null. */
+    up() { downAt = null; const p = pending; pending = null; return p; },
+    /** True when `redraw` is kept for the release instead of running now. */
+    hold(redraw) { if (downAt !== null && now() - downAt < maxHoldMs) { pending = redraw; return true; } if (downAt !== null) { downAt = null; pending = null; } return false; },
+  };
+}
+const drawerPress = makePressGate();
+globalThis.document?.addEventListener?.('pointerdown', e => { if (e.target?.closest?.('#panel-body')) drawerPress.down(); }, true);
+for (const ev of ['pointerup', 'pointercancel']) globalThis.document?.addEventListener?.(ev, () => { const redraw = drawerPress.up(); if (redraw) setTimeout(redraw, 0); }, true);
+// (the hand's bar and its card — the forts' list, the muster — are written by renderHand, outside the drawer: each has a
+//  gate of its own, so a press on a fort's row or on the muster's gather is not lost to a write between down and up)
+const handPress = makePressGate(), handPopPress = makePressGate();
+globalThis.document?.addEventListener?.('pointerdown', e => { if (e.target?.closest?.('#hand')) handPress.down(); if (e.target?.closest?.('#hand-pop')) handPopPress.down(); }, true);
+for (const ev of ['pointerup', 'pointercancel']) globalThis.document?.addEventListener?.(ev, () => { for (const g of [handPress, handPopPress]) { const redraw = g.up(); if (redraw) setTimeout(redraw, 0); } }, true);
+/**
+ * Whether the drawer starts at its head again for this render (pure; exported for the tests): `{selection, toHead}`.
+ * The selection's card heads the drawer on the spectator's panel and in the play page's inspector (`modePanel`,
+ * `panelMarkup`). The same view keeps its scroll through a re-render (`keepState`), so a place chosen on the map
+ * while the drawer stood scrolled left its new card above the fold: nothing on screen answered the press.
+ * `selected` is the store's selection now, `shown` the one whose card headed the drawer at its last render. Every
+ * choice is a new object (a press on the map, the same tile pressed again too; a row that goes to a place), so a
+ * selection that is not the one shown is a new choice, and the drawer starts at its head. Not when the choice was
+ * made from inside the drawer (`fromDrawer`: 「見る」 on a line of the chronicle moves the map; the reader keeps the
+ * line, and the key keeps the keyboard's focus in sight). A re-render with the selection it already shows, or with
+ * none, leaves the reader's place alone. Scroll only: nothing of the game is read or set here.
+ */
+export function drawerHeadFor(d, selected, shown, fromDrawer = false) {
+  const selection = d && (d.kind === 'spectate' || d.kind === 'inspect') ? selected ?? null : null;
+  return { selection, toHead: selection !== null && selection !== shown && !fromDrawer };
+}
 /** Write the drawer: its state, title and body (the same view keeps its scroll and typed values). */
 function renderDrawer(markupOf) {
+  // (a press in the drawer is under way: this write waits for its release, so the pressed button is not replaced)
+  if (drawerPress.hold(() => renderDrawer(markupOf))) return drawerOf(FS);
   const d = drawerOf(FS);
   applyDrawer(d);
   const body = $('panel-body');
   const view = `${d?.kind ?? ''}|${FS.mode}`;
   const same = view === lastPanelView;
   lastPanelView = view;
+  // (round 21: a card's entrance plays when the drawer's view is new, not on each rewrite of the same view — the first
+  //  village's welcome fades in from nothing, and a rewrite while an order was being sent restarted it again and again: the
+  //  recorded ×30 world showed the drawer's paper blank under its title; frontier.css [data-fresh])
+  { const b = $('panel-body'); if (b) b.dataset.fresh = same ? '0' : '1'; }
+  const head = drawerHeadFor(d, FS.selected, lastHeadSelection, inputInDrawer);
+  lastHeadSelection = head.selection;
   clearTimeout(drawerClear); drawerClear = null;
   if (body) {
     const scroller = phone() ? $('panel') : body;
@@ -518,6 +731,9 @@ function renderDrawer(markupOf) {
     else if (calm()) setHtml(body, '');
     else drawerClear = setTimeout(() => { if (!drawerOf(FS)) { setHtml(body, ''); setText('panel-title', drawerTitle(null)); } }, 200);
     if (!same && scroller) scroller.scrollTop = 0;
+    // (a new choice's card heads this view: the scroll's owner — the sheet itself on a phone, the paper under the bar on a
+    // desktop — starts at its head, at once and without a glide: a later re-render must never find it half-way)
+    if (head.toHead && scroller && scroller.scrollTop !== 0) scroller.scrollTop = 0;
   }
   // (a part of the drawer that scrolls above a foot rests on a whole row: after this picture is laid out)
   settleSoon();
@@ -530,13 +746,16 @@ function renderDrawer(markupOf) {
 }
 
 function renderPlay() {
+  wideModeRef?.validateFocus();
   // (the stage mark of the page follows the same answer as the plate, in the same render: never a village's plate over a waiting dock)
   renderChips();
   const d = renderDrawer(dd => panelMarkup(FS, dd));
   focusHome();
   const tabs = $('tabs');
   // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
-  if (tabs) setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind));
+  // (the dock's keys are written anew at every render: Enter on one left the keyboard on nothing. The key in focus is
+  // found again by what it does, as the bar's keys are — keepState)
+  if (tabs) keepState(tabs, () => setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind)));
   renderRail();
   renderHand();
   renderMinimap();
@@ -553,6 +772,7 @@ function renderMode() {
 
 // ------------------------------------------------------------------ the HUD (hud/hud.mjs)
 let mapRef = null;
+let wideModeRef = null;
 let terrainRef = null;
 /** Who holds each site (people/roster.mjs): names and faces for tags, the rail, the inspector, reports. */
 let rosterRef = null;
@@ -607,11 +827,14 @@ let peopleCache = { at: -1, value: null };
 export function peopleSource() {
   // (every frame, outside the second's cache: a selection shows its village's character at once)
   setBoardCharacters(boardCharactersNow());
+  // (2026-11-17, ⑦: before the second's cache is used or built: the battle state is made this world's first —
+  //  syncBattleWorld — so neither the cache nor its battles show another world's as this one's)
+  syncBattleWorld();
   const bell = FS.nowBell ?? (FS.clock ? Math.max(0, Math.floor(((FS.chain?.now() ?? 0) - FS.clock.genesisTs) / 600)) : 0);
   const sec = Math.floor(Date.now() / 1000);
   if (peopleCache.at === sec && peopleCache.lang === lang() && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
   if (rosterRef) {
-    for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
+    for (const d of seededNow()) rosterRef.ensure(d);
     scene.seedOwn(rosterRef, FS.holdings);
   }
   // the labels inside (construction names, tiers) are in the page's language: a switch rebuilds them
@@ -700,7 +923,19 @@ function renderTermPop() {
   el.setAttribute('aria-label', glossary.TERMS[FS.term]?.name() ?? '');
   setHtmlIfChanged(el, glossary.renderTerm(FS.term));
 }
-function closeTermPop() { if (FS.term) { FS.term = null; renderTermPop(); } }
+/** The 「？」 that opened the term's popover (its term and its place among the keys of that term), while it is open. */
+let termFrom = null;
+/**
+ * Close the term's popover. `focus`: the keyboard goes back to the key that opened it (Escape, the popover's own
+ * close key) — it was left on nothing, and the next Tab began at the top of the page. The key is found again by its
+ * term and its place: the drawer it stands in may have been written anew since.
+ */
+function closeTermPop({ focus = false } = {}) {
+  if (!FS.term) return;
+  FS.term = null; renderTermPop();
+  const from = termFrom; termFrom = null;
+  if (focus && from) [...(globalThis.document?.querySelectorAll?.(`[data-act="term"][data-term="${String(from.term).replace(/[^\w-]/g, '')}"]`) ?? [])][from.nth]?.focus?.({ preventScroll: true });
+}
 /** The dial's card (hud/dialcard.mjs): the turn, the time to the next bell, what that bell brings; under the dial. */
 function renderDialPop(now = FS.chain?.now?.() ?? null) {
   let el = $('dial-pop');
@@ -822,7 +1057,7 @@ function ownColumns() {
  * viewer's own queue): `[{p, q, site, share, label}]` — the share of the time gone, the
  * building's name and the time left.
  */
-function constructionsNow() {
+function constructionsNow(life = FS.life) {
   const now = FS.chain?.now?.() ?? 0, out = [], seen = new Set();
   const add = (p, q, site, item, doneAt, startTs) => {
     const key = `${p},${q},${site}`;
@@ -837,7 +1072,7 @@ function constructionsNow() {
     const done = Number(q.doneAt ?? 0);
     if (done > now) add(h.p, h.q, h.site, queueBuildingItem(q), done, done - buildSecsOf(q));
   }
-  if (FS.clock) for (const [k, rec] of FS.life ?? []) {
+  if (FS.clock) for (const [k, rec] of life ?? []) {
     if (!rec.build || !(rec.build.doneAt > now)) continue;
     const [p, q, site] = k.split(',').map(Number);
     add(p, q, site, rec.build.item, rec.build.doneAt, bellStart(FS.clock.genesisTs, rec.build.bell));
@@ -852,6 +1087,8 @@ const buildSecsOf = q => (Number(q.secs) > 0 ? Number(q.secs) : 3_600);
 const actionsOf = createActions({ passableOf: (p, q) => terrainRef?.(p, q)?.passable ?? null });
 function actionsNow() {
   if (FS.mode !== 'play') return null;
+  if (FS.hand?.pop === EXPEDITION_POP) return null;
+  if (FS.hand?.pop === OUTBOUND_POP) return null;
   // a tile is being picked for an order of the village (where a new host forms up): those tiles are what is lit
   const pick = !FS.compose ? FS.hand?.pick ?? null : null;
   if (pick && !pick.external) return FS.view.lod === 'tile' ? pickModel(pick) : null;
@@ -884,27 +1121,21 @@ const seedsNow = () => (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.s
  * arrive (fmarch.mjs planRoute, earliestBell, arrivalWindow): `{ok, hexes,
  * arriveBell}` or `{ok: false, code}`; null while the rules module loads.
  */
-const routeCache = new Map();
+const cachedRoute = createRouteCache(planRoute);
 function routeTo(A, to) {
   const k = wantKernel();
   if (!k || !A?.actor) return null;
-  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}`;
-  if (routeCache.has(key)) return routeCache.get(key);
-  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow() });
-  let v;
-  if (!r.ok) v = { ok: false, code: r.code };
-  else {
-    const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs: r.route.secs }) : null;
-    v = { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
-  }
-  if (routeCache.size > 96) routeCache.clear();
-  routeCache.set(key, v);
-  return v;
+  const r = cachedRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow(), blocked: palisadeHexesOf(FS) });
+  if (!r.ok) return { ok: false, code: r.code };
+  // Time keeps moving even within one turn. Only the path is cached; the
+  // arrival is recalculated from the current clock, rate and lead window.
+  const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs: r.route.secs }) : null;
+  return { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
 }
 
 /** The route to the lit tile under the pointer (the map draws it as a ribbon with its arrival turn). */
 let hoverRoute = null, hoverHit = null;
-function hoverPlan(hit) {
+function hoverPlan(hit, { redraw = true } = {}) {
   hoverHit = hit ?? null;
   // (tiles being picked for an order of the village are not a march: no route is drawn to them)
   const A0 = hit && Number.isInteger(hit.idx) ? actionsNow() : null, A = A0?.mode === 'pick' ? null : A0;
@@ -918,11 +1149,10 @@ function hoverPlan(hit) {
     && !(FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) ? { p: hit.p, q: hit.q, tile: hit.idx, hq: hit.tileQ, hr: hit.tileR, kind: 'move' } : null;
   const want = t && t.kind !== 'explore' && !(dest && dest.p === t.p && dest.q === t.q && dest.tile === t.tile) ? t : beyond;
   const key = want ? `${A.actor.id}|${want.hq},${want.hr}` : null;
-  if ((hoverRoute?.key ?? null) === key) return;
   const r = want ? routeTo(A, { p: want.p, q: want.q, tile: want.tile }) : null;
   // (while the rules module loads there is no answer yet: asked again when it has loaded)
   hoverRoute = r?.ok ? { key, q: want.hq, r: want.hr, hexes: r.hexes, arriveBell: r.arriveBell } : r ? { key, q: want.hq, r: want.hr, hexes: [], arriveBell: null } : null;
-  mapRef?.tick();
+  if (redraw) mapRef?.tick();
 }
 
 /** The map's own answer on a tile (a refusal never fails silently): drawn there for a moment, and said in the map's live line. */
@@ -943,6 +1173,7 @@ function refusalText(code, hit = null) {
   try { open = pass === null ? null : ((BigInt(pass) >> BigInt(hit.idx)) & 1n) === 1n; } catch { open = null; }
   if (open === false) return () => L`山や水のマスには進めません`;
   if (code === 'NoPath') return () => L`道がありません（山や水にふさがれています）`;
+  if (code === 'PlannerBudget') return () => L`道を調べきれませんでした（届かないとは限りません）`;
   return NOTE_TEXT.unreachable;
 }
 /** The map's live line (`#map-summary`): `say()` gives its words, again when the language changes. */
@@ -952,15 +1183,35 @@ onLangChange(() => { if (summarySay) setText('map-summary', summarySay()); });
 
 /** Start the order card for the acting host with `hit` as its destination (the existing compose flow). */
 async function orderMarch(A, hit) {
+  // (round 28: local play — the host's own march answer, as its send will read it (controller.mjs localMarchFor), is asked
+  //  before any order is drafted; a refusal is said on the map instead of after the order card is up)
+  if (FS.localPlay && typeof FS.localMarchFor === 'function') {
+    const own = Number.isInteger(A.actor.holdingIndex) ? FS.holdings?.[A.actor.holdingIndex] ?? null : null;
+    if (FS.localMarchFor(own, A.actor.id)?.open !== true) { mapNote(hit, () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`); return; }
+  }
   if (Number.isInteger(A.actor.holdingIndex) && A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex;
-  ACTIONS.compose({ host: A.actor.id, stay: 'map' });
-  if (!FS.compose) return;
+  const c = ACTIONS.compose({ host: A.actor.id, stay: 'map' });
+  // (2026-11-17, ⑦ the march's entry: only the draft this request itself opened for this host is given the place — a
+  //  host that is not there any more opens none, and a draft of another host standing from before is left as it is.
+  //  After the route's wait, only that same draft, still naming this place, speaks: put away, another host's draft, a
+  //  place chosen again or another world meanwhile, and nothing of this request is said or written)
+  if (!c || FS.compose !== c || String(c.host?.id) !== String(A.actor.id)) return;
   FS.tab = 'map'; FS.explore = null;
   FS.selected = { kind: 'tile', p: hit.p, q: hit.q, idx: hit.idx, tileQ: hit.tileQ, tileR: hit.tileR };
   invalidate('map', 'panel', 'tabs');
-  await ACTIONS['dest-from-map']();
-  if (FS.compose?.routeError) mapNote(hit, refusalText(FS.compose.routeError, hit));
+  // (the place this request gave the draft is taken before the wait — the very object, set at once by setDestination)
+  const world = momentWorld(), going = ACTIONS['dest-from-map'](), aim = c.dest;
+  await going;
+  if (!draftAims(c, aim, world)) return;
+  if (c.routeError) mapNote(hit, refusalText(c.routeError, hit));
 }
+/**
+ * Whether a request still owns what it asked for (2026-11-17, ⑦, corrected): `c` is the open draft, its place is the
+ * very object this request gave it (`aim`, taken right after the request set it and before any wait — not a place of
+ * the same coordinates chosen again since: that is a newer request's), and the pinned world, with its generation, is
+ * the one the request was made in. controller.setDestination keeps the same identity for the route it writes.
+ */
+const draftAims = (c, aim, world) => !!c && !!aim && FS.compose === c && c.dest === aim && momentWorld() === world;
 
 /**
  * A tap on the map while the hand holds something (UX brief §5.2, UX design 14.2). Returns true when the tap was an
@@ -1007,11 +1258,26 @@ function mapTap(hit) {
   }
   // (a Scout's tiles are being picked: a tap elsewhere is answered, the picking stays)
   if (hand.popOf(FS, sub) === 'explore') { mapNote(hit, () => L`斥候のとなりで光っているマスだけ調べられます`); return true; }
-  if (!A || !sub.host || !hand.marchCheck(FS, sub.host).ok) return false;
+  if (!sub.host) return false;
+  const mcNow = hand.marchCheck(FS, sub.host);
+  // (lane B D2, 2026-11-16: a forming host is no actor on the map — map/actions.mjs actorsAt —, so with its March card
+  //  open the march check answers first; the tap fell through to a plain selection without a word and dropped the host)
+  if (!mcNow.ok && hand.popOf(FS, sub) === 'march') { mapNote(hit, () => mcNow.text); return true; }
+  if (!A) return false;
+  if (!mcNow.ok) {
+    // (round 35: with its March card open the tap is a destination: why the host cannot set out — the province still
+    //  resolving the last turn, stamina, rest — is said on the map and the host stays in hand. It fell through to a
+    //  plain tile selection without a word, which read as a press that did nothing; seen in a ×10 world. Without the
+    //  March card the tap selects the tile, as before.)
+    if (hand.popOf(FS, sub) === 'march') { mapNote(hit, () => mcNow.text); return true; }
+    return false;
+  }
   if (t) { orderMarch(A, hit).catch(() => {}); return true; }
   // unlit: a second tap on the tile just refused selects it
   const n = FS.mapNote;
-  if (n && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
+  // (workstream 07: "the rules are loading" is not a refusal — the planner loads on the first route asked for — so the
+  // tap again asks for the route again; it used to select the tile and drop the host from the hand)
+  if (n && n.say !== NOTE_TEXT.wait && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
   // (a place that is not open land says which it is: beyond the season's map, not open yet, or being made; fog over open
   // land is the survey's and is answered by the route below)
   const where = placeNow(FS, hit.p, hit.q);
@@ -1081,7 +1347,7 @@ let keepLit = '', keepHot = null, keepHotTimer = null;
  * the host leaves the hand or an order card takes the screen.
  */
 function syncKeepLights(model) {
-  const host = model?.kind === 'host' && keephand.conquestOn(FS) && model.host && model.host.unit !== SCOUT && model.host.unit !== SETTLER ? model.host : null;
+  const host = model?.kind === 'host' && model.pop !== OUTBOUND_POP && model.pop !== EXPEDITION_POP && keephand.conquestOn(FS) && model.host && model.host.unit !== SCOUT && model.host.unit !== SETTLER ? model.host : null;
   const open = !!host && model.pop === 'keeps';
   if (host) { try { if (wantHostReach(host.id)) invalidate('rail'); } catch (e) { console.error('frontier keeps:', e); } }
   let list = null;
@@ -1115,8 +1381,30 @@ function hotKeepRow(key) {
     try { if (mapRef.flyToKeep) mapRef.flyToKeep({ p, q }); else mapRef.flyTo({ p, q, ...(Number.isInteger(k?.tile) ? { tile: k.tile } : {}), zoom: Math.min(mapRef.view.zoom, 1.0) }, null, { auto: true }); } catch { /* the board's own */ }
   }, calm() ? 0 : 420);
 }
+/**
+ * Local play only: the seal's strip apart from the boundary card (hud/hand.mjs localRevealStrip). A departed host has
+ * left its tile, so the card it was sent from may no longer be open; the strip then stands by itself. While that
+ * card is open the strip is the card's own, and this one is empty. Made on first need; never present outside local play.
+ */
+let localRevealEl = null;
+function renderLocalRevealStrip() {
+  const doc = globalThis.document;
+  const strip = FS.localPlay && FS.hand?.pop !== OUTBOUND_POP ? hand.localRevealStrip(FS) : '', markup = String(strip);
+  if (!markup && !localRevealEl) return;
+  if (!localRevealEl) {
+    localRevealEl = doc.createElement('section'); localRevealEl.id = 'local-reveal'; localRevealEl.className = 'hand-pop local-reveal-strip';
+    localRevealEl.setAttribute('aria-label', L`ローカルプレイ：封を開く`);
+    localRevealEl.style.cssText = 'position:fixed;top:72px;right:12px;left:auto;bottom:auto;max-width:min(360px,calc(100vw - 24px));z-index:40';
+    doc.body.appendChild(localRevealEl);
+  }
+  if (localRevealEl.hidden !== !markup) localRevealEl.hidden = !markup;
+  setHtmlIfChanged(localRevealEl, strip);
+}
+
 function renderHand() {
   if (!handEl) return;
+  renderLocalRevealStrip();
+  reconcileExpedition();
   const model = handNow();
   syncRaisePreview(model);
   keepMarchBest(model);
@@ -1127,6 +1415,7 @@ function renderHand() {
   if ((body.dataset.hand ?? '') !== kind) { body.dataset.hand = kind; for (const ms of [0, 130, 260, 420]) setTimeout(() => { measureHand(); mapRef?.tick(); publishNoGo(); }, ms); }
   if (handEl.hidden !== !model) handEl.hidden = !model;
   if (!model) {
+    clearInspection(FS); clearOutbound(FS);
     // nothing of the viewer's is selected: what the hand was doing goes with it (a tile being picked, a card)
     if (FS.hand && !FS.compose) { endPick(); FS.hand = null; }
     // (a card's kept view: gone back to when the selection simply went; forgotten when an order card took over)
@@ -1141,7 +1430,8 @@ function renderHand() {
   for (const el of [handEl, handPopEl]) { const c = calm() ? '1' : ''; if ((el.dataset.calm ?? '') !== c) el.dataset.calm = c; }
   measureHand();
   const bar = String(hand.renderHand(model));
-  if (bar !== handLast.bar) { keepState(handEl, () => setHtml(handEl, hand.renderHand(model))); handLast.bar = bar; }
+  // (a press on the bar is under way: its write waits for the release — handLast is left as it was, so it is written then)
+  if (bar !== handLast.bar && !handPress.hold(() => renderHand())) { keepState(handEl, () => setHtml(handEl, hand.renderHand(model))); handLast.bar = bar; }
   // the reserve's count rises when the record says so: the figure answers with a beat (visual only)
   if (model.kind === 'village') {
     if (handLast.key === model.key && handLast.reserve !== null && model.musterable > handLast.reserve && !calm()) { const fig = handEl.querySelector('.hand-train .hand-fig'); if (fig) { fig.classList.remove('bump'); void fig.offsetWidth; fig.classList.add('bump'); } }
@@ -1149,14 +1439,18 @@ function renderHand() {
   } else handLast.reserve = null;
   handLast.key = model.key;
   // (the view kept for the new host's card: gone back to once that card no longer stands)
-  if (!(model.kind === 'village' && CARDS_OVER_BOARD.includes(model.pop)) && FS.hand?.pick?.kind !== 'dress' && model.pop !== 'keeps') camKeep.back('pop', { ms: calm() ? 0 : 260 });
+  if (!(model.kind === 'village' && CARDS_OVER_BOARD.includes(model.pop)) && FS.hand?.pick?.kind !== 'dress' && model.pop !== 'keeps' && model.pop !== OUTBOUND_POP) camKeep.back('pop', { ms: calm() ? 0 : 260 });
   const pop = model.pop ? String(hand.renderPop(FS, model)) : '';
   if (handPopEl.hidden !== !pop) handPopEl.hidden = !pop;
   if ((handPopEl.dataset.pop ?? '') !== (model.pop ?? '')) handPopEl.dataset.pop = model.pop ?? '';
   // (a tile is being picked on the board for the card — the prototype's widening —: the card counts as covering the map's foot, hud/insets.mjs)
   { const pk = FS.hand?.pick?.kind === 'dress' ? 'dress' : ''; if ((handPopEl.dataset.pick ?? '') !== pk) handPopEl.dataset.pick = pk; }
-  if (pop !== handLast.pop) { keepState(handPopEl, () => setHtml(handPopEl, pop ? hand.renderPop(FS, model) : '')); handLast.pop = pop; if (pop) handPopEl.setAttribute('aria-label', model.label); }
+  // (a press on the card is under way: its write waits for the release, as the bar's)
+  // (round 20: right after the card is written, the forts card's wait slot takes the tallest height it has had for this
+  //  host at this width — keephand.steadySlot; it does nothing on any other card)
+  if (pop !== handLast.pop && !handPopPress.hold(() => renderHand())) { keepState(handPopEl, () => setHtml(handPopEl, pop ? hand.renderPop(FS, model) : '')); keephand.steadySlot(handPopEl, `${model.key}|${globalThis.innerWidth ?? 0}`); handLast.pop = pop; if (pop) handPopEl.setAttribute('aria-label', model.label); }
   placeHandPop(model);
+  measureHand();
   publishNoGo();
 }
 /** Where the bar stands, told to the stylesheet (`--hand-h`, `--hand-l`, `--hand-t` on the body): the cards stand above it, and the dock tucks behind its top left corner. */
@@ -1204,9 +1498,21 @@ function placeHandPop(model = handNow()) {
 /** Open a card of the bar (null closes it); the board is asked for a tile when the card needs one. */
 function setPop(pop) {
   const sub = hand.subjectOf(FS);
+  clearInspection(FS); clearOutbound(FS);
   endPick();
-  const next = pop && (hand.POPS.includes(pop) || (FS.proto && hand.PROTO_POPS.includes(pop)) || (keephand.conquestOn(FS) && hand.CONQUEST_POPS.includes(pop))) ? pop : null;
+  const next = pop && (hand.POPS.includes(pop) || (FS.proto && hand.PROTO_POPS.includes(pop)) || (keephand.conquestOn(FS) && hand.CONQUEST_POPS.includes(pop)) || ([...hand.INSPECTION_POPS, OUTBOUND_POP].includes(pop) && hand.popOf({ ...FS, hand: { ...FS.hand, pop } }, sub) === pop)) ? pop : null;
   FS.hand = { ...(FS.hand ?? {}), pop: next, unit: undefined, n: undefined, troops: undefined, tile: undefined, pick: null, strike: undefined, widen: undefined, more: undefined, protoWhy: undefined };
+  if (next === OUTBOUND_POP) openOriginalOutbound();
+  if (next === OUTBOUND_POP && sub?.kind === 'host') {
+    camKeep.keep('pop');
+    // Measure the newly rendered card before framing the editable tiles.
+    requestAnimationFrame(() => {
+      if (FS.hand?.pop !== OUTBOUND_POP || !originalOutboundMap() || !mapRef) return;
+      mapRef.tick();
+      mapRef.flyTo({ p: sub.host.p, q: sub.host.q, tile: sub.host.tile, zoom: Math.max(mapRef.view.zoom, 1.0) }, null, { auto: true });
+    });
+    summary(() => L`地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。`);
+  }
   FS.mapNote = null;
   if (next !== 'explore' && FS.explore) FS.explore = null;
   // the card of a new host is used with the board: the camera is kept, and the village's province comes into the part
@@ -1279,6 +1585,7 @@ function clearOfCard(at) {
 }
 /** A host standing on the selected tile takes the hand (null: the village there does). */
 function handHost(id) {
+  clearInspection(FS); clearOutbound(FS);
   endPick();
   FS.hand = { host: id ?? null, pop: null };
   FS.explore = null; FS.mapNote = null; FS.actor = null;
@@ -1287,6 +1594,7 @@ function handHost(id) {
 /** Select one of the viewer's hosts wherever it stands: its tile is the selection and it has the hand. `fly`: bring it into view. */
 function selectHost(row, { fly = false } = {}) {
   if (!row) return false;
+  clearInspection(FS); clearOutbound(FS);
   endPick();
   if (Number.isInteger(row.holdingIndex) && row.holdingIndex >= 0 && row.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = row.holdingIndex;
   FS.selected = { kind: 'tile', p: row.p, q: row.q, idx: row.tile };
@@ -1307,7 +1615,9 @@ function selectHost(row, { fly = false } = {}) {
 function selectVillage(i, pop = null) {
   const h = (FS.holdings ?? [])[i >= 0 ? i : FS.activeHolding ?? 0];
   if (!h || !Number.isInteger(h.tile)) return false;
+  clearInspection(FS); clearOutbound(FS);
   endPick();
+  clearWideSelect(FS);   // (a legacy village chosen: the wide card leaves the village screen)
   FS.activeHolding = FS.holdings.indexOf(h);
   FS.selected = { kind: 'tile', p: h.p, q: h.q, idx: h.tile };
   FS.hand = { host: null, pop: null };
@@ -1322,9 +1632,11 @@ function selectVillage(i, pop = null) {
 }
 /** The next (dir +1) or previous (−1) of the viewer's hosts, those that can act this turn first (Civ's "next unit"). */
 function nextHost(dir) {
-  const all = hand.ownHosts(FS);
-  if (!all.length) return;
+  // (2026-11-16: from a host in hand, the hosts of ITS own village — as the bar's figure counts them (hud/hand.mjs); a host
+  //  of another village in hand jumped to the open village's first host)
   const sub = hand.subjectOf(FS);
+  const all = hand.ownHosts(sub?.kind === 'host' ? { ...FS, activeHolding: sub.holdingIndex } : FS);
+  if (!all.length) return;
   const at = sub?.kind === 'host' ? all.findIndex(r => r.id === sub.host.id) : -1;
   selectHost(all[((at + dir) % all.length + all.length) % all.length], { fly: true });
 }
@@ -1694,29 +2006,33 @@ async function protoSend(to) {
 async function composeTo(row, to) {
   if (Number.isInteger(row.holdingIndex) && row.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = row.holdingIndex;
   endPick(); FS.hand = null;
-  ACTIONS.compose({ host: row.id, stay: 'map' });
-  if (!FS.compose) return;
+  // (2026-11-17, ⑦: as orderMarch — this request's own draft for this host, or nothing; and after the route's wait only
+  //  that draft, still naming this place, is spoken of and has its arrival turn moved)
+  const c = ACTIONS.compose({ host: row.id, stay: 'map' });
+  if (!c || FS.compose !== c || String(c.host?.id) !== String(row.id)) return;
   FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false; FS.explore = null; FS.inspectOpen = false;
   FS.selected = { kind: 'tile', p: to.p, q: to.q, idx: to.tile };
   invalidate('map', 'panel', 'tabs', 'rail');
-  await ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) });
-  if (FS.compose?.routeError) mapNote({ p: to.p, q: to.q, idx: to.tile }, refusalText(FS.compose.routeError, { p: to.p, q: to.q, idx: to.tile }));
+  const world = momentWorld(), going = ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) }), aim = c.dest;
+  await going;
+  if (!draftAims(c, aim, world)) return;
+  if (c.routeError) mapNote({ p: to.p, q: to.q, idx: to.tile }, refusalText(c.routeError, { p: to.p, q: to.q, idx: to.tile }));
   // (a march of the viewer's is already sealed for that province and that turn: the sample world lets one host of a
   // citizen in a turn, and the second would be turned back at its seal's opening — the answer to a threat was lost
   // that way, with a forecast that said it would win. The card the page makes names the next turn that is free, and
   // says why; the player can still step it back)
-  const c = FS.compose;
-  if (c && FS.proto && FS.season && Number.isInteger(c.arriveBell) && pm.ownArrivalAt(FS, to, c.arriveBell, row.id)) {
+  if (FS.proto && FS.season && Number.isInteger(c.arriveBell) && pm.ownArrivalAt(FS, to, c.arriveBell, row.id)) {
     const w = arrivalWindow(FS.season, FS.nowBell ?? 0, c.earliest);
     let b = c.arriveBell;
     while (b < w.max && pm.ownArrivalAt(FS, to, b, row.id)) b++;
     if (!pm.ownArrivalAt(FS, to, b, row.id)) { c.protoShift = { from: c.arriveBell, to: b }; c.arriveBell = b; invalidate('panel', 'map'); }
   }
 }
-/** The province the guide's march goes to: the other province of the viewer's own wedge in ring 2 (the one whose land record is on the page, when one is), or null. */
+/** The province the guide's march goes to: the other province of the viewer's own nation in ring 2 (fgeo homeNation under the season's placement; the one whose land record is on the page, when one is), or null. */
 function marchProvince(row) {
   if (!Number.isInteger(FS.citizen?.faction)) return null;
-  const near = ringProvinces(2).filter(pq => wedgeOf(pq.p, pq.q) === FS.citizen.faction && !(pq.p === row.p && pq.q === row.q));
+  const place = seasonPlace(FS.season);
+  const near = ringProvinces(2).filter(pq => homeNation(pq.p, pq.q, place) === FS.citizen.faction && !(pq.p === row.p && pq.q === row.q));
   return near.find(pq => FS.proto?.lands?.has(`${pq.p},${pq.q}`)) ?? near[0] ?? null;
 }
 /**
@@ -2015,12 +2331,26 @@ function nudgeField(el, name, f) {
 function closeResPop() { if (FS.resOpen) { FS.resOpen = null; renderHudTick(FS.chain?.now?.() ?? 0); } }
 
 /** The march card's forecast: recomputed with the rules when the composed march changes (hud/forecast.mjs). */
-let fcBusy = null;
-function updateForecast() {
+// (2026-11-17, ⑦ the march card, corrected: one request at a time, known by ITSELF — `fcRun`, the object of the request
+//  under way: its draft, its place (the very object), its key and the pinned world with its generation. Every end of
+//  it — the answer, the failure, the tidy-up — asks `mine()` first, so a request for another draft with the same key,
+//  one put away, one asked again, a place of the same coordinates chosen again, or another world (A → B → A) neither
+//  writes into the newer one nor frees its place.
+//  `unread`: the forecast could NOT be made because something was not read — the rules module, or the destination
+//  province's record — which is not an answer of the rules (a refusal, PalisadeOnRoad) and not 見えていない土地
+//  (OutOfSight: no forecast is made there, and none is asked again). An unread forecast stays "not known", is made
+//  again by itself once the missing record is held, and at the person's request — HUD_ACTIONS['forecast-retry'].)
+let fcRun = null;
+function updateForecast({ again = false } = {}) {
   const c = FS.compose;
   const key = forecastKey(c);
   if (!key || !c.route || c.sending) return;
-  if (c.forecast?.key === key || fcBusy === key) return;
+  if (fcRun && fcRun.c === c && fcRun.key === key && fcRun.dest === c.dest) return;
+  const destKey = `${c.dest.p},${c.dest.q}`;
+  // (made already for the order as it stands — unless it is only "being made" by a request that is not under way any
+  //  more (its answer was not this order's to take: the place was asked again, a draft of the same key), or it was not
+  //  read and is asked again, or the record it lacked is held now)
+  if (c.forecast?.key === key && !c.forecast.pending && !(c.forecast.unread && (again || (c.forecast.why === 'NoRecord' && FS.provinces.has(destKey))))) return;
   // (a destination out of sight: no forecast. It would be worked out from the province's whole record, the hosts the
   // viewer cannot see among them, and its numbers would tell of them: a fort's tile out of sight said only "守り N"
   // while the forecast counted N and every host on it. The independent audit of 2026-10-24, older than the uplift,
@@ -2028,20 +2358,39 @@ function updateForecast() {
   if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) < 3) {
     c.forecast = { key, ok: false, why: 'OutOfSight' }; c.compare = null; invalidate('panel'); return;
   }
-  fcBusy = key;
+  // (the destination province's record is not held: nothing to forecast from — said as not read, and the record is
+  //  asked for by the ordinary read, within its own limit and wait; in sight only — the check above came first)
+  if (!FS.provinces.has(destKey)) {
+    c.forecast = { key, ok: false, why: 'NoRecord', unread: true }; c.compare = null;
+    if (FS.mode !== 'practice') { if (again) retryProvince(c.dest.p, c.dest.q, () => invalidate('map', 'panel')); else wantProvince(c.dest.p, c.dest.q, () => invalidate('map', 'panel')); }
+    invalidate('panel'); return;
+  }
+  const run = fcRun = { c, key, dest: c.dest, world: momentWorld() };
+  const mine = () => fcRun === run && FS.compose === c && c.dest === run.dest && forecastKey(c) === key && momentWorld() === run.world;
   c.forecast = { key, pending: true };
   invalidate('panel');
   seasonKernel().then(k => {
-    if (FS.compose !== c || forecastKey(c) !== key) return;
-    const prov = FS.provinces.get(`${c.dest.p},${c.dest.q}`)?.province ?? null;
+    if (!mine()) return;
+    const env = FS.provinces.get(`${c.dest.p},${c.dest.q}`) ?? null, prov = env?.province ?? null, faction = FS.citizen?.faction ?? 0;
+    // (the record went while the rules were read — another world's, or let go: not read, not a forecast of nothing)
+    if (!prov) { c.forecast = { key, ok: false, why: 'NoRecord', unread: true }; c.compare = null; return; }
+    // S1: the program's own clash model over the destination's bytes (the keep, the forts and the caravans are in it), the
+    // arrival worn by the towers its road crosses (hud/forecastmodel.mjs, workstream 07); else the page's own builder
+    const worn = s1On() && env?.provinceBytes ? marchWearOf(FS, { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, c.route, c.host.unit) : null;
+    const model = !!worn && !worn.blocked;
+    const one = cc => (model ? modelForecast(k, cc, env.provinceBytes, faction, { wornBps: worn.bps }) : forecast(k, cc, prov, faction));
     let fc;
-    try { fc = forecast(k, c, prov, FS.citizen?.faction ?? 0); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
-    c.forecast = { key, ...fc };
+    // (a throw while it is worked out: not read — never taken for the rules' own refusal)
+    try { fc = worn?.blocked ? { ok: false, why: 'PalisadeOnRoad' } : one(c); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error', unread: true }; }
+    c.forecast = { key, ...fc, ...(model ? { model: true } : {}) };
     // the stances side by side (the card's comparison): once per destination, turn and retreat, not per stance chosen
     const ck = compareKey(c);
-    if (fc.ok && c.compare?.key !== ck) c.compare = { key: ck, rows: compareStances(k, c, prov, FS.citizen?.faction ?? 0) };
-  }).catch(() => { if (FS.compose === c) c.forecast = { key, ok: false, why: 'NoWasm' }; })
-    .finally(() => { fcBusy = null; invalidate('panel'); });
+    if (fc.ok && c.compare?.key !== ck) {
+      c.compare = { key: ck, rows: model ? [0, 1, 2, 3].map(s => { try { return { stance: s, ...modelForecast(k, { ...c, stance: s }, env.provinceBytes, faction, { wornBps: worn.bps, runs: COMPARE_RUNS }) }; } catch (e) { return { stance: s, ok: false, why: e?.code ?? 'Error' }; } })
+        : compareStances(k, c, prov, faction) };
+    }
+  }).catch(e => { if (mine()) c.forecast = { key, ok: false, why: e?.code ?? 'NoWasm', unread: true }; })
+    .finally(() => { if (fcRun === run) fcRun = null; invalidate('panel'); });
 }
 
 /** A holding as the next instruction will find it (hud/rulebook.mjs `settled`: a finished building already produces): what the strip shows can be spent now. */
@@ -2051,9 +2400,45 @@ const settledHolding = (h, now) => { try { return h ? settled(h, now) : h; } cat
 let momentPrev = null;
 /** The viewer's villages ("P,Q,site") at the last look of checkMoments. */
 let ownSitesSeen = new Set();
+/**
+ * The world the moments compare (2026-11-17): cluster, program and season account as fchainio.setPin pinned them
+ * (`addresses.season`, derived and checked against the herald's record); null while none is pinned — nothing is made up:
+ * "no pin" is a state of its own, and a pin that comes or changes is a change of world. Two looks are compared only within one world: another world's villages, buildings and hosts
+ * at the same coordinates are not news here (a village "lost" or "taken", a building "finished").
+ */
+// (with the pin's generation — fchainio.setPin: A → B → A are three — so a look of the first A is not one of the last)
+const momentWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+/**
+ * What may be looked at after the world changed (2026-11-17), by the providers' own records of the world they read for —
+ * never by a key that seems to have gone or an object that was replaced: a province envelope carries `world`
+ * (controller.mjs loadEnvelope, which drops an answer read for another world), the viewer's holdings `FS.holdingsWorld`
+ * (applyMeResult), a holding's life `FS.lifeWorld` (refreshChronicle, once it has rebuilt the life from this world's
+ * pages since its reset). Until the holdings are read for this world (when there are any) no look is taken. Until the
+ * life is, neither its harvests nor its builds are looked at; the first look that has them is their baseline (the life
+ * read up is not news), and the next change after it is told as usual. The page's first world — and a pin that comes
+ * to a page that had none — fences nothing: its providers read for it.
+ */
+let momentFence = null;   // {world, first, waitHoldings, lifeReady}
 function checkMoments() {
   if (!FS.provinces) return;
-  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
+  const world = momentWorld();
+  if (!momentFence || momentFence.world !== world) {
+    const first = momentFence === null || (momentFence.first && momentFence.world === null);
+    momentPrev = null; ownSitesSeen = new Set();
+    momentFence = { world, first, waitHoldings: !first, lifeReady: first };
+  }
+  if (momentFence.waitHoldings) {
+    if (Array.isArray(FS.holdings) && FS.holdings.length > 0 && FS.holdingsWorld !== world) return;
+    momentFence.waitHoldings = false;
+  }
+  const lifeReady = momentFence.lifeReady || FS.lifeWorld === world;
+  const fresh0 = new Map([...FS.provinces].filter(([, env]) => env?.world === world));
+  const next = momentSnapshot({ life: lifeReady ? FS.life ?? new Map() : new Map(), constructions: constructionsNow(lifeReady ? FS.life : null), provinces: fresh0, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
+  // (this world's life looked at for the first time: its harvests and builds are the baseline, not news)
+  if (lifeReady && !momentFence.lifeReady) {
+    momentFence.lifeReady = true;
+    if (momentPrev) momentPrev = { ...momentPrev, harvest: next.harvest, builds: next.builds, logged: false };
+  }
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
@@ -2085,16 +2470,38 @@ function tickTurn() {
 }
 
 let homeGuideDeadline = null;
+/**
+ * (2026-11-16, Lane C G2) A land record the page re-read redraws the board, whichever read brought it. The poll's refresh
+ * and wantProvince redraw it themselves, but local play's sync reads (the waiting send, the muster wait, the half-second
+ * sync) redraw only the panel: with reduced motion — no breathing frames — the land chip showed the new holder at once
+ * and the board kept the old outline until the next poll. Compared by content, so an unchanged record redraws nothing.
+ */
+const landSigOf = new WeakMap();
+let landSeen = null;
+function landRevision() {
+  let s = '';
+  for (const [key, env] of FS.provinces ?? []) {
+    const l = env?.land;
+    if (!l) continue;
+    let g = landSigOf.get(l);
+    if (g === undefined) { g = `${l.nextBell}|${(l.owners ?? []).join(',')}|${(l.by ?? []).join(',')}|${(l.count ?? []).join(',')}|${[...(l.village ?? [])].join(',')}`; landSigOf.set(l, g); }
+    s += `${key}:${g};`;
+  }
+  return s;
+}
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
   tickTurn();
+  if (FS.mode === 'play') { const lr = landRevision(); if (lr !== landSeen) { const had = landSeen !== null; landSeen = lr; if (had) mapRef?.invalidate(); } }
   if (FS.dialOpen) renderDialPop(now);
   if (instantHomeEnabled(FS.season)) {
     if (Number.isInteger(m.bell) && FS.nowBell !== m.bell) { FS.nowBell = m.bell; invalidate('panel'); }
     for (const el of globalThis.document?.querySelectorAll?.('[data-home-deadline]') ?? []) {
       const left = Number(el.dataset.homeDeadline) - now;
       el.textContent = countdown(left);
-      if (left <= 0) invalidate('panel');
+      // (asked once for a deadline: an element that is not drawn again — a sheet that is put away keeps its last
+      // markup — would otherwise ask on every draw, and the draw it asks for would ask again, without end)
+      if (left <= 0 && el.dataset.homeDue !== 'asked') { el.dataset.homeDue = 'asked'; invalidate('panel'); }
     }
     const next = (hud.activeHolding(FS)?.queue ?? []).filter(q => q && Number(q.doneAt) > now).reduce((a, q) => Math.min(a, Number(q.doneAt)), Infinity);
     if (homeGuideDeadline !== null && now >= homeGuideDeadline) invalidate('panel');
@@ -2132,6 +2539,17 @@ function renderHudTick(now) {
       setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
     }
     resChanges(strip, tokens);
+    // the land preview (TEST-ONLY worlds with that option): the viewer's territory and its production bonus, beside the strip
+    //  (2026-11-16: and, apart, the land the viewer's nation has claimed in other provinces the map has loaded — a take far
+    //  from home showed 0 there, or no chip at all when the home province had no land record)
+    const lh = FS.mode === 'play' ? hud.activeHolding(FS) : null, lf = FS.citizen?.faction;
+    //  (2026-11-16: the per-hour figure reads the village as the strip does — settledHolding: a finished building or
+    //  promotion already produces —, as ClaimLandYield's yield_for reads it after settle_tiered; the stored record lagged)
+    const ls = lh ? landSummary(FS, settledHolding(lh, now ?? 0), lf) : null, le = lh ? landElsewhere(FS, lh, lf) : null;
+    const landShown = !!ls || (le?.tiles ?? 0) > 0;
+    let chip = $('land-chip-box');
+    if (landShown && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
+    if (chip) { chip.hidden = !landShown; setHtmlIfChanged(chip, renderLandChip(ls, le)); }
   }
   renderSound();
   publishNoGo();
@@ -2253,12 +2671,117 @@ function renderSound() {
 
 // ------------------------------------------------------------------ notifications (hud/feed.mjs)
 let feedPrev = null;
+/** The player's own marks on this device (hud/returnsum.mjs): what they said they have seen, per season and wallet. */
+const awayStore = () => { try { return globalThis.localStorage ?? null; } catch { return null; } };
+const awayMe = () => ({ tag: (() => { try { return BigInt(ownTag(FS) ?? 0); } catch { return null; } })(), faction: FS.citizen?.faction, holdings: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, site: h.site })),
+  hostOf: id => { try { const h = hostParts(id); return h ? (FS.holdings ?? []).find(o => o.p === h.p && o.q === h.q && o.site === h.site) ?? null : null; } catch { return null; } } });
+/**
+ * The away summary's reading (hud/awayread.mjs): from the player's own mark on this device, or from AWAY_REACH events
+ * behind the season's head on a first look, for one scope (herald, season, wallet). It runs on its own and tickFeed
+ * takes what it found: on the first reading one head notice ("seen" moves the mark over what was read, never over a
+ * gap) and one notice per item; after it, the S1 records read since, with the caravans' holders carried on.
+ */
+const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heraldRef.events(a) : Promise.resolve({ ok: false })) });
+let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
+// (workstream 07: an NFT resident (⑳) is another viewer than its wallet's own Citizen: its marks are kept apart)
+const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ? (FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : '' });
+/**
+ * The pinned world the away reading and its marks belong to: cluster, program and season account as fchainio.setPin
+ * pinned them (`addresses.season` is the account setPin derived and checked against the herald's record). null before a
+ * world is pinned: nothing is made up, and with no world there is no away scope (nothing is read, kept or saved).
+ */
+const awayWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+// (the scope names the world too — 2026-11-17: two worlds can share a genesis time, a season number and a wallet, and a
+// late answer read under one must not be taken, kept or confirmed under the other)
+// (the scope also names the pin's generation: a reading of the first A is not taken, kept or confirmed under the A pinned
+// again after B. The saved mark keeps the world itself — awayWorld — so that it still matches after a reload)
+const awayScopeNow = () => { const { season, wallet } = awayWho(), world = awayWorld(); return season && wallet && world ? returnRead.awayScope({ herald: `${String(FS.season?.genesisTs ?? '')}|${FS.pin?.gen ?? 0}|${world}`, seasonId: season, wallet }) : null; };
+const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
+/** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
+const awayEnds = records => { for (const x of records ?? []) if (x.record?.name === 'CARAVAN_SETTLED' || x.record?.name === 'CARAVAN_RAIDED') { const k = returnSum.caravanKey(x.record); if (k) caravanWatchOf(FS).ended(k); } };
+/** The away head notice's words: what the summary covers and what "seen" will do (or why it is not offered). */
+const awayHeadText = (s, saved = undefined) => `${returnWords.headText(s)} ${saved === undefined ? returnWords.confirmText(s) : returnWords.confirmedText(saved)}`;
+function awayPump() {
+  if (awayBusy || !heraldRef || !s1On()) return;
+  const sc = awayScopeNow();
+  if (sc === null) { if (awayReader.scope !== null) { awayReader.reset(); awayBook = null; awayQueue = []; caravanWatchOf(FS).reset(); } return; }
+  awayBusy = true;
+  if (sc !== awayReader.scope) {
+    // (a new wallet or season, or the first look: what another scope told goes, with its book)
+    FS.feed = (FS.feed ?? []).filter(x => !(x.away || x.awayOf) || x.scope === sc);
+    awayBook = null; awayQueue = []; caravanWatchOf(FS).reset();
+    const { season, wallet } = awayWho(), st = awayStore();
+    const world = awayWorld();
+    const marks = returnSum.loadMarks(st, season, wallet, world);
+    const head = (() => { try { return FS.record?.headSeq === undefined ? null : BigInt(FS.record.headSeq); } catch { return null; } })();
+    const usable = marks && !(head !== null && BigInt(marks.confirmedSeq) > head);
+    const from = usable ? marks.confirmedSeq : head === null ? '0' : String(head > BigInt(returnRead.AWAY_REACH) ? head - BigInt(returnRead.AWAY_REACH) : 0n);
+    awayReader.start({ scope: sc, from }).then(r => {
+      if (r.stale || r.scope !== awayScopeNow()) return;
+      awayEnds(r.records);
+      const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed, bad: r.bad }, marks: returnSum.loadMarks(awayStore(), season, wallet, world), last: returnSum.loadLast(awayStore()),
+        season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion }, world });
+      awayBook = s.book; awaySent = s.sent;
+      if (!s.items.length && !s.gap && !s.failed && !s.bad && s.windowFrom === null && s.mode !== 'markAhead') return;
+      awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s, world } },
+        ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
+    }).catch(() => {}).finally(() => { awayBusy = false; });
+  } else {
+    awayReader.more().then(r => {
+      if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
+      awayEnds(r.records);
+      const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent, { programVersion: FS.season?.programVersion });
+      awayBook = book; awaySent = sent;
+      awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));
+    }).catch(() => {}).finally(() => { awayBusy = false; });
+  }
+}
+/**
+ * The away summary's way in on a phone. A phone shows one notice over the map, the newest (frontier.css: one toast at a
+ * time), so the summary of what happened while away waited under this turn's card, and only the list under その他 had
+ * it. While a summary of this scope is not confirmed, a line under the strip says so and opens that list at it; it goes
+ * when "seen" is pressed (closing the notice with × does not confirm, so the line stays). Wide screens show the
+ * summary itself over the map, and the line is not drawn there (frontier.css).
+ */
+const awayConfirmed = new Set();
+const awayHeadNow = () => { const sc = awayScopeNow(); return sc === null ? null : (FS.feed ?? []).find(x => x.kind === 'away' && x.away?.summary && x.scope === sc && !awayConfirmed.has(x.id)) ?? null; };
+function renderAwayEntry() {
+  const doc = globalThis.document;
+  if (!doc?.body) return;
+  const head = FS.mode === 'play' ? awayHeadNow() : null;
+  let b = doc.getElementById('away-entry');
+  if (!head) { if (b) b.hidden = true; delete doc.body.dataset.awayEntry; return; }
+  if (!b) { b = doc.createElement('button'); b.type = 'button'; b.id = 'away-entry'; b.className = 'away-entry'; b.dataset.act = 'away-open'; doc.body.appendChild(b); }
+  const s = head.away.summary, n = (s.items?.length ?? 0) + (s.more ?? 0);
+  const text = n > 0 ? L`留守中の未確認の出来事 ${fmtNum(n)} 件` : L`留守中の記録に未確認があります`;
+  if (b.dataset.text !== text) { setHtml(b, html`${icon('bell')}<span>${text}</span>`); b.dataset.text = text; b.setAttribute('aria-label', L`${text}（押すと要約を開きます）`); }
+  b.dataset.id = head.id;
+  b.hidden = false;
+  doc.body.dataset.awayEntry = '1';
+}
+/**
+ * What the away reading found since the last tick (and the next reading started). Only what belongs to the scope of this
+ * moment is handed on (2026-11-17): a reading's items wait in the queue until the next tick, and the world, wallet or
+ * season may change in between — items of another scope are dropped here, not shown in the new one's feed. With no
+ * scope (no pinned world, no wallet or no season) nothing is handed on and the queue is emptied.
+ */
+function awayTake() {
+  const sc = awayScopeNow();
+  const out = awayQueue.splice(0).filter(x => sc !== null && x.scope === sc);
+  awayPump();
+  return out;
+}
+/** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
+const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
+/** The away notices in the page's language (they are kept as words; the language may change after they were told). */
+const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : x)); };
+onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
 let feedBell = null;
 /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */
 function tickFeed() {
   if (FS.mode !== 'play' || !FS.citizen || !FS.chronicle) return;
   const snap = feed.snapshot(FS, undefined, feedPrev);
-  let fresh = feed.diffFeed(feedPrev, snap);
+  let fresh = [...feed.diffFeed(feedPrev, snap), ...(!s1On() ? [] : awayTake())];
   feedPrev = snap;
   // (a battle in the viewer's province that is no march's of this browser: who fought there and on which tile is in
   // the clash's own report, which is read first — clashTold — and the line is told then, by what the report says)
@@ -2379,10 +2902,13 @@ function renderFeed() {
   const stripItem = strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip), faction: FS.citizen?.faction ?? null }) }] : [];
   // (a phone shows one notice: a standing threat's comes before the turn's own card, which hid it for as long as that
   // card stood — the threat was then told only by the guide's line; a wide screen shows both, the turn's card first)
+  // (2026-11-17, ⑦: the replay asked for outside a report says how its read goes, here — replayNotice)
   const items = held ? [] : [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
+    ...(FS.replayAsk ? [{ id: 'replay', markup: replayNotice(FS.replayAsk) }] : []),
     ...feed.stackOrder(stripItem, toasts, { alarmsFirst: phone() })];
   syncStack(el, items);
   publishNoGo();
+  renderAwayEntry();
 }
 /** How long a notice of how a fight ended waits for that fight's battle to be told (ms), and the timer that shows it. */
 const OUTCOME_BEAT_MS = 1500;
@@ -2590,13 +3116,70 @@ function showTip(hit, at) {
 
 // ------------------------------------------------------------------ battle scenes (people/battle.mjs)
 const battleSeen = new Map(); // "P,Q" → the last resolved bell a scene was considered for
+// (2026-11-17, ⑦: of one pinned world — with its generation: what was seen in another is forgotten, and that world's
+//  envelopes still held are not looked at, so the first sight of each province in this world is not news)
+let battleWorldNow;
+/**
+ * Make the battle state this pinned world's (2026-11-17, ⑦), at once and in one place: the first thing peopleSource does
+ * (before its second's cache is returned or built) and the first thing playBattle does after its wait (before a scene is
+ * compared). At a change of world: the sightings are forgotten, the scenes of other worlds end on the map and in the
+ * effects layer (endOtherWorldBattles: that world's plays only — a play of this world, also one just placed where an old
+ * one stood, stays), a camera place kept for a battle in another world is let go with its timer, and the cache is built
+ * again. The same world changes nothing. Returns the world.
+ */
+function syncBattleWorld() {
+  const world = momentWorld();
+  if (battleWorldNow === world) return world;
+  battleWorldNow = world;
+  battleSeen.clear();
+  endOtherWorldBattles(world);
+  if (battleKeepWorld !== undefined && battleKeepWorld !== world) { clearTimeout(battleBack); battleBack = null; camKeep.drop('battle'); battleKeepWorld = undefined; }
+  peopleCache.at = -1;
+  // (a replay asked for in another world: its notice goes with it — the request itself is called off by playBattle.
+  //  Corrected: only a notice of ANOTHER world. One asked in this world — the person pressed before this sync came
+  //  round — is this world's own: it stays, being read or not read, and its answer still finds it)
+  if (FS.replayAsk && FS.replayAsk.world !== world) { FS.replayAsk = null; renderFeed(); }
+  return world;
+}
 let battleBack = null;
+// (2026-11-17, ⑦: the camera's place kept for a battle — camKeep 'battle' — belongs to the pinned world it was kept in
+//  (battleKeepWorld), and to the map as the person had last touched it then (`map.touchedAt`: every pointerdown — also
+//  a touch that only stops a flight, which the map's move count does not see —, the wheel, the map's keys). The way
+//  back is not taken into another world, nor after a person touched the map since: the kept place is let go instead)
+let battleKeepWorld, battleTouched = null;
+/** Scenes of another pinned world are ended where they are drawn: the map's own (FS.battles) and the effects layer's. */
+function endOtherWorldBattles(world) {
+  const gone = (FS.battles ?? []).filter(b => b.world !== undefined && b.world !== world);
+  if (!gone.length) return;
+  FS.battles = (FS.battles ?? []).filter(b => !gone.includes(b));
+  for (const b of gone) { endBattle(b); fxEmit('battle:end', { play: b }); }
+  mapRef?.invalidate();
+}
 /** Load a clash and play its scene on the map; `focus` moves the camera to it first. */
-export async function playBattle(p, q, bell, { focus = false, auto = false } = {}) {
+export async function playBattle(p, q, bell, { focus = false, auto = false, still = null, asked = null } = {}) {
   const fx = FS.ui?.battleFx ?? 'normal';
   if (auto && fx === 'off') return false;
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return false;
-  const r = await heraldRef.clash(p, q, bell).catch(() => null);
+  // (2026-11-17, ⑦: a clash belongs to the herald and the pinned world — with its generation — it was asked of. One the
+  //  change overtakes is not staged: its inputs are another world's and this world's province would stand beside them,
+  //  and its flight would take the camera to a place of another map. `still`: the caller's own condition, asked again
+  //  after the wait (the spectator's follow: the same herald and world, the watch still on, no report opened, no move
+  //  of the camera the map counts). A request the change overtook answers null — called off, nothing to make up for —
+  //  and false stays "no scene" (no clash, nothing to stage): only false lets a caller fall back.
+  //  A scene the page stages by itself (`auto`, or the follow's `still`) whose answer comes after a later turn's scene
+  //  of the same province is already playing is called off too: the older answer does not replace the newer picture.
+  //  A scene asked for by name — the report's 見る — plays as before.)
+  const world = momentWorld(), source = heraldRef;
+  const r = await source.clash(p, q, bell).catch(() => null);
+  // (`asked`: an explicit request's own validity — app playAsked: still the last press, still the report it was pressed
+  //  in (or still none). Checked here, before anything is staged, flown to or put on the map, like `still`; unlike
+  //  `still` it does not make the request one the page stages by itself: a newer scene of the province does not call off
+  //  a clash the person asked for by name, an older one included)
+  if (momentWorld() !== world || heraldRef !== source || (still && !still()) || (asked && !asked())) return null;
+  // (the battle state is this world's before anything is compared: an older world's scene with a higher bell is ended
+  //  here, not taken for "a later turn of this province" — syncBattleWorld; and only this world's scenes are compared)
+  syncBattleWorld();
+  if ((auto || still) && (FS.battles ?? []).some(b => (b.world === undefined || b.world === world) && b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;
   if (!r?.ok || !r.inputs) return false;
   let before = null;
   try { before = r.report?.province_before_b64 ? decodeAccount('Province', fromBase64(r.report.province_before_b64)) : null; } catch { before = null; }
@@ -2620,15 +3203,23 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
   // the camera flies in, to the part of the map no sheet covers (map/fmap.mjs flyTo)
   if (focus && mapRef) {
     // (and comes back when the scene is over, unless the player has moved it: hud/camkeep.mjs)
-    camKeep.keep('battle');
+    // (a place kept in another world is not this world's to go back to: let go, with its timer)
+    if (battleKeepWorld !== world) { clearTimeout(battleBack); battleBack = null; camKeep.drop('battle'); }
+    battleKeepWorld = world;
+    if (camKeep.keep('battle')) battleTouched = mapRef.touchedAt ?? null;
     mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);
     const secs = PHASE.end / (BATTLE_SPEEDS[fx] || 1) + 0.9;
     clearTimeout(battleBack);
     // (the flights to the scene are the page's and the effects layer's own; a place the player goes to meanwhile is
     // reported by name: goToItem, the plate, a selection that flies)
-    battleBack = setTimeout(() => camKeep.back('battle', { ms: calm() ? 0 : 420, slack: Infinity }), secs * 1000);
+    battleBack = setTimeout(() => {
+      battleBack = null;
+      if (momentWorld() !== world || (mapRef?.touchedAt ?? null) !== battleTouched) { camKeep.drop('battle'); return; }
+      camKeep.back('battle', { ms: calm() ? 0 : 420, slack: Infinity });
+    }, secs * 1000);
   }
   const play = startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1);
+  play.world = world;
   FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), play];
   // staged by the effects layer (fx/battle.mjs): the dimmed map, the scene on its own canvas, the title
   fxEmit('battle', { play, focus, zoom: focus ? 2.1 : null, viewerFaction: FS.citizen?.faction ?? null, lossText: n => L`−${fmtNum(n)} 兵`, numText: n => fmtNum(n) });
@@ -2637,7 +3228,9 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
 }
 /** A clash that resolved in a province the page has loaded plays once, when it is new. */
 function autoBattles() {
+  const world = syncBattleWorld();
   for (const [key, env] of FS.provinces) {
+    if (env.world !== undefined && env.world !== world) continue;
     const b = env.province?.resolveSummary?.bell;
     if (!Number.isInteger(b) || b <= 0) continue;
     const prev = battleSeen.get(key);
@@ -2654,7 +3247,7 @@ const feedAnnounces = (p, q, bell) => !!FS.citizen && ((FS.holdings ?? []).some(
   || (FS.marches ?? []).some(m => m.dest && m.dest.p === p && m.dest.q === q && (m.entry?.arriveBell ?? m.transit?.arriveBell) === bell));
 
 // ------------------------------------------------------------------ the minimap and the lenses (hud/minimap.mjs)
-let miniQueued = false, miniPulse = null;
+let miniQueued = false, miniPulse = null, miniOverview = null;
 function renderMinimap() {
   if (miniQueued) return;
   miniQueued = true;
@@ -2664,10 +3257,18 @@ function renderMinimap() {
     if (!cv || !mapRef || !cv.getContext) return;
     const px = minimap.MINIMAP_PX, dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
     if (cv.width !== px * dpr) { cv.width = px * dpr; cv.height = px * dpr; }
-    const recs = new Map();
-    for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
+    // Herald adoption replaces overview envelopes. Camera movement and the
+    // home pip keep the same envelopes and can reuse their flattened map.
+    const entries = [...FS.overviews];
+    if (!miniOverview || entries.length !== miniOverview.entries.length ||
+        entries.some(([key, value], i) => key !== miniOverview.entries[i][0] || value !== miniOverview.entries[i][1])) {
+      const recs = new Map();
+      for (const [, ov] of entries) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
+      miniOverview = { entries, recs };
+    }
+    const recs = miniOverview.recs;
     const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
-    minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
+    minimap.paintMinimap(cv.getContext('2d'), { recs, revision: miniOverview, rings: ringsOpenNow(), seeded: worldNow().seeded ?? null, own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
       view: mapRef.shown ?? mapRef.view, size: mapRef.size(), quad: mapRef.viewQuad?.() ?? null, px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
     // the viewer's pip breathes: a few small repaints a second while it shows
     if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
@@ -2810,6 +3411,56 @@ const VILLAGE_TODO = Object.freeze({ build: 'build', muster: 'muster', full: nul
 /** Move the map to an attention item and open its tab. */
 /** The report's map buttons close it, so the map (and on phones the sheet's map) is in view. */
 function leaveReport() { if (FS.report) { FS.report = null; invalidate('panel'); } }
+/**
+ * A clash asked for by name (2026-11-17, ⑦: 戦いを再生 / 見る — the report, the notices, the tracker, the inspector, the turn
+ * list). The report it was pressed in stays open while the clash is read, and is left only once the scene is on the map
+ * (playBattle true). "No scene" (false, or a throw) keeps the report as it was and says so under its button, which reads
+ * again when pressed. A request the change of world or herald called off (null) is not a failure: nothing is said and
+ * nothing is restored. Only the last press answers: an earlier one that comes back later neither closes nor marks the
+ * report. A report the person opened or closed meanwhile is theirs: it is neither closed nor marked by this request.
+ * The scene itself is playBattle's, unchanged (an explicit request, not the follow's or the page's own).
+ */
+let playAskSeq = 0;
+async function playAsked(p, q, bell) {
+  const req = ++playAskSeq;
+  const rep = FS.report ?? null, world = reportWorld();
+  closeDialPop();
+  if (rep) { rep.playing = true; rep.playFailed = false; invalidate('panel'); }
+  // (2026-11-17, ⑦: a press made outside a report — a notice, the tracker, the inspector — has no report to say how the
+  //  read goes: it said nothing, also when the clash could not be read. `FS.replayAsk` is that press's own state — being
+  //  read, then gone when the scene plays, or "not read" with the same request to make again — shown as one notice on
+  //  the map's stack (renderFeed). It is not a record: nothing of the notices' list or its seen marks is touched. A
+  //  press inside a report keeps to the report's own line.)
+  //  (corrected: the notice carries the world it was asked in — `world`, the pin with its generation, the same string
+  //  as momentWorld — so the battle state's sync lets go of another world's notice only, never one asked in this world
+  //  before that sync came round)
+  FS.replayAsk = rep ? null : { p, q, bell, state: 'loading', req, world };
+  renderFeed();
+  // (2026-11-17 correction: the request's validity reaches playBattle before its effects — `asked`: the last press, and
+  //  the report open now is the one it was pressed in (none for none) in the same world. A later press, a report opened,
+  //  switched or closed meanwhile, or another world: no scene, no flight, nothing on the map (null). Not `still`: the
+  //  person's replay of an older clash is not called off by a newer scene there)
+  const asked = () => req === playAskSeq && (FS.report ?? null) === rep && reportWorld() === world;
+  let ok = false;
+  try { ok = await playBattle(p, q, bell, { focus: true, asked }); } catch (e) { console.error('frontier battle play:', e); ok = false; }
+  if (req !== playAskSeq) return;
+  if (rep) rep.playing = false;
+  // (outside a report: the scene plays → the notice goes; "no scene" (false, or a throw) with nothing changed since →
+  //  "not read", to ask again; called off (null: another world or herald, a report opened meanwhile) → the notice goes
+  //  without a word, as nothing failed. Only this press's own notice is touched: `req`)
+  if (!rep && FS.replayAsk?.req === req) { FS.replayAsk = ok === false && asked() ? { p, q, bell, state: 'failed', req, world } : null; renderFeed(); }
+  if (ok === true) { if (rep && FS.report === rep) leaveReport(); return; }
+  if (rep && ok === false && FS.report === rep && reportWorld() === world) rep.playFailed = true;
+  if (rep) invalidate('panel');
+}
+/** The notice of a replay asked for outside a report (FS.replayAsk): being read, or not read with the way to ask again. */
+function replayNotice(a) {
+  const again = html`<button type="button" class="btn small primary" data-act="battle-play" data-p="${a.p}" data-q="${a.q}" data-bell="${a.bell}">${icon('return')}${L`もう一度読み込む`}</button>`;
+  return html`<div class="toast replay-ask" role="status" data-state="${a.state}"><span class="toast-icon">${icon(a.state === 'failed' ? 'alert' : 'hourglass')}</span>
+    <span class="toast-text">${a.state === 'failed' ? L`戦いを読み込めませんでした（ターン ${fmtNum(a.bell)}）。戦いがなかったという意味ではありません。記録はそのままです。` : L`戦いを読み込んでいます…`}</span>
+    ${a.state === 'failed' ? html`<span class="toast-acts">${again}</span>` : ''}
+    <button type="button" class="toast-x" data-act="replay-dismiss" aria-label="${L`閉じる`}">${icon('close')}</button></div>`;
+}
 const FX_LEVEL_TEXT = { full: () => L`標準`, reduced: () => L`控えめ`, off: () => L`オフ` };
 const BATTLE_FX_TEXT = { normal: () => L`ふつう`, fast: () => L`早送り`, off: () => L`自動では見せない` };
 
@@ -2858,15 +3509,18 @@ function goToItem(x) {
 function cycleHost(dir) { nextHost(dir); }
 /** The next or previous holding (Civ's "next city"). */
 function cycleHolding(dir) {
+  clearInspection(FS); clearOutbound(FS);
   const hs = FS.holdings ?? [];
   if (!hs.length) return;
   const i = (((FS.activeHolding ?? 0) + dir) % hs.length + hs.length) % hs.length;
+  clearWideSelect(FS);
   FS.activeHolding = i;
   goToItem({ p: hs[i].p, q: hs[i].q, tile: hs[i].tile, tab: 'holding', holding: hs[i] });
 }
 
 /** Close the drawer ("Map", the drawer's ×, Escape): back to the world. */
 function shutDrawer({ focus = false } = {}) {
+  clearInspection(FS); clearOutbound(FS);
   // the details of what the hand holds were open: they close, the hand keeps its thing
   if (FS.mode === 'play' && FS.inspectOpen && drawerOf(FS)?.kind === 'inspect' && hand.subjectOf(FS)) { FS.inspectOpen = false; invalidate('map', 'panel', 'tabs', 'rail'); if (focus) handEl?.querySelector('.hand-btn')?.focus?.({ preventScroll: true }); return; }
   endPick();
@@ -2879,7 +3533,54 @@ function shutDrawer({ focus = false } = {}) {
   if (focus) $('frontier-map')?.focus({ preventScroll: true });
 }
 
+const LOCAL_RETURN_ACTS = Object.freeze(['local-return-prepare', 'local-return-send', 'local-return-reconcile']);
+const LOCAL_CONQUEST_ACTS = Object.freeze(['local-conquest-prepare', 'local-conquest-send', 'local-conquest-reconcile', 'local-conquest-orders']);
+const LOCAL_REVEAL_ACTS = Object.freeze(['local-reveal-check', 'local-reveal-send', 'local-reveal-reconcile', 'local-reveal-clear']);
 export const HUD_ACTIONS = {
+  // A read only. No handOrder, ACTIONS, SENT classification or accepted-order effects.
+  'expedition-inspect': () => inspectOriginalExpedition(),
+  'expedition-prepare': () => prepareOriginalExpedition(),
+  // Local play only (flocalplay-return.mjs; the departure's gate, asked at every step): the return's two player-signed
+  // steps from the return card. Prepare first (nothing is signed), then the player's own send; an outcome not known is asked about.
+  'local-return-prepare': () => prepareLocalPlayReturn(),
+  'local-return-send': () => sendLocalPlayReturn(),
+  'local-return-reconcile': () => reconcileLocalPlayReturn(),
+  // Local play only, closed by default (flocalplay-conquest.mjs): the siege of the Free City in the province the host
+  // stays in. Prepare first (nothing is signed), then the player's own send; an outcome not known is asked about.
+  'local-conquest-prepare': () => prepareLocalPlayConquest(),
+  'local-conquest-send': () => sendLocalPlayConquest(),
+  'local-conquest-reconcile': () => reconcileLocalPlayConquest(),
+  'local-conquest-orders': () => readLocalPlayConquestOrders(),
+  'outbound-step': d => editOriginalOutbound('step', d.direction),
+  'outbound-undo': () => editOriginalOutbound('undo'),
+  'outbound-reset': () => editOriginalOutbound('reset'),
+  'outbound-route-read': () => inspectOriginalOutboundRoute(),
+  'outbound-context-read': () => inspectOriginalOutboundContext(),
+  // The earliest observed arrival turn into the draft's own field, then the same read again. A local edit and a read.
+  'outbound-arrival-earliest': () => useEarliestOriginalOutboundArrival(),
+  // Local play only (flocalplay-depart.mjs; the controller asks its gate at every step): the boundary draft's departure
+  // from the page's memory-only wallet, and the status look-up of a departure whose outcome is not settled.
+  'outbound-local-depart': () => sendLocalPlayDeparture(),
+  'outbound-local-reconcile': () => reconcileLocalPlayDeparture(),
+  // Local play only (flocalplay-reveal.mjs; the same gate, asked at every step): the explicit opening of a seal this
+  // page holds. A read first, then the player's own press; an outcome not known is asked about, never sent again.
+  'local-reveal-check': () => checkLocalPlayReveal(),
+  'local-reveal-send': () => sendLocalPlayReveal(),
+  'local-reveal-reconcile': () => reconcileLocalPlayReveal(),
+  'local-reveal-clear': () => { clearLocalPlayReveal(); },
+  // Resolve the current inventory at click time. DOM coordinates/world are never navigation pins.
+  'wide-map': () => {
+    const e = FS.mode === 'play' ? selectedWide(FS) : null;
+    const holding = e?.status === 'captured-unverified' ? e.holding : null;
+    return wideModeRef?.focusHolding(holding, { isCurrent: () => {
+      const current = selectedWide(FS);
+      return FS.mode === 'play' && !!holding && current?.status === 'captured-unverified'
+        && current.inventorySlot === e.inventorySlot && current.holding?.key === holding.key
+        && current.holding?.ownerCitizen === holding.ownerCitizen;
+    } });
+  },
+  // nations' cooperation (hud/coopentry.mjs): the entry workstream 01 registers, pressed in the S1 village card
+  'coop-open': d => { if (coopEntryOpen(FS, d.id)) invalidate('panel'); },
   // ---- a conquest season (hud/keephand.mjs, hud/provstrip.mjs): a signature to the clipboard, the season-end card put away
   'kh-copy': async (d, el) => {
     let ok = false;
@@ -2894,7 +3595,9 @@ export const HUD_ACTIONS = {
   // the conquest guide's press (screens/conquestguide.mjs): the village with the step's card open, or a host with its list of keeps
   'cg-go': d => {
     if (FS.mode !== 'play' || !keephand.conquestOn(FS)) return;
-    leaveReport(); FS.compose = null; FS.guideOpen = false; FS.tab = 'map';
+    // (2026-11-16: a draft is put away as 「やめる」 puts it away — controller.mjs compose-close: an armed waiting send is
+    //  cancelled first and says so. The pill's press dropped it, and the waiting send was withdrawn as if the order had changed)
+    leaveReport(); if (FS.compose) ACTIONS['compose-close'](); FS.guideOpen = false; FS.tab = 'map';
     if (d.pop === 'keeps') {
       const r = hand.ownHosts(FS).find(x => x.id === String(d.host)) ?? hand.ownHosts(FS).find(x => x.unit !== 6 && x.unit !== 7 && hand.marchCheck(FS, x).ok) ?? null;
       if (!r) { HUD_ACTIONS.tab({ tab: 'hosts' }); return; }
@@ -2933,17 +3636,27 @@ export const HUD_ACTIONS = {
     if (sub?.kind !== 'host') return;
     if (sub.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = sub.holdingIndex;
     endPick();
-    await ACTIONS['march-home']({ host: d.host ?? sub.host.id });
-    if (!FS.compose) return;
+    const host = String(d.host ?? sub.host.id), before = FS.compose, world = momentWorld();
+    const going = ACTIONS['march-home']({ host });
+    // (2026-11-17, ⑦, corrected: the draft and its place are taken HERE, before the wait — march-home opens the draft and
+    //  gives it the village at once, so what stands now is this request's own: a new draft, marked home, of this host.
+    //  A host that is not there any more opens none, and another host's draft standing from before is left as it is.
+    //  After the wait the page moves and speaks only if that very draft, with that very place, in that world, still
+    //  stands: the same host sent home again, the same place chosen again, a draft put away or another world, and this
+    //  request says and changes nothing)
+    const c = FS.compose, aim = c?.dest ?? null;
+    const own = !!c && c !== before && !!c.home && String(c.host?.id) === host;
+    await going;
+    if (!own || !draftAims(c, aim, world)) return;
     FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false; FS.explore = null;
     invalidate('map', 'panel', 'tabs', 'rail');
-    if (FS.compose.routeError) { const h = hud.activeHolding(FS); mapNote({ p: h.p, q: h.q, idx: h.tile }, refusalText(FS.compose.routeError)); }
+    if (c.routeError) { const h = hud.activeHolding(FS); mapNote({ p: h.p, q: h.q, idx: h.tile }, refusalText(c.routeError)); }
   },
   'hand-unit': d => { FS.hand = { ...(FS.hand ?? {}), unit: num(d.unit), n: undefined, troops: undefined }; invalidate('panel'); },
   'hand-n': d => { FS.hand = { ...(FS.hand ?? {}), n: num(d.n) }; invalidate('panel'); },
   'hand-troops': d => { FS.hand = { ...(FS.hand ?? {}), troops: num(d.n) }; invalidate('panel'); },
-  'hand-info': () => { endPick(); FS.inspectOpen = true; FS.hand = { ...(FS.hand ?? {}), pop: null }; FS.tab = 'map'; invalidate('map', 'panel', 'tabs', 'rail'); },
-  'hand-close': () => { endPick(); FS.selected = null; FS.hand = null; FS.inspectOpen = false; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel', 'tabs', 'rail'); $('frontier-map')?.focus?.({ preventScroll: true }); },
+  'hand-info': () => { clearInspection(FS); clearOutbound(FS); endPick(); FS.inspectOpen = true; FS.hand = { ...(FS.hand ?? {}), pop: null }; FS.tab = 'map'; invalidate('map', 'panel', 'tabs', 'rail'); },
+  'hand-close': () => { clearInspection(FS); clearOutbound(FS); endPick(); FS.selected = null; FS.hand = null; FS.inspectOpen = false; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel', 'tabs', 'rail'); $('frontier-map')?.focus?.({ preventScroll: true }); },
   'hand-turn': () => { FS.dialOpen = true; closeTermPop(); renderDialPop(); $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'hand-far': d => farChoice(d.how),
   // the orders of the bar and its cards: the controller's own, and the card closes once the order is accepted
@@ -2987,9 +3700,10 @@ export const HUD_ACTIONS = {
   'drawer-close': () => shutDrawer({ focus: !phone() }),
   // an order is written on the map, whatever screen it was started from: the drawer shows the order, the map its reach
   compose: d => {
-    ACTIONS.compose(d);
-    const c = FS.compose;
-    if (!c) return;
+    // (2026-11-17, ⑦: the draft the entry returned, or nothing — a host that is not there any more opens none, and the
+    //  selection and the camera are not moved to another host's draft that stood from before)
+    const c = ACTIONS.compose(d);
+    if (!c || FS.compose !== c) return;
     FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false;
     if (d.stay === 'map' && !(FS.selected && FS.selected.p === c.origin.p && FS.selected.q === c.origin.q && FS.selected.idx === c.host.tile)) {
       // started from a list: the host's tile comes into view (a selection made on the map is already there)
@@ -3008,6 +3722,7 @@ export const HUD_ACTIONS = {
   // the village plate: one press home (pressed again while there: the next village)
   home: () => {
     camKeep.touch();
+    clearWideSelect(FS);
     mapRef?.home();
     const hs = FS.holdings ?? [], v = mapRef?.view;
     if (v && hs.length > 1) {
@@ -3019,6 +3734,7 @@ export const HUD_ACTIONS = {
   'holding-go': d => {
     const i = num(d.i), h = FS.holdings?.[i];
     if (!h) return;
+    clearWideSelect(FS);
     FS.activeHolding = i;
     const c = (x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile));
     camKeep.touch();
@@ -3031,9 +3747,12 @@ export const HUD_ACTIONS = {
     const x = searchHits[num(d.i)];
     if (!x) return;
     setSearch(false, { focus: false });
+    // (the field the keyboard was in is put away: the keyboard goes to the map, where the place found now is — it was
+    // left on nothing. A card or an order opened below may still take it.)
+    $('frontier-map')?.focus?.({ preventScroll: true });
     // a host that can march has the hand: what was searched for is where it may go (the camera goes there, the host stays in hand)
     const sub = FS.mode === 'play' && !FS.compose ? hand.subjectOf(FS) : null;
-    if (sub?.kind === 'host' && hand.marchCheck(FS, sub.host).ok) {
+    if (sub?.kind === 'host' && FS.hand?.pop !== OUTBOUND_POP && FS.hand?.pop !== EXPEDITION_POP && hand.marchCheck(FS, sub.host).ok) {
       const A = actionsNow(), h = Number.isInteger(x.tile) ? tileHex(x.p, x.q, x.tile) : null;
       if (A && h) { orderMarch(A, { p: x.p, q: x.q, idx: x.tile, tileQ: h.q, tileR: h.r }).catch(() => {}); return; }
       goFar();
@@ -3083,12 +3802,46 @@ export const HUD_ACTIONS = {
   'turn-go': d => { const x = turnStrip?.items.find(y => y.id === d.id); if (x) goToItem({ p: x.p, q: x.q, tile: Number.isInteger(x.tile) ? x.tile : undefined, tab: 'map' }); },
   'turn-dismiss': () => { if (turnStrip) turnStrip.dismissed = true; renderFeed(); },
   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
+  // the away summary's "seen": the player's own mark moves to the last record it told (closing it with × does not)
+  // the away summary's way in on a phone (renderAwayEntry): the list under その他, at the summary, its "seen" in focus
+  'away-open': () => {
+    if (FS.mode !== 'play') return;
+    FS.feedFilter = 'all';
+    if (drawerOf(FS)?.kind !== 'more') HUD_ACTIONS.tab({ tab: 'more' });
+    else invalidate('panel');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const row = globalThis.document?.querySelector('.panel .feed-away, .panel li.feed-away');
+      row?.scrollIntoView?.({ block: 'center' });
+      (row?.querySelector('[data-act="away-seen"]') ?? row)?.focus?.({ preventScroll: true });
+    }));
+  },
+  'away-seen': d => {
+    const x = (FS.feed ?? []).find(y => y.id === d.id);
+    // (only a summary of this scope whose reading has no gap moves the mark: returnsum.confirm; twice is harmless)
+    // (and only under the world it was read in: the scope names it, and the save uses the world kept with the summary)
+    if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow() || !x.away.world || x.away.world !== awayWorld()) return;
+    const { season, wallet } = awayWho();
+    const saved = returnSum.confirm(awayStore(), { seasonId: season, wallet, confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0, world: x.away.world });
+    if (!saved) {
+      // (storage refused: the notice stays, says so, and the next look starts from the same place)
+      FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, null), away: { ...y.away, saved: null } } : y));
+      renderFeed();
+      return;
+    }
+    awayConfirmed.add(x.id);
+    // (the mark moved. When only the device's "last used" could not be saved, the summary's head stays — no second "seen":
+    // the mark is saved — and says so in confirmedText's words; the items go as usual. 2026-11-17)
+    const keepHead = saved.lastSaved === false;
+    FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.scope === x.scope && (y.kind === 'away' || String(y.id).startsWith('aw:')) && !(keepHead && y.id === x.id)).map(y => y.id)]);
+    if (keepHead) FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, saved), away: { ...y.away, ok: false, saved } } : y));
+    renderFeed();
+  },
   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },
   // the status at the map: put a refusal away, or send the refused action once more
   'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },
   'notice-retry': () => { const r = retryLast(); renderFeed(); return r; },
   autopan: () => { const sc = scope(); const v = !FS.ui?.autoPan; FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { autoPan: v }) : { ...(FS.ui ?? {}), autoPan: v }; invalidate('panel'); },
-  'battle-play': d => { leaveReport(); closeDialPop(); playBattle(num(d.p), num(d.q), num(d.bell), { focus: true }); },
+  'battle-play': d => { playAsked(num(d.p), num(d.q), num(d.bell)); },
   'res-open': d => { FS.resOpen = FS.resOpen === d.r ? null : d.r; renderHudTick(FS.chain?.now?.() ?? 0); },
   'res-close': () => closeResPop(),
   // pins (hud/pins.mjs): this device, this season
@@ -3113,12 +3866,143 @@ export const HUD_ACTIONS = {
   'guide-level': d => { if (!guide.GUIDE_LEVELS.includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { guide: d.v }) : { ...(FS.ui ?? {}), guide: d.v }; guideCache.at = 0; invalidate('panel', 'map', 'rail'); renderHudTick(FS.chain?.now?.() ?? 0); },
   'mile-close': () => closeMilestone(),
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
+  // (2026-11-17, ⑦ the wide map: the inspector's "read again" — the province's record now, and the ring overviews still
+  //  wanted; reads only. The selection and the camera stay where the person put them)
+  // (2026-11-17, ⑦ the march card: the forecast that could not be made is asked again, from the same draft — only one
+  //  that was not read; 見えていない土地 and the rules' own refusals are answers and are not asked around)
+  // (2026-11-17, ⑦: the replay's notice put away by the person. While the clash is still being read that is a "no": the
+  //  press is not the last one any more, so its scene is not staged and the camera does not go there — playAsked `asked`)
+  // (2026-11-17, ⑦ the march tracker: one march's records read again — a pure read, controller.rereadMarchFacts: no
+  //  reveal, no settle, no book)
+  'march-reread': d => { if (FS.mode === 'play' && d.host) rereadMarchFacts(d.host).catch(() => {}); },
+  // (2026-11-17, ⑦ from the map to the trade card: the place chosen on the map is handed to the caravan or fort form —
+  //  controller.planS1Place, which reads and sends nothing — and the village screen opens on that card; the form's
+  //  amounts are the person's own)
+  's1-plan': d => {
+    const id = planS1Place(d);
+    if (!id) return;
+    // (corrected 2026-11-17: the village screen may be showing a wide village's cards — the trade card is the legacy
+    //  village's: back to it, the way 'wide-close' goes — and the form may already stand on the screen with a choice of
+    //  the person's in it, which a redraw keeps over the markup's first choice: landS1Plan puts the place in once)
+    clearWideSelect(FS);
+    leaveReport(); FS.tab = 'holding'; invalidate('panel', 'tabs', 'rail');
+    requestAnimationFrame(() => landS1Plan(id));
+  },
+  's1-plan-clear': () => clearS1Plan(),
+  // (2026-11-17, ⑦ the keep and the march toward it. Both only open something that exists, after keepStill.)
+  // from the keep's card to the tracker's row of the viewer's own march bound for it: the march must still be in the
+  // list read for this world, for that host, with that keep's province as its destination; the row comes into view one
+  // frame later, only while this is still the last such press and the marches screen is still open
+  'keep-track': d => {
+    const k = keepStill(d), req = ++keepAsk, host = String(d.host ?? '');
+    if (!k || !/^\d+$/.test(host) || !keepMarch(d, k, host)) { invalidate('panel'); return; }
+    leaveReport(); FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab({ tab: 'marches' });
+    invalidate('rail');
+    requestAnimationFrame(() => {
+      const again = keepStill(d);
+      if (req !== keepAsk || !again || FS.tab !== 'marches' || !keepMarch(d, again, host)) return;
+      globalThis.document?.querySelector?.(`[data-march-host="${host}"]`)?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+    });
+  },
+  // from a march's row back to the keep it is bound for: the keep's tile on the map (its card stands there)
+  'march-keep': d => { const k = keepStill(d), host = String(d.host ?? ''); ++keepAsk; if (!k || !keepMarch(d, k, host)) { invalidate('panel'); return; } leaveReport(); closeResPop(); goToItem({ p: k.p, q: k.q, tile: k.tile, tab: 'map' }); },
+  // (2026-11-17, ⑦ the hosts screen, from a village to its hosts, their plans and marches, and back. Each of these only
+  //  OPENS something that exists, after hostStill; none sends, settles or collects.)
+  // another of the viewer's villages: found by place, site and generation at the press, taken in hand the way
+  // 'holding-pick' does; the hosts screen stays open and shows that village's hosts
+  'hosts-village': d => {
+    ++hostAsk;
+    if (FS.mode !== 'play' || !Number.isInteger(FS.contextSeq) || String(FS.contextSeq) !== String(d.ctx ?? '')) { invalidate('panel'); return; }
+    const p = num(d.p), q = num(d.q), site = num(d.site), gen = num(d.gen);
+    const i = (FS.holdings ?? []).findIndex(o => o.p === p && o.q === q && o.site === site && (o.gen ?? 0) === gen);
+    if (i < 0) { invalidate('panel'); return; }
+    clearWideSelect(FS);
+    FS.activeHolding = i; FS.explore = null;
+    invalidate('panel', 'tabs', 'rail', 'map');
+  },
+  // a host on the march: the marches screen opens, and its own row of the tracker comes into view — one frame later, and
+  // only while this is still the last such press, the press still belongs and the marches screen is still open
+  'host-track': d => {
+    const at = hostStill(d), req = ++hostAsk;
+    if (!at) { invalidate('panel'); return; }
+    leaveReport(); FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab({ tab: 'marches' });
+    invalidate('rail');
+    requestAnimationFrame(() => {
+      if (req !== hostAsk || !hostStill(d) || FS.tab !== 'marches' || !/^\d+$/.test(String(d.host ?? ''))) return;
+      globalThis.document?.querySelector?.(`[data-march-host="${d.host}"]`)?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+    });
+  },
+  // a host standing away from its village: the EXISTING plan of a march home (controller 'march-home' opens the draft
+  // from the host's own village and gives it the village as its place); the marches screen, where the plan stands, opens
+  'host-return': d => {
+    const at = hostStill(d); ++hostAsk;
+    if (!at || at.row.inTransit || at.row.state !== 1 || (at.row.p === at.h.p && at.row.q === at.h.q && at.row.tile === at.h.tile)) { invalidate('panel'); return; }
+    // (a plan being sent, or armed to be sent once, is the send's own: it is not replaced from here)
+    if (FS.compose && (FS.compose.sending || FS.compose.pending)) { invalidate('panel'); return; }
+    const host = String(d.host);
+    ACTIONS['march-home']({ host });
+    if (!FS.compose || String(FS.compose.host?.id) !== host || FS.compose.home !== true) { invalidate('panel'); return; }
+    leaveReport(); FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab({ tab: 'marches' });
+    invalidate('rail', 'map');
+  },
+  // where a host stands: it is selected on the map, as the hand's own choice of a host does
+  'host-show': d => { const at = hostStill(d); ++hostAsk; if (!at) { invalidate('panel'); return; } const row = hand.ownHosts(FS).find(r => r.id === String(d.host)); if (row) selectHost(row, { fly: true }); },
+  // (2026-11-17, ⑦ the warning's way on: the village a warning names is taken in hand BY WHAT IT IS — place, site and
+  //  generation, looked up at the press; never by an index kept in the markup — and the village screen opens, the way
+  //  'holding-pick' goes; `to: garrison` brings its garrison form into view. Nothing is sent.
+  //  Corrected: every press of the card first asks incomingStill — a button drawn for another pinned world, another
+  //  viewer, an earlier context or a warning that no longer stands does NOTHING, also when a village of the same place
+  //  and generation exists where the page is now. The later step (the jump to the garrison form) runs only while it is
+  //  still the last such request and the same village and screen are still the ones in hand.)
+  'incoming-village': d => {
+    const at = incomingStill(d), req = ++incomingAsk;
+    if (!at) { invalidate('panel'); return; }
+    clearWideSelect(FS);
+    FS.activeHolding = at.i;
+    goToItem({ p: at.h.p, q: at.h.q, tab: 'holding' });
+    if (d.to !== 'garrison') return;
+    requestAnimationFrame(() => {
+      if (req !== incomingAsk || !incomingStill(d) || FS.tab !== 'holding' || FS.activeHolding !== at.i || FS.holdings?.[at.i] !== at.h) return;
+      HUD_ACTIONS['hp-jump']({ id: 'hp-garrison' });
+    });
+  },
+  // (the same press rule for the card's two other ways on: the map — goToItem, as `goto` does — and the EXISTING plan of
+  //  a march home — controller 'march-home', for a host the card lists as standing away from that very village)
+  'incoming-goto': d => { const at = incomingStill(d); ++incomingAsk; if (!at) { invalidate('panel'); return; } leaveReport(); closeResPop(); goToItem({ p: at.h.p, q: at.h.q, tab: 'map' }); },
+  'incoming-return': d => {
+    const at = incomingStill(d); ++incomingAsk;
+    if (!at || !incomingScreen.defendersOf(FS, at.w)?.away.some(r => r.id === String(d.host ?? ''))) { invalidate('panel'); return; }
+    ACTIONS['march-home']({ host: String(d.host) });
+  },
+  // (2026-11-17, ⑦ exploration: another of the viewer's villages has an exploration waiting — that village is taken in
+  //  hand the way 'holding-pick' does, the hosts screen with its explore card opens, and its result is asked for once:
+  //  controller 'explore-check', a read; nothing is settled or sent)
+  'explore-village': d => {
+    const i = num(d.i), h = FS.holdings?.[i];
+    if (!h || FS.mode !== 'play') return;
+    clearWideSelect(FS);
+    FS.activeHolding = i; FS.explore = null; leaveReport(); FS.tab = 'hosts';
+    invalidate('panel', 'tabs', 'rail', 'map');
+    ACTIONS['explore-check']?.();
+  },
+  'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },
+  'forecast-retry': () => { const c = FS.compose; if (!c || c.sending || !c.forecast?.unread) return; updateForecast({ again: true }); invalidate('panel'); },
+  'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
   // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
   reload: () => globalThis.location?.reload?.(),
-  term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
-  'term-close': () => closeTermPop(),
+  term: d => {
+    // (the key the keyboard is on when the popover opens: where it goes back to — closeTermPop)
+    const a = globalThis.document?.activeElement, opener = a?.matches?.('[data-act="term"]') && a.dataset.term === d.term ? a : null;
+    FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop();
+    termFrom = FS.term && opener ? { term: d.term, nth: Math.max(0, [...globalThis.document.querySelectorAll(`[data-act="term"][data-term="${String(d.term).replace(/[^\w-]/g, '')}"]`)].indexOf(opener)) } : null;
+    $('term-pop')?.querySelector('button')?.focus?.();
+  },
+  'term-close': () => closeTermPop({ focus: true }),
   // the legend of the map (map/legend.mjs), from the "?" beside the lenses: the More sheet opens on it
   'legend-open': () => { closeTermPop(); setLensMenu(false); leaveReport(); if (FS.mode === 'play') { FS.tab = 'more'; FS.practice = null; } invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('survey-help'); for (let d = g?.closest?.('details'); d; d = d.parentElement?.closest?.('details')) d.open = true; g?.scrollIntoView?.({ block: 'start' }); g?.querySelector?.('h3')?.focus?.({ preventScroll: true }); }); },
   'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('glossary'); const d = g?.closest?.('details'); if (d) d.open = true; (d ?? g)?.scrollIntoView?.({ block: 'start' }); }); },
@@ -3143,6 +4027,7 @@ export const HUD_ACTIONS = {
   'holding-pick': d => {
     const i = num(d.i), h = FS.holdings?.[i];
     if (!h) return;
+    clearWideSelect(FS);
     FS.activeHolding = i;
     goToItem({ p: h.p, q: h.q, tab: 'holding' });
   },
@@ -3185,14 +4070,24 @@ async function seasonKernel() {
 }
 
 /** Open the report of (P, Q, bell): the herald's /h/clash file, the ClashInputs decoded by this page. */
+/**
+ * The pinned world a report is read for: cluster, program and season account as fchainio.setPin pinned them
+ * (`addresses.season`, derived and checked against the herald's record); null before a pin (nothing is made up).
+ */
+// (with the pin's generation: a report read under the first A is not shown under the A pinned again after B)
+const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
 export async function openReport(p, q, bell) {
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return;
-  const rep = { p, q, bell, loading: true };
+  // (2026-11-17: the herald may start serving another season or world while a report is read — loadSeason re-pins every
+  // poll. A report read under one world is never shown, or added to, under another: it is dropped, not told as read)
+  const world = reportWorld();
+  const rep = { p, q, bell, loading: true, world };
   FS.report = rep; FS.practice = null;
   invalidate('panel');
   const r = await heraldRef.clash(p, q, bell);
   if (FS.report !== rep) return;
-  FS.report = r.ok ? { p, q, bell, clash: r } : { p, q, bell, error: r.code ?? 'Error' };
+  if (reportWorld() !== world) { FS.report = null; invalidate('panel'); return; }
+  FS.report = r.ok ? { p, q, bell, world, clash: r } : { p, q, bell, world, error: r.code ?? 'Error' };
   if (r.ok) {
     // the province before the bell (the report's own copy) and, when that bell's clash is the last one resolved there,
     // the province now: the viewer's own side is on the page before anything is verified (screens/report.mjs recordRows)
@@ -3208,7 +4103,7 @@ export async function openReport(p, q, bell) {
   const open = FS.report;
   if (r.ok && conquestEnabled(FS.season) && heraldRef.keep) {
     const k = await heraldRef.keep(p, q).catch(() => null);
-    if (k?.ok && FS.report === open) { open.keep = k.keep; invalidate('panel'); }
+    if (k?.ok && FS.report === open && reportWorld() === world) { open.keep = k.keep; invalidate('panel'); }
   }
 }
 
@@ -3371,7 +4266,7 @@ function delegate(doc) {
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
     if (e.key === 'Escape' && FS.dialOpen) { e.preventDefault(); closeDialPop({ focus: true }); return; }
-    if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
+    if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop({ focus: true }); return; }
     if (e.key === 'Escape' && $('map-search') && !$('map-search').hidden && e.target?.closest?.('.search-row')) { e.preventDefault(); setSearch(false); return; }
     // Escape on the map lets the selection go (the lit tiles with it); a march being composed is closed from its card
     if (e.key === 'Escape' && e.target?.id === 'frontier-map' && FS.selected && !FS.compose) {
@@ -3404,6 +4299,10 @@ function delegate(doc) {
     if (el.tagName !== 'INPUT') e.preventDefault();
     // a control that cannot be pressed now stays reachable and says why (`aria-disabled`): it does nothing else
     if (el.getAttribute('aria-disabled') === 'true') { refuseInPlace(el); return; }
+    // (the return card's local-play controls act on the card's own observation: pressing them keeps it)
+    if (FS.hand?.pop === EXPEDITION_POP && !LOCAL_CONQUEST_ACTS.includes(el.dataset.act) && !LOCAL_RETURN_ACTS.includes(el.dataset.act) && !['expedition-inspect', 'expedition-prepare'].includes(el.dataset.act)) clearInspection(FS);
+    // (the seal's strip stands on the boundary card too: pressing it keeps the draft, like the card's own controls)
+    if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act)) clearOutbound(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
     run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
@@ -3418,6 +4317,16 @@ function delegate(doc) {
     run(fn(f), sends ? { form: f.dataset.form } : null);
   });
   doc.addEventListener('input', e => {
+    const inspection = e.target.closest?.('[data-bind^="expedition-"]');
+    if (inspection && play) { bind(inspection.dataset.bind, inspection.value); return; }
+    const outbound = e.target.closest?.('[data-bind^="outbound-"]');
+    if (outbound && play) { bind(outbound.dataset.bind, outbound.value); return; }
+    const muster = e.target.closest?.('form[data-form="muster"]');
+    if (muster) {
+      const u = muster.querySelector('input[name="unit"]:checked');
+      if (holdingScreen.keepMusterDraft(FS, hud.activeHolding(FS), { unit: u ? Number(u.value) : null, troops: muster.elements.troops?.value })) invalidate('panel');
+      return;
+    }
     const form = e.target.closest?.('form[data-form="train"]');
     if (!form) return;
     FS.trainingDraft = { unit: Number(form.elements.unit.value), n: Number(form.elements.n.value) };
@@ -3433,8 +4342,16 @@ function delegate(doc) {
 
 /** The spectator's poll: the events and the bell sheet at load, then every 30 s (§4.2), paused while hidden. */
 /** A clash newer than the last one seen: the spectator's camera goes there and plays it (unless turned off). */
-let watchSeen = null;
+// (2026-11-17, ⑦: of one pinned world — with its generation, A → B → A are three. The clash compared is from a chronicle
+//  read for this world (FS.chronicleWorld, controller refreshChronicle): until this world's chronicle is read nothing is
+//  compared, and the first clash seen in a world is its baseline — another world's last clash never makes this one's
+//  first "new". A follow whose clash answers after the world changed, the watch was turned off or a report was opened
+//  neither plays nor flies, also not to the fallback place.)
+let watchSeen = null, watchWorld;
 function followBattles() {
+  const world = momentWorld();
+  if (FS.chronicleWorld !== world) return;
+  if (watchWorld !== world) { watchWorld = world; watchSeen = null; }
   const c = reportScreen.clashesFrom(FS.chronicle ?? [], 1)[0];
   if (!c) return;
   const key = `${c.p},${c.q},${c.bell}`;
@@ -3443,7 +4360,15 @@ function followBattles() {
   watchSeen = key;
   const f = FS.watch?.faction;
   if (FS.watch?.auto === false || FS.report || (Number.isInteger(f) && !provinceFactions(FS.overviews, c.p, c.q).includes(f))) return;
-  playBattle(c.p, c.q, c.bell, { focus: true }).then(ok => { if (!ok) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
+  // (the request's own origin is kept from the ask to the fallback: the same herald object as well as the same world —
+  //  the herald can be replaced within one world — and no camera move the map counts since (map/fmap.mjs `moves`: a
+  //  drag, the wheel, a pinch, the map's keys and buttons, a "go there"; the count map.restore's ifStill reads). A
+  //  called-off request (null) never falls back; only "no scene" (false) does, while all of it still holds)
+  //  (and `map.touchedAt`: a touch of the map since the ask — also one that only stops a flight, which the move count
+  //  does not see — calls the follow off as well)
+  const source = heraldRef, moves = mapRef?.moves ?? 0, touched = mapRef?.touchedAt ?? null;
+  const still = () => momentWorld() === world && heraldRef === source && FS.watch?.auto !== false && !FS.report && (mapRef?.moves ?? 0) === moves && (mapRef?.touchedAt ?? null) === touched;
+  playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (ok === false && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
 }
 
 function startSpectate(herald) {
@@ -3466,31 +4391,73 @@ function startSpectate(herald) {
   tick();
 }
 
+/**
+ * The page banner's error from the season poll (2026-11-17, ⑦): a failed read of the season record, a refused pin, a
+ * beacon that does not match. It is marked as the season's (`source: 'season'`), so a later read that succeeds clears
+ * it — and only it: an error of another operation (local play's changed connection, controller.mjs) is neither
+ * replaced by a season failure nor cleared by a season success. A failure or success asked before one already applied
+ * reaches neither (loadSeason returns at seasonStale first).
+ */
+function seasonError(e) { if (!FS.error || FS.error.source === 'season') FS.error = { ...e, source: 'season' }; }
+function seasonRecovered() { if (FS.error?.source === 'season') FS.error = null; }
+
 async function loadSeason(herald) {
+  // (2026-11-17, ⑦: refreshOverviews asks the same record on its own, and the answers can cross — controller.askSeason.
+  //  An answer, or a failure, asked before one already applied changes nothing: the pin, the record, the season, the
+  //  clock and the beacon stay as the later answer set them, and the poll counts no error. Otherwise as before.
+  //  The read below is this function's only wait: from the stale check to the end nothing waits, so no other answer
+  //  can come between the check and the writes. The answer is recorded as applied (takeSeason) only at the end, once
+  //  the pin was accepted and everything was set: a refused pin (PinMismatch, RulesetMismatch), a failure, or a throw
+  //  while setting records nothing, and an answer asked earlier may still be applied after it.)
+  const seq = askSeason();
   const r = await herald.season();
-  if (!r.ok) { FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
+  if (seasonStale(seq)) return true;
+  if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) }); invalidate('status'); return false; }
   const { record, season } = r;
+  const reportWas = reportWorld();
   try {
     FS.pin = setPin({ programId: record.programId, cluster: record.cluster, seasonId: record.season, seasonAddress: record.seasonAddress ?? null, rulesetHash: toHex(season.rulesetHash) });
   } catch (e) {
-    FS.error = { code: e.code, text: e.message };
+    clearInspection(FS); clearOutbound(FS);
+    seasonError({ code: e.code, text: e.message });
     invalidate('status');
     return false;
   }
   herald.pin(record.season, FS.pin.addresses);
+  // (2026-11-17, ⑦: the overviews, ring lists, conquest and S1 state read for another pinned world are forgotten before
+  //  this world's record is applied — controller.adoptPinnedWorld; the same world forgets nothing)
+  adoptPinnedWorld();
+  // (2026-11-17, ⑦: the read succeeded and the pin was accepted: the season poll's own error, if one stands, is over —
+  //  the beacon below may set its own again. Another operation's error stays)
+  seasonRecovered();
+  // (a report read under another pinned world is closed: it is not this world's — 2026-11-17)
+  if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
-  if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
-  FS.record = record;
+  if (!FS.beacon.ok) seasonError({ code: FS.beacon.code, text: clientText(FS.beacon.code) });
   FS.season = season;
+  reconcileExpedition();
   // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
-  // chain is asked for its list (again with each season record, until it is whole)
-  FS.world = worldOf(record);
-  const partial = partialRings(FS.world);
-  for (const d of [...(FS.worldRings?.keys() ?? [])]) if (!partial.includes(d)) FS.worldRings.delete(d);
-  for (const d of partial) herald.worldRing(d).then(a => { if (a.ok) { (FS.worldRings ??= new Map()).set(d, a.present); invalidate('map', 'panel'); } }).catch(() => {});
+  // chain is asked for its list (again with each season record, until it is whole). The record, the world and the
+  // ring lists move together (applySeasonRecord), on every poll: a map that grew on chain is on the page by the next
+  // poll, no reload
+  applySeasonRecord(FS, record, { herald, onRings: () => invalidate('map', 'panel') });
+  // a ring opened since the overviews were taken, or one whose Provinces are still being created, wants its overview
+  // (boot also streams them progressively through the shared bounded queue)
+  if (FS.overviewsBooted) loadOverviews(herald).catch(() => {});
   setS1(season);
+  setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
+  // (2026-11-17, ⑦: another pinned world's samples are not this world's: its chain time, slot and offset would hold
+  //  this one back — observe drops a sample of a lower slot as "an older answer", and now() never goes back — so a
+  //  restarted local stack's clock stood still and read "behind" for good. The clock starts again with no sample —
+  //  unknown, not fresh — and takes this record's sample just below. The same world keeps its clock.
+  //  The clock carries the world its samples are of (FS.chainWorld) and is judged by that, not by adoptPinnedWorld's
+  //  answer of this call: that answer is given once, so a throw between the two in the call that re-pinned would have
+  //  left the former world's clock standing through every later good read)
+  const clockWorld = momentWorld();
+  if (FS.chainWorld !== undefined && FS.chainWorld !== clockWorld) FS.chain = new ChainClock();
+  FS.chainWorld = clockWorld;
   FS.chain.setAccelerated(record.cluster === 'localnet');
   FS.chain.observe(record.latestUnix, record.latestSlot);
   // A sample world (the screenshot fixture's world that keeps going, UX design 14.5) says so in its season record and
@@ -3502,21 +4469,83 @@ async function loadSeason(herald) {
   // (the prototype rule "banners" is on exactly while that record carries it: the chip stands from this moment)
   syncProto();
   invalidate('chip', 'status', 'map');
+  // (applied in full: no answer asked before this one is applied after it)
+  takeSeason(seq);
   return true;
 }
 
-async function loadOverviews(herald) {
-  const rings = Math.max(1, FS.record?.rings?.length ?? 1);
-  for (let d = 0; d < rings; d++) {
-    const r = await herald.overview(d);
-    if (r.ok) FS.overviews.set(d, r);
+/**
+ * The overviews of the rings that want one (map/world.mjs overviewRings): every open ring the page has none of, and
+ * every ring whose Province count changed since its overview was taken. Before map growth this ran once at boot over
+ * the rings open then, so a ring opened later had land (its seed was in the record) but no records on it until the
+ * page was reloaded; now the season poll calls it after each record.
+ */
+/**
+ * What the wide map says of reads that did not come (2026-11-17, ⑦): `[{p, q, state, text}]` for the map's own pass
+ * (map/fmap.mjs topPass). Land whose record is not there is not empty land, and the map says so where it is:
+ *  - a province whose record the map or the person asked for and that was not read (`failed`), or that waits for a free
+ *    read place (`waiting`) — controller's FS.provinceReads, this world's only, and only while no record is held;
+ *  - a ring whose overview was asked for and did not come (`ring`) — FS.overviewMisses, kept by loadOverviews for the
+ *    world it asked in: without it the ring's villages are not known, which is not "no villages".
+ * Nothing is marked that was not asked: no province out of the viewer's sight is asked by the map, and a read still
+ * under way is not marked (every province would flicker as the map moves). Selecting the province opens its card,
+ * whose button reads again (hud/inspect.mjs readState → province-reread). Marks only: nothing of the land is drawn.
+ */
+function readMarksNow() {
+  const out = [];
+  for (const [key, st] of FS.provinceReads ?? []) {
+    if ((st.state !== 'failed' && st.state !== 'waiting') || FS.provinces.has(key)) continue;
+    const [p, q] = key.split(',').map(Number);
+    if (!Number.isInteger(p) || !Number.isInteger(q)) continue;
+    out.push({ p, q, state: st.state, text: st.state === 'failed' ? L`読めていません（選ぶと読み直せます）` : L`読み込みの順番待ち` });
   }
-  invalidate('map');
+  const miss = FS.overviewMisses;
+  if (miss && miss.world === momentWorld() && FS.world) {
+    // (`rings`: ring → a province of it where the words stand, worked out once when the miss was noted)
+    for (const [d, at] of miss.rings) {
+      if (FS.overviews.has(d) || !at) continue;
+      out.push({ p: at.p, q: at.q, state: 'ring', ring: d, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
+    }
+  }
+  return out;
+}
+function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
+  // (2026-11-17, ⑦: the pinned world with its generation — the same as controller.providerWorld — so the shared queue
+  //  stores no overview read for another world)
+  const world = momentWorld(), asked = [...new Set(rings)];
+  const read = readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,
+    focus: () => {
+      const view = mapRef?.view;
+      if (!view) return null;
+      const h = hexAtPixel(view.x, view.y);
+      return locate(h.q, h.r);
+    },
+    onChange: () => invalidate('map', 'panel'),
+  });
+  // (which of the rings asked for still have no overview once this read is over — for the map's marks, readMarksNow.
+  //  Kept for the world it was asked in; a ring whose overview is held is no miss, whenever it came. The answer of the
+  //  read itself is passed on unchanged)
+  const note = () => {
+    if (momentWorld() !== world || !FS.world) return;
+    const rings0 = FS.overviewMisses?.world === world ? FS.overviewMisses.rings : new Map();
+    const seeded = seededRings(FS.world);
+    for (const d of asked) { if (seeded.includes(d) && !FS.overviews.has(d)) { if (!rings0.has(d)) rings0.set(d, ringProvinces(d)[0] ?? null); } else rings0.delete(d); }
+    for (const d of [...rings0.keys()]) if (FS.overviews.has(d) || !seeded.includes(d)) rings0.delete(d);
+    FS.overviewMisses = { world, rings: rings0 };
+    invalidate('map');
+  };
+  read.then(note, note);
+  return read;
 }
 
 /** Start the page. */
 export async function boot() {
-  const cfg = config();
+  let cfg = config();
+  // Local play (flocalplay.mjs), only for `?localPlay=1` on a loopback page: before anything of the game boots, the
+  // page makes its memory-only test wallet, shows the public address and waits for a verified Connect to the
+  // operator's herald. The page then boots ONCE, below, against that herald, with the dev wallet off. Any other page
+  // takes none of this path.
+  if (localPlayRequested(cfg)) cfg = (await openLocalPlayGate({ cfg, makeHerald: base => createHerald({ base }) }).ready).cfg;
   FS.mode = cfg.mode;
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
@@ -3564,25 +4593,36 @@ export async function boot() {
     setOreExtraProvider((p, q, tile) => map?.art?.oreAround?.(p, q, tile)?.total ?? null);
     map = new FrontierMap(canvas, {
       source: () => {
-        if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
-        const own = ownNow();
-        return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
+        if (rosterRef) for (const d of seededNow()) rosterRef.ensure(d);
+        const own = ownNow(), survey = surveyNow();
+        // A feed or clock can change while the pointer stays still. Refresh
+        // its ribbon from the same inputs as a tap, without scheduling a draw
+        // from inside this draw. The path cache keeps the planner work bounded.
+        hoverPlan(hoverHit, { redraw: false });
+        return { overviews: FS.overviews, ringsOpen: ringsOpenNow(), seeded: worldNow().seeded ?? null, own, selected: FS.selected, terrainOf,
           // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
           rMax: FS.world?.rMax ?? null,
+          rMaxCeiling: FS.world?.rMaxCeiling ?? null,
+          // the rings a first village may be placed in (home.mjs homeRingsOpen: the open rings, no further than the
+          // heartland): the wait view's site marks, 「村を置ける場所」, stop there (map/waitview.mjs wedgeSites)
+          homeRings: homeRingsOpen(FS.season, contiguousRings(worldNow())),
           // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
-          survey: surveyNow(),
+          survey,
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
           viewerFaction: FS.citizen?.faction ?? null,
           // who is looking, for the opening view (map/opening.mjs)
           open: openHint(FS, { ready: viewerKnown, title: titleUp(), frame: stageFrame() }),
-          // the nation that is looked at in the nation choice: its home wedge is lit on the chart (map/chart.mjs paintWedge)
+          // the nation that is looked at in the nation choice: its home region is lit on the chart (map/chart.mjs paintWedge)
           focusNation: stageFrame()?.nation ?? null,
+          // the season's first-home placement (home.mjs seasonPlace: the rule the home planner reads): the map lights,
+          // frames and marks a nation's home region from it (map/homeland.mjs); without a readable one it shows none
+          place: seasonPlace(FS.season),
           demoRoads: ART_ROADS,
           engineStage: ART_ENGINE,
           demoSpecials: ART_RELICS,
           demoRivers: ART_RIVERS,
           alliedPairs: ART_ALLY,
-          artReplayRing: ART_RINGOPEN ? Math.max(0, (FS.record?.rings?.length ?? 1) - 1) : null,
+          artReplayRing: ART_RINGOPEN ? Math.max(0, ringsOpenNow() - 1) : null,
           clashOf: ART_ON ? artClashOf : undefined,
           pendingOf: ART_ON ? (p, q) => FS.provinces.get(`${p},${q}`)?.inputs ?? null : undefined,
           people: ART_ON && FS.mode !== 'practice' ? peopleSource : undefined,
@@ -3597,7 +4637,11 @@ export async function boot() {
           // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap
           actions: actionsNow(),
           hoverRoute,
+          outboundRoute: originalOutboundMap(),
+          outboundInput: FS.hand?.pop === OUTBOUND_POP ? FS.expeditionCompose?.map ?? FS.expeditionCompose : null,
           note: FS.mapNote ?? null,
+          // (2026-11-17, ⑦: reads that did not come, said on the map where they are — readMarksNow)
+          readMarks: readMarksNow(),
           // a village this device sees land for the first time (map/landing.mjs)
           landing: landingNow(), landingSoon: landingSoon(),
           // S1: vaults, structures and caravans from the herald's feeds (map/s1marks.mjs)
@@ -3617,33 +4661,50 @@ export async function boot() {
           route: FS.compose ? { hexes: marchCard.routeHexes(FS.compose), dest: FS.compose.dest ? tileHex(FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile) : null,
             arriveBell: FS.compose.route ? marchCard.bellWindow(FS)?.value ?? null : null } : null,
           territoryEnabled: territoryEnabled(FS), territoryOf: (p, q) => territoryOf(FS, p, q),
+          // the land preview: a province with a land record shows who holds each tile (its own fill, the keeps' as before)
+          landOf: (p, q) => landOf(FS, p, q),
           provinceOf: ART_ON ? (p, q, { far = false } = {}) => { if (!far) wantProvince(p, q, () => map?.invalidate()); return FS.provinces.get(`${p},${q}`)?.province ?? null; } : undefined };
       },
       onSelect: hit0 => {
         // a tap selects what the zoom shows: a province from afar, a tile up close
         const hit = FS.view.lod === 'tile' ? hit0 : { kind: 'province', p: hit0.p, q: hit0.q };
+        // Boundary preparation owns the gesture before host/keep/legacy routing.
+        // A refused/repeated tap keeps the original observed host in the hand.
+        const outbound = tapOriginalOutbound(hit);
+        if (outbound.handled) {
+          lastPress = null;
+          if (outbound.code === 'SourceChanged') summary(() => L`出発点の情報が変わりました。境界への道を開き直してください。`);
+          else if (!Number.isInteger(hit.idx)) {
+            map.flyTo({ p: hit.p, q: hit.q, zoom: 1.0 });
+            summary(() => L`拡大した地図で、終点に隣り合う破線のマスを押してください。`);
+          } else if (outbound.changed) summary(() => L`道に一歩追加しました。地形・移動時間は未検証です。`);
+          else if (outbound.code === 'PathTooLong' || outbound.code === 'PathProvinces') summary(() => L`道の形は 32 マス・4 州までです。`);
+          else summary(() => L`終点に隣り合う破線のマスを押してください。軍勢の選択は変わりません。`);
+          return;
+        }
         // the press was on the figures or the token of one of the viewer's hosts (the board says so: map.hostAt): that host takes the hand
         const pressed = FS.mode === 'play' && !FS.compose && !FS.hand?.pick && FS.view.lod === 'tile' ? hostUnderPress() : null;
         lastPress = null;
         if (pressed && hand.subjectOf(FS)?.host?.id !== pressed.id) { selectHost(pressed); return; }
         // from afar, with a host that can march in the hand: the tap chooses where to look for its destination (the
         // camera goes there at tile detail and the host stays in hand: the next tap, on a tile, is the order)
-        if (FS.mode === 'play' && !FS.compose && !Number.isInteger(hit.idx)) {
+        if (FS.mode === 'play' && !FS.compose && FS.hand?.pop !== OUTBOUND_POP && FS.hand?.pop !== EXPEDITION_POP && !Number.isInteger(hit.idx)) {
           const sub = hand.subjectOf(FS);
           if (sub?.kind === 'host' && !FS.hand?.pick && hand.marchCheck(FS, sub.host).ok) { goFar(); map.flyTo({ p: hit.p, q: hit.q, zoom: 1.0 }); summary(() => L`行き先のマスを押してください`); return; }
         }
         // a conquest season, a fighting host in the hand: the press was on a keep of the lit reach (the board says so:
         // `hit.keep`, map/fmap.mjs). A keep in reach is the order for it, the same as its row of the card 砦へ進軍; a keep
         // out of reach is answered on the board with the reason (map/keeps.mjs `tapped`) and no order card opens
-        if (hit0?.keep && FS.mode === 'play' && !FS.compose && !FS.hand?.pick) {
+        if (hit0?.keep && FS.mode === 'play' && !FS.compose && FS.hand?.pop !== OUTBOUND_POP && FS.hand?.pop !== EXPEDITION_POP && !FS.hand?.pick) {
           const sub = hand.subjectOf(FS);
           if (sub?.kind === 'host' && keephand.conquestOn(FS)) {
-            if (hit0.keep.reachable && !keephand.waitOf(FS, sub.host)) Promise.resolve(ACTIONS['cq-march']({ host: sub.host.id, p: hit0.keep.p, q: hit0.keep.q, tile: hit0.idx })).catch(() => {});
+            if (hit0.keep.reachable && keephand.choosableWait(keephand.waitOf(FS, sub.host), sub.host)) Promise.resolve(ACTIONS['cq-march']({ host: sub.host.id, p: hit0.keep.p, q: hit0.keep.q, tile: hit0.idx })).catch(() => {});
             return;
           }
         }
         // the hand holds something: the tap is its order, or the map answers it (map/actions.mjs)
         if (mapTap(hit)) return;
+        clearInspection(FS); clearOutbound(FS);
         FS.selected = hit;
         FS.actor = null; FS.mapNote = null; FS.hand = null; FS.inspectOpen = false;
         // (an exploration being picked on the map belongs to its Scout's tile: another selection lets it go)
@@ -3655,7 +4716,8 @@ export async function boot() {
         // The inspector reads the province envelope (loaded once, on demand).
         const chooseHome = () => {
           if (FS.selected !== hit || !instantHomeEnabled(FS.season) || FS.holdings?.length || FS.homeChoice?.busy || !Number.isInteger(hit.idx)) return;
-          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: FS.record?.rings?.length ?? 0 }).find(s => s.tile === hit.idx);
+          // (a tile past the heartland is no home candidate, however open its ring: PlaceHome refuses it, home.mjs homeRingsOpen)
+          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(worldNow()) : 0), place: seasonPlace(FS.season) }).find(s => s.tile === hit.idx);
           if (!candidate) return;
           const choice = FS.homeChoice;
           if (!choice) return;
@@ -3666,7 +4728,12 @@ export async function boot() {
         if (FS.mode !== 'practice') { wantProvince(hit.p, hit.q, () => { chooseHome(); map?.invalidate(); invalidate('panel'); }); wantKeepHistory(hit.p, hit.q, () => invalidate('panel')); chooseHome(); }
         // composing a march: a tap on another tile makes it the destination (Civ: select the unit, click where)
         const c = FS.compose;
-        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) Promise.resolve(ACTIONS['dest-from-map']()).then(() => { if (FS.compose === c && c.routeError) mapNote(hit, refusalText(c.routeError, hit)); }).catch(() => {});
+        // (2026-11-17, ⑦: the refusal is said only by the request that asked for THIS place of THIS draft in THIS world —
+        //  draftAims: the place's own object, taken before the wait — not for a place the person chose since)
+        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) {
+          const world = momentWorld(), going = ACTIONS['dest-from-map'](), aim = c.dest;
+          Promise.resolve(going).then(() => { if (draftAims(c, aim, world) && c.routeError) mapNote(hit, refusalText(c.routeError, hit)); }).catch(() => {});
+        }
         invalidate('map', 'panel');
       },
       onView: (_, lod) => { FS.view.lod = lod; renderMinimap(); },
@@ -3679,6 +4746,10 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    // the recorded wide world (read-only, experimental): refused on a sample world, explicit when the herald has
+    // none; it reads the season record's pins (season, Season address, program) so a manifest of another season or
+    // namespace is never shown
+    try { wideModeRef = mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)
@@ -3687,7 +4758,7 @@ export async function boot() {
     // >>> keep-board: the keeps of a conquest season on the board (map/keeps.mjs). The page's conquest records reach the
     // map here and nowhere else: map/keepmount.mjs hands it the keep events and the viewer's nation, and lights the
     // keeps the host in hand can reach until the hand lights its own (`map.setKeepReach`)
-    mountKeepBoard({ map });
+    mountKeepBoard({ map, clash: (p, q, bell) => herald.clash(p, q, bell) });
     // <<< keep-board
     // where the map was pressed (the board says whether a host stands there: hostUnderPress), and whether the player
     // moved the camera by hand (a drag, the wheel, the map's keys: a kept view is then not gone back to; hud/camkeep.mjs)
@@ -3709,7 +4780,7 @@ export async function boot() {
         let k = null;
         try { k = mapRef.keepAt(e.clientX, e.clientY); } catch { k = null; }
         const row = k ? keephand.keepsModel(FS, sub.host).rows.find(x => x.p === k.p && x.q === k.q) : null;
-        if (!row || keephand.waitOf(FS, sub.host)) return;
+        if (!row || !keephand.choosableWait(keephand.waitOf(FS, sub.host), sub.host)) return;
         e.stopImmediatePropagation(); e.preventDefault();
         Promise.resolve(ACTIONS['cq-march']({ host: sub.host.id, p: row.p, q: row.q, tile: row.tile })).catch(() => {});
       }, true);
@@ -3738,7 +4809,7 @@ export async function boot() {
     const mini = $('minimap-canvas');
     mini?.addEventListener('pointerup', e => {
       const r = mini.getBoundingClientRect();
-      const fr = minimap.frameOf(Math.max(1, FS.record?.rings?.length ?? 1) + 1, r.width);
+      const fr = minimap.frameOf(ringsOpenNow() + 1, r.width);
       const w = fr.toWorld(e.clientX - r.left, e.clientY - r.top);
       map.flyTo({ x: w.x, y: w.y }, null, { exact: true });
     });
@@ -3762,18 +4833,46 @@ export async function boot() {
   }
   invalidate('chip', 'status', 'panel', 'chips');
   if (title.shouldOpen({ storage: globalThis.localStorage, search: globalThis.location?.search ?? '' })) openIntro();
-  if (await loadSeason(herald)) {
-    await loadOverviews(herald);
-    // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
-    if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
-    if (FS.mode === 'spectate') startSpectate(herald);
-    if (FS.mode === 'play') {
-      // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
-      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
-      // the drawer starts closed: the tab of the last visit is not reopened over the map
-      FS.tab = 'map';
-    }
-  }
+  // (2026-11-17, ⑦: what needs a season starts once, at the first good season read — at boot, or, when the season could
+  //  not be read then, at the first good read of the season poll. It started only from boot's read, so a page opened
+  //  while the herald was briefly unreachable showed the season once it came back but never started play, spectating
+  //  or practice: the viewer's record was never asked and the drawer said "reading" for good. A read that throws at
+  //  boot no longer ends the boot before the season poll starts: the poll reads again.)
+  // (each step is marked done once it has run, and a step that registers a loop, a timer or a listener — spectating,
+  //  the cooperation board, play — runs at most once: a step that threw is tried again at the next good read, the others
+  //  are not run twice. startPlay is async and never throws here: a failure inside it is its own promise's. A throw no
+  //  longer leaves the start marked as done with the rest never run, nor ends the boot or the season poll's tick.)
+  let seasonStarted = false;
+  const started = { practice: false, spectate: false, coop: false, play: false };
+  const startWithSeason = () => {
+    if (seasonStarted || !FS.pin || !FS.season) return;
+    // Ring summaries stream in while viewer setup starts; no whole-world boot barrier.
+    loadOverviews(herald).catch(e => console.error('frontier overviews:', e));
+    try {
+      // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
+      if (FS.mode === 'practice' && !started.practice) { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); started.practice = true; }
+      if (FS.mode === 'spectate' && !started.spectate) { startSpectate(herald); started.spectate = true; }
+      if (FS.mode === 'play') {
+        // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
+        // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
+        // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
+        if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        if (!started.play) {
+          started.play = true;
+          startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
+          // the drawer starts closed: the tab of the last visit is not reopened over the map
+          FS.tab = 'map';
+        }
+      }
+      seasonStarted = FS.mode !== 'play' || started.coop;
+    } catch (e) { console.error('frontier start:', e); }
+  };
+  let bootRead = false;
+  try { bootRead = await loadSeason(herald); } catch (e) { console.error('frontier season:', e); }
+  if (bootRead) startWithSeason();
+  // from here the season poll loads the overviews of rings that newly want one (a season that failed to load at boot
+  // has no rings yet: its first good poll then loads them all)
+  FS.overviewsBooted = true;
   // without a season nobody's record will come: the map opens on what there is
   if (FS.mode !== 'play' || !FS.record) { viewerKnown = true; map?.invalidate(); }
   // The chip ticks every second (never announced: aria-live is off on it).
@@ -3786,24 +4885,48 @@ export async function boot() {
   globalThis.setInterval?.(() => {
     // (an order card that stands open follows the clock: the earliest turn it can name moves on with it)
     if (FS.compose && FS.mode === 'play') { try { composeTick(); } catch (e) { console.error('frontier compose:', e); } }
+    // (local play's test march: the province an open order or card waits on, read again every half second — controller localSyncTick)
+    if (FS.mode === 'play') { try { localSyncTick(); } catch (e) { console.error('frontier local sync:', e); } }
     if (++chipTick % 4 === 0) { invalidate('chip'); return; }
     if (!(Number(FS.chain?.rate) >= 10) || !FS.clock || tollBell === null) return;
     let b = null;
     try { b = hud.bellModel(FS.clock, FS.chain.now()).bell; } catch { b = null; }
     if (Number.isInteger(b) && b > tollBell) invalidate('chip');
   }, 250);
-  // The season record every 30 s (own data poll), paused while hidden.
+  // The season record every 30 s (own data poll), paused while hidden. It is the only read that moves the page's chain
+  // clock (FS.chain.observe), so it is woken like the play loop: shown again, back from the browser's cache, or the
+  // stale banner's re-read — otherwise a page shown again kept counting "behind" from its last read before it was
+  // hidden, and the re-read button (which woke only the play loop) left that banner standing.
   let errors = 0;
-  const poll = async () => {
-    const hidden = globalThis.document?.hidden;
-    const wait = nextPoll({ kind: 'own', hidden, errors });
-    if (wait === null) { globalThis.setTimeout(poll, 5000); return; }
-    const ok = await loadSeason(herald);
-    errors = ok ? 0 : errors + 1;
-    // (a clock that runs fast is read more often: a quarter of a turn at most, clock.mjs pollCap)
-    globalThis.setTimeout(poll, Math.min(wait, pollCap(FS.chain)) * 1000);
-  };
-  globalThis.setTimeout(poll, Math.min(30, pollCap(FS.chain)) * 1000);
+  const seasonHidden = () => !!globalThis.document?.hidden;
+  const seasonLoop = createPollLoop({
+    tick: async () => {
+      if (seasonHidden()) return;
+      const ok = await loadSeason(herald);
+      errors = ok ? 0 : errors + 1;
+      // (the first good read after a boot that could not read the season starts what needs one — startWithSeason)
+      if (ok) startWithSeason();
+    },
+    // (a clock that runs fast is read more often: a quarter of a turn at most, clock.mjs pollCap; hidden: look again in 5 s)
+    delay: () => { const wait = nextPoll({ kind: 'own', hidden: seasonHidden(), errors }); return wait === null ? 5 : Math.min(wait, pollCap(FS.chain)); },
+  });
+  globalThis.document?.addEventListener?.('visibilitychange', () => { if (!seasonHidden()) seasonLoop.wake(); });
+  globalThis.addEventListener?.('pageshow', e => { if (e?.persisted && !seasonHidden()) seasonLoop.wake(); });
+  onReread(() => seasonLoop.wake());
+  seasonLoop.start(Math.min(30, pollCap(FS.chain)));
 }
 
-if (globalThis.document && !globalThis.process?.versions?.node) boot().catch(e => console.error('frontier boot:', e));
+/**
+ * The page's one start. Ordinarily: `boot()`, at once. With `?trace=title` in the address the diagnostic (ftrace.mjs:
+ * it names the work under way in the tab's title; a loopback page only, by its own check) is loaded and its install
+ * is AWAITED first, so nothing of the game has begun before the trace is whole; then `boot()`. A page whose address
+ * does not ask never loads that module. A diagnostic that cannot be loaded or installed is said in the console and
+ * the game starts all the same.
+ */
+export async function startPage({ loc = globalThis.location, load = () => import('./ftrace.mjs'), start = boot } = {}) {
+  if (/[?&]trace=title(?:&|$)/.test(String(loc?.search ?? ''))) {
+    try { const trace = await load(); if (trace.traceRequested(loc)) await trace.install(); } catch (e) { console.error('frontier trace:', e); }
+  }
+  return start();
+}
+if (globalThis.document && !globalThis.process?.versions?.node) startPage().catch(e => console.error('frontier boot:', e));

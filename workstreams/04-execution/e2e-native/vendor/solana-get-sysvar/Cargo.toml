@@ -1,0 +1,28 @@
+# Vendored copy of solana-get-sysvar 1.0.0 (Apache-2.0, crates.io), used only
+# by workstreams/04-execution/e2e-native through [patch.crates-io]. The one
+# change (marked "WORKSTREAM 04 HOST HOOK" in src/lib.rs): off-chain, the
+# sol_get_sysvar call goes to a hook the host harness installs, instead of
+# always answering UnsupportedSysvar. On-chain builds are unchanged.
+[package]
+edition = "2021"
+name = "solana-get-sysvar"
+version = "1.0.0"
+description = "Reads Solana sysvar account data from the runtime (vendored with a host hook for workstream 04's native harness)."
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "solana_get_sysvar"
+path = "src/lib.rs"
+
+[dependencies]
+solana-address = "2.6.1"
+solana-program-error = "3.0.0"
+
+[target.'cfg(target_os = "solana")'.dependencies]
+solana-define-syscall = "5.1.0"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("frozen-abi", "no-entrypoint"))']

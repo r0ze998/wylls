@@ -117,3 +117,11 @@ test('normaliseWakes dedupes by code and ignores junk', () => {
   assert.deepEqual(w.map((x) => x.code), ['W-DM', 'W-THREAT']);
   assert.equal(w[1].big, true);
 });
+
+test('a continuous world (endBell null: it has no end) never switches to the season_end autopilot', () => {
+  const g = createGate();
+  for (const bell of [1006, 5000, 100000]) {
+    const d = g.decide(base({ bell, endBell: null, wakes: ['W-CLASH'] }));
+    assert.notEqual(d.reason, 'season_end');
+  }
+});

@@ -34,6 +34,7 @@ pub mod layout;
 pub mod log;
 pub mod presets;
 pub mod prologue;
+pub mod rights;
 pub mod tags;
 
 pub use error::{Code, CqError};

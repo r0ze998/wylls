@@ -21,7 +21,7 @@
 // through the map's own projection, and turns `data-act` into orders
 // (controller.mjs). Every number comes from hud/rulebook.mjs.
 import { html, raw } from '../../util.mjs';
-import { L, fmtNum } from '../../lang.mjs';
+import { L, t, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, unitCount } from '../fi18n.mjs';
 import { UNIT_ORDER, SCOUT, SETTLER, buildItemOf } from '../fland.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
@@ -30,7 +30,8 @@ import { tileHex, TILE_OFFSETS } from '../fgeo.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { holdingModel, provisionalNote } from '../screens/holding.mjs';
-import { hostState } from '../screens/host.mjs';
+import { hostState, hostRows } from '../screens/host.mjs';
+import { musterIdleCode, allFormedText, allFormedShort, musterRuleText, formingHosts, stoodHosts } from './firststeps.mjs';
 import { directionOf } from '../screens/explore.mjs';
 import { ring } from '../screens/parts.mjs';
 import { icon, RESOURCE_ICON } from './icons.mjs';
@@ -40,7 +41,19 @@ import { costChips, costWords, shortWords, took, unitGood, unitStrength, whyText
 import * as proto from './proto.mjs';
 import { handNote } from '../fdelegation.mjs';
 import { previewOf } from '../proto/hand-model.mjs';
-import { conquestOn, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
+import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
+import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
+import { originalReturnModel } from '../fexpedition-return.mjs';
+import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate } from '../fexpedition-compose.mjs';
+import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
+import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
+import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
+import { localConquestShown, localConquestSpent, localConquestReadFor, localConquestOrderFor, localConquestCityFor } from '../flocalplay-conquest.mjs';
+import { hostStepInFlight } from '../flocalplay-hoststep.mjs';
+import { SETTLE_CODES } from '../flocalplay-pending.mjs';
+import { localOrderRoute } from '../flocalplay-act.mjs';
+
+import { composerChoices } from '../screens/march.mjs';
 
 const int = Number.isInteger;
 const nowOf = FS => FS.chain?.now?.() ?? 0;
@@ -57,9 +70,26 @@ export const POPS = Object.freeze(['build', 'train', 'muster', 'promote', 'explo
 export const PROTO_POPS = Object.freeze(['banner']);
 /** The card of a conquest season (program version 3; hud/keephand.mjs): the keeps the host can reach. It can open only on such a season. */
 export const CONQUEST_POPS = Object.freeze(['keeps']);
+export const INSPECTION_POPS = Object.freeze([EXPEDITION_POP]);
 
 export { ownHostsAt, ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
 import { ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
+import { returnCard } from './returncard.mjs';
+
+// (round 25: local play sends only its own few orders — flocalplay-act.mjs LOCAL_ACT_NAMES — and refuses the rest when
+//  they are sent. A bar button for an order local play refuses says so on the button and is not pressed, with the same
+//  sentence the refusal says (controller.mjs localPlayReadOnly), instead of opening a card whose confirm is refused only
+//  after it is pressed. Nothing local play can send changes; an ordinary session is as before.)
+const localRefuses = (FS, name) => !!FS?.localPlay && localOrderRoute({ localPlay: FS.localPlay, name, v: {}, signer: undefined, requester: null }) === 'refuse';
+const localReadOnlyText = () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`;
+// (round 26: a march — the bar's March, its return home, a march on a keep — is sent in local play only while the march's
+//  own answer is open (controller.mjs sendTheMarch: FS.localMarch.open), and refused with the same sentence otherwise)
+const localMarchClosed = (FS, r = null) => {
+  if (!FS?.localPlay) return false;
+  // (round 27: for the host shown — its own village and its own held march — as its send would find it once composed)
+  if (r && typeof FS.localMarchFor === 'function') return FS.localMarchFor(r.holding ?? null, r.id ?? null)?.open !== true;
+  return FS.localMarch?.open !== true;
+};
 
 // ------------------------------------------------------------------ the model
 const hexDist = (a, b) => (a && b ? (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2 : null);
@@ -88,6 +118,10 @@ function villageModel(FS, sub) {
   const freeIn = m.queue.length >= m.slots ? Math.min(...m.queue.map(q => q.doneIn)) : 0;
   const cheapest = shortOf(trainCost(0, 100, FS.season?.programVersion), m.have);
   const musterBlock = m.blocks.Muster.includes('NotFinal') ? 'NotFinal' : !reserve.some(r => r.troops >= HOST_TROOPS.min) ? 'NoReserve' : m.blocks.Muster[0] ?? null;
+  // (every troop already in a host — the first host forming or standing: the idle muster reads as done, not as an error)
+  let hostsNow = 0;
+  try { const rows = hostRows(FS); hostsNow = formingHosts(rows).length + stoodHosts(rows).length; } catch { hostsNow = 0; }
+  const allFormed = musterIdleCode({ reserve: musterable, hosts: hostsNow }) === 'allFormed';
   const promo = m.promotion;
   // (each figure says what it counts: 「25:00」 beside three rings, 「控え 400」, 「400」 and 「都市へ」 were read as codes:
   // the design review of 2026-10-24. The time is what is left; the reserve is people; a host takes up to that many; a
@@ -98,8 +132,8 @@ function villageModel(FS, sub) {
       tone: m.queue.length >= m.slots ? 'warn' : '', hint: m.queue.length >= m.slots ? whyText('QueueFull', { tier, freeIn }) : L`建設中 ${fmtNum(m.queue.length)}/${fmtNum(m.slots)}` },
     { id: 'train', icon: 'helmet', word: L`訓練`, act: 'hand-pop', data: { pop: 'train' }, figure: L`控え ${fmtNum(musterable)}人`,
       tone: cheapest.length ? 'warn' : '', hint: cheapest.length ? shortWords(cheapest) : L`訓練はすぐに終わり、兵は控えに入ります` },
-    { id: 'muster', icon: 'ranks', word: L`編成`, act: 'hand-pop', data: { pop: 'muster' }, figure: L`最大 ${fmtNum(musterable)}人`,
-      why: musterBlock ? (musterBlock === 'NotFinal' ? whyText('NotFinal') : whyText(musterBlock)) : null, hint: L`控えの兵を軍勢にして、州のマスに集めます` },
+    { id: 'muster', icon: 'ranks', word: L`編成`, act: 'hand-pop', data: { pop: 'muster' }, figure: L`最大 ${fmtNum(musterable)}人`, opens: true,
+      why: musterBlock ? (musterBlock === 'NotFinal' ? whyText('NotFinal') : musterBlock === 'NoReserve' && allFormed ? allFormedShort() : whyText(musterBlock)) : null, hint: L`控えの兵を軍勢にして、州のマスに集めます` },
     { id: 'harvest', icon: 'grain', word: L`収穫`, act: 'harvest', data: {},
       // (nothing has grown since the last settling — any order settles the stores —: the figure says what an hour brings, not a dead "+0")
       figure: hv.full.length ? L`満杯 ${fmtNum(hv.full.length)}` : hv.total > 0 ? L`+${fmtNum(hv.total)}` : hv.perHour > 0 ? L`毎時 +${fmtNum(hv.perHour)}` : L`+${fmtNum(0)}`, tone: hv.full.length ? 'bad' : '',
@@ -110,7 +144,13 @@ function villageModel(FS, sub) {
       hint: promo.running ? L`${TIERS[promo.to]}へ昇格中` : promo.short.length ? shortWords(promo.short) : L`${TIERS[promo.to]}へ：${costWords(promo.cost)}` }
       : { id: 'promote', icon: 'tierup', word: L`昇格`, act: 'hand-pop', data: { pop: 'promote' }, figure: '', why: whyText('TopTier') },
   ];
+  // (the read-only expedition check asks for a host this village issued: with none yet it has nothing to check, and on
+  // a first visit it read as a second, unexplained action beside Build and Train — the first-session review of 2026-11-13)
   const name = holdingName(sub.holding);
+  if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion) && hostsNow > 0) buttons.push({
+    id: EXPEDITION_POP, icon: 'search', word: L`遠征を確認`, act: 'hand-pop', data: { pop: EXPEDITION_POP },
+    figure: L`読み取り専用`, quiet: true, hint: L`この村が発行した軍勢の番号で確認します。現在地や生存を意味しません。`,
+  });
   // (the rank under the name, unless the name says it already: 「ラマールの町」 over 「町」)
   const rank = TIERS[tier] ?? '', said = !!rank && String(name).toLowerCase().includes(String(rank).toLowerCase());
   return { kind: 'village', key: `v:${sub.holding.p},${sub.holding.q},${sub.holding.site}`, name, label: L`${name}の行動`, icon: 'home',
@@ -127,30 +167,35 @@ const hostChip = (FS, r) => ({ id: r.id, unit: r.unit, text: unitCount(UNIT_ORDE
 function hostModel(FS, sub) {
   const r = sub.host, h = sub.holding;
   const faction = int(FS.citizen?.faction) ? FS.citizen.faction : 0;
-  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r);
+  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve'), mLocal = localMarchClosed(FS, r), eLocal = localRefuses(FS, 'Explore');
   const ex = r.unit === SCOUT ? exploreCheck(FS, r) : null;
-  const all = ownHosts(FS);
+  // (2026-11-16: 次の軍勢 counts and cycles the hosts of the host's OWN village — the press (app.mjs nextHost) goes there;
+  //  a host of another village chosen by a plain tap or a chip read 1/N of the open village's hosts, which it is not among)
+  const all = ownHosts({ ...FS, activeHolding: sub.holdingIndex });
   const at = all.findIndex(x => x.id === r.id);
   const pop = popOf(FS, sub);
   // (the board is armed for a march as soon as a host that can march is selected: its reach is lit and a tap is the order)
-  const armed = mc.ok && pop !== 'explore' && pop !== 'dissolve';
+  const armed = mc.ok && pop !== 'explore' && pop !== 'dissolve' && pop !== EXPEDITION_POP && pop !== OUTBOUND_POP;
   const from = tileHex(r.p, r.q, r.tile), home = h ? tileHex(h.p, h.q, h.tile) : null;
   const away = hexDist(from, home);
   const name = unitCount(UNIT_ORDER[r.unit], r.troops);
   const st = hostState(r, bellOf(FS));
   const where = r.home ? L`${holdingName(h)}にいます` : L`${tileName(FS, r.p, r.q, r.tile)}（${provinceName(FS, r.p, r.q)}）にいます`;
   const buttons = [
-    { id: 'march', icon: 'march', word: MARCH_WORD(), act: 'hand-march', data: { host: r.id }, figure: L`体力 ${fmtNum(r.stamina)}/${fmtNum(RULES.STAMINA_CAP)}`, pressed: armed, why: mc.ok ? null : mc.text,
+    { id: 'march', icon: 'march', word: MARCH_WORD(), act: 'hand-march', data: { host: r.id }, figure: L`体力 ${fmtNum(r.stamina)}/${fmtNum(RULES.STAMINA_CAP)}`, pressed: armed, why: mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
       hint: L`行き先のマスを押します。体力を ${fmtNum(DEPART_STAMINA)} 使い、着くのは 2 ターン先からです` },
     // a conquest season: the keeps this host can reach, as a list (hud/keephand.mjs). A host that cannot depart yet may still
     // open it: the list then says from which turn it can go (never a dead end)
-    ...(conquestOn(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
-      why: r.inTransit ? mc.text : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
-    ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: ex.ok ? null : ex.text,
+    // (not offered where no keep can be taken: a world opened only to the heartlands — noContestableKeep)
+    ...(conquestOn(FS) && !noContestableKeep(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
+      // (round 28: a march on a keep is composed from the host's own village too — controller.mjs cq-march —, so this
+      //  button asks the same per-host answer as March and Return)
+      why: r.inTransit ? mc.text : mLocal ? localReadOnlyText() : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
+    ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: eLocal ? localReadOnlyText() : ex.ok ? null : ex.text,
       hint: L`となりのマスを 2 つまで調べます` }] : []),
-    { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mc.ok ? null : mc.text,
+    { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
       hint: L`村への進軍です（体力 ${fmtNum(DEPART_STAMINA)}）。封をする前に確かめます` },
-    { id: 'dissolve', icon: 'disband', word: L`解散`, act: 'hand-pop', data: { pop: 'dissolve' }, figure: L`控えへ ${fmtNum(r.troops)}`, pressed: pop === 'dissolve', why: dc.ok ? null : dc.text, quiet: true,
+    { id: 'dissolve', icon: 'disband', word: L`解散`, act: 'hand-pop', data: { pop: 'dissolve' }, figure: L`控えへ ${fmtNum(r.troops)}`, pressed: pop === 'dissolve', why: dLocal ? localReadOnlyText() : dc.ok ? null : dc.text, quiet: true,
       hint: L`このターンの決着のあと、兵は村の控えに戻ります` },
     { id: 'next', icon: 'next', word: L`次の軍勢`, act: 'hand-next', data: {}, figure: all.length ? `${fmtNum(Math.max(0, at) + 1)}/${fmtNum(all.length)}` : '', why: all.length < 2 ? whyText('OnlyOne') : null,
       hint: L`このターンに動かせる軍勢から順に選びます` },
@@ -158,17 +203,41 @@ function hostModel(FS, sub) {
   // the prototype rule "banners" (hud/proto.mjs; only while the sample world serves it): what this host can do with a banner where it stands, first on the bar
   const flag = FS.proto ? proto.bannerButton(FS, r, pop) : null;
   if (flag) buttons.unshift(flag);
+  if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion)) buttons.push({
+    id: EXPEDITION_POP, icon: 'search', word: L`遠征を確認`, act: 'hand-pop', data: { pop: EXPEDITION_POP },
+    figure: L`読み取り専用`, pressed: pop === EXPEDITION_POP, quiet: true,
+    hint: L`この軍勢を P,Q で確認します。移動や命令は行いません。`,
+  });
+  if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion)) buttons.push({
+    id: OUTBOUND_POP, icon: 'march', word: L`境界への道を準備`, act: 'hand-pop', data: { pop: OUTBOUND_POP },
+    figure: L`送信しません`, pressed: pop === OUTBOUND_POP, quiet: true,
+    hint: L`現在いるマスから六方向で道を組みます。地形・到着時刻は未検証です。`,
+  });
   // (one reason that keeps two or more of the bar's buttons from being pressed — the host is forming up, it is short of
   // stamina, the province has not caught up with the turn — is said once, on the bar's own line under the host's name,
   // and those buttons keep their figures: the same sentence stood on three buttons in two lines each, the bar grew wider
   // than its place and its last button was cut off by its edge. The English recording of 2026-10-11)
-  const shared = sharedWhy(buttons);
+  // (round 31: "the province has not caught up with the turn" comes and goes with the catch-up; said inside a single
+  //  button it replaced that button's figure, the button changed width when the province caught up and the row moved
+  //  under a pressing finger — a press aimed at 「砦へ進軍」 fell on its neighbour in a ×10 world. It is said on the bar's
+  //  line even when only one button has it, and the button keeps its figure and its place.)
+  const behind = mc.code === 'NotResident' && buttons.some(b => b.why === mc.text) ? mc.text : null;
+  const shared = sharedWhy(buttons) ?? behind;
   if (shared) for (const b of buttons) if (b.why === shared) b.said = true;
   // (a host that is forming up says so under its name already — 「編成中（次のターンから）」 —: the line is not said a second time)
-  const note = shared && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
+  // (round 19: while the forts card is open, its own wait slot says why its rows wait; the bar's line would be the same
+  //  reason a second time, and the card stands on the bar — the line coming and going moved the card's rows under the
+  //  pointer by its height. So with the forts card open and a wait to say there, the bar leaves the line to the card.)
+  const toCard = pop === 'keeps' && !!waitOf(FS, r);
+  const note0 = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
+  // (round 27: local play's refusal is said in full on the bar's own line, which wraps — inside a button it was clipped to
+  //  two short lines, "In local play, this order cannot be sent yet (rea…" in a live world; the refused buttons stay refused)
+  const lro = localReadOnlyText(), localSaid = buttons.some(b => b.why === lro);
+  if (localSaid) for (const b of buttons) if (b.why === lro) b.said = true;
+  const note = localSaid && note0 !== lro ? (note0 ? `${note0} ${lro}` : lro) : note0;
   return { kind: 'host', key: `h:${r.id}`, name, label: L`${name}の行動`, unit: r.unit, faction, sub: st.text, tone: st.tone, where, note, noteTone: note ? 'why' : null,
     chips: sub.hosts.length > 1 ? sub.hosts.filter(x => x.id !== r.id).map(x => hostChip(FS, x)) : [], villageHere: r.home ? holdingName(h) : null,
-    buttons, host: r, march: mc, explore: ex, dissolve: dc, armed, away, stamina: r.stamina };
+    buttons, host: r, march: mc, explore: ex, dissolve: dLocal ? { ok: false, text: localReadOnlyText() } : dc, armed, away, stamina: r.stamina };
 }
 
 /**
@@ -208,12 +277,14 @@ const unitPic = (f, unit, size = 40) => html`<img class="unit-card f${f}" src="$
 const slotRings = rings => html`<span class="hand-rings" aria-hidden="true">${rings.map(r => html`<span class="hand-ring${r.on ? ' on' : ''}">${ring(r.on ? Math.max(0.04, r.share) : 0)}</span>`)}</span>`;
 
 function button(b) {
-  const off = !!b.why;
+  // (`opens`: the button only opens its card — reading it sends nothing —, so a reason the card's own action is refused is
+  //  said on the button but does not refuse the press: round 21, the Form a host button was refused half of each turn)
+  const off = !!b.why && !b.opens;
   // (a button that cannot be pressed stays in the tab order and says why: `aria-disabled`, never the `disabled` attribute)
   return html`<button type="button" class="hand-btn hand-${b.id}${b.proto ? ' hand-proto' : ''}${b.tone ? ` tone-${b.tone}` : ''}${b.quiet ? ' quiet' : ''}${off ? ' off' : ''}" data-act="${b.act}" data-hand="${b.id}" ${dataAttrs(b.data)}
     ${raw(off ? 'aria-disabled="true"' : '')} ${raw(b.pressed !== undefined ? `aria-pressed="${b.pressed && !off ? 'true' : 'false'}"` : '')} title="${off ? b.why : b.hint ?? ''}">
     <span class="hand-ic">${icon(b.icon)}</span><span class="hand-word">${b.word}</span>${b.proto ? proto.tagHtml() : ''}
-    ${off && !b.said ? html`<span class="hand-why">${b.why}</span>` : html`<span class="hand-fig">${b.rings ? slotRings(b.rings) : ''}<span class="num">${b.figure}</span></span>`}
+    ${b.why && !b.said ? html`<span class="hand-why">${b.why}</span>` : html`<span class="hand-fig">${b.rings ? slotRings(b.rings) : ''}<span class="num">${b.figure}</span></span>`}
   </button>`;
 }
 
@@ -326,18 +397,31 @@ export function musterPlace(FS, model) {
 function musterPop(FS, model) {
   const d = musterDraft(FS, model), f = model.m.faction, h = model.subject.holding;
   const block = model.m.blocks.Muster[0] ?? (d.unit === null || d.max < HOST_TROOPS.min ? 'NoReserve' : null);
-  const why = block ? whyText(block) : null;
+  let hostsNow = 0;
+  try { const rows = hostRows(FS); hostsNow = formingHosts(rows).length + stoodHosts(rows).length; } catch { hostsNow = 0; }
+  const why = block === 'NoReserve' && musterIdleCode({ reserve: model.reserve.reduce((a, r) => a + r.troops, 0), hosts: hostsNow }) ? allFormedText() : block ? whyText(block) : null;
   const at = d.tile === null || d.tile === h.tile ? L`${holdingName(h)}（村のマス）` : tileName(FS, h.p, h.q, d.tile);
   const who = d.unit === null ? '' : unitCount(UNIT_ORDER[d.unit], d.troops);
+  // (round 21, local play only: a muster refused only because the province is finishing its turn may be pressed — ONE
+  //  waiting send of this exact muster, sent once when it can be (controller.mjs armMusterWait); while one waits, the card
+  //  says so and offers to cancel it. An ordinary session is as before.)
+  const blocks = model.m.blocks.Muster ?? [];
+  const local = !!FS.localPlay, waiting = local && !!FS.musterWait;
+  const waitable = local && d.unit !== null && d.max >= HOST_TROOPS.min && blocks.length > 0 && blocks.every(c => SETTLE_CODES.includes(c));
+  const go = waiting
+    ? html`<button type="button" class="btn primary pop-go" aria-disabled="true">${icon('ranks')}${L`送信待ち`}</button><button type="button" class="btn pop-quiet" data-act="muster-wait-cancel">${L`送信待ちを取り消す`}</button>`
+    : html`<button type="button" class="btn primary pop-go" data-act="${local ? 'muster-send-wait' : 'muster'}" data-unit="${d.unit ?? 0}" data-troops="${d.troops}" data-tile="${d.tile ?? h.tile}" ${raw(why && !waitable ? 'aria-disabled="true"' : '')}>${icon('ranks')}${who ? L`${who} をここに集める` : L`ここに集める`}</button>`;
+  const line = waiting ? L`送信待ち：州のターンの決着がつき次第、この編成を1回だけ送ります（ターン ${fmtNum(FS.musterWait.untilBell)} まで）。兵種・兵数・場所が変わったら、送らずに取り消します。`
+    : waitable ? L`${why} 押すと、整い次第この編成を1回だけ送ります（兵種・兵数・場所が変わったら送らずに取り消します）。` : null;
   // (a low card: the board above it is where the tile is chosen)
   return html`${popHead(L`編成`, html`${icon('pin')}${L`集める場所：`}<strong>${at}</strong>`)}
     <div class="pop-foot pop-muster">
       <div class="unit-toks unit-toks-row" role="group" aria-label="${L`兵種`}">${model.reserve.map(r => html`<button type="button" class="unit-tok unit-tok-small${r.troops < HOST_TROOPS.min ? ' short' : ''}" data-act="hand-unit" data-unit="${r.unit}" aria-pressed="${r.unit === d.unit ? 'true' : 'false'}">
         ${unitPic(f, r.unit, 30)}<strong class="unit-tok-name">${UNITS[UNIT_ORDER[r.unit]]}</strong><span class="unit-tok-str num">${fmtNum(r.troops)}</span></button>`)}</div>
       ${d.unit === null ? '' : countRow('hand-troops', d.troops, { min: HOST_TROOPS.min, max: d.max, presets: [{ n: d.max, text: L`全部` }], label: L`兵数` })}
-      <button type="button" class="btn primary pop-go" data-act="muster" data-unit="${d.unit ?? 0}" data-troops="${d.troops}" data-tile="${d.tile ?? h.tile}" ${raw(why ? 'aria-disabled="true"' : '')}>${icon('ranks')}${who ? L`${who} をここに集める` : L`ここに集める`}</button>
+      ${go}
     </div>
-    <p class="pop-line${why ? ' pop-why' : ' pop-rule'}">${why ?? L`線の内側のマスを押すと場所を変えられます（村のある州の、通れるマス）。軍勢は次のターンに整列します。`}</p>
+    <p class="pop-line${why || line ? ' pop-why' : ' pop-rule'}">${line ?? why ?? musterRuleText()}</p>
     ${FS.proto && !why && musterPlace(FS, model) ? proto.placeLine(FS, previewOf(FS, musterPlace(FS, model))) : ''}${proto.whyLine(FS)}`;
 }
 
@@ -405,6 +489,8 @@ function marchPop(FS, model) {
  */
 export function renderPop(FS, model) {
   if (!model?.pop) return '';
+  if (model.pop === EXPEDITION_POP) return expeditionPop(FS, model);
+  if (model.pop === OUTBOUND_POP && model.kind === 'host') return outboundPop(FS, model);
   if (model.kind === 'village') {
     if (model.pop === 'build') return buildFan(model);
     if (model.pop === 'train') return trainPop(FS, model);
@@ -418,6 +504,439 @@ export function renderPop(FS, model) {
   if (model.pop === 'march') return marchPop(FS, model);
   if (model.pop === 'keeps' && conquestOn(FS)) return renderKeepsPop(FS, model, { head: popHead });
   return '';
+}
+
+/**
+ * Local play only (FS.localPlay; flocalplay-depart.mjs): the one send of the local-play page, on the boundary card.
+ * The button asks for the departure of the draft as it stands; the lines say how far the run got. An unknown
+ * outcome is said as unknown, with the one thing that may be done about it (ask again); never as a success.
+ */
+function outboundLocalDepart(FS, ready) {
+  if (!FS.localPlay) return '';
+  const d = localDepartOf(FS), sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '';
+  const step = { sealing: L`封をしています…`, preparing: L`出発の取引を用意しています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
+  const line = step ? html`<p class="pop-line local-depart-step" role="status">${step}</p>`
+    : d.status === 'confirmed' ? html`<p class="pop-line local-depart-done" role="status">${L`出発が確定しました（ターン ${d.arriveBell} に到着予定・移動枠 ${d.transitSlot}）。署名 ${sig}`}</p>`
+    : d.status === 'submitted' ? html`<p class="pop-line local-depart-sent" role="status">${L`送信しました。確定はまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'failed' ? html`<p class="pop-line local-depart-failed" role="alert">${L`出発は失敗しました（理由 ${d.code ?? '?'}）。軍勢は出発していません。署名 ${sig}`}</p>`
+    : d.status === 'unknown' ? html`<p class="pop-line local-depart-unknown" role="alert">${L`結果を確認できませんでした。出発したかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'error' ? html`<p class="pop-line local-depart-error" role="alert">${L`出発できませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  const settle = d.status === 'unknown' || d.status === 'submitted';
+  // (a departure was already sent on this observation of the conditions: it is used up until they are read again)
+  const spent = localDepartSpent(FS);
+  if (spent) ready = false;
+  return html`<div class="outbound-local-depart"><p class="pop-line">${L`ローカルプレイ：この軍勢を、このページのテスト用ウォレットの署名で出発させます（このマシンの試験用の世界だけ）。封の中身はこのページのメモリにだけ残り、再読み込みすると失われます。`}</p>
+    ${line}
+    <div class="pop-foot">${settle ? html`<button type="button" class="btn small" data-act="outbound-local-reconcile" ${raw(d.busy ? 'aria-disabled="true"' : '')}>${L`結果を照合する`}</button>`
+      : html`<button type="button" class="btn primary" data-act="outbound-local-depart" ${raw(d.busy || !ready ? 'aria-disabled="true"' : '')}>${d.busy ? L`出発を送っています…` : L`出発する（ローカルプレイ）`}</button>`}
+      ${!ready && !d.busy && !settle ? html`<span>${spent ? L`この確認結果ではすでに出発を送りました。もう一度出発するには「出発条件を確認」で最新の状態を読み直してください。` : L`先に「出発条件を確認」で条件を満たしてください。`}</span>` : ''}</div></div>`;
+}
+
+/**
+ * Local play only (FS.localPlay; flocalplay-reveal.mjs): the explicit opening of a seal this page holds, for a
+ * departure the test world confirmed. Two presses: 確認 (a read; nothing is signed) and then 封を開く. Empty when the
+ * page holds no such seal and nothing was asked. What it says at the end is only that the opening is recorded:
+ * the arrival, its battle and the return are decided at the destination and are not claimed here. An outcome that
+ * is not known is said as not known, with the one thing that may be done (ask again); never sent a second time.
+ * Shown on the boundary card and, by the page, apart from it (the host has left its tile after departing).
+ */
+export function localRevealStrip(FS) {
+  if (!FS.localPlay) return '';
+  const r = localRevealOf(FS), seal = localRevealCandidate(FS);
+  if (r.status === 'idle' && !seal) return '';
+  const sig = r.signature ? `${r.signature.slice(0, 8)}…${r.signature.slice(-6)}` : '';
+  const turn = r.arriveBell ?? seal?.arriveBell ?? '?';
+  const why = {
+    RevealWindowClosed: L`封を開ける期間が終わっています。`, RevealArchived: L`この到着ターンの記録はすでに片付けられています。`, RevealLatchClosed: L`到着先はこのターンの受付をすでに締め切っています。`,
+    RevealSeasonNotRunning: L`シーズンが進行中ではありません。`, RevealSeasonEnded: L`シーズンが終わっており、この到着は受け付けられません。`,
+    RevealAdmissionContested: L`到着先の枠がほかの軍勢と競合しています。このページでは順位を判定しないため、送りません。`,
+    RevealAdmissionMismatch: L`到着先にこの軍勢の名前の記録がありますが、この封のものとは一致しません。`,
+    RevealDestinationNotOpen: L`到着先の州がまだ開かれていません。`, RevealDestinationNotReady: L`到着先の州の準備がまだ終わっていません。`,
+    RevealTransitMissing: L`この出発の記録が見つかりません。`, RevealAlreadyGathered: L`この軍勢はすでに到着先で受け付けられています。`, RevealHostDestroyedAtOrigin: L`この軍勢は出発地で失われました。`,
+    RevealSealMissing: L`このページには開ける封が残っていません（再読み込みすると封の中身は失われます）。`,
+  }[r.code] ?? null;
+  const step = { checking: L`いまの記録を読んで、封を開けられるか確かめています…`, reading: L`最新の記録を読み直しています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[r.status];
+  const line = step ? html`<p class="pop-line local-reveal-step" role="status">${step}</p>`
+    : r.status === 'ready' ? html`<p class="pop-line local-reveal-ready" role="status">${L`封を開けられます（到着ターン ${turn}・到着先の枠 ${r.targetI}）。開くと封の中身（行き先と命令）が公開されます。`}</p>`
+    : r.status === 'blocked' ? html`<p class="pop-line pop-why local-reveal-blocked" role="status">${why ?? L`いまは封を開けられません。`} (${r.code ?? '?'}) ${L`何も送っていません。`}</p>`
+    : r.status === 'revealed' ? html`<p class="pop-line local-reveal-done" role="status">${L`封を開いたことが記録されました（到着ターン ${turn}）。到着先での決着を待っています。戦いや帰還の結果は、まだ決まっていません。`}${sig ? html` <span>${L`署名 ${sig}`}</span>` : ''}</p>`
+    : r.status === 'submitted' ? html`<p class="pop-line local-reveal-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${r.error ? html` <span>${L`（照合できませんでした：${r.error}）`}</span>` : ''}</p>`
+    : r.status === 'unknown' ? html`<p class="pop-line local-reveal-unknown" role="alert">${L`結果を確認できませんでした。封が開かれたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${r.error ? html` <span>${L`（照合できませんでした：${r.error}）`}</span>` : ''}</p>`
+    : r.status === 'failed' ? html`<p class="pop-line local-reveal-failed" role="alert">${L`封を開く取引は失敗しました（理由 ${r.code ?? '?'}）。封は開かれていません。封はこのページに残っています。署名 ${sig}`}</p>`
+    : r.status === 'error' ? html`<p class="pop-line local-reveal-error" role="alert">${L`封を開けませんでした（${r.error ?? '?'}）。${r.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  const settle = r.status === 'unknown' || r.status === 'submitted', off = r.busy ? 'aria-disabled="true"' : '';
+  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-reveal-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
+    : r.status === 'ready' ? html`<button type="button" class="btn primary" data-act="local-reveal-send" ${raw(off)}>${L`封を開く（ローカルプレイ）`}</button>
+        <button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${L`確認し直す`}</button>`
+    : r.status === 'revealed' ? (seal ? html`<button type="button" class="btn small" data-act="local-reveal-clear">${L`次の封を確認する`}</button>` : '')
+    : ['failed', 'error', 'blocked'].includes(r.status) ? html`<button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${L`確認し直す`}</button>`
+    : html`<button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${r.busy ? L`確かめています…` : L`封を開けるか確認する`}</button>`;
+  return html`<div class="outbound-local-reveal"><p class="pop-line">${L`ローカルプレイ：出発が確定した軍勢の封を、このページのテスト用ウォレットの署名で開きます（このマシンの試験用の世界だけ）。到着ターン ${turn}。`}</p>
+    ${line}
+    <div class="pop-foot">${buttons}</div></div>`;
+}
+
+/** Local preparatory card. Its controls have no order form or executable action. */
+/**
+ * The earliest observed arrival turn, offered beside the range it comes from (`pick`: fexpedition-compose.mjs
+ * outboundArrivalCandidate, only while the observation is still this draft's; `entered`: the draft's own field).
+ * A press fills the field and reads the observation again; the field in 詳細 stays for any other turn.
+ */
+function outboundArrivalPick(pick, entered) {
+  if (!pick) return '';
+  if (entered === pick.arriveBell) return html`<p class="pop-line outbound-arrival-set">${L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
+  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
+    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>`;
+}
+
+function outboundRouteReport(check, pick = null, entered = '') {
+  if (!check) return '';
+  if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`道の州の記録を読み込んでいます…`}</p>`;
+  if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${L`道の記録を読めませんでした。もう一度確認してください。`} (${check.code})</p>`;
+  const r = check.report;
+  const why = r.code === 'RouteLandMissing' ? L`道の途中に、まだ読み取れていない州があります。`
+    : r.code === 'RouteImpassable' ? L`山や水のマスには進めません`
+    : r.code === 'RoutePalisade' ? L`道の途中の柵を通れません。`
+    : r.code === 'ArrivalRequired' ? L`詳細で到着ターンの候補を入力し、もう一度確認してください。`
+    : ['ArrivalTooEarly', 'ArrivalTooLate', 'ArrivalAfterSeason', 'ArrivalWindowEmpty'].includes(r.code) ? L`到着ターンの候補が、記録から計算した範囲に入りません。`
+    : r.code ? L`この記録では経路を計算できません。` : null;
+  return html`<div class="outbound-route-report" role="status">
+    ${r.travelSecs !== null ? html`<p class="pop-line">${L`記録上の移動時間 ${r.travelSecs} 秒・塔の消耗 ${r.wearBps} bps`}</p>` : ''}
+    ${r.min !== null && r.max !== null && r.min <= r.max ? html`<p class="pop-line">${L`到着候補：ターン ${r.min}〜${r.max}`}</p>` : ''}
+    ${why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}
+    ${outboundArrivalPick(pick, entered)}
+    <p class="pop-line">${L`取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。`}</p>
+  </div>`;
+}
+
+function outboundContextReport(check, pick = null, entered = '') {
+  if (!check) return '';
+  if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`軍勢・村・地形・時刻をまとめて読み込んでいます…`}</p>`;
+  if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${check.code === 'ExpeditionPreviewDisabled'
+    ? L`この接続では出発条件の読み取りを利用できません。` : L`出発条件を読めませんでした。情報を更新して、もう一度確認してください。`} (${check.code})</p>`;
+  return html`<div class="outbound-context-report" role="status">
+    <p class="pop-line">${L`軍勢・村・地形・時刻を同じ読取時点で確認しました。最新状態や出発の成功を保証するものではありません。`}</p>
+    <p class="pop-line${check.ready.ok ? '' : ' pop-why'}">${check.ready.ok
+      ? L`この読取時点では、軍勢と村の出発条件を満たしています。`
+      : L`この読取時点では、軍勢と村の出発条件を満たしていません。`}${check.ready.ok ? '' : ` (${check.ready.code})`}</p>
+    ${outboundRouteReport(check, pick, entered)}
+    <p class="pop-line pop-why">${L`出発の送信はまだ利用できません。`}</p>
+  </div>`;
+}
+
+function outboundPop(FS, model) {
+  const s = FS.expeditionCompose ?? {}, review = s.review, source = s.source, directions = s.directions ?? [];
+  let choices = { stances: [], retreat: [], tips: [] };
+  try { choices = composerChoices(FS); } catch { /* A missing season is explained by the source blocker. */ }
+  const endpoint = s.trace?.endpoint;
+  // (offered only from an observation that is still of this host, these steps, this source and connection)
+  let pick = null;
+  try { pick = outboundArrivalCandidate(FS); } catch { /* none to offer: the report's own words say why */ }
+  const entered = typeof s.arriveBell === 'string' ? s.arriveBell : '';
+  const points = outboundSketch(directions).map(p => ({ x: p.q + p.r / 2, y: p.r * Math.sqrt(3) / 2 }));
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const left = Math.min(...xs) - 1, top = Math.min(...ys) - 1, width = Math.max(...xs) - left + 1, height = Math.max(...ys) - top + 1;
+  const reason = s.error === 'ChooseSteps' ? L`六方向から一歩ずつ選んでください。`
+    : s.error === 'WideDestinationRequired' ? L`終点はまだリング 128 の内側です。境界の外まで道を続けてください。`
+    : s.error === 'ArrivalRequired' ? L`到着ターンの候補を入力し、地形・時間を確認してください。`
+    : s.error === 'SourceChanged' ? L`軍勢・所有者・接続情報が変わりました。カードを開き直してください。`
+    : s.error ? L`この準備は利用できません` : null;
+  return html`${popHead(L`境界への道を準備`)}
+    <p class="pop-line outbound-help">${L`地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。`}</p>
+    ${s.error === 'SourceChanged' ? html`<p class="pop-line pop-why" role="status">${reason}</p>` : ''}
+    <div class="pop-foot outbound-directions" role="group" aria-label="${L`一歩進む方向`}">${DIR_TEXT.map((name, direction) => html`<button type="button" class="btn small" data-act="outbound-step" data-direction="${direction}" ${raw(!source || directions.length >= 32 ? 'aria-disabled="true"' : '')}>${name()}</button>`)}</div>
+    <div class="pop-foot"><span>${directions.length}/32 · ${s.trace?.accountKeys.length ?? 0}/4 ${L`入る州`}</span>
+      <button type="button" class="btn small" data-act="outbound-undo" ${raw(!directions.length ? 'aria-disabled="true"' : '')}>${L`一歩戻す`}</button>
+      <button type="button" class="btn small" data-act="outbound-reset">${L`道を消す`}</button></div>
+    ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
+    <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
+      <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
+    ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
+    ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
+    ${outboundLocalDepart(FS, !!review && s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)}
+    ${localRevealStrip(FS)}
+    <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
+    <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>
+    <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>
+    ${source ? html`<p class="pop-line">${L`観測した出発点`}: ${source.origin.p},${source.origin.q} · ${L`マス`} ${source.origin.tile}</p>` : ''}
+    ${directions.length ? html`<svg role="img" aria-label="${L`出発点からの相対的な道の形`}" viewBox="${left} ${top} ${width} ${height}" width="100%" height="96"><polyline points="${points.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="currentColor" stroke-width="0.12"/><circle cx="0" cy="0" r="0.2" fill="currentColor"/><circle cx="${points.at(-1).x}" cy="${points.at(-1).y}" r="0.25" fill="none" stroke="currentColor" stroke-width="0.1"/></svg>
+      <p class="pop-line">${directions.map(d => DIR_TEXT[d]()).join(' → ')}</p>` : ''}
+    <div class="pop-line"><label>${L`到着ターンの候補`} <input type="text" inputmode="numeric" autocomplete="off" maxlength="10" data-bind="outbound-arriveBell" value="${s.arriveBell ?? ''}"></label></div>
+    <div class="pop-line"><label>${L`構え`} <select data-bind="outbound-stance">${choices.stances.map(x => html`<option value="${x.value}" ${raw(s.stance === x.value ? 'selected' : '')}>${x.text}</option>`)}</select></label></div>
+    <div class="pop-line"><label>${L`撤退`} <select data-bind="outbound-retreat">${choices.retreat.map(x => html`<option value="${x.id}" ${raw(s.retreat === x.id ? 'selected' : '')}>${x.text}</option>`)}</select></label>
+      ${s.retreat === 'custom' ? html`<label>${L`倍率`} <input type="text" inputmode="decimal" maxlength="12" data-bind="outbound-ratio" value="${s.ratio ?? ''}"></label>` : ''}</div>
+    <div class="pop-line"><label>${L`チップの候補`} <select data-bind="outbound-tip">${choices.tips.map(x => html`<option value="${x.id}" ${raw(s.tip === x.id ? 'selected' : '')}>${x.text} · ${x.lamports.toString()} lamports</option>`)}</select></label></div>
+    <div aria-live="polite">${reason && s.error !== 'SourceChanged' ? html`<p class="pop-line pop-why">${reason}${!['ChooseSteps', 'WideDestinationRequired', 'ArrivalRequired'].includes(s.error) ? ` (${s.error})` : ''}</p>` : ''}
+    ${review ? html`<p class="pop-line">${L`136 バイトの平文案です。封印・署名・送信は行っていません。`}</p>
+      <details><summary>${L`平文の全バイトを確認`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${review.plainHex}</p></details>
+      <details><summary>${L`出発点・軍勢・州の識別子`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${L`軍勢: ${review.host}`}</p>
+        <p class="pop-line" style="overflow-wrap:anywhere">${L`所有者`}: ${source.original_owner}</p>
+        <ol>${review.accountKeys.map(key => html`<li style="overflow-wrap:anywhere">${key}</li>`)}</ol></details>
+      ${review.roles ? html`<p class="pop-line">${L`観測した空き行軍枠の候補`}: ${review.transitSlot} · ${L`現在も使えるとは確認できていません。`}</p><details><summary>${L`実行できない役割案`}</summary><ul>${review.roles.map(r => html`<li style="overflow-wrap:anywhere">${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : html`<p class="pop-line pop-why">${L`正規の役割案はまだ利用できません。`}</p>`}
+      <p class="pop-line pop-why">${L`土地と時刻の一貫した記録、出発条件、到着可能時刻、署名者の承認を確認する必要があります。公開実行は閉じています。`}</p>` : ''}</div>
+    <p class="pop-line pop-rule">${L`封印・署名・送信はすべて無効です。地図・行軍記録・通常の行軍案は変更しません。`}</p></details>`;
+}
+
+/** The entered coordinate is an inspection query, never a destination or a claimed current location. */
+function expeditionPop(FS, model) {
+  const state = FS.expeditionPreview ?? {}, report = state.report, source = report?.source;
+  let returning = null, returnError = false;
+  if (report && state.request) {
+    try { returning = originalReturnModel(report, state.request); } catch { returnError = true; }
+  }
+  const unavailable = FS.resident ? L`NFT の軍勢はこの確認に対応していません。` : !FS.wallet?.address ? L`接続したウォレットが必要です。` : FS.meStatus !== 'ready' ? L`自分の記録を読み込んでから確認してください。` : null;
+  return html`${popHead(L`この軍勢を P,Q で確認`)}
+    <p class="pop-line">${L`読み取り専用です。P,Q は確認する場所であり、行き先でも現在地の証明でもありません。`}</p>
+    ${model.kind === 'village' ? html`<p class="pop-line">${L`この村が発行した軍勢の番号を入力してください。番号 0 も有効です。これは現在地や生存の証明ではありません。`}</p>
+      <label class="pop-line">${L`軍勢の発行番号`} <input type="text" inputmode="numeric" autocomplete="off" maxlength="10" data-bind="expedition-sequence" value="${state.sequence ?? ''}"></label>` : html`<p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>`}
+    <div class="pop-line"><label>P <input type="text" inputmode="text" autocomplete="off" maxlength="20" data-bind="expedition-p" value="${state.p ?? ''}" aria-label="P"></label>
+      <label>Q <input type="text" inputmode="text" autocomplete="off" maxlength="20" data-bind="expedition-q" value="${state.q ?? ''}" aria-label="Q"></label></div>
+    <p class="pop-line">${L`リング 128 より外の整数を、先頭のゼロや空白なしで入力してください。`}</p>
+    <p class="pop-line">${L`接続したウォレットを支払者の候補として表示するだけです。署名・支払い・送信は行いません。`}</p>
+    <div class="pop-foot"><button type="button" class="btn primary" data-act="expedition-inspect" ${raw(unavailable ? 'aria-disabled="true"' : '')}>${state.status === 'loading' ? L`もう一度確認` : L`確認する`}</button></div>
+    ${unavailable ? html`<p class="pop-line pop-why">${unavailable}</p>` : ''}
+    <div aria-live="polite">${state.status === 'loading' ? html`<p class="pop-line">${L`読み取り中…`}</p>` : ''}
+      ${state.error ? html`<p class="pop-line pop-why">${L`確認できません`}: ${state.error}</p>` : ''}
+      ${report ? html`<p class="pop-line">${L`確認結果`}: ${report.status} · ${report.stage}</p>
+        ${report.blocker ? html`<p class="pop-line pop-why">${report.blocker.code}</p>` : ''}
+        <p class="pop-line">${L`観測のスロット`}: ${source.context_slot ?? '?'} · ${L`鮮度は不明です。権限や完了を証明する結果ではありません。`}</p>
+        ${returnError ? html`<p class="pop-line pop-why">${L`帰還の手順を確認できませんでした。もう一度読み取ってください。`}</p>` : ''}
+        ${returning ? returnCard(returning) : ''}
+        ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
+        ${localReturnBlock(FS, returning)}
+        ${localConquestBlock(FS, returning)}
+        ${returning?.proposal && !FS.localPlay && state.request.deployment.program_version === '18436' ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
+          <p class="pop-line"><strong>${L`実験用の準備確認`}</strong></p>
+          <p class="pop-line">${L`署名前の内容を取り直して確認します。署名・支払い・送信は行いません。`}</p>
+          <button type="button" class="btn" data-act="expedition-prepare" ${raw(state.preparation?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`署名前の準備内容を確認`}</button>
+          ${state.preparation?.status === 'loading' ? html`<p class="pop-line">${L`読み取り中…`}</p>` : ''}
+          ${state.preparation?.error ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.error}</p>` : ''}
+          ${state.preparation?.report?.blocker ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.report.blocker.code}</p>` : ''}
+          ${state.preparation?.report?.prepared ? preparationDetails(state.preparation.report) : ''}
+        </section>` : ''}
+        ${report.draft_blocker ? html`<p class="pop-line">${report.draft_blocker}</p>` : ''}` : ''}</div>
+    <p class="pop-line pop-rule">${L`公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。`}</p>`;
+}
+
+/**
+ * Local play only (FS.localPlay; flocalplay-return.mjs): the two player-signed steps of the return, on the return
+ * card. The step offered is the one the card's own observation names (`returning.proposal`), never a choice here.
+ * Two presses: 準備 (nothing is signed; what would be signed is then shown) and 署名して送る. What it says at the end is
+ * only that this step's transaction is recorded: after the first step the turn still has to be processed, and the
+ * reserve is only ever shown by the card's next read. An outcome that is not known is said as not known, with the
+ * one thing that may be done (ask again); never sent a second time.
+ */
+function localReturnBlock(FS, returning) {
+  if (!FS.localPlay) return '';
+  const d = localReturnOf(FS), offered = returning?.proposal?.action ?? null;
+  if (d.status === 'idle' && !offered) return '';
+  const name = a => (a === 'Dissolve' ? L`広域で解散を指示` : a === 'Return' ? L`元の村の予備兵に戻す` : '?');
+  const sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '', dig = d.digest ? `${d.digest.slice(0, 12)}…` : '';
+  const step = { preparing: L`署名前の内容を用意して確かめています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
+  const line = step ? html`<p class="pop-line local-return-step" role="status">${step}</p>`
+    : d.status === 'prepared' ? html`<p class="pop-line local-return-prepared" role="status">${L`署名する内容を確かめました：${name(d.action)}（メッセージ ${dig}・有効期限のブロック高 ${d.lastValidBlockHeight}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。`}</p>
+        ${d.action === 'Return' && d.returnUnits !== null ? html`<p class="pop-line">${L`予備兵に戻す人数の候補: ${fmtNum(d.returnUnits)}人`}</p>` : ''}`
+    : d.status === 'confirmed' ? html`<p class="pop-line local-return-done" role="status">${d.action === 'Dissolve'
+        ? L`解散の指示が記録されました。ターンの処理が済むまで待ち、もう一度読み取ってください。帰還はまだ終わっていません。`
+        : L`予備兵に戻す取引が記録されました。もう一度読み取って、予備兵の人数を確認してください。`} <span>${L`署名 ${sig}`}</span></p>`
+    : d.status === 'submitted' ? html`<p class="pop-line local-return-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'unknown' ? html`<p class="pop-line local-return-unknown" role="alert">${L`結果を確認できませんでした。この手順が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'expired' ? html`<p class="pop-line local-return-expired" role="status">${L`この操作は反映されませんでした。送った取引は有効期限を過ぎ、記録されていません。署名 ${sig}`}</p>`
+    : d.status === 'failed' ? html`<p class="pop-line local-return-failed" role="alert">${L`この手順の取引は失敗しました（理由 ${d.code ?? '?'}）。何も変わっていません。署名 ${sig}`}</p>`
+    : d.status === 'error' ? html`<p class="pop-line local-return-error" role="alert">${L`この手順を進められませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  const settle = d.status === 'unknown' || d.status === 'submitted', spent = localReturnSpent(FS), other = hostStepInFlight(FS, 'return') !== null, off = d.busy || other ? 'aria-disabled="true"' : '';
+  // (one step at a time for this host: while a siege is being sent or its outcome is not known, no return step)
+  const prepare = label => html`<button type="button" class="btn small" data-act="local-return-prepare" ${raw(d.busy || !offered || spent || other ? 'aria-disabled="true"' : '')}>${label}</button>`;
+  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-return-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
+    : d.status === 'prepared' ? html`<button type="button" class="btn primary" data-act="local-return-send" ${raw(off)}>${L`署名して送る（ローカルプレイ）`}</button>${prepare(L`準備し直す`)}`
+    : prepare(d.busy ? L`確かめています…` : offered ? L`「${name(offered)}」を準備する（ローカルプレイ）` : L`準備し直す`);
+  return html`<section class="expedition-local-return" data-local-return="${d.status}" aria-label="${L`ローカルプレイ：帰還の手順を送る`}">
+    <p class="pop-line">${L`ローカルプレイ：帰還の手順を、このページのテスト用ウォレットの署名で一つずつ送ります（このマシンの試験用の世界だけ）。まず準備して内容を確かめ、次に自分で送ります。`}</p>
+    ${line}
+    <div class="pop-foot">${buttons}
+      ${other ? html`<span>${L`この軍勢の別の手順を送っているか、その結果がまだ分かっていません。先にそちらを照合してください。`}</span>`
+        : spent && !d.busy && !settle ? html`<span>${L`この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。`}</span>` : ''}</div></section>`;
+}
+
+/**
+ * Local play only (FS.localPlay; flocalplay-conquest.mjs): the siege of the Free City in the province the host stays
+ * in, on the expedition card. Offered only while the card's observation says the host STAYS (the `resident` phase)
+ * and this start carries a world capability (`FS.localPlay.conquestWorld`); without one the card says, in one line,
+ * that this test world has no city to besiege, and offers nothing to press. (The same signed message lands as a
+ * reservation or, when the province is already resolved through the turn, as an immediate declaration: the program
+ * decides at execution. So `confirmed` says only that the transaction is recorded, never which of the two it became
+ * and never that the siege has not started — that is for a read of the table, which does not exist yet.) Two presses: 準備 (nothing is signed; what
+ * would be signed is shown) and 署名して送る.
+ *
+ * What the signed step is (decision B, 2026-11-12): a RESERVATION of a siege. It becomes a siege only if its
+ * conditions hold when its turn is processed; it cannot be cancelled; if it does not start, the deposit and the
+ * holding slot come back and the day's declaration count stays used; of several reservations on one city the first
+ * that meets the conditions becomes the siege. The block says so BEFORE the first press. At the end it says only that
+ * the reservation's transaction is recorded: whether the siege started, its result and any capture are for a later
+ * read to show (`order`, fconquest-order.mjs; none is read today), and staying here is not owning the city.
+ */
+function localConquestBlock(FS, returning) {
+  // (what became of a reservation is only ever a fact of the read-only reservation read, made on the player's own press:
+  //  flocalplay-conquest.mjs `readLocalConquestOrders`. It shows a reservation still waiting, or one that did not take
+  //  effect with what is still owed — and nothing for a record that is gone)
+  // (the step's own lines belong to the host and the identity it was prepared for: on another host's card, or after
+  //  the wallet / Season / program changed, they are not drawn; if such a step is still unsettled the card says so)
+  const shown = localConquestShown(FS);
+  return localConquestView(FS, returning, { state: shown.state, foreign: shown.foreign, spent: localConquestSpent(FS), other: hostStepInFlight(FS, 'conquest') !== null,
+    // (both for THIS start's city: a read of another province is no evidence about it — not its orders, not "no reservation")
+    order: localConquestOrderFor(FS, FS.localPlay?.conquestWorld ?? null), read: localConquestReadFor(FS, FS.localPlay?.conquestWorld ?? null),
+    city: localConquestCityFor(FS, FS.localPlay?.conquestWorld ?? null) });
+}
+/**
+ * The lines for one reserved siege, from the card's model of it (fconquest-order.mjs `siegeOrderModel`), or '' for
+ * none. A model that could not be made (`{ok: false}`) is said as unreadable: never as a success or a failure. What
+ * came back is said only as a fact of the model ("returned"), otherwise as still waiting; a capture is said only by
+ * the `captured` phase, which the model gives for the three capture facts together and nothing less.
+ */
+export function siegeOrderView(order) {
+  if (order === null || order === undefined) return '';
+  if (order.ok !== true) return html`<p class="pop-line pop-why local-conquest-order" data-siege-order="unreadable" role="status">${L`包囲の予約の状態を読み取れませんでした。成立したとも、しなかったとも表示しません。`} (${order.code ?? '?'})</p>`;
+  const o = order;
+  const reason = { HostGone: L`軍勢がもういません`, HostNotOnTile: L`軍勢が自由都市のマスにいません`, HostNotLeading: L`軍勢がそのマスの先頭ではありません`, CityNotFree: L`都市はもう自由都市ではありません`,
+    AnotherOrderApplied: L`先に条件を満たした別の予約が包囲になりました`, NoHoldingSlot: L`拠点の使用枠が空いていません`, TooLate: L`シーズンの終わりまでに包囲が終わりません` }[o.reason] ?? o.reason;
+  const failed = o.phase === 'not_applied';
+  // (a reservation that did not start: the slot with its rent, and the deposited resources, come back separately. A
+  //  deposit still held is OWED back, kept as a debt; with the slot already released that is said in so many words,
+  //  and it is not a finished settlement)
+  // (a deposit owed to a Holding that no longer exists stays owed: where it goes instead is not decided, and that is what is said)
+  const stake = failed && o.stake === 'held' && o.source === 'absent' ? L`預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、まだ結果を受け取っていません。いつ、どこへ戻るかはまだ決まっていません。`
+    : failed ? { held: L`預けた資源：返却待ちです。返却の債務として残っており、まだ結果を受け取っていません。`, returned: L`預けた資源：戻りました。` }[o.stake]
+    : { held: L`預けた資源：返却の処理待ちです。`, returned: L`預けた資源：戻りました。`, burnt: L`預けた資源：戻りません。` }[o.stake];
+  const slot = failed ? { held: L`使用枠と預り金：解放待ちです。`, released: L`使用枠と預り金：解放済みです。` }[o.slot]
+    : { held: L`使用枠：返却の処理待ちです。`, released: L`使用枠：戻りました。`, used: L`使用枠：新しい拠点が使っています。` }[o.slot];
+  const head = o.phase === 'ordered' ? L`包囲の予約：ターン ${o.orderBell} の処理を待っています（場所 ${o.site}）。まだ包囲は始まっていません。取り消しはできません。`
+    : o.phase === 'started' ? L`包囲が始まりました（ターン ${o.decidedBell}・場所 ${o.site}）。勝敗と占領は、このあとのターンの処理で決まります。都市はまだあなたのものではありません。`
+    // (no cause is stored for this: a general sentence, never a specific cause stated as fact. How it ended is said only
+    //  on a basis: `lapsed` false = its own turn was processed; true = the season ended or was interrupted; null = not known)
+    : failed && o.lapsed === false ? L`包囲は始まりませんでした（ターン ${o.decidedBell}・場所 ${o.site}）。予約したターンの処理のときに条件を満たさなかったか、先の予約が包囲になりました。今日の宣言回数は1回使われたままです。`
+    : failed && o.lapsed === true ? L`包囲は始まりませんでした（場所 ${o.site}）。シーズンの終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。`
+    : failed ? L`包囲は始まりませんでした（場所 ${o.site}）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。`
+    : o.phase === 'captured' ? L`自由都市を占領しました（場所 ${o.site}・ターン ${o.decidedBell}）。占領の記録、新しい拠点、使用枠を確認しました。`
+    : o.phase === 'lost' ? L`包囲は失敗しました（場所 ${o.site}・ターン ${o.decidedBell}）。都市は占領していません。`
+    : L`包囲は決着しないまま終わりました（場所 ${o.site}・ターン ${o.decidedBell}）。都市は占領していません。`;
+  // (while reserved or under way the deposit and the slot are simply held: said once, in the block's first line, not as "waiting to be returned")
+  const owed = o.phase === 'ordered' || o.phase === 'started' ? '' : html`<p class="pop-line" data-siege-return="stake">${stake}</p><p class="pop-line" data-siege-return="slot">${slot}</p>${failed && !o.settled
+    // (nothing here promises that what is owed comes back by itself: a settlement has to be run, and no runner is promised)
+    ? html`<p class="pop-line" data-siege-return="note">${L`返却と解放は、包囲の結果を受け取ったときに反映されます。自動で行われるとは限りません。`}</p>` : ''}`;   // (two facts, two lines)
+  return html`<div class="local-conquest-order" data-siege-order="${o.phase}" data-siege-settled="${o.settled ? 'yes' : 'no'}" role="status">
+    <p class="pop-line"><strong>${head}</strong></p>${owed}
+    ${failed && o.reason !== null ? html`<p class="pop-line" data-siege-reason="derived">${L`状態から導出した理由（記録された理由ではありません）：${reason}`}</p>` : ''}
+    ${o.day ? html`<p class="pop-line">${L`今日の宣言回数：${o.day.used} / ${o.day.limit}`}</p>` : ''}</div>`;
+}
+/**
+ * The block's markup for a given state: what `localConquestBlock` shows for the page's live state, and what a
+ * fixture page shows for a state written by hand (no signing, no send: the keyless display of every outcome).
+ * `view`: `{state, spent, other}` as flocalplay-conquest.mjs / flocalplay-hoststep.mjs give them, and `order`: the
+ * card's model of this host's reserved siege (`siegeOrderView`), or null; and `read`: the reservation read's state
+ * (its button and what it said), or null for none.
+ */
+/**
+ * The line for the city's PRESENT state (fconquest-order.mjs `cityStateModel`; null → ''). Present facts only: a siege
+ * says its own progress of its own requirement; a capture due says the turn it is due from; "yours now" says that the
+ * wallet's Citizen holds a Holding there now, and nothing of how it came to (no "captured", no "won"); a slot owed
+ * says only that; another player's is said by its kind, without their numbers.
+ */
+export function cityStateView(city) {
+  if (city === null || city === undefined) return '';
+  const c = city;
+  const text = c.state === 'siege' ? L`あなたの包囲が進行中です：${c.progress} / ${c.required} ターン（宣言はターン ${c.declaredBell}・場所 ${c.site}）。都市はまだあなたのものではありません。`
+    : c.state === 'capture_due' ? L`あなたの包囲は必要なターンを満たし、占領の結果を受け取るのを待っています（ターン ${c.dueBell} 以降・宣言はターン ${c.declaredBell}・場所 ${c.site}）。都市はまだあなたのものではありません。`
+    : c.state === 'owned' ? L`この都市はいま、あなたが所有しています（場所 ${c.site}・拠点の枠 ${c.slot}）。いま所有しているという事実だけを表示しています。`
+    : c.state === 'slot_owed' ? L`この都市へのあなたの包囲は、いまは進行していません。拠点の使用枠 ${c.slot} は解放待ちです（場所 ${c.site}）。`
+    : c.what === 'siege' ? L`この都市では、別のプレイヤーの包囲が進行中です。`
+    : c.what === 'capture_due' ? L`この都市では、別のプレイヤーの包囲が占領の結果を待っています。`
+    : c.what === 'holding' ? L`この都市はいま、別のプレイヤーが所有しています。`
+    : L`この都市には、別のプレイヤーの包囲に関する記録があります。`;
+  return html`<p class="pop-line local-conquest-city" data-siege-city="${c.state}" role="status"><strong>${text}</strong></p>`;
+}
+export function localConquestView(FS, returning, { state: d, spent, other, order = null, read = null, city = null, foreign = false }) {
+  if (!FS.localPlay) return '';
+  const staying = returning?.phase === 'resident', orderLines = siegeOrderView(order);
+  // (a host that no longer stays is offered nothing; what became of its reservation is still said)
+  // The reservation read (`read`: flocalplay-conquest.mjs `localConquestReadFor`, or null where there is none — a
+  // fixture): one button, the player's own press, and what the read said. "No record" is said as exactly that: a
+  // record that is gone does not tell whether a siege started, a return completed, or nothing was reserved.
+  // (the city's present state stands with the order's lines: what is there now, beside what the record says)
+  const cityLines = cityStateView(city);
+  const readLines = read === null || !FS.localPlay.conquestWorld ? '' : html`<div class="local-conquest-read" data-siege-read="${read.status}">
+    ${read.status === 'reading' ? html`<p class="pop-line" role="status">${L`予約の状態を読み取っています…`}</p>`
+      : read.status === 'error' ? html`<p class="pop-line pop-why" role="alert">${read.error === 'ConquestRouteClosed' ? L`包囲の経路はまだ閉じています（試験用の世界での確認が済んでいません）。` : L`予約の状態を読めませんでした。`} (${read.error ?? '?'}) ${L`予約の状態は分かりません。`}</p>`
+      : read.status === 'read' && !orderLines && !cityLines ? html`<p class="pop-line" role="status">${L`この州の記録に、この都市へのあなたの予約はいまありません（読み取りのスロット ${read.contextSlot}）。記録がないことだけでは、包囲が始まったのか、返却が済んだのか、予約がなかったのかは分かりません。`}</p>`
+      : read.status === 'read' ? html`<p class="pop-line">${L`読み取りのスロット ${read.contextSlot}。記録にある事実だけを表示しています。`}</p>` : ''}
+    <div class="pop-foot"><button type="button" class="btn small" data-act="local-conquest-orders" ${raw(read.busy ? 'aria-disabled="true"' : '')}>${read.busy ? L`読み取り中…` : L`包囲予約の状態を読む（ローカルプレイ）`}</button></div></div>`;
+  if (d.status === 'idle' && !staying) return orderLines || cityLines || readLines ? html`<section class="expedition-local-conquest" data-local-conquest="order-only" aria-label="${L`ローカルプレイ：自由都市を包囲する`}">${orderLines}${cityLines}${readLines}</section>` : '';
+  const world = FS.localPlay.conquestWorld ?? null;
+  if (d.status === 'idle' && !world) return html`<section class="expedition-local-conquest" data-local-conquest="unavailable"><p class="pop-line pop-why">${L`ローカルプレイ：この試験用の世界には、包囲できる自由都市がまだありません。包囲は使えません。`}</p></section>`;
+  const sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '', dig = d.digest ? `${d.digest.slice(0, 12)}…` : '';
+  const step = { preparing: L`署名前の内容を用意して確かめています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
+  const why = { ConquestRouteClosed: L`包囲の経路はまだ閉じています（試験用の世界での確認が済んでいません）。`, ConquestWorldUnavailable: L`この試験用の世界には、包囲できる自由都市がまだありません。`,
+    ConquestNoFreeCityHere: L`この軍勢がいる州には、包囲できる自由都市がありません。`, ConquestHostNotStaying: L`この軍勢は、いま滞在中ではありません。`,
+    TargetNotFreeCity: L`対象は自由都市ではありません。`, HostNotOnTarget: L`この軍勢は自由都市のマスにいません。`, SiegeUnavailable: L`いまは包囲を予約できません。`,
+    ConquestCityHeld: L`この都市はすでに所有されています。包囲の予約は送れません。` }[d.error] ?? null;
+  const line = step ? html`<p class="pop-line local-conquest-step" role="status">${step}</p>`
+    : d.status === 'prepared' ? html`<p class="pop-line local-conquest-prepared" role="status">${L`署名する内容を確かめました：自由都市の包囲を予約（州 ${d.standing?.p ?? '?'}, ${d.standing?.q ?? '?'}・場所 ${d.site}・メッセージ ${dig}・有効期限のブロック高 ${d.lastValidBlockHeight}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。`}</p>
+        <p class="pop-line pop-why">${L`送ると取り消せません。包囲が始まらなくても、今日の宣言回数は1回使われます。`}</p>`
+    : d.status === 'confirmed' ? html`<p class="pop-line local-conquest-done" role="status">${L`取引が記録されました。予約として受け付けられたのか、すでに包囲として始まったのかは、まだ確認できていません。占領もまだ分かりません。受け付けられた予約は取り消せません。`} <span>${L`署名 ${sig}`}</span></p>`
+    : d.status === 'submitted' ? html`<p class="pop-line local-conquest-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'unknown' ? html`<p class="pop-line local-conquest-unknown" role="alert">${L`結果を確認できませんでした。この取引が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${d.chain === null ? L`（送信の応答を確認できませんでした：${d.error}）` : L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'expired' ? html`<p class="pop-line local-conquest-expired" role="status">${L`この操作は反映されませんでした。送った取引は有効期限を過ぎ、記録されていません。署名 ${sig}`}</p>`
+    : d.status === 'failed' ? html`<p class="pop-line local-conquest-failed" role="alert">${L`包囲を予約する取引は失敗しました（理由 ${d.code ?? '?'}）。何も変わっていません。署名 ${sig}`}</p>`
+    : d.status === 'error' ? html`<p class="pop-line local-conquest-error" role="alert">${why ?? L`包囲を予約できませんでした。`} (${d.error ?? '?'}) ${d.sent ? '' : L`何も送っていません。`}</p>` : '';
+  const settle = d.status === 'unknown' || d.status === 'submitted', off = d.busy || other ? 'aria-disabled="true"' : '';
+  // (one step at a time for this host: while a return step is being sent or its outcome is not known, no siege)
+  // (a city the read has shown to be HELD — by this wallet or by another player — is not offered a reservation: the
+  //  button is not drawn at all. A display choice only: it withholds an action the program would refuse; no rule is
+  //  decided here. The read button stays, so the present state can be read again)
+  const heldCity = city !== null && (city.state === 'owned' || (city.state === 'other' && city.what === 'holding'));
+  // (`foreign`: a siege step of ANOTHER host or identity is still running or unsettled — nothing is prepared here until it is settled on its own card)
+  const prepare = label => (heldCity ? '' : html`<button type="button" class="btn small" data-act="local-conquest-prepare" ${raw(d.busy || !staying || !world || spent || other || foreign ? 'aria-disabled="true"' : '')}>${label}</button>`);
+  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-conquest-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
+    // (a message prepared BEFORE the read showed the city held is not offered for signing either: no send button, and the module refuses it too)
+    : d.status === 'prepared' && heldCity ? html`<span role="status">${L`この都市はすでに所有されています。包囲の予約は送れません。`}</span>`
+    : d.status === 'prepared' ? html`<button type="button" class="btn primary" data-act="local-conquest-send" ${raw(off)}>${L`署名して送る（ローカルプレイ）`}</button>${prepare(L`準備し直す`)}`
+    // (while the wallet signs or the relay is asked, the line above says what is happening: no button stands there with another word on it)
+    : d.status === 'signing' || d.status === 'submitting' ? ''
+    : prepare(d.busy ? L`確かめています…` : L`自由都市の包囲予約を準備する（ローカルプレイ）`);
+  return html`<section class="expedition-local-conquest" data-local-conquest="${d.status}" aria-label="${L`ローカルプレイ：自由都市を包囲する`}">
+    <p class="pop-line">${L`ローカルプレイ：この州の自由都市への包囲を予約します（このマシンの試験用の世界だけ）。滞在しているだけでは、都市はあなたのものではありません。まず準備して内容を確かめ、次に自分で送ります。`}</p>
+    <ul class="local-conquest-rules">
+      <li>${L`予約は、予約したターンの処理のときに条件を満たしていれば包囲として始まります。資源を預け、拠点の使用枠を1つ押さえます。`}</li>
+      <li>${L`予約は取り消せません。`}</li>
+      <li>${L`包囲が始まらなかった場合、預けた資源と使用枠は戻りますが、今日の宣言回数は1回使われたままです。`} ${L`戻るのは包囲の結果を受け取ったときで、それまでは「返却待ち」と表示します。`}</li>
+      <li>${L`同じ都市に複数の予約がある場合、処理のときに条件を満たす最初の予約だけが包囲になります。`}</li>
+    </ul>
+    ${orderLines}
+    ${cityLines}
+    ${readLines}
+    ${line}
+    <div class="pop-foot">${buttons}
+      ${other ? html`<span>${L`この軍勢の別の手順を送っているか、その結果がまだ分かっていません。先にそちらを照合してください。`}</span>`
+        : foreign ? html`<span role="status">${L`別の軍勢またはウォレットで送った包囲の結果が、まだ確定していません。その軍勢のカードで結果を照合してください。`}</span>`
+        : spent && !d.busy && !settle ? html`<span>${L`この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。`}</span>` : ''}</div></section>`;
+}
+
+/** Public bytes only, deliberately no acceptance or wallet/send control. */
+function preparationDetails(report) {
+  const p = report.prepared, b = report.blockhash;
+  return html`<p class="pop-line"><strong>${L`署名前の内容を照合しました`}</strong></p>
+    <p class="pop-line pop-why">${L`実験用の未署名データです。実行できることや帰還の完了を確認した結果ではありません。`}</p>
+    <p class="pop-line">${L`今回の記録のスロット`}: ${report.source.context_slot} · ${L`有効期限の観測時点で残るブロック高`}: ${b.remaining_block_heights}</p>
+    <p class="pop-line">${L`有効期限は時間とともに変わります。必要なときに取り直してください。`}</p>
+    <details><summary>${L`準備内容の詳細`}</summary>
+      <p class="pop-line">${p.action} · ${p.shape.bytes} bytes · ${p.shape.locks} accounts · ${p.shape.sigs} signers</p>
+      <p class="pop-line">CU: ${p.budget.cu_limit} · CU price: ${p.budget.cu_price} · loaded bytes: ${p.budget.loaded_limit}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Fee payer: ${p.fee_payer}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Blockhash: ${b.hash}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Selected snapshot: ${report.request.source_snapshot_digest}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Fresh snapshot: ${report.source.digest}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Message SHA-256: ${p.message_digest}</p>
+      <ul>${p.roles.map(r => html`<li style="overflow-wrap:anywhere">${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul>
+    </details>`;
 }
 
 /** The tiles a new host may form up on: every passable tile of the village's own province with room for a host (six to a tile). */

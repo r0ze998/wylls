@@ -132,9 +132,9 @@ export class Custody {
    * Inner (CPI) instructions and address-lookup-table accounts are not read: such a transaction is
    * not credited. One signature is credited once, ever (the ledger).
    */
-  async verifyDeposit(signature, owner) {
-    const tx = await this.connection.getTransaction(signature, { commitment: this.commitment, maxSupportedTransactionVersion: 0 });
-    if (!tx) throw new AgentError(ERR.DEPOSIT_PENDING, 'the deposit transaction is not confirmed yet; try again shortly', 409);
+  async verifyDeposit(signature, owner, { commitment = this.commitment } = {}) {
+    const tx = await this.connection.getTransaction(signature, { commitment, maxSupportedTransactionVersion: 0 });
+    if (!tx) throw new AgentError(ERR.DEPOSIT_PENDING, 'the deposit transaction is not available at the required commitment yet; try again shortly', 409);
     if (!tx.meta) throw new AgentError(ERR.DEPOSIT_PENDING, 'the deposit transaction has no result metadata yet; try again shortly', 409);
     if (tx.meta.err !== null && tx.meta.err !== undefined) throw new AgentError(ERR.DEPOSIT_INVALID, 'the deposit transaction failed on chain');
     const msg = tx.transaction.message;

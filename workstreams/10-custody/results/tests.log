@@ -1,0 +1,78 @@
+== tests
+     Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/release/deps/wylls_custody-c1ec0600f4f81609)
+test layout::tests::a_lot_round_trips ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/abuse.rs (/home/user/wylls/permutation-chain/target/release/deps/abuse-2c36d31173756336)
+test a_custody_caravan_settles_only_into_the_owners_lot ... ok
+test a_user_consumes_within_its_order_only ... ok
+test a_carrier_moves_only_what_and_where_it_was_allowed ... ok
+test a_session_key_moves_goods_only_home_and_may_revoke ... ok
+test an_expired_order_lapses_and_cannot_be_spent ... ok
+test concurrent_deposits_cannot_overfill_a_lot ... ok
+test opening_needs_the_custodians_wallet_and_another_owner_and_ore ... ok
+test concurrent_requests_serialise_either_way ... ok
+test replayed_requests_are_stale ... ok
+test the_custodians_deliveries_cannot_eat_the_lots_room ... ok
+test the_custodian_cannot_use_spend_sell_or_relend_the_lot ... ok
+test the_same_goods_cannot_be_promised_twice ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/capacity.rs (/home/user/wylls/permutation-chain/target/release/deps/capacity-63b84501f985aa17)
+test a_resent_departure_does_not_reserve_twice ... ok
+test an_open_raid_blocks_settlement_until_it_is_settled ... ok
+test draining_leaves_no_reservation ... ok
+test ordinary_deliveries_cannot_take_reserved_room_in_either_order ... ok
+test the_destination_cannot_close_shrink_or_relend_reserved_room ... ok
+test every_reservation_ends_exactly_once ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/continuity.rs (/home/user/wylls/permutation-chain/target/release/deps/continuity-c5520e6306305458)
+test caravan_slot_ids_repeat_after_65536_sends ... ok
+test a_boundary_does_not_settle_a_pending_forfeiture ... ok
+test orders_expire_on_their_own_bells_not_at_boundaries ... ok
+test running_totals_refuse_rather_than_wrap ... ok
+test a_boundary_anywhere_changes_nothing ... ok
+test a_long_run_keeps_custody_state_bounded ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.22s
+     Running tests/failures.rs (/home/user/wylls/permutation-chain/target/release/deps/failures-4707edb94481bdf7)
+test a_burned_custody_caravan_settles_empty_and_logs_the_burn ... ok
+test a_taken_caravan_already_closed_is_reconciled_too ... ok
+test a_seized_vault_freezes_then_forfeits_its_lots ... ok
+test a_taken_custody_caravan_is_a_confirmed_loss_to_the_raider ... ok
+test an_order_to_a_seized_destination_cannot_be_used ... ok
+test a_destination_seized_on_the_way_is_a_recorded_loss ... ok
+test retaking_the_vault_does_not_revive_the_lot ... ok
+test any_party_leaving_mid_way_leaves_the_goods_the_owners ... ok
+test restart_and_resend_between_every_step ... ok
+test the_carrier_cannot_take_the_load_itself ... ok
+test tower_wear_is_a_logged_loss_at_departure ... ok
+test revoking_mid_flight_keeps_the_caravan_going_to_the_owners_lot ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/property.rs (/home/user/wylls/permutation-chain/target/release/deps/property-f4b7af0ccb75b523)
+test random_requests_keep_every_invariant ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+     Running tests/returns.rs (/home/user/wylls/permutation-chain/target/release/deps/returns-b2ec561f51337774)
+test a_frozen_lot_takes_nothing_back ... ok
+test a_return_is_whole_units_within_what_was_used_and_the_lots_room ... ok
+test a_return_un_consumes_and_does_not_count_the_goods_in_again ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+successful requests by kind: {
+    "drained runs": 300,
+    "forfeit": 102,
+    "op 0": 2130,
+    "op 1": 3290,
+    "op 10": 644,
+    "op 12": 213,
+    "op 14": 314,
+    "op 15": 12,
+    "op 2": 491,
+    "op 3": 922,
+    "op 4": 248,
+    "op 7": 234,
+    "op 8": 2495,
+    "op 9": 785,
+    "raid burn": 250,
+    "raid take": 250,
+    "reconcile raided": 292,
+    "ship by order": 52,
+    "ship by owner": 982,
+}

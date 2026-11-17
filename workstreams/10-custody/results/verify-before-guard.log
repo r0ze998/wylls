@@ -1,0 +1,13 @@
+test a_failed_custody_instruction_is_not_flagged ... ok
+test baselines_are_not_flagged ... ok
+test a_custody_season_is_never_a_pass ... FAILED
+test a_lot_account_in_a_season_without_custody_fails ... FAILED
+test a_landed_custody_instruction_in_a_season_without_custody_fails ... FAILED
+test custody_fields_in_a_vault_or_caravan_fail ... FAILED
+thread 'a_custody_season_is_never_a_pass' (4765) panicked at crates/verify/tests/custody.rs:150:5:
+thread 'a_lot_account_in_a_season_without_custody_fails' (4768) panicked at crates/verify/tests/custody.rs:111:5:
+thread 'a_landed_custody_instruction_in_a_season_without_custody_fails' (4767) panicked at crates/verify/tests/custody.rs:77:9:
+  left: Pass
+ right: Fail
+thread 'custody_fields_in_a_vault_or_caravan_fail' (4770) panicked at crates/verify/tests/custody.rs:136:9:
+test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s

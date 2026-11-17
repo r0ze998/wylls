@@ -1,0 +1,495 @@
+From 31b36ee3fa66843e711e4d8319765c8737ac0476 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 23:44:56 +0000
+Subject: [PATCH 5/9] Custody is another program: custody-preview build (V4
+ hash, version 5)
+
+The previous candidate dispatched the custody instructions in a binary
+that embeds RULESET_HASH_V3 and writes program_version 4. Now:
+
+- Default build (S1): RULESET_HASH_V3, version 4, rules 12; the custody
+  tags 0xC1-0xCB are BadData before any account is read, and the custody
+  amendments to SettleCaravan, settle_raid and CloseVault are compiled
+  out (behaviour of the 4cd901de S1 program; the .so is not compared).
+- Feature custody-preview: RULESET_HASH_V4 (2f430c06...fdf48635, pinned
+  in frontier-abi against ruleset_hash_v4), program_version 5, rules 13,
+  custody dispatched. Its prologue refuses every S1 season and the S1
+  program refuses every custody season (RulesetMismatch).
+- Marker PSF_CUSTODY_PREVIEW_BUILD: build-frontier.sh refuses it as a
+  deployable artefact, as it refuses the test builds.
+- Test: the vault stock writers are SendCaravan's debit, SettleCaravan's
+  clamped credit and custody's write-back; a new writer fails it (the
+  lots' room is reserved only while every writer keeps STORES +
+  CUSTODY_QUOTA <= CAP).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ frontier-abi/src/v2/presets.rs           | 38 ++++++++++-
+ permutation-frontier/Cargo.toml          |  6 ++
+ permutation-frontier/src/ix.rs           | 84 ++++++++++++++++++++++++
+ permutation-frontier/src/lib.rs          | 76 +++++++++++++++++----
+ permutation-frontier/src/markers.rs      |  6 +-
+ permutation-frontier/src/proc/caravan.rs | 15 +++--
+ permutation-frontier/src/proc/mod.rs     |  1 +
+ scripts/build-frontier.sh                | 15 +++--
+ 8 files changed, 213 insertions(+), 28 deletions(-)
+
+diff --git a/frontier-abi/src/v2/presets.rs b/frontier-abi/src/v2/presets.rs
+index 80a45574..7d3cb1d6 100644
+--- a/frontier-abi/src/v2/presets.rs
++++ b/frontier-abi/src/v2/presets.rs
+@@ -74,6 +74,14 @@ pub const PROGRAM_VERSION_V2: u16 = 3;
+ /// season as conquest (S1 keeps every MC rule); S1 behaviour is gated on
+ /// `>= PROGRAM_VERSION_S1`.
+ pub const PROGRAM_VERSION_S1: u16 = 4;
++/// `program_version` of an S1 season with custody (workstream 10, a
++/// preview: the `custody-preview` program build, never deployable as it
++/// stands). S1 behaviour stays gated on `>= PROGRAM_VERSION_S1`; custody on
++/// `>= PROGRAM_VERSION_CUSTODY`.
++pub const PROGRAM_VERSION_CUSTODY: u16 = 5;
++/// Rules version of S1 with custody (`RULES_VERSION_FRONTIER_V4` 13).
++pub const RULES_VERSION_CUSTODY: u16 = permutation_rules::frontier::RULES_VERSION_FRONTIER_V4;
++const _: () = assert!(PROGRAM_VERSION_CUSTODY > PROGRAM_VERSION_S1);
+ /// Rules version of the S1 kernels (`RULES_VERSION_FRONTIER` 11 → 12).
+ pub const RULES_VERSION_S1: u16 = permutation_rules::frontier::RULES_VERSION_FRONTIER_V3;
+ /// `conquest_version` of the block.
+@@ -124,6 +132,17 @@ pub const RULESET_HASH_V3: [u8; 32] = [
+     0x30, 0x75, 0x7a, 0xbb, 0x96, 0x9d, 0xf2, 0x90, 0x74, 0x5e, 0xae, 0x1e, 0x9a, 0xae, 0x42, 0x2d,
+ ];
+ 
++/// `RULESET_HASH_V4` (workstream 10, a preview): the hash the
++/// `custody-preview` program embeds, pinned by
++/// `ruleset_hash_v4_is_the_kernels` against
++/// `permutation_rules::frontier::ruleset_hash_v4`. It is not
++/// `RULESET_HASH_V3`: a custody program refuses every S1 season, and the S1
++/// program (which has no custody instructions) refuses every custody one.
++pub const RULESET_HASH_V4: [u8; 32] = [
++    0x2f, 0x43, 0x0c, 0x06, 0x2f, 0xbc, 0x2f, 0x12, 0xf5, 0x87, 0xec, 0xfd, 0x46, 0xc3, 0x8e, 0x57,
++    0x2f, 0x30, 0x3a, 0xa4, 0xcb, 0x6a, 0xbc, 0x6b, 0x3d, 0x78, 0x15, 0x47, 0xfd, 0xf4, 0x86, 0x35,
++];
++
+ /// The conquest block (§5.2.5).
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct ConquestParams {
+@@ -381,13 +400,15 @@ impl SeasonParamsV2 {
+         })
+     }
+ 
+-    /// M1's ranges, `program_version` 3 (MC) or 4 (S1, same parameters),
+-    /// the block's ranges and the dormancy timers agreeing in both parts.
+-    /// The program refuses a version other than its own.
++    /// M1's ranges, `program_version` 3 (MC), 4 (S1) or 5 (S1 with
++    /// custody, same parameters), the block's ranges and the dormancy timers
++    /// agreeing in both parts. The program refuses a version other than its
++    /// own.
+     pub fn validate(&self) -> Result<(), &'static str> {
+         self.base.validate()?;
+         if self.base.program_version != PROGRAM_VERSION_V2
+             && self.base.program_version != PROGRAM_VERSION_S1
++            && self.base.program_version != PROGRAM_VERSION_CUSTODY
+         {
+             return Err("program_version");
+         }
+@@ -608,6 +629,17 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn ruleset_hash_v4_is_the_kernels() {
++        assert_eq!(
++            RULESET_HASH_V4,
++            permutation_rules::frontier::ruleset_hash_v4(),
++            "the custody kernels changed: update RULESET_HASH_V4"
++        );
++        assert_ne!(RULESET_HASH_V4, RULESET_HASH_V3);
++        assert_eq!(RULES_VERSION_CUSTODY, 13);
++    }
++
+     #[test]
+     fn ruleset_hash_v3_is_the_kernels() {
+         assert_eq!(
+diff --git a/permutation-frontier/Cargo.toml b/permutation-frontier/Cargo.toml
+index 5b788b47..3f73f8ab 100644
+--- a/permutation-frontier/Cargo.toml
++++ b/permutation-frontier/Cargo.toml
+@@ -35,6 +35,12 @@ oracle = []
+ # `drand-replay --test-key` and its own QUICKNET_PK_HASH; marker
+ # PSF_TEST_BEACON_BUILD, never deployable.
+ test-beacon = []
++# Workstream 10 (custody), a preview: the custody instructions, embedding
++# RULESET_HASH_V4 and program_version 5 (so it refuses every S1 season, and
++# the default S1 build refuses every custody tag). Marker
++# PSF_CUSTODY_PREVIEW_BUILD; never deployable until LiteSVM tests, measured
++# budgets and the verifier's V26 exist.
++custody-preview = []
+ 
+ # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
+ # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.
+diff --git a/permutation-frontier/src/ix.rs b/permutation-frontier/src/ix.rs
+index fb522740..f33b4710 100644
+--- a/permutation-frontier/src/ix.rs
++++ b/permutation-frontier/src/ix.rs
+@@ -140,4 +140,88 @@ mod tests {
+             assert!(v2::tag_of(&[t]).is_err(), "{t:#x}");
+         }
+     }
++
++    /// The S1 build refuses every custody tag before reading an account
++    /// (`BadData`); only the `custody-preview` build dispatches them.
++    #[cfg(all(feature = "program", not(feature = "custody-preview")))]
++    #[test]
++    fn the_s1_build_refuses_custody_tags() {
++        let pid = solana_program::pubkey::Pubkey::new_from_array([7; 32]);
++        for ix in v2::Ix::CUSTODY {
++            let r = crate::dispatch(&pid, &[], &[ix.tag()]);
++            assert!(
++                matches!(r, Err(e) if e == crate::FrontierError::BadData.into()),
++                "{}",
++                ix.name()
++            );
++        }
++        assert_eq!(
++            crate::RULESET_HASH,
++            frontier_abi::v2::presets::RULESET_HASH_V3
++        );
++        assert_eq!(crate::PROGRAM_VERSION, 4);
++    }
++
++    #[cfg(feature = "custody-preview")]
++    #[test]
++    fn the_custody_preview_is_another_program() {
++        assert_eq!(
++            crate::RULESET_HASH,
++            frontier_abi::v2::presets::RULESET_HASH_V4
++        );
++        assert_eq!(crate::PROGRAM_VERSION, 5);
++        assert_eq!(crate::RULES_VERSION, 13);
++    }
++
++    /// Workstream 10: a lot's room is reserved against the vault's `CAP`
++    /// only if every write of a vault's general stock keeps `STORES +
++    /// CUSTODY_QUOTA ≤ CAP`. The writers are listed here; a new one (a
++    /// workstream crediting a vault) must clamp as SettleCaravan does and be
++    /// added, or the reservation is no longer a guarantee.
++    #[test]
++    fn vault_stock_writers_are_the_listed_ones() {
++        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
++            for e in std::fs::read_dir(dir).unwrap() {
++                let p = e.unwrap().path();
++                if p.is_dir() {
++                    walk(&p, out);
++                } else if p.extension().is_some_and(|x| x == "rs")
++                    && p.file_name().is_some_and(|n| n != "ix.rs")
++                {
++                    let name = p.file_name().unwrap().to_string_lossy().to_string();
++                    for l in std::fs::read_to_string(&p).unwrap().lines() {
++                        let l = l.trim();
++                        if l.contains("set_i64(VA::store(") {
++                            out.push((name.clone(), l.to_string()));
++                        }
++                    }
++                }
++            }
++        }
++        let mut found = vec![];
++        walk(
++            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
++            &mut found,
++        );
++        found.sort();
++        let want = [
++            // SettleCaravan: clamped to CAP − CUSTODY_QUOTA.
++            ("caravan.rs", "Rw(&mut vd).set_i64(VA::store(r), to)?;"),
++            // SendCaravan from a vault: a debit.
++            (
++                "caravan.rs",
++                "Rw(&mut vd).set_i64(VA::store(r), have - c)?;",
++            ),
++            // Custody: the kernel's view written back (forfeiture within the
++            // lot's quota, a deposit's debit).
++            ("custody.rs", "w.set_i64(VA::store(i), v.stores[i])?;"),
++        ];
++        let want: Vec<(String, String)> = want
++            .iter()
++            .map(|(a, b)| (a.to_string(), b.to_string()))
++            .collect();
++        let mut want = want;
++        want.sort();
++        assert_eq!(found, want, "a new writer of a vault's STORES");
++    }
+ }
+diff --git a/permutation-frontier/src/lib.rs b/permutation-frontier/src/lib.rs
+index bc4ec220..a8a0fc94 100644
+--- a/permutation-frontier/src/lib.rs
++++ b/permutation-frontier/src/lib.rs
+@@ -79,7 +79,17 @@ pub use error::{CqError, Error, FrontierError, R};
+ /// it refuses every MC Season and an MC program refuses every S1 Season
+ /// (redesign 30, J5: stage 1 runs in a new season). MC seasons keep the MC
+ /// release `.so`.
++///
++/// **Custody preview (workstream 10, feature `custody-preview`):** the
++/// binary is a different program: it embeds `RULESET_HASH_V4` and writes
++/// `program_version` 5, so it refuses every S1 Season, and dispatches the
++/// custody tags 0xC1–0xCB, which the S1 build refuses (`BadData`). Hash,
++/// version and dispatch switch together; there is no build that runs
++/// custody under the S1 hash.
++#[cfg(not(feature = "custody-preview"))]
+ pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V3;
++#[cfg(feature = "custody-preview")]
++pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V4;
+ 
+ /// The MC program's ruleset hash (`5fbaf678…1a8b`), for the record and the
+ /// tests that show an MC Season is refused.
+@@ -91,7 +101,10 @@ pub const RULESET_HASH_M1: [u8; 32] = frontier_abi::presets::RULESET_HASH;
+ 
+ /// The rules version CreateSeason writes (`RULES_VERSION_FRONTIER_V3` 12,
+ /// the S1 rules).
++#[cfg(not(feature = "custody-preview"))]
+ pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_S1;
++#[cfg(feature = "custody-preview")]
++pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_CUSTODY;
+ 
+ /// `sha256` of the beacon public key this binary verifies against: the
+ /// quicknet group key, or the local test key in a `test-beacon` build
+@@ -102,7 +115,10 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
+ /// with every deployable change. Version 3 integrates first homes and
+ /// authoritative province-time scoring on the conquest layout (version 2);
+ /// version 4 is the S1 program (the arms economy on the same layout).
++#[cfg(not(feature = "custody-preview"))]
+ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
++#[cfg(feature = "custody-preview")]
++pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY;
+ 
+ /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
+ /// M1's 51 tags, 0xA0–0xA3, 0xA5–0xA7 and S1's 0xB0–0xBE). Unknown and reserved tags
+@@ -216,23 +232,59 @@ pub fn dispatch(
+         Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
+         // S1 (map growth): a resting Province in closed form.
+         Ix::FastForward => clash::fast_forward(p, a, data),
+-        // Custody (workstream 10): lots, carriers and users.
+-        Ix::OpenLot => custody::open_lot(p, a, data),
+-        Ix::SetLotQuota => custody::set_lot_quota(p, a, data),
+-        Ix::DepositLot => custody::deposit_lot(p, a, data),
+-        Ix::SetLotOrder => custody::set_lot_order(p, a, data),
+-        Ix::RevokeLotOrder => custody::revoke_lot_order(p, a, data),
+-        Ix::ShipLot => custody::ship_lot(p, a, data),
+-        Ix::SettleCustody => custody::settle_custody(p, a, data),
+-        Ix::ConsumeLot => custody::consume_lot(p, a, data),
+-        Ix::ReconcileLot => custody::reconcile_lot(p, a, data),
+-        Ix::CloseLot => custody::close_lot(p, a, data),
+-        Ix::WithdrawLot => custody::withdraw_lot(p, a, data),
++        // Custody (workstream 10): the `custody-preview` build only; the
++        // S1 build refuses the tags as it refuses a reserved tag.
++        Ix::OpenLot
++        | Ix::SetLotQuota
++        | Ix::DepositLot
++        | Ix::SetLotOrder
++        | Ix::RevokeLotOrder
++        | Ix::ShipLot
++        | Ix::SettleCustody
++        | Ix::ConsumeLot
++        | Ix::ReconcileLot
++        | Ix::CloseLot
++        | Ix::WithdrawLot => custody_dispatch(ix, p, a, data),
+     };
+     heap::trace_checkpoint(0xffff);
+     r
+ }
+ 
++/// The custody instructions (feature `custody-preview`); `BadData` in every
++/// other build.
++#[cfg(feature = "program")]
++fn custody_dispatch(
++    ix: frontier_abi::v2::tags::Ix,
++    p: &solana_program::pubkey::Pubkey,
++    a: &[solana_program::account_info::AccountInfo],
++    d: &[u8],
++) -> R<()> {
++    #[cfg(feature = "custody-preview")]
++    {
++        use frontier_abi::v2::tags::Ix;
++        use proc::custody;
++        match ix {
++            Ix::OpenLot => custody::open_lot(p, a, d),
++            Ix::SetLotQuota => custody::set_lot_quota(p, a, d),
++            Ix::DepositLot => custody::deposit_lot(p, a, d),
++            Ix::SetLotOrder => custody::set_lot_order(p, a, d),
++            Ix::RevokeLotOrder => custody::revoke_lot_order(p, a, d),
++            Ix::ShipLot => custody::ship_lot(p, a, d),
++            Ix::SettleCustody => custody::settle_custody(p, a, d),
++            Ix::ConsumeLot => custody::consume_lot(p, a, d),
++            Ix::ReconcileLot => custody::reconcile_lot(p, a, d),
++            Ix::CloseLot => custody::close_lot(p, a, d),
++            Ix::WithdrawLot => custody::withdraw_lot(p, a, d),
++            _ => Err(FrontierError::BadData.into()),
++        }
++    }
++    #[cfg(not(feature = "custody-preview"))]
++    {
++        let _ = (ix, p, a, d);
++        Err(FrontierError::BadData.into())
++    }
++}
++
+ /// ResolveClash (0x62) exists only in the `oracle` build (tests); in every
+ /// other build the tag is unknown data.
+ #[cfg(feature = "program")]
+diff --git a/permutation-frontier/src/markers.rs b/permutation-frontier/src/markers.rs
+index 45206ffc..a2d9a8fe 100644
+--- a/permutation-frontier/src/markers.rs
++++ b/permutation-frontier/src/markers.rs
+@@ -8,6 +8,7 @@
+ //! | `trace` | `PSF_TRACE_BUILD` |
+ //! | `oracle` | `PSF_ORACLE_BUILD` |
+ //! | `test-beacon` | `PSF_TEST_BEACON_BUILD` |
++//! | `custody-preview` | `PSF_CUSTODY_PREVIEW_BUILD` (workstream 10: not a test build, but not deployable until verified) |
+ //!
+ //! Each marker is passed through `core::hint::black_box` on a path every
+ //! instruction (or every beacon verification) runs, so neither the
+@@ -18,6 +19,7 @@
+ pub const TRACE: &[u8] = b"PSF_TRACE_BUILD";
+ pub const ORACLE: &[u8] = b"PSF_ORACLE_BUILD";
+ pub const TEST_BEACON: &[u8] = b"PSF_TEST_BEACON_BUILD";
++pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
+ 
+ /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
+ #[inline(always)]
+@@ -26,6 +28,8 @@ pub fn touch() {
+     core::hint::black_box(TRACE.as_ptr());
+     #[cfg(feature = "oracle")]
+     core::hint::black_box(ORACLE.as_ptr());
++    #[cfg(feature = "custody-preview")]
++    core::hint::black_box(CUSTODY_PREVIEW.as_ptr());
+ }
+ 
+ /// Keeps the `test-beacon` marker alive (called by every beacon
+@@ -55,7 +59,7 @@ mod tests {
+         }
+         assert_ne!(TRACE, ORACLE);
+         let script = include_str!("../../scripts/build-frontier.sh");
+-        for m in [TRACE, ORACLE, TEST_BEACON] {
++        for m in [TRACE, ORACLE, TEST_BEACON, CUSTODY_PREVIEW] {
+             assert!(
+                 script.contains(core::str::from_utf8(m).unwrap()),
+                 "build-frontier.sh checks {}",
+diff --git a/permutation-frontier/src/proc/caravan.rs b/permutation-frontier/src/proc/caravan.rs
+index da249d48..02d8d221 100644
+--- a/permutation-frontier/src/proc/caravan.rs
++++ b/permutation-frontier/src/proc/caravan.rs
+@@ -938,7 +938,7 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         }
+         // Workstream 10: a custody caravan's cargo is not the
+         // destination's; SettleCustody puts it in its owner's lot.
+-        if r.u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
++        if cfg!(feature = "custody-preview") && r.u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
+             return Err(BAD_ACCOUNT);
+         }
+         if now.ts < r.i64(CV::ARRIVE_TS)? {
+@@ -1009,7 +1009,12 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+                 let have = Ro(&vd).i64(VA::store(r))?;
+                 // Workstream 10: the room committed to lots is not the
+                 // general stock's.
+-                let room = cap.saturating_sub(Ro(&vd).i64(VA::custody_quota(r))?);
++                let quota = if cfg!(feature = "custody-preview") {
++                    Ro(&vd).i64(VA::custody_quota(r))?
++                } else {
++                    0
++                };
++                let room = cap.saturating_sub(quota);
+                 let to = have.saturating_add(*c).min(room.max(have));
+                 Rw(&mut vd).set_i64(VA::store(r), to)?;
+             }
+@@ -1291,7 +1296,7 @@ fn settle_raid(
+             w.set_u8(CV::FACTION, raider_faction)?;
+             // Workstream 10: a custody caravan taken is the raider's (J2);
+             // its lot logs the loss at ReconcileLot.
+-            if Ro(w.0).u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
++            if cfg!(feature = "custody-preview") && Ro(w.0).u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
+                 w.set_u8(CV::CUSTODY, CV::CUSTODY_TAKEN)?;
+                 w.set_u64(CV::TAKEN_BY_TAG, raider_tag)?;
+             }
+@@ -1887,11 +1892,11 @@ pub fn close_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+                 return Err(FrontierError::BadData.into());
+             }
+             // Workstream 10: not under its depositors' goods.
+-            if r.i64(VA::custody_quota(i))? != 0 {
++            if cfg!(feature = "custody-preview") && r.i64(VA::custody_quota(i))? != 0 {
+                 return Err(cq(CqError::LotNotEmpty));
+             }
+         }
+-        if r.u16(VA::CUSTODY_LOTS)? != 0 {
++        if cfg!(feature = "custody-preview") && r.u16(VA::CUSTODY_LOTS)? != 0 {
+             return Err(cq(CqError::LotNotEmpty));
+         }
+         (r.i16(VA::P)?, r.i16(VA::Q)?, r.u8(VA::TILE)?)
+diff --git a/permutation-frontier/src/proc/mod.rs b/permutation-frontier/src/proc/mod.rs
+index 611b586f..b33ac853 100644
+--- a/permutation-frontier/src/proc/mod.rs
++++ b/permutation-frontier/src/proc/mod.rs
+@@ -57,6 +57,7 @@ pub mod caravan;
+ pub mod citizen;
+ pub mod clash;
+ pub mod conquest;
++#[cfg(feature = "custody-preview")]
+ pub mod custody;
+ pub mod defence;
+ pub mod holding;
+diff --git a/scripts/build-frontier.sh b/scripts/build-frontier.sh
+index 24211849..2e2d559d 100755
+--- a/scripts/build-frontier.sh
++++ b/scripts/build-frontier.sh
+@@ -2,7 +2,7 @@
+ # Reproducible SBPF v2 build of permutation-frontier (M1 contract §3.2),
+ # ported from build-program.sh.
+ #
+-#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon]
++#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview]
+ #
+ # Plain build (the deployable artefact):
+ #   permutation-frontier/target/deploy/permutation_frontier.so
+@@ -12,14 +12,15 @@
+ #     for permutation-frontier, [profile.release.package.permutation-frontier]
+ #     in the root Cargo.toml; the rules crate stays unchecked for compute),
+ #   - none of the test-build markers PSF_ORACLE_BUILD, PSF_TRACE_BUILD and
+-#     PSF_TEST_BEACON_BUILD is in the file,
++#     PSF_TEST_BEACON_BUILD, nor PSF_CUSTODY_PREVIEW_BUILD (workstream 10,
++#     not deployable until verified), is in the file,
+ #   - no R_SBF_64_RELATIVE relocation of a data section carries a non-zero
+ #     low word: platform-tools v1.52 writes a pointer into the middle of a
+ #     static object (e.g. a switch table of `&SPECS[i]`) as `(base << 32) |
+ #     offset`, and the loader (solana-sbpf 0.21) uses the high word only,
+ #     so such a pointer silently resolves to the object's start [measured,
+ #     W2-A notes]. Every build is checked (feature builds too).
+-# Feature builds are never deployable: --features trace|oracle|test-beacon
++# Feature builds are never deployable: --features trace|oracle|test-beacon|custody-preview
+ # builds into permutation-frontier/target/deploy-<feature>/, requires that
+ # feature's marker to be present (and the others absent), and prints
+ # "deployable no".
+@@ -49,8 +50,8 @@ while [ $# -gt 0 ]; do
+   shift
+ done
+ case "$feature" in
+-  ""|trace|oracle|test-beacon) ;;
+-  *) echo "unknown feature: $feature (trace, oracle or test-beacon)" >&2; exit 2 ;;
++  ""|trace|oracle|test-beacon|custody-preview) ;;
++  *) echo "unknown feature: $feature (trace, oracle, test-beacon or custody-preview)" >&2; exit 2 ;;
+ esac
+ 
+ want="solana-cargo-build-sbf 3.1.9"
+@@ -104,10 +105,10 @@ check() { # check <so>: the refusals; exit 3 on any
+     bad=1
+   fi
+   local m want_m
+-  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD; do
++  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD; do
+     want_m=0
+     case "$feature:$m" in
+-      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD) want_m=1 ;;
++      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD) want_m=1 ;;
+     esac
+     local n; n="$(count "$m" "$so")"
+     if [ "$want_m" = 1 ] && [ "$n" -eq 0 ]; then echo "$so: marker $m missing from a --features $feature build" >&2; bad=1; fi
+-- 
+2.43.0
+

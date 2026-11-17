@@ -17,7 +17,11 @@
 //      was sealed meanwhile;
 //   5. an order card left open across a toll kept the turn it was opened with.
 // The rule of the self-reveal (marchbook.mjs `revealStep`, contract §9.1) is
-// what it was: these tests pin how the page feeds it.
+// what it was, with ⑱'s floor: never before T(arrive)'s round time +
+// REVEAL_PUBLISH_MARGIN, judged on the chain time the herald observed (the
+// page's season poll; here `o.observe()`). The material therefore leaves in
+// the turn after the arrival turn. These tests pin how the page feeds it.
+// Keyless (screens: startServer({keyless})): no key is derived or signed with.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer } from '../screens/server.mjs';
@@ -28,7 +32,7 @@ import * as C from '../../permutation-server/web/frontier/controller.mjs';
 import * as book from '../../permutation-server/web/frontier/marchbook.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
-import { ChainClock, seasonClock, bellAt } from '../../permutation-server/web/frontier/clock.mjs';
+import { ChainClock, seasonClock, bellAt, roundTime, tlockRound } from '../../permutation-server/web/frontier/clock.mjs';
 import { seasonTipMin, departMargin, DEPART_MARGIN_SECS } from '../../permutation-server/web/frontier/fmarch.mjs';
 import { pack, encodePath, commit as sealCommit, ctHash as sealCtHash, sealRoot as sealRootOf } from '../../permutation-server/web/frontier/seal.mjs';
 import { tileHex, TILE_OFFSETS, hexDistance } from '../../permutation-server/web/frontier/fgeo.mjs';
@@ -40,7 +44,9 @@ const RINGS = W.seasonRecord().rings.map(r => ({ ring: r.d, seed: r.seed }));
 
 /** The page's controller on a sample world whose clock the test moves: `{srv, world, clock, h, stored, key, to(turn, into), close()}`. */
 async function open({ herald: wrap = h => h } = {}) {
-  const srv = await startServer();
+  // (⑱: keyless — the viewer and the relay's fee payer are named by constants, no key is derived or signed with:
+  // this suite connects no wallet and sends no transaction for the relay to sign)
+  const srv = await startServer({ keyless: true });
   const saved = { ...FS }, storageWas = globalThis.localStorage, relayWas = io.relay();
   const clock = { t: 1_700_000_000_000 };
   setLang('ja');
@@ -69,6 +75,10 @@ async function open({ herald: wrap = h => h } = {}) {
     /** Move the clock to `into` game seconds into turn `b` (the world's and the page's: one wall clock). */
     to(b, into = 0) { const at = world.tollAt + 600 * (b - 43) + into; assert.ok(at >= world.now(), 'the clock only moves on'); clock.t += Math.ceil(((at - world.now()) / RATE) * 1000) + 1; assert.equal(bellAt(FS.clock.genesisTs, chain.now()), b); },
     book: () => book.loadBook(book.browserStorage, key),
+    /** The page's season poll (app.mjs): the chain time the herald has observed, which the self-reveal is judged on (⑱). */
+    async observe() { const r = await h.season(); chain.observe(r.record.latestUnix, r.record.latestSlot); },
+    /** T(arrive)'s round time + REVEAL_PUBLISH_MARGIN, in game seconds into turn `arrive + 1` (⑱). */
+    publishedInto(arrive) { const be = FS.clock.genesisTs + 600 * (arrive + 1); return roundTime(FS.clock.drand.genesis, FS.clock.drand.period, tlockRound(FS.clock.drand, FS.clock.genesisTs, arrive)) + book.REVEAL_PUBLISH_MARGIN - be; },
     async close() {
       Object.assign(FS, saved);
       for (const k of Object.keys(FS)) if (!(k in saved)) delete FS[k];
@@ -109,38 +119,50 @@ const put = (o, entry) => assert.equal(book.saveBook(book.browserStorage, o.key,
 const mine = o => o.book().find(e => e.host === String(W.HOSTS.free));
 const selfReveals = o => o.world.reveals.filter(r => r.by === 'self').map(r => [r.ok, r.code]);
 
-test('the self-reveal goes out once: three readings of the marches side by side send one, the book keeps its attempt, and a slot the viewer\'s own record lists is not revealed again', async () => {
+test('the self-reveal goes out once, after T(arrive) is published: three readings side by side send one, the book keeps its attempt, and a slot the viewer\'s own record lists is not revealed again', async () => {
   const o = await open();
   try {
     await C.refresh();
     assert.equal(FS.nowBell, 42);
-    const dest = destination(o.world), arrive = 44;
+    const dest = destination(o.world), arrive = 44, pub = o.publishedInto(arrive);
     put(o, depart(o, dest, { arrive }));
     await C.refresh();
     assert.deepEqual([mine(o).state, mine(o).attempts.length], ['landed', 0]);
     assert.deepEqual(selfReveals(o), [], 'nothing before the arrival turn');
-    // ---- the arrival turn, half a minute in (the delay drawn for this entry is 0): the poll, the toll's read and an
+    // ---- the arrival turn (⑱): T(arrive), the round that opens the seal, is the first one at or after the turn's end;
+    // until it is published (+ REVEAL_PUBLISH_MARGIN) the material stays in this browser
+    for (const into of [30, 590]) {
+      o.to(arrive, into); await o.observe();
+      await Promise.all([C.refresh(), C.refresh()]);
+      assert.deepEqual(selfReveals(o), [], `not in the arrival turn (${into} s in): T(arrive) is not published`);
+    }
+    o.to(arrive + 1, pub - 4); await o.observe();
+    await C.refresh();
+    assert.deepEqual(selfReveals(o), [], 'not before its round time + the margin');
+    // ---- the page's own clock is past it, the herald's last sample is not: still nothing (judged on the observed time)
+    o.to(arrive + 1, 30);
+    await C.refresh();
+    assert.deepEqual(selfReveals(o), [], 'judged on the chain time the herald observed, not the extrapolated clock');
+    // ---- the herald's sample is past it (the delay drawn for this entry is 0): the poll, the toll's read and an
     // order's answer ask for a reading in the same moment
-    o.to(arrive, 30);
+    await o.observe();
     await Promise.all([C.refresh(), C.refresh(), C.refresh()]);
     assert.deepEqual(selfReveals(o), [[true, null]], 'one self-reveal, taken');
     assert.deepEqual(mine(o).attempts.map(a => [a.route, a.result]), [['self', 'accepted']], 'the book holds the one attempt (the reading that came after did not write an older book over it)');
-    // ---- two minutes on, still the arrival turn: nothing more
-    o.to(arrive, 150);
+    // ---- two minutes on, the turn after the arrival turn: the destination's envelope does not show the slot (the
+    // arrival turn's own file comes when that turn is resolved; `latest` carries another turn's slots), the window is
+    // open, the attempt is more than 60 s old. The viewer's own record lists the slot, and that is "seen"
+    o.to(arrive + 1, 150); await o.observe();
     await Promise.all([C.refresh(), C.refresh()]);
-    assert.deepEqual(selfReveals(o), [[true, null]]);
-    assert.equal(mine(o).state, 'revealed', 'the envelope of the arrival turn shows the slot');
-    // ---- the turn after: the destination's envelope does not show the slot (the arrival turn's own file comes when
-    // that turn is closed; `latest` carries another turn's slots), the window is open, the attempt is more than 60 s
-    // old. A device that never saw the slot in an envelope (it was put away after its reveal) still holds the entry
-    // as `revealing`: the viewer's own record lists the slot, and that is "seen"
-    o.to(arrive + 1, 30);
-    book.saveBook(book.browserStorage, o.key, book.mark(o.book(), mine(o), { state: 'revealing' }));
-    await C.refresh();
     const m = FS.marches.find(x => x.entry?.host === String(W.HOSTS.free));
     assert.deepEqual([m.facts.slotPresent, m.facts.pipeline], [false, 'revealing'], 'the envelope does not show it and the window is open');
     assert.deepEqual(selfReveals(o), [[true, null]], 'no second reveal for a slot the herald lists');
     assert.deepEqual([mine(o).state, mine(o).attempts.length], ['revealing', 1], 'what the page says of the march still follows the envelope');
+    // ---- the arrival turn resolved: its own file shows the slot
+    o.to(arrive + 2, 300); await o.observe();
+    await C.refresh();
+    assert.deepEqual(selfReveals(o), [[true, null]]);
+    assert.equal(mine(o).state, 'revealed', 'the envelope of the arrival turn shows the slot');
     assert.deepEqual(o.srv.requests.filter(r => r.code >= 400), []);
   } finally { await o.close(); }
 });
@@ -149,18 +171,19 @@ test('the rule\'s own retry still goes out: no slot anywhere 60 s after the firs
   const o = await open();
   try {
     await C.refresh();
-    const dest = destination(o.world), arrive = 44;
-    // (the first attempt is one the keeper never took: written into the book as sent, the world has no slot)
+    const dest = destination(o.world), arrive = 44, pub = o.publishedInto(arrive);
+    // (the first attempt is one the keeper never took: written into the book as sent when T(arrive) was published
+    // (⑱), the world has no slot)
     const e = depart(o, dest, { arrive, state: 'revealing' });
-    put(o, { ...e, attempts: [{ t: o.world.tollAt + 600 * (arrive - 43) + 5, route: 'self', result: 'accepted' }] });
-    o.to(arrive, 40);
+    put(o, { ...e, attempts: [{ t: o.world.tollAt + 600 * (arrive + 1 - 43) + pub, route: 'self', result: 'accepted' }] });
+    o.to(arrive + 1, pub + 35); await o.observe();
     await C.refresh();
     assert.deepEqual(selfReveals(o), [], 'not within 60 s of the first attempt');
-    o.to(arrive, 70);
+    o.to(arrive + 1, pub + 65); await o.observe();
     await Promise.all([C.refresh(), C.refresh()]);
     assert.deepEqual(selfReveals(o), [[true, null]], 'the retry, once');
     assert.equal(mine(o).attempts.length, 2);
-    o.to(arrive, 300);
+    o.to(arrive + 1, 300); await o.observe();
     await C.refresh();
     assert.deepEqual(selfReveals(o), [[true, null]]);
   } finally { await o.close(); }
@@ -182,13 +205,14 @@ test('a march that landed after the Holding was read is not written off as settl
     assert.equal(FS.holdings[0].transit[0].state, 1);
     assert.equal(mine(o).state, 'landed');
     assert.equal(FS.marches.filter(x => x.entry?.host === String(W.HOSTS.free)).length, 1, 'the march has its card');
-    o.to(arrive, 30);
+    // (⑱: once T(arrive) is published, in the turn after the arrival turn)
+    o.to(arrive + 1, 30); await o.observe();
     await C.refresh();
-    assert.deepEqual(selfReveals(o), [[true, null]], 'revealed by this device in its arrival turn');
+    assert.deepEqual(selfReveals(o), [[true, null]], 'revealed by this device once T(arrive) is published');
   } finally { await o.close(); }
 });
 
-test('a herald that is a moment behind the relay: the march is landed in the book, the Holding still shows its record free: not settled, and revealed in its arrival turn', async () => {
+test('a herald that is a moment behind the relay: the march is landed in the book, the Holding still shows its record free: not settled, and revealed once T(arrive) is published (⑱)', async () => {
   // (the viewer's record one answer old: what a herald that folds the chain a moment after the relay confirmed shows)
   let last = null;
   const o = await open({ herald: h => ({ ...h, me: async w => { const r = await h.me(w), was = last ?? r; last = r; return was; } }) });
@@ -201,7 +225,7 @@ test('a herald that is a moment behind the relay: the march is landed in the boo
     assert.equal(mine(o).state, 'landed', 'a free record before the arrival turn has ended is not "settled"');
     await C.refresh();
     assert.deepEqual([FS.holdings[0].transit[0].state, mine(o).state], [1, 'landed']);
-    o.to(arrive, 30);
+    o.to(arrive + 1, 30); await o.observe();
     await C.refresh(); await C.refresh();
     assert.deepEqual(selfReveals(o), [[true, null]]);
   } finally { await o.close(); }
@@ -287,4 +311,98 @@ test('the order card follows the clock: its arrival turn moves on at the toll an
 test('the departure margin by the clock\'s rate: 90 game seconds on the chain\'s clock and on a slow sample clock; at least two seconds of the player\'s time on a fast one; never over half a turn', () => {
   assert.deepEqual([undefined, 1, 0, 30, 45, 50, 75, 120, 600].map(r => departMargin(r)), [90, 90, 90, 90, 90, 100, 150, 240, 300]);
   assert.equal(departMargin(NaN), 90);
+});
+
+// Round 29: a live march this device's book has no entry for (local play: the page seals, the relay sends, no book
+// entry is written) — its card read no turn facts and stood at "waiting for the key" for good. Its stage is now read
+// once its arrival turn has come, from this page's own order record bound to the same identity (book key, local-play
+// instance, village), transit slot, host and arrival turn; anything else leaves it as before. Reads only.
+const scopeOf = o => { const h = FS.holdings[0]; return `${o.key}||${h.p},${h.q},${h.site},${h.gen ?? 0}`; };
+const ownOrder = (o, dest, arrive, extra = {}) => ({ id: 'o1', kind: 'march', name: 'Depart', host: String(W.HOSTS.free), dest: { p: W.HOME.p, q: W.HOME.q, tile: dest.tile }, arriveBell: arrive, state: 'accepted', scope: scopeOf(o), transitSlot: 0, ...extra });
+const looseCard = () => FS.marches.find(x => x.entry === null && String(x.transit?.hostId) === String(W.HOSTS.free)) ?? null;
+/** Readings until the entry-less card is there (the herald may be a moment behind the Depart: see the test above). */
+async function untilLoose(n = 6) { for (let i = 0; i < n && !looseCard(); i++) await C.refresh(); assert.ok(looseCard(), 'the march has an entry-less card'); }
+
+test('round 29: an entry-less live march reads its stage from the page\'s own order record of the same identity, slot, host and arrival turn; any other record, or none, leaves it as before; nothing is revealed', async () => {
+  const o = await open();
+  try {
+    await C.refresh();
+    const dest = destination(o.world), arrive = 44;
+    depart(o, dest, { arrive });   // on chain only: no book entry on this device
+    await untilLoose();
+    FS.orders = [ownOrder(o, dest, arrive)];
+    await C.refresh();
+    assert.equal(looseCard().facts.pipeline, null, 'before its arrival turn: no stage read');
+    o.to(arrive + 1, 30); await o.observe();
+    FS.orders = [];
+    await C.refresh();
+    assert.equal(looseCard().facts.pipeline, null, 'no record: as before');
+    for (const [why, extra] of [['another wallet / program / Season (book key)', { scope: scopeOf(o).replace(o.key, `${o.key}x`) }],
+      ['another local-play instance', { scope: scopeOf(o).replace('||', '|inst-2|') }], ['another village', { scope: scopeOf(o).replace(/[^|]*$/, '9,9,9,0') }],
+      ['another transit slot', { transitSlot: 1 }], ['no transit slot', { transitSlot: null }], ['another host', { host: '1' }], ['another arrival turn', { arriveBell: arrive + 1 }], ['refused', { state: 'refused' }]]) {
+      FS.orders = [ownOrder(o, dest, arrive, extra)];
+      await C.refresh();
+      assert.equal(looseCard().facts.pipeline, null, `${why}: not used`);
+    }
+    // two matching records naming different destinations (an old unconfirmed send beside a later one): ambiguous, not used
+    FS.orders = [ownOrder(o, dest, arrive, { id: 'o0', state: 'unconfirmed', dest: { p: W.HOME.p, q: W.HOME.q, tile: (dest.tile + 1) % 61 } }), ownOrder(o, dest, arrive)];
+    await C.refresh();
+    assert.equal(looseCard().facts.pipeline, null, 'ambiguous records: not used');
+    FS.orders = [ownOrder(o, dest, arrive)];
+    await C.refresh();
+    assert.notEqual(looseCard().facts.pipeline, null, `the stage is read: ${looseCard().facts.pipeline}`);
+    assert.deepEqual(looseCard().dest, { p: W.HOME.p, q: W.HOME.q, tile: dest.tile });
+    assert.deepEqual(selfReveals(o), [], 'nothing revealed from this device (it holds no seal)');
+  } finally { await o.close(); }
+});
+
+test('round 29: a turn record that cannot be read leaves the stage unconfirmed (no stage from the clock alone)', async () => {
+  let fail = false;
+  const o = await open({ herald: h => ({ ...h, bellRegion: async (...a) => (fail ? { ok: false, code: 'Unavailable' } : h.bellRegion(...a)) }) });
+  try {
+    await C.refresh();
+    const dest = destination(o.world), arrive = 44;
+    depart(o, dest, { arrive });
+    await untilLoose();
+    FS.orders = [ownOrder(o, dest, arrive)];
+    o.to(arrive + 1, 30); await o.observe();
+    fail = true; await C.refresh();
+    assert.equal(looseCard().facts.pipeline, null, 'read failed: unconfirmed');
+    fail = false; await C.refresh();
+    assert.notEqual(looseCard().facts.pipeline, null, 'read again: the stage');
+  } finally { await o.close(); }
+});
+
+test('round 29: a reading during which the village, the herald or the wallet changes — while it waits on the destination or on the turn record — writes nothing (no old transits with new facts)', async () => {
+  let during = null, on = null, arriveAt = null;
+  const fire = (kind, b) => { if (on === kind && b === arriveAt && during) { const f = during; during = null; f(); } };
+  const wrap = h => ({ ...h,
+    province: async (p, q, b) => { const r = await h.province(p, q, b); fire('province', b); return r; },
+    bellRegion: async (b, region) => { const r = await h.bellRegion(b, region); fire('bellRegion', b); return r; } });
+  const o = await open({ herald: wrap });
+  try {
+    await C.refresh();
+    const dest = destination(o.world), arrive = 44;
+    arriveAt = arrive;
+    depart(o, dest, { arrive });
+    await untilLoose();
+    FS.orders = [ownOrder(o, dest, arrive)];
+    o.to(arrive + 1, 30); await o.observe();
+    await C.refresh();
+    const before = FS.marches;
+    assert.notEqual(looseCard().facts.pipeline, null);
+    const homes = FS.holdings, wallet = FS.wallet;
+    const cases = [
+      ['the village', () => { FS.holdings = [{ ...homes[0], site: homes[0].site + 1 }, ...homes.slice(1)]; }, () => { FS.holdings = homes; }],
+      ['the herald', () => { C.useHerald(wrap(o.h)); }, () => {}],
+      ['the wallet (the book key)', () => { FS.wallet = { address: 'Other1111111111111111111111111111111111111' }; }, () => { FS.wallet = wallet; }],
+    ];
+    for (const kind of ['province', 'bellRegion']) for (const [what, change, undo] of cases) {
+      on = kind; during = change;
+      FS.marches = before; await C.refresh().catch(() => {});
+      assert.equal(during, null, `${what} changed while the reading waited on ${kind}`);
+      assert.equal(FS.marches, before, `${what} changed during ${kind}: nothing written`);
+      undo(); on = null;
+    }
+  } finally { await o.close(); }
 });

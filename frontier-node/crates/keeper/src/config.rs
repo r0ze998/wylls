@@ -33,6 +33,10 @@ use std::path::PathBuf;
 
 use solana_address::Address;
 
+/// The default ExtendFrontier cap of the keeper: `permutation_prize::MAX_RING`
+/// (17), restated here: the keeper does not link the prize program.
+pub const EXTEND_MAX_RING_DEFAULT: u16 = 17;
+
 /// Duties (§8.2 `roles`). W2-F runs `beacon` (genesis seed, anchors, seed
 /// caches, beacon logs) and `archive`; W3-C runs `rings` (every ring, its
 /// seed and provinces), `fold`, `tickets`, `explore`, `dormancy` (releases
@@ -226,6 +230,10 @@ pub struct KeeperConfig {
     /// the bid rises / at the class cap (`engine::EngineParams`).
     pub d_resend_slots: u64,
     pub cap_resend_slots: u64,
+    /// W writes (Reveals): at most this many versions that can still land
+    /// at once (`engine::EngineParams::max_unknown_w_versions`; ⑱, owner
+    /// decision 2026-11-05). `0` keeps the every-slot ladder.
+    pub max_unknown_w_versions: u32,
     /// Land (W3-C): Holdings the feed named are re-read every this many
     /// slots (dormancy, sweeps).
     pub land_scan_slots: u64,
@@ -256,6 +264,17 @@ pub struct KeeperConfig {
     /// fast-forwarded (FastForward) when something wakes it and at the
     /// season's end. Off (every Province every turn, as before) by default.
     pub rest: bool,
+    /// Map growth, a local candidate (off by default): the `rings` duty
+    /// also sends ExtendFrontier when the season has an `r_max_ceiling`
+    /// and the program would accept it, after the same waits as a
+    /// crowding ring ([`crate::rings::extend_due`]). Never past
+    /// [`KeeperConfig::extend_max_ring`].
+    pub extend: bool,
+    /// The outermost ring this keeper extends to (default 17: the prize
+    /// program's `MAX_RING`, its tally covers rings 0–17; the keeper cannot
+    /// see whether the season has a prize pool, so it keeps the cap unless
+    /// told otherwise). At most 128 (`R_MAX_HARD`).
+    pub extend_max_ring: u16,
 }
 
 impl KeeperConfig {
@@ -294,6 +313,7 @@ impl KeeperConfig {
             care_every_game_secs: 300,
             d_resend_slots: 2,
             cap_resend_slots: 16,
+            max_unknown_w_versions: 2,
             land_scan_slots: 8,
             stranded_scan_slots: 450,
             dev: false,
@@ -302,6 +322,8 @@ impl KeeperConfig {
             race_jitter_slots: 0,
             backup_delay_slots: 0,
             rest: false,
+            extend: false,
+            extend_max_ring: EXTEND_MAX_RING_DEFAULT,
         }
     }
 
@@ -353,6 +375,12 @@ impl KeeperConfig {
         }
         if let Some(v) = take("drand") {
             c.drand = strs(v, "drand")?;
+            // https anywhere (verified TLS through curl), plain http only to
+            // loopback (drand-replay); nothing curl could misread.
+            for u in &c.drand {
+                fclient::http::check_curl_url(u.trim_end_matches('/'))
+                    .map_err(|e| format!("`drand` URL {u}: {e}"))?;
+            }
         }
         if let Some(v) = take("roles") {
             c.roles = strs(v, "roles")?;
@@ -388,6 +416,7 @@ impl KeeperConfig {
         num!("care_every_game_secs", care_every_game_secs, u64);
         num!("d_resend_slots", d_resend_slots, u64);
         num!("cap_resend_slots", cap_resend_slots, u64);
+        num!("max_unknown_w_versions", max_unknown_w_versions, u32);
         num!("land_scan_slots", land_scan_slots, u64);
         num!("stranded_scan_slots", stranded_scan_slots, u64);
         num!("race_jitter_slots", race_jitter_slots, u64);
@@ -414,6 +443,16 @@ impl KeeperConfig {
         }
         if let Some(v) = take("rest") {
             c.rest = matches!(v, Value::Bool(true));
+        }
+        if let Some(v) = take("extend") {
+            c.extend = matches!(v, Value::Bool(true));
+        }
+        if let Some(v) = take("extend_max_ring") {
+            let r = int(v, "extend_max_ring")?;
+            if r > u64::from(permutation_rules::frontier::geometry::R_MAX_HARD) {
+                return Err("`extend_max_ring` must be at most 128".into());
+            }
+            c.extend_max_ring = r as u16;
         }
         if let Some(v) = take("api") {
             let a: SocketAddr = s(v, "api")?
@@ -500,5 +539,53 @@ mod tests {
         assert!(!c.rest && !KeeperConfig::new(p, 1, b).rest);
         let rest = KeeperConfig::from_toml(&format!("{text}\nrest = true\n")).unwrap();
         assert!(rest.rest);
+        // map growth: ExtendFrontier only when asked, capped at ring 17
+        assert!(!c.extend && !KeeperConfig::new(p, 1, b).extend);
+        assert_eq!(c.extend_max_ring, 17);
+        let ext =
+            KeeperConfig::from_toml(&format!("{text}\nextend = true\nextend_max_ring = 24\n"))
+                .unwrap();
+        assert!(ext.extend && ext.extend_max_ring == 24);
+        assert!(KeeperConfig::from_toml(&format!("{text}\nextend_max_ring = 129\n")).is_err());
+    }
+
+    #[test]
+    fn max_unknown_w_versions_defaults_to_2_and_parses() {
+        let p = Address::new_from_array([5; 32]);
+        let b = Address::new_from_array([6; 32]);
+        let base = format!("program = \"{p}\"\nseason = 1\nbeneficiary = \"{b}\"\n");
+        assert_eq!(
+            KeeperConfig::from_toml(&base)
+                .unwrap()
+                .max_unknown_w_versions,
+            2
+        );
+        for n in [0u32, 1, 5] {
+            let c =
+                KeeperConfig::from_toml(&format!("{base}max_unknown_w_versions = {n}\n")).unwrap();
+            assert_eq!(c.max_unknown_w_versions, n);
+        }
+    }
+
+    #[test]
+    fn drand_urls_are_https_or_loopback() {
+        let p = Address::new_from_array([5; 32]);
+        let b = Address::new_from_array([6; 32]);
+        let with = |d: &str| {
+            KeeperConfig::from_toml(&format!(
+                "program = \"{p}\"\nseason = 1\nbeneficiary = \"{b}\"\ndrand = [{d}]\n"
+            ))
+        };
+        let ok = with("\"https://api.drand.sh\", \"https://drand.cloudflare.com/\", \"http://127.0.0.1:41020\"").unwrap();
+        assert_eq!(ok.drand.len(), 3);
+        for bad in [
+            "\"http://api.drand.sh\"",              // plain http off loopback
+            "\"https://127.0.0.1:1@api.drand.sh\"", // userinfo
+            "\"https://api.drand.sh/?x\"",
+            "\"ftp://api.drand.sh\"",
+            "\"--insecure\"",
+        ] {
+            assert!(with(bad).is_err(), "{bad}");
+        }
     }
 }

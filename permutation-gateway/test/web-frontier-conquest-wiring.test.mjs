@@ -80,7 +80,8 @@ test('what the hand tells the board to light is in the board\'s own shape: reach
 test('the page\'s wiring: the reach while a fighting host has the hand, a press on a keep, the capture\'s tile, the counts', () => {
   const app = src('app.mjs'), keeps = src('map/keeps.mjs');
   // the reach is lit while a fighting host has the hand (not only while the card stands), from the hand's own model, with the board's reasons for the rest
-  assert.match(app, /const host = model\?\.kind === 'host' && keephand\.conquestOn\(FS\) && model\.host && model\.host\.unit !== SCOUT && model\.host\.unit !== SETTLER \? model\.host : null;/);
+  // (25ce9534: the keeps are not lit while the host's card is the expedition's own — its inspection or its boundary route)
+  assert.match(app, /const host = model\?\.kind === 'host' && model\.pop !== OUTBOUND_POP && model\.pop !== EXPEDITION_POP && keephand\.conquestOn\(FS\) && model\.host && model\.host\.unit !== SCOUT && model\.host\.unit !== SETTLER \? model\.host : null;/);
   assert.match(app, /list = keephand\.keepLights\(km, open \? keepHot : null\);/);
   assert.match(app, /for \(const x of keepReachOf\(FS, host\) \?\? \[\]\) if \(!x\.reachable && !lit\.has\(`\$\{x\.p\},\$\{x\.q\}`\)\) list\.push/);
   assert.match(app, /mapRef\?\.setKeepReach\?\.\(list && list\.length \? list : null\)/);
@@ -88,8 +89,10 @@ test('the page\'s wiring: the reach while a fighting host has the hand, a press 
   assert.match(app, /k = mapRef\.keepAt\(e\.clientX, e\.clientY\)/);
   assert.doesNotMatch(app, /keepAt\(e\.clientX - r\.left/);
   // a press on a keep of the lit reach: in reach, its order (the same as its row); out of reach, no order card
-  assert.match(app, /if \(hit0\?\.keep && FS\.mode === 'play' && !FS\.compose && !FS\.hand\?\.pick\) \{/);
-  assert.match(app, /if \(hit0\.keep\.reachable && !keephand\.waitOf\(FS, sub\.host\)\) Promise\.resolve\(ACTIONS\['cq-march'\]\(\{ host: sub\.host\.id, p: hit0\.keep\.p, q: hit0\.keep\.q, tile: hit0\.idx \}\)\)/);
+  // (9394fe3e: not while the host's card is the expedition's own; round 10: a fort may be chosen while a formed host only
+  //  waits for its province to finish the turn — keephand.choosableWait, web-frontier-local-click-sync.test.mjs)
+  assert.match(app, /if \(hit0\?\.keep && FS\.mode === 'play' && !FS\.compose && FS\.hand\?\.pop !== OUTBOUND_POP && FS\.hand\?\.pop !== EXPEDITION_POP && !FS\.hand\?\.pick\) \{/);
+  assert.match(app, /if \(hit0\.keep\.reachable && keephand\.choosableWait\(keephand\.waitOf\(FS, sub\.host\), sub\.host\)\) Promise\.resolve\(ACTIONS\['cq-march'\]\(\{ host: sub\.host\.id, p: hit0\.keep\.p, q: hit0\.keep\.q, tile: hit0\.idx \}\)\)/);
   // the capture's event carries the keep's tile; the page reads the records again on it (strip, panels), the effects play on it
   // (rewritten before the take, 2026-10-11: the event carries `donor` after the fields it had, for the character at the capture)
   assert.match(keeps, /fxEmit\('keep:captured', \{ p: m\.p, q: m\.q, tile: m\.tile, from: m\.from, to: m\.to, turn: m\.turn, mine: m\.mine, lost: m\.lost, before: m\.before, after: m\.after, donor: m\.donor \?\? null \}\)/);

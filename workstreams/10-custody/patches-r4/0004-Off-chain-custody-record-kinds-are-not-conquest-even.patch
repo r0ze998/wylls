@@ -1,0 +1,74 @@
+From b47547a5cf44925dda9d59fdb4ae7397a5c0a93e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 15:20:25 +0000
+Subject: [PATCH 04/14] Off-chain: custody record kinds are not conquest events
+
+fclient's conquest parser returns None for LOT_* records and the
+herald's conquest pass ignores them, so their exhaustive matches build.
+No custody feed, keeper duty or verifier check yet (integration items).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ frontier-node/crates/fclient/src/conquest.rs | 15 +++++++++++++--
+ frontier-node/crates/herald/src/conquest.rs  | 11 +++++++++++
+ 2 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/frontier-node/crates/fclient/src/conquest.rs b/frontier-node/crates/fclient/src/conquest.rs
+index 2cf28636..92a16077 100644
+--- a/frontier-node/crates/fclient/src/conquest.rs
++++ b/frontier-node/crates/fclient/src/conquest.rs
+@@ -413,8 +413,8 @@ pub struct CqLog {
+     pub event: CqEvent,
+ }
+ 
+-/// Parses a PS2 body of an MC kind (`None` for an M1 kind or a body that
+-/// does not decode).
++/// Parses a PS2 body of an MC kind (`None` for an M1 kind, a custody kind
++/// or a body that does not decode).
+ pub fn parse(body: &[u8]) -> Option<CqLog> {
+     let r = l2::decode(body).ok()?;
+     let AnyKind::Cq(k) = r.kind else {
+@@ -436,6 +436,17 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
+     let i = |name: &str| -> Option<i32> { u(name).map(|v| v as u32 as i32) };
+     let b8 = |name: &str| -> Option<u8> { u(name).map(|v| v as u8) };
+     let event = match k {
++        // Custody (workstream 10): not a conquest event; a custody reader
++        // decodes these records (`frontier_abi::v2::log`, kinds 104–112).
++        CqKind::LOT_OPENED
++        | CqKind::LOT_QUOTA
++        | CqKind::LOT_INBOUND
++        | CqKind::LOT_SHIPPED
++        | CqKind::LOT_SETTLED
++        | CqKind::LOT_ORDER
++        | CqKind::LOT_REVOKED
++        | CqKind::LOT_CONSUMED
++        | CqKind::LOT_LOSS => return None,
+         CqKind::SIEGE_DECLARED => CqEvent::SiegeDeclared {
+             p: i("p")?,
+             q: i("q")?,
+diff --git a/frontier-node/crates/herald/src/conquest.rs b/frontier-node/crates/herald/src/conquest.rs
+index 80932dc0..5a998446 100644
+--- a/frontier-node/crates/herald/src/conquest.rs
++++ b/frontier-node/crates/herald/src/conquest.rs
+@@ -826,6 +826,17 @@ fn fold_record(
+         | CqKind::NATION_DECIDED
+         | CqKind::RAID_OPENED
+         | CqKind::FORT_GARRISONED => {}
++        // Custody (workstream 10): no herald feed yet (the lots feed is an
++        // integration item, `workstreams/10-custody/02-contract.ja.md` §10).
++        CqKind::LOT_OPENED
++        | CqKind::LOT_QUOTA
++        | CqKind::LOT_INBOUND
++        | CqKind::LOT_SHIPPED
++        | CqKind::LOT_SETTLED
++        | CqKind::LOT_ORDER
++        | CqKind::LOT_REVOKED
++        | CqKind::LOT_CONSUMED
++        | CqKind::LOT_LOSS => {}
+         // Map growth: a FastForward's rest. Its bells reach the files
+         // through the Province's bytes (`after_records`) or, earlier, the
+         // herald's own projection (`crate::rest`); the record's digest is
+-- 
+2.43.0
+

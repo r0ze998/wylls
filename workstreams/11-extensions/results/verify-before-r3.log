@@ -1,0 +1,15 @@
+# base 4cd901de, verifier WITHOUT patch 0001 (v2_program.rs as in the base); tests of patch 0001 added
+test an_instruction_run_by_cpi_is_not_a_pass ... 
+thread 'an_instruction_run_by_cpi_is_not_a_pass' (14120) panicked at crates/verify/tests/unknown_ix.rs:123:9:
+assertion `left != right` failed: tx#0: Warn V2 ProgramMismatch bell 0 tx#0: an archived transaction does not invoke the program
+test an_unknown_instruction_is_not_a_pass ... verdict with an unknown tag 0xD4: Pass
+thread 'an_unknown_instruction_is_not_a_pass' (14121) panicked at crates/verify/tests/unknown_ix.rs:59:5:
+test the_fixture_passes_unchanged ... ok
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+# base 4cd901de, V7 WITHOUT patch 0003 (patch 0001 applied); tests of patch 0003 added
+test a_holding_write_with_no_earlier_post_state_is_not_a_pass ... 
+thread 'a_holding_write_with_no_earlier_post_state_is_not_a_pass' (18133) panicked at crates/verify/tests/missing_state.rs:36:13:
+assertion `left != right` failed: tx#88 HHTdgSGUFTW9YnLyKm9TRPYSeRdSXm6fMCjUgFLKU58W: Warn V9 PrefundedAddress bell 0 accounts: 1 accounts hold more than their rent (pre-funded or escrow; informational)
+test an_archive_without_post_states_says_continuity_is_unjudged ... 
+thread 'an_archive_without_post_states_says_continuity_is_unjudged' (18137) panicked at crates/verify/tests/missing_state.rs:53:5:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s

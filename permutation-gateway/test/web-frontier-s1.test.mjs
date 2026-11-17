@@ -130,7 +130,8 @@ const code = fn => { try { fn(); return null; } catch (e) { return e.code; } };
 
 test('the caravans feed is read as herald/src/caravan.rs writes it', () => {
   const c = parseCaravans(JSON.stringify(CARAVANS));
-  assert.deepEqual(c, { ...CARAVANS, moving: [{ ...CARAVANS.moving[0], provinces: [{ p: 3, q: 0 }, { p: 4, q: 0 }] }], vaults: CARAVANS.vaults.map(v => ({ ...v, ownerCitizen: null })) });
+  // ⑯ P3: a holder (a take's raider) and the send's wear are read when the herald writes them, null from an older herald
+  assert.deepEqual(c, { ...CARAVANS, moving: [{ ...CARAVANS.moving[0], provinces: [{ p: 3, q: 0 }, { p: 4, q: 0 }], holderTag: null, wornBps: null }], vaults: CARAVANS.vaults.map(v => ({ ...v, ownerCitizen: null })) });
   // once the herald read the vault's bytes: its stores and cap (whole units) and its owner's address
   const read = clone(CARAVANS);
   Object.assign(read.vaults[0], { stores: [0, 100, 0, 0, 0, 5, 0, 0], cap: 5000, ownerCitizen: '11111111111111111111111111111112' });
@@ -666,7 +667,8 @@ test('a host on another\'s storehouse or structure offers to seize it; a fightin
   assert.deepEqual(manned.seize.blocks, ['FortManned'], 'a fort is seized only once it fell');
   assert.equal(SCR.s1TileModel({ ...fs, s1: { ...fs.s1, caravans: { moving: [], vaults: [{ ...vault, ownerTag: '5' }] } }, holdings: fs.holdings.map(h => ({ ...h, ownerCitizen: new Uint8Array([5, ...Array(31).fill(0)]) })) }, { p: 0, q: 0, idx: 31 }).seize, null, 'nothing to seize of one\'s own');
   // a siege: another nation's village on site 0 (tile 5), a Free City on site 1 (tile 6)
-  const S = prov(0, 0, { siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [{ ...mine, tile: 5 }, { ...mine, tile: 6, unit: 6 }] });
+  // (resolvedNext 99 at turn 100: the target Province is resolved — a siege on one behind the turn is NotResident, below)
+  const S = prov(0, 0, { resolvedNext: 99, siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [{ ...mine, tile: 5 }, { ...mine, tile: 6, unit: 6 }] });
   const sfs = world({ provinces: new Map([['0,0', { province: S }]]) });
   const village = SCR.siegeOffer(sfs, { p: 0, q: 0, idx: 5 });
   assert.deepEqual([village.site, village.entry, village.freeCity, village.blocks], [0, 0, false, []]);
@@ -679,12 +681,12 @@ test('a host on another\'s storehouse or structure offers to seize it; a fightin
   const capped = SCR.siegeOffer({ ...sfs, citizen: { ...sfs.citizen, siegeDay: 0, siegesToday: 2 } }, { p: 0, q: 0, idx: 5 });
   assert.deepEqual(capped.blocks, ['SiegeCap']);
   // a village still under its shield (s1-season-2: a new Borealis village, shielded to turn 147, was offered a siege)
-  const shield = prov(0, 0, { siteMirror: [{ state: 1, faction: 2, shieldUntilBell: 147 }], entries: [{ ...mine, tile: 5 }] });
+  const shield = prov(0, 0, { resolvedNext: 146, siteMirror: [{ state: 1, faction: 2, shieldUntilBell: 147 }], entries: [{ ...mine, tile: 5 }] });
   assert.deepEqual(SCR.siegeOffer(world({ provinces: new Map([['0,0', { province: shield }]]) }), { p: 0, q: 0, idx: 5 }).blocks, ['Shielded']);
   assert.deepEqual(SCR.siegeOffer(world({ nowBell: 147, provinces: new Map([['0,0', { province: shield }]]) }), { p: 0, q: 0, idx: 5 }).blocks, []);
   // a village in its owner's heartland (s1-season-2: an Astel host on a Borealis village in ring 2 was refused Heartland)
   const w02 = wedgeOf(0, 2);
-  const home = f => prov(0, 2, { siteMirror: [{ state: 1, faction: f }], entries: [{ ...mine, tile: 5 }] });
+  const home = f => prov(0, 2, { resolvedNext: 99, siteMirror: [{ state: 1, faction: f }], entries: [{ ...mine, tile: 5 }] });
   assert.equal(w02, 1, 'Borealis\' wedge');
   const astel = { ...world().citizen, faction: 0 };
   assert.deepEqual(SCR.siegeOffer(world({ citizen: astel, provinces: new Map([['0,2', { province: home(w02) }]]) }), { p: 0, q: 2, idx: 5 }).blocks, ['Heartland']);
@@ -748,7 +750,7 @@ test('a seizure and a siege are sent as SeizeVault and DeclareSiege, the owner r
   let release;
   try {
     const mine = { state: 1, tile: 31, id: hostId({ p: 0, q: 0, site: 0, gen: 1, seq: 3 }), fromBell: 5, unit: 0 };
-    const P = prov(0, 0, { siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [mine, { ...mine, tile: 5 }, { ...mine, tile: 6 }] });
+    const P = prov(0, 0, { resolvedNext: 99, siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [mine, { ...mine, tile: 5 }, { ...mine, tile: 6 }] });
     const vault = { p: 0, q: 0, tile: 31, ownerTag: '9', faction: 2, gen: 1, ownerCitizen: owner };
     Object.assign(FS, world({ provinces: new Map([['0,0', { province: P }]]), s1: { caravans: { moving: [], vaults: [vault] }, structures: { structures: [], sightings: [] }, nations: null } }),
       { wallet: { address: wallet }, session: { publicKey: V.program, sign: async () => new Uint8Array(64) }, notice: null, inFlight: 0 });

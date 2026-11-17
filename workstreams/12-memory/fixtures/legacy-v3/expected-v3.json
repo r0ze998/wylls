@@ -1,0 +1,106 @@
+{
+ "produced_by": "cb7b1fad (record v3, fold v3)",
+ "world": {
+  "cluster": "localnet-fixture",
+  "program": "FrontierFixtureProgram111111111111111111111",
+  "season": 1
+ },
+ "expected": {
+  "kept": {
+   "commitments": [
+    {
+     "id": "2dd0d301cd944f2c",
+     "state": "fulfilled",
+     "reasons": [],
+     "delivered_min": 100
+    }
+   ],
+   "claims": [],
+   "reliability_B": {
+    "E": 0.636252,
+    "r": 0.749154,
+    "s": 0
+   },
+   "choice": "offer-B",
+   "decision_id": "fa7bbbc9e9496cc6",
+   "input_sha256": "90dfc86494247084c6a8f0b393578ee3a933d4580d2f63aab5d046fe47205901",
+   "reassess_now": null
+  },
+  "not_sent": {
+   "commitments": [
+    {
+     "id": "2dd0d301cd944f2c",
+     "state": "not_sent",
+     "reasons": [],
+     "delivered_min": 0
+    }
+   ],
+   "claims": [
+    {
+     "id": "ba483a219f2d7530",
+     "status": "contradicted",
+     "criterion": "no_caravan_to_place_in_complete_index"
+    }
+   ],
+   "reliability_B": {
+    "E": 0.317841,
+    "r": 0,
+    "s": 1.146229
+   },
+   "choice": "offer-C",
+   "decision_id": "9383fec283e83745",
+   "input_sha256": "bff2febe68ed33d7dc02dd92fb1cff0e750177a1e5c7596867afab6ba0d78745",
+   "reassess_now": null
+  },
+  "record_delayed": {
+   "commitments": [
+    {
+     "id": "2dd0d301cd944f2c",
+     "state": "unconfirmed",
+     "reasons": [
+      "caravan_unknown"
+     ],
+     "delivered_min": 0
+    }
+   ],
+   "claims": [],
+   "reliability_B": {
+    "E": 0.5,
+    "r": 0,
+    "s": 0
+   },
+   "choice": "offer-C",
+   "decision_id": "2fd527489b376e59",
+   "input_sha256": "c6f00a7940e7e9cf1d184f03c9a8cdd8446d91be0fe33d847fc1f5c3914e5809",
+   "reassess_now": "offer-B"
+  },
+  "claim_no_record": {
+   "commitments": [
+    {
+     "id": "2dd0d301cd944f2c",
+     "state": "unconfirmed",
+     "reasons": [
+      "no_record_found"
+     ],
+     "delivered_min": 0
+    }
+   ],
+   "claims": [
+    {
+     "id": "ba483a219f2d7530",
+     "status": "unverified",
+     "criterion": null
+    }
+   ],
+   "reliability_B": {
+    "E": 0.5,
+    "r": 0,
+    "s": 0
+   },
+   "choice": "offer-C",
+   "decision_id": "f1d56a85c93db839",
+   "input_sha256": "4bec51c0b584008c2ad5a3e7944a8ce730ff4487e5bfb59f1d6b73ed05b27842",
+   "reassess_now": null
+  }
+ }
+}

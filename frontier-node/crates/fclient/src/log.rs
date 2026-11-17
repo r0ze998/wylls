@@ -55,6 +55,8 @@ pub enum LogError {
     /// More than one tail length is consistent and no length table decides.
     Ambiguous(Vec<usize>),
     Base64,
+    /// A real program-frame wide record needs its own reader; never empty PS2 history.
+    UnsupportedWideRecord,
     /// frontier-abi's exact decoder refused the body ([`Record::decode_v2`]).
     Abi(frontier_abi::log::LogError),
 }
@@ -257,7 +259,8 @@ pub fn bodies_from_logs(logs: &[String], program: &Address) -> Result<Vec<Vec<u8
     Ok(out)
 }
 
-/// The PS2 body of one `Program data:` payload (`None`: another tag).
+/// The PS2 body of one payload. Known unsupported PSW1 is an error,
+/// never an empty history; unrelated tags remain ignored.
 fn ps2_of_data(rest: &str) -> Result<Option<Vec<u8>>, LogError> {
     let b64 = base64::engine::general_purpose::STANDARD;
     let mut parts = rest.split(' ');
@@ -265,6 +268,9 @@ fn ps2_of_data(rest: &str) -> Result<Option<Vec<u8>>, LogError> {
         return Ok(None);
     };
     let tag = b64.decode(a).map_err(|_| LogError::Base64)?;
+    if tag == b"PSW1" {
+        return Err(LogError::UnsupportedWideRecord);
+    }
     if tag != PS2 {
         return Ok(None);
     }

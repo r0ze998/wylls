@@ -1,0 +1,408 @@
+{
+  "summary": {
+    "payer": "same",
+    "seeds": "1..50",
+    "maxDelayMs": 2,
+    "runs": 50,
+    "failing": 0,
+    "budgetUnsafe": 0,
+    "signatures": {}
+  },
+  "failing": [],
+  "sample": [
+    {
+      "seed": 1,
+      "payer": "same",
+      "maxDelayMs": 2,
+      "wall": {
+        "start": 1793362799301,
+        "dayKey": "2026-10-30",
+        "end": 1793362799447,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 meter",
+          "ms": 1
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 2
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 2
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 2
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 1
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 2
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 1
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "BudgetExceeded"
+        }
+      ],
+      "payerDraws": [
+        0,
+        0
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "a97b632d0fb8739f"
+        },
+        {
+          "feePayer": "",
+          "signature": "fa9deeccb37a7aa2"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "c": {
+        "status": "stopped-by-budget",
+        "stoppedBy": "BudgetExceeded"
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": true,
+        "thirdStopped": true,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    },
+    {
+      "seed": 2,
+      "payer": "same",
+      "maxDelayMs": 2,
+      "wall": {
+        "start": 1793362799447,
+        "dayKey": "2026-10-30",
+        "end": 1793362799534,
+        "dayKeyEnd": "2026-10-30"
+      },
+      "events": [
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 2
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 0
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 meter",
+          "ms": 0
+        },
+        {
+          "t": "p2 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 meter",
+          "ms": 2
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p1 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p2 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p2 → POST /f/agent/action",
+          "ms": 1
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → GET /f/agent",
+          "ms": 2
+        },
+        {
+          "t": "p2 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p1 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p1 → POST /f/agent/action",
+          "ms": 0
+        },
+        {
+          "t": "p1 ← /f/agent/action 200",
+          "code": "sent"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 2
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 meter",
+          "ms": 0
+        },
+        {
+          "t": "p3 meter done",
+          "ok": true,
+          "charged": "10000"
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 1
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → GET /f/agent",
+          "ms": 2
+        },
+        {
+          "t": "p3 ← /f/agent 200",
+          "code": null
+        },
+        {
+          "t": "p3 → POST /f/agent/action",
+          "ms": 1
+        },
+        {
+          "t": "p3 ← /f/agent/action 200",
+          "code": "BudgetExceeded"
+        }
+      ],
+      "payerDraws": [
+        0,
+        0
+      ],
+      "sends": [
+        {
+          "feePayer": "",
+          "signature": "d0828b6987db67d2"
+        },
+        {
+          "feePayer": "",
+          "signature": "7667d4c0223a5601"
+        }
+      ],
+      "a": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-1",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "b": {
+        "status": "done",
+        "charged": "10000",
+        "items": [
+          [
+            "R-2",
+            "sent",
+            null
+          ]
+        ]
+      },
+      "c": {
+        "status": "stopped-by-budget",
+        "stoppedBy": "BudgetExceeded"
+      },
+      "books": {
+        "available": "940000",
+        "reserved": "30000",
+        "spent": {
+          "inference": "30000",
+          "network": "0",
+          "game": "0"
+        },
+        "used": "60000",
+        "day": {
+          "key": "2026-10-30",
+          "spent": "30000",
+          "calls": 3
+        }
+      },
+      "checks": {
+        "twoSent": true,
+        "thirdStopped": true,
+        "withinBudget": true,
+        "ledgerSound": true
+      }
+    }
+  ]
+}

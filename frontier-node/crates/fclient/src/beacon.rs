@@ -331,9 +331,14 @@ impl TestKey {
 
 // ---------------------------------------------------------------- DrandPort backends
 
-/// drand's HTTP API (`/{chain}/public/{round}`) over plain HTTP: `drand-replay`
-/// on loopback. HTTPS endpoints (api.drand.sh) need a TLS client, a
-/// dependency request for the live keeper (Mode R, O-M1-12).
+/// drand's HTTP API (`/{chain}/public/{round}`): `drand-replay` on loopback
+/// over plain HTTP, or live drand (`https://api.drand.sh` and its mirrors)
+/// through `http`'s verified curl GET. Every answer is checked as
+/// drand-client and drand-rs check it (round equal to the one asked, the
+/// signature against the pinned key, `randomness = sha256(signature)` when
+/// present); an endpoint that serves nothing usable is skipped for the next
+/// one, and "not yet" (425/404) is only the answer when no endpoint served
+/// a verified round.
 pub struct HttpDrand {
     pub urls: Vec<String>,
     pub info: ChainInfo,
@@ -355,17 +360,38 @@ pub fn parse_beacon_json(v: &serde_json::Value) -> Option<Beacon> {
     })
 }
 
-/// Parses drand's `/info` JSON.
+/// Whether a served round is the one asked for and verifies against `pk`,
+/// with its `randomness` (when present) equal to `sha256(signature)` (the
+/// checks drand-client's `verifyBeacon` makes).
+pub fn check_served(v: &serde_json::Value, r: u64, pk: &[u8; 96]) -> Result<Beacon, PortError> {
+    let b = parse_beacon_json(v).ok_or_else(|| PortError::Decode("beacon json".into()))?;
+    if b.round != r || !verify(r, &b.sig48, pk) {
+        return Err(PortError::BadBeacon(r));
+    }
+    if let Some(rand) = v.get("randomness") {
+        let want: [u8; 32] = Sha256::digest(b.sig48).into();
+        if rand.as_str().and_then(|x| hex::decode(x).ok()).as_deref() != Some(&want[..]) {
+            return Err(PortError::BadBeacon(r));
+        }
+    }
+    Ok(b)
+}
+
+/// Parses drand's `/info` JSON: the v2 shape (`chain_hash`,
+/// `genesis_seed`, `scheme`, `beacon_id`) and the v1 shape that
+/// `/{chain}/info` serves on api.drand.sh (`hash`, `groupHash`, `schemeID`,
+/// `metadata.beaconID`; measured 2026-10-30).
 pub fn parse_info_json(v: &serde_json::Value) -> Option<ChainInfo> {
     let h = |k: &str| hex::decode(v.get(k)?.as_str()?).ok();
     Some(ChainInfo {
         public_key: h("public_key")?.try_into().ok()?,
-        period: v.get("period")?.as_u64()? as u32,
+        period: u32::try_from(v.get("period")?.as_u64()?).ok()?,
         genesis_time: v.get("genesis_time")?.as_i64()?,
         genesis_seed: h("genesis_seed")
+            .or_else(|| h("groupHash"))
             .and_then(|x| x.try_into().ok())
             .unwrap_or([0; 32]),
-        chain_hash: h("chain_hash")?.try_into().ok()?,
+        chain_hash: h("chain_hash").or_else(|| h("hash"))?.try_into().ok()?,
         scheme: v
             .get("schemeID")
             .or_else(|| v.get("scheme"))
@@ -380,6 +406,86 @@ pub fn parse_info_json(v: &serde_json::Value) -> Option<ChainInfo> {
             .unwrap_or("")
             .into(),
     })
+}
+
+/// Checks served chain info against the pin: the key, the clock, the chain
+/// hash, the scheme and (when served) the genesis seed must all be equal
+/// (drand-client compares hash and key; the clock is compared too because
+/// `T(b)` is computed from it).
+pub fn pin_info(got: &ChainInfo, want: &ChainInfo) -> Result<(), String> {
+    let mut diff = vec![];
+    if got.public_key != want.public_key {
+        diff.push("public_key");
+    }
+    if got.chain_hash != want.chain_hash {
+        diff.push("chain_hash");
+    }
+    if got.period != want.period {
+        diff.push("period");
+    }
+    if got.genesis_time != want.genesis_time {
+        diff.push("genesis_time");
+    }
+    if got.scheme != want.scheme {
+        diff.push("scheme");
+    }
+    if got.genesis_seed != [0; 32] && got.genesis_seed != want.genesis_seed {
+        diff.push("genesis_seed");
+    }
+    if diff.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "drand info differs from the pin in {}",
+            diff.join(", ")
+        ))
+    }
+}
+
+/// The chains a drand client may pin: quicknet always; the I-53 test key
+/// only when every endpoint is loopback (a `drand-replay --test-key`), so a
+/// keeper pointed at a public host can never settle on the test key.
+pub fn pins_for(urls: &[String]) -> Vec<ChainInfo> {
+    let mut v = vec![quicknet_info()];
+    if !urls.is_empty() && urls.iter().all(|u| crate::http::is_loopback(u)) {
+        v.push(TestKey::new().info());
+    }
+    v
+}
+
+/// Finds the pinned chain the endpoints serve: asks `{url}/{chain}/info`
+/// for each pin (the chain-addressed route both api.drand.sh and
+/// drand-replay serve; the bare `/info` of api.drand.sh is another network)
+/// and returns the first pin whose served info equals it ([`pin_info`]).
+/// The error lists every endpoint's answer.
+pub async fn discover_pinned(urls: &[String], pins: &[ChainInfo]) -> Result<ChainInfo, String> {
+    let mut why = vec![];
+    for u in urls {
+        for pin in pins {
+            let url = format!(
+                "{}/{}/info",
+                u.trim_end_matches('/'),
+                hex::encode(pin.chain_hash)
+            );
+            match crate::http::get(&url).await {
+                Ok(r) if r.status == 200 => {
+                    match serde_json::from_slice::<serde_json::Value>(&r.body)
+                        .ok()
+                        .and_then(|v| parse_info_json(&v))
+                    {
+                        Some(got) => match pin_info(&got, pin) {
+                            Ok(()) => return Ok(pin.clone()),
+                            Err(e) => why.push(format!("{url}: {e}")),
+                        },
+                        None => why.push(format!("{url}: not a drand info")),
+                    }
+                }
+                Ok(r) => why.push(format!("{url}: HTTP {}", r.status)),
+                Err(e) => why.push(format!("{url}: {e}")),
+            }
+        }
+    }
+    Err(why.join("; "))
 }
 
 /// `info` as drand serves it.
@@ -408,26 +514,34 @@ impl crate::ports::DrandPort for HttpDrand {
         let pk = self.info.public_key;
         async move {
             let mut last = PortError::Unavailable("no drand url".into());
+            let mut not_yet = false;
             for u in &urls {
                 let url = format!("{}/{}/public/{}", u.trim_end_matches('/'), chain, r);
                 match crate::http::get(&url).await {
                     Ok(resp) if resp.status == 200 => {
-                        let v: serde_json::Value = serde_json::from_slice(&resp.body)
-                            .map_err(|e| PortError::Decode(e.to_string()))?;
-                        let b = parse_beacon_json(&v)
-                            .ok_or_else(|| PortError::Decode("beacon json".into()))?;
-                        if b.round != r || !verify(r, &b.sig48, &pk) {
-                            last = PortError::BadBeacon(r);
-                            continue;
+                        // A bad answer from one endpoint (garbage, another
+                        // round, a forged or foreign signature) moves on to
+                        // the next endpoint; it never ends the search.
+                        match serde_json::from_slice::<serde_json::Value>(&resp.body)
+                            .map_err(|e| PortError::Decode(e.to_string()))
+                            .and_then(|v| check_served(&v, r, &pk))
+                        {
+                            Ok(b) => return Ok(Some(b)),
+                            Err(e) => last = e,
                         }
-                        return Ok(Some(b));
                     }
-                    Ok(resp) if resp.status == 425 || resp.status == 404 => return Ok(None),
+                    // Not published there yet (or not kept): another
+                    // endpoint may already have it.
+                    Ok(resp) if resp.status == 425 || resp.status == 404 => not_yet = true,
                     Ok(resp) => last = PortError::Http(resp.status),
                     Err(e) => last = e,
                 }
             }
-            Err(last)
+            if not_yet {
+                Ok(None)
+            } else {
+                Err(last)
+            }
         }
     }
     fn info(&self) -> ChainInfo {
@@ -523,6 +637,102 @@ mod tests {
             seed_of(1_000, &sig96),
             seed_of(1_000, &decompress_sig(&k.sign(1_000)).unwrap())
         );
+    }
+
+    /// `/{chain}/info` as api.drand.sh served it (v1 shape) and
+    /// `/v2/chains/{chain}/info` (v2 shape), captured 2026-10-30.
+    const LIVE_V1_INFO: &str = r#"{"public_key":"83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a","period":3,"genesis_time":1692803367,"hash":"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971","groupHash":"f477d5c89f21a17c863a7f937c6a6d15859414d2be09cd448d4279af331c5d3e","schemeID":"bls-unchained-g1-rfc9380","metadata":{"beaconID":"quicknet"}}"#;
+    const LIVE_V2_INFO: &str = r#"{"public_key":"83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a","period":3,"genesis_time":1692803367,"genesis_seed":"f477d5c89f21a17c863a7f937c6a6d15859414d2be09cd448d4279af331c5d3e","chain_hash":"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971","scheme":"bls-unchained-g1-rfc9380","beacon_id":"quicknet"}"#;
+    /// Round 33533784 as api.drand.sh served it (`/public/latest`, 2026-10-30).
+    const LIVE_ROUND: &str = r#"{"round":33533784,"randomness":"3f405a59343324d3409f5dba227a84d731546829e174d7f322f816c38c549d11","signature":"b988d28714ee128f9804f57248a4cfff9db14f04b88ab6eeac2775e11448eb76a196abc6b8d3951d3b2f6b3d84065d71"}"#;
+
+    #[test]
+    fn live_info_shapes_parse_and_match_the_pin() {
+        for text in [LIVE_V1_INFO, LIVE_V2_INFO] {
+            let v: serde_json::Value = serde_json::from_str(text).unwrap();
+            let got = parse_info_json(&v).expect("both shapes parse");
+            assert_eq!(pin_info(&got, &quicknet_info()), Ok(()));
+            assert_eq!(got.beacon_id, "quicknet");
+        }
+        // The pre-fix parser needed `chain_hash`: the v1 shape (the route
+        // `/{chain}/info` on api.drand.sh) did not parse at all.
+        let v1: serde_json::Value = serde_json::from_str(LIVE_V1_INFO).unwrap();
+        assert!(v1.get("chain_hash").is_none());
+    }
+
+    #[test]
+    fn pin_info_refuses_every_changed_field() {
+        let q = quicknet_info();
+        let t = TestKey::new().info();
+        assert!(pin_info(&t, &q).is_err(), "the test key is not quicknet");
+        let mut x = q.clone();
+        x.public_key[5] ^= 1;
+        assert!(pin_info(&x, &q).unwrap_err().contains("public_key"));
+        let mut x = q.clone();
+        x.chain_hash[0] ^= 1;
+        assert!(pin_info(&x, &q).unwrap_err().contains("chain_hash"));
+        let mut x = q.clone();
+        x.period = 30; // the default (mainnet) network's period
+        assert!(pin_info(&x, &q).unwrap_err().contains("period"));
+        let mut x = q.clone();
+        x.genesis_time += 1;
+        assert!(pin_info(&x, &q).unwrap_err().contains("genesis_time"));
+        let mut x = q.clone();
+        x.scheme = "pedersen-bls-chained".into();
+        assert!(pin_info(&x, &q).unwrap_err().contains("scheme"));
+        let mut x = q.clone();
+        x.genesis_seed[0] ^= 1;
+        assert!(pin_info(&x, &q).unwrap_err().contains("genesis_seed"));
+        let mut x = q.clone();
+        x.genesis_seed = [0; 32]; // not served: not compared
+        assert_eq!(pin_info(&x, &q), Ok(()));
+    }
+
+    #[test]
+    fn served_rounds_are_checked_like_drand_client() {
+        let pk = quicknet_info().public_key;
+        let v: serde_json::Value = serde_json::from_str(LIVE_ROUND).unwrap();
+        let r = 33_533_784;
+        assert_eq!(check_served(&v, r, &pk).unwrap().round, r);
+        // Asked for another round (a replayed or misrouted answer).
+        assert_eq!(
+            check_served(&v, r + 1, &pk),
+            Err(PortError::BadBeacon(r + 1))
+        );
+        // The same round under another key (wrong network, the test key).
+        assert!(check_served(&v, r, &TestKey::new().pk96).is_err());
+        // A forged signature: the test key's signature of the same round.
+        let mut forged = v.clone();
+        forged["signature"] = hex::encode(TestKey::new().sign(r)).into();
+        forged["randomness"] = hex::encode(Sha256::digest(TestKey::new().sign(r))).into();
+        assert!(check_served(&forged, r, &pk).is_err());
+        // A flipped signature byte, a truncated one, and garbage.
+        let mut flip = v.clone();
+        let mut sig = hex::decode(v["signature"].as_str().unwrap()).unwrap();
+        sig[47] ^= 1;
+        flip["signature"] = hex::encode(&sig).into();
+        assert!(check_served(&flip, r, &pk).is_err());
+        let mut short = v.clone();
+        short["signature"] = hex::encode(&sig[..47]).into();
+        assert!(check_served(&short, r, &pk).is_err());
+        assert!(check_served(&serde_json::json!({"round": r}), r, &pk).is_err());
+        // randomness that is not sha256(signature).
+        let mut rnd = v.clone();
+        rnd["randomness"] = hex::encode([0u8; 32]).into();
+        assert!(check_served(&rnd, r, &pk).is_err());
+        // randomness absent (the v2 rounds route): accepted on the signature.
+        let mut v2 = v.clone();
+        v2.as_object_mut().unwrap().remove("randomness");
+        assert!(check_served(&v2, r, &pk).is_ok());
+    }
+
+    #[test]
+    fn the_test_key_is_pinned_only_on_loopback() {
+        let lo = vec!["http://127.0.0.1:41020".to_string()];
+        assert_eq!(pins_for(&lo).len(), 2);
+        let mixed = vec![lo[0].clone(), "https://api.drand.sh".to_string()];
+        assert_eq!(pins_for(&mixed), vec![quicknet_info()]);
+        assert_eq!(pins_for(&[]), vec![quicknet_info()]);
     }
 
     #[test]

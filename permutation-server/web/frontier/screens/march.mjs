@@ -16,7 +16,7 @@ import { bellStart, bellAt } from '../clock.mjs';
 import { icon } from '../hud/icons.mjs';
 
 /** The planner's answers that mean "no legal route" (fmarch.planRoute): the order card then offers the reach list (hud/marchcard.mjs). */
-export const NO_ROUTE = Object.freeze(['NoPath', 'Path']);
+export const NO_ROUTE = Object.freeze(['NoPath', 'Path', 'PlannerBudget']);
 
 const RETREAT_TEXT = {
   never: () => L`撤退しない`,

@@ -52,7 +52,7 @@ use permutation_rules::frontier::stance::{Posture, Stance};
 use permutation_rules::frontier::travel::{march_stamina, MAX_PATH_STEPS};
 
 use super::holding::{
-    bps16, finality, live, load_touched, own_province, owned_holding, player, site_of, sub,
+    bps16, finality, live, load_touched, own_province, owned_holding, player_as, site_of, sub,
     write_holding, Player,
 };
 use crate::addr;
@@ -141,7 +141,11 @@ pub(crate) fn resident_host(
     caller_host(hh, host_id)?;
     {
         let hd = holding.try_borrow_data()?;
-        if ap::host_in_transit(&hd, host_id) {
+        #[cfg(feature = "wide-world-experimental")]
+        let in_transit = ap::host_in_transit_with_bridge(&pl.ctx, &key(holding), &hd, host_id)?;
+        #[cfg(not(feature = "wide-world-experimental"))]
+        let in_transit = ap::host_in_transit(&hd, host_id);
+        if in_transit {
             return Err(FrontierError::HostInTransit.into());
         }
     }
@@ -203,9 +207,15 @@ fn bump_epoch(w: &mut Rw) -> R<()> {
 /// holding's). Troops come from `reserve[unit]` (whole troops) and form a
 /// muster-pending entry (state 2) joining the roster at `now_bell + 1`.
 pub fn muster(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    muster_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`muster`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn muster_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(Ix::Muster, a, None)?;
     let x = aix::Muster::decode(d)?;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     let [_, _, _, citizen, holding, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -326,9 +336,15 @@ pub fn muster(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// clash: pending op `Leave`, its troops back to the reserve at the settle
 /// (the resolver's, W4-A).
 pub fn dissolve(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    dissolve_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`dissolve`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn dissolve_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(frontier_abi::v2::Ix::Dissolve, a, None)?;
     let x = aix::Dissolve::decode(d)?;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     let [_, _, _, citizen, holding, province, holding_province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -410,9 +426,15 @@ pub const GARRISON_UNIT: usize = 0;
 /// `delta > 0` whole troops of the Spearman reserve join the garrison
 /// after the bell's clash (`GarrisonState::change`).
 pub fn garrison(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    garrison_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`garrison`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn garrison_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(Ix::Garrison, a, None)?;
     let x = aix::Garrison::decode(d)?;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     let [_, _, _, citizen, holding, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -594,9 +616,15 @@ pub const DEPART_STAMINA: u16 = march_stamina(MAX_PATH_STEPS as u32);
 /// commit, seal, arrive_bell, tip, transit_slot`. Checks in the order of
 /// §5.11.
 pub fn depart(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    depart_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`depart`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(frontier_abi::v2::Ix::Depart, a, None)?;
     let x = aix::Depart::decode(d)?;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, holding, province, _system, holding_province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -641,7 +669,11 @@ pub fn depart(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     {
         let hd = holding.try_borrow_data()?;
-        if ap::host_in_transit(&hd, x.host_id) {
+        #[cfg(feature = "wide-world-experimental")]
+        let in_transit = ap::host_in_transit_with_bridge(&pl.ctx, &key(holding), &hd, x.host_id)?;
+        #[cfg(not(feature = "wide-world-experimental"))]
+        let in_transit = ap::host_in_transit(&hd, x.host_id);
+        if in_transit {
             return Err(FrontierError::HostInTransit.into());
         }
     }

@@ -1,0 +1,22 @@
+# integration tip ef63544c + 0004 only (before r6); r6 tests
+test a_mention_whose_logs_show_no_run_is_not_reported ... ok
+cpi-only, no logs: 140 cases, 7 PASS ["land tx#2", "land tx#3", "land tx#4", "land tx#5", "land tx#6"], 0 without the code
+thread 'a_cpi_only_transaction_without_logs_is_not_a_pass' (3342) panicked at crates/verify/tests/evidence.rs:72:9:
+test a_cpi_only_transaction_without_logs_is_not_a_pass ... FAILED
+dropped post-states: 72 cases, 0 PASS [], 0 without the code
+test a_written_account_without_its_post_state_is_not_a_pass ... ok
+test a_call_without_logs_is_not_a_pass has been running for over 60 seconds
+test the_fixtures_have_nothing_for_v0e ... ok
+test logs_that_lose_their_tail_are_not_a_pass has been running for over 60 seconds
+cpi: 140 cases, 0 PASS [], 0 without the code
+test the_program_run_by_another_program_is_not_a_pass ... ok
+test logs_the_runtime_cut_are_not_a_pass has been running for over 60 seconds
+no logs: 345 cases, 0 PASS [], 0 without the code
+test a_call_without_logs_is_not_a_pass ... ok
+tail lost, no marker: 338 cases, 134 PASS ["land tx#55", "land tx#56", "land tx#65", "land tx#66", "land tx#70"], 3 without the code
+thread 'logs_that_lose_their_tail_are_not_a_pass' (3345) panicked at crates/verify/tests/evidence.rs:72:9:
+test logs_that_lose_their_tail_are_not_a_pass ... FAILED
+truncated logs: 345 cases, 0 PASS [], 0 without the code
+test logs_the_runtime_cut_are_not_a_pass ... ok
+test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 166.25s
+error: test failed, to rerun pass `-p verify --test evidence`

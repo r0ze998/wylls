@@ -1,0 +1,45 @@
+diff --git a/frontier-node/crates/findex/src/lib.rs b/frontier-node/crates/findex/src/lib.rs
+index a132ef55..3123ba0d 100644
+--- a/frontier-node/crates/findex/src/lib.rs
++++ b/frontier-node/crates/findex/src/lib.rs
+@@ -154,23 +154,31 @@ impl Findex {
+         if got.is_empty() {
+             return Ok(vec![]);
+         }
+-        self.index.mark_incomplete().map_err(IngestError::Store)?;
++        // Archive first: the archive is the source of truth, and a reopened
++        // store catches its index up from it. Every index write after this
++        // point (the incomplete mark, the records, the complete mark) that
++        // fails poisons the store until it is reopened; a crash between the
++        // archive and the mark is found on reopen by the sequence mismatch.
+         let stored = self.archive.append(&got, src.cursor()).map_err(|e| {
+             self.poisoned = true;
+             IngestError::Store(e.to_string())
+         })?;
+-        self.index.add(&stored).map_err(|e| {
++        if let Err(e) = self.index_after_archive(&stored) {
+             self.poisoned = true;
+-            IngestError::Store(e)
+-        })?;
+-        if self.index.last_seq().map_err(IngestError::Store)? != self.archive.last_seq() {
+-            return Err(IngestError::Store(
+-                "index did not catch up with archive".into(),
+-            ));
++            return Err(IngestError::Store(e));
+         }
+-        self.index.mark_complete().map_err(IngestError::Store)?;
+         Ok(stored)
+     }
++
++    /// The index writes of one pull, after its records are archived.
++    fn index_after_archive(&mut self, stored: &[TxRecord]) -> Result<(), String> {
++        self.index.mark_incomplete()?;
++        self.index.add(stored)?;
++        if self.index.last_seq()? != self.archive.last_seq() {
++            return Err("index did not catch up with archive".into());
++        }
++        self.index.mark_complete()
++    }
+ }
+ 
+ #[cfg(test)]

@@ -1,0 +1,165 @@
+✓ stack {
+  "season": "100",
+  "programId": "39CLuLA7icLf5j4otdn8xE75QRLZzQedAVGuQZkja5ei",
+  "profile": 3,
+  "agentWallet": true
+}
+✓ owner-joined {
+  "wallet": "3LomDvsBwWav7iGtfgeY62Ebh6M6CGJmr7SDUuGpfqwU",
+  "nation": 0,
+  "join": "3rmBBvizKoeM9NKLtizKXUzUtN5innW1m67NXQbyVaJj5JAjrcsLbRKx2fKBqwH5F3xYaVumsdPn4Z6SaomkY29L",
+  "village": [
+    3,
+    0,
+    0
+  ],
+  "tile": 1
+}
+✓ storehouse-built {
+  "tile": 4,
+  "signature": "5nqurHRckQGyW6CJew5Q3v8TVrJNWqhyNWUnh7GmZJwLmMqVySpe43GvGHUZ5PxKonqQHpb6UKYtPJwioRCraSe5"
+}
+✓ agent-delegated {
+  "agentId": "4dc1a700-9c72-4094-ac79-4742184e3bd1",
+  "agentKey": "AFMsGn8qCmR54LRYhyQyUrc8EuRaJryNHKxw9jHcogSk",
+  "allowed": [
+    "SendCaravan"
+  ],
+  "setSession": "5fpsWcXtkDY8PmPdVptYAzkakRnccveQv6yMmF6XpyFBQusitdvtNhLSw7xoUhRhp1LMrTzvfFCFdeoEepCTaszo"
+}
+✓ mcp-connected {
+  "issuer": "http://127.0.0.1:37275",
+  "scope": "wylls.read wylls.caravan"
+}
+✓ village-status {
+  "village": {
+    "placeId": "village:3,0,0",
+    "p": 3,
+    "q": 0,
+    "site": 0,
+    "stores": [
+      {
+        "resource": "Food",
+        "have": 300,
+        "perHour": 40,
+        "cap": 2000
+      },
+      {
+        "resource": "Wood",
+        "have": 100,
+        "perHour": 30,
+        "cap": 2000
+      },
+      {
+        "resource": "Stone",
+        "have": 0,
+        "perHour": 20,
+✓ shortfall {
+  "goal": {
+    "kind": "amounts",
+    "amounts": {
+      "Stone": 500
+    }
+  },
+  "rows": [
+    {
+      "resource": "Stone",
+      "need": 500,
+      "have": 0,
+      "short": 500,
+      "perHour": 20,
+      "hoursByProduction": 25
+    }
+  ],
+  "enough": false,
+  "storehouseSources": []
+}
+✓ caravan-1-village-to-storehouse {
+  "plan": {
+    "from": "village:3,0,0",
+    "to": "vault:3,0,4",
+    "cargo": {
+      "Food": 100
+    },
+    "steps": 3,
+    "estimatedMinutes": 20,
+    "seq": 0
+  },
+  "states": [
+    "accepted",
+    "processing",
+    "completed"
+  ],
+  "receipt": {
+    "operationId": "op_6bc29602a87d41e5acadac30",
+    "signature": "5tTzfrUo57eE9ehBF9fcd8gM4wqxqxwFVgvHndgx3v9a9brM6ZCkLhjDqm7oW8X5TqdAw7vaCWbtf7
+✓ storehouse-filled {
+  "food": 100,
+  "shortfall": {
+    "goal": {
+      "kind": "amounts",
+      "amounts": {
+        "Food": 320
+      }
+    },
+    "rows": [
+      {
+        "resource": "Food",
+        "need": 320,
+        "have": 220,
+        "short": 100,
+        "perHour": 40,
+        "hoursByProduction": 2.5
+      }
+    ],
+    "enough": false,
+    "storehouseSources": [
+      {
+        "placeId": "vault:3,0,4"
+✓ refusals {
+  "strangersPlace": "NotYourPlace",
+  "readOnlyConnection": "InsufficientScope"
+}
+✓ caravan-2-storehouse-to-village {
+  "plan": {
+    "from": "vault:3,0,4",
+    "to": "village:3,0,0",
+    "cargo": {
+      "Food": 100
+    },
+    "steps": 3,
+    "estimatedMinutes": 18,
+    "seq": 1
+  },
+  "states": [
+    "accepted",
+    "processing",
+    "completed"
+  ],
+  "receipt": {
+    "operationId": "op_65870ec2479e6624ca13cdbb",
+    "signature": "2eu4zmSeiC2d2PBqYtU7XKTgncYoGXphtLuei8wuuyKsuLAj42Cxk29TzmKJf25DBVtTerFzLSyxpN
+✓ grant-limit {
+  "code": "GrantLimitReached",
+  "maxSends": 2
+}
+✓ no-secret-in-transcript {}
+✓ owner-view-after-revocation {
+  "cancellation": {
+    "contract": "wylls.mock-run-receipt/0",
+    "mock": true,
+    "newRequests": "stopped",
+    "since": "2026-10-31T00:24:28.634Z",
+    "awaitingReconciliation": [],
+    "state": "done"
+  },
+  "operations": [
+    {
+      "requestId": "e2e-bfb513be-2",
+      "state": "completed",
+      "outcome": "delivered",
+      "quantity": "unverified"
+    },
+    {
+      "requestId": "e2e
+mcp local-stack e2e: 14 checks passed; transcript /home/user/wylls/workstreams/03-composability/results/mcp-local-stack.json

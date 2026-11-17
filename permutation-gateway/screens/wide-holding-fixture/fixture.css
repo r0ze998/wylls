@@ -1,0 +1,22 @@
+/* Fixture-only chrome: the toolbar and the map placeholder. Production panel/rail/card geometry is NOT touched here. */
+.fx-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; max-width: 100%; box-sizing: border-box;
+  padding: 6px 10px; font: 12px/1.3 ui-monospace, Menlo, monospace; color: #ffe9a8; background: #3a1010; border-bottom: 2px dashed #ffb74d; }
+.fx-bar::before { content: "FIXTURE"; position: absolute; right: 8px; bottom: -14px; font-size: 9px; letter-spacing: .3em; color: #ffb74d; }
+/* Native <details>/<summary> collapse: the honest badge stays visible; controls hide. No JS. */
+.fx-badge { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 2px 8px; border: 1px solid #ffb74d; border-radius: 4px; background: #601818; letter-spacing: .06em; cursor: pointer; user-select: none; list-style: none; }
+.fx-badge::-webkit-details-marker { display: none; }
+.fx-toggle { margin-left: auto; color: #ffb74d; text-decoration: underline; }
+.fx-toggle::before { content: "▸ "; }
+.fx-bar[open] .fx-toggle::before { content: "▾ "; }
+.fx-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px; max-width: 100%; }
+.fx-bar label, .fx-sheet { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.fx-bar select { min-width: 0; max-width: 100%; }
+.fx-bar button, .fx-bar select { min-height: 26px; padding: 2px 8px; font: inherit; color: #fff; background: #5a2a2a; border: 1px solid #ffb74d; border-radius: 4px; cursor: pointer; }
+.fx-bar button[aria-pressed="true"] { background: #ffb74d; color: #2a0a0a; }
+.fx-state { flex: 1 1 100%; white-space: pre-wrap; color: #ffd27a; }
+.fx-status { flex: 1 1 100%; min-height: 1.3em; white-space: pre-wrap; color: #ffb4a4; }
+.fx-status:empty { display: none; }
+/* The toolbar sits in the top strip where the production topbar (absent here) would be; nothing else is shifted. */
+.fx-map-placeholder { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center;
+  color: #d9cfae; background: repeating-linear-gradient(45deg, #1d2a27 0 24px, #182320 24px 48px); }
+.fx-map-placeholder p { max-width: 36ch; margin: 0; padding: 10px 14px; border: 2px dashed #ffb74d; border-radius: 8px; background: rgba(40,16,16,.85); color: #ffd27a; font: 600 14px/1.4 system-ui, sans-serif; }

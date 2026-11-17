@@ -12,7 +12,7 @@
 //   - read failures are told apart from "no free site".
 import { candidateProvinces, freeSitesOf, COHORT_BELLS, homeWedge } from './fland.mjs';
 import { adjacentWedges } from './onboarding.mjs';
-import { ringOf, wedgeOf, provinceIndex } from './fgeo.mjs';
+import { ringOf, wedgeOf, provinceIndex, homeNation } from './fgeo.mjs';
 
 export const AUTO_MAX_SITES = 3;
 /** Provinces read per batch, and at most per pass (home and overflow each; each read is one herald request). */
@@ -38,11 +38,11 @@ export function seededOrder(cands, seed) {
 }
 
 /** The adjacent wedges' provinces of the outermost open ring (§5.9), whatever the overview's site codes say. */
-export function overflowCandidates(overviews, faction, ringsOpen) {
+export function overflowCandidates(overviews, faction, ringsOpen, place = undefined) {
   const w = homeWedge(faction), ring = Math.max(0, Number(ringsOpen) - 1), wedges = adjacentWedges(w), out = [];
   for (const ov of overviews.values()) {
     if (!ov?.provinces || ov.ring !== ring) continue;
-    for (const pr of ov.provinces) if (wedges.includes(wedgeOf(pr.p, pr.q)) && ringOf(pr.p, pr.q) === ring) out.push({ p: pr.p, q: pr.q, ring });
+    for (const pr of ov.provinces) if (wedges.includes(wedgeOf(pr.p, pr.q)) && ringOf(pr.p, pr.q) === ring && (!place || ring > Number(place.heartlandMaxRing) || homeNation(pr.p, pr.q, place) === faction)) out.push({ p: pr.p, q: pr.q, ring });
   }
   return out;
 }
@@ -77,7 +77,8 @@ export function pickSites(provinces, { seed = '', nowBell = 0, max = AUTO_MAX_SI
  * never an overflow ticket the program refuses. `full` lists the provinces read and
  * found without a free site, for the caller's `skip` of the next bells.
  */
-export async function planTicket({ overviews, faction, ringsOpen, seed, nowBell, read, skip = new Set(), homeFull = null }) {
+export async function planTicket({ overviews, faction, ringsOpen, seed, nowBell, read, skip = new Set(), homeFull = null, place = undefined }) {
+  if (place && (Number(place.placement) !== 1 || !place.genesisSeed || place.genesisSeed.length !== 32)) return { ok: false, why: 'readfail', reads: 0, full: [] };
   let reads = 0, failures = 0;
   const full = [];
   const pass = async list => {
@@ -94,13 +95,13 @@ export async function planTicket({ overviews, faction, ringsOpen, seed, nowBell,
     }
     return { sites: pickSites(got, { seed, nowBell }), freeAny, fails, complete };
   };
-  const home = await pass(seededOrder(candidateProvinces(overviews, faction), seed));
+  const home = await pass(seededOrder(candidateProvinces(overviews, faction, place), seed));
   if (home.sites.length) return { ok: true, sites: home.sites, source: 'home', full };
   if (home.freeAny) return { ok: false, why: 'room', reads, full };            // free sites, no cohort room this bell
   if (home.fails) return { ok: false, why: 'readfail', reads, full };          // cannot tell the home wedge is full
   const allowed = homeFull === null ? home.complete : homeFull;
   if (!allowed) return { ok: false, why: 'nofree', reads, full };
-  const over = await pass(seededOrder(overflowCandidates(overviews, faction, ringsOpen), seed));
+  const over = await pass(seededOrder(overflowCandidates(overviews, faction, ringsOpen, place), seed));
   if (over.sites.length) return { ok: true, sites: over.sites, source: 'overflow', full };
   if (over.freeAny) return { ok: false, why: 'room', reads, full };
   return over.fails && !over.freeAny && failures === reads ? { ok: false, why: 'readfail', reads, full } : { ok: false, why: 'nofree', reads, full };

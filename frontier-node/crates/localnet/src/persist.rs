@@ -473,6 +473,10 @@ pub struct Wal {
     pub offset: u64,
     pub fsync: bool,
     pub header: WalHeader,
+    /// Test-only fault switch: the next [`Wal::truncate`] fails before
+    /// touching the file. Absent from non-test builds; no format change.
+    #[cfg(test)]
+    pub(crate) fail_next_truncate: bool,
 }
 
 impl Wal {
@@ -494,6 +498,8 @@ impl Wal {
             offset: WAL_HEADER,
             fsync,
             header,
+            #[cfg(test)]
+            fail_next_truncate: false,
         })
     }
 
@@ -514,6 +520,8 @@ impl Wal {
             offset,
             fsync,
             header,
+            #[cfg(test)]
+            fail_next_truncate: false,
         })
     }
 
@@ -532,6 +540,10 @@ impl Wal {
 
     /// Cuts the ledger back to `offset` (a rewind to a snapshot).
     pub fn truncate(&mut self, offset: u64) -> Res<()> {
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_truncate) {
+            return Err("test fault: WAL truncate".into());
+        }
         self.file.flush().map_err(|e| e.to_string())?;
         let f = self.file.get_mut();
         f.set_len(offset).map_err(|e| e.to_string())?;

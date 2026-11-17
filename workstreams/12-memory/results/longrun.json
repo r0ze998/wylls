@@ -1,0 +1,72 @@
+{
+ "note": "machine-dependent timings; correctness is asserted in test/longrun.test.mjs",
+ "node": "v22.22.0",
+ "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+ "rows": [
+  {
+   "partitions": 250,
+   "world_bells": 50000,
+   "records": 1900,
+   "journal_bytes": 809484,
+   "build_ms": 183,
+   "replay_ms": 40,
+   "fold_ms": 17,
+   "evidence_items": 250,
+   "E": 0.620708,
+   "r": 2.011953,
+   "s": 0.840491
+  },
+  {
+   "partitions": 500,
+   "world_bells": 100000,
+   "records": 3800,
+   "journal_bytes": 1622918,
+   "build_ms": 268,
+   "replay_ms": 84,
+   "fold_ms": 30,
+   "evidence_items": 500,
+   "E": 0.620708,
+   "r": 2.011953,
+   "s": 0.840491
+  },
+  {
+   "partitions": 1000,
+   "world_bells": 200000,
+   "records": 7600,
+   "journal_bytes": 3259077,
+   "build_ms": 456,
+   "replay_ms": 146,
+   "fold_ms": 60,
+   "evidence_items": 1000,
+   "E": 0.620708,
+   "r": 2.011953,
+   "s": 0.840491
+  },
+  {
+   "partitions": 2000,
+   "world_bells": 400000,
+   "records": 15200,
+   "journal_bytes": 6557279,
+   "build_ms": 941,
+   "replay_ms": 298,
+   "fold_ms": 168,
+   "evidence_items": 2000,
+   "E": 0.620708,
+   "r": 2.011953,
+   "s": 0.840491
+  },
+  {
+   "partitions": 4000,
+   "world_bells": 800000,
+   "records": 30400,
+   "journal_bytes": 13154213,
+   "build_ms": 1735,
+   "replay_ms": 777,
+   "fold_ms": 577,
+   "evidence_items": 4000,
+   "E": 0.620708,
+   "r": 2.011953,
+   "s": 0.840491
+  }
+ ]
+}

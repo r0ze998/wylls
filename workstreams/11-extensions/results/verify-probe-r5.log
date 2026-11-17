@@ -1,0 +1,58 @@
+# integration tip d0949fd4 (patch 0003 applied, ⑱ V0), before V0E: probe tallies (stopped at the 30-min limit: land complete, march_program partial; the truncated-log tally did not print)
+PROBE nofinal land BeaconLog: {"Pass []": 4}
+PROBE nofinal land BellAnchor: {"Pass []": 4}
+PROBE nofinal land Citizen: {"Unverifiable [\"V1 MissingData\"]": 4}
+PROBE nofinal land DefencePool: {"Pass []": 1}
+PROBE nofinal land Frontier: {"Unverifiable [\"V1 MissingData\"]": 1}
+PROBE nofinal land Holding: {"Unverifiable [\"V1 MissingData\"]": 4}
+PROBE nofinal land JoinShard: {"Pass []": 4}
+PROBE nofinal land Province: {"Unverifiable [\"V1 MissingData\"]": 4}
+PROBE nofinal land ProvinceFund: {"Pass []": 4}
+PROBE nofinal land RingSeed: {"Pass []": 4}
+PROBE nofinal land Season: {"Unverifiable [\"V1 MissingData\", \"V2 MissingData\"]": 1}
+PROBE nofinal land SeedCache: {"Pass []": 4}
+PROBE droppost land BeaconLog: {"Fail [\"V1 ChainGap\"]": 5, "Pass []": 1}
+PROBE droppost land BellAnchor: {"Fail [\"V1 ChainGap\"]": 6}
+PROBE droppost land Citizen: {"Pass []": 6}
+PROBE droppost land DefencePool: {"Fail [\"V1 ChainGap\"]": 1}
+PROBE droppost land Frontier: {"Pass []": 6}
+PROBE droppost land JoinShard: {"Pass []": 6}
+PROBE droppost land Province: {"Pass []": 6}
+PROBE droppost land ProvinceFund: {"Pass []": 6}
+PROBE droppost land RingSeed: {"Fail [\"V1 HeadMismatch\"]": 1, "Pass []": 5}
+PROBE droppost land Season: {"Fail [\"V1 HeadMismatch\"]": 1, "Pass []": 2}
+PROBE droppost land SeedCache: {"Fail [\"V1 ChainGap\"]": 6}
+PROBE cpi land AnnounceSeason: {"Pass []": 1}
+PROBE cpi land CreateSeason: {"Fail [\"V2 MissingData\", \"V3 RingSeedRule\"]": 1}
+PROBE cpi land FileTicket: {"Pass []": 7}
+PROBE cpi land FoldOccupancy: {"Pass []": 99}
+PROBE cpi land InitBeaconLogs: {"Pass []": 1}
+PROBE cpi land InitShards: {"Pass []": 6}
+PROBE cpi land Join: {"Pass []": 7}
+PROBE cpi land OpenRing: {"Pass []": 4}
+PROBE cpi land SettleTicket: {"Pass []": 9}
+PROBE nologs land AnnounceSeason: {"Fail [\"V1 ChainGap\", \"V2 AnnounceMismatch\"]": 1}
+PROBE nologs land ConsumeGenesisSeed: {"Fail [\"V1 HeadMismatch\", \"V3 RingSeedRule\"]": 1}
+PROBE nologs land CreateSeason: {"Fail [\"V1 ChainGap\", \"V2 MissingData\", \"V3 GenesisSeedRule\", \"V3 SeedRoundRule\"]": 1}
+PROBE nologs land FileTicket: {"Fail [\"V1 ChainGap\", \"V11 CohortMismatch\"]": 7}
+PROBE nologs land FoldOccupancy: {"Fail [\"V1 ChainGap\"]": 98, "Fail [\"V1 HeadMismatch\"]": 1}
+PROBE nologs land Join: {"Fail [\"V1 ChainGap\", \"V1 HeadMismatch\", \"V1 UnknownEntity\", \"V11 CohortMismatch\"]": 7}
+PROBE nologs land OpenProvince: {"Fail [\"V1 ChainGap\"]": 37}
+PROBE nologs land OpenRing: {"Fail [\"V1 ChainGap\", \"V11 MissingData\"]": 4}
+PROBE nologs land PostAnchorMulti: {"Fail [\"V11 MissingData\", \"V3 SeedRoundRule\"]": 2, "Fail [\"V3 SeedRoundRule\"]": 28, "Pass []": 2}
+PROBE nologs land PostBeacon: {"Pass []": 68}
+PROBE nologs land PostSeed: {"Pass []": 58, "Unverifiable [\"V11 MissingData\"]": 2}
+PROBE nologs land SettleTicket: {"Fail [\"V1 ChainGap\", \"V1 HeadMismatch\", \"V11 CohortMismatch\", \"V7 MissingData\"]": 3, "Fail [\"V1 ChainGap\", \"V1 HeadMismatch\", \"V7 HoldingReplayMismatch\"]": 1, "Fail [\"V1 ChainGap\", \"V1 HeadMismatch\", \"V7 MissingData\"]": 1, "Fail [\"V1 ChainGap\", \"V11 CohortMismatch\", \"V11 DisplacementRule\", \"V7 MissingData\"]": 1, "Fail [\"V1 ChainGap\"]": 2, "Fail [\"V1 HeadMismatch\"]": 1}
+PROBE nofinal march_program ArrivalDay: {"Pass []": 4}
+PROBE nofinal march_program BeaconLog: {"Pass []": 4}
+PROBE nofinal march_program BellAnchor: {"Pass []": 4}
+PROBE nofinal march_program Citizen: {"Unverifiable [\"V1 MissingData\"]": 4}
+PROBE nofinal march_program ClashInputs: {"Unverifiable [\"V1 MissingData\"]": 4}
+PROBE nofinal march_program DefencePool: {"Pass []": 1}
+PROBE nofinal march_program Frontier: {"Unverifiable [\"V1 MissingData\"]": 1}
+PROBE nofinal march_program Holding: {"Unverifiable [\"V1 MissingData\"]": 4}
+PROBE nofinal march_program JoinShard: {"Pass []": 1, "Unverifiable [\"V1 MissingData\"]": 3}
+PROBE nofinal march_program Province: {"Unverifiable [\"V1 MissingData\"]": 4}
+PROBE nofinal march_program ProvinceFund: {"Pass []": 4}
+PROBE nofinal march_program RingSeed: {"Pass []": 4}
+PROBE nofinal march_program Season: {"Unverifiable [\"V1 M

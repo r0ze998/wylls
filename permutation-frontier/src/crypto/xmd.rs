@@ -30,19 +30,19 @@ pub fn xmd_sha256(msg: &[u8], dst: &[u8], out: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    fn hex(s: &str) -> alloc::vec::Vec<u8> {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
-    }
-
     /// RFC 9380 Appendix K.1 (expand_message_xmd, SHA-256), msg "" and
     /// "abc", len_in_bytes 0x20 and 0x80.
     #[test]
     fn rfc9380_vectors() {
+        // Helpers live inside the test: `harness = false` targets
+        // path-include this file under cfg(test) without its #[test]s.
+        use super::*;
+        fn hex(s: &str) -> alloc::vec::Vec<u8> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+                .collect()
+        }
         let dst = b"QUUX-V01-CS02-with-expander-SHA256-128";
         let mut o = [0u8; 32];
         xmd_sha256(b"", dst, &mut o);

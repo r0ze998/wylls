@@ -1,0 +1,932 @@
+// The MCP server's logic, transport-free: JSON-RPC in, JSON-RPC out, for one
+// authenticated principal per call (http.mjs resolves the Bearer token; the
+// stdio transport has none and refuses every tool). Authority never comes
+// from a tool's arguments or from text the tools return: it comes from the
+// principal (the owner-signed link), its scopes, the link's signed grant
+// (② MOCK), and — for the one write — the agent wallet gateway (⑤'s budget,
+// the owner's policy, the on-chain delegation) and the program itself.
+import { createHash } from 'node:crypto';
+import { Game, GameError, untrusted } from './game.mjs';
+import { SCOPES } from './auth.mjs';
+import { MockGrantPort, STATES, TERMINAL, resultUnknown } from './ports.mjs';
+import { AGENT_PRICE_NOT_READ, prepareNotice } from './confirm.mjs';
+import { LocalReceiptPort, assertReceiptPort, WS04_UNQUERYABLE, readViaOf, ws04ActAfterRead, ws04ActAfterFailedRead } from './receipt-port.mjs';
+import { budgetOf, refusalOf } from './budget-port.mjs';
+import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
+import { COOP_TOOL, REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
+import { toolNamed, unknownToolText } from './dispatch.mjs';
+
+export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
+export const SERVER_INFO = Object.freeze({ name: 'wylls-mcp', title: 'Wylls (local test stack)', version: '0.1.0' });
+export const PLAN_TTL_MS = 5 * 60_000;
+const EVENT_PAGES_PER_CHECK = 10;
+/** How long an attempt with an unknown outcome waits for a trace before it counts as not sent (a blockhash lives about 60–90 s). */
+export const UNCERTAIN_WINDOW_MS = 5 * 60_000;
+/** A finished operation stays in the main store this long (answers to its retries stay fast), then moves to the archive. */
+export const ARCHIVE_AFTER_MS = 60 * 60_000;
+/** get_run_status follows at most this many operations of one run (each is tracked: the bound get_run_status had). */
+export const RUN_OPERATIONS = 1000;
+const ARCHIVE_PER_CALL = 200;
+
+const text = obj => [{ type: 'text', text: JSON.stringify(obj) }];
+const ok = obj => ({ content: text(obj), structuredContent: obj, isError: false });
+const fail = (code, message, extra = {}) => { const e = { ok: false, error: { code, message, ...extra } }; return { content: text(e), structuredContent: e, isError: true }; };
+const sha = s => createHash('sha256').update(s).digest('hex');
+const RESOURCE_NAMES = ['Food', 'Wood', 'Stone', 'Ore', 'Arms', 'Gold', 'Science', 'Influence'];
+const cargoArray = c => RESOURCE_NAMES.map(r => (Number.isInteger(c?.[r]) ? c[r] : 0));
+/**
+ * prepare_caravan's `cargo` as its schema states it (tools.mjs cargoSchema): an object of resource names to whole
+ * units 0–1,000,000. Anything else is refused by name, never read as 0: a misspelt or fractional amount must not
+ * plan a different caravan than the one asked for. Returns the eight amounts, or {error}.
+ */
+function askedCargo(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return { error: 'cargo must be an object of resource names to whole amounts' };
+  const unknown = Object.keys(c).filter(k => !RESOURCE_NAMES.includes(k));
+  if (unknown.length) return { error: `cargo: unknown resource ${unknown.map(k => JSON.stringify(k)).join(', ')} (one of ${RESOURCE_NAMES.join(', ')})`, field: unknown[0] };
+  for (const [k, v] of Object.entries(c)) if (!Number.isInteger(v) || v < 0 || v > 1_000_000) return { error: `cargo.${k} must be a whole amount from 0 to 1000000`, field: k };
+  return { amounts: cargoArray(c) };
+}
+
+/** The cluster the deployment names for the cooperation board (the same rule as coop-read-adapter.mjs). */
+const COOP_CLUSTER = /^[a-z][a-z0-9-]{0,31}$/;
+/** get_cooperation_status error codes by the adapter's status (coop-read-adapter.mjs COOP_READ_STATUSES). */
+const COOP_ERROR = Object.freeze({
+  disabled: ['CoopReadDisabled', false], refused: ['CoopReadRefused', false], unavailable: ['CoopBoardUnavailable', true], mismatch: ['CoopBoardMismatch', false],
+  changed: ['CoopBoardChanged', true], unsupported: ['CoopBoardUnsupported', false], damaged: ['CoopBoardDamaged', false], malformed: ['CoopBoardMalformed', false],
+});
+
+/**
+ * The cooperation board read, as the deployment configured it (bin/wylls-mcp.mjs from bin/coop-read-settings.mjs):
+ * null/undefined, or an adapter that is not enabled, is off (the tool is neither listed nor callable, and nothing is
+ * fetched). On: `{adapter, cluster}`, the adapter from createCoopReadAdapter with publicViewConfirmed and the cluster
+ * the board must report. Anything else is a deployment error (TypeError), never a quiet off.
+ */
+function coopReadOf(c) {
+  if (c === null || c === undefined) return null;
+  if (typeof c !== 'object' || !c.adapter || typeof c.adapter !== 'object') throw new TypeError('coopRead: {adapter, cluster} (adapter from createCoopReadAdapter) or null');
+  if (c.adapter.enabled === false) return null;
+  if (c.adapter.enabled !== true || typeof c.adapter.read !== 'function') throw new TypeError('coopRead.adapter: an adapter from createCoopReadAdapter');
+  if (typeof c.cluster !== 'string' || !COOP_CLUSTER.test(c.cluster)) throw new TypeError('coopRead.cluster: the cluster the board serves (a-z, 0-9, -; at most 32)');
+  return Object.freeze({ adapter: c.adapter, cluster: c.cluster });
+}
+
+/**
+ * @param {object} o
+ * @param {Auth} o.auth
+ * @param {Game} o.game
+ * @param {JsonStore} o.store
+ * @param {{adapter: object, cluster: string} | null} [o.coopRead]  the opt-in cooperation board read (off by default)
+ */
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null, actsReadVia = null, coopRead = null }) {
+  assertReceiptPort(receipts);
+  const coop = coopReadOf(coopRead);
+  // How a status call to ④ is asked, from the caller's configuration of ④'s client (bin/wylls-mcp.mjs): 'gateway' |
+  // 'store-only' | null (not told). register and list always answer from ④'s store. A path, not freshness or finality.
+  const statusVia = readViaOf(actsReadVia);
+  const receiptOf = op => receipts.receipt(op);
+  const db = store.state;
+  const inflight = new Map();
+  const buckets = new Map();
+  const scrub = s => String(s ?? '').replace(/[A-Za-z0-9_-]{40,}/g, m => (m.length >= 43 ? '[redacted]' : m));
+
+  /** 30 calls burst, 1 a second, per connection: a runaway loop cannot flood the relay. */
+  function limited(principal) {
+    const t = now() / 1000;
+    const b = buckets.get(principal.linkId) ?? { tokens: 30, t };
+    b.tokens = Math.min(30, b.tokens + (t - b.t));
+    b.t = t;
+    buckets.set(principal.linkId, b);
+    if (b.tokens < 1) return true;
+    b.tokens -= 1;
+    return false;
+  }
+
+  const needScope = (principal, scope) => {
+    if (principal.scopes.includes(scope)) return null;
+    // The OAuth step-up ChatGPT understands: a tool error carrying `_meta["mcp/www_authenticate"]`.
+    const r = fail('InsufficientScope', `this connection was not granted ${scope}; the owner reconnects with it`, { scope });
+    r._meta = { 'mcp/www_authenticate': [auth.wwwAuthenticate(`error="insufficient_scope", scope="${SCOPES.READ} ${scope}"`)] };
+    return r;
+  };
+
+  const gameFail = e => (e instanceof GameError ? fail(e.code, e.message, e.extra) : fail('InternalError', scrub(e?.message ?? e)));
+
+  // ------------------------------------------------------------ reads
+
+  async function connection(principal) {
+    const link = auth.link(principal.linkId);
+    let context = null;
+    try { context = await game.context(); } catch { context = null; }
+    return ok({ owner: principal.owner, agentId: principal.agentId, scopes: principal.scopes, write: principal.scopes.includes(SCOPES.CARAVAN),
+      // The world context the relay serves now, and the ones this server saw it replace: the connection, the owner's
+      // identity and the operation history carry over; plans and in-flight tracking stay bound to their own context.
+      context: { current: context, changes: game.contextChanges ?? [] },
+      grant: grants.view(link), connectionExpiresAt: new Date(link.expiresAt).toISOString(), tokenExpiresAt: new Date(principal.tokenExpiresAt).toISOString(),
+      notes: ['The grant is a MOCK of workstream 02\'s Grant (wylls.mock-grant/0): the limits the owner signed when connecting, enforced by this server.'] });
+  }
+
+  async function status(principal) {
+    let v;
+    try { v = await game.view(principal); } catch (e) { return gameFail(e); }
+    const a = v.agent;
+    return ok({
+      owner: principal.owner, asOf: new Date(v.now * 1000).toISOString(),
+      village: { placeId: v.village.placeId, p: v.village.p, q: v.village.q, site: v.village.site, stores: v.village.stores },
+      storehouses: v.places.filter(pl => pl.kind === 'vault').map(pl => ({ placeId: pl.placeId, p: pl.p, q: pl.q, tile: pl.tile, cap: pl.cap, stores: pl.stores, known: pl.known })),
+      caravansOnTheRoad: v.caravans, caravanFeed: v.feedOk ? 'ok' : 'unavailable',
+      agent: { agentId: a.agentId, mode: a.mode, modeEpoch: a.modeEpoch, policyVersion: a.policy?.version, allowed: a.policy?.allowed ?? [],
+        delegation: a.delegation ?? null, caravansAllowed: (a.policy?.allowed ?? []).includes('SendCaravan') },
+      // ⑤'s budget, as the agent wallet reports it (this server keeps no balance of its own).
+      budget: budgetOf(a),
+      recentAgentHistory: (a.history ?? []).slice(-5).map(h => ({ at: h.at, name: h.name, status: h.status, code: h.code ?? null, source: h.source ?? null, ...(h.reason ? { reason: untrusted('agent history (a model\'s or a person\'s words)', h.reason) } : {}) })),
+    });
+  }
+
+  async function shortfall(principal, args) {
+    try { return ok(Game.shortfall(await game.view(principal), args?.goal)); } catch (e) { return gameFail(e); }
+  }
+
+  // ------------------------------------------------------------ plans
+
+  async function prepare(principal, args) {
+    let v, plan;
+    try {
+      v = await game.view(principal);
+      const cargo = askedCargo(args?.cargo);
+      if (cargo.error) return fail('BadRequest', cargo.error, cargo.field ? { field: `cargo.${cargo.field}` } : {});
+      plan = await game.plan(v, { from: String(args?.from ?? ''), to: String(args?.to ?? ''), cargo: cargo.amounts });
+    } catch (e) { return gameFail(e); }
+    const id = `pln_${sha(`${principal.linkId}\n${now()}\n${Math.random()}`).slice(0, 20)}`;
+    const a = v.agent;
+    db.plans[id] = { id, linkId: principal.linkId, createdAt: now(), expiresAt: now() + PLAN_TTL_MS, usedBy: null, context: game.pinned?.key ?? null,
+      policyVersion: a.policy?.version, modeEpoch: a.modeEpoch, seq: plan.seq, holding: plan.holding, fields: plan.fields, route: plan.route, cargo: plan.cargo,
+      summary: { from: plan.from, to: plan.to, cargo: plan.cargoNamed, steps: plan.steps, estimatedMinutes: Math.round(plan.estimatedSecs / 60), seq: plan.seq } };
+    for (const [k, p] of Object.entries(db.plans)) if (p.expiresAt + PLAN_TTL_MS < now() && !p.usedBy) delete db.plans[k];
+    store.save();
+    // confirm carries the cost and the refusals as well (confirm.mjs): the text the instructions say to show the person.
+    const { confirm, warnings } = prepareNotice(plan, a);
+    return ok({ planId: id, expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(), summary: db.plans[id].summary,
+      cost: { resources: plan.cargoNamed, settleFeeLamports: plan.feeLamports, paidBy: plan.paidBy, agentPrice: AGENT_PRICE_NOT_READ },
+      confirm, warnings, sent: false });
+  }
+
+  // ------------------------------------------------------------ operations
+
+  const opIdOf = (principal, requestId) => `op_${sha(`${principal.linkId}\n${requestId}`).slice(0, 24)}`;
+  const step = (op, state, detail = null) => { op.state = state; op.updatedAt = new Date(now()).toISOString(); op.steps.push({ state, at: op.updatedAt, ...(detail ? { detail } : {}) }); };
+
+  const joined = r => ({ ...r, structuredContent: { ...r.structuredContent, replayed: true }, content: text({ ...r.structuredContent, replayed: true }) });
+  /** One run per operation at a time: a retry while a send is under way joins it (never a second, concurrent submit). */
+  function single(opId, fn) {
+    if (inflight.has(opId)) return inflight.get(opId).then(joined);
+    const run = fn().finally(() => inflight.delete(opId));
+    inflight.set(opId, run);
+    return run;
+  }
+  const answer = op => {
+    const r = receiptOf(op);
+    return op.state === STATES.FAILED ? fail(op.error?.code ?? 'Failed', op.error?.message ?? 'failed', { operationId: op.id, receipt: r }) : ok(r);
+  };
+
+  async function send(principal, args) {
+    const denied = needScope(principal, SCOPES.CARAVAN);
+    if (denied) return denied;
+    const requestId = String(args?.requestId ?? '');
+    if (!REQUEST_ID.test(requestId)) return fail('BadRequest', 'requestId: 8–100 characters of A–Z a–z 0–9 . _ : -');
+    const planId = String(args?.planId ?? '');
+    const runId = args?.runId === undefined ? null : String(args.runId);
+    if (runId !== null && !RUN_ID.test(runId)) return fail('BadRequest', 'runId: 8–128 characters of A–Z a–z 0–9 . _ : -');
+    const opId = opIdOf(principal, requestId);
+    return single(opId, async () => {
+      // A retry of a decision already taken: the same operation, never a second send.
+      const prior = store.operation(opId);
+      if (!prior) {
+        // A requestId the same owner already used for this agent on another connection (a reconnect, a revoked link):
+        // that operation may have sent. Never a second send under a new connection: refused, nothing sent, the
+        // earlier operation named (its state: get_run_status on its run, or the owner's view).
+        const others = auth.linksOf(principal.owner).filter(l => l.agentId === principal.agentId && l.linkId !== principal.linkId).map(l => l.linkId);
+        const used = others.length ? store.operationsWithRequestId(others, requestId) : [];
+        if (used.length) return fail('RequestIdUsedOnAnotherConnection', 'this requestId was already used for this agent on another connection: nothing was sent; that operation is the one to follow (a new decision needs a new requestId)', { operationId: used[0] });
+      }
+      if (prior) {
+        if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
+        if ((prior.runId ?? null) !== runId) return fail('IdempotencyConflict', 'this requestId was sent under another runId: the run is fixed for the requestId', { operationId: opId, runId: prior.runId ?? null });
+        if (prior.state === STATES.REQUESTED) {
+          // An attempt whose answer was lost: ask the wallet first, without sending.
+          const f = await consult(prior);
+          if (f === null) await recover(prior); // an older wallet: its history view
+          if (prior.state !== STATES.REQUESTED) { store.save(); return joined(answer(await track(prior, principal))); }
+          // The same key goes out again only when the wallet answered and holds nothing under it (it never forgets a
+          // key: a POST is then its replay, or the first send if the first never arrived). It could not be asked, or
+          // knows the act and has not decided: nothing is sent.
+          if (f && !(f.state === 'unqueryable' && f.retained === false)) {
+            prior.updatedAt = new Date(now()).toISOString();
+            store.save();
+            return fail('NotResent', `nothing was sent again: the agent wallet's state for this request is ${f.state}${f.why ? ` (${scrub(f.why)})` : ''}; ask again later with the same requestId`, { operationId: prior.id, retrySameRequestId: true, fate: prior.fate, receipt: receiptOf(prior) });
+          }
+          return joined(await resume(principal, prior));
+        }
+        return joined(answer(await track(prior, principal)));
+      }
+      // Async reads first (the owner's village as it is now), then every decision synchronously.
+      let v;
+      try { v = await game.view(principal); } catch (e) { return gameFail(e); }
+      const plan = db.plans[planId];
+      if (!plan || plan.linkId !== principal.linkId) return fail('PlanUnknown', 'no such plan for this connection: prepare_caravan first');
+      if (plan.usedBy) return fail('PlanUsed', 'this plan was already sent', { operationId: plan.usedBy });
+      if (plan.expiresAt <= now()) return fail('PlanExpired', 'the plan has expired: prepare again');
+      if (plan.context && plan.context !== game.pinned?.key) return fail('PlanStale', 'the relay now serves another world context than the plan\'s: its addresses and caravan number belong to that context; prepare again', { planContext: plan.context, context: game.pinned?.key ?? null });
+      if (Number(v.citizen?.caravans ?? -1) !== plan.seq || v.agent.village.some((x, i) => x !== plan.holding[i])) return fail('PlanStale', 'the village changed since the plan (another caravan was sent): prepare again');
+      const link = auth.link(principal.linkId);
+      const op = { id: opId, requestId, planId, linkId: principal.linkId, kind: 'caravan.send', state: null, createdAt: new Date(now()).toISOString(), updatedAt: null, steps: [],
+        planSummary: plan.summary, caravan: { seq: plan.seq, ownerTag: v.citizenTag, arriveAt: null, outcome: null }, eventsCursor: '0', attempts: 0, unknownSince: null, grant: 'none',
+        context: plan.context ?? null, ...(runId !== null ? { runId } : {}) };
+      const g = grants.reserve(link, { name: 'SendCaravan', cargo: plan.cargo }, opId);
+      if (!g.ok) {
+        step(op, STATES.REQUESTED);
+        op.error = { code: g.code, message: g.message, retryable: false, by: 'grant (mock of workstream 02)' };
+        step(op, STATES.FAILED, g.code);
+        db.operations[opId] = op;
+        store.save();
+        return fail(g.code, g.message, { operationId: opId, receipt: receiptOf(op) });
+      }
+      op.grant = 'reserved';
+      plan.usedBy = opId;
+      step(op, STATES.REQUESTED);
+      db.operations[opId] = op;
+      store.save(); // written before anything leaves: a restart finds the request and resumes it under the same key
+      return resume(principal, op);
+    });
+  }
+
+  // The grant's hold follows what can have happened: released only when nothing can have been sent.
+  const grantRelease = (link, op) => { if (op.grant === 'reserved') grants.release(link, op.id); else if (op.grant === 'consumed') grants.refund(link); op.grant = 'none'; };
+  const grantConsume = (link, op) => { if (op.grant === 'reserved') { grants.consume(link, op.id); op.grant = 'consumed'; } };
+
+  const keyOf = op => `ws03:${op.linkId}:${op.requestId}`;
+  const lifetimeOf = (f, source) => (f?.lastValidBlockHeight == null ? null
+    : { lastValidBlockHeight: f.lastValidBlockHeight, slotFloor: f.slotFloor ?? null, signedAt: f.signedAt ?? null, unit: 'block height', signature: f.signature ?? null, source });
+
+  /**
+   * Registers the operation in workstream 04's act registry (`acts`: ④'s clients/acts.mjs, `runexec act register`),
+   * source `mcp`, the operation id as the caller's run id. Idempotent: the same key, source and run id give the same
+   * run4Id every time (a retry, a restart). Null without a registry. Throws ActsError (Conflict, StoreError, Spawn).
+   */
+  async function register(op, link) {
+    if (!acts) return null;
+    // The caller's run (a workstream 06 run, say) when one was given, else this operation: fixed at creation, so a retry
+    // or a restart registers under the same run (④ refuses a key under another run).
+    const args = { agentId: link.agentId, key: keyOf(op), source: 'mcp', runId: op.runId ?? op.id };
+    let r;
+    try { r = await acts.register(args); } catch (e) {
+      // ④'s register reads then writes: a concurrent first registration of the same key loses with the store's UNIQUE
+      // error (found by ⑤ e9d1551a). Registering is idempotent, so this one error is retried once; nothing else is.
+      if (e?.code !== 'BadRequest' || !/UNIQUE/i.test(String(e?.message))) throw e;
+      r = await acts.register(args);
+    }
+    op.ws04Act = { ...(op.ws04Act ?? {}), run4Id: r.run4Id, runId: r.runId ?? args.runId, registeredAt: op.ws04Act?.registeredAt ?? new Date(now()).toISOString(), receiptVersion: r.receiptVersion ?? null, state: op.ws04Act?.state ?? r.state, registeredVia: 'store-only' };
+    return r;
+  }
+
+  /** Nothing was sent and nothing will be: failed, the grant's hold given back. */
+  function definite(op, link, code, message, by) {
+    grantRelease(link, op);
+    op.error = { code, message: scrub(message), retryable: false, ...(by ? { by } : {}) };
+    step(op, STATES.FAILED, code);
+  }
+  /** Something may have been sent and no new attempt will be made: the chain and the herald decide (track). */
+  function uncertain(op, link, why) {
+    grantConsume(link, op);
+    op.unknownSince ??= now();
+    op.uncertain = true;
+    delete op.error;
+    step(op, STATES.ACCEPTED, why);
+  }
+
+  /** Whether the operation is known to be a Duplicate (the field is present; its value may be null: no signature named). */
+  const isDuplicate = op => op.gateway != null && Object.hasOwn(op.gateway, 'duplicateOf');
+  /**
+   * A Duplicate (⑤): the same bytes were already sent by an earlier request; this one was not rebuilt. That send is not
+   * proven this request's own, nor proven absent: counted, held, never re-sent. Only a proven end of that transaction
+   * (failed at finalized, or proven never to land) decides; its landing alone does not make it ours. The same handling
+   * for the relay's answer and for the agent wallet's own record of this key when that answer was lost (applyFate,
+   * recover): the earlier signature is `duplicateOf`, never `gateway.signature`, never `caravan.mine`.
+   */
+  function markDuplicate(op, link, duplicateOf, { by, why, recoveredFrom = null }) {
+    op.gateway = { ...(op.gateway ?? { charges: [], replayed: false, code: 'Duplicate' }), signature: null, duplicateOf: duplicateOf ?? null, ...(recoveredFrom ? { recoveredFrom } : {}) };
+    delete op.lifetime;
+    // The same signature is the same transaction (⑤: the relay's replay key is the agent key's signature over the
+    // message): one effect on chain. If another of this server's operations sent it, that operation carries the
+    // effect and the count; this one ends as its duplicate and gives its hold back (counted once, not twice).
+    const owner = op.gateway.duplicateOf && Object.values(db.operations).find(o => o.id !== op.id && o.gateway?.signature === op.gateway.duplicateOf);
+    if (owner) {
+      definite(op, link, 'DuplicateOfOperation', `the same transaction was already sent by this server's operation ${owner.id}: its outcome is that operation's`, by);
+      op.error.duplicateOfOperation = owner.id;
+      return;
+    }
+    // A request still `requested` becomes accepted-uncertain (its grant counted, once); one already accepted is not
+    // stepped again. An existing hold is kept (never released here).
+    if (op.state === STATES.REQUESTED) uncertain(op, link, why);
+    if (!op.hold) hold(op, 'Duplicate', 'the same transaction was already sent by an earlier request: not proven this request\'s own, not proven absent; held, counted, not re-sent', { evidence: { duplicateOf: op.gateway.duplicateOf } });
+  }
+
+  /** Sends (or re-sends under the same idempotency key) an operation still `requested`. */
+  async function resume(principal, op) {
+    const plan = db.plans[op.planId];
+    const link = auth.link(op.linkId);
+    // The owner's limits and the plan's life hold for a retry too.
+    const g = link?.grant;
+    const late = !g || link.revokedAt ? 'GrantRevoked' : now() >= g.expiresAt ? 'GrantExpired' : plan.expiresAt <= now() ? 'PlanExpired' : null;
+    let capability = null;
+    if (!late) {
+      try { capability = auth.capabilityOf(op.linkId); } catch {
+        // The capability is sealed under another key than this process's: hold, decide nothing. No attempt is made,
+        // the grant's hold stays, and nothing is released: the operator restores the key, or the owner revokes the
+        // connection and the operation is reconciled (ownerOperations).
+        op.hold = { code: 'CapabilityUnavailable', since: op.hold?.since ?? new Date(now()).toISOString() };
+        op.error = { code: 'CapabilityUnavailable', retryable: true, by: 'server',
+          message: 'this server cannot open the connection\'s agent capability (sealed under another key): nothing new was sent; the operation and the limit it holds are kept until the operator restores the key or the owner revokes the connection' };
+        op.updatedAt = new Date(now()).toISOString();
+        store.save();
+        return fail('CapabilityUnavailable', op.error.message, { operationId: op.id, receipt: receiptOf(op) });
+      }
+    }
+    let current = null;
+    try { current = (await game.context()).key; } catch { current = null; }
+    if (op.context && current && op.context !== current) {
+      // The plan's accounts and caravan number belong to the context it was made in: a new attempt now would sign
+      // them against another. Nothing new is sent; an attempt already made is followed by its own signature.
+      if (op.attempts === 0) definite(op, link, 'ContextChanged', `no send: the relay now serves another world context (${current}) than the plan's (${op.context})`);
+      else { uncertain(op, link, `no new attempt: the relay now serves another world context (${current}) than the plan's (${op.context})`); hold(op, 'ContextChanged', 'an earlier attempt may have been sent in the plan\'s context: only its own signature can decide', { from: op.context, to: current }); }
+      store.save();
+      return answer(op);
+    }
+    const stop = late ?? (capability ? null : 'NoCapability');
+    if (stop) {
+      if (op.attempts === 0) definite(op, link, stop, `no send: ${stop}`);
+      else uncertain(op, link, `no new attempt (${stop}); an earlier attempt may have been sent: the chain decides`);
+      store.save();
+      return answer(op);
+    }
+    try { await register(op, link); } catch (e) {
+      // Not registered with ④: nothing is sent (the registry is the run's record). Nothing changes; retry later.
+      if (e?.code === 'Conflict' && op.attempts === 0) { definite(op, link, 'RunConflict', `workstream 04's registry has this key under another run: ${e.message}`, 'ws04 act registry'); store.save(); return answer(op); }
+      op.updatedAt = new Date(now()).toISOString();
+      store.save();
+      return fail('RunRegistryUnavailable', `workstream 04's act registry did not register this operation (${e?.code ?? 'error'}): nothing was sent; retry with the same requestId`, { operationId: op.id, retrySameRequestId: true, receipt: receiptOf(op) });
+    }
+    const request = { agentId: principal.agentId, source: 'mcp', idempotencyKey: keyOf(op), policyVersion: plan.policyVersion, modeEpoch: plan.modeEpoch,
+      action: { name: 'SendCaravan', holding: plan.holding, fields: plan.fields, route: plan.route } };
+    delete op.hold;
+    if (op.error?.code === 'CapabilityUnavailable') delete op.error;
+    op.attempts++;
+    store.save();
+    const r = await game.submit(capability, request);
+    if (r.transport) {
+      // Unknown whether the relay got it: the operation stays requested; a retry with the same requestId is safe.
+      op.unknownSince ??= now();
+      op.error = { code: 'RelayUnreachable', message: 'the relay was not reached; retry with the same requestId', retryable: true };
+      op.updatedAt = new Date(now()).toISOString();
+      store.save();
+      return fail('RelayUnreachable', op.error.message, { operationId: op.id, retrySameRequestId: true, receipt: receiptOf(op) });
+    }
+    const res = r.json ?? {};
+    const code = res.error?.code ?? res.code ?? `HTTP${r.status}`;
+    op.gateway = { status: res.status ?? null, signature: res.signature ?? null, code: res.error?.code ?? res.code ?? null, replayed: res.replayed === true, charges: res.charges ?? [],
+      ...(typeof res.sent === 'boolean' ? { sent: res.sent } : {}), ...(res.signedAt != null ? { signedAt: res.signedAt } : {}) };
+    // The signature's lifetime, fixed when the bytes left (the wallet's ActionResult, workstream 04's change).
+    if (res.signature && res.lastValidBlockHeight != null) op.lifetime = lifetimeOf(res, 'agent wallet ActionResult');
+    if (r.status === 200 && res.status === 'sent') {
+      delete op.error;
+      grantConsume(link, op);
+      step(op, STATES.ACCEPTED, 'the relay sent the transaction');
+    } else if (r.status === 200 && res.status === 'failed' && res.error?.code === 'Duplicate') {
+      // ⑤: the same bytes were already sent by an earlier request (`duplicateOf`); this one was not rebuilt (markDuplicate).
+      markDuplicate(op, link, res.duplicateOf ?? res.signature ?? null, { by: 'agent wallet gateway (Duplicate)', why: 'the relay answered Duplicate: the same transaction was already sent by an earlier request' });
+    } else if (r.status === 200 && res.status === 'failed' && res.sent === false && !res.signature) {
+      // The wallet's own record: nothing left the relay under this key (failed before sending). Same key = its replay.
+      definite(op, link, code, res.error?.message ?? 'failed before anything was sent', 'agent wallet gateway (sent: false)');
+    } else if (r.status === 200 && res.status === 'failed') {
+      // Signed and possibly sent (`sent: true` with its signature), or an older wallet that does not say: the chain
+      // decides by this request's own signature. Never re-sent.
+      uncertain(op, link, res.signature ? 'the send left signed and its answer says failed: it may still land; its own signature decides' : 'the send was attempted and its outcome is unknown: the chain decides');
+    } else if (r.status === 200 && res.status === 'refused') {
+      // The gateway's own record for this key: nothing was sent under it, ever.
+      definite(op, link, code, res.error?.message ?? 'refused', 'agent wallet gateway / relay');
+      op.error.boundary = refusalOf(code);
+    } else if (r.status === 409 && ['SendFailed', 'IdempotencyConflict'].includes(code)) {
+      // The wallet already holds a request under this key (its idempotency journal): one whose answer it never saved
+      // or whose send it cannot verify (SendFailed, the same request: its prior signature, if any, is this request's
+      // own), or a different request (IdempotencyConflict: nothing of it is taken as this one's). Either may have been
+      // sent: never "nothing was sent", never released; held, and its own signature (if known) decides.
+      if (code === 'SendFailed' && typeof res.signature === 'string' && res.signature) op.gateway.signature = res.signature;
+      else op.gateway.signature = null;
+      uncertain(op, link, `the agent wallet already holds a request under this key (${code}): it may have been sent`);
+      hold(op, code === 'SendFailed' ? 'PriorRequestUnresolved' : 'KeyHeldByAnotherRequest', `${res.error ?? res.message ?? code}: held, counted, not re-sent; ${op.gateway.signature ? 'its own signature decides' : 'nothing decides it until the wallet\'s record or the chain does'}`, { evidence: { code, signature: op.gateway.signature } });
+    } else if (op.attempts === 1 && op.unknownSince === null && [400, 401, 403, 404, 409].includes(r.status)) {
+      // Refused before anything (credential, shape, conflict) on a first, clean attempt.
+      definite(op, link, code, res.error?.message ?? res.error ?? 'refused', 'agent wallet gateway / relay');
+      op.error.boundary = refusalOf(code);
+    } else if ([400, 401, 403, 404, 409].includes(r.status)) {
+      // Not the first attempt (an earlier one may have been sent: a lost answer, or a stop before its answer was
+      // saved) and this one is refused: the chain decides.
+      uncertain(op, link, `a retry was refused (${code}) after an attempt with an unknown outcome: the chain decides`);
+    } else {
+      // Rate limited or a server error: nothing decided; retry with the same requestId.
+      op.error = { code, message: 'the relay could not take the request now; retry with the same requestId', retryable: true };
+      op.updatedAt = new Date(now()).toISOString();
+      store.save();
+      return fail(code, op.error.message, { operationId: op.id, retrySameRequestId: true, receipt: receiptOf(op) });
+    }
+    store.save();
+    log(`mcp: ${op.id} ${op.state}${op.error ? ` (${op.error.code})` : ''}`);
+    return answer(op);
+  }
+
+  /** Holds an operation with a reason (not a state: nothing is decided, nothing released). */
+  const hold = (op, code, detail, extra = {}) => {
+    if (op.hold?.code === code) return;
+    op.hold = { code, since: new Date(now()).toISOString(), detail, ...extra };
+    op.updatedAt = op.hold.since;
+    op.steps.push({ state: op.state, at: op.hold.since, detail: `held (${code}): ${detail}` });
+  };
+  const named = arr => Object.fromEntries(RESOURCE_NAMES.map((r, i) => [r, arr[i]]).filter(([, n]) => n > 0));
+
+  /** Does the CARAVAN_SENT record say what this request asked (destination, cargo)? null when it does. */
+  function contentMismatch(op, payload) {
+    const f = db.plans[op.planId]?.fields;
+    const dst = placeOfLog(BigInt(payload.dst ?? 0));
+    if (f && (dst.kind !== Number(f.dst_kind) || dst.p !== Number(f.dst_p) || dst.q !== Number(f.dst_q) || dst.at !== Number(f.dst_at))) return `the record's destination ${JSON.stringify(dst)} is not the plan's`;
+    const sent = payload.cargo ?? Array(8).fill(0);
+    const asked = cargoArray(op.planSummary?.cargo);
+    const worn = Number(payload.worn_bps ?? 0);
+    // Worn on the road at the send (caravan.rs worn_cargo) and logged as floor(milli / 1000): never more than asked;
+    // equal when nothing was worn.
+    for (let r = 0; r < 8; r++) if (sent[r] > asked[r] || (worn === 0 && sent[r] !== asked[r])) return `the record's cargo ${JSON.stringify(named(sent))} is not the plan's ${JSON.stringify(named(asked))} (worn ${worn} bps)`;
+    return null;
+  }
+
+  /**
+   * The caravan's records (by owner tag and seq). A record counts for this operation only once the caravan is
+   * proven this request's own: the CARAVAN_SENT record signed by this request's signature with the plan's content,
+   * or this signature's own landed status. A record under another signature with the same seq is another route's
+   * send (the seq alone proves nothing): the operation is held, never completed or released on it.
+   */
+  async function evidence(op) {
+    // 1. Collect every record under this caravan's number (kept with the operation, so that a signature learned
+    //    later, e.g. from a retry answered by the agent wallet's record, can still attribute earlier ones).
+    op.caravan.seen ??= [];
+    for (let i = 0; i < EVENT_PAGES_PER_CHECK; i++) {
+      const page = await game.events(op.eventsCursor);
+      if (!page) break;
+      for (const row of page.events) {
+        const e = caravanEvent(row);
+        if (!e || e.ownerTag !== op.caravan.ownerTag || e.seq !== op.caravan.seq) continue;
+        if (op.caravan.seen.some(x => x.event === e.eventSeq)) continue;
+        const pl = e.payload;
+        op.caravan.seen.push({ kind: e.kind, name: e.name, signature: e.signature, slot: row.slot ?? null, event: e.eventSeq, bell: e.bell,
+          payload: { ...(pl.dst !== undefined ? { dst: String(pl.dst) } : {}), ...(pl.cargo ? { cargo: cargoOf(pl.cargo) } : {}), ...(pl.worn_bps !== undefined ? { worn_bps: Number(pl.worn_bps) } : {}),
+            ...(pl.arrive_ts !== undefined ? { arrive_ts: Number(pl.arrive_ts) } : {}), ...(pl.choice !== undefined ? { choice: Number(pl.choice) } : {}), ...(pl.outcome !== undefined ? { outcome: Number(pl.outcome) } : {}), ...(pl.bell !== undefined ? { bell: Number(pl.bell) } : {}) } });
+      }
+      if (page.next !== null && page.next !== undefined) op.eventsCursor = String(page.next);
+      if (!page.full) break;
+    }
+    // 2. Decide from what is known, in record order.
+    const ours = op.gateway?.signature ?? null;
+    for (const x of op.caravan.seen) {
+      if (TERMINAL.includes(op.state)) break;
+      const ref = { kind: x.name, signature: x.signature, slot: x.slot, event: x.event };
+      if (x.kind === KINDS.CARAVAN_SENT) {
+        if (op.caravan.mine?.event === x.event) continue;
+        if (!ours) { hold(op, 'Indeterminate', 'a send with this caravan number is recorded, but this server does not know its own signature (the answer was lost): it cannot tell whether the send is its own. Each status query reads the agent wallet\'s record for this key (without re-sending); once it shows the signature, the send is proven or not.', { evidence: ref }); continue; }
+        if (x.signature !== ours) { if (!op.caravan.mine) hold(op, 'SeqUsedByAnotherSend', 'another signature sent a caravan with this number: not this request\'s send; this request\'s own outcome is not decided by it', { evidence: ref }); continue; }
+        const bad = contentMismatch(op, x.payload);
+        if (bad) { hold(op, 'Inconsistent', bad, { evidence: ref }); continue; }
+        op.caravan.mine = { by: 'CARAVAN_SENT signed by this request, content as planned', ...ref };
+        if (op.hold && ['Indeterminate', 'SeqUsedByAnotherSend', 'ResultUnknown'].includes(op.hold.code)) delete op.hold;
+        op.caravan.sentCargo = named(x.payload.cargo ?? []);
+        op.caravan.wornBps = x.payload.worn_bps ?? 0;
+        if (x.payload.arrive_ts) op.caravan.arriveAt ??= new Date(x.payload.arrive_ts * 1000).toISOString();
+        if (op.state !== STATES.PROCESSING) step(op, STATES.PROCESSING, 'the caravan is on the road (its record, signed by this request)');
+        continue;
+      }
+      if (!op.caravan.mine || op.hold?.code === 'Inconsistent') continue; // settle and raid records follow only a caravan proven this request's
+      if (x.kind === KINDS.CARAVAN_RAIDED) {
+        const choice = RAID_CHOICE[x.payload.choice] ?? 'raided';
+        op.caravan.raid = { bell: x.payload.bell ?? x.bell, choice, record: ref };
+        if (choice === 'taken') { op.outcome = 'taken'; op.arrival = receipts.arrival(op); step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
+      }
+      if (x.kind === KINDS.CARAVAN_SETTLED) {
+        // caravan_outcome (frontier-abi v2/log.rs) has two values, 0 DELIVERED and 1 LOST. Any other value, or none, is a
+        // record this server cannot read: held as Inconsistent (not a state: nothing is decided, nothing released), never
+        // completed as a generic "settled" that ④'s view would call Failed (2026-11-17). Stored terminal operations are
+        // not reread (the loop stops at a terminal state above).
+        if (!Object.hasOwn(SETTLE_OUTCOME, String(x.payload.outcome))) {
+          hold(op, 'Inconsistent', `the settle record's outcome ${JSON.stringify(x.payload.outcome ?? null)} is not one the ABI defines (0 delivered, 1 lost): nothing is decided`, { evidence: ref });
+          continue;
+        }
+        const o = SETTLE_OUTCOME[x.payload.outcome];
+        op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
+        op.caravan.settledAtBell = x.bell;
+        op.caravan.settle = { record: ref, cargoLogged: named(x.payload.cargo ?? []), precision: 'whole units, floor(milli / 1000): a lower bound of the cargo carried, 0 included' };
+        op.arrival = receipts.arrival(op);
+        step(op, STATES.COMPLETED, op.outcome === 'delivered' ? 'the caravan arrived and was settled' : `the caravan was settled: ${op.outcome}`);
+      }
+    }
+    if (op.caravan.mine) {
+      const feed = await game.caravansFeed();
+      const c = feed?.caravans?.moving?.find(x => String(x.ownerTag) === op.caravan.ownerTag && x.seq === op.caravan.seq);
+      if (c) { op.caravan.arriveAt ??= new Date(Number(c.arriveTs) * 1000).toISOString(); op.caravan.raided = c.raided; }
+    }
+    return Boolean(op.caravan.mine);
+  }
+
+  /**
+   * Moves an operation on from what the chain and the herald now say (pull: the client asks again). Decided only on
+   * this request's own signature: landed (it is ours: on the road), failed at finalized (it ran and moved nothing),
+   * or absent with the proof patch 0007 gives (finalized, history covering its lifetime). The relay's plain
+   * "expired", the caravan counter, or a record under another signature decide nothing; past the window an
+   * operation without its own evidence is held (Indeterminate), its grant still counted.
+   */
+  /**
+   * A lost answer, asked again without sending anything: the agent wallet's own record for this request's key, read
+   * from its public view (Game.agentRecord). Only what that record shows is taken: a signature (then this request's
+   * own signature decides, as for an answer received), or a refusal before signing (nothing was ever sent under the
+   * key). Not finding the key, or a failure without a signature, decides nothing and releases nothing.
+   */
+  async function recover(op) {
+    if (op.gateway?.signature || isDuplicate(op) || op.attempts === 0) return;
+    if (op.unknownSince === null && op.gateway?.status !== 'failed') return;
+    const link = auth.link(op.linkId);
+    if (!link?.agentId) return;
+    const rec = await game.agentRecord(link.agentId, link.owner, `ws03:${op.linkId}:${op.requestId}`);
+    const at = new Date(now()).toISOString();
+    if (!rec) { op.agentRecord = { at, read: false, found: false }; return; }
+    const sig = rec.entry?.signature ?? rec.hold?.signature ?? null;
+    op.agentRecord = { at, read: true, found: Boolean(rec.entry || rec.hold), status: rec.entry?.status ?? null, signature: sig, ...(rec.hold ? { hold: rec.hold } : {}),
+      window: rec.window, ...(rec.entry || rec.hold ? {} : { note: 'not in the view: proves nothing (the view keeps 50 lines; a stop between the send and its line leaves none)' }),
+      ...(rec.entry?.status === 'failed' && !sig ? { note: 'failed with no signature in the agent wallet\'s record (its failed result carries none; ④ G-2): whether it was signed is unknown' } : {}) };
+    // The wallet's record says Duplicate (the answer was lost): its signature is the earlier send's, never this request's.
+    if (rec.entry?.code === 'Duplicate') {
+      markDuplicate(op, link, rec.entry.signature ?? null, { by: 'agent wallet history (Duplicate, GET /f/agent, read only)', why: 'the agent wallet\'s record for this key says Duplicate (its answer was lost): the same transaction was already sent by an earlier request', recoveredFrom: 'agent wallet history (GET /f/agent, read only)' });
+      return;
+    }
+    if (sig) {
+      op.gateway = { ...(op.gateway ?? { charges: [], replayed: false, code: null }), status: rec.entry?.status ?? op.gateway?.status ?? null, signature: sig,
+        recoveredFrom: rec.entry?.signature ? 'agent wallet history (GET /f/agent, read only)' : 'agent wallet hold (GET /f/agent, read only)' };
+      if (op.error?.code === 'RelayUnreachable') delete op.error;
+      if (op.state === STATES.REQUESTED) { grantConsume(link, op); step(op, STATES.ACCEPTED, 'the agent wallet\'s record shows this request\'s signature (read without re-sending)'); }
+      else op.steps.push({ state: op.state, at, detail: 'this request\'s signature read from the agent wallet\'s record (without re-sending)' });
+      return;
+    }
+    if (rec.entry?.status === 'refused') {
+      op.gateway = { ...(op.gateway ?? { charges: [], replayed: false }), status: 'refused', signature: null, code: rec.entry.code, recoveredFrom: 'agent wallet history (GET /f/agent, read only)' };
+      definite(op, link, rec.entry.code ?? 'Refused', 'the agent wallet\'s record for this key: refused before signing, nothing sent under it', 'agent wallet gateway (its record, read without re-sending)');
+      op.error.boundary = refusalOf(op.error.code);
+    }
+  }
+
+  /**
+   * Applies the wallet's answer for this request's key (④'s seven states). Only what is final or proven decides:
+   * landed (finalized) puts the caravan on the road; failed (finalized) and expired (proven never to land) fail it;
+   * not-sent (the wallet's own record) fails it with the hold given back. pending waits; unknown is held (it may have
+   * landed: never re-sent, never released); unqueryable says nothing about the act and changes nothing.
+   */
+  function applyFate(op, link, f) {
+    const at = new Date(now()).toISOString();
+    op.fate = { state: f.state, retained: f.retained ?? null, signature: f.signature ?? null, commitment: f.commitment ?? null, queryFailed: f.queryFailed === true,
+      why: f.why ?? null, source: f.source, at, ...(f.code ? { code: f.code } : {}) };
+    if (TERMINAL.includes(op.state)) return;
+    // The wallet's record for this key says Duplicate and this server never learned it (the answer was lost): the same
+    // handling as the answered Duplicate, before any signature could be taken as this request's.
+    if (f.code === 'Duplicate' && !op.gateway?.signature && !isDuplicate(op)) {
+      markDuplicate(op, link, f.signature ?? null, { by: 'agent wallet fate (Duplicate, read only)', why: 'the agent wallet\'s record for this key says Duplicate (its answer was lost): the same transaction was already sent by an earlier request', recoveredFrom: 'agent wallet GET /f/agent/fate (read only)' });
+      if (TERMINAL.includes(op.state)) return;
+    }
+    if (isDuplicate(op)) {
+      // A Duplicate: the wallet's record may name the earlier send's signature; it is never adopted as this request's.
+      const same = !f.signature || f.signature === op.gateway.duplicateOf;
+      if (same && f.state === 'failed') { op.chain = { state: 'failed', of: 'duplicateOf', source: f.source }; definite(op, link, 'TransactionFailed', 'the identical transaction failed at finalized: nothing moved', 'program'); }
+      else if (same && f.state === 'expired') { op.chain = { state: 'expired', of: 'duplicateOf', absenceProven: true, source: f.source }; definite(op, link, 'NotLanded', 'the identical transaction is proven never to land'); }
+      return;
+    }
+    if (f.signature && op.gateway?.signature && f.signature !== op.gateway.signature) {
+      hold(op, 'Inconsistent', 'the agent wallet\'s record for this key names another signature than the answer this server received: nothing is decided', { evidence: { recorded: f.signature, answered: op.gateway.signature } });
+      return;
+    }
+    if (f.signature && !op.gateway?.signature) {
+      op.gateway = { ...(op.gateway ?? { charges: [], replayed: false, code: null }), status: f.status ?? op.gateway?.status ?? null, signature: f.signature, sent: true,
+        recoveredFrom: 'agent wallet GET /f/agent/fate (read only)' };
+      if (op.error?.code === 'RelayUnreachable') delete op.error;
+      if (op.state === STATES.REQUESTED) { grantConsume(link, op); op.uncertain = true; step(op, STATES.ACCEPTED, 'the agent wallet\'s record shows this request\'s signature (read without re-sending)'); }
+      else op.steps.push({ state: op.state, at, detail: 'this request\'s signature read from the agent wallet\'s record (without re-sending)' });
+    }
+    if (f.signature && f.lastValidBlockHeight != null) op.lifetime = lifetimeOf(f, f.source);
+    const open = [STATES.REQUESTED, STATES.ACCEPTED].includes(op.state);
+    switch (f.state) {
+      case 'not-sent':
+        if (open && f.retained !== false && !op.gateway?.signature) definite(op, link, f.code ?? 'NotSent', `the agent wallet's record for this key: nothing was sent (${f.why ?? 'not sent'})`, 'agent wallet (its record, read without re-sending)');
+        break;
+      case 'landed':
+        if (op.state === STATES.ACCEPTED) {
+          op.chain = { state: 'landed', commitment: f.commitment ?? 'finalized', source: f.source };
+          op.caravan.mine ??= { by: 'this request\'s own signature landed at finalized (agent wallet fate)', signature: op.gateway.signature };
+          if (op.hold && ['Indeterminate', 'ResultUnknown'].includes(op.hold.code)) delete op.hold;
+          step(op, STATES.PROCESSING, 'the transaction landed (finalized): the caravan is on the road');
+        }
+        break;
+      case 'failed':
+        if (open) { op.chain = { state: 'failed', commitment: f.commitment ?? 'finalized', why: f.why ?? null, source: f.source }; definite(op, link, 'TransactionFailed', `this request's own transaction failed at finalized: it ran and moved nothing (${f.why ?? 'failed'})`, 'program'); }
+        break;
+      case 'expired':
+        if (open) { op.chain = { state: 'expired', absenceProven: true, why: f.why ?? null, source: f.source }; definite(op, link, 'NotLanded', 'this request\'s own signature is proven never to land: past its lifetime, with the node\'s history covering it'); }
+        break;
+      case 'unknown':
+        if (open) hold(op, 'ResultUnknown', `the result is unknown: ${f.why ?? 'past its lifetime and its absence cannot be shown'}. It may have landed: it is not sent again and nothing is released; it stays held until a final answer`);
+        break;
+      default: break; // pending: wait. unqueryable: nothing is known about the act.
+    }
+  }
+
+  /**
+   * Asks, without sending anything, for the state of this request's own act: the wallet's GET /f/agent/fate for its
+   * key, and workstream 04's registry receipt when a registry is configured (registered first if it is not yet: a
+   * restart or an operation from before). Returns the wallet's answer (applied), undefined when nothing was ever
+   * attempted, or null for a wallet without the route (then the older reads apply).
+   */
+  async function consult(op) {
+    if (op.attempts === 0 && !op.gateway?.signature) return undefined;
+    const link = auth.link(op.linkId);
+    if (!link?.agentId) return undefined;
+    const f = await game.actFate(link.agentId, keyOf(op));
+    if (acts) {
+      const at = new Date(now()).toISOString();
+      let via = statusVia; // how the attempt that may fail below was asked
+      try {
+        if (!op.ws04Act?.run4Id) { via = 'store-only'; await register(op, link); via = statusVia; }
+        const a = await acts.status({ agentId: link.agentId, key: keyOf(op) });
+        // The receipt is this request's only when it names this request's key: another key's receipt is not applied
+        // (a failed read). `at` is the time of the last read that answered; the registry's signature, key and source are
+        // kept, so its cancel.until is used only for this request's own signature (receipt-port.mjs ws04CancelPhase).
+        const r = ws04ActAfterRead(op.ws04Act, a, { key: keyOf(op), at, scrub, readVia: statusVia });
+        if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code });
+        op.ws04Act = r.act;
+      } catch (e) { op.ws04Act = ws04ActAfterFailedRead(op.ws04Act, `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, at, via); }
+    }
+    if (f === null) return null;
+    applyFate(op, link, f);
+    return f;
+  }
+
+  async function track(op, principal = null) {
+    if (TERMINAL.includes(op.state)) return op;
+    // A request that never reached the relay has nothing to look for (unless an attempt's outcome is unknown).
+    if (op.state === STATES.REQUESTED && op.unknownSince === null) return op;
+    const link = auth.link(op.linkId);
+    const f = await consult(op);
+    if (TERMINAL.includes(op.state)) { store.save(); return op; }
+    // An older wallet (no fate route): its history view and the relay's /f/tx, as before.
+    if (f === null) await recover(op);
+    if (TERMINAL.includes(op.state)) { store.save(); return op; }
+    if (f === null && op.state === STATES.ACCEPTED && op.gateway?.signature) {
+      const tx = await game.txStatus(op.gateway.signature);
+      const d = tx?.detail ?? null;
+      const finality = d?.commitment ?? 'not reported';
+      // The lifetime the relay recorded when it signed (patch 0007): the last block height this signature can land at.
+      if (d?.lastValidBlockHeight != null) op.lifetime = { lastValidBlockHeight: d.lastValidBlockHeight, unit: 'block height', source: 'relay GET /f/tx?detail=1 (patch 0007)' };
+      if (tx?.state === 'landed') {
+        op.chain = { state: 'landed', slot: tx.slot ?? null, commitment: finality, fee: d?.fee ?? null };
+        op.caravan.mine ??= { by: 'this request\'s own signature landed (relay status)', signature: op.gateway.signature, slot: tx.slot ?? null };
+        step(op, STATES.PROCESSING, 'the transaction landed: the caravan is on the road');
+      } else if (tx?.state === 'failed') {
+        op.chain = { state: 'failed', code: tx.code ?? null, slot: tx.slot ?? null, commitment: finality, fee: d?.fee ?? null };
+        if (finality === 'finalized') definite(op, link, tx.code ?? 'TransactionFailed', 'this request\'s own transaction failed at finalized: it ran and moved nothing (its fee was charged)', 'program');
+        else hold(op, 'Indeterminate', `this request's own transaction failed at commitment "${finality}": not yet final, so nothing is decided`);
+      } else if (tx?.state === 'expired' || (d && d.absence)) {
+        const proven = d?.absence?.proven === true;
+        op.chain = { state: tx?.state ?? 'unknown', absenceProven: proven, ...(d?.absence ? { absence: d.absence } : {}), lastValidBlockHeight: d?.lastValidBlockHeight ?? null };
+        if (proven) definite(op, link, 'NotLanded', 'this request\'s own signature is proven absent over its whole lifetime (finalized history): it never landed and never will');
+        else if (tx?.state === 'expired' && !op.unknownSince) { op.unknownSince = now(); op.uncertain = true; step(op, STATES.ACCEPTED, 'the relay reports the blockhash expired with no status seen: not proof that nothing landed'); }
+      } else op.chain = { state: tx?.state ?? 'unknown' };
+    }
+    let current = null;
+    try { current = (await game.context()).key; } catch { current = null; }
+    if (!TERMINAL.includes(op.state) && op.context && current && op.context !== current) {
+      // The herald now serves another context's records and event numbering: this operation's cursor and caravan
+      // number mean nothing there. Its own signature (above) still decides; otherwise it is held, its history kept,
+      // nothing released.
+      hold(op, 'ContextChanged', 'the relay and herald now serve another world context: this operation\'s records are not read there; its own signature can still decide', { from: op.context, to: current });
+      store.save();
+      return op;
+    }
+    if (!TERMINAL.includes(op.state) && isDuplicate(op)) { store.save(); return op; } // held as Duplicate: only its fate decides (applyFate)
+    if (!TERMINAL.includes(op.state)) {
+      const mine = await evidence(op);
+      if (mine && op.hold?.code === 'Indeterminate') { delete op.hold; op.steps.push({ state: op.state, at: new Date(now()).toISOString(), detail: 'no longer held: the caravan is proven this request\'s own' }); }
+      if (!mine && op.unknownSince !== null && op.state !== STATES.PROCESSING && !['pending', 'unknown'].includes(op.fate?.state) && now() - op.unknownSince >= uncertainWindowMs) {
+        hold(op, 'Indeterminate', op.gateway?.signature
+          ? 'no evidence for this request\'s own signature, and its absence is not proven (the relay cannot show finalized history over its lifetime): not decided; the grant stays counted'
+          : 'this server does not know its own signature (the answer was lost) and the caravan number alone proves nothing: not decided; each status query reads the agent wallet\'s record for this key (without re-sending), and its signature, once shown there, decides');
+      }
+    }
+    store.save();
+    return op;
+  }
+
+  const mineOp = (principal, op) => op && op.linkId === principal.linkId;
+
+  /**
+   * Moves finished operations older than `archiveAfterMs` to the store's append-only archive (a bounded number per
+   * call), with the plans they used. Nothing unfinished moves: holds, reservations and tracking stay in the main
+   * store. History is not changed: the archived record is the operation's last state, read back as it was.
+   */
+  function archiveFinished() {
+    let moved = 0;
+    for (const op of Object.values(db.operations)) {
+      if (moved >= ARCHIVE_PER_CALL) break;
+      if (!TERMINAL.includes(op.state) || inflight.has(op.id) || now() - Date.parse(op.updatedAt ?? op.createdAt) < archiveAfterMs) continue;
+      store.archive(op);
+      if (db.plans[op.planId]?.usedBy === op.id) delete db.plans[op.planId];
+      moved++;
+    }
+    if (moved) store.save();
+    return moved;
+  }
+
+  /**
+   * The owner's operations across all their connections, revoked ones included: for an owner whose signed query
+   * auth.ownerQuery verified (http: POST /owner/operations). Reads only. A revoked connection's operations are
+   * reconciled here: one with no recorded attempt is failed and its hold given back (the attempt counter is
+   * written before anything leaves, so 0 means nothing was sent); any other is tracked on the chain and herald.
+   */
+  async function ownerOperations(owner) {
+    const links = Object.values(db.links).filter(l => l.owner === owner);
+    const ids = new Set(links.map(l => l.linkId));
+    const ops = store.operationsOf([...ids], 50);
+    for (const op of ops) {
+      if (TERMINAL.includes(op.state) || inflight.has(op.id)) continue;
+      const link = auth.link(op.linkId);
+      if (link?.revokedAt && op.state === STATES.REQUESTED && op.attempts === 0) definite(op, link, 'GrantRevoked', 'the connection was revoked before anything was sent: nothing was sent');
+      else await track(op);
+    }
+    store.save();
+    return {
+      owner,
+      connections: links.map(l => ({ linkId: l.linkId, agentId: l.agentId, scopes: l.scopes, createdAt: new Date(l.createdAt).toISOString(), revokedAt: l.revokedAt ? new Date(l.revokedAt).toISOString() : null,
+        // Every unfinished operation of the link, not only those among the 50 listed (2026-11-17): an older one still
+        // awaiting reconciliation must not read as done. Unfinished operations are never archived (archiveFinished),
+        // so the main store has all of them; nothing is read from the archive for this.
+        cancellation: receipts.cancellation(l, Object.values(db.operations).filter(o => o.linkId === l.linkId)) })),
+      operations: ops.map(op => ({ ...receiptOf(op), linkId: op.linkId })),
+    };
+  }
+
+  async function opStatus(principal, args) {
+    let op = null;
+    if (typeof args?.operationId === 'string') op = store.operation(args.operationId);
+    else if (typeof args?.requestId === 'string' && REQUEST_ID.test(args.requestId)) op = store.operation(opIdOf(principal, args.requestId));
+    else return fail('BadRequest', 'operationId or requestId is required');
+    if (!mineOp(principal, op)) return fail('UnknownOperation', 'no such operation for this connection');
+    return answer(await track(op, principal));
+  }
+
+  /** A caller's run: this connection's operations sent with it (each followed, nothing sent) and ④'s receipts for it. */
+  async function runStatus(principal, args) {
+    const runId = String(args?.runId ?? '');
+    if (!RUN_ID.test(runId)) return fail('BadRequest', 'runId: 8–128 characters of A–Z a–z 0–9 . _ : -');
+    // The run first, then at most RUN_OPERATIONS operations of it (newest first): another run's newer operations no
+    // longer push this run's out (2026-11-17). More than that is said (operationsTruncated, operationsTotal), never
+    // shown as all of them. A store read that fails throws (tools/call: InternalError), never an empty run.
+    const { operations: ops, total } = store.operationsOfRun([principal.linkId], runId, RUN_OPERATIONS);
+    const operations = [];
+    for (const op of ops) operations.push(receiptOf(await track(op, principal)));
+    let registry = null;
+    if (acts) {
+      try {
+        const l = await acts.list(runId);
+        // ④'s list answers as last recorded; a row not final yet is read again (④'s status reads the wallet's fate,
+        // read only), so that a run's state does not depend on which connection asks (a reconnect, another sender).
+        const rows = [];
+        // readVia is set here, never taken from a row (④'s receipt does not say): list rows are ④'s stored record. A
+        // re-read whose own state is unqueryable says nothing about the act (as consult): the stored row is kept, marked.
+        const asText = v => (v == null ? null : scrub(v));
+        for (const a of (l.acts ?? []).slice(0, 50)) {
+          const stored = { ...a, readVia: 'store-only' };
+          if (a.final === true) { rows.push(stored); continue; }
+          try {
+            const s = await acts.status({ run4Id: a.run4Id });
+            rows.push(s.state === 'unqueryable' ? { ...stored, readError: WS04_UNQUERYABLE, readErrorVia: statusVia, registryUnqueryable: { lastReadError: asText(s.lastReadError), why: asText(s.why) } } : { ...s, readVia: statusVia });
+          } catch (e) { rows.push({ ...stored, readError: `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, readErrorVia: statusVia }); }
+        }
+        registry = { read: true, acts: rows, ...((l.acts ?? []).length > 50 ? { truncated: true } : {}) };
+      }
+      catch (e) { registry = { read: false, error: `${e?.code ?? 'Error'}: ${scrub(e?.message)}` }; }
+    }
+    return ok({ runId, operations, ...(total > ops.length ? { operationsTruncated: true, operationsTotal: total } : {}), registry, notes: ['Read only: nothing is sent. The registry lists every act registered under this run (other senders\' included, each with its source).',
+      'readVia says how this server asked workstream 04 (gateway: ④ was asked to read the agent wallet once; store-only: ④\'s stored record; null: not known); it is not freshness, success or chain finality, and source is who registered the act.'] });
+  }
+
+  async function listOps(principal) {
+    const mine = store.operationsOf([principal.linkId], 20);
+    // The last recorded state (not read again here: get_operation_status does), and whether its result is known: a held
+    // or uncertain operation is "accepted" with resultUnknown true — not sent-and-travelling, not to be sent again.
+    return ok({ operations: mine.map(op => ({ operationId: op.id, requestId: op.requestId, state: op.state, outcome: op.outcome ?? null, createdAt: op.createdAt, updatedAt: op.updatedAt, summary: op.planSummary,
+      hold: op.hold?.code ?? null, resultUnknown: resultUnknown(op) })) });
+  }
+
+  /**
+   * get_cooperation_status (only when coopRead is on). No arguments: the viewer is the authenticated owner, the world is
+   * this server's current game context with the configured cluster; nothing of either comes from the caller. The
+   * board is a public read and grants nothing (coop-read-adapter.mjs): no recipient list, no send authority.
+   */
+  async function cooperation(principal, args) {
+    const denied = needScope(principal, SCOPES.READ);
+    if (denied) return denied;
+    if (args === null || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length > 0) {
+      return fail('BadRequest', 'get_cooperation_status takes no arguments: the owner is this connection\'s and the world is the server\'s current one');
+    }
+    // Both boundaries read the relay now ({fresh: true}, 2026-11-18): the real Game reuses a context read for 15 s, so a
+    // cached "after" would repeat the "before" read and could not see a change during the board read. Every other caller
+    // keeps the cache. Two fresh observations bracket the board read; they do not lock or linearize the remote world.
+    const contextOf = async () => {
+      try {
+        const c = await game.context({ fresh: true });
+        if (!c || typeof c.programId !== 'string' || (typeof c.seasonId !== 'string' && !Number.isSafeInteger(c.seasonId))) return null;
+        const seasonId = String(c.seasonId);
+        if (typeof c.key === 'string' && c.key !== `${c.programId}:${seasonId}`) return null;
+        return { programId: c.programId, seasonId, key: `${c.programId}:${seasonId}` };
+      } catch { return null; }
+    };
+    const before = await contextOf();
+    if (!before) return fail('ContextUnavailable', 'the current world context could not be read from the relay: the cooperation board was not read', { retryable: true });
+    const r = await coop.adapter.read({ principal: { owner: principal.owner, scopes: principal.scopes }, context: { programId: before.programId, seasonId: before.seasonId, cluster: coop.cluster } });
+    if (!r || typeof r !== 'object' || typeof r.status !== 'string') return fail('InternalError', 'the cooperation board read gave no result');
+    // The relay may have moved to another world while the board was read: the answer would be of the old one.
+    const after = await contextOf();
+    if (!after || after.key !== before.key) return fail('ContextChanged', 'the current world context changed (or could not be read again) while the cooperation board was read: nothing is shown; read again', { retryable: true });
+    if (r.ok === true && r.status === 'ok') return ok(r);
+    const [code, retryable] = COOP_ERROR[r.status] ?? ['CoopBoardMalformed', false];
+    return fail(code, String(r.why ?? r.status), { retryable, cooperation: r });
+  }
+
+  const tools = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps,
+    ...(coop ? { get_cooperation_status: cooperation } : {}) };
+  // What tools/list answers agrees with what tools/call dispatches: the cooperation tool only when it is on.
+  const listed = coop ? Object.freeze([...TOOLS, COOP_TOOL]) : TOOLS;
+
+  /** One JSON-RPC message for `principal` (null: unauthenticated) → the response (null for a notification). */
+  async function handle(msg, principal) {
+    // (2026-11-17) A notification (a valid message without `id`) gets no response of any kind (JSON-RPC 2.0; MCP
+    // 2025-06-18 basic/Messages): `reply` and `error` give null for it, and the transport answers 202 with no body.
+    // What a notification runs is unchanged here (an id-less tools/call still runs its tool: see the report). A message
+    // that is not a valid request at all is answered -32600 with id null by `invalid`, decided before `notification`.
+    const reply = result => (notification ? null : { jsonrpc: '2.0', id: msg.id, result });
+    const error = (code, message) => (notification ? null : { jsonrpc: '2.0', id: msg.id, error: { code, message } });
+    const invalid = () => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32600, message: 'invalid request' } });
+    // (2026-11-17) MCP 2025-06-18 basic/Requests: a request's id MUST be a string or an integer, and MUST NOT be null.
+    // An id that is present and is neither (null, a boolean, a fraction, an array, an object) is refused before anything
+    // is dispatched, -32600 with id null: the bad id is not echoed. An absent id is a notification (below).
+    const badId = msg !== null && typeof msg === 'object' && msg.id !== undefined && typeof msg.id !== 'string' && !Number.isInteger(msg.id);
+    if (badId) return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid request: id must be a string or an integer' } };
+    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return invalid();
+    const notification = msg.id === undefined;
+    switch (msg.method) {
+      case 'initialize': {
+        // (2026-11-17) InitializeRequestParams (MCP 2025-03-26, 2025-06-18 and 2025-11-25 schema): protocolVersion is a
+        // string, capabilities an object, clientInfo an object with string name and version. Missing or mistyped ones
+        // are invalid params (-32602), not a success. An unknown version STRING is not invalid: it gets the latest
+        // supported version below. Other fields are left alone.
+        const p = msg.params;
+        const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+        if (!isObj(p) || typeof p.protocolVersion !== 'string' || !isObj(p.capabilities) || !isObj(p.clientInfo)
+          || typeof p.clientInfo.name !== 'string' || typeof p.clientInfo.version !== 'string') {
+          return error(-32602, 'invalid params: initialize needs protocolVersion (string), capabilities (object) and clientInfo {name, version} (strings)');
+        }
+        const asked = msg.params?.protocolVersion;
+        return reply({ protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0], capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: SERVER_INSTRUCTIONS });
+      }
+      case 'notifications/initialized': case 'notifications/cancelled': return null;
+      case 'ping': return reply({});
+      case 'tools/list': return reply({ tools: listed });
+      case 'tools/call': {
+        const name = msg.params?.name;
+        // Own tool names only: an inherited name (constructor, __proto__, …) or a non-string is an unknown tool (dispatch.mjs).
+        const fn = toolNamed(tools, name);
+        if (!fn) return error(-32602, unknownToolText(name));
+        if (!principal) return reply(fail('Unauthenticated', 'connect with OAuth first'));
+        if (limited(principal)) return reply(fail('RateLimited', 'too many calls: wait a few seconds'));
+        let out;
+        try { out = reply(await fn(principal, msg.params?.arguments ?? {})); } catch (e) { log(`mcp: ${name} threw ${scrub(e?.message)}`); return reply(fail('InternalError', 'internal error')); }
+        // get_cooperation_status stores nothing locally (its description says so): it never runs the archive sweep,
+        // whatever its outcome. Every other tool keeps the sweep exactly as before.
+        if (name !== COOP_TOOL.name) {
+          try { archiveFinished(); } catch (e) { log(`mcp: archive failed (nothing moved): ${scrub(e?.message)}`); }
+        }
+        return out;
+      }
+      default: return notification ? null : error(-32601, `method not found: ${msg.method.slice(0, 40)}`);
+    }
+  }
+
+  return { handle, tools: Object.keys(tools), track, ownerOperations, archiveFinished, receipts: { contract: receipts.contract, real: receipts.real } };
+}

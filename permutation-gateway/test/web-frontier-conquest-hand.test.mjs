@@ -63,7 +63,7 @@ test('the keep panel and the reach list never end in "no host is ready" while a 
   const forming = fs({ bell: 9, entries: [entry({ state: 2, fromBell: 11 })] });
   const k = forming.conquest.keeps.get('4,-1');
   const panel = plain(renderKeep(forming, k));
-  assert.match(panel, /槍兵 500 は編成中です。ターン 11 から出発できます。/);
+  assert.match(panel, /槍兵 500 は編成中です。編成したターンが決着すると整列します。/);
   assert.doesNotMatch(panel, /出発できる戦闘部隊がいません/);
   assert.match(String(renderKeep(forming, k)), /data-act="tab" data-tab="hosts"/, 'the way to the host: not a dead end');
   const late = fs({ bell: 12, resolvedNext: 10 });
@@ -74,13 +74,13 @@ test('the keep panel and the reach list never end in "no host is ready" while a 
   const both = fs({ bell: 9, resolvedNext: 9, entries: [entry({ readyBell: 0, fromBell: 3 }), entry({ id: hostId({ p: 2, q: 0, site: 2, gen: 0, seq: 2 }), state: 2, fromBell: 11, troops: 700000 })] });
   const bothPanel = String(renderKeep(both, both.conquest.keeps.get('4,-1')));
   assert.match(bothPanel, /data-act="cq-march"/);
-  assert.match(plain(bothPanel), /槍兵 700 は編成中です。ターン 11 から出発できます。/);
+  assert.match(plain(bothPanel), /槍兵 700 は編成中です。編成したターンが決着すると整列します。/);
   // nobody at all: the old sentence, and the way to the village
   const none = fs({ entries: [] });
   assert.match(plain(renderKeep(none, none.conquest.keeps.get('4,-1'))), /出発できる戦闘部隊がいません。兵を訓練し、軍勢を編成してください。/);
   // the reach list measured from the village names the waiting host too
   forming.conquest.reach = { key: 'k', ok: true, home: true, rows: [], unreachable: [] };
-  assert.match(plain(renderReach(forming)), /槍兵 500 は編成中です。ターン 11 から出発できます。 そのあいだは、村からの道のりで調べています。/);
+  assert.match(plain(renderReach(forming)), /槍兵 500 は編成中です。編成したターンが決着すると整列します。 そのあいだは、村からの道のりで調べています。/);
 });
 
 // ------------------------------------------------------------------ the keep's panel from a real record
@@ -147,7 +147,7 @@ test('"March on a keep" on the host\'s bar: only on a conquest season; the list 
   forming.conquest.hostReach = { ...s.conquest.hostReach };
   const fm = handModel(forming);
   assert.match(String(renderPop(forming, fm)), /class="kh-row kh-n5 off"[^>]*aria-disabled="true"/);
-  assert.match(plain(renderPop(forming, fm)), /forming up\. This host can depart from turn 11\./);
+  assert.match(plain(renderPop(forming, fm)), /Forming up: 500 Spearmen\. It stands once the turn it was formed in is resolved\./);
 });
 
 test('the order card names the keep, its recorded defenders and what holding its tile brings', () => {
@@ -202,7 +202,7 @@ test('the season-end card stands only when the records say so: the pool final af
   assert.equal(P.seasonEndLine(end), 'Aster holds the most provinces (11)');
   assert.equal(P.seasonEndLine(tie), 'Tied for first: Aster / Borealis (10 each)');
   const card = plain(P.renderSeasonEnd(end));
-  assert.match(card, /The season is over Aster holds the most provinces \(11\)/);
+  assert.match(card, /This conquest \(an old-style season\) is over Aster holds the most provinces \(11\)/);
   assert.match(card, /confirmed on the local test chain/);
   assert.doesNotMatch(card, CJK);
 });
@@ -261,9 +261,11 @@ test('the guide on a conquest season: seven steps to a province, each from the r
   const withHost = fs();
   assert.equal(conquestGuide(withHost).current, 'march');
   assert.deepEqual(conquestObjective(withHost).go, { act: 'cg-go', data: { pop: 'keeps', host: String(entry().id) }, label: conquestObjective(withHost).go.label });
-  // a host that is forming: the step says the truth of the moment, and leads to the hosts
+  // a host that is forming: the muster step stays current until it stands (the first-session review of 2026-11-13)
+  // and says the truth of the moment — here without the herald's facts of its turn, so no phase and no countdown
   const forming = fs({ bell: 9, entries: [entry({ state: 2, fromBell: 11 })] });
-  assert.match(conquestObjective(forming).text, /編成中です。ターン 11 から出発できます。/);
+  assert.equal(conquestGuide(forming).current, 'muster');
+  assert.match(conquestObjective(forming).text, /は編成中です。編成したターンが決着すると整列します。/);
   // the viewer's own host holds the keep's tile: the count is the keep's record
   const holding = fs({ bell: 52 });
   const kt = holding.conquest.keeps.get('4,-1').tile;
@@ -338,4 +340,47 @@ test('the sample world draws what it drew: no keeps card, no strip, no report ca
   assert.equal(P.stripModel(s), null);
   assert.equal(P.seasonEndModel({ ...s, nowBell: 96, prize: POOL_FINAL }), null);
   assert.equal(conquestGuide(s), null);
+});
+
+// ------------------------------------------------------------------ a world with nothing to take (2026-11-13)
+test('no fort march and no capture guide where no keep can be taken (only heartland or own keeps); unchanged otherwise', () => {
+  const heartlandOnly = new Map([['-2,0', { p: -2, q: 0, tile: 30, holder: 3, troops: 100, heartland: true, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }],
+    ['2,0', { p: 2, q: 0, tile: 12, holder: 0, troops: 100, heartland: true, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }],
+    ['1,1', { p: 1, q: 1, tile: 8, holder: 0, troops: 100, heartland: false, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }]]);
+  const s = fs();
+  s.selected = { p: 2, q: 0, idx: 20 }; s.hand = { host: String(entry().id) };
+  s.conquest.keeps = heartlandOnly;
+  assert.equal(K.noContestableKeep(s), true);
+  assert.ok(!handModel(s).buttons.some(b => b.id === 'keeps'), 'no "砦へ進軍 · 72 ターンで奪取" on a heartland-only world');
+  assert.ok(handModel(s).buttons.some(b => b.id === 'march'), 'the ordinary march stays');
+  // the guide: hidden only when EVERY keep is in a heartland (here the own keep 1,1 is not: the guide stays)
+  assert.notEqual(conquestGuide(s), null);
+  const pure = fs(); pure.conquest.keeps = new Map([...heartlandOnly].filter(([k]) => k !== '1,1'));
+  assert.equal(K.heartlandOnlyKeeps(pure), true); assert.equal(conquestGuide(pure), null, 'no guide to a capture that cannot happen');
+  // the keeps not read yet: nothing changes (the button and the guide as before)
+  const unread = fs(); unread.selected = s.selected; unread.hand = s.hand; unread.conquest.keeps = undefined;
+  assert.equal(K.noContestableKeep(unread), false);
+  assert.ok(handModel(unread).buttons.some(b => b.id === 'keeps'));
+  // one foreign keep outside a heartland: offered again, guide again
+  heartlandOnly.set('0,4', { p: 0, q: 4, tile: 26, holder: 1, troops: 100, heartland: false, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 });
+  assert.equal(K.noContestableKeep(s), false);
+  assert.ok(handModel(s).buttons.some(b => b.id === 'keeps'));
+  assert.notEqual(conquestGuide(s), null);
+  // an empty map (nothing known) and an unknown turn hide nothing
+  const empty = fs(); empty.conquest.keeps = new Map(); assert.equal(K.noContestableKeep(empty), false); assert.equal(K.heartlandOnlyKeeps(empty), false);
+  const noTurn = fs(); noTurn.conquest.keeps = heartlandOnly; noTurn.nowBell = undefined; assert.equal(K.noContestableKeep(noTurn), false);
+});
+
+test('a foreign keep under its post-capture protection: no fort march while protected, offered again once the protection ends', () => {
+  const guarded = new Map([['0,4', { p: 0, q: 4, tile: 26, holder: 1, troops: 50, heartland: false, consolidatedUntil: 20, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }],
+    ['2,0', { p: 2, q: 0, tile: 12, holder: 0, troops: 100, heartland: true, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }]]);
+  const during = fs({ bell: 10 }); during.selected = { p: 2, q: 0, idx: 20 }; during.hand = { host: String(entry({ staminaBell: 10, readyBell: 10, fromBell: 10 }).id) };
+  during.conquest.keeps = guarded;
+  assert.equal(K.noContestableKeep(during), true, 'turn 10 < 20: protected');
+  assert.ok(!handModel(during).buttons.some(b => b.id === 'keeps'));
+  assert.notEqual(conquestGuide(during), null, 'the guide stays: the world has a keep to take once its protection ends');
+  const after = fs({ bell: 25 }); after.selected = during.selected; after.hand = during.hand; after.conquest.keeps = guarded;
+  assert.equal(K.noContestableKeep(after), false, 'turn 25 ≥ 20: protection over (was hidden for good with a fixed turn 0)');
+  assert.ok(handModel(after).buttons.some(b => b.id === 'keeps'));
+  assert.notEqual(conquestGuide(after), null);
 });

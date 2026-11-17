@@ -303,11 +303,112 @@ pub(crate) const fn hex32(s: &[u8]) -> [u8; 32] {
     o
 }
 
+/// The unit tests, and the hint constructor ([`tests::hints_for_round`])
+/// the opt-in native dispatcher test of the wide march reuses to verify a
+/// public round signature against the production key (verification only).
 #[cfg(test)]
-mod tests {
+// The hint constructor and the public vectors are used by the opt-in
+// native-crypto-tests build only; in every other test build they are unused.
+#[cfg_attr(not(feature = "native-crypto-tests"), allow(dead_code))]
+pub(crate) mod tests {
     use super::*;
     use ark_bls12_381::{g2::Config as G2Config, Fq2};
     use ark_ec::short_weierstrass::Affine;
+
+    /// One hint of `u`, constructed with the field's square root and
+    /// inversion as the gateway's prover does (verification material: no
+    /// signature is made here): the SSWU branch, `1/tv1`, the `y'` whose
+    /// sign matches `u`, and `1/(x_den · y_den)` of the isogeny — exactly
+    /// what [`map_hinted`] checks.
+    pub(crate) fn hint_for(u: Fq) -> [u8; HINT_LEN] {
+        let zu2 = mul(Z, sqr(u));
+        let tv1 = sqr(zu2) + zu2;
+        let inv_tv1 = tv1
+            .inverse()
+            .expect("tv1 = 0 is the exceptional case the verifier refuses");
+        let x1 = mul(NEG_B_OVER_A, Fq::ONE + inv_tv1);
+        let (branch, xp, y) = match gp(x1).sqrt() {
+            Some(y) => (1u8, x1, y),
+            None => {
+                let x2 = mul(zu2, x1);
+                let y = gp(x2)
+                    .sqrt()
+                    .expect("g(x2) is a square when g(x1) is not (RFC 9380 §6.6.2)");
+                (2u8, x2, y)
+            }
+        };
+        let y = if sgn0::<Fq, 6>(&y) == sgn0::<Fq, 6>(&u) {
+            y
+        } else {
+            -y
+        };
+        let m = &G1Config::ISOGENY_MAP;
+        let xd = horner(m.x_map_denominator, xp);
+        let yd = horner(m.y_map_denominator, xp);
+        let inv_den = mul(xd, yd)
+            .inverse()
+            .expect("the isogeny denominators are nonzero off the exceptional points");
+        let mut h = [0u8; HINT_LEN];
+        h[0] = branch;
+        to_be::<Fq, 6>(&inv_tv1, &mut h[1..49]);
+        to_be::<Fq, 6>(&y, &mut h[49..97]);
+        to_be::<Fq, 6>(&inv_den, &mut h[97..145]);
+        h
+    }
+
+    /// The two hints of `round` ([`round_us`]).
+    pub(crate) fn hints_for_round(round: u64) -> [u8; 2 * HINT_LEN] {
+        let (u0, u1) = round_us(round);
+        let mut out = [0u8; 2 * HINT_LEN];
+        out[..HINT_LEN].copy_from_slice(&hint_for(u0));
+        out[HINT_LEN..].copy_from_slice(&hint_for(u1));
+        out
+    }
+
+    pub(crate) fn decode<const N: usize>(s: &str) -> [u8; N] {
+        core::array::from_fn(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+    }
+
+    /// permutation-gateway/test/frontier-vectors.json: beacon.fixture_round
+    /// (quicknet round 32551361): the public signature and the gateway's
+    /// hints.
+    pub(crate) const FIXTURE_ROUND: u64 = 32_551_361;
+    pub(crate) const FIXTURE_SIG_HEX: &str = "b07de38f2242ea4ae09960f14c44b826764b4f00a7b5dbb64f0adaeb8084fd91231934b3f7e1e2ae86cadd2d27a5272f";
+    pub(crate) const FIXTURE_HINTS_HEX: &str = "0114dcf59722b7585538cfa4b87b8ccc137ebdd8cf87bb88bd356225cf9c3bfe410f598a3a77d9c98705940acabc64152a0f49a8bbef0170eb29830542bdaaba4b4db4a32552ad7c7b893c8fa14c6971df7b981861241d37d2f31e4280df170ea9054863442c3efabd7433799ee791712f4bb89ba38f9030e80f364d9b5326a6878f03e37151b12b067f63187e38ee13860119884e4047d15ef143718dc611f431217d4903b856b79f8b729dc667fc238e9767544e5be6f98d221111b737346a10351485200a5afca2d5ef7fcb55cffe8dfe00db77b7848763ba034401c71b6911ed4a4198ae7d804aebebcc20185b06e319054ecac0c6af8df4065f6c6962d1e17e399ec20f3526707d8bea2cc0929fb2928274b9b1d6a4acdafbeaaef90ce915e7";
+    /// `seal-vectors-v1.json` `valid_q3`: the public quicknet signature of
+    /// round 32556137 (`open_sig`).
+    pub(crate) const Q3_ROUND: u64 = 32_556_137;
+    pub(crate) const Q3_SIG_HEX: &str = "878cd56168e11268d95ad61604f87af5d1d0fb8d9015c81a4484a679250bea3514d9899def7041bcdbfdc02be5da17d5";
+
+    /// The constructed hints are the gateway's, byte for byte, for the
+    /// fixture round; and with them the seal vector's public round
+    /// signature verifies against the **production** quicknet key at its
+    /// round and at no other (verification only: nothing is signed).
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        not(feature = "test-beacon"),
+        not(target_os = "solana")
+    ))]
+    #[test]
+    fn native_constructed_hints_reproduce_the_gateway_fixture_and_verify_the_vector_round() {
+        let fixture_hints = decode::<{ 2 * HINT_LEN }>(FIXTURE_HINTS_HEX);
+        assert_eq!(hints_for_round(FIXTURE_ROUND), fixture_hints);
+        let q3 = decode::<48>(Q3_SIG_HEX);
+        let sig96 = sys::bls_g1_decompress(&q3).unwrap();
+        assert_eq!(
+            verify(Q3_ROUND, &q3, &hints_for_round(Q3_ROUND)),
+            Ok(sig96),
+            "the production key signed round 32556137 with the vector's signature"
+        );
+        assert_eq!(
+            verify(Q3_ROUND - 1, &q3, &hints_for_round(Q3_ROUND - 1)),
+            Err(VerifyError::PairingFailed)
+        );
+        assert_eq!(
+            verify(Q3_ROUND + 1, &q3, &hints_for_round(Q3_ROUND + 1)),
+            Err(VerifyError::PairingFailed)
+        );
+    }
 
     fn g2_of(u: &[u8; 192]) -> Affine<G2Config> {
         let f = |o: usize| from_be::<Fq, 6>(&u[o..o + 48]).unwrap();
@@ -388,5 +489,34 @@ mod tests {
         let s = [3u8; 96];
         let want = xmd::sha256(&[b"PSF-SEED-v1", &[2], &7u64.to_be_bytes(), &s]);
         assert_eq!(seed_of(7, &s), want);
+    }
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        not(feature = "test-beacon"),
+        not(target_os = "solana")
+    ))]
+    #[test]
+    fn native_public_quicknet_signature_verifies() {
+        let sig = decode::<48>(FIXTURE_SIG_HEX);
+        let hints = decode::<{ 2 * HINT_LEN }>(FIXTURE_HINTS_HEX);
+        let expected = decode("107de38f2242ea4ae09960f14c44b826764b4f00a7b5dbb64f0adaeb8084fd91231934b3f7e1e2ae86cadd2d27a5272f1264b6394ff15ba7aa73c26540095070dd2350980219f2dc4706a148dd4fc6f9e1a2660c0c33d29c4279ca80ead4a30c");
+        assert_eq!(verify(32551361, &sig, &hints), Ok(expected));
+        assert_eq!(
+            seed_of(32551361, &expected),
+            decode("ae4d57785cf6d0e4ae776ed82ec7999f5216f063669b96e851117d3b2d21d778")
+        );
+        assert!(verify(32551362, &sig, &hints).is_err());
+        // A different valid public G1 signature reaches the real pairing check.
+        let other_sig = decode::<48>(Q3_SIG_HEX);
+        assert_eq!(
+            verify(32551361, &other_sig, &hints),
+            Err(VerifyError::PairingFailed)
+        );
+        let mut bad_hints = hints;
+        bad_hints[0] = 0;
+        assert_eq!(
+            verify(32551361, &sig, &bad_hints),
+            Err(VerifyError::BadHint)
+        );
     }
 }

@@ -1,0 +1,115 @@
+[
+  {
+    "case": "holding_rule_derived",
+    "outcome": {
+      "cargo_logged": [
+        0,
+        196,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "delivered": [
+        0,
+        196,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "effects": [],
+      "note": "",
+      "verification": "RuleDerived"
+    }
+  },
+  {
+    "case": "vault_unverifiable",
+    "outcome": {
+      "cargo_logged": [
+        0,
+        200,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "delivered": null,
+      "effects": [],
+      "note": "",
+      "verification": "Unverifiable"
+    }
+  },
+  {
+    "case": "lost_known_zero",
+    "outcome": {
+      "cargo_logged": [
+        0,
+        200,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "delivered": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "effects": [],
+      "note": "",
+      "verification": "KnownZero"
+    }
+  },
+  {
+    "case": "recorded_p1",
+    "outcome": {
+      "cargo_logged": [
+        0,
+        200,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "delivered": [
+        0,
+        150,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "effects": [],
+      "note": "",
+      "verification": "Recorded"
+    }
+  },
+  {
+    "case": "not_shipped",
+    "outcome": {
+      "cargo_logged": null,
+      "delivered": null,
+      "effects": [],
+      "note": "",
+      "verification": "NotShipped"
+    }
+  }
+]

@@ -1,0 +1,42 @@
+{
+  "stage": "E",
+  "status": "run: the current prize program with the pass's Citizen; the NFT prize itself is the owner's CC's (not implemented here)",
+  "run": {
+    "stage": "E",
+    "source": "workstreams/04-execution/e2e-native/tests/chain_prize.rs",
+    "nft_citizen": "6TUvpsqCubL6tRZoVuVW1sB9xUJgc8ypQDnU52uDhbgi",
+    "wallet_citizen_of_A": "63hC2n5Az6QsobR4cdV5hZMKqw6vFoxC2voYyiT2otki",
+    "vault_after": 25000000,
+    "claim_A_with_pass_citizen": "Custom(257)",
+    "claim_A_with_wallet_citizen": "Custom(257)",
+    "record_nation_with_pass_citizen": "Custom(257)",
+    "claim_B_after_transfer": "Custom(257)",
+    "prize_error_bad_account": 257
+  },
+  "inputs_available": {
+    "season": "0279b161f9d6c5d680144a7198e1b2023184d3bd11916180a86effd069821be8",
+    "season_id": 7,
+    "citizen": "51131d2e35af611b6ec091b9699ac0ec8654b67f5ec846c15611b5f2e8e09487",
+    "citizen_tag": "1973050754706772817",
+    "asset": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+    "nation_stand_in": "faction-2",
+    "outcome_events": 2,
+    "owner_now": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    "generation": 1
+  },
+  "policy_given": "every player holds an NFT pass; unclaimed prizes from before a transfer move with the pass to the new owner",
+  "what_the_chain_shows": [
+    "the Citizen (and its tag, which the caravan, memory and outcome key on) stays with the pass across the transfer",
+    "the old owner is refused at once (stale generation, not current authority); the new owner acts with the new generation",
+    "the current prize program is wallet-keyed: Entry = PDA(pool, wallet), Claim needs citizen(wallet); the pass's Citizen is at citizen_by_tag15(resident id) with a zero wallet, so every claim path is BadAccount and the share stays in the vault",
+    "after a transfer the buyer has no Entry; the first owner's Entry stays the first owner's (contrary to the policy, which the NFT prize must meet)"
+  ],
+  "for_the_prize_step": [
+    "Claim's authority for an NFT Citizen: the pass's current holder at the current generation (⑳ 4b233e4a resident_auth::holder / Holder::authority), not the wallet that paid or joined",
+    "the right keyed by the pass (or its Citizen), so a share owed before a transfer is the new holder's to take"
+  ],
+  "undecided": [
+    "refunds (read from the code, not run: the current Refund mode pays the Entry of the wallet that paid; not decided for passes)",
+    "moving other assets or history"
+  ]
+}

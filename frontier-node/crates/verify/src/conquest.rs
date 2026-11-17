@@ -498,7 +498,7 @@ pub fn verify(input: &Input) -> Report {
     } else {
         Verdict::Fail
     };
-    Report { verdict, season: input.cfg.season_id, program: input.cfg.program.to_string(), slot_range: (input.txs.iter().map(|t|t.slot).min().unwrap_or(0),input.final_slot), entities: heads.len() as u64, bells, counts, findings, liveness:Liveness::default(), checks_run:vec!["CQ1:event-chains-and-final-state", "CQ2:program-and-season-identity", "CQ3:territory-time-replay"], provenance:format!("{}; CQ audit coverage: event chains, final state, identity, territory time. Legacy combat/seal economic replay is not claimed.",input.provenance) }
+    Report { verdict, season: input.cfg.season_id, program: input.cfg.program.to_string(), slot_range: (input.txs.iter().map(|t|t.slot).min().unwrap_or(0),input.final_slot), entities: heads.len() as u64, bells, counts, findings, liveness:Liveness::default(), checks_run:vec!["CQ1:event-chains-and-final-state", "CQ2:program-and-season-identity", "CQ3:territory-time-replay"], provenance:format!("{}; CQ audit coverage: event chains, final state, identity, territory time. Legacy combat/seal economic replay is not claimed.",input.provenance), history: None }
 }
 
 #[cfg(test)]

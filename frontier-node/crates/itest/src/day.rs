@@ -380,6 +380,8 @@ async fn verify_dump(w: &World, path: &Path, cfg: &DayCfg) -> Result<(), String>
                 w.so.sha256, cfg.bots, cfg.play_bells, cfg.drain_bells
             ),
             scenarios: vec![],
+            history: verify_core::history::History::ledger_feed("in-process localnet"),
+            resident_feed: None,
         }
     };
     inp.save(path)

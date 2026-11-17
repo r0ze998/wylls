@@ -18,7 +18,7 @@ import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction } from '../fland.mjs';
+import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction, garrisonRoom } from '../fland.mjs';
 import { settled, buildOffers, promotionOffer, queueNow, queueSlots, trainCost, shortOf, ITEM_TIER_UP } from '../hud/rulebook.mjs';
 import { costChips, costWords, shortWords, took, unitGood, whyText } from '../hud/orderparts.mjs';
 import { holdingName } from '../people/ui.mjs';
@@ -28,7 +28,11 @@ import { termButton } from '../hud/glossary.mjs';
 import { row, dueHtml } from './shell.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
+import { renderVillageOrders } from './villageorders.mjs';
+import { hostsIn } from '../fland.mjs';
+import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
+import * as wideHolding from './wideholding.mjs';
 
 export { queueSlots, buildSecs } from '../hud/rulebook.mjs';
 export const introBuildAvailable = h => (Number(h?.flags ?? 0) & 2) !== 0;
@@ -63,11 +67,16 @@ export function provisionalNote(FS, h) {
   return by ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, FS.chain?.now?.() ?? null)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
 }
 
-export function blockedLine(blocks) {
+// (`nudge: false` — local play: the reasons stand as they are, without the "catch up" button. The keeper is not asked
+//  for anything there (controller.mjs LOCAL_PLAY_REFUSED: the press would only be refused); the local world's own
+//  keeper brings the province up. Everywhere else the button is offered as it always was.)
+export function blockedLine(blocks, { nudge = true } = {}) {
   if (!blocks.length) return '';
-  const lag = blocks.includes('NotResident');
+  const lag = nudge === true && blocks.includes('NotResident');
   return html`<p class="blocked">${blocks.map(errorText).join(' / ')}${lag ? html` <button type="button" class="btn small" data-act="nudge">${L`追いつかせる`}</button>` : ''}</p>`;
 }
+// (this function under a name that the panel's own, narrower `blockedLine` in `render` does not shadow)
+const blockedLineOf = blockedLine;
 
 /**
  * The build cards (UI plan E2, Civ VII's yield preview; UX design 14.2): per thing the village may order built
@@ -76,9 +85,12 @@ export function blockedLine(blocks) {
  * costs base × (1 + (n−1)²/2) and takes 60 + 30 n minutes; the queue is serial). `copies` = n − 1, the ones built
  * or under way. (The card showed the first copy's cost for every copy, and a first copy as 60 minutes: it takes 90.)
  */
-export function buildCards(h, stores, { now = 0, faction = h.faction ?? 0 } = {}) {
+export function buildCards(h, stores, { now = 0, faction = h.faction ?? 0, province = null } = {}) {
   const have = stores.map(s => s.value);
-  return buildOffers(h, { now, have, faction, s1: s1On() }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
+  // the village's own site mirror (this holding's generation), for the walls' two items (rulebook wallItemsBusy)
+  const m = province && province.p === h.p && province.q === h.q ? province.siteMirror?.[h.site] : null;
+  const mirror = m && m.state === 1 && Number(m.gen) === Number(h.gen) ? m : null;
+  return buildOffers(h, { now, have, faction, s1: s1On(), mirror, resolvedNext: province?.resolvedNext ?? null }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
 }
 
 /** Compatibility view of the shared promotion offer; no second set of prices. */
@@ -91,6 +103,30 @@ export function upgradeModel(h, stores, now) {
     short: offer.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })),
     gains: after.map((v, i) => ({ resource: RESOURCE_ORDER[i], perHour: Number(v - before[i]) / 1000 })).filter(x => x.perHour > 0) };
 }
+
+/**
+ * The Garrison form's own refusals as the program decides them (host.rs garrison_as), in its order, before anything is
+ * signed: BadTroops (a whole number from 1) → Insufficient (the Spearman reserve) → GarrisonFull {room} (fland
+ * garrisonRoom, on the village's own site mirror). The action's blocks (capture lock, not final, Province behind) stay
+ * where they were: actionBlocks('Garrison'), which disables the form. Without the data (no reserve read, no own
+ * mirror) the program decides. Null when it may be sent.
+ */
+export function garrisonProblem(FS, n) {
+  const raw0 = activeHolding(FS);
+  if (!raw0) return null;
+  if (!Number.isInteger(n) || n < 1) return { code: 'BadTroops' };
+  if (Array.isArray(raw0.reserve) && n > Number(raw0.reserve[0] ?? 0)) return { code: 'Insufficient' };
+  const province = FS.provinces?.get(`${raw0.p},${raw0.q}`)?.province ?? null;
+  const m = province && province.p === raw0.p && province.q === raw0.q ? province.siteMirror?.[raw0.site] : null;
+  if (m && m.state === 1 && Number(m.gen) === Number(raw0.gen)) {
+    const room = garrisonRoom(m, province.resolvedNext);
+    if (n > room) return { code: 'GarrisonFull', room };
+  }
+  return null;
+}
+/** The words for garrisonProblem's own codes (the others are the program's sentences). */
+export const garrisonProblemText = pr => (pr.code === 'GarrisonFull' ? L`守備隊にはあと ${fmtNum(pr.room)} 人まで入れられます`
+  : pr.code === 'BadTroops' ? L`増やす人数は 1 以上の整数です` : errorText(pr.code));
 
 /** The viewer's local clock time of a UTC hour today ("09:00"). */
 const localHour = hr => { const d = new Date(Date.UTC(2026, 0, 1, hr, 0)); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -117,7 +153,7 @@ export function holdingModel(FS) {
     stores, have,
     facts: holdingFacts(h, FS.season, now),
     blocks: Object.fromEntries(['Harvest', 'Build', 'Train', 'Muster', 'Garrison'].map(n => [n, actionBlocks(n, ctx)])),
-    offers: buildCards(h, stores, { now, faction }),
+    offers: buildCards(h, stores, { now, faction, province: env?.province ?? null }),
     promotion: promo ? { ...promo, short: promo.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) } : null,
     queue: queueNow(h, now), slots: queueSlots(h.tier),
   };
@@ -179,10 +215,148 @@ function unitPicks(f, list, legend, { costs = false, have = null, selected = 0, 
     ${costs ? html`<span class="unit-good">${unitGood(x.unit)}</span><span class="unit-cost">${L`100人`} ${costChips(trainCost(x.unit, 100, programVersion), have)}</span>` : ''}</label>`)}</div>`;
 }
 
+/**
+ * The Muster draft's scope: this world (cluster, program, season address, genesis; on local play also the runner
+ * instance the page verified at start, since a replaced local world can repeat the rest), the wallet, and this village
+ * (p, q, site, generation). Null when any part is unknown, including local play without a verified instance: then
+ * nothing is kept. A draft is page memory only.
+ */
+export function musterScope(FS, h) {
+  const r = FS?.record, w = FS?.wallet?.address, g = FS?.season?.genesisTs;
+  if (!r?.programId || !r?.seasonAddress || g === undefined || g === null || !w || !h) return null;
+  if (![h.p, h.q, h.site, h.gen].every(Number.isInteger)) return null;
+  const local = FS.localPlay ?? null, instance = local?.march?.instance;
+  if (local !== null && !(typeof instance === 'string' && /^[0-9a-f]{64}$/.test(instance))) return null;
+  return `${r.cluster ?? ''}|${r.programId}|${r.seasonAddress}|${String(g)}|${local !== null ? instance : '-'}|${w}|${h.p},${h.q},${h.site}|${h.gen}`;
+}
+
+/**
+ * What the Muster form shows: this scope's draft as the player left it, else the first kind in reserve and 100.
+ * Never changed to fit the reserve: `missing` (the kind is not in reserve) and `short` (only that many are) say so.
+ */
+export function musterShown(FS, h, reserve) {
+  const key = musterScope(FS, h), d = key !== null && FS?.musterDraft?.key === key ? FS.musterDraft : null;
+  const unit = d && Number.isInteger(d.unit) ? d.unit : d ? null : (reserve[0]?.unit ?? 0);
+  const troops = d && Number.isFinite(d.troops) ? d.troops : 100;
+  const have = unit === null ? null : reserve.find(r => r.unit === unit) ?? null;
+  return { key, unit, troops, kept: d !== null, missing: reserve.length > 0 && have === null, short: have && troops > have.troops ? have.troops : null };
+}
+
+/** The Muster form's input, kept for this scope (an unchecked kind keeps the one drafted before). */
+export function keepMusterDraft(FS, h, { unit, troops }) {
+  const key = musterScope(FS, h);
+  if (key === null) return false;
+  const before = FS.musterDraft?.key === key ? FS.musterDraft.unit : null;
+  FS.musterDraft = { key, unit: Number.isInteger(unit) ? unit : before, troops: Number(troops) };
+  return true;
+}
+
+/**
+ * (2026-11-17, ⑦ from the troops card to the hosts) The hosts of THIS village, from the provinces the page holds — the
+ * same rows the hosts drawer lists (fland.mjs hostsIn: a host's id carries its village's place, site and generation, so
+ * a host is this village's by its own id, not by where it stands): `{forming, standing, marching, total, partial}`.
+ *   forming   mustered, not yet in the record as formed (state 2) — what a muster just given becomes
+ *   standing  formed and standing somewhere; marching: on the road
+ *   partial   'unknown' — the list of provinces the viewer's hosts stand in is not read for what the page is now —,
+ *             'unread' — some of those provinces are not held —, or null: the counts are all the page can know.
+ * A count is of what the page holds; with `partial` it is not said to be all.
+ */
+export function villageHosts(FS, h) {
+  const out = { forming: 0, standing: 0, marching: 0, total: 0, partial: null };
+  if (!h) return out;
+  const bell = FS.nowBell ?? 0;
+  for (const env of FS.provinces?.values?.() ?? []) {
+    if (!env?.province) continue;
+    for (const r of hostsIn(env.province, h, bell)) {
+      if (r.inTransit || r.state === 3) out.marching += 1; else if (r.state === 2) out.forming += 1; else out.standing += 1;
+      out.total += 1;
+    }
+  }
+  const un = unreadHostPlaces(FS);
+  out.partial = !un.known ? 'unknown' : un.places.length ? 'unread' : null;
+  return out;
+}
+
+/**
+ * How the reads behind the village screen went (2026-11-17, ⑦) — nothing is asked here, only said:
+ *  - `viewer`: by where the answer shown really came from (corrected 2026-11-17). With no village in hand: 'none' (nobody
+ *    to ask — no wallet —, or the record answered "none" FOR THIS WORLD and the last read is good), 'noneStale' (it
+ *    answered "none" for this world before, and the read fails now: kept as it was, said as kept), 'unread' (no answer
+ *    for this viewer and this world yet — never, or only for another pinned world: not "no village"). With a village:
+ *    'otherWorld' (the villages held were read for another pinned world — FS.holdingsWorld, with its generation),
+ *    'stale' (the last read failed: the numbers are worked out from the record read before), 'ok'.
+ *    The world of an answer is FS.meWorld (controller applyMeResult: a Citizen or "no Citizen" alike); a state without
+ *    it — a fixture, a page from before — is taken as this world's, as it was;
+ *  - `province`: the village's own province record — 'held', or how its read stands (controller's FS.provinceReads:
+ *    'loading', 'waiting', 'failed', 'missing') or 'idle'. The rules' mirror (fland.actionBlocks) answers NotResident
+ *    for a province it has no record of, so every action then reads "this province has not finished its last turn":
+ *    without the record that is not known — the screen says which it is.
+ */
+export function holdingRead(FS) {
+  const h = activeHolding(FS), pin = FS.pin ?? null;
+  const world = pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null;
+  const answeredHere = FS.meAnswered === true && (FS.meWorld === undefined || FS.meWorld === world);
+  const viewer = !h ? (!FS.wallet ? 'none' : !answeredHere ? 'unread' : FS.meStatus === 'error' ? 'noneStale' : 'none')
+    : FS.holdingsWorld !== undefined && FS.holdingsWorld !== world ? 'otherWorld'
+    : FS.meStatus === 'error' ? 'stale' : 'ok';
+  // (the province's read is said — and offered again — only for a village of THIS world: another world's village names
+  //  a place of another map, and nothing of it is asked for here)
+  const mine = !!h && viewer !== 'otherWorld';
+  const key = mine ? `${h.p},${h.q}` : null, st = key && !FS.provinces?.has?.(key) ? FS.provinceReads?.get?.(key) ?? null : null;
+  // (2026-11-17, ⑦: the person's own re-read — controller rereadVillage. Its note is said only while it is still about
+  //  what is shown: "being read" always; "did not come" / "came, but the land changed" while the viewer's record is the
+  //  one it was said about (a later answer replaces FS.citizen or FS.meError); "the province did not come" for the
+  //  village it was pressed for. It is offered while the latest load of the viewer's record failed, or after its own
+  //  province part did not come; never in the prototype rule's world.)
+  const rr = FS.villageReread ?? null;
+  const rrState = !rr ? null : rr.state === 'loading' ? 'loading'
+    : rr.state === 'provinceFailed' ? (mine && rr.ref === `${h.p},${h.q},${h.site},${h.gen ?? 0}` ? 'provinceFailed' : null)
+    : (rr.errAt ?? null) === (FS.meError ?? null) && (rr.citAt ?? null) === (FS.citizen ?? null) ? rr.state : null;
+  const can = !!FS.wallet && !FS.proto && FS.mode === 'play' && (FS.meStatus === 'error' || rrState === 'provinceFailed');
+  return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null,
+    reread: { can, state: rrState, code: rrState ? rr.code ?? null : null } };
+}
+/** The lines of the person's own re-read (holdingRead().reread): what became of the press, and the button. */
+function rereadLines(rr) {
+  const lines = [];
+  if (rr.state === 'loading') lines.push(html`<p class="muted" role="status">${L`村の記録を読み直しています…`}</p>`);
+  else if (rr.state === 'failed') lines.push(html`<p class="notice error" role="alert">${L`村の記録を読み直せませんでした（${rr.code}）。前に読めた記録は、そのまま残しています。`}</p>`);
+  else if (rr.state === 'changed') lines.push(html`<p class="notice" role="status">${L`読み直しましたが、土地の状態にかかわる変更がありました。この変更は、次の通常の読み込みで反映します。ここの表示は、まだ前の記録のものです。`}</p>`);
+  else if (rr.state === 'yielded') lines.push(html`<p class="notice" role="status">${L`通常の読み込みが進んでいたので、この読み直しの答えは使いませんでした。通常の読み込みの結果をお待ちください。`}</p>`);
+  else if (rr.state === 'provinceFailed') lines.push(html`<p class="notice error" role="alert">${L`村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。`}</p>`);
+  if (rr.can && rr.state !== 'loading') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button></div>`);
+  return lines;
+}
+/** The note the village screen carries under its head when a read behind it did not come (holdingRead); '' when all is read. */
+export function renderHoldingRead(FS) {
+  const r = holdingRead(FS), lines = [];
+  if (r.viewer === 'otherWorld') lines.push(html`<p class="notice" role="status">${L`この村は、前に読んだ世界の記録です。いまの世界の記録を読み込んでいます。`}</p>`);
+  else if (r.viewer === 'stale') lines.push(html`<p class="notice error" role="status">${L`いまの読み込みに失敗しています。下の数は、最後に読めた記録から計算したものです。次の読み込みでもう一度確かめます。`}</p>`);
+  if (r.province && r.province !== 'held') {
+    lines.push(r.province === 'failed'
+      ? html`<p class="notice error" role="alert">${L`この村の州の記録を読めていません（${r.code}）。下の行動が「この州はまだ前のターンの決着が済んでいません」と出るのは、記録を読めていないためのことがあります。`}</p>`
+      : html`<p class="muted" role="status">${L`この村の州の記録を、まだ読めていません。読めるまで、下の行動は「この州はまだ前のターンの決着が済んでいません」と出ます。`}</p>`);
+    if (r.province !== 'loading' && r.province !== 'waiting') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="province-reread" data-p="${r.p}" data-q="${r.q}">${icon('return')}${L`もう一度読み込む`}</button></div>`);
+  }
+  lines.push(...rereadLines(r.reread));
+  return lines.length ? html`<div class="village-read" data-viewer="${r.viewer}" data-province="${r.province ?? ''}" data-reread="${r.reread.state ?? ''}">${lines}</div>` : '';
+}
+
 export function render(FS) {
+  // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
+  // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
+  if (FS.wideSelect) { const w = wideHolding.render(FS); if (w) return w; }
   const m = holdingModel(FS);
-  if (!m) return html`<p>${L`まだ村がありません。`}</p>`;
+  const wideStatus = wideHolding.renderWideInventoryStatus(FS);
+  // (2026-11-17, ⑦: "no village yet" only once the viewer's record answered so; before that it is not read — holdingRead)
+  if (!m) {
+    const rd = holdingRead(FS), v = rd.viewer, again = rereadLines(rd.reread);
+    return html`${wideStatus}<p${v === 'unread' || v === 'noneStale' ? html` role="status" data-read="${v}"` : ''}>${v === 'unread' ? L`村の記録をまだ読めていません。村がないという意味ではありません。次の読み込みで確かめます。`
+      : v === 'noneStale' ? L`最後に読めた記録では、まだ村がありません。いまの読み込みは失敗しています。次の読み込みでもう一度確かめます。` : L`まだ村がありません。`}</p>${again.length ? html`<div class="village-read" data-viewer="${v}" data-province="" data-reread="${rd.reread.state ?? ''}">${again}</div>` : ''}`;
+  }
   const { holding: h, facts: f } = m;
+  // (shadows the module's `blockedLine` for this panel: in local play the blocked reasons carry no "catch up" button)
+  const blockedLine = blocks => blockedLineOf(blocks, { nudge: !FS.localPlay });
   const actionBusy = FS.inFlight > 0 || !!FS.homeActionBusy;
   const first = introBuildAvailable(m.settled);
   const trainUnit = Number.isInteger(FS.trainingDraft?.unit) ? FS.trainingDraft.unit : 0;
@@ -242,19 +416,34 @@ export function render(FS) {
     <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Train.length || !training.affordable || trainN > 30000 || trainShort.length ? 'disabled' : '')}>${L`訓練する`}</button><span class="muted">${L`訓練はすぐに終わり、兵は控えに入ります。`}</span></div>
     ${trainShort.length ? html`<p class="blocked">${shortWords(trainShort)}</p>` : ''}
     ${blockedLine(m.blocks.Train)}</form>`;
+  const ms = musterShown(FS, m.rawHolding, reserve);
   const musterForm = html`<form class="vform" id="hp-muster" data-form="muster">
-    ${reserve.length ? unitPicks(faction, reserve, L`兵種`, { selected: reserve[0]?.unit ?? 0 }) : ''}
-    <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
-    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成は世界の処理に反映されてから行動できます。目安はゲーム内で約11〜21分です。`}</span></div>
+    ${reserve.length ? unitPicks(faction, reserve, L`兵種`, { selected: ms.unit }) : ''}
+    <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="${ms.troops}" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
+    ${ms.missing ? html`<p class="blocked">${L`選んでいた兵種は控えにいません。兵種を選び直してください。`}</p>` : ''}
+    ${ms.short !== null ? html`<p class="blocked">${L`控えのこの兵種は ${fmtNum(ms.short)} です。兵数を減らしてください。`}</p>` : ''}
+    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length || ms.missing || ms.short !== null ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
     ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
     ${blockedLine(m.blocks.Muster)}</form>`;
   // the action that makes sense now stands open; the other waits behind a fold
   const musterFirst = musterable >= 100;
+  // (2026-11-17, ⑦ from the troops card to the hosts: train → the reserve → form up → the host — and from here on to the
+  //  hosts drawer, where its march is planned. The card had no way on: after 「編成する」 the host it made was shown
+  //  nowhere on this screen, and nothing led to the drawer that lists it. The button is the existing tab action; the
+  //  drawer shows the village in hand — this one.)
+  const vh = FS.mode === 'play' ? villageHosts(FS, m.rawHolding) : null;
+  const hostsWay = vh ? html`<div class="village-hosts" data-hosts="${vh.total}" data-partial="${vh.partial ?? ''}">
+      <p>${L`この村の軍勢：編成の反映待ち ${fmtNum(vh.forming)}、立っている ${fmtNum(vh.standing)}、進軍中 ${fmtNum(vh.marching)}。`}</p>
+      ${vh.partial === 'unknown' ? html`<p class="muted" role="status">${L`軍勢がどの州にいるかの一覧をまだ読めていないので、この数がすべてとは限りません。`}</p>`
+        : vh.partial === 'unread' ? html`<p class="muted" role="status">${L`読めていない州があるので、この数がすべてとは限りません。`}</p>` : ''}
+      <div class="actions"><button type="button" class="btn" data-act="tab" data-tab="hosts">${icon('sword')}${L`この村の軍勢の一覧を開く`}</button></div>
+      <p class="muted">${L`編成した軍勢は、記録に出ると「編成の反映待ち」に入ります。進軍の計画は、軍勢の一覧から立てます。`}</p></div>` : '';
   const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
     ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: html`<span class="c-count">${L`控え ${fmtNum(musterable)}`}</span>` })}
     ${label(musterFirst ? L`軍勢を編成する` : L`兵を訓練する`)}
     ${musterFirst ? musterForm : trainForm}
-    ${fold(musterFirst ? 'v-train' : 'v-muster', musterFirst ? L`兵を訓練する` : L`軍勢を編成する`, musterFirst ? trainForm : musterForm)}</section>`;
+    ${fold(musterFirst ? 'v-train' : 'v-muster', musterFirst ? L`兵を訓練する` : L`軍勢を編成する`, musterFirst ? trainForm : musterForm)}
+    ${hostsWay}</section>`;
 
   const others = html`<section class="vcard vcard-folds" aria-label="${L`そのほか`}">
     ${fold('v-garrison', html`${icon('shield')}${L`守備隊を増やす`}`, html`<form class="vform" id="hp-garrison" data-form="garrison">
@@ -275,5 +464,11 @@ export function render(FS) {
     </dl>`)}</section>`;
 
   // S1: caravans, storehouses, structures, the fort and the nation (screens/s1.mjs)
-  return [head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
+  // (2026-11-17, ⑦: the reads behind this screen, said under its head when one did not come — renderHoldingRead; it
+  //  rides with the head, so the list of cards is as long as it was)
+  const readNote = renderHoldingRead(FS);
+  // (2026-11-17, ⑦: what became of the orders given from this village this turn — screens/villageorders.mjs — rides with
+  //  the head too; it reads FS.orders and the record, and changes no button)
+  const orderNote = renderVillageOrders(FS, m.settled, m.now, { rereadShown: holdingRead(FS).reread.can });
+  return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }

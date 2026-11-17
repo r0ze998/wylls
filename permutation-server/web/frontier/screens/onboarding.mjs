@@ -16,13 +16,16 @@ import { sealLine } from '../hud/glossary.mjs';
 import { icon } from '../hud/icons.mjs';
 import { cardHead } from './parts.mjs';
 import { activeHolding } from '../fstate.mjs';
-import { SCOUT, SETTLER, actionBlocks, ticketTimes } from '../fland.mjs';
-import { hostRows } from './host.mjs';
+import { SCOUT, SETTLER, actionBlocks } from '../fland.mjs';
+import { formingLine } from '../hud/firststeps.mjs';
+import { hostRows, homeProvinceUnread } from './host.mjs';
 import { countdown } from '../clock.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { conquestOn } from '../hud/keephand.mjs';
 import { conquestObjective, renderConquestGuide } from './conquestguide.mjs';
+import { turnLine } from '../seasonterms.mjs';
+import { latestVillageOrder, villageRereadOffered } from './villageorders.mjs';
 
 const TITLE = {
   welcome: () => L`ようこそ`,
@@ -38,7 +41,7 @@ const TITLE = {
   done: () => L`完了`,
 };
 const DO = {
-  welcome: () => L`五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。`,
+  welcome: () => L`五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（${turnLine()}ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。`,
   // stage-neutral (a returning or refugee player too), following the automatic ticket (review finding 9)
   join: FS => {
     const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state;
@@ -159,6 +162,8 @@ function renderArrivalGuide(FS, st, open) {
 /** Pick the first useful action for the military loop, without spending resources implicitly. */
 export function marchObjective(FS) {
   const bell = FS.nowBell ?? 0, h = activeHolding(FS);
+  // (workstream 07, workstream 16's review: hosts not known while the village's province is unread — not "train some")
+  if (homeProvinceUnread(FS, h)) return { act: 'guide-open', data: {}, label: L`記録を読み込んでいます…` };
   const rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER);
   const ready = rows.find(r => r.state === 1 && !r.pending && !r.inTransit && r.readyBell <= bell && r.stamina >= DEPART_STAMINA
     && !actionBlocks('Depart', { holding: h, citizen: FS.citizen, province: r.province, now: FS.chain?.now?.() ?? 0, nowBell: bell, host: r }).length);
@@ -167,6 +172,11 @@ export function marchObjective(FS) {
   return { act: 'tab', data: { tab: 'holding' }, label: L`村で兵を準備する` };
 }
 
+// (workstream 07) the village's own province not read yet: "no Scout host" is not known — the guide offers no Train or
+// Muster then (screens/host.mjs homeProvinceUnread). A failed read used to look like "no scouts", and the guide's one
+// button mustered a second Scout host from the reserve.
+const homeUnread = (FS, h) => homeProvinceUnread(FS, h);
+
 function scoutObjective(FS) {
   const h = activeHolding(FS);
   if (FS.inFlight > 0 || FS.homeActionBusy) return { act: 'guide-open', data: {}, label: L`命令の結果を確認しています。` };
@@ -174,13 +184,19 @@ function scoutObjective(FS) {
     ? { act: 'settle-explore', data: {}, label: L`探索の結果を受け取る` }
     : { act: 'guide-open', data: {}, label: L`斥候隊を見る` };
   if (Number(FS.citizen?.explores ?? 0) > 0) return { act: 'ob-seen', data: { flag: 'exploreResult' }, label: L`探索の結果を確認した` };
+  if (homeUnread(FS, h)) return { act: 'guide-open', data: {}, label: L`記録を読み込んでいます…` };
   const rows = hostRows(FS).filter(r => r.unit === SCOUT);
   const bell = FS.nowBell ?? 0;
   const ready = rows.find(r => r.state === 1 && !r.pending && !r.inTransit && r.readyBell <= bell
     && !actionBlocks('Explore', { holding: h, citizen: FS.citizen, province: r.province, now: FS.chain?.now?.() ?? 0, nowBell: bell, host: r }).length);
   if (ready) return { act: 'explore-open', data: { host: String(ready.id) }, label: L`探索する土地を選ぶ` };
   if (rows.length) return { act: 'guide-open', data: {}, label: L`斥候隊を見る` };
-  return Number(h?.reserve?.[SCOUT] ?? 0) >= 100
+  // (2026-11-17, ⑦: the same step from the "next thing" pill. After an order whose answer was not read, or one accepted
+  //  that the record does not show yet, the pill does not send the order again by itself: it opens the guide, where what
+  //  became of the last press is said and the same button stands — scoutOrderNote)
+  const muster = Number(h?.reserve?.[SCOUT] ?? 0) >= 100, on = h ? scoutOrderNote(FS, h, muster ? 'muster' : 'train') : null;
+  if (on && !on.again) return { act: 'guide-open', data: {}, label: L`斥候の命令の結果を確かめる` };
+  return muster
     ? { act: 'home-scout-muster', data: {}, label: L`斥候隊を編成する` }
     : { act: 'home-scout-train', data: {}, label: L`斥候を訓練する` };
 }
@@ -242,6 +258,44 @@ export function renderObjective(FS) {
 }
 
 /** The next concrete scouting action, always using this citizen's own host. */
+/**
+ * (2026-11-17, ⑦ the first village) What became of the guide's own order — 「斥候を訓練する」 (Train, Scouts) or 「斥候隊を
+ * 編成する」 (Muster, Scouts) — as the order record of this village and this turn says it (screens/villageorders.mjs
+ * latestVillageOrder): the guide offered the same button again after every answer, with no word of the last press —
+ * after an answer that was not read, or one accepted that the village's record does not show yet, a second press
+ * trains or forms up again. `{outcome, note, again}`: the sentence, and whether the button is still the step's main
+ * press (`again` false: it stays, as a quiet one, with the pure re-read of the village beside it). Null with no such
+ * record. Nothing is sent, disabled or decided here; the order's own rules are the controller's.
+ */
+function scoutOrderNote(FS, h, kind) {
+  const x = latestVillageOrder(FS, h, o => o.kind === kind && o.unit === SCOUT);
+  if (!x) return null;
+  const name = kind === 'train' ? L`斥候の訓練` : L`斥候隊の編成`;
+  // (corrected: a record whose village is NOT in it — every muster (its tile is where the host forms up, also when that
+  //  is this village's tile), and any order given from another tile of the province — is said as a record of this
+  //  province, with its outcome, and with "whether it is this village's is not in the record". The guide stays
+  //  careful and claims nothing of this village from it.)
+  if (x.place !== 'tile') {
+    return { outcome: x.outcome, again: false, place: x.place,
+      note: html`<p class="notice" role="status" data-guide-order="${x.outcome}" data-place="unknown">${x.outcome === 'accepted'
+        ? L`この州で、このターンに${name}の命令が受け付けられています。この村の命令かどうかは、記録からは分かりません。`
+        : L`この州で出した${name}の命令（ターン ${fmtNum(x.turn ?? 0)}）に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません。`}</p>${
+        villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button>` : ''}` };
+  }
+  const why = x.why ? html` <span class="muted">${x.why}</span>` : '';
+  const text = x.outcome === 'accepted' ? L`${name}は、このターンに受け付けられています。村の記録に、まだ出ていないことがあります。もう一度命じると、もう一度行います。`
+    : x.outcome === 'unknown' ? L`${name}は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。もう一度命じると、二重になることがあります。`
+    : x.outcome === 'held' ? L`${name}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。`
+    : x.outcome === 'sentFailed' ? L`${name}は送信しましたが、成立しませんでした。` : L`${name}は、送られていません。`;
+  const careful = x.outcome === 'accepted' || x.outcome === 'unknown';
+  // (a not-confirmed order of an earlier turn: said with its turn and with what the record is — given from this
+  //  village's tile; the record names no generation, and nothing is claimed beyond the tile)
+  const earlier = x.carried && Number.isInteger(x.turn) ? L`（ターン ${fmtNum(x.turn)} に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、いまの村の命令であることまでは、記録からは分かりません。）` : '';
+  return { outcome: x.outcome, again: !careful, place: 'tile',
+    note: html`<p class="${x.outcome === 'accepted' ? 'home-status' : 'notice'}" role="status" data-guide-order="${x.outcome}" data-carried="${x.carried ? 1 : 0}" data-place="tile">${text}${earlier}${x.outcome === 'sentFailed' || x.outcome === 'notSent' ? why : ''}</p>${
+      careful && villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button>` : ''}` };
+}
+
 export function renderScoutAction(FS) {
   const h = activeHolding(FS);
   if (!h) return '';
@@ -251,6 +305,7 @@ export function renderScoutAction(FS) {
     return html`<p class="home-status" role="status">${L`斥候が周囲を調べています。結果が届くと、ここで受け取れます。`}</p><p class="muted">${L`探索の解決を待つ間も、村の建設を進められます。`}</p><button type="button" class="btn" data-act="tab" data-tab="holding">${L`村を見る`}</button>`;
   }
   if (Number(FS.citizen?.explores ?? 0) > 0) return html`<p>${L`最初の探索が終わりました。見つけた土地を地図で確認し、次の行き先を考えましょう。`}</p><button type="button" class="btn primary" data-act="ob-seen" data-flag="exploreResult">${L`探索の結果を確認した`}</button>`;
+  if (homeUnread(FS, h)) return html`<p class="home-status" role="status">${L`記録を読み込んでいます…`}</p>`;
   const bell = FS.nowBell ?? 0;
   const rows = hostRows(FS).filter(r => r.unit === SCOUT);
   const ready = rows.find(r => r.state === 1 && !r.pending && !r.inTransit && r.readyBell <= bell);
@@ -261,16 +316,19 @@ export function renderScoutAction(FS) {
   }
   const forming = rows.find(r => r.state === 2);
   if (forming) {
-    const now = FS.chain?.now?.() ?? 0;
-    const due = FS.clock && Number.isInteger(forming.fromBell) && forming.fromBell > 0 ? ticketTimes(FS.clock, forming.fromBell - 1).resultAbout : null;
-    return html`<p class="home-status" role="status">${L`編成の反映を待っています。`}</p>
-      ${due !== null && due > now ? html`<p class="guide-build-clock"><span>${L`反映の目安まで（ゲーム内）`}</span><span data-home-deadline="${due}">${countdown(due - now)}</span></p>` : html`<p class="muted">${L`世界の処理で編成が反映されると、ここから探索を始められます。`}</p>`}`;
+    // (2026-11-16: where the muster turn really is — the shared phase-aware line, hud/firststeps.mjs formingLine, as the
+    //  conquest guide says it for a forming host —, not a countdown to one estimated total wait: the village ticket's
+    //  resultAbout ran out while the scouts still waited for the key or the draw. No time is promised that the turn's
+    //  pipeline does not name.)
+    return html`<p class="home-status" role="status">${L`編成の反映を待っています。`}</p><p>${formingLine(FS, forming)}</p>
+      <p class="muted">${L`世界の処理で編成が反映されると、ここから探索を始められます。`}</p>`;
   }
   const resting = rows.find(r => r.readyBell > bell);
   if (resting) return html`<p class="home-status" role="status">${L`斥候隊は第${fmtNum(resting.readyBell)}ターンまで休息しています。`}</p>`;
   if (rows.length) return html`<p class="home-status">${L`斥候隊は別の命令を実行中です。軍勢の画面で様子を確認できます。`}</p><button type="button" class="btn" data-act="tab" data-tab="hosts">${L`斥候隊を見る`}</button>`;
-  if (Number(h.reserve?.[SCOUT] ?? 0) >= 100) return html`<p>${L`訓練した斥候を一つの隊にまとめましょう。世界の処理に反映されると探索できます。目安はゲーム内で約11〜21分です。`}</p><button type="button" class="btn primary" data-act="home-scout-muster">${L`斥候隊を編成する`}</button>`;
-  return html`<p>${L`村の周りを調べる斥候を100人、訓練しましょう。訓練はすぐに終わります。`}</p><button type="button" class="btn primary" data-act="home-scout-train">${L`斥候を訓練する`}</button>`;
+  if (Number(h.reserve?.[SCOUT] ?? 0) >= 100) { const on = scoutOrderNote(FS, h, 'muster'); return html`${on?.note ?? ''}<p>${L`訓練した斥候を一つの隊にまとめましょう。このターンが終わり、封が開けられてターンが決着すると整列します。待つあいだも村の建設を進められます。`}</p><button type="button" class="btn${on && !on.again ? '' : ' primary'}" data-act="home-scout-muster">${L`斥候隊を編成する`}</button>`; }
+  const on = scoutOrderNote(FS, h, 'train');
+  return html`${on?.note ?? ''}<p>${L`村の周りを調べる斥候を100人、訓練しましょう。訓練はすぐに終わります。`}</p><button type="button" class="btn${on && !on.again ? '' : ' primary'}" data-act="home-scout-train">${L`斥候を訓練する`}</button>`;
 }
 
 function renderHomeGuide(FS, st, open) {

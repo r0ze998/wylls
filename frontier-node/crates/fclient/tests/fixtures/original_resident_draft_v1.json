@@ -1,0 +1,318 @@
+{
+  "schema": "frontier-original-resident-draft-v1",
+  "digest_domain": "PSF-ORIGINAL-RESIDENT-DRAFT-v1",
+  "cases": [
+    {
+      "id": "native_dissolve",
+      "action": "Dissolve",
+      "provenance": {
+        "kind": "native-role-snapshot",
+        "archive": "verify/tests/fixtures/wide_expedition_resident/dissolve_v1.bin",
+        "sha256": "0d46cd2d175c57c947af8e67f14f2d002e18c9e7e7d47fb4a944e98023f39a84"
+      },
+      "request": {
+        "schema": "frontier-original-expedition-request-v1",
+        "operation": "inspect",
+        "cluster": "localnet",
+        "program": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+        "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+        "deployment": {
+          "program_version": "16388",
+          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+        },
+        "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
+        "standing": {
+          "p": "128",
+          "q": "1"
+        },
+        "min_slot": "6050",
+        "wallet": "Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp",
+        "payer": "FKofLqjANDy2aC2bUL9ngacikfbfnUYqTWJ7MaW1PdNs"
+      },
+      "expected": {
+        "bytes_hex": "daff01070160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "standing_key": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000081000000000000000001",
+        "roles": [
+          {
+            "name": "actor",
+            "address": "Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp",
+            "signer": true,
+            "writable": false
+          },
+          {
+            "name": "payer",
+            "address": "FKofLqjANDy2aC2bUL9ngacikfbfnUYqTWJ7MaW1PdNs",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "name": "season",
+            "address": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "name": "citizen",
+            "address": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "holding",
+            "address": "B9shNq7Bpn8FKeuy2XcgCRnhLMsiLZvtXWq1Mkoap1pi",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "standing",
+            "address": "5YbdNc7cTrF1G7VJDhQSmeqb7xdQHsSoybva8uGd2QUb",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "roster",
+            "address": "7K7KZCSxte5yS33e1uMtWRoA9D7dHukYJ9cekhA1rhKj",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "name": "home",
+            "address": "2CdwhaD5BQUALyfeegSNAqGm4eNtAta5bdnYk6yzhbJk",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "content_digest": "1795af33be34b748686d3ef9fa91efc8b08faa0a64ac9eb3d0674510e7fb0c1f"
+      }
+    },
+    {
+      "id": "native_return",
+      "action": "Return",
+      "provenance": {
+        "kind": "native-role-snapshot",
+        "archive": "verify/tests/fixtures/wide_expedition_resident/return_v1.bin",
+        "sha256": "6f22a8e606852e52d87f66e0f2452fd00c6a26aa42716a2fc874feb4643d7da3"
+      },
+      "request": {
+        "schema": "frontier-original-expedition-request-v1",
+        "operation": "inspect",
+        "cluster": "localnet",
+        "program": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+        "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+        "deployment": {
+          "program_version": "16388",
+          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+        },
+        "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
+        "standing": {
+          "p": "128",
+          "q": "1"
+        },
+        "min_slot": "7051",
+        "wallet": null,
+        "payer": "FKofLqjANDy2aC2bUL9ngacikfbfnUYqTWJ7MaW1PdNs"
+      },
+      "expected": {
+        "bytes_hex": "dcff010c0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "standing_key": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000081000000000000000001",
+        "roles": [
+          {
+            "name": "payer",
+            "address": "FKofLqjANDy2aC2bUL9ngacikfbfnUYqTWJ7MaW1PdNs",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "name": "season",
+            "address": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "name": "standing",
+            "address": "5YbdNc7cTrF1G7VJDhQSmeqb7xdQHsSoybva8uGd2QUb",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "roster",
+            "address": "7K7KZCSxte5yS33e1uMtWRoA9D7dHukYJ9cekhA1rhKj",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "holding",
+            "address": "B9shNq7Bpn8FKeuy2XcgCRnhLMsiLZvtXWq1Mkoap1pi",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "home",
+            "address": "2CdwhaD5BQUALyfeegSNAqGm4eNtAta5bdnYk6yzhbJk",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "content_digest": "c60d49c02c22b6b6c0a86ca1fae9a0ea2b78d52d7843e71d0d079825707f3286"
+      }
+    },
+    {
+      "id": "dissolve_actor_payer_alias",
+      "action": "Dissolve",
+      "provenance": {
+        "kind": "public-contract-variant",
+        "base": "native_dissolve",
+        "change": "payer equals actor; effective writable privileges unioned at both positions"
+      },
+      "request": {
+        "schema": "frontier-original-expedition-request-v1",
+        "operation": "inspect",
+        "cluster": "localnet",
+        "program": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+        "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+        "deployment": {
+          "program_version": "16388",
+          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+        },
+        "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
+        "standing": {
+          "p": "128",
+          "q": "1"
+        },
+        "min_slot": "6050",
+        "wallet": "Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp",
+        "payer": "Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp"
+      },
+      "expected": {
+        "bytes_hex": "daff01070160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "standing_key": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000081000000000000000001",
+        "roles": [
+          {
+            "name": "actor",
+            "address": "Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "name": "payer",
+            "address": "Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "name": "season",
+            "address": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "name": "citizen",
+            "address": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "holding",
+            "address": "B9shNq7Bpn8FKeuy2XcgCRnhLMsiLZvtXWq1Mkoap1pi",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "standing",
+            "address": "5YbdNc7cTrF1G7VJDhQSmeqb7xdQHsSoybva8uGd2QUb",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "roster",
+            "address": "7K7KZCSxte5yS33e1uMtWRoA9D7dHukYJ9cekhA1rhKj",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "name": "home",
+            "address": "2CdwhaD5BQUALyfeegSNAqGm4eNtAta5bdnYk6yzhbJk",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "content_digest": "1058cdca8b0cda420cf75eb63064fc25eee015c639c06283b5ac3fb9058f290a"
+      }
+    },
+    {
+      "id": "return_full_width_standing",
+      "action": "Return",
+      "provenance": {
+        "kind": "public-contract-variant",
+        "base": "native_return",
+        "change": "standing is 9007199254740993,-2; public with-seed addresses independently computed"
+      },
+      "request": {
+        "schema": "frontier-original-expedition-request-v1",
+        "operation": "inspect",
+        "cluster": "localnet",
+        "program": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+        "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+        "deployment": {
+          "program_version": "16388",
+          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+        },
+        "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
+        "standing": {
+          "p": "9007199254740993",
+          "q": "-2"
+        },
+        "min_slot": "7051",
+        "wallet": null,
+        "payer": "FKofLqjANDy2aC2bUL9ngacikfbfnUYqTWJ7MaW1PdNs"
+      },
+      "expected": {
+        "bytes_hex": "dcff010c0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
+        "standing_key": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab18002000000000000105001fffffffffffff",
+        "roles": [
+          {
+            "name": "payer",
+            "address": "FKofLqjANDy2aC2bUL9ngacikfbfnUYqTWJ7MaW1PdNs",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "name": "season",
+            "address": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "name": "standing",
+            "address": "Auqb6x2dvALCkwG6iTxsdLtbuLPwF66d17YoNL9JXuKn",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "roster",
+            "address": "8uaJAFnFrLJdj52SvA9dPVzw8fyiTwxxGUw1txW69w8f",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "holding",
+            "address": "B9shNq7Bpn8FKeuy2XcgCRnhLMsiLZvtXWq1Mkoap1pi",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "name": "home",
+            "address": "2CdwhaD5BQUALyfeegSNAqGm4eNtAta5bdnYk6yzhbJk",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "content_digest": "b86a8a45f67b8e28043ccc8e6cc3b09966b965c7d75bcb0eb22ea46cd4cab994"
+      }
+    }
+  ]
+}

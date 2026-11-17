@@ -810,3 +810,77 @@ fn cq_a_close_linking_an_s1_entity_is_an_event_not_a_bad_record() {
     let _ = std::fs::remove_dir_all(&d0);
     let _ = std::fs::remove_dir_all(&d1);
 }
+
+/// Map growth and dispersed placement as the herald states them: the world
+/// manifest and the season record carry the effective rMax (the Frontier's
+/// `r_max_ext` once ExtendFrontier raised it), the ceiling, the hard limit
+/// (128, never "infinite"), the prize tally's last ring (17, shown, never
+/// changed), the placement and the genesis seed. A season without the new
+/// parameters reads 0 for both and its rMax is the season's own.
+#[test]
+fn world_and_season_state_growth_and_placement() {
+    use frontier_abi::layout::world::frontier as FR;
+    use herald_fold::fold::Capture;
+    use herald_fold::views::{season_json, SeasonStatic};
+    use herald_fold::world::{world_json, PRIZE_MAX_RING};
+    let d = tmp("cqworldgrowth");
+    let mut f = Fold::new(cfg(), Out::new(&d));
+    for tx in cqfixture::mini_season() {
+        f.apply(&tx);
+    }
+    let st = SeasonStatic {
+        cluster: "fixture".into(),
+        drand: fclient::beacon::TestKey::new().info(),
+        quotas: serde_json::json!({}),
+    };
+    let r = f.season.as_ref().unwrap().r_max;
+    let seed = hex::encode(f.season.as_ref().unwrap().genesis_seed);
+    // Before: no ceiling, the wedge placement — the season's own rMax.
+    let w = world_json(&f).unwrap();
+    assert_eq!(w["rMax"], r);
+    assert_eq!(w["rMaxSeason"], r);
+    assert_eq!(w["rMaxCeiling"], 0);
+    assert_eq!(w["rMaxHard"], 128);
+    assert_eq!(w["prizeMaxRing"], PRIZE_MAX_RING);
+    assert_eq!(PRIZE_MAX_RING, 17);
+    assert_eq!(w["placement"], 0);
+    let s = season_json(&f, &st).unwrap();
+    assert_eq!(s["rMax"], r);
+    assert_eq!(s["rMaxCeiling"], 0);
+    assert_eq!(s["placement"], 0);
+    assert_eq!(s["genesisSeed"], seed);
+    assert!(s["heartlandMaxRing"].as_u64().is_some());
+    // A season with a ceiling and the dispersed placement, after one
+    // ExtendFrontier (the Frontier account's r_max_ext).
+    {
+        let cq = f.season.as_mut().unwrap().conquest.as_mut().unwrap();
+        cq.r_max_ceiling = r + 3;
+        cq.placement = 1;
+    }
+    let mut fr = vec![0u8; FR::SIZE];
+    fr[..8].copy_from_slice(b"PSF1FRNT");
+    fr[8..16].copy_from_slice(&SEASON_ID.to_le_bytes());
+    fr[FR::RINGS_OPENED..FR::RINGS_OPENED + 2].copy_from_slice(&(r + 1).to_le_bytes());
+    fr[FR::R_MAX_EXT..FR::R_MAX_EXT + 2].copy_from_slice(&(r + 1).to_le_bytes());
+    let fa = f.ctx.frontier();
+    f.st.accounts.insert(
+        fa,
+        Capture {
+            slot: 1,
+            tx: 1,
+            data: fr,
+        },
+    );
+    let w = world_json(&f).unwrap();
+    assert_eq!(w["rMax"], r + 1, "the effective rMax follows r_max_ext");
+    assert_eq!(w["rMaxSeason"], r);
+    assert_eq!(w["rMaxCeiling"], r + 3);
+    assert_eq!(w["placement"], 1);
+    let s = season_json(&f, &st).unwrap();
+    assert_eq!(s["rMax"], r + 1);
+    assert_eq!(s["rMaxCeiling"], r + 3);
+    assert_eq!(s["rMaxHard"], 128);
+    assert_eq!(s["prizeMaxRing"], 17);
+    assert_eq!(s["placement"], 1);
+    let _ = std::fs::remove_dir_all(d);
+}

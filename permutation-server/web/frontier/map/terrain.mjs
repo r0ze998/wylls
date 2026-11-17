@@ -11,7 +11,24 @@ import { toHex } from '../../sdk/bytes.mjs';
 import { FS } from '../fstate.mjs';
 import { ringOf } from '../fgeo.mjs';
 
-export const TERRAIN_CACHE = 256;
+/**
+ * The provinces whose terrain is kept (least recently asked for first out). A ring has 6·d provinces: the far tile
+ * view of ring 128 asks for 653 of its 768 in one frame, round and round. Kept 256 at a time, every one of those asks
+ * found its answer gone and made it again (11,829 asks a frame). 1,024 holds all of the widest ring.
+ *
+ * A map frame that asks for MORE than this (a full world of many rings, seen from far) is not served by the number
+ * alone: what a frame asks for is not dropped while that frame, or the one after it, still stands (`terrainOf.frame`),
+ * so the store grows past TERRAIN_CACHE for as long as such frames are drawn, up to TERRAIN_CACHE_MAX. Only a frame
+ * that asks for more than TERRAIN_CACHE_MAX provinces can still drop and make again; no view of the map does today.
+ */
+export const TERRAIN_CACHE = 1024, TERRAIN_CACHE_MAX = 8192;
+/**
+ * Inside one frame of the map (`terrainOf.frame()`, called by map/fmap.mjs draw; over when the frame's task ends): new
+ * terrain is made for TERRAIN_FRAME_MS at most, and for TERRAIN_FRAME_MIN provinces at least. A province past that
+ * has no answer in this frame (null, never kept as an answer) and `onReady()` is called once afterwards: the map
+ * draws again and carries on. Outside a frame (a planner, a name, a test) every ask is answered at once, as ever.
+ */
+export const TERRAIN_FRAME_MS = 10, TERRAIN_FRAME_MIN = 4;
 const hexBytes = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
 
 /** The season record's seed of ring d (hex), or null (the ring is not open or not known yet). */
@@ -23,9 +40,14 @@ export const seasonSeed = ring => FS.record?.rings?.find?.(r => r.d === ring)?.s
  * or null while the module loads (then `onReady()` runs once) or when it
  * cannot answer. `load` returns the kernel; `seedOf(ring)` the ring seed.
  */
-export function createTerrain({ load = () => FS.kernel ?? loadKernel(FS.season ? {ruleset:toHex(FS.season.rulesetHash),url:new URL(`../wasm/${kernelFile(FS.season)}`,import.meta.url)} : undefined), seedOf = seasonSeed, onReady = () => {}, limit = TERRAIN_CACHE } = {}) {
+export function createTerrain({ now = () => globalThis.performance?.now?.() ?? Date.now(), defer = f => setTimeout(f, 0), load = () => FS.kernel ?? loadKernel(FS.season ? {ruleset:toHex(FS.season.rulesetHash),url:new URL(`../wasm/${kernelFile(FS.season)}`,import.meta.url)} : undefined), seedOf = seasonSeed, onReady = () => {}, limit = TERRAIN_CACHE } = {}) {
   const cache = new Map();
   let k = null, failed = false, loading = false;
+  // (which frame asked for a province last: `serial` counts the map's frames; -1 outside one)
+  const askedIn = new Map();
+  let serial = 0, waited = 0;
+  // (the frame's budget: `frame` is non-null from terrainOf.frame() until the microtask after it, the end of that task)
+  let frame = null, again = false;
   const ensure = () => {
     if (k || failed || loading) return;
     loading = true;
@@ -33,17 +55,46 @@ export function createTerrain({ load = () => FS.kernel ?? loadKernel(FS.season ?
   };
   const terrainOf = (p, q) => {
     const key = `${p},${q}`;
-    if (cache.has(key)) { const v = cache.get(key); cache.delete(key); cache.set(key, v); return v; }
+    if (cache.has(key)) { const v = cache.get(key); cache.delete(key); cache.set(key, v); if (frame) askedIn.set(key, serial); return v; }
     if (!k) { ensure(); return null; }
     const seed = seedOf(ringOf(p, q));
     if (!/^[0-9a-f]{64}$/i.test(seed ?? '')) return null;
+    if (frame) {
+      if (frame.made >= TERRAIN_FRAME_MIN && frame.spent >= TERRAIN_FRAME_MS) {
+        // this frame has made its share: the rest waits for the next one, which is asked for once
+        if (!again) { again = true; defer(() => { again = false; onReady(); }); }
+        waited++;
+        return null;
+      }
+      frame.made++;
+    }
+    const t0 = frame ? now() : 0;
     const r = k.call('generate_province', { ring_seed: hexBytes(seed), p, q });
+    if (frame) frame.spent += now() - t0;
     const t = r.ok ? r.value.terrain : null;
     const v = t ? { terrain: t.terrain, sites: t.sites.slice(0, t.siteCount), names: TERRAIN, passable: r.value.passableMask ?? null } : null;
     cache.set(key, v);
-    if (cache.size > limit) cache.delete(cache.keys().next().value);
+    if (frame) askedIn.set(key, serial);
+    // the least recently asked for goes first; never one this frame or the last one asked for (it would be made
+    // again at once, and the next would go in its place: a frame that asks for more than `limit` never ends)
+    if (cache.size > limit) {
+      const hard = cache.size > Math.max(limit, TERRAIN_CACHE_MAX);
+      for (const old of cache.keys()) {
+        if (cache.size <= limit) break;
+        if (old === key) break;
+        if (!hard && frame && (askedIn.get(old) ?? -1) >= serial - 1) continue;
+        cache.delete(old); askedIn.delete(old);
+        if (hard) break;
+      }
+    }
     return v;
   };
   terrainOf.status = () => (k ? 'ready' : failed ? 'unavailable' : 'loading');
+  /** A frame of the map begins: until this task ends, new terrain is made within the frame's budget. */
+  terrainOf.frame = () => { if (frame) return; serial++; frame = { made: 0, spent: 0 }; Promise.resolve().then(() => { frame = null; }); };
+  /** How many asks so far had no answer only because their frame had made its share (a picture painted across one is not final). */
+  terrainOf.waited = () => waited;
+  /** (tests) How many provinces are kept. */
+  terrainOf.kept = () => cache.size;
   return terrainOf;
 }

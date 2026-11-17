@@ -1,0 +1,84 @@
+From 45cea676bab5b0dbc02037d2d6f3c0c7e0326823 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 02:16:09 +0000
+Subject: [PATCH 14/14] Custody: comments name allocation rev 4's numbers
+
+Comments added by the custody series still named the provisional
+0xC1-0xCB and kinds 104-112; they now name 0xC2-0xCC and 105-113
+(workstream 4's allocation rev 4). Comments only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ frontier-node/crates/fclient/src/conquest.rs          | 2 +-
+ frontier-node/crates/verify/src/checks/v26_custody.rs | 2 +-
+ permutation-frontier/src/lib.rs                       | 2 +-
+ permutation-frontier/svm-tests/src/cover/custody.rs   | 2 +-
+ permutation-frontier/svm-tests/src/cover/mod.rs       | 2 +-
+ 5 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/frontier-node/crates/fclient/src/conquest.rs b/frontier-node/crates/fclient/src/conquest.rs
+index 92a16077..a26a1840 100644
+--- a/frontier-node/crates/fclient/src/conquest.rs
++++ b/frontier-node/crates/fclient/src/conquest.rs
+@@ -437,7 +437,7 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
+     let b8 = |name: &str| -> Option<u8> { u(name).map(|v| v as u8) };
+     let event = match k {
+         // Custody (workstream 10): not a conquest event; a custody reader
+-        // decodes these records (`frontier_abi::v2::log`, kinds 104–112).
++        // decodes these records (`frontier_abi::v2::log`, kinds 105–113).
+         CqKind::LOT_OPENED
+         | CqKind::LOT_QUOTA
+         | CqKind::LOT_INBOUND
+diff --git a/frontier-node/crates/verify/src/checks/v26_custody.rs b/frontier-node/crates/verify/src/checks/v26_custody.rs
+index 639b8a17..edd767bd 100644
+--- a/frontier-node/crates/verify/src/checks/v26_custody.rs
++++ b/frontier-node/crates/verify/src/checks/v26_custody.rs
+@@ -15,7 +15,7 @@
+ //! is a FAIL whatever the history. That never upgrades the season: with the
+ //! history not replayed, the best a custody season gets is UNVERIFIABLE.
+ //!
+-//! A trace is: a custody instruction (0xC1–0xCB) of a landed transaction
++//! A trace is: a custody instruction (0xC2–0xCC) of a landed transaction
+ //! (top level: a CPI is caught by what it leaves), a custody record
+ //! (`LOT_*`, a Lot's CLOSE), or, in any post-state or final account of the
+ //! program, a Lot, a Vault with custody counts, a Caravan with custody
+diff --git a/permutation-frontier/src/lib.rs b/permutation-frontier/src/lib.rs
+index c81bebb9..baf72ff9 100644
+--- a/permutation-frontier/src/lib.rs
++++ b/permutation-frontier/src/lib.rs
+@@ -94,7 +94,7 @@ pub use error::{CqError, Error, FrontierError, R};
+ /// **Custody preview (workstream 10, feature `custody-preview`):** the
+ /// binary is a different program: it embeds `RULESET_HASH_V4` and writes
+ /// `program_version` 5, so it refuses every S1 Season, and dispatches the
+-/// custody tags 0xC1–0xCB, which the S1 build refuses (`BadData`). Hash,
++/// custody tags 0xC2–0xCC, which the S1 build refuses (`BadData`). Hash,
+ /// version and dispatch switch together; there is no build that runs
+ /// custody under the S1 hash.
+ #[cfg(not(feature = "custody-preview"))]
+diff --git a/permutation-frontier/svm-tests/src/cover/custody.rs b/permutation-frontier/svm-tests/src/cover/custody.rs
+index e3bf592b..e7d63f3d 100644
+--- a/permutation-frontier/svm-tests/src/cover/custody.rs
++++ b/permutation-frontier/svm-tests/src/cover/custody.rs
+@@ -1,4 +1,4 @@
+-//! Coverage of the custody instructions (workstream 10, 0xC1–0xCB): none
++//! Coverage of the custody instructions (workstream 10, 0xC2–0xCC): none
+ //! yet. They run only in the `custody-preview` build (the S1 build refuses
+ //! the tags), which has not been built for SBF; their LiteSVM tests are
+ //! workstream 10's next step (`workstreams/10-custody/05-integration-review.ja.md`).
+diff --git a/permutation-frontier/svm-tests/src/cover/mod.rs b/permutation-frontier/svm-tests/src/cover/mod.rs
+index 9fd90006..efcd5b9b 100644
+--- a/permutation-frontier/svm-tests/src/cover/mod.rs
++++ b/permutation-frontier/svm-tests/src/cover/mod.rs
+@@ -17,7 +17,7 @@
+ //! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
+ //! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
+ //! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
+-//! | `custody` (0xC1–0xCB, the `custody-preview` build) | workstream 10 (Pending) |
++//! | `custody` (0xC2–0xCC, the `custody-preview` build) | workstream 10 (Pending) |
+ //!
+ //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
+ //! `frontier_abi::v2::Ix` (73 tags), so the MC and S1 instructions are in
+-- 
+2.43.0
+

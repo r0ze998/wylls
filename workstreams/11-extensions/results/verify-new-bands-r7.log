@@ -1,0 +1,21 @@
+# ⑪ r7 (2026-11-06). Tree: 8e96f24d + 0004 + 0005 (before r7's UnverifiedRecord rule).
+# Probe: tests/new_bands.rs, a_record_no_instruction_left_is_not_a_pass (spread 6 per fixture)
+new tags: 576 cases, 0 PASS []
+.new kinds: 612 cases, 0 PASS []
+.known kinds, injected: 780 cases, 12 PASS ["land tx#0 kind 60", "land tx#61 kind 60", "land tx#115 kind 60", "land tx#170 kind 60", "land tx#224 kind 60"]
+
+# After r7 (8e96f24d + 0006): see verify-after-r7.log and below
+new tags: 192 cases, 0 PASS []
+.new kinds: 204 cases, 0 PASS []
+.known kinds, injected: 390 cases, 0 PASS []
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 574.07s
+
+[exited with code 0]
+
+# Trial merge (scratch only, not pushed): 8e96f24d + funny-wozniak-cy4n64 (dc55f159, ⑳) + 0006
+# conflicts resolved for the trial: frontier-abi/src/v2/error.rs (union of ContinuousWorld and ⑳'s 170-175), findex/src/lib.rs (④'s side)
+new tags: 192 cases, 0 PASS []
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 201.80s
+every_conquest_kind_the_abi_knows_is_modelled: panicked 'conquest kind 130 is not modelled' (the intended tripwire)
+resident_probe (well-formed RESIDENT_JOINED injected, land, 12 cases): 0 PASS; each FAIL V1 Undecodable (conquest record in an M1 season) + V0E UnverifiedRecord 'record kind 130 is judged by no check of this verifier'
+resident_probe before r7 rule: 24 cases (land+march_program), 0 PASS (V1 Undecodable only)

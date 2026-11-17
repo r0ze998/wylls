@@ -1,0 +1,32 @@
+diff --git a/permutation-gateway/citizens/mind/prompt.mjs b/permutation-gateway/citizens/mind/prompt.mjs
+index 336645fb..3ee7d767 100644
+--- a/permutation-gateway/citizens/mind/prompt.mjs
++++ b/permutation-gateway/citizens/mind/prompt.mjs
+@@ -78,7 +78,9 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
+     const me = sit.me ?? {};
+     const names = namesOf(sit);
+     // `secs_left` on the wire is game seconds to the season end (AC3a fixture), not seconds left in the bell: not shown
+-    out.push(`NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144). Season ends at turn ${sit.end_bell}.`);
++    // A world that does not end sends no end bell: say nothing about an end rather than "ends at turn undefined".
++    // A finite end_bell (the earlier seasons, recorded runs) keeps its line word for word.
++    out.push(`NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144).${Number.isFinite(Number(sit.end_bell)) && sit.end_bell !== null ? ` Season ends at turn ${sit.end_bell}.` : ''}`);
+     out.push(`YOU: nation ${me.faction}${me.doctrine ? ` (${me.doctrine})` : ''}.`);
+     const h = me.home;
+     if (h) {
+diff --git a/permutation-gateway/test/citizens-mind-prompt.test.mjs b/permutation-gateway/test/citizens-mind-prompt.test.mjs
+index a1ab12e7..76b6b5bd 100644
+--- a/permutation-gateway/test/citizens-mind-prompt.test.mjs
++++ b/permutation-gateway/test/citizens-mind-prompt.test.mjs
+@@ -299,3 +299,12 @@ test('FB5 F2: render() hands V5 the names it printed (inbox and hall senders tha
+   assert.deepEqual(r.names, ['Kestrel the Long Named Wanderer…', 'Ren x'], 'cut to 32 code points, the special token removed: exactly what the wrapper prints');
+   assert.ok(r.names.every((n) => r.messages[1].content.includes(`from="${n.normalize('NFKC')} (`)), 'each name is the one printed in a wrapper from= (the wrapper applies NFKC again, as the echo check does)');
+ });
++
++test('a world without an end bell: the NOW line names no end and never "undefined"; a finite end keeps its old words', () => {
++  const { renderer } = setup();
++  const me = { faction: 0, stores: [1, 2, 3, 4, 5, 6, 7, 8], rates_per_hour: [] };
++  const now = sit => renderer.stateLines({ bell: 300, day: 2, bell_in_day: 12, me, ...sit }).find((l) => l.startsWith('NOW:'));
++  assert.equal(now({}), 'NOW: turn 300 (day 2, turn 12/144).');
++  assert.equal(now({ end_bell: null }), 'NOW: turn 300 (day 2, turn 12/144).');
++  assert.equal(now({ end_bell: 1008 }), 'NOW: turn 300 (day 2, turn 12/144). Season ends at turn 1008.');
++});

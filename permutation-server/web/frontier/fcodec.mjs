@@ -6,12 +6,16 @@
 // decode('Season', bytes) → {kind, …fields} with camelCase names; u64/i64
 // as BigInt, smaller integers as numbers, byte arrays as Uint8Array,
 // sub-records as objects (arrays of them for ×N). Reserved bytes are left
-// out. The magic, the size and (when given) the season id are checked.
+// out, except an NFT resident's mark inside a v2 Citizen's RSV_348
+// (`residentAsset`, below). The magic, the size and (when given) the season
+// id are checked.
 import { ACCOUNTS, RECORDS } from './abi.mjs';
 import { LAYOUTS as V2 } from '../sdk/frontier/abi-v2-layouts.mjs';
 const fields = xs => xs.map(x => [x.name, x.off, x.len, x.ty]);
 const ACCOUNTS_V2 = Object.fromEntries(V2.accounts.map(x => [x.kind, { ...x, fields: fields(x.fields) }]));
 const RECORDS_V2 = { ...RECORDS, ...Object.fromEntries(V2.records.map(x => [x.name, { ...x, fields: fields(x.fields) }])) };
+const SEASON_CQ_V2 = ACCOUNTS_V2.Season.fields.find(f => f[0] === 'CONQUEST_PARAMS');
+const CQ_V2 = RECORDS_V2.ConquestParams;
 
 /** 'GENESIS_TS' → 'genesisTs'. */
 export const camel = name => name.toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -58,7 +62,47 @@ function readRecord(bytes, dv, base, layout, records) {
   return out;
 }
 
+/** A malformed world flag must not make a continuous account look finite. */
+function checkWorldMode(bytes, season) {
+  const mode = season.conquestParams?.continuous;
+  if (mode !== 0 && mode !== 1) throw new CodecError('BadWorldMode', 'unknown continuous-world flag');
+  const placement = season.conquestParams?.placement;
+  if (placement !== 0 && placement !== 1) throw new CodecError('BadWorldMode', 'unknown placement mode');
+  const base = SEASON_CQ_V2?.[1];
+  if (base === undefined || !CQ_V2) throw new CodecError('BadLayout', 'missing conquest block');
+  for (const [, off, len, ty] of CQ_V2.fields) {
+    if (ty === 'rsv' && bytes.subarray(base + off, base + off + len).some(b => b !== 0)) {
+      throw new CodecError('BadWorldMode', 'reserved conquest bytes are nonzero');
+    }
+  }
+  if (mode === 1 && season.endBell !== 0xffffffff) {
+    throw new CodecError('BadWorldMode', 'continuous world has an end bell');
+  }
+}
+
 const text = b => String.fromCharCode(...b);
+
+/**
+ * Workstream 20 (frontier-abi `resident_citizen`; vectors/v2/resident-citizen.json): an NFT resident's v2 Citizen
+ * carries its Core asset in the first 32 bytes of `RSV_348` and `FLAG_RESIDENT` in the byte after, with `WALLET`
+ * zero. A flagged Citizen decodes with `residentAsset`: the asset bytes, or null when the mark is invalid (a
+ * non-zero wallet or a zero asset, which the program never writes and every reader refuses as the asset's
+ * Citizen); an unflagged one has no `residentAsset` at all, so wallet Citizens decode exactly as before.
+ */
+export const RESIDENT_ASSET_OFF = 348;
+export const RESIDENT_FLAGS_OFF = 380;
+export const FLAG_RESIDENT = 1;
+function residentMark(layout, b, out) {
+  const rsv = layout.fields.find(f => f[0] === 'RSV_348');
+  const wallet = layout.fields.find(f => f[0] === 'WALLET');
+  if (!rsv || !wallet || rsv[1] !== RESIDENT_ASSET_OFF || rsv[1] + rsv[2] !== layout.size || RESIDENT_FLAGS_OFF !== RESIDENT_ASSET_OFF + 32) {
+    throw new CodecError('BadLayout', 'the Citizen layout has no resident mark where frontier-abi puts it');
+  }
+  if ((b[RESIDENT_FLAGS_OFF] & FLAG_RESIDENT) === 0) return;
+  const asset = b.slice(RESIDENT_ASSET_OFF, RESIDENT_ASSET_OFF + 32);
+  const walletZero = b.subarray(wallet[1], wallet[1] + 32).every(x => x === 0);
+  out.residentAsset = walletZero && asset.some(x => x !== 0) ? asset : null;
+}
 
 /**
  * Decode one account. `seasonId` (string, number or BigInt), when given,
@@ -81,9 +125,36 @@ export function decode(kind, bytes, { seasonId, profile } = {}) {
     if (f[3] === 'rsv' || f[1] + f[2] > b.length) continue;
     out[camel(f[0])] = readField(b, dv, 0, f, records);
   }
+  if (kind === 'Citizen' && profile >= 2) residentMark(layout, b, out);
+  if (kind === 'Season' && b.length === layout.size) {
+    const layoutV2 = out.layoutVersion >= 2;
+    const programV2 = out.programVersion >= 3;
+    if (layoutV2 !== programV2 || layoutV2 !== (profile >= 2)) {
+      throw new CodecError('BadWorldMode', 'Season layout and program versions disagree');
+    }
+    if (layoutV2) checkWorldMode(b, out);
+  }
   if (seasonId !== undefined && seasonId !== null && out.seasonId !== BigInt(String(seasonId))) {
     throw new CodecError('WrongSeason', `${kind}: season ${out.seasonId}, expected ${seasonId}`);
   }
+  return out;
+}
+
+/**
+ * The fields of a layout read off the head of a longer record, with no magic, size or season check of its own
+ * (`bytes` must at least cover the layout). For records that keep a deployed layout as their prefix under a magic
+ * of their own, e.g. the experimental wide holding (fwide.mjs: the whole Holding v2 layout plus a trailer): the
+ * caller checks that record's magic, exact size and identity itself. Never a substitute for `decode`.
+ */
+export function decodePrefix(kind, bytes, { profile = 2 } = {}) {
+  const b = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+  const layout = profile >= 2 ? ACCOUNTS_V2[kind] ?? ACCOUNTS[kind] : ACCOUNTS[kind];
+  const records = profile >= 2 ? RECORDS_V2 : RECORDS;
+  if (!layout) throw new CodecError('WrongKind', `unknown account kind ${kind}`);
+  if (b.length < layout.size) throw new CodecError('WrongSize', `${kind} prefix: ${b.length} B, at least ${layout.size} needed`);
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const out = { kind };
+  for (const f of layout.fields) if (f[3] !== 'rsv') out[camel(f[0])] = readField(b, dv, 0, f, records);
   return out;
 }
 

@@ -5,6 +5,7 @@
 //! frontier-stack land --run-id ID [--do status]
 //! frontier-stack land --run-id ID --do open-ring
 //! frontier-stack land --run-id ID --do open-province --at P,Q
+//! frontier-stack land --run-id ID --do extend [--at D]
 //! ```
 //!
 //! - **status** prints, as JSON, the season's `r_max` and genesis ring, the
@@ -18,6 +19,12 @@
 //!   nothing is bypassed, and a refusal (`Capacity`, `TooEarly`,
 //!   `SeedNotReady`, `AlreadyDone`, `BadData` …) is printed as the program
 //!   gave it. The keeper's `rings` duty sends the same writes on its own.
+//! - **extend** sends ExtendFrontier(D) (map growth, S1; `D` defaults to the
+//!   effective `r_max` + 1), the program's permissionless instruction: past
+//!   the season's `r_max_ceiling` it is refused (`BadData`), a ring already
+//!   inside the map is `AlreadyDone`. The status names the season's `r_max`,
+//!   the effective one, the ceiling, the program's hard limit (ring 128,
+//!   bounded, not infinite) and the prize pool's tally limit (ring 17).
 //!
 //! Local worlds only: the command takes no RPC address; it talks to the
 //! run's own `127.0.0.1` port from `state.json`.
@@ -39,7 +46,15 @@ pub enum LandOp {
     Status,
     OpenRing,
     OpenProvince(i16, i16),
+    /// ExtendFrontier(d); `None`: the effective `r_max` + 1.
+    Extend(Option<u16>),
 }
+
+/// The program's hard limit of `r_max` (`geometry::R_MAX_HARD`).
+const R_MAX_HARD: u16 = permutation_rules::frontier::geometry::R_MAX_HARD;
+/// The prize pool's tally covers rings 0–17 (`permutation_prize::MAX_RING`;
+/// InitPool refuses a season whose `r_max` or `r_max_ceiling` passes it).
+const PRIZE_MAX_RING: u16 = 17;
 
 /// `--do` and `--at` as given.
 pub fn parse_op(what: Option<&str>, at: Option<&str>) -> Result<LandOp, String> {
@@ -59,7 +74,17 @@ pub fn parse_op(what: Option<&str>, at: Option<&str>) -> Result<LandOp, String> 
                 .map_err(|_| "--at: Q is not an i16")?;
             Ok(LandOp::OpenProvince(p, q))
         }
-        other => Err(format!("--do {other}: status, open-ring or open-province")),
+        "extend" => match at {
+            None => Ok(LandOp::Extend(None)),
+            Some(d) => d
+                .trim()
+                .parse::<u16>()
+                .map(|d| LandOp::Extend(Some(d)))
+                .map_err(|_| "--do extend --at D: D is a ring (u16)".into()),
+        },
+        other => Err(format!(
+            "--do {other}: status, open-ring, open-province or extend"
+        )),
     }
 }
 
@@ -142,8 +167,18 @@ pub async fn status_json(chain: &Chain, a: &Addresses) -> Result<Value, String> 
             Err(w) => Value::from(format!("{w:?}")),
         }
     };
+    let ceiling = season.conquest.as_ref().map_or(0, |c| c.r_max_ceiling);
+    let next_extend = match fclient::land::frontier_extend_check(&season, &fr, st.now) {
+        Ok(d) => Value::from(format!("ready (ExtendFrontier({d}))")),
+        Err(w) => Value::from(format!("{w:?}")),
+    };
     Ok(json!({
-        "rMax": season.r_max,
+        "rMax": season.r_max.max(fr.r_max_ext),
+        "rMaxSeason": season.r_max,
+        "rMaxExt": fr.r_max_ext,
+        "rMaxCeiling": ceiling,
+        "rMaxHard": R_MAX_HARD,
+        "prizeMaxRing": PRIZE_MAX_RING,
         "genesisRing": season.genesis_ring,
         "thetaBps": fclient::land::theta_bps(&season, st.now),
         "ringsOpened": fr.rings_opened,
@@ -153,6 +188,7 @@ pub async fn status_json(chain: &Chain, a: &Addresses) -> Result<Value, String> 
         "wedgeOccupied": fr.wedge_occupied,
         "rings": rings,
         "nextRing": next,
+        "nextExtend": next_extend,
     }))
 }
 
@@ -174,6 +210,17 @@ pub async fn land(rd: &RunDir, op: LandOp) -> i32 {
                 let d = s["ringsOpened"].as_u64().unwrap_or(0) as u16;
                 println!("OpenRing({d})");
                 let i = ix::open_ring(&a, payer.pubkey(), d);
+                chain
+                    .send_op(&[i], &[&payer], Duration::from_secs(30))
+                    .await
+            }
+            Err(e) => Err(e),
+        },
+        LandOp::Extend(d) => match status_json(&chain, &a).await {
+            Ok(s) => {
+                let d = d.unwrap_or(s["rMax"].as_u64().unwrap_or(0) as u16 + 1);
+                println!("ExtendFrontier({d})");
+                let i = ix::v2::extend_frontier(&a, payer.pubkey(), d);
                 chain
                     .send_op(&[i], &[&payer], Duration::from_secs(30))
                     .await
@@ -225,6 +272,12 @@ mod tests {
             Ok(LandOp::OpenProvince(5, -2))
         );
         assert!(parse_op(Some("open-province"), None).is_err());
+        assert_eq!(parse_op(Some("extend"), None), Ok(LandOp::Extend(None)));
+        assert_eq!(
+            parse_op(Some("extend"), Some("9")),
+            Ok(LandOp::Extend(Some(9)))
+        );
+        assert!(parse_op(Some("extend"), Some("x")).is_err());
         assert!(parse_op(Some("open-province"), Some("5")).is_err());
         assert!(parse_op(Some("open-province"), Some("40000,0")).is_err());
         assert!(parse_op(Some("grow"), None).is_err());

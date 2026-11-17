@@ -2,6 +2,8 @@
 //! in order over one parsed [`World`] and its [`Facts`], and a `mutate-v<n>`
 //! build leaves check `n` out (the checks of the checks).
 
+pub mod v0_coverage;
+pub mod v0_evidence;
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
@@ -16,6 +18,10 @@ pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
 pub mod v25_nations;
+pub mod v26_custody;
+pub mod v26_growth;
+pub mod v27_residents;
+pub mod v28_resident_acts;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -24,6 +30,9 @@ pub mod v6_quotas;
 pub mod v7_replay;
 pub mod v8_lag;
 pub mod v9_addresses;
+pub mod vr_rights;
+#[cfg(feature = "wide-world-experimental")]
+pub mod vw_chains;
 
 use crate::facts::{Facts, SigCache};
 use crate::input::{Config, Input};
@@ -51,6 +60,11 @@ pub struct Ctx<'a> {
     pub cq_expected: std::collections::BTreeMap<usize, Vec<crate::cqrec::Expected>>,
     /// The transactions whose skip or clash V7 replayed on the v2 path.
     pub cq_replayed: std::collections::BTreeSet<usize>,
+    /// `(transaction, instruction index)` of the player instructions an NFT
+    /// resident's Citizen ran through ResidentAct that the program allows only
+    /// to the pass's owner, not its session (⑳: V23 marks a SendCaravan to
+    /// another player; V28 judges the holder).
+    pub owner_required: std::collections::BTreeSet<(usize, usize)>,
 }
 
 impl Ctx<'_> {
@@ -122,6 +136,27 @@ impl Ctx<'_> {
             detail.into(),
         );
     }
+    /// The check cannot judge this with what it implements (UNVERIFIABLE
+    /// unless a FAIL exists), under its own code (V0).
+    pub fn unverifiable(
+        &mut self,
+        check: &'static str,
+        code: &str,
+        entity: impl Into<String>,
+        bell: u32,
+        tx: Option<usize>,
+        detail: impl Into<String>,
+    ) {
+        self.push(
+            Severity::Unverifiable,
+            check,
+            code,
+            entity.into(),
+            bell,
+            tx,
+            detail.into(),
+        );
+    }
     /// Data the check needs is absent (UNVERIFIABLE unless a FAIL exists).
     pub fn missing(
         &mut self,
@@ -170,8 +205,18 @@ pub fn run(input: &Input) -> Report {
         s1: crate::conquest::s1_applies(input),
         cq_expected: Default::default(),
         cq_replayed: Default::default(),
+        owner_required: Default::default(),
     };
     let mut ran: Vec<&'static str> = vec![];
+    // What this verifier can judge at all: unknown or unmodelled
+    // instructions and program versions are never a PASS (V0).
+    v0_coverage::run(&mut cx);
+    ran.push("V0");
+    // The evidence those judgements need: logs present and whole, no
+    // program call the archive does not show, post-states of what was
+    // written (V0E, ⑪).
+    v0_evidence::run(&mut cx);
+    ran.push("V0E");
     macro_rules! check {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
@@ -230,6 +275,12 @@ pub fn run(input: &Input) -> Report {
         ran.push("V20:season-end");
         v22_outposts::run(&mut cx);
         ran.push("V22:outpost-filing");
+        // Map growth (a local candidate): every ExtendFrontier that stands
+        // alone in its transaction re-judged from the states before it, its
+        // Frontier post-state and its FRONTIER_EXTENDED record; a bundle
+        // with another Frontier writer is MissingData (`v26_growth::guard`).
+        v26_growth::run(&mut cx);
+        ran.push("V26:map-growth");
     }
     // S1 stages 1b, 1d and 1e: vaults, caravans, structures and nations, on
     // an S1 season only.
@@ -240,7 +291,32 @@ pub fn run(input: &Input) -> Report {
         ran.push("V24:structures");
         v25_nations::run(&mut cx);
         ran.push("V25:nations");
+        v27_residents::run(&mut cx);
+        ran.push("V27:residents");
+        v28_resident_acts::run(&mut cx);
+        ran.push("V28:resident-acts");
     }
+    // Workstream 10: custody is checked in part (V26); any trace of it is
+    // never a PASS (a season without custody FAILs on it).
+    v26_custody::run(&mut cx);
+    ran.push("V26:custody-guard");
+    // The wide world's event chains (VW1; experimental build only).
+    #[cfg(feature = "wide-world-experimental")]
+    {
+        vw_chains::run(&mut cx);
+        ran.push("VW1:wide-chains");
+        v28_resident_acts::run_wide(&mut cx);
+        ran.push("V28:wide-resident-acts");
+    }
+    if v26_custody::custody_season(&cx) {
+        ran.push("V26:custody-state");
+        ran.push("V26:custody-history");
+        ran.push("V26:custody-replay");
+    }
+    // 02-rights (candidate): the Grant's instructions, records and
+    // accounts; on every season (outside S1 the program refuses them, so
+    // any is a FAIL of its own).
+    check!("mutate-vr", "VR:rights", vr_rights);
     ran.push("V10");
     counts(&mut cx);
     let verdict = if cx.findings.iter().any(|x| x.severity == Severity::Fail) {
@@ -288,6 +364,7 @@ pub fn run(input: &Input) -> Report {
         liveness: cx.liveness,
         checks_run: ran,
         provenance: input.provenance.clone(),
+        history: None,
     }
 }
 

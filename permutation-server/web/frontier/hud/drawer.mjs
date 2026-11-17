@@ -12,7 +12,10 @@
 //   null                         closed: the world has the screen
 //
 // "Map" closes it (closeDrawer). The practice and spectator pages have one
-// panel each; it can be put away and brought back from the dock.
+// panel each; it can be put away and brought back from the dock. The
+// spectator's also comes back for a place chosen on the map after it was put
+// away: that place's card heads the panel, and a spectator who had closed it
+// got nothing but the hover tip for a village or a keep they pressed.
 import { L } from '../../lang.mjs';
 import { subjectOf } from './subject.mjs';
 
@@ -29,6 +32,17 @@ export const holdsLand = FS => ['provisional', 'final'].includes(FS.land?.stage)
  */
 export function viewerState(FS) {
   if ((FS.mode ?? 'play') !== 'play') return 'known';
+  // (workstream 07: the viewer's record was asked for and has never answered — controller.applyMeResult's error, and no
+  // answer since the viewer was set (`FS.meAnswered`) — and nothing of the viewer is known: unreachable, not "not joined".
+  // `FS.land` is always set (landState(null) is {stage: 'none'}), so without this a failed first read opened the nation
+  // choice for a player who has a village. A record that answered before and fails now keeps what it showed: a Citizen,
+  // a village, or "not joined" (workstream 16's review of 9b547d9d: a refresh failing in the nation choice closed it).)
+  if (FS.meStatus === 'error' && !FS.meAnswered && !FS.citizen && !(FS.holdings ?? []).length) return 'unreachable';
+  // (2026-11-17, ⑦: a wallet whose record is still being asked for — controller.adoptConnectedWallet sets 'loading', and
+  //  only an answer or a failure ends it — is not known yet. `FS.land` is set the moment a wallet is adopted
+  //  (landState(null)), so the line below said "known: not joined" in that gap: after a wallet switch, and after a start
+  //  whose first read threw before the record was asked. Waiting, not the nation choice.)
+  if (FS.wallet && FS.meStatus === 'loading' && !FS.meAnswered && !FS.citizen && !(FS.holdings ?? []).length) return 'pending';
   if (FS.land || FS.citizen || (FS.holdings ?? []).length) return 'known';
   if (!FS.playReady) return FS.error && !FS.record ? 'unreachable' : 'pending';
   return FS.viewerMissed ? 'unreachable' : 'known';
@@ -48,11 +62,17 @@ export const handHolds = FS => { try { return !!subjectOf(FS); } catch { return 
 /** What the drawer shows: `{kind}` or null when it is closed. */
 export function drawerOf(FS) {
   const mode = FS.mode ?? 'play';
-  if (mode !== 'play') return FS.drawerShut ? null : { kind: mode };
+  // (`FS.shutAt`: the selection the spectator's panel was put away with. It stays away for that one; the map's next
+  // selection is a new object and opens it, and letting the selection go puts it away again)
+  if (mode !== 'play') return FS.drawerShut && !(mode === 'spectate' && FS.selected && FS.selected !== FS.shutAt) ? null : { kind: mode };
   if (FS.practice) return { kind: 'practice' };
   if (FS.report) return { kind: 'report' };
-  if (FS.homeGrant && !FS.titleUp) return { kind: 'home' };
   const tab = FS.tab ?? 'map';
+  // (round 18, 2026-11-14: an order being written on the map comes before the first village's welcome. In a two-person
+  //  test world the welcome, not yet put away, stood over the order card that a fort's row had just opened, and the seal
+  //  could not be reached until the player closed a card they had not asked for. The welcome is not put away by this: it
+  //  stands again once the order is sent or set aside.)
+  if (FS.homeGrant && !FS.titleUp && !(tab === 'map' && FS.compose)) return { kind: 'home' };
   if (tab !== 'map') return { kind: tab };
   if (FS.compose) return { kind: 'march' };
   // the viewer's own village or host is selected: the action bar has it (hud/hand.mjs), and the drawer stays shut
@@ -72,7 +92,8 @@ export function drawerOf(FS) {
 export function joinKind(FS) {
   const stage = FS.land?.stage ?? 'none';
   if (stage === 'none') return 'nation';
-  if (!FS.wallet || !FS.session || FS.sessionProblem) return 'join';
+  // (⑳: an NFT Citizen has no in-game key to mend, its owner's wallet signs: it waits for its village like any other)
+  if (!FS.wallet || (!FS.resident && (!FS.session || FS.sessionProblem))) return 'join';
   return ['joined', 'ticket', 'refugee'].includes(stage) ? 'wait' : 'join';
 }
 
@@ -82,7 +103,7 @@ export function joinKind(FS) {
  * card has its own cancel), so the drawer may still show it.
  */
 export function closeDrawer(FS) {
-  if ((FS.mode ?? 'play') !== 'play') { FS.drawerShut = true; return FS; }
+  if ((FS.mode ?? 'play') !== 'play') { FS.drawerShut = true; FS.shutAt = FS.selected ?? null; return FS; }
   FS.tab = 'map';
   FS.report = null;
   FS.practice = null;

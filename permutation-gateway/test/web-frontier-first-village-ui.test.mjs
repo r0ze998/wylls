@@ -11,7 +11,10 @@ import { setLang } from '../../permutation-server/web/lang.mjs';
 afterEach(() => setLang('ja'));
 const site = { p: 2, q: 0, site: 2, gen: 0, tile: 20, faction: 0 };
 const h = (extra = {}) => ({ ...site, state: 2, tier: 0, flags: 0, production: baseProduction(0), reserve: Array(8).fill(0), queue: [], transit: [], explore: { state: 0 }, ...extra });
-const fs = (extra = {}) => ({ mode: 'play', season: { programVersion: 2 }, meStatus: 'ready', citizen: null, holdings: [], provinces: new Map(), nowBell: 10, chain: { now: () => 1000 }, land: { stage: 'none' }, ui: { dismissed: [] }, homeChoice: { candidates: [site], selected: site }, ...extra });
+// (workstream 07: the village's province read, with no host in it — "no Scout host" is known only from a read record;
+// an unread province is checked on its own below)
+const readHome = () => new Map([['2,0', { province: { p: 2, q: 0, resolvedNext: 10, entries: [] } }]]);
+const fs = (extra = {}) => ({ mode: 'play', season: { programVersion: 2 }, meStatus: 'ready', citizen: null, holdings: [], provinces: readHome(), nowBell: 10, chain: { now: () => 1000 }, land: { stage: 'none' }, ui: { dismissed: [] }, homeChoice: { candidates: [site], selected: site }, ...extra });
 const plain = s => String(s).replace(/<[^>]*>/g, ' ');
 
 test('new seasons retain six nation banners before connecting, and confirm the selected nation with immediate placement', () => {
@@ -104,14 +107,32 @@ test('the scout guide follows training, muster, ready turn, send, receipt, and a
   assert.match(String(renderScoutAction(training)), /home-scout-train/, 'a neighbour’s scout is not mine');
   assert.equal(factsOf(training).scoutHost, false);
   const reserve = Array(8).fill(0); reserve[6] = 100;
-  assert.match(String(renderScoutAction(fs({ holdings: [h({ reserve })] }))), /home-scout-muster/);
+  const beforeMuster = String(renderScoutAction(fs({ holdings: [h({ reserve })] })));
+  assert.match(beforeMuster, /home-scout-muster/);
+  assert.match(beforeMuster, /ターンが決着すると整列/);
+  assert.match(beforeMuster, /待つあいだも村の建設/);
+  assert.doesNotMatch(beforeMuster, /11[〜–-]21/);
+  setLang('en');
+  const beforeMusterEn = plain(renderScoutAction(fs({ holdings: [h({ reserve })] })));
+  assert.match(beforeMusterEn, /turn is resolved/);
+  assert.match(beforeMusterEn, /keep building your village while you wait/);
+  assert.doesNotMatch(beforeMusterEn, /11[〜–-]21|[぀-ヿ㐀-鿿]/);
+  setLang('ja');
+  // (workstream 07) the village's province not read: no Train or Muster is offered, the guide says it is reading
+  const unread = String(renderScoutAction(fs({ holdings: [h({ reserve })], provinces: new Map() })));
+  assert.doesNotMatch(unread, /home-scout-muster|home-scout-train/);
+  assert.match(unread, /記録を読み込んでいます…/);
+  assert.doesNotMatch(String(renderScoutAction(fs({ holdings: [h()], provinces: new Map() }))), /home-scout-train/);
   const forming = String(renderScoutAction(scoutState(entry({ state: 2, readyBell: 11 }))));
   assert.match(forming, /編成の反映を待っています/);
   assert.doesNotMatch(forming, /data-act="explore-open"/);
   const clock = { genesisTs: 0, window: () => 600, margin: 60 };
   const pending = scoutState(entry({ state: 2, fromBell: 11, readyBell: 11 }), { clock, nowBell: 11, chain: { now: () => 6700 } });
   const estimate = String(renderScoutAction(pending));
-  assert.match(estimate, /data-home-deadline="7260"/, 'activation waits for the issued bell’s seed, not merely the next turn');
+  // (2026-11-16: the shared phase-aware line, hud/firststeps.mjs formingLine — no countdown to an estimated total wait;
+  //  with the muster turn over and no herald facts read, it says only that the scouts stand once that turn is resolved)
+  assert.doesNotMatch(estimate, /data-home-deadline/, 'no estimated total wait is promised');
+  assert.match(estimate, /は編成中です。編成したターンが決着すると整列します。/);
   const overdue = String(renderScoutAction({ ...pending, nowBell: 13, chain: { now: () => 7800 } }));
   assert.match(overdue, /世界の処理で編成が反映されると/);
   assert.doesNotMatch(overdue, /data-home-deadline|第14ターン/, 'an overdue activation never invents a moving next turn');

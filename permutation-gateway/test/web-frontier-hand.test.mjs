@@ -221,7 +221,10 @@ test('the village\'s bar: five orders, each an icon, a word and one live figure;
   const pm = hand.handModel(prov);
   assert.deepEqual(pm.buttons.filter(b => b.why).map(b => [b.id, b.why]), [['muster', '村が確定してからです']]);
   assert.equal(pm.sub, '仮の村');
-  assert.match(flat(hand.renderHand(pm)), /class="hand-btn hand-muster off"[^>]*aria-disabled="true"[\s\S]*?<span class="hand-why">村が確定してからです<\/span>/);
+  // (round 21: Form a host only opens its card — reading it sends nothing —, so its reason is said on it but the press is
+  //  not refused: the card says the same and its own confirm is refused there)
+  assert.match(flat(hand.renderHand(pm)), /class="hand-btn hand-muster"[^>]*>[\s\S]*?<span class="hand-why">村が確定してからです<\/span>/);
+  assert.doesNotMatch(flat(hand.renderHand(pm)).match(/<button[^>]*hand-muster[^>]*>/)[0], /aria-disabled|\boff\b/);
   // a full store: the harvest says so in ember, with the count
   const full = world({ stores: [6000, 815, 662, 305, 122, 90, 40, 20] }).FS;
   full.selected = { kind: 'tile', p: 2, q: 0, idx: 30 };
@@ -350,7 +353,7 @@ test('this turn\'s list: the orders placed, what the next bell brings (a march w
     { id: 'o0', kind: 'build', turn: 41, item: 0, tile: { p: 2, q: 0, tile: 30 }, state: 'accepted' }];
   FS.feed = [{ id: 'bd:1', kind: 'build', bell: 42, p: 2, q: 0, text: '伐採場が完成しました' }, { id: 'old', kind: 'build', bell: 41, p: 2, q: 0, text: '前のターン' }];
   const m = turnlist.turnModel(FS, { next: items });
-  assert.deepEqual(m.orders.map(o => [o.text, o.refused]), [['槍兵 300 を編成 — 次のターンに整列します', false], ['訓練は送られていません', true]], 'this turn\'s only, in the order they were placed');
+  assert.deepEqual(m.orders.map(o => [o.text, o.refused]), [['槍兵 300 を編成 — このターンの決着のあとに整列します', false], ['訓練は送られていません', true]], 'this turn\'s only, in the order they were placed');
   assert.equal(m.orders[1].why, '資源か残高が足りません');
   assert.deepEqual(m.happened.map(x => x.text), ['伐採場が完成しました']);
   const list = flat(turnlist.renderTurnList(m));

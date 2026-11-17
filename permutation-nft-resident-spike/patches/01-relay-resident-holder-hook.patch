@@ -1,0 +1,26 @@
+--- a/permutation-gateway/src/frontier/routes/relay.mjs	2026-10-31 00:54:57.561145152 +0000
++++ b/permutation-gateway/src/frontier/routes/relay.mjs	2026-10-31 00:54:57.603379960 +0000
+@@ -69,6 +69,10 @@
+   if (!c) return null;
+   const wallet = base58(c.WALLET);
+   if (ctx.addresses.citizen(wallet) !== citizenAddr) return null;
++  // NFT-bound residents (permutation-nft-resident-spike, CONTRACT §4): the
++  // requester must be the asset's current holder, or a session key that
++  // holder set; a stale or failed holder read grants nothing.
++  if (ctx.residents && !(await ctx.residents.mayAct({ citizen: citizenAddr, actor: requester }))) return null;
+   if (wallet === requester) return citizenAddr;
+   const clock = await ctx.chain.clock();
+   const sessionLive = base58(c.SESSION) === requester && BigInt(c.SESSION_EXPIRY) > BigInt(clock.unixTimestamp);
+@@ -109,6 +113,12 @@
+   }
+   // Signature first: a forged transaction naming someone's key costs that key nothing.
+   if (shape.authority && !signedBy(tx, shape.authority)) throw new RouteError(400, 'the authority\'s signature is missing or invalid', 'BadSignature');
++  // NFT-bound residents: the authority (wallet or session key) must act for
++  // the asset's current holder at this moment (spike CONTRACT §4 (a)). The
++  // program's prologue is the final check; this refuses earlier, for free.
++  if (ctx.residents && shape.authority && shape.accounts?.citizen && !(await ctx.residents.mayAct({ citizen: shape.accounts.citizen, actor: shape.authority }))) {
++    throw new RouteError(403, 'relay refused: this key does not act for the resident\'s current holder (ResidentHolderChanged)', 'ResidentHolderChanged');
++  }
+   const replayKey = shape.authority ? `sig:${base58(tx.signatures[tx.signers.indexOf(shape.authority)])}` : `msg:${createHash('sha256').update(tx.message).digest('hex')}`;
+   // Claimed before any await: identical concurrent submissions cannot all
+   // pass (integ-W2 review of W2-D); released on every refusal below.
