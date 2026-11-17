@@ -179,7 +179,9 @@ export class Game {
     const vaults = feed.ok ? feed.caravans?.vaults ?? feed.vaults ?? [] : [];
     const moving = feed.ok ? feed.caravans?.moving ?? feed.moving ?? [] : [];
     const places = [village, ...vaults.filter(mine).map(v => {
-      const pl = { kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: Number(v.gen), known: Array.isArray(v.stores), cap: Number(v.cap ?? 0),
+      // cap comes with stores (herald.mjs vaultOf): when the vault's bytes were not read both are absent, so cap is null
+      // (not known), never 0 (2026-11-17). With stores read, cap is as before.
+      const pl = { kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: Number(v.gen), known: Array.isArray(v.stores), cap: Array.isArray(v.stores) ? Number(v.cap ?? 0) : null,
         stores: Array.isArray(v.stores) ? v.stores.map((n, i) => ({ resource: resources[i], have: Number(n) })) : null };
       pl.placeId = placeId(pl);
       return pl;
