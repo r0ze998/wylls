@@ -36,7 +36,9 @@ test(`${DAYS} game days: bounded present state and reads, history grows with eve
   const reads = { asa: [], ren: [] };
   for (const r of Object.values(env.rs)) {
     const inner = r.ports.observe;
-    r.ports.observe = async (a, since) => { const o = await inner(a, since); reads[r.id].push({ bell: o.world.bell, events: o.world.events.length, requests: o.board.requests.length }); return o; };
+    // (2026-11-17) the wrapper keeps the port's own declaration (MOCK_WORLD, MOCK_CLOCK): journal lines record it and
+    // are matched against it (resident.mjs bindingMismatchOf); a wrapper that dropped it would leave them undeclared
+    r.ports.observe = Object.assign(async (a, since) => { const o = await inner(a, since); reads[r.id].push({ bell: o.world.bell, events: o.world.events.length, requests: o.board.requests.length }); return o; }, { world: inner.world, clock: inner.clock });
   }
   const size = r => statSync(path.join(r.dir, 'state.json')).size;
   const samples = [];

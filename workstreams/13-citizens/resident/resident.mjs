@@ -15,7 +15,7 @@
 // restarted resident first asks the world for the fate of every unfinished
 // key instead of deciding again. Ledger and journal share one state file
 // written by rename, so a hold and the decision it paid for move together.
-import { clockId, sameClock, worldMismatch } from './frame.mjs';
+import { clockId, sameClock, worldMismatch, MOCK_WORLD, MOCK_CLOCK } from './frame.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { AgentLedger } from '../../../permutation-gateway/src/frontier/agent/ledger.mjs';
@@ -86,6 +86,42 @@ export const MAX_EXTEND = 1000;
  * line is kept, reported and still blocks the same action, and a definite answer later still settles it.
  */
 export const OPEN_STATES = Object.freeze(['intended', 'sent', 'unresolved']);
+
+/**
+ * (2026-11-17) Whether a journal line made under binding `p` may use the ports declared `now` (both from
+ * Resident#provenance), as `port` ('action' or 'board'): null, or why not. Unknown never matches unknown.
+ *   The explicit test contract: frame.mjs MOCK_WORLD ({cluster: 'ws13-mock', world_id: null}) with MOCK_CLOCK
+ *   ('mock-world'), which the test harness declares on its observe port (world/harness.mjs portsFor). Both sides must
+ *   declare exactly it, with the same identity; there an execution port that declares no origin (the test world's,
+ *   or workstream 4's registry wired into the test world) matches only another that declares none, and a declared
+ *   origin matches only the same origin. A mock binding never matches a non-mock one.
+ *   Any other binding is a real one and must be complete on both sides: a world with cluster and world_id, a clock
+ *   that is not the mock one, an identity, and for an action line an execution origin with registry and agent id;
+ *   then every point must be equal (a kind label alone never decides; two different kinds never match).
+ */
+export function bindingMismatchOf(p, now, port) {
+  const s = v => typeof v === 'string' && v.length > 0;
+  const mockClock = clockId(MOCK_CLOCK);
+  const isMock = b => !!b && b.world?.cluster === MOCK_WORLD.cluster && b.world?.world_id === null && b.clock === mockClock;
+  const exec = e => (e && s(e.registry) && s(e.agentId) ? e : null);
+  const sameExec = (a, b) => a.registry === b.registry && a.agentId === b.agentId && !(s(a.kind) && s(b.kind) && a.kind !== b.kind);
+  if (!p || typeof p !== 'object' || p.v !== 1) return 'its provenance is unreadable';
+  if (!now || !s(p.identity) || p.identity !== now.identity) return 'another identity, or none declared';
+  if (isMock(p) || isMock(now)) {
+    if (!isMock(p) || !isMock(now)) return 'made in the test world and used in another, or the reverse';
+    if (port !== 'action') return null;
+    const a = p.execution ?? null, b = now.execution ?? null;
+    if (a === null && b === null) return null;
+    if (!exec(a) || !exec(b) || !sameExec(a, b)) return 'the ports declare another execution registry or agent';
+    return null;
+  }
+  const complete = b => !!b && s(b.world?.cluster) && s(b.world?.world_id) && s(b.clock) && b.clock !== mockClock;
+  if (!complete(p) || !complete(now)) return 'its world or clock is not declared (unknown never matches unknown)';
+  if (p.world.cluster !== now.world.cluster || p.world.world_id !== now.world.world_id) return 'the ports declare another world';
+  if (p.clock !== now.clock) return 'the ports declare another clock';
+  if (port === 'action' && (!exec(p.execution) || !exec(now.execution) || !sameExec(p.execution, now.execution))) return 'the execution registry or agent is not declared, or is another';
+  return null;
+}
 /** Answers of "no record of this key" before a send whose reply was lost is re-sent under the same key. */
 export const UNCLEAR_BEFORE_RESUBMIT = 3;
 /** What makes two actions the same action (for the failure hold-off). */
@@ -473,8 +509,41 @@ export class Resident {
 
   #intent(key, spec) {
     const j = this.state.journal;
-    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, createdBell: this.bell, ...spec };
+    // (2026-11-17) where a NEW line belongs, fixed once at its creation and saved with it before any send (#enact and
+    // #duties save after #intent, before #run): never added to or rewritten on an existing line or a reused key.
+    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, createdBell: this.bell, ...spec, provenance: this.#provenance() };
     return j[key];
+  }
+
+  /**
+   * (2026-11-17) The world, clock, execution port and identity a new journal line is made under, as the ports declare
+   * them (it grants nothing and changes no send): the observe port's {cluster, world_id} and clock (frame.mjs: the test
+   * harness declares MOCK_WORLD and MOCK_CLOCK), the execution port's explicit `origin` {registry, agentId, kind?}
+   * (attached by whoever wires the port; a `kind` label alone names no registry, so without an origin it is null), and
+   * the resident's address. A reader (live/resident-state.mjs) reads a key only where all of these match its own.
+   */
+  #provenance() {
+    const ob = this.ports?.observe, o = this.ports?.execution?.origin;
+    const world = ob?.world && typeof ob.world === 'object' ? { cluster: typeof ob.world.cluster === 'string' ? ob.world.cluster : null, world_id: typeof ob.world.world_id === 'string' ? ob.world.world_id : null } : null;
+    const execution = o && typeof o.registry === 'string' && o.registry && typeof o.agentId === 'string' && o.agentId
+      ? { registry: o.registry, agentId: o.agentId, kind: typeof o.kind === 'string' ? o.kind : null } : null;
+    return { v: 1, world, clock: clockId(ob?.clock), execution, identity: typeof this.address === 'string' ? this.address : null };
+  }
+
+  /**
+   * (2026-11-17) null when a line may use the ports NOW under its key, else why not. A line made before provenance was
+   * recorded (none on it) keeps the old behaviour. A line with provenance may use them only while they declare the
+   * same world, clock and identity, and for an action line the same execution registry and agent (a kind label alone
+   * never decides). Checked right before each use of the key (post, status, submit, cancel), also after an await, so
+   * a line made under one port is never sent, re-sent, read or cancelled through another. A mismatch holds the line:
+   * its state is unchanged (never failed, never not-sent), `bindingHeld` says why, and the provenance is never
+   * rewritten to fit.
+   */
+  #bindingMismatch(it) {
+    if (!it || !('provenance' in it)) return null;
+    const why = bindingMismatchOf(it.provenance, this.#provenance(), it.port);
+    if (why) it.bindingHeld = { why, bell: this.bell }; else delete it.bindingHeld;
+    return why;
   }
 
   async #run(it) {
@@ -484,6 +553,7 @@ export class Resident {
       if (!dep || dep.state === 'intended') return it;
       if (dep.state !== 'posted') { it.state = 'cancelled'; it.why = `depends on ${it.after} (${dep.state})`; return it; }
     }
+    if (this.#bindingMismatch(it)) return it;   // (2026-11-17) held: not posted, read or sent through other ports
     const sendKey = it.attempts > 1 ? `${it.key}#a${it.attempts}` : it.key;
     if (it.port === 'board') {
       const r = await this.ports.board.post(it.body);
@@ -495,6 +565,8 @@ export class Resident {
     let res;
     let fromSubmit = false;
     try { res = await this.ports.execution.status(sendKey); } catch { res = null; }
+    // (2026-11-17) the ports may have changed during the read: checked again right before the submit
+    if (!res && this.#bindingMismatch(it)) return it;
     if (!res) {
       fromSubmit = true;
       it.submittedBell = this.bell;
@@ -609,6 +681,8 @@ export class Resident {
     for (const it of Object.values(this.state.journal)) {
       if (it.state === 'intended' && send) await this.#run(it);
       if (!['sent', 'unresolved'].includes(it.state) || (it.nextQueryBell ?? 0) > this.bell) continue;
+      // (2026-11-17) a line whose ports are not the ones it was made under is not read through these: held, unchanged
+      if (this.#bindingMismatch(it)) continue;
       let s;
       try { s = await this.ports.execution.status(it.sendKey); } catch { s = { fate: 'unknown', unavailable: true }; }
       if (s?.fate === 'landed') { Object.assign(it, { state: 'landed', landedBell: s.landedBell }); this.#clearUnclear(it); continue; }
@@ -673,6 +747,9 @@ export class Resident {
     if (!it) return { key, refused: 'NoSuchAction' };
     if (['deliver', 'return'].includes(it.purpose?.type)) return { key, refused: 'Owed', why: `a ${it.purpose.type} owed to someone: not cancelled by a cancel` };
     if (!OPEN_STATES.includes(it.state)) return { key, refused: 'AlreadyFinal', state: it.state };
+    // (2026-11-17) a cancel that would ask the execution port: only through the ports the line was made under
+    const unsent = it.state === 'intended' && !(it.lastError === 'Transport' && it.sendKey);
+    if (!unsent) { const why = this.#bindingMismatch(it); if (why) { this.save(); return { key, refused: 'BindingMismatch', why }; } }
     it.cancelRequested = { by, bell: this.bell };
     let port = null;
     if (it.state === 'intended' && !(it.lastError === 'Transport' && it.sendKey)) {

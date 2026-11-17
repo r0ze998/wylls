@@ -26,13 +26,49 @@
 // Board lines (posted records) are not sends; an 'intended' line without a sendKey was never submitted (counted apart,
 // never as sent). Final lines (landed, failed, cancelled, revoked, …) need no reading.
 //
-// Which world those keys were submitted to is NOT recorded in the resident's files (no world, clock or execution
-// port identity is persisted; the test harness's MOCK_WORLD keys look the same). So they are returned as `held`, with
-// that reason, and the live step reads none of them against the live execution port. Connecting them needs the
-// resident to record its world at join (a change to resident.mjs, not made here).
+// (2026-11-17) Which world, clock, execution port and identity a key belongs to: resident.mjs now records it on each
+// NEW journal line at creation (`provenance` {v: 1, world: {cluster, world_id}, clock (frame.mjs clockId), execution:
+// {registry, agentId, kind}|null, identity}). A key is returned for reading ONLY when its line's provenance matches the
+// live frame on every point: a ws08 world (world_id not null: the test harness's MOCK_WORLD never matches), the same
+// cluster and world_id, the same clock id, the same declared registry and agent id (a `kind` label alone is never
+// taken as the same registry), and the live wallet. A line made before this record (no provenance), a malformed one,
+// or one that differs anywhere is held, with why; nothing is inferred or upgraded after the fact.
 
 export const STATE_VERSION = 2;   // resident.mjs STATE_VERSION (pinned by the regression)
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+
+const str = v => (typeof v === 'string' && v ? v : null);
+
+/**
+ * null when a journal line's provenance (resident.mjs #provenance) matches the live frame
+ * `live` = {world: {cluster, world_id}, clock: clockId string, execution: {registry, agentId, kind?}} on every point,
+ * else why it does not (never a guess).
+ */
+export function provenanceMismatch(p, live, wallet) {
+  if (!p) return 'no provenance recorded (a line made before it was recorded)';
+  if (p.v !== 1 || !isObj(p)) return 'the provenance is not one this reader knows';
+  if (!live || !isObj(live.world) || !str(live.world.world_id) || !str(live.world.cluster)) return 'the live world is not known';
+  if (!str(live.clock)) return 'the live clock is not known';
+  if (!isObj(live.execution) || !str(live.execution.registry) || !str(live.execution.agentId)) return 'the live execution port declares no registry and agent id';
+  if (!isObj(p.world) || !str(p.world.world_id)) return 'recorded in no ws08 world (the test world, or none)';
+  if (p.world.cluster !== live.world.cluster || p.world.world_id !== live.world.world_id) return 'recorded in another world';
+  if (!str(p.clock) || p.clock !== live.clock) return 'recorded on another clock (or none)';
+  if (!isObj(p.execution) || !str(p.execution.registry) || !str(p.execution.agentId)) return 'recorded with no declared execution registry';
+  if (p.execution.registry !== live.execution.registry || p.execution.agentId !== live.execution.agentId) return 'recorded for another execution registry or agent';
+  if (str(p.execution.kind) && str(live.execution.kind) && p.execution.kind !== live.execution.kind) return 'recorded for another kind of execution port';
+  if (typeof wallet !== 'string' || p.identity !== wallet) return 'recorded under another identity';
+  return null;
+}
+
+/**
+ * (2026-11-17) Whether a recorded provenance is complete enough that only the live frame could decide it: a ws08
+ * world, a clock, a declared registry and agent, an identity. Such a key is worth one world read; any other is held
+ * without one.
+ */
+export function provenanceComplete(p) {
+  return isObj(p) && p.v === 1 && isObj(p.world) && !!str(p.world.world_id) && !!str(p.world.cluster) && !!str(p.clock)
+    && isObj(p.execution) && !!str(p.execution.registry) && !!str(p.execution.agentId) && !!str(p.identity);
+}
 
 function readJson(fs, p) {
   let t;
@@ -44,7 +80,7 @@ function readJson(fs, p) {
  * → {stop: {why, keepPromises?} (never null when anything is unknown), submitted: {keys: [], held: [...], why}, unsent, facts}
  *   `wallet`: the live wallet the resident acts with; its ledger record's agentKey must be it.
  */
-export function readResidentState({ dir, wallet, fs, join = (a, b) => `${a.replace(/\/+$/, '')}/${b}` }) {
+export function readResidentState({ dir, wallet, fs, live = null, join = (a, b) => `${a.replace(/\/+$/, '')}/${b}` }) {
   const unknown = why => ({ stop: { why: 'state-unknown', detail: why }, submitted: { keys: [], held: [], why: `the resident's state is not known: ${why}` }, unsent: null, facts: null });
   if (typeof dir !== 'string' || !dir.startsWith('/')) return unknown('the resident directory is not an absolute path');
   if (!fs || typeof fs.readText !== 'function' || typeof fs.exists !== 'function') return unknown('no file reader supplied');
@@ -86,10 +122,16 @@ export function readResidentState({ dir, wallet, fs, join = (a, b) => `${a.repla
   const action = lines.filter(j => j.port === 'action');
   const mayHaveLeft = action.filter(j => typeof j.sendKey === 'string' && j.sendKey && (['sent', 'unresolved'].includes(j.state) || (j.state === 'intended' && j.lastError === 'Transport')));
   const unsent = action.filter(j => j.state === 'intended' && !(j.lastError === 'Transport' && j.sendKey)).map(j => j.key);
-  const held = mayHaveLeft.map(j => Object.freeze({ key: j.sendKey, line: j.key, state: j.state, submittedBell: Number.isInteger(j.submittedBell) ? j.submittedBell : null }));
+  const keys = [], held = [];
+  for (const j of mayHaveLeft) {
+    const why = provenanceMismatch(j.provenance, live, wallet);
+    if (why) held.push(Object.freeze({ key: j.sendKey, line: j.key, state: j.state, submittedBell: Number.isInteger(j.submittedBell) ? j.submittedBell : null, why,
+      needsLive: !live && provenanceComplete(j.provenance) && j.provenance.identity === wallet }));
+    else keys.push(j.sendKey);
+  }
   return {
     stop,
-    submitted: { keys: [], held: Object.freeze(held), why: held.length ? "the resident's files do not record which world these keys were submitted to (no world, clock or execution port is persisted), so none is read against the live execution port" : 'no submitted key may still be open' },
+    submitted: { keys: Object.freeze(keys), held: Object.freeze(held), why: held.length ? 'keys whose recorded world, clock, execution port or identity does not match the live one (or is not recorded) are not read' : keys.length ? 'every key matches the live frame' : 'no submitted key may still be open' },
     unsent: Object.freeze(unsent),
     facts,
   };
