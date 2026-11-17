@@ -11,7 +11,7 @@
 //      the record's shape are what they were
 //   K2 the run: the context number is taken at the press, BEFORE the first wait (the candidates reading a press with
 //      no selection asks for); a change of viewer, herald or world during that wait ends the press there. Then the
-//      choice object, the world, the herald, the record; `mine` = that choice still stands and the context is the same
+//      choice object and the record; `mine` = that choice still stands and the context is the same
 //   K3 what the confirm shows is written on its own choice and only while it is its own; its end takes off its own busy
 //      mark only, and lets a choice kept across a change of world go
 //   K4 after every wait that a later step follows, a confirm that is no longer its own stops: no Join, no key, no
@@ -22,11 +22,10 @@
 //      still of a signature this send wrote
 //   K7 the ordinary Join: the record is taken in the same stretch, without a wait, as the wallet it is signed with;
 //      written there; a confirm that is no longer its own after the key was derived remembers nothing and sends nothing
-//   K8 a visitor's connect is taken over only on what the page holds: the wallet connected is the one asked for by
-//      name, the page adopted exactly that address, the context number is exactly one past the press (one change of
-//      viewer and no other), herald and world are the same, no NFT is played — asked right after the connect and again
-//      after the read that follows it; and only on the wallet's own choice, not under way, already holding a selection.
-//      Anything less: nothing is sent
+//   K8 (corrected, fail closed) a press made with no wallet ends after the connect it asks for, whatever the connect
+//      did: nothing the connect hands back says which wallet it connected, so the press never goes on to a Join or a
+//      PlaceHome; the wallet stays connected and the person presses again on the page as it then is. A press made
+//      with a wallet is unchanged
 //   K9 unchanged, word for word: local play's Join note and re-check, the PlaceHome note's line, the ordinary re-check,
 //      the key step, what is sent and when
 //   K10 an unknown outcome is never a leave to send again: the note is cleared in the same three places as before
@@ -53,7 +52,7 @@ test('K1 the record of a moment is the existing key and place', () => {
 test('K2 the run and its question', () => {
   order(chc, 'if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;', 'const pressed = contextSeq;', 'await refreshHomes({ force: true });',
     'if (contextSeq !== pressed) return;', 'if (!FS.homeChoice?.selected || FS.homeChoice.busy) return;',
-    'const run = { choice: FS.homeChoice, ctx: pressed, world: providerWorld(), herald, visitor: !FS.wallet, note: homeNoteNow(), sent: new Set() };',
+    'const run = { choice: FS.homeChoice, ctx: pressed, note: homeNoteNow(), sent: new Set() };',
     'run.choice.busy = true; run.choice.error = null;', 'const mine = () => FS.homeChoice === run.choice && contextSeq === run.ctx;', 'try {');
   assert.equal(chc.slice(0, chc.indexOf('const pressed = contextSeq;')).split('await ').length - 1, 0, 'nothing is awaited before the press\'s context is taken');
   // (the context number moves with the viewer, the herald and the world)
@@ -70,7 +69,7 @@ test('K3 what it shows is its own; its end is its own', () => {
 });
 
 test('K4 a confirm that is no longer its own stops before every later step', () => {
-  order(chc, "if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }", 'if (fromConnect ? !takeOver() : !mine()) return;', 'const saved = readHome();');
+  order(chc, "if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }", 'if (!mine()) return;', 'const saved = readHome();');
   // (local play's re-check keeps its own pinned lines; the confirm's question follows them, before anything is cleared)
   order(chc, 'await refresh();', 'if (!still()) return;', 'if (FS.homeGrant) return;', 'if (!mine()) return;', "if (saved.pending.kind === 'Join' && FS.citizen) saveHomePatch({ pending: null });");
   // (after either re-check, before the place is read)
@@ -114,24 +113,22 @@ test('K7 the ordinary Join: the record of the wallet it is signed with', () => {
   assert.ok(ctl.includes('let homeJoinStill = null;'));
 });
 
-test('K8 a visitor\'s connect is taken over only on what the page holds', () => {
-  order(chc, 'let connectedAs = null;',
-    'const connectStands = () => connectedAs !== null && contextSeq === run.ctx + 1 && herald === run.herald && providerWorld() === run.world',
-    '&& !FS.resident && FS.wallet?.address === connectedAs && wallet.connected()?.address === connectedAs;',
-    'const takeOver = () => {', 'const c = FS.homeChoice ?? null;', 'if (!connectStands() || !c || c === run.choice || c.busy || !c.selected) return false;',
-    'run.choice.busy = false; run.choice.pending = null;', 'run.choice = c; run.ctx = contextSeq; run.note = homeNoteNow();', 'c.busy = true; c.error = null;', 'return true;');
-  order(chc, 'let fromConnect = false;', 'if (!FS.wallet) {', 'const asked = FS.walletList[i];', "pending('connecting'); await ACTIONS.connect({ i: String(i) });", 'if (!FS.wallet) return;',
-    'const w = wallet.connected();', 'if (!run.visitor || !w || w.name !== asked?.name || FS.wallet.address !== w.address) return;', 'connectedAs = w.address;',
-    'if (!connectStands()) return;', 'fromConnect = true;',
-    "if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }", 'if (fromConnect ? !takeOver() : !mine()) return;');
-  assert.equal(chc.split('connectedAs = ').length - 1, 2, 'set once, from the wallet the connect left connected');
-  const to = chc.slice(chc.indexOf('let connectedAs = null;'), chc.indexOf('let fromConnect = false;'));
-  assert.doesNotMatch(to, /\.selected = |joinDraft|candidates/, 'nothing of the visitor is carried over');
-  // (what the evidence leans on, as it stands: another viewer lets the visitor's choice go and moves the number once;
-  //  the name is the wallet list's and the connected wallet's own)
-  order(fnOf('function resetViewer('), 'FS.homeChoice = null;', 'FS.joinDraft = null;', 'nextContext();');
-  assert.equal(fnOf('function resetViewer(').split('nextContext();').length - 1, 1);
-  order(fnOf('export function adoptConnectedWallet('), 'FS.wallet = next;', 'resetViewer({ wallet: true });');
+test('K8 a press made with no wallet ends after its connect', () => {
+  order(chc, 'try {', 'if (!FS.wallet) {', 'const i = (FS.walletList ?? []).findIndex(w => !w.why);', "if (i < 0) return error('NoWallet',",
+    "pending('connecting'); await ACTIONS.connect({ i: String(i) });", 'return;', '}',
+    "if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }", 'if (!mine()) return;', 'const saved = readHome();');
+  // (nothing stands between the connect and the end of the press: no condition under which it would go on)
+  const branch = chc.slice(chc.indexOf('if (!FS.wallet) {'), chc.indexOf("if (FS.meStatus !== 'ready') {"));
+  assert.match(branch, /await ACTIONS\.connect\(\{ i: String\(i\) \}\);\n\s+return;\n\s+\}\n\s*$/);
+  assert.equal(branch.split('await ').length - 1, 1);
+  assert.doesNotMatch(chc, /takeOver|connectStands|connectedAs|fromConnect|run\.choice = /, 'the run never moves to another choice');
+  // (so every Join and PlaceHome of a confirm is of a press made with a wallet, on the choice it was pressed on)
+  assert.ok(chc.indexOf('await ACTIONS.join()') > chc.indexOf("if (FS.meStatus !== 'ready') {"));
+  assert.ok(chc.indexOf("await act('PlaceHome'") > chc.indexOf("if (FS.meStatus !== 'ready') {"));
+  // (the connect itself is what it was: it is not undone, and it hands back nothing about the wallet)
+  const conAt = ctl.indexOf('  connect: async d => {'), con = ctl.slice(conAt, ctl.indexOf('\n  },\n', conAt));
+  order(con, 'await wallet.connect(entry,', "} catch (e) { return failed({ code: e.code ?? 'WalletError', text: e.message }); }", 'await syncConnectedWallet({ refreshUnchanged: true });');
+  assert.doesNotMatch(con, /disconnect|return \{|return wallet|return w\b/);
 });
 
 test('K9 unchanged, word for word', () => {
