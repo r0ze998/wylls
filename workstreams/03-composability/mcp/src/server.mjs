@@ -14,6 +14,7 @@ import { LocalReceiptPort, assertReceiptPort, WS04_UNQUERYABLE, readViaOf, ws04A
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
 import { REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
+import { toolNamed, unknownToolText } from './dispatch.mjs';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
 export const SERVER_INFO = Object.freeze({ name: 'wylls-mcp', title: 'Wylls (local test stack)', version: '0.1.0' });
@@ -810,8 +811,9 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       case 'tools/list': return reply({ tools: TOOLS });
       case 'tools/call': {
         const name = msg.params?.name;
-        const fn = tools[name];
-        if (!fn) return error(-32602, `unknown tool ${String(name).slice(0, 40)}`);
+        // Own tool names only: an inherited name (constructor, __proto__, …) or a non-string is an unknown tool (dispatch.mjs).
+        const fn = toolNamed(tools, name);
+        if (!fn) return error(-32602, unknownToolText(name));
         if (!principal) return reply(fail('Unauthenticated', 'connect with OAuth first'));
         if (limited(principal)) return reply(fail('RateLimited', 'too many calls: wait a few seconds'));
         let out;
