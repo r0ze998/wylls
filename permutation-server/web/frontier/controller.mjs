@@ -208,14 +208,19 @@ let prizeReadAt = 0;
 export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   if (!io.relay() || (!force && at - prizeReadAt < PRIZE_REFRESH_MS)) return;
   prizeReadAt = at;
-  const address = FS.wallet?.address ?? null;
+  // (2026-11-17, ⑦: an answer belongs to the wallet, the relay and the pinned world — with its generation, so A → B → A
+  //  are three — it was asked under; one that any of them changed under is not written. A read dropped that way does not
+  //  hold back the next one: the throttle is released for the new wallet, relay or world. Reads only; what is paid,
+  //  claimed or joined is not touched here.)
+  const address = FS.wallet?.address ?? null, relay = io.relay(), world = providerWorld();
+  const current = () => (FS.wallet?.address ?? null) === address && io.relay() === relay && providerWorld() === world;
   const r = await prizeIo.loadPrize(address);
-  if ((FS.wallet?.address ?? null) !== address) return;
+  if (!current()) { if (prizeReadAt === at) prizeReadAt = 0; return; }
   if (!r.ok) return;
   FS.prize = r.pool;
   if (r.pool && r.pool.state !== 'open') {
     const g = await prizeIo.loadLedger();
-    if ((FS.wallet?.address ?? null) !== address) return;
+    if (!current()) { if (prizeReadAt === at) prizeReadAt = 0; return; }
     if (g.ok) FS.prizeLedger = g.ledger;
   }
   invalidate('panel');
@@ -1003,9 +1008,11 @@ async function readMarches() {
   const holding = activeHolding(FS) ?? null, slotsOfMine = mySlots;
   // (round 29: what this reading belongs to; a change of any of it while the reading waits — another herald, world,
   //  instance, village or book — and nothing of this reading is written)
-  const at = { herald, localPlay, instance: localPlay?.march?.instance ?? null, holding: holdingRef(holding), key, scope: marchScope(holding) };
+  //  (2026-11-17, ⑦: and the pinned world with its generation — the book key names cluster, program and Season, but not
+  //  which pinning: a reading started under the first A is not written under the A pinned again after B)
+  const at = { herald, localPlay, instance: localPlay?.march?.instance ?? null, holding: holdingRef(holding), key, scope: marchScope(holding), world: providerWorld() };
   const same = () => herald === at.herald && localPlay === at.localPlay && (localPlay?.march?.instance ?? null) === at.instance
-    && holdingRef(activeHolding(FS) ?? null) === at.holding && bookKey() === at.key;
+    && holdingRef(activeHolding(FS) ?? null) === at.holding && bookKey() === at.key && providerWorld() === at.world;
   // Wave-5 review: a gathered transit carries its destination (FLAG_GATHERED,
   // v1.7), so a card with no local entry still names its region.
   const transits = holding ? holding.transit.map((t, slot) => ({ slot, state: t.state, hostId: t.hostId, arriveBell: t.arriveBell, sealRoot: Buffer2hex(t.sealRoot),
@@ -1398,7 +1405,7 @@ export async function refresh() {
 export const KEEP_EVENT_DAYS = 14;
 
 /** Keep contests and captures of the season (/h/conquest/{day}.json): older days once, today's and yesterday's every refresh. */
-async function refreshKeepEvents(cq, request) {
+async function refreshKeepEvents(cq, current) {
   if (!herald?.conquestDay) return;
   const bell = Math.max(0, Math.min(nowBell(), Number(FS.season.endBell ?? Infinity) - 1));
   const today = Math.floor(bell / BELLS_PER_DAY);
@@ -1406,7 +1413,7 @@ async function refreshKeepEvents(cq, request) {
   for (let d = Math.max(0, today - KEEP_EVENT_DAYS + 1); d <= today; d++) {
     if (read.has(d)) continue;
     const r = await herald.conquestDay(d).catch(() => null);
-    if (request !== conquestRefresh) return;
+    if (!current()) return;
     if (!r?.ok) continue;
     cq.events = mergeKeepEvents(cq.events, r.day.events);
     if (d < today - 1) read.add(d);
@@ -1421,7 +1428,9 @@ export function wantKeepHistory(p, q, onLoad = () => {}) {
   if (!cq || !herald?.keep || !Number.isInteger(p) || !Number.isInteger(q) || keepWanted.has(key) || (cq.history?.get(key)?.asOf ?? -1) >= bell) return false;
   keepWanted.add(key);
   herald.keep(p, q).then(r => {
-    if (FS.conquest !== cq || (!r.ok && r.code !== 'NotFound')) return;
+    // (2026-11-17, ⑦: and only while the world it was asked in is still pinned — FS.conquest is replaced at the next
+    //  refreshConquest after a change, and until then this answer is not written into the former world's state)
+    if (FS.conquest !== cq || (cq.world ?? null) !== providerWorld() || (!r.ok && r.code !== 'NotFound')) return;
     (cq.history ??= new Map()).set(key, r.ok ? { ...r.keep, asOf: bell } : { asOf: bell });
   }).catch(() => null).finally(() => { keepWanted.delete(key); onLoad(); });
   return true;
@@ -1496,11 +1505,14 @@ export const s1Fresh = name => ({
   structures: () => ({ v: 1, structures: [], sightings: [] }),
   nations: () => ({ v: 1, stances: Array.from({ length: 6 }, () => Array(6).fill(0)), proposals: [], expelled: [], domesticRaids: [] }),
 })[name]?.() ?? null;
-async function refreshS1(request) {
-  const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null };
+async function refreshS1(current, world) {
+  // (2026-11-17, ⑦: the feeds read in another pinned world — or another pinning of the same one — are not kept: a failure
+  //  or NotFound here would otherwise leave that world's caravans, structures and nations standing as this one's)
+  if (FS.s1 && (FS.s1.world ?? null) !== world) FS.s1 = undefined;
+  const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null, world };
   const names = ['caravans', 'structures', 'nations'];
   const results = await Promise.allSettled(names.map(n => herald[n]()));
-  if (request !== conquestRefresh) return;
+  if (!current()) return;
   s1.error = null;
   names.forEach((n, i) => {
     const r = results[i].status === 'fulfilled' ? results[i].value : null;
@@ -1519,10 +1531,17 @@ async function refreshS1(request) {
 export async function refreshConquest() {
   if (!conquestEnabled(FS.season) || !herald?.control) return;
   const request=++conquestRefresh;
-  const cq = FS.conquest ??= { status: 'loading', keeps: new Map(), standings: null, final: null };
+  // (2026-11-17, ⑦: a refresh belongs to its request and to the pinned world with its generation — fchainio.setPin: A → B →
+  //  A are three. The herald object can stay the same across a re-pin, so the request number alone does not see it.
+  //  What was read under another world — keeps, standings, the final, the day files read, the keep histories — is not
+  //  this world's: FS.conquest starts again, as loading, and an answer the change overtakes writes nothing.)
+  const world = providerWorld();
+  const current = () => request === conquestRefresh && providerWorld() === world;
+  if (FS.conquest && (FS.conquest.world ?? null) !== world) FS.conquest = undefined;
+  const cq = FS.conquest ??= { status: 'loading', keeps: new Map(), standings: null, final: null, world };
   await refreshOverviews(nowBell());
   const results = await Promise.allSettled([herald.control(), herald.standings()]);
-  if (request!==conquestRefresh) return;
+  if (!current()) return;
   const control = results[0].status === 'fulfilled' ? results[0].value : null;
   const standings = results[1].status === 'fulfilled' ? results[1].value : null;
   if (control?.ok) {
@@ -1550,7 +1569,7 @@ export async function refreshConquest() {
     const next = territoryStandings(standings.standings);
     if (next && next.bell >= (cq.standings?.bell ?? -1)) cq.standings = next;
   }
-  if (s1On()) await refreshS1(request);
+  if (s1On()) await refreshS1(current, world);
   // A control snapshot has a world bell, while a quiet province can have an
   // older resolvedNext. Read its actual keep after the summary: comparing
   // those different clocks would otherwise hide protection and disable it forever.
@@ -1558,16 +1577,16 @@ export async function refreshConquest() {
   if (selected) await loadEnvelope(selected.p,selected.q).catch(()=>null);
   // what was read so far is shown even when a newer refresh has started: a superseded one must not leave the panel waiting
   invalidate('map','panel','rail');
-  if (request!==conquestRefresh) return;
+  if (!current()) return;
   if (selected) wantKeepHistory(selected.p, selected.q, () => invalidate('panel'));
-  await refreshKeepEvents(cq, request);
-  if (request!==conquestRefresh) return;
+  await refreshKeepEvents(cq, current);
+  if (!current()) return;
   const s = FS.selected, pv = s && FS.provinces.get(`${s.p},${s.q}`)?.province;
   const site = pv && Number.isInteger(s.idx) ? pv.sites.indexOf(s.idx) : -1;
   cq.outpost = site >= 0 ? outpostOffer(FS,{p:s.p,q:s.q,site}) : null;
   if (nowBell() >= FS.season.endBell && !cq.final && herald.final) {
     const r = await herald.final();
-    if (request!==conquestRefresh) return;
+    if (!current()) return;
     if (r.ok && Number(r.final.endBell) === FS.season.endBell && r.final.control?.bell === FS.season.endBell-1 && r.final.standings?.bell === FS.season.endBell-1) cq.final = territoryStandings(r.final.standings);
   }
   invalidate('map','panel','rail');
