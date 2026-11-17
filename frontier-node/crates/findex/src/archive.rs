@@ -38,6 +38,13 @@
 //! loses at most one interval of records, which the source re-delivers.
 //! (The first smoke run: one `F_FULLFSYNC` per record — macOS's
 //! `sync_data` — held the herald's ingest minutes behind a busy chain.)
+//!
+//! **The directory sync (2026-11-17).** A manifest write ends with a sync of the archive directory: it is what makes
+//! the rename, and the directory entry of a segment created by a roll, survive a power loss. Its failure (the
+//! directory cannot be opened or synced) is now returned as an error, as every other step's is, instead of being
+//! ignored: an append or commit no longer reports durable what the system did not confirm. Nothing is undone or
+//! deleted for it; [`crate::Findex`] and [`crate::wide_store`] already stop on any archive error (reopen required),
+//! and [`Archive::open`]'s recovery is unchanged.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
@@ -253,6 +260,13 @@ pub struct Archive {
     codec: Codec,
     /// The most one frame's payload may decode to (with a codec, enforced on write and on read).
     frame_max: usize,
+    /// Syncs the archive directory after a manifest rename (module note); [`sync_dir`] outside this module's tests.
+    sync_dir: fn(&Path) -> io::Result<()>,
+}
+
+/// Opens and syncs a directory: its entries (a rename, a new file) reach the disk. Every failure is returned.
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    File::open(dir)?.sync_all()
 }
 
 impl Archive {
@@ -330,6 +344,7 @@ impl Archive {
             dirty: false,
             codec,
             frame_max: FRAME_DECODE_MAX,
+            sync_dir,
         };
         a.write_manifest()?;
         Ok(a)
@@ -345,9 +360,13 @@ impl Archive {
         f.write_all(&serde_json::to_vec_pretty(&m).map_err(io_err)?)?;
         f.sync_all()?;
         fs::rename(&tmp, self.dir.join("manifest.json"))?;
-        if let Ok(d) = File::open(&self.dir) {
-            let _ = d.sync_all();
-        }
+        // Not confirmed is not durable: the error is the caller's to see (module note: the directory sync).
+        (self.sync_dir)(&self.dir).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("manifest renamed, but the archive directory sync was not confirmed: {e}"),
+            )
+        })?;
         Ok(())
     }
 
@@ -839,5 +858,83 @@ mod tests {
         fs::write(&seg, &bytes[..10]).unwrap();
         assert!(Archive::open(&d, SEGMENT_BYTES).is_err());
         let _ = fs::remove_dir_all(&d);
+    }
+
+    // (2026-11-17, WRITTEN ONLY: not run) The directory sync's failure is an error, never a durable append.
+
+    /// A root these tests created themselves (`create_dir`: never an existing one), removed only by its owner, also
+    /// when an assertion unwinds.
+    struct OwnedRoot(PathBuf);
+    impl Drop for OwnedRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fn owned_root(name: &str) -> OwnedRoot {
+        let d = std::env::temp_dir().join(format!(
+            "findex-dirsync-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        if let Err(e) = fs::create_dir(&d) {
+            panic!("the test root must be new; {} was not created ({e}) and is left as it is", d.display());
+        }
+        OwnedRoot(d)
+    }
+    fn dir_sync_fails(_: &Path) -> io::Result<()> {
+        Err(io::Error::other("injected: the directory could not be synced"))
+    }
+
+    /// Default (every append commits): the batch's frames are synced and the manifest renamed, but the directory
+    /// sync fails. The append is an error (not "durable"), it stays uncommitted, and nothing is undone or deleted: a
+    /// reopen reads the archive as it is on disk and verifies it.
+    #[test]
+    fn a_failed_directory_sync_makes_the_append_an_error_and_deletes_nothing() {
+        let root = owned_root("append");
+        let d = root.0.join("archive");
+        let recs: Vec<TxRecord> = (1..=4).map(rec).collect();
+        let mut a = Archive::open(&d, 600_000).unwrap();
+        a.append(&recs[..2], json!({"after": 2})).unwrap();
+        assert!(!a.uncommitted());
+        a.sync_dir = dir_sync_fails;
+        let e = a.append(&recs[2..], json!({"after": 4})).unwrap_err();
+        assert!(e.to_string().contains("directory sync was not confirmed"), "{e}");
+        assert!(e.to_string().contains("injected"), "the cause is kept: {e}");
+        assert!(a.uncommitted(), "not reported durable");
+        drop(a);
+        // What a reopen finds is the files as they are (here the renamed manifest is still the one the directory
+        // shows); open() recovers by its unchanged rules and removes nothing it names.
+        let b = Archive::open(&d, 600_000).unwrap();
+        assert_eq!(b.verify(), Ok(b.last_seq()));
+        assert!(b.last_seq() >= 2, "the committed batch is still there");
+        assert_eq!(b.read_after(0).unwrap().len() as u64, b.last_seq());
+    }
+
+    /// Group commit: a commit whose directory sync fails is an error and leaves the appends uncommitted; the frames
+    /// were already synced, so a later commit with the sync working completes it (the archive itself never claims
+    /// success in between). Findex and WideStore stop at the first error instead (reopen required); unchanged.
+    #[test]
+    fn a_failed_directory_sync_makes_the_commit_an_error_and_keeps_it_pending() {
+        let root = owned_root("commit");
+        let d = root.0.join("archive");
+        let recs: Vec<TxRecord> = (1..=3).map(rec).collect();
+        let mut a = Archive::open(&d, 600_000).unwrap();
+        a.commit_every = std::time::Duration::from_secs(3_600);
+        a.append(&recs, json!({"after": 3})).unwrap();
+        assert!(a.uncommitted());
+        a.sync_dir = dir_sync_fails;
+        let e = a.commit().unwrap_err();
+        assert!(e.to_string().contains("directory sync was not confirmed"), "{e}");
+        assert!(a.uncommitted(), "still pending after the failed commit");
+        a.sync_dir = sync_dir;
+        a.commit().unwrap();
+        assert!(!a.uncommitted());
+        drop(a);
+        let b = Archive::open(&d, 600_000).unwrap();
+        assert_eq!(b.verify(), Ok(3));
+        assert_eq!(b.cursor(), &json!({"after": 3}));
     }
 }
