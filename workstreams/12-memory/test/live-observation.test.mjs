@@ -1,5 +1,9 @@
 // Workstream 12's live observation (adapters/live-observation.mjs), with every request stubbed (2026-11-16).
-// SOURCE-ONLY when written: not run in the session that wrote it. Not listed in tools/keyfree-tests.txt yet.
+// SOURCE-ONLY when first written (2026-11-16): not run in the session that wrote it. The `full`-shape tests below
+// (2026-11-17) were written without being run by their author; the coordinator then ran this single file with the
+// nokey preload (tools/nokey-guard.mjs): 11 passed, 0 failed, 0 skipped (Node v23.11.0). The command and result are
+// recorded in docs/integration/CLAUDE-WS12-EVENT-PAGE-SHAPE-20261117.md.
+// Its listing in tools/keyfree-tests.txt was not checked or changed by that edit.
 // No network: io.getJson / io.rpc are stubs that record what would have been asked. No file: io.readStore returns a
 // store built from fixtures/ws04-receipts (the shape readWs04Store returns). No key is made, nothing is signed.
 import test from 'node:test';
@@ -140,6 +144,42 @@ test('the herald\'s answers: a missing Season is no world; a page limit or a sta
     const r = await readHerald({ base: HERALD, getJson: async u => (u.includes('/h/events') ? { ok: true, body: bad } : { ok: true, body: SEASON }) });
     assert.ok(r.why.includes('events_malformed'));
   }
+});
+
+test('a page whose `full` is not a boolean (missing, null, string, number) is malformed: never a complete clock, nothing taken in', async () => {
+  const { full: _drop, ...noFull } = { v: 1, events: EVENT_ROWS, next: '4', full: false };
+  const badFirst = [['missing', noFull], ['null', { ...noFull, full: null }], ['string', { ...noFull, full: 'true' }], ['number', { ...noFull, full: 1 }]];
+  const receiptCount = storeOf(['happy', 'raid']).receipts.length;
+  assert.ok(receiptCount > 0);
+  const firstValid = { v: 1, events: EVENT_ROWS.slice(0, 2), next: '2', full: true };
+  for (const [label, bad] of badFirst) {
+    // directly: the first page alone
+    const r = await readHerald({ base: HERALD, getJson: async u => ({ ok: true, body: u.includes('/h/events') ? bad : SEASON }) });
+    assert.ok(r.why.includes('events_malformed'), `${label}: ${r.why}`);
+    assert.equal(r.eventsComplete, false, label); assert.equal(r.eventPages, 0, label); assert.deepEqual(r.events, [], label);
+    assert.ok(!r.why.includes('events_page_limit'), label);
+    // directly: a valid full=true page, then a second page with the bad `full`
+    const second = { ...bad, events: EVENT_ROWS.slice(2) };
+    const r2 = await readHerald({ base: HERALD, getJson: async u => ({ ok: true, body: !u.includes('/h/events') ? SEASON : u.endsWith('after=0') ? firstValid : second }) });
+    assert.ok(r2.why.includes('events_malformed'), `${label} second: ${r2.why}`);
+    assert.equal(r2.eventsComplete, false, `${label} second`); assert.equal(r2.eventPages, 1, `${label} second`);
+    // end to end: every receipt held, nothing ingested, no journal record, no provenance
+    for (const [where, pages] of [['first', [bad]], ['second', [firstValid, second]]]) {
+      const { o } = await observe({}, { pages });
+      const tag = `${label} ${where}`;
+      assert.ok(o.reasons.includes('events_malformed'), `${tag}: ${o.reasons}`);
+      assert.ok(o.reasons.includes('herald_events_incomplete'), tag);
+      assert.equal(o.status, 'held', tag); assert.equal(o.inputs.eventsComplete, false, tag);
+      assert.equal(o.held.length, receiptCount, `${tag}: every receipt held`);
+      assert.ok(o.held.every(h => h.why === 'herald_events_incomplete'), tag);
+      assert.equal(o.ingest, undefined, tag); assert.equal(o.provenance, null, tag);
+      assert.equal(o.memory.journal.records().length, 0, `${tag}: the memory took in nothing`);
+    }
+  }
+  // a boolean `full` still pages as before: true, then false, is complete
+  const flow = await observe({}, { pages: [firstValid, { v: 1, events: EVENT_ROWS.slice(2), next: '4', full: false }] });
+  assert.equal(flow.o.inputs.eventPages, 2); assert.equal(flow.o.inputs.eventsComplete, true);
+  assert.ok(!flow.o.reasons.includes('events_malformed')); assert.equal(flow.o.status, 'ok'); assert.notEqual(flow.o.provenance, null);
 });
 
 test('pagination that repeats, goes back, skips, mislabels `next` or fails midway holds every receipt; nothing is read as "no record"', async () => {
