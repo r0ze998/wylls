@@ -48,6 +48,12 @@ test('the words cover exactly the outcomes chain.mjs sendOutcome returns; landed
   assert.deepEqual(Object.keys(OUTCOME_JA).sort(), statuses);
   assert.match(OUTCOME_JA.landed, /到着ではない/);
   assert.match(OUTCOME_JA.unknown, /送っていないとは言わない/);
+  // (second tip) expired is only what sendOutcome saw: the transaction not visible now and its blockhash no longer valid.
+  // It cannot land from now on; it says nothing about whether goods moved before
+  assert.doesNotMatch(OUTCOME_JA.expired, /物は動いていない|送っていない|無かった/);
+  assert.match(OUTCOME_JA.expired, /これから着地しない/);
+  assert.match(OUTCOME_JA.expired, /過去に物が動いたかは、これだけでは言えない/);
+  assert.match(chain.slice(chain.indexOf('export async function sendOutcome(')), /if \(await reader\.blockhashValid\(evidence\.blockhash\) === false\) return \{ status: 'expired'/, 'the evidence it names');
 });
 
 const ui = readFileSync(new URL('../coop/coop-ui.mjs', import.meta.url), 'utf8');

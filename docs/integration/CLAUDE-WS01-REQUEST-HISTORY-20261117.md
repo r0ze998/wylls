@@ -1,6 +1,9 @@
 # ①'s board page: each request keeps its saved sends, arrivals and counts, whatever its state (2026-11-17)
 
-**Branch:** `claude/ws01-request-history-20261117`, one commit **on `ddab4ea2`** (the board-composition unit, unchanged).
+**Branch:** `claude/ws01-request-history-20261117` **on `ddab4ea2`** (the board-composition unit, unchanged).
+- `e290eb68` is the first tip.
+- The correction (the second tip) is on top of it.
+- **Adopt the final tip only.**
 
 **Adoption:** take this unit's own diff `ddab4ea2..<this tip>`, after `81b07cee..ddab4ea2`.
 
@@ -41,6 +44,15 @@
   - signing and authorization;
   - the five-panel apply and rollback, and the viewer and world boundaries (the same applied view is drawn).
 
+## Correction (second tip): the parent's review of `e290eb68`
+
+**Do not adopt `e290eb68` alone.**
+
+- **The defect:** `OUTCOME_JA.expired` said "期限が切れた（もう着地しない。物は動いていない）". The evidence (`chain.mjs` `sendOutcome`) is only that the sender's transaction is not visible now and `blockhashValid(blockhash) === false`. That means it cannot land from now on. **It is not evidence that nothing moved before, or that there was no transaction.**
+- **Now:** "自分の取引はいま見えず、その blockhash はもう有効でない（この取引はこれから着地しない。過去に物が動いたかは、これだけでは言えない）".
+- **Unchanged:** the other five words, the send, re-send and retry rules, and the producer's classification.
+- **Regression (written, NOT run):** `expired` claims no past non-movement and names "これから着地しない"; the evidence line in `sendOutcome` is pinned.
+
 ## Regression (written, NOT run): `workstreams/01-national-strategy/test/coop.request-history.test.mjs` (new)
 
 - **A closed (expired) request:**
@@ -62,7 +74,7 @@
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws01-request-history-20261117`, one commit on `ddab4ea2`, all `100644`:
+**Unit:** `claude/ws01-request-history-20261117`, two commits on `ddab4ea2` (`e290eb68`, then the correction). Take the final tip's diff from `ddab4ea2`, all `100644`:
 - `workstreams/01-national-strategy/coop/history.mjs` (A)
 - `workstreams/01-national-strategy/coop/coop-ui.mjs` (M)
 - `workstreams/01-national-strategy/coop/index.html` (M)
