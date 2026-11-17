@@ -36,6 +36,13 @@
 //! allowed. Nothing in this repository makes such links (no writer, backup or restore step). On other systems the link
 //! count is not read, and this check is not made.
 //!
+//! **Structure (2026-11-17).** What every manifest this writer writes says of itself, checked on its numbers when it
+//! is read (before any recovery write): `segment_bytes` at least 1; the first segment starts at sequence 1 and each
+//! next one right after the previous one's last; each segment's `records` is `last_seq - first_seq + 1` (0 only with
+//! `bytes` 0, as a roll creates it); `bytes` at least one frame head per record; `next_seq` one past the last segment
+//! (1 when there is none). Frames are not read here: a damaged frame is still found by the reads and
+//! [`Archive::verify`], as before.
+//!
 //! **Codec (round 13, TEST-ONLY, a new archive only).** [`Archive::open_with`] with [`Codec::GzipV1`] stores each
 //! frame's payload gzip-compressed (the frame's length and sha256 prefix are those of the STORED bytes, so the frame
 //! check, the torn-tail truncation and the sealed segments' sha256 work as before) and records `"codec": "gzip-v1"` in
@@ -152,14 +159,53 @@ impl Manifest {
                 sha256: s.get("sha256").and_then(|x| x.as_str()).map(String::from),
             });
         }
+        let segment_bytes = u(v, "segment_bytes")?;
+        let next_seq = u(v, "next_seq")?;
+        check_structure(segment_bytes, &segments, next_seq)?;
         Ok(Manifest {
             version,
-            segment_bytes: u(v, "segment_bytes")?,
+            segment_bytes,
             segments,
-            next_seq: u(v, "next_seq")?,
+            next_seq,
             cursor: v.get("cursor").cloned().unwrap_or(Value::Null),
         })
     }
+}
+
+/// What every manifest this writer writes says of itself (module note: structure), checked on the numbers alone,
+/// before [`Archive::open`] truncates, removes or writes anything. A manifest that contradicts it is refused.
+fn check_structure(segment_bytes: u64, segments: &[SegmentMeta], next_seq: u64) -> Result<(), String> {
+    let refuse = |m: String| Err(format!("manifest: {m}: refused, nothing opened or changed"));
+    if segment_bytes == 0 {
+        return refuse("segment_bytes is 0 (the writer keeps it at least 1)".into());
+    }
+    // the next sequence each segment must start at: 1, then one past the previous segment's last
+    let mut expect: u64 = 1;
+    for s in segments {
+        if s.first_seq != expect {
+            return refuse(format!("{} starts at sequence {}, not {expect}", s.name, s.first_seq));
+        }
+        // records = last_seq - first_seq + 1, written without subtraction (an empty segment: last = first - 1)
+        let Some(end) = s.first_seq.checked_add(s.records) else {
+            return refuse(format!("{} first_seq + records overflows", s.name));
+        };
+        if s.last_seq.checked_add(1) != Some(end) {
+            return refuse(format!(
+                "{} names sequences {}..={} but {} records",
+                s.name, s.first_seq, s.last_seq, s.records
+            ));
+        }
+        // a frame is at least its head; no records, no bytes
+        let least = s.records.checked_mul(FRAME_HEAD as u64);
+        if (s.records == 0) != (s.bytes == 0) || least.is_none_or(|l| s.bytes < l) {
+            return refuse(format!("{} has {} records in {} B", s.name, s.records, s.bytes));
+        }
+        expect = end;
+    }
+    if next_seq != expect {
+        return refuse(format!("next_seq is {next_seq}, the segments end before {expect}"));
+    }
+    Ok(())
 }
 
 /// How many names a file has beyond the one it was reached by, when more than none: `Some(n)`. On Unix from the link
@@ -904,6 +950,105 @@ mod tests {
         fs::remove_dir(&seg).unwrap();
         fs::write(&seg, &kept).unwrap();
         assert_eq!(Archive::open(&d, 600_000).unwrap().verify(), Ok(2));
+    }
+
+    // (2026-11-17, WRITTEN ONLY: not run) Structure: a manifest whose numbers contradict each other is refused
+    // before anything is changed; every state the writer leaves still opens.
+
+    /// Edits the test's own manifest file with `f`.
+    fn edit_manifest(d: &Path, f: impl FnOnce(&mut Value)) {
+        let mp = d.join("manifest.json");
+        let mut m: Value = serde_json::from_slice(&fs::read(&mp).unwrap()).unwrap();
+        f(&mut m);
+        fs::write(&mp, serde_json::to_vec_pretty(&m).unwrap()).unwrap();
+    }
+
+    /// One manifest edit of the table below, boxed as one type.
+    fn case(f: impl Fn(&mut Value) + 'static) -> Box<dyn Fn(&mut Value)> {
+        Box::new(f)
+    }
+
+    #[test]
+    fn every_state_the_writer_leaves_still_opens() {
+        let root = segname_root("structure-ok");
+        // empty: opened and reopened with no record
+        let e = root.0.join("empty");
+        drop(Archive::open(&e, 600).unwrap());
+        assert_eq!(Archive::open(&e, 600).unwrap().last_seq(), 0);
+        // rolled into several segments, plus an empty batch (cursor only)
+        let d = root.0.join("rolled");
+        let mut a = Archive::open(&d, 600).unwrap();
+        let recs: Vec<TxRecord> = (1..=12).map(rec).collect();
+        a.append(&recs[..9], json!({"after": 9})).unwrap();
+        a.append(&[], json!({"after": 9, "empty": true})).unwrap();
+        assert!(a.manifest.segments.len() >= 3);
+        drop(a);
+        // group commit pending, then a "crash": the durable manifest is the last committed one
+        let mut b = Archive::open(&d, 600).unwrap();
+        b.commit_every = std::time::Duration::from_secs(3_600);
+        b.append(&recs[9..], json!({"after": 12})).unwrap();
+        assert!(b.uncommitted());
+        drop(b);
+        let c = Archive::open(&d, 600).unwrap();
+        assert_eq!(c.verify(), Ok(9));
+        assert_eq!(c.manifest.next_seq, 10);
+    }
+
+    #[test]
+    fn a_manifest_whose_numbers_contradict_each_other_is_refused_and_nothing_changes() {
+        let root = segname_root("structure-bad");
+        let d = root.0.join("archive");
+        let mut a = Archive::open(&d, 600).unwrap();
+        let recs: Vec<TxRecord> = (1..=9).map(rec).collect();
+        a.append(&recs, json!({"after": 9})).unwrap();
+        let n = a.manifest.segments.len();
+        assert!(n >= 3, "600-B segments roll");
+        drop(a);
+        let good = fs::read(d.join("manifest.json")).unwrap();
+        let last = n - 1;
+        let cases: Vec<(&str, Box<dyn Fn(&mut Value)>)> = vec![
+            // the open segment says it has records but no bytes: open would have truncated it to 0
+            ("records without bytes", case(move |m: &mut Value| m["segments"][last]["bytes"] = json!(0))),
+            ("bytes without records", case(move |m: &mut Value| {
+                m["segments"][last]["records"] = json!(0);
+                m["segments"][last]["last_seq"] = m["segments"][last]["first_seq"].as_u64().map(|f| json!(f - 1)).unwrap();
+            })),
+            ("fewer bytes than frame heads", case(move |m: &mut Value| m["segments"][last]["bytes"] = json!(1))),
+            ("sequence 0", case(|m: &mut Value| {
+                m["segments"][0]["first_seq"] = json!(0);
+            })),
+            ("a range longer than its records", case(|m: &mut Value| {
+                let (f, r) = (m["segments"][0]["first_seq"].as_u64().unwrap(), m["segments"][0]["records"].as_u64().unwrap());
+                m["segments"][0]["last_seq"] = json!(f + r + 3);
+            })),
+            ("a range turned round", case(|m: &mut Value| m["segments"][0]["last_seq"] = json!(0))),
+            ("a gap between segments", case(|m: &mut Value| {
+                let f = m["segments"][1]["first_seq"].as_u64().unwrap();
+                m["segments"][1]["first_seq"] = json!(f + 1);
+            })),
+            ("an overlap between segments", case(|m: &mut Value| {
+                let f = m["segments"][1]["first_seq"].as_u64().unwrap();
+                m["segments"][1]["first_seq"] = json!(f - 1);
+            })),
+            ("next_seq behind", case(|m: &mut Value| m["next_seq"] = json!(m["next_seq"].as_u64().unwrap() - 1))),
+            ("next_seq ahead", case(|m: &mut Value| m["next_seq"] = json!(m["next_seq"].as_u64().unwrap() + 1))),
+            ("segment_bytes 0", case(|m: &mut Value| m["segment_bytes"] = json!(0))),
+            ("an overflowing range", case(move |m: &mut Value| {
+                m["segments"][last]["records"] = json!(u64::MAX);
+                m["segments"][last]["last_seq"] = json!(u64::MAX);
+            })),
+        ];
+        for (what, f) in cases {
+            fs::write(d.join("manifest.json"), &good).unwrap();
+            edit_manifest(&d, |m| f(m));
+            let before = snapshot(&d);
+            let e = Archive::open(&d, 600).err().unwrap_or_else(|| panic!("{what}: opened"));
+            assert!(e.to_string().contains("refused"), "{what}: {e}");
+            assert_eq!(snapshot(&d), before, "{what}: nothing truncated, removed or rewritten");
+        }
+        // the writer's own manifest back (the test's own fixture): it opens and verifies
+        fs::write(d.join("manifest.json"), &good).unwrap();
+        assert_eq!(Archive::open(&d, 600).unwrap().verify(), Ok(9));
     }
 
     // (2026-11-17, WRITTEN ONLY: not run) Hard links to the files the archive writes into.
