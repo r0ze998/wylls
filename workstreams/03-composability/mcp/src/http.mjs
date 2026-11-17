@@ -122,7 +122,12 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
   const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent', 'POST /owner/statement', 'POST /owner/operations', 'POST /link/revoke/statement', 'POST /link/revoke']);
 
   return async function handler(req, res) {
-    const url = new URL(req.url, auth.issuer);
+    // (2026-11-17) The request target is parsed before the try below, and this handler's promise is not awaited by
+    // node:http: a target the URL parser refuses (an absolute form with a bad host or port, `//[`, …) used to reject it
+    // unhandled, which ends the process under Node's default. It is answered 400 here instead; nothing of the target is
+    // logged or echoed.
+    let url;
+    try { url = new URL(req.url, auth.issuer); } catch { return send(res, 400, { error: 'invalid_request', error_description: 'the request target could not be parsed' }); }
     const route = `${req.method} ${url.pathname}`;
     try {
       if (!originOk(req)) return send(res, 403, { error: 'forbidden', error_description: 'origin not allowed' });
