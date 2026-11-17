@@ -494,14 +494,15 @@ export function renderS1Tile(FS, sel) {
 const watches = new WeakMap();
 /**
  * (2026-11-17, ⑦) How the three S1 feeds behind this card were read (controller refreshS1 `FS.s1.read`), each as
- * 'ok' (read, or the herald has no file: an empty feed), 'stale' (the latest read failed; what is shown was read
- * before), 'unreadFailed' (the latest read failed and nothing is held) or 'unread' (not read yet). A feed that is not
+ * 'ok' (read now, or the herald has no file and nothing was read before: an empty feed), 'stale' (the latest read
+ * failed; what is shown was read before), 'staleMissing' (corrected 2026-11-17: the herald has no file NOW and a list
+ * read before is kept — it is not the latest read's, and is not said as if it were), 'unreadFailed' (the latest read failed and nothing is held) or 'unread' (not read yet). A feed that is not
  * read is NOT an empty feed: "no caravans", "no storehouses", "no council" are said only of a feed that was read.
  * `reread`: the person's own re-read (controller rereadS1) — 'loading', 'failed' (it could not be made at all) or null.
  */
 export function s1ReadState(FS) {
   const s1 = FS.s1 ?? null;
-  const feed = n => { const held = !!s1 && s1[n] !== null && s1[n] !== undefined, failed = s1?.read?.[n] === 'failed'; return held ? (failed ? 'stale' : 'ok') : failed ? 'unreadFailed' : 'unread'; };
+  const feed = n => { const held = !!s1 && s1[n] !== null && s1[n] !== undefined, mark = s1?.read?.[n]; return held ? (mark === 'failed' ? 'stale' : mark === 'missingKept' ? 'staleMissing' : 'ok') : mark === 'failed' ? 'unreadFailed' : 'unread'; };
   const feeds = { caravans: feed('caravans'), structures: feed('structures'), nations: feed('nations') };
   return { ...feeds, any: Object.values(feeds).some(x => x !== 'ok'), reread: FS.s1Reread?.state ?? null, can: FS.mode === 'play' };
 }
@@ -513,6 +514,7 @@ export function renderS1Read(FS) {
     const name = FEED_NAME[n]();
     if (r[n] === 'unread') lines.push(html`<p class="muted" role="status" data-feed="${n}">${L`${name}を、まだ読めていません。ないという意味ではありません。`}</p>`);
     else if (r[n] === 'unreadFailed') lines.push(html`<p class="notice error" role="alert" data-feed="${n}">${L`${name}を読み込めませんでした。ないという意味ではありません。`}</p>`);
+    else if (r[n] === 'staleMissing') lines.push(html`<p class="notice error" role="status" data-feed="${n}">${L`${name}は、最新の読み込みでは見つかりませんでした。下に出ているのは、前に読めたものです。いまもそのとおりかどうかは、分かりません。`}</p>`);
     else if (r[n] === 'stale') lines.push(html`<p class="notice error" role="status" data-feed="${n}">${L`${name}の最新の読み込みに失敗しています。下に出ているのは、最後に読めたものです。`}</p>`);
   }
   if (r.reread === 'loading') lines.push(html`<p class="muted" role="status">${L`一覧を読み直しています…`}</p>`);

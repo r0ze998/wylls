@@ -1744,4 +1744,5 @@ export default {
   '貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。': 'The list of storehouses is not loaded yet, so the places to send to are not all here.',
   '隊商の出発': 'A caravan setting out',
   '要塞への槍兵': 'Spearmen into the fort',
+  '{0}は、最新の読み込みでは見つかりませんでした。下に出ているのは、前に読めたものです。いまもそのとおりかどうかは、分かりません。': '{0}: not found in the latest load. What is shown below was loaded before. Whether it still holds is not known.',
 };

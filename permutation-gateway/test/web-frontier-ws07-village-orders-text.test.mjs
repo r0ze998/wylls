@@ -43,7 +43,9 @@ test('O1 the lifecycle records this reads are the controller\'s own', () => {
   assert.ok(ctl.includes("const rec = { ...o, ...extra, state: ok ? 'accepted' : 'refused' };"));
   assert.ok(ctl.includes("const rec = { ...o, state: 'unconfirmed', sent: true, signature, code: 'LocalActUnconfirmed' };"));
   assert.ok(ctl.includes("const early = r => { orderAnswered(order, false, { code: r.code, sent: false }); return failed(r); };"));
-  assert.ok(ctl.includes("if (!fxDone) { fxEmit('action:refused', fxa); orderAnswered(order, false, { code, sent }); }"));
+  // (both shapes: this base's, and the one of main's order chain — adopted in the aggregate — where an ordinary-path
+  //  unknown outcome is recorded 'unconfirmed' with the tracker's code and is not answered as refused)
+  assert.match(ctl, /if \(!fxDone\) \{ fxEmit\('action:refused', fxa\); (if \(!unconfirmed\) )?orderAnswered\(order, false, \{ code, sent \}\); \}/);
   assert.ok(play.includes("return answered ? { ok: false, state: 'unknown', code: 'Unconfirmed' } : { ok: false, state: 'unqueryable', code: 'TxUnqueryable' };"));
   assert.ok(vo.includes("export const UNKNOWN_OUTCOME_CODES = Object.freeze(['Unconfirmed', 'TxUnqueryable']);"));
 });

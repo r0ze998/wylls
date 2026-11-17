@@ -1817,7 +1817,7 @@ export const s1Fresh = name => ({
 })[name]?.() ?? null;
 /** The number of the last read of the S1 feeds that began (refreshS1): the read that began last is the one applied. */
 let s1Ask = 0;
-async function refreshS1(current, world) {
+async function refreshS1(current, world, { caravanProvinces = true } = {}) {
   // (2026-11-17, ⑦: the feeds read in another pinned world — or another pinning of the same one — are not kept: a failure
   //  or NotFound here would otherwise leave that world's caravans, structures and nations standing as this one's)
   if (FS.s1 && (FS.s1.world ?? null) !== world) FS.s1 = undefined;
@@ -1831,16 +1831,23 @@ async function refreshS1(current, world) {
   if (!current()) return;
   if (ask !== s1Ask || FS.s1 !== s1) return;
   s1.error = null;
-  // (how each feed's latest read went, for the card: 'ok', 'missing' (the herald has no file: an empty feed stands, as
-  //  before) or 'failed' — a feed that failed keeps what was read before, or stays not read)
+  // (how each feed's latest read went, for the card — the DATA kept is what it always was; only where it came from is
+  //  marked: 'ok' (read now); 'missing' (the herald has no file and nothing was read before: the empty feed stands, as
+  //  before); 'missingKept' (the herald has no file NOW, and a list read before is kept as it was — `??=` below never
+  //  replaced it: that list is not this read's); 'failed' (keeps what was read before, or stays not read).
+  //  `s1.fresh[n]`: the feed held is the empty one a NotFound stood up, not a list that was read.)
   s1.read = {};
+  const fresh = s1.fresh ??= {};
   names.forEach((n, i) => {
     const r = results[i].status === 'fulfilled' ? results[i].value : null;
-    if (r?.ok) { s1[n] = r[n]; s1.read[n] = 'ok'; }
-    else if (r?.code === 'NotFound') { s1[n] ??= s1Fresh(n); s1.read[n] = 'missing'; }
+    if (r?.ok) { s1[n] = r[n]; fresh[n] = false; s1.read[n] = 'ok'; }
+    else if (r?.code === 'NotFound') { const kept = s1[n] !== null && s1[n] !== undefined && fresh[n] !== true; s1[n] ??= s1Fresh(n); if (!kept) fresh[n] = true; s1.read[n] = kept ? 'missingKept' : 'missing'; }
     else { s1.error = L`隊商・構造物・国家の最新情報を取得できませんでした。`; s1.read[n] = 'failed'; }
   });
   // the Provinces the viewer's own caravans stand in: their slots say whether a raid holds one (map/s1marks heldByRaids)
+  // (not from the person's own re-read — rereadS1 —, which reads the three feeds and nothing more: these province reads
+  //  are the regular load's, with the map's own waits and places)
+  if (!caravanProvinces) return;
   const me = ownTag(FS);
   for (const c of s1.caravans?.moving ?? []) {
     if (me === null || me === undefined || BigInt(c.ownerTag) !== BigInt(me)) continue;
@@ -1850,8 +1857,11 @@ async function refreshS1(current, world) {
 
 /**
  * (2026-11-17, ⑦ the trade card) The person's own "read the lists again": the three S1 feeds (caravans and storehouses,
- * structures, nations) read once more through refreshS1 — and nothing else. It is NOT refreshConquest (overviews,
- * control, standings, the day files) and NOT refresh; nothing is sent or saved. The feeds are public: no viewer is
+ * structures, nations) read once more through refreshS1 — and nothing else. (Corrected 2026-11-17: the first version
+ * said so while refreshS1's end also asked the map's loader for the provinces of the viewer's own caravans; that part is
+ * now the regular load's alone — `caravanProvinces: false` here. What this reads: herald.caravans, herald.structures,
+ * herald.nations, once each. What it writes: FS.s1's three feeds, their read marks, FS.s1.error, FS.s1Reread.) It is NOT
+ * refreshConquest (overviews, control, standings, the day files) and NOT refresh; nothing is sent or saved. The feeds are public: no viewer is
  * asked for. Whose answer: this press's own run, the herald and the pinned world as at the press; against the regular
  * load, the read that began last is applied (refreshS1's number). A press while one is under way starts nothing.
  * How it went is said by the feeds' own read marks (`FS.s1.read`); `FS.s1Reread = { state: 'loading'|'failed' }` only
@@ -1863,7 +1873,7 @@ export async function rereadS1() {
   const run = { state: 'loading' }, at = { herald, world: providerWorld() };
   const mine = () => FS.s1Reread === run && herald === at.herald && providerWorld() === at.world;
   FS.s1Reread = run; invalidate('panel');
-  try { await refreshS1(mine, at.world); return mine(); }
+  try { await refreshS1(mine, at.world, { caravanProvinces: false }); return mine(); }
   catch (e) { console.error('frontier s1 reread:', e); if (mine()) run.state = 'failed'; return false; }
   finally { if (FS.s1Reread === run && run.state === 'loading') FS.s1Reread = null; invalidate('panel', 'map'); }
 }
