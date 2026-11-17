@@ -43,8 +43,8 @@ test('W2 the follow\'s play and fallback hold only while still', () => {
 });
 
 test('W3 playBattle drops a clash the change overtook', () => {
-  order(pb, '{ focus = false, auto = false, still = null } = {}) {', 'const world = momentWorld(), source = heraldRef;',
-    'const r = await source.clash(p, q, bell).catch(() => null);', 'if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;',
+  order(pb, '{ focus = false, auto = false, still = null, asked = null } = {}) {', 'const world = momentWorld(), source = heraldRef;',
+    'const r = await source.clash(p, q, bell).catch(() => null);', 'if (momentWorld() !== world || heraldRef !== source || (still && !still()) || (asked && !asked())) return null;',
     'if (!r?.ok || !r.inputs) return false;', 'const scene = battleScene({', 'if (focus && mapRef) {', 'mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);',
     'FS.battles = [', "fxEmit('battle', {");
   const code = pb.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');

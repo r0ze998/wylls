@@ -894,8 +894,12 @@ export const stamp = (key, tone = key) => html`<p class="stamp stamp-${tone}"><s
 
 /** The headline: the stamp, the viewer's result and losses, whether the march got there, the leader's line; replay and map buttons. */
 function renderHeadline(sum, r) {
+  // (2026-11-17, ⑦: the replay is read while the report stays open — app playAsked: reading, or not loaded with the
+  //  report kept and the same button to read again)
+  const playState = r.playing ? html`<p class="muted" role="status">${L`戦いを読み込んでいます…`}</p>`
+    : r.playFailed ? html`<p class="notice error" role="alert">${L`戦いを読み込めませんでした。報告はそのまま残しています。もう一度押すと読み直します。`}</p>` : '';
   const buttons = html`<div class="actions"><button type="button" class="btn primary" data-act="battle-play" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${icon('play')}${L`戦いを再生`}</button>
-    <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div>`;
+    <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div>${playState}`;
   if (!sum.mine) {
     return html`<div class="report-head report-head-watch">${stamp('watch')}<p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの国がぶつかった`}</strong></p>
       <p class="muted">${L`全体の損害 ${fmtNum(sum.lost)}`}</p>${sum.leader !== null ? leaderLine(sum.leader, 'watch') : ''}${buttons}</div>`;

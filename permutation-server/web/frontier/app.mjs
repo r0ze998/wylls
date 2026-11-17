@@ -3063,7 +3063,7 @@ function endOtherWorldBattles(world) {
   mapRef?.invalidate();
 }
 /** Load a clash and play its scene on the map; `focus` moves the camera to it first. */
-export async function playBattle(p, q, bell, { focus = false, auto = false, still = null } = {}) {
+export async function playBattle(p, q, bell, { focus = false, auto = false, still = null, asked = null } = {}) {
   const fx = FS.ui?.battleFx ?? 'normal';
   if (auto && fx === 'off') return false;
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return false;
@@ -3078,7 +3078,11 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
   //  A scene asked for by name — the report's 見る — plays as before.)
   const world = momentWorld(), source = heraldRef;
   const r = await source.clash(p, q, bell).catch(() => null);
-  if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;
+  // (`asked`: an explicit request's own validity — app playAsked: still the last press, still the report it was pressed
+  //  in (or still none). Checked here, before anything is staged, flown to or put on the map, like `still`; unlike
+  //  `still` it does not make the request one the page stages by itself: a newer scene of the province does not call off
+  //  a clash the person asked for by name, an older one included)
+  if (momentWorld() !== world || heraldRef !== source || (still && !still()) || (asked && !asked())) return null;
   // (the battle state is this world's before anything is compared: an older world's scene with a higher bell is ended
   //  here, not taken for "a later turn of this province" — syncBattleWorld; and only this world's scenes are compared)
   syncBattleWorld();
@@ -3314,6 +3318,34 @@ const VILLAGE_TODO = Object.freeze({ build: 'build', muster: 'muster', full: nul
 /** Move the map to an attention item and open its tab. */
 /** The report's map buttons close it, so the map (and on phones the sheet's map) is in view. */
 function leaveReport() { if (FS.report) { FS.report = null; invalidate('panel'); } }
+/**
+ * A clash asked for by name (2026-11-17, ⑦: 戦いを再生 / 見る — the report, the notices, the tracker, the inspector, the turn
+ * list). The report it was pressed in stays open while the clash is read, and is left only once the scene is on the map
+ * (playBattle true). "No scene" (false, or a throw) keeps the report as it was and says so under its button, which reads
+ * again when pressed. A request the change of world or herald called off (null) is not a failure: nothing is said and
+ * nothing is restored. Only the last press answers: an earlier one that comes back later neither closes nor marks the
+ * report. A report the person opened or closed meanwhile is theirs: it is neither closed nor marked by this request.
+ * The scene itself is playBattle's, unchanged (an explicit request, not the follow's or the page's own).
+ */
+let playAskSeq = 0;
+async function playAsked(p, q, bell) {
+  const req = ++playAskSeq;
+  const rep = FS.report ?? null, world = reportWorld();
+  closeDialPop();
+  if (rep) { rep.playing = true; rep.playFailed = false; invalidate('panel'); }
+  // (2026-11-17 correction: the request's validity reaches playBattle before its effects — `asked`: the last press, and
+  //  the report open now is the one it was pressed in (none for none) in the same world. A later press, a report opened,
+  //  switched or closed meanwhile, or another world: no scene, no flight, nothing on the map (null). Not `still`: the
+  //  person's replay of an older clash is not called off by a newer scene there)
+  const asked = () => req === playAskSeq && (FS.report ?? null) === rep && reportWorld() === world;
+  let ok = false;
+  try { ok = await playBattle(p, q, bell, { focus: true, asked }); } catch (e) { console.error('frontier battle play:', e); ok = false; }
+  if (req !== playAskSeq) return;
+  if (rep) rep.playing = false;
+  if (ok === true) { if (rep && FS.report === rep) leaveReport(); return; }
+  if (rep && ok === false && FS.report === rep && reportWorld() === world) rep.playFailed = true;
+  if (rep) invalidate('panel');
+}
 const FX_LEVEL_TEXT = { full: () => L`標準`, reduced: () => L`控えめ`, off: () => L`オフ` };
 const BATTLE_FX_TEXT = { normal: () => L`ふつう`, fast: () => L`早送り`, off: () => L`自動では見せない` };
 
@@ -3694,7 +3726,7 @@ export const HUD_ACTIONS = {
   'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },
   'notice-retry': () => { const r = retryLast(); renderFeed(); return r; },
   autopan: () => { const sc = scope(); const v = !FS.ui?.autoPan; FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { autoPan: v }) : { ...(FS.ui ?? {}), autoPan: v }; invalidate('panel'); },
-  'battle-play': d => { leaveReport(); closeDialPop(); playBattle(num(d.p), num(d.q), num(d.bell), { focus: true }); },
+  'battle-play': d => { playAsked(num(d.p), num(d.q), num(d.bell)); },
   'res-open': d => { FS.resOpen = FS.resOpen === d.r ? null : d.r; renderHudTick(FS.chain?.now?.() ?? 0); },
   'res-close': () => closeResPop(),
   // pins (hud/pins.mjs): this device, this season
