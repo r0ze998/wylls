@@ -1683,4 +1683,7 @@ export default {
   'この州の読み込みは、順番を待っています。空きしだい読み込みます。': 'Loading this province is waiting its turn. It will be loaded as soon as there is room.',
   // (2026-11-17, Lane C ⑦ the march's entry from the inspector's card)
   '{0} を進軍させる（別の村の軍勢：その村から出します）': 'March the {0} (a host of another of your villages: it leaves from that village)',
+  // (2026-11-17, Lane C ⑦ the march card: a route that was not read)
+  '道のりはまだわかっていません。行き先と設定はそのままです。着くターンは、道のりがわかってから決まります。': 'The route is not known yet. The destination and your settings are kept. The arrival turn is set once the route is known.',
+  '道のりをもう一度調べる': 'Work out the route again',
 };
