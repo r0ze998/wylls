@@ -798,13 +798,13 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
   /** One JSON-RPC message for `principal` (null: unauthenticated) → the response (null for a notification). */
   async function handle(msg, principal) {
     // (2026-11-17) A notification (a valid message without `id`) gets no response of any kind (JSON-RPC 2.0; MCP
-    // 2025-06-18 basic/Messages): `reply` and `answer` give null for it, and the transport answers 202 with no body.
+    // 2025-06-18 basic/Messages): `reply` and `error` give null for it, and the transport answers 202 with no body.
     // What a notification runs is unchanged here (an id-less tools/call still runs its tool: see the report). A message
-    // that is not a valid request at all is answered -32600 with id null, as before.
+    // that is not a valid request at all is answered -32600 with id null by `invalid`, decided before `notification`.
     const reply = result => (notification ? null : { jsonrpc: '2.0', id: msg.id, result });
-    const error = (code, message) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code, message } });
-    const answer = (code, message) => (notification ? null : error(code, message));
-    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return error(-32600, 'invalid request');
+    const error = (code, message) => (notification ? null : { jsonrpc: '2.0', id: msg.id, error: { code, message } });
+    const invalid = () => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32600, message: 'invalid request' } });
+    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return invalid();
     const notification = msg.id === undefined;
     switch (msg.method) {
       case 'initialize': {
@@ -818,7 +818,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         const name = msg.params?.name;
         // Own tool names only: an inherited name (constructor, __proto__, …) or a non-string is an unknown tool (dispatch.mjs).
         const fn = toolNamed(tools, name);
-        if (!fn) return answer(-32602, unknownToolText(name));
+        if (!fn) return error(-32602, unknownToolText(name));
         if (!principal) return reply(fail('Unauthenticated', 'connect with OAuth first'));
         if (limited(principal)) return reply(fail('RateLimited', 'too many calls: wait a few seconds'));
         let out;
@@ -826,7 +826,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         try { archiveFinished(); } catch (e) { log(`mcp: archive failed (nothing moved): ${scrub(e?.message)}`); }
         return out;
       }
-      default: return answer(-32601, `method not found: ${msg.method.slice(0, 40)}`);
+      default: return notification ? null : error(-32601, `method not found: ${msg.method.slice(0, 40)}`);
     }
   }
 
