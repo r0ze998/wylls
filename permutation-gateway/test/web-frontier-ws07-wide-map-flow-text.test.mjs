@@ -30,19 +30,22 @@ test('F1 how a province read went is recorded', () => {
     'return null;');
 });
 
+// (F2 and F3 were rewritten by the retry bundle — tokens, one waiting place: web-frontier-ws07-wide-map-retry-text.test.mjs)
 test('F2 a read under way says so; a dropped answer leaves nothing behind', () => {
   const wp = fnOf(ctl, 'export function wantProvince(');
-  order(wp, 'if (!herald || artWanted.has(key) || artWanted.size >= WANT_IN_FLIGHT) return false;',
-    'if (!have && fetchedAt.has(key) && now - fetchedAt.get(key) < WANT_REFRESH_MS) return false;', 'artWanted.add(key);', 'fetchedAt.set(key, now);',
-    "if (!have) (FS.provinceReads ??= new Map()).set(key, { state: 'loading', code: null });", 'const world = providerWorld();',
-    "loadEnvelope(p, q).catch(() => { if (providerWorld() === world && !FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'failed', code: 'Error' }); return null; })",
-    'artWanted.delete(key);', "if (FS.provinceReads?.get(key)?.state === 'loading' && !FS.provinces.has(key)) FS.provinceReads.delete(key);", 'onLoad();');
+  order(wp, 'if (!herald || artWanted.has(key)) return false;',
+    'if (!have && fetchedAt.has(key) && now - fetchedAt.get(key) < WANT_REFRESH_MS) return false;',
+    'if (artWanted.size >= WANT_IN_FLIGHT) { if (selectedIs(p, q)) holdWant(p, q, onLoad); return false; }', 'startProvinceRead(p, q, onLoad, now);', 'return true;');
+  const sr = fnOf(ctl, 'function startProvinceRead(p, q, onLoad, now) {');
+  order(sr, 'artWanted.set(key, token);', 'fetchedAt.set(key, now);', "if (!FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'loading', code: null, token });",
+    "loadEnvelope(p, q).catch(() => { if (providerWorld() === world && artWanted.get(key) === token && !FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'failed', code: 'Error' }); return null; })",
+    'if (artWanted.get(key) === token) artWanted.delete(key);', "if (st?.state === 'loading' && st.token === token && !FS.provinces.has(key)) FS.provinceReads.delete(key);", 'startWaiting();', 'onLoad();');
 });
 
 test('F3 reading again at the person\'s request', () => {
   const rp = fnOf(ctl, 'export function retryProvince(');
-  order(rp, 'if (artWanted.has(key)) return false;', 'fetchedAt.delete(key);', 'const have = FS.provinces.get(key);',
-    'if (!herald || artWanted.size >= WANT_IN_FLIGHT) return false;', 'return wantProvince(p, q, onLoad);');
+  order(rp, 'if (!herald) return false;', "if (artWanted.has(key)) return 'loading';", 'fetchedAt.delete(key);',
+    "if (artWanted.size >= WANT_IN_FLIGHT) { holdWant(p, q, onLoad); return 'waiting'; }", 'startProvinceRead(p, q, onLoad, Date.now());', "return 'started';");
 });
 
 test('F4 the card says how its reads went, never "empty"', () => {
@@ -54,9 +57,10 @@ test('F4 the card says how its reads went, never "empty"', () => {
   order(rs, "if (!m.opened) return '';", 'data-act="province-reread" data-p="${m.p}" data-q="${m.q}"', "const st = m.read?.state ?? 'idle';",
     "if (st === 'failed')", 'この州のようすを読み込めませんでした（${m.read.code}）。何もない州という意味ではありません。',
     "else if (st === 'missing')", 'この州の記録は、まだ届いていません。何もない州という意味ではありません。',
+    "else if (st === 'waiting')", 'この州の読み込みは、順番を待っています。空きしだい読み込みます。',
     "else if (st === 'loading')", 'この州のようすを読み込んでいます…', 'この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。',
     'if (!m.ringRead)', 'この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。',
-    "const retry = !m.ringRead || (!m.loaded && m.read?.state !== 'loading');");
+    "const retry = !m.ringRead || (!m.loaded && m.read?.state !== 'loading' && m.read?.state !== 'waiting');");
   assert.ok(insp.includes('${readState(m)}'));
   assert.doesNotMatch(insp, /\$\{!m\.loaded && m\.opened \? html`<p class="muted">\$\{L`この州のようすを読み込んでいます…`\}<\/p>` : ''\}/, 'the perpetual "loading" line is gone');
 });
@@ -78,7 +82,7 @@ test('F6 another world\'s province records are not this world\'s', () => {
 
 test('F7 English follows; no banned word', () => {
   for (const k of ['この州のようすを読み込めませんでした（{0}）。何もない州という意味ではありません。', 'この州の記録は、まだ届いていません。何もない州という意味ではありません。',
-    'この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。', 'もう一度読み込む', 'この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。', 'この州のようすを読み込んでいます…']) {
+    'この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。', 'もう一度読み込む', 'この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。', 'この州のようすを読み込んでいます…', 'この州の読み込みは、順番を待っています。空きしだい読み込みます。']) {
     const line = en.split('\n').find(l => l.startsWith(`  '${k}':`));
     assert.ok(line, k);
     assert.doesNotMatch(line.split("': ")[1], /\b(settle[ds]?|settling|keeper|beacon|seed)\b/i);

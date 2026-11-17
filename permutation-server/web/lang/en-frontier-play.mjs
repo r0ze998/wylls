@@ -1675,4 +1675,5 @@ export default {
   'この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。': 'The list of villages in this ring has not been loaded yet. This does not mean there are no villages.',
   'もう一度読み込む': 'Load again',
   'この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。': 'This province has not been loaded yet. This does not mean the province is empty.',
+  'この州の読み込みは、順番を待っています。空きしだい読み込みます。': 'Loading this province is waiting its turn. It will be loaded as soon as there is room.',
 };

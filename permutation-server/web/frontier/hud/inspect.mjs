@@ -131,13 +131,14 @@ function readState(m) {
     const st = m.read?.state ?? 'idle';
     if (st === 'failed') lines.push(html`<p class="notice error" role="alert">${L`この州のようすを読み込めませんでした（${m.read.code}）。何もない州という意味ではありません。`}</p>`);
     else if (st === 'missing') lines.push(html`<p class="muted" role="status">${L`この州の記録は、まだ届いていません。何もない州という意味ではありません。`}</p>`);
+    else if (st === 'waiting') lines.push(html`<p class="muted" role="status">${L`この州の読み込みは、順番を待っています。空きしだい読み込みます。`}</p>`);
     else if (st === 'loading') lines.push(html`<p class="muted" role="status">${L`この州のようすを読み込んでいます…`}</p>`);
     // (nothing under way and nothing held: not asked yet, or an answer that was let go — said as that, with the button)
     else lines.push(html`<p class="muted" role="status">${L`この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。`}</p>`);
   }
   if (!m.ringRead) lines.push(html`<p class="muted" role="status">${L`この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。`}</p>`);
   if (!lines.length) return '';
-  const retry = !m.ringRead || (!m.loaded && m.read?.state !== 'loading');
+  const retry = !m.ringRead || (!m.loaded && m.read?.state !== 'loading' && m.read?.state !== 'waiting');
   return html`<div class="insp-read" data-read="${!m.loaded ? m.read?.state ?? 'idle' : 'ring'}">${lines}${retry ? html`<div class="actions">${again}</div>` : ''}</div>`;
 }
 
