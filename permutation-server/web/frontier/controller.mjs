@@ -1116,6 +1116,9 @@ const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
 async function readMarches() {
   const key = bookKey();
   if (!key) return;
+  // (2026-11-17, ⑦: the context and the viewer this reading BEGAN under — kept on the mark the list is written with, so
+  //  a list read before a change of herald, viewer or world, or for another village, is never taken for this one's)
+  const readCtx = contextSeq, readViewer = viewerKey() ?? null;
   const store = book.browserStorage;
   // (the Holding and the slots of the last `refresh`)
   const holding = activeHolding(FS) ?? null, slotsOfMine = mySlots;
@@ -1230,7 +1233,7 @@ async function readMarches() {
   FS.book = entries;
   FS.marches = marches;
   // (the list was read for this book, village and world: an empty list now means "none", not "not read" — the tracker)
-  FS.marchesRead = { key, world: at.world };
+  FS.marchesRead = { key, world: at.world, ctx: readCtx, viewer: readViewer, holding: at.holding };
   FS.bellItems = [
     ...(holding ? [{ bell: b, region: regionOf(holding.p, holding.q), why: 'current', facts: {} }] : []),
     ...marches.map(m => ({ bell: m.entry?.arriveBell ?? m.transit?.arriveBell, region: m.region, why: 'arrival', facts: {} })),

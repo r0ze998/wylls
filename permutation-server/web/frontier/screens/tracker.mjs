@@ -78,6 +78,28 @@ function hostName(FS, id) {
 }
 
 /** One march card: `m = {entry, transit, facts: {nowBell, pipeline, slotPresent, settled, settleReady}}`. */
+/** The pinned world with its generation, as the controller marks it (providerWorld). */
+const worldOf = FS => { const pin = FS?.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };
+/**
+ * (2026-11-17, ⑦, corrected) Whether the march list on the store (`FS.marches`) is the list OF WHAT THE PAGE IS NOW —
+ * by the mark it was written with (controller readMarches → `FS.marchesRead = {key, world, ctx, viewer, holding}`, each
+ * taken when that reading BEGAN): the pinned world, the context number (it moves with every change of viewer, herald
+ * or world: A → B → A are three), the viewer, and the village in hand (place, site, generation). `{ok, ctx}` — `ctx`
+ * the LIST's own context number (a button drawn from the list carries that, never a number taken at the drawing).
+ * A list read for another village, or before a change, is still on the store until the next reading: it is not
+ * "the marches of this village now", and nothing is drawn or pressed from it as if it were.
+ * (A mark without one of the fields — an older fixture — is not held against it on that field.)
+ */
+export function marchListNow(FS) {
+  const mr = FS?.marchesRead ?? null, h = FS?.holdings?.[FS?.activeHolding ?? 0] ?? null;
+  const ref = h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '';
+  const ok = !!mr && (mr.world === undefined || mr.world === worldOf(FS))
+    && (mr.ctx === undefined || !Number.isInteger(FS.contextSeq) || mr.ctx === FS.contextSeq)
+    && (mr.viewer === undefined || mr.viewer === (FS.resident?.asset ?? FS.wallet?.address ?? null))
+    && (mr.holding === undefined || mr.holding === ref);
+  return { ok, ctx: ok && Number.isInteger(mr.ctx) ? mr.ctx : null };
+}
+
 export function renderMarch(m, FS = null) {
   const t = tracker({ entry: m.entry, transit: m.transit, ...m.facts });
   const own = m.entry ? unpack(materialBytes(m.entry).plain) : null;
@@ -97,9 +119,15 @@ export function renderMarch(m, FS = null) {
   //  conquest record read for the world now pinned — has the way to that keep's tile; where the march's tile is known
   //  it must be the keep's own. app.mjs 'march-keep' asks again at the press.)
   const keep = FS && m.dest ? (FS.conquest?.keeps instanceof Map ? FS.conquest.keeps.get(`${m.dest.p},${m.dest.q}`) ?? null : null) : null;
-  const toKeep = !!keep && Number.isInteger(keep.tile) && keep.tile >= 0 && keep.tile < 61 && (!Number.isInteger(m.dest.tile) || m.dest.tile === keep.tile);
-  const keepWay = toKeep && (FS.mode ?? 'play') === 'play' && Number.isInteger(FS.contextSeq)
-    ? html`<button type="button" class="btn small" data-act="march-keep" data-ctx="${FS.contextSeq}" data-p="${keep.p}" data-q="${keep.q}" data-tile="${keep.tile}">${icon('flag')}${L`この砦を見る`}</button>` : '';
+  // (corrected: `sure` — the march's own tile is known and IS the keep's tile: "see this keep". Only the province
+  //  known: the way goes to the keep of that province, and says only that — whether the march is bound for the keep is
+  //  not known. A march to another tile of the province has no such way. The button is drawn only from a list that is
+  //  the page's own now — marchListNow — and carries the LIST's context number.)
+  const keepOk = !!keep && Number.isInteger(keep.tile) && keep.tile >= 0 && keep.tile < 61;
+  const sure = keepOk && Number.isInteger(m.dest.tile) && m.dest.tile === keep.tile, maybe = keepOk && !Number.isInteger(m.dest.tile);
+  const listNow = FS ? marchListNow(FS) : { ok: false, ctx: null };
+  const keepWay = (sure || maybe) && (FS.mode ?? 'play') === 'play' && listNow.ctx !== null
+    ? html`<button type="button" class="btn small" data-act="march-keep" data-ctx="${listNow.ctx}" data-p="${keep.p}" data-q="${keep.q}" data-tile="${keep.tile}" data-sure="${sure ? 1 : 0}" data-host="${host}">${icon('flag')}${sure ? L`この砦を見る` : L`この州の砦を見る`}</button>` : '';
   return html`<li class="vcard march-card" data-march-host="${host}">
     <div class="march-top">${icon('banner')}<strong class="march-to">${title}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(t.arriveBell ?? 0)} に到着`}`, resolved ? 'ok' : 'info')}</div>
     ${sealed}

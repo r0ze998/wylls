@@ -14,6 +14,7 @@ import { activeHolding } from '../fstate.mjs';
 import { actionBlocks, UNIT_ORDER, SCOUT, SETTLER } from '../fland.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { hostRows } from './host.mjs';
+import { marchListNow } from './tracker.mjs';
 import { countdown, worldContinues } from '../clock.mjs';
 import { icon } from '../hud/icons.mjs';
 import { crest, sigChip, hostWaits, renderWaits, hostsOnTile, holdingHereText } from '../hud/keephand.mjs';
@@ -123,25 +124,27 @@ function renderHistory(hist) {
     ${hist.last ? html`<p class="kp-caption">${icon('lock')}<span>${L`占領：チェーンの記録を読んだものです（このブラウザでは計算し直していません）`}</span></p>` : ''}</div>`;
 }
 
-/** The pinned world with its generation, as the controller marks it (providerWorld). */
-const worldOf = FS => { const pin = FS?.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };
 /**
- * (2026-11-17, ⑦ the keep and the march toward it) The viewer's own marches bound for this keep, from the list the
- * tracker shows (controller readMarches → `FS.marches`: the marches of the village IN HAND, read for the pinned world):
- * `{read, list: [{host, arriveBell, resolved, unread, tileKnown, who}]}`.
- *   `read`: whether that list was read for the world now pinned (`FS.marchesRead`). Not read → the list is NOT KNOWN:
- *           neither "none on its way" nor anything else follows (the card says so).
- *   a march counts when its destination — the viewer's own sealed one, or the one read from the record — is this
- *   keep's province and, where the tile is known, this keep's tile; `tileKnown` false: only the province is known.
- *   `resolved`: the arrival turn's record says it is resolved (the tracker's own fact); what came of it is the
- *   tracker's and the report's to say — the card claims no capture and no repulse from it.
+ * (2026-11-17, ⑦ the keep and the march toward it; corrected) The viewer's own marches as they bear on this keep, from
+ * the list the tracker shows — only when that list is the page's own NOW (screens/tracker.mjs marchListNow: the pinned
+ * world, the context number, the viewer and the village in hand, each as the list's reading began):
+ * `{read, ctx, bound, province}`.
+ *   `read` false → the list is NOT KNOWN for what the page is now (not read yet, another village's, or read before a
+ *           change of herald, viewer or world): neither "none on its way" nor anything else follows.
+ *   `bound`    marches whose destination tile is KNOWN and is this keep's tile: bound for this keep.
+ *   `province` marches of which only the destination's PROVINCE is known, and it is this keep's: whether they are
+ *           bound for the keep is not known — they are not counted as "on their way to this keep".
+ *   A march to another tile of the province is neither.
+ *   each `{host, arriveBell, resolved, unread, who}`; `resolved`: the arrival turn's record says it is resolved (the
+ *   tracker's own fact) — what came of it is the tracker's and the report's to say; no capture and no repulse is
+ *   claimed from it.
  * Marches of the viewer's OTHER villages are not in the list: nothing is said of them either way.
  */
 export function marchesToKeep(FS, keep) {
-  const mr = FS.marchesRead ?? null, read = !!mr && (mr.world === undefined || mr.world === worldOf(FS));
-  if (!keep || !read) return { read, list: [] };
+  const now = marchListNow(FS);
+  if (!keep || !now.ok) return { read: now.ok, ctx: null, bound: [], province: [] };
   const rows = (() => { try { return hostRows(FS); } catch { return []; } })();
-  const list = [];
+  const bound = [], province = [];
   for (const m of FS.marches ?? []) {
     const dest = m?.entry ? m.dest : m?.readDest ?? m?.dest ?? null;
     if (!dest || dest.p !== keep.p || dest.q !== keep.q) continue;
@@ -149,21 +152,25 @@ export function marchesToKeep(FS, keep) {
     if (tileKnown && dest.tile !== keep.tile) continue;
     const host = String(m.entry?.host ?? m.transit?.hostId ?? ''), row = rows.find(r => String(r.id) === host) ?? null;
     const arriveBell = m.entry?.arriveBell ?? m.transit?.arriveBell;
-    list.push({ host, arriveBell: Number.isInteger(arriveBell) ? arriveBell : null, resolved: m.facts?.pipeline === 'resolved', unread: !!m.unread, tileKnown,
+    (tileKnown ? bound : province).push({ host, arriveBell: Number.isInteger(arriveBell) ? arriveBell : null, resolved: m.facts?.pipeline === 'resolved', unread: !!m.unread,
       who: row ? `${UNITS[UNIT_ORDER[row.unit]]} ${fmtNum(row.troops)}` : null });
   }
-  return { read, list };
+  return { read: true, ctx: now.ctx, bound, province };
 }
-/** The keep card's lines for marchesToKeep: each march with the way to its row of the tracker; "not read" said as that. */
+/** The keep card's lines for marchesToKeep: the marches bound for the keep, apart from those known only to its province; "not known" said as that. */
 function renderKeepMarches(FS, m) {
   if (FS.mode !== 'play') return '';
-  const x = marchesToKeep(FS, m), ctx = Number.isInteger(FS.contextSeq) ? FS.contextSeq : null;
-  if (!x.read) return FS.wallet ? html`<p class="muted kp-marches" role="status" data-marches="unread">${L`この砦へ向かっているあなたの軍勢がいるかどうかは、進軍の記録をまだ読めていないので、分かりません。`}</p>` : '';
-  if (!x.list.length) return '';
-  return html`<div class="kp-marches" data-marches="${x.list.length}"><p class="kp-orders-k">${L`この砦へ向かっているあなたの軍勢`}</p><ul class="list">${x.list.map(r => html`<li>${icon('march')}<strong>${r.who ?? L`軍勢`}</strong> <span class="muted">${
-      r.resolved ? L`到着のターン（${fmtNum(r.arriveBell ?? 0)}）は決着済みです。どうなったかは、追跡と報告で確かめられます。`
-        : r.arriveBell !== null ? L`ターン ${fmtNum(r.arriveBell)} に着く予定です。` : L`進軍中です。`}${r.tileKnown ? '' : L`（行き先は、この州までしか読めていません。）`}${r.unread ? L`（到着先の記録を、まだ読めていません。）` : ''}</span>
-      ${ctx !== null && /^\d+$/.test(r.host) ? html`<button type="button" class="btn small" data-act="keep-track" data-ctx="${ctx}" data-p="${m.p}" data-q="${m.q}" data-tile="${m.tile}" data-host="${r.host}">${L`この進軍の追跡を見る`}</button>` : ''}</li>`)}</ul>
+  const x = marchesToKeep(FS, m);
+  if (!x.read) return FS.wallet ? html`<p class="muted kp-marches" role="status" data-marches="unread">${L`この砦へ向かっているあなたの軍勢がいるかどうかは、いま選んでいる村の進軍の記録をまだ読めていないので、分かりません。`}</p>` : '';
+  if (!x.bound.length && !x.province.length) return '';
+  const when = r => (r.resolved ? L`到着のターン（${fmtNum(r.arriveBell ?? 0)}）は決着済みです。どうなったかは、追跡と報告で確かめられます。`
+    : r.arriveBell !== null ? L`ターン ${fmtNum(r.arriveBell)} に着く予定です。` : L`進軍中です。`);
+  const line = (r, sure) => html`<li>${icon('march')}<strong>${r.who ?? L`軍勢`}</strong> <span class="muted">${when(r)}${r.unread ? L`（到着先の記録を、まだ読めていません。）` : ''}</span>
+      ${x.ctx !== null && /^\d+$/.test(r.host) ? html`<button type="button" class="btn small" data-act="keep-track" data-ctx="${x.ctx}" data-p="${m.p}" data-q="${m.q}" data-tile="${m.tile}" data-sure="${sure ? 1 : 0}" data-host="${r.host}">${L`この進軍の追跡を見る`}</button>` : ''}</li>`;
+  return html`<div class="kp-marches" data-marches="${x.bound.length}" data-province="${x.province.length}">
+    ${x.bound.length ? html`<p class="kp-orders-k">${L`この砦へ向かっているあなたの軍勢`}</p><ul class="list">${x.bound.map(r => line(r, true))}</ul>` : ''}
+    ${x.province.length ? html`<p class="kp-orders-k">${L`この州へ向かっているあなたの軍勢（行き先のマスは、まだ分かりません）`}</p><ul class="list">${x.province.map(r => line(r, false))}</ul>
+      <p class="muted">${L`この砦へ向かっているかどうかは、行き先のマスが読めるまで分かりません。`}</p>` : ''}
     <p class="muted">${L`ここに出るのは、いま選んでいる村の進軍だけです。`}</p></div>`;
 }
 
