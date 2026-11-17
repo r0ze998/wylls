@@ -54,8 +54,17 @@ export class Dispatch {
     if (this.data.format !== JOURNAL_FORMAT) throw new Error(`journal format ${this.data.format}`);
   }
 
+  /**
+   * Keys planned in this process whose save has not been seen to succeed (2026-11-17). A save that throws does not
+   * show what is on disk (the journal may have been renamed into place before a later step failed), so nothing is
+   * taken back from memory: the key stays here until a save succeeds. Every save writes the whole journal, so one
+   * that succeeds covers every key.
+   */
+  #unsaved = new Set();
+
   #save() {
     this.journal.save(clone(this.data));
+    this.#unsaved.clear();
   }
 
   /** Key of one run request of one plan: the plan hash and the request's nonce. */
@@ -88,9 +97,14 @@ export class Dispatch {
     if (had) {
       const same = contentHash({ route: had.route, requester: had.requester ?? null, steps: had.steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) })
         === contentHash({ route, requester: fresh.requester ?? null, steps: steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) });
-      return same ? { ok: true, key, already: true, steps: clone(had.steps) } : { ok: false, findings: [{ code: "CONFLICT", key, detail: "this run request was planned with other content" }] };
+      if (!same) return { ok: false, findings: [{ code: "CONFLICT", key, detail: "this run request was planned with other content" }] };
+      // The same request again, but its earlier save threw: it is saved now, and answered only if that succeeds
+      // (a save that throws again throws to the caller, as the first one did). Never "already" while not saved.
+      if (this.#unsaved.has(key)) { this.#save(); return { ok: true, key, steps: clone(had.steps) }; }
+      return { ok: true, key, already: true, steps: clone(had.steps) };
     }
     this.data.plans[key] = fresh;
+    this.#unsaved.add(key);
     this.#save();
     return { ok: true, key, steps: clone(steps) };
   }
