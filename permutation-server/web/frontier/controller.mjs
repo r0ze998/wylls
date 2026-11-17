@@ -764,9 +764,11 @@ function providerWorld() { const p = io.pinned(); return p?.programId && p?.addr
  * for each other — the season poll (app.mjs loadSeason, which pins) and refreshOverviews (the play poll, a ticket's or a
  * home's plan) — and the herald client neither shares nor orders their requests, so an answer asked earlier can land
  * after one asked later. Each read takes a number when it asks (`askSeason`); an answer is applied only when no answer
- * asked later has been applied (`takeSeason`, which then records it). A failed answer records nothing; one asked
- * before an applied answer (`seasonStale`) does not undo what that answer set. The numbers only grow, so a later read
- * is never held back and a successful change of world is applied as soon as it is the latest asked.
+ * asked later has been applied (`seasonStale` is false), and it is recorded as applied (`takeSeason`) only after it was
+ * applied in full, in the same stretch without a wait as that check. A failed answer, a refused pin, or a throw while
+ * applying records nothing, so an answer asked earlier may still be applied after it; one asked before an applied
+ * answer does not undo what that answer set. The numbers only grow, so a later read is never held back and a
+ * successful change of world is applied as soon as it is the latest asked.
  */
 let seasonAsked = 0, seasonTaken = 0;
 export function askSeason() { seasonAsked += 1; return seasonAsked; }
@@ -1938,10 +1940,13 @@ function refreshOverviews(b) {
         if (overviewRefresh !== request) return overviewRefresh?.promise;
         // The record, the world's extent and the ring lists move together. Setting
         // FS.record alone left FS.world behind the ticket planner's latest read.
-        // (2026-11-17, ⑦: only a record of the pinned world, and only when no answer asked later was applied — askSeason)
-        if (r?.ok && r.record && recordOfPin(r.record) && takeSeason(seq)) {
+        // (2026-11-17, ⑦: only a record of the pinned world, and only when no answer asked later was applied — askSeason.
+        //  Checked, set and recorded without a wait in between; recorded only once set: a throw while applying is caught
+        //  below, keeps the last record as before, and records nothing.)
+        if (r?.ok && r.record && recordOfPin(r.record) && !seasonStale(seq)) {
           applySeasonRecord(FS, r.record, { herald, onRings: () => invalidate('map', 'panel') });
           if (r.season) FS.season = r.season;
+          takeSeason(seq);
         }
       } catch { /* keep the last record */ }
       if (!same()) return;

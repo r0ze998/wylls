@@ -3991,12 +3991,15 @@ function startSpectate(herald) {
 async function loadSeason(herald) {
   // (2026-11-17, ⑦: refreshOverviews asks the same record on its own, and the answers can cross — controller.askSeason.
   //  An answer, or a failure, asked before one already applied changes nothing: the pin, the record, the season, the
-  //  clock and the beacon stay as the later answer set them, and the poll counts no error. Otherwise as before.)
+  //  clock and the beacon stay as the later answer set them, and the poll counts no error. Otherwise as before.
+  //  The read below is this function's only wait: from the stale check to the end nothing waits, so no other answer
+  //  can come between the check and the writes. The answer is recorded as applied (takeSeason) only at the end, once
+  //  the pin was accepted and everything was set: a refused pin (PinMismatch, RulesetMismatch), a failure, or a throw
+  //  while setting records nothing, and an answer asked earlier may still be applied after it.)
   const seq = askSeason();
   const r = await herald.season();
   if (seasonStale(seq)) return true;
   if (!r.ok) { clearInspection(FS); clearOutbound(FS); FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
-  takeSeason(seq);
   const { record, season } = r;
   const reportWas = reportWorld();
   try {
@@ -4040,6 +4043,8 @@ async function loadSeason(herald) {
   // (the prototype rule "banners" is on exactly while that record carries it: the chip stands from this moment)
   syncProto();
   invalidate('chip', 'status', 'map');
+  // (applied in full: no answer asked before this one is applied after it)
+  takeSeason(seq);
   return true;
 }
 
