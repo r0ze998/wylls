@@ -506,3 +506,11 @@ only the allowed confirmation of already-submitted work remains within that boun
 - Official Opus added five SDK/bridge tests. Independently rerun total: **65/65 passed**, zero fail/skip; integration test syntax check passed. The real pinned MCP SDK Client/StreamableHTTPClientTransport was exercised through injected fetch into the real HTTP handler, with stub authentication. No socket, real OAuth, wallet signature or world startup.
 - Test and evidence documentation saved through `87f39dd5438e1d252f09b71ff8f67620dbcfbaf4`; both remote files exactly matched checked output. CI status/PR workflow queries returned no entries, not a CI pass.
 - No live MCP/board/world process was found. Actual live connection remains open: prior world-start refusals are unresolved and were not bypassed. The SDK fixture step is independent evidence, not completion of real-world verification.
+
+
+### 2026-11-17 UTC — actual-board contract mismatch fixed
+
+- Static comparison found the earlier fixture tests had invented string nation names and uppercase resources. The real board emits numeric zero-based faction ids and lowercase resource names; healthy real data would be rejected. Earlier 65/65 fixture success did not establish producer compatibility.
+- Official Opus corrected nation to numeric 0..5 (0 is a valid nation), resources to food/wood/stone/ore/arms/gold, and fulfilment to the actual board status object. Unknown nation stays null, not zero. No sending or new authority added.
+- Added producer-consumer regression using the real pure `coopView` and record `fold`, without starting a board or world. Final independent tests **74/74 passed** (41 adapter + 33 integration), zero fail/skip; three JavaScript syntax checks passed.
+- Four modified files integrated through `97325f4120c0b740706ac2002dee6f31e2d54c71`; all four reread from GitHub and matched validated output. Live-board HTTP, real Citizen account/arrivals, real OAuth and world behavior remain unverified.
