@@ -40,6 +40,19 @@ test('villageRequests: this world and this village only, in 01\'s words; not rea
   assert.equal(CB.villageRequests(FS({ holdings: [] }), b, v), null);
 });
 
+// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN)
+test('a board whose config names no program counts nothing (cannot be checked); its link still opens as before', () => {
+  const noProgram = board({ season: { seasonId: '7' }, page: CB.BOARD_PAGE });
+  const v = { read: 'ok', requests: [req(), req({ id: 'x', ctx: { programId: 'Othr1111111111111111111111111111111111111', seasonId: '7' } })] };
+  assert.deepEqual(CB.villageRequests(FS({ pin: {} }), noProgram, v).lines, ['この村あての依頼が、この世界のものか確かめられません']);
+  assert.deepEqual(CB.boardState(FS({ pin: {} }), noProgram), { available: true }, 'the link is unchanged');
+});
+
+test('a fulfilment status that is not one of 01\'s four is counted as cannot be judged, never dropped or reached', () => {
+  const v = { read: 'ok', requests: [req({ id: 'a', fulfilment: { status: 'fulfilled' } }), req({ id: 'b', fulfilment: { status: 'something-new' } }), req({ id: 'c', fulfilment: { status: '' } })] };
+  assert.deepEqual(CB.villageRequests(FS(), board(cfg('7')), v).lines, ['この村あての依頼 3 件（受付中 3）', '依頼量に届いた（下限で証明）1・判定できない 2・届かなかった 0・まだ隊商がない 0']);
+});
+
 test('the card: the view is read when the card asks, said under the button, and an older or other-world answer is dropped', async () => {
   const timers = { setTimeout: () => null, clearTimeout: () => {} };
   let season = '7', views = [];

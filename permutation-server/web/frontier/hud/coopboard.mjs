@@ -90,13 +90,20 @@ export function villageRequests(FS, b, v) {
   if (!v) return { lines: [L`この村あての依頼を読み込んでいます…`] };
   if (v.read !== 'ok') return { lines: [L`この村あての依頼を読み込めませんでした（${v.code ?? '?'}）`] };
   const h = activeHolding(FS), s = b.config.season;
-  const mine = v.requests.filter(q => q.ctx.programId === (s.programId ?? q.ctx.programId) && String(q.ctx.seasonId) === String(s.seasonId)
+  // (2026-11-17, second tip) the board's config must name its program: without it a request of another program with the
+  // same Season number cannot be told apart, so nothing is counted (the link to the board itself is unchanged: boardState)
+  if (typeof s.programId !== 'string' || !s.programId) return { lines: [L`この村あての依頼が、この世界のものか確かめられません`] };
+  const mine = v.requests.filter(q => q.ctx.programId === s.programId && String(q.ctx.seasonId) === String(s.seasonId)
     && Number(q.to.p) === Number(h.p) && Number(q.to.q) === Number(h.q) && Number(q.to.site) === Number(h.site) && Number(q.to.gen) === Number(h.gen ?? 0));
   if (!mine.length) return { lines: [L`この村あての依頼はありません`] };
   const n = st => mine.filter(q => q.fulfilment.status === st).length;
+  // (second tip) a status that is not one of 01's four (ws04.mjs fulfilmentOf) is not known: counted as "cannot be judged",
+  // never dropped and never as reached
+  const KNOWN = ['fulfilled', 'undetermined', 'not-reached', 'none'];
+  const unknown = mine.filter(q => !KNOWN.includes(q.fulfilment.status)).length;
   return { lines: [
     L`この村あての依頼 ${mine.length} 件（受付中 ${mine.filter(q => q.stateNow === 'open').length}）`,
-    L`依頼量に届いた（下限で証明）${n('fulfilled')}・判定できない ${n('undetermined')}・届かなかった ${n('not-reached')}・まだ隊商がない ${n('none')}`,
+    L`依頼量に届いた（下限で証明）${n('fulfilled')}・判定できない ${n('undetermined') + unknown}・届かなかった ${n('not-reached')}・まだ隊商がない ${n('none')}`,
   ] };
 }
 
