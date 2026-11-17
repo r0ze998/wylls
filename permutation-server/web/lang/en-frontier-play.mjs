@@ -1800,8 +1800,5 @@ export default {
   'この軍勢の、書きかけの進軍の計画があります。この計画は、まだ送信を試していません。': 'There is an unfinished march plan for this host. Sending has not been tried for this plan.',
   'この軍勢の進軍の命令を、いま送っています。': 'The march order of this host is being sent now.',
   'この軍勢の進軍の命令は、送信待ちです。州のターンの決着がつき次第、1回だけ送ります。': 'The march order of this host is waiting to be sent. It is sent once, as soon as the province\'s turn is resolved.',
-  'この軍勢の進軍の命令は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。計画のカードは残っています。': 'The march order of this host was sent, and its result is not confirmed yet (this does not mean it was not sent). The plan card is still there.',
-  'この軍勢の進軍の命令は送信しましたが、成立しませんでした。計画は残っています。': 'The march order of this host was sent, but it did not take effect. The plan is still there.',
-  'この軍勢の進軍の命令は、送る前に断られました。計画は残っています。': 'The march order of this host was refused before it was sent. The plan is still there.',
-  'この軍勢の進軍の計画は、送信を試したあとです。送れたかどうかは、ここでは分かりません。進軍の画面で確かめてください。': 'Sending was tried for this host\'s march plan. Whether it was sent is not known here. Check on the marches screen.',
+  'この軍勢の進軍の計画は、送信を試したあとです。送れたかどうか、どうなったかは、この計画からは分かりません（送っていない、という意味ではありません）。進軍の画面と、このターンの一覧で確かめてください。': 'Sending was tried for this host\'s march plan. Whether it was sent, and what became of it, cannot be told from this plan (this does not mean it was not sent). Check the marches screen and this turn\'s list.',
 };

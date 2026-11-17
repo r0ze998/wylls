@@ -72,43 +72,34 @@ export function unreadHostPlaces(FS) {
   if (!mine) return { known: false, places: [] };
   return { known: true, places: hp.places.filter(x => !FS.provinces?.has?.(`${x.p},${x.q}`)).map(x => { const st = FS.provinceReads?.get?.(`${x.p},${x.q}`) ?? null; return { p: x.p, q: x.q, state: st?.state ?? 'idle', code: st?.code ?? null }; }) };
 }
-/** The codes of a march order that was sent and whose outcome could not be read (fplay.mjs track). */
-const UNKNOWN_SENT = Object.freeze(['Unconfirmed', 'TxUnqueryable']);
 /**
- * (2026-11-17, ⑦, corrected) What stands of a march plan for this host — `FS.compose` for it — said by what the page
- * KNOWS, never by `!sending` alone (a draft that is not being sent now may have been sent a moment ago, with its
- * outcome unknown: the controller keeps the plan standing after every answer but an accepted one). `null` when the
- * plan is not this host's; else one of:
+ * (2026-11-17, ⑦, corrected twice) What stands of a march plan for this host — `FS.compose` for it — said by what the
+ * page KNOWS of THIS plan, and nothing more. `null` when the plan is not this host's; else one of:
  *   'new'      this plan never entered the send (controller sendTheMarch sets `step` on the plan at its start and never
- *              removes it: a plan without the field was not sent) and waits for nothing
+ *              removes it; plans are made in one place, without the field) and waits for nothing
  *   'sending'  being sent now (`sending`)
  *   'waiting'  armed to be sent once when the province's turn is resolved (`pending`, the local waiting send)
- *   'unknown'  the last march order of this host was sent and its outcome is not confirmed (the order record: state
- *              'unconfirmed' — the local hold and the ordinary path alike — or refused with `sent` and a tracker's code)
- *   'failed'   that order was sent and the chain refused it
- *   'refused'  that order was refused before anything left this browser
- *   'tried'    the plan entered the send and no order record says how it went: whether it was sent is not known here
+ *   'tried'    the plan entered the send at least once. HOW that went is not on the plan: nothing ties an order record
+ *              to the plan, or to this try of it.
+ * (First version: "not sent yet" whenever the plan was not being sent. Second: the host's latest march order in
+ * the page's order records was read as the outcome of this plan's try — but the send writes its order record only AFTER its wait;
+ * a try that throws, or is still to answer, leaves the host's EARLIER record — another plan's, another try's, another
+ * turn's or world's — standing as the latest, and it was told as this one's. A host's id and a record's place in the
+ * list are not evidence of which try a record belongs to. So no outcome is said here at all: the marches screen and
+ * the turn's list, which read the order records as records, say what was sent and what became of it.)
  */
 export function hostPlanState(FS, r) {
   const c = FS.compose ?? null;
   if (!c?.host || String(c.host.id) !== String(r.id)) return null;
   if (c.sending) return 'sending';
   if (c.pending) return 'waiting';
-  if (!Object.hasOwn(c, 'step')) return 'new';
-  const o = (FS.orders ?? []).find(x => x.kind === 'march' && String(x.host ?? '') === String(r.id)) ?? null;
-  if (!o) return 'tried';
-  if (o.state === 'unconfirmed' || (o.state === 'refused' && o.sent === true && UNKNOWN_SENT.includes(o.code))) return 'unknown';
-  if (o.state === 'refused') return o.sent === true ? 'failed' : 'refused';
-  return 'tried';
+  return Object.hasOwn(c, 'step') ? 'tried' : 'new';
 }
 const PLAN_TEXT = {
   new: () => L`この軍勢の、書きかけの進軍の計画があります。この計画は、まだ送信を試していません。`,
   sending: () => L`この軍勢の進軍の命令を、いま送っています。`,
   waiting: () => L`この軍勢の進軍の命令は、送信待ちです。州のターンの決着がつき次第、1回だけ送ります。`,
-  unknown: () => L`この軍勢の進軍の命令は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。計画のカードは残っています。`,
-  failed: () => L`この軍勢の進軍の命令は送信しましたが、成立しませんでした。計画は残っています。`,
-  refused: () => L`この軍勢の進軍の命令は、送る前に断られました。計画は残っています。`,
-  tried: () => L`この軍勢の進軍の計画は、送信を試したあとです。送れたかどうかは、ここでは分かりません。進軍の画面で確かめてください。`,
+  tried: () => L`この軍勢の進軍の計画は、送信を試したあとです。送れたかどうか、どうなったかは、この計画からは分かりません（送っていない、という意味ではありません）。進軍の画面と、このターンの一覧で確かめてください。`,
 };
 /** The lines under the list: the provinces not read (with the existing pure re-read of each), and the other villages with the way to each. */
 function hostsAround(FS, h) {
@@ -194,10 +185,10 @@ export function render(FS) {
         ${moving ? html`<button type="button" class="btn small" data-act="host-track" ${tok}>${icon('banner')}${L`この進軍の追跡を見る`}</button>` : ''}
         ${away ? html`<button type="button" class="btn small" data-act="host-return" ${tok} ${raw(locked || planBusy || bell < r.readyBell || blocks.some(b => b !== 'NotResident') || r.stamina < DEPART_STAMINA ? 'disabled' : '')}>${icon('return')}${L`村へ戻す計画を開く`}</button>` : ''}
         <button type="button" class="btn small" data-act="host-show" ${tok}>${L`地図で見る`}</button></div>` : '';
-    // (corrected: what stands of this host's plan, by what is known — hostPlanState; "not sent yet" is said only of a
-    //  plan that never entered the send)
+    // (corrected: what stands of this host's plan, by what is known OF THIS PLAN — hostPlanState; "not tried" is said
+    //  only of a plan that never entered the send, and no order record is read as this plan's outcome)
     const plan = hostPlanState(FS, r);
-    const draft = plan && play ? html`<p class="${plan === 'unknown' || plan === 'failed' ? 'notice error' : 'muted'}" role="status" data-host-plan="${plan}">${PLAN_TEXT[plan]()} <button type="button" class="btn small" data-act="tab" data-tab="marches">${L`計画を開く`}</button></p>` : '';
+    const draft = plan && play ? html`<p class="${plan === 'tried' ? 'notice' : 'muted'}" role="status" data-host-plan="${plan}">${PLAN_TEXT[plan]()} <button type="button" class="btn small" data-act="tab" data-tab="marches">${L`計画を開く`}</button></p>` : '';
     return html`<li class="vcard host-card${r.inTransit ? ' locked' : ''}" data-unit="${r.unit}">
       <img class="unit-card f${f}" src="${miniCardUrl(f, MINI_KINDS[r.unit])}" alt="" width="60" height="75" loading="lazy" decoding="async">
       <div class="host-main">

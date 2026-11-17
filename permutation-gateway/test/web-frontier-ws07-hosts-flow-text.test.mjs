@@ -23,18 +23,19 @@
 //      generation at the press, under the context number; the hosts screen stays open
 //   H4 a host's ways on: on the march → its row of the tracker; standing away → the plan of a march home, under the same
 //      closing conditions as "march" and not while a plan is being sent or armed; always → the map.
-//      What stands of this host's plan is said by what is KNOWN (CORRECTED — the first version said "not sent yet"
-//      whenever the plan was not being sent at that moment; the controller keeps a plan standing after every answer but
-//      an accepted one, so a plan sent a moment ago with its outcome unknown was called unsent):
+//      What stands of this host's plan is said by what is known OF THIS PLAN (CORRECTED TWICE — first: "not sent yet"
+//      whenever the plan was not being sent; second: the host's latest march order record was read as the outcome of
+//      this plan's try, but the send writes its record only after its wait, so a try that throws or has not answered
+//      leaves the host's EARLIER record — another plan's, try's, turn's or world's — as the latest):
 //      - a plan that never entered the send (no `step` on it: sendTheMarch sets it at its start) → "sending has not
 //        been tried for this plan" — the only case "not tried" is said
 //      - being sent → "being sent now"; armed to be sent once (`pending`) → "waiting to be sent"
-//      - entered the send, and the host's last march order is 'unconfirmed' (the local hold, or the ordinary path of
-//        the adopted order chain), or refused with `sent` and a tracker's code → "sent, result not confirmed (this does
-//        not mean it was not sent)"
-//      - that order sent and refused on chain → "sent, did not take effect"; refused before sending → "refused before
-//        it was sent"
-//      - entered the send and no order record → "sending was tried; whether it was sent is not known here"
+//      - entered the send at least once — a first try, a retry of the same plan, a try that threw, a try whose record
+//        is another's → "sending was tried; whether it was sent and what became of it cannot be told from this plan
+//        (this does not mean it was not sent)", with the way to the marches screen
+//      - NO order record is read here: a host's id and a record's place in the list are not evidence of which try a
+//        record belongs to; a record of an earlier plan, an earlier turn or another pinned world is never told as this
+//        plan's outcome
 //   H5 every press first asks hostStill: the context number NOW, the village the list was drawn for still in hand (place,
 //      site, generation), the host still in that list — so a button of another viewer, herald, world or village does
 //      nothing; the later scroll to the tracker's row runs only for the last press while the marches screen is open
@@ -106,23 +107,25 @@ test('H4 a host\'s ways on, and what stands of its plan', () => {
     '<button type="button" class="btn small" data-act="host-show" ${tok}>', 'const plan = hostPlanState(FS, r);', "data-host-plan=\"${plan}\">${PLAN_TEXT[plan]()}", 'data-act="tab" data-tab="marches"', '${ways}${draft}');
   const ps = fnOf(hs, 'export function hostPlanState(FS, r) {');
   order(ps, 'const c = FS.compose ?? null;', 'if (!c?.host || String(c.host.id) !== String(r.id)) return null;', "if (c.sending) return 'sending';", "if (c.pending) return 'waiting';",
-    "if (!Object.hasOwn(c, 'step')) return 'new';", "const o = (FS.orders ?? []).find(x => x.kind === 'march' && String(x.host ?? '') === String(r.id)) ?? null;", "if (!o) return 'tried';",
-    "if (o.state === 'unconfirmed' || (o.state === 'refused' && o.sent === true && UNKNOWN_SENT.includes(o.code))) return 'unknown';", "if (o.state === 'refused') return o.sent === true ? 'failed' : 'refused';", "return 'tried';");
-  assert.ok(hs.includes("const UNKNOWN_SENT = Object.freeze(['Unconfirmed', 'TxUnqueryable']);"));
-  // the facts of the controller this stands on: a plan is made without `step`; only the send sets it; the plan stays
-  // standing after the send unless it was accepted; the march's order record names its host
+    "return Object.hasOwn(c, 'step') ? 'tried' : 'new';");
+  // no outcome is read from the order records: nothing ties a record to this plan or to this try
+  assert.doesNotMatch(codeOf(hs.slice(hs.indexOf('import '))), /FS\.orders|\.orders\b|UNKNOWN_SENT|o\.state|sent === true/, 'the hosts screen reads no order record');
+  const texts = hs.slice(hs.indexOf('const PLAN_TEXT = {'), hs.indexOf('};', hs.indexOf('const PLAN_TEXT = {')));
+  assert.deepEqual([...texts.matchAll(/^  ([a-z]+): \(\) =>/gm)].map(m => m[1]), ['new', 'sending', 'waiting', 'tried'], 'no state names an outcome');
+  assert.doesNotMatch(texts, /成立しませんでした|断られました|結果をまだ確認できていません/, 'no outcome is said of a plan');
+  // the facts of the controller this stands on: a plan is made without `step`, in one place; only the send sets it and
+  // never removes it; the send writes its order record AFTER its wait (so a try may end with no record of its own)
   const made = ctl.split('\n').find(l => l.includes('FS.compose = { holding:{p:h.p,q:h.q,site:h.site,gen:h.gen}, host: {'));
   assert.ok(made && !/\bstep\b/.test(made + ctl.split('\n')[ctl.split('\n').indexOf(made) + 1]), 'a new plan carries no step');
   assert.equal((ctl.match(/FS\.compose = \{/g) ?? []).length, 1, 'plans are made in one place');
   assert.ok(ctl.includes('c.sendingArrival = arrival; c.sending = true; c.step = null;'), 'the send marks the plan at its start');
-  assert.ok(ctl.includes('c.sending = false; delete c.sendingArrival;'), 'and leaves the mark when it ends');
-  assert.ok(ctl.includes("const marchOrder = orderOf('march', 'Depart', { host: String(c.host.id),"));
+  assert.doesNotMatch(ctl, /delete c\.step|c\.step = undefined/, 'and the mark is never removed');
+  order(ctl.slice(ctl.indexOf('c.sendingArrival = arrival; c.sending = true; c.step = null;')), 'const r = localPlay ? await sendMarch(m, {', "const marchOrder = orderOf('march', 'Depart', { host: String(c.host.id),",
+    'c.sending = false; delete c.sendingArrival;');
   assert.ok(ctl.includes('c.pending = p;'), 'the armed waiting send');
-  // "not sent" / "not tried" is said of a plan that never entered the send only
   assert.doesNotMatch(hs, /まだ送っていません/, 'the first version\'s claim is gone');
-  const texts = hs.slice(hs.indexOf('const PLAN_TEXT = {'), hs.indexOf('};', hs.indexOf('const PLAN_TEXT = {')));
   assert.equal((texts.match(/まだ送信を試していません/g) ?? []).length, 1);
-  order(texts, 'new: () =>', 'まだ送信を試していません。', 'unknown: () =>', '送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。', 'tried: () =>', '送れたかどうかは、ここでは分かりません。');
+  order(texts, 'new: () =>', 'まだ送信を試していません。', 'tried: () =>', 'この計画からは分かりません（送っていない、という意味ではありません）。');
   // the existing buttons and their conditions are as they were
   assert.ok(card.includes("data-act=\"compose\" data-host=\"${String(r.id)}\" ${raw(locked || bell < r.readyBell || blocks.some(b => b !== 'NotResident') || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay=\"map\">"));
   assert.ok(card.includes("data-act=\"dissolve\" data-host=\"${String(r.id)}\""));
@@ -172,9 +175,7 @@ test('H8 English follows; no banned word', () => {
     'いま読めている州には、この村の軍勢は出ていません。軍勢がどの州にいるかの一覧をまだ読めていないので、軍勢がいない、という意味ではありません。',
     'この軍勢の、書きかけの進軍の計画があります。この計画は、まだ送信を試していません。', 'この軍勢の進軍の命令を、いま送っています。',
     'この軍勢の進軍の命令は、送信待ちです。州のターンの決着がつき次第、1回だけ送ります。',
-    'この軍勢の進軍の命令は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。計画のカードは残っています。',
-    'この軍勢の進軍の命令は送信しましたが、成立しませんでした。計画は残っています。', 'この軍勢の進軍の命令は、送る前に断られました。計画は残っています。',
-    'この軍勢の進軍の計画は、送信を試したあとです。送れたかどうかは、ここでは分かりません。進軍の画面で確かめてください。']) {
+    'この軍勢の進軍の計画は、送信を試したあとです。送れたかどうか、どうなったかは、この計画からは分かりません（送っていない、という意味ではありません）。進軍の画面と、このターンの一覧で確かめてください。']) {
     const line = en.split('\n').find(l => l.startsWith(`  '${k}':`));
     assert.ok(line, k);
     assert.doesNotMatch(line.slice(line.indexOf("': ") + 3), /\b(settle[ds]?|settling|keeper|beacon|seed)\b/i);
