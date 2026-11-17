@@ -115,7 +115,7 @@ test('G6 partial read: the province part', () => {
 test('G7 another viewer, herald or world: the re-read is let go', () => {
   order(fnOf(ctl, 'function resetViewer('), 'FS.marchesRead = null;', 'FS.villageReread = null;');
   order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.marchesRead = null;', 'FS.villageReread = null;', 'dropOtherWorldConquest(world);');
-  assert.ok(ctl.includes('FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; }'), 'useHerald');
+  assert.ok(fnOf(ctl, 'export function useHerald(h) {').includes('FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null;'), 'useHerald (later bundles add their own resets after it)');
 });
 
 test('G8 the screen says what became of the press', () => {

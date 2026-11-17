@@ -36,7 +36,7 @@ test('W3 W4 every answer records its world: a Citizen and "no Citizen" alike', (
 test('W2 the answer and its world are let go together', () => {
   const rv = fnOf(ctl, 'function resetViewer(');
   order(rv, 'FS.meAnswered = false;', 'FS.meWorld = undefined;');
-  assert.ok(ctl.includes('fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; }'), 'useHerald');
+  assert.ok(ctl.includes('fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined;'), 'useHerald (later bundles add their own resets after it)');
 });
 
 test('W1–W7 no village: by where the answer came from', () => {

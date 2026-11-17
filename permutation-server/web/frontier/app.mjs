@@ -68,7 +68,7 @@ import * as returnWords from './hud/returnwords.mjs';
 import * as returnRead from './hud/awayread.mjs';
 import { caravanWatchOf } from './screens/s1.mjs';
 import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
-import { ACTIONS, FORMS, bind, startPlay, wantProvince, retryProvince, rereadMarchFacts, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick, localSyncTick } from './controller.mjs';
+import { ACTIONS, FORMS, bind, startPlay, wantProvince, retryProvince, rereadMarchFacts, planS1Place, clearS1Plan, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick, localSyncTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
 // the recorded wide world, read-only (map/widemode.mjs): a button beside the map tools and a sheet over the map;
@@ -3788,6 +3788,15 @@ export const HUD_ACTIONS = {
   // (2026-11-17, ⑦ the march tracker: one march's records read again — a pure read, controller.rereadMarchFacts: no
   //  reveal, no settle, no book)
   'march-reread': d => { if (FS.mode === 'play' && d.host) rereadMarchFacts(d.host).catch(() => {}); },
+  // (2026-11-17, ⑦ from the map to the trade card: the place chosen on the map is handed to the caravan or fort form —
+  //  controller.planS1Place, which reads and sends nothing — and the village screen opens on that card; the form's
+  //  amounts are the person's own)
+  's1-plan': d => {
+    if (!planS1Place(d)) return;
+    leaveReport(); FS.tab = 'holding'; invalidate('panel', 'tabs');
+    requestAnimationFrame(() => { $('hp-trade')?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' }); });
+  },
+  's1-plan-clear': () => clearS1Plan(),
   'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },
   'forecast-retry': () => { const c = FS.compose; if (!c || c.sending || !c.forecast?.unread) return; updateForecast({ again: true }); invalidate('panel'); },
   'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },

@@ -104,7 +104,7 @@ test('T6 the card\'s own orders, through the village\'s model', () => {
 });
 
 test('T7 another herald or world; the sends are as they were', () => {
-  assert.ok(ctl.includes('FS.villageReread = null; FS.s1Reread = null; }'), 'useHerald');
+  assert.ok(ctl.includes('FS.villageReread = null; FS.s1Reread = null;'), 'useHerald (later bundles add their own resets after it)');
   order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.villageReread = null;', 'FS.s1Reread = null;', 'dropOtherWorldConquest(world);');
   const send = fnOf(ctl, 'async function s1Caravan(srcIndex, dstIndex, cargo) {');
   assert.doesNotMatch(send, /s1Reread|rereadS1|s1\.read/, 'the caravan\'s send does not know of the re-read');
