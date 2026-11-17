@@ -1690,4 +1690,8 @@ export default {
   '見込みをもう一度計算する': 'Work out the forecast again',
   // (2026-11-17, Lane C ⑦ a replay asked for outside a report)
   '戦いを読み込めませんでした（ターン {0}）。戦いがなかったという意味ではありません。記録はそのままです。': 'The clash could not be loaded (turn {0}). This does not mean there was no clash. The record is kept.',
+  // (2026-11-17, Lane C ⑦ the wide map: reads that did not come, said on the map)
+  '読めていません（選ぶと読み直せます）': 'Not loaded (select it to load again)',
+  '読み込みの順番待ち': 'Waiting to load',
+  'この輪の村の一覧を読めていません（州を選ぶと読み直せます）': 'The list of villages in this ring is not loaded (select a province to load it again)',
 };

@@ -3265,6 +3265,14 @@ export class FrontierMap {
   /** Over what stands on the land: the outlines of the ground marks, the route, the refusal, the standards. */
   topPass(ctx, F) {
     const { z, fx, still, src } = F;
+    // (2026-11-17, ⑦ the wide map: reads that did not come are said where they are — a province whose record was not
+    //  read or waits its turn, a ring whose overview did not come (the page's readMarks). Land without a record is not
+    //  empty land. Words only: nothing of the land is drawn from them, and a tap on the province selects it as ever)
+    for (const m of src.readMarks ?? []) {
+      if (!Number.isInteger(m?.p) || !Number.isInteger(m?.q) || !m.text) continue;
+      const c = provincePixel(m.p, m.q);
+      paintTag(ctx, c.x, c.y, m.text, { zoom: z, place: 'above', size: 11.5, anchor: c, spare: m.state !== 'failed' });
+    }
     if (F.lod === 'tile') {
       // a reach is lit by contrast: everything outside it is a little darker (the land, what stands on it, who walks there)
       if (F.A && F.seen) paintReachDim(ctx, F.A, { box: F.seen, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
