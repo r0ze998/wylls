@@ -394,3 +394,62 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - So e84049ed is redundant (harmless: one extra `invalidate()` per changed record). Reverting it is the owner's call;
   not reverted here. The test stays as a regression check that passes with or without it — it does not, by itself,
   tell the two apart.
+
+## 2026-11-18 JST (2026-11-17 UTC) — ①–⑳ task update
+
+This is a progress update, not a new specification or permission to run anything. Earlier dated sections above
+remain historical records; their test passes do not verify the later changes below.
+
+### Integration checkpoint and current work
+
+- Adopted source checkpoint: `claude/aggregate-approved-20261117` @
+  `0cc3ca309e1e4f8e8ab0d414c6a2c9e3e0480646`. This is an integration branch, not a claim of a merge to
+  `main`, deployment, or completion of all twenty workstreams. This update changes this ledger only.
+- The previously assigned Claude Code implementation/integration units have returned their results. Do not read the
+  old "started"/"running" rows above as their current state.
+- **In progress:** a separate CLI task has started work on a coop read adapter. It is not yet a completed,
+  verified, or integrated deliverable. Its eventual fixed result must be reviewed separately; no new adoption is
+  implied by this task entry.
+
+### Source integrated versus remaining verification
+
+| Workstream / task | Confirmed source progress at the checkpoint | Still open / not established |
+|---|---|---|
+| ① ordinary cooperation UI | Request selection, sending-source selection, existing preparation/result views, saved request history and progress crosslinks integrated | End-to-end operation in a real world is not established by these integrations; no new cooperation rule adopted |
+| ③④⑥ existing MCP / execution / creation paths | Existing read, preparation and result consumers, Run/status correlation, persistence uncertainty handling and narrow NoRecord classification fixes integrated | Real ChatGPT/public-wallet connection not completed; no new public signing authority. Localnet guards remain. ⑥ is not itself the signing sender |
+| ⑦ ordinary player consumers | Map/read retries, hosts and march planning, forecast/replay, S1 trade, exploration, incoming/conquest links, first-village guidance, troop-to-host links and home-read/confirmation ownership fixes integrated | Later regression sources and real-screen/world behavior remain unexecuted/unverified. Visitor wallet connect returns without guessing the new identity. Home storage world-generation, signer-await/session boundaries and documented limits remain |
+| ⑬ operator-side independent residents | Existing-read adapter/factory, observation-bound proposal context, initially manual state, owner-command mode source, explicit injected respond enactment, journal exclusion and saved-result read/API/CLI sources integrated | No real model charge, signature, POST, send, resident operation or end-to-end verification performed for these units. Default single-step path remains non-enacting; explicit respond source is not proof of a running resident. Caravan enactment and unresolved authority/state-writer contracts remain held |
+| Other ①–⑳ items | Earlier individual records retained | Not freshly reverified in this update. Proposals, unadopted rules and restricted items are not promoted to complete |
+
+Integration is not a test pass. The later source regressions above were not executed as part of integration.
+Existing unknown results remain unknown; ordinary notice retry behavior must not be described as a general
+no-resend guarantee. The enact journal exclusion is limited to its documented module/usage and does not establish
+a shared lock for all state or owner-mode writers.
+
+### Provisional random-home work: NOT integrated
+
+- Reported final candidate: `21851edd88ce4dad36cbfa19a0ff43242289c23c`,
+  branch `claude/home-draw-provisional-20261118`, based on the checkpoint above; eight new paths.
+- **Final independent verification is held; this candidate is not adopted or integrated.** The implementation lane
+  reported saving the final correction, but that report is not substituted for the blocked independent check.
+  The blocked Git confirmation/integration is not retried through another route.
+- Non-production and not enabled. All tests and actual execution of this provisional unit remain unperformed.
+- The final reported wording means "no candidate satisfies the provisional density/ring conditions", not "the map
+  is physically full". Chain placement is not connected; this is not a completed production placement rule.
+  Ring-opening behavior, predictability/multiple-account resistance and remaining map decisions are not resolved
+  by this source candidate.
+
+### Remaining tasks
+
+- [ ] Finish the in-progress CLI coop read adapter, obtain its fixed scope/evidence, and review before integration.
+- [ ] Resolve the independent-verification block for the provisional random-home candidate before any adoption.
+- [ ] Validate adopted source through separately permitted tests and real-user flows; do not bypass refused tests,
+      stale-review guards or equivalent restrictions.
+- [ ] Finish the approved public MCP connection/authentication design before claiming real ChatGPT gameplay.
+- [ ] Resolve the resident's remaining authority, state-writer and real-operation dependencies before operation;
+      an uncertain prior submission must not become an automatic new submission.
+- [ ] Keep unadopted ①–⑳ rules and undecided map behavior separate from ordinary implemented consumers.
+
+No new runtime, deployment, funds, signing, transmission, permission expansion or specification adoption is
+authorized or recorded by this ledger update. Stop-A continues to exclude new inference/reservations/actions;
+only the allowed confirmation of already-submitted work remains within that boundary.
