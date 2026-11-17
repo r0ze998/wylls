@@ -1,3 +1,4 @@
+// Final world-cache coordinator verification 2026-11-17 UTC: 83/83 passed (adapter 41 + integration 42).
 // Final coordinator validation 2026-11-17 UTC: corrected-contract suites passed 74/74 (adapter 41 + integration 33).
 // get_cooperation_status wired into the real MCP server logic (src/server.mjs createWyllsMcp → handle), with the real
 // adapter (src/coop-read-adapter.mjs) and the launcher's pure settings (bin/coop-read-settings.mjs). Fixtures only:
@@ -10,9 +11,13 @@
 // pure coopView (coop/goal.mjs) and fold (coop/record.mjs) through the real adapter and the real MCP dispatch. Not
 // createBoard: no board process, no fs write, no signature, no address derivation. The suite as it now stands has NOT
 // been executed by the session that wrote it.
+// 2026-11-18 Game context cache fix: the tests at the end ("real Game …") use the real src/game.mjs Game with a fake relay
+// fetch, a fixed clock and injected addressesFor constants (no address derivation, no herald request). Written, NOT
+// executed by the session that wrote them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createWyllsMcp } from '../src/server.mjs';
+import { Game, GameError } from '../src/game.mjs';
 import { COOP_TOOL, TOOLS } from '../src/tools.mjs';
 import { createCoopReadAdapter } from '../src/coop-read-adapter.mjs';
 import { coopReadSettings } from '../bin/coop-read-settings.mjs';
@@ -744,4 +749,290 @@ test('regression (real coopView): unknown nationality is a successful read with 
   assert.deepEqual(s.mine.requests.map(q => q.need), [{ wood: 200, stone: 150 }]);
   const text = JSON.stringify({ ...s, limitations: undefined });
   for (const leak of [view.nation.why, view.nation.note, view.personal.nationWhy, OTHER]) assert.ok(!text.includes(leak), `leaked ${leak}`);
+});
+
+// ------------------------------------------------------------------ regression: the REAL Game's context cache (2026-11-18)
+// src/game.mjs Game, constructed with a fake relay fetch (GET /f/season only), a fixed clock and addressesFor returning
+// constants (no program-derived address is computed). herald.pin is wrapped to record its calls; nothing is fetched
+// from the herald by context(). The board is the same fake as above.
+
+const RELAY = 'https://relay.example';
+const S3 = Object.freeze({ programId: PROGRAM, seasonId: 3 });
+const S4 = Object.freeze({ programId: PROGRAM, seasonId: 4 });
+/** addressesFor fixture: constants, never derived. `refuse`: seasonIds for which it throws (as faddr would on a bad id). */
+const fixedAddressesFor = (refuse = []) => {
+  const fn = (programId, seasonId) => {
+    fn.calls.push(seasonId);
+    if (refuse.includes(seasonId)) throw new Error(`fixture: addresses for season ${seasonId} cannot be built`);
+    return Object.freeze({ programId, seasonId, of: (kind, key) => `fixture-${kind}-${seasonId}-${JSON.stringify(key ?? null)}` });
+  };
+  fn.calls = [];
+  return fn;
+};
+const relayAnswer = doc => ({ status: 200, json: async () => doc });
+/** A relay: one answer per GET /f/season, the last repeats. An Error is a transport failure; {status} an HTTP failure. */
+function relayFetch(answers) {
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push({ url, method: init?.method });
+    assert.equal(url, `${RELAY}/f/season`, 'context() reads only GET /f/season');
+    const a = answers[Math.min(calls.length - 1, answers.length - 1)];
+    if (a instanceof Error) throw a;
+    if (a.status) return { status: a.status, json: async () => ({ code: 'Unavailable' }) };
+    return relayAnswer(a);
+  };
+  f.calls = calls;
+  return f;
+}
+/** A relay whose answers the test releases one by one (pending[i] resolves the i-th read, rejects[i] fails it). */
+function gatedRelay() {
+  const pending = [];
+  const rejects = [];
+  const f = () => new Promise((resolve, reject) => { pending.push(resolve); rejects.push(reject); });
+  f.pending = pending;
+  f.rejects = rejects;
+  return f;
+}
+function realGame({ fetch, addressesFor = fixedAddressesFor(), clock = { t: T0 } } = {}) {
+  const game = new Game({ relay: RELAY, herald: 'https://herald.example', fetch, now: () => clock.t, addressesFor });
+  const pins = [];
+  const pin = game.herald.pin.bind(game.herald);
+  game.herald.pin = (seasonId, addresses) => { pins.push(seasonId); return pin(seasonId, addresses); };
+  return { game, pins, clock, addressesFor };
+}
+const isGameError = code => e => e instanceof GameError && e.code === code && e.extra?.retryable === true;
+
+test('real Game: default context() still caches for 15 s (the reproduced hole); {fresh: true} reads the relay now', async () => {
+  const relay = relayFetch([S3, S4]);
+  const { game, pins, clock } = realGame({ fetch: relay });
+  assert.equal((await game.context()).seasonId, '3');
+  assert.equal(relay.calls.length, 1);
+  // The relay now serves season 4; the default call within the TTL is the cached season 3 with no read (unchanged).
+  assert.equal((await game.context()).seasonId, '3');
+  assert.equal(relay.calls.length, 1);
+  // A forced read sees the switch and publishes it atomically: context, addresses, herald pin, history.
+  const c = await game.context({ fresh: true });
+  assert.equal(relay.calls.length, 2);
+  assert.deepEqual({ key: c.key, seasonId: c.seasonId }, { key: `${PROGRAM}:4`, seasonId: '4' });
+  assert.equal(game.addresses.seasonId, '4');
+  assert.deepEqual(pins, ['3', '4']);
+  assert.deepEqual(game.contextChanges.map(x => x.key), [`${PROGRAM}:3`]);
+  // Default semantics afterwards: cached again until the TTL passes, then read again.
+  assert.equal((await game.context()).seasonId, '4');
+  assert.equal(relay.calls.length, 2);
+  clock.t += 15_000;
+  assert.equal((await game.context()).seasonId, '4');
+  assert.equal(relay.calls.length, 3);
+  assert.deepEqual(pins, ['3', '4']); // same key: not re-pinned
+});
+
+test('real Game through get_cooperation_status: both boundaries read the relay; a switch during the board read fails closed', async () => {
+  // No switch: ok, one relay read per boundary.
+  {
+    const relay = relayFetch([S3]);
+    const { game } = realGame({ fetch: relay });
+    const { mcp, fetch: board } = server({ game });
+    const r = await call(mcp, 'get_cooperation_status');
+    assert.equal(r.result.isError, false, JSON.stringify(r.result.structuredContent));
+    assert.deepEqual(r.result.structuredContent.world, { programId: PROGRAM, seasonId: '3', cluster: 'localnet' });
+    assert.equal(relay.calls.length, 2);
+    assert.equal(board.calls.length, 3);
+  }
+  // The relay switches 3 → 4 between the two boundaries (within the 15 s TTL, fixed clock): ContextChanged, no data.
+  {
+    const relay = relayFetch([S3, S4]);
+    const { game, pins } = realGame({ fetch: relay });
+    const { mcp, fetch: board } = server({ game });
+    const r = await call(mcp, 'get_cooperation_status');
+    assert.equal(r.result.isError, true);
+    assert.equal(r.result.structuredContent.error.code, 'ContextChanged');
+    assert.equal(r.result.structuredContent.error.retryable, true);
+    assert.equal(r.result.structuredContent.nation, undefined);
+    assert.equal(r.result.structuredContent.mine, undefined);
+    assert.equal(r.result.structuredContent.error.cooperation, undefined);
+    assert.equal(relay.calls.length, 2);
+    assert.equal(board.calls.length, 3);
+    assert.deepEqual(pins, ['3', '4']);
+  }
+  // A warm cache of season 3 does not stand in for the "before" boundary: the relay now serves 4, the board 3.
+  {
+    const relay = relayFetch([S3, S4]);
+    const { game } = realGame({ fetch: relay });
+    await game.context();
+    const { mcp, fetch: board } = server({ game });
+    const r = await call(mcp, 'get_cooperation_status');
+    assert.equal(r.result.isError, true);
+    assert.equal(r.result.structuredContent.error.code, 'CoopBoardMismatch');
+    assert.equal(relay.calls.length, 3); // the warm read, then the fresh "before" and the fresh "after" boundary
+    assert.equal(board.calls.length, 1);
+  }
+});
+
+test('real Game: an initial relay failure returns no data and reads no board, even with a warm cache', async () => {
+  for (const answers of [[new Error('relay down')], [{ status: 503 }], [S3, new Error('relay down')], [S3, { status: 500 }]]) {
+    const relay = relayFetch(answers);
+    const { game } = realGame({ fetch: relay });
+    if (answers.length === 2) { assert.equal((await game.context()).seasonId, '3'); } // warm, within the TTL
+    const { mcp, fetch: board } = server({ game });
+    const r = await call(mcp, 'get_cooperation_status');
+    assert.equal(r.result.isError, true);
+    assert.equal(r.result.structuredContent.error.code, 'ContextUnavailable');
+    assert.equal(r.result.structuredContent.nation, undefined);
+    assert.equal(board.calls.length, 0);
+    assert.equal(relay.calls.length, answers.length);
+  }
+});
+
+test('real Game: a final relay failure returns no data (ContextChanged), whatever the board said', async () => {
+  for (const last of [new Error('relay down'), { status: 500 }]) {
+    const relay = relayFetch([S3, last]);
+    const { game } = realGame({ fetch: relay });
+    const { mcp, fetch: board } = server({ game });
+    const r = await call(mcp, 'get_cooperation_status');
+    assert.equal(r.result.isError, true);
+    assert.equal(r.result.structuredContent.error.code, 'ContextChanged');
+    assert.equal(r.result.structuredContent.nation, undefined);
+    assert.equal(r.result.structuredContent.mine, undefined);
+    assert.equal(board.calls.length, 3);
+    assert.equal(relay.calls.length, 2);
+  }
+});
+
+test('real Game: addresses for the new context that cannot be built leave the old context, addresses, pin and history', async () => {
+  const relay = relayFetch([S3, S4]);
+  const { game, pins, addressesFor } = realGame({ fetch: relay, addressesFor: fixedAddressesFor(['4']) });
+  const old = await game.context();
+  const before = { pinned: game.pinned, addresses: game.addresses, pinnedAt: game.pinnedAt, published: game.contextPublishedSeq };
+  await assert.rejects(game.context({ fresh: true }), /cannot be built/);
+  assert.strictEqual(game.pinned, old);
+  assert.strictEqual(game.pinned, before.pinned);
+  assert.strictEqual(game.addresses, before.addresses);
+  assert.equal(game.addresses.seasonId, '3');
+  assert.equal(game.pinnedAt, before.pinnedAt);
+  assert.equal(game.contextPublishedSeq, before.published);
+  assert.deepEqual(game.contextChanges, []);
+  assert.deepEqual(pins, ['3']);
+  assert.deepEqual(addressesFor.calls, ['3', '4']);
+  // Through the tool: the "before" boundary cannot be built → ContextUnavailable, no board read, old state kept.
+  const { mcp, fetch: board } = server({ game });
+  const r = await call(mcp, 'get_cooperation_status');
+  assert.equal(r.result.structuredContent.error.code, 'ContextUnavailable');
+  assert.equal(board.calls.length, 0);
+  assert.strictEqual(game.pinned, old);
+  assert.deepEqual(pins, ['3']);
+  // At the "after" boundary: 3 published, then 4 cannot be built → ContextChanged, no data, pin still 3.
+  const relay2 = relayFetch([S3, S4]);
+  const g2 = realGame({ fetch: relay2, addressesFor: fixedAddressesFor(['4']) });
+  const s2 = server({ game: g2.game });
+  const r2 = await call(s2.mcp, 'get_cooperation_status');
+  assert.equal(r2.result.structuredContent.error.code, 'ContextChanged');
+  assert.equal(r2.result.structuredContent.nation, undefined);
+  assert.equal(s2.fetch.calls.length, 3);
+  assert.equal(g2.game.pinned.seasonId, '3');
+  assert.deepEqual(g2.pins, ['3']);
+});
+
+test('real Game: an older overlapping read that answers last never rolls back a newer published context', async () => {
+  const relay = gatedRelay();
+  const { game, pins } = realGame({ fetch: relay });
+  const older = game.context({ fresh: true });
+  const newer = game.context({ fresh: true });
+  assert.equal(relay.pending.length, 2);
+  relay.pending[1](relayAnswer(S4));
+  assert.equal((await newer).seasonId, '4');
+  relay.pending[0](relayAnswer(S3));
+  const o = await older;
+  assert.equal(o.seasonId, '4'); // the newer observation, never the older read's season 3
+  assert.equal(game.pinned.seasonId, '4');
+  assert.equal(game.addresses.seasonId, '4');
+  assert.deepEqual(pins, ['4']);
+  assert.deepEqual(game.contextChanges, []);
+  // In order (older answers first), both publish as before.
+  const relay2 = gatedRelay();
+  const g2 = realGame({ fetch: relay2 });
+  const a = g2.game.context({ fresh: true });
+  const b = g2.game.context({ fresh: true });
+  relay2.pending[0](relayAnswer(S3));
+  assert.equal((await a).seasonId, '3');
+  relay2.pending[1](relayAnswer(S4));
+  assert.equal((await b).seasonId, '4');
+  assert.deepEqual(g2.pins, ['3', '4']);
+  assert.deepEqual(g2.game.contextChanges.map(x => x.key), [`${PROGRAM}:3`]);
+});
+
+test('real Game: an older read answering after a newer read that could not publish fails closed, old state kept', async () => {
+  const relay = gatedRelay();
+  const { game, pins } = realGame({ fetch: relay, addressesFor: fixedAddressesFor(['4']) });
+  const warm = game.context();
+  relay.pending[0](relayAnswer(S3));
+  const old = await warm;
+  const older = game.context({ fresh: true });
+  const newer = game.context({ fresh: true });
+  assert.equal(relay.pending.length, 3);
+  relay.pending[2](relayAnswer(S4));
+  await assert.rejects(newer, /cannot be built/);
+  relay.pending[1](relayAnswer(S3));
+  await assert.rejects(older, isGameError('ContextUnavailable'));
+  assert.strictEqual(game.pinned, old);
+  assert.equal(game.addresses.seasonId, '3');
+  assert.deepEqual(pins, ['3']);
+  assert.deepEqual(game.contextChanges, []);
+});
+
+const S5 = Object.freeze({ programId: PROGRAM, seasonId: 5 });
+
+test('real Game: three overlapping reads — B publishes 4, C answers 5 but cannot build, then A answers 3: A fails closed', async () => {
+  const relay = gatedRelay();
+  const { game, pins } = realGame({ fetch: relay, addressesFor: fixedAddressesFor(['5']) });
+  const A = game.context({ fresh: true });
+  const B = game.context({ fresh: true });
+  const C = game.context({ fresh: true });
+  assert.equal(relay.pending.length, 3);
+  relay.pending[1](relayAnswer(S4));
+  assert.equal((await B).seasonId, '4');
+  relay.pending[2](relayAnswer(S5));
+  await assert.rejects(C, /cannot be built/);
+  relay.pending[0](relayAnswer(S3));
+  // Not B's season 4 (from before C's failed observation of 5), and not A's own older 3.
+  await assert.rejects(A, isGameError('ContextUnavailable'));
+  assert.equal(game.pinned.seasonId, '4');
+  assert.equal(game.addresses.seasonId, '4');
+  assert.deepEqual(pins, ['4']);
+  assert.deepEqual(game.contextChanges, []);
+  // Recovery: a read started after the failure that succeeds publishes as usual.
+  const D = game.context({ fresh: true });
+  relay.pending[3](relayAnswer(S4));
+  assert.equal((await D).seasonId, '4');
+  assert.deepEqual(pins, ['4']);
+});
+
+test('real Game: a newer read that fails at the relay (transport or HTTP) stops an older overlapping read from publishing; a later read recovers', async () => {
+  for (const [kind, settle] of [
+    ['transport', relay => relay.rejects[2](new Error('relay down'))],
+    ['HTTP 503', relay => relay.pending[2]({ status: 503, json: async () => ({ code: 'Unavailable' }) })],
+  ]) {
+    const relay = gatedRelay();
+    const { game, pins } = realGame({ fetch: relay });
+    const warm = game.context();
+    relay.pending[0](relayAnswer(S3));
+    const old = await warm;
+    const older = game.context({ fresh: true });
+    const newer = game.context({ fresh: true });
+    assert.equal(relay.pending.length, 3, kind);
+    settle(relay);
+    await assert.rejects(newer, isGameError('RelayUnreachable'), kind);
+    relay.pending[1](relayAnswer(S4));
+    await assert.rejects(older, isGameError('ContextUnavailable'), kind); // its season-4 answer is not published
+    assert.strictEqual(game.pinned, old, kind);
+    assert.equal(game.addresses.seasonId, '3', kind);
+    assert.deepEqual(pins, ['3'], kind);
+    assert.deepEqual(game.contextChanges, [], kind);
+    // Recovery on a later successful fresh read.
+    const later = game.context({ fresh: true });
+    relay.pending[3](relayAnswer(S4));
+    assert.equal((await later).seasonId, '4', kind);
+    assert.equal(game.addresses.seasonId, '4', kind);
+    assert.deepEqual(pins, ['3', '4'], kind);
+    assert.deepEqual(game.contextChanges.map(x => x.key), [`${PROGRAM}:3`], kind);
+  }
 });
