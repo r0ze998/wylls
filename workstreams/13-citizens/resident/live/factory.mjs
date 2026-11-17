@@ -20,6 +20,10 @@
 //                     planner is the observed one; after planning, /h/season is read again and a changed world
 //                     (program, Season, world account or network) makes the plan held (WorldChanged)
 //   results (stop-A)  `execution`: the caller's ws04-acts port (resident/ports/ws04-acts.mjs); status only
+//   stop, keys        with `residentDir`: the resident's own stop and submitted keys, read at each step() from its
+//                     charter.json and state.json and its halt file (resident-state.mjs; read only, no key file, no
+//                     Resident constructed). A caller's `stop` may add a stop, never clear the resident's; its keys
+//                     are the resident's only (held while their world is not recorded).
 // The wallet, the authorities and any provider are the caller's, given explicitly; none is made here.
 
 import { worldFromSeason, currentBellFromSeason } from '../../../12-memory/adapters/canonical.mjs';
@@ -32,7 +36,9 @@ import { encode as toBase58 } from '../../../../permutation-server/web/sdk/base5
 import { storesAt } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { settled } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/fi18n.mjs';
+import { readFileSync, lstatSync } from 'node:fs';
 import { observeLive, plannerNow } from './observe.mjs';
+import { readResidentState } from './resident-state.mjs';
 import { liveStep } from './step.mjs';
 
 const bytesOf = b64 => {
@@ -71,13 +77,22 @@ export const gameDeps = Object.freeze({
   },
 });
 
+/**
+ * (2026-11-17) Whether a path exists, for the resident's halt file: true when it is there (a link counts, even a
+ * dangling one: the halt is taken as present), false ONLY when the system says it does not exist (ENOENT), and throws
+ * for anything else (no permission, a path component that is not a directory, …): never "absent" by failure.
+ */
+export function existsForHalt(p) {
+  try { lstatSync(p); return true; } catch (e) { if (e?.code === 'ENOENT') return false; throw e; }
+}
+
 const sameSeason = (a, b) => !!a && !!b && a.programId === b.programId && String(a.seasonId) === String(b.seasonId) && a.seasonAddress === b.seasonAddress && a.cluster === b.cluster;
 
 /**
  * `createLiveResident({heraldUrl, boardUrl?, rpc?: {url, cluster, source}, wallet, execution?, authority?, provider?,
  *   allow?, fetchImpl})` → {observe(), step({stop?, submittedKeys?})}. Nothing is read until one of them is called.
  */
-export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wallet, execution = null, authority = {}, provider = null, allow = {}, fetchImpl = globalThis.fetch }) {
+export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wallet, residentDir = null, execution = null, authority = {}, provider = null, allow = {}, fetchImpl = globalThis.fetch }) {
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl');
   if (typeof wallet !== 'string' || !wallet) throw new TypeError('wallet: the resident\'s address, supplied by its owner');
   const herald = getReader(heraldUrl, fetchImpl);
@@ -108,6 +123,12 @@ export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wal
 
   return Object.freeze({
     observe,
-    step: ({ stop = null, submittedKeys = [] } = {}) => liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop, submittedKeys, authority }),
+    step: async ({ stop = null, submittedKeys = [] } = {}) => {
+      if (!residentDir) return liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop, submittedKeys, authority });
+      // (2026-11-17) the resident's own stop and keys, read now (not at creation); unknown is a stop
+      const rs = readResidentState({ dir: residentDir, wallet, fs: { readText: p => readFileSync(p, 'utf8'), exists: existsForHalt } });
+      const r = await liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop: rs.stop ?? stop, submittedKeys: rs.submitted.keys, authority });
+      return { ...r, resident: { stop: rs.stop, facts: rs.facts, submittedHeld: rs.submitted.held, submittedWhy: rs.submitted.why, unsent: rs.unsent } };
+    },
   });
 }
