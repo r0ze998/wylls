@@ -69,10 +69,16 @@ export class Game {
     if (s.transport || s.status !== 200) throw new GameError('RelayUnreachable', 'the relay did not answer GET /f/season', { retryable: true });
     const key = `${s.json.programId}:${s.json.seasonId}`;
     if (!this.pinned || this.pinned.key !== key) {
-      if (this.pinned) this.contextChanges.push({ ...this.pinned, until: new Date(t).toISOString() });
-      this.pinned = { key, programId: s.json.programId, seasonId: String(s.json.seasonId), since: new Date(t).toISOString() };
-      this.addresses = this.addressesFor(this.pinned.programId, this.pinned.seasonId);
-      this.herald.pin(this.pinned.seasonId, this.addresses);
+      // Build first, publish after (2026-11-17): addressesFor may throw (faddr.seasonAddresses refuses a malformed
+      // program id). Nothing is changed until it has succeeded, so a failure leaves the old context, addresses,
+      // herald pin, history and pinnedAt as they were, and the next call reads the relay again and retries (before,
+      // `pinned` already named the new key: the same key then skipped the assembly and served old or no addresses).
+      const next = { key, programId: s.json.programId, seasonId: String(s.json.seasonId), since: new Date(t).toISOString() };
+      const addresses = this.addressesFor(next.programId, next.seasonId);
+      this.herald.pin(next.seasonId, addresses); // herald.mjs pin: two assignments, it does not throw
+      if (this.pinned) this.contextChanges.push({ ...this.pinned, until: next.since });
+      this.pinned = next;
+      this.addresses = addresses;
     }
     this.pinnedAt = t;
     return this.pinned;
