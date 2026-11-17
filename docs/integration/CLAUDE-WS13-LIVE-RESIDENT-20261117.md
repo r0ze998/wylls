@@ -4,7 +4,8 @@
 
 **Branch:** `claude/ws13-live-resident-20261117`, on the aggregate `fdc9fd0d` (the aggregate when it was saved).
 - `1ca5266e` is the first tip.
-- The second tip (below) is on top of it.
+- `65fd52ae` is the second tip.
+- The third tip (below) is on top of them.
 - **Adopt the final tip only.**
 
 **Static change, NOT run:**
@@ -61,6 +62,23 @@ New files only. **`resident.mjs`, the test world and every existing port are unc
    - **Creating it reads nothing and starts nothing:** no loop, no timer, no runner. `observe()` and `step()` are one call each, made by the caller. The wallet, authorities, execution port and provider are the caller's.
    - **Enacting is still not connected.**
 
+## Third tip: the planner's time (the parent's review of `65fd52ae`)
+
+**Do not adopt `65fd52ae` alone.**
+
+- **The defect:**
+  - Workstream 1's `planSend` takes `now`, in Unix seconds (`send.mjs`). Its default is the local clock, `Math.floor(Date.now() / 1000)`. It uses `now` only for the source stock estimate: `settled`/`storesAt`, and `estimate.at`.
+  - The factory called `planSend(args)` without `now`. The observation estimated stock at the herald's `/h/season` `latestUnix`, but the plan estimated it at the local wall clock.
+- **Now:**
+  - **`plannerNow(obs)`** (new, in `observe.mjs`, pure) gives the **same** `latestUnix` this observation's bell and stock came from (`bellBasis`, set only when 12's `currentBellFromSeason` gave a bell).
+  - **No time:** it gives none when that value is unknown, not a whole Unix second, or before the Season's genesis, or when the clock is unknown.
+  - **The factory:** after its world checks it passes `planSend({ ...args, now })`. Without a time it answers `TimeUnknown`, which holds the proposal. **The local clock is never used.**
+- **Unchanged:**
+  - the re-read of `/h/season` after planning (`WorldChanged`);
+  - the RPC network and `WorldMismatch` checks;
+  - "informational, not finality";
+  - workstream 1's `planSend`, workstream 4's clients and the board page.
+
 ## Not connected yet (each needs a decision, or a piece not adopted)
 
 1. **Enacting:**
@@ -100,6 +118,7 @@ New files only. **`resident.mjs`, the test world and every existing port are unc
 - **(second tip)** the board's network: another, none, the same;
 - **(second tip)** unread `sendings`, `links` and `responses` held, and never chosen;
 - **(second tip)** deps made per observation, and a plan that does not come holds the proposal;
+- **(third tip)** `plannerNow`: the normal case, a missing time, invalid times (fraction, string, negative, zero, null), before genesis, no clock; the factory (as text) passes `now` after the world checks and before the re-read, never calls the planner without it, and names no local clock;
 - **(second tip)** the factory pinned as text: its imports, conversions, RPC network, `WorldMismatch` and `WorldChanged`, the observed Season, and nothing read, looped, timed, signed or sent at creation. The test never imports or calls the factory.
 
 It makes no key, so it is compatible with `run.sh`'s keyless mode. It was **not run**.

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { observeLive } from '../resident/live/observe.mjs';
+import { observeLive, plannerNow } from '../resident/live/observe.mjs';
 import { liveCandidates, planLiveSend, UNSUPPORTED } from '../resident/live/candidates.mjs';
 import { decideLive, noChargeDecider } from '../resident/live/decide.mjs';
 import { liveStep, confirmSubmitted, ENACT_NOT_CONNECTED } from '../resident/live/step.mjs';
@@ -189,4 +189,28 @@ test('factory (pinned as text, never imported or called here): the real pieces, 
   const create = f.slice(f.indexOf('export function createLiveResident('));
   assert.doesNotMatch(create.slice(0, create.indexOf('const observe = ')), /await |\.get\(/);
   assert.doesNotMatch(f, /setInterval|setTimeout|while \(true\)|process\.argv|\.sign\(|signRecord\(|\.submit\(|\.post\(|sendPlanned\(|ports\.join\(/);
+});
+
+// (2026-11-17, third tip; WRITTEN ONLY, NOT RUN) the planner's time is the observation's herald time, or none
+test('plannerNow: the same herald latestUnix the bell and stock came from; unknown or invalid is no time, never the local clock', async () => {
+  const obs = await observeLive({ herald: herald(), wallet: ME, deps: deps0 });
+  assert.deepEqual(plannerNow(obs), { ok: true, now: season().latestUnix });
+  assert.equal(plannerNow(obs).now, obs.bellBasis.latestUnix);
+  const missing = await observeLive({ herald: herald({ '/h/season': season({ latestUnix: undefined }) }), wallet: ME, deps: deps0 });
+  assert.equal(plannerNow(missing).ok, false, 'no herald time');
+  for (const t of [12.5, '1500', -1, 0, null]) assert.equal(plannerNow({ ...obs, bellBasis: { ...obs.bellBasis, latestUnix: t } }).ok, false, `invalid: ${t}`);
+  assert.equal(plannerNow({ ...obs, bellBasis: { ...obs.bellBasis, latestUnix: 999 } }).ok, false, 'before genesis (1000)');
+  assert.equal(plannerNow({ ...obs, clock: null }).ok, false, 'no clock');
+  assert.equal(plannerNow(null).ok, false);
+});
+
+test('factory (text): the planner gets now = the observed herald time; an unknown time holds the plan; no local clock anywhere', () => {
+  const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
+  assert.match(f, /const at = plannerNow\(obs\);/);
+  assert.match(f, /if \(!at\.ok\) return \{ ok: false, code: 'TimeUnknown'/);
+  assert.match(f, /planSend\(\{ \.\.\.args, now: at\.now \}\)/);
+  assert.ok(f.indexOf("code: 'WorldMismatch'") < f.indexOf("code: 'TimeUnknown'") && f.indexOf("code: 'TimeUnknown'") < f.indexOf('planSend({ ...args'), 'checked after the world, before planning');
+  assert.ok(f.indexOf('planSend({ ...args') < f.indexOf("code: 'WorldChanged'"), 'the world is still read again after planning');
+  assert.doesNotMatch(f, /Date\.now|new Date\(|performance\.now/, 'no local clock');
+  assert.doesNotMatch(f, /await planSend\(args\)/, 'the planner is never called without the observed time');
 });

@@ -13,7 +13,9 @@
 //   stock             the game's storesAt(settled(holding, t), t, RESOURCE_ORDER), t = /h/season latestUnix (the
 //                     herald's), whole units by workstream 1's RESOURCES order, as send.mjs's estimate does
 //   earlier sends     workstream 1's pending.mjs pendingSendOf
-//   plan              workstream 1's send.mjs planSend with chain.mjs rpcReader over `rpc.url`, ONLY when the caller
+//   plan              workstream 1's send.mjs planSend with chain.mjs rpcReader over `rpc.url`, its `now` (Unix seconds)
+//                     being this observation's herald latestUnix (observe.mjs plannerNow; unknown or invalid: held,
+//                     TimeUnknown, never the local clock), ONLY when the caller
 //                     declares that RPC's network (`rpc.cluster`) and it is the herald's; the Season given to the
 //                     planner is the observed one; after planning, /h/season is read again and a changed world
 //                     (program, Season, world account or network) makes the plan held (WorldChanged)
@@ -30,7 +32,7 @@ import { encode as toBase58 } from '../../../../permutation-server/web/sdk/base5
 import { storesAt } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { settled } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/fi18n.mjs';
-import { observeLive } from './observe.mjs';
+import { observeLive, plannerNow } from './observe.mjs';
 import { liveStep } from './step.mjs';
 
 const bytesOf = b64 => {
@@ -88,12 +90,14 @@ export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wal
   /** The planner and the earlier-send rule for one observation: the Season is the observed one, re-checked after. */
   const depsFor = obs => {
     const seen = obs?.season ?? null;
+    const at = plannerNow(obs);   // (2026-11-17) the planner's `now`: this observation's herald latestUnix, never the local clock
     const planned = async args => {
       if (!rpcOk) return { ok: false, code: 'RpcNotDeclared', why: 'no RPC with its declared network (rpc.url, rpc.cluster, rpc.source)' };
       if (!seen || rpc.cluster !== seen.cluster) return { ok: false, code: 'RpcOtherNetwork', why: `the RPC is declared for ${rpc.cluster}, the herald's network is ${seen?.cluster ?? 'unknown'}` };
       if (args?.season?.programId !== seen.programId || String(args?.season?.seasonId) !== seen.seasonId) return { ok: false, code: 'WorldMismatch', why: 'the planner was given another world than the one observed' };
+      if (!at.ok) return { ok: false, code: 'TimeUnknown', why: `${at.why}: the stock is not estimated at a guessed time` };
       let r;
-      try { r = await planSend(args); } catch (e) { return { ok: false, code: 'PlanFailed', why: String(e?.message ?? e).slice(0, 120) }; }
+      try { r = await planSend({ ...args, now: at.now }); } catch (e) { return { ok: false, code: 'PlanFailed', why: String(e?.message ?? e).slice(0, 120) }; }
       let again = null;
       try { const s = await herald.get('/h/season'); if (s.status >= 200 && s.status < 300 && s.json) again = { programId: s.json.programId, seasonId: String(s.json.season), seasonAddress: s.json.seasonAddress, cluster: s.json.cluster }; } catch { again = null; }
       if (!sameSeason(again, seen)) return { ok: false, code: 'WorldChanged', why: again ? 'the world changed while planning' : 'the world could not be read again after planning' };

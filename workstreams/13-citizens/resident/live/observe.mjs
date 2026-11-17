@@ -29,6 +29,20 @@ async function read(src, path) {
 }
 
 /**
+ * (2026-11-17) The time workstream 1's planSend estimates the source stock at (its `now`: Unix seconds, send.mjs; its
+ * default is the local clock): the SAME herald latestUnix this observation's bell and stock estimate came from
+ * (`bellBasis`, set only when 12's currentBellFromSeason gave a bell). Unknown, not a whole Unix second, or before the
+ * Season's genesis: no time, and the caller holds the plan. Never the local clock; not a finality statement.
+ * → {ok: true, now} | {ok: false, why}
+ */
+export function plannerNow(obs) {
+  const t = obs?.bellBasis?.latestUnix, g = obs?.clock?.genesisTs;
+  if (!Number.isSafeInteger(t) || t <= 0) return { ok: false, why: "the herald time (latestUnix) of this observation is unknown or not a whole Unix second" };
+  if (!Number.isSafeInteger(g) || t < g) return { ok: false, why: "the herald time is before the Season's genesis, or the clock is unknown" };
+  return { ok: true, now: t };
+}
+
+/**
  * One observation. → {kind: 'live-partial', world, clock, bell, bellBasis, self, requests, held, unknown}
  *   world/clock  null with a reason in `unknown` when /h/season is not read or not a continuous world
  *   self         {status: 'ok', citizen, holdings: [{place, tile, stock|null, stockBasis}]} | {status: 'none'|'unread', why}
