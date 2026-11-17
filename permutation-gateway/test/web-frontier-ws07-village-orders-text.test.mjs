@@ -42,7 +42,11 @@ test('O1 the lifecycle records this reads are the controller\'s own', () => {
 });
 
 test('O2 each record is said as what it is', () => {
-  order(model, "if (o.state === 'unconfirmed') cls = 'held';",
+  // (corrected: 'unconfirmed' is the local hold only with the hold's own code; with any other code — main's chain records
+  //  an ordinary-path unknown outcome that way — a second press is a new order: `unknown`, never the hold's words)
+  assert.ok(vo.includes("export const LOCAL_HOLD_CODE = 'LocalActUnconfirmed';"));
+  assert.ok(ctl.includes("code: 'LocalActUnconfirmed'"), 'the controller\'s own code for the hold');
+  order(model, "if (o.state === 'unconfirmed') cls = o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';",
     "else if (o.state === 'refused') cls = o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';",
     "else if (o.state === 'accepted') cls = seen === false ? 'waiting' : null;", 'if (cls) out.push(');
   order(view, "if (x.cls === 'notSent')", '：送られていません。', "if (x.cls === 'sentFailed')", '：送信しましたが、成立しませんでした。', "if (x.cls === 'held')",

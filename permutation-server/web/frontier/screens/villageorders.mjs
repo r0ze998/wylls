@@ -7,9 +7,10 @@
 // the village's record and says, per order that still needs a word:
 //   notSent      refused before anything left this browser (`sent` not true): not sent, with the reason
 //   sentFailed   sent, and the chain answered that it failed or expired: sent, did not take effect, with the reason
-//   unknown      sent, and the outcome could not be read (`Unconfirmed`, `TxUnqueryable`): NOT "not sent" and NOT
+//   unknown      sent, and the outcome could not be read (refused+sent with `Unconfirmed` / `TxUnqueryable`, or
+//                'unconfirmed' with any code but the local hold's): NOT "not sent" and NOT
 //                failed — the record decides; the pure re-read of the village (controller rereadVillage) is offered
-//   held         local play: sent and held by its signature (`state: 'unconfirmed'`): the same press asks its outcome
+//   held         local play: sent and held by its signature (`state: 'unconfirmed'`, code LocalActUnconfirmed): the same press asks its outcome
 //                and sends nothing again (the controller's own rule; nothing of it is decided here)
 //   waiting      accepted, and the village's record read so far does not show it yet
 // An accepted order the record already shows is not listed: the queue, the tier and the stores say it.
@@ -28,6 +29,9 @@ import { copyNumber, queueNow, ITEM_TIER_UP } from '../hud/rulebook.mjs';
 export const VILLAGE_ORDER_KINDS = Object.freeze(['harvest', 'build', 'walls', 'promote', 'train', 'muster', 'garrison']);
 /** The codes of a transaction that was sent and whose outcome could not be read (fplay.mjs track). */
 export const UNKNOWN_OUTCOME_CODES = Object.freeze(['Unconfirmed', 'TxUnqueryable']);
+
+/** The code of local play's hold: sent, held by its signature, and asked — not sent — by the same press (controller.mjs orderUnconfirmed). */
+export const LOCAL_HOLD_CODE = 'LocalActUnconfirmed';
 
 /** What the order was, in a few words. */
 export function villageOrderName(o) {
@@ -75,7 +79,10 @@ export function villageOrdersModel(FS, h, now) {
   for (const o of mine) {
     const seen = inRecord(o), why = o.why ?? (o.code ? clientText(o.code) : '');
     let cls = null;
-    if (o.state === 'unconfirmed') cls = 'held';
+    // (corrected 2026-11-17: 'unconfirmed' is the local-play hold ONLY with the hold's own code. Main's order chain —
+    //  not adopted at this base — records an ordinary-path unknown outcome as 'unconfirmed' too, with the tracker's
+    //  code: there a second press is a NEW order, so it is said as `unknown`, never with the hold's words)
+    if (o.state === 'unconfirmed') cls = o.code === LOCAL_HOLD_CODE ? 'held' : 'unknown';
     else if (o.state === 'refused') cls = o.sent !== true ? 'notSent' : UNKNOWN_OUTCOME_CODES.includes(o.code) ? 'unknown' : 'sentFailed';
     else if (o.state === 'accepted') cls = seen === false ? 'waiting' : null;
     if (cls) out.push({ id: o.id, kind: o.kind, name: villageOrderName(o), cls, code: o.code ?? null, why, inRecord: seen });
