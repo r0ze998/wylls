@@ -1816,4 +1816,16 @@ export default {
   'この軍勢の進軍の命令を、いま送っています。': 'The march order of this host is being sent now.',
   'この軍勢の進軍の命令は、送信待ちです。州のターンの決着がつき次第、1回だけ送ります。': 'The march order of this host is waiting to be sent. It is sent once, as soon as the province\'s turn is resolved.',
   'この軍勢の進軍の計画は、送信を試したあとです。送れたかどうか、どうなったかは、この計画からは分かりません（送っていない、という意味ではありません）。進軍の画面と、このターンの一覧で確かめてください。': 'Sending was tried for this host\'s march plan. Whether it was sent, and what became of it, cannot be told from this plan (this does not mean it was not sent). Check the marches screen and this turn\'s list.',
+  // (2026-11-17, ⑦ the keep and the march toward it)
+  'この砦へ向かっているあなたの軍勢': 'Your hosts on their way to this keep',
+  '到着のターン（{0}）は決着済みです。どうなったかは、追跡と報告で確かめられます。': 'Its arrival turn ({0}) is resolved. What came of it is in the tracker and the report.',
+  'ターン {0} に着く予定です。': 'Due to arrive on turn {0}.',
+  '進軍中です。': 'On the march.',
+  '（到着先の記録を、まだ読めていません。）': ' (The record of where it arrives is not loaded yet.)',
+  'ここに出るのは、いま選んでいる村の進軍だけです。': 'Only the marches of the village in hand are listed here.',
+  'この砦を見る': 'See this keep',
+  'この砦へ向かっているあなたの軍勢がいるかどうかは、いま選んでいる村の進軍の記録をまだ読めていないので、分かりません。': 'Whether a host of yours is on its way to this keep is not known: the march records of the village in hand are not loaded yet.',
+  'この州へ向かっているあなたの軍勢（行き先のマスは、まだ分かりません）': 'Your hosts on their way to this province (the tile they go to is not known yet)',
+  'この砦へ向かっているかどうかは、行き先のマスが読めるまで分かりません。': 'Whether they are bound for this keep is not known until the tile they go to is loaded.',
+  'この州の砦を見る': 'See this province\'s keep',
 };

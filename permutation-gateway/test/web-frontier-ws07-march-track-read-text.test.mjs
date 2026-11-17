@@ -41,7 +41,7 @@ test('T2 readMarches carries the flags; the reveal step is as it was', () => {
     'const { facts, record } = factsRead;', "if (step.action === 'send' && !localPlay) {", 'const r = await io.reveal(book.revealMaterial(e));',
     'unread: slotRead.failed || factsRead.failed ? { slot: !!slotRead.failed, facts: !!factsRead.failed, code: slotRead.code ?? factsRead.code ?? null } : null });',
     'if (slotRead.failed || factsRead.failed) looseUnread.set(t.slot,', 'if (record === null) continue;', 'if (key !== bookKey() || !same()) return;', 'FS.marches = marches;',
-    'FS.marchesRead = { key, world: at.world };');
+    'FS.marchesRead = { key, world: at.world,');
   const send = rm.slice(rm.indexOf("if (step.action === 'send' && !localPlay) {"), rm.indexOf('const settleReady'));
   assert.doesNotMatch(send, /failed|unread|slotRead|factsRead/, 'the self-reveal reads none of the new flags');
   assert.ok(rm.includes('const settleReady = !localPlay && !!transit && !!env && transit.state >= 2 && pl.state === \'resolved\' && pl.close !== null && now() >= pl.close + 600;'), 'the settle offer is as it was');

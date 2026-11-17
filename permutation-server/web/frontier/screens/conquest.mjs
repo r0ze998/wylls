@@ -14,6 +14,7 @@ import { activeHolding } from '../fstate.mjs';
 import { actionBlocks, UNIT_ORDER, SCOUT, SETTLER } from '../fland.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { hostRows } from './host.mjs';
+import { marchListNow } from './tracker.mjs';
 import { countdown, worldContinues } from '../clock.mjs';
 import { icon } from '../hud/icons.mjs';
 import { crest, sigChip, hostWaits, renderWaits, hostsOnTile, holdingHereText } from '../hud/keephand.mjs';
@@ -123,6 +124,56 @@ function renderHistory(hist) {
     ${hist.last ? html`<p class="kp-caption">${icon('lock')}<span>${L`占領：チェーンの記録を読んだものです（このブラウザでは計算し直していません）`}</span></p>` : ''}</div>`;
 }
 
+/**
+ * (2026-11-17, ⑦ the keep and the march toward it; corrected) The viewer's own marches as they bear on this keep, from
+ * the list the tracker shows — only when that list is the page's own NOW (screens/tracker.mjs marchListNow: the pinned
+ * world, the context number, the viewer and the village in hand, each as the list's reading began):
+ * `{read, ctx, bound, province}`.
+ *   `read` false → the list is NOT KNOWN for what the page is now (not read yet, another village's, or read before a
+ *           change of herald, viewer or world): neither "none on its way" nor anything else follows.
+ *   `bound`    marches whose destination tile is KNOWN and is this keep's tile: bound for this keep.
+ *   `province` marches of which only the destination's PROVINCE is known, and it is this keep's: whether they are
+ *           bound for the keep is not known — they are not counted as "on their way to this keep".
+ *   A march to another tile of the province is neither.
+ *   each `{host, arriveBell, resolved, unread, who}`; `resolved`: the arrival turn's record says it is resolved (the
+ *   tracker's own fact) — what came of it is the tracker's and the report's to say; no capture and no repulse is
+ *   claimed from it.
+ * Marches of the viewer's OTHER villages are not in the list: nothing is said of them either way.
+ */
+export function marchesToKeep(FS, keep) {
+  const now = marchListNow(FS);
+  if (!keep || !now.ok) return { read: now.ok, ctx: null, bound: [], province: [] };
+  const rows = (() => { try { return hostRows(FS); } catch { return []; } })();
+  const bound = [], province = [];
+  for (const m of FS.marches ?? []) {
+    const dest = m?.entry ? m.dest : m?.readDest ?? m?.dest ?? null;
+    if (!dest || dest.p !== keep.p || dest.q !== keep.q) continue;
+    const tileKnown = Number.isInteger(dest.tile);
+    if (tileKnown && dest.tile !== keep.tile) continue;
+    const host = String(m.entry?.host ?? m.transit?.hostId ?? ''), row = rows.find(r => String(r.id) === host) ?? null;
+    const arriveBell = m.entry?.arriveBell ?? m.transit?.arriveBell;
+    (tileKnown ? bound : province).push({ host, arriveBell: Number.isInteger(arriveBell) ? arriveBell : null, resolved: m.facts?.pipeline === 'resolved', unread: !!m.unread,
+      who: row ? `${UNITS[UNIT_ORDER[row.unit]]} ${fmtNum(row.troops)}` : null });
+  }
+  return { read: true, ctx: now.ctx, bound, province };
+}
+/** The keep card's lines for marchesToKeep: the marches bound for the keep, apart from those known only to its province; "not known" said as that. */
+function renderKeepMarches(FS, m) {
+  if (FS.mode !== 'play') return '';
+  const x = marchesToKeep(FS, m);
+  if (!x.read) return FS.wallet ? html`<p class="muted kp-marches" role="status" data-marches="unread">${L`この砦へ向かっているあなたの軍勢がいるかどうかは、いま選んでいる村の進軍の記録をまだ読めていないので、分かりません。`}</p>` : '';
+  if (!x.bound.length && !x.province.length) return '';
+  const when = r => (r.resolved ? L`到着のターン（${fmtNum(r.arriveBell ?? 0)}）は決着済みです。どうなったかは、追跡と報告で確かめられます。`
+    : r.arriveBell !== null ? L`ターン ${fmtNum(r.arriveBell)} に着く予定です。` : L`進軍中です。`);
+  const line = (r, sure) => html`<li>${icon('march')}<strong>${r.who ?? L`軍勢`}</strong> <span class="muted">${when(r)}${r.unread ? L`（到着先の記録を、まだ読めていません。）` : ''}</span>
+      ${x.ctx !== null && /^\d+$/.test(r.host) ? html`<button type="button" class="btn small" data-act="keep-track" data-ctx="${x.ctx}" data-p="${m.p}" data-q="${m.q}" data-tile="${m.tile}" data-sure="${sure ? 1 : 0}" data-host="${r.host}">${L`この進軍の追跡を見る`}</button>` : ''}</li>`;
+  return html`<div class="kp-marches" data-marches="${x.bound.length}" data-province="${x.province.length}">
+    ${x.bound.length ? html`<p class="kp-orders-k">${L`この砦へ向かっているあなたの軍勢`}</p><ul class="list">${x.bound.map(r => line(r, true))}</ul>` : ''}
+    ${x.province.length ? html`<p class="kp-orders-k">${L`この州へ向かっているあなたの軍勢（行き先のマスは、まだ分かりません）`}</p><ul class="list">${x.province.map(r => line(r, false))}</ul>
+      <p class="muted">${L`この砦へ向かっているかどうかは、行き先のマスが読めるまで分かりません。`}</p>` : ''}
+    <p class="muted">${L`ここに出るのは、いま選んでいる村の進軍だけです。`}</p></div>`;
+}
+
 export function renderKeep(FS, keep) {
   if (!conquestEnabled(FS)) return '';
   if (keep?.tile === 255) return html`<p class="muted">${L`この州には砦がありません。`}</p>`;
@@ -162,6 +213,7 @@ export function renderKeep(FS, keep) {
     ${m.contender !== null ? html`<div class="conquest-progress kp-contest kh-n${m.contender}"><p class="kp-contest-head">${crest(m.contender, 28)}<strong>${L`${factionName(m.contender)}が争奪中`}</strong><span class="kp-count num">${Number.isFinite(m.required) ? L`${fmtNum(m.progress)} / ${fmtNum(m.required)}ターン` : L`進捗を確認中`}</span></p>
       ${Number.isFinite(m.required) && m.required > 0 ? html`<progress max="${m.required}" value="${Math.min(m.progress, m.required)}" aria-label="${L`砦の争奪状況`}"></progress>` : ''}
       ${m.remaining !== null ? html`<p class="muted">${m.remaining > 0 ? L`占拠を保てた場合、あと${span(m.remaining * bellSeconds(FS))}（ゲーム内）。敵の抵抗で進捗は変わります。` : L`争奪の処理結果を待っています。`}</p>` : ''}</div>` : ''}
+    ${renderKeepMarches(FS, m)}
     ${m.mine ? html`${renderHistory(hist)}${orders}` : html`${orders}${renderHistory(hist)}`}
   </section>`;
 }

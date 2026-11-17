@@ -469,6 +469,39 @@ export function modePanel(FS) {
  * from its own markup (only typed values are carried).
  */
 /**
+ * (2026-11-17, ⑦ the keep and the march toward it) Whether a press that names a keep still belongs to what the page is
+ * now: the context number it was drawn under is the number NOW, the conquest record is the pinned world's, and the keep
+ * of that province still stands on that tile. Answers the keep, or null. Reads only.
+ */
+let keepAsk = 0;
+function keepStill(d) {
+  if (FS.mode !== 'play' || !Number.isInteger(FS.contextSeq) || String(FS.contextSeq) !== String(d.ctx ?? '')) return null;
+  const cq = FS.conquest ?? null;
+  if (!cq || !(cq.keeps instanceof Map) || (cq.world ?? null) !== momentWorld()) return null;
+  const k = cq.keeps.get(`${num(d.p)},${num(d.q)}`) ?? null;
+  return k && Number.isInteger(k.tile) && k.tile === num(d.tile) ? k : null;
+}
+
+/**
+ * (corrected) Whether the march a press names is still what the button said of it: the march list is the page's own NOW
+ * (screens/tracker.mjs marchListNow — pinned world, context number, viewer, village in hand — and its own context
+ * number is the button's), the list holds a march of that host whose destination is the keep's province, and
+ *   `sure` = 1: the march's tile is known and IS the keep's tile (the button said "bound for this keep");
+ *   `sure` = 0: the march's tile is still not known (the button said only "to this province").
+ * A march that turned out to be for another tile, or whose list is another village's, does not answer. Reads only.
+ */
+function keepMarch(d, k, host) {
+  const now = trackerScreen.marchListNow(FS);
+  if (!now.ok || now.ctx === null || String(now.ctx) !== String(d.ctx ?? '')) return false;
+  const sure = String(d.sure ?? '') === '1';
+  return (FS.marches ?? []).some(m => {
+    const dest = m?.entry ? m.dest : m?.readDest ?? m?.dest ?? null;
+    if (String(m.entry?.host ?? m.transit?.hostId ?? '') !== host || !dest || dest.p !== k.p || dest.q !== k.q) return false;
+    return sure ? Number.isInteger(dest.tile) && dest.tile === k.tile : !Number.isInteger(dest.tile);
+  });
+}
+
+/**
  * (2026-11-17, ⑦ the hosts screen) Whether a press from the hosts screen still belongs to what the page is now: the
  * context number it was drawn under is the number NOW (it moves with every change of viewer, herald or pinned world),
  * the village the list was drawn for (place, site, generation) is the village in hand, and — unless `row: false` — the
@@ -3856,6 +3889,24 @@ export const HUD_ACTIONS = {
     requestAnimationFrame(() => landS1Plan(id));
   },
   's1-plan-clear': () => clearS1Plan(),
+  // (2026-11-17, ⑦ the keep and the march toward it. Both only open something that exists, after keepStill.)
+  // from the keep's card to the tracker's row of the viewer's own march bound for it: the march must still be in the
+  // list read for this world, for that host, with that keep's province as its destination; the row comes into view one
+  // frame later, only while this is still the last such press and the marches screen is still open
+  'keep-track': d => {
+    const k = keepStill(d), req = ++keepAsk, host = String(d.host ?? '');
+    if (!k || !/^\d+$/.test(host) || !keepMarch(d, k, host)) { invalidate('panel'); return; }
+    leaveReport(); FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab({ tab: 'marches' });
+    invalidate('rail');
+    requestAnimationFrame(() => {
+      const again = keepStill(d);
+      if (req !== keepAsk || !again || FS.tab !== 'marches' || !keepMarch(d, again, host)) return;
+      globalThis.document?.querySelector?.(`[data-march-host="${host}"]`)?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+    });
+  },
+  // from a march's row back to the keep it is bound for: the keep's tile on the map (its card stands there)
+  'march-keep': d => { const k = keepStill(d), host = String(d.host ?? ''); ++keepAsk; if (!k || !keepMarch(d, k, host)) { invalidate('panel'); return; } leaveReport(); closeResPop(); goToItem({ p: k.p, q: k.q, tile: k.tile, tab: 'map' }); },
   // (2026-11-17, ⑦ the hosts screen, from a village to its hosts, their plans and marches, and back. Each of these only
   //  OPENS something that exists, after hostStill; none sends, settles or collects.)
   // another of the viewer's villages: found by place, site and generation at the press, taken in hand the way
