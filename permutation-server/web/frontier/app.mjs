@@ -2982,13 +2982,22 @@ function showTip(hit, at) {
 
 // ------------------------------------------------------------------ battle scenes (people/battle.mjs)
 const battleSeen = new Map(); // "P,Q" → the last resolved bell a scene was considered for
+// (2026-11-17, ⑦: of one pinned world — with its generation: what was seen in another is forgotten, and that world's
+//  envelopes still held are not looked at, so the first sight of each province in this world is not news)
+let battleSeenWorld;
 let battleBack = null;
 /** Load a clash and play its scene on the map; `focus` moves the camera to it first. */
-export async function playBattle(p, q, bell, { focus = false, auto = false } = {}) {
+export async function playBattle(p, q, bell, { focus = false, auto = false, still = null } = {}) {
   const fx = FS.ui?.battleFx ?? 'normal';
   if (auto && fx === 'off') return false;
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return false;
+  // (2026-11-17, ⑦: a clash belongs to the herald and the pinned world — with its generation — it was asked of. One the
+  //  change overtakes is not staged: its inputs are another world's and this world's province would stand beside them,
+  //  and its flight would take the camera to a place of another map. `still`: the caller's own condition, asked again
+  //  after the wait (the spectator's follow: the watch still on, no report opened meanwhile).)
+  const world = momentWorld(), source = heraldRef;
   const r = await heraldRef.clash(p, q, bell).catch(() => null);
+  if (momentWorld() !== world || heraldRef !== source || (still && !still())) return false;
   if (!r?.ok || !r.inputs) return false;
   let before = null;
   try { before = r.report?.province_before_b64 ? decodeAccount('Province', fromBase64(r.report.province_before_b64)) : null; } catch { before = null; }
@@ -3029,7 +3038,10 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
 }
 /** A clash that resolved in a province the page has loaded plays once, when it is new. */
 function autoBattles() {
+  const world = momentWorld();
+  if (battleSeenWorld !== world) { battleSeen.clear(); battleSeenWorld = world; }
   for (const [key, env] of FS.provinces) {
+    if (env.world !== undefined && env.world !== world) continue;
     const b = env.province?.resolveSummary?.bell;
     if (!Number.isInteger(b) || b <= 0) continue;
     const prev = battleSeen.get(key);
@@ -3955,8 +3967,16 @@ function delegate(doc) {
 
 /** The spectator's poll: the events and the bell sheet at load, then every 30 s (§4.2), paused while hidden. */
 /** A clash newer than the last one seen: the spectator's camera goes there and plays it (unless turned off). */
-let watchSeen = null;
+// (2026-11-17, ⑦: of one pinned world — with its generation, A → B → A are three. The clash compared is from a chronicle
+//  read for this world (FS.chronicleWorld, controller refreshChronicle): until this world's chronicle is read nothing is
+//  compared, and the first clash seen in a world is its baseline — another world's last clash never makes this one's
+//  first "new". A follow whose clash answers after the world changed, the watch was turned off or a report was opened
+//  neither plays nor flies, also not to the fallback place.)
+let watchSeen = null, watchWorld;
 function followBattles() {
+  const world = momentWorld();
+  if (FS.chronicleWorld !== world) return;
+  if (watchWorld !== world) { watchWorld = world; watchSeen = null; }
   const c = reportScreen.clashesFrom(FS.chronicle ?? [], 1)[0];
   if (!c) return;
   const key = `${c.p},${c.q},${c.bell}`;
@@ -3965,7 +3985,8 @@ function followBattles() {
   watchSeen = key;
   const f = FS.watch?.faction;
   if (FS.watch?.auto === false || FS.report || (Number.isInteger(f) && !provinceFactions(FS.overviews, c.p, c.q).includes(f))) return;
-  playBattle(c.p, c.q, c.bell, { focus: true }).then(ok => { if (!ok) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
+  const still = () => momentWorld() === world && FS.watch?.auto !== false && !FS.report;
+  playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (!ok && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
 }
 
 function startSpectate(herald) {
