@@ -116,7 +116,7 @@ test('I5 a press acts only while it still belongs to what the page is now', () =
   order(fnOf(ctl, 'function resetViewer('), 'FS.incomingRead = null;', 'nextContext();');
   order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.incoming = []; FS.incomingRead = null;', 'nextContext();', 'dropOtherWorldConquest(world);');
   // the herald changed in the same world, for the same viewer: the judging is let go AND the context moves
-  assert.ok(fnOf(ctl, 'export function useHerald(h) {').includes('FS.incomingRead = null; nextContext(); }'), 'useHerald');
+  { const uh = fnOf(ctl, 'export function useHerald(h) {').split('\n')[0]; assert.ok(uh.includes('FS.incomingRead = null;') && uh.endsWith('nextContext(); }'), 'useHerald (later bundles add their own resets between)'); }
   assert.equal((ctl.match(/nextContext\(\);/g) ?? []).length, 3, 'another viewer, herald, world');
   assert.equal((ctl.match(/contextSeq \+= 1;/g) ?? []).length, 1, 'moved in one place only');
   assert.ok(app.includes("const momentWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));

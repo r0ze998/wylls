@@ -93,7 +93,7 @@ export function renderMarch(m, FS = null) {
   const sealed = own ? html`<p class="march-secret">${icon('lock')}<span class="secret">${[who, STANCE_TEXT[STANCES[own.stance]] ?? ''].filter(Boolean).join(' · ')}</span> <span class="muted">${stepDone('revealed') ? L`（封は開けられました）` : L`（行き先と構えはあなたにだけ見えます）`}</span></p>` : '';
   const state = s => (s.state === 'now' ? html`<span class="visually-hidden">${L`（いま）`}</span>` : s.state === 'done' ? html`<span class="visually-hidden">${L`（済み）`}</span>` : '');
   const slug = host.replace(/\D/g, '').slice(-8);
-  return html`<li class="vcard march-card">
+  return html`<li class="vcard march-card" data-march-host="${host}">
     <div class="march-top">${icon('banner')}<strong class="march-to">${title}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(t.arriveBell ?? 0)} に到着`}`, resolved ? 'ok' : 'info')}</div>
     ${sealed}
     <ol class="track track-phases" aria-label="${L`進軍の流れ`}">${phasesOf(t).map(s => html`<li class="${s.state}"><span class="track-dot" aria-hidden="true"></span><span class="track-name">${PHASE_TEXT[s.id]()}</span>${state(s)}</li>`)}</ol>
@@ -110,6 +110,7 @@ export function renderMarch(m, FS = null) {
       ${m.dest ? html`<button type="button" class="btn small" data-act="goto" data-p="${m.dest.p}" data-q="${m.dest.q}">${L`地図で見る`}</button>` : ''}</div>` : ''}
     ${fold(`m-steps-${slug}`, L`くわしい段階`, html`<ol class="list track-steps">${t.steps.map(s => html`<li class="${s.state}">${STEP_TEXT[s.id]()}${s.state === 'now' ? html` <span class="muted">${L`（いま）`}</span>` : s.state === 'done' ? html` <span class="muted">${L`（済み）`}</span>` : ''}</li>`)}</ol>`)}
     ${t.locked ? fold(`m-lock-${slug}`, L`この軍勢はまだ動かせません`, html`<p class="locked-note" role="note">${lockedText()}</p>`) : ''}
+    ${FS && (FS.mode ?? 'play') === 'play' ? html`<div class="actions march-back"><button type="button" class="btn small quiet" data-act="tab" data-tab="hosts">${L`軍勢の一覧へ`}</button></div>` : ''}
   </li>`;
 }
 

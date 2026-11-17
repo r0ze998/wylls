@@ -758,6 +758,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   FS.autoNudgeBell = null;
   FS.incoming = [];
   FS.incomingRead = null;    // (nothing judged yet for this viewer: "none" is not said — screens/incoming.mjs)
+  FS.hostPlaces = null;      // (where the former viewer's hosts stand is not this viewer's — screens/host.mjs)
   nextContext();             // (another viewer: what was drawn for the former one acts on nothing — FS.incomingRead.ctx)
   FS.isMine = () => false;
   if (walletChanged) FS.prize = null;
@@ -891,6 +892,7 @@ export function adoptPinnedWorld() {
   FS.s1Plan = null;          // (a place chosen on the map names a place of the world that was pinned — planS1Place)
   exploreSeedMarks.clear(); FS.exploreSeedCheck = null;   // (a seed read for the world that was pinned is not this world's)
   FS.incoming = []; FS.incomingRead = null;   // (warnings judged for the world that was pinned are not this world's; none is judged here yet)
+  FS.hostPlaces = null;   // (the provinces of the world that was pinned are not this world's)
   nextContext();   // (another world: what was drawn for the former one acts on nothing — FS.incomingRead.ctx)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
   if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
@@ -1397,7 +1399,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null; exploreSeedMarks.clear(); FS.exploreSeedCheck = null; FS.incomingRead = null; nextContext(); }
+export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null; exploreSeedMarks.clear(); FS.exploreSeedCheck = null; FS.incomingRead = null; FS.hostPlaces = null; nextContext(); }
 
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
@@ -1681,6 +1683,10 @@ export async function refresh() {
     if (FS.proto && Number.isInteger(FS.citizen?.faction)) { const place = seasonPlace(FS.season); for (const pq of ringProvinces(2)) { if (homeNation(pq.p, pq.q, place) === FS.citizen.faction && !(h && h.p === pq.p && h.q === pq.q)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; } } }
     // Hosts standing in other provinces (after a march that Stays): their
     // envelopes too, so the Hosts tab can show and command them.
+    // (2026-11-17, ⑦ the hosts screen: the provinces the viewer's record says its hosts stand in — every village's, the
+    //  home province too — kept for the screen, which lists hosts only from the provinces the page HOLDS: a province
+    //  named here and not held is "not read", not "no host". Nothing more is read for it; `ctx`: the context it was read under.)
+    if (me.ok) FS.hostPlaces = { places: hostProvinces(me.record, null), ctx: contextSeq, world };
     if (me.ok) for (const pq of hostProvinces(me.record, h ? { p: h.p, q: h.q } : null)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; }
     // SettleExplore is offered once the explore bell's seed is readable.
     FS.exploreSeedReady = false;
