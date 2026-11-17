@@ -28,6 +28,7 @@ import { ownTag } from '../people/ui.mjs';
 import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
 import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
+import { renderVillageOrders, S1_ORDER_KINDS } from './villageorders.mjs';
 import { swatch } from './shell.mjs';
 import { renderCoopSlot } from '../hud/coopentry.mjs';
 import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
@@ -491,11 +492,49 @@ export function renderS1Tile(FS, sel) {
  * reader's settlements and raids) and resets it with the away reader's scope.
  */
 const watches = new WeakMap();
+/**
+ * (2026-11-17, ⑦) How the three S1 feeds behind this card were read (controller refreshS1 `FS.s1.read`), each as
+ * 'ok' (read now, or the herald has no file and nothing was read before: an empty feed), 'stale' (the latest read
+ * failed; what is shown was read before), 'staleMissing' (corrected 2026-11-17: the herald has no file NOW and a list
+ * read before is kept — it is not the latest read's, and is not said as if it were), 'unreadFailed' (the latest read failed and nothing is held) or 'unread' (not read yet). A feed that is not
+ * read is NOT an empty feed: "no caravans", "no storehouses", "no council" are said only of a feed that was read.
+ * `reread`: the person's own re-read (controller rereadS1) — 'loading', 'failed' (it could not be made at all) or null.
+ */
+export function s1ReadState(FS) {
+  const s1 = FS.s1 ?? null;
+  const feed = n => { const held = !!s1 && s1[n] !== null && s1[n] !== undefined, mark = s1?.read?.[n]; return held ? (mark === 'failed' ? 'stale' : mark === 'missingKept' ? 'staleMissing' : 'ok') : mark === 'failed' ? 'unreadFailed' : 'unread'; };
+  const feeds = { caravans: feed('caravans'), structures: feed('structures'), nations: feed('nations') };
+  return { ...feeds, any: Object.values(feeds).some(x => x !== 'ok'), reread: FS.s1Reread?.state ?? null, can: FS.mode === 'play' };
+}
+const FEED_NAME = { caravans: () => L`隊商と貯蔵庫の一覧`, structures: () => L`建物の一覧`, nations: () => L`国の方針と議題` };
+/** The note of s1ReadState under the card's head: one line per feed that is not read as it should be, the re-read's own line, and the button; '' when all are read. */
+export function renderS1Read(FS) {
+  const r = s1ReadState(FS), lines = [];
+  for (const n of ['caravans', 'structures', 'nations']) {
+    const name = FEED_NAME[n]();
+    if (r[n] === 'unread') lines.push(html`<p class="muted" role="status" data-feed="${n}">${L`${name}を、まだ読めていません。ないという意味ではありません。`}</p>`);
+    else if (r[n] === 'unreadFailed') lines.push(html`<p class="notice error" role="alert" data-feed="${n}">${L`${name}を読み込めませんでした。ないという意味ではありません。`}</p>`);
+    else if (r[n] === 'staleMissing') lines.push(html`<p class="notice error" role="status" data-feed="${n}">${L`${name}は、最新の読み込みでは見つかりませんでした。下に出ているのは、前に読めたものです。いまもそのとおりかどうかは、分かりません。`}</p>`);
+    else if (r[n] === 'stale') lines.push(html`<p class="notice error" role="status" data-feed="${n}">${L`${name}の最新の読み込みに失敗しています。下に出ているのは、最後に読めたものです。`}</p>`);
+  }
+  if (r.reread === 'loading') lines.push(html`<p class="muted" role="status">${L`一覧を読み直しています…`}</p>`);
+  else if (r.reread === 'failed') lines.push(html`<p class="notice error" role="alert">${L`一覧を読み直せませんでした。前に読めたものは、そのまま残しています。`}</p>`);
+  if (r.can && (r.any || r.reread === 'failed') && r.reread !== 'loading') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="s1-reread">${icon('return')}${L`一覧を読み直す`}</button></div>`);
+  return lines.length ? html`<div class="s1-read" data-caravans="${r.caravans}" data-structures="${r.structures}" data-nations="${r.nations}">${lines}</div>` : '';
+}
+
 export const caravanWatchOf = FS => { let w = watches.get(FS); if (!w) { w = createCaravanWatch(); watches.set(FS, w); } return w; };
 export function renderS1Village(FS) {
   const m = s1VillageModel(FS);
   if (!m.holding) return '';
   const bell = Number(FS.nowBell ?? 0);
+  // (2026-11-17, ⑦: how the feeds behind this card were read — a feed not read is not an empty feed)
+  const rd = s1ReadState(FS), listsRead = rd.caravans !== 'unread' && rd.caravans !== 'unreadFailed', builtRead = rd.structures !== 'unread' && rd.structures !== 'unreadFailed';
+  const readNote = renderS1Read(FS);
+  // (what became of the caravans and fort orders given from this village this turn — screens/villageorders.mjs; an order
+  //  whose outcome is not confirmed offers the lists' re-read, unless the note above already does)
+  const orderNote = renderVillageOrders(FS, m.holding, FS.chain?.now?.() ?? 0, { kinds: S1_ORDER_KINDS, rereadShown: !!readNote && rd.reread !== 'loading' && (rd.any || rd.reread === 'failed'),
+    reread: { act: 's1-reread', label: L`一覧を読み直す`, offered: rd.can && rd.reread !== 'loading' } });
   // (another's village may share a province with the viewer's: its tile tells them apart)
   const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）`
     : d.other || m.destinations.some(x => x.other && x.kind === 'holding' && x.p === d.p && x.q === d.q) ? L`${L`村`}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
@@ -514,7 +553,7 @@ export function renderS1Village(FS) {
   const owned = m.vaults.length || m.structures.length ? html`${label(L`あなたの貯蔵庫と建物`)}<ul class="list">${[
     ...m.vaults.map(v => html`<li>${icon('crate')}${S1_WORDS.vault()} <span class="muted">${v.p}, ${v.q} · ${v.tile}</span>${Array.isArray(v.stores)
       ? html` <span class="muted">${v.stores.some(x => Number(x) > 0) ? costLine(v.stores.map(Number)) : L`空`}${v.cap ? L`（上限 ${fmtNum(v.cap)}）` : ''}</span>` : ''}</li>`),
-    ...m.structures.map(s => html`<li>${icon('shield')}${kindWord(s.kind)} <span class="muted">${s.p}, ${s.q} · ${s.tile}</span></li>`)]}</ul>` : html`<p class="muted">${L`貯蔵庫や物見櫓・柵・要塞は、地図でマスを選ぶと建てられます。`}</p>`;
+    ...m.structures.map(s => html`<li>${icon('shield')}${kindWord(s.kind)} <span class="muted">${s.p}, ${s.q} · ${s.tile}</span></li>`)]}</ul>` : listsRead && builtRead ? html`<p class="muted">${L`貯蔵庫や物見櫓・柵・要塞は、地図でマスを選ぶと建てられます。`}</p>` : '';
   // the goods a caravan carries (caravan.rs: the first six; arms and influence stay), the most any source holds
   const most = i => Math.max(0, ...m.sources.map(s => Math.floor(s.have?.[i] ?? 0)));
   const sendable = RESOURCE_ORDER.map((r, i) => ({ r, i, have: most(i) })).filter(x => x.have > 0 && x.i < 6);
@@ -534,7 +573,7 @@ export function renderS1Village(FS) {
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
     ${otherDst.length ? html`<p class="muted">${L`ほかの人の村や貯蔵庫へ送ると、着いた荷はその人のものになります。ほかの人あての隊商は、ゲーム内の鍵ではなくウォレットで署名して送ります。`}</p>` : ''}
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
-    : html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>`;
+    : listsRead ? html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>` : html`<p class="muted">${L`貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。`}</p>`;
   const fort = m.forts.length ? html`<form class="vform" data-form="s1-fort">
     <label class="field">${L`要塞`}<select name="tile">${m.forts.map(f => html`<option value="${f.tile}">${L`マス ${f.tile}（兵 ${fmtNum(f.troops)} / ${fmtNum(FORT_MAX_TROOPS)}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="s1-ft">${L`入れる槍兵（控えから）`}<span class="muted"> / ${fmtNum(m.spearmen)}</span></label><input id="s1-ft" name="troops" type="number" min="1" max="${Math.min(m.spearmen, FORT_MAX_TROOPS)}" step="1" value="${Math.min(100, m.spearmen) || 1}" inputmode="numeric"></div>
@@ -560,7 +599,7 @@ export function renderS1Village(FS) {
   return html`<section class="vcard vcard-folds s1-card" aria-labelledby="s1-title">
     ${cardHead({ id: 's1-title', ic: 'flag', title: L`交易と防備` })}
     ${m.oreStarved ? html`<p class="blocked">${L`工房が鉱石をすべて使っていて、鉱石が増えていません。兵の訓練にも鉱石が要るので、鉱山を建てるまで訓練できなくなります。`}</p>` : ''}
-    ${manualLine}${spend}${caravans}${owned}
+    ${readNote}${orderNote}${manualLine}${spend}${caravans}${owned}
     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
     ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}

@@ -21,7 +21,7 @@ const fnOf = head => { const at = ctl.indexOf(head); assert.ok(at >= 0, head); r
 const prize = fnOf('export async function refreshPrize(');
 const marches = fnOf('async function readMarches() {');
 const conquest = fnOf('export async function refreshConquest() {');
-const s1 = fnOf('async function refreshS1(');
+const s1 = fnOf('async function refreshS1(');   // (the head has an option since the trade card's correction)
 const days = fnOf('async function refreshKeepEvents(');
 const keep = fnOf('export function wantKeepHistory(');
 const order = (body, ...parts) => { let at = -1; for (const p of parts) { const i = body.indexOf(p, at + 1); assert.ok(i > at, `in order: ${p}`); at = i; } };
@@ -75,10 +75,10 @@ test('R4 the conquest refresh is one request in one world', () => {
 });
 
 test('R5 the conquest helpers follow the same current()', () => {
-  order(s1, 'async function refreshS1(current, world) {', 'if (FS.s1 && (FS.s1.world ?? null) !== world) FS.s1 = undefined;',
+  order(s1, 'async function refreshS1(current, world, { caravanProvinces = true } = {}) {', 'if (FS.s1 && (FS.s1.world ?? null) !== world) FS.s1 = undefined;',
     'const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null, world };',
     "await Promise.allSettled(names.map(n => herald[n]()));", 'if (!current()) return;', 's1.error = null;');
-  assert.ok(s1.includes("else if (r?.code === 'NotFound') s1[n] ??= s1Fresh(n);"), 'NotFound as before, now within one world');
+  assert.ok(s1.includes("s1[n] ??= s1Fresh(n);"), 'NotFound keeps or stands up the feed as before, now within one world');
   order(days, 'async function refreshKeepEvents(cq, current) {', 'await herald.conquestDay(d).catch(() => null);', 'if (!current()) return;', 'cq.events = mergeKeepEvents(cq.events, r.day.events);');
   assert.ok(keep.includes("if (FS.conquest !== cq || (cq.world ?? null) !== providerWorld() || (!r.ok && r.code !== 'NotFound')) return;"));
 });
