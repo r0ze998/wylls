@@ -355,6 +355,8 @@ export function render(FS) {
     ${label(L`行き先`)}
     <div class="mc-dest"><strong class="mc-dest-name">${destName}</strong>
       <span class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}${!c.route && NO_ROUTE.includes(c.routeError) && !territoryEnabled(FS) ? html` ${reachLink(FS)}` : ''}</span>
+      ${!c.route && c.routeUnread ? html`<span class="mc-route-unread" role="status">${L`道のりはまだわかっていません。行き先と設定はそのままです。着くターンは、道のりがわかってから決まります。`}
+        <button type="button" class="btn small" data-act="dest-retry" ${raw(busy ? 'disabled' : '')}>${icon('return')}${L`道のりをもう一度調べる`}</button></span>` : ''}
       ${keepLine}
       <span class="mc-sealed">${icon('lock')}<span>${sealLine()}</span></span></div>
     ${outlook({ w, awayLine, stam, nowB, def, odds, fc: fcNow, sight })}

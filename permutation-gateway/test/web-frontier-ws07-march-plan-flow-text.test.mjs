@@ -53,9 +53,12 @@ test('M3 the way home is to the host\'s own village', () => {
 
 test('M4 the route is of the place the open draft names now', () => {
   const sd = fnOf(ctl, 'async function setDestination(dest) {');
-  order(sd, 'c.dest = dest; c.route = null; c.routeError = null; c.earliest = null; c.moved = null;', 'const k = await kernelOrNull();',
-    'if (FS.compose !== c || c.dest !== dest) return;', "if (!k) { c.routeError = FS.kernelError ?? 'NoKernel'; invalidate('panel'); return; }", 'const r = planRoute(k, {',
-    "if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }", 'c.route = r.route;', 'c.earliest = earliestBell(k, {', 'c.arriveBell = arrivalWindow(FS.season, nowBell(), c.earliest).min;');
+  // (the march-card bundle works the results out first and sets them together, and marks a route that was not read —
+  //  web-frontier-ws07-march-card-retry-text.test.mjs)
+  order(sd, 'c.dest = dest; c.route = null; c.routeError = null; c.routeUnread = false; c.earliest = null; c.moved = null;', 'const k = await kernelOrNull();',
+    'if (FS.compose !== c || c.dest !== dest) return;', "if (!k) { c.routeError = FS.kernelError ?? 'NoKernel'; c.routeUnread = true; invalidate('panel'); return; }", 'const r = planRoute(k, {',
+    "if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }", 'const earliest = earliestBell(k, {', 'const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;',
+    'c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;');
   assert.equal(sd.split('await ').length - 1, 1);
 });
 

@@ -2081,19 +2081,30 @@ async function kernelOrNull() {
 async function setDestination(dest) {
   const c = FS.compose;
   if (!c) return;
-  c.dest = dest; c.route = null; c.routeError = null; c.earliest = null; c.moved = null;
+  c.dest = dest; c.route = null; c.routeError = null; c.routeUnread = false; c.earliest = null; c.moved = null;
   invalidate('panel');
   const k = await kernelOrNull();
   // (2026-11-17, ⑦: the rules module may come after the person put the draft away, started another, or chose another
   //  place: the route written is the one of the place the draft names now, and nothing is written to a draft let go)
   if (FS.compose !== c || c.dest !== dest) return;
-  if (!k) { c.routeError = FS.kernelError ?? 'NoKernel'; invalidate('panel'); return; }
-  const seeds = (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed }));
-  const r = planRoute(k, { from: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, to: dest, unit: c.host.unit, seeds, blocked: palisadeHexes(FS) });
-  if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }
-  c.route = r.route;
-  c.earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
-  c.arriveBell = arrivalWindow(FS.season, nowBell(), c.earliest).min;
+  // (2026-11-17, ⑦ the march card: `routeUnread` — the route was NOT read: the rules module could not be had, or working
+  //  the route out threw. That is not the world's answer "no route" (a refusal code with routeUnread false) and not a
+  //  search still under way: the card says so, keeps the place and every setting of the draft, and offers to ask again
+  //  — ACTIONS['dest-retry']. A throw left the draft with neither route nor error: 「道のりを探しています…」 for good.)
+  if (!k) { c.routeError = FS.kernelError ?? 'NoKernel'; c.routeUnread = true; invalidate('panel'); return; }
+  try {
+    const seeds = (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed }));
+    const r = planRoute(k, { from: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, to: dest, unit: c.host.unit, seeds, blocked: palisadeHexes(FS) });
+    if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }
+    // (the route, the earliest turn and the arrival turn are worked out first and set together: a throw between them
+    //  no longer leaves a route beside an arrival turn that was not made from it)
+    const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
+    const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;
+    c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;
+  } catch (e) {
+    console.error('frontier route:', e);
+    c.route = null; c.routeError = e?.code ?? 'Error'; c.routeUnread = true;
+  }
   invalidate('panel');
 }
 
@@ -2822,6 +2833,9 @@ export const ACTIONS = {
   'compose-close': () => { pendingDriver.cancel('cancel'); FS.compose = null; invalidate('panel'); },
   'dest-from-map': () => { const s = FS.selected; if (s?.idx !== undefined) return setDestination({ p: s.p, q: s.q, tile: s.idx }); return undefined; },
   'dest-quick': d => setDestination({ p: num(d.p), q: num(d.q), tile: num(d.tile) }),
+  // (2026-11-17, ⑦ the march card: the route of the draft's own place, asked again — a new request for the same place,
+  //  so an answer of the earlier one that comes late is not written; the draft's settings are kept. Not while sending.)
+  'dest-retry': () => { const c = FS.compose; if (!c?.dest || c.sending) return undefined; return setDestination({ p: c.dest.p, q: c.dest.q, tile: c.dest.tile }); },
   'march-send': () => sendTheMarch(),
   'march-send-wait': () => armMarchWait(),
   'march-wait-cancel': () => pendingDriver.cancel('cancel'),
