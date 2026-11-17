@@ -113,3 +113,56 @@ test('a covering epoch on a row whose sequence is not a safe integer is refused:
   const none = heldFromWs04Observation({ ...PAGE, store, observations: [settled({ archive_sequence: 2 ** 53, archive_epoch: { epoch: null, why: 'past_manifest_end', pairing: epoch.pairing } })] }).observations[0];
   assert.equal(none.archive_epoch.why, 'past_manifest_end');
 });
+
+// (2026-11-17) Generation consistency (SOURCE-ONLY when written: not run). A store page whose parts disagree is
+// named; every row stays held, every epoch is shown as given, nothing is dropped or corrected.
+test("a store page whose generation, rows and epochs disagree is named, and still held as given", () => {
+  const PAIR = 'same_directory_not_proof_of_same_archive';
+  const covered = { epoch: { from_seq: 1, source: 'rpc_poll', program_configured: 'P', commitment_requested: 'finalized' }, why: 'covered_by_epoch', pairing: PAIR };
+  const changed = { epoch: null, why: 'manifest_changed_during_read', pairing: PAIR };
+  const past = { epoch: null, why: 'past_manifest_end', pairing: PAIR };
+  const store = { same_directory: true, index_last_seq: 3, manifest_next_seq_before: 4, manifest_next_seq_after: 4, manifest_stable: true, generation: 'index_matches_manifest', limits: ['l'] };
+  const page = (s, rows) => heldFromWs04Observation({ ...PAGE, store: s, observations: rows });
+  const G = 'ws04_observation_store_generation_inconsistent';
+  // the agreeing page: nothing named (the reader's own outputs for stable, ahead, behind and changed)
+  for (const [s, rows] of [
+    [store, [settled({ archive_sequence: 3, archive_epoch: covered })]],
+    [{ ...store, index_last_seq: 5, generation: 'index_ahead_of_manifest' }, [settled({ archive_sequence: 3, archive_epoch: covered }), settled({ archive_sequence: 5, archive_epoch: past })]],
+    [{ ...store, index_last_seq: 1, generation: 'index_behind_manifest' }, [settled({ archive_sequence: 1, archive_epoch: covered })]],
+    [{ ...store, manifest_next_seq_after: 6, manifest_stable: false, generation: 'manifest_changed_during_read' }, [settled({ archive_sequence: 3, archive_epoch: changed })]],
+  ]) {
+    const r = page(s, rows);
+    assert.deepEqual([r.why, r.observations.map(o => o.why)], [[], rows.map(() => [])], JSON.stringify(s));
+  }
+  // the page's own facts disagree
+  for (const s of [{ ...store, manifest_stable: false }, { ...store, generation: 'manifest_changed_during_read' },
+    { ...store, manifest_next_seq_after: 5 }, { ...store, generation: 'index_behind_manifest' }, { ...store, index_last_seq: 4 }]) {
+    const r = page(s, []);
+    assert.ok(r.why.includes(G), JSON.stringify(s)); assert.equal(r.status, 'held'); assert.equal(r.admitted, 0);
+  }
+  // an unsafe number is not compared (it is named in `unsafe` instead)
+  assert.ok(!page({ ...store, index_last_seq: 2 ** 53 }, []).why.includes(G));
+  // rows against the page: an epoch of a changed manifest on a stable page, a covering epoch on an unstable page,
+  // a covering epoch past the manifest's end, a past_manifest_end row inside it, a row past the index's last sequence
+  const rowWhy = (s, view, seq) => page(s, [settled({ archive_sequence: seq, archive_epoch: view })]).observations[0];
+  const unstable = { ...store, manifest_stable: false, generation: 'manifest_changed_during_read' };
+  for (const [s, view, seq, w] of [
+    [store, changed, 3, 'archive_epoch_not_the_page_generation'],
+    [unstable, covered, 3, 'archive_epoch_not_the_page_generation'],
+    [{ ...store, index_last_seq: 5, generation: 'index_ahead_of_manifest' }, covered, 4, 'archive_epoch_not_the_page_generation'],
+    [store, past, 3, 'archive_epoch_not_the_page_generation'],
+    [store, covered, 3, null],
+    [{ ...store, index_last_seq: 2, generation: 'index_behind_manifest' }, covered, 3, 'archive_sequence_past_index_last_seq'],
+  ]) {
+    const o = rowWhy(s, view, seq);
+    if (w === null) { assert.deepEqual(o.why, []); continue; }
+    assert.ok(o.why.includes(w), `${w}: ${o.why}`);
+    assert.deepEqual(o.archive_epoch, view, 'shown as given'); assert.deepEqual(o.held, H, 'still held');
+  }
+  // a store page's row without its epoch view is named on the row too (the page reason stays)
+  const mixed = page(store, [settled({ archive_sequence: 3, archive_epoch: covered }), settled({ archive_sequence: 2 })]);
+  assert.deepEqual(mixed.observations.map(o => o.why), [[], ['archive_epoch_missing']]);
+  assert.ok(!('archive_epoch' in mixed.observations[1]), 'nothing guessed for it');
+  // a plain page (no store) still has no epoch findings
+  assert.deepEqual(heldFromWs04Observation(PAGE).observations.map(o => o.why), [[], []]);
+});

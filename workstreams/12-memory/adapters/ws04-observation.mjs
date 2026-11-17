@@ -60,6 +60,35 @@ function storeOf(s) {
     manifest_next_seq_after: n('manifest_next_seq_after'), manifest_stable: s.manifest_stable, generation: s.generation, limits: [...s.limits], unsafe };
 }
 
+// (2026-11-17) Generation consistency. runexec's store reader (observation.rs `read_store_observations`) derives the
+// page's `generation` and every row's epoch view from the same two manifest reads and the index's last sequence. A
+// page whose parts disagree with each other is not what that reader writes (a hand-made page file, or another
+// version): it is named here. Nothing is dropped, corrected or lifted; a number that is not safe is not compared.
+/** The page's own facts against each other: true when they agree, or when a number needed is not safe. */
+function storeAgrees(st) {
+  const stable = st.manifest_stable;
+  if (stable === (st.generation === 'manifest_changed_during_read')) return false;
+  if (!stable) return true;
+  const { index_last_seq: last, manifest_next_seq_before: before, manifest_next_seq_after: after } = st;
+  if (before !== null && after !== null && before !== after) return false;
+  if (last === null || before === null) return true;
+  const expected = last >= before ? 'index_ahead_of_manifest' : last + 1 < before ? 'index_behind_manifest' : 'index_matches_manifest';
+  return st.generation === expected;
+}
+
+/** A well-formed row epoch against the page's facts; the row's own findings, or none. */
+function epochAgrees(view, seq, st) {
+  const out = [];
+  if (!nat(seq)) return out;
+  if (st.index_last_seq !== null && seq > st.index_last_seq) out.push('archive_sequence_past_index_last_seq');
+  const changed = view.why === 'manifest_changed_during_read';
+  if (!st.manifest_stable) { if (!changed) out.push('archive_epoch_not_the_page_generation'); return out; }
+  if (changed) { out.push('archive_epoch_not_the_page_generation'); return out; }
+  const before = st.manifest_next_seq_before;
+  if (before !== null && (seq >= before) !== (view.why === 'past_manifest_end')) out.push('archive_epoch_not_the_page_generation');
+  return out;
+}
+
 /**
  * A `ws04-observation/0` page -> a held report: {format, admitted: 0, status: 'held', pageHeld, why, observations}.
  * `why` collects this module's own findings (malformed fields, missing reasons, claims not believed); 4's reasons are
@@ -80,6 +109,7 @@ export function heldFromWs04Observation(page) {
   const storeMode = page.store !== undefined;
   const store = storeMode ? storeOf(page.store) : undefined;
   if (storeMode && !store) why.push('ws04_observation_store_malformed');
+  if (store && !storeAgrees(store)) why.push('ws04_observation_store_generation_inconsistent');
   let epochRows = 0;
   const observations = list.slice(0, MAX_SHOWN).map((o, i) => {
     const own = [];
@@ -100,6 +130,10 @@ export function heldFromWs04Observation(page) {
       epochRows++;
       epoch = epochOf(o.archive_epoch, o.archive_sequence);
       if (!epoch) { own.push('archive_epoch_malformed'); epoch = MALFORMED_EPOCH; }
+      else if (store) own.push(...epochAgrees(epoch, o.archive_sequence, store));
+    } else if (storeMode) {
+      // the store reader gives every row its epoch view; a row without one on a store page is named, not guessed
+      own.push('archive_epoch_missing');
     }
     return {
       index: i, kind: KINDS.has(kind) ? kind : null,

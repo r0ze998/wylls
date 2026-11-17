@@ -139,3 +139,30 @@ test('past a normal Season: every I/O is a counted fake, the store reader is the
   assert.equal(out.ws04.store.generation, 'index_matches_manifest');
   assert.equal(out.resident.assembled, false);
 });
+
+// (2026-11-17, SOURCE-ONLY when written: not run) the CLI's own input and its diagnostic of the page's mode
+test('an empty --ws04-observation is a usage error, not "no page asked for"; nothing is read or started', async () => {
+  const { code, out, calls, n } = await run(['--ws04-observation', ''], () => { throw new Error('nothing is started'); });
+  assert.equal(code, 64); assert.deepEqual(out, { error: 'usage', why: '--ws04-observation is empty' });
+  assert.deepEqual(calls, []); assert.deepEqual(n.getJson, []); assert.equal(n.rpc, 0); assert.equal(n.readStore, 0);
+});
+
+test('a page of the other mode is named in ws04Read, still handed to 12 and held; the agreeing mode adds nothing', async () => {
+  const plain = { ...PAGE, held: PAGE.held.slice(0, 3), observations: [{ ...ROW, archive_epoch: undefined }] };
+  delete plain.store; delete plain.observations[0].archive_epoch;
+  const PLAIN = JSON.stringify(plain, (k, v) => (typeof v === 'bigint' ? `@@${v}@@` : v)).replace(/"@@(\d+)@@"/g, '$1');
+  const W = ['ws04_page_mode_not_the_requested_mode'];
+  for (const [args, printed, read] of [
+    [['--runexec', 'r', '--ws04-db', '/s/index.sqlite'], PRINTED, { status: 'read', mode: 'db', why: W }],
+    [['--runexec', 'r', '--ws04-store', '/s'], PLAIN, { status: 'read', mode: 'store', why: W }],
+    [['--runexec', 'r', '--ws04-db', '/s/index.sqlite'], PLAIN, { status: 'read', mode: 'db' }],
+    [['--runexec', 'r', '--ws04-store', '/s'], PRINTED, { status: 'read', mode: 'store' }],
+  ]) {
+    const { out, n } = await run(args, () => [null, `${printed}\n`]);
+    onlyHeraldReads(n);
+    assert.deepEqual(out.ws04Read, read, args.join(' '));
+    assert.deepEqual([out.ws04.status, out.ws04.admitted], ['held', 0]);
+    assert.deepEqual(out.ws04.observations[0].held, H);
+    assert.notEqual(out.ws04Read.code, 'NoRecord');
+  }
+});

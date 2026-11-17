@@ -89,7 +89,8 @@ export async function main(argv = process.argv.slice(2), { io = { getJson, rpc }
   const viaRunexec = a['ws04-store'] !== undefined || a['ws04-db'] !== undefined;
   if (viaRunexec !== (a.runexec !== undefined)) { print(json({ error: 'usage', why: '--runexec goes with --ws04-store or --ws04-db, and they need it' })); return 64; }
   if (!viaRunexec && (a['ws04-after'] !== undefined || a['ws04-limit'] !== undefined)) { print(json({ error: 'usage', why: '--ws04-after / --ws04-limit go with --ws04-store or --ws04-db' })); return 64; }
-  for (const k of ['runexec', 'ws04-store', 'ws04-db', 'ws04-after', 'ws04-limit']) if (a[k] === '') { print(json({ error: 'usage', why: `--${k} is empty` })); return 64; }
+  // (2026-11-17) an empty --ws04-observation was read as "no page asked for": it is a usage error like the others
+  for (const k of ['ws04-observation', 'runexec', 'ws04-store', 'ws04-db', 'ws04-after', 'ws04-limit']) if (a[k] === '') { print(json({ error: 'usage', why: `--${k} is empty` })); return 64; }
   let binding, rpcBinding, ws04Observation, ws04Read = null;
   try {
     binding = readDecl(a.binding); rpcBinding = readDecl(a['rpc-binding']);
@@ -101,7 +102,12 @@ export async function main(argv = process.argv.slice(2), { io = { getJson, rpc }
       const client = ws04ObserveClient({ bin: a.runexec, execFile, parse: parseJsonU64 });
       const o = { after: a['ws04-after'], limit: a['ws04-limit'] };
       ws04Observation = a['ws04-store'] !== undefined ? await client.store(a['ws04-store'], o) : await client.db(a['ws04-db'], o);
-      ws04Read = { status: 'read', mode: a['ws04-store'] !== undefined ? 'store' : 'db' };
+      const mode = a['ws04-store'] !== undefined ? 'store' : 'db';
+      // (2026-11-17) `observe store` always writes the page's `store` facts and `observe db` never does; a page of the
+      // other mode is named here (still handed to 12, still held), never taken as the mode that was asked for
+      const page = ws04Observation !== null && typeof ws04Observation === 'object' && !Array.isArray(ws04Observation) ? ws04Observation : null;
+      const other = page !== null && (page.store !== undefined) !== (mode === 'store');
+      ws04Read = { status: 'read', mode, ...(other ? { why: ['ws04_page_mode_not_the_requested_mode'] } : {}) };
     } catch (e) {
       // not read: nothing is handed to 12, and nothing is concluded about any caravan or run
       ws04Read = { status: 'not_read', code: String(e?.code ?? 'Spawn'), message: String(e?.message ?? '').slice(0, 200) };
