@@ -1716,4 +1716,18 @@ export default {
   '村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。': 'The village record was loaded again. The record of this village\'s province was not. The province\'s numbers are still those of the record loaded before.',
   '村の記録を読み直す': 'Load the village record again',
   '通常の読み込みが進んでいたので、この読み直しの答えは使いませんでした。通常の読み込みの結果をお待ちください。': 'A regular load was under way, so the answer of this press was not used. Please wait for the result of the regular load.',
+  // (2026-11-17, ⑦ the village screen: what became of the orders given from this village — screens/villageorders.mjs)
+  '{0}の建設': 'Building: {0}',
+  '城壁の工事': 'Work on the walls',
+  '{0}の訓練': 'Training: {0}',
+  '{0}の編成': 'Forming up: {0}',
+  '守備隊の増員': 'More garrison',
+  'この村から出した命令': 'Orders given from this village',
+  '{0}：送られていません。': '{0}: not sent.',
+  '{0}：送信しましたが、成立しませんでした。': '{0}: sent, but it did not take effect.',
+  '{0}：送信済みです。結果はまだ確認できていません。同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。': '{0}: sent. The result is not confirmed yet. The same order is not sent again. Press the same order once more to check its result.',
+  '{0}：受け付けられました。村の記録には、まだ出ていません。次の読み込みで出ます。': '{0}: accepted. It is not in the village record yet. It will show with the next load.',
+  '{0}：送信の結果は確認できませんでしたが、村の記録には出ています。': '{0}: the result of sending could not be confirmed, but it is in the village record.',
+  '{0}：送信済みです。結果はまだ確認できていません（送られていない、という意味ではありません）。村の記録には、まだ出ていません。もう一度命じると、二重になることがあります。': '{0}: sent. The result is not confirmed yet (this does not mean it was not sent). It is not in the village record yet. Ordering it again may do it twice.',
+  '{0}：送信済みです。結果はまだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。村の記録を読み直し、下の数で確かめてください。': '{0}: sent. The result is not confirmed yet (this does not mean it was not sent). Ordering it again may do it twice. Load the village record again and check the numbers below.',
 };

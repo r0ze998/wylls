@@ -28,6 +28,7 @@ import { termButton } from '../hud/glossary.mjs';
 import { row, dueHtml } from './shell.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
+import { renderVillageOrders } from './villageorders.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
 
@@ -426,5 +427,8 @@ export function render(FS) {
   // (2026-11-17, ⑦: the reads behind this screen, said under its head when one did not come — renderHoldingRead; it
   //  rides with the head, so the list of cards is as long as it was)
   const readNote = renderHoldingRead(FS);
-  return [...(wideStatus ? [wideStatus] : []), readNote ? html`${head}${readNote}` : head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
+  // (2026-11-17, ⑦: what became of the orders given from this village this turn — screens/villageorders.mjs — rides with
+  //  the head too; it reads FS.orders and the record, and changes no button)
+  const orderNote = renderVillageOrders(FS, m.settled, m.now, { rereadShown: holdingRead(FS).reread.can });
+  return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }
