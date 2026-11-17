@@ -1666,4 +1666,7 @@ export default {
   'あなたの国が奪取中：{0} / {1} ターン': 'Your nation is taking it: turn {0} of {1}',
   '{0}が奪取中：{1} / {2} ターン': '{0} is taking it: turn {1} of {2}',
   '国の土地から切り離され減っています：{0} / {1} ターン': 'Cut off from its nation\'s land, fading: turn {0} of {1}',
+  // (2026-11-17, Lane C ⑦: the report's replay while it is read, and when it could not be read)
+  '戦いを読み込んでいます…': 'Loading the clash…',
+  '戦いを読み込めませんでした。報告はそのまま残しています。もう一度押すと読み直します。': 'The clash could not be loaded. The report stays as it was; press again to load it again.',
 };

@@ -11,7 +11,7 @@
 //      the fallback flies only on false and only while `still` holds
 //   S4 the move count is the map's own: every non-auto setView (drag, wheel, pinch, keys, a move by name) adds one, and
 //      restore's ifStill reads it; a touch that only halts a flight adds none (seen through map.touchedAt since the battle-world bundle)
-//   S5 every caller copes with null: the turn's scene, autoBattles and 見る ignore the answer; the preview tests `if (ok)`
+//   S5 every caller copes with null: the turn's scene and autoBattles ignore the answer; 見る (playAsked) treats null as called off; the preview tests `if (ok)`
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -58,7 +58,9 @@ test('S4 the move count is the map\'s existing contract', () => {
 test('S5 every caller copes with null', () => {
   assert.ok(app.includes("fxOn('turn:scene', x => { if (FS.mode === 'play' && x?.battle) playBattle(x.battle.p, x.battle.q, x.battle.bell, { auto: true, focus: !!x.focus }); });"));
   assert.ok(app.includes('playBattle(env.province.p, env.province.q, b, { auto: true });'));
-  assert.ok(app.includes("'battle-play': d => { leaveReport(); closeDialPop(); playBattle(num(d.p), num(d.q), num(d.bell), { focus: true }); },"));
+  // (the report-play bundle routes 見る through playAsked, which reads the answer — web-frontier-ws07-report-play-text.test.mjs)
+  assert.ok(app.includes("'battle-play': d => { playAsked(num(d.p), num(d.q), num(d.bell)); },"));
+  assert.ok(app.includes('try { ok = await playBattle(p, q, bell, { focus: true }); } catch (e) {'));
   assert.ok(app.includes('const go = () => playBattle(bq[0], bq[1], bq[2], { focus: !FS.battleFocused }).then(ok => { if (ok) FS.battleFocused = true; });'));
   assert.equal(app.split('playBattle(').length - 1, 6, 'the definition and five callers');
   assert.doesNotMatch(pb + follow, /prize|faucet|payAndJoin|paidJoin|claim/i);
