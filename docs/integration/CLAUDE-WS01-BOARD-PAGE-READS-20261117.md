@@ -50,6 +50,11 @@
    - **Now:** `post()` reads the HTTP status itself, as the board answers (`board.mjs` `/coop/records`: 200 with `{ok: true}`; 400 with `{ok: false, why}`). **Accepted:** only 200 with `ok: true`. **Refused:** only 400 with `ok: false` and a `why`. **Anything else:** "板に届いたか分からない（HTTP n）", and the page reads again: never not sent, never refused, never a resend.
    - `api()` is unchanged for its other callers (`sendOnce`/`followSend`: the `sending` record), so their meaning does not change.
 
+**Third tip:**
+- **The gap:** a list without `moving` (for example `{}`) was still taken as read, and then counted as no caravan.
+- **The producer's contract:** the herald always writes `moving` as an array (`frontier-node/crates/herald/src/caravan.rs` `file()`), and its own reader requires it (`from_file`: `get("moving")?.as_array()?`).
+- **The fix:** a list whose `moving` is missing or not an array is now unread (`形が違う`).
+
 ## Regression (written, NOT run): `workstreams/01-national-strategy/test/coop.entry-world.test.mjs`
 
 The page runs in a browser; its source is pinned as text, as ①'s other page checks.

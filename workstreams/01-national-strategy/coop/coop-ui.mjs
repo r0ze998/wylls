@@ -236,7 +236,9 @@ async function refresh() {
       if (!r.ok) return { state: 'unread', why: `HTTP ${r.status}` };
       let j;
       try { j = await r.json(); } catch { return { state: 'unread', why: 'JSON でない' }; }
-      return j && typeof j === 'object' && (j.moving === undefined || Array.isArray(j.moving)) ? { state: 'ok', data: j } : { state: 'unread', why: '形が違う' };
+      // （第3版）ヘラルドの一覧は moving を必ず配列で書く（frontier-node/crates/herald/src/caravan.rs file()、from_file も必須）：
+      // 無い・配列でないなら読めていない（空の一覧として扱わない）
+      return j && typeof j === 'object' && Array.isArray(j.moving) ? { state: 'ok', data: j } : { state: 'unread', why: '形が違う' };
     }).catch(e => ({ state: 'unread', why: `届かない（${e.message ?? e}）` }));
     [v2, f2] = await Promise.all([apiRead(`/coop/view?${v}`), feedRead]);
   } catch (e) { if (seq > appliedSeq) staleSay(`読み込めない：${e.message ?? e}`); return false; }

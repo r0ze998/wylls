@@ -73,7 +73,8 @@ test('post: signing failed, not known to have reached the board, refused, and ac
 test('the herald caravan list: read or not read, applied with the view; not read is said, never as no caravan', () => {
   const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('function staleSay('));
   assert.match(r, /if \(!r\.ok\) return \{ state: 'unread', why: `HTTP \$\{r\.status\}` \};/);
-  assert.match(r, /\{ state: 'ok', data: j \} : \{ state: 'unread', why: '形が違う' \}/);
+  assert.match(r, /return j && typeof j === 'object' && Array\.isArray\(j\.moving\) \? \{ state: 'ok', data: j \} : \{ state: 'unread', why: '形が違う' \};/);
+  assert.doesNotMatch(r, /j\.moving === undefined/, '(third tip) a list without moving is not read: the herald always writes it');
   assert.match(r, /\.catch\(e => \(\{ state: 'unread', why: `届かない（\$\{e\.message \?\? e\}）` \}\)\);/);
   const m = ui.slice(ui.indexOf('function myCaravansTo('), ui.indexOf('function renderRequests('));
   assert.match(m, /if \(feed\?\.state !== 'ok'\) return null;/);
