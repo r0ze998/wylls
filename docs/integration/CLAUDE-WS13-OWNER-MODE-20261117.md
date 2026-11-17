@@ -1,6 +1,9 @@
 # ⑬ operator resident: the owner's signed mode command, applied without constructing a Resident (2026-11-17)
 
-**Branch:** `claude/ws13-owner-mode-20261117`, one commit **on `089a8463`** (the initial-resident unit's final tip, unchanged).
+**Branch:** `claude/ws13-owner-mode-20261117` **on `089a8463`** (the initial-resident unit's final tip, unchanged).
+- `edb6cc80` is the first tip.
+- A wording correction (the second tip) is on top of it.
+- **Adopt the final tip only.**
 
 **Adoption and closure:**
 - take this unit's own diff `089a8463..<this tip>`, after the initial-resident unit `cd2f6683..089a8463`, because its regression uses `writeInitialResident`;
@@ -44,12 +47,17 @@ A new resident starts stopped (`mode: 'manual'`). The only way to let it run is 
 
 **What it never does:**
 - read or make a key: verifying reads only the owner's public address;
-- sign, send, fund or authorize;
-- enact: `auto` only lets the live step propose, and `step.mjs` still does not enact.
+- sign, send, fund or authorize.
+
+**(Second tip, correction) What `auto` allows depends on the reader:**
+- **The live, non-enacting path** (`step.mjs`, `once.mjs`): it only proposes.
+- **A `Resident`:** the mode is the agent ledger's own record, **shared with the resident**. A `Resident` process stepping this directory acts under `auto` as it always does (`resident.mjs` `step`).
+- **So `auto` is not "proposals only" in general.** The first tip's sentence was too broad.
 
 ## Limits (stated, not solved)
 
-- **No lock:** the state file has no lock in the existing contract. A resident process running on the same directory at the same time could overwrite the change (the last writer wins). **Apply it only while no resident process uses the directory.** This is not enforced here.
+- **No lock:** the state file has no lock in the existing contract. A resident process, or another writer, on the same directory at the same time could overwrite the change, or be overwritten by it (the last writer wins). **Apply it only while nothing else writes the directory.** This is not enforced or detected here.
+- **Not done here:** no mode was changed and no command was signed. The flow is code only.
 - **Not carried here:** `withdraw` and `policy` (goal, `extendTurns`) remain the resident's own commands.
 
 ## The way through (not run)
@@ -91,7 +99,7 @@ None of these is supplied, and join is not connected.
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws13-owner-mode-20261117`, one commit on `089a8463`, all `100644`:
+**Unit:** `claude/ws13-owner-mode-20261117`, two commits on `089a8463` (`edb6cc80`, then the wording correction). Take the final tip's diff from `089a8463`, all `100644`:
 - `workstreams/13-citizens/resident/live/owner-mode.mjs` (A)
 - `workstreams/13-citizens/test/live-owner-mode.test.mjs` (A)
 - `docs/integration/CLAUDE-WS13-OWNER-MODE-20261117.md` (A)

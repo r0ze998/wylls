@@ -9,8 +9,10 @@
 // Narrower than Resident.command, never wider: only {mode: 'auto'|'manual'} (Resident.command turns any other value
 // into 'auto'; here it is refused); `withdraw` (which changes the journal) and op 'policy' (which changes the charter)
 // stay with the resident and are refused here. No key is read or made: verifying a signature reads only the owner's
-// public address. Nothing is signed, sent, funded or authorized; a mode of 'auto' only lets the live step propose
-// (step.mjs: enacting is not connected).
+// public address. This module signs, sends, funds and authorizes nothing. What 'auto' then allows depends on WHO reads
+// the state: the live, non-enacting path (step.mjs, once.mjs) only proposes; but the mode is the agent ledger's own,
+// shared with the resident, so a Resident process stepping this directory would act under it as it always does
+// (resident.mjs step). 'auto' is therefore not "proposals only" in general.
 //
 // Not excluded: a resident process running on the same directory at the same time (the existing state file has no
 // lock): the last writer wins. Apply it only while no resident process uses the directory.
