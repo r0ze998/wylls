@@ -174,12 +174,17 @@ export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
     : fc?.ok ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`残る兵 ${leftText(fc)}`, L`ルールで ${fmtNum(fc.runs)} 回試した幅`, 'mo-fc')
     : fc?.why === 'OutOfSight' ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`出しません`, L`見えていない土地です（ほかの軍勢がいるかわかりません）`, 'mo-fc')
     : fc?.why === 'PalisadeOnRoad' ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`この道は通れません`, L`戦争中の国の柵が道にあります。封が開くときに進軍は認められません`, 'mo-fc')
+    : fc?.unread ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`見込みはまだわかりません`, fc.why === 'NoRecord' ? L`行き先の州の記録をまだ読めていません` : L`規則を読めていません`, 'mo-fc')
     : fc ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`見込みはまだ出せません`, L`行き先の州の記録がそろうと出ます`, 'mo-fc') : '';
+  // (2026-11-17, ⑦: a forecast that was not read — the rules module or the destination's record — is not "no danger":
+  //  said as not known, with the draft kept and one button that asks again; shown whether or not the defenders are known)
+  const fcRetry = fc?.unread ? html`<p class="mc-fc-unread" role="status">${fc.why === 'NoRecord' ? L`見込みはまだわかりません（行き先の州の記録を読めていません）。下書きはそのままです。` : L`見込みはまだわかりません（規則を読めていません）。下書きはそのままです。`}
+    <button type="button" class="btn small" data-act="forecast-retry">${icon('return')}${L`見込みをもう一度計算する`}</button></p>` : '';
   return html`<div class="mc-outlook" role="group" aria-label="${L`この命令の見通し`}">
     ${w ? cell(L`到着`, L`ターン ${fmtNum(w.value)}`, awayLine) : ''}
     ${cell(L`費用`, L`体力 −${fmtNum(DEPART_STAMINA)}`, next)}
     ${cell(L`相手`, foe, foeNote)}
-    ${fcCell}</div>`;
+    ${fcCell}</div>${fcRetry}`;
 }
 
 /**

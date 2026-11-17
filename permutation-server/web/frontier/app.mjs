@@ -2244,12 +2244,26 @@ function nudgeField(el, name, f) {
 function closeResPop() { if (FS.resOpen) { FS.resOpen = null; renderHudTick(FS.chain?.now?.() ?? 0); } }
 
 /** The march card's forecast: recomputed with the rules when the composed march changes (hud/forecast.mjs). */
-let fcBusy = null;
-function updateForecast() {
+// (2026-11-17, ⑦ the march card, corrected: one request at a time, known by ITSELF — `fcRun`, the object of the request
+//  under way: its draft, its place (the very object), its key and the pinned world with its generation. Every end of
+//  it — the answer, the failure, the tidy-up — asks `mine()` first, so a request for another draft with the same key,
+//  one put away, one asked again, a place of the same coordinates chosen again, or another world (A → B → A) neither
+//  writes into the newer one nor frees its place.
+//  `unread`: the forecast could NOT be made because something was not read — the rules module, or the destination
+//  province's record — which is not an answer of the rules (a refusal, PalisadeOnRoad) and not 見えていない土地
+//  (OutOfSight: no forecast is made there, and none is asked again). An unread forecast stays "not known", is made
+//  again by itself once the missing record is held, and at the person's request — HUD_ACTIONS['forecast-retry'].)
+let fcRun = null;
+function updateForecast({ again = false } = {}) {
   const c = FS.compose;
   const key = forecastKey(c);
   if (!key || !c.route || c.sending) return;
-  if (c.forecast?.key === key || fcBusy === key) return;
+  if (fcRun && fcRun.c === c && fcRun.key === key && fcRun.dest === c.dest) return;
+  const destKey = `${c.dest.p},${c.dest.q}`;
+  // (made already for the order as it stands — unless it is only "being made" by a request that is not under way any
+  //  more (its answer was not this order's to take: the place was asked again, a draft of the same key), or it was not
+  //  read and is asked again, or the record it lacked is held now)
+  if (c.forecast?.key === key && !c.forecast.pending && !(c.forecast.unread && (again || (c.forecast.why === 'NoRecord' && FS.provinces.has(destKey))))) return;
   // (a destination out of sight: no forecast. It would be worked out from the province's whole record, the hosts the
   // viewer cannot see among them, and its numbers would tell of them: a fort's tile out of sight said only "守り N"
   // while the forecast counted N and every host on it. The independent audit of 2026-10-24, older than the uplift,
@@ -2257,19 +2271,30 @@ function updateForecast() {
   if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) < 3) {
     c.forecast = { key, ok: false, why: 'OutOfSight' }; c.compare = null; invalidate('panel'); return;
   }
-  fcBusy = key;
+  // (the destination province's record is not held: nothing to forecast from — said as not read, and the record is
+  //  asked for by the ordinary read, within its own limit and wait; in sight only — the check above came first)
+  if (!FS.provinces.has(destKey)) {
+    c.forecast = { key, ok: false, why: 'NoRecord', unread: true }; c.compare = null;
+    if (FS.mode !== 'practice') { if (again) retryProvince(c.dest.p, c.dest.q, () => invalidate('map', 'panel')); else wantProvince(c.dest.p, c.dest.q, () => invalidate('map', 'panel')); }
+    invalidate('panel'); return;
+  }
+  const run = fcRun = { c, key, dest: c.dest, world: momentWorld() };
+  const mine = () => fcRun === run && FS.compose === c && c.dest === run.dest && forecastKey(c) === key && momentWorld() === run.world;
   c.forecast = { key, pending: true };
   invalidate('panel');
   seasonKernel().then(k => {
-    if (FS.compose !== c || forecastKey(c) !== key) return;
+    if (!mine()) return;
     const env = FS.provinces.get(`${c.dest.p},${c.dest.q}`) ?? null, prov = env?.province ?? null, faction = FS.citizen?.faction ?? 0;
+    // (the record went while the rules were read — another world's, or let go: not read, not a forecast of nothing)
+    if (!prov) { c.forecast = { key, ok: false, why: 'NoRecord', unread: true }; c.compare = null; return; }
     // S1: the program's own clash model over the destination's bytes (the keep, the forts and the caravans are in it), the
     // arrival worn by the towers its road crosses (hud/forecastmodel.mjs, workstream 07); else the page's own builder
     const worn = s1On() && env?.provinceBytes ? marchWearOf(FS, { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, c.route, c.host.unit) : null;
     const model = !!worn && !worn.blocked;
     const one = cc => (model ? modelForecast(k, cc, env.provinceBytes, faction, { wornBps: worn.bps }) : forecast(k, cc, prov, faction));
     let fc;
-    try { fc = worn?.blocked ? { ok: false, why: 'PalisadeOnRoad' } : one(c); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
+    // (a throw while it is worked out: not read — never taken for the rules' own refusal)
+    try { fc = worn?.blocked ? { ok: false, why: 'PalisadeOnRoad' } : one(c); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error', unread: true }; }
     c.forecast = { key, ...fc, ...(model ? { model: true } : {}) };
     // the stances side by side (the card's comparison): once per destination, turn and retreat, not per stance chosen
     const ck = compareKey(c);
@@ -2277,8 +2302,8 @@ function updateForecast() {
       c.compare = { key: ck, rows: model ? [0, 1, 2, 3].map(s => { try { return { stance: s, ...modelForecast(k, { ...c, stance: s }, env.provinceBytes, faction, { wornBps: worn.bps, runs: COMPARE_RUNS }) }; } catch (e) { return { stance: s, ok: false, why: e?.code ?? 'Error' }; } })
         : compareStances(k, c, prov, faction) };
     }
-  }).catch(() => { if (FS.compose === c) c.forecast = { key, ok: false, why: 'NoWasm' }; })
-    .finally(() => { fcBusy = null; invalidate('panel'); });
+  }).catch(e => { if (mine()) c.forecast = { key, ok: false, why: e?.code ?? 'NoWasm', unread: true }; })
+    .finally(() => { if (fcRun === run) fcRun = null; invalidate('panel'); });
 }
 
 /** A holding as the next instruction will find it (hud/rulebook.mjs `settled`: a finished building already produces): what the strip shows can be spent now. */
@@ -3728,6 +3753,9 @@ export const HUD_ACTIONS = {
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
   // (2026-11-17, ⑦ the wide map: the inspector's "read again" — the province's record now, and the ring overviews still
   //  wanted; reads only. The selection and the camera stay where the person put them)
+  // (2026-11-17, ⑦ the march card: the forecast that could not be made is asked again, from the same draft — only one
+  //  that was not read; 見えていない土地 and the rules' own refusals are answers and are not asked around)
+  'forecast-retry': () => { const c = FS.compose; if (!c || c.sending || !c.forecast?.unread) return; updateForecast({ again: true }); invalidate('panel'); },
   'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
@@ -4420,7 +4448,12 @@ export async function boot() {
         if (FS.mode !== 'practice') { wantProvince(hit.p, hit.q, () => { chooseHome(); map?.invalidate(); invalidate('panel'); }); wantKeepHistory(hit.p, hit.q, () => invalidate('panel')); chooseHome(); }
         // composing a march: a tap on another tile makes it the destination (Civ: select the unit, click where)
         const c = FS.compose;
-        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) Promise.resolve(ACTIONS['dest-from-map']()).then(() => { if (FS.compose === c && c.routeError) mapNote(hit, refusalText(c.routeError, hit)); }).catch(() => {});
+        // (2026-11-17, ⑦: the refusal is said only by the request that asked for THIS place of THIS draft in THIS world —
+        //  draftAims: the place's own object, taken before the wait — not for a place the person chose since)
+        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) {
+          const world = momentWorld(), going = ACTIONS['dest-from-map'](), aim = c.dest;
+          Promise.resolve(going).then(() => { if (draftAims(c, aim, world) && c.routeError) mapNote(hit, refusalText(c.routeError, hit)); }).catch(() => {});
+        }
         invalidate('map', 'panel');
       },
       onView: (_, lod) => { FS.view.lod = lod; renderMinimap(); },
