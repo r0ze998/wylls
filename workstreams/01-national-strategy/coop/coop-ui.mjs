@@ -12,6 +12,7 @@ import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.m
 import { planSend, sendPlanned } from './send.mjs';
 import { rpcReader, sendOutcome } from './chain.mjs';
 import { sourceCandidates, sourceToUse, placeKey, planBasisOf } from './sources.mjs';
+import { GAME_PAGE, compositionOf, compositionText } from './composition.mjs';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -344,6 +345,32 @@ async function sendFor(q) {
 }
 
 /**
+ * （2026-11-17、同じ入口）この入口のゲーム（板が転送するヘラルドの /h/season）と板の世界が同じか。
+ * 別の世界なら、この画面から隊商は送らない（見込みも出さない）。分からないときは「分からない」と言い、これまでどおり止めない。
+ * 前の送信の結果を確かめる（followSend）・記録を出す（post）は止めない（板の世界の記録で、ヘラルドへは送らない）。
+ */
+let composed = { state: 'unknown', why: 'まだ読んでいない' };
+function composeSay() {
+  let p = document.getElementById('composeState');
+  if (!p) { p = document.createElement('p'); p.id = 'composeState'; p.dataset.testid = 'compose-state'; $('msg').after(p); }
+  p.className = composed.state === 'same' ? 'note' : composed.state === 'different' ? 'bad' : 'warn';
+  p.dataset.state = composed.state;
+  p.textContent = compositionText(composed, cfg);
+  if (composed.state === 'same') {   // 同じ入口のゲームへ（固定の道。ほかの入口へは出さない）
+    const a = document.createElement('a');
+    a.href = GAME_PAGE; a.textContent = 'ゲームを開く'; a.dataset.testid = 'game-link';
+    p.append(' ', a);
+  }
+}
+async function readComposition() {
+  let next;
+  try { next = compositionOf(await apiRead('/h/season'), cfg); } catch (e) { next = { state: 'unknown', why: `この入口のヘラルドを読めない（${e.message ?? e}）` }; }
+  composed = next;
+  try { composeSay(); } catch { /* 表示の欄が作れなくても、確かめた結果は持つ */ }
+  return composed;
+}
+
+/**
  * （2026-11-17、送り元）送る人・世界・依頼ごとの送り元の選択。準備だけ：応じる・署名・送信はしない。
  * 鍵は 送る人｜プログラム｜シーズン｜依頼。送る人・世界・依頼が変われば別の鍵なので、前の読み・選択・見込みは当たらない。
  * {seq, status: 'loading'|'ok'|'unread', why, cands, chosen: placeKey|null（null は最初の村＝これまでどおり）, preview}
@@ -412,6 +439,7 @@ async function previewSource(q) {
   if (!c || !pick) return say('先に署名する人を接続し、送り元の村の候補を読んでください', 'warn');
   const use = sourceToUse(pick, pick.chosen);
   if (!use.ok) return say(use.why, 'warn');
+  if (composed.state === 'different') return say(compositionText(composed, cfg), 'bad');
   const resp = q.responses[signer.address];
   if (!resp?.offer) return say('この依頼に応じた量が見えない。読み直した表示で確かめてください', 'warn');
   const seq = ++srcSeq, chosenAt = pick.chosen, basis = planBasisOf(q, signer.address);
@@ -442,6 +470,8 @@ async function sendOnce(q) {
   const basis = planBasisOf(q, signer.address);   // 計画に効く依頼の中身（押した時の表示）
   const use = sourceToUse(pick, chosenAt);
   if (!use.ok) return say(`送れない：${use.why}`, 'warn');
+  // （2026-11-17、同じ入口）送る前に、この入口のヘラルドの世界を読み直す。別の世界なら送らない（分からないときは、これまでどおり）
+  if ((await readComposition()).state === 'different') return say(`送れない：${compositionText(composed, cfg)}`, 'bad');
   const reader = rpcReader('/coop/rpc');
   say('送り元・道・番号をチェーンから読んでいます…');
   const plan = await planSend({ reader, season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source });
@@ -527,6 +557,7 @@ $('judge').addEventListener('change', refresh);
   W.onChange(renderWallets);
   renderWallets();
   $('season').textContent = `シーズン ${cfg.season.seasonId}（プログラム ${short(cfg.season.programId)}）`;
+  await readComposition();   // （2026-11-17、同じ入口）投げない：読めなければ「分からない」と言う
   $('goalTitle').textContent = cfg.goals[goalId].title;
   $('judge').innerHTML = cfg.judges.map(j => `<option value="${esc(j.id)}"${j.id === cfg.judge ? ' selected' : ''}>${esc(j.label)}</option>`).join('');
   $('judgeMeans').innerHTML = cfg.judges.map(j => `<li><b>${esc(j.label)}</b>：${esc(j.means)}</li>`).join('');
