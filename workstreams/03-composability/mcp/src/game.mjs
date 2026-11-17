@@ -100,7 +100,13 @@ export class Game {
     await this.context();
     const r = await this.herald.season();
     if (!r.ok) throw new GameError('HeraldUnavailable', `the herald's season: ${r.code ?? r.error}`, { retryable: true });
-    return { record: r.record, season: r.season, now: Number(r.record.latestUnix ?? 0) };
+    // The herald's read time is the clock the village's stores are computed at. 0 or absent is not a time (2026-11-17):
+    // the herald serves 0 until it has folded a transaction with a block time — local-play seeding sets the accounts
+    // and the slot but not the time (herald local_play.rs seed), and an archived transaction without block_time counts 0
+    // (findex archive.rs). Stores at 1970 would be made up, so the read is Unknown (retryable), never projected at 0.
+    const now = Number(r.record.latestUnix);
+    if (!Number.isSafeInteger(now) || now <= 0) throw new GameError('Unknown', `the herald has no read time yet (latestUnix ${JSON.stringify(r.record.latestUnix ?? null)}): the village's stores cannot be computed; read village_status again later`, { retryable: true, reason: 'HeraldTimeUnknown' });
+    return { record: r.record, season: r.season, now };
   }
 
   /** The relay's agent view, checked to be the link's owner's agent. */
