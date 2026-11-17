@@ -111,7 +111,15 @@ export function villageRequests(FS, b, v) {
   const c = st => sends.filter(x => x === st).length;
   const look = c('mismatch') + c('seq-taken');
   const notKnown = sends.length - c('landed') - c('failed') - c('expired') - look;
-  return { lines: [
+  // (2026-11-17, one request) each of these requests can be opened on the board itself (open ones first, at most five): only
+  // the requests already counted above (this world, this village), with 01's own fulfilment word; nothing is accepted,
+  // signed or prepared by following one
+  const WORD = { fulfilled: () => L`依頼量に届いた（下限で証明）`, undetermined: () => L`判定できない`, 'not-reached': () => L`届かなかった`, none: () => L`まだ隊商がない` };
+  const order = [...mine].sort((a, b) => (a.stateNow === 'open' ? 0 : 1) - (b.stateNow === 'open' ? 0 : 1));
+  const links = order.slice(0, 5).map((q, i) => ({ id: q.id, href: boardHref(FS, b, q.id),
+    text: L`依頼 ${i + 1} を板で開く（${q.stateNow === 'open' ? L`受付中` : L`受付は終わった`}・${(WORD[q.fulfilment.status] ?? WORD.undetermined)()}）` }))
+    .filter(x => x.href.includes('&request='));
+  return { links, lines: [
     L`この村あての依頼 ${mine.length} 件（受付中 ${mine.filter(q => q.stateNow === 'open').length}）`,
     L`依頼量に届いた（下限で証明）${n('fulfilled')}・判定できない ${n('undetermined') + unknown}・届かなかった ${n('not-reached')}・まだ隊商がない ${n('none')}`,
     ...(sends.length ? [L`送信 ${sends.length}：記録された ${c('landed')}・断られた ${c('failed')}・期限切れ ${c('expired')}・確かめが要る ${look}・まだ確かめられない ${notKnown}`] : []),
@@ -119,7 +127,7 @@ export function villageRequests(FS, b, v) {
 }
 
 /** The board's page for this village (the board's own `page` when its config names one on this origin). */
-export function boardHref(FS, b) {
+export function boardHref(FS, b, requestId = null) {
   const page = typeof b?.config?.page === 'string' && b.config.page.startsWith('/') && !b.config.page.startsWith('//') ? b.config.page : BOARD_PAGE;
   // (2026-11-17) the village's world goes with it: the program and Season THIS page is pinned to. The board's page fills the
   // destination only when they are its own present world (coop-ui.mjs); a world this page cannot name is not sent, and then
@@ -127,7 +135,10 @@ export function boardHref(FS, b) {
   const program = pinnedProgram(FS), season = FS?.season?.seasonId;
   const world = typeof program === 'string' && program && season !== undefined && season !== null
     ? `&program=${encodeURIComponent(program)}&season=${encodeURIComponent(String(season))}` : '';
-  return `${page}?to=${encodeURIComponent(villageTo(FS) ?? '')}${world}`;
+  // (2026-11-17, one request) a request of THIS village and world may be named: the board's page checks it again (its world,
+  // and that it is to this village) before it points at it; the id is only ever URL-encoded here and escaped where drawn
+  const one = typeof requestId === 'string' && requestId && requestId.length <= 128 && world ? `&request=${encodeURIComponent(requestId)}` : '';
+  return `${page}?to=${encodeURIComponent(villageTo(FS) ?? '')}${world}${one}`;
 }
 
 /**

@@ -4,7 +4,7 @@
 // this file decides none of them. With no entry registered the slot is
 // empty and the page is as it was.
 //
-// 01 registers `{id, title, state(FS) → {available, why?} | {hidden: true}, open(FS), detail?(FS) → {lines} | null}`:
+// 01 registers `{id, title, state(FS) → {available, why?} | {hidden: true}, open(FS), detail?(FS) → {lines, links?} | null}`:
 // `title` the button's words (in the page's language), `state` whether it
 // can be pressed now and, when not, why (shown under it) — or `hidden` when
 // the thing it opens is not on this server at all —, `open` what
@@ -35,7 +35,11 @@ export function renderCoopSlot(FS) {
   let d = null;
   try { d = typeof entry.detail === 'function' ? entry.detail(FS) : null; } catch { d = null; }
   const detail = d && Array.isArray(d.lines) && d.lines.length ? html`<div class="coop-detail">${d.lines.map(x => html`<p>${String(x)}</p>`)}</div>` : '';
-  return html`<div class="ws07-coop" data-coop="${entry.id}"><button type="button" class="btn" data-act="coop-open" data-id="${entry.id}" ${raw(st.available ? '' : 'disabled')}>${String(entry.title())}</button>${why}${detail}</div>`;
+  // (2026-11-17) and links into what it opens (`detail(FS).links` → [{href, text}]): a path on this origin only, in a new tab
+  const sameOrigin = h => typeof h === 'string' && h.startsWith('/') && !h.startsWith('//') && !h.includes('\\');
+  const links = d && Array.isArray(d.links) ? d.links.filter(x => x && sameOrigin(x.href) && typeof x.text === 'string') : [];
+  const linkRow = links.length ? html`<div class="coop-links">${links.map(x => html`<a class="btn small" href="${x.href}" target="_blank" rel="noopener">${x.text}</a>`)}</div>` : '';
+  return html`<div class="ws07-coop" data-coop="${entry.id}"><button type="button" class="btn" data-act="coop-open" data-id="${entry.id}" ${raw(st.available ? '' : 'disabled')}>${String(entry.title())}</button>${why}${detail}${linkRow}</div>`;
 }
 
 /** The HUD action: open the entry if it is the one the button named and it can be pressed now. */

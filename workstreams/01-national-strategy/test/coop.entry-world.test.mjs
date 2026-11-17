@@ -81,3 +81,19 @@ test('the herald caravan list: read or not read, applied with the view; not read
   assert.match(m, /return \(feed\.data\.moving \?\? \[\]\)\.filter\(/);
   assert.match(ui, /cands === null \? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない/);
 });
+
+// (2026-11-17, one request; WRITTEN ONLY, NOT RUN) the board page points at a named request only after checking it
+test('a named request: kept only for this world, then checked against the view (present, this world, to the entry\'s village)', () => {
+  assert.match(ui, /focus = to && \/\^-\?\\d\+,-\?\\d\+,\\d\+,\\d\+\$\/\.test\(to\) && sameWorld && typeof reqParam === 'string' && reqParam && reqParam\.length <= 128 \? \{ id: reqParam, to, seen: false \} : null;/);
+  assert.match(ui, /入口で選んだ依頼は、入口の村とこの板の世界を確かめられないため開いていません/);
+  const f = ui.slice(ui.indexOf('function applyFocus()'), ui.indexOf('function staleSay('));
+  assert.match(f, /const ctxOk = q\.ctx && q\.ctx\.programId === cfg\.season\.programId && String\(q\.ctx\.seasonId\) === String\(cfg\.season\.seasonId\);/);
+  assert.match(f, /const toOk = q\.to && \[q\.to\.p, q\.to\.q, q\.to\.site, q\.to\.gen\]\.join\(','\) === focus\.to;/);
+  assert.match(f, /この板にありません（消えたか、別の世界の依頼です）。一覧から選び直してください/);
+  assert.match(f, /いまの表示にありません（記録が変わったか、別の世界の依頼です）/);
+  assert.match(f, /入口の村あての、この板の世界の依頼ではありません/);
+  assert.doesNotMatch(f, /post\(|sendFor\(|sendOnce\(|click\(\)/, 'nothing is accepted, signed or sent by pointing at it');
+  // checked again on every view that is applied (after a reload too)
+  const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('function staleSay('));
+  assert.ok(r.indexOf('try { applyFocus(); }') > r.indexOf("readState('');"));
+});

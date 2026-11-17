@@ -257,9 +257,37 @@ async function refresh() {
   }
   appliedSeq = seq; shownFor = viewerAt; shownAt = new Date();
   readState('');
+  try { applyFocus(); } catch (e) { focusSay(`入口で選んだ依頼を示せませんでした（${e.message ?? e}）。一覧から選び直してください`); }
   return true;
 }
 /** 最新の読みが当たらなかった：前の表示が残っていれば、それが古いことを言う。 */
+/**
+ * （2026-11-17、一つの依頼）入口が名指しした依頼：{id, to, seen}。入口の村の世界がこの板の世界と同じときだけ持つ。
+ * 当てた表示ごとに確かめる：その依頼が表示にあり、この板の世界の依頼で、入口の村あてのときだけ目印を付ける（最初の一回だけ
+ * そこへ動かす）。無い・消えた・別の村や世界なら理由を言い、一覧から選び直してもらう。応じる・署名・準備・送信はしない。
+ */
+let focus = null;
+function focusSay(text) {
+  let p = document.getElementById('focusState');
+  if (!p) { p = document.createElement('p'); p.id = 'focusState'; p.className = 'warn'; p.dataset.testid = 'focus-state'; $('msg').after(p); }
+  p.textContent = text ?? ''; p.hidden = !text;
+}
+function applyFocus() {
+  if (!focus || !view) return;
+  const q = view.requests.find(x => x.id === focus.id);
+  if (!q) return focusSay(focus.seen ? '入口で選んだ依頼は、いまの表示にありません（記録が変わったか、別の世界の依頼です）。一覧から選び直してください'
+    : '入口で選んだ依頼は、この板にありません（消えたか、別の世界の依頼です）。一覧から選び直してください');
+  const ctxOk = q.ctx && q.ctx.programId === cfg.season.programId && String(q.ctx.seasonId) === String(cfg.season.seasonId);
+  const toOk = q.to && [q.to.p, q.to.q, q.to.site, q.to.gen].join(',') === focus.to;
+  if (!ctxOk || !toOk) return focusSay('入口で選んだ依頼は、入口の村あての、この板の世界の依頼ではありません。一覧から選び直してください');
+  const el = [...document.querySelectorAll('#requests .req')].find(e => e.dataset.req === q.id);
+  if (!el) return focusSay('入口で選んだ依頼を表示できませんでした。一覧から選び直してください');
+  el.classList.add('focus');
+  if (!focus.seen) el.scrollIntoView?.({ block: 'center' });
+  focus.seen = true;
+  focusSay('');
+}
+
 function staleSay(why) {
   readState(view ? `${why}。表示は ${shownAt ? shownAt.toLocaleTimeString() : '前'} の読み込みのまま（古い）。自動で読み直しを続けます` : `${why}。まだ表示できるものがありません。自動で読み直しを続けます`);
 }
@@ -404,6 +432,10 @@ $('judge').addEventListener('change', refresh);
   // 入れずに理由を言う（同じ座標でも別の世界の村になるため）。届け先は手で入れられる（依頼の確かめはこれまでどおり）。
   const sameWorld = qs.get('program') === cfg.season.programId && qs.get('season') === String(cfg.season.seasonId);
   if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to) && sameWorld) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
+  // （2026-11-17、一つの依頼）名指しされた依頼は、届け先と同じく、入口の村の世界がこの板の世界のときだけ持つ
+  const reqParam = qs.get('request');
+  focus = to && /^-?\d+,-?\d+,\d+,\d+$/.test(to) && sameWorld && typeof reqParam === 'string' && reqParam && reqParam.length <= 128 ? { id: reqParam, to, seen: false } : null;
+  if (reqParam !== null && !focus) focusSay('入口で選んだ依頼は、入口の村とこの板の世界を確かめられないため開いていません。一覧から選んでください');
   else if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) {
     $('entryWarn').textContent = qs.get('program') === null || qs.get('season') === null
       ? '入口の村が、どの世界（シーズン・プログラム）の村か分からないため、届け先に入れていない。この板の世界の届け先の村を入れてください'
