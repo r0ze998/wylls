@@ -30,8 +30,9 @@ test('reads: GET fails on anything but a 2xx JSON; the config too', () => {
   assert.match(a, /catch \{ throw new Error\('答えが JSON でない'\); \}/);
   assert.match(ui, /cfg = await apiRead\('\/coop\/config'\);/);
   assert.match(ui, /apiRead\(`\/coop\/view\?\$\{v\}`\)/);
-  // the POST of a record keeps api(): the board's refusal is a 400 with {ok: false, why}, read by post()
-  assert.match(ui, /r = await api\('\/coop\/records', signed\);/);
+  // the POST of a record reads the status itself (post()); api() stays for the other callers (sendOnce/followSend)
+  assert.match(ui, /const res = await fetch\('\/coop\/records', \{ method: 'POST',/);
+  assert.match(ui, /async function api\(path, body\) \{\n\s+const r = await fetch\(path, body \? \{ method: 'POST'/);
 });
 
 test('a view is applied whole: shape checked, five renders or none, the old view and DOM restored on a failure, said as old', () => {
@@ -58,8 +59,24 @@ test('post: signing failed, not known to have reached the board, refused, and ac
   const p = ui.slice(ui.indexOf('async function post('), ui.indexOf('const myNation'));
   assert.match(p, /catch \(e\) \{ return say\(`署名できない：\$\{e\.message \?\? e\}`, 'bad'\); \}/);
   assert.match(p, /板に届いたか分からない（\$\{e\.message \?\? e\}）。読み直した表示で確かめてください/);
-  assert.match(p, /受け付けられなかった：\$\{r\?\.why \?\? '理由なし'\}/);
+  // only the board's explicit refusal (400 with {ok: false, why}) is "refused"; only 200 with {ok: true} is accepted
+  assert.match(p, /if \(status === 200 && body\?\.ok === true\) \{ say\(done, 'ok'\); await refresh\(\); return; \}/);
+  assert.match(p, /if \(status === 400 && body\?\.ok === false && typeof body\.why === 'string'\) return say\(`受け付けられなかった：\$\{body\.why\}`, 'bad'\);/);
+  assert.match(p, /return say\(`板に届いたか分からない（HTTP \$\{status\}）。読み直した表示で確かめてください`, 'warn'\);/);
+  assert.equal((p.match(/受け付けられなかった/g) ?? []).length, 1, 'refused said only for the explicit refusal');
   // after acceptance, a failed re-read is not "cannot sign": refresh says it on its own line
-  assert.ok(p.lastIndexOf('await refresh();') > p.indexOf('say(done, \'ok\');'));
+  assert.ok(p.indexOf("say(done, 'ok'); await refresh();") > 0, 'accepted, then a re-read whose failure goes to the read-state line');
   assert.equal((p.match(/署名できない/g) ?? []).length, 1, 'only the signing failure is called that');
+});
+
+// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN) the caravan list's read state: unknown is not "none"
+test('the herald caravan list: read or not read, applied with the view; not read is said, never as no caravan', () => {
+  const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('function staleSay('));
+  assert.match(r, /if \(!r\.ok\) return \{ state: 'unread', why: `HTTP \$\{r\.status\}` \};/);
+  assert.match(r, /\{ state: 'ok', data: j \} : \{ state: 'unread', why: '形が違う' \}/);
+  assert.match(r, /\.catch\(e => \(\{ state: 'unread', why: `届かない（\$\{e\.message \?\? e\}）` \}\)\);/);
+  const m = ui.slice(ui.indexOf('function myCaravansTo('), ui.indexOf('function renderRequests('));
+  assert.match(m, /if \(feed\?\.state !== 'ok'\) return null;/);
+  assert.match(m, /return \(feed\.data\.moving \?\? \[\]\)\.filter\(/);
+  assert.match(ui, /cands === null \? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない/);
 });

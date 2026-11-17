@@ -103,12 +103,18 @@ async function post(rec, done) {
   let signed;
   try { signed = await signRecord(signer, { v: 1, season: cfg.season, at: Math.floor(Date.now() / 1000), ...rec }); }
   catch (e) { return say(`署名できない：${e.message ?? e}`, 'bad'); }
-  let r;
-  try { r = await api('/coop/records', signed); }
-  catch (e) { await refresh(); return say(`板に届いたか分からない（${e.message ?? e}）。読み直した表示で確かめてください`, 'warn'); }
-  if (!r?.ok) return say(`受け付けられなかった：${r?.why ?? '理由なし'}`, 'bad');
-  say(done, 'ok');
+  // （2026-11-17）板の答え（board.mjs /coop/records）：受け付け＝200 で {ok: true}、断り＝400 で {ok: false, why}。この二つと
+  // はっきり分かるもの以外（ほかの状態・空・形の違う答え・届かない）は「届いたか分からない」：未送信とも断りとも言わない。
+  let status, body = null;
+  try {
+    const res = await fetch('/coop/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(signed) });
+    status = res.status;
+    try { body = await res.json(); } catch { body = null; }
+  } catch (e) { await refresh(); return say(`板に届いたか分からない（${e.message ?? e}）。読み直した表示で確かめてください`, 'warn'); }
+  if (status === 200 && body?.ok === true) { say(done, 'ok'); await refresh(); return; }
+  if (status === 400 && body?.ok === false && typeof body.why === 'string') return say(`受け付けられなかった：${body.why}`, 'bad');
   await refresh();
+  return say(`板に届いたか分からない（HTTP ${status}）。読み直した表示で確かめてください`, 'warn');
 }
 
 const myNation = () => Number($('nation').value);
@@ -146,10 +152,15 @@ function renderPersonal() {
 }
 
 /** 自分の隊商のうち、この依頼の届け先へ向かうもの（ヘラルドの一覧から）。 */
+/**
+ * 自分の、この届け先へ向かう隊商（ヘラルドの一覧から）。（2026-11-17）一覧を読めていない・形が違うときは null（分からない）：
+ * 「見えない」（空の一覧）と分ける。
+ */
 function myCaravansTo(q) {
-  if (!signer || !feed) return [];
+  if (!signer) return [];
+  if (feed?.state !== 'ok') return null;
   const tag = ownerTagOf(cfg.season, signer.address);
-  return (feed.moving ?? []).filter(m => String(m.ownerTag) === tag && !m.raided && m.dst?.kind === 1 && m.dst.p === q.to.p && m.dst.q === q.to.q && m.dst.at === q.to.site && m.dst.gen === q.to.gen);
+  return (feed.data.moving ?? []).filter(m => String(m.ownerTag) === tag && !m.raided && m.dst?.kind === 1 && m.dst.p === q.to.p && m.dst.q === q.to.q && m.dst.at === q.to.site && m.dst.gen === q.to.gen);
 }
 
 function renderRequests() {
@@ -182,7 +193,7 @@ function renderRequests() {
           : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`)
         : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button>${sendingNow.has(q.id) ? '<span class="note" data-testid="send-busy">送る手続きの途中（ウォレットの画面を確かめてください）</span>' : ''}</div>`) : ''}
       ${!mine && accepted && open && !badDst ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
-        <div class="row">${cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
+        <div class="row">${cands === null ? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない（${esc(feed?.why ?? '?')}）。読み直しを続けます</span>` : cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
     </div>`;
   }).join('') : '<div class="note">依頼はまだない</div>';
 }
@@ -220,7 +231,14 @@ async function refresh() {
   const v = new URLSearchParams({ judge: $('judge').value || cfg.judge, ...(signer ? { viewer: signer.address } : {}) });
   let v2, f2;
   try {
-    [v2, f2] = await Promise.all([apiRead(`/coop/view?${v}`), fetch('/h/caravans.json').then(r => (r.ok ? r.json() : null)).catch(() => null)]);
+    // （2026-11-17）ヘラルドの隊商の一覧は、読めたかどうかを持つ：{state: 'ok', data} | {state: 'unread', why}（view と同じ snapshot で当てる）
+    const feedRead = fetch('/h/caravans.json').then(async r => {
+      if (!r.ok) return { state: 'unread', why: `HTTP ${r.status}` };
+      let j;
+      try { j = await r.json(); } catch { return { state: 'unread', why: 'JSON でない' }; }
+      return j && typeof j === 'object' && (j.moving === undefined || Array.isArray(j.moving)) ? { state: 'ok', data: j } : { state: 'unread', why: '形が違う' };
+    }).catch(e => ({ state: 'unread', why: `届かない（${e.message ?? e}）` }));
+    [v2, f2] = await Promise.all([apiRead(`/coop/view?${v}`), feedRead]);
   } catch (e) { if (seq > appliedSeq) staleSay(`読み込めない：${e.message ?? e}`); return false; }
   if (seq <= appliedSeq || (signer?.address ?? null) !== viewerAt) return false;
   if (!viewShapeOk(v2)) { staleSay('板の答えの形が違う'); return false; }

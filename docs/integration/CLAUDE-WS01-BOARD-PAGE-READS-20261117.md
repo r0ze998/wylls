@@ -37,6 +37,19 @@
 - the board server.
 - Nothing is sent automatically, and nothing new is resent.
 
+## Correction (second tip): the parent's review of `1b4824a0`
+
+**Do not adopt `1b4824a0` alone.**
+
+1. **The herald's caravan list** (`/h/caravans.json`, read with each view).
+   - **Before:** a failed read became `feed = null`, and `myCaravansTo` returned `[]`. The request showed "この届け先へ向かう自分の隊商はまだ見えない" (as if there were none), with no link candidates.
+   - **Now:** the list carries its read state. `{state: 'ok', data}`; or `{state: 'unread', why}` for a non-2xx answer, a non-JSON answer, a wrong shape or no answer.
+   - **It is applied in the same snapshot as the view** (and restored with it on a failed render). When not read, `myCaravansTo` returns `null`, and the request says "隊商の一覧（ヘラルド）を読めないため…あるかは分からない（why）". An empty list read correctly still says the old words.
+2. **`post()`'s answer.**
+   - **Before:** `!r?.ok` called any non-ok body "受け付けられなかった" (refused): `null`, `{}`, a 500's error JSON.
+   - **Now:** `post()` reads the HTTP status itself, as the board answers (`board.mjs` `/coop/records`: 200 with `{ok: true}`; 400 with `{ok: false, why}`). **Accepted:** only 200 with `ok: true`. **Refused:** only 400 with `ok: false` and a `why`. **Anything else:** "板に届いたか分からない（HTTP n）", and the page reads again: never not sent, never refused, never a resend.
+   - `api()` is unchanged for its other callers (`sendOnce`/`followSend`: the `sending` record), so their meaning does not change.
+
 ## Regression (written, NOT run): `workstreams/01-national-strategy/test/coop.entry-world.test.mjs`
 
 The page runs in a browser; its source is pinned as text, as ①'s other page checks.
@@ -50,7 +63,9 @@ The page runs in a browser; its source is pinned as text, as ①'s other page ch
   - the "old" and "nothing yet" lines;
   - the timer not swallowing;
   - the click guard before the snapshot is used;
-  - `post()`'s four outcomes, with "署名できない" used only for signing.
+  - `post()`'s four outcomes, with "署名できない" used only for signing;
+- **(second tip)** refused only on 400 with `{ok: false, why}`, accepted only on 200 with `{ok: true}`, anything else not known;
+- **(second tip)** the caravan list's read state: unread said, never as no caravan.
 
 **① browser tests** (`coop.browser.mjs` with keys, `coop.browser.nokey.mjs`) are **not run**. They read the action messages in `#msg`, which keeps its meaning. The new line has its own element.
 
