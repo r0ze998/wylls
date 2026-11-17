@@ -2844,13 +2844,16 @@ export const ACTIONS = {
   // back to the village: a march like any other (74 stamina, sealed), with the village as its destination
   'march-home': d => {
     if (!activeHolding(FS)) return undefined;
-    ACTIONS.compose({ host: d.host, stay: 'map' });
-    if (!FS.compose) return undefined;
+    // (2026-11-17 correction: only the draft this request itself opened, for this host, is marked and given the village
+    //  as its place. The entry answers nothing when the host is not there any more — and a draft of ANOTHER host, opened
+    //  before, may still stand: it was then marked "home" and its place overwritten. That draft is left as it is.)
+    const c = ACTIONS.compose({ host: d.host, stay: 'map' });
+    if (!c || FS.compose !== c || String(c.host?.id) !== String(d.host)) return undefined;
     // (2026-11-17, ⑦: "its village" is the host's own — the entry above opens the draft from it, also for a host of a
     //  village that was not the open one: read after it, so the way home never ends at another village)
     const h = activeHolding(FS);
     if (!h) return undefined;
-    FS.compose.home = true;
+    c.home = true;
     return setDestination({ p: h.p, q: h.q, tile: h.tile });
   },
   // ---- the prototype rule "banners" (hud/proto.mjs): orders to the sample world, never to a chain

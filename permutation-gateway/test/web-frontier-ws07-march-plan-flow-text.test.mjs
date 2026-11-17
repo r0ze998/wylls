@@ -45,8 +45,10 @@ test('M2 the draft opens from the host\'s own village', () => {
 
 test('M3 the way home is to the host\'s own village', () => {
   const mh = ctl.slice(ctl.indexOf("  'march-home': d => {"), ctl.indexOf('  // ---- the prototype rule "banners"'));
-  order(mh, 'if (!activeHolding(FS)) return undefined;', "ACTIONS.compose({ host: d.host, stay: 'map' });", 'if (!FS.compose) return undefined;', 'const h = activeHolding(FS);',
-    'FS.compose.home = true;', 'return setDestination({ p: h.p, q: h.q, tile: h.tile });');
+  // (corrected: only the draft this request opened for this host is marked — web-frontier-ws07-march-home-draft-text.test.mjs)
+  order(mh, 'if (!activeHolding(FS)) return undefined;', "const c = ACTIONS.compose({ host: d.host, stay: 'map' });",
+    'if (!c || FS.compose !== c || String(c.host?.id) !== String(d.host)) return undefined;', 'const h = activeHolding(FS);',
+    'c.home = true;', 'return setDestination({ p: h.p, q: h.q, tile: h.tile });');
 });
 
 test('M4 the route is of the place the open draft names now', () => {
