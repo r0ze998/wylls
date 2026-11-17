@@ -52,7 +52,7 @@ export function plannerNow(obs) {
  */
 export async function observeLive({ herald, board = null, wallet, deps }) {
   const held = [], unknown = [];
-  const out = { kind: 'live-partial', world: null, season: null, clock: null, bell: null, bellBasis: null, self: { status: 'unread', why: 'not read' }, requests: [], held, unknown };
+  const out = { kind: 'live-partial', world: null, season: null, clock: null, bell: null, bellBasis: null, self: { status: 'unread', why: 'not read' }, requests: [], requestsFrom: null, held, unknown };
   // the world and its clock
   const s = await read(herald, '/h/season');
   let season = null;
@@ -122,7 +122,11 @@ export async function observeLive({ herald, board = null, wallet, deps }) {
     else {
       const v = await read(board, '/coop/view');
       if (v.why || !Array.isArray(v.json?.requests)) unknown.push({ what: 'requests', why: `board /coop/view: ${v.why ?? 'malformed'}` });
-      else for (const q of v.json.requests) {
+      else {
+      // (2026-11-17) which board the requests were read from (factory.mjs getReader's base); null when the reader does
+      // not say, and then nothing is enacted from this observation (enact-step.mjs)
+      out.requestsFrom = typeof board.base === 'string' && board.base ? board.base : null;
+      for (const q of v.json.requests) {
         const inWorld = isObj(q?.ctx) && q.ctx.programId === season.programId && String(q.ctx.seasonId) === String(season.season);
         const shaped = typeof q?.id === 'string' && typeof q?.requester === 'string' && isObj(q?.need) && isObj(q?.to) && ['p', 'q', 'site', 'gen'].every(k => Number.isInteger(q.to[k]));
         if (!shaped) { held.push({ what: 'request', id: q?.id ?? null, why: 'malformed' }); continue; }
@@ -138,6 +142,7 @@ export async function observeLive({ herald, board = null, wallet, deps }) {
         const links = Array.isArray(q.links) && q.links.every(l => isObj(l) && isObj(l.caravan)) ? q.links : (unread.push('links'), null);
         out.requests.push(Object.freeze({ id: q.id, requester: q.requester, need: Object.freeze({ ...q.need }), to: Object.freeze(placeOf(q.to)), expiresAt: q.expiresAt ?? null,
           responses, sendings, links, unread: Object.freeze(unread) }));
+      }
       }
     }
   }

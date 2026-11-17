@@ -7,13 +7,36 @@
 //                                        an answer.
 //   otherwise                            observe (observe.mjs) → candidates (candidates.mjs) → decide (decide.mjs) →
 //                                        for a send, plan it (workstream 1's planSend: chain reads only) → a proposal.
-// Enacting a proposal (signing a board record, signing and submitting a caravan, joining) is NOT connected in this
-// build: every proposal says `enacted: false` with why, whatever authority is supplied. The authorities a proposal
+// Enacting a proposal (signing a board record, signing and submitting a caravan, joining) is NOT done by this step:
+// every proposal says `enacted: false` with why, whatever authority is supplied. (2026-11-17) A proposal's result also
+// carries `context`, the observation it was made from (a deep frozen copy), for the separate, explicit respond entry
+// (enact-step.mjs); this step never calls it. The authorities a proposal
 // would need are named, and a missing one is named as missing.
 import { liveCandidates, planLiveSend } from './candidates.mjs';
 import { decideLive } from './decide.mjs';
 
 export const ENACT_NOT_CONNECTED = 'enacting is not connected in this build: nothing is signed, posted, submitted or joined';
+export const CONTEXT_KIND = 'ws13-live-step-context/1';
+
+/** A deep, frozen copy (plain JSON values only); throws on anything else, so nothing is shared or changed later. */
+function frozenCopy(v) {
+  const c = JSON.parse(JSON.stringify(v, (k, x) => { if (typeof x === 'bigint' || typeof x === 'function' || typeof x === 'symbol') throw new TypeError(`not plain data at ${k}`); return x; }));
+  const f = o => { if (o && typeof o === 'object') { for (const x of Object.values(o)) f(x); Object.freeze(o); } return o; };
+  return f(c);
+}
+
+/**
+ * (2026-11-17) The observation a proposal was made from, as this step used it: the wallet it observed for, the board
+ * its requests came from, the world, Season and clock, and the requests, a deep frozen copy (later changes of the
+ * observation or of the proposal object change nothing here), with the proposal it belongs to. It is what an explicit
+ * enacting entry (enact-step.mjs) passes on, so nothing is observed again for it. → context | {unavailable: why}
+ */
+function contextOf(obs, wallet, cand) {
+  try {
+    return frozenCopy({ kind: CONTEXT_KIND, wallet, requestsFrom: obs.requestsFrom ?? null, world: obs.world, season: obs.season, clock: obs.clock, requests: obs.requests,
+      forProposal: { candidate: cand.id, kind: cand.kind, request: cand.request ?? null, offer: cand.offer ?? null } });
+  } catch (e) { return Object.freeze({ unavailable: `the observation could not be kept as plain data: ${String(e?.message ?? e).slice(0, 80)}` }); }
+}
 
 /** stop-A: read the results of keys already submitted. execution.status(key) only. */
 export async function confirmSubmitted(execution, keys = []) {
@@ -45,6 +68,8 @@ export async function liveStep({ wallet, ports, deps = {}, provider = null, allo
   const q = obs.requests.find(x => x.id === cand.request);
   const missing = cand.needs.filter(n => !(n === 'board-sign' ? authority.boardSign : n === 'send-sign' ? authority.sendSign : false));
   const proposal = { candidate: cand, needs: cand.needs, missingAuthority: missing, enacted: false, why: ENACT_NOT_CONNECTED };
+  // (2026-11-17) the observation this proposal was made from, kept with the step's result (not enacted here)
+  const context = contextOf(obs, wallet, cand);
   if (cand.kind === 'send') {
     proposal.plan = await planLiveSend(cand, q, { wallet, deps });
     // (2026-11-17) a plan that did not come (no planner, another or changed world, the chain refused): held, with why
@@ -53,5 +78,5 @@ export async function liveStep({ wallet, ports, deps = {}, provider = null, allo
   // the fields of workstream 1's respond record this step can fill; the rest belong to the signer at enacting
   // (coop-ui.mjs 'accept' adds `nation`, signRecord adds v, season and at). Unsigned, not posted.
   if (cand.kind === 'respond') { proposal.record = { kind: 'respond', request: q.id, answer: 'accept', offer: { ...cand.offer } }; proposal.recordMissing = ['nation (declared by the signer)', 'v, season, at (added when signed)']; }
-  return { ...base, proposal };
+  return { ...base, proposal, context };
 }

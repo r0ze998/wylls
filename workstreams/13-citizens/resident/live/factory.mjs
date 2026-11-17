@@ -60,6 +60,7 @@ const baseOf = u => { const x = new URL(u); if (!['http:', 'https:'].includes(x.
 export function getReader(url, fetchImpl) {
   const base = baseOf(url);
   return {
+    base,   // (2026-11-17) the normalised base URL it reads, so an observation can say which board its requests came from
     async get(path) {
       const r = await fetchImpl(`${base}${path}`, { redirect: 'error', headers: { accept: 'application/json' } });
       let json = null;
