@@ -1100,14 +1100,28 @@ async function orderMarch(A, hit) {
     if (FS.localMarchFor(own, A.actor.id)?.open !== true) { mapNote(hit, () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`); return; }
   }
   if (Number.isInteger(A.actor.holdingIndex) && A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex;
-  ACTIONS.compose({ host: A.actor.id, stay: 'map' });
-  if (!FS.compose) return;
+  const c = ACTIONS.compose({ host: A.actor.id, stay: 'map' });
+  // (2026-11-17, ⑦ the march's entry: only the draft this request itself opened for this host is given the place — a
+  //  host that is not there any more opens none, and a draft of another host standing from before is left as it is.
+  //  After the route's wait, only that same draft, still naming this place, speaks: put away, another host's draft, a
+  //  place chosen again or another world meanwhile, and nothing of this request is said or written)
+  if (!c || FS.compose !== c || String(c.host?.id) !== String(A.actor.id)) return;
   FS.tab = 'map'; FS.explore = null;
   FS.selected = { kind: 'tile', p: hit.p, q: hit.q, idx: hit.idx, tileQ: hit.tileQ, tileR: hit.tileR };
   invalidate('map', 'panel', 'tabs');
-  await ACTIONS['dest-from-map']();
-  if (FS.compose?.routeError) mapNote(hit, refusalText(FS.compose.routeError, hit));
+  // (the place this request gave the draft is taken before the wait — the very object, set at once by setDestination)
+  const world = momentWorld(), going = ACTIONS['dest-from-map'](), aim = c.dest;
+  await going;
+  if (!draftAims(c, aim, world)) return;
+  if (c.routeError) mapNote(hit, refusalText(c.routeError, hit));
 }
+/**
+ * Whether a request still owns what it asked for (2026-11-17, ⑦, corrected): `c` is the open draft, its place is the
+ * very object this request gave it (`aim`, taken right after the request set it and before any wait — not a place of
+ * the same coordinates chosen again since: that is a newer request's), and the pinned world, with its generation, is
+ * the one the request was made in. controller.setDestination keeps the same identity for the route it writes.
+ */
+const draftAims = (c, aim, world) => !!c && !!aim && FS.compose === c && c.dest === aim && momentWorld() === world;
 
 /**
  * A tap on the map while the hand holds something (UX brief §5.2, UX design 14.2). Returns true when the tap was an
@@ -1902,19 +1916,22 @@ async function protoSend(to) {
 async function composeTo(row, to) {
   if (Number.isInteger(row.holdingIndex) && row.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = row.holdingIndex;
   endPick(); FS.hand = null;
-  ACTIONS.compose({ host: row.id, stay: 'map' });
-  if (!FS.compose) return;
+  // (2026-11-17, ⑦: as orderMarch — this request's own draft for this host, or nothing; and after the route's wait only
+  //  that draft, still naming this place, is spoken of and has its arrival turn moved)
+  const c = ACTIONS.compose({ host: row.id, stay: 'map' });
+  if (!c || FS.compose !== c || String(c.host?.id) !== String(row.id)) return;
   FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false; FS.explore = null; FS.inspectOpen = false;
   FS.selected = { kind: 'tile', p: to.p, q: to.q, idx: to.tile };
   invalidate('map', 'panel', 'tabs', 'rail');
-  await ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) });
-  if (FS.compose?.routeError) mapNote({ p: to.p, q: to.q, idx: to.tile }, refusalText(FS.compose.routeError, { p: to.p, q: to.q, idx: to.tile }));
+  const world = momentWorld(), going = ACTIONS['dest-quick']({ p: String(to.p), q: String(to.q), tile: String(to.tile) }), aim = c.dest;
+  await going;
+  if (!draftAims(c, aim, world)) return;
+  if (c.routeError) mapNote({ p: to.p, q: to.q, idx: to.tile }, refusalText(c.routeError, { p: to.p, q: to.q, idx: to.tile }));
   // (a march of the viewer's is already sealed for that province and that turn: the sample world lets one host of a
   // citizen in a turn, and the second would be turned back at its seal's opening — the answer to a threat was lost
   // that way, with a forecast that said it would win. The card the page makes names the next turn that is free, and
   // says why; the player can still step it back)
-  const c = FS.compose;
-  if (c && FS.proto && FS.season && Number.isInteger(c.arriveBell) && pm.ownArrivalAt(FS, to, c.arriveBell, row.id)) {
+  if (FS.proto && FS.season && Number.isInteger(c.arriveBell) && pm.ownArrivalAt(FS, to, c.arriveBell, row.id)) {
     const w = arrivalWindow(FS.season, FS.nowBell ?? 0, c.earliest);
     let b = c.arriveBell;
     while (b < w.max && pm.ownArrivalAt(FS, to, b, row.id)) b++;
@@ -3385,11 +3402,21 @@ export const HUD_ACTIONS = {
     if (sub?.kind !== 'host') return;
     if (sub.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = sub.holdingIndex;
     endPick();
-    await ACTIONS['march-home']({ host: d.host ?? sub.host.id });
-    if (!FS.compose) return;
+    const host = String(d.host ?? sub.host.id), before = FS.compose, world = momentWorld();
+    const going = ACTIONS['march-home']({ host });
+    // (2026-11-17, ⑦, corrected: the draft and its place are taken HERE, before the wait — march-home opens the draft and
+    //  gives it the village at once, so what stands now is this request's own: a new draft, marked home, of this host.
+    //  A host that is not there any more opens none, and another host's draft standing from before is left as it is.
+    //  After the wait the page moves and speaks only if that very draft, with that very place, in that world, still
+    //  stands: the same host sent home again, the same place chosen again, a draft put away or another world, and this
+    //  request says and changes nothing)
+    const c = FS.compose, aim = c?.dest ?? null;
+    const own = !!c && c !== before && !!c.home && String(c.host?.id) === host;
+    await going;
+    if (!own || !draftAims(c, aim, world)) return;
     FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false; FS.explore = null;
     invalidate('map', 'panel', 'tabs', 'rail');
-    if (FS.compose.routeError) { const h = hud.activeHolding(FS); mapNote({ p: h.p, q: h.q, idx: h.tile }, refusalText(FS.compose.routeError)); }
+    if (c.routeError) { const h = hud.activeHolding(FS); mapNote({ p: h.p, q: h.q, idx: h.tile }, refusalText(c.routeError)); }
   },
   'hand-unit': d => { FS.hand = { ...(FS.hand ?? {}), unit: num(d.unit), n: undefined, troops: undefined }; invalidate('panel'); },
   'hand-n': d => { FS.hand = { ...(FS.hand ?? {}), n: num(d.n) }; invalidate('panel'); },
@@ -3439,9 +3466,10 @@ export const HUD_ACTIONS = {
   'drawer-close': () => shutDrawer({ focus: !phone() }),
   // an order is written on the map, whatever screen it was started from: the drawer shows the order, the map its reach
   compose: d => {
-    ACTIONS.compose(d);
-    const c = FS.compose;
-    if (!c) return;
+    // (2026-11-17, ⑦: the draft the entry returned, or nothing — a host that is not there any more opens none, and the
+    //  selection and the camera are not moved to another host's draft that stood from before)
+    const c = ACTIONS.compose(d);
+    if (!c || FS.compose !== c) return;
     FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false;
     if (d.stay === 'map' && !(FS.selected && FS.selected.p === c.origin.p && FS.selected.q === c.origin.q && FS.selected.idx === c.host.tile)) {
       // started from a list: the host's tile comes into view (a selection made on the map is already there)
