@@ -69,7 +69,8 @@ test('O4 app: forget, then apply; the reader names the world', () => {
   assert.match(app, /import \{ useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld[ ,\w]* \} from '\.\/controller\.mjs';/);
   const ls = fnOf(app, 'async function loadSeason(herald) {');
   order(ls, 'FS.pin = setPin({', 'herald.pin(record.season, FS.pin.addresses);', 'adoptPinnedWorld();', 'FS.season = season;', 'applySeasonRecord(FS, record,', 'if (FS.overviewsBooted) loadOverviews(herald)');
-  assert.ok(app.includes('return readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,'));
+  // (the map read-marks bundle keeps the promise to note which rings did not come — web-frontier-ws07-map-read-marks-text.test.mjs)
+  assert.ok(app.includes('const read = readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,'));
   assert.ok(app.includes("const momentWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
   assert.ok(ctl.includes("function providerWorld() { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; }"), 'the same string');
 });

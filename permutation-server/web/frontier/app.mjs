@@ -4277,10 +4277,40 @@ async function loadSeason(herald) {
  * the rings open then, so a ring opened later had land (its seed was in the record) but no records on it until the
  * page was reloaded; now the season poll calls it after each record.
  */
+/**
+ * What the wide map says of reads that did not come (2026-11-17, ⑦): `[{p, q, state, text}]` for the map's own pass
+ * (map/fmap.mjs topPass). Land whose record is not there is not empty land, and the map says so where it is:
+ *  - a province whose record the map or the person asked for and that was not read (`failed`), or that waits for a free
+ *    read place (`waiting`) — controller's FS.provinceReads, this world's only, and only while no record is held;
+ *  - a ring whose overview was asked for and did not come (`ring`) — FS.overviewMisses, kept by loadOverviews for the
+ *    world it asked in: without it the ring's villages are not known, which is not "no villages".
+ * Nothing is marked that was not asked: no province out of the viewer's sight is asked by the map, and a read still
+ * under way is not marked (every province would flicker as the map moves). Selecting the province opens its card,
+ * whose button reads again (hud/inspect.mjs readState → province-reread). Marks only: nothing of the land is drawn.
+ */
+function readMarksNow() {
+  const out = [];
+  for (const [key, st] of FS.provinceReads ?? []) {
+    if ((st.state !== 'failed' && st.state !== 'waiting') || FS.provinces.has(key)) continue;
+    const [p, q] = key.split(',').map(Number);
+    if (!Number.isInteger(p) || !Number.isInteger(q)) continue;
+    out.push({ p, q, state: st.state, text: st.state === 'failed' ? L`読めていません（選ぶと読み直せます）` : L`読み込みの順番待ち` });
+  }
+  const miss = FS.overviewMisses;
+  if (miss && miss.world === momentWorld() && FS.world) {
+    // (`rings`: ring → a province of it where the words stand, worked out once when the miss was noted)
+    for (const [d, at] of miss.rings) {
+      if (FS.overviews.has(d) || !at) continue;
+      out.push({ p: at.p, q: at.q, state: 'ring', ring: d, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
+    }
+  }
+  return out;
+}
 function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
   // (2026-11-17, ⑦: the pinned world with its generation — the same as controller.providerWorld — so the shared queue
   //  stores no overview read for another world)
-  return readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,
+  const world = momentWorld(), asked = [...new Set(rings)];
+  const read = readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,
     focus: () => {
       const view = mapRef?.view;
       if (!view) return null;
@@ -4289,6 +4319,20 @@ function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)
     },
     onChange: () => invalidate('map', 'panel'),
   });
+  // (which of the rings asked for still have no overview once this read is over — for the map's marks, readMarksNow.
+  //  Kept for the world it was asked in; a ring whose overview is held is no miss, whenever it came. The answer of the
+  //  read itself is passed on unchanged)
+  const note = () => {
+    if (momentWorld() !== world || !FS.world) return;
+    const rings0 = FS.overviewMisses?.world === world ? FS.overviewMisses.rings : new Map();
+    const seeded = seededRings(FS.world);
+    for (const d of asked) { if (seeded.includes(d) && !FS.overviews.has(d)) { if (!rings0.has(d)) rings0.set(d, ringProvinces(d)[0] ?? null); } else rings0.delete(d); }
+    for (const d of [...rings0.keys()]) if (FS.overviews.has(d) || !seeded.includes(d)) rings0.delete(d);
+    FS.overviewMisses = { world, rings: rings0 };
+    invalidate('map');
+  };
+  read.then(note, note);
+  return read;
 }
 
 /** Start the page. */
@@ -4393,6 +4437,8 @@ export async function boot() {
           outboundRoute: originalOutboundMap(),
           outboundInput: FS.hand?.pop === OUTBOUND_POP ? FS.expeditionCompose?.map ?? FS.expeditionCompose : null,
           note: FS.mapNote ?? null,
+          // (2026-11-17, ⑦: reads that did not come, said on the map where they are — readMarksNow)
+          readMarks: readMarksNow(),
           // a village this device sees land for the first time (map/landing.mjs)
           landing: landingNow(), landingSoon: landingSoon(),
           // S1: vaults, structures and caravans from the herald's feeds (map/s1marks.mjs)
