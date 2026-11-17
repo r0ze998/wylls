@@ -8,8 +8,8 @@
 // Workstream 13 imports nothing of workstream 12 or of the game: the caller supplies
 //   deps.worldFromSeason(season)        workstream 12 adapters/canonical.mjs worldFromSeason (throws on a bad record)
 //   deps.currentBellFromSeason(season)  workstream 12 adapters/canonical.mjs: the bell of /h/season's latestUnix, or null
-//   deps.decodeHolding(bytes_b64)       the game's Holding decode (fcodec), → {p, q, site, gen, tile, ownerCitizen}
-//   deps.decodeCitizen(bytes_b64)       the game's Citizen decode, → {wallet (base58), holdingsN}  (optional)
+//   deps.decodeHolding(bytes_b64, {seasonId})  the game's Holding decode (fcodec), → {p, q, site, gen, tile, ownerCitizen}
+//   deps.decodeCitizen(bytes_b64, {seasonId})  the game's Citizen decode, → {wallet (base58), holdingsN}  (optional)
 //   deps.stockAt(holding, unixTs)       the game's stock at a time (fland storesAt over rulebook settled)   (optional)
 // Readers: herald.get(path) and board.get(path) → {status, json} (or throw). Reads only: GET.
 //
@@ -38,7 +38,7 @@ async function read(src, path) {
  */
 export async function observeLive({ herald, board = null, wallet, deps }) {
   const held = [], unknown = [];
-  const out = { kind: 'live-partial', world: null, clock: null, bell: null, bellBasis: null, self: { status: 'unread', why: 'not read' }, requests: [], held, unknown };
+  const out = { kind: 'live-partial', world: null, season: null, clock: null, bell: null, bellBasis: null, self: { status: 'unread', why: 'not read' }, requests: [], held, unknown };
   // the world and its clock
   const s = await read(herald, '/h/season');
   let season = null;
@@ -50,6 +50,7 @@ export async function observeLive({ herald, board = null, wallet, deps }) {
       if (!w.world) unknown.push({ what: 'world', why: (w.reasons ?? []).join(',') || 'not_a_continuous_world' });
       else {
         out.world = w.world;
+        out.season = Object.freeze({ programId: season.programId, seasonId: String(season.season), seasonAddress: season.seasonAddress, cluster: season.cluster });
         out.clock = seasonClock({ genesisTs: w.clock.genesisTs, bellSecs: w.clock.bellSecs, source: w.clock.source });
       }
     } catch (e) { unknown.push({ what: 'world', why: `herald /h/season malformed: ${String(e?.message ?? e).slice(0, 80)}` }); }
@@ -70,14 +71,14 @@ export async function observeLive({ herald, board = null, wallet, deps }) {
     else {
       let cit = null;
       if (typeof deps.decodeCitizen === 'function') {
-        try { cit = deps.decodeCitizen(m.json.citizen.bytes_b64); } catch (e) { held.push({ what: 'citizen', why: `undecodable: ${String(e?.message ?? e).slice(0, 60)}` }); }
+        try { cit = deps.decodeCitizen(m.json.citizen.bytes_b64, { seasonId: season.season }); } catch (e) { held.push({ what: 'citizen', why: `undecodable: ${String(e?.message ?? e).slice(0, 60)}` }); }
         if (cit && cit.wallet !== wallet) { out.self = { status: 'unread', why: "the Citizen's wallet is not this wallet" }; cit = false; }
       }
       if (cit !== false) {
         const holdings = [];
         for (const a of Array.isArray(m.json.holdings) ? m.json.holdings : []) {
           let h;
-          try { h = deps.decodeHolding(a?.bytes_b64); } catch (e) { held.push({ what: 'holding', address: a?.address ?? null, why: `undecodable: ${String(e?.message ?? e).slice(0, 60)}` }); continue; }
+          try { h = deps.decodeHolding(a?.bytes_b64, { seasonId: season.season }); } catch (e) { held.push({ what: 'holding', address: a?.address ?? null, why: `undecodable: ${String(e?.message ?? e).slice(0, 60)}` }); continue; }
           if (!h || h.ownerCitizen !== m.json.citizen.address) { held.push({ what: 'holding', address: a?.address ?? null, why: 'not owned by this Citizen now' }); continue; }
           let stock = null, stockBasis = 'unknown: no stock reader or no herald time';
           if (typeof deps.stockAt === 'function' && out.bellBasis) {
@@ -96,9 +97,14 @@ export async function observeLive({ herald, board = null, wallet, deps }) {
   else if (!out.world || !season) unknown.push({ what: 'requests', why: 'no world: a board is not matched to an unknown world' });
   else {
     const c = await read(board, '/coop/config');
+    // (2026-11-17) the same world only with the same program, Season AND network (cluster): workstream 1's
+    // /coop/config names its `cluster` (board.mjs config()). A board that names none is not taken as this world.
     const sameWorld = c.json && isObj(c.json.season) && c.json.season.programId === season.programId && String(c.json.season.seasonId) === String(season.season);
+    const cluster = typeof c.json?.cluster === 'string' && c.json.cluster ? c.json.cluster : null;
     if (c.why) unknown.push({ what: 'requests', why: `board /coop/config: ${c.why}` });
     else if (!sameWorld) unknown.push({ what: 'requests', why: 'the board is of another world (program or Season)' });
+    else if (cluster === null) unknown.push({ what: 'requests', why: 'the board names no network (cluster): not taken as this world' });
+    else if (cluster !== season.cluster) unknown.push({ what: 'requests', why: `the board is of another network (${cluster.slice(0, 20)}, the herald's is ${String(season.cluster).slice(0, 20)})` });
     else {
       const v = await read(board, '/coop/view');
       if (v.why || !Array.isArray(v.json?.requests)) unknown.push({ what: 'requests', why: `board /coop/view: ${v.why ?? 'malformed'}` });
@@ -109,8 +115,15 @@ export async function observeLive({ herald, board = null, wallet, deps }) {
         if (!inWorld) { held.push({ what: 'request', id: q.id, why: 'of another world' }); continue; }
         if (q.stateNow !== 'open') { held.push({ what: 'request', id: q.id, why: `not open (${q.stateNow ?? '?'})` }); continue; }
         if (q.destination?.status !== 'verified') { held.push({ what: 'request', id: q.id, why: `destination not verified (${q.destination?.status ?? 'none'})` }); continue; }
+        // (2026-11-17) what the board's view says of responses, sendings and links is kept as read: a missing or
+        // malformed field is null (unread), never an empty list, so an earlier send the board knows is never lost
+        // (candidates.mjs holds what depends on an unread field; pending.mjs needs sendings with their outcome and links)
+        const unread = [];
+        const responses = isObj(q.responses) ? q.responses : (unread.push('responses'), null);
+        const sendings = Array.isArray(q.sendings) && q.sendings.every(isObj) ? q.sendings : (unread.push('sendings'), null);
+        const links = Array.isArray(q.links) && q.links.every(l => isObj(l) && isObj(l.caravan)) ? q.links : (unread.push('links'), null);
         out.requests.push(Object.freeze({ id: q.id, requester: q.requester, need: Object.freeze({ ...q.need }), to: Object.freeze(placeOf(q.to)), expiresAt: q.expiresAt ?? null,
-          responses: isObj(q.responses) ? q.responses : {}, sendings: Array.isArray(q.sendings) ? q.sendings : [], links: Array.isArray(q.links) ? q.links : [] }));
+          responses, sendings, links, unread: Object.freeze(unread) }));
       }
     }
   }

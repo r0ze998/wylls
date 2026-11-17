@@ -35,6 +35,8 @@ export async function confirmSubmitted(execution, keys = []) {
 export async function liveStep({ wallet, ports, deps = {}, provider = null, allow = {}, stop = null, submittedKeys = [], authority = {} }) {
   if (stop) return { stopped: stop.why ?? 'stopped', newOperations: 0, confirmed: await confirmSubmitted(ports.execution, submittedKeys) };
   const obs = await ports.observe();
+  // (2026-11-17) deps may be made for this observation (factory.mjs: the planner's Season is the one observed)
+  if (typeof deps === 'function') deps = deps(obs) ?? {};
   const c = liveCandidates(obs, { wallet, deps });
   const d = decideLive({ candidates: c.candidates, obs }, provider, { allow });
   const base = { world: obs.world, bell: obs.bell, bellBasis: obs.bellBasis, candidates: c.candidates, unsupported: Object.keys(c.unsupported), why: c.why, unknown: obs.unknown, held: obs.held, decision: d };
@@ -43,7 +45,11 @@ export async function liveStep({ wallet, ports, deps = {}, provider = null, allo
   const q = obs.requests.find(x => x.id === cand.request);
   const missing = cand.needs.filter(n => !(n === 'board-sign' ? authority.boardSign : n === 'send-sign' ? authority.sendSign : false));
   const proposal = { candidate: cand, needs: cand.needs, missingAuthority: missing, enacted: false, why: ENACT_NOT_CONNECTED };
-  if (cand.kind === 'send') proposal.plan = await planLiveSend(cand, q, { wallet, deps });
+  if (cand.kind === 'send') {
+    proposal.plan = await planLiveSend(cand, q, { wallet, deps });
+    // (2026-11-17) a plan that did not come (no planner, another or changed world, the chain refused): held, with why
+    if (!proposal.plan?.ok) proposal.held = [`${proposal.plan?.code ?? 'NoPlan'}: ${proposal.plan?.why ?? ''}`];
+  }
   // the fields of workstream 1's respond record this step can fill; the rest belong to the signer at enacting
   // (coop-ui.mjs 'accept' adds `nation`, signRecord adds v, season and at). Unsigned, not posted.
   if (cand.kind === 'respond') { proposal.record = { kind: 'respond', request: q.id, answer: 'accept', offer: { ...cand.offer } }; proposal.recordMissing = ['nation (declared by the signer)', 'v, season, at (added when signed)']; }

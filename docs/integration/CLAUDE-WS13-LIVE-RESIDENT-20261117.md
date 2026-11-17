@@ -3,6 +3,9 @@
 **Approval:** the owner approved an **operator-side independent resident** that reads the same world as people and chooses requests and transport itself. It is separate from connecting a player's own AI over MCP (③).
 
 **Branch:** `claude/ws13-live-resident-20261117`, on the aggregate `fdc9fd0d` (the aggregate when it was saved).
+- `1ca5266e` is the first tip.
+- The second tip (below) is on top of it.
+- **Adopt the final tip only.**
 
 **Static change, NOT run:**
 - no test, syntax check, import, start, HTTP, RPC, signature, submission, join, model call or charge;
@@ -28,13 +31,35 @@ New files only. **`resident.mjs`, the test world and every existing port are unc
 - the wallet;
 - a provider.
 
-**No composition root and no runner are added:** a new runner could go around the existing limits.
+**No runner is added:** a new runner could go around the existing limits. **(Second tip)** the composition root is `factory.mjs`; it starts nothing.
 
-## Dependency (runtime, not imported here)
+## Dependency
 
-- **The execution port's result reading** goes through workstream 4's act client.
-- **D's fixed tip** `1fd0e274d202d97691cb22c251586b5dedc7df35` (base `6c19555e`; `workstreams/04-execution/clients/{acts.mjs,runs.mjs,exit3-norecord.test.mjs}`) makes `NoRecord` count only with runexec's own exit 3; anything else is `Spawn`, which becomes this tree's `Unqueryable`.
-- **Not in this unit:** that tip is not included here and not in the aggregate. **Adopt it with or before** any use of stop-A's result reading against a real registry.
+**Workstream 4's act client** (D's fixed tip `1fd0e274d202d97691cb22c251586b5dedc7df35`; `workstreams/04-execution/clients/{acts.mjs,runs.mjs,exit3-norecord.test.mjs}`):
+- **Already adopted:** in the aggregate `55e81307`, and so **included in this unit's base `fdc9fd0d`**.
+- **Not re-made here:** this unit does not touch workstream 4's clients.
+- **What it means for stop-A:** the execution port's result reading takes `NoRecord` only with runexec's own exit 3; anything else is `Spawn`, which becomes this tree's `Unqueryable`.
+
+**(Correction:** the first tip's report said this tip was not aggregated. It was, in `55e81307`.**)**
+
+## Second tip: the parent's review of `1ca5266e`
+
+**Do not adopt `1ca5266e` alone.**
+
+1. **The board's network.**
+   - **Before:** `observe.mjs` took a board as this world by program and Season only.
+   - **Now:** workstream 1's `/coop/config` `cluster` must also be named and equal the herald's. Another network, or none named, is `unknown` and gives no requests.
+2. **Unread fields.**
+   - **Before:** a request's missing or malformed `sendings` became `[]` before workstream 1's `pendingSendOf`, which could hide an earlier send whose result is unknown and offer a new send.
+   - **Now:** `sendings`, `links` and `responses` are kept as read, or `null` (unread, with `unread` naming them).
+   - **What holds:** an unread `sendings` or `links` holds the request's `send`, and `pendingSendOf` is asked only with both as read. Unread `responses` holds `respond`: whether the resident already answered is unknown.
+   - **The rules themselves are unchanged:** re-send and pending.
+3. **A plan that does not come:** the proposal is `held` with the planner's code and why.
+4. **The product factory** `resident/live/factory.mjs`: the composition root, like `bin/observe-canonical.mjs` for 12's read.
+   - **Connects:** workstream 12's `worldFromSeason` and `currentBellFromSeason`; herald and board GET readers (no redirects, JSON); the game's `decode` with base64 → bytes and base58 addresses (as workstream 1's `send.mjs`); `storesAt(settled(…, t), t, RESOURCE_ORDER)` at the herald's `latestUnix`, by workstream 1's `RESOURCES`; workstream 1's `pendingSendOf`; and `planSend` over `chain.mjs` `rpcReader`.
+   - **When the planner may run:** only when the caller declares the RPC's network (`rpc.url`, `rpc.cluster`, `rpc.source`) and it is the herald's. The planner's Season is the observed one. `/h/season` is read again after planning; a changed world, or one that can't be read again, holds the plan (`WorldChanged`).
+   - **Creating it reads nothing and starts nothing:** no loop, no timer, no runner. `observe()` and `step()` are one call each, made by the caller. The wallet, authorities, execution port and provider are the caller's.
+   - **Enacting is still not connected.**
 
 ## Not connected yet (each needs a decision, or a piece not adopted)
 
@@ -72,11 +97,17 @@ New files only. **`resident.mjs`, the test world and every existing port are unc
   - the planner is supplied, never assumed.
 - **Text pins:** no test-world import, and no sign, post, submit, join, cancel or fetch in the live files.
 
+- **(second tip)** the board's network: another, none, the same;
+- **(second tip)** unread `sendings`, `links` and `responses` held, and never chosen;
+- **(second tip)** deps made per observation, and a plan that does not come holds the proposal;
+- **(second tip)** the factory pinned as text: its imports, conversions, RPC network, `WorldMismatch` and `WorldChanged`, the observed Season, and nothing read, looped, timed, signed or sent at creation. The test never imports or calls the factory.
+
 It makes no key, so it is compatible with `run.sh`'s keyless mode. It was **not run**.
 
 ## Hand-over (Lane D)
 
 **Unit:** `claude/ws13-live-resident-20261117`, on `fdc9fd0d`, all `100644`, all new (take the final tip's diff from `fdc9fd0d`):
+- `workstreams/13-citizens/resident/live/factory.mjs` (second tip)
 - `workstreams/13-citizens/resident/live/observe.mjs`
 - `workstreams/13-citizens/resident/live/candidates.mjs`
 - `workstreams/13-citizens/resident/live/decide.mjs`

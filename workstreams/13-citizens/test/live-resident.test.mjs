@@ -25,7 +25,7 @@ const me = (o = {}) => ({ v: 1, wallet: ME, citizen: { address: CIT, bytes_b64: 
 const reqQ = (id, o = {}) => ({ id, requester: OTHER, ctx: { programId: PROG, seasonId: '90' }, stateNow: 'open', need: { wood: 100 }, to: { kind: 'holding', p: 3, q: 0, site: 2, gen: 1 }, destination: { status: 'verified' }, responses: {}, sendings: [], links: [], expiresAt: 5000, ...o });
 const src = map => ({ get: async p => (p in map ? (map[p] instanceof Error ? Promise.reject(map[p]) : { status: 200, json: map[p] }) : { status: 404, json: null }) });
 const herald = (o = {}) => src({ '/h/season': season(), [`/h/me/${ME}`]: me(), ...o });
-const board = (reqs, cfg = { season: { programId: PROG, seasonId: '90' } }) => src({ '/coop/config': cfg, '/coop/view': { requests: reqs } });
+const board = (reqs, cfg = { season: { programId: PROG, seasonId: '90' }, cluster: 'localnet' }) => src({ '/coop/config': cfg, '/coop/view': { requests: reqs } });
 
 test('observe: world, clock and bell only from /h/season (latestUnix, informational); own villages from /h/me; requests of this world, open, verified', async () => {
   const o = await observeLive({ herald: herald(), board: board([reqQ('r1'), reqQ('r2', { stateNow: 'expired' }), reqQ('r3', { destination: { status: 'unknown' } }), reqQ('r4', { ctx: { programId: PROG, seasonId: '89' } })]), wallet: ME, deps: deps0 });
@@ -55,7 +55,7 @@ test('observe: unknown stays unknown — no clock, no latestUnix, no stock reade
   const down = await observeLive({ herald: herald({ '/h/season': new Error('down') }), board: board([reqQ('r1')]), wallet: ME, deps: deps0 });
   assert.equal(down.world, null);
   assert.ok(down.unknown.some(u => u.what === 'requests'), 'no world: the board is not matched');
-  const other = await observeLive({ herald: herald(), board: board([reqQ('r1')], { season: { programId: PROG, seasonId: '91' } }), wallet: ME, deps: deps0 });
+  const other = await observeLive({ herald: herald(), board: board([reqQ('r1')], { season: { programId: PROG, seasonId: '91' }, cluster: 'localnet' }), wallet: ME, deps: deps0 });
   assert.deepEqual(other.requests, []);
   assert.ok(other.unknown.some(u => /another world/.test(u.why)));
   const none = await observeLive({ herald: herald({ [`/h/me/${ME}`]: me({ citizen: null }) }), wallet: ME, deps: deps0 });
@@ -127,4 +127,66 @@ test('the live path imports no test world, signs, posts, submits or joins nothin
     assert.doesNotMatch(s, /from '\.\.\/\.\.\/world\/|world\/rules\.mjs'|world\/testworld/, `${f}: no test world`);
     assert.doesNotMatch(s, /\.sign\(|signRecord\(|\.submit\(|\.post\(|ports\.join\(|\.join\(\{|\.cancel\(|fetch\(/, `${f}: no signing, posting, submitting, joining or network`);
   }
+});
+
+// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN) the board's network, unread fields, plans that do not come, the factory
+test('observe: a board of the same program and Season but another or no network is not this world', async () => {
+  const other = await observeLive({ herald: herald(), board: board([reqQ('r1')], { season: { programId: PROG, seasonId: '90' }, cluster: 'devnet' }), wallet: ME, deps: deps0 });
+  assert.deepEqual(other.requests, []);
+  assert.ok(other.unknown.some(u => /another network/.test(u.why)));
+  const none = await observeLive({ herald: herald(), board: board([reqQ('r1')], { season: { programId: PROG, seasonId: '90' } }), wallet: ME, deps: deps0 });
+  assert.deepEqual(none.requests, []);
+  assert.ok(none.unknown.some(u => /names no network/.test(u.why)));
+  const same = await observeLive({ herald: herald(), board: board([reqQ('r1')]), wallet: ME, deps: deps0 });
+  assert.deepEqual(same.requests.map(q => q.id), ['r1']);
+  assert.deepEqual(same.season, { programId: PROG, seasonId: '90', seasonAddress: SADDR, cluster: 'localnet' });
+});
+
+test('unread sendings, links or responses stay unread and hold what depends on them; never filled in as empty', async () => {
+  const acc = { [ME]: { answer: 'accept', offer: { wood: 100 } } };
+  const obs = await observeLive({ herald: herald(), board: board([
+    reqQ('s', { responses: acc, sendings: undefined }), reqQ('l', { responses: acc, links: 'x' }),
+    reqQ('r', { responses: null }), reqQ('ok', { responses: acc }),
+  ]), wallet: ME, deps: deps0 });
+  const by = Object.fromEntries(obs.requests.map(q => [q.id, q]));
+  assert.equal(by.s.sendings, null);
+  assert.deepEqual(by.s.unread, ['sendings']);
+  assert.equal(by.l.links, null);
+  assert.equal(by.r.responses, null);
+  let asked = 0;
+  const c = liveCandidates(obs, { wallet: ME, deps: { pendingSendOf: () => { asked += 1; return null; } } });
+  const cand = Object.fromEntries(c.candidates.map(x => [x.id, x]));
+  assert.match(cand['send:s'].held.join(), /sendings .*not read: an earlier send cannot be ruled out/);
+  assert.match(cand['send:l'].held.join(), /links .*not read/);
+  assert.match(cand['respond:r'].held.join(), /responses .*not read/);
+  assert.equal(cand['send:ok'].held, undefined);
+  assert.equal(asked, 1, 'the pending rule is asked only with sendings and links as read');
+  assert.equal(noChargeDecider({ candidates: c.candidates.filter(x => x.id !== 'send:ok'), obs }).choice, 'wait', 'held candidates are never chosen');
+});
+
+test('step: deps made per observation; a plan that does not come holds the proposal', async () => {
+  const obs = await observeLive({ herald: herald(), board: board([reqQ('b', { responses: { [ME]: { answer: 'accept', offer: { wood: 100 } } } })]), wallet: ME, deps: deps0 });
+  let seen = null;
+  const s = await liveStep({ wallet: ME, ports: { observe: async () => obs }, deps: o => { seen = o; return { pendingSendOf: () => null, reader: {}, season: { programId: PROG, seasonId: '90' }, planSend: async () => ({ ok: false, code: 'WorldChanged', why: 'changed' }) }; } });
+  assert.equal(seen, obs);
+  assert.equal(s.proposal.enacted, false);
+  assert.deepEqual(s.proposal.held, ['WorldChanged: changed']);
+});
+
+test('factory (pinned as text, never imported or called here): the real pieces, explicit conversions, nothing at creation', () => {
+  const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
+  for (const m of ["'../../../12-memory/adapters/canonical.mjs'", "'../../../01-national-strategy/coop/send.mjs'", "'../../../01-national-strategy/coop/pending.mjs'", "'../../../01-national-strategy/coop/chain.mjs'", "'../../../../permutation-server/web/frontier/fcodec.mjs'"]) assert.ok(f.includes(m), m);
+  assert.match(f, /redirect: 'error'/);
+  assert.match(f, /decode\('Holding', bytesOf\(b64\), \{ seasonId \}\)/);
+  assert.match(f, /ownerCitizen: toBase58\(h\.ownerCitizen\)/);
+  assert.match(f, /storesAt\(settled\(h\.decoded, t\), t, RESOURCE_ORDER\)/);
+  assert.match(f, /if \(!rpcOk\) return \{ ok: false, code: 'RpcNotDeclared'/);
+  assert.match(f, /rpc\.cluster !== seen\.cluster\) return \{ ok: false, code: 'RpcOtherNetwork'/);
+  assert.match(f, /code: 'WorldMismatch'/);
+  assert.match(f, /if \(!sameSeason\(again, seen\)\) return \{ ok: false, code: 'WorldChanged'/);
+  assert.match(f, /season: seen \? \{ programId: seen\.programId, seasonId: seen\.seasonId \} : null/);
+  // creating it reads nothing: the readers are made, not called; no loop, no timer, no runner; nothing signed or sent
+  const create = f.slice(f.indexOf('export function createLiveResident('));
+  assert.doesNotMatch(create.slice(0, create.indexOf('const observe = ')), /await |\.get\(/);
+  assert.doesNotMatch(f, /setInterval|setTimeout|while \(true\)|process\.argv|\.sign\(|signRecord\(|\.submit\(|\.post\(|sendPlanned\(|ports\.join\(/);
 });

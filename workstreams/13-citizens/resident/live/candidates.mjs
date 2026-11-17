@@ -43,6 +43,12 @@ export function liveCandidates(obs, { wallet, deps = {} } = {}) {
   for (const q of obs.requests) {
     if (q.requester === wallet) continue;   // the board refuses answering one's own request; sending to one's own village is the game's
     if (mine.has(`${q.to.p},${q.to.q},${q.to.site},${q.to.gen}`)) continue;
+    // (2026-11-17) responses not read: whether the resident already answered is unknown, so nothing is offered for
+    // this request but a held entry that says why (an unread field is never taken as "no answer")
+    if (q.responses === null) {
+      candidates.push(Object.freeze({ id: `respond:${q.id}`, kind: 'respond', request: q.id, offer: Object.freeze({ ...q.need }), needs: Object.freeze(['board-sign']), held: Object.freeze(["the board's responses for this request were not read"]) }));
+      continue;
+    }
     const r = responseOf(q, wallet);
     const accepted = r && r.answer === 'accept' && !r.withdrawn;
     if (!r) {
@@ -51,7 +57,9 @@ export function liveCandidates(obs, { wallet, deps = {} } = {}) {
     }
     if (!accepted) continue;   // declined or withdrawn: nothing more for this request
     const held = [];
-    if (typeof deps.pendingSendOf !== 'function') held.push("workstream 1's rule for an earlier send (pending.mjs) not supplied");
+    // (2026-11-17) the earlier sends and links must be read as the board has them: unread is never "none sent"
+    if (q.sendings === null || q.links === null) held.push(`the board's ${[q.sendings === null ? 'sendings' : null, q.links === null ? 'links' : null].filter(Boolean).join(' and ')} for this request were not read: an earlier send cannot be ruled out`);
+    else if (typeof deps.pendingSendOf !== 'function') held.push("workstream 1's rule for an earlier send (pending.mjs) not supplied");
     else {
       const p = deps.pendingSendOf(q, wallet, z => z.outcome);
       if (p) held.push(`an earlier send stops a new one (${p.kind}): ${p.why}`);
