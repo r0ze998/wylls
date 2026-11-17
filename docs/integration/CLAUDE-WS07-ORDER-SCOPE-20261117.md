@@ -89,3 +89,8 @@ Text pins, as the other controller tests:
 - `docs/integration/CLAUDE-WS07-ORDER-SCOPE-20261117.md` (A)
 
 **Not run:** anything.
+
+**Merge checks (objects only):**
+- with the aggregate: on its tip.
+- with Lane C's open tips: several already conflict with the aggregate on their own (`app.mjs`, `web-frontier-ws07-season-order-text.test.mjs`, `07-player-experience/CONTRACTS.ja.md`), for example `26e174ef` and `30d6c549`. **None of those conflicts is in `controller.mjs`.**
+- Lane C's controller hunks (`startPlay`, around `:2926`) are far from this unit's (`orderOf`…`actOnce`, `:300-560`). So this unit adds no conflict of its own there.
