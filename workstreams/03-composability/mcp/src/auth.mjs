@@ -117,7 +117,9 @@ export class Auth {
 
   protectedResource() {
     return { resource: this.resource, authorization_servers: [this.issuer], scopes_supported: Object.values(SCOPES), bearer_methods_supported: ['header'],
-      resource_name: 'Wylls (local test stack)', resource_documentation: `${this.issuer}/docs` };
+      // (2026-11-17) No `resource_documentation`: it pointed to `${issuer}/docs`, which this server does not serve (a
+      // 404). The field is optional (RFC 9728 §2); it comes back with a real page, if one is ever published.
+      resource_name: 'Wylls (local test stack)' };
   }
 
   serverMetadata() {
