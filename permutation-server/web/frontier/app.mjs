@@ -148,7 +148,7 @@ import * as practiceScreen from './screens/practice.mjs';
 import * as onboardingCard from './screens/onboarding.mjs';
 import * as spectateScreen from './screens/spectate.mjs';
 import { FLAG, withFlag, restoreFlags } from './onboarding.mjs';
-import { useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld } from './controller.mjs';
+import { useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld, askSeason, takeSeason, seasonStale } from './controller.mjs';
 import { createPollLoop } from './poll-loop.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
 import { createRouteCache } from './map/routecache.mjs';
@@ -3989,8 +3989,14 @@ function startSpectate(herald) {
 }
 
 async function loadSeason(herald) {
+  // (2026-11-17, ⑦: refreshOverviews asks the same record on its own, and the answers can cross — controller.askSeason.
+  //  An answer, or a failure, asked before one already applied changes nothing: the pin, the record, the season, the
+  //  clock and the beacon stay as the later answer set them, and the poll counts no error. Otherwise as before.)
+  const seq = askSeason();
   const r = await herald.season();
+  if (seasonStale(seq)) return true;
   if (!r.ok) { clearInspection(FS); clearOutbound(FS); FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
+  takeSeason(seq);
   const { record, season } = r;
   const reportWas = reportWorld();
   try {
