@@ -139,9 +139,19 @@ export function ingestReceipts(memory, receipts, ctx) {
       out.held.push({ receipt: `${r?.run_id}|${r?.kind}|${r?.subject}|${r?.source}`, why: `malformed_fact:${e.message}`.slice(0, 80) });
       continue;
     }
-    for (const f of facts) {
+    // a receipt whose own event fact collides with the one already kept (same kind|subject, another body: the first
+    // stands) writes nothing more: its later facts (a settle's caravan_credited) belong to the body that lost, and
+    // writing them would let the losing body's credit stand beside the kept settle (2026-11-17). The identity alias
+    // does not depend on the receipt's body (bell 0, the resolver's pairing), so its own collision stops nothing.
+    for (let i = 0; i < facts.length; i++) {
+      const f = facts[i];
       const res2 = memory.observe(f);
       out[res2.status === 'added' ? 'added' : res2.status === 'duplicate' ? 'duplicate' : res2.status === 'collision' ? 'collision' : 'refused']++;
+      if (res2.status === 'collision' && f.kind !== 'identity_alias') {
+        const rest = facts.slice(i + 1).map(x => x.kind);
+        if (rest.length) out.held.push({ receipt: `${r?.run_id}|${r?.kind}|${r?.subject}|${r?.source}`, why: `collision:${f.kind}; not written: ${rest.join(',')}`.slice(0, 80) });
+        break;
+      }
     }
   }
   return out;
