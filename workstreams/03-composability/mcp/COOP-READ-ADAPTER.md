@@ -11,15 +11,16 @@ default** (see "MCP wiring" below).
 
 - **Wired in code, off by default; fixture integration verified.** `src/server.mjs`, `src/tools.mjs`, `bin/wylls-mcp.mjs` and the new
   `bin/coop-read-settings.mjs` connect the adapter to the server's existing dispatch. No real server has been started
-  with it on, and no real env or settings were changed. Nothing was tried against a real board, MCP client or game
-  world. The CLI is still the local test stack only (`WYLLS_MCP_TEST_AS=1`).
+  with it on, and no real env or settings were changed. Nothing was tried against a live board, hosted MCP client or game
+  world. The official SDK client/transport was tested in-process with injected HTTP and authentication fixtures. The CLI is still the local test stack only (`WYLLS_MCP_TEST_AS=1`).
 - **Two test suites, with different evidence:**
   - `test/coop-read-adapter.test.mjs` (the adapter unit suite): **independently verified, 34/34 passed**
     (coordinator, 2026-11-17 UTC). It uses fake fetch, fake streamed bodies and fake timers only. Both JS files
     also passed `node --check`. This is unit evidence, not real-board, MCP-client or game-world evidence.
-  - `test/coop-read-integration.test.mjs` (the new wiring suite): **independently verified, 26/26 passed**
+  - `test/coop-read-integration.test.mjs` (the new wiring suite): **independently verified, 31/31 passed**
     (coordinator, 2026-11-17 UTC), including the real HTTP handler with fake request/response streams.
-    No live socket, real OAuth flow, MCP client or game-world deployment was exercised.
+    No live socket, real OAuth flow or game-world deployment was exercised. This includes five official-SDK
+    transport/bridge tests with injected HTTP (see "Official SDK transport tests").
 - **Not a permission source.** The adapter grants nothing. It cannot make `send_caravan` accept another owner's
   place. It derives no recipient or target list, score, selection, role or send authority.
 - **Principal shape:** `{owner, scopes}`. The server passes only these two fields of its authenticated principal.
@@ -220,7 +221,7 @@ not verified), `disabled`, `refused` and the failure statuses.
 
 ## Tests
 
-### Integration suite: `test/coop-read-integration.test.mjs` (26/26 independently passed)
+### Integration suite: `test/coop-read-integration.test.mjs` (26/26 independently passed; later SDK tests not executed)
 
 It uses the real `createWyllsMcp(...).handle`, the real adapter and the real settings module. The principal, game
 (`context`/`view`), store, auth stub and fetch are fixtures with fake streamed bodies and idle fake timers. There are
@@ -248,8 +249,41 @@ no keys, signatures, network, child processes or filesystem writes. It covers:
   extra-argument refusal; the unknown tool when off; and the scope step-up;
 - `initialize` and `ping` are unchanged.
 
-None of this has been run. The implementation session wrote the suite and the archive fix without executing
-anything. The coordinator audits and runs it.
+Status of the suite above: the coordinator reported **60/60 passed** (34 adapter + 26 integration) and five syntax
+checks, before the SDK tests below were added.
+
+#### Official SDK transport tests (added 2026-11-18, written, NOT executed)
+
+These use the pinned `@modelcontextprotocol/sdk` 1.32.1 (installed by the coordinator):
+`Client` from `client/index.js` and `StreamableHTTPClientTransport` from `client/streamableHttp.js`.
+
+- The transport is constructed with an injected `fetch` (`bridgeFetch`) and
+  `requestInit.headers.Authorization = 'Bearer fake-test-token'`, the one fixed fake value the stub auth accepts.
+- `bridgeFetch` turns each request into a call to the real `createHandler`, using the same fake request/response
+  objects as the HTTP tests, and returns a native `Response` with the handler's status, headers and body (a null
+  body when empty, as for 202 and 405).
+- `bridgeFetch` accepts a string, `URL` or `Request`. It accepts only the test origin `http://127.0.0.1:41960` and
+  the path `/mcp`, only POST, GET and DELETE, and bodies of at most 64 KiB. Anything else throws.
+- `globalThis.fetch` is replaced by a thrower during each SDK test, so any fallback to global fetch fails the test.
+- Each request has a 5 s SDK timeout, and every client is closed in `finally`.
+
+The tests cover:
+
+- **Enabled:** `connect` (initialize 200, `notifications/initialized` 202, the optional GET answered 405), discovery
+  of the existing tools plus `get_cooperation_status`, and a successful `callTool` bound to the authenticated owner
+  and the current world (exact board URLs, no save or archive).
+- **Disabled:** the tool isn't discovered, and calling it rejects with -32602 and no board fetch.
+- **Refusals:** extra arguments (`BadRequest`) and a missing `wylls.read` scope (`InsufficientScope`) are tool
+  errors, with no board fetch.
+- **Unauthenticated:** with no or a wrong bearer, `connect` rejects on a 401 and there is no board fetch.
+- **The bridge itself:** it refuses other origins, paths, queries, methods and inputs, and answers DELETE `/mcp`
+  with 405.
+
+What they prove: the official SDK client transport interoperates with this server's HTTP handler in-process.
+
+What they don't prove: a live client/server, a socket, real OAuth (the stub auth accepts a fixed fake string, with
+no tokens, wallets or signatures), a real board, or a game world. The implementation session wrote these tests
+without running them. The coordinator subsequently ran the complete suites: 65/65 passed, including all five SDK/bridge tests.
 
 Run with `node --test workstreams/03-composability/mcp/test/coop-read-integration.test.mjs`. It imports
 `src/server.mjs`, so it loads the same gateway and frontier modules the existing server tests load.
@@ -284,3 +318,7 @@ transaction, filesystem write or game-world operation was exercised.
 ## Final coordinator verification (2026-11-17 UTC)
 
 After the implementation session completed, the coordinator ran both suites together: **60 tests, 60 pass, 0 fail, 0 skipped** (adapter 34 + integration 26). All five changed/new JavaScript wiring files passed `node --check`. The integration worktree initially lacked the existing SDK peer dependency; the test run used the already installed local dependencies (`@magicblock-labs/ephemeral-rollups-sdk` 0.17.2 and `@solana/web3.js` 1.99.0), without a package or lockfile change. The real server logic and HTTP handler ran with fixtures only. Live OAuth, board networking, a real MCP client, the game world, deployment and the complete pre-existing regression suite remain untested.
+
+### Official SDK follow-up verification (2026-11-17 UTC)
+
+After the final CLI correction, independent execution passed **65/65 tests**, zero failures/skips (34 adapter + 31 integration, including five SDK/bridge cases). The real `@modelcontextprotocol/sdk` 1.32.1 Client and StreamableHTTPClientTransport performed initialization, tool discovery and calls through injected fetch into the real HTTP handler. Global network fetch was guarded against use. SDK request timeout timers and the server initialization session identifier were exercised; no wallet keys, signatures, external network, socket listener, real OAuth or world process was used. Dependencies were installed from the existing lockfile with lifecycle scripts disabled; package/lockfile contents were unchanged. No live MCP/board/world process was found. Live-world startup remains held because earlier startup refusals are unresolved, not bypassed by these tests.
