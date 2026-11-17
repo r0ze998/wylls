@@ -1,4 +1,4 @@
-# ③ MCP HTTP: a request target the URL parser refuses is answered 400, not an unhandled rejection (2026-11-17)
+# ③ MCP HTTP: a request target the URL parser refuses is answered 400 inside the handler (2026-11-17)
 
 **Branch:** `claude/ws03-http-bad-target-20261117`, from the fixed aggregate `claude/aggregate-approved-20261117` at `8a1d799f`. The aggregate, canonical, `main`, Lane C and Lane D refs are unchanged.
 
@@ -13,15 +13,17 @@
 - `listen` passes the handler straight to `http.createServer(handler)` (`:241`). `node:http` calls it and ignores the returned promise.
 - `bin/wylls-mcp.mjs` installs no `unhandledRejection` handler.
 
-**What happens:** a target that `new URL` refuses makes the promise reject **unhandled**, outside the handler's `catch` (`:231-235`). Under Node's default since v15 (`--unhandled-rejections=throw`), that ends the process. The request also gets no answer.
+**What would happen, if such a target reaches the handler:** the promise rejects **unhandled**, outside the handler's `catch` (`:231-235`), and the request gets no answer. Under Node's default unhandled-rejection mode (`throw`), an unhandled rejection ends the process. **Established from the source:** the parse is outside the `try`, and nothing awaits the promise. **Not established:** that a real request can carry such a target to the handler (next point).
 
 **Which targets throw:** a relative target resolves against the base without error, including odd paths like `/%zz`. What throws even with a base:
 - an absolute-form target with an invalid host or port, e.g. `http://a:70000/` or `http://[::1/`;
 - a scheme-relative one with an invalid host, e.g. `//[`.
 
 **Reachability:**
-- **Who can send it:** any client that can reach the port, with no authentication needed; the parse comes before every check.
-- **What it rests on:** that Node's HTTP parser accepts such a request target, since it allows absolute-form targets and these characters. **That rests on the parser's documented behaviour and has not been tried here.** The premise about `URL` is in U1 below, written but not run.
+- **If it is reachable,** no authentication is needed, because the parse comes before every check.
+- **Whether it is reachable is NOT established:** it depends on Node's HTTP parser accepting such a request target and passing it unchanged as `req.url`. That was neither tried nor checked against the parser's source or documentation here.
+- **The `URL` premise** is in U1 below, written but not run.
+- **So this change is a fail-closed guard** for a path that may or may not be reachable. It is not a confirmed crash fix.
 
 ## The change (`src/http.mjs`, the handler's first line only)
 
@@ -60,3 +62,11 @@ try { url = new URL(req.url, auth.issuer); } catch { return send(res, 400, { err
 **Next, a finite list, not pursued:**
 1. With Lane D's `listen` change, a start-up error now rejects. The bin's top-level `await listen(...)` then ends the process with that error, which is the intended visible failure.
 2. Whether to accept absolute-form targets at all is a policy question for ③'s owner.
+
+## Correction (third commit)
+
+**What was overstated:** the first commit's message (`e0200a9a`: "unhandled → process exit under Node's default") and the first summary treated the crash as established ("reachable without authentication", "a single bad request could end the process").
+- **Established:** the parse sat outside the `try`, and the promise is not awaited.
+- **Not established:** that a real HTTP request can deliver such a target to the handler.
+
+**What changed:** the report and the code comment are now conditional. The code's behaviour is unchanged by this commit (comment only), and no test was run.

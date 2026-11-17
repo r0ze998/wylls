@@ -123,9 +123,9 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
 
   return async function handler(req, res) {
     // (2026-11-17) The request target is parsed before the try below, and this handler's promise is not awaited by
-    // node:http: a target the URL parser refuses (an absolute form with a bad host or port, `//[`, …) used to reject it
-    // unhandled, which ends the process under Node's default. It is answered 400 here instead; nothing of the target is
-    // logged or echoed.
+    // node:http. If node:http delivers a target the URL parser refuses (an absolute form with a bad host or port, `//[`,
+    // …; whether its HTTP parser lets such a target through was not tried), the parse used to reject the promise outside
+    // the try, unhandled. It is answered 400 here instead; nothing of the target is logged or echoed.
     let url;
     try { url = new URL(req.url, auth.issuer); } catch { return send(res, 400, { error: 'invalid_request', error_description: 'the request target could not be parsed' }); }
     const route = `${req.method} ${url.pathname}`;
