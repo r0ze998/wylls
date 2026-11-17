@@ -23,10 +23,14 @@ import { createWyllsMcp } from '../src/server.mjs';
 import { receiptPortFor } from '../src/receipt-port.mjs';
 import { createHandler, listen } from '../src/http.mjs';
 import { pathToFileURL } from 'node:url';
+import { ws04ActsSettingsError } from './ws04-acts-settings.mjs';
 
 const env = process.env;
 if (env.WYLLS_MCP_TEST_AS !== '1') { console.error('set WYLLS_MCP_TEST_AS=1: only the local test authorization server is implemented'); process.exit(2); }
 if (env.WYLLS_MCP_STORE && !env.WYLLS_MCP_SEAL_KEY) { console.error('WYLLS_MCP_SEAL_KEY is required with a store file'); process.exit(2); }
+// ④'s act registry: all three settings or none, refused here before the store, the relay or the registry is touched.
+const ws04SettingsError = ws04ActsSettingsError(env);
+if (ws04SettingsError) { console.error(ws04SettingsError); process.exit(2); }
 const port = Number(env.WYLLS_MCP_PORT ?? 41960);
 const host = env.WYLLS_MCP_HOST ?? '127.0.0.1';
 const issuer = env.WYLLS_MCP_ISSUER ?? `http://127.0.0.1:${port}`;
