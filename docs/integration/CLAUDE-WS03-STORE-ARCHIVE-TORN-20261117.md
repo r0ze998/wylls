@@ -52,3 +52,31 @@ Imports: `node:` builtins and `src/store.mjs` only. Writes: only in its own new 
 | T3 | an empty archive file: no separator |
 | T4 | multi-byte notes before and after a torn tail, two appends, then a restart: each record reads back exactly; no blank line |
 | T5 | in memory: unchanged |
+
+## Static counter-review (once, read only)
+
+1. **A crash during the new write itself:**
+   - **Only the newline written:** the file then ends in a newline, the cut line is closed and still skipped, and the next archive needs no separator.
+   - **Part of the record written:** the file ends cut again, and the next archive adds the separator again.
+   - **In both cases** the operation's hot copy was not deleted yet (delete comes after the write), so it is read from the main file.
+2. **A cut tail that happens to be a whole record without its newline:**
+   - The separator turns it into a complete line, so a restart indexes it.
+   - That operation is still in the main file (the crash came before `delete` and `save`), so the main copy wins: `operation` reads `state.operations` first; `operationsWithRequestId` and `operationsOf` drop archived ids that are hot.
+   - When it is archived again, its later line replaces the index entry with the same final record.
+   - This is the existing "left in both places" rule (`archive()` doc, `archive.test.mjs:69-89`).
+3. **Existing assertions still hold:**
+   - `archive.test.mjs:47` counts the lines of a newline-terminated archive: no separator is added there.
+   - `:64` compares the archive's first bytes before and after: no existing byte changes.
+4. **Other callers:**
+   - `server.mjs:712` (`archiveFinished`, inside its try/log at `:819`) and `bench/store-growth.mjs` are the only other callers of `archive()`.
+   - The cost is one 1-byte positioned read per archived operation (the bench appends to its own new files).
+   - No caller relies on the old open mode.
+5. **The aggregate moved meanwhile** (`ebc59477`: two documents and `12-device-runbook.ja.md`). It changes no file on this branch.
+
+**Result:** no further defect; no further change.
+
+## Not verified, and what remains
+
+- **Nothing was run:** neither the new regression nor `archive.test.mjs` (which imports `test/fixture.mjs` and the gateway world).
+- **No real store was opened.**
+- **Remaining for the user's MCP:** a real ChatGPT or Claude Code connection still needs its outside prerequisites (identity provider, tunnel or deployment, the wallet in the OAuth window, the plan), as recorded in the preflight reports.
