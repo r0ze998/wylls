@@ -20,6 +20,11 @@ function sameExtent(a,b) {
   return true;
 }
 const snapshot=world=>({...world,ringProvinces:world.ringProvinces?.slice()??null});
+// (2026-11-17, ⑦: the pinned world a caller names with `source` — a function giving the world now, with its generation —
+//  and a job is for the one it was made under. The herald object can stay the same when the world is pinned again, and
+//  two worlds can have the same extent, so neither the client nor the extent sees that change. A job whose world is no
+//  longer pinned is not started, its answer is not stored, and it settles false; callers without `source` as before.)
+const keyGone=(Q,job)=>job.key!==Q.key||(typeof Q.source==='function'&&Q.source()!==job.key);
 function settle(Q,job,stored) {
   if(job.done) return;
   job.done=true;
@@ -60,13 +65,14 @@ function start(FS,Q) {
   while(Q.active<OVERVIEW_IN_FLIGHT&&Q.pending.length) {
     const job=Q.pending.shift();
     if(job.done) continue;
+    if(keyGone(Q,job)) {settle(Q,job,false);continue;}
     Q.active++;
     // Copy counts too: mutating a later record cannot rewrite this snapshot.
     const requestedWorld=snapshot(job.world);
     let stored=false,consumed=false;
     Promise.resolve().then(()=>job.herald[job.method](job.ring)).then(answer=>{
       rebase(FS,Q);
-      if(job.done||!sameExtent(job.world,requestedWorld)||!answer?.ok) return;
+      if(job.done||keyGone(Q,job)||!sameExtent(job.world,requestedWorld)||!answer?.ok) return;
       // This response is now spent. Close the job to new callers before any
       // caller code runs: a request made from a redraw callback, or between
       // this step and settlement, wants a read of its own. Joining here would
@@ -86,6 +92,7 @@ function start(FS,Q) {
       // other caller is owed, a read under the current world and client.
       const current=consumed?Q.world:job.world;
       if(job.done) settle(Q,job,stored);
+      else if(keyGone(Q,job)) settle(Q,job,false);
       else if(consumed&&(job.herald!==Q.herald||job.method!==Q.method)) settle(Q,job,false);
       else if(sameExtent(current,requestedWorld)) settle(Q,job,stored);
       else if(!consumed) Q.pending.push(job);
@@ -123,27 +130,30 @@ export function preferredOverviewRings(FS,focus=null) {
  * record is in FS.overviews either way, and what the change then requires (a
  * read again, or false for a replaced client) is decided when the job settles.
  */
-export function readOverviews(FS,{herald,rings=overviewRings(FS.world,FS.overviewTaken),v2=false,focus=null,onChange=()=>{}}={}) {
+export function readOverviews(FS,{herald,rings=overviewRings(FS.world,FS.overviewTaken),v2=false,focus=null,onChange=()=>{},source=null}={}) {
   const world=FS.world,method=v2&&typeof herald?.overview2==='function'?'overview2':'overview';
   if(!world||typeof herald?.[method]!=='function') return Promise.resolve([]);
   let Q=queues.get(FS);
-  if(!Q) {Q={active:0,pending:[],jobs:new Map(),world:null,herald:null,method:null,focus:null,pumping:false};queues.set(FS,Q);}
+  if(!Q) {Q={active:0,pending:[],jobs:new Map(),world:null,herald:null,method:null,focus:null,pumping:false,source:null,key:undefined};queues.set(FS,Q);}
   if(focus) Q.focus=focus;
-  if(Q.herald!==herald||Q.method!==method) {
+  const key=typeof source==='function'?source():undefined;
+  if(typeof source==='function') Q.source=source;
+  if(Q.herald!==herald||Q.method!==method||(key!==undefined&&key!==Q.key)) {
     // In-flight fetches cannot be aborted by this client API. They still count
     // against the bound and are discarded on return; old callers settle now.
     for(const job of Q.jobs.values()) settle(Q,job,false);
     Q.pending=[];Q.herald=herald;Q.method=method;
+    if(key!==undefined) Q.key=key;
   }
   rebase(FS,Q);
   const promises=[];
   for(const ring of new Set(rings)) {
     if(!validRing(world,ring)) continue;
     let job=Q.jobs.get(ring);
-    if(!job||job.world!==world||job.herald!==herald||job.method!==method) {
+    if(!job||job.world!==world||job.herald!==herald||job.method!==method||job.key!==Q.key) {
       let resolve;
       const promise=new Promise(r=>{resolve=r;});
-      job={ring,world,herald,method,promise,resolve,changed:new Set(),done:false};
+      job={ring,world,herald,method,key:Q.key,promise,resolve,changed:new Set(),done:false};
       Q.jobs.set(ring,job);Q.pending.push(job);
     }
     job.changed.add(onChange);promises.push(job.promise);

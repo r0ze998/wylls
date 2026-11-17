@@ -759,6 +759,33 @@ async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
  */
 function providerWorld() { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; }
 
+/** The conquest and S1 state is another world's when its mark is not this world (untagged: world null). */
+function dropOtherWorldConquest(world) {
+  if (FS.conquest && (FS.conquest.world ?? null) !== world) FS.conquest = undefined;
+  if (FS.s1 && (FS.s1.world ?? null) !== world) FS.s1 = undefined;
+}
+
+/**
+ * Called right after a pin (app.mjs loadSeason; 2026-11-17, ⑦). When the pinned world — with its generation — is not
+ * the one the page's reads were for, what they hold is another world's and is forgotten, not shown as this one's: the
+ * ring overviews and when each was taken (so every ring of the new world is read again), the partial ring lists, the
+ * bell marked complete, and the conquest and S1 state. The overviews Map is emptied in place (the map holds it). The
+ * first pin and a pin of the same world forget nothing. Returns whether anything was forgotten.
+ */
+let readsWorld;
+export function adoptPinnedWorld() {
+  const world = providerWorld();
+  if (readsWorld === undefined || readsWorld === world) { readsWorld = world; return false; }
+  readsWorld = world;
+  FS.overviews?.clear?.();
+  FS.overviewTaken?.clear?.();
+  FS.worldRings?.clear?.();
+  FS.overviewsBell = undefined;
+  overviewSource = null; overviewWorld = null;
+  dropOtherWorldConquest(world);
+  return true;
+}
+
 /** A slower response must not roll a province back to an earlier generation. */
 export function latestEnvelope(previous, next) {
   if (!previous) return next;
@@ -1529,6 +1556,9 @@ async function refreshS1(current, world) {
 }
 
 export async function refreshConquest() {
+  // (2026-11-17, ⑦: also in a world without conquest, what was read in another world is not kept: the feed, the sheet,
+  //  the report and the S1 marks read FS.conquest and FS.s1 without asking whether conquest is on)
+  dropOtherWorldConquest(providerWorld());
   if (!conquestEnabled(FS.season) || !herald?.control) return;
   const request=++conquestRefresh;
   // (2026-11-17, ⑦: a refresh belongs to its request and to the pinned world with its generation — fchainio.setPin: A → B →
@@ -1859,17 +1889,23 @@ function homeWedgeFull(record, faction) {
  * The season record's open rings and their overviews, re-read once a bell while a ticket
  * is being planned: new rings and freed sites show up (review finding 3).
  */
-let overviewRefresh = null, overviewSource = null;
+// (2026-11-17, ⑦: a refresh, its cache and its completion are for one herald AND one pinned world with its generation —
+//  fchainio.setPin: A → B → A are three; the herald object can stay the same when the world is pinned again. A season
+//  answer the change overtakes is not applied (record, extent, rings, FS.season), the shared queue is told the world
+//  (`source`) so it stores no overview for another, and a bell is marked complete only for the world it was read in.)
+let overviewRefresh = null, overviewSource = null, overviewWorld = null;
 function refreshOverviews(b) {
-  if (overviewRefresh?.bell === b && overviewRefresh.herald === herald) return overviewRefresh.promise;
-  if (FS.overviewsBell === b && overviewSource === herald) return Promise.resolve();
-  const request = { bell: b, herald, promise: null };
+  const w = providerWorld();
+  if (overviewRefresh?.bell === b && overviewRefresh.herald === herald && overviewRefresh.world === w) return overviewRefresh.promise;
+  if (FS.overviewsBell === b && overviewSource === herald && overviewWorld === w) return Promise.resolve();
+  const request = { bell: b, herald, world: w, promise: null };
+  const same = () => herald === request.herald && providerWorld() === request.world;
   overviewRefresh = request;
   request.promise = (async () => {
     try {
       try {
         const r = await request.herald.season();
-        if (herald !== request.herald) return;
+        if (!same()) return;
         // A later bell's read owns the season record; the older caller joins it.
         if (overviewRefresh !== request) return overviewRefresh?.promise;
         // The record, the world's extent and the ring lists move together. Setting
@@ -1879,7 +1915,7 @@ function refreshOverviews(b) {
           if (r.season) FS.season = r.season;
         }
       } catch { /* keep the last record */ }
-      if (herald !== request.herald) return;
+      if (!same()) return;
       if (overviewRefresh !== request) return overviewRefresh?.promise;
       // The rings the world has (map/world.mjs, set by applySeasonRecord above): a sparse world's own seeded rings,
       // else 0 .. ringsOpen − 1. Never counted from the record's length: a world that seeds ring 128 alone has one
@@ -1891,16 +1927,17 @@ function refreshOverviews(b) {
       const rings = world?.seeded ? [...world.seeded] : Array.from({ length: count }, (_, i) => i);
       // The same four-request queue serves boot and refresh; PSFOV2 cannot be
       // overwritten by a delayed legacy boot response. Ticket planning still awaits all.
-      const results = await readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season),
+      const results = await readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: providerWorld,
         onChange: () => invalidate('map', 'panel'),
       });
-      if (herald !== request.herald) return;
+      if (!same()) return;
       if (overviewRefresh !== request) return overviewRefresh?.promise;
       // A partial/failed read remains retryable; a superseded caller cannot mark
       // the replacement client's or newer bell's refresh complete.
       if (results.every(Boolean)) {
         FS.overviewsBell = b;
         overviewSource = herald;
+        overviewWorld = request.world;
       }
     } finally {
       if (overviewRefresh === request) overviewRefresh = null;

@@ -148,7 +148,7 @@ import * as practiceScreen from './screens/practice.mjs';
 import * as onboardingCard from './screens/onboarding.mjs';
 import * as spectateScreen from './screens/spectate.mjs';
 import { FLAG, withFlag, restoreFlags } from './onboarding.mjs';
-import { useHerald, refresh as refreshPlay, onReread } from './controller.mjs';
+import { useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld } from './controller.mjs';
 import { createPollLoop } from './poll-loop.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
 import { createRouteCache } from './map/routecache.mjs';
@@ -4002,6 +4002,9 @@ async function loadSeason(herald) {
     return false;
   }
   herald.pin(record.season, FS.pin.addresses);
+  // (2026-11-17, ⑦: the overviews, ring lists, conquest and S1 state read for another pinned world are forgotten before
+  //  this world's record is applied — controller.adoptPinnedWorld; the same world forgets nothing)
+  adoptPinnedWorld();
   // (a report read under another pinned world is closed: it is not this world's — 2026-11-17)
   if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
@@ -4041,7 +4044,9 @@ async function loadSeason(herald) {
  * page was reloaded; now the season poll calls it after each record.
  */
 function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
-  return readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season),
+  // (2026-11-17, ⑦: the pinned world with its generation — the same as controller.providerWorld — so the shared queue
+  //  stores no overview read for another world)
+  return readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,
     focus: () => {
       const view = mapRef?.view;
       if (!view) return null;
