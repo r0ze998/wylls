@@ -121,7 +121,13 @@ export function villageRequests(FS, b, v) {
 /** The board's page for this village (the board's own `page` when its config names one on this origin). */
 export function boardHref(FS, b) {
   const page = typeof b?.config?.page === 'string' && b.config.page.startsWith('/') && !b.config.page.startsWith('//') ? b.config.page : BOARD_PAGE;
-  return `${page}?to=${encodeURIComponent(villageTo(FS) ?? '')}`;
+  // (2026-11-17) the village's world goes with it: the program and Season THIS page is pinned to. The board's page fills the
+  // destination only when they are its own present world (coop-ui.mjs); a world this page cannot name is not sent, and then
+  // the board's page does not fill it in.
+  const program = pinnedProgram(FS), season = FS?.season?.seasonId;
+  const world = typeof program === 'string' && program && season !== undefined && season !== null
+    ? `&program=${encodeURIComponent(program)}&season=${encodeURIComponent(String(season))}` : '';
+  return `${page}?to=${encodeURIComponent(villageTo(FS) ?? '')}${world}`;
 }
 
 /**

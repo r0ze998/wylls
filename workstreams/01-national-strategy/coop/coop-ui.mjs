@@ -181,9 +181,16 @@ function renderArrivals() {
     <div class="note">到着量の分類は④の契約に合わせた。村あては規則から（RuleDerived：記録の cargo を整数単位の入荷量とする）、倉あては credited が記録にないので分からない（Unverifiable）、届かなかったものは 0 と分かっている（KnownZero）。記録の cargo は上限で、数えない。量を確認できない到着は「0 個」「失敗」ではなく、数えた量（算入量）が 0 なだけ。村あての量は下限（資源ごとに 1 未満多く入っていうる）。④の終わりは隊商ごとに送った荷と下限を比べ（以上 Fulfilled・未満 Partial）、0 と分かるのは焼却・奪取・LOST の証拠があるときだけ（Failed）。別の場所に着いたものは原因を確認中で、奪われたとは言わない。依頼の充足は、下限が依頼量以上なら届いた、すべて終わって上限が依頼量以下なら届かなかった、その間は判定できない。到着時の受取人は、村の世代が到着の記録と同じときだけ今の口座から決まる（世代が変わったら未検証）。</div>`;
 }
 
+// （2026-11-17）読み直しは 4 秒ごとと自分の操作のあとに重なりうる。古い答え（先に始めた読み）や、答えが来る前にウォレットが
+// 変わった読みの答えは、新しい表示を上書きしない。最後に当てたものより新しい読みだけを当てる（遅いサーバーでも、来た新しい答えは当たる）。
+let refreshSeq = 0, appliedSeq = 0;
 async function refresh() {
+  const seq = ++refreshSeq, viewerAt = signer?.address ?? null;
   const v = new URLSearchParams({ judge: $('judge').value || cfg.judge, ...(signer ? { viewer: signer.address } : {}) });
-  [view, feed] = await Promise.all([api(`/coop/view?${v}`), fetch('/h/caravans.json').then(r => (r.ok ? r.json() : null)).catch(() => null)]);
+  const [v2, f2] = await Promise.all([api(`/coop/view?${v}`), fetch('/h/caravans.json').then(r => (r.ok ? r.json() : null)).catch(() => null)]);
+  if (seq <= appliedSeq || (signer?.address ?? null) !== viewerAt) return;
+  appliedSeq = seq;
+  [view, feed] = [v2, f2];
   renderJoint(); renderNation(); renderPersonal(); renderRequests(); renderArrivals();
 }
 
@@ -318,9 +325,18 @@ $('judge').addEventListener('change', refresh);
   if (!cfg.chain) say('この板はチェーンを読まない（--rpc なし）。国籍と届け先の村は未検証になり、国をまたぐ協力の達成は確定しない', 'warn');
   if (cfg.damaged?.length) say(`板の記録に読めない行が ${cfg.damaged.length} 行ある（記録の欠落）`, 'bad');
   if (cfg.store?.problems?.length) say(`板の記録の区間に問題がある：${cfg.store.problems.join('、')}`, 'bad');
-  const to = new URLSearchParams(location.search).get('to');   // ⑦の入口：?to=p,q,site,gen
-  if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
-  else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
+  const qs = new URLSearchParams(location.search);
+  const to = qs.get('to');   // ⑦の入口：?to=p,q,site,gen&program=…&season=…（入口の村の世界）
+  // （2026-11-17）入口の村の世界（program・シーズン）が、この板のいまの世界と同じときだけ届け先を入れる。違う・分からないときは
+  // 入れずに理由を言う（同じ座標でも別の世界の村になるため）。届け先は手で入れられる（依頼の確かめはこれまでどおり）。
+  const sameWorld = qs.get('program') === cfg.season.programId && qs.get('season') === String(cfg.season.seasonId);
+  if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to) && sameWorld) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
+  else if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) {
+    $('entryWarn').textContent = qs.get('program') === null || qs.get('season') === null
+      ? '入口の村が、どの世界（シーズン・プログラム）の村か分からないため、届け先に入れていない。この板の世界の届け先の村を入れてください'
+      : `入口の村は別の世界（シーズン ${qs.get('season').slice(0, 20)}）の村のため、届け先に入れていない。この板の世界（シーズン ${cfg.season.seasonId}）の届け先の村を入れてください`;
+    $('entryWarn').hidden = false;
+  } else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
   await refresh();
   setInterval(() => refresh().catch(() => {}), 4000);
 })().catch(e => say(`読み込めない：${e.message ?? e}`, 'bad'));

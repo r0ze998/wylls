@@ -95,3 +95,11 @@ test('probeView: a send without its outcome is not read', async () => {
   assert.deepEqual(await CB.probeView({ fetch: async () => json(200, { requests: [req({ sendings: [{ walletSig: 'x' }] })] }) }), { read: 'unread', code: 'BadView' });
   assert.equal((await CB.probeView({ fetch: async () => json(200, { requests: [req({ sendings: [] })] }) })).read, 'ok');
 });
+
+// (2026-11-17, the entry's world; WRITTEN ONLY, NOT RUN) the card's link carries this page's world; none when unknown
+test('boardHref: the village with the page\'s own program and Season; no world sent when the page cannot name one', () => {
+  const b = board(cfg('7'));
+  assert.equal(CB.boardHref(FS(), b), `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}&program=${PROG}&season=7`);
+  assert.equal(CB.boardHref(FS({ pin: {} }), b), `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}`, 'no program: no world');
+  assert.equal(CB.boardHref(FS({ season: null }), b), `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}`, 'no Season: no world');
+});
