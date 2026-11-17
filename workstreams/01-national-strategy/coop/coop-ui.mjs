@@ -32,6 +32,25 @@ async function api(path, body) {
   const r = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
   return r.json();
 }
+/**
+ * （2026-11-17）読むだけ（GET）：2xx の JSON だけを答えにする。それ以外（4xx・5xx・JSON でない・届かない）は失敗として投げる
+ * （空や成功にしない）。POST（記録を出す）は api() のまま：板は断りを 400 の {ok: false, why} で返し、post() がそれを読む。
+ */
+async function apiRead(path) {
+  let r;
+  try { r = await fetch(path); } catch (e) { throw new Error(`届かない（${e.message ?? e}）`); }
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  try { return await r.json(); } catch { throw new Error('答えが JSON でない'); }
+}
+/** （2026-11-17）板の view（goal.mjs coopView ＋ board.mjs view）が、この画面の描く形か。違えば当てない。 */
+const viewShapeOk = v => !!v && typeof v === 'object' && Array.isArray(v.requests) && Array.isArray(v.arrivals) && Array.isArray(v.joint)
+  && (v.nation === null || v.nation === undefined || typeof v.nation === 'object') && (v.personal === null || v.personal === undefined || typeof v.personal === 'object');
+/** （2026-11-17）読み込みの状態の一行（操作の知らせ msg とは別の欄。無ければ作る）。 */
+function readState(text) {
+  let p = document.getElementById('readState');
+  if (!p) { p = document.createElement('p'); p.id = 'readState'; p.className = 'warn'; p.dataset.testid = 'read-state'; $('msg').after(p); }
+  p.textContent = text ?? ''; p.hidden = !text;
+}
 
 /** 板のネットワーク（Wallet Standard の chain）。板の --cluster（既定 localnet）。 */
 const chainOf = () => W.chainOf(cfg?.cluster ?? 'localnet');
@@ -79,13 +98,23 @@ async function connectWallet() {
 /** 記録に署名して板へ出す。 */
 async function post(rec, done) {
   if (!signer) return say('先に署名する人を接続してください', 'warn');
+  // （2026-11-17）三つを分ける：署名できなかった／板に届いたか分からない／受け付けられたあとの読み直しの失敗。
+  // 受け付けられたあとに読み直せなくても「署名できない」「送られていない」とは言わない（読み直しは refresh が状態を言う）。
+  let signed;
+  try { signed = await signRecord(signer, { v: 1, season: cfg.season, at: Math.floor(Date.now() / 1000), ...rec }); }
+  catch (e) { return say(`署名できない：${e.message ?? e}`, 'bad'); }
+  // （2026-11-17）板の答え（board.mjs /coop/records）：受け付け＝200 で {ok: true}、断り＝400 で {ok: false, why}。この二つと
+  // はっきり分かるもの以外（ほかの状態・空・形の違う答え・届かない）は「届いたか分からない」：未送信とも断りとも言わない。
+  let status, body = null;
   try {
-    const signed = await signRecord(signer, { v: 1, season: cfg.season, at: Math.floor(Date.now() / 1000), ...rec });
-    const r = await api('/coop/records', signed);
-    if (!r.ok) return say(`受け付けられなかった：${r.why}`, 'bad');
-    say(done, 'ok');
-    await refresh();
-  } catch (e) { say(`署名できない：${e.message ?? e}`, 'bad'); }
+    const res = await fetch('/coop/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(signed) });
+    status = res.status;
+    try { body = await res.json(); } catch { body = null; }
+  } catch (e) { await refresh(); return say(`板に届いたか分からない（${e.message ?? e}）。読み直した表示で確かめてください`, 'warn'); }
+  if (status === 200 && body?.ok === true) { say(done, 'ok'); await refresh(); return; }
+  if (status === 400 && body?.ok === false && typeof body.why === 'string') return say(`受け付けられなかった：${body.why}`, 'bad');
+  await refresh();
+  return say(`板に届いたか分からない（HTTP ${status}）。読み直した表示で確かめてください`, 'warn');
 }
 
 const myNation = () => Number($('nation').value);
@@ -123,10 +152,15 @@ function renderPersonal() {
 }
 
 /** 自分の隊商のうち、この依頼の届け先へ向かうもの（ヘラルドの一覧から）。 */
+/**
+ * 自分の、この届け先へ向かう隊商（ヘラルドの一覧から）。（2026-11-17）一覧を読めていない・形が違うときは null（分からない）：
+ * 「見えない」（空の一覧）と分ける。
+ */
 function myCaravansTo(q) {
-  if (!signer || !feed) return [];
+  if (!signer) return [];
+  if (feed?.state !== 'ok') return null;
   const tag = ownerTagOf(cfg.season, signer.address);
-  return (feed.moving ?? []).filter(m => String(m.ownerTag) === tag && !m.raided && m.dst?.kind === 1 && m.dst.p === q.to.p && m.dst.q === q.to.q && m.dst.at === q.to.site && m.dst.gen === q.to.gen);
+  return (feed.data.moving ?? []).filter(m => String(m.ownerTag) === tag && !m.raided && m.dst?.kind === 1 && m.dst.p === q.to.p && m.dst.q === q.to.q && m.dst.at === q.to.site && m.dst.gen === q.to.gen);
 }
 
 function renderRequests() {
@@ -159,7 +193,7 @@ function renderRequests() {
           : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`)
         : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button>${sendingNow.has(q.id) ? '<span class="note" data-testid="send-busy">送る手続きの途中（ウォレットの画面を確かめてください）</span>' : ''}</div>`) : ''}
       ${!mine && accepted && open && !badDst ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
-        <div class="row">${cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
+        <div class="row">${cands === null ? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない（${esc(feed?.why ?? '?')}）。読み直しを続けます</span>` : cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
     </div>`;
   }).join('') : '<div class="note">依頼はまだない</div>';
 }
@@ -184,21 +218,60 @@ function renderArrivals() {
 // （2026-11-17）読み直しは 4 秒ごとと自分の操作のあとに重なりうる。古い答え（先に始めた読み）や、答えが来る前にウォレットが
 // 変わった読みの答えは、新しい表示を上書きしない。最後に当てたものより新しい読みだけを当てる（遅いサーバーでも、来た新しい答えは当たる）。
 let refreshSeq = 0, appliedSeq = 0;
+// （2026-11-17）表示しているものが誰のどの読みか：shownFor（閲覧者）・shownAt（当てた時刻）。操作はこの表示と同じものにだけ行う。
+let shownFor = undefined, shownAt = null;
+const RENDER_TARGETS = ['joint', 'nationPanel', 'personal', 'requests', 'arrivals'];
+/**
+ * 読み直す。投げない（失敗は読み込みの状態の一行で言う）。true：新しい表示を当てた。
+ * （2026-11-17）当てるのは、新しい読み・同じ閲覧者・形の正しい view で、五つの描画がすべて成り立ったときだけ。途中で描画が
+ * 失敗したら、view・feed・五つの欄を元に戻す（古い DOM と新しい view が混ざらない）。前の表示を残すときは、古いことを言う。
+ */
 async function refresh() {
   const seq = ++refreshSeq, viewerAt = signer?.address ?? null;
   const v = new URLSearchParams({ judge: $('judge').value || cfg.judge, ...(signer ? { viewer: signer.address } : {}) });
-  const [v2, f2] = await Promise.all([api(`/coop/view?${v}`), fetch('/h/caravans.json').then(r => (r.ok ? r.json() : null)).catch(() => null)]);
-  if (seq <= appliedSeq || (signer?.address ?? null) !== viewerAt) return;
-  appliedSeq = seq;
-  [view, feed] = [v2, f2];
-  renderJoint(); renderNation(); renderPersonal(); renderRequests(); renderArrivals();
+  let v2, f2;
+  try {
+    // （2026-11-17）ヘラルドの隊商の一覧は、読めたかどうかを持つ：{state: 'ok', data} | {state: 'unread', why}（view と同じ snapshot で当てる）
+    const feedRead = fetch('/h/caravans.json').then(async r => {
+      if (!r.ok) return { state: 'unread', why: `HTTP ${r.status}` };
+      let j;
+      try { j = await r.json(); } catch { return { state: 'unread', why: 'JSON でない' }; }
+      // （第3版）ヘラルドの一覧は moving を必ず配列で書く（frontier-node/crates/herald/src/caravan.rs file()、from_file も必須）：
+      // 無い・配列でないなら読めていない（空の一覧として扱わない）
+      return j && typeof j === 'object' && Array.isArray(j.moving) ? { state: 'ok', data: j } : { state: 'unread', why: '形が違う' };
+    }).catch(e => ({ state: 'unread', why: `届かない（${e.message ?? e}）` }));
+    [v2, f2] = await Promise.all([apiRead(`/coop/view?${v}`), feedRead]);
+  } catch (e) { if (seq > appliedSeq) staleSay(`読み込めない：${e.message ?? e}`); return false; }
+  if (seq <= appliedSeq || (signer?.address ?? null) !== viewerAt) return false;
+  if (!viewShapeOk(v2)) { staleSay('板の答えの形が違う'); return false; }
+  const before = RENDER_TARGETS.map(id => $(id).querySelector('.body').innerHTML);
+  const [pv, pf] = [view, feed];
+  try {
+    [view, feed] = [v2, f2];
+    renderJoint(); renderNation(); renderPersonal(); renderRequests(); renderArrivals();
+  } catch (e) {
+    [view, feed] = [pv, pf];
+    RENDER_TARGETS.forEach((id, i) => { $(id).querySelector('.body').innerHTML = before[i]; });
+    staleSay(`表示できない：${e.message ?? e}`);
+    return false;
+  }
+  appliedSeq = seq; shownFor = viewerAt; shownAt = new Date();
+  readState('');
+  return true;
+}
+/** 最新の読みが当たらなかった：前の表示が残っていれば、それが古いことを言う。 */
+function staleSay(why) {
+  readState(view ? `${why}。表示は ${shownAt ? shownAt.toLocaleTimeString() : '前'} の読み込みのまま（古い）。自動で読み直しを続けます` : `${why}。まだ表示できるものがありません。自動で読み直しを続けます`);
 }
 
 document.addEventListener('click', e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   const id = b.dataset.id;
+  // （2026-11-17）表示しているものと同じ読みにだけ操作する：まだ何も表示していない、または別の閲覧者の表示のままなら何もしない
+  if (!view || shownFor !== (signer?.address ?? null)) return say('表示を読み直しています。表示が新しくなってから、もう一度押してください', 'warn');
   const q = view.requests.find(x => x.id === id);
+  if (!q && b.dataset.act !== undefined) return say('この依頼は、いまの表示にありません。読み直した表示で確かめてください', 'warn');
   switch (b.dataset.act) {
     case 'accept': {
       const offer = Object.fromEntries(Object.entries(q.need));
@@ -314,7 +387,7 @@ $('nation').addEventListener('change', refresh);
 $('judge').addEventListener('change', refresh);
 
 (async () => {
-  cfg = await api('/coop/config');
+  cfg = await apiRead('/coop/config');   // （2026-11-17）読めなければ投げる：下の catch が「読み込めない」と言う
   W.discover();
   W.onChange(renderWallets);
   renderWallets();
@@ -338,5 +411,5 @@ $('judge').addEventListener('change', refresh);
     $('entryWarn').hidden = false;
   } else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
   await refresh();
-  setInterval(() => refresh().catch(() => {}), 4000);
+  setInterval(() => { refresh(); }, 4000);   // （2026-11-17）refresh は投げず、失敗は読み込みの状態の一行で言う（黙らない）
 })().catch(e => say(`読み込めない：${e.message ?? e}`, 'bad'));
