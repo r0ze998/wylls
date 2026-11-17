@@ -4047,6 +4047,16 @@ function startSpectate(herald) {
   tick();
 }
 
+/**
+ * The page banner's error from the season poll (2026-11-17, ⑦): a failed read of the season record, a refused pin, a
+ * beacon that does not match. It is marked as the season's (`source: 'season'`), so a later read that succeeds clears
+ * it — and only it: an error of another operation (local play's changed connection, controller.mjs) is neither
+ * replaced by a season failure nor cleared by a season success. A failure or success asked before one already applied
+ * reaches neither (loadSeason returns at seasonStale first).
+ */
+function seasonError(e) { if (!FS.error || FS.error.source === 'season') FS.error = { ...e, source: 'season' }; }
+function seasonRecovered() { if (FS.error?.source === 'season') FS.error = null; }
+
 async function loadSeason(herald) {
   // (2026-11-17, ⑦: refreshOverviews asks the same record on its own, and the answers can cross — controller.askSeason.
   //  An answer, or a failure, asked before one already applied changes nothing: the pin, the record, the season, the
@@ -4058,14 +4068,14 @@ async function loadSeason(herald) {
   const seq = askSeason();
   const r = await herald.season();
   if (seasonStale(seq)) return true;
-  if (!r.ok) { clearInspection(FS); clearOutbound(FS); FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
+  if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) }); invalidate('status'); return false; }
   const { record, season } = r;
   const reportWas = reportWorld();
   try {
     FS.pin = setPin({ programId: record.programId, cluster: record.cluster, seasonId: record.season, seasonAddress: record.seasonAddress ?? null, rulesetHash: toHex(season.rulesetHash) });
   } catch (e) {
     clearInspection(FS); clearOutbound(FS);
-    FS.error = { code: e.code, text: e.message };
+    seasonError({ code: e.code, text: e.message });
     invalidate('status');
     return false;
   }
@@ -4073,10 +4083,13 @@ async function loadSeason(herald) {
   // (2026-11-17, ⑦: the overviews, ring lists, conquest and S1 state read for another pinned world are forgotten before
   //  this world's record is applied — controller.adoptPinnedWorld; the same world forgets nothing)
   adoptPinnedWorld();
+  // (2026-11-17, ⑦: the read succeeded and the pin was accepted: the season poll's own error, if one stands, is over —
+  //  the beacon below may set its own again. Another operation's error stays)
+  seasonRecovered();
   // (a report read under another pinned world is closed: it is not this world's — 2026-11-17)
   if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
-  if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
+  if (!FS.beacon.ok) seasonError({ code: FS.beacon.code, text: clientText(FS.beacon.code) });
   FS.season = season;
   reconcileExpedition();
   // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
@@ -4091,6 +4104,16 @@ async function loadSeason(herald) {
   setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
+  // (2026-11-17, ⑦: another pinned world's samples are not this world's: its chain time, slot and offset would hold
+  //  this one back — observe drops a sample of a lower slot as "an older answer", and now() never goes back — so a
+  //  restarted local stack's clock stood still and read "behind" for good. The clock starts again with no sample —
+  //  unknown, not fresh — and takes this record's sample just below. The same world keeps its clock.
+  //  The clock carries the world its samples are of (FS.chainWorld) and is judged by that, not by adoptPinnedWorld's
+  //  answer of this call: that answer is given once, so a throw between the two in the call that re-pinned would have
+  //  left the former world's clock standing through every later good read)
+  const clockWorld = momentWorld();
+  if (FS.chainWorld !== undefined && FS.chainWorld !== clockWorld) FS.chain = new ChainClock();
+  FS.chainWorld = clockWorld;
   FS.chain.setAccelerated(record.cluster === 'localnet');
   FS.chain.observe(record.latestUnix, record.latestSlot);
   // A sample world (the screenshot fixture's world that keeps going, UX design 14.5) says so in its season record and
@@ -4420,21 +4443,43 @@ export async function boot() {
   }
   invalidate('chip', 'status', 'panel', 'chips');
   if (title.shouldOpen({ storage: globalThis.localStorage, search: globalThis.location?.search ?? '' })) openIntro();
-  if (await loadSeason(herald)) {
+  // (2026-11-17, ⑦: what needs a season starts once, at the first good season read — at boot, or, when the season could
+  //  not be read then, at the first good read of the season poll. It started only from boot's read, so a page opened
+  //  while the herald was briefly unreachable showed the season once it came back but never started play, spectating
+  //  or practice: the viewer's record was never asked and the drawer said "reading" for good. A read that throws at
+  //  boot no longer ends the boot before the season poll starts: the poll reads again.)
+  // (each step is marked done once it has run, and a step that registers a loop, a timer or a listener — spectating,
+  //  the cooperation board, play — runs at most once: a step that threw is tried again at the next good read, the others
+  //  are not run twice. startPlay is async and never throws here: a failure inside it is its own promise's. A throw no
+  //  longer leaves the start marked as done with the rest never run, nor ends the boot or the season poll's tick.)
+  let seasonStarted = false;
+  const started = { practice: false, spectate: false, coop: false, play: false };
+  const startWithSeason = () => {
+    if (seasonStarted || !FS.pin || !FS.season) return;
     // Ring summaries stream in while viewer setup starts; no whole-world boot barrier.
     loadOverviews(herald).catch(e => console.error('frontier overviews:', e));
-    // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
-    if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
-    if (FS.mode === 'spectate') startSpectate(herald);
-    if (FS.mode === 'play') {
-      // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
-      // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
-      installCoopBoard({ changed: () => invalidate('panel') });
-      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
-      // the drawer starts closed: the tab of the last visit is not reopened over the map
-      FS.tab = 'map';
-    }
-  }
+    try {
+      // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
+      if (FS.mode === 'practice' && !started.practice) { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); started.practice = true; }
+      if (FS.mode === 'spectate' && !started.spectate) { startSpectate(herald); started.spectate = true; }
+      if (FS.mode === 'play') {
+        // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
+        // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
+        // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
+        if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        if (!started.play) {
+          started.play = true;
+          startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
+          // the drawer starts closed: the tab of the last visit is not reopened over the map
+          FS.tab = 'map';
+        }
+      }
+      seasonStarted = FS.mode !== 'play' || started.coop;
+    } catch (e) { console.error('frontier start:', e); }
+  };
+  let bootRead = false;
+  try { bootRead = await loadSeason(herald); } catch (e) { console.error('frontier season:', e); }
+  if (bootRead) startWithSeason();
   // from here the season poll loads the overviews of rings that newly want one (a season that failed to load at boot
   // has no rings yet: its first good poll then loads them all)
   FS.overviewsBooted = true;
@@ -4469,6 +4514,8 @@ export async function boot() {
       if (seasonHidden()) return;
       const ok = await loadSeason(herald);
       errors = ok ? 0 : errors + 1;
+      // (the first good read after a boot that could not read the season starts what needs one — startWithSeason)
+      if (ok) startWithSeason();
     },
     // (a clock that runs fast is read more often: a quarter of a turn at most, clock.mjs pollCap; hidden: look again in 5 s)
     delay: () => { const wait = nextPoll({ kind: 'own', hidden: seasonHidden(), errors }); return wait === null ? 5 : Math.min(wait, pollCap(FS.chain)); },
