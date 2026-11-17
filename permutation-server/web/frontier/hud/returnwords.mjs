@@ -47,7 +47,13 @@ export function itemText(i) {
 
 /** The head: what the summary covers (the player's own mark, or a stated window) and what it cannot (a gap, a read that stopped). */
 export function headText(s) {
-  const range = s.read.n ? L`第${fmtNum(s.read.fromBell)}〜${fmtNum(s.read.toBell)}ターンの記録 ${fmtNum(s.read.n)} 件を読みました。` : L`新しい記録はありません。`;
+  // (nothing read is "no new records" only when the reading was whole: after a failure, an unfinished reading or a gap,
+  // whether there are new records is not known — 2026-11-17)
+  // (and records whose body could not be decoded are records: with nothing readable in range but some undecodable, it is
+  // "none whose contents could be read", never "no new records")
+  const unread = !s.read.n && (s.failed || s.incomplete || !!s.gap);
+  const range = s.read.n ? L`第${fmtNum(s.read.fromBell)}〜${fmtNum(s.read.toBell)}ターンの記録 ${fmtNum(s.read.n)} 件を読みました。`
+    : unread ? L`新しい記録があるかどうかは、まだわかりません。` : s.bad > 0 ? L`中身を読めた新しい記録はありません。` : L`新しい記録はありません。`;
   const mode = {
     sinceConfirmed: () => L`あなたが確認したのは第${fmtNum(s.since?.bell ?? 0)}ターンまでです。`,
     firstOnDevice: () => L`この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
@@ -58,20 +64,28 @@ export function headText(s) {
   const horizon = s.mode === 'sinceConfirmed' && Number.isFinite(s.horizonBell) && s.horizonBell > 0 ? L`この端末では第${fmtNum(s.horizonBell)}ターンより前の出来事は見ていません。` : '';
   const short = s.windowFrom !== null && s.windowFrom !== undefined ? L`読めたのは第${fmtNum(s.windowFrom)}ターンからです。` : '';
   const gap = s.gap ? L`確認した位置のあとの記録の一部を読めていません。欠けた分の出来事は推測しません。` : '';
-  const stop = s.failed ? L`記録の読み込みが途中で失敗しました。読めた分だけを出しています。` : s.incomplete ? L`記録はまだ続きがあります。読めた分だけを出しています。` : '';
+  const stop = s.failed ? (s.read.n ? L`記録の読み込みが途中で失敗しました。読めた分だけを出しています。` : L`記録の読み込みに失敗しました。`)
+    : s.incomplete ? (s.read.n ? L`記録はまだ続きがあります。読めた分だけを出しています。` : L`記録はまだ続きがあります。`) : '';
+  // (bodies the page could not decode: counted, never guessed — told, so the summary is not read as complete)
+  const bad = s.bad > 0 ? L`読めない記録が ${fmtNum(s.bad)} 件ありました。その中身は推測しません。` : '';
   // (Japanese sentences sit together; English ones need a space between them)
-  return [mode, horizon, range, short, gap, stop].filter(Boolean).join(lang() === 'en' ? ' ' : '');
+  return [mode, horizon, range, short, gap, stop, bad].filter(Boolean).join(lang() === 'en' ? ' ' : '');
 }
 
 /** What "確認した" will do, or why it is not offered (the mark never moves over records this page did not read). */
 export function confirmText(s) {
   const c = s.confirm;
-  if (!c?.ok) return c?.why === 'gap' ? L`欠けた記録を読めるまで、確認の位置は進めません（× で閉じても位置は動きません）` : L`新しく確認する記録はありません`;
+  if (!c?.ok) return c?.why === 'gap' ? L`欠けた記録を読めるまで、確認の位置は進めません（× で閉じても位置は動きません）`
+    // (nothing to confirm after a failed or unfinished reading is "nothing read yet", not "nothing new")
+    : s.failed || s.incomplete ? L`まだ記録を読めていないため、確認の位置は進めません`
+    // (how far the mark may move is unchanged: only the words stop saying "nothing new" over undecodable records)
+    : s.bad > 0 ? L`読めない記録のほかに、新しく確認する記録はありません` : L`新しく確認する記録はありません`;
   return c.partial ? L`確認すると、読めた第${fmtNum(c.toBell)}ターンまでを確認済みにします（その先は次に読みます）` : L`確認すると、第${fmtNum(c.toBell)}ターンまでを確認済みにします`;
 }
 
 /** The answer to "確認した": the mark moved, stayed (another tab was ahead), or could not be saved. */
 export function confirmedText(r) {
   if (!r) return L`確認の位置を保存できませんでした。次に開いたときも同じ範囲が出ます`;
+  if (r.moved && r.lastSaved === false) return L`第${fmtNum(r.marks.confirmedBell)}ターンまでを確認済みにしました（この端末で最後に使ったウォレットの記録だけは保存できませんでした）`;
   return r.moved ? L`第${fmtNum(r.marks.confirmedBell)}ターンまでを確認済みにしました` : L`この端末ではすでに第${fmtNum(r.marks.confirmedBell)}ターンまで確認済みです`;
 }

@@ -114,42 +114,56 @@ const holderOf = (book, r) => { const k = caravanKey(r); return k && book?.has(k
 export const storeKey = (seasonId, wallet) => `ws07-return:${seasonId}:${wallet}`;
 
 /**
- * Read the stored marks (`{v, seasonId, wallet, confirmedSeq, confirmedBell, horizonBell, caravans, confirmedAt}`),
+ * Read the stored marks (`{v, seasonId, wallet, confirmedSeq, confirmedBell, horizonBell, caravans, confirmedAt, world?}`),
  * null when none, unreadable or of another season or wallet. A version 1 mark (before the horizon and the book)
- * reads with no horizon and an empty book.
+ * reads with no horizon and an empty book. `world` (the pinned world: cluster, program, season account): a mark that
+ * names another world is not this one's (null: two worlds can share a season number and a wallet, and a foreign mark
+ * would skip this world's unread records). A mark that names no world (written before 2026-11-17) reads as before.
  */
-export function loadMarks(storage, seasonId, wallet) {
+export function loadMarks(storage, seasonId, wallet, world = null) {
   try {
     const raw = storage?.getItem?.(storeKey(seasonId, wallet));
     const m = raw ? JSON.parse(raw) : null;
     if (!m || (m.v !== 1 && m.v !== STORE_VERSION) || String(m.seasonId) !== String(seasonId) || m.wallet !== wallet || big(m.confirmedSeq) === null) return null;
-    return { v: STORE_VERSION, seasonId: String(m.seasonId), wallet: m.wallet, confirmedSeq: String(big(m.confirmedSeq)), confirmedBell: Number(m.confirmedBell ?? 0), horizonBell: m.horizonBell ?? null, caravans: m.caravans && typeof m.caravans === 'object' ? m.caravans : {}, confirmedAt: m.confirmedAt ?? null };
+    if (world && typeof m.world === 'string' && m.world !== world) return null;
+    return { v: STORE_VERSION, seasonId: String(m.seasonId), wallet: m.wallet, confirmedSeq: String(big(m.confirmedSeq)), confirmedBell: Number(m.confirmedBell ?? 0), horizonBell: m.horizonBell ?? null, caravans: m.caravans && typeof m.caravans === 'object' ? m.caravans : {}, confirmedAt: m.confirmedAt ?? null, ...(typeof m.world === 'string' ? { world: m.world } : {}) };
   } catch { return null; }
 }
-/** What this device last used: `{seasonId, wallet}` or null (to tell "another wallet" and "a new season"). */
+/** What this device last used: `{seasonId, wallet, world?}` or null (to tell "another wallet" and "a new season" — or another world). */
 export function loadLast(storage) {
   try { const m = JSON.parse(storage?.getItem?.('ws07-return:last') ?? 'null'); return m && m.seasonId !== undefined ? m : null; } catch { return null; }
 }
 
 /**
  * The player pressed "確認した" on a summary whose `confirm` is ok: the mark moves to `confirm.toSeq`. A mark never
- * moves back (another tab may have moved it further). Returns `{marks, moved}`, or null when storage refused (the
- * mark is then where it was, and the page says so).
+ * moves back (another tab may have moved it further). Returns `{marks, moved}`, or null when the mark could not be
+ * saved (it is then where it was, and the page says so). The mark is the only thing that decides: it is written, then
+ * read back. The device's "last used" (`ws07-return:last`, only for telling another wallet, season or world on a
+ * later first look) is written after it and apart: when only that write fails, the mark has still moved, and the
+ * answer says so with `lastSaved: false` — never null (2026-11-17: one try for both turned a saved mark into
+ * "could not save").
  */
-export function confirm(storage, { seasonId, wallet, confirm: c, at }) {
+export function confirm(storage, { seasonId, wallet, confirm: c, at, world = null }) {
   if (!c?.ok) return null;
+  let m;
   try {
-    const had = loadMarks(storage, seasonId, wallet);
+    const had = loadMarks(storage, seasonId, wallet, world);
     // (a mark beyond the season's head is not this history's — summarize says markAhead — and is replaced)
     if (had && !c.reset && big(had.confirmedSeq) >= big(c.toSeq)) return { marks: had, moved: false };
     const entries = Object.entries(c.caravans ?? {});
-    const m = { v: STORE_VERSION, seasonId: String(seasonId), wallet, confirmedSeq: String(c.toSeq), confirmedBell: c.toBell, horizonBell: c.horizonBell ?? null,
-      caravans: Object.fromEntries(entries.slice(Math.max(0, entries.length - BOOK_MAX))), confirmedAt: at };
+    m = { v: STORE_VERSION, seasonId: String(seasonId), wallet, confirmedSeq: String(c.toSeq), confirmedBell: c.toBell, horizonBell: c.horizonBell ?? null,
+      caravans: Object.fromEntries(entries.slice(Math.max(0, entries.length - BOOK_MAX))), confirmedAt: at, ...(world ? { world } : {}) };
     storage.setItem(storeKey(seasonId, wallet), JSON.stringify(m));
-    storage.setItem('ws07-return:last', JSON.stringify({ seasonId: String(seasonId), wallet }));
-    const back = loadMarks(storage, seasonId, wallet);
-    return back && back.confirmedSeq === m.confirmedSeq ? { marks: back, moved: true } : null;
-  } catch { return null; }
+  } catch { /* the write may or may not have reached the store: the read-back below decides */ }
+  if (!m) return null;
+  const back = loadMarks(storage, seasonId, wallet, world);
+  // (another tab saved a mark further on in between: the position is at least this one — "already confirmed", not a failure)
+  // (not when replacing a mark beyond the head: that old mark is not this history's, and its survival is a failed write)
+  if (back && !c.reset && big(back.confirmedSeq) > big(m.confirmedSeq)) return { marks: back, moved: false };
+  if (!back || back.confirmedSeq !== m.confirmedSeq) return null;
+  let lastSaved = true;
+  try { storage.setItem('ws07-return:last', JSON.stringify({ seasonId: String(seasonId), wallet, ...(world ? { world } : {}) })); } catch { lastSaved = false; }
+  return lastSaved ? { marks: back, moved: true } : { marks: back, moved: true, lastSaved: false };
 }
 
 /**
@@ -276,14 +290,14 @@ function withArrival(it, r, sent, rules = {}) {
  * toSeq, toBell, horizonBell, caravans, partial, reset}` or `{ok: false, why:
  * 'gap' | 'nothing'}`.
  */
-export function summarize({ records: raw, read, marks: given, last, season, wallet, nowBell, headSeq = null, me, rules = {} }) {
+export function summarize({ records: raw, read, marks: given, last, season, wallet, nowBell, headSeq = null, me, rules = {}, world = null }) {
   const norm = normalizeRecords(raw);
   const records = norm.records;
   const ahead = !!given && big(headSeq) !== null && big(given.confirmedSeq) > big(headSeq);
   const marks = ahead ? null : given;
   const mode = ahead ? 'markAhead'
     : marks ? 'sinceConfirmed'
-    : last && String(last.seasonId) !== String(season) ? 'newSeason'
+    : last && (String(last.seasonId) !== String(season) || (world && typeof last.world === 'string' && last.world !== world)) ? 'newSeason'
     : last && last.wallet !== wallet ? 'otherWallet'
     : 'firstOnDevice';
   const since = marks ? { seq: String(marks.confirmedSeq), bell: marks.confirmedBell } : null;
@@ -317,6 +331,8 @@ export function summarize({ records: raw, read, marks: given, last, season, wall
     mode, since, firstBell, horizonBell, windowFrom,
     read: { after: from === null ? null : String(from), toSeq: lastRead?.seq ?? null, fromBell: bells.length ? Math.min(...bells) : null, toBell: bells.length ? Math.max(...bells) : null, n: inRange.length, dups: norm.dups, reordered: norm.reordered },
     gap, incomplete: read?.complete === false, failed: read?.failed === true,
+    // (bodies the page could not decode: counted by the reader, never guessed — told, so the reader knows the summary may lack them)
+    bad: Number.isSafeInteger(read?.bad) && read.bad > 0 ? read.bad : 0,
     items: sorted.slice(0, SUMMARY_MAX), more: Math.max(0, sorted.length - SUMMARY_MAX), counts,
     book, sent, confirm: confirmOut,
   };
