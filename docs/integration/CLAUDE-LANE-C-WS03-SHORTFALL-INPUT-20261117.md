@@ -68,3 +68,42 @@ Written, not run: no test, syntax check, import, server or world.
 - Only the `kind: 'amounts'` input of this one tool is checked. Other tools' inputs, and a general `tools/call` schema check, are out of scope by instruction.
 - Extra properties on `goal` itself, like `{kind: 'vault', amounts: …}`, are still ignored as before; the schema's `additionalProperties: false` on `goal` is not enforced here.
 - Nothing was run, and the real MCP error output was not observed.
+
+## One-time static falsification of the change (2026-11-17; nothing run)
+
+Inputs as JSON delivers them (`JSON.parse` of `tools/call` arguments), against the schema (`tools.mjs` `cargoSchema`; the `goal` object needs `kind`, and `amounts` is optional) and the code at `ad1922e0`:
+
+| Input | Schema says | Code at `ad1922e0` | Agrees? |
+|---|---|---|---|
+| `{"kind":"amounts","amounts":{"Stone":300}}` | Valid | `need` Stone 300, others 0 | Yes |
+| A resource omitted (`{"Stone":300}` and nothing else) | Valid, omitted = 0 | `goal.amounts[r] ?? 0` gives 0 | Yes |
+| `{"Stone":null}` (explicit `null`) | Invalid (integer) | `BadRequest` "amounts.Stone must be…" | Yes |
+| `"amounts":null` | Invalid (object) | `BadRequest` "goal must be…" | Yes |
+| `"amounts":[]` or `[300]` | Invalid (object, not array) | `BadRequest` "goal must be…" (before the change, `[]` passed as no need) | Yes (fixed) |
+| `{"Stone":0}` / `{"Stone":1000000}` | Valid (the bounds) | Accepted | Yes |
+| `{"Stone":1000001}`, `1e20`, `-1` | Invalid | `BadRequest` | Yes |
+| `{"Stone":-0}` (JSON `-0`) | Valid (`-0 ≥ 0`) | `Number.isInteger(-0)`, `-0 < 0` is false, so it is accepted as 0 | Yes |
+| `{"Stone":1e6}` | Valid (an integer value) | `JSON.parse` gives 1000000, accepted | Yes |
+| `{"stone":1}` (other case), `{"Mana":1}`, `{"__proto__":1}` (an own key after `JSON.parse`) | Invalid (`additionalProperties: false`) | `BadRequest` "unknown resource …" | Yes |
+| `{"kind":"vault"}` | Valid | Unchanged | Yes |
+
+**Existing valid consumers:** as in the compatibility table above. `local-stack.mjs` (whole numbers), `play.test.mjs` (`Mana` → the same message) and the vault calls are unaffected.
+
+**Result:** the change introduced no defect, and no further code change was made.
+
+**Pre-existing mismatches (not introduced by `ad1922e0`; recorded, not changed):**
+1. **Legacy programs (`programVersion < 4`).**
+   - `Game.shortfall` checks keys against `view.resources`, which is `RESOURCE_ORDER` there (`permutation-server/web/frontier/resources.mjs:5`; index 4 is `Horses`).
+   - The schema names `Arms`. So a schema-valid `{"Arms":5}` is refused as unknown, while the schema-invalid `{"Horses":5}` is accepted.
+   - `prepare_caravan` (`server.mjs` `askedCargo`) checks against the fixed `RESOURCE_NAMES` (`Arms`), so the two tools disagree on such programs.
+   - Fixing it means deciding whether legacy `Horses` stays accepted (an alias) or is refused. That is the owner's decision.
+2. **`{"kind":"amounts"}` with no `amounts`.** The schema allows it, but it is refused with "goal must be …", unchanged since before. Whether it should mean "nothing needed" is also the owner's decision.
+
+## Hand-over to D (for the aggregate; the aggregate is not changed here)
+
+- **Base:** `claude/aggregate-approved-20261117` at `3780614871f80f73d481af61264f9cb5dbd46768`.
+- **Code commit:** `ad1922e06645ce76445bc5ec197acae03a8f71f7`. The branch tip is the next commit (this report only), on `claude/lane-c-ws03-shortfall-input-20261117`.
+- **Three paths:**
+  - `workstreams/03-composability/mcp/src/game.mjs` (M, `Game.shortfall` `amounts` branch only);
+  - `workstreams/03-composability/mcp/test/shortfall-input.test.mjs` (A, not run, not independent: see above);
+  - `docs/integration/CLAUDE-LANE-C-WS03-SHORTFALL-INPUT-20261117.md` (A).
