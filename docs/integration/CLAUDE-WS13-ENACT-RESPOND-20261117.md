@@ -1,6 +1,9 @@
 # ⑬ operator resident: enacting a respond proposal on workstream 1's board; a send held (2026-11-17)
 
-**Branch:** `claude/ws13-enact-respond-20261117`, one commit **on `9730f8e2`** (the owner-mode unit's final tip, unchanged).
+**Branch:** `claude/ws13-enact-respond-20261117` **on `9730f8e2`** (the owner-mode unit's final tip, unchanged).
+- `b1f11f5c` is the first tip.
+- The correction (the second tip) is on top of it.
+- **Do not adopt `b1f11f5c` alone.**
 
 **Adoption and closure:**
 - take this unit's own diff `9730f8e2..<this tip>`;
@@ -44,6 +47,40 @@ A `respond` proposal becomes workstream 1's signed `respond` record (`record.mjs
 - **It moves nothing:** a respond record only says the resident will send (workstream 1). It is **not** a send, an arrival or a count.
 - **Overwriting is avoided:** the board refuses the same record twice, but a new respond from the same signer replaces an earlier answer. One line per request, with the same bytes reused, means this code never makes a second record for the same request.
 
+## Second tip: the parent's review of `b1f11f5c`
+
+### 1. Bindings
+
+- **Each journal line records the binding it was made under:** the wallet, the board's base URL, the program, Season, network and world id.
+- **Every reuse** (intended, signed, sending, posted, refused) is checked against the current binding **before anything is done**, including the `sending` read-back.
+- **A missing or different binding is `held`** ("made for another wallet, board or world"). So a past signature, post or result is never used for another identity, board or world.
+- **A line state this code does not know is `held`**, never treated as a new intent.
+
+### 2. The record from allowed fields only
+
+- **The record is built as** `{v: 1, kind: 'respond', season: {programId, seasonId}, at, request, answer: 'accept', offer, nation}`. The proposal's record must be **exactly** `{kind: 'respond', request, answer: 'accept', offer}`, so it cannot replace `kind`, `season` or `at`.
+- **Checked before signing:**
+  - an unenacted proposal;
+  - a choosable (not held) respond candidate for the same request;
+  - the request present in this observation (open, verified, this world);
+  - the offer equal to the candidate's, in whole units of the request's own resources, no more than its need;
+  - workstream 1's `shapeProblem`.
+- **Anything else is never signed, and nothing is written.**
+
+### 3. What was observed and what was saved
+
+- **Every answer carries `durable`.** When the board's answer is seen but the journal cannot be saved:
+  - the result says so (`durable: false`, with why);
+  - the journal on disk still says `sending`.
+- **A later call**, in the same process (each call reads the journal from disk) or after a restart, **only reads back; it never posts again.**
+
+### 4. One call per request at a time
+
+- **Within one process:** a second call for the same request is `held` while the first runs.
+- **Across processes:** **nothing is excluded** (no lock in the files). Use one process per resident directory.
+
+**Unchanged:** the stop before any new operation and after the signature; the board's world checked before the POST; stop-A read-back only; no send, no key, no authority.
+
 ## `enactSend()`: held, not supported
 
 A caravan send is **not enacted**. The reasons, from the existing code:
@@ -80,9 +117,15 @@ Temporary resident directories, a fake signer (fixed bytes, no key), a fake boar
   - the intent is saved before signing;
   - `sending` is saved before the POST.
 
+**(second tip) Added:**
+- **Bindings:** a line used with another board or world is held; a state this code does not know is held; a line without a binding is not read back.
+- **The record:** extra or replaced fields, another kind, a decline, a held candidate, another request, an offer beyond the need or unlike the candidate's, an enacted proposal: never signed, nothing written.
+- **Not durable:** an answer seen while the directory is read-only gives `durable: false`; the journal still says `sending`; the next call only reads back (skipped as root).
+- **One call per request at a time** in a process.
+
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws13-enact-respond-20261117`, one commit on `9730f8e2`, all `100644`:
+**Unit:** `claude/ws13-enact-respond-20261117`, two commits on `9730f8e2` (`b1f11f5c`, then the correction). Take the final tip's diff from `9730f8e2`, all `100644`:
 - `workstreams/13-citizens/resident/live/enact.mjs` (A)
 - `workstreams/13-citizens/test/live-enact.test.mjs` (A)
 - `docs/integration/CLAUDE-WS13-ENACT-RESPOND-20261117.md` (A)
