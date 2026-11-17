@@ -1,6 +1,9 @@
 # ⑬ operator resident: a new resident directory, stopped from the start, from public values only (2026-11-17)
 
-**Branch:** `claude/ws13-initial-resident-20261117`, one commit **on `cd2f6683`** (the one-step entry's final tip, unchanged).
+**Branch:** `claude/ws13-initial-resident-20261117` **on `cd2f6683`** (the one-step entry's final tip, unchanged).
+- `e66e6b91` is the first tip.
+- The correction (the second tip) is on top of it.
+- **Do not adopt `e66e6b91` alone.**
 
 **Adoption and closure:**
 - take this unit's own diff `cd2f6683..<this tip>`, **after the one-step entry** `d00f13b4..cd2f6683`, because its regression uses `runOnce`;
@@ -37,10 +40,43 @@ The one-step entry needs a resident directory (`charter.json`, `state.json`). Un
 - choose a wallet, owner or funder;
 - fund, authorize, switch to `auto`, join, connect to a world, sign or send.
 
+## Second tip: the parent's review of `e66e6b91`
+
+### 1. The save took any charter and state
+
+- **The defect:** `writeInitialResident({dir, charter, state})` checked only `manual` and the halt path. A state with a journal, an allowance, a balance, another wallet or a later change could have been saved as a "new" resident.
+- **Now it takes the same input as `initialResident`**, builds the content itself, and checks it.
+  - **The check, `initialContentProblems`:**
+    - the charter is `charterOf`'s for this directory;
+    - the state is exactly `initialStateOf(charter)` plus one ledger record for this id;
+    - the record is `manual`, with `policy {allowed: [], version: 1}` and no `revoked`;
+    - this wallet as agent key; the charter's owner as owner and payout;
+    - zero balances, no holds, withdrawals or requests, mode epoch 0, no capability;
+    - no deposits, sends, nonces or costs.
+  - **Then the two files' bytes are fixed before anything is made.**
+  - **A charter or state passed in is refused** (`step: 'input'`), as is any other unknown setting.
+- **`limits`, `budget` and `siblings` are checked against the charter's own forms:**
+  - limits: only the resident's limit names, as positive whole numbers;
+  - budget: only its fields, decimal strings in base units, and `callsPerDay` a whole number;
+  - siblings: up to 16 public addresses;
+  - nothing is coerced, and no allowance can be given.
+
+### 2. What the save guarantees, stated exactly
+
+- **Guaranteed:**
+  - the last step of the path (the parent) is a real directory, not a link;
+  - `dir` is made non-recursively, so an existing directory, or a link there, is refused;
+  - `dir` is then checked to be a real directory owned by this user;
+  - the files are created exclusively, written whole and synced.
+- **Not guaranteed:**
+  - links further up the path are **not checked**;
+  - the checks and the making are separate system calls, so a change by someone else between them is **not excluded** beyond what the non-recursive `mkdir` and the exclusive creates refuse.
+- **On a failure, nothing is removed.**
+
 ## The way through (not run)
 
 1. **Build:** `initialResident({dir, id, name, goal, owner: {address}, wallet, createdAtMs})` → `{ok, charter, state}`.
-2. **Save:** `writeInitialResident({dir, charter, state})` → `{ok: true, wrote: ['charter.json', 'state.json']}`.
+2. **Save:** `writeInitialResident({dir, id, name, goal, owner: {address}, wallet, createdAtMs})` (the same settings) → `{ok: true, wrote: ['charter.json', 'state.json']}`.
 3. **Read back:** `readResidentState(dir, wallet)` → `stop: stopped-by-owner`, with no submitted key.
 4. **One step:** `runOnce({heraldUrl, wallet, residentDir: dir})` (or `bin/live-once.mjs`) → `outcome: 'stopped'`. With no execution port, no key is read and no network is used.
 
@@ -56,6 +92,11 @@ The one-step entry needs a resident directory (`charter.json`, `state.json`). Un
 - **Also not connected:** join, a running resident, and a persistent key and identity.
 
 ## Regression (written, NOT run): `workstreams/13-citizens/test/live-initial.test.mjs` (new)
+
+**(second tip)** The save is updated to the settings input: what is saved is what `initialResident` builds, and a charter or state passed in is refused. Added:
+- `initialContentProblems` names each tampering: a submitted journal line, a turn, auto, an allowance, `revoked` set, a balance, a hold, another wallet or agent, a used nonce, a mode epoch, another directory;
+- the charter's forms for limits, budget and siblings;
+- `mode`, `policy` and `state` refused as settings.
 
 - **The pure assembly:**
   - the charter equals `charterOf`, with `HALT` and the funder defaulting to the owner;
@@ -78,7 +119,7 @@ The one-step entry needs a resident directory (`charter.json`, `state.json`). Un
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws13-initial-resident-20261117`, one commit on `cd2f6683`, all `100644`:
+**Unit:** `claude/ws13-initial-resident-20261117`, two commits on `cd2f6683` (`e66e6b91`, then the correction). Take the final tip's diff from `cd2f6683`, all `100644`:
 - `workstreams/13-citizens/resident/resident.mjs` (M)
 - `workstreams/13-citizens/resident/live/initial.mjs` (A)
 - `workstreams/13-citizens/test/live-initial.test.mjs` (A)
