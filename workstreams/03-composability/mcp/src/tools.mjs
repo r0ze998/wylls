@@ -26,7 +26,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'get_village_status',
     title: 'Village status',
-    description: 'The connected owner\'s village now: stores, production per hour and caps; the owner\'s storehouses and their stores; the owner\'s caravans on the road with their arrival time; the agent\'s mode, on-chain delegation and budget (the agent wallet\'s). caravanFeed says whether the caravan feed was read: when it is "unavailable", storehouses and caravansOnTheRoad are empty because they were not read, not because there are none. A storehouse with known: false has stores: null: its stores are not known, not 0. Places carry a placeId to use with prepare_caravan. Read this first. No change.',
+    description: 'The connected owner\'s village now: stores, production per hour and caps; the owner\'s storehouses and their stores; the owner\'s caravans on the road with their arrival time; the agent\'s mode, on-chain delegation and budget (the agent wallet\'s). caravanFeed says whether the caravan feed was read: when it is "unavailable", storehouses and caravansOnTheRoad are empty because they were not read, not because there are none. A storehouse with known: false has stores: null and cap: null: its stores and capacity are not known, not 0. Places carry a placeId to use with prepare_caravan. Read this first. No change.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { ...read, title: 'Village status' },
     securitySchemes: oauth([SCOPES.READ]),

@@ -21,8 +21,10 @@ test('U1 an unavailable caravan feed means not read, not none', () => {
   assert.match(desc, /caravanFeed says whether the caravan feed was read: when it is "unavailable", storehouses and caravansOnTheRoad are empty because they were not read, not because there are none\./);
 });
 
-test('U2 known: false stores are not known, not 0', () => {
-  assert.match(desc, /A storehouse with known: false has stores: null: its stores are not known, not 0\./);
+// U2 updated 2026-11-17 (Lane C, vault-cap-unknown): game.view now also returns cap: null for known: false (herald.mjs vaultOf
+// omits cap with stores), and the description says so.
+test('U2 known: false stores and capacity are not known, not 0', () => {
+  assert.match(desc, /A storehouse with known: false has stores: null and cap: null: its stores and capacity are not known, not 0\./);
 });
 
 test('U3 the earlier sentences are unchanged', () => {
