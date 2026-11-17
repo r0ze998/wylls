@@ -24,6 +24,8 @@ const EVENT_PAGES_PER_CHECK = 10;
 export const UNCERTAIN_WINDOW_MS = 5 * 60_000;
 /** A finished operation stays in the main store this long (answers to its retries stay fast), then moves to the archive. */
 export const ARCHIVE_AFTER_MS = 60 * 60_000;
+/** get_run_status follows at most this many operations of one run (each is tracked: the bound get_run_status had). */
+export const RUN_OPERATIONS = 1000;
 const ARCHIVE_PER_CALL = 200;
 
 const text = obj => [{ type: 'text', text: JSON.stringify(obj) }];
@@ -764,7 +766,10 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
   async function runStatus(principal, args) {
     const runId = String(args?.runId ?? '');
     if (!RUN_ID.test(runId)) return fail('BadRequest', 'runId: 8–128 characters of A–Z a–z 0–9 . _ : -');
-    const ops = store.operationsOf([principal.linkId], 1000).filter(op => op.runId === runId);
+    // The run first, then at most RUN_OPERATIONS operations of it (newest first): another run's newer operations no
+    // longer push this run's out (2026-11-17). More than that is said (operationsTruncated, operationsTotal), never
+    // shown as all of them. A store read that fails throws (tools/call: InternalError), never an empty run.
+    const { operations: ops, total } = store.operationsOfRun([principal.linkId], runId, RUN_OPERATIONS);
     const operations = [];
     for (const op of ops) operations.push(receiptOf(await track(op, principal)));
     let registry = null;
@@ -789,7 +794,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       }
       catch (e) { registry = { read: false, error: `${e?.code ?? 'Error'}: ${scrub(e?.message)}` }; }
     }
-    return ok({ runId, operations, registry, notes: ['Read only: nothing is sent. The registry lists every act registered under this run (other senders\' included, each with its source).',
+    return ok({ runId, operations, ...(total > ops.length ? { operationsTruncated: true, operationsTotal: total } : {}), registry, notes: ['Read only: nothing is sent. The registry lists every act registered under this run (other senders\' included, each with its source).',
       'readVia says how this server asked workstream 04 (gateway: ④ was asked to read the agent wallet once; store-only: ④\'s stored record; null: not known); it is not freshness, success or chain finality, and source is who registered the act.'] });
   }
 

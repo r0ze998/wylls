@@ -39,7 +39,9 @@ export class JsonStore {
   }
 
   #remember(op, offset, length) {
-    this.archived.set(op.id, { offset, length, linkId: op.linkId, requestId: op.requestId, createdAt: op.createdAt });
+    // runId (2026-11-17) is read from the same line, so an archive written before it was indexed gets it on the next
+    // start too (#indexArchive): nothing is rewritten or migrated.
+    this.archived.set(op.id, { offset, length, linkId: op.linkId, requestId: op.requestId, createdAt: op.createdAt, runId: op.runId ?? null });
   }
 
   /**
@@ -107,6 +109,21 @@ export class JsonStore {
     const cold = [...this.archived].filter(([id, x]) => ids.has(x.linkId) && !seen.has(id)).map(([id, x]) => ({ id, createdAt: x.createdAt }));
     const all = [...hot, ...cold].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, limit);
     return all.map(o => (o.state ? o : this.operation(o.id)));
+  }
+
+  /**
+   * These links' operations sent with `runId` (main store and archive together, main wins a duplicate), newest first,
+   * at most `limit`, and `total`: how many there are. The run is chosen first (2026-11-17): operationsOf(…, limit)
+   * filtered afterwards dropped a run whose operations were older than `limit` operations of other runs. Only the
+   * returned archived operations are read from their lines; the rest are counted from the index.
+   */
+  operationsOfRun(linkIds, runId, limit) {
+    const ids = new Set(linkIds);
+    const hot = Object.values(this.state.operations).filter(o => ids.has(o.linkId) && o.runId === runId);
+    const seen = new Set(hot.map(o => o.id));
+    const cold = [...this.archived].filter(([id, x]) => ids.has(x.linkId) && x.runId === runId && !seen.has(id)).map(([id, x]) => ({ id, createdAt: x.createdAt }));
+    const all = [...hot, ...cold].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return { operations: all.slice(0, limit).map(o => (o.state ? o : this.operation(o.id))), total: all.length };
   }
 
   /** Writes the whole state (synchronous: no other change can interleave). */
