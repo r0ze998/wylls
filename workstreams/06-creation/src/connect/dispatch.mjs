@@ -466,16 +466,32 @@ export function fileJournal(path, fs, { pid = process.pid, alive, startOf = proc
   };
 }
 
-/** A process's start time from /proc/<pid>/stat (field 22), null if there is no such process, undefined if unknown. */
-function procStart(pid) {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
-  } catch (e) {
-    if (e.code === "ENOENT") return null;
-    try { process.kill(pid, 0); return undefined; } catch (k) { return k.code === "EPERM" ? undefined : null; }
+/**
+ * A process's start time: a string from /proc/<pid>/stat (field 22); null only when it is known that there is no such
+ * process; undefined when it runs (or may run) and its start time is not known.
+ *
+ * (2026-11-18) A missing /proc/<pid>/stat says "no such process" only where /proc is there at all. Before, ENOENT was
+ * read as "gone" on every platform, and macOS (no /proc) reported every live lock holder dead, so concurrent openers
+ * each took the "stale" lock over and all held it. Now ENOENT is "gone" only when /proc/self/stat (this process) can be
+ * read: the facility exists and the pid is not in it (Linux, unchanged, start times still tell a reused pid apart).
+ * Without /proc the process is asked by signal 0: ESRCH is "gone"; success, EPERM (it exists, another user's) and any
+ * other error are "runs, start unknown", so a lock is never taken from a holder that is not proven gone. Without start
+ * times a reused pid cannot be told apart there: its lock is refused (conservative), never taken over.
+ * Any other /proc read error (EACCES under hidepid, …) asks by signal as before.
+ */
+export function processStart(pid, { read = readFileSync, kill = process.kill.bind(process) } = {}) {
+  let stat;
+  try { stat = read(`/proc/${pid}/stat`, "utf8"); } catch (e) {
+    if (e?.code === "ENOENT" && procfs(read)) return null;
+    try { kill(pid, 0); return undefined; } catch (k) { return k?.code === "ESRCH" ? null : undefined; }
   }
+  return String(stat).slice(String(stat).lastIndexOf(")") + 2).split(" ")[19];
 }
+/** Whether a Linux-style /proc is mounted here: this process's own stat file can be read. */
+function procfs(read) {
+  try { read("/proc/self/stat", "utf8"); return true; } catch { return false; }
+}
+const procStart = (pid) => processStart(pid);
 
 function randomToken() {
   return randomUUID();

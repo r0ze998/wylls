@@ -111,16 +111,25 @@ fn boundary_origin(ctx: &AddrCtx, p: i64, q: i64, direction: usize) -> WideTile 
         })
         .unwrap()
 }
+/// Arrival orders sealed in a wide plain: arrive bell, stance, retreat bps.
+struct Orders {
+    bell: u32,
+    stance: u8,
+    retreat: u16,
+}
 fn plain_vector(
     name: &str,
     ctx: &AddrCtx,
     h: WideHostRef,
     origin: WideTile,
     dirs: &[u8],
-    bell: u32,
-    stance: u8,
-    retreat: u16,
+    orders: Orders,
 ) -> Value {
+    let Orders {
+        bell,
+        stance,
+        retreat,
+    } = orders;
     let (end, steps, keys) = route(origin, dirs);
     let (path_len, path) = permutation_rules::frontier::seal::encode_path(dirs).unwrap();
     let plain = WidePlain {
@@ -182,16 +191,16 @@ fn public_vectors() -> Value {
     let big_negative = WideTile::of(TileAddress::new(key(&ctx, -(1i64 << 53) - 1, 17), 0).unwrap());
     json!({"schema": 1, "provenance": "synthetic-public-codec-vectors-not-native-execution",
     "plain": [
-        plain_vector("boundary-128-to-129", &ctx, host(&ctx, 128, 0), origin, &[0, 0], 12, 0, 0),
-        plain_vector("different-issuer-and-current-origin", &ctx, host(&ctx, 127, 0), origin, &[0, 0], u32::MAX, 3, 60000),
-        plain_vector("negative-original-boundary", &ctx, host(&ctx, -127, 0), negative, &[3, 3], 500, 2, 12345)
+        plain_vector("boundary-128-to-129", &ctx, host(&ctx, 128, 0), origin, &[0, 0], Orders { bell: 12, stance: 0, retreat: 0 }),
+        plain_vector("different-issuer-and-current-origin", &ctx, host(&ctx, 127, 0), origin, &[0, 0], Orders { bell: u32::MAX, stance: 3, retreat: 60000 }),
+        plain_vector("negative-original-boundary", &ctx, host(&ctx, -127, 0), negative, &[3, 3], Orders { bell: 500, stance: 2, retreat: 12345 })
     ],
     "geometry": [
         geometry_vector("positive-past-js-safe-integer", big, &[0, 1, 2, 3, 4, 5, 0, 5]),
         geometry_vector("negative-past-js-safe-integer", big_negative, &[3, 3, 3, 3, 3, 3, 3, 3]),
         geometry_vector("empty-path-is-geometry-only", origin, &[])
     ],
-    "genericPlain": [plain_vector("generic-wide-host-full-width", &ctx, host(&ctx, (1i64 << 53) + 1, -2), big, &[0, 1, 2, 3, 4, 5, 0, 5], 42, 1, 1)],
+    "genericPlain": [plain_vector("generic-wide-host-full-width", &ctx, host(&ctx, (1i64 << 53) + 1, -2), big, &[0, 1, 2, 3, 4, 5, 0, 5], Orders { bell: 42, stance: 1, retreat: 1 })],
     "depart": [
         depart_vector("standing-is-home", &ctx, host(&ctx, 128, 0), key(&ctx, 128, 0), address(7), address(8), 0),
         depart_vector("actor-payer-and-standing-home-aliases", &ctx, host(&ctx, 128, 0), key(&ctx, 128, 0), address(7), address(7), 3),

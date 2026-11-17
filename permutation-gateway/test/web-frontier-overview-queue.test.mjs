@@ -22,16 +22,37 @@ async function drain(src,finish=x=>x.finish()) {
   return waves;
 }
 
-// Execute only the isolated refresh declaration with read-only injected inputs.
-// The controller's imports, module initializers, wallet and boot never execute.
-function controllerRefresh(FS,herald,read=readOverviews) {
+// Execute only isolated controller declarations with read-only injected inputs: the world-aware refresh
+// (refreshOverviews and its cache), the pinned-world key (providerWorld), the season answer order
+// (askSeason/takeSeason/seasonStale) and the pinned-record check (recordOfPin), each cut from the real source.
+// The controller's imports, module initializers, wallet and boot never execute; the pin (`io.pinned()`, which
+// fchainio.setPin sets in the page) is a plain injected object.
+const W1={gen:0,cluster:'localnet',programId:'Prog1',seasonId:'7',addresses:{season:'Season1'}};
+const W2={gen:1,cluster:'localnet',programId:'Prog1',seasonId:'8',addresses:{season:'Season2'}};
+/** A season record of world `w` (what recordOfPin accepts for that pin). */
+const rec=(w,rings,ringProvinces)=>({rings,ringProvinces,cluster:w.cluster,programId:w.programId,season:w.seasonId,seasonAddress:w.addresses.season});
+function cut(source,from,to) {
+  const i=source.indexOf(from);
+  assert.ok(i>=0,`controller.mjs has ${from}`);assert.equal(source.indexOf(from,i+1),-1,`${from} appears once`);
+  const j=source.indexOf(to,i+from.length);assert.ok(j>i,`${to} follows ${from}`);
+  return source.slice(i,j);
+}
+function controllerRefresh(FS,herald,read=readOverviews,{pin=W1}={}) {
   const source=readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs',import.meta.url),'utf8');
-  const start=source.indexOf('let overviewRefresh = null, overviewSource = null;');
-  const end=source.indexOf('// ------------------------------------------------------------------ the composer',start);
-  assert.ok(start>=0&&end>start);
-  const isolated=new Function('FS','herald','applySeasonRecord','readOverviews','conquestEnabled','invalidate',
-    `${source.slice(start,end)}\nreturn {refresh:refreshOverviews,setHerald:h=>{herald=h;}};`);
-  return isolated(FS,herald,applySeasonRecord,read,()=>true,()=>{});
+  const world=cut(source,'function providerWorld() {','\n');
+  const order=cut(source,'let seasonAsked = 0, seasonTaken = 0;','/** The conquest and S1 state is another world').replace(/^export /gm,'');
+  const refresh=cut(source,'let overviewRefresh = null, overviewSource = null, overviewWorld = null;','// ------------------------------------------------------------------ the composer');
+  // The refresh under test is the world-aware one: it keys its cache and completion by the pinned world, applies only
+  // a record of that world, and only when no later-asked season answer was applied.
+  assert.match(refresh,/const w = providerWorld\(\);/);
+  assert.match(refresh,/recordOfPin\(r\.record\) && !seasonStale\(seq\)/);
+  assert.match(refresh,/overviewWorld = request\.world;/);
+  assert.match(order,/function recordOfPin\(record\)/);
+  const io={pinned:()=>pin};
+  const isolated=new Function('FS','herald','applySeasonRecord','readOverviews','conquestEnabled','invalidate','io',
+    `${world}\n${order}\n${refresh}\nreturn {refresh:refreshOverviews,setHerald:h=>{herald=h;},ask:askSeason,take:takeSeason};`);
+  const h=isolated(FS,herald,applySeasonRecord,read,()=>true,()=>{},io);
+  return {...h,setPin:p=>{pin=p;}};
 }
 
 test('129-ring boot is bounded to four concurrent reads and 33 deterministic response waves',async()=>{
@@ -172,7 +193,7 @@ test('missing/changed ring defaults, v1 fallback, invalid rings and redraw error
 });
 
 test('actual controller refresh shares the same-bell pending promise and caches only completion',async()=>{
-  const FS=state(8),s=source(),record={rings:Array(8).fill(0),ringProvinces:FS.world.ringProvinces};
+  const FS=state(8),s=source(),record=rec(W1,Array(8).fill(0),FS.world.ringProvinces);
   let finishSeason,seasons=0;
   s.herald.season=()=>{seasons++;return new Promise(resolve=>{finishSeason=resolve;});};
   const h=controllerRefresh(FS,s.herald),first=h.refresh(5),second=h.refresh(5);
@@ -180,11 +201,12 @@ test('actual controller refresh shares the same-bell pending promise and caches 
   finishSeason({ok:true,record});await flush();
   assert.strictEqual(h.refresh(5),first);assert.equal(FS.overviewsBell,undefined);
   await drain(s);await first;assert.equal(FS.overviewsBell,5);assert.equal(s.calls.length,8);
+  assert.strictEqual(FS.record,record,'a record of the pinned world is applied');
   await h.refresh(5);assert.equal(seasons,1);
 });
 
 test('actual controller refresh clears failed work for retry without marking the bell complete',async()=>{
-  const FS=state(1),herald={season:async()=>({ok:true,record:{rings:[0],ringProvinces:[1]}})};
+  const FS=state(1),herald={season:async()=>({ok:true,record:rec(W1,[0],[1])})};
   let reads=0;
   const h=controllerRefresh(FS,herald,async()=>{reads++;if(reads===1) throw new Error('offline');return [reads>2];});
   await assert.rejects(h.refresh(5),/offline/);assert.equal(FS.overviewsBell,undefined);
@@ -196,11 +218,11 @@ test('actual controller refresh clears failed work for retry without marking the
 test('actual controller refresh cannot apply an obsolete client season or reuse its completed bell',async()=>{
   const FS=state(1),old=source(),current=source();let finishOld;
   old.herald.season=()=>new Promise(resolve=>{finishOld=resolve;});
-  const record={rings:[0,1],ringProvinces:[1,6]};
+  const record=rec(W1,[0,1],[1,6]);
   current.herald.season=async()=>({ok:true,record});
   const h=controllerRefresh(FS,old.herald),first=h.refresh(5);
   h.setHerald(current.herald);const second=h.refresh(5);
-  finishOld({ok:true,record:{rings:[0],ringProvinces:[99]}});
+  finishOld({ok:true,record:rec(W1,[0],[99])});
   await first;await drain(current);await second;
   assert.strictEqual(FS.record,record);assert.equal(old.calls.length,0);assert.equal(current.calls.length,2);
   const replacement=source();replacement.herald.season=async()=>({ok:true,record});
@@ -209,13 +231,57 @@ test('actual controller refresh cannot apply an obsolete client season or reuse 
 });
 
 test('actual controller refresh joins a later bell instead of applying an older season response',async()=>{
-  const FS=state(1),s=source(),record={rings:[0],ringProvinces:[1]};let finishOld,calls=0;
+  const FS=state(1),s=source(),record=rec(W1,[0],[1]);let finishOld,calls=0;
   s.herald.season=()=>++calls===1?new Promise(resolve=>{finishOld=resolve;}):Promise.resolve({ok:true,record});
   const h=controllerRefresh(FS,s.herald);let completed=false;
   const first=h.refresh(5).then(()=>{completed=true;}),second=h.refresh(6);
-  await flush();finishOld({ok:true,record:{rings:[0],ringProvinces:[99]}});await flush();
+  await flush();finishOld({ok:true,record:rec(W1,[0],[99])});await flush();
   assert.strictEqual(FS.record,record);assert.equal(completed,false);
   await drain(s);await Promise.all([first,second]);assert.equal(FS.overviewsBell,6);assert.equal(s.calls.length,1);
+});
+
+test('actual controller refresh applies only a record of the pinned world; completion is per world',async()=>{
+  const FS=state(1),s=source();let seasons=0,answer=rec(W2,[0],[42]);
+  s.herald.season=async()=>{seasons++;return {ok:true,record:answer};};
+  const h=controllerRefresh(FS,s.herald);
+  // pinned to W1, the herald answers W2's record: it is not applied (pinning is the season poll's), the rings read are
+  // the world already held, and the bell completes for W1 only
+  const first=h.refresh(5);await drain(s);await first;
+  assert.equal(FS.record,undefined,'another world\'s record is never applied');
+  assert.equal(FS.overviewsBell,5);assert.equal(s.calls.length,1);
+  await h.refresh(5);assert.equal(seasons,1,'same bell, same herald, same world: cached');
+  // the same herald pinned to W2 (fchainio.setPin): the bell completed under W1 is not reused
+  h.setPin(W2);answer=rec(W2,[0],[1]);
+  const second=h.refresh(5);await drain(s);await second;
+  assert.equal(seasons,2,'same bell on another world is read again');assert.strictEqual(FS.record,answer);
+  assert.equal(s.calls.length,2);
+  // no pin: providerWorld is null and no record is of it
+  h.setPin(null);answer=rec(W2,[0],[7]);const third=h.refresh(5);await drain(s);await third;
+  assert.equal(seasons,3);assert.equal(FS.record.ringProvinces[0],1,'nothing applied without a pin');
+});
+
+test('actual controller refresh drops a season answer when the world changes while it is pending',async()=>{
+  const FS=state(1),s=source();let finish;
+  s.herald.season=()=>new Promise(resolve=>{finish=resolve;});
+  const h=controllerRefresh(FS,s.herald),first=h.refresh(5);
+  await flush();h.setPin(W2);finish({ok:true,record:rec(W1,[0],[99])});await first;await flush();
+  assert.equal(FS.record,undefined,'an answer read under W1 is not applied under W2');
+  assert.equal(FS.overviewsBell,undefined,'and no bell is marked complete');assert.equal(s.calls.length,0,'nor any overview read');
+  const second=h.refresh(5);await flush();
+  const record=rec(W2,[0],[1]);finish({ok:true,record});await drain(s);await second;
+  assert.strictEqual(FS.record,record);assert.equal(FS.overviewsBell,5);assert.equal(s.calls.length,1);
+});
+
+test('actual controller refresh never applies a season answer asked before one the season poll applied',async()=>{
+  const FS=state(1),s=source();let finish;
+  s.herald.season=()=>new Promise(resolve=>{finish=resolve;});
+  const h=controllerRefresh(FS,s.herald),first=h.refresh(5);await flush();
+  // the season poll (app.mjs loadSeason) asks later, and its answer is applied first
+  const polled=rec(W1,[0],[1]);const seq=h.ask();applySeasonRecord(FS,polled);assert.equal(h.take(seq),true);
+  finish({ok:true,record:rec(W1,[0],[99])});await drain(s);await first;
+  assert.strictEqual(FS.record,polled,'the earlier-asked answer does not undo the later one');
+  assert.equal(FS.overviewsBell,5,'the overviews are still read and complete for this world');
+  assert.equal(h.take(seq),false,'answer numbers only grow');
 });
 
 test('original boot streams summaries, uses PSFOV2 when appropriate, and controller planning still awaits them',()=>{

@@ -26,7 +26,7 @@ for (const k of ["generateKey", "importKey", "exportKey", "deriveKey", "deriveBi
   globalThis.crypto.subtle[k] = () => { throw new Error(`crypto.subtle.${k} called in a no-key test`); };
 }
 
-const { Dispatch, fileJournal } = await import("../src/connect/dispatch.mjs");
+const { Dispatch, fileJournal, processStart } = await import("../src/connect/dispatch.mjs");
 const { contentHash } = await import("../src/canonical.mjs");
 const { relayRequest } = await import("../cli/connect-fixture.mjs");
 const { mineDelivery } = await import("../src/scenario.mjs");
@@ -578,6 +578,56 @@ test("journal lock, real processes: eight that race for one stale lock (every ot
     assert.ok(outs.every((o) => o === "won" || o === "JournalLocked"), outs.join(","));
     void fileURLToPath;
   }
+});
+
+// (2026-11-18) A missing /proc/<pid>/stat means "no such process" only where /proc exists; on a host without it
+// (macOS) the race above saw every live holder as dead and all eight openers "won". Platform-independent checks of
+// how a holder's liveness is read, with the file reader and the signal injected.
+const enoent = () => Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+const errno = (code) => () => { throw Object.assign(new Error(code), { code }); };
+const linuxStat = (start) => `4242 (node (x) y) S ${Array.from({ length: 19 }, (_, i) => (i === 18 ? start : "0")).join(" ")} 0 0`;
+
+test("process start, Linux /proc: start time read; a pid absent from a mounted /proc is gone, without a signal", () => {
+  const signals = [];
+  const kill = (pid, sig) => { signals.push([pid, sig]); };
+  const proc = (table) => (file) => { if (file === "/proc/self/stat") return linuxStat("1"); if (Object.hasOwn(table, file)) return table[file]; throw enoent(); };
+  assert.equal(processStart(4242, { read: proc({ "/proc/4242/stat": linuxStat("98765") }), kill }), "98765", "field 22, after a ')' in the name");
+  assert.equal(processStart(4243, { read: proc({}), kill }), null, "not in a mounted /proc: no such process");
+  assert.deepEqual(signals, [], "/proc alone answers; no signal is sent");
+  // a reused pid: same pid, another start time, is not the holder (running() compares the start times)
+  const path = lockDir();
+  fs.writeFileSync(`${path}.lock`, JSON.stringify({ pid: 4242, start: "111", token: "old" }));
+  const j = fileJournal(path, fs, { pid: 5000, startOf: (p) => processStart(p, { read: proc({ "/proc/4242/stat": linuxStat("222"), "/proc/5000/stat": linuxStat("5") }), kill }) });
+  j.save({ taken: true });
+  j.close();
+  // and the same start time is the running holder: refused
+  fs.writeFileSync(`${path}.lock`, JSON.stringify({ pid: 4242, start: "222", token: "live" }));
+  assert.throws(() => fileJournal(path, fs, { pid: 5000, startOf: (p) => processStart(p, { read: proc({ "/proc/4242/stat": linuxStat("222"), "/proc/5000/stat": linuxStat("5") }), kill }) }), (e) => e.code === "JournalLocked");
+});
+
+test("process start, no /proc (macOS): a live holder is running, only ESRCH is gone, EPERM and unknown errors are conservative", () => {
+  const read = () => { throw enoent(); }; // no /proc at all: neither /proc/<pid>/stat nor /proc/self/stat
+  assert.equal(processStart(4242, { read, kill: () => true }), undefined, "signal 0 delivered: runs, start unknown (was null: 'gone')");
+  assert.equal(processStart(4242, { read, kill: errno("ESRCH") }), null, "no such process");
+  assert.equal(processStart(4242, { read, kill: errno("EPERM") }), undefined, "another user's process: runs");
+  assert.equal(processStart(4242, { read, kill: errno("EINVAL") }), undefined, "an unexplained failure is never read as gone");
+  // a /proc read refused (hidepid) asks by signal as before
+  const hidden = (file) => { if (file === "/proc/self/stat") return linuxStat("1"); throw Object.assign(new Error("EACCES"), { code: "EACCES" }); };
+  assert.equal(processStart(4242, { read: hidden, kill: () => true }), undefined);
+  assert.equal(processStart(4242, { read: hidden, kill: errno("ESRCH") }), null);
+  // the lock: a live holder on such a host is refused, a gone one taken over
+  const path = lockDir();
+  const startOf = (alive) => (p) => processStart(p, { read, kill: (pid) => { if (!alive.includes(pid)) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" }); } });
+  const held = fileJournal(path, fs, { pid: 6001, startOf: startOf([6001]) });
+  assert.throws(() => fileJournal(path, fs, { pid: 6002, startOf: startOf([6001, 6002]) }), (e) => e.code === "JournalLocked", "the live holder keeps it");
+  held.save({ by: 6001 });
+  const taker = fileJournal(path, fs, { pid: 6002, startOf: startOf([6002]) }); // 6001 is gone (ESRCH)
+  assert.throws(() => held.save({ by: 6001 }), (e) => e.code === "JournalFenced");
+  taker.close();
+});
+
+test("process start of this process on the real host is not 'gone'", () => {
+  assert.notEqual(processStart(process.pid), null);
 });
 
 test("the file journal is fsynced through the directory after the rename", () => {
