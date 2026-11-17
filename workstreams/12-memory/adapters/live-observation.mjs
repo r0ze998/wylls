@@ -22,7 +22,8 @@
 //   - the finalized slot's kind is the caller's (`kinds.rpc`); which world it is for is an explicit declaration
 //     {rpcUrl, cluster, source} (`rpcBinding`), because getSlot names no world: without it, or for another cluster,
 //     there is no finality and every receipt is held (connectCanonical: no_finality_attestation).
-// The herald's events are the clock: a read that is not complete — a failed page, the page limit, a number that
+// The herald's events are the clock: a read that is not complete — a failed page, a malformed page (including one
+// whose `full` is not a boolean: server.rs `events` always sends `full` as a bool), the page limit, a number that
 // repeats, goes back or skips (the herald numbers events 1, 2, 3, … : findex `event.ev INTEGER PRIMARY KEY`), or a
 // `next` that is not the page's last number — holds EVERY receipt (`herald_events_incomplete`), so a missing page is
 // never read as "no record" and no slot is placed from part of the clock.
@@ -86,7 +87,10 @@ export async function readHerald({ base, getJson, wallets = [], maxEventPages = 
     const e = await get(`/h/events?after=${encodeURIComponent(after)}`);
     if (e.why) { out.why.push(`events_${e.why}`); break; }
     const body = e.body;
-    if (!body || body.v !== 1 || !Array.isArray(body.events) || typeof body.next !== 'string' || !/^\d+$/.test(body.next)) { out.why.push('events_malformed'); break; }
+    // `full` must be a boolean (the herald sends rows.len() == EVENTS_PAGE): a missing, null, string or number `full`
+    // is not "the last page", so it can never end the read as complete.
+    if (!body || body.v !== 1 || !Array.isArray(body.events) || typeof body.next !== 'string' || !/^\d+$/.test(body.next)
+      || typeof body.full !== 'boolean') { out.why.push('events_malformed'); break; }
     out.eventPages++;
     // Every row numbered, one after the other: a repeat, a step back or a skip is not a clock this reads.
     for (const row of body.events) {
