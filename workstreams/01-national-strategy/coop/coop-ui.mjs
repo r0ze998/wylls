@@ -11,6 +11,7 @@ import { parseTransaction } from '../../../permutation-server/web/sdk/solana-tx.
 import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
 import { planSend, sendPlanned } from './send.mjs';
 import { rpcReader, sendOutcome } from './chain.mjs';
+import { sourceCandidates, sourceToUse, placeKey } from './sources.mjs';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -190,8 +191,8 @@ function renderRequests() {
       ${!mine && accepted && open && !badDst && cfg.relay && cfg.rpcProxy ? (blocking(q)
         ? (blocking(q).kind === 'landed-unlinked'
           ? `<div class="row"><button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(blocking(q).sending.caravan.ownerTag)}" data-seq="${blocking(q).sending.caravan.seq}" data-testid="pending-link">着地した隊商 #${blocking(q).sending.caravan.seq} をこの依頼に結び付ける</button><span class="warn">結び付けるまで次は署名・送付しない（同じ物を二度送らない）</span></div>`
-          : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`)
-        : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button>${sendingNow.has(q.id) ? '<span class="note" data-testid="send-busy">送る手続きの途中（ウォレットの画面を確かめてください）</span>' : ''}</div>`) : ''}
+          : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span>${blocking(q).sending.src ? `<span class="note" data-testid="pending-src">送り元 (${esc(blocking(q).sending.src.p)},${esc(blocking(q).sending.src.q)}) 村${esc(blocking(q).sending.src.site)}（送り元を選び直しても、この送信の確かめは続く）</span>` : ''}</div>`)
+        : `${srcPickHtml(q)}<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button>${sendingNow.has(q.id) ? '<span class="note" data-testid="send-busy">送る手続きの途中（ウォレットの画面を確かめてください）</span>' : ''}</div>`) : ''}
       ${!mine && accepted && open && !badDst ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
         <div class="row">${cands === null ? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない（${esc(feed?.why ?? '?')}）。読み直しを続けます</span>` : cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
     </div>`;
@@ -310,6 +311,9 @@ document.addEventListener('click', e => {
     case 'cancel-self': return post({ kind: 'cancel', request: id, reason: 'self' }, '取り消した（自分で進める）');
     case 'cancel-other': return post({ kind: 'cancel', request: id, reason: 'other' }, '取り消した');
     case 'send': return sendFor(q);
+    case 'src-load': return loadSources(q);
+    case 'src': return chooseSource(q, b.dataset.src || null);
+    case 'src-preview': return previewSource(q);
     case 'link': return post({ kind: 'link', request: id, caravan: { ownerTag: b.dataset.tag, seq: Number(b.dataset.seq) } }, '隊商を結び付けた。数えるのは確定した到着だけ');
   }
 });
@@ -339,6 +343,90 @@ async function sendFor(q) {
   }
 }
 
+/**
+ * （2026-11-17、送り元）送る人・世界・依頼ごとの送り元の選択。準備だけ：応じる・署名・送信はしない。
+ * 鍵は 送る人｜プログラム｜シーズン｜依頼。送る人・世界・依頼が変われば別の鍵なので、前の読み・選択・見込みは当たらない。
+ * {seq, status: 'loading'|'ok'|'unread', why, cands, chosen: placeKey|null（null は最初の村＝これまでどおり）, preview}
+ * ページを読み込み直すと消える（選ばなかったのと同じ：送った記録の送り元は板の sending に残る）。
+ */
+const srcPicks = new Map();
+let srcSeq = 0;
+const srcKey = q => (signer && cfg ? [signer.address, cfg.season.programId, cfg.season.seasonId, q.id].join('|') : null);
+const OWNER_JA = { mine: '持ち主は自分（読んだ時点。送るときにもう一度確かめる）', other: '今の持ち主は自分ではない（選べない）', unverified: '持ち主を確かめられない（送るときに確かめる）' };
+
+/** 送る前の見込みの文（判定ではない）。送るときの確かめの文と、選んだ送り元の見込みの文で同じものを使う。 */
+function estText(plan) {
+  const lack = Object.entries(plan.estimate.shortfall);
+  return `送り元の在庫（見込み）：${needText(plan.estimate.have)}${lack.length ? `。不足（見込み）：${needText(Object.fromEntries(lack))}` : '。不足なし（見込み）'}。足りるかの最終判定は、送信の時にプログラムが行う`;
+}
+
+function srcPickHtml(q) {
+  const key = srcKey(q), pick = key ? srcPicks.get(key) : null, busy = sendingNow.has(q.id) ? ' disabled' : '', id = esc(q.id);
+  if (!pick) return `<div class="row" data-testid="src-pick"><button data-act="src-load" data-id="${id}" data-testid="src-load"${busy}>送り元の村を選ぶ</button><span class="note">選ばなければ、これまでどおり Citizen の最初の村から送る</span></div>`;
+  const on = k => (pick.chosen === k ? ' aria-pressed="true"' : ' aria-pressed="false"');
+  const mark = k => (pick.chosen === k ? '（選択中）' : '');
+  const state = pick.status === 'loading' ? '<span class="note" data-testid="src-state" data-status="loading">送り元の村の候補を読んでいる…</span>'
+    : pick.status === 'unread' ? `<span class="warn" data-testid="src-state" data-status="unread">送り元の村の候補を読めない（${esc(pick.why ?? '?')}）。村がないとは限らない。読み直してください</span>`
+    : !pick.cands.length ? '<span class="note" data-testid="src-state" data-status="none">Citizen に載っている村がない（読んだ時点）</span>' : '';
+  const cands = pick.status === 'ok' ? pick.cands.map(c => `<button data-act="src" data-id="${id}" data-src="${esc(placeKey(c))}" data-owner="${esc(c.owner)}" data-testid="src-cand"${on(placeKey(c))}${c.owner === 'other' || busy ? ' disabled' : ''}>(${esc(c.p)},${esc(c.q)}) 村${esc(c.site)}${c.gen === null ? '' : `・世代 ${esc(c.gen)}`}：${esc(OWNER_JA[c.owner])}${c.why ? `（${esc(c.why)}）` : ''}${mark(placeKey(c))}</button>`).join('') : '';
+  const lost = pick.status === 'ok' && pick.chosen !== null && !pick.cands.some(c => placeKey(c) === pick.chosen)
+    ? `<span class="warn" data-testid="src-lost">選んでいた村 (${esc(pick.chosen)}) は、読み直した候補にない。選び直してください（最初の村に替えては送らない）</span>` : '';
+  const pv = pick.preview && pick.preview.chosen === pick.chosen ? pick.preview : null;
+  return `<div class="src-pick" data-testid="src-pick">
+    <div class="row"><span>送り元の村：</span><button data-act="src" data-id="${id}" data-src="" data-testid="src-first"${on(null)}${busy}>Citizen の最初の村（これまでどおり）${mark(null)}</button>${cands}</div>
+    <div class="row">${state}${lost}<button data-act="src-load" data-id="${id}" data-testid="src-load"${busy}>候補を読み直す</button><button data-act="src-preview" data-id="${id}" data-testid="src-preview"${busy || pick.status === 'loading' ? ' disabled' : ''}>この送り元で見込みを出す（署名しない）</button></div>
+    ${pv ? `<div class="${pv.status === 'ok' ? 'note' : pv.status === 'loading' ? 'note' : 'warn'}" data-testid="src-estimate" data-status="${esc(pv.status)}">${esc(pv.text)}</div>` : ''}
+  </div>`;
+}
+
+/** 候補を読む（読むだけ）。読んでいる間に読み直したら、古い読みは当てない。読めなければ「読めない」（空にしない）。選んでいた村は残す。 */
+async function loadSources(q) {
+  const key = srcKey(q);
+  if (!W.connected() || !key) return say('先に署名する人を接続してください', 'warn');
+  if (sendingNow.has(q.id)) return say('送る手続きの途中は、送り元を読み直さない', 'warn');
+  const prev = srcPicks.get(key);
+  const pick = { seq: ++srcSeq, status: 'loading', why: null, cands: null, chosen: prev ? prev.chosen : null, preview: null };
+  srcPicks.set(key, pick);
+  renderRequests();
+  const r = await sourceCandidates(rpcReader('/coop/rpc'), cfg.season, signer.address);
+  if (srcPicks.get(key) !== pick) return;
+  Object.assign(pick, r.status === 'ok' ? { status: 'ok', why: null, cands: r.cands } : { status: 'unread', why: r.why, cands: null });
+  renderRequests();
+}
+
+/** 送り元を選ぶ（準備だけ）。前の見込みは消す（別の村の見込みを当てない）。結果の分からない前の送信は、これで解かない（blocking は板の記録から）。 */
+function chooseSource(q, chosen) {
+  const key = srcKey(q), pick = key ? srcPicks.get(key) : null;
+  if (!pick) return say('先に送り元の村の候補を読んでください', 'warn');
+  if (sendingNow.has(q.id)) return say('送る手続きの途中は、送り元を変えない', 'warn');
+  pick.chosen = chosen;
+  pick.preview = null;
+  renderRequests();
+  say(chosen === null ? '送り元：Citizen の最初の村（これまでどおり）。まだ送らない' : `送り元に村 (${chosen}) を選んだ。準備だけで、まだ送らない`);
+}
+
+/** 選んだ送り元で、送る前の見込みを出す（planSend：在庫・不足・道・番号・手数料）。署名・送信はしない。読み終えたとき選択が変わっていれば当てない。 */
+async function previewSource(q) {
+  const c = W.connected(), key = srcKey(q), pick = key ? srcPicks.get(key) : null;
+  if (!c || !pick) return say('先に署名する人を接続し、送り元の村の候補を読んでください', 'warn');
+  const use = sourceToUse(pick, pick.chosen);
+  if (!use.ok) return say(use.why, 'warn');
+  const resp = q.responses[signer.address];
+  if (!resp?.offer) return say('この依頼に応じた量が見えない。読み直した表示で確かめてください', 'warn');
+  const seq = ++srcSeq, chosenAt = pick.chosen;
+  pick.previewSeq = seq;
+  pick.preview = { chosen: chosenAt, status: 'loading', text: '見込みをチェーンから読んでいる…' };
+  renderRequests();
+  let plan;
+  try { plan = await planSend({ reader: rpcReader('/coop/rpc'), season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source }); }
+  catch (e) { plan = { ok: false, why: `チェーンを読めない：${e.message ?? e}` }; }
+  if (srcPicks.get(key) !== pick || pick.previewSeq !== seq || pick.chosen !== chosenAt || srcKey(q) !== key || W.connected()?.address !== c.address) return;
+  pick.preview = { chosen: chosenAt, status: plan.ok ? 'ok' : 'failed',
+    text: plan.ok ? `見込み（送るときに読み直す）：送り元 (${plan.src.p},${plan.src.q}) 村${plan.src.site}・道 ${plan.plan.dirs.length} マス・隊商 #${plan.fields.seq}・手数料 ${plan.fields.fee}（ゲームの隊商と同じ）。${estText(plan)}`
+      : `この送り元からは送れない（見込み）：${plan.why}` };
+  renderRequests();
+}
+
 async function sendOnce(q) {
   const c = W.connected();
   if (!c || !signer) return say('先に署名する人を接続してください', 'warn');
@@ -346,14 +434,23 @@ async function sendOnce(q) {
   if (b?.kind === 'unknown') return followSend(q, b.sending);
   if (b?.kind === 'landed-unlinked') return post({ kind: 'link', request: q.id, caravan: { ownerTag: b.sending.caravan.ownerTag, seq: b.sending.caravan.seq } }, `着地していた隊商 #${b.sending.caravan.seq} をこの依頼に結び付けた`);
   const resp = q.responses[signer.address];
+  // （2026-11-17、送り元）選んだ送り元（選んでいなければ null：これまでどおり Citizen の最初の村）。使えない選択なら送らない（黙って替えない）
+  const key = srcKey(q), pick = srcPicks.get(key) ?? null, chosenAt = pick ? pick.chosen : null;
+  const use = sourceToUse(pick, chosenAt);
+  if (!use.ok) return say(`送れない：${use.why}`, 'warn');
   const reader = rpcReader('/coop/rpc');
   say('送り元・道・番号をチェーンから読んでいます…');
-  const plan = await planSend({ reader, season: cfg.season, wallet: c.address, request: q, cargo: resp.offer });
+  const plan = await planSend({ reader, season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source });
+  // 計画を読んでいる間に、送る人・依頼・送り元の選択が変わったら、この計画は使わない（新しい選択に古い計画を当てない）
+  const pickNow = srcPicks.get(key) ?? null;
+  if (srcKey(q) !== key || W.connected()?.address !== c.address || pickNow !== pick || (pickNow ? pickNow.chosen : null) !== chosenAt || !view?.requests.some(x => x.id === q.id))
+    return say('計画を読んでいる間に、送る人・依頼・送り元の選択が変わった。この計画では送らない。もう一度押してください', 'warn');
   if (!plan.ok) return say(`送れない：${plan.why}`, 'bad');
+  if (use.source && placeKey(plan.src) !== placeKey(use.source)) return say('計画の送り元が、選んだ村と違う。送らない', 'bad');
   // 送る前の見込み（判定ではない）
   const short = Object.entries(plan.estimate.shortfall);
-  const est = `送り元の在庫（見込み）：${needText(plan.estimate.have)}${short.length ? `。不足（見込み）：${needText(Object.fromEntries(short))}` : '。不足なし（見込み）'}。足りるかの最終判定は、送信の時にプログラムが行う`;
-  if (!confirm(`村 (${plan.src.p},${plan.src.q}) から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq} で ${needText(resp.offer)} を送ります。\n${est}\nウォレットで署名しますか？`)) return say(`送らなかった。${est}`, short.length ? 'warn' : '');
+  const est = estText(plan);
+  if (!confirm(`村 (${plan.src.p},${plan.src.q}) 村${plan.src.site} から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq} で ${needText(resp.offer)} を送ります。\n${est}\nウォレットで署名しますか？`)) return say(`送らなかった。${est}`, short.length ? 'warn' : '');
   say(`${est}。ウォレットで署名してください`);
   // ウォレットが署名した直後、中継へ出す前に、板へ sending の記録を残す（再読込・板の再起動の後も結果を追え、二重に送らない）。
   // 板が断ったら（結果の分からない送信が残っている等）、中継へは出さない。
