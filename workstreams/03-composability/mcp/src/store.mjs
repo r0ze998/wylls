@@ -51,12 +51,22 @@ export class JsonStore {
     const line = `${JSON.stringify(op)}\n`;
     if (!this.archiveFile) { this.memoryArchive.push(line); this.#remember(op, this.memoryArchive.length - 1, -1); delete this.state.operations[op.id]; return; }
     mkdirSync(path.dirname(this.archiveFile), { recursive: true });
-    const fd = openSync(this.archiveFile, 'a', 0o600);
+    // Read and append ('a+': every write still goes to the end). (2026-11-17) A line cut by an earlier crash leaves the
+    // file without a final newline: the new record then starts on a line of its own (one newline written before it,
+    // in the same write), so the cut bytes stay a separate, skipped line instead of joining the new record into one
+    // line that no longer parses after a restart. No byte already in the file is changed or removed.
+    const fd = openSync(this.archiveFile, 'a+', 0o600);
     try {
-      const offset = fstatSync(fd).size;
-      writeSync(fd, line);
+      const size = fstatSync(fd).size;
+      let sep = '';
+      if (size > 0) {
+        const last = Buffer.alloc(1);
+        if (readSync(fd, last, 0, 1, size - 1) !== 1) throw new Error('archive: the last byte could not be read');
+        if (last[0] !== 0x0a) sep = '\n';
+      }
+      writeSync(fd, sep + line);
       fsyncSync(fd);
-      this.#remember(op, offset, Buffer.byteLength(line) - 1);
+      this.#remember(op, size + sep.length, Buffer.byteLength(line) - 1);
     } finally { closeSync(fd); }
     delete this.state.operations[op.id];
   }
