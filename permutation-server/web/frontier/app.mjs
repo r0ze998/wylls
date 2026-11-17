@@ -468,6 +468,25 @@ export function modePanel(FS) {
  * back after the new markup. `scroller` null: a different view, which starts
  * from its own markup (only typed values are carried).
  */
+/**
+ * (2026-11-17, ⑦ from the map to the trade card) Once the card of plan `id` is drawn (its note carries the number): the
+ * select the plan names takes the plan's value — ONCE, at the press; a later choice of the person's in the same select
+ * is theirs and is kept by keepState —, the form's fold and the folds around the card open, and the card comes into
+ * view. No amount field is touched and nothing is submitted. A card that does not come within a few frames (no village
+ * in hand, another plan pressed meanwhile) is left alone.
+ */
+function landS1Plan(id, tries = 6) {
+  const card = globalThis.document?.getElementById?.('hp-trade'), note = card?.querySelector?.(`[data-plan-id="${id}"]`);
+  if (!note) { if (tries > 0) requestAnimationFrame(() => landS1Plan(id, tries - 1)); return; }
+  if (note.dataset.plan !== 'lost') {
+    for (const x of card.querySelectorAll('select[data-plan]')) { const v = x.dataset.plan; if (v !== '' && [...x.options].some(o => o.value === v)) x.value = v; }
+    const f = card.querySelector(`details[data-fold="${note.dataset.plan === 'fort' ? 's1-fort' : 's1-send'}"]`);
+    if (f) f.open = true;
+  }
+  for (let x = card.closest?.('details'); x; x = x.parentElement?.closest?.('details')) x.open = true;
+  card.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+}
+
 export function keepState(el, render, scroller = el) {
   if (!el?.querySelectorAll) { render(); return; }
   const keyOf = x => { const f = x.closest('form[data-form]')?.dataset.form ?? x.closest('[data-bind]')?.dataset.bind ?? ''; return `${f}|${x.name || x.dataset.bind || x.id}`; };
@@ -3792,9 +3811,14 @@ export const HUD_ACTIONS = {
   //  controller.planS1Place, which reads and sends nothing — and the village screen opens on that card; the form's
   //  amounts are the person's own)
   's1-plan': d => {
-    if (!planS1Place(d)) return;
-    leaveReport(); FS.tab = 'holding'; invalidate('panel', 'tabs');
-    requestAnimationFrame(() => { $('hp-trade')?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' }); });
+    const id = planS1Place(d);
+    if (!id) return;
+    // (corrected 2026-11-17: the village screen may be showing a wide village's cards — the trade card is the legacy
+    //  village's: back to it, the way 'wide-close' goes — and the form may already stand on the screen with a choice of
+    //  the person's in it, which a redraw keeps over the markup's first choice: landS1Plan puts the place in once)
+    clearWideSelect(FS);
+    leaveReport(); FS.tab = 'holding'; invalidate('panel', 'tabs', 'rail');
+    requestAnimationFrame(() => landS1Plan(id));
   },
   's1-plan-clear': () => clearS1Plan(),
   'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },

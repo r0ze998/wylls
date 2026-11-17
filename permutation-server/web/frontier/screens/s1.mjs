@@ -336,10 +336,10 @@ export function s1PlaceAt(FS, sel) {
 export function s1PlanNow(FS) {
   const pl = FS.s1Plan ?? null, sc = planScope(FS);
   if (!pl || pl.world !== sc.world || pl.viewer !== sc.viewer) return null;
-  if (pl.role === 'fort') return { role: 'fort', p: pl.p, q: pl.q, tile: pl.tile, place: null, lost: false };
+  if (pl.role === 'fort') return { id: pl.id ?? null, role: 'fort', p: pl.p, q: pl.q, tile: pl.tile, place: null, lost: false };
   const place = s1PlaceAt(FS, { p: pl.p, q: pl.q, idx: pl.tile });
   const fits = !!place && (pl.role === 'dst' || (pl.role === 'src' && place.kind === 'vault' && !place.other));
-  return { role: pl.role, p: pl.p, q: pl.q, tile: pl.tile, place: fits ? place : null, lost: !fits };
+  return { id: pl.id ?? null, role: pl.role, p: pl.p, q: pl.q, tile: pl.tile, place: fits ? place : null, lost: !fits };
 }
 /**
  * What the map's tile card may hand to the trade card for this tile: `{place, dst, src, fort, why}`. `dst`: a caravan can
@@ -424,7 +424,7 @@ export function s1VillageModel(FS) {
   const pn = s1PlanNow(FS);
   let plan = null;
   if (pn) {
-    plan = { role: pn.role, dst: null, src: null, fort: null, lost: pn.lost };
+    plan = { id: pn.id, role: pn.role, dst: null, src: null, fort: null, lost: pn.lost };
     if (pn.role === 'dst' && pn.place) { let i = destinations.findIndex(x => samePlace(x, pn.place)); if (i < 0) { destinations.push(pn.place); i = destinations.length - 1; } plan.dst = i; }
     else if (pn.role === 'src' && pn.place) { const i = sources.findIndex(x => samePlace(x, pn.place)); if (i >= 0) plan.src = i; else plan.lost = true; }
     else if (pn.role === 'fort') { if (h && pn.p === h.p && pn.q === h.q && forts.some(f => f.tile === pn.tile)) plan.fort = pn.tile; else plan.lost = true; }
@@ -642,16 +642,22 @@ export function renderS1Village(FS) {
   const firstDst = pl?.dst ?? m.destinations.findIndex(x => !x.other && !samePlace(m.sources[0], x));
   const firstSrc = pl?.src ?? (pl?.dst !== null && pl?.dst !== undefined && samePlace(m.sources[0], m.destinations[pl.dst]) ? m.sources.findIndex(x => !samePlace(x, m.destinations[pl.dst])) : -1);
   const planned = pl?.dst !== null && pl?.dst !== undefined ? m.destinations[pl.dst] : pl?.src !== null && pl?.src !== undefined ? m.sources[pl.src] : null;
-  const planNote = !pl ? '' : pl.lost ? html`<p class="notice error" role="status" data-plan="lost">${L`地図で選んだ場所を、いま読めている一覧では確かめられません。計画には入れていません。`} <button type="button" class="btn small" data-act="s1-plan-clear">${L`選択を外す`}</button></p>`
-    : planned ? html`<p class="notice" role="status" data-plan="${pl.dst !== null ? 'dst' : 'src'}">${pl.dst !== null ? L`地図で選んだ場所を、行き先に入れました：${placeWord(planned)}。` : L`地図で選んだ場所を、出発地に入れました：${placeWord(planned)}。`}${planned.other ? L`ここはほかの人の場所です。着いた荷はその人のものになります。` : ''}${L`運ぶものと量は、あなたが入れてください。`} <button type="button" class="btn small" data-act="s1-plan-clear">${L`選択を外す`}</button></p>`
-    : pl.fort !== null ? html`<p class="notice" role="status" data-plan="fort">${L`地図で選んだ要塞（マス ${pl.fort}）を入れました。入れる人数は、あなたが決めてください。`} <button type="button" class="btn small" data-act="s1-plan-clear">${L`選択を外す`}</button></p>` : '';
+  // (corrected 2026-11-17: the note says what was chosen on the map and that it is the field's FIRST choice — not that
+  //  it "is" the destination: a choice the person makes in the field afterwards is what is sent, and the note must not
+  //  contradict the field. `data-plan-id`: the plan's number, for app.mjs landS1Plan.)
+  const unpick = html`<button type="button" class="btn small" data-act="s1-plan-clear">${L`選択を外す`}</button>`;
+  const planNote = !pl ? '' : pl.lost ? html`<p class="notice error" role="status" data-plan="lost" data-plan-id="${pl.id ?? ''}">${L`地図で選んだ場所を、いま読めている一覧では確かめられません。計画には入れていません。`} ${unpick}</p>`
+    : planned ? html`<p class="notice" role="status" data-plan="${pl.dst !== null ? 'dst' : 'src'}" data-plan-id="${pl.id ?? ''}">${pl.dst !== null
+      ? L`地図で選んだ場所：${placeWord(planned)}。行き先の欄の最初の選択にしました。欄で選び直すと、送るのは選び直した場所です。`
+      : L`地図で選んだ場所：${placeWord(planned)}。出発地の欄の最初の選択にしました。欄で選び直すと、出発するのは選び直した場所です。`}${planned.other ? L`ここはほかの人の場所です。着いた荷はその人のものになります。` : ''}${L`運ぶものと量は、あなたが入れてください。`} ${unpick}</p>`
+    : pl.fort !== null ? html`<p class="notice" role="status" data-plan="fort" data-plan-id="${pl.id ?? ''}">${L`地図で選んだ要塞：マス ${pl.fort}。要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。`} ${unpick}</p>` : '';
   const haveText = s => (s.kind === 'vault' && !s.known ? L`在庫はまだ読み込んでいません`
     : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
   const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
-    <label class="field">${L`出発地`}<select name="src">${m.sources.map((s, i) => html`<option value="${i}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
-    <label class="field">${L`行き先`}<select name="dst">${otherDst.length
+    <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
+    <label class="field">${L`行き先`}<select name="dst" data-plan="${pl?.dst ?? ''}">${otherDst.length
       ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
       : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
     ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${x.have}" step="1" value="0" inputmode="numeric"></div>`)}
@@ -661,7 +667,7 @@ export function renderS1Village(FS) {
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
     : listsRead ? html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>` : html`<p class="muted">${L`貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。`}</p>`;
   const fort = m.forts.length ? html`<form class="vform" data-form="s1-fort">
-    <label class="field">${L`要塞`}<select name="tile">${m.forts.map(f => html`<option value="${f.tile}" ${raw(pl?.fort === f.tile ? 'selected' : '')}>${L`マス ${f.tile}（兵 ${fmtNum(f.troops)} / ${fmtNum(FORT_MAX_TROOPS)}）`}</option>`)}</select></label>
+    <label class="field">${L`要塞`}<select name="tile" data-plan="${pl?.fort ?? ''}">${m.forts.map(f => html`<option value="${f.tile}" ${raw(pl?.fort === f.tile ? 'selected' : '')}>${L`マス ${f.tile}（兵 ${fmtNum(f.troops)} / ${fmtNum(FORT_MAX_TROOPS)}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="s1-ft">${L`入れる槍兵（控えから）`}<span class="muted"> / ${fmtNum(m.spearmen)}</span></label><input id="s1-ft" name="troops" type="number" min="1" max="${Math.min(m.spearmen, FORT_MAX_TROOPS)}" step="1" value="${Math.min(100, m.spearmen) || 1}" inputmode="numeric"></div>
     <div class="actions"><button type="submit" class="btn" ${raw(m.spearmen > 0 && !m.fortBlocks.length ? '' : 'disabled')}>${L`要塞に兵を入れる`}</button></div>
     ${m.fortBlocks.length ? html`<p class="blocked">${m.fortBlocks.map(blockText).join(' / ')}</p>` : ''}

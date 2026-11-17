@@ -1755,10 +1755,10 @@ export default {
   '押すと、村の画面の「交易と防備」が開き、この場所が入ります。運ぶものと量は、そこであなたが入れます。まだ何も送りません。': 'Pressing this opens "Trade and defence" on the village screen with this place filled in. You enter what to carry and how much there. Nothing is sent yet.',
   '地図で選んだ場所を、いま読めている一覧では確かめられません。計画には入れていません。': 'The place chosen on the map cannot be confirmed in the lists loaded so far. It is not in the plan.',
   '選択を外す': 'Clear the choice',
-  '地図で選んだ場所を、行き先に入れました：{0}。': 'The place chosen on the map is the destination: {0}.',
-  '地図で選んだ場所を、出発地に入れました：{0}。': 'The place chosen on the map is the starting place: {0}.',
   '運ぶものと量は、あなたが入れてください。': 'Enter what to carry and how much yourself.',
-  '地図で選んだ要塞（マス {0}）を入れました。入れる人数は、あなたが決めてください。': 'The fort chosen on the map (tile {0}) is filled in. Decide how many troops yourself.',
   'この場所は、いまは計画に入れられません。地図でもう一度選んでください。': 'This place cannot be put in the plan now. Choose it on the map again.',
   '準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。': 'The world, the wallet or the village in hand changed while this was prepared. The caravan was not sent. Check again, then send it.',
+  '地図で選んだ場所：{0}。行き先の欄の最初の選択にしました。欄で選び直すと、送るのは選び直した場所です。': 'Chosen on the map: {0}. It is the first choice in the destination field. If you choose again in the field, the caravan goes to the place chosen there.',
+  '地図で選んだ場所：{0}。出発地の欄の最初の選択にしました。欄で選び直すと、出発するのは選び直した場所です。': 'Chosen on the map: {0}. It is the first choice in the starting place field. If you choose again in the field, the caravan leaves from the place chosen there.',
+  '地図で選んだ要塞：マス {0}。要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。': 'Chosen on the map: the fort on tile {0}. It is the first choice in the fort field. If you choose again in the field, the troops go into the fort chosen there. Decide how many troops yourself.',
 };

@@ -2779,7 +2779,12 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
   const prep = { herald, world: providerWorld(), viewer: viewerKey() ?? null, address: FS.wallet?.address ?? null, holding: holdingRef(activeHolding(FS) ?? null) };
   const prepHolds = () => herald === prep.herald && providerWorld() === prep.world && (viewerKey() ?? null) === prep.viewer && (FS.wallet?.address ?? null) === prep.address
     && holdingRef(activeHolding(FS) ?? null) === prep.holding;
-  const prepChanged = () => s1Refused(L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。`);
+  // (corrected 2026-11-17: the word that the preparation was overtaken replaces only THIS request's own "being
+  //  prepared" notice, still standing — it would otherwise spin for good. Where that notice is gone or another stands
+  //  (another viewer's reset, a newer request), an old request says nothing in a context that is no longer its own.)
+  let prepNote = null;
+  const prepChanged = () => (FS.notice === prepNote && prepNote !== null
+    ? s1Refused(L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。`) : { ok: false, code: 'S1PrepChanged', sent: false });
   let dst = m.destinations[dstIndex];
   const problem = caravanProblem(from, dst, cargo);
   if (problem === 'NoPlace') return s1Refused(L`出発地と行き先を選んでください`);
@@ -2790,14 +2795,14 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
   if (!Number.isInteger(from.tile) || !Number.isInteger(dst.tile)) return s1Refused(L`出発地か行き先のマスがわかりません`);
   if (dst.other && !wallet.connected()) return failed({ code: 'NoWallet' });
   if (dst.other && dst.kind === 'holding') {
-    busy(() => L`行き先の村を確かめています…`);
+    busy(() => L`行き先の村を確かめています…`); prepNote = FS.notice;
     const r = await herald.holding(dst.p, dst.q, dst.site);
     if (!prepHolds()) return prepChanged();
     if (!r.ok) return failed(r);
     if (!Number.isInteger(Number(r.holding.gen))) return s1Refused(L`行き先の村はもうありません`);
     dst = { ...dst, gen: Number(r.holding.gen) };
   }
-  busy(() => L`道を探しています…`);
+  busy(() => L`道を探しています…`); prepNote = FS.notice;
   const lands = await landsFor(from, dst);
   if (!prepHolds()) return prepChanged();
   const plan = fastestPath({ p: from.p, q: from.q, tile: from.tile }, { p: dst.p, q: dst.q, tile: dst.tile }, lands);
@@ -2818,20 +2823,43 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
  * viewer}` only names the tile, the pinned world (with its generation) and the viewer it was chosen for; what stands on
  * the tile is looked up again, from what the page holds, every time the card is drawn and when the form is sent
  * (screens/s1.mjs s1PlanNow) — so a place that is gone, another world's or another viewer's is never put in the form.
- * The form's amounts are the person's: nothing here writes them. False (with the reason said) when the tile offers no
- * such role now.
+ * The form's amounts are the person's: nothing here writes them. Each press makes a NEW plan — a new object with its own
+ * number `id`, also for the same tile again — so what a send began with can be told from what stands later. Answers the
+ * plan's number, or false (with the reason said) when the tile offers no such role now.
  */
+let s1PlanSeq = 0;
 export function planS1Place(d = {}) {
   if (!s1On() || FS.mode !== 'play') return false;
   const sel = { p: num(d.p), q: num(d.q), idx: num(d.tile) }, role = String(d.role ?? '');
   const offers = s1PlanOffers(FS, sel);
   if (!['dst', 'src', 'fort'].includes(role) || offers[role] !== true) { s1Refused(L`この場所は、いまは計画に入れられません。地図でもう一度選んでください。`); return false; }
-  FS.s1Plan = { role, p: sel.p, q: sel.q, tile: sel.idx, world: providerWorld(), viewer: viewerKey() ?? null };
+  FS.s1Plan = { id: ++s1PlanSeq, role, p: sel.p, q: sel.q, tile: sel.idx, world: providerWorld(), viewer: viewerKey() ?? null };
   invalidate('panel');
-  return true;
+  return FS.s1Plan.id;
 }
-/** The chosen place is let go (the person's press, or a caravan that was accepted). The form's own fields are not touched. */
+/** The chosen place is let go (the person's press). The form's own fields are not touched. */
 export function clearS1Plan() { if (FS.s1Plan) { FS.s1Plan = null; invalidate('panel'); } }
+
+/**
+ * The plan a send from the trade card's forms began with, and whether the form used it: `{plan, used}`. `plan` is the
+ * object standing at the press (or null); `used`: the form's own choice is the plan's place — its destination or source
+ * index for a caravan, its tile for a fort. (Corrected 2026-11-17: the first version let ANY accepted caravan clear
+ * whatever plan stood when the answer came — a plan chosen during the send, also for the same tile again, or another
+ * world's, was lost to an old success.)
+ */
+function s1PlanAtSend({ srcIndex = null, dstIndex = null, fortTile = null } = {}) {
+  const plan = FS.s1Plan ?? null, mp = plan ? s1VillageModel(FS).plan : null;
+  const used = !!plan && !!mp && mp.id === plan.id && !mp.lost
+    && ((mp.dst !== null && mp.dst === dstIndex) || (mp.src !== null && mp.src === srcIndex) || (mp.fort !== null && mp.fort === fortTile));
+  return { plan, used };
+}
+/** An ACCEPTED send lets go of the plan it began with and used — only while that very plan still stands; any other answer, and any other plan, is left as it is. */
+const s1PlanDone = (at, r) => { if (r?.ok === true && at.used && at.plan !== null && FS.s1Plan === at.plan) clearS1Plan(); return r; };
+function s1CaravanFromForm(f) {
+  const srcIndex = Math.trunc(formNum(f, 'src') || 0), dstIndex = Math.trunc(formNum(f, 'dst'));
+  const at = s1PlanAtSend({ srcIndex, dstIndex });
+  return s1Caravan(srcIndex, dstIndex, Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => s1PlanDone(at, r));
+}
 
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
@@ -3176,8 +3204,8 @@ function garrisonOrder(n) {
 /** Form submissions (data-form). */
 export const FORMS = {
   // S1 (screens/s1.mjs)
-  // (a caravan that was accepted lets the place chosen on the map go — clearS1Plan; any other answer keeps it for the next try)
-  's1-caravan': f => s1Caravan(Math.trunc(formNum(f, 'src') || 0), Math.trunc(formNum(f, 'dst')),Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => { if (r?.ok === true) clearS1Plan(); return r; }),
+  // (the form's own indexes and amounts, as before; an accepted caravan lets go of the plan it began with — s1CaravanFromForm)
+  's1-caravan': f => s1CaravanFromForm(f),
   's1-fort': f => {
     const h = activeHolding(FS), troops = Math.trunc(formNum(f, 'troops')), tile = Math.trunc(formNum(f, 'tile'));
     if (!h) return s1Refused(L`村を選んでください`);
@@ -3185,7 +3213,8 @@ export const FORMS = {
     //  before anything is signed: screens/s1.mjs fortGarrisonProblem)
     const pr = fortGarrisonProblem(s1VillageModel(FS), tile, troops);
     if (pr) return ['CapturePending', 'NotFinal', 'NotResident', 'Insufficient'].includes(pr.code) ? failed({ code: pr.code }) : s1Refused(fortProblemText(pr));
-    return act('FortGarrison', { v: { holding: h, tile }, fields: { troops }, order: orderOf('s1-fort', 'FortGarrison', { tile: { p: h.p, q: h.q, tile }, say: () => L`要塞に槍兵 ${fmtNum(troops)} を入れました` }) });
+    const at = s1PlanAtSend({ fortTile: tile });
+    return act('FortGarrison', { v: { holding: h, tile }, fields: { troops }, order: orderOf('s1-fort', 'FortGarrison', { tile: { p: h.p, q: h.q, tile }, say: () => L`要塞に槍兵 ${fmtNum(troops)} を入れました` }) }).then(r => s1PlanDone(at, r));
   },
   's1-propose': f => act('Propose', { v: { faction: FS.citizen?.faction }, fields: { kind: PROPOSE_STANCE, target_faction: Math.trunc(formNum(f, 'target')), value: Math.trunc(formNum(f, 'value')) },
     say: () => L`方針の変更を提案しました` }),
