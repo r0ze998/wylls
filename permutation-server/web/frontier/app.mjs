@@ -740,6 +740,9 @@ let peopleCache = { at: -1, value: null };
 export function peopleSource() {
   // (every frame, outside the second's cache: a selection shows its village's character at once)
   setBoardCharacters(boardCharactersNow());
+  // (2026-11-17, ⑦: before the second's cache is used or built: the battle state is made this world's first —
+  //  syncBattleWorld — so neither the cache nor its battles show another world's as this one's)
+  syncBattleWorld();
   const bell = FS.nowBell ?? (FS.clock ? Math.max(0, Math.floor(((FS.chain?.now() ?? 0) - FS.clock.genesisTs) / 600)) : 0);
   const sec = Math.floor(Date.now() / 1000);
   if (peopleCache.at === sec && peopleCache.lang === lang() && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
@@ -2984,7 +2987,25 @@ function showTip(hit, at) {
 const battleSeen = new Map(); // "P,Q" → the last resolved bell a scene was considered for
 // (2026-11-17, ⑦: of one pinned world — with its generation: what was seen in another is forgotten, and that world's
 //  envelopes still held are not looked at, so the first sight of each province in this world is not news)
-let battleSeenWorld;
+let battleWorldNow;
+/**
+ * Make the battle state this pinned world's (2026-11-17, ⑦), at once and in one place: the first thing peopleSource does
+ * (before its second's cache is returned or built) and the first thing playBattle does after its wait (before a scene is
+ * compared). At a change of world: the sightings are forgotten, the scenes of other worlds end on the map and in the
+ * effects layer (endOtherWorldBattles: that world's plays only — a play of this world, also one just placed where an old
+ * one stood, stays), a camera place kept for a battle in another world is let go with its timer, and the cache is built
+ * again. The same world changes nothing. Returns the world.
+ */
+function syncBattleWorld() {
+  const world = momentWorld();
+  if (battleWorldNow === world) return world;
+  battleWorldNow = world;
+  battleSeen.clear();
+  endOtherWorldBattles(world);
+  if (battleKeepWorld !== undefined && battleKeepWorld !== world) { clearTimeout(battleBack); battleBack = null; camKeep.drop('battle'); battleKeepWorld = undefined; }
+  peopleCache.at = -1;
+  return world;
+}
 let battleBack = null;
 // (2026-11-17, ⑦: the camera's place kept for a battle — camKeep 'battle' — belongs to the pinned world it was kept in
 //  (battleKeepWorld), and to the map as the person had last touched it then (`map.touchedAt`: every pointerdown — also
@@ -3016,7 +3037,10 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
   const world = momentWorld(), source = heraldRef;
   const r = await source.clash(p, q, bell).catch(() => null);
   if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;
-  if ((auto || still) && (FS.battles ?? []).some(b => b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;
+  // (the battle state is this world's before anything is compared: an older world's scene with a higher bell is ended
+  //  here, not taken for "a later turn of this province" — syncBattleWorld; and only this world's scenes are compared)
+  syncBattleWorld();
+  if ((auto || still) && (FS.battles ?? []).some(b => (b.world === undefined || b.world === world) && b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;
   if (!r?.ok || !r.inputs) return false;
   let before = null;
   try { before = r.report?.province_before_b64 ? decodeAccount('Province', fromBase64(r.report.province_before_b64)) : null; } catch { before = null; }
@@ -3065,8 +3089,7 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
 }
 /** A clash that resolved in a province the page has loaded plays once, when it is new. */
 function autoBattles() {
-  const world = momentWorld();
-  if (battleSeenWorld !== world) { battleSeen.clear(); battleSeenWorld = world; endOtherWorldBattles(world); }
+  const world = syncBattleWorld();
   for (const [key, env] of FS.provinces) {
     if (env.world !== undefined && env.world !== world) continue;
     const b = env.province?.resolveSummary?.bell;

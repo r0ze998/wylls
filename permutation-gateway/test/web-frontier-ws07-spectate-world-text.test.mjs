@@ -52,9 +52,10 @@ test('W3 playBattle drops a clash the change overtook', () => {
 });
 
 test('W4 the scenes the page plays by itself: one world', () => {
-  assert.ok(app.includes('let battleSeenWorld;'));
+  // (the battle-sync bundle keeps the world in syncBattleWorld — web-frontier-ws07-battle-sync-text.test.mjs)
+  assert.ok(app.includes('let battleWorldNow;'));
   // (the battle-world bundle also ends other worlds' scenes there — web-frontier-ws07-battle-world-text.test.mjs)
-  order(auto, 'const world = momentWorld();', 'if (battleSeenWorld !== world) { battleSeen.clear(); battleSeenWorld = world; endOtherWorldBattles(world); }', 'for (const [key, env] of FS.provinces) {',
+  order(auto, 'const world = syncBattleWorld();', 'for (const [key, env] of FS.provinces) {',
     'if (env.world !== undefined && env.world !== world) continue;', 'const prev = battleSeen.get(key);', 'if (prev === undefined || prev >= b) continue;',
     'playBattle(env.province.p, env.province.q, b, { auto: true });');
 });

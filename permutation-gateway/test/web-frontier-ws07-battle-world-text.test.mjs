@@ -40,7 +40,8 @@ test('T3 other worlds\' scenes end where they are drawn', () => {
   const end = fnOf(app, 'function endOtherWorldBattles(world) {');
   order(end, 'const gone = (FS.battles ?? []).filter(b => b.world !== undefined && b.world !== world);', 'if (!gone.length) return;',
     'FS.battles = (FS.battles ?? []).filter(b => !gone.includes(b));', "for (const b of gone) { endBattle(b); fxEmit('battle:end', { play: b }); }");
-  assert.ok(app.includes('if (battleSeenWorld !== world) { battleSeen.clear(); battleSeenWorld = world; endOtherWorldBattles(world); }'));
+  // (the battle-sync bundle calls it from syncBattleWorld, before the people cache and before a scene is compared)
+  assert.ok(app.includes('battleSeen.clear();\n  endOtherWorldBattles(world);'));
 });
 
 test('T4 the effects layer calls off that play only', () => {

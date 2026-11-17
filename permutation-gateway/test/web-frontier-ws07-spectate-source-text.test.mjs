@@ -34,7 +34,8 @@ test('S1 one origin per request; called off is not "no scene"', () => {
 
 test('S2 an older automatic answer does not replace a newer scene', () => {
   order(pb, 'return null;',
-    'if ((auto || still) && (FS.battles ?? []).some(b => b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;',
+    // (the battle-sync bundle syncs the world first and compares only this world's scenes — web-frontier-ws07-battle-sync-text.test.mjs)
+    'if ((auto || still) && (FS.battles ?? []).some(b => (b.world === undefined || b.world === world) && b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;',
     'if (!r?.ok || !r.inputs) return false;', 'FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), play];');
 });
 
