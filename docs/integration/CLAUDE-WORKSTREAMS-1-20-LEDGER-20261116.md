@@ -476,3 +476,17 @@ only the allowed confirmation of already-submitted work remains within that boun
 - The task continues from the saved partial coop read adapter using Opus, scoped to the adapter, its test source,
   and documentation. No second implementation was started. Runtime tests, registration as an MCP tool, integration
   and game-world operation are still not established.
+
+### 2026-11-17 UTC — coop read adapter completed and source integrated
+
+- Official Opus background task finished (`done` / `idle` verified). It completed the adapter, fixture test and API documentation.
+- Three new files were saved to this integration branch, ending at `46ee1b7606c5e0c7a06a9b638bf1ab77a710cf5f`.
+  All three were fetched from GitHub and matched the independently checked local files exactly.
+- Independent validation on the final output: both JavaScript files passed `node --check`;
+  `node --test workstreams/03-composability/mcp/test/coop-read-adapter.test.mjs` passed **34/34**, zero failures/skips.
+  Only injected fake fetch, streamed-body fixtures and fake timers were used; no real network or signing.
+- The bounded body read and free-form nation error projection findings were addressed and covered by tests.
+- **Scope completed: standalone opt-in read adapter source and fixture tests. Scope not completed: MCP tool
+  registration, server wiring, authenticated real-client/board end-to-end checks, main merge or deployment.**
+  It remains disabled by default and grants no new action authority. Earlier launch/partial-output entries above
+  are history, not the current task state.
