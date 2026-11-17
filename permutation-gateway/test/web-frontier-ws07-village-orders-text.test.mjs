@@ -37,7 +37,7 @@ const en = read('lang/en-frontier-play.mjs'), enHand = read('lang/en-frontier-ha
 const fnOf = (src, head) => { const at = src.indexOf(head); assert.ok(at >= 0, head); return src.slice(at, src.indexOf('\n}\n', at) + 2); };
 const order = (body, ...parts) => { let at = -1; for (const p of parts) { const i = body.indexOf(p, at + 1); assert.ok(i > at, `in order: ${p}`); at = i; } };
 const codeOf = body => body.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
-const model = fnOf(vo, 'export function villageOrdersModel(FS, h, now) {'), view = fnOf(vo, 'export function renderVillageOrders(FS, h, now, { rereadShown = false } = {}) {');
+const model = fnOf(vo, 'export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {'), view = fnOf(vo, 'export function renderVillageOrders(FS, h, now, { rereadShown = false, kinds = VILLAGE_ORDER_KINDS, reread = null } = {}) {');
 
 test('O1 the lifecycle records this reads are the controller\'s own', () => {
   assert.ok(ctl.includes("const rec = { ...o, ...extra, state: ok ? 'accepted' : 'refused' };"));
@@ -82,8 +82,8 @@ test('O3 the record is a fact of its own, never proof of an order', () => {
 
 test('O4 this village, this turn', () => {
   assert.ok(vo.includes("export const VILLAGE_ORDER_KINDS = Object.freeze(['harvest', 'build', 'walls', 'promote', 'train', 'muster', 'garrison']);"));
-  assert.ok(vo.includes("const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.tile.tile === h.tile);"));
-  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'for (const o of FS.orders ?? []) {', 'if (!VILLAGE_ORDER_KINDS.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;');
+  assert.ok(vo.includes("const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);"));
+  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'for (const o of FS.orders ?? []) {', 'if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;');
 });
 
 test('O5 pure: it sends, saves and changes nothing', () => {
@@ -96,7 +96,9 @@ test('O5 pure: it sends, saves and changes nothing', () => {
 
 test('O6 the unknown outcome offers the pure re-read, once', () => {
   assert.ok(vo.includes("export const villageRereadOffered = FS => !!FS.wallet && !FS.proto && FS.mode === 'play' && FS.villageReread?.state !== 'loading';"));
-  order(view, "const ask = list.some(x => x.cls === 'unknown' || x.cls === 'waiting') && !rereadShown && villageRereadOffered(FS);", 'data-act="village-reread"');
+  // (the button's action and words are the caller's — the trade card passes its own, web-frontier-ws07-s1-trade-read-text.test.mjs — and the village's by default)
+  order(view, "const again = reread ?? { act: 'village-reread', label: L`村の記録を読み直す`, offered: villageRereadOffered(FS) };",
+    "const ask = list.some(x => x.cls === 'unknown' || x.cls === 'waiting') && !rereadShown && again.offered === true;", 'data-act="${again.act}"');
   assert.equal((view.match(/data-act="/g) ?? []).length, 1, 'the only action here is the re-read');
   assert.ok(ctl.includes("  'village-reread': () => { rereadVillage().catch(() => {}); },"));
 });

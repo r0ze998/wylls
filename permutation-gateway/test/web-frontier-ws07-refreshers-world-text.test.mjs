@@ -78,7 +78,7 @@ test('R5 the conquest helpers follow the same current()', () => {
   order(s1, 'async function refreshS1(current, world) {', 'if (FS.s1 && (FS.s1.world ?? null) !== world) FS.s1 = undefined;',
     'const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null, world };',
     "await Promise.allSettled(names.map(n => herald[n]()));", 'if (!current()) return;', 's1.error = null;');
-  assert.ok(s1.includes("else if (r?.code === 'NotFound') s1[n] ??= s1Fresh(n);"), 'NotFound as before, now within one world');
+  assert.ok(s1.includes("else if (r?.code === 'NotFound') { s1[n] ??= s1Fresh(n); s1.read[n] = 'missing'; }"), 'NotFound as before, now within one world');
   order(days, 'async function refreshKeepEvents(cq, current) {', 'await herald.conquestDay(d).catch(() => null);', 'if (!current()) return;', 'cq.events = mergeKeepEvents(cq.events, r.day.events);');
   assert.ok(keep.includes("if (FS.conquest !== cq || (cq.world ?? null) !== providerWorld() || (!r.ok && r.code !== 'NotFound')) return;"));
 });

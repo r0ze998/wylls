@@ -36,6 +36,8 @@ import { copyNumber, queueNow, ITEM_TIER_UP } from '../hud/rulebook.mjs';
 
 /** The kinds of order the village screen gives. */
 export const VILLAGE_ORDER_KINDS = Object.freeze(['harvest', 'build', 'walls', 'promote', 'train', 'muster', 'garrison']);
+/** The kinds of order the trade card gives (screens/s1.mjs): a caravan, spearmen into a fort. Neither names a mark of its own in a record. */
+export const S1_ORDER_KINDS = Object.freeze(['s1-caravan', 's1-fort']);
 /** The codes of a transaction that was sent and whose outcome could not be read (fplay.mjs track). */
 export const UNKNOWN_OUTCOME_CODES = Object.freeze(['Unconfirmed', 'TxUnqueryable']);
 /** The code of local play's hold: sent, held by its signature, and asked — not sent — by the same press (controller.mjs orderUnconfirmed). */
@@ -51,12 +53,14 @@ export function villageOrderName(o) {
     case 'train': return Number.isInteger(o.unit) && Number.isFinite(o.n) ? L`${unitCount(UNIT_ORDER[o.unit], o.n)}の訓練` : L`訓練`;
     case 'muster': return Number.isInteger(o.unit) && Number.isFinite(o.troops) ? L`${unitCount(UNIT_ORDER[o.unit], o.troops)}の編成` : L`編成`;
     case 'garrison': return L`守備隊の増員`;
+    case 's1-caravan': return L`隊商の出発`;
+    case 's1-fort': return L`要塞への槍兵`;
     default: return '';
   }
 }
 
-/** Whether the order was given from this village: its province, and — but for a muster, whose tile is where the host forms up — its own tile. */
-const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.tile.tile === h.tile);
+/** Whether the order was given from this village: its province, and — but for a muster, whose tile is where the host forms up, and a fort's, whose tile is the fort — its own tile. */
+const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);
 
 /**
  * What the village's record, as read now, holds of the thing an order names — a fact of the record, never of the order:
@@ -80,12 +84,12 @@ export function recordBehind(o, fact) {
  * order of `FS.orders` (newest answer first). `h` = the village as settled now (holdingModel().settled), `now` = the
  * chain's second. `fact`: recordFactOf, kept only for the classes that say it (`unknown`).
  */
-export function villageOrdersModel(FS, h, now) {
+export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {
   if (!h) return [];
   const turn = FS.nowBell ?? null;
   const out = [];
   for (const o of FS.orders ?? []) {
-    if (!VILLAGE_ORDER_KINDS.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;
+    if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;
     let cls = null;
     // ('unconfirmed' is the local-play hold ONLY with the hold's own code. Main's order chain — not adopted at this base
     //  — records an ordinary-path unknown outcome as 'unconfirmed' too, with the tracker's code: there a second press
@@ -113,9 +117,11 @@ function factWords(f) {
 /**
  * The note under the village's head: one line per order of `villageOrdersModel`; '' when there is none. `rereadShown`:
  * the read note beside it already carries the re-read button (screens/holding.mjs renderHoldingRead) — it is not doubled.
+ * `kinds` and `reread` (`{act, label, offered}`): the trade card's own orders and its own re-read (screens/s1.mjs);
+ * by default the village's orders and the village's re-read.
  */
-export function renderVillageOrders(FS, h, now, { rereadShown = false } = {}) {
-  const list = villageOrdersModel(FS, h, now);
+export function renderVillageOrders(FS, h, now, { rereadShown = false, kinds = VILLAGE_ORDER_KINDS, reread = null } = {}) {
+  const list = villageOrdersModel(FS, h, now, kinds);
   if (!list.length) return '';
   const line = x => {
     if (x.cls === 'notSent') return html`<p class="notice error vo vo-notsent" data-order="${x.cls}">${icon('flag')}<span>${L`${x.name}：送られていません。`}${x.why ? html`<span class="vo-why"> ${x.why}</span>` : ''}</span></p>`;
@@ -126,7 +132,8 @@ export function renderVillageOrders(FS, h, now, { rereadShown = false } = {}) {
     const fact = factWords(x.fact);
     return html`<p class="notice vo vo-unknown" data-order="${x.cls}">${icon('hourglass')}<span>${L`${x.name}：送信済みです。この命令の結果は、まだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。`}${fact ? html`<span class="vo-fact"> ${fact}</span>` : ''}</span></p>`;
   };
-  const ask = list.some(x => x.cls === 'unknown' || x.cls === 'waiting') && !rereadShown && villageRereadOffered(FS);
+  const again = reread ?? { act: 'village-reread', label: L`村の記録を読み直す`, offered: villageRereadOffered(FS) };
+  const ask = list.some(x => x.cls === 'unknown' || x.cls === 'waiting') && !rereadShown && again.offered === true;
   return html`<div class="village-orders" role="status" aria-label="${L`この村から出した命令`}">${list.map(line)}${ask
-    ? html`<div class="actions"><button type="button" class="btn small" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button></div>` : ''}</div>`;
+    ? html`<div class="actions"><button type="button" class="btn small" data-act="${again.act}">${icon('return')}${again.label}</button></div>` : ''}</div>`;
 }

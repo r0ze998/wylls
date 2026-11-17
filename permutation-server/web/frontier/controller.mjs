@@ -833,6 +833,7 @@ export function adoptPinnedWorld() {
   FS.marches = [];
   FS.marchesRead = null;
   FS.villageReread = null;   // (a re-read asked in the world that was pinned, and its note, are not this world's — rereadVillage)
+  FS.s1Reread = null;        // (the same for the trade card's re-read — rereadS1)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
   if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
   dropOtherWorldConquest(world);
@@ -1316,7 +1317,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; }
+export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; FS.s1Reread = null; }
 
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
@@ -1814,20 +1815,30 @@ export const s1Fresh = name => ({
   structures: () => ({ v: 1, structures: [], sightings: [] }),
   nations: () => ({ v: 1, stances: Array.from({ length: 6 }, () => Array(6).fill(0)), proposals: [], expelled: [], domesticRaids: [] }),
 })[name]?.() ?? null;
+/** The number of the last read of the S1 feeds that began (refreshS1): the read that began last is the one applied. */
+let s1Ask = 0;
 async function refreshS1(current, world) {
   // (2026-11-17, ⑦: the feeds read in another pinned world — or another pinning of the same one — are not kept: a failure
   //  or NotFound here would otherwise leave that world's caravans, structures and nations standing as this one's)
   if (FS.s1 && (FS.s1.world ?? null) !== world) FS.s1 = undefined;
   const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null, world };
   const names = ['caravans', 'structures', 'nations'];
+  // (2026-11-17, ⑦ the trade card: a read belongs to its number — the person's own re-read (rereadS1) and the regular
+  //  load may be under way together, and each applies three whole feeds: the one that BEGAN last is applied, an earlier
+  //  one that answers later writes nothing. Regular loads among themselves were already so — refreshConquest's request.)
+  const ask = ++s1Ask;
   const results = await Promise.allSettled(names.map(n => herald[n]()));
   if (!current()) return;
+  if (ask !== s1Ask || FS.s1 !== s1) return;
   s1.error = null;
+  // (how each feed's latest read went, for the card: 'ok', 'missing' (the herald has no file: an empty feed stands, as
+  //  before) or 'failed' — a feed that failed keeps what was read before, or stays not read)
+  s1.read = {};
   names.forEach((n, i) => {
     const r = results[i].status === 'fulfilled' ? results[i].value : null;
-    if (r?.ok) s1[n] = r[n];
-    else if (r?.code === 'NotFound') s1[n] ??= s1Fresh(n);
-    else s1.error = L`隊商・構造物・国家の最新情報を取得できませんでした。`;
+    if (r?.ok) { s1[n] = r[n]; s1.read[n] = 'ok'; }
+    else if (r?.code === 'NotFound') { s1[n] ??= s1Fresh(n); s1.read[n] = 'missing'; }
+    else { s1.error = L`隊商・構造物・国家の最新情報を取得できませんでした。`; s1.read[n] = 'failed'; }
   });
   // the Provinces the viewer's own caravans stand in: their slots say whether a raid holds one (map/s1marks heldByRaids)
   const me = ownTag(FS);
@@ -1835,6 +1846,26 @@ async function refreshS1(current, world) {
     if (me === null || me === undefined || BigInt(c.ownerTag) !== BigInt(me)) continue;
     for (const r of c.runs ?? []) wantProvince(r.p, r.q, () => invalidate('map'));
   }
+}
+
+/**
+ * (2026-11-17, ⑦ the trade card) The person's own "read the lists again": the three S1 feeds (caravans and storehouses,
+ * structures, nations) read once more through refreshS1 — and nothing else. It is NOT refreshConquest (overviews,
+ * control, standings, the day files) and NOT refresh; nothing is sent or saved. The feeds are public: no viewer is
+ * asked for. Whose answer: this press's own run, the herald and the pinned world as at the press; against the regular
+ * load, the read that began last is applied (refreshS1's number). A press while one is under way starts nothing.
+ * How it went is said by the feeds' own read marks (`FS.s1.read`); `FS.s1Reread = { state: 'loading'|'failed' }` only
+ * says a read is under way, or that it could not be made at all.
+ */
+export async function rereadS1() {
+  if (!herald || !s1On() || FS.mode !== 'play') return false;
+  if (FS.s1Reread?.state === 'loading') return 'loading';
+  const run = { state: 'loading' }, at = { herald, world: providerWorld() };
+  const mine = () => FS.s1Reread === run && herald === at.herald && providerWorld() === at.world;
+  FS.s1Reread = run; invalidate('panel');
+  try { await refreshS1(mine, at.world); return mine(); }
+  catch (e) { console.error('frontier s1 reread:', e); if (mine()) run.state = 'failed'; return false; }
+  finally { if (FS.s1Reread === run && run.state === 'loading') FS.s1Reread = null; invalidate('panel', 'map'); }
 }
 
 export async function refreshConquest() {
@@ -2999,6 +3030,8 @@ export const ACTIONS = {
   //  so an answer of the earlier one that comes late is not written; the draft's settings are kept. Not while sending.)
   // (2026-11-17, ⑦ the village screen: the viewer's record and the village's province read again — a read only, never refresh)
   'village-reread': () => { rereadVillage().catch(() => {}); },
+  // (2026-11-17, ⑦ the trade card: the three S1 feeds read again — a read only, never refreshConquest or refresh)
+  's1-reread': () => { rereadS1().catch(() => {}); },
   'dest-retry': () => { const c = FS.compose; if (!c?.dest || c.sending) return undefined; return setDestination({ p: c.dest.p, q: c.dest.q, tile: c.dest.tile }); },
   'march-send': () => sendTheMarch(),
   'march-send-wait': () => armMarchWait(),

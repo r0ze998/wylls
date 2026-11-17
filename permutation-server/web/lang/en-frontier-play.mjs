@@ -1731,4 +1731,17 @@ export default {
   'いま読めている村の記録では、{0}は {1} つです（建設中を含みます）。この命令で増えたものかどうかは、記録からは分かりません。': 'In the village record loaded so far, {0}: {1} (those being built included). The record does not say whether this order added one.',
   'いま読めている村の記録では、昇格の工事が列にあります。この命令によるものかどうかは、記録からは分かりません。': 'In the village record loaded so far, a promotion is in the building queue. The record does not say whether this order put it there.',
   'いま読めている村の記録では、段階は{0}です。昇格の工事は列にありません。': 'In the village record loaded so far, the tier is {0}. No promotion is in the building queue.',
+  // (2026-11-17, ⑦ the trade card: how its lists were read, the re-read, and what became of its orders)
+  '隊商と貯蔵庫の一覧': 'The list of caravans and storehouses',
+  '建物の一覧': 'The list of structures',
+  '国の方針と議題': 'The nation\'s stances and motions',
+  '{0}を、まだ読めていません。ないという意味ではありません。': '{0}: not loaded yet. This does not mean there are none.',
+  '{0}を読み込めませんでした。ないという意味ではありません。': '{0}: could not be loaded. This does not mean there are none.',
+  '{0}の最新の読み込みに失敗しています。下に出ているのは、最後に読めたものです。': '{0}: the latest load failed. What is shown below was loaded before.',
+  '一覧を読み直しています…': 'Loading the lists again…',
+  '一覧を読み直せませんでした。前に読めたものは、そのまま残しています。': 'The lists could not be loaded again. What was loaded before is kept as it is.',
+  '一覧を読み直す': 'Load the lists again',
+  '貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。': 'The list of storehouses is not loaded yet, so the places to send to are not all here.',
+  '隊商の出発': 'A caravan setting out',
+  '要塞への槍兵': 'Spearmen into the fort',
 };
