@@ -24,6 +24,12 @@
 //      - drawn in world A, pressed after B is pinned (a village of the same place and generation exists in B) → nothing
 //      - drawn for one viewer, pressed after another is taken → nothing
 //      - A → B → A: three contexts; a button of the first A does nothing in the second
+//      - the herald is changed in the SAME world, for the SAME viewer (CORRECTED AGAIN — the first correction moved a
+//        private number only: the old judging still stood and its own buttons still matched it): the judging is let
+//        go at the change, the card says "not checked yet" and draws no button; a button still on the screen does
+//        nothing; a reading that began before the change is marked with the context it BEGAN under, so even if it is
+//        written afterwards it is not this context's
+//      - the judging's number and the button's are compared with the number NOW (`FS.contextSeq`), not with each other
 //      - the warning it names (village and turn) no longer stands → nothing
 //      - the village lost or founded anew (another generation) → nothing
 //      - pressed again in the same context after a new judging: the warning is looked up as it is now → it acts
@@ -51,7 +57,8 @@ test('I1 the judging is unchanged; the warning names its village whole and how i
   order(chron, 'const holdingsNow = FS.holdings ?? [];', 'FS.incoming = FS.citizen ? incomingWarnings({ kernel: k, departures,', 'unitOf: () => WARNING_UNIT }) : [];',
     'for (const w of Array.isArray(FS.incoming) ? FS.incoming : []) {', 'const o = holdingsNow.find(x => x.p === w.holding.p && x.q === w.holding.q && x.site === w.holding.site);',
     'if (o) { w.holding.tile = o.tile; w.holding.gen = o.gen ?? 0; }', "x.record.name === 'DEPART' && Number(x.record.arrive_bell) >= nowBell()", 'return f === null || f === undefined;',
-    'FS.incomingRead = { world: providerWorld(), rules: !!k, chronicleOk: failed === null, unknownOrigins, bell: nowBell(), ctx: contextSeq, viewer: viewerKey() ?? null };');
+    'FS.incomingRead = { world: providerWorld(), rules: !!k, chronicleOk: failed === null, unknownOrigins, bell: nowBell(), ctx: ctxAt, viewer: viewerKey() ?? null };');
+  order(chron, 'async function refreshChronicle() {', 'const ctxAt = contextSeq;', 'FS.incoming = FS.citizen ? incomingWarnings(');
   assert.equal((codeOf(chron).match(/incomingWarnings\(/g) ?? []).length, 1, 'judged once, as before');
   // the judging function is the one it was
   const iw = fnOf(fm, 'export function incomingWarnings({ kernel, departures = [], holdings = [], faction, genesisTs, nowBell, unitOf = () => 0 }) {');
@@ -62,7 +69,8 @@ test('I1 the judging is unchanged; the warning names its village whole and how i
 
 test('I2 not judged is not "none"', () => {
   const rd = fnOf(inc, 'export function incomingRead(FS) {');
-  order(rd, 'const r = FS.incomingRead;', "if (r === null || (r && r.world !== worldOf(FS))) return { state: 'unread', chronicleOk: true, unknownOrigins: 0, ctx: null };",
+  order(rd, 'const r = FS.incomingRead;', 'const stale = !!r && Number.isInteger(r.ctx) && Number.isInteger(FS.contextSeq) && r.ctx !== FS.contextSeq;',
+    "if (r === null || (r && r.world !== worldOf(FS)) || stale) return { state: 'unread', chronicleOk: true, unknownOrigins: 0, ctx: null };",
     "if (FS.incoming === null || FS.incoming === undefined) return { state: 'noRules', chronicleOk: true, unknownOrigins: 0, ctx: null };",
     "return { state: 'ok', chronicleOk: r ? r.chronicleOk !== false : true, unknownOrigins: Number(r?.unknownOrigins ?? 0), ctx: Number.isInteger(r?.ctx) ? r.ctx : null };");
   assert.ok(inc.includes("const worldOf = FS => { const pin = FS?.pin ?? null; return pin?.programId && pin?.addresses?.season ? `${pin.gen ?? 0}|${pin.cluster ?? ''}|${pin.programId}|${pin.addresses.season}` : null; };"));
@@ -97,17 +105,20 @@ test('I4 the way on, and what is not said', () => {
 test('I5 a press acts only while it still belongs to what the page is now', () => {
   const still = fnOf(app, 'function incomingStill(d) {');
   order(still, 'const r = FS.incomingRead ?? null;',
-    "if (FS.mode !== 'play' || !r || !Number.isInteger(r.ctx) || String(r.ctx) !== String(d.read ?? '') || r.world !== momentWorld()",
+    "if (FS.mode !== 'play' || !r || !Number.isInteger(r.ctx) || !Number.isInteger(FS.contextSeq) || r.ctx !== FS.contextSeq || String(r.ctx) !== String(d.read ?? '') || r.world !== momentWorld()",
     '|| (r.viewer ?? null) !== (FS.resident?.asset ?? FS.wallet?.address ?? null)) return null;', 'const p = num(d.p), q = num(d.q), site = num(d.site), gen = num(d.gen), bell = num(d.bell);',
     'const w = (Array.isArray(FS.incoming) ? FS.incoming : []).find(x => x.holding.p === p && x.holding.q === q && x.holding.site === site && (x.holding.gen ?? 0) === gen && x.bell === bell) ?? null;',
     'const i = w ? (FS.holdings ?? []).findIndex(o => o.p === p && o.q === q && o.site === site && (o.gen ?? 0) === gen) : -1;', 'return i >= 0 ? { w, h: FS.holdings[i], i } : null;');
   assert.doesNotMatch(codeOf(still), /FS\.[A-Za-z0-9]+ = |invalidate\(|\bact\(|num\(d\.i\)/, 'it reads only; no index from the markup');
   // the context number: it moves with every change of viewer, herald and pinned world, and the judging carries it
   assert.ok(ctl.includes('let contextSeq = 0;'));
-  order(fnOf(ctl, 'function resetViewer('), 'FS.incomingRead = null;', 'contextSeq += 1;');
-  order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.incoming = []; FS.incomingRead = null;', 'contextSeq += 1;', 'dropOtherWorldConquest(world);');
-  assert.ok(fnOf(ctl, 'export function useHerald(h) {').includes('contextSeq += 1; }'), 'useHerald');
-  assert.equal((ctl.match(/contextSeq \+= 1;/g) ?? []).length, 3);
+  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; };'), 'the number NOW is on the store');
+  order(fnOf(ctl, 'function resetViewer('), 'FS.incomingRead = null;', 'nextContext();');
+  order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.incoming = []; FS.incomingRead = null;', 'nextContext();', 'dropOtherWorldConquest(world);');
+  // the herald changed in the same world, for the same viewer: the judging is let go AND the context moves
+  assert.ok(fnOf(ctl, 'export function useHerald(h) {').includes('FS.incomingRead = null; nextContext(); }'), 'useHerald');
+  assert.equal((ctl.match(/nextContext\(\);/g) ?? []).length, 3, 'another viewer, herald, world');
+  assert.equal((ctl.match(/contextSeq \+= 1;/g) ?? []).length, 1, 'moved in one place only');
   assert.ok(app.includes("const momentWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);"));
   // the village is opened, and the later jump is the same request's, for the same village and screen
   const at = app.indexOf("  'incoming-village': d => {"), act = app.slice(at, app.indexOf('\n  },\n', at) + 5);

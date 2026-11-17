@@ -478,7 +478,9 @@ export function modePanel(FS) {
 let incomingAsk = 0;
 function incomingStill(d) {
   const r = FS.incomingRead ?? null;
-  if (FS.mode !== 'play' || !r || !Number.isInteger(r.ctx) || String(r.ctx) !== String(d.read ?? '') || r.world !== momentWorld()
+  // (corrected: the judging's number is compared with the number NOW — `FS.contextSeq` —, and the button's with both:
+  //  a judging left standing from an earlier context, and the buttons drawn from it, act on nothing)
+  if (FS.mode !== 'play' || !r || !Number.isInteger(r.ctx) || !Number.isInteger(FS.contextSeq) || r.ctx !== FS.contextSeq || String(r.ctx) !== String(d.read ?? '') || r.world !== momentWorld()
     || (r.viewer ?? null) !== (FS.resident?.asset ?? FS.wallet?.address ?? null)) return null;
   const p = num(d.p), q = num(d.q), site = num(d.site), gen = num(d.gen), bell = num(d.bell);
   const w = (Array.isArray(FS.incoming) ? FS.incoming : []).find(x => x.holding.p === p && x.holding.q === q && x.holding.site === site && (x.holding.gen ?? 0) === gen && x.bell === bell) ?? null;

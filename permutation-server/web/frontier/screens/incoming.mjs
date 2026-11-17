@@ -41,7 +41,8 @@ export const warningText = (w, FS = null) => L`ターン ${fmtNum(w.bell)} に�
 
 /**
  * How the warnings were read (controller `FS.incomingRead`): `{state}` —
- *   'unread'   nothing was judged for this viewer and this pinned world yet (`FS.incomingRead` null, or another world's)
+ *   'unread'   nothing was judged for this viewer, herald and pinned world yet (`FS.incomingRead` null, another world's,
+ *              or read under an earlier context than the one now — `FS.contextSeq`)
  *   'noRules'  the rules module is not there: nothing can be judged
  *   'ok'       judged; `chronicleOk` false when the chronicle's last read failed, `unknownOrigins` the departures still
  *              under way that could not be judged (their origin's owner is not read)
@@ -49,7 +50,10 @@ export const warningText = (w, FS = null) => L`ターン ${fmtNum(w.bell)} に�
  */
 export function incomingRead(FS) {
   const r = FS.incomingRead;
-  if (r === null || (r && r.world !== worldOf(FS))) return { state: 'unread', chronicleOk: true, unknownOrigins: 0, ctx: null };
+  // (corrected: also a judging read under an EARLIER context — the herald was changed in the same world, for the same
+  //  viewer — is not this page's: where both numbers are there and differ, nothing is judged yet)
+  const stale = !!r && Number.isInteger(r.ctx) && Number.isInteger(FS.contextSeq) && r.ctx !== FS.contextSeq;
+  if (r === null || (r && r.world !== worldOf(FS)) || stale) return { state: 'unread', chronicleOk: true, unknownOrigins: 0, ctx: null };
   if (FS.incoming === null || FS.incoming === undefined) return { state: 'noRules', chronicleOk: true, unknownOrigins: 0, ctx: null };
   // (`ctx`: the context number of this judging — every button of the card carries it; null for a store without the mark)
   return { state: 'ok', chronicleOk: r ? r.chronicleOk !== false : true, unknownOrigins: Number(r?.unknownOrigins ?? 0), ctx: Number.isInteger(r?.ctx) ? r.ctx : null };
