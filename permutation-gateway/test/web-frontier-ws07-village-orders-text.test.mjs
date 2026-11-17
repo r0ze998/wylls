@@ -88,7 +88,7 @@ test('O3 the record is a fact of its own, never proof of an order', () => {
 test('O4 this village, this turn', () => {
   assert.ok(vo.includes("export const VILLAGE_ORDER_KINDS = Object.freeze(['harvest', 'build', 'walls', 'promote', 'train', 'muster', 'garrison']);"));
   assert.ok(vo.includes("const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);"));
-  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'for (const o of FS.orders ?? []) {', 'if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;');
+  order(model, 'if (!h) return [];', 'const turn = FS.nowBell ?? null;', 'for (const o of FS.orders ?? []) {', 'if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h) || !ofContext(FS, o)) continue;');
 });
 
 test('O5 pure: it sends, saves and changes nothing', () => {

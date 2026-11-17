@@ -77,6 +77,15 @@ export function villageOrderName(o) {
   }
 }
 
+/**
+ * (2026-11-17, corrected) Whether an order record was made under the context the page is in NOW — the same viewer,
+ * herald and pinned world: its number (`o<n>`, the controller's own count of orders made on this page) is higher than
+ * the number that stood when the context last moved (`FS.orderFloor`, controller nextContext). A record made before a
+ * change of viewer, herald or world is another context's, whatever its turn and tile. A store without the floor (an
+ * older fixture) holds nothing against a record.
+ */
+export const ofContext = (FS, o) => { const n = Number(String(o?.id ?? '').slice(1)); return !Number.isInteger(FS.orderFloor) || (Number.isInteger(n) && n > FS.orderFloor); };
+
 /** Whether the order was given from this village: its province, and — but for a muster, whose tile is where the host forms up, and a fort's, whose tile is the fort — its own tile. */
 const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);
 
@@ -107,7 +116,7 @@ export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {
   const turn = FS.nowBell ?? null;
   const out = [];
   for (const o of FS.orders ?? []) {
-    if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h)) continue;
+    if (!kinds.includes(o.kind) || o.turn !== turn || !ofVillage(o, h) || !ofContext(FS, o)) continue;
     // (what the record says became of the order — orderOutcome, the one place it is read; an accepted order is listed
     //  only while the village's record is still behind it)
     const outcome = orderOutcome(o), cls = outcome === 'accepted' ? (recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null) : outcome;
@@ -118,17 +127,28 @@ export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {
 }
 
 /**
- * The newest order record of this village and this turn that `match` takes, with what became of it: `{order, outcome,
- * why}`, or null. `FS.orders` is newest first. It is a fact of the RECORD — "the last such order given from this village
- * this turn was …" —, read by what the record itself names (its kind, its unit, its village's tile, its turn); it is
- * not tied to any button press or plan, and no later state of the village is inferred from it.
+ * The order record of this village that `match` takes and that still speaks for what the page should say, with what
+ * became of it: `{order, outcome, why, turn, carried}`, or null. `FS.orders` is newest first. Only records made under
+ * the context NOW (ofContext) and given from this village (its tile) are read.
+ *   - a record whose outcome is NOT CONFIRMED — 'unknown' (sent, not read) or 'held' (local play's hold) — is returned
+ *     WHATEVER ITS TURN, the newest such first (corrected 2026-11-17: only this turn's records were read, so an order
+ *     sent with its outcome unknown lost its warning when the turn moved, and the guide offered the same order again
+ *     as if it were safe). A turn going by confirms nothing. `carried`: it is of an earlier turn.
+ *   - otherwise the newest record of THIS turn (accepted, sent and failed, not sent): those are answers, and an
+ *     answer of an earlier turn is not kept.
+ * It is a fact of the RECORD, read by what the record itself names (kind, unit, village tile, turn, its number); it
+ * is not tied to a button press, and no state of the village is inferred from it. What ends a not-confirmed record's
+ * warning is for the caller to say (the guide: the village's record moving on to the next step).
+ * Limits: the page keeps the last ORDERS_MAX records in memory only — a record pushed out, or a page loaded again,
+ * is gone, and its warning with it; a record does not name its village's generation.
  */
 export function latestVillageOrder(FS, h, match) {
   if (!h) return null;
   const turn = FS.nowBell ?? null;
-  const o = (FS.orders ?? []).find(x => x.turn === turn && ofVillage(x, h) && match(x)) ?? null;
+  const mine = (FS.orders ?? []).filter(x => ofContext(FS, x) && ofVillage(x, h) && match(x));
+  const o = mine.find(x => { const c = orderOutcome(x); return c === 'unknown' || c === 'held'; }) ?? mine.find(x => x.turn === turn) ?? null;
   const outcome = o ? orderOutcome(o) : null;
-  return outcome ? { order: o, outcome, why: o.why ?? (o.code ? clientText(o.code) : '') } : null;
+  return outcome ? { order: o, outcome, why: o.why ?? (o.code ? clientText(o.code) : ''), turn: o.turn ?? null, carried: o.turn !== turn } : null;
 }
 
 /** Whether the pure re-read of the village may be offered from here (the controller's own conditions for starting one). */

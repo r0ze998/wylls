@@ -1822,4 +1822,5 @@ export default {
   '{0}は送信しましたが、成立しませんでした。': '{0}: sent, but it did not take effect.',
   '{0}は、送られていません。': '{0}: not sent.',
   '斥候の命令の結果を確かめる': 'Check what became of the scouts\' order',
+  '（ターン {0} に出した命令です。ターンが進んでも、結果が確かめられたわけではありません。）': ' (Ordered on turn {0}. The turn moving on does not mean its result was confirmed.)',
 };

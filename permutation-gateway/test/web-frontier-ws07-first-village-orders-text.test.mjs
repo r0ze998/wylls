@@ -14,8 +14,20 @@
 //   F2 an order record is classed in ONE place (orderOutcome): not sent / sent and failed / sent, outcome unknown —
 //      both shapes: refused with `sent` and a tracker's code, and 'unconfirmed' with any code but the local hold's — /
 //      held (local) / accepted
-//   F3 the guide reads the newest order of THIS village and THIS turn for the step's own kind and unit (Train or
-//      Muster, Scouts): another village's, another turn's, another unit's is not it; none → nothing is added
+//   F3 which record the guide reads, for the step's own kind and unit (Train or Muster, Scouts), given from THIS
+//      village, made under the context the page is in NOW:
+//      - a record whose outcome is NOT CONFIRMED (sent, not read; or local play's hold) is read whatever its turn
+//        (CORRECTED — only this turn's records were read: an order sent with its outcome unknown lost its warning when
+//        the turn moved, and the guide and the pill offered the same order again as if that were safe)
+//      - an answer (accepted, sent and failed, not sent) only of THIS turn; an earlier turn's answer is not kept
+//      - a not-confirmed record stands before a later answer of the same kind (a later "not sent" does not confirm it)
+//      - a record made before a change of viewer, herald or pinned world is another context's: never read, whatever
+//        its turn and tile (its number is not above the floor the context's change set)
+//      - another village's tile, another unit → not it; none → nothing is added
+//      - what ends the warning is the village's record moving the guide on to the next step (the reserve, the host):
+//        a turn going by, or a count that merely matches, ends nothing
+//      - limits, said in the source and the report: the page keeps the last ORDERS_MAX records in memory only; a
+//        record does not name its village's generation
 //   F4 what the guide says: accepted → "accepted this turn; it may not be in the village record yet; ordering again
 //      does it once more"; unknown → "sent, result not confirmed (not 'not sent'); ordering again may do it twice";
 //      held → "press the button below again to check its result"; sent and failed / not sent → as that, with the reason.
@@ -55,8 +67,17 @@ test('F2 an order record is classed in one place', () => {
 
 test('F3 the newest order of this village, this turn, this kind and unit', () => {
   const lv = fnOf(vo, 'export function latestVillageOrder(FS, h, match) {');
-  order(lv, 'if (!h) return null;', 'const turn = FS.nowBell ?? null;', 'const o = (FS.orders ?? []).find(x => x.turn === turn && ofVillage(x, h) && match(x)) ?? null;',
-    'const outcome = o ? orderOutcome(o) : null;', "return outcome ? { order: o, outcome, why: o.why ?? (o.code ? clientText(o.code) : '') } : null;");
+  order(lv, 'if (!h) return null;', 'const turn = FS.nowBell ?? null;', 'const mine = (FS.orders ?? []).filter(x => ofContext(FS, x) && ofVillage(x, h) && match(x));',
+    "const o = mine.find(x => { const c = orderOutcome(x); return c === 'unknown' || c === 'held'; }) ?? mine.find(x => x.turn === turn) ?? null;", 'const outcome = o ? orderOutcome(o) : null;',
+    "return outcome ? { order: o, outcome, why: o.why ?? (o.code ? clientText(o.code) : ''), turn: o.turn ?? null, carried: o.turn !== turn } : null;");
+  // the context a record was made under: the controller's own count of orders, and the floor set when the context moves
+  assert.ok(vo.includes("export const ofContext = (FS, o) => { const n = Number(String(o?.id ?? '').slice(1)); return !Number.isInteger(FS.orderFloor) || (Number.isInteger(n) && n > FS.orderFloor); };"));
+  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; FS.orderFloor = orderSeq; };'));
+  // (the start of the line only: the adopted order chain adds its own field at the end of it)
+  assert.ok(ctl.includes("return { ...extra, id: `o${++orderSeq}`, kind, name, turn: nowBell(),"), 'the number an order is made with');
+  assert.equal((ctl.match(/nextContext\(\);/g) ?? []).length, 3, 'another viewer, herald, world');
+  assert.equal((ctl.match(/orderSeq/g) ?? []).length, 3, 'its declaration, orderOf, the floor — nothing else reads or writes it');
+  assert.ok(ctl.includes('export const ORDERS_MAX = 40;'), 'the page keeps this many records');
   assert.ok(vo.includes("const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);"));
   order(note, 'const x = latestVillageOrder(FS, h, o => o.kind === kind && o.unit === SCOUT);', 'if (!x) return null;');
   // the records the guide's two orders write: the controller's own, with their unit
@@ -70,7 +91,8 @@ test('F4 what the guide says of the last press', () => {
     ": x.outcome === 'unknown' ? L`${name}は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。もう一度命じると、二重になることがあります。`",
     ": x.outcome === 'held' ? L`${name}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。`",
     ": x.outcome === 'sentFailed' ? L`${name}は送信しましたが、成立しませんでした。` : L`${name}は、送られていません。`;", "const careful = x.outcome === 'accepted' || x.outcome === 'unknown';",
-    'return { outcome: x.outcome, again: !careful,', 'careful && villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">');
+    "const earlier = x.carried && Number.isInteger(x.turn) ? L`（ターン ${fmtNum(x.turn)} に出した命令です。ターンが進んでも、結果が確かめられたわけではありません。）` : '';",
+    'return { outcome: x.outcome, again: !careful,', 'data-carried="${x.carried ? 1 : 0}">${text}${earlier}', 'careful && villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">');
   order(step, "const on = scoutOrderNote(FS, h, 'muster'); return html`${on?.note ?? ''}<p>", "class=\"btn${on && !on.again ? '' : ' primary'}\" data-act=\"home-scout-muster\"",
     "const on = scoutOrderNote(FS, h, 'train');", "return html`${on?.note ?? ''}<p>", "class=\"btn${on && !on.again ? '' : ' primary'}\" data-act=\"home-scout-train\"");
   assert.doesNotMatch(note + step.slice(step.indexOf("scoutOrderNote(FS, h, 'muster')")), /disabled/, 'nothing is disabled: the button stays');
@@ -97,7 +119,7 @@ test('F7 English follows; no banned word', () => {
   for (const k of ['斥候の訓練', '斥候隊の編成', '{0}は、このターンに受け付けられています。村の記録に、まだ出ていないことがあります。もう一度命じると、もう一度行います。',
     '{0}は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。もう一度命じると、二重になることがあります。',
     '{0}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。', '{0}は送信しましたが、成立しませんでした。', '{0}は、送られていません。',
-    '斥候の命令の結果を確かめる', '村の記録を読み直す']) {
+    '斥候の命令の結果を確かめる', '村の記録を読み直す', '（ターン {0} に出した命令です。ターンが進んでも、結果が確かめられたわけではありません。）']) {
     const line = en.split('\n').find(l => l.startsWith(`  '${k}':`));
     assert.ok(line, k);
     assert.doesNotMatch(line.slice(line.indexOf("': ") + 3), /\b(settle[ds]?|settling|keeper|beacon|seed)\b/i);

@@ -138,7 +138,7 @@ test('H5 every press first asks whether it still belongs', () => {
     'if (!h || h.p !== num(d.p) || h.q !== num(d.q) || h.site !== num(d.site) || (h.gen ?? 0) !== num(d.gen)) return null;',
     "const row = hostScreen.hostRows(FS).find(r => String(r.id) === String(d.host ?? '')) ?? null;", 'return needRow && !row ? null : { h, row };');
   assert.doesNotMatch(codeOf(still), /FS\.[A-Za-z0-9]+ = |invalidate\(|\bact\(/, 'it reads only');
-  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; };'), 'the number NOW moves with every change of viewer, herald and world');
+  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq;'), 'the number NOW moves with every change of viewer, herald and world');
   const track = actOf('host-track');
   order(track, 'const at = hostStill(d), req = ++hostAsk;', "if (!at) { invalidate('panel'); return; }", "ACTIONS.tab({ tab: 'marches' });", 'requestAnimationFrame(() => {',
     "if (req !== hostAsk || !hostStill(d) || FS.tab !== 'marches' || !/^\\d+$/.test(String(d.host ?? ''))) return;", '[data-march-host="${d.host}"]');

@@ -277,8 +277,10 @@ function scoutOrderNote(FS, h, kind) {
     : x.outcome === 'held' ? L`${name}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。`
     : x.outcome === 'sentFailed' ? L`${name}は送信しましたが、成立しませんでした。` : L`${name}は、送られていません。`;
   const careful = x.outcome === 'accepted' || x.outcome === 'unknown';
+  // (a not-confirmed order of an earlier turn: said with its turn — the turn going by confirmed nothing)
+  const earlier = x.carried && Number.isInteger(x.turn) ? L`（ターン ${fmtNum(x.turn)} に出した命令です。ターンが進んでも、結果が確かめられたわけではありません。）` : '';
   return { outcome: x.outcome, again: !careful,
-    note: html`<p class="${x.outcome === 'accepted' ? 'home-status' : 'notice'}" role="status" data-guide-order="${x.outcome}">${text}${x.outcome === 'sentFailed' || x.outcome === 'notSent' ? why : ''}</p>${
+    note: html`<p class="${x.outcome === 'accepted' ? 'home-status' : 'notice'}" role="status" data-guide-order="${x.outcome}" data-carried="${x.carried ? 1 : 0}">${text}${earlier}${x.outcome === 'sentFailed' || x.outcome === 'notSent' ? why : ''}</p>${
       careful && villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button>` : ''}` };
 }
 

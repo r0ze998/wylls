@@ -112,7 +112,7 @@ test('I5 a press acts only while it still belongs to what the page is now', () =
   assert.doesNotMatch(codeOf(still), /FS\.[A-Za-z0-9]+ = |invalidate\(|\bact\(|num\(d\.i\)/, 'it reads only; no index from the markup');
   // the context number: it moves with every change of viewer, herald and pinned world, and the judging carries it
   assert.ok(ctl.includes('let contextSeq = 0;'));
-  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; };'), 'the number NOW is on the store');
+  assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq;'), 'the number NOW is on the store');
   order(fnOf(ctl, 'function resetViewer('), 'FS.incomingRead = null;', 'nextContext();');
   order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.incoming = []; FS.incomingRead = null;', 'nextContext();', 'dropOtherWorldConquest(world);');
   // the herald changed in the same world, for the same viewer: the judging is let go AND the context moves
