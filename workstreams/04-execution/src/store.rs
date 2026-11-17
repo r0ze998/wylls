@@ -706,13 +706,22 @@ impl Store {
     /// Attempts whose outcome is still open although their run no longer
     /// waits on them (`superseded`, or landed with no fee reported), past
     /// their validity: a status read can now settle their fee.
+    ///
+    /// (2026-11-17) `limit` counts the attempts returned, i.e. those past
+    /// their validity. It used to be applied in SQL before that filter, so
+    /// `limit` rows that are not past validity (a gateway attempt's
+    /// `valid_until` is `u64::MAX`: never) at the front of the order kept
+    /// every later attempt from ever being reconciled.
     pub fn attempts_to_reconcile(&self, now: u64, limit: usize) -> Result<Vec<AttemptRow>, String> {
+        if limit == 0 {
+            return Ok(vec![]);
+        }
         let mut st = sql(self.conn.prepare(
             "SELECT id, run_id, step, request_key, prepared, status, epoch FROM attempts
              WHERE (status = 'superseded' OR (status IN ('landed', 'failed') AND fee_charged IS NULL))
-             ORDER BY id LIMIT ?1",
+             ORDER BY id",
         ))?;
-        let rows = sql(st.query_map(params![limit as i64], |r| {
+        let rows = sql(st.query_map([], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
@@ -737,6 +746,9 @@ impl Store {
                     status,
                     epoch,
                 });
+                if out.len() >= limit {
+                    break;
+                }
             }
         }
         Ok(out)
