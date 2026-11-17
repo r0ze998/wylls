@@ -56,6 +56,20 @@ export function seasonClock(season) {
 
 // ------------------------------------------------------------------ the chain clock
 /**
+ * A herald sample field as a finite number, or null: a finite number, a BigInt, or a non-blank numeric string
+ * (as `Number` reads it). Anything else — missing, null, a boolean, an object or array (never coerced, so no
+ * valueOf / toString runs), a symbol, or a value that reads as NaN or ±Infinity — is null.
+ */
+function sampleNumber(v) {
+  let x;
+  if (typeof v === 'number') x = v;
+  else if (typeof v === 'bigint') x = Number(v);
+  else if (typeof v === 'string' && v.trim() !== '') x = Number(v);
+  else return null;
+  return Number.isFinite(x) ? x : null;
+}
+
+/**
  * "Now" on the chain: the herald's latest (slot, unix) sample, advanced by
  * local elapsed time. The rate is **1** unless the clock is `accelerated`
  * (the pinned cluster is `localnet`, whose Clock runs at the stack's
@@ -101,9 +115,15 @@ export class ChainClock {
     return true;
   }
 
-  /** A herald sample: the Clock sysvar's unix time at a slot. */
+  /**
+   * A herald sample: the Clock sysvar's unix time at a slot. A sample whose unix time or slot is not a finite
+   * number (a number, a numeric string or a BigInt) is ignored whole: it changes nothing, so one bad record can
+   * never leave the clock NaN for every later sample.
+   */
   observe(unix, slot) {
-    const s = { unix: Number(unix), slot: Number(slot), at: this.wall() };
+    const u = sampleNumber(unix), n = sampleNumber(slot);
+    if (u === null || n === null) return;
+    const s = { unix: u, slot: n, at: this.wall() };
     if (this.last && s.slot < this.last.slot) return; // an older answer arriving late
     if (this.accelerated && this.declared === null && this.last && s.at - this.last.at >= 2000 && s.unix > this.last.unix) {
       const r = (s.unix - this.last.unix) / ((s.at - this.last.at) / 1000);
