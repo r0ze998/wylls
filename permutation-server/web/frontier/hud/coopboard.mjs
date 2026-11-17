@@ -70,7 +70,9 @@ export async function probeView({ fetch: f = (...a) => globalThis.fetch(...a), b
   try { j = await r.json(); } catch { return { read: 'unread', code: 'BadBody' }; }
   const int = x => Number.isInteger(Number(x)) && x !== null && x !== '' && typeof x !== 'boolean';
   const good = q => q && typeof q === 'object' && q.ctx && typeof q.ctx.programId === 'string' && (typeof q.ctx.seasonId === 'string' || typeof q.ctx.seasonId === 'number')
-    && q.to && ['p', 'q', 'site', 'gen'].every(k => int(q.to[k])) && typeof q.stateNow === 'string' && typeof q.fulfilment?.status === 'string';
+    && q.to && ['p', 'q', 'site', 'gen'].every(k => int(q.to[k])) && typeof q.stateNow === 'string' && typeof q.fulfilment?.status === 'string'
+    // (sends: each with its outcome as the board checked it, chain.mjs sendOutcome; absent: none recorded)
+    && (q.sendings === undefined || (Array.isArray(q.sendings) && q.sendings.every(z => z && typeof z.outcome?.status === 'string')));
   if (!j || !Array.isArray(j.requests) || !j.requests.every(good)) return { read: 'unread', code: 'BadView' };
   return { read: 'ok', requests: j.requests };
 }
@@ -101,9 +103,18 @@ export function villageRequests(FS, b, v) {
   // never dropped and never as reached
   const KNOWN = ['fulfilled', 'undetermined', 'not-reached', 'none'];
   const unknown = mine.filter(q => !KNOWN.includes(q.fulfilment.status)).length;
+  // (2026-11-17, sends) the sends recorded for these requests, by the outcome 01's board checked (chain.mjs sendOutcome):
+  // landed = the transaction is on chain (not "arrived"); failed = the program refused it; expired = its blockhash ran out;
+  // mismatch / seq-taken = a transaction or number that does not match the plan (to be looked at); anything else, and
+  // unknown, = not known yet. No advice is added here: what to do is said on 01's own page.
+  const sends = mine.flatMap(q => q.sendings ?? []).map(z => z.outcome.status);
+  const c = st => sends.filter(x => x === st).length;
+  const look = c('mismatch') + c('seq-taken');
+  const notKnown = sends.length - c('landed') - c('failed') - c('expired') - look;
   return { lines: [
     L`この村あての依頼 ${mine.length} 件（受付中 ${mine.filter(q => q.stateNow === 'open').length}）`,
     L`依頼量に届いた（下限で証明）${n('fulfilled')}・判定できない ${n('undetermined') + unknown}・届かなかった ${n('not-reached')}・まだ隊商がない ${n('none')}`,
+    ...(sends.length ? [L`送信 ${sends.length}：記録された ${c('landed')}・断られた ${c('failed')}・期限切れ ${c('expired')}・確かめが要る ${look}・まだ確かめられない ${notKnown}`] : []),
   ] };
 }
 

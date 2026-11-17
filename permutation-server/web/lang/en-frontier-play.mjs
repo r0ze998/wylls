@@ -333,6 +333,7 @@ export default {
   'この村あての依頼を読み込めませんでした（{0}）': 'The requests to this village could not be loaded ({0})',
   'この村あての依頼はありません': 'No requests to this village',
   'この村あての依頼が、この世界のものか確かめられません': 'Whether the requests to this village are of this world cannot be checked',
+  '送信 {0}：記録された {1}・断られた {2}・期限切れ {3}・確かめが要る {4}・まだ確かめられない {5}': 'Sends {0}: recorded {1} · refused {2} · expired {3} · to be looked at {4} · not known yet {5}',
   'この村あての依頼 {0} 件（受付中 {1}）': 'Requests to this village: {0} ({1} open)',
   '依頼量に届いた（下限で証明）{0}・判定できない {1}・届かなかった {2}・まだ隊商がない {3}': 'Reached the amount asked (proven by the lower bound) {0} · cannot be judged {1} · not reached {2} · no caravan yet {3}',
   // workstream 07: 04's seven states of a signed send (hud/statusview.mjs sendView)
