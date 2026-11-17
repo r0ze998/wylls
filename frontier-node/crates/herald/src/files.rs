@@ -370,7 +370,11 @@ pub fn output_mode(data: &Path, files: &Path, compact: bool) -> Result<(), Strin
 /// [`output_mode`] for any output word (`None`: the default; `Some(OUTPUT_COMPACT_V1 | OUTPUT_COMPACT_V2)`): a data
 /// directory is reopened only with the word it records, never with another one or without it, and a first start with a
 /// word needs a new data directory (as compact-v1).
-pub fn output_mode_word(data: &Path, files: &Path, want: Option<&'static [u8]>) -> Result<(), String> {
+pub fn output_mode_word(
+    data: &Path,
+    files: &Path,
+    want: Option<&'static [u8]>,
+) -> Result<(), String> {
     let known = |b: &[u8]| b == OUTPUT_COMPACT_V1 || b == OUTPUT_COMPACT_V2;
     let name = |b: &[u8]| String::from_utf8_lossy(b).trim_end().to_string();
     if let Some(w) = want {

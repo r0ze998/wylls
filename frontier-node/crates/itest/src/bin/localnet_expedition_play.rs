@@ -33,7 +33,10 @@ fn main() {
             let bytes = std::fs::read(artifact.path()).map_err(|e| format!("artefact: {e}"))?;
             itest::conquest_world::markers_ok(&bytes, artifact.sha256())?;
         }
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
         rt.block_on(async {
             let mut p = play::launch_full(&artifact, o.player_wallet, o.rpc_port, o.ws_port, o.keeper, o.wide_destination).await?;
             println!("{}", p.metadata);

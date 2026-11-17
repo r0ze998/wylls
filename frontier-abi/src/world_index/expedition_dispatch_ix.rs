@@ -270,8 +270,19 @@ mod conquest_kind_tests {
     /// One valid inner command per conquest kind (public test values).
     fn inners() -> [(u8, Vec<u8>); 6] {
         [
-            (12, wide::DeclareSiege { site: 1, entry: 2 }.to_bytes().to_vec()),
-            (13, wide::ResolveWithConquest { bell: 20, beneficiary: [7; 32] }.to_bytes().to_vec()),
+            (
+                12,
+                wide::DeclareSiege { site: 1, entry: 2 }.to_bytes().to_vec(),
+            ),
+            (
+                13,
+                wide::ResolveWithConquest {
+                    bell: 20,
+                    beneficiary: [7; 32],
+                }
+                .to_bytes()
+                .to_vec(),
+            ),
             (14, wide::SettleCapture { site: 1 }.to_bytes().to_vec()),
             (15, wide::SettleSiege { site: 1 }.to_bytes().to_vec()),
             (16, wide::CloseConquest { p: 129, q: 0 }.to_bytes().to_vec()),
@@ -289,7 +300,10 @@ mod conquest_kind_tests {
     #[test]
     fn conquest_wrappers_are_never_existing_commands() {
         for (k, inner) in inners() {
-            assert!(wide::WideCommand::decode(&outer(k, &inner)).is_err(), "kind {k}");
+            assert!(
+                wide::WideCommand::decode(&outer(k, &inner)).is_err(),
+                "kind {k}"
+            );
         }
     }
 
@@ -297,7 +311,11 @@ mod conquest_kind_tests {
     #[test]
     fn without_the_feature_kinds_12_to_17_stay_refused() {
         for (k, inner) in inners() {
-            assert_eq!(Command::decode(&outer(k, &inner)).err(), Some(FrontierError::BadData), "kind {k}");
+            assert_eq!(
+                Command::decode(&outer(k, &inner)).err(),
+                Some(FrontierError::BadData),
+                "kind {k}"
+            );
         }
     }
 
@@ -305,7 +323,14 @@ mod conquest_kind_tests {
     #[test]
     fn conquest_kinds_carry_exact_existing_commands_under_their_own_class_tags() {
         use crate::prologue::position_in;
-        let all = [Kind::DeclareSiege, Kind::ResolveWithConquest, Kind::SettleCapture, Kind::SettleSiege, Kind::CloseConquest, Kind::CloseCaptureEscrow];
+        let all = [
+            Kind::DeclareSiege,
+            Kind::ResolveWithConquest,
+            Kind::SettleCapture,
+            Kind::SettleSiege,
+            Kind::CloseConquest,
+            Kind::CloseCaptureEscrow,
+        ];
         for ((k, inner), kind) in inners().into_iter().zip(all) {
             assert_eq!(kind as u8, k);
             // the outer tag is the inner command's own class tag
@@ -315,7 +340,11 @@ mod conquest_kind_tests {
             // the Season position is the inner table's (fewest accounts)
             let g = cmd.accounts();
             let n = crate::prologue::bounds_in(g).0;
-            assert_eq!(position_in(g, n, "season", 0), Some(kind.season_index()), "kind {k} season");
+            assert_eq!(
+                position_in(g, n, "season", 0),
+                Some(kind.season_index()),
+                "kind {k} season"
+            );
             // exact round trip, and the inner command maps back to its kind
             let wire = encode(kind, &inner).unwrap();
             assert_eq!(wire, outer(k, &inner));
@@ -369,7 +398,11 @@ mod conquest_kind_tests {
         let mut ext = wire.clone();
         ext.push(0);
         assert!(Command::decode(&ext).is_err());
-        assert!(encode(Kind::SettleReservation, &wide::SettleSiege { site: 1 }.to_bytes()).is_err());
+        assert!(encode(
+            Kind::SettleReservation,
+            &wide::SettleSiege { site: 1 }.to_bytes()
+        )
+        .is_err());
         assert!(encode(Kind::SettleSiege, &inner).is_err());
     }
 }

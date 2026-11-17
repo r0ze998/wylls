@@ -438,11 +438,17 @@ impl World {
             use frontier_abi::world_index::expedition_dispatch_ix as dx;
             let kind = dx::Kind::of_conquest(data).expect("a conquest command");
             let wire = dx::encode(kind, data).unwrap();
-            let mut bad_outer: Vec<Vec<u8>> = vec![wire[..wire.len() - 1].to_vec(), wire[..4].to_vec()];
+            let mut bad_outer: Vec<Vec<u8>> =
+                vec![wire[..wire.len() - 1].to_vec(), wire[..4].to_vec()];
             let mut ext = wire.clone();
             ext.push(0);
             bad_outer.push(ext);
-            for (i, x) in [(2usize, 1u8), (3, kind as u8 ^ 0x01), (3, 18), (0, wire[0] ^ 0x01)] {
+            for (i, x) in [
+                (2usize, 1u8),
+                (3, kind as u8 ^ 0x01),
+                (3, 18),
+                (0, wire[0] ^ 0x01),
+            ] {
                 let mut b = wire.clone();
                 b[i] = x;
                 bad_outer.push(b);
@@ -478,7 +484,9 @@ impl World {
             }
         }
         #[cfg(feature = "conquest-dispatch-experimental")]
-        return self.run_with_data(roles, &outer, |p, a, wire| crate::dispatch(p, a, wire).map_err(Into::into));
+        return self.run_with_data(roles, &outer, |p, a, wire| {
+            crate::dispatch(p, a, wire).map_err(Into::into)
+        });
         #[cfg(not(feature = "conquest-dispatch-experimental"))]
         self.run_with_data(roles, data, |p, a, wire| {
             conquest_draft::execute_draft(p, a, wire).map_err(Into::into)
@@ -2210,21 +2218,48 @@ const RESIDENT_DISSOLVE_LAYERS: [Layer; 0] = [];
 const RESIDENT_RETURN_LAYERS: [Layer; 0] = [];
 #[cfg(not(feature = "expedition-dispatch-experimental"))]
 const BOUNDARY_LAYERS: [Layer; 0] = [];
-#[cfg(all(feature = "expedition-dispatch-experimental", not(feature = "conquest-dispatch-experimental")))]
-const RESIDENT_DISSOLVE_LAYERS: [Layer; 1] = [(RESIDENT_DISSOLVE_EXPEDITION_DELTA, RESIDENT_DISSOLVE_EXPEDITION_SHA256)];
-#[cfg(all(feature = "expedition-dispatch-experimental", not(feature = "conquest-dispatch-experimental")))]
-const RESIDENT_RETURN_LAYERS: [Layer; 1] = [(RESIDENT_RETURN_EXPEDITION_DELTA, RESIDENT_RETURN_EXPEDITION_SHA256)];
-#[cfg(all(feature = "expedition-dispatch-experimental", not(feature = "conquest-dispatch-experimental")))]
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    not(feature = "conquest-dispatch-experimental")
+))]
+const RESIDENT_DISSOLVE_LAYERS: [Layer; 1] = [(
+    RESIDENT_DISSOLVE_EXPEDITION_DELTA,
+    RESIDENT_DISSOLVE_EXPEDITION_SHA256,
+)];
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    not(feature = "conquest-dispatch-experimental")
+))]
+const RESIDENT_RETURN_LAYERS: [Layer; 1] = [(
+    RESIDENT_RETURN_EXPEDITION_DELTA,
+    RESIDENT_RETURN_EXPEDITION_SHA256,
+)];
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    not(feature = "conquest-dispatch-experimental")
+))]
 const BOUNDARY_LAYERS: [Layer; 1] = [(BOUNDARY_EXPEDITION_DELTA, BOUNDARY_EXPEDITION_SHA256)];
 #[cfg(feature = "conquest-dispatch-experimental")]
 const RESIDENT_DISSOLVE_LAYERS: [Layer; 2] = [
-    (RESIDENT_DISSOLVE_EXPEDITION_DELTA, RESIDENT_DISSOLVE_EXPEDITION_SHA256),
-    (RESIDENT_DISSOLVE_CONQUEST_DELTA, RESIDENT_DISSOLVE_CONQUEST_SHA256),
+    (
+        RESIDENT_DISSOLVE_EXPEDITION_DELTA,
+        RESIDENT_DISSOLVE_EXPEDITION_SHA256,
+    ),
+    (
+        RESIDENT_DISSOLVE_CONQUEST_DELTA,
+        RESIDENT_DISSOLVE_CONQUEST_SHA256,
+    ),
 ];
 #[cfg(feature = "conquest-dispatch-experimental")]
 const RESIDENT_RETURN_LAYERS: [Layer; 2] = [
-    (RESIDENT_RETURN_EXPEDITION_DELTA, RESIDENT_RETURN_EXPEDITION_SHA256),
-    (RESIDENT_RETURN_CONQUEST_DELTA, RESIDENT_RETURN_CONQUEST_SHA256),
+    (
+        RESIDENT_RETURN_EXPEDITION_DELTA,
+        RESIDENT_RETURN_EXPEDITION_SHA256,
+    ),
+    (
+        RESIDENT_RETURN_CONQUEST_DELTA,
+        RESIDENT_RETURN_CONQUEST_SHA256,
+    ),
 ];
 #[cfg(feature = "conquest-dispatch-experimental")]
 const BOUNDARY_LAYERS: [Layer; 2] = [
@@ -2234,7 +2269,9 @@ const BOUNDARY_LAYERS: [Layer; 2] = [
 
 fn unhex(s: &str) -> Vec<u8> {
     assert!(s.len() % 2 == 0 && !s.is_empty());
-    (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect()
+    (0..s.len() / 2)
+        .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+        .collect()
 }
 
 /// Applies fixed layers to an immutable fixture. Never reads the actual trace.
@@ -2250,13 +2287,19 @@ fn fixed_expected(fixture: &[u8], layers: &[Layer]) -> Vec<u8> {
             assert_eq!(old.len(), new.len());
             assert!(*offset >= end, "runs ascending and disjoint");
             assert!(offset + old.len() <= out.len(), "run in range");
-            assert_eq!(&out[*offset..offset + old.len()], old.as_slice(), "recorded old bytes");
+            assert_eq!(
+                &out[*offset..offset + old.len()],
+                old.as_slice(),
+                "recorded old bytes"
+            );
             assert!(old.iter().zip(&new).all(|(a, b)| a != b), "minimal run");
             out[*offset..offset + new.len()].copy_from_slice(&new);
             end = offset + old.len();
         }
-        let digest: std::string::String =
-            xmd::sha256(&[out.as_slice()]).iter().map(|b| std::format!("{b:02x}")).collect();
+        let digest: std::string::String = xmd::sha256(&[out.as_slice()])
+            .iter()
+            .map(|b| std::format!("{b:02x}"))
+            .collect();
         assert_eq!(digest, *pinned, "pinned expected sha256");
     }
     out
@@ -2275,7 +2318,10 @@ fn fixed_delta_refuses_a_wrong_old_byte() {
 #[test]
 #[should_panic(expected = "runs ascending and disjoint")]
 fn fixed_delta_refuses_overlapping_runs() {
-    fixed_expected(&[0, 1, 2, 3], &[(&[(1, "0102", "ffee"), (2, "02", "dd")], TINY_PIN)]);
+    fixed_expected(
+        &[0, 1, 2, 3],
+        &[(&[(1, "0102", "ffee"), (2, "02", "dd")], TINY_PIN)],
+    );
 }
 
 #[test]

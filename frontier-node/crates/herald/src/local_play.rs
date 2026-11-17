@@ -61,7 +61,9 @@ const PROGRAMDATA_META: usize = 45;
 
 fn local_port(p: u16) -> Result<u16, String> {
     if p == 0 || p == REFUSED_PORT || !crate::port_allowed(p) {
-        return Err(format!("port {p}: a local-play herald uses 41000-41999 (never 41970 or a reserved port)"));
+        return Err(format!(
+            "port {p}: a local-play herald uses 41000-41999 (never 41970 or a reserved port)"
+        ));
     }
     Ok(p)
 }
@@ -69,8 +71,12 @@ fn local_port(p: u16) -> Result<u16, String> {
 /// The RPC URL is exactly `http://127.0.0.1:PORT` (no userinfo, path, query
 /// or fragment; a canonical allowed port).
 pub fn loopback_rpc(url: &str) -> Result<u16, String> {
-    let port = url.strip_prefix("http://127.0.0.1:").ok_or("--rpc must be http://127.0.0.1:PORT")?;
-    let p: u16 = port.parse().map_err(|_| "--rpc must be http://127.0.0.1:PORT (nothing after the port)")?;
+    let port = url
+        .strip_prefix("http://127.0.0.1:")
+        .ok_or("--rpc must be http://127.0.0.1:PORT")?;
+    let p: u16 = port
+        .parse()
+        .map_err(|_| "--rpc must be http://127.0.0.1:PORT (nothing after the port)")?;
     if p.to_string() != port {
         return Err("--rpc: not a canonical port".into());
     }
@@ -79,7 +85,9 @@ pub fn loopback_rpc(url: &str) -> Result<u16, String> {
 
 /// The listen address is `127.0.0.1:PORT`, an allowed port, never 41970.
 pub fn loopback_listen(listen: &str) -> Result<u16, String> {
-    let a: std::net::SocketAddr = listen.parse().map_err(|_| "--listen must be 127.0.0.1:PORT")?;
+    let a: std::net::SocketAddr = listen
+        .parse()
+        .map_err(|_| "--listen must be 127.0.0.1:PORT")?;
     if a.ip() != std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) || a.to_string() != listen {
         return Err("--listen must be 127.0.0.1:PORT".into());
     }
@@ -105,7 +113,9 @@ pub struct Expected {
 
 fn addr(v: &Value, what: &str) -> Result<Address, String> {
     let s = v.as_str().ok_or(format!("metadata: {what} missing"))?;
-    let a: Address = s.parse().map_err(|_| format!("metadata: {what} is not an address"))?;
+    let a: Address = s
+        .parse()
+        .map_err(|_| format!("metadata: {what} is not an address"))?;
     if a.to_string() != s {
         return Err(format!("metadata: {what} is not canonical"));
     }
@@ -114,7 +124,12 @@ fn addr(v: &Value, what: &str) -> Result<Address, String> {
 
 /// The runner's metadata, checked against the herald's own `--program`,
 /// `--season` and `--rpc`.
-pub fn expected(metadata: &str, program: &Address, season_id: u64, rpc: &str) -> Result<Expected, String> {
+pub fn expected(
+    metadata: &str,
+    program: &Address,
+    season_id: u64,
+    rpc: &str,
+) -> Result<Expected, String> {
     let v: Value = serde_json::from_str(metadata.trim()).map_err(|e| format!("metadata: {e}"))?;
     if v["schema"] != METADATA_SCHEMA {
         return Err(format!("metadata: schema is not {METADATA_SCHEMA}"));
@@ -129,11 +144,19 @@ pub fn expected(metadata: &str, program: &Address, season_id: u64, rpc: &str) ->
         home: addr(&v["accounts"]["home_province"], "home_province")?,
         frontier: addr(&v["accounts"]["frontier"], "frontier")?,
         ring_seed: addr(&v["accounts"]["ring_seed"], "ring_seed")?,
-        artifact_sha256: v["artifact"]["sha256"].as_str().ok_or("metadata: artifact.sha256")?.to_owned(),
-        artifact_len: v["artifact"]["bytes"].as_u64().ok_or("metadata: artifact.bytes")? as usize,
+        artifact_sha256: v["artifact"]["sha256"]
+            .as_str()
+            .ok_or("metadata: artifact.sha256")?
+            .to_owned(),
+        artifact_len: v["artifact"]["bytes"]
+            .as_u64()
+            .ok_or("metadata: artifact.bytes")? as usize,
     };
     if e.artifact_sha256.len() != 64
-        || !e.artifact_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || !e
+            .artifact_sha256
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         || e.artifact_len == 0
     {
         return Err("metadata: artifact digest/length".into());
@@ -175,7 +198,16 @@ pub struct Snapshot {
 
 /// Reads the snapshot from `rpc` (loopback is the caller's rule).
 pub async fn read(rpc: &str, e: &Expected) -> Result<Snapshot, String> {
-    let keys = [e.program, fclient::addr::programdata(&e.program), e.season, e.citizen, e.holding, e.home, e.frontier, e.ring_seed];
+    let keys = [
+        e.program,
+        fclient::addr::programdata(&e.program),
+        e.season,
+        e.citizen,
+        e.holding,
+        e.home,
+        e.frontier,
+        e.ring_seed,
+    ];
     let v = fclient::rpc::RpcClient::new(rpc)
         .call(
             "getMultipleAccounts",
@@ -183,11 +215,22 @@ pub async fn read(rpc: &str, e: &Expected) -> Result<Snapshot, String> {
         )
         .await
         .map_err(|e| format!("getMultipleAccounts: {e:?}"))?;
-    let context_slot = v["context"]["slot"].as_u64().ok_or("getMultipleAccounts: no context slot")?;
-    let values = v["value"].as_array().filter(|a| a.len() == 8).ok_or("getMultipleAccounts: not eight values")?;
+    let context_slot = v["context"]["slot"]
+        .as_u64()
+        .ok_or("getMultipleAccounts: no context slot")?;
+    let values = v["value"]
+        .as_array()
+        .filter(|a| a.len() == 8)
+        .ok_or("getMultipleAccounts: not eight values")?;
     let mut reads = values.iter().map(|a| {
         fclient::rpc::parse_account(a)
-            .map(|o| o.map(|a| Read { owner: a.owner, executable: a.executable, data: a.data }))
+            .map(|o| {
+                o.map(|a| Read {
+                    owner: a.owner,
+                    executable: a.executable,
+                    data: a.data,
+                })
+            })
             .map_err(|e| format!("account: {e:?}"))
     });
     let mut next = || reads.next().expect("eight");
@@ -208,7 +251,13 @@ pub async fn read(rpc: &str, e: &Expected) -> Result<Snapshot, String> {
     })
 }
 
-fn v2<'a>(r: &'a Option<Read>, program: &Address, kind: AccountKind, sid: u64, what: &str) -> Result<&'a [u8], String> {
+fn v2<'a>(
+    r: &'a Option<Read>,
+    program: &Address,
+    kind: AccountKind,
+    sid: u64,
+    what: &str,
+) -> Result<&'a [u8], String> {
     let r = r.as_ref().ok_or(format!("{what}: absent"))?;
     if r.owner != *program || r.executable {
         return Err(format!("{what}: not a data account of the program"));
@@ -217,8 +266,13 @@ fn v2<'a>(r: &'a Option<Read>, program: &Address, kind: AccountKind, sid: u64, w
     // chained kinds carry layout version 2; short kinds (RingSeed) have none
     if d.len() != kind.size()
         || d.get(..8) != Some(kind.magic().as_slice())
-        || d.get(8..16).map(|b| u64::from_le_bytes(b.try_into().unwrap())) != Some(sid)
-        || (kind.chained() && d.get(16..18).map(|b| u16::from_le_bytes(b.try_into().unwrap())) != Some(2))
+        || d.get(8..16)
+            .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+            != Some(sid)
+        || (kind.chained()
+            && d.get(16..18)
+                .map(|b| u16::from_le_bytes(b.try_into().unwrap()))
+                != Some(2))
     {
         return Err(format!("{what}: not the v2 layout of this Season"));
     }
@@ -228,7 +282,14 @@ fn v2<'a>(r: &'a Option<Read>, program: &Address, kind: AccountKind, sid: u64, w
 /// Every identity and binding check (see the module doc).
 pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
     // the exact keys, in order, none repeated
-    let want = [e.season, e.citizen, e.holding, e.home, e.frontier, e.ring_seed];
+    let want = [
+        e.season,
+        e.citizen,
+        e.holding,
+        e.home,
+        e.frontier,
+        e.ring_seed,
+    ];
     if s.accounts.iter().map(|(k, _)| *k).ne(want) {
         return Err("snapshot: not exactly [Season, Citizen, Holding, home Province, Frontier, RingSeed] in order".into());
     }
@@ -239,13 +300,26 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
     let loader: Address = fclient::abi::LOADER_V3.parse().map_err(|_| "loader id")?;
     let pd_key = fclient::addr::programdata(&e.program);
     match &s.program {
-        Some(p) if p.executable && p.owner == loader && p.data.len() == 36
-            && p.data[..4] == 2u32.to_le_bytes() && p.data[4..] == pd_key.to_bytes() => {}
+        Some(p)
+            if p.executable
+                && p.owner == loader
+                && p.data.len() == 36
+                && p.data[..4] == 2u32.to_le_bytes()
+                && p.data[4..] == pd_key.to_bytes() => {}
         _ => return Err("the dedicated program is not a LoaderV3 program at this RPC".into()),
     }
-    let pd = s.programdata.as_ref().filter(|p| p.owner == loader && !p.executable).ok_or("ProgramData: absent")?;
-    let end = PROGRAMDATA_META.checked_add(e.artifact_len).ok_or("artifact length")?;
-    let elf = pd.data.get(PROGRAMDATA_META..end).ok_or("ProgramData: shorter than the artifact")?;
+    let pd = s
+        .programdata
+        .as_ref()
+        .filter(|p| p.owner == loader && !p.executable)
+        .ok_or("ProgramData: absent")?;
+    let end = PROGRAMDATA_META
+        .checked_add(e.artifact_len)
+        .ok_or("artifact length")?;
+    let elf = pd
+        .data
+        .get(PROGRAMDATA_META..end)
+        .ok_or("ProgramData: shorter than the artifact")?;
     if pd.data.get(..4) != Some(&3u32.to_le_bytes()[..])
         || hex::encode(Sha256::digest(elf)) != e.artifact_sha256
         || pd.data[end..].iter().any(|b| *b != 0)
@@ -257,18 +331,58 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
     if pda != e.season || ctx.season != e.season.to_bytes() {
         return Err("Season: not the program's Season PDA".into());
     }
-    let sd = v2(&s.accounts[0].1, &e.program, AccountKind::Season, e.season_id, "Season")?;
-    let cd = v2(&s.accounts[1].1, &e.program, AccountKind::Citizen, e.season_id, "Citizen")?;
-    let hd = v2(&s.accounts[2].1, &e.program, AccountKind::Holding, e.season_id, "Holding")?;
-    let pd = v2(&s.accounts[3].1, &e.program, AccountKind::Province, e.season_id, "home Province")?;
-    let fd = v2(&s.accounts[4].1, &e.program, AccountKind::Frontier, e.season_id, "Frontier")?;
-    let rd = v2(&s.accounts[5].1, &e.program, AccountKind::RingSeed, e.season_id, "RingSeed")?;
+    let sd = v2(
+        &s.accounts[0].1,
+        &e.program,
+        AccountKind::Season,
+        e.season_id,
+        "Season",
+    )?;
+    let cd = v2(
+        &s.accounts[1].1,
+        &e.program,
+        AccountKind::Citizen,
+        e.season_id,
+        "Citizen",
+    )?;
+    let hd = v2(
+        &s.accounts[2].1,
+        &e.program,
+        AccountKind::Holding,
+        e.season_id,
+        "Holding",
+    )?;
+    let pd = v2(
+        &s.accounts[3].1,
+        &e.program,
+        AccountKind::Province,
+        e.season_id,
+        "home Province",
+    )?;
+    let fd = v2(
+        &s.accounts[4].1,
+        &e.program,
+        AccountKind::Frontier,
+        e.season_id,
+        "Frontier",
+    )?;
+    let rd = v2(
+        &s.accounts[5].1,
+        &e.program,
+        AccountKind::RingSeed,
+        e.season_id,
+        "RingSeed",
+    )?;
     let season = Season::decode(sd).map_err(|_| "Season: does not decode")?;
-    if season.bump != bump || season.program_version != PROGRAM_VERSION || season.ruleset_hash != RULESET_HASH_V3 {
+    if season.bump != bump
+        || season.program_version != PROGRAM_VERSION
+        || season.ruleset_hash != RULESET_HASH_V3
+    {
         return Err("Season: another bump, program version or ruleset".into());
     }
     let q = fclient::beacon::quicknet_info();
-    if sd[frontier_abi::v2::layout::world::season::NETWORK] != frontier_abi::v2::layout::world::season::NETWORK_QUICKNET
+    if sd[frontier_abi::v2::layout::world::season::NETWORK]
+        != frontier_abi::v2::layout::world::season::NETWORK_QUICKNET
         || season.quicknet_pk_hash != <[u8; 32]>::from(Sha256::digest(q.public_key))
         || season.drand_genesis != q.genesis_time
         || season.drand_period as u64 != q.period as u64
@@ -278,16 +392,22 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
         return Err("Season: not the real Quicknet beacon".into());
     }
     let citizen = Citizen::decode(cd).map_err(|_| "Citizen: does not decode")?;
-    if Address::new_from_array(ctx.citizen(&e.wallet.to_bytes())) != e.citizen || citizen.wallet != e.wallet {
+    if Address::new_from_array(ctx.citizen(&e.wallet.to_bytes())) != e.citizen
+        || citizen.wallet != e.wallet
+    {
         return Err("Citizen: not the wallet's".into());
     }
     let holding = Holding::decode(hd).map_err(|_| "Holding: does not decode")?;
     if holding.owner_citizen != e.citizen
-        || Address::new_from_array(ctx.holding(holding.p.into(), holding.q.into(), holding.site)) != e.holding
+        || Address::new_from_array(ctx.holding(holding.p.into(), holding.q.into(), holding.site))
+            != e.holding
     {
         return Err("Holding: not the Citizen's at its canonical address".into());
     }
-    let slot = (holding.order as usize).checked_sub(1).and_then(|i| citizen.holding.get(i)).ok_or("Holding: no Citizen slot")?;
+    let slot = (holding.order as usize)
+        .checked_sub(1)
+        .and_then(|i| citizen.holding.get(i))
+        .ok_or("Holding: no Citizen slot")?;
     if (slot.p, slot.q, slot.site, slot.gen) != (holding.p, holding.q, holding.site, holding.gen) {
         return Err("Citizen: its slot does not bind this Holding".into());
     }
@@ -298,13 +418,17 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
         return Err("home Province: not the Holding's".into());
     }
     let coord = ProvinceCoord::new(home.p.into(), home.q.into());
-    if u32::from(home.ring) != coord.ring() || Some(home.wedge) != coord.wedge() || home.region != region_of(coord) {
+    if u32::from(home.ring) != coord.ring()
+        || Some(home.wedge) != coord.wedge()
+        || home.region != region_of(coord)
+    {
         return Err("home Province: ring, wedge or region is not its coordinates'".into());
     }
     if home.ring > season.r_max {
         return Err("home Province: outside the Season's r_max".into());
     }
-    let frontier = fclient::decode::Frontier::decode(fd).map_err(|_| "Frontier: does not decode")?;
+    let frontier =
+        fclient::decode::Frontier::decode(fd).map_err(|_| "Frontier: does not decode")?;
     if Address::new_from_array(ctx.frontier()) != e.frontier || frontier.rings_opened <= home.ring {
         return Err("Frontier: not the Season's, or the home ring is not opened".into());
     }
@@ -316,8 +440,12 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
     }
     // The provenance below says "zero seed, round 0, not a beacon value":
     // only a RingSeed that really carries exactly that is accepted.
-    if rd.get(RS::SEED..RS::SEED + 32).is_none_or(|b| b.iter().any(|x| *x != 0))
-        || rd.get(RS::ROUND..RS::ROUND + 8).is_none_or(|b| b.iter().any(|x| *x != 0))
+    if rd
+        .get(RS::SEED..RS::SEED + 32)
+        .is_none_or(|b| b.iter().any(|x| *x != 0))
+        || rd
+            .get(RS::ROUND..RS::ROUND + 8)
+            .is_none_or(|b| b.iter().any(|x| *x != 0))
     {
         return Err("RingSeed: not the runner's synthetic zero seed / round 0".into());
     }
@@ -329,7 +457,9 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
 pub fn seed(fold: &mut Fold, e: &Expected, s: &Snapshot) -> Result<Value, String> {
     check(e, s)?;
     if fold.st.folded_through != 0 || fold.st.events != 0 || !fold.st.accounts.is_empty() {
-        return Err("the fold is not empty: local-play bootstrap needs a new data directory".into());
+        return Err(
+            "the fold is not empty: local-play bootstrap needs a new data directory".into(),
+        );
     }
     if fold.cfg.program != e.program || fold.cfg.season_id != e.season_id {
         return Err("the herald's program/season is not the runner's".into());
@@ -337,7 +467,14 @@ pub fn seed(fold: &mut Fold, e: &Expected, s: &Snapshot) -> Result<Value, String
     let mut st = fold.st.clone();
     for (k, r) in &s.accounts {
         let data = r.as_ref().expect("checked").data.clone();
-        st.accounts.insert(k.to_bytes(), Capture { slot: s.context_slot, tx: 0, data });
+        st.accounts.insert(
+            k.to_bytes(),
+            Capture {
+                slot: s.context_slot,
+                tx: 0,
+                data,
+            },
+        );
     }
     // The fold now holds state as of the context slot: its slot watermark says so. Left at 0, the watermark was later
     // raised only by the transactions folded afterwards, and history replayed from before the snapshot (slot 5 under
@@ -373,7 +510,9 @@ pub fn fresh_data_dir(p: &std::path::Path) -> Result<(), String> {
         Err(e) => Err(format!("--data: {e}")),
         Ok(mut it) => match it.next() {
             None => Ok(()),
-            Some(_) => Err("--data is not empty: local-play bootstrap needs a new data directory".into()),
+            Some(_) => {
+                Err("--data is not empty: local-play bootstrap needs a new data directory".into())
+            }
         },
     }
 }

@@ -91,7 +91,9 @@ pub fn read_header(d: &[u8]) -> Result<LandHeader, LandBytesError> {
 pub fn write_header(d: &mut [u8], h: &LandHeader) -> Result<(), LandBytesError> {
     let d = d.get_mut(..land::SIZE).ok_or(LandBytesError::Bad)?;
     d[..8].copy_from_slice(&land::MAGIC);
-    let mut ok = wr_u64(d, land::SEASON_ID, h.season_id) && wr_i16(d, land::P, h.p) && wr_i16(d, land::Q, h.q);
+    let mut ok = wr_u64(d, land::SEASON_ID, h.season_id)
+        && wr_i16(d, land::P, h.p)
+        && wr_i16(d, land::Q, h.q);
     for (i, y) in h.yield_bell.iter().enumerate() {
         ok &= wr_u32(d, land::YIELD_BELL + 4 * i, *y);
     }
@@ -144,7 +146,8 @@ pub fn land_address(ctx: &crate::addr::AddrCtx, p: i16, q: i16) -> [u8; 32] {
 /// (milli) times `bonus_bps`, entry by entry, rounded down.
 pub fn yield_for(production: [i64; RESOURCES], bonus_bps: u32, bells: u32) -> [i64; RESOURCES] {
     production.map(|v| {
-        (v.max(0) as i128 * bonus_bps as i128 * bells as i128 / (10_000 * BELLS_PER_HOUR as i128)) as i64
+        (v.max(0) as i128 * bonus_bps as i128 * bells as i128 / (10_000 * BELLS_PER_HOUR as i128))
+            as i64
     })
 }
 
@@ -152,7 +155,9 @@ pub fn yield_for(production: [i64; RESOURCES], bonus_bps: u32, bells: u32) -> [i
 /// `heartland_safe` flag, set at opening): `Some(holder)`, else `None`.
 pub fn heartland_of(pd: &[u8]) -> Option<u8> {
     let kd = pd.get(P::KEEP..P::KEEP + KP::SIZE)?;
-    (kd[KP::TILE] != KP::NO_TILE && kd[KP::FLAGS] & KP::FLAG_HEARTLAND_SAFE != 0 && kd[KP::HOLDER] <= 5)
+    (kd[KP::TILE] != KP::NO_TILE
+        && kd[KP::FLAGS] & KP::FLAG_HEARTLAND_SAFE != 0
+        && kd[KP::HOLDER] <= 5)
         .then_some(kd[KP::HOLDER])
 }
 
@@ -166,7 +171,9 @@ pub enum LandBytesError {
 }
 
 fn tier_of(v: u8) -> Option<Tier> {
-    [Tier::Hamlet, Tier::Town, Tier::City, Tier::Stronghold].get(v as usize).copied()
+    [Tier::Hamlet, Tier::Town, Tier::City, Tier::Stronghold]
+        .get(v as usize)
+        .copied()
 }
 
 /// Decodes a land record.
@@ -177,9 +184,11 @@ pub fn read_land(d: &[u8]) -> Result<Land, LandBytesError> {
     }
     let mut l = Land::new(rd_u32(d, land::NEXT_BELL).ok_or(LandBytesError::Bad)?);
     l.village = rd_u64(d, land::VILLAGE).ok_or(LandBytesError::Bad)?;
-    l.owner.copy_from_slice(&d[land::OWNER..land::OWNER + TILES]);
+    l.owner
+        .copy_from_slice(&d[land::OWNER..land::OWNER + TILES]);
     l.by.copy_from_slice(&d[land::BY..land::BY + TILES]);
-    l.count.copy_from_slice(&d[land::COUNT..land::COUNT + TILES]);
+    l.count
+        .copy_from_slice(&d[land::COUNT..land::COUNT + TILES]);
     Ok(l)
 }
 
@@ -241,10 +250,18 @@ pub fn province_inputs(pd: &[u8]) -> Result<ProvinceInputs, LandBytesError> {
             from_bell: e.from_bell,
         });
     }
-    let kd = pd.get(P::KEEP..P::KEEP + KP::SIZE).ok_or(LandBytesError::Bad)?;
-    let keep = (kd[KP::TILE] != KP::NO_TILE && kd[KP::HOLDER] <= 5).then_some((kd[KP::TILE], kd[KP::HOLDER]));
+    let kd = pd
+        .get(P::KEEP..P::KEEP + KP::SIZE)
+        .ok_or(LandBytesError::Bad)?;
+    let keep = (kd[KP::TILE] != KP::NO_TILE && kd[KP::HOLDER] <= 5)
+        .then_some((kd[KP::TILE], kd[KP::HOLDER]));
     let passable = rd_u64(pd, P::PASSABLE_MASK).ok_or(LandBytesError::Bad)?;
-    Ok(ProvinceInputs { sites, hosts, keep, passable })
+    Ok(ProvinceInputs {
+        sites,
+        hosts,
+        keep,
+        passable,
+    })
 }
 
 /// The coordinates of a v2 Province (`P`, `Q`).
@@ -258,13 +275,18 @@ pub fn province_coord(pd: &[u8]) -> Result<ProvinceCoord, LandBytesError> {
 /// across the province's border, a tile of nation `f` in one of the land
 /// records `next` (each `(coord, record)`; an absent or blank record holds
 /// nothing). Records of provinces that are not neighbours are ignored.
-pub fn outside_masks(pc: ProvinceCoord, next: &[(ProvinceCoord, &[u8])]) -> Result<[u64; 6], LandBytesError> {
+pub fn outside_masks(
+    pc: ProvinceCoord,
+    next: &[(ProvinceCoord, &[u8])],
+) -> Result<[u64; 6], LandBytesError> {
     let mut lands: Vec<(ProvinceCoord, Land)> = Vec::new();
     for (c, d) in next {
         if *c == pc || !pc.neighbors().contains(c) {
             continue;
         }
-        if d.get(..land::SIZE).is_some_and(|b| rd_u16(b, land::VERSION) == Some(0)) {
+        if d.get(..land::SIZE)
+            .is_some_and(|b| rd_u16(b, land::VERSION) == Some(0))
+        {
             continue;
         }
         lands.push((*c, read_land(d)?));
@@ -302,7 +324,11 @@ pub fn fold_province(
 ) -> Result<Changes, LandBytesError> {
     let d = ld.get(..land::SIZE).ok_or(LandBytesError::Bad)?;
     let fresh = rd_u16(d, land::VERSION) == Some(0);
-    let mut l = if fresh { Land::new(bell) } else { read_land(ld)? };
+    let mut l = if fresh {
+        Land::new(bell)
+    } else {
+        read_land(ld)?
+    };
     let x = province_inputs(pd)?;
     if !fresh || d[..8] == land::MAGIC {
         let h = read_header(ld)?;
@@ -313,7 +339,18 @@ pub fn fold_province(
     }
     let outside = outside_masks(province_coord(pd)?, next)?;
     let ch = l
-        .fold(bell, &BellIn { sites: &x.sites, hosts: &x.hosts, keep: x.keep, passable: x.passable, heartland_of, outside }, p)
+        .fold(
+            bell,
+            &BellIn {
+                sites: &x.sites,
+                hosts: &x.hosts,
+                keep: x.keep,
+                passable: x.passable,
+                heartland_of,
+                outside,
+            },
+            p,
+        )
         .map_err(LandBytesError::Kernel)?;
     write_land(ld, &l)?;
     if fresh {
@@ -335,7 +372,10 @@ pub fn production_with_land(
 ) -> Result<[i64; RESOURCES], LandBytesError> {
     let l = read_land(ld)?;
     let x = province_inputs(pd)?;
-    Ok(kland::production_with_land(base, kland::bonus_bps(&l, &x.sites, faction, p)))
+    Ok(kland::production_with_land(
+        base,
+        kland::bonus_bps(&l, &x.sites, faction, p),
+    ))
 }
 
 #[cfg(test)]
@@ -352,7 +392,16 @@ mod tests {
         tile_index(Hex::new(q, r)).unwrap()
     }
     fn host(id: u64, faction: u8, unit: u8, tile: u8, from: u32) -> Entry {
-        Entry { id, faction, unit, tile, state: E::STATE_ROSTER, troops: 600_000, from_bell: from, ..Entry::FREE }
+        Entry {
+            id,
+            faction,
+            unit,
+            tile,
+            state: E::STATE_ROSTER,
+            troops: 600_000,
+            from_bell: from,
+            ..Entry::FREE
+        }
     }
     /// A v2 Province: one Hamlet of nation 1 at (−3,0), a keep of nation 1 at (0,−3), all passable.
     fn province() -> std::vec::Vec<u8> {
@@ -392,8 +441,20 @@ mod tests {
         busy.op = EntryOp::Leave;
         write_entry(&mut pd, 2, &busy).unwrap();
         let x = province_inputs(&pd).unwrap();
-        assert_eq!(x.sites[0], SiteIn { tile: t(-3, 0), holding: Some((1, Tier::Hamlet)) });
-        assert_eq!(x.sites[1], SiteIn { tile: t(3, -1), holding: None });
+        assert_eq!(
+            x.sites[0],
+            SiteIn {
+                tile: t(-3, 0),
+                holding: Some((1, Tier::Hamlet))
+            }
+        );
+        assert_eq!(
+            x.sites[1],
+            SiteIn {
+                tile: t(3, -1),
+                holding: None
+            }
+        );
         assert_eq!(x.keep, Some((t(0, -3), 1)));
         assert_eq!(x.hosts.len(), 3);
         assert!(x.hosts[0].fights && x.hosts[0].resident);
@@ -410,7 +471,11 @@ mod tests {
         let l = read_land(&ld).unwrap();
         assert_eq!(l.tiles_of(1), 7);
         let base = catalog::base_production(Tier::Hamlet);
-        assert_eq!(production_with_land(&pd, &ld, 1, base, &PRM).unwrap(), base, "no claimed land: base only");
+        assert_eq!(
+            production_with_land(&pd, &ld, 1, base, &PRM).unwrap(),
+            base,
+            "no claimed land: base only"
+        );
         // nation 1's host arrives at the land's edge at bell 1 and stands
         write_entry(&mut pd, 0, &host(10, 1, 0, t(-1, 0), 1)).unwrap();
         for b in 1..=3 {
@@ -426,14 +491,21 @@ mod tests {
         write_entry(&mut pd, 1, &host(20, 2, 0, t(0, 0), 4)).unwrap();
         let mut seized = 0;
         for b in 4..=8 {
-            seized += fold_province(&pd, &mut ld, &[], b, None, &PRM).unwrap().seized;
+            seized += fold_province(&pd, &mut ld, &[], b, None, &PRM)
+                .unwrap()
+                .seized;
         }
         let l = read_land(&ld).unwrap();
         assert!(seized >= 1);
         assert_eq!(l.owner[t(0, 0) as usize], 2);
         assert!(l.claimed_of(1) < claimed);
         let after = production_with_land(&pd, &ld, 1, base, &PRM).unwrap();
-        assert!(after[0] < with[0], "losing land costs production: {} < {}", after[0], with[0]);
+        assert!(
+            after[0] < with[0],
+            "losing land costs production: {} < {}",
+            after[0],
+            with[0]
+        );
         // nation 2 has no village here: its land pays nothing in goods
         assert_eq!(production_with_land(&pd, &ld, 2, base, &PRM).unwrap(), base);
     }
@@ -455,7 +527,12 @@ mod tests {
         let pc = ProvinceCoord::new(3, -1);
         // the province on the far side of our edge tile (4,0) holds its tiles next to it
         let our = pc.tile(t(4, 0)).unwrap();
-        let east = our.neighbors().into_iter().map(|n| locate(n).0).find(|c| *c != pc).unwrap();
+        let east = our
+            .neighbors()
+            .into_iter()
+            .map(|n| locate(n).0)
+            .find(|c| *c != pc)
+            .unwrap();
         assert!(pc.neighbors().contains(&east));
         let mut next_land = Land::new(0);
         for n in our.neighbors() {
@@ -503,7 +580,10 @@ mod tests {
         assert_eq!(heartland_of(&pd), Some(1));
         assert!(is_land_tag(0xCD) && is_land_tag(0xCE) && !is_land_tag(0xCC) && !is_land_tag(0xCF));
         // outside every band in use: v2 tags (to 0xCC), the resident band 0xE0–0xE7, the wide drafts 0xD6–0xDF and 0xEE
-        assert!(!crate::resident_wire::is_resident_tag(0xCD) && !crate::resident_wire::is_resident_tag(0xCE));
+        assert!(
+            !crate::resident_wire::is_resident_tag(0xCD)
+                && !crate::resident_wire::is_resident_tag(0xCE)
+        );
         assert!(crate::v2::ix::tag_of(&[0xCD]).is_err() && crate::v2::ix::tag_of(&[0xCE]).is_err());
     }
 
@@ -517,12 +597,21 @@ mod tests {
         for t in [TAG_FOLD_LAND, TAG_CLAIM_LAND_YIELD] {
             assert!(is_land_tag(t));
             assert!(crate::v2::ix::tag_of(&[t]).is_err(), "v2 table: {t:#x}");
-            assert!(crate::v2::Ix::ALL.iter().all(|ix| ix.tag() != t), "v2 Ix::ALL: {t:#x}");
+            assert!(
+                crate::v2::Ix::ALL.iter().all(|ix| ix.tag() != t),
+                "v2 Ix::ALL: {t:#x}"
+            );
             assert!(!crate::v2::rights::is_rights_tag(t), "rights band: {t:#x}");
             #[cfg(feature = "capacity-preview")]
-            assert!(!crate::capacity::is_capacity_tag(t), "capacity band: {t:#x}");
+            assert!(
+                !crate::capacity::is_capacity_tag(t),
+                "capacity band: {t:#x}"
+            );
             #[cfg(feature = "world-index-experimental")]
-            assert!(!crate::world_index::wide_ix::is_draft_tag(t), "wide draft band: {t:#x}");
+            assert!(
+                !crate::world_index::wide_ix::is_draft_tag(t),
+                "wide draft band: {t:#x}"
+            );
         }
     }
 
@@ -532,7 +621,10 @@ mod tests {
         let mut ld = [0u8; land::SIZE];
         fold_province(&pd, &mut ld, &[], 5, None, &PRM).unwrap();
         let before = ld;
-        assert_eq!(fold_province(&pd, &mut ld, &[], 9, None, &PRM), Err(LandBytesError::Kernel(LandError::OutOfOrder)));
+        assert_eq!(
+            fold_province(&pd, &mut ld, &[], 9, None, &PRM),
+            Err(LandBytesError::Kernel(LandError::OutOfOrder))
+        );
         assert_eq!(ld, before);
     }
 }

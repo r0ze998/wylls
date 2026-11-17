@@ -644,8 +644,14 @@ pub(super) fn settle_reservation_inner(
                 let mut economic = hold::read_holding(&d)?;
                 hold::settle_tiered(&mut economic, now.ts, hold::terrain_ore(&d)?)?;
                 let parts = [
-                    (permutation_rules::frontier::holding::Resource::Gold as usize, r.gold_milli),
-                    (permutation_rules::frontier::arms::ARMS as usize, r.arms_milli),
+                    (
+                        permutation_rules::frontier::holding::Resource::Gold as usize,
+                        r.gold_milli,
+                    ),
+                    (
+                        permutation_rules::frontier::arms::ARMS as usize,
+                        r.arms_milli,
+                    ),
                 ];
                 let fits = parts.iter().all(|(i, n)| {
                     let st = &economic.stores[*i];
@@ -680,7 +686,14 @@ pub(super) fn settle_reservation_inner(
         })?;
     stage.bytes(3, plan.conquest.to_bytes().to_vec());
     // A lapsed PENDING reservation may clear its site's PENDING flag.
-    if plan.lapsed && province_present && plan.conquest.entry(r.site).map_err(|_| BAD_ACCOUNT)?.is_none() {
+    if plan.lapsed
+        && province_present
+        && plan
+            .conquest
+            .entry(r.site)
+            .map_err(|_| BAD_ACCOUNT)?
+            .is_none()
+    {
         let mut pd = stage.after[2].data.clone();
         let current = Record::read(&pd, r.site as usize).map_err(|_| BAD_ACCOUNT)?;
         model(plan.conquest.idle_prefix(r.site, current))?
@@ -703,10 +716,10 @@ pub(super) fn settle_reservation_inner(
     if province_present {
         stage.chain(2);
     }
-    let done_after = plan
-        .conquest
-        .reservation(x.seq)
-        .map_or(wc::RES_RESOURCES_RETURNED | wc::RES_SLOT_RENT_RELEASED, |(_, n)| n.done);
+    let done_after = plan.conquest.reservation(x.seq).map_or(
+        wc::RES_RESOURCES_RETURNED | wc::RES_SLOT_RENT_RELEASED,
+        |(_, n)| n.done,
+    );
     // rent refunded, gold and arms returned (milli), done flags after,
     // slot/rent released by the terminal escrow close, lapsed, province present.
     let mut outcome = Vec::new();

@@ -32,7 +32,10 @@
 use fclient::{AccountMeta, Address, Instruction, Keypair, Signer};
 use frontier_abi::addr::{archive_part_of, day_of, AddrCtx};
 use frontier_abi::world_index::{
-    arrival::{arrival_day_address, arrival_slot_address, clash_inputs_address, wide_clash_inputs, WideClashInputsHdr},
+    arrival::{
+        arrival_day_address, arrival_slot_address, clash_inputs_address, wide_clash_inputs,
+        WideClashInputsHdr,
+    },
     expedition::AccountResolver,
     expedition_dispatch_ix::{self as dx, Kind},
     expedition_transport::OwnedBridgeTransit,
@@ -56,11 +59,23 @@ pub(crate) fn keep_rx() -> tokio::sync::watch::Receiver<bool> {
 fn artifact() -> crate::expedition_play::Artifact {
     let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
     let path = std::path::PathBuf::from(need("WYLLS_EXPEDITION_SBF"));
-    inspect(path.clone(), std::fs::read(&path).unwrap(), &need("WYLLS_EXPEDITION_SBF_SHA256")).unwrap()
+    inspect(
+        path.clone(),
+        std::fs::read(&path).unwrap(),
+        &need("WYLLS_EXPEDITION_SBF_SHA256"),
+    )
+    .unwrap()
 }
 pub(crate) fn ports(from: u16) -> (u16, u16) {
-    let p = (from..from + 7).find(|p| *p != REFUSED_PORT && server::check_port(*p).is_ok()).unwrap();
-    (p, (p + 1..from + 8).find(|x| server::check_port(*x).is_ok()).unwrap())
+    let p = (from..from + 7)
+        .find(|p| *p != REFUSED_PORT && server::check_port(*p).is_ok())
+        .unwrap();
+    (
+        p,
+        (p + 1..from + 8)
+            .find(|x| server::check_port(*x).is_ok())
+            .unwrap(),
+    )
 }
 /// The advance scale: one block = `SLOT_MS × scale` = 10 game seconds.
 const ADVANCE_SCALE: f64 = 25.0;
@@ -75,14 +90,21 @@ const MAX_ADVANCE_SECS: i64 = 2 * 3_600;
 pub(crate) fn advance(state: &Shared, to_unix: i64) {
     let mut c = lock(state);
     let from = c.unix_timestamp();
-    assert!(to_unix - from <= MAX_ADVANCE_SECS, "an advance of {}s is past the bound", to_unix - from);
+    assert!(
+        to_unix - from <= MAX_ADVANCE_SECS,
+        "an advance of {}s is past the bound",
+        to_unix - from
+    );
     let restore = c.scale();
     c.set_scale(ADVANCE_SCALE);
     let mut blocks = 0;
     while c.unix_timestamp() < to_unix {
         c.produce_block();
         blocks += 1;
-        assert!(blocks <= MAX_ADVANCE_SECS / ADVANCE_BLOCK_SECS + 1, "advance block bound");
+        assert!(
+            blocks <= MAX_ADVANCE_SECS / ADVANCE_BLOCK_SECS + 1,
+            "advance block bound"
+        );
     }
     c.set_scale(restore);
     c.produce_block();
@@ -114,7 +136,12 @@ pub(crate) struct Masks {
 pub(crate) fn masks_of(key: ProvinceKey, data: &[u8]) -> Masks {
     use frontier_abi::v2::layout::province::province as PV;
     let u = |o: usize| u64::from_le_bytes(data[o..o + 8].try_into().unwrap());
-    Masks { key, passable: u(PV::PASSABLE_MASK), rough: u(PV::ROUGH_MASK), road: u(PV::ROAD_MASK) }
+    Masks {
+        key,
+        passable: u(PV::PASSABLE_MASK),
+        rough: u(PV::ROUGH_MASK),
+        road: u(PV::ROAD_MASK),
+    }
 }
 
 /// The shortest route from `origin` into any passable tile of `dest`, stepping
@@ -122,15 +149,28 @@ pub(crate) fn masks_of(key: ProvinceKey, data: &[u8]) -> Masks {
 /// `path_tiles` geometry: `WideTile::neighbors` in `DIRECTIONS` order), at
 /// most `MAX_PATH_STEPS` steps and `MAX_PATH_PROVINCES` provinces. Watch
 /// blocks of structures are not modelled here (the Reveal checks them).
-pub(crate) fn derive_route(origin: TileAddress, dest: ProvinceKey, lands: &[Masks]) -> Option<Route> {
+pub(crate) fn derive_route(
+    origin: TileAddress,
+    dest: ProvinceKey,
+    lands: &[Masks],
+) -> Option<Route> {
     derive_route_to(origin, dest, lands, None)
 }
 
 /// As [`derive_route`], ending on `tile` of `dest` when given (e.g. the Free
 /// City's tile the program placed), else on any passable tile of `dest`.
-pub(crate) fn derive_route_to(origin: TileAddress, dest: ProvinceKey, lands: &[Masks], tile: Option<u8>) -> Option<Route> {
+pub(crate) fn derive_route_to(
+    origin: TileAddress,
+    dest: ProvinceKey,
+    lands: &[Masks],
+    tile: Option<u8>,
+) -> Option<Route> {
     use permutation_rules::frontier::travel::{MAX_PATH_PROVINCES, MAX_PATH_STEPS};
-    let passable = |t: &WideTile| lands.iter().any(|l| l.key == t.province() && l.passable & (1u64 << t.local()) != 0);
+    let passable = |t: &WideTile| {
+        lands
+            .iter()
+            .any(|l| l.key == t.province() && l.passable & (1u64 << t.local()) != 0)
+    };
     let start = WideTile::of(origin);
     let mut prev: std::collections::HashMap<WideTile, (WideTile, u8)> = Default::default();
     let mut frontier = std::collections::VecDeque::from([(start, 0usize)]);
@@ -172,29 +212,58 @@ pub(crate) fn derive_route_to(origin: TileAddress, dest: ProvinceKey, lands: &[M
     if keys.len() > MAX_PATH_PROVINCES {
         return None;
     }
-    Some(Route { dest_tile: tiles.last()?.local(), dirs, keys, steps: tiles.iter().map(|s| s.address()).collect() })
+    Some(Route {
+        dest_tile: tiles.last()?.local(),
+        dirs,
+        keys,
+        steps: tiles.iter().map(|s| s.address()).collect(),
+    })
 }
 
 /// The program's raw walking seconds of `steps` (`walk`: rough 180 / flat
 /// 120, halved for cavalry and again on a road).
 pub(crate) fn raw_secs(steps: &[TileAddress], lands: &[Masks], cavalry: bool) -> u32 {
     use permutation_rules::frontier::travel::{FLAT_HEX_SECS, ROUGH_HEX_SECS};
-    steps.iter().map(|s| {
-        let l = lands.iter().find(|l| l.key == s.key()).expect("a stepped province");
-        let bit = 1u64 << s.local();
-        let base = if l.rough & bit != 0 { ROUGH_HEX_SECS } else { FLAT_HEX_SECS };
-        base >> (cavalry as u32 + (l.road & bit != 0) as u32)
-    }).sum()
+    steps
+        .iter()
+        .map(|s| {
+            let l = lands
+                .iter()
+                .find(|l| l.key == s.key())
+                .expect("a stepped province");
+            let bit = 1u64 << s.local();
+            let base = if l.rough & bit != 0 {
+                ROUGH_HEX_SECS
+            } else {
+                FLAT_HEX_SECS
+            };
+            base >> (cavalry as u32 + (l.road & bit != 0) as u32)
+        })
+        .sum()
 }
 
 /// An upper bound of the travel seconds for any faction and unit (slowest:
 /// no cavalry, no road), so the chosen arrival bell is never too early.
 pub(crate) fn travel_upper(steps: &[TileAddress], lands: &[Masks]) -> u32 {
-    let flat_or_rough: u32 = steps.iter().map(|s| {
-        let l = lands.iter().find(|l| l.key == s.key()).expect("a stepped province");
-        if l.rough & (1u64 << s.local()) != 0 { permutation_rules::frontier::travel::ROUGH_HEX_SECS } else { permutation_rules::frontier::travel::FLAT_HEX_SECS }
-    }).sum();
-    (0..6u8).filter_map(permutation_rules::frontier::doctrine::of_faction_v3).map(|d| d.travel_secs(flat_or_rough as u64) as u32).max().expect("a doctrine")
+    let flat_or_rough: u32 = steps
+        .iter()
+        .map(|s| {
+            let l = lands
+                .iter()
+                .find(|l| l.key == s.key())
+                .expect("a stepped province");
+            if l.rough & (1u64 << s.local()) != 0 {
+                permutation_rules::frontier::travel::ROUGH_HEX_SECS
+            } else {
+                permutation_rules::frontier::travel::FLAT_HEX_SECS
+            }
+        })
+        .sum();
+    (0..6u8)
+        .filter_map(permutation_rules::frontier::doctrine::of_faction_v3)
+        .map(|d| d.travel_secs(flat_or_rough as u64) as u32)
+        .max()
+        .expect("a doctrine")
 }
 
 /// The player's ExpeditionReveal (version-2 dispatch, `Kind::Reveal`) of
@@ -204,10 +273,27 @@ pub(crate) fn travel_upper(steps: &[TileAddress], lands: &[Masks]) -> u32 {
 /// family's canonical address); writable exactly the payer, the day and the
 /// target slot.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn reveal_ix(ctx: &AddrCtx, payer: &Address, holding: &Address, slot: u8, faction: u8, arrive: u32, region: u8, dest: ProvinceKey,
-    sealed: &fclient::wide_seal::WideSealed, target: u8, route: &Route) -> Instruction {
-    let inner = wix::ExpeditionReveal { transit_slot: slot, target_i: target, plain: *sealed.reveal.plain(), salt: *sealed.reveal.salt(),
-        ct_hash: sealed.ct_hash, beneficiary: payer.to_bytes() };
+pub(crate) fn reveal_ix(
+    ctx: &AddrCtx,
+    payer: &Address,
+    holding: &Address,
+    slot: u8,
+    faction: u8,
+    arrive: u32,
+    region: u8,
+    dest: ProvinceKey,
+    sealed: &fclient::wide_seal::WideSealed,
+    target: u8,
+    route: &Route,
+) -> Instruction {
+    let inner = wix::ExpeditionReveal {
+        transit_slot: slot,
+        target_i: target,
+        plain: *sealed.reveal.plain(),
+        salt: *sealed.reveal.salt(),
+        ct_hash: sealed.ct_hash,
+        beneficiary: payer.to_bytes(),
+    };
     let data = dx::encode(Kind::Reveal, &inner.to_bytes()).expect("a Reveal wire");
     let a = |k: [u8; 32]| Address::new_from_array(k);
     let mut m = vec![
@@ -216,7 +302,10 @@ pub(crate) fn reveal_ix(ctx: &AddrCtx, payer: &Address, holding: &Address, slot:
         AccountMeta::new_readonly(*holding, false),
         AccountMeta::new_readonly(a(transit_address(ctx, &holding.to_bytes(), slot)), false),
         AccountMeta::new_readonly(a(ctx.bell_anchor(arrive, region)), false),
-        AccountMeta::new_readonly(a(ctx.anchor_archive(region, archive_part_of(arrive))), false),
+        AccountMeta::new_readonly(
+            a(ctx.anchor_archive(region, archive_part_of(arrive))),
+            false,
+        ),
         AccountMeta::new_readonly(a(ctx.beacon_log(region)), false),
         AccountMeta::new_readonly(a(clash_inputs_address(ctx, dest, arrive)), false),
         AccountMeta::new_readonly(a(province_address(ctx, dest.coord())), false),
@@ -224,27 +313,72 @@ pub(crate) fn reveal_ix(ctx: &AddrCtx, payer: &Address, holding: &Address, slot:
     ];
     for i in 0..4u8 {
         let k = a(arrival_slot_address(ctx, dest, arrive, faction, i));
-        m.push(if i == target { AccountMeta::new(k, false) } else { AccountMeta::new_readonly(k, false) });
+        m.push(if i == target {
+            AccountMeta::new(k, false)
+        } else {
+            AccountMeta::new_readonly(k, false)
+        });
     }
-    m.push(AccountMeta::new_readonly(fclient::addr::instructions_sysvar(), false));
-    m.push(AccountMeta::new_readonly(fclient::addr::system_program(), false));
+    m.push(AccountMeta::new_readonly(
+        fclient::addr::instructions_sysvar(),
+        false,
+    ));
+    m.push(AccountMeta::new_readonly(
+        fclient::addr::system_program(),
+        false,
+    ));
     assert_eq!(m.len(), wix::REVEAL_FIXED);
-    assert_eq!(route.keys.first(), Some(&dest), "the route's first province is the destination");
+    assert_eq!(
+        route.keys.first(),
+        Some(&dest),
+        "the route's first province is the destination"
+    );
     let resolver = AccountResolver::for_season(ctx).expect("a resolver");
     for k in &route.keys[1..] {
-        m.push(AccountMeta::new_readonly(a(resolver.province_address(*k).expect("a path province address")), false));
+        m.push(AccountMeta::new_readonly(
+            a(resolver
+                .province_address(*k)
+                .expect("a path province address")),
+            false,
+        ));
     }
-    Instruction { program_id: a(PROGRAM), accounts: m, data }
+    Instruction {
+        program_id: a(PROGRAM),
+        accounts: m,
+        data,
+    }
 }
 
 #[test]
 fn the_test_reveal_has_the_reveal_tables_shape() {
     // pure: the order reveal_ix uses is the abi's REVEAL table positions
     let n = wix::REVEAL_FIXED;
-    let pos = |name: &str, nth: usize| frontier_abi::prologue::position_in(wix::REVEAL, n, name, nth).unwrap();
-    assert_eq!((pos("fee_payer", 0), pos("season", 0), pos("holding", 0), pos("transit", 0)), (0, 1, 2, 3));
-    assert_eq!((pos("anchor", 0), pos("archive", 0), pos("beaconlog", 0), pos("inputs", 0), pos("dest_province", 0)), (4, 5, 6, 7, 8));
-    assert_eq!((pos("arrivalday", 0), pos("slot", 0), pos("slot", 3)), (wix::REVEAL_DAY, wix::REVEAL_SLOT0, wix::REVEAL_SLOT0 + 3));
+    let pos = |name: &str, nth: usize| {
+        frontier_abi::prologue::position_in(wix::REVEAL, n, name, nth).unwrap()
+    };
+    assert_eq!(
+        (
+            pos("fee_payer", 0),
+            pos("season", 0),
+            pos("holding", 0),
+            pos("transit", 0)
+        ),
+        (0, 1, 2, 3)
+    );
+    assert_eq!(
+        (
+            pos("anchor", 0),
+            pos("archive", 0),
+            pos("beaconlog", 0),
+            pos("inputs", 0),
+            pos("dest_province", 0)
+        ),
+        (4, 5, 6, 7, 8)
+    );
+    assert_eq!(
+        (pos("arrivalday", 0), pos("slot", 0), pos("slot", 3)),
+        (wix::REVEAL_DAY, wix::REVEAL_SLOT0, wix::REVEAL_SLOT0 + 3)
+    );
     assert_eq!((pos("arrivalday", 0), pos("slot", 0)), (9, 10));
 }
 
@@ -252,27 +386,61 @@ fn the_test_reveal_has_the_reveal_tables_shape() {
 fn a_derived_route_replays_through_the_programs_geometry() {
     // pure, over hand-made masks (not the generated terrain): the route the
     // test seals is the one `path_tiles` would walk
-    let ctx = AddrCtx { program: PROGRAM, season: [3; 32] };
-    let world = frontier_abi::world_index::WorldId::derive_legacy_season(&ctx.season, &ctx.program).unwrap();
+    let ctx = AddrCtx {
+        program: PROGRAM,
+        season: [3; 32],
+    };
+    let world = frontier_abi::world_index::WorldId::derive_legacy_season(&ctx.season, &ctx.program)
+        .unwrap();
     let home = ProvinceKey::new(world, WideCoord::checked(128, 0).unwrap());
     let dest = ProvinceKey::new(world, WideCoord::checked(129, 0).unwrap());
-    let all = |key| Masks { key, passable: (1u64 << 61) - 1, rough: 0, road: 0 };
+    let all = |key| Masks {
+        key,
+        passable: (1u64 << 61) - 1,
+        rough: 0,
+        road: 0,
+    };
     let origin = TileAddress::new(home, 0).unwrap();
     let r = derive_route(origin, dest, &[all(dest), all(home)]).expect("a route over open land");
     assert_eq!(r.keys[0], dest);
-    assert!(!r.dirs.is_empty() && r.dirs.len() <= permutation_rules::frontier::travel::MAX_PATH_STEPS);
+    assert!(
+        !r.dirs.is_empty() && r.dirs.len() <= permutation_rules::frontier::travel::MAX_PATH_STEPS
+    );
     let mut t = WideTile::of(origin);
     for (d, s) in r.dirs.iter().zip(&r.steps) {
         t = t.neighbors()[*d as usize].unwrap();
         assert_eq!(t.address(), *s);
     }
-    assert_eq!((t.province(), t.local()), (dest, r.dest_tile), "it ends on the destination tile");
-    assert_eq!(raw_secs(&r.steps, &[all(dest), all(home)], false), 120 * r.dirs.len() as u32);
+    assert_eq!(
+        (t.province(), t.local()),
+        (dest, r.dest_tile),
+        "it ends on the destination tile"
+    );
+    assert_eq!(
+        raw_secs(&r.steps, &[all(dest), all(home)], false),
+        120 * r.dirs.len() as u32
+    );
     assert!(travel_upper(&r.steps, &[all(dest), all(home)]) > 0);
     // a destination with no passable tile has no route; a blocked home tile is avoided
-    assert_eq!(derive_route(origin, dest, &[Masks { passable: 0, ..all(dest) }, all(home)]), None);
+    assert_eq!(
+        derive_route(
+            origin,
+            dest,
+            &[
+                Masks {
+                    passable: 0,
+                    ..all(dest)
+                },
+                all(home)
+            ]
+        ),
+        None
+    );
     if let Some(first) = r.steps.first().filter(|s| s.key() == home) {
-        let blocked = Masks { passable: all(home).passable & !(1u64 << first.local()), ..all(home) };
+        let blocked = Masks {
+            passable: all(home).passable & !(1u64 << first.local()),
+            ..all(home)
+        };
         if let Some(r2) = derive_route(origin, dest, &[all(dest), blocked]) {
             assert!(!r2.steps.contains(first));
         }
@@ -287,9 +455,16 @@ fn a_derived_route_replays_through_the_programs_geometry() {
 #[test]
 #[ignore]
 fn a_real_reveal_at_129_is_gathered_seeded_resolved_and_member_settled() {
-    assert_eq!(std::env::var("WYLLS_PUBLIC_DRAND").as_deref(), Ok("1"), "reads the public drand API");
+    assert_eq!(
+        std::env::var("WYLLS_PUBLIC_DRAND").as_deref(),
+        Ok("1"),
+        "reads the public drand API"
+    );
     let art = artifact();
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         let (p, q) = ports(41_930);
         let player = Keypair::new();

@@ -140,7 +140,10 @@ fn q(s: &str) -> String {
     format!("\"{s}\"")
 }
 fn obj(fields: &[(&str, String)]) -> String {
-    let inner: Vec<String> = fields.iter().map(|(k, v)| format!("{}:{}", q(k), v)).collect();
+    let inner: Vec<String> = fields
+        .iter()
+        .map(|(k, v)| format!("{}:{}", q(k), v))
+        .collect();
     format!("{{{}}}", inner.join(","))
 }
 fn arr(items: &[String]) -> String {
@@ -191,7 +194,10 @@ fn build() -> Built {
     assert_eq!((a0.seq, c1.seq, b2.seq, e3.seq, f4.seq), (0, 1, 2, 3, 4));
     // bell 30: A's reservation does not apply; slot and rent released, resources blocked
     not_apply(&mut t, &mut p, 0);
-    t = t.settle_reservation(0, false, true, false).unwrap().conquest;
+    t = t
+        .settle_reservation(0, false, true, false)
+        .unwrap()
+        .conquest;
     // bell 33: F does not apply (fully returned later); bell 35: E applies
     not_apply(&mut t, &mut p, 4);
     let i = t.reservation(3).unwrap().0;
@@ -200,7 +206,10 @@ fn build() -> Built {
     p[9] = plan.prefix;
     // bell 36: C does not apply; resources returned, slot/rent still owed
     not_apply(&mut t, &mut p, 1);
-    t = t.settle_reservation(1, true, false, false).unwrap().conquest;
+    t = t
+        .settle_reservation(1, true, false, false)
+        .unwrap()
+        .conquest;
     // bell 38: B does not apply; nothing returned yet
     not_apply(&mut t, &mut p, 2);
     // A reserves again on slot 2 (its earlier record no longer holds it), with a
@@ -208,7 +217,14 @@ fn build() -> Built {
     let a5 = reserve(
         &mut t,
         &mut p,
-        res("A", 1, 40, 2, 0, WideHostRef::new(legacy_home(), 0, 2, 0).unwrap()),
+        res(
+            "A",
+            1,
+            40,
+            2,
+            0,
+            WideHostRef::new(legacy_home(), 0, 2, 0).unwrap(),
+        ),
     );
     let d6 = reserve(&mut t, &mut p, res("D", 7, 41, 3, 3, wide_host(3, 5)));
     assert_eq!((a5.seq, d6.seq), (5, 6));
@@ -269,7 +285,10 @@ fn table_vector_roundtrips_through_the_real_codec() {
                 assert_eq!(bytes[o], r.status);
                 assert_eq!(bytes[o + 5], r.done);
                 assert_eq!(&bytes[o + 16..o + 48], &r.citizen);
-                assert_eq!(u64::from_le_bytes(bytes[o + 112..o + 120].try_into().unwrap()), r.gold_milli);
+                assert_eq!(
+                    u64::from_le_bytes(bytes[o + 112..o + 120].try_into().unwrap()),
+                    r.gold_milli
+                );
             }
         }
     }
@@ -282,7 +301,10 @@ fn table_vector_roundtrips_through_the_real_codec() {
     assert_eq!(b.prefixes[3].flags, 0);
     // the applied reservation is now the site entry, with its bell and slot
     let e = back.entry(9).unwrap().unwrap();
-    assert_eq!((e.citizen, e.reserved_slot, e.declaration_bell), (b.applied.citizen, 2, 35));
+    assert_eq!(
+        (e.citizen, e.reserved_slot, e.declaration_bell),
+        (b.applied.citizen, 2, 35)
+    );
     assert!(back.reservation(b.applied.seq).is_none() && back.reservation(b.freed_seq).is_none());
 }
 
@@ -299,8 +321,14 @@ fn record_json(i: usize, r: &Reservation) -> String {
         ("slot", format!("{}", r.reserved_slot)),
         ("faction", format!("{}", r.faction)),
         ("done", format!("{}", r.done)),
-        ("resources_returned", format!("{}", r.done & RES_RESOURCES_RETURNED != 0)),
-        ("slot_rent_released", format!("{}", r.done & RES_SLOT_RENT_RELEASED != 0)),
+        (
+            "resources_returned",
+            format!("{}", r.done & RES_RESOURCES_RETURNED != 0),
+        ),
+        (
+            "slot_rent_released",
+            format!("{}", r.done & RES_SLOT_RENT_RELEASED != 0),
+        ),
         ("holds_slot", format!("{}", r.holds_slot())),
         ("bell", format!("{}", r.bell)),
         ("seq", format!("{}", r.seq)),
@@ -330,8 +358,14 @@ fn record_json(i: usize, r: &Reservation) -> String {
                 ("entry", format!("{}", r.entry)),
                 ("slot", format!("{}", r.reserved_slot)),
                 ("faction", format!("{}", r.faction)),
-                ("resourcesReturned", format!("{}", r.done & RES_RESOURCES_RETURNED != 0)),
-                ("slotRentReleased", format!("{}", r.done & RES_SLOT_RENT_RELEASED != 0)),
+                (
+                    "resourcesReturned",
+                    format!("{}", r.done & RES_RESOURCES_RETURNED != 0),
+                ),
+                (
+                    "slotRentReleased",
+                    format!("{}", r.done & RES_SLOT_RENT_RELEASED != 0),
+                ),
                 ("bell", format!("{}", r.bell)),
                 ("seq", format!("{}", r.seq)),
                 ("citizen", q(&base58(&r.citizen))),
@@ -374,8 +408,14 @@ fn table_json() -> String {
                 ("entry_present", format!("{}", e.is_some())),
                 ("prefix_kind", format!("{}", p.kind)),
                 ("prefix_flags", format!("{}", p.flags)),
-                ("pending_flag", format!("{}", p.flags & CR::FLAG_PENDING != 0)),
-                ("has_pending_reservation", format!("{}", b.table.has_pending(s))),
+                (
+                    "pending_flag",
+                    format!("{}", p.flags & CR::FLAG_PENDING != 0),
+                ),
+                (
+                    "has_pending_reservation",
+                    format!("{}", b.table.has_pending(s)),
+                ),
             ])
         })
         .collect();
@@ -435,7 +475,10 @@ fn refused() -> Vec<(&'static str, [u8; CONQUEST_SIZE], ConquestError)> {
 #[test]
 fn refused_tables_give_their_conquest_error() {
     for (_, bytes, want) in refused() {
-        assert_eq!(WideConquest::read(&bytes, SEASON_ID, key()).err(), Some(want));
+        assert_eq!(
+            WideConquest::read(&bytes, SEASON_ID, key()).err(),
+            Some(want)
+        );
     }
 }
 
@@ -451,10 +494,13 @@ fn refused_json() -> String {
                 ("name", q(name)),
                 ("change", q(at)),
                 ("expected_error", q(&format!("{want:?}"))),
-                ("fable_decoder_expected_code", q(match *name {
-                    "both_done_bits" => "ReservationRecordDone",
-                    _ => "ReservationRecordSeq",
-                })),
+                (
+                    "fable_decoder_expected_code",
+                    q(match *name {
+                        "both_done_bits" => "ReservationRecordDone",
+                        _ => "ReservationRecordSeq",
+                    }),
+                ),
                 ("table_hex", q(&hex(bytes))),
             ])
         })
@@ -472,7 +518,13 @@ fn synthetic_accounts() -> Vec<(u16, [u8; 32], Vec<u8>, u64)> {
         (2, label("account 2"), vec![4, 5, 6, 7], 2_000),
     ]
 }
-fn receipt_for(action: u8, command: &[u8], bell: u32, evidence: &[u8], outcomes: &[u8]) -> rc::Receipt {
+fn receipt_for(
+    action: u8,
+    command: &[u8],
+    bell: u32,
+    evidence: &[u8],
+    outcomes: &[u8],
+) -> rc::Receipt {
     let season = label("season account bytes");
     let ctx = rc::Context {
         command,
@@ -503,7 +555,12 @@ fn receipt_for(action: u8, command: &[u8], bell: u32, evidence: &[u8], outcomes:
 /// A chained record body: `write_body`, then `advance` each linked entity
 /// from a fixed previous chain state, then `write_tail` (the program's
 /// `Stage::event` / `prepare_wide`).
-fn chained(kind: WideKind, bell: u32, event_key: &[u8], r: &rc::Receipt) -> (Vec<u8>, Vec<(u8, u64, [u8; 32])>) {
+fn chained(
+    kind: WideKind,
+    bell: u32,
+    event_key: &[u8],
+    r: &rc::Receipt,
+) -> (Vec<u8>, Vec<(u8, u64, [u8; 32])>) {
     let mut body = [0u8; MAX_BODY];
     let n = wev::write_body(kind, bell, event_key, &r.encode(), &mut body).unwrap();
     let mut links = Vec::new();
@@ -518,17 +575,29 @@ fn chained(kind: WideKind, bell: u32, event_key: &[u8], r: &rc::Receipt) -> (Vec
     }
     let m = wev::write_tail(kind, &links, &mut body, n).unwrap();
     let rec = wev::WideRecord::decode(&body[..m]).unwrap();
-    assert_eq!((rec.kind, rec.bell, rec.payload), (kind, bell, &r.encode()[..]));
+    assert_eq!(
+        (rec.kind, rec.bell, rec.payload),
+        (kind, bell, &r.encode()[..])
+    );
     (body[..m].to_vec(), prev)
 }
 fn body_json(kind: WideKind, bell: u32, event_key: &[u8], r: &rc::Receipt) -> String {
     let (b, prev) = chained(kind, bell, event_key, r);
     let prev: Vec<String> = prev
         .iter()
-        .map(|(e, s, h)| obj(&[("entity", format!("{e}")), ("seq_before", format!("{s}")), ("head_before_hex", q(&hex(h)))]))
+        .map(|(e, s, h)| {
+            obj(&[
+                ("entity", format!("{e}")),
+                ("seq_before", format!("{s}")),
+                ("head_before_hex", q(&hex(h))),
+            ])
+        })
         .collect();
     obj(&[
-        ("log_prefix", q(core::str::from_utf8(WIDE_LOG_PREFIX).unwrap())),
+        (
+            "log_prefix",
+            q(core::str::from_utf8(WIDE_LOG_PREFIX).unwrap()),
+        ),
         ("kind", format!("{}", kind as u8)),
         ("kind_name", q(kind.name())),
         ("key_hex", q(&hex(event_key))),
@@ -591,9 +660,15 @@ fn case(
         t.reservations[i] = Some(rr);
         t = WideConquest::read(&t.to_bytes(), SEASON_ID, key()).unwrap();
     }
-    let plan = t.settle_reservation(seq, resources_ok, slot_rent_ok, terminal_lapse).unwrap();
+    let plan = t
+        .settle_reservation(seq, resources_ok, slot_rent_ok, terminal_lapse)
+        .unwrap();
     // handler: refund only when the binding is refunded from a live escrow
-    let refund = if plan.release_slot_rent && !terminal { WIDE_RENT } else { 0 };
+    let refund = if plan.release_slot_rent && !terminal {
+        WIDE_RENT
+    } else {
+        0
+    };
     let (gold, arms) = if plan.return_resources {
         (r.gold_milli, r.arms_milli)
     } else {
@@ -602,7 +677,9 @@ fn case(
     let done_after = plan
         .conquest
         .reservation(seq)
-        .map_or(RES_RESOURCES_RETURNED | RES_SLOT_RENT_RELEASED, |(_, n)| n.done);
+        .map_or(RES_RESOURCES_RETURNED | RES_SLOT_RENT_RELEASED, |(_, n)| {
+            n.done
+        });
     let mut outcome = [0u8; 28];
     outcome[0..8].copy_from_slice(&refund.to_le_bytes());
     outcome[8..16].copy_from_slice(&gold.to_le_bytes());
@@ -627,11 +704,29 @@ fn cases() -> Vec<Case> {
         case("slot_rent_only", false, 0, false, true, false, false, true),
         case("both", false, 0, true, true, false, false, true),
         // closable season, escrow already closed by CloseCaptureEscrow
-        case("terminal_escrow_close", false, RES_RESOURCES_RETURNED, false, true, false, true, true),
+        case(
+            "terminal_escrow_close",
+            false,
+            RES_RESOURCES_RETURNED,
+            false,
+            true,
+            false,
+            true,
+            true,
+        ),
         // Aborted season: a PENDING reservation lapses; nothing doable now
         case("lapsed", true, 0, false, false, true, false, true),
         // closable season, province closed: lapse + terminal escrow + resources
-        case("province_absent_pswr", true, 0, true, true, true, true, false),
+        case(
+            "province_absent_pswr",
+            true,
+            0,
+            true,
+            true,
+            true,
+            true,
+            false,
+        ),
     ]
 }
 
@@ -650,7 +745,12 @@ fn outcome_layout_and_bodies_follow_the_handler() {
     for (c, w) in cs.iter().zip(want) {
         let o = &c.outcome;
         let u = |a: usize| u64::from_le_bytes(o[a..a + 8].try_into().unwrap());
-        assert_eq!((u(0), u(8), u(16), o[24], o[25], o[26], o[27]), w, "{}", c.name);
+        assert_eq!(
+            (u(0), u(8), u(16), o[24], o[25], o[26], o[27]),
+            w,
+            "{}",
+            c.name
+        );
         let r = receipt_for(
             rc::RESERVATION_REFUND,
             &wide_ix::SettleReservation { seq: 2 }.to_bytes(),
@@ -667,7 +767,12 @@ fn outcome_layout_and_bodies_follow_the_handler() {
             assert_eq!(pswr(&r).len(), 1 + 32 + 32 + 4 + 4 + 100);
         }
         if c.plan.return_resources {
-            chained(WideKind::ConquestCredited, 40, &refund_case_reservation().source().to_bytes(), &r);
+            chained(
+                WideKind::ConquestCredited,
+                40,
+                &refund_case_reservation().source().to_bytes(),
+                &r,
+            );
         }
         let _ = c.terminal;
     }
@@ -680,7 +785,14 @@ fn outcome_layout_and_bodies_follow_the_handler() {
     // a refund receipt never passes as a declaration-side record and back
     let r9 = receipt_for(rc::RESERVATION_REFUND, &[1], 40, &[], &[0]);
     let mut out = [0u8; MAX_BODY];
-    assert!(wev::write_body(WideKind::ConquestDeclared, 40, &key().to_bytes(), &r9.encode(), &mut out).is_none());
+    assert!(wev::write_body(
+        WideKind::ConquestDeclared,
+        40,
+        &key().to_bytes(),
+        &r9.encode(),
+        &mut out
+    )
+    .is_none());
 }
 
 /// The unchained record of `settle_reservation_inner` when the target
@@ -710,8 +822,18 @@ fn reserve_json() -> String {
     // action 8: outcome = total lamports funded (u64), evidence = host ref
     let r = refund_case_reservation();
     let total: u64 = 25_000_000;
-    let cmd = wide_ix::DeclareSiege { site: r.site, entry: r.entry }.to_bytes();
-    let rc8 = receipt_for(rc::RESERVE, &cmd, r.bell, &r.host.to_bytes(), &total.to_le_bytes());
+    let cmd = wide_ix::DeclareSiege {
+        site: r.site,
+        entry: r.entry,
+    }
+    .to_bytes();
+    let rc8 = receipt_for(
+        rc::RESERVE,
+        &cmd,
+        r.bell,
+        &r.host.to_bytes(),
+        &total.to_le_bytes(),
+    );
     obj(&[
         ("action", "8".into()),
         ("note", q("RESERVE: the DeclareSiege that became a reservation. Same record kinds as DECLARE (1): WIDE_CONQUEST_DECLARED on the province chain + the source debit (WIDE_CONQUEST_DEBITED for a wide source; the PS2 legacy source receipt for a legacy village). Digests are over a SYNTHETIC manifest.")),
@@ -755,14 +877,25 @@ fn refunds_json() -> String {
                 ])
             };
             let credited = if c.plan.return_resources {
-                body_json(WideKind::ConquestCredited, 40, &refund_case_reservation().source().to_bytes(), &r)
+                body_json(
+                    WideKind::ConquestCredited,
+                    40,
+                    &refund_case_reservation().source().to_bytes(),
+                    &r,
+                )
             } else {
                 "null".into()
             };
             obj(&[
                 ("name", q(c.name)),
-                ("command_hex", q(&hex(&wide_ix::SettleReservation { seq: 2 }.to_bytes()))),
-                ("outcome_label", q("synthetic preimage expected values (not extractable from logs)")),
+                (
+                    "command_hex",
+                    q(&hex(&wide_ix::SettleReservation { seq: 2 }.to_bytes())),
+                ),
+                (
+                    "outcome_label",
+                    q("synthetic preimage expected values (not extractable from logs)"),
+                ),
                 ("outcome_preimage_hex", q(&hex(o))),
                 (
                     "outcome_preimage_expected",
@@ -841,10 +974,18 @@ fn legacy() -> Legacy {
     };
     let resolver = AccountResolver::for_season(&ctx).unwrap();
     let w = resolver.adapter().world();
-    let source =
-        WideHostRef::new(ProvinceKey::new(w, WideCoord::checked(128, 0).unwrap()), 0, 2, 0).unwrap();
+    let source = WideHostRef::new(
+        ProvinceKey::new(w, WideCoord::checked(128, 0).unwrap()),
+        0,
+        2,
+        0,
+    )
+    .unwrap();
     let target = ProvinceKey::new(w, WideCoord::checked(129, 0).unwrap());
-    assert_eq!(resolver.family(source.key()).unwrap(), AccountFamily::Legacy);
+    assert_eq!(
+        resolver.family(source.key()).unwrap(),
+        AccountFamily::Legacy
+    );
     assert_eq!(resolver.family(target).unwrap(), AccountFamily::Wide);
     let source_address = resolver.holding_address(&source).unwrap();
     Legacy {
@@ -867,14 +1008,25 @@ fn legacy_cases() -> Vec<(&'static str, u8, WideKind, rc::Receipt, Vec<u8>, Vec<
         o.extend_from_slice(&[3, 0, 0, 1]);
         o
     };
-    let rows: [(&'static str, le::Direction, u8, WideKind, u32, Vec<u8>, Vec<u8>, Vec<u8>); 2] = [
+    let rows: [(
+        &'static str,
+        le::Direction,
+        u8,
+        WideKind,
+        u32,
+        Vec<u8>,
+        Vec<u8>,
+        Vec<u8>,
+    ); 2] = [
         (
             "debit_reserve",
             le::Direction::Debit,
             rc::RESERVE,
             WideKind::ConquestDeclared,
             19,
-            wide_ix::DeclareSiege { site: 1, entry: 0 }.to_bytes().to_vec(),
+            wide_ix::DeclareSiege { site: 1, entry: 0 }
+                .to_bytes()
+                .to_vec(),
             l.source.to_bytes().to_vec(),
             25_000_000u64.to_le_bytes().to_vec(),
         ),
@@ -915,7 +1067,9 @@ fn legacy_cases() -> Vec<(&'static str, u8, WideKind, rc::Receipt, Vec<u8>, Vec<
             WideKind::ConquestDeclared
         };
         let mut buf = [0u8; MAX_BODY];
-        assert!(wev::write_body(wrong, bell, &l.target.to_bytes(), &r.encode(), &mut buf).is_none());
+        assert!(
+            wev::write_body(wrong, bell, &l.target.to_bytes(), &r.encode(), &mut buf).is_none()
+        );
         out.push((name, action, kind, r, body.to_vec(), outcome));
     }
     out
@@ -926,8 +1080,14 @@ fn legacy_source_records_prepare_decode_and_pair() {
     let cs = legacy_cases();
     assert_eq!(cs.len(), 2);
     for (_, action, _, r, body, _) in &cs {
-        assert_eq!(body.len(), crate::world_index::legacy_source_event::BODY_LEN);
-        assert_eq!((body[1], body[7]), (145, if *action == rc::RESERVE { 1 } else { 2 }));
+        assert_eq!(
+            body.len(),
+            crate::world_index::legacy_source_event::BODY_LEN
+        );
+        assert_eq!(
+            (body[1], body[7]),
+            (145, if *action == rc::RESERVE { 1 } else { 2 })
+        );
         assert_eq!(&body[98..198], &r.encode()[..]);
     }
 }
@@ -941,10 +1101,16 @@ fn legacy_json() -> String {
                 ("name", q(name)),
                 ("log_prefix", q("PS2")),
                 ("ps2_kind", "145".into()),
-                ("direction", format!("{}", if *action == rc::RESERVE { 1 } else { 2 })),
+                (
+                    "direction",
+                    format!("{}", if *action == rc::RESERVE { 1 } else { 2 }),
+                ),
                 ("action", format!("{action}")),
                 ("pairs_with", q(kind.name())),
-                ("outcome_label", q("synthetic preimage expected values (not extractable from logs)")),
+                (
+                    "outcome_label",
+                    q("synthetic preimage expected values (not extractable from logs)"),
+                ),
                 ("outcome_preimage_hex", q(&hex(outcome))),
                 ("receipt", receipt_json(r)),
                 (
@@ -952,14 +1118,22 @@ fn legacy_json() -> String {
                     obj(&[
                         ("entity", "5".into()),
                         ("seq_before", "12".into()),
-                        ("head_before_hex", q(&hex(&label("legacy holding PS2 head before")))),
+                        (
+                            "head_before_hex",
+                            q(&hex(&label("legacy holding PS2 head before"))),
+                        ),
                     ]),
                 ),
                 ("body_hex", q(&hex(body))),
                 ("body_len", format!("{}", body.len())),
                 (
                     "target_record",
-                    body_json(*kind, u32::from_le_bytes(body[2..6].try_into().unwrap()), &l.target.to_bytes(), r),
+                    body_json(
+                        *kind,
+                        u32::from_le_bytes(body[2..6].try_into().unwrap()),
+                        &l.target.to_bytes(),
+                        r,
+                    ),
                 ),
             ])
         })

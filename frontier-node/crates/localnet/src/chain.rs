@@ -1948,7 +1948,10 @@ mod status_instance_tests {
             short(&bb),
             first_diff
         );
-        assert!(!ba.windows(32).any(|w| w == A) && !bb.windows(32).any(|w| w == B), "instance bytes absent");
+        assert!(
+            !ba.windows(32).any(|w| w == A) && !bb.windows(32).any(|w| w == B),
+            "instance bytes absent"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1969,7 +1972,10 @@ mod status_instance_tests {
         // failing and all-zero entropy
         assert!(c.restore_with(&p, fail).unwrap_err().contains("no entropy"));
         assert!(c.restore_with(&p, zero).unwrap_err().contains("all zero"));
-        assert_eq!((c.status_instance(), c.state_hash(), c.transaction_count()), (A, h, n));
+        assert_eq!(
+            (c.status_instance(), c.state_hash(), c.transaction_count()),
+            (A, h, n)
+        );
         // success: new instance, the snapshot's state, the same run id
         let run = c.run_id();
         let r = c.restore_with(&p, || Ok(B)).unwrap();
@@ -1990,7 +1996,11 @@ mod status_instance_tests {
         let e = c.restore_with(&snap.path, || Ok(B)).unwrap_err();
         assert!(e.contains("test fault: WAL truncate"), "{e}");
         assert_eq!(c.status_instance(), B, "updated before the first swap");
-        assert_eq!(c.state_hash(), snap.state_hash, "the state was already swapped");
+        assert_eq!(
+            c.state_hash(),
+            snap.state_hash,
+            "the state was already swapped"
+        );
         drop(c);
         let _ = std::fs::remove_dir_all(&root);
     }

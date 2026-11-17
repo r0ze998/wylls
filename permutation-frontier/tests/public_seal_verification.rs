@@ -56,7 +56,9 @@ fn main() -> std::process::ExitCode {
             "--test-threads" if args.next().as_deref() == Some("1") => {}
             value if !value.starts_with('-') && filter.is_none() => filter = Some(arg),
             _ => {
-                eprintln!("unsupported argument; use one filter, --exact, --list or --test-threads=1");
+                eprintln!(
+                    "unsupported argument; use one filter, --exact, --list or --test-threads=1"
+                );
                 return std::process::ExitCode::from(2);
             }
         }
@@ -148,7 +150,10 @@ fn published_quicknet_round_32551361_opens_legacy_seal() {
     let salt = kseal::salt_of(&recovered_key);
     assert_eq!(salt, decode::<32>(get(case, "salt")));
     assert_eq!(kseal::commit(&opened, &salt), commitment);
-    assert_eq!(kseal::ct_hash(&ciphertext), decode::<32>(get(case, "ct_hash")));
+    assert_eq!(
+        kseal::ct_hash(&ciphertext),
+        decode::<32>(get(case, "ct_hash"))
+    );
     assert_eq!(
         seal::seal_root_of(&commitment, &ciphertext),
         decode::<32>(get(case, "seal_root"))

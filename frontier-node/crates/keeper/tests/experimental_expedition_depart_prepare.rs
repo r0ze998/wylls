@@ -27,7 +27,8 @@ use frontier_abi::v2::layout::{
     world::season as S,
 };
 use frontier_abi::world_index::{
-    expedition::AccountResolver, expedition_dispatch_ix as wire, ProvinceKey, WideCoord, WideHostRef,
+    expedition::AccountResolver, expedition_dispatch_ix as wire, ProvinceKey, WideCoord,
+    WideHostRef,
 };
 use keeper_core::experimental_expedition_depart_prepare as dp;
 use keeper_core::experimental_expedition_prepare::Settings;
@@ -98,7 +99,10 @@ impl Fixture {
     fn new() -> Self {
         let program = a(4);
         let (season, bump) = fclient::addr::season_pda(&program, ID);
-        let ctx = AddrCtx { program: program.to_bytes(), season: season.to_bytes() };
+        let ctx = AddrCtx {
+            program: program.to_bytes(),
+            season: season.to_bytes(),
+        };
         let resolver = AccountResolver::for_season(&ctx).unwrap();
         let host = resolver.legacy_host_ref(hid()).unwrap();
         let wallet = a(7);
@@ -133,15 +137,29 @@ impl Fixture {
         citizen[slot + HR::SITE] = host.site();
         citizen[slot + HR::GEN] = host.gen();
         Self {
-            program, season, host, standing: host.key(), standing_p: 128, wallet, payer: a(8),
-            season_data: s, holding: h, home, remote: None, citizen, transit: None,
+            program,
+            season,
+            host,
+            standing: host.key(),
+            standing_p: 128,
+            wallet,
+            payer: a(8),
+            season_data: s,
+            holding: h,
+            home,
+            remote: None,
+            citizen,
+            transit: None,
         }
     }
     /// The same host resident in the neighbouring original Province (127, 0).
     fn remote() -> Self {
         let mut f = Self::new();
         let resolver = AccountResolver::for_season(&f.ctx()).unwrap();
-        f.standing = ProvinceKey::new(resolver.adapter().world(), WideCoord::checked(127, 0).unwrap());
+        f.standing = ProvinceKey::new(
+            resolver.adapter().world(),
+            WideCoord::checked(127, 0).unwrap(),
+        );
         f.standing_p = 127;
         write_entry(&mut f.home, 0, &Entry::FREE).unwrap();
         f.home[P::N_ENTRIES] = 0;
@@ -152,21 +170,42 @@ impl Fixture {
         f
     }
     fn ctx(&self) -> AddrCtx {
-        AddrCtx { program: self.program.to_bytes(), season: self.season.to_bytes() }
+        AddrCtx {
+            program: self.program.to_bytes(),
+            season: self.season.to_bytes(),
+        }
     }
     fn decoded(&self) -> fclient::decode::Season {
         fclient::decode::Season::decode(&self.season_data).unwrap()
     }
     fn bell(&self) -> u32 {
-        SeasonClock::from_season(&self.decoded()).bell_at(NOW).unwrap()
+        SeasonClock::from_season(&self.decoded())
+            .bell_at(NOW)
+            .unwrap()
     }
     /// The Season's own minimum tip (the program's `TipTooLow` floor).
     fn min_tip(&self) -> u64 {
         let s = self.decoded();
-        fclient::fees::min_tip_lamports(s.min_reveal_priority_milli, s.reveal_cu_limit, s.reveal_loaded_limit)
+        fclient::fees::min_tip_lamports(
+            s.min_reveal_priority_milli,
+            s.reveal_cu_limit,
+            s.reveal_loaded_limit,
+        )
     }
     fn draft_abs(&self, arrive: u32, tip: u64) -> Draft {
-        Draft::for_wallet(&self.ctx(), self.host, self.standing, self.wallet, self.payer, 0, arrive, tip, [1; 32], [0xa7; 264]).unwrap()
+        Draft::for_wallet(
+            &self.ctx(),
+            self.host,
+            self.standing,
+            self.wallet,
+            self.payer,
+            0,
+            arrive,
+            tip,
+            [1; 32],
+            [0xa7; 264],
+        )
+        .unwrap()
     }
     /// `extra` lamports above the Season's minimum tip.
     fn draft(&self, arrive: u32, extra: u64) -> Draft {
@@ -208,9 +247,15 @@ impl Fixture {
                 None => Value::Null,
             });
         }
-        let clock = ClockSysvar { slot: CONTEXT, unix_timestamp: NOW, ..ClockSysvar::default() };
-        values.push(json!({"lamports":1,"owner":sysvar_owner().to_string(),"executable":false,
-            "data":[base64::engine::general_purpose::STANDARD.encode(clock.encode()),"base64"]}));
+        let clock = ClockSysvar {
+            slot: CONTEXT,
+            unix_timestamp: NOW,
+            ..ClockSysvar::default()
+        };
+        values.push(
+            json!({"lamports":1,"owner":sysvar_owner().to_string(),"executable":false,
+            "data":[base64::engine::general_purpose::STANDARD.encode(clock.encode()),"base64"]}),
+        );
         json!({"context":{"slot":CONTEXT},"value":values})
     }
     /// Lock the home Province's mirror of this site as a completed, unsettled capture
@@ -236,17 +281,35 @@ impl SnapshotSource for Fixed {
         with_rent: bool,
         min_slot: u64,
     ) -> Pin<Box<dyn Future<Output = Result<Snapshot, SnapshotError>> + Send + 'a>> {
-        let r = parse_snapshot_response(&self.response, keys, with_rent, self.min_slot.unwrap_or(min_slot));
+        let r = parse_snapshot_response(
+            &self.response,
+            keys,
+            with_rent,
+            self.min_slot.unwrap_or(min_slot),
+        );
         Box::pin(async move { r })
     }
 }
 
 fn settings(f: &Fixture) -> Settings {
-    Settings { program: f.program, season: f.season, fee_payer: f.payer, ruleset_hash: [9; 32], cu_limit: 200_000, loaded_limit: 1_000_000 }
+    Settings {
+        program: f.program,
+        season: f.season,
+        fee_payer: f.payer,
+        ruleset_hash: [9; 32],
+        cu_limit: 200_000,
+        loaded_limit: 1_000_000,
+    }
 }
 fn observed(latest: u64) -> ObservedBlockhash {
     ObservedBlockhash {
-        observation: BlockhashObservation { blockhash: [24; 32], context_slot: 101, valid: true, block_height: 200, last_valid_block_height: 210 },
+        observation: BlockhashObservation {
+            blockhash: [24; 32],
+            context_slot: 101,
+            valid: true,
+            block_height: 200,
+            last_valid_block_height: 210,
+        },
         latest_context_slot: latest,
         height_min_context_slot: 101,
     }
@@ -258,11 +321,16 @@ fn run_with(r: &dp::Request, source: &Fixed, s: Settings, latest: u64) -> Value 
     tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
-        .block_on(dp::prepare(r, s, source, move |_| async move { Ok(observed(latest)) }))
+        .block_on(dp::prepare(r, s, source, move |_| async move {
+            Ok(observed(latest))
+        }))
 }
 fn run_request(f: &Fixture, request: &Value) -> Value {
     let r = parse(request).expect("canonical request");
-    let source = Fixed { response: f.response(&r), min_slot: None };
+    let source = Fixed {
+        response: f.response(&r),
+        min_slot: None,
+    };
     run_with(&r, &source, settings(f), CONTEXT)
 }
 fn run(f: &Fixture, arrive: u32, extra: u64) -> Value {
@@ -274,7 +342,16 @@ fn blocker(v: &Value) -> &str {
 }
 fn closed(v: &Value) {
     assert_eq!(v["host_only"], true);
-    for k in ["ready", "deployment_verified", "admitted", "signed", "enqueued", "relay_submission_available", "automatic_send", "seal_verified"] {
+    for k in [
+        "ready",
+        "deployment_verified",
+        "admitted",
+        "signed",
+        "enqueued",
+        "relay_submission_available",
+        "automatic_send",
+        "seal_verified",
+    ] {
         assert_eq!(v[k], false, "{k}");
     }
 }
@@ -294,11 +371,21 @@ fn canonical_fresh_departure_prepares_an_unsigned_message_only() {
         assert_eq!(p["proposal_digest"], hex::encode(dp::content_digest(&d)));
         let expected = wire::encode(wire::Kind::Depart, &d.proposed_bytes()).unwrap();
         assert_eq!(p["instruction_hex"], hex::encode(&expected));
-        assert!(p["instruction_hex"].as_str().unwrap().starts_with("daff0200"));
-        let message = base64::engine::general_purpose::STANDARD.decode(p["message_b64"].as_str().unwrap()).unwrap();
+        assert!(p["instruction_hex"]
+            .as_str()
+            .unwrap()
+            .starts_with("daff0200"));
+        let message = base64::engine::general_purpose::STANDARD
+            .decode(p["message_b64"].as_str().unwrap())
+            .unwrap();
         assert_eq!(p["message_digest"], hex::encode(Sha256::digest(&message)));
-        assert!(message.windows(expected.len()).any(|w| w == expected.as_slice()));
-        assert_eq!(p["signers"], json!([f.payer.to_string(), f.wallet.to_string()]));
+        assert!(message
+            .windows(expected.len())
+            .any(|w| w == expected.as_slice()));
+        assert_eq!(
+            p["signers"],
+            json!([f.payer.to_string(), f.wallet.to_string()])
+        );
         assert_eq!(v["source"]["context_slot"], CONTEXT.to_string());
         assert_eq!(v["source"]["transit_slot_free"], true);
         assert_eq!(v["source"]["authority_verified"], false);
@@ -324,11 +411,20 @@ fn shortvec(b: &[u8], at: &mut usize) -> usize {
     n
 }
 /// A legacy Message: header, keys, blockhash, instructions `(program index, account indices, data)`.
-fn legacy(b: &[u8]) -> ([u8; 3], Vec<[u8; 32]>, [u8; 32], Vec<(usize, Vec<usize>, Vec<u8>)>) {
+fn legacy(
+    b: &[u8],
+) -> (
+    [u8; 3],
+    Vec<[u8; 32]>,
+    [u8; 32],
+    Vec<(usize, Vec<usize>, Vec<u8>)>,
+) {
     let header = [b[0], b[1], b[2]];
     let mut at = 3;
     let n = shortvec(b, &mut at);
-    let keys = (0..n).map(|i| b[at + 32 * i..at + 32 * (i + 1)].try_into().unwrap()).collect();
+    let keys = (0..n)
+        .map(|i| b[at + 32 * i..at + 32 * (i + 1)].try_into().unwrap())
+        .collect();
     at += 32 * n;
     let hash = b[at..at + 32].try_into().unwrap();
     at += 32;
@@ -355,7 +451,9 @@ fn the_prepared_message_carries_exactly_the_canonical_instruction_and_privileges
         let v = run(&f, arrive, 3);
         assert_eq!(v["status"], "prepared", "{v}");
         let d = f.draft(arrive, 3);
-        let message = base64::engine::general_purpose::STANDARD.decode(v["prepared"]["message_b64"].as_str().unwrap()).unwrap();
+        let message = base64::engine::general_purpose::STANDARD
+            .decode(v["prepared"]["message_b64"].as_str().unwrap())
+            .unwrap();
         let (header, keys, hash, ixs) = legacy(&message);
         // two distinct signers: the payer (fee payer, writable) then the wallet (read-only)
         assert_eq!(header, [2, 1, header[2]]);
@@ -364,7 +462,9 @@ fn the_prepared_message_carries_exactly_the_canonical_instruction_and_privileges
         assert_eq!(hash, [24; 32]);
         // exactly: limit, zero price, loaded-data limit, the one fixed heap frame, then the game instruction
         assert_eq!(ixs.len(), 5);
-        let cb: Address = "ComputeBudget111111111111111111111111111111".parse().unwrap();
+        let cb: Address = "ComputeBudget111111111111111111111111111111"
+            .parse()
+            .unwrap();
         let prefix: [Vec<u8>; 4] = [
             [vec![2u8], 200_000u32.to_le_bytes().to_vec()].concat(),
             [vec![3u8], 0u64.to_le_bytes().to_vec()].concat(),
@@ -372,17 +472,33 @@ fn the_prepared_message_carries_exactly_the_canonical_instruction_and_privileges
             [vec![1u8], (256u32 * 1024).to_le_bytes().to_vec()].concat(),
         ];
         for (i, want) in prefix.iter().enumerate() {
-            assert_eq!(keys[ixs[i].0], cb.to_bytes(), "instruction {i}: the compute budget program");
+            assert_eq!(
+                keys[ixs[i].0],
+                cb.to_bytes(),
+                "instruction {i}: the compute budget program"
+            );
             assert!(ixs[i].1.is_empty(), "instruction {i}: no accounts");
             assert_eq!(&ixs[i].2, want, "instruction {i}");
         }
-        assert_eq!(v["prepared"]["budget"], json!({"cu_limit":200_000,"cu_price":"0","loaded_limit":1_000_000,"heap":262_144}));
+        assert_eq!(
+            v["prepared"]["budget"],
+            json!({"cu_limit":200_000,"cu_price":"0","loaded_limit":1_000_000,"heap":262_144})
+        );
         let (program, accounts, data) = &ixs[4];
         assert_eq!(keys[*program], f.program.to_bytes());
-        assert_eq!(*data, wire::encode(wire::Kind::Depart, &d.proposed_bytes()).unwrap());
+        assert_eq!(
+            *data,
+            wire::encode(wire::Kind::Depart, &d.proposed_bytes()).unwrap()
+        );
         let n = keys.len();
         let signer = |i: usize| i < header[0] as usize;
-        let writable = |i: usize| if signer(i) { i < (header[0] - header[1]) as usize } else { i < n - header[2] as usize };
+        let writable = |i: usize| {
+            if signer(i) {
+                i < (header[0] - header[1]) as usize
+            } else {
+                i < n - header[2] as usize
+            }
+        };
         assert_eq!(accounts.len(), 9);
         for (role, &i) in d.roles().iter().zip(accounts) {
             assert_eq!(keys[i], role.address.to_bytes(), "{}", role.name);
@@ -410,29 +526,36 @@ fn a_refused_snapshot_never_asks_for_a_blockhash() {
         let mut f = Fixture::new();
         change(&mut f);
         let r = parse(&f.request(f.bell() + 5, 3)).unwrap();
-        let source = Fixed { response: f.response(&r), min_slot: None };
+        let source = Fixed {
+            response: f.response(&r),
+            min_slot: None,
+        };
         let calls = AtomicUsize::new(0);
-        let v = tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(dp::prepare(
-            &r,
-            settings(&f),
-            &source,
-            |_| {
+        let v = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(dp::prepare(&r, settings(&f), &source, |_| {
                 calls.fetch_add(1, Ordering::SeqCst);
                 async move { Ok(observed(CONTEXT)) }
-            },
-        ));
+            }));
         assert_eq!(v["status"], "blocked", "{v}");
         assert_eq!(calls.load(Ordering::SeqCst), 0, "{v}");
     }
     // and a fresh one asks exactly once
     let f = Fixture::new();
     let r = parse(&f.request(f.bell() + 5, 3)).unwrap();
-    let source = Fixed { response: f.response(&r), min_slot: None };
+    let source = Fixed {
+        response: f.response(&r),
+        min_slot: None,
+    };
     let calls = AtomicUsize::new(0);
-    let v = tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(dp::prepare(&r, settings(&f), &source, |_| {
-        calls.fetch_add(1, Ordering::SeqCst);
-        async move { Ok(observed(CONTEXT)) }
-    }));
+    let v = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(dp::prepare(&r, settings(&f), &source, |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async move { Ok(observed(CONTEXT)) }
+        }));
     assert_eq!(v["status"], "prepared");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -455,42 +578,84 @@ fn a_tip_below_the_seasons_minimum_is_refused() {
     let min = f.min_tip();
     assert!(min > 0, "the fixture's Season has a positive minimum tip");
     let arrive = f.bell() + 5;
-    assert_eq!(blocker(&run_request(&f, &f.request_abs(arrive, min - 1))), "TipTooLow");
-    assert_eq!(run_request(&f, &f.request_abs(arrive, min))["status"], "prepared");
+    assert_eq!(
+        blocker(&run_request(&f, &f.request_abs(arrive, min - 1))),
+        "TipTooLow"
+    );
+    assert_eq!(
+        run_request(&f, &f.request_abs(arrive, min))["status"],
+        "prepared"
+    );
 }
 
 #[test]
 fn stale_or_foreign_fresh_state_is_blocked() {
-    let check = |name: &str, codes: &[&str], make: &dyn Fn() -> Fixture, change: &dyn Fn(&mut Fixture)| {
-        let mut f = make();
-        change(&mut f);
-        let v = run(&f, f.bell() + 5, 3);
-        closed(&v);
-        assert!(codes.contains(&blocker(&v)), "{name}: {v}");
-    };
+    let check =
+        |name: &str, codes: &[&str], make: &dyn Fn() -> Fixture, change: &dyn Fn(&mut Fixture)| {
+            let mut f = make();
+            change(&mut f);
+            let v = run(&f, f.bell() + 5, 3);
+            closed(&v);
+            assert!(codes.contains(&blocker(&v)), "{name}: {v}");
+        };
     let home = &Fixture::new;
     let remote = &Fixture::remote;
-    check("empty holding", &["SourceLayout"], home, &|f| f.holding.clear());
-    check("empty citizen", &["SourceLayout"], home, &|f| f.citizen = vec![0; 8]);
-    check("another owner", &["OwnerMismatch"], home, &|f| f.holding[H::OWNER_CITIZEN] ^= 1);
-    check("another wallet", &["OwnerMismatch"], home, &|f| f.citizen[C::WALLET] ^= 1);
-    check("generation", &["SourceGeneration"], home, &|f| f.holding[H::GEN] ^= 1);
-    check("not issued", &["HostNotIssued"], home, &|f| assert!(wr_u32(&mut f.holding, H::HOST_SEQ, 0)));
-    check("not final", &["SourceNotFinal"], home, &|f| f.holding[H::STATE] = H::STATE_PROVISIONAL);
+    check("empty holding", &["SourceLayout"], home, &|f| {
+        f.holding.clear()
+    });
+    check("empty citizen", &["SourceLayout"], home, &|f| {
+        f.citizen = vec![0; 8]
+    });
+    check("another owner", &["OwnerMismatch"], home, &|f| {
+        f.holding[H::OWNER_CITIZEN] ^= 1
+    });
+    check("another wallet", &["OwnerMismatch"], home, &|f| {
+        f.citizen[C::WALLET] ^= 1
+    });
+    check("generation", &["SourceGeneration"], home, &|f| {
+        f.holding[H::GEN] ^= 1
+    });
+    check("not issued", &["HostNotIssued"], home, &|f| {
+        assert!(wr_u32(&mut f.holding, H::HOST_SEQ, 0))
+    });
+    check("not final", &["SourceNotFinal"], home, &|f| {
+        f.holding[H::STATE] = H::STATE_PROVISIONAL
+    });
     check("citizen binding", &["CitizenBinding"], home, &|f| {
         let s = C::holding_of_slot(1);
         f.citizen[s + HR::SITE] ^= 1;
     });
-    check("ruleset", &["DeploymentMismatch"], home, &|f| f.season_data[S::RULESET_HASH] ^= 1);
-    check("season id", &["SeasonAddress"], home, &|f| assert!(wr_u64(&mut f.season_data, header::SEASON_ID, ID + 1)));
-    check("season bump", &["SeasonAddress"], home, &|f| f.season_data[S::BUMP] ^= 1);
-    check("home captured", &["CaptureLocked"], home, &|f| f.capture_home());
-    check("home captured, standing remote", &["CaptureLocked"], remote, &|f| f.capture_home());
-    check("standing coordinates", &["StandingIdentity"], remote, &|f| {
-        assert!(wr_i16(f.remote.as_mut().unwrap(), P::P, 126));
+    check("ruleset", &["DeploymentMismatch"], home, &|f| {
+        f.season_data[S::RULESET_HASH] ^= 1
     });
+    check("season id", &["SeasonAddress"], home, &|f| {
+        assert!(wr_u64(&mut f.season_data, header::SEASON_ID, ID + 1))
+    });
+    check("season bump", &["SeasonAddress"], home, &|f| {
+        f.season_data[S::BUMP] ^= 1
+    });
+    check("home captured", &["CaptureLocked"], home, &|f| {
+        f.capture_home()
+    });
+    check(
+        "home captured, standing remote",
+        &["CaptureLocked"],
+        remote,
+        &|f| f.capture_home(),
+    );
+    check(
+        "standing coordinates",
+        &["StandingIdentity"],
+        remote,
+        &|f| {
+            assert!(wr_i16(f.remote.as_mut().unwrap(), P::P, 126));
+        },
+    );
     check("not resident", &["NotResident"], home, &|f| {
-        let e = Entry { state: E::STATE_DEPARTED, ..roster_entry() };
+        let e = Entry {
+            state: E::STATE_DEPARTED,
+            ..roster_entry()
+        };
         write_entry(&mut f.home, 0, &e).unwrap();
     });
     check("no entry", &["NotResident"], home, &|f| {
@@ -498,25 +663,46 @@ fn stale_or_foreign_fresh_state_is_blocked() {
         f.home[P::N_ENTRIES] = 0;
     });
     check("busy", &["HostBusy"], home, &|f| {
-        let e = Entry { op: EntryOp::Leave, ..roster_entry() };
+        let e = Entry {
+            op: EntryOp::Leave,
+            ..roster_entry()
+        };
         write_entry(&mut f.home, 0, &e).unwrap();
     });
     check("no stamina", &["HostCannotDepart"], home, &|f| {
-        let e = Entry { stamina_value: 0, stamina_bell: f.bell(), ..roster_entry() };
+        let e = Entry {
+            stamina_value: 0,
+            stamina_bell: f.bell(),
+            ..roster_entry()
+        };
         write_entry(&mut f.home, 0, &e).unwrap();
     });
     check("faction", &["EntryInvalid"], home, &|f| {
-        let e = Entry { faction: 9, ..roster_entry() };
+        let e = Entry {
+            faction: 9,
+            ..roster_entry()
+        };
         write_entry(&mut f.home, 0, &e).unwrap();
     });
-    check("slot state", &["TransitSlotBusy", "TransitState", "HostInTransit"], home, &|f| f.holding[H::transit(0) + T::STATE] = 1);
-    check("external present", &["TransitSlotBusy"], home, &|f| f.transit = Some(vec![1; 16]));
+    check(
+        "slot state",
+        &["TransitSlotBusy", "TransitState", "HostInTransit"],
+        home,
+        &|f| f.holding[H::transit(0) + T::STATE] = 1,
+    );
+    check("external present", &["TransitSlotBusy"], home, &|f| {
+        f.transit = Some(vec![1; 16])
+    });
     check("empty bucket", &["Bucket"], home, &|f| {
         assert!(wr_u32(&mut f.citizen, C1::BUCKET_MILLI, 0));
         assert!(wr_u32(&mut f.citizen, C1::BUCKET_T, (NOW - GENESIS) as u32));
     });
-    check("escrow overflow", &["EscrowOverflow"], home, &|f| assert!(wr_u64(&mut f.holding, H1::ESCROW, u64::MAX)));
-    check("arrivals overflow", &["ArrivalsOverflow"], home, &|f| assert!(wr_u32(&mut f.citizen, C1::ARRIVALS, u32::MAX)));
+    check("escrow overflow", &["EscrowOverflow"], home, &|f| {
+        assert!(wr_u64(&mut f.holding, H1::ESCROW, u64::MAX))
+    });
+    check("arrivals overflow", &["ArrivalsOverflow"], home, &|f| {
+        assert!(wr_u32(&mut f.citizen, C1::ARRIVALS, u32::MAX))
+    });
 }
 
 #[test]
@@ -535,20 +721,38 @@ fn arrival_window_snapshot_scope_and_blockhash_are_bounded() {
 
     let r = parse(&f.request(bell + 5, 3)).unwrap();
     // a response sealed for another request's minimum slot
-    let other = Fixed { response: f.response(&r), min_slot: Some(MIN_SLOT - 1) };
-    assert_eq!(blocker(&run_with(&r, &other, settings(&f), CONTEXT)), "SnapshotMismatch");
+    let other = Fixed {
+        response: f.response(&r),
+        min_slot: Some(MIN_SLOT - 1),
+    };
+    assert_eq!(
+        blocker(&run_with(&r, &other, settings(&f), CONTEXT)),
+        "SnapshotMismatch"
+    );
     // a response older than the request's minimum slot cannot even be parsed
     let mut old = f.response(&r);
     old["context"]["slot"] = json!(MIN_SLOT - 1);
-    let stale = Fixed { response: old, min_slot: None };
-    assert_eq!(blocker(&run_with(&r, &stale, settings(&f), CONTEXT)), "SourceUnavailable");
+    let stale = Fixed {
+        response: old,
+        min_slot: None,
+    };
+    assert_eq!(
+        blocker(&run_with(&r, &stale, settings(&f), CONTEXT)),
+        "SourceUnavailable"
+    );
     // configured ruleset differs from the request's
-    let fresh = Fixed { response: f.response(&r), min_slot: None };
+    let fresh = Fixed {
+        response: f.response(&r),
+        min_slot: None,
+    };
     let mut s = settings(&f);
     s.ruleset_hash = [8; 32];
     assert_eq!(blocker(&run_with(&r, &fresh, s, CONTEXT)), "ScopeMismatch");
     // a blockhash observed before the snapshot's own context
-    assert_eq!(blocker(&run_with(&r, &fresh, settings(&f), CONTEXT - 1)), "BlockhashUnavailable");
+    assert_eq!(
+        blocker(&run_with(&r, &fresh, settings(&f), CONTEXT - 1)),
+        "BlockhashUnavailable"
+    );
 }
 
 #[test]
@@ -609,16 +813,42 @@ fn runtime_contract_departure_report_is_the_committed_fixture() {
     assert_eq!(x["schema"], "frontier-runtime-contract-depart-accounts-v1");
     let s = |k: &str| x[k].as_str().unwrap().to_owned();
     let address = |k: &str| s(k).parse::<Address>().unwrap();
-    let (program, season, wallet, payer) = (address("program"), address("season"), address("wallet"), address("payer"));
-    let ctx = AddrCtx { program: program.to_bytes(), season: season.to_bytes() };
+    let (program, season, wallet, payer) = (
+        address("program"),
+        address("season"),
+        address("wallet"),
+        address("payer"),
+    );
+    let ctx = AddrCtx {
+        program: program.to_bytes(),
+        season: season.to_bytes(),
+    };
     let resolver = AccountResolver::for_season(&ctx).unwrap();
     let host = WideHostRef::from_bytes(&hex::decode(s("host")).unwrap()).unwrap();
-    let (p, q): (i64, i64) = (x["standing"]["p"].as_str().unwrap().parse().unwrap(), x["standing"]["q"].as_str().unwrap().parse().unwrap());
-    let standing = ProvinceKey::new(resolver.adapter().world(), WideCoord::checked(p, q).unwrap());
+    let (p, q): (i64, i64) = (
+        x["standing"]["p"].as_str().unwrap().parse().unwrap(),
+        x["standing"]["q"].as_str().unwrap().parse().unwrap(),
+    );
+    let standing = ProvinceKey::new(
+        resolver.adapter().world(),
+        WideCoord::checked(p, q).unwrap(),
+    );
     let n = |k: &str| s(k).parse::<u64>().unwrap();
     let commit: [u8; 32] = hex::decode(s("public_commit")).unwrap().try_into().unwrap();
     let seal = hex::decode(s("public_seal")).unwrap().try_into().unwrap();
-    let draft = Draft::for_wallet(&ctx, host, standing, wallet, payer, n("transit_slot") as u8, n("arrive_bell") as u32, n("tip"), commit, seal).unwrap();
+    let draft = Draft::for_wallet(
+        &ctx,
+        host,
+        standing,
+        wallet,
+        payer,
+        n("transit_slot") as u8,
+        n("arrive_bell") as u32,
+        n("tip"),
+        commit,
+        seal,
+    )
+    .unwrap();
     let request = json!({"schema":dp::REQUEST_SCHEMA,"request_id":"runtime-contract-depart","cluster":"localnet",
         "program":s("program"),"season":s("season"),
         "deployment":{"program_version":s("program_version"),"ruleset_hash":s("ruleset_hash")},
@@ -637,12 +867,28 @@ fn runtime_contract_departure_report_is_the_committed_fixture() {
                 "data":[base64::engine::general_purpose::STANDARD.encode(hex::decode(a["data"].as_str().unwrap()).unwrap()),"base64"]})
         })
         .collect();
-    let clock = ClockSysvar { slot: CONTEXT, unix_timestamp: s("unix_timestamp").parse().unwrap(), ..ClockSysvar::default() };
-    values.push(json!({"lamports":1,"owner":sysvar_owner().to_string(),"executable":false,
-        "data":[base64::engine::general_purpose::STANDARD.encode(clock.encode()),"base64"]}));
-    let source = Fixed { response: json!({"context":{"slot":CONTEXT},"value":values}), min_slot: None };
+    let clock = ClockSysvar {
+        slot: CONTEXT,
+        unix_timestamp: s("unix_timestamp").parse().unwrap(),
+        ..ClockSysvar::default()
+    };
+    values.push(
+        json!({"lamports":1,"owner":sysvar_owner().to_string(),"executable":false,
+        "data":[base64::engine::general_purpose::STANDARD.encode(clock.encode()),"base64"]}),
+    );
+    let source = Fixed {
+        response: json!({"context":{"slot":CONTEXT},"value":values}),
+        min_slot: None,
+    };
     let ruleset_hash: [u8; 32] = hex::decode(s("ruleset_hash")).unwrap().try_into().unwrap();
-    let settings = Settings { program, season, fee_payer: payer, ruleset_hash, cu_limit: 200_000, loaded_limit: 1_000_000 };
+    let settings = Settings {
+        program,
+        season,
+        fee_payer: payer,
+        ruleset_hash,
+        cu_limit: 200_000,
+        loaded_limit: 1_000_000,
+    };
     let v = run_with(&r, &source, settings, CONTEXT);
     assert_eq!(v["status"], "prepared", "{v}");
     closed(&v);
@@ -652,14 +898,50 @@ fn runtime_contract_departure_report_is_the_committed_fixture() {
         panic!("expedition-depart-prepared-report-heap256k.json is stale: replace it with the line above");
     }
     let former: Value = serde_json::from_str(FORMER).unwrap();
-    assert_eq!(former["prepared"]["budget"]["heap"], Value::Null, "the former report is the shape without a heap frame");
+    assert_eq!(
+        former["prepared"]["budget"]["heap"],
+        Value::Null,
+        "the former report is the shape without a heap frame"
+    );
     assert_eq!(v["prepared"]["budget"]["heap"], 262_144);
-    for k in ["schema", "status", "request", "source", "blockhash", "blocker", "not_proven", "host_only"] {
-        assert_eq!(former[k], v[k], "{k}: the former report differs from the present one in `prepared` only");
+    for k in [
+        "schema",
+        "status",
+        "request",
+        "source",
+        "blockhash",
+        "blocker",
+        "not_proven",
+        "host_only",
+    ] {
+        assert_eq!(
+            former[k], v[k],
+            "{k}: the former report differs from the present one in `prepared` only"
+        );
     }
-    for k in ["program", "season", "program_version", "action", "fee_payer", "roles", "instruction_hex", "signers", "proposal_digest"] {
-        assert_eq!(former["prepared"][k], v["prepared"][k], "prepared.{k} is the same instruction for the same accounts");
+    for k in [
+        "program",
+        "season",
+        "program_version",
+        "action",
+        "fee_payer",
+        "roles",
+        "instruction_hex",
+        "signers",
+        "proposal_digest",
+    ] {
+        assert_eq!(
+            former["prepared"][k], v["prepared"][k],
+            "prepared.{k} is the same instruction for the same accounts"
+        );
     }
-    assert_ne!(former["prepared"]["message_b64"], v["prepared"]["message_b64"], "the message now carries the heap frame");
-    assert_eq!(v["prepared"]["shape"]["bytes"].as_u64().unwrap(), former["prepared"]["shape"]["bytes"].as_u64().unwrap() + 8, "one more instruction: program index, no accounts, five data bytes");
+    assert_ne!(
+        former["prepared"]["message_b64"], v["prepared"]["message_b64"],
+        "the message now carries the heap frame"
+    );
+    assert_eq!(
+        v["prepared"]["shape"]["bytes"].as_u64().unwrap(),
+        former["prepared"]["shape"]["bytes"].as_u64().unwrap() + 8,
+        "one more instruction: program index, no accounts, five data bytes"
+    );
 }

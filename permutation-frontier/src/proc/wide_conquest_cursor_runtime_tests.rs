@@ -98,12 +98,21 @@ fn run(legacy: bool, cursor: u32, expect: Expect) {
             // A pending reservation for bell 10: no site entry, the site
             // flagged, everything collected recorded.
             assert!(table.entry(1).unwrap().is_none());
-            assert_eq!((prefix.kind, prefix.flags), (CR::KIND_NONE, CR::FLAG_PENDING));
+            assert_eq!(
+                (prefix.kind, prefix.flags),
+                (CR::KIND_NONE, CR::FLAG_PENDING)
+            );
             let pending = table.pending_at(1, 10);
             assert_eq!(pending.len(), 1);
             let r = pending[0].1;
-            assert_eq!((r.status, r.seq, r.entry, r.bell), (wc::RES_PENDING, 0, 0, 10));
-            assert_eq!(r.arms_milli, permutation_rules::frontier::arms::SIEGE_ARMS as u64 * 1000);
+            assert_eq!(
+                (r.status, r.seq, r.entry, r.bell),
+                (wc::RES_PENDING, 0, 0, 10)
+            );
+            assert_eq!(
+                r.arms_milli,
+                permutation_rules::frontier::arms::SIEGE_ARMS as u64 * 1000
+            );
             assert!(r.gold_milli > 0);
         }
     } else {

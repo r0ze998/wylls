@@ -65,23 +65,23 @@
 //! `docs/frontier/map-growth/WIDE-LAND-WRITER.md`.
 
 pub mod arrival;
-pub mod coord;
 pub mod conquest;
+pub mod coord;
 pub mod economy;
 pub mod event;
 pub mod expedition;
 pub mod expedition_bridge;
 pub mod expedition_event;
 pub mod expedition_producer_event;
-pub mod expedition_settlement_event;
-pub mod expedition_settlement_ix;
-pub mod expedition_terminal_ix;
-pub mod expedition_terminal_event;
 pub mod expedition_resident_event;
 pub mod expedition_resident_ix;
-pub mod expedition_transport;
-pub mod expedition_reverse_transport;
 pub mod expedition_reverse_ix;
+pub mod expedition_reverse_transport;
+pub mod expedition_settlement_event;
+pub mod expedition_settlement_ix;
+pub mod expedition_terminal_event;
+pub mod expedition_terminal_ix;
+pub mod expedition_transport;
 pub mod holding;
 pub mod index;
 pub mod key;
@@ -101,8 +101,8 @@ pub mod tiles;
 pub mod wide_ix;
 
 pub use arrival::{ArrivalError, WideArrival, WideArrivalSlot, WideClashInputsHdr};
-pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
 pub use conquest::{ConquestError, WideCaptureEscrow, WideConquest, WideConquestEntry};
+pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
 pub use economy::{Action as EconomyAction, EconomyError, EconomyReceipt};
 pub use event::{
     EventError, WideEntity, WideKind, WideLink, WideRecord, WideTarget, WIDE_LOG_PREFIX,
@@ -133,15 +133,15 @@ pub use resolve::{
     WideStepOut, KEEP_SITE,
 };
 pub use roster::{RosterError, WideRoster};
-pub use settle::{
-    plan_settlement, wide_admit, wide_valid_outcome, PayTo, SettlementPlan, WideOutcome,
-    WideSlotDecision, WideSlotEntry,
-};
 pub use rules::{
     CampRule, FreeCityRule, KeepHolderRule, RegionRule, RuleBytes, RulesError, WideRulesConfig,
     WIDE_RULES_CONFIG_VERSION,
 };
 pub use seal::{WidePlain, WidePlainError, WIDE_PLAIN_LEN, WIDE_PLAIN_VERSION, WIDE_SEAL_LEN};
+pub use settle::{
+    plan_settlement, wide_admit, wide_valid_outcome, PayTo, SettlementPlan, WideOutcome,
+    WideSlotDecision, WideSlotEntry,
+};
 pub use ticket::{wide_ticket_score, CitizenTicket, TicketError, TicketStatus, WideTicket};
 pub use tiles::{
     verify_route, ProvinceSource, RouteBounds, RouteError, TileAddress, TileError, VerifiedRoute,
@@ -219,18 +219,18 @@ mod tests {
     }
 }
 
-pub mod expedition_failure_ix;
 pub mod expedition_failure_event;
+pub mod expedition_failure_ix;
 
-pub mod expedition_forfeit_ix;
 pub mod expedition_forfeit_event;
+pub mod expedition_forfeit_ix;
 
-pub mod expedition_retained_failure_ix;
 pub mod expedition_retained_failure_event;
+pub mod expedition_retained_failure_ix;
 
-pub mod expedition_reverse_reveal;
 pub mod expedition_dispatch_ix;
-pub mod expedition_reverse_terminal_ix;
-pub mod expedition_reverse_terminal_event;
-pub mod expedition_reverse_settlement_ix;
+pub mod expedition_reverse_reveal;
 pub mod expedition_reverse_settlement_event;
+pub mod expedition_reverse_settlement_ix;
+pub mod expedition_reverse_terminal_event;
+pub mod expedition_reverse_terminal_ix;

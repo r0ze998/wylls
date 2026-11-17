@@ -23,7 +23,9 @@
 //! never resent; a refusal is returned as it is. No account is written
 //! directly; nothing the player keeps secret (plaintext, salt) is read.
 use fclient::addr::Addresses;
-use fclient::ix::{gather_clash, post_seed, resolve_from_inputs, AnchorSource, BeaconArg, SeedSource};
+use fclient::ix::{
+    gather_clash, post_seed, resolve_from_inputs, AnchorSource, BeaconArg, SeedSource,
+};
 use fclient::{AccountMeta, Address, Instruction, Keypair, Signer};
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::world_index::{expedition_dispatch_ix as dx, wide_ix as wix};
@@ -64,21 +66,45 @@ pub struct OriginDriver {
     pub log: Vec<String>,
 }
 
-fn simulate(state: &Shared, payer: &Keypair, ix: &Instruction) -> Result<fclient::ports::SimResult, String> {
+fn simulate(
+    state: &Shared,
+    payer: &Keypair,
+    ix: &Instruction,
+) -> Result<fclient::ports::SimResult, String> {
     lk::simulate_ix(&lock(state), payer, ix)
 }
 
 impl OriginDriver {
     /// A driver for the player's `holding` with a funded fee payer (the
     /// caller's fresh in-memory key).
-    pub fn new(holding: Address, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> OriginDriver {
+    pub fn new(
+        holding: Address,
+        payer: Keypair,
+        stop: tokio::sync::watch::Receiver<bool>,
+    ) -> OriginDriver {
         OriginDriver::new_at(holding, HOME, payer, stop)
     }
 
     /// As [`OriginDriver::new`], for the home province `home` (the province of the player's real PlaceHome).
-    pub fn new_at(holding: Address, home: (i16, i16), payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> OriginDriver {
-        OriginDriver { a: Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID),
-            holding, home, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, terminal: None, log: vec![] }
+    pub fn new_at(
+        holding: Address,
+        home: (i16, i16),
+        payer: Keypair,
+        stop: tokio::sync::watch::Receiver<bool>,
+    ) -> OriginDriver {
+        OriginDriver {
+            a: Addresses::new(
+                Address::new_from_array(crate::expedition_play::PROGRAM),
+                crate::expedition_play::SEASON_ID,
+            ),
+            holding,
+            home,
+            payer,
+            stop,
+            land_timeout: crate::keeper_loop::LAND_TIMEOUT,
+            terminal: None,
+            log: vec![],
+        }
     }
 
     /// The terminal outcome, if the driver has stopped.
@@ -90,7 +116,16 @@ impl OriginDriver {
         if *self.stop.borrow() {
             return Step::Stopped("stopped by request".into());
         }
-        let step = match submit_and_wait(state, &self.payer, ix, what, self.land_timeout, &mut self.stop).await {
+        let step = match submit_and_wait(
+            state,
+            &self.payer,
+            ix,
+            what,
+            self.land_timeout,
+            &mut self.stop,
+        )
+        .await
+        {
             Sent::Landed(sig) => Step::Landed(what.to_string(), sig),
             Sent::Failed(e) => Step::Stopped(e),
             Sent::Unknown { signature, why } => Step::Unknown { signature, why },
@@ -100,16 +135,27 @@ impl OriginDriver {
     }
 
     fn ctx(&self) -> AddrCtx {
-        AddrCtx { program: self.a.program.to_bytes(), season: self.a.season.to_bytes() }
+        AddrCtx {
+            program: self.a.program.to_bytes(),
+            season: self.a.season.to_bytes(),
+        }
     }
 
     fn external(&self, slot: u8) -> Address {
-        Address::new_from_array(frontier_abi::world_index::march::transit_address(&self.ctx(), &self.holding.to_bytes(), slot))
+        Address::new_from_array(frontier_abi::world_index::march::transit_address(
+            &self.ctx(),
+            &self.holding.to_bytes(),
+            slot,
+        ))
     }
 
     fn settle_origin_ix(&self, slot: u8) -> Instruction {
         let home = self.a.province(self.home.0.into(), self.home.1.into());
-        let data = dx::encode(dx::Kind::SettleOrigin, &wix::ExpeditionSettleOrigin { transit_slot: slot }.to_bytes()).expect("a SettleOrigin wire");
+        let data = dx::encode(
+            dx::Kind::SettleOrigin,
+            &wix::ExpeditionSettleOrigin { transit_slot: slot }.to_bytes(),
+        )
+        .expect("a SettleOrigin wire");
         Instruction {
             program_id: self.a.program,
             accounts: vec![
@@ -141,9 +187,14 @@ impl OriginDriver {
         let me = self.payer.pubkey();
         let (v, clock) = {
             let c = lock(state);
-            match (lk::view(&c, &self.a, self.home.0, self.home.1), lk::season_clock(&c, &self.a)) {
+            match (
+                lk::view(&c, &self.a, self.home.0, self.home.1),
+                lk::season_clock(&c, &self.a),
+            ) {
                 (Ok(v), Ok(k)) => (v, k),
-                (Err(e), _) | (_, Err(e)) => return Step::Stopped(format!("cannot read the home: {e}")),
+                (Err(e), _) | (_, Err(e)) => {
+                    return Step::Stopped(format!("cannot read the home: {e}"))
+                }
             }
         };
         // 1. origin settlements, from each transit record's REAL state: a
@@ -160,14 +211,22 @@ impl OriginDriver {
                 Err(e) => return Step::Stopped(format!("transit slot {slot}: unreadable bridge record ({e:?})")),
             };
             let t = bridge.transit();
-            if t.state != frontier_abi::world_index::march::MarchState::Departed || v.resolved_next <= t.depart_bell {
+            if t.state != frontier_abi::world_index::march::MarchState::Departed
+                || v.resolved_next <= t.depart_bell
+            {
                 continue;
             }
             let ix = self.settle_origin_ix(slot);
             return match simulate(state, &self.payer, &ix) {
-                Ok(sim) if sim.err.is_none() => self.send(state, ix, &format!("SettleOrigin(slot {slot})")).await,
+                Ok(sim) if sim.err.is_none() => {
+                    self.send(state, ix, &format!("SettleOrigin(slot {slot})"))
+                        .await
+                }
                 // resolved but refused: not a normal wait
-                Ok(sim) => Step::Stopped(format!("SettleOrigin(slot {slot}) simulation: {:?} (code {:?})", sim.err, sim.code)),
+                Ok(sim) => Step::Stopped(format!(
+                    "SettleOrigin(slot {slot}) simulation: {:?} (code {:?})",
+                    sim.err, sim.code
+                )),
                 Err(e) => Step::Stopped(e),
             };
         }
@@ -175,21 +234,40 @@ impl OriginDriver {
         if b >= v.bell_now {
             return Step::Wait(format!("bell {b} has not ended"));
         }
-        let closed = { let c = lock(state); lk::closed_through(&c, &self.a, v.region, b, b + 1) };
+        let closed = {
+            let c = lock(state);
+            lk::closed_through(&c, &self.a, v.region, b, b + 1)
+        };
         match closed {
             Ok(x) if x > b => {}
-            Ok(_) => return Step::Wait(format!("the anchor of bell {b} is absent or its reveal window is open")),
+            Ok(_) => {
+                return Step::Wait(format!(
+                    "the anchor of bell {b} is absent or its reveal window is open"
+                ))
+            }
             Err(e) => return Step::Stopped(e),
         }
         // 2. the quiet test, simulated
-        let ff = match lk::fast_forward_ix(&self.a, &me, self.home.0, self.home.1, &HomeView { ..v }, b + 1) {
+        let ff = match lk::fast_forward_ix(
+            &self.a,
+            &me,
+            self.home.0,
+            self.home.1,
+            &HomeView { ..v },
+            b + 1,
+        ) {
             Ok(ix) => ix,
             Err(e) => return Step::Stopped(e),
         };
         match simulate(state, &self.payer, &ff) {
             Ok(sim) if sim.err.is_none() => return Step::Quiet(b),
             Ok(sim) if sim.code == Some(NOT_QUIET) => {}
-            Ok(sim) => return Step::Stopped(format!("FastForward(b {b}) simulation: {:?} (code {:?})", sim.err, sim.code)),
+            Ok(sim) => {
+                return Step::Stopped(format!(
+                    "FastForward(b {b}) simulation: {:?} (code {:?})",
+                    sim.err, sim.code
+                ))
+            }
             Err(e) => return Step::Stopped(e),
         }
         let (p, q) = (self.home.0 as i32, self.home.1 as i32);
@@ -200,7 +278,11 @@ impl OriginDriver {
                 Ok(None) => return Step::Wait(format!("no anchor of bell {b}")),
                 Err(e) => return Step::Stopped(e),
             };
-            (home_gather_form(&c, &self.a, (p, q), b), c.account(&self.a.seed_cache(b, v.region, 0)).is_some(), a_ts)
+            (
+                home_gather_form(&c, &self.a, (p, q), b),
+                c.account(&self.a.seed_cache(b, v.region, 0)).is_some(),
+                a_ts,
+            )
         };
         // (independent review, 2026-11-13: the gather is done only when ALL positions are — the mere existence of the
         //  ClashInputs is not. The form is the keeper's and the legacy march driver's: the one no-arrivals part while
@@ -208,13 +290,43 @@ impl OriginDriver {
         //  arriving at the home province itself). Nothing is seeded or resolved over partly gathered inputs.)
         match form {
             Some(crate::legacy_march::GatherForm::NoArrivals) => {
-                let ix = gather_clash(&self.a, me, (p, q), b, AnchorSource::Anchor, 0, &[(0, 0)], &[], 0, &me);
-                return self.send(state, ix, &format!("GatherClash(bell {b})")).await;
+                let ix = gather_clash(
+                    &self.a,
+                    me,
+                    (p, q),
+                    b,
+                    AnchorSource::Anchor,
+                    0,
+                    &[(0, 0)],
+                    &[],
+                    0,
+                    &me,
+                );
+                return self
+                    .send(state, ix, &format!("GatherClash(bell {b})"))
+                    .await;
             }
             Some(crate::legacy_march::GatherForm::Parts(parts)) => {
                 let part = parts.into_iter().next().expect("non-empty");
-                let ix = gather_clash(&self.a, me, (p, q), b, AnchorSource::Anchor, part.start, &part.slots, &part.holdings, part.bitmap, &me);
-                return self.send(state, ix, &format!("GatherClash(bell {b}, from {})", part.start)).await;
+                let ix = gather_clash(
+                    &self.a,
+                    me,
+                    (p, q),
+                    b,
+                    AnchorSource::Anchor,
+                    part.start,
+                    &part.slots,
+                    &part.holdings,
+                    part.bitmap,
+                    &me,
+                );
+                return self
+                    .send(
+                        state,
+                        ix,
+                        &format!("GatherClash(bell {b}, from {})", part.start),
+                    )
+                    .await;
             }
             None => {}
         }
@@ -232,23 +344,46 @@ impl OriginDriver {
                 Ok(s) => s,
                 Err(e) => return Step::Wait(format!("seed round {round}: {e}")),
             };
-            let arg = BeaconArg { round, sig48, hints: fclient::beacon::hints_bytes(round) };
+            let arg = BeaconArg {
+                round,
+                sig48,
+                hints: fclient::beacon::hints_bytes(round),
+            };
             let ix = post_seed(&self.a, me, v.region, b, 0, &arg, &me);
-            return self.send(state, ix, &format!("PostSeed(bell {b}, round {round})")).await;
+            return self
+                .send(state, ix, &format!("PostSeed(bell {b}, round {round})"))
+                .await;
         }
         let ix = resolve_from_inputs(&self.a, me, (p, q), b, SeedSource::Cache { nonce: 0 }, &me);
-        self.send(state, ix, &format!("ResolveFromInputs(bell {b})")).await
+        self.send(state, ix, &format!("ResolveFromInputs(bell {b})"))
+            .await
     }
 }
 
 /// The GatherClash still due for the home's bell `b`, read from the chain: None once every position is gathered
 /// (`legacy_march::gather_form` over the ClashInputs mask, the ArrivalDay bit and the present ArrivalSlots).
-pub fn home_gather_form(c: &localnet::Chain, a: &Addresses, (p, q): (i32, i32), b: u32) -> Option<crate::legacy_march::GatherForm> {
+pub fn home_gather_form(
+    c: &localnet::Chain,
+    a: &Addresses,
+    (p, q): (i32, i32),
+    b: u32,
+) -> Option<crate::legacy_march::GatherForm> {
     let owned = |k: &Address| c.account(k).filter(|acc| acc.owner == a.program);
-    let mask = owned(&a.clash_inputs(p, q, b)).and_then(|acc| fclient::decode::ClashInputs::decode(&acc.data).ok()).map_or(0, |ci| ci.arrivals_mask);
-    let day_set = owned(&a.arrival_day(p, q, frontier_abi::addr::day_of(b))).and_then(|acc| fclient::decode::ArrivalDay::decode(&acc.data).ok()).is_some_and(|d| d.has(b));
-    let slots: [Option<fclient::decode::ArrivalSlot>; 24] = core::array::from_fn(|k| owned(&a.arrival_slot(p, q, b, (k / 4) as u8, (k % 4) as u8)).and_then(|acc| fclient::decode::ArrivalSlot::decode(&acc.data).ok()));
-    crate::legacy_march::gather_form(mask, day_set, &crate::legacy_march::present_positions(a, &slots))
+    let mask = owned(&a.clash_inputs(p, q, b))
+        .and_then(|acc| fclient::decode::ClashInputs::decode(&acc.data).ok())
+        .map_or(0, |ci| ci.arrivals_mask);
+    let day_set = owned(&a.arrival_day(p, q, frontier_abi::addr::day_of(b)))
+        .and_then(|acc| fclient::decode::ArrivalDay::decode(&acc.data).ok())
+        .is_some_and(|d| d.has(b));
+    let slots: [Option<fclient::decode::ArrivalSlot>; 24] = core::array::from_fn(|k| {
+        owned(&a.arrival_slot(p, q, b, (k / 4) as u8, (k % 4) as u8))
+            .and_then(|acc| fclient::decode::ArrivalSlot::decode(&acc.data).ok())
+    });
+    crate::legacy_march::gather_form(
+        mask,
+        day_set,
+        &crate::legacy_march::present_positions(a, &slots),
+    )
 }
 
 /// Real artifact + public drand: a REAL signed Depart (fresh in-memory test
@@ -278,15 +413,20 @@ pub(crate) mod real_origin {
     fn advance(state: &Shared, to_unix: i64) {
         let mut c = lock(state);
         c.set_scale(1000.0);
-        while c.unix_timestamp() < to_unix { c.produce_block(); }
+        while c.unix_timestamp() < to_unix {
+            c.produce_block();
+        }
         c.set_scale(1.0);
         c.produce_block();
     }
 
-
     /// A REAL signed Depart of the fixture's host by `player` (fresh in-memory
     /// test wallet, real wide seal, the canonical prepared message); the bell.
-    pub(crate) fn real_depart(state: &Shared, f: &crate::expedition_play::Fixture, player: &Keypair) -> u32 {
+    pub(crate) fn real_depart(
+        state: &Shared,
+        f: &crate::expedition_play::Fixture,
+        player: &Keypair,
+    ) -> u32 {
         // (the origin-only fixture: its fixed route is never revealed)
         real_depart_routed(state, f, player, &[0], 30, |bell, _| bell + 5).0
     }
@@ -297,35 +437,103 @@ pub(crate) mod real_origin {
     /// arrival bell and the seal (the player's own secrets for its later
     /// Reveal; memory only, never printed). A Depart landing proves nothing
     /// of the route: only the Reveal checks it.
-    pub(crate) fn real_depart_routed(state: &Shared, f: &crate::expedition_play::Fixture, player: &Keypair, dirs: &[u8], dest_tile: u8,
-        arrive_of: impl FnOnce(u32, i64) -> u32) -> (u32, u32, fclient::wide_seal::WideSealed) {
+    pub(crate) fn real_depart_routed(
+        state: &Shared,
+        f: &crate::expedition_play::Fixture,
+        player: &Keypair,
+        dirs: &[u8],
+        dest_tile: u8,
+        arrive_of: impl FnOnce(u32, i64) -> u32,
+    ) -> (u32, u32, fclient::wide_seal::WideSealed) {
         let program = Address::new_from_array(PROGRAM);
 
-                let mut c = lock(state);
-                let season = fclient::decode::Season::decode(&c.account(&f.season).unwrap().data).unwrap();
-                let clock = fclient::clock::SeasonClock::from_season(&season);
-                let bell = clock.bell_at(c.unix_timestamp()).unwrap();
-                let arrive = arrive_of(bell, c.unix_timestamp());
-                let tip = fclient::fees::min_tip_lamports(season.min_reveal_priority_milli, season.reveal_cu_limit, season.reveal_loaded_limit);
-                let (path_len, path_bits) = permutation_rules::frontier::seal::encode_path(dirs).unwrap();
-                let plain = WidePlain { version: frontier_abi::world_index::seal::WIDE_PLAIN_VERSION, host: f.host, arrive_bell: arrive,
-                    dest: ProvinceKey::new(f.host.key().world(), WideCoord::checked(129, 0).unwrap()), dest_tile, stance: 0, retreat_bps: 0,
-                    path_len, path: path_bits, reserved: [0; frontier_abi::world_index::seal::WIDE_RESERVED_BYTES] };
-                let qn = fclient::beacon::quicknet_info();
-                let sealed = fclient::wide_seal::seal_wide(&plain, &f.host, arrive, &qn.public_key, clock.tlock_round(arrive)).unwrap();
-                let ctx = AddrCtx { program: program.to_bytes(), season: f.season.to_bytes() };
-                let draft = Draft::for_wallet(&ctx, f.host, f.host.key(), player.pubkey(), player.pubkey(), 0, arrive, tip, sealed.commit, sealed.seal).unwrap();
-                let (blockhash, last_valid) = c.latest_blockhash();
-                let obs = BlockhashObservation { blockhash: blockhash.to_bytes(), context_slot: c.slot(), valid: true, block_height: last_valid.saturating_sub(100), last_valid_block_height: last_valid };
-                let budget = TxBudget { cu_limit: 1_000_000, cu_price: 0, loaded_limit: fclient::fees::RUNTIME_MAX_LOADED, heap: Some(DEPART_HEAP_FRAME) };
-                let limits = Limits { max_locks: 32, max_writes: 16, min_context_slot: 0, min_remaining_block_heights: 2 };
-                let prepared = prepare_depart(&draft, Target { program, season: f.season, program_version: crate::expedition_play::PROGRAM_VERSION }, obs, budget, limits).unwrap();
-                let t = tx::sign(prepared.message().clone(), &[&player]).unwrap();
-                let sig = c.submit(&tx::wire(&t)).unwrap();
-                c.produce_block();
-                assert_eq!(c.transaction(&sig).unwrap().err, None, "the real Depart");
-                (bell, arrive, sealed)
-                }
+        let mut c = lock(state);
+        let season = fclient::decode::Season::decode(&c.account(&f.season).unwrap().data).unwrap();
+        let clock = fclient::clock::SeasonClock::from_season(&season);
+        let bell = clock.bell_at(c.unix_timestamp()).unwrap();
+        let arrive = arrive_of(bell, c.unix_timestamp());
+        let tip = fclient::fees::min_tip_lamports(
+            season.min_reveal_priority_milli,
+            season.reveal_cu_limit,
+            season.reveal_loaded_limit,
+        );
+        let (path_len, path_bits) = permutation_rules::frontier::seal::encode_path(dirs).unwrap();
+        let plain = WidePlain {
+            version: frontier_abi::world_index::seal::WIDE_PLAIN_VERSION,
+            host: f.host,
+            arrive_bell: arrive,
+            dest: ProvinceKey::new(f.host.key().world(), WideCoord::checked(129, 0).unwrap()),
+            dest_tile,
+            stance: 0,
+            retreat_bps: 0,
+            path_len,
+            path: path_bits,
+            reserved: [0; frontier_abi::world_index::seal::WIDE_RESERVED_BYTES],
+        };
+        let qn = fclient::beacon::quicknet_info();
+        let sealed = fclient::wide_seal::seal_wide(
+            &plain,
+            &f.host,
+            arrive,
+            &qn.public_key,
+            clock.tlock_round(arrive),
+        )
+        .unwrap();
+        let ctx = AddrCtx {
+            program: program.to_bytes(),
+            season: f.season.to_bytes(),
+        };
+        let draft = Draft::for_wallet(
+            &ctx,
+            f.host,
+            f.host.key(),
+            player.pubkey(),
+            player.pubkey(),
+            0,
+            arrive,
+            tip,
+            sealed.commit,
+            sealed.seal,
+        )
+        .unwrap();
+        let (blockhash, last_valid) = c.latest_blockhash();
+        let obs = BlockhashObservation {
+            blockhash: blockhash.to_bytes(),
+            context_slot: c.slot(),
+            valid: true,
+            block_height: last_valid.saturating_sub(100),
+            last_valid_block_height: last_valid,
+        };
+        let budget = TxBudget {
+            cu_limit: 1_000_000,
+            cu_price: 0,
+            loaded_limit: fclient::fees::RUNTIME_MAX_LOADED,
+            heap: Some(DEPART_HEAP_FRAME),
+        };
+        let limits = Limits {
+            max_locks: 32,
+            max_writes: 16,
+            min_context_slot: 0,
+            min_remaining_block_heights: 2,
+        };
+        let prepared = prepare_depart(
+            &draft,
+            Target {
+                program,
+                season: f.season,
+                program_version: crate::expedition_play::PROGRAM_VERSION,
+            },
+            obs,
+            budget,
+            limits,
+        )
+        .unwrap();
+        let t = tx::sign(prepared.message().clone(), &[&player]).unwrap();
+        let sig = c.submit(&tx::wire(&t)).unwrap();
+        c.produce_block();
+        assert_eq!(c.transaction(&sig).unwrap().err, None, "the real Depart");
+        (bell, arrive, sealed)
+    }
 
     #[test]
     #[ignore]
@@ -333,21 +541,40 @@ pub(crate) mod real_origin {
         let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
         assert_eq!(need("WYLLS_PUBLIC_DRAND"), "1");
         let path = std::path::PathBuf::from(need("WYLLS_EXPEDITION_SBF"));
-        let art = inspect(path.clone(), std::fs::read(&path).unwrap(), &need("WYLLS_EXPEDITION_SBF_SHA256")).unwrap();
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let art = inspect(
+            path.clone(),
+            std::fs::read(&path).unwrap(),
+            &need("WYLLS_EXPEDITION_SBF_SHA256"),
+        )
+        .unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            let p = (41_920..41_927u16).find(|p| *p != REFUSED_PORT && server::check_port(*p).is_ok()).unwrap();
-            let q = (p + 1..41_928u16).find(|x| server::check_port(*x).is_ok()).unwrap();
+            let p = (41_920..41_927u16)
+                .find(|p| *p != REFUSED_PORT && server::check_port(*p).is_ok())
+                .unwrap();
+            let q = (p + 1..41_928u16)
+                .find(|x| server::check_port(*x).is_ok())
+                .unwrap();
             let player = Keypair::new();
             let play = launch(&art, player.pubkey(), p, q).await.unwrap();
             let state = play.running.state.clone();
             let f = &play.fixture;
             let b0 = real_depart(&state, f, &player);
-            let mut keeper = Keeper::new(&state, crate::keeper_loop::public_quicknet(), rx()).await.unwrap();
+            let mut keeper = Keeper::new(&state, crate::keeper_loop::public_quicknet(), rx())
+                .await
+                .unwrap();
             let payer = Keypair::new();
-            lock(&state).airdrop(&payer.pubkey(), 20_000_000_000).unwrap();
+            lock(&state)
+                .airdrop(&payer.pubkey(), 20_000_000_000)
+                .unwrap();
             let mut driver = OriginDriver::new(f.holding, payer, rx());
-            let clock = { let c = lock(&state); lk::season_clock(&c, &driver.a).unwrap() };
+            let clock = {
+                let c = lock(&state);
+                lk::season_clock(&c, &driver.a).unwrap()
+            };
             advance(&state, clock.genesis_ts + 600 * (b0 as i64 + 1) + 5); // the departure bell has ended
             let mut landed: Vec<String> = vec![];
             for _ in 0..30 {
@@ -360,23 +587,51 @@ pub(crate) mod real_origin {
                         eprintln!("wait: {why}");
                         advance(&state, now + 120);
                     }
-                    Step::Quiet(b) => { eprintln!("bell {b} quiet"); if landed.iter().any(|w| w.starts_with("SettleOrigin")) { break; } let now = lock(&state).unix_timestamp(); advance(&state, now + 120); }
+                    Step::Quiet(b) => {
+                        eprintln!("bell {b} quiet");
+                        if landed.iter().any(|w| w.starts_with("SettleOrigin")) {
+                            break;
+                        }
+                        let now = lock(&state).unix_timestamp();
+                        advance(&state, now + 120);
+                    }
                     other => panic!("{other:?}; landed {landed:?}; keeper {:?}", keeper.status),
                 }
             }
             eprintln!("landed: {landed:?}");
-            let kinds: Vec<&str> = landed.iter().map(|w| w.split('(').next().unwrap()).collect();
-            for k in ["GatherClash", "PostSeed", "ResolveFromInputs", "SettleOrigin"] {
+            let kinds: Vec<&str> = landed
+                .iter()
+                .map(|w| w.split('(').next().unwrap())
+                .collect();
+            for k in [
+                "GatherClash",
+                "PostSeed",
+                "ResolveFromInputs",
+                "SettleOrigin",
+            ] {
                 assert!(kinds.contains(&k), "{k} in {landed:?}");
             }
-            let v = { let c = lock(&state); lk::view(&c, &driver.a, 128, 0).unwrap() };
-            assert!(v.resolved_next > b0, "the departure bell is resolved: {v:?}");
+            let v = {
+                let c = lock(&state);
+                lk::view(&c, &driver.a, 128, 0).unwrap()
+            };
+            assert!(
+                v.resolved_next > b0,
+                "the departure bell is resolved: {v:?}"
+            );
             // and the home's next bell really is quiet now (the keeper can FastForward it)
             let mut quiet = None;
             for _ in 0..10 {
                 match driver.step(&state).await {
-                    Step::Quiet(b) => { quiet = Some(b); break; }
-                    Step::Wait(_) => { let _ = keeper.tick(&state).await; let now = lock(&state).unix_timestamp(); advance(&state, now + 120); }
+                    Step::Quiet(b) => {
+                        quiet = Some(b);
+                        break;
+                    }
+                    Step::Wait(_) => {
+                        let _ = keeper.tick(&state).await;
+                        let now = lock(&state).unix_timestamp();
+                        advance(&state, now + 120);
+                    }
                     other => panic!("{other:?}"),
                 }
             }
@@ -403,10 +658,25 @@ mod same_home_arrival {
     fn chain() -> (localnet::Chain, Addresses) {
         let mut c = localnet::Chain::new(localnet::Config::default());
         c.produce_block();
-        (c, Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID))
+        (
+            c,
+            Addresses::new(
+                Address::new_from_array(crate::expedition_play::PROGRAM),
+                crate::expedition_play::SEASON_ID,
+            ),
+        )
     }
     fn put(c: &mut localnet::Chain, a: &Addresses, k: Address, data: Vec<u8>) {
-        c.set_account(k, fclient::ports::Account { lamports: 1_000_000, data, owner: a.program, executable: false }).unwrap();
+        c.set_account(
+            k,
+            fclient::ports::Account {
+                lamports: 1_000_000,
+                data,
+                owner: a.program,
+                executable: false,
+            },
+        )
+        .unwrap();
     }
     fn inputs(c: &mut localnet::Chain, a: &Addresses, mask: u32) {
         let mut d = vec![0u8; CI::SIZE];
@@ -419,7 +689,12 @@ mod same_home_arrival {
         d[..8].copy_from_slice(&AD::MAGIC);
         let k = (B % fclient::abi::BELLS_PER_DAY) as usize;
         d[AD::BITS + k / 8] |= 1 << (k % 8);
-        put(c, a, a.arrival_day(HOME_P, 0, frontier_abi::addr::day_of(B)), d);
+        put(
+            c,
+            a,
+            a.arrival_day(HOME_P, 0, frontier_abi::addr::day_of(B)),
+            d,
+        );
     }
     fn arrival(c: &mut localnet::Chain, a: &Addresses, faction: u8, i: u8, host: u64) {
         let mut d = vec![0u8; AS::SIZE];
@@ -431,7 +706,10 @@ mod same_home_arrival {
     #[test]
     fn no_arrival_at_home_is_the_one_no_arrivals_part_as_before() {
         let (c, a) = chain();
-        assert_eq!(home_gather_form(&c, &a, (HOME_P, 0), B), Some(GatherForm::NoArrivals));
+        assert_eq!(
+            home_gather_form(&c, &a, (HOME_P, 0), B),
+            Some(GatherForm::NoArrivals)
+        );
     }
 
     #[test]
@@ -443,7 +721,12 @@ mod same_home_arrival {
         match home_gather_form(&c, &a, (HOME_P, 0), B) {
             Some(GatherForm::Parts(parts)) => {
                 let holding = a.holding_of_host(host).unwrap();
-                assert!(parts.iter().any(|p| p.bitmap & (1 << 4) != 0 && p.holdings.contains(&holding)), "position 4 (faction 1, slot 0) with its Holding: {parts:?}");
+                assert!(
+                    parts
+                        .iter()
+                        .any(|p| p.bitmap & (1 << 4) != 0 && p.holdings.contains(&holding)),
+                    "position 4 (faction 1, slot 0) with its Holding: {parts:?}"
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -458,7 +741,10 @@ mod same_home_arrival {
         // the legacy driver landed its first part (positions 0..=9): the ClashInputs EXISTS, partly gathered
         inputs(&mut c, &a, 0x0000_03FF);
         match home_gather_form(&c, &a, (HOME_P, 0), B) {
-            Some(GatherForm::Parts(parts)) => assert!(parts.iter().all(|p| p.start >= 10), "the next part, after the gathered positions: {parts:?}"),
+            Some(GatherForm::Parts(parts)) => assert!(
+                parts.iter().all(|p| p.start >= 10),
+                "the next part, after the gathered positions: {parts:?}"
+            ),
             other => panic!("existing inputs are not a finished gather: {other:?}"),
         }
         // only once every position is gathered does the driver go on to the seed
@@ -469,10 +755,16 @@ mod same_home_arrival {
     #[test]
     fn the_driver_seeds_and_resolves_only_after_the_gather_form_is_none() {
         let src = include_str!("origin_driver.rs");
-        let body = &src[src.find("async fn step_inner").unwrap()..src.find("/// The GatherClash still due for the home").unwrap()];
+        let body = &src[src.find("async fn step_inner").unwrap()
+            ..src
+                .find("/// The GatherClash still due for the home")
+                .unwrap()];
         let gather = body.find("match form {").unwrap();
         let seed = body.find("if !seed {").unwrap();
         assert!(gather < seed, "the gather decision comes before the seed");
-        assert!(!body.contains("clash_inputs(p, q, b)).is_some()"), "the existence of the inputs is not taken as a finished gather");
+        assert!(
+            !body.contains("clash_inputs(p, q, b)).is_some()"),
+            "the existence of the inputs is not taken as a finished gather"
+        );
     }
 }

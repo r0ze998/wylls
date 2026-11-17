@@ -354,10 +354,7 @@ mod tests {
             Some(Code::Cq(CqError::ContinuousWorld))
         );
         assert_eq!(Code::from_code(95), None);
-        assert_eq!(
-            Code::from_code(104),
-            Some(Code::Cq(CqError::LotNotEmpty))
-        );
+        assert_eq!(Code::from_code(104), Some(Code::Cq(CqError::LotNotEmpty)));
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

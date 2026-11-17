@@ -36,7 +36,10 @@ fn main() {
             return Err("the natural world has no wide-destination fixture".into());
         }
         let artifact = play::read_artifact(&o)?;
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
         rt.block_on(async {
             let mut world = natural::prepare(&artifact, o.player_wallet, o.rpc_port, o.ws_port).await?;
             // (the TEST-ONLY capture demo is stated in the world's own first line, which the launcher checks against its options)

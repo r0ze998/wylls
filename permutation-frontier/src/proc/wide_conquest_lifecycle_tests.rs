@@ -420,9 +420,7 @@ fn continuous(fresh_sidecars: bool, overprefunded: bool) {
         a[1].clone(),
         a[1].clone(),
     ];
-    refused(&close_table, || {
-        via(&close_table, &close_x.to_bytes())
-    });
+    refused(&close_table, || via(&close_table, &close_x.to_bytes()));
     // Terminal eligibility alone is staged; no conquest state is rewritten.
     a[2].try_borrow_mut_data().unwrap()[S::STATUS] = S::STATUS_ENDED;
     time(1000 + 432 - 1);
@@ -439,9 +437,7 @@ fn continuous(fresh_sidecars: bool, overprefunded: bool) {
         shard,
     ]);
     via(&close_table, &close_x.to_bytes()).unwrap();
-    refused(&close_table, || {
-        via(&close_table, &close_x.to_bytes())
-    });
+    refused(&close_table, || via(&close_table, &close_x.to_bytes()));
     via(&close_escrow, &wix::CloseCaptureEscrow.to_bytes()).unwrap();
     refused(&close_escrow, || {
         via(&close_escrow, &wix::CloseCaptureEscrow.to_bytes())

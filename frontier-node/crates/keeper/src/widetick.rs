@@ -648,10 +648,19 @@ impl WideReview {
     /// Add a public identity hint to the existing bounded review loop. It is
     /// re-read through the keeper snapshot source; nothing enters Engine's
     /// executable pending queue and no key/payer is drawn.
-    pub fn supply_original_expedition(&mut self, selected: crate::wideexpedition::Selection) -> bool {
-        let id = format!("original-expedition:{}:{}:{}", hex::encode(selected.host.to_bytes()),
-            hex::encode(selected.standing.to_bytes()), selected.original_owner);
-        if !self.original_expeditions.contains_key(&id) && self.original_expeditions.len() >= MAX_ORIGINAL_EXPEDITIONS {
+    pub fn supply_original_expedition(
+        &mut self,
+        selected: crate::wideexpedition::Selection,
+    ) -> bool {
+        let id = format!(
+            "original-expedition:{}:{}:{}",
+            hex::encode(selected.host.to_bytes()),
+            hex::encode(selected.standing.to_bytes()),
+            selected.original_owner
+        );
+        if !self.original_expeditions.contains_key(&id)
+            && self.original_expeditions.len() >= MAX_ORIGINAL_EXPEDITIONS
+        {
             return false;
         }
         self.original_expeditions.insert(id, selected);
@@ -873,8 +882,11 @@ impl WideReview {
                     )
                 }),
         );
-        v.extend(self.original_expeditions.iter().map(|(id, selected)|
-            (id.clone(), Hint::OriginalExpedition(*selected))));
+        v.extend(
+            self.original_expeditions
+                .iter()
+                .map(|(id, selected)| (id.clone(), Hint::OriginalExpedition(*selected))),
+        );
         // The model's gather hints and the resolve plans' follow-ups, once
         // each.
         let mut gathers: BTreeSet<(ProvinceKey, u32)> =
@@ -1008,21 +1020,36 @@ impl WideReview {
             let entry = match hint {
                 Hint::OriginalExpedition(selected) => {
                     let summary = match snapshot {
-                        None => json!({"hint":id,"slot":slot,"outcome":"blocked","block":"CoherentSnapshotRequired"}),
-                        Some(source) => match crate::wideexpedition::inspect(source, &scope, *selected, slot).await {
-                            Ok(mut report) => {
-                                report.engine = Some(crate::wideexpedition::EngineFacts {
-                                    feed_writes_allowed: engine.feed_writes_allowed(),
-                                    kind_allowed: engine.allows_write_kind(crate::wideexpedition::KIND),
-                                    already_pending: engine.is_pending(&report.key()),
-                                    care_unresolved: engine.care_unresolved(),
-                                });
-                                json!({"hint":id,"slot":slot,"outcome":"observation","review":report.describe()})
+                        None => {
+                            json!({"hint":id,"slot":slot,"outcome":"blocked","block":"CoherentSnapshotRequired"})
+                        }
+                        Some(source) => {
+                            match crate::wideexpedition::inspect(source, &scope, *selected, slot)
+                                .await
+                            {
+                                Ok(mut report) => {
+                                    report.engine = Some(crate::wideexpedition::EngineFacts {
+                                        feed_writes_allowed: engine.feed_writes_allowed(),
+                                        kind_allowed: engine
+                                            .allows_write_kind(crate::wideexpedition::KIND),
+                                        already_pending: engine.is_pending(&report.key()),
+                                        care_unresolved: engine.care_unresolved(),
+                                    });
+                                    json!({"hint":id,"slot":slot,"outcome":"observation","review":report.describe()})
+                                }
+                                Err(_) => {
+                                    json!({"hint":id,"slot":slot,"outcome":"blocked","block":"OriginalExpeditionInspectionRefused"})
+                                }
                             }
-                            Err(_) => json!({"hint":id,"slot":slot,"outcome":"blocked","block":"OriginalExpeditionInspectionRefused"}),
-                        },
+                        }
                     };
-                    Entry { slot, next:slot.saturating_add(REFRESH_SLOTS), transient:0, proof_seq:None, summary }
+                    Entry {
+                        slot,
+                        next: slot.saturating_add(REFRESH_SLOTS),
+                        transient: 0,
+                        proof_seq: None,
+                        summary,
+                    }
                 }
                 Hint::Settle(h, s) => {
                     let planned = match snapshot {

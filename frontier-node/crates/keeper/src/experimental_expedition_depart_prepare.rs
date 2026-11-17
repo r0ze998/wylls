@@ -50,10 +50,10 @@ use frontier_abi::entry::{find_entry, read_entry};
 use frontier_abi::layout::player::transit as T;
 // (v1 prefix offsets of v2 accounts, as the program's own prologue reads them)
 use frontier_abi::layout::player::{citizen as C1, holding as H1};
-use frontier_abi::world_index::tiles::TileAddress;
 use frontier_abi::layout::province::entry as E;
 use frontier_abi::prologue::{holding_transit_occupancy, resident_ok, TransitOccupancy};
 use frontier_abi::v2::layout::{player::holding as H, province::province as P, AccountKind};
+use frontier_abi::world_index::tiles::TileAddress;
 use frontier_abi::world_index::{
     expedition::AccountResolver, expedition_dispatch_ix, holding as wh, seal::WIDE_SEAL_LEN,
     ProvinceKey, WideCoord, WideHostRef,
@@ -149,7 +149,10 @@ fn signed<T: std::str::FromStr>(v: &Value) -> Result<T, &'static str> {
     s.parse().map_err(|_| "RequestInvalid")
 }
 fn address(v: &Value) -> Result<Address, &'static str> {
-    let s = v.as_str().filter(|s| s.len() <= 44).ok_or("RequestInvalid")?;
+    let s = v
+        .as_str()
+        .filter(|s| s.len() <= 44)
+        .ok_or("RequestInvalid")?;
     let a: Address = s.parse().map_err(|_| "RequestInvalid")?;
     if a == Address::default() || a.to_string() != s {
         return Err("RequestInvalid");
@@ -353,8 +356,10 @@ fn closed(mut v: Value) -> Value {
     v
 }
 pub fn failure(request: Option<&Request>, code: &str) -> Value {
-    closed(json!({"schema":REPORT_SCHEMA,"status":"blocked","request":request.map(|r|r.echo.clone()),
-        "source":null,"blockhash":null,"prepared":null,"blocker":{"code":code},"not_proven":NOT_PROVEN}))
+    closed(
+        json!({"schema":REPORT_SCHEMA,"status":"blocked","request":request.map(|r|r.echo.clone()),
+        "source":null,"blockhash":null,"prepared":null,"blocker":{"code":code},"not_proven":NOT_PROVEN}),
+    )
 }
 pub fn output_bytes(value: &Value) -> Vec<u8> {
     match serde_json::to_vec(value) {
@@ -386,8 +391,12 @@ fn v2<'a>(
     let d = &a.data;
     if d.len() != kind.size()
         || d.get(..8) != Some(kind.magic().as_slice())
-        || d.get(8..16).map(|b| u64::from_le_bytes(b.try_into().unwrap())) != Some(season_id)
-        || d.get(16..18).map(|b| u16::from_le_bytes(b.try_into().unwrap())) != Some(2)
+        || d.get(8..16)
+            .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+            != Some(season_id)
+        || d.get(16..18)
+            .map(|b| u16::from_le_bytes(b.try_into().unwrap()))
+            != Some(2)
     {
         return Err("SourceLayout");
     }
@@ -482,7 +491,13 @@ where
     if pda != s.season || bump != season.bump {
         return Err("SeasonAddress");
     }
-    v2(accounts, &roles[SEASON].address, &s.program, AccountKind::Season, sid)?;
+    v2(
+        accounts,
+        &roles[SEASON].address,
+        &s.program,
+        AccountKind::Season,
+        sid,
+    )?;
     if season.program_version != expedition_dispatch_ix::PROGRAM_VERSION
         || season.ruleset_hash != s.ruleset_hash
     {
@@ -497,12 +512,39 @@ where
     // ---- the original issuer Holding and its owner (stage_depart's checks)
     let ctx = wideduty::ctx_of(&r.scope);
     let resolver = AccountResolver::for_season(&ctx).map_err(|_| "ProposalUnavailable")?;
-    let host = WideHostRef::from_bytes(&r.draft.command().host).map_err(|_| "ProposalUnavailable")?;
-    let id = resolver.legacy_host_id(&host).map_err(|_| "ProposalUnavailable")?;
-    let cd = v2(accounts, &roles[CITIZEN].address, &s.program, AccountKind::Citizen, sid)?;
-    let hd = v2(accounts, &roles[HOLDING].address, &s.program, AccountKind::Holding, sid)?;
-    let pd = v2(accounts, &roles[STANDING].address, &s.program, AccountKind::Province, sid)?;
-    let home = v2(accounts, &roles[HOME].address, &s.program, AccountKind::Province, sid)?;
+    let host =
+        WideHostRef::from_bytes(&r.draft.command().host).map_err(|_| "ProposalUnavailable")?;
+    let id = resolver
+        .legacy_host_id(&host)
+        .map_err(|_| "ProposalUnavailable")?;
+    let cd = v2(
+        accounts,
+        &roles[CITIZEN].address,
+        &s.program,
+        AccountKind::Citizen,
+        sid,
+    )?;
+    let hd = v2(
+        accounts,
+        &roles[HOLDING].address,
+        &s.program,
+        AccountKind::Holding,
+        sid,
+    )?;
+    let pd = v2(
+        accounts,
+        &roles[STANDING].address,
+        &s.program,
+        AccountKind::Province,
+        sid,
+    )?;
+    let home = v2(
+        accounts,
+        &roles[HOME].address,
+        &s.program,
+        AccountKind::Province,
+        sid,
+    )?;
     let citizen = Citizen::decode(cd).map_err(|_| "SourceLayout")?;
     let holding = Holding::decode(hd).map_err(|_| "SourceLayout")?;
     let standing = Province::decode(pd).map_err(|_| "SourceLayout")?;
@@ -707,7 +749,8 @@ where
     let message = prepared.message_bytes().map_err(|_| "PreflightFailed")?;
     let report = prepared.report();
     let hash = observed.observation;
-    Ok(closed(json!({"schema":REPORT_SCHEMA,"status":"prepared","request":r.echo,
+    Ok(closed(
+        json!({"schema":REPORT_SCHEMA,"status":"prepared","request":r.echo,
         "source":{"context_slot":context.to_string(),"unix_timestamp":clock.unix_timestamp.to_string(),"current_bell":bell.to_string(),
             "arrive_bell":arrive.to_string(),"transit_slot_free":true,"coherent":true,"authority_verified":false},
         "blockhash":{"hash":fclient::Hash::new_from_array(hash.blockhash).to_string(),"latest_context_slot":observed.latest_context_slot.to_string(),"validity_context_slot":hash.context_slot.to_string(),"height_min_context_slot":observed.height_min_context_slot.to_string(),"block_height":hash.block_height.to_string(),"last_valid_block_height":hash.last_valid_block_height.to_string(),"remaining_block_heights":report.remaining_block_heights.to_string(),"valid":true,"commitment":"confirmed","coherent":false,"authority_verified":false},
@@ -716,7 +759,8 @@ where
             "instruction_hex":hex::encode(&prepared.instruction().data),"message_b64":base64::engine::general_purpose::STANDARD.encode(&message),"message_digest":hex::encode(Sha256::digest(&message)),
             "signers":prepared.expected_signers().iter().map(ToString::to_string).collect::<Vec<_>>(),"shape":{"bytes":report.shape.bytes,"locks":report.shape.locks,"writes":report.shape.writes,"sigs":report.shape.sigs},
             "proposal_digest":hex::encode(r.digest)},
-        "blocker":null,"not_proven":NOT_PROVEN})))
+        "blocker":null,"not_proven":NOT_PROVEN}),
+    ))
 }
 
 #[cfg(test)]
@@ -783,7 +827,8 @@ mod tests {
     #[test]
     fn version_slot_and_absent_seal_are_refused_before_any_draft() {
         let mut v = base();
-        v["deployment"]["program_version"] = json!((expedition_dispatch_ix::PROGRAM_VERSION ^ 0x0800).to_string());
+        v["deployment"]["program_version"] =
+            json!((expedition_dispatch_ix::PROGRAM_VERSION ^ 0x0800).to_string());
         assert_eq!(code(&v), "VersionUnsupported");
         let mut v = base();
         v["transit_slot"] = json!("4");
@@ -802,7 +847,10 @@ mod tests {
         }
         // Every earlier check passes; the placeholder host either has no
         // canonical draft or one whose proposal differs from the empty one.
-        assert!(matches!(code(&base()), "ProposalUnavailable" | "ProposalMismatch"));
+        assert!(matches!(
+            code(&base()),
+            "ProposalUnavailable" | "ProposalMismatch"
+        ));
     }
 
     #[test]
@@ -824,7 +872,10 @@ mod tests {
             assert_eq!(v[k], false, "{k}");
         }
         assert_eq!(v["prepared"], Value::Null);
-        assert_eq!(v["not_proven"].as_array().map(Vec::len), Some(NOT_PROVEN.len()));
+        assert_eq!(
+            v["not_proven"].as_array().map(Vec::len),
+            Some(NOT_PROVEN.len())
+        );
         assert!(output_bytes(&v).len() <= MAX_OUTPUT_BYTES);
     }
 }

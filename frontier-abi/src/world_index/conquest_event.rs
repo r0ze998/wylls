@@ -311,17 +311,46 @@ mod reservation_action_tests {
         r8.validate_kind(WideKind::ConquestDebited).unwrap();
         r9.validate_kind(WideKind::ConquestSettled).unwrap();
         r9.validate_kind(WideKind::ConquestCredited).unwrap();
-        for k in [WideKind::ConquestSettled, WideKind::ConquestCredited, WideKind::ConquestResolved] {
+        for k in [
+            WideKind::ConquestSettled,
+            WideKind::ConquestCredited,
+            WideKind::ConquestResolved,
+        ] {
             assert!(r8.validate_kind(k).is_err());
         }
-        for k in [WideKind::ConquestDeclared, WideKind::ConquestDebited, WideKind::ConquestCaptured] {
+        for k in [
+            WideKind::ConquestDeclared,
+            WideKind::ConquestDebited,
+            WideKind::ConquestCaptured,
+        ] {
             assert!(r9.validate_kind(k).is_err());
         }
         // The real event body path (the program's prepare_wide calls it).
         let mut out = [0u8; MAX_BODY];
-        assert!(write_body(WideKind::ConquestDeclared, 20, &key(), &r8.encode(), &mut out).is_some());
-        assert!(write_body(WideKind::ConquestSettled, 20, &key(), &r9.encode(), &mut out).is_some());
-        assert!(write_body(WideKind::ConquestSettled, 20, &key(), &r8.encode(), &mut out).is_none());
+        assert!(write_body(
+            WideKind::ConquestDeclared,
+            20,
+            &key(),
+            &r8.encode(),
+            &mut out
+        )
+        .is_some());
+        assert!(write_body(
+            WideKind::ConquestSettled,
+            20,
+            &key(),
+            &r9.encode(),
+            &mut out
+        )
+        .is_some());
+        assert!(write_body(
+            WideKind::ConquestSettled,
+            20,
+            &key(),
+            &r8.encode(),
+            &mut out
+        )
+        .is_none());
         assert!(debit_action(RESERVE) && !credit_action(RESERVE) && !settled_action(RESERVE));
         assert!(credit_action(RESERVATION_REFUND) && settled_action(RESERVATION_REFUND));
         // Unknown actions stay refused.
@@ -337,6 +366,13 @@ mod reservation_action_tests {
         }
         let r1 = Receipt::new(DECLARE, 0, [1; 32], [2; 32]).unwrap();
         let mut out = [0u8; MAX_BODY];
-        assert!(write_body(WideKind::ConquestDeclared, 20, &key(), &r1.encode(), &mut out).is_some());
+        assert!(write_body(
+            WideKind::ConquestDeclared,
+            20,
+            &key(),
+            &r1.encode(),
+            &mut out
+        )
+        .is_some());
     }
 }

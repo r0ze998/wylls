@@ -44,7 +44,11 @@ fn idle() -> Record {
 fn table() -> WideConquest {
     WideConquest::new(11, key(), [9; 32]).unwrap()
 }
-fn reserve(t: &WideConquest, prefix: Record, r: Reservation) -> (WideConquest, Record, Reservation) {
+fn reserve(
+    t: &WideConquest,
+    prefix: Record,
+    r: Reservation,
+) -> (WideConquest, Record, Reservation) {
     t.reserve(prefix, r).unwrap()
 }
 fn roundtrip(t: &WideConquest) -> WideConquest {
@@ -89,13 +93,25 @@ fn size_and_empty_table_roundtrip() {
 #[test]
 fn the_conquest_lane_refuses_v1_tables_of_either_size() {
     let v2 = table().to_bytes();
-    assert_eq!(u16_at(&v2, 16), 2, "the conquest lane writes table version 2");
+    assert_eq!(
+        u16_at(&v2, 16),
+        2,
+        "the conquest lane writes table version 2"
+    );
     let mut v1_long = v2;
     v1_long[16..18].copy_from_slice(&1u16.to_le_bytes());
-    assert_eq!(WideConquest::read(&v1_long, 11, key()), Err(ConquestError::Version), "2688/v1 refused");
+    assert_eq!(
+        WideConquest::read(&v1_long, 11, key()),
+        Err(ConquestError::Version),
+        "2688/v1 refused"
+    );
     let mut v1_short = [0u8; 1664];
     v1_short.copy_from_slice(&v1_long[..1664]);
-    assert_eq!(WideConquest::read(&v1_short, 11, key()), Err(ConquestError::Length), "1664/v1 refused");
+    assert_eq!(
+        WideConquest::read(&v1_short, 11, key()),
+        Err(ConquestError::Length),
+        "1664/v1 refused"
+    );
 }
 
 #[test]
@@ -135,7 +151,10 @@ fn reservation_capacity_and_existing_refusals_are_explicit() {
     // (Citizen, slot) stays unique.
     let (t2, p2, _) = reserve(&table(), idle(), res(1, 4, 20, 2, 0));
     let _ = p2;
-    assert_eq!(t2.reserve(idle(), res(1, 5, 20, 2, 0)).err(), Some(ConquestError::State));
+    assert_eq!(
+        t2.reserve(idle(), res(1, 5, 20, 2, 0)).err(),
+        Some(ConquestError::State)
+    );
     // An owed or busy site is refused, as an immediate declaration is.
     let mut owed = idle();
     owed.flags = CR::FLAG_SLOT_OWED;
@@ -209,7 +228,9 @@ fn a_stale_pending_reservation_is_detected() {
 fn settling_a_lapsed_siege_keeps_the_flag_while_later_reservations_wait() {
     let (t, _, a) = reserve(&table(), idle(), res(1, 4, 20, 2, 0));
     let (t, _, _) = reserve(&t, idle_pending(), res(2, 4, 25, 2, 1));
-    let plan = t.apply_reservation(t.pending_at(4, 20)[0].0, entry_of(&a)).unwrap();
+    let plan = t
+        .apply_reservation(t.pending_at(4, 20)[0].0, entry_of(&a))
+        .unwrap();
     let t = plan.conquest;
     t.validate_paired(4, plan.prefix).unwrap();
     let s = t
@@ -234,7 +255,10 @@ fn not_applied() -> (WideConquest, Reservation) {
 fn a_return_is_done_in_full_parts_and_never_paid_twice() {
     let (t, a) = not_applied();
     // Nothing doable now: refused, nothing changes, the debt stays.
-    assert_eq!(t.settle_reservation(a.seq, false, false, false), Err(ConquestError::Blocked));
+    assert_eq!(
+        t.settle_reservation(a.seq, false, false, false),
+        Err(ConquestError::Blocked)
+    );
     // Rent and slot first while the resources are blocked (no room / source gone).
     let s1 = t.settle_reservation(a.seq, false, true, false).unwrap();
     assert!(!s1.return_resources && s1.release_slot_rent && !s1.freed);
@@ -243,7 +267,10 @@ fn a_return_is_done_in_full_parts_and_never_paid_twice() {
     assert_eq!(r1.done, RES_SLOT_RENT_RELEASED);
     assert!(!r1.holds_slot());
     // A retry of the same part never pays again.
-    assert_eq!(t1.settle_reservation(a.seq, false, true, false), Err(ConquestError::Blocked));
+    assert_eq!(
+        t1.settle_reservation(a.seq, false, true, false),
+        Err(ConquestError::Blocked)
+    );
     // The slot may be reused after release (uniqueness ignores the released record).
     let (t1b, _, _) = reserve(&t1, idle(), res(1, 5, 30, 2, 0));
     roundtrip(&t1b);
@@ -253,7 +280,10 @@ fn a_return_is_done_in_full_parts_and_never_paid_twice() {
     assert_eq!(s2.reservation.gold_milli, 25_000);
     assert_eq!(s2.reservation.arms_milli, 50_000);
     let t2 = roundtrip(&s2.conquest);
-    assert_eq!(t2.settle_reservation(a.seq, true, true, false), Err(ConquestError::Absent));
+    assert_eq!(
+        t2.settle_reservation(a.seq, true, true, false),
+        Err(ConquestError::Absent)
+    );
     assert!(t2.is_empty());
 }
 
@@ -262,14 +292,20 @@ fn resources_first_then_slot_also_never_pays_twice() {
     let (t, a) = not_applied();
     let s1 = t.settle_reservation(a.seq, true, false, false).unwrap();
     assert!(s1.return_resources && !s1.release_slot_rent);
-    let s2 = s1.conquest.settle_reservation(a.seq, true, true, false).unwrap();
+    let s2 = s1
+        .conquest
+        .settle_reservation(a.seq, true, true, false)
+        .unwrap();
     assert!(!s2.return_resources && s2.release_slot_rent && s2.freed);
 }
 
 #[test]
 fn a_pending_reservation_cannot_be_settled_or_cancelled() {
     let (t, _, a) = reserve(&table(), idle(), res(1, 4, 20, 2, 0));
-    assert_eq!(t.settle_reservation(a.seq, true, true, false), Err(ConquestError::TooEarly));
+    assert_eq!(
+        t.settle_reservation(a.seq, true, true, false),
+        Err(ConquestError::TooEarly)
+    );
 }
 
 #[test]
@@ -297,8 +333,12 @@ fn escrow_keeps_one_binding_per_citizen_and_site() {
     let a = res(1, 4, 20, 2, 0);
     let e = WideCaptureEscrow::new(11, world(), citizen(1), [9; 32]).unwrap();
     let (e, _) = e.reserve(2, a.binding(key()), 1_000, [8; 32]).unwrap();
-    assert!(e.reserve(3, res(1, 4, 21, 3, 0).binding(key()), 1_000, [8; 32]).is_err());
-    assert!(e.reserve(3, res(1, 5, 21, 3, 0).binding(key()), 1_000, [8; 32]).is_ok());
+    assert!(e
+        .reserve(3, res(1, 4, 21, 3, 0).binding(key()), 1_000, [8; 32])
+        .is_err());
+    assert!(e
+        .reserve(3, res(1, 5, 21, 3, 0).binding(key()), 1_000, [8; 32])
+        .is_ok());
 }
 
 /// A canonical freshly joined Citizen: no ticket, every holding slot empty
@@ -327,7 +367,8 @@ fn paired_reservation() -> (WideConquest, Reservation, WideCaptureEscrow, [u8; C
 fn three_way_pairing_holds_for_a_reservation() {
     let (t, a, e, cd) = paired_reservation();
     e.validate_inventory(11, world(), citizen(1), &cd).unwrap();
-    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd).unwrap();
+    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd)
+        .unwrap();
 }
 
 #[test]
@@ -340,16 +381,21 @@ fn three_way_pairing_refuses_a_binding_without_its_reservation() {
     mark(&mut cd, 3).unwrap();
     let e = WideCaptureEscrow::new(11, world(), citizen(1), [9; 32]).unwrap();
     let (e, _) = e.reserve(3, b.binding(key()), 1_000, [8; 32]).unwrap();
-    let (e, _) = e.reserve(2, res(1, 4, 20, 2, 0).binding(key()), 1_000, [8; 32]).unwrap();
+    let (e, _) = e
+        .reserve(2, res(1, 4, 20, 2, 0).binding(key()), 1_000, [8; 32])
+        .unwrap();
     e.validate_inventory(11, world(), citizen(1), &cd).unwrap();
     assert_eq!(
-        e.validate_paired_reservation(&t, b.seq, citizen(1), &cd).err(),
+        e.validate_paired_reservation(&t, b.seq, citizen(1), &cd)
+            .err(),
         Some(ConquestError::Stale)
     );
     // With the second reservation present the same escrow pairs.
     let (t2, _, a) = reserve(&t, idle(), res(1, 4, 20, 2, 0));
-    e.validate_paired_reservation(&t2, b.seq, citizen(1), &cd).unwrap();
-    e.validate_paired_reservation(&t2, a.seq, citizen(1), &cd).unwrap();
+    e.validate_paired_reservation(&t2, b.seq, citizen(1), &cd)
+        .unwrap();
+    e.validate_paired_reservation(&t2, a.seq, citizen(1), &cd)
+        .unwrap();
 }
 
 #[test]
@@ -358,24 +404,32 @@ fn three_way_pairing_refuses_a_reservation_without_its_binding() {
     let (t, a, _, cd) = paired_reservation();
     let bare = WideCaptureEscrow::new(11, world(), citizen(1), [9; 32]).unwrap();
     // The Citizen mark without a binding already fails the inventory check.
-    assert!(bare.validate_paired_reservation(&t, a.seq, citizen(1), &cd).is_err());
+    assert!(bare
+        .validate_paired_reservation(&t, a.seq, citizen(1), &cd)
+        .is_err());
     // A binding for a different bell is stale too.
     let e2 = WideCaptureEscrow::new(11, world(), citizen(1), [9; 32]).unwrap();
-    let (e2, _) = e2.reserve(2, res(1, 4, 21, 2, 0).binding(key()), 1_000, [8; 32]).unwrap();
+    let (e2, _) = e2
+        .reserve(2, res(1, 4, 21, 2, 0).binding(key()), 1_000, [8; 32])
+        .unwrap();
     assert_eq!(
-        e2.validate_paired_reservation(&t, a.seq, citizen(1), &cd).err(),
+        e2.validate_paired_reservation(&t, a.seq, citizen(1), &cd)
+            .err(),
         Some(ConquestError::Stale)
     );
     // Another Citizen's escrow is refused by identity.
     let (_, _, e1, _) = paired_reservation();
-    assert!(e1.validate_paired_reservation(&t, a.seq, citizen(2), &citizen_bytes(2)).is_err());
+    assert!(e1
+        .validate_paired_reservation(&t, a.seq, citizen(2), &citizen_bytes(2))
+        .is_err());
 }
 
 #[test]
 fn slot_release_then_reuse_then_full_return_without_double_payment() {
     let (t, a, e, mut cd) = paired_reservation();
     let t = t.not_apply(t.pending_at(4, 20)[0].0).unwrap();
-    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd).unwrap();
+    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd)
+        .unwrap();
     // Resources blocked; release rent and slot exactly as the handler does.
     let s1 = t.settle_reservation(a.seq, false, true, false).unwrap();
     assert!(s1.release_slot_rent && !s1.return_resources);
@@ -384,21 +438,30 @@ fn slot_release_then_reuse_then_full_return_without_double_payment() {
     clear(&mut cd, 2).unwrap();
     let t = s1.conquest;
     // The released record no longer pairs a slot; the empty escrow agrees.
-    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd).unwrap();
+    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd)
+        .unwrap();
     // A retry of rent/slot is refused: nothing to pay twice.
-    assert_eq!(t.settle_reservation(a.seq, false, true, false), Err(ConquestError::Blocked));
+    assert_eq!(
+        t.settle_reservation(a.seq, false, true, false),
+        Err(ConquestError::Blocked)
+    );
     assert!(e.refund(2, a.binding(key()), 1_000).is_err());
     // The slot is reused by a new reservation (another site, later bell).
     let (t, _, b) = reserve(&t, idle(), res(1, 5, 30, 2, 0));
     mark(&mut cd, 2).unwrap();
     let (e, _) = e.reserve(2, b.binding(key()), 1_000, [8; 32]).unwrap();
-    e.validate_paired_reservation(&t, b.seq, citizen(1), &cd).unwrap();
-    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd).unwrap();
+    e.validate_paired_reservation(&t, b.seq, citizen(1), &cd)
+        .unwrap();
+    e.validate_paired_reservation(&t, a.seq, citizen(1), &cd)
+        .unwrap();
     let t = roundtrip(&t);
     // The old debt is still owed and returned once, in full.
     let s2 = t.settle_reservation(a.seq, true, true, false).unwrap();
     assert!(s2.return_resources && !s2.release_slot_rent && s2.freed);
-    assert_eq!((s2.reservation.gold_milli, s2.reservation.arms_milli), (25_000, 50_000));
+    assert_eq!(
+        (s2.reservation.gold_milli, s2.reservation.arms_milli),
+        (25_000, 50_000)
+    );
     assert_eq!(
         s2.conquest.settle_reservation(a.seq, true, true, false),
         Err(ConquestError::Absent)
@@ -411,7 +474,10 @@ fn slot_release_then_reuse_then_full_return_without_double_payment() {
 fn a_pending_reservation_lapses_only_by_the_seasons_end_or_abort() {
     let (t, _, a) = reserve(&table(), idle(), res(1, 4, 20, 2, 0));
     // No early cancellation: without the authenticated terminal state.
-    assert_eq!(t.settle_reservation(a.seq, true, true, false), Err(ConquestError::TooEarly));
+    assert_eq!(
+        t.settle_reservation(a.seq, true, true, false),
+        Err(ConquestError::TooEarly)
+    );
     // Terminal, nothing doable now: the lapse alone records the owed return.
     let s = t.settle_reservation(a.seq, false, false, true).unwrap();
     assert!(s.lapsed && !s.return_resources && !s.release_slot_rent && !s.freed);

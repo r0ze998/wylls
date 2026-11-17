@@ -803,8 +803,16 @@ impl Policy {
 
     fn refuse(&self, method: &str) -> Option<RpcErr> {
         let denied = self.memory_only
-            && matches!(method, "frontier_snapshot" | "frontier_restore" | "frontier_setAccount");
-        denied.then(|| err(-32601, format!("{method} is disabled on this memory-only node")))
+            && matches!(
+                method,
+                "frontier_snapshot" | "frontier_restore" | "frontier_setAccount"
+            );
+        denied.then(|| {
+            err(
+                -32601,
+                format!("{method} is disabled on this memory-only node"),
+            )
+        })
     }
 }
 
@@ -850,7 +858,9 @@ pub fn router(state: Shared) -> Router {
 
 /// The HTTP router under an explicit [`Policy`].
 pub fn router_with(state: Shared, policy: Policy) -> Router {
-    Router::new().route("/", post(rpc)).with_state((state, policy))
+    Router::new()
+        .route("/", post(rpc))
+        .with_state((state, policy))
 }
 
 /// The 400-ms slot ticker (real time at every scale, I-54).
@@ -949,7 +959,11 @@ mod tests {
         Arc::new(Mutex::new(c))
     }
     fn call(s: &Shared, policy: Policy, method: &str, params: Value) -> Value {
-        respond(s, policy, &json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
+        respond(
+            s,
+            policy,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}),
+        )
     }
 
     /// F2: only `getSignatureStatuses` carries `context.instance` (the
@@ -960,7 +974,12 @@ mod tests {
         let s = node();
         let want = hex::encode(lock(&s).status_instance());
         let sig = Signature::default().to_string();
-        let st = call(&s, Policy::default(), "getSignatureStatuses", json!([[sig]]));
+        let st = call(
+            &s,
+            Policy::default(),
+            "getSignatureStatuses",
+            json!([[sig]]),
+        );
         let ctx = st["result"]["context"].as_object().unwrap();
         let mut keys: Vec<_> = ctx.keys().cloned().collect();
         keys.sort();
@@ -968,8 +987,18 @@ mod tests {
         assert_eq!(ctx["instance"], json!(want));
         assert_eq!(want.len(), 64);
         assert_ne!(want, "0".repeat(64));
-        let bal = call(&s, Policy::default(), "getBalance", json!([Address::new_from_array([7; 32]).to_string()]));
-        let mut keys: Vec<_> = bal["result"]["context"].as_object().unwrap().keys().cloned().collect();
+        let bal = call(
+            &s,
+            Policy::default(),
+            "getBalance",
+            json!([Address::new_from_array([7; 32]).to_string()]),
+        );
+        let mut keys: Vec<_> = bal["result"]["context"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
         keys.sort();
         assert_eq!(keys, ["apiVersion", "slot"]);
     }
@@ -1002,7 +1031,13 @@ mod tests {
         // a real snapshot made by a default node, for the restore attempt
         let donor = node();
         let made = dir.join("donor.snap");
-        assert!(call(&donor, Policy::default(), "frontier_snapshot", json!([made.to_str().unwrap()]))["result"].is_object());
+        assert!(call(
+            &donor,
+            Policy::default(),
+            "frontier_snapshot",
+            json!([made.to_str().unwrap()])
+        )["result"]
+            .is_object());
         let donor_bytes = std::fs::read(&made).unwrap();
         let s = node();
         let before = lock(&s).state_hash();
@@ -1011,19 +1046,29 @@ mod tests {
             ("frontier_snapshot", json!([target.to_str().unwrap()])),
             ("frontier_snapshot", json!([])),
             ("frontier_restore", json!([made.to_str().unwrap()])),
-            ("frontier_setAccount", json!([Address::new_from_array([9; 32]).to_string(), null])),
+            (
+                "frontier_setAccount",
+                json!([Address::new_from_array([9; 32]).to_string(), null]),
+            ),
         ] {
             let r = call(&s, Policy::MEMORY_ONLY, method, params);
             assert_eq!(r["error"]["code"], -32601, "{method}: {r}");
-            assert!(r["error"]["message"].as_str().unwrap().contains("memory-only"));
+            assert!(r["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("memory-only"));
         }
         assert!(!target.exists());
         assert_eq!(std::fs::read(&made).unwrap(), donor_bytes);
         assert_eq!(lock(&s).state_hash(), before);
-        let batch = respond(&s, Policy::MEMORY_ONLY, &json!([
-            {"jsonrpc": "2.0", "id": 1, "method": "frontier_stateHash"},
-            {"jsonrpc": "2.0", "id": 2, "method": "frontier_restore", "params": [made.to_str().unwrap()]},
-        ]));
+        let batch = respond(
+            &s,
+            Policy::MEMORY_ONLY,
+            &json!([
+                {"jsonrpc": "2.0", "id": 1, "method": "frontier_stateHash"},
+                {"jsonrpc": "2.0", "id": 2, "method": "frontier_restore", "params": [made.to_str().unwrap()]},
+            ]),
+        );
         assert!(batch[0]["result"]["stateHash"].is_string());
         assert_eq!(batch[1]["error"]["code"], -32601);
         assert_eq!(lock(&s).state_hash(), before);
@@ -1038,13 +1083,34 @@ mod tests {
         let dir = scratch("default");
         let s = node();
         let path = dir.join("a.snap");
-        let r = call(&s, Policy::default(), "frontier_snapshot", json!([path.to_str().unwrap()]));
+        let r = call(
+            &s,
+            Policy::default(),
+            "frontier_snapshot",
+            json!([path.to_str().unwrap()]),
+        );
         assert!(r["result"].is_object(), "{r}");
         assert!(path.exists());
-        let r = call(&s, Policy::default(), "frontier_restore", json!([path.to_str().unwrap()]));
+        let r = call(
+            &s,
+            Policy::default(),
+            "frontier_restore",
+            json!([path.to_str().unwrap()]),
+        );
         assert!(r["result"].is_object(), "{r}");
-        let r = call(&s, Policy::default(), "frontier_setAccount", json!([Address::new_from_array([9; 32]).to_string(), null]));
-        assert!(r["error"]["message"].as_str().unwrap().contains("--allow-tamper"), "{r}");
+        let r = call(
+            &s,
+            Policy::default(),
+            "frontier_setAccount",
+            json!([Address::new_from_array([9; 32]).to_string(), null]),
+        );
+        assert!(
+            r["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("--allow-tamper"),
+            "{r}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

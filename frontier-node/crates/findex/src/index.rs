@@ -493,14 +493,20 @@ impl Index {
                 [],
                 |r| r.get(0),
             ))?;
-            if recorded != Codec::Plain || codec != Codec::GzipV1 || empty != 0 || self.last_seq()? != 0 {
+            if recorded != Codec::Plain
+                || codec != Codec::GzipV1
+                || empty != 0
+                || self.last_seq()? != 0
+            {
                 return Err(format!(
                     "the index records snapshot codec {:?}, it was opened with {:?}: a store is never reopened in another codec",
                     recorded.word().unwrap_or("plain"),
                     codec.word().unwrap_or("plain")
                 ));
             }
-            sql(self.conn.execute("INSERT INTO meta(k, v) VALUES('snapshot_codec', 1)", []))?;
+            sql(self
+                .conn
+                .execute("INSERT INTO meta(k, v) VALUES('snapshot_codec', 1)", []))?;
         }
         self.snapshot_codec = codec;
         Ok(())
@@ -658,7 +664,9 @@ fn fee_payer(wire: &[u8]) -> Option<Address> {
 /// The snapshot codec an index records in `meta` (no row: stored as is); an unknown value is refused.
 fn recorded_snapshot_codec(conn: &Connection) -> Result<crate::codec::Codec, String> {
     match sql(conn
-        .query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| r.get::<_, i64>(0))
+        .query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| {
+            r.get::<_, i64>(0)
+        })
         .optional())?
     {
         None => Ok(crate::codec::Codec::Plain),

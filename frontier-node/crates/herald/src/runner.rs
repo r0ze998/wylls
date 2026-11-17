@@ -82,7 +82,10 @@ impl IngestCfg {
             (false, Codec::Plain) => Ok(None),
             (true, Codec::Plain) => Ok(Some(crate::files::OUTPUT_COMPACT_V1)),
             (true, Codec::GzipV1) => Ok(Some(crate::files::OUTPUT_COMPACT_V2)),
-            (false, Codec::GzipV1) => Err("a compressed findex store is only with compact output (--output compact-v2)".into()),
+            (false, Codec::GzipV1) => Err(
+                "a compressed findex store is only with compact output (--output compact-v2)"
+                    .into(),
+            ),
         }
     }
     /// The output writer/reader of this data directory (compact or default),

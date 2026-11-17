@@ -96,7 +96,10 @@ impl Draft {
             return Err(Error::SiteOrEntry);
         }
         let resolver = AccountResolver::for_season(ctx).map_err(|_| Error::ContextOrHost)?;
-        if resolver.family(host.key()).map_err(|_| Error::ContextOrHost)? != AccountFamily::Legacy
+        if resolver
+            .family(host.key())
+            .map_err(|_| Error::ContextOrHost)?
+            != AccountFamily::Legacy
         {
             return Err(Error::SourceFamily);
         }

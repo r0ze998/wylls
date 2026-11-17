@@ -384,11 +384,20 @@ pub fn plan(scope: &Scope, selected: Selection, reads: &Reads) -> Result<Report,
 
 /// Opt-in inspection used by the existing Keeper review API and bounded tick.
 /// The v1 preview continues to call `plan` and refuses reverse records.
-pub fn plan_with_reverse(scope: &Scope, selected: Selection, reads: &Reads) -> Result<Report, Refusal> {
+pub fn plan_with_reverse(
+    scope: &Scope,
+    selected: Selection,
+    reads: &Reads,
+) -> Result<Report, Refusal> {
     plan_inner(scope, selected, reads, true)
 }
 
-fn plan_inner(scope: &Scope, selected: Selection, reads: &Reads, allow_reverse: bool) -> Result<Report, Refusal> {
+fn plan_inner(
+    scope: &Scope,
+    selected: Selection,
+    reads: &Reads,
+    allow_reverse: bool,
+) -> Result<Report, Refusal> {
     let mut keys = ReadPlan::new(scope, selected)?;
     let missing = wideduty::missing(reads, keys.keys());
     if !missing.is_empty() {
@@ -450,16 +459,29 @@ fn plan_inner(scope: &Scope, selected: Selection, reads: &Reads, allow_reverse: 
     }
     let (next, observed) = if let Some(&(slot, occupancy)) = matches.first() {
         if let TransitOccupancy::Reverse(marker) = occupancy {
-            if !allow_reverse { return Err(Refusal::OwnedBridgeRequired); }
-            let facts = reverse::plan(scope, selected, reads, &keys, &season, &holding, hd, slot as u8, marker)?;
+            if !allow_reverse {
+                return Err(Refusal::OwnedBridgeRequired);
+            }
+            let facts = reverse::plan(
+                scope, selected, reads, &keys, &season, &holding, hd, slot as u8, marker,
+            )?;
             for key in &facts.required_reads {
-                if !keys.keys.contains(key) { keys.keys.push(*key); }
+                if !keys.keys.contains(key) {
+                    keys.keys.push(*key);
+                }
             }
             return Ok(Report {
-                selected, accounts: keys, next: Next::Reverse(facts.next), observed: Observed::Reverse(facts),
-                min_slot: reads.min_slot, context_slot: reads.coherent_snapshot().map(|m| m.context_slot()),
-                clock_slot: now.slot, clock_timestamp: now.unix_timestamp, bell,
-                status_promoted_by_clock: promoted, engine: None,
+                selected,
+                accounts: keys,
+                next: Next::Reverse(facts.next),
+                observed: Observed::Reverse(facts),
+                min_slot: reads.min_slot,
+                context_slot: reads.coherent_snapshot().map(|m| m.context_slot()),
+                clock_slot: now.slot,
+                clock_timestamp: now.unix_timestamp,
+                bell,
+                status_promoted_by_clock: promoted,
+                engine: None,
             });
         }
         let TransitOccupancy::Bridge(marker) = occupancy else {
@@ -691,8 +713,13 @@ pub async fn inspect(
         .snapshot_boxed(keys.keys(), false, min_slot)
         .await
         .map_err(Refusal::Snapshot)?;
-    if snapshot.meta().min_slot() != min_slot || snapshot.accounts().len() != keys.keys().len()
-        || keys.keys().iter().any(|k| !snapshot.accounts().contains_key(k)) {
+    if snapshot.meta().min_slot() != min_slot
+        || snapshot.accounts().len() != keys.keys().len()
+        || keys
+            .keys()
+            .iter()
+            .any(|k| !snapshot.accounts().contains_key(k))
+    {
         return Err(Refusal::Snapshot(SnapshotError::Malformed(
             "expedition request binding",
         )));
@@ -700,13 +727,28 @@ pub async fn inspect(
     match plan_with_reverse(scope, selected, &snapshot.reads()) {
         Err(Refusal::MissingReads(extra)) => {
             let mut all = keys.keys().to_vec();
-            for key in extra { if !all.contains(&key) { all.push(key); } }
-            if all.len() > reverse::MAX_READS { return Err(Refusal::OriginalAccount("reverse read cap")); }
+            for key in extra {
+                if !all.contains(&key) {
+                    all.push(key);
+                }
+            }
+            if all.len() > reverse::MAX_READS {
+                return Err(Refusal::OriginalAccount("reverse read cap"));
+            }
             let lower = min_slot.max(snapshot.meta().context_slot());
-            let final_snapshot = source.snapshot_boxed(&all, false, lower).await.map_err(Refusal::Snapshot)?;
-            if final_snapshot.meta().min_slot() != lower || final_snapshot.accounts().len() != all.len()
-                || all.iter().any(|k| !final_snapshot.accounts().contains_key(k)) {
-                return Err(Refusal::Snapshot(SnapshotError::Malformed("reverse request binding")));
+            let final_snapshot = source
+                .snapshot_boxed(&all, false, lower)
+                .await
+                .map_err(Refusal::Snapshot)?;
+            if final_snapshot.meta().min_slot() != lower
+                || final_snapshot.accounts().len() != all.len()
+                || all
+                    .iter()
+                    .any(|k| !final_snapshot.accounts().contains_key(k))
+            {
+                return Err(Refusal::Snapshot(SnapshotError::Malformed(
+                    "reverse request binding",
+                )));
             }
             plan_with_reverse(scope, selected, &final_snapshot.reads())
         }

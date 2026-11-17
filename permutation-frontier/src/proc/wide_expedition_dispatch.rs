@@ -59,7 +59,9 @@ pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         | Kind::SettleCapture
         | Kind::SettleSiege
         | Kind::CloseConquest
-        | Kind::CloseCaptureEscrow => conquest_kind(p, a, wix::WideCommand::decode(command.inner())?),
+        | Kind::CloseCaptureEscrow => {
+            conquest_kind(p, a, wix::WideCommand::decode(command.inner())?)
+        }
         // A new codec, deliberately not a WideCommand: only this route.
         #[cfg(feature = "conquest-dispatch-experimental")]
         Kind::SettleReservation => conquest_settle_exec::settle_reservation_inner(
@@ -80,7 +82,9 @@ fn conquest_kind(p: &Pubkey, a: &[AccountInfo], command: wix::WideCommand<'_>) -
         | wix::WideCommand::SettleCapture(_) => conquest_draft::execute_command(p, a, command),
         wix::WideCommand::SettleSiege(x) => conquest_settle_exec::settle_siege_inner(p, a, &x),
         wix::WideCommand::CloseConquest(x) => conquest_settle_exec::close_conquest_inner(p, a, &x),
-        wix::WideCommand::CloseCaptureEscrow(_) => conquest_settle_exec::close_capture_escrow_inner(p, a),
+        wix::WideCommand::CloseCaptureEscrow(_) => {
+            conquest_settle_exec::close_capture_escrow_inner(p, a)
+        }
         _ => Err(FrontierError::BadData.into()),
     }
 }

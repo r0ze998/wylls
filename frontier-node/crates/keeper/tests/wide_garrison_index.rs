@@ -1,6 +1,6 @@
 //! Literal Garrison observations only: no keys, signing, RPC or dispatch.
 #![cfg(feature = "wide-world-experimental")]
-use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId, event as e};
+use frontier_abi::world_index::{event as e, ProvinceKey, WideCoord, WideHostRef, WorldId};
 use keeper_core::wideindex::{Limits, Scope, WideBatch, WideDiscovery};
 use solana_address::Address;
 

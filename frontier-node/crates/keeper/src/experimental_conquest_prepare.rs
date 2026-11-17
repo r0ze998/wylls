@@ -154,7 +154,10 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, &'static str> {
     if !exact(target, &["site", "entry"]) {
         return Err("RequestInvalid");
     }
-    let site = small(&target["site"], u64::from(fclient::wide_conquest_draft::SITES))?;
+    let site = small(
+        &target["site"],
+        u64::from(fclient::wide_conquest_draft::SITES),
+    )?;
     let entry = small(
         &target["entry"],
         u64::from(fclient::wide_conquest_draft::ENTRIES),
@@ -399,7 +402,8 @@ where
     let report = prepared.report();
     let hash = observed.observation;
     let data = &prepared.instruction().data;
-    Ok(json!({"schema":REPORT_SCHEMA,"status":"prepared","request":r.echo,
+    Ok(
+        json!({"schema":REPORT_SCHEMA,"status":"prepared","request":r.echo,
         "source":{"request_digest":r.source.digest(),"context_slot":context.to_string(),"digest":digest,"coherent":true,"authority_verified":false},
         "blockhash":{"hash":fclient::Hash::new_from_array(hash.blockhash).to_string(),"latest_context_slot":observed.latest_context_slot.to_string(),
             "validity_context_slot":hash.context_slot.to_string(),"height_min_context_slot":observed.height_min_context_slot.to_string(),
@@ -412,5 +416,6 @@ where
             "instruction_hex":hex::encode(data),"message_b64":base64::engine::general_purpose::STANDARD.encode(&message),"message_digest":hex::encode(Sha256::digest(&message)),
             "signers":prepared.expected_signers().iter().map(ToString::to_string).collect::<Vec<_>>(),
             "shape":{"bytes":report.shape.bytes,"locks":report.shape.locks,"writes":report.shape.writes,"sigs":report.shape.sigs}},
-        "blocker":null,"host_only":true,"ready":false,"deployment_verified":false,"admitted":false,"signed":false,"enqueued":false,"relay_submission_available":false,"automatic_send":false}))
+        "blocker":null,"host_only":true,"ready":false,"deployment_verified":false,"admitted":false,"signed":false,"enqueued":false,"relay_submission_available":false,"automatic_send":false}),
+    )
 }

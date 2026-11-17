@@ -407,11 +407,7 @@ mod destination_tests;
 /// The authenticated producer's exact table, staging, receipt and allocator
 /// are retained. Production calls arrive only through the closed expedition
 /// dispatch gate; this forwarding function does not admit any instruction.
-pub(super) fn execute_producer(
-    p: &Pubkey,
-    a: &[AccountInfo],
-    x: &wix::ExpeditionGather,
-) -> R<()> {
+pub(super) fn execute_producer(p: &Pubkey, a: &[AccountInfo], x: &wix::ExpeditionGather) -> R<()> {
     exec::execute(p, a, x)
 }
 

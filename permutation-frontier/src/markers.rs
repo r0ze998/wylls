@@ -74,7 +74,14 @@ mod tests {
         assert_ne!(TRACE, ORACLE);
         let script = include_str!("../../scripts/build-frontier.sh");
         assert_ne!(LOCALNET_EXPEDITION_SBF, LOCALNET_CONQUEST_SBF);
-        for m in [TRACE, ORACLE, TEST_BEACON, CUSTODY_PREVIEW, LOCALNET_EXPEDITION_SBF, LOCALNET_CONQUEST_SBF] {
+        for m in [
+            TRACE,
+            ORACLE,
+            TEST_BEACON,
+            CUSTODY_PREVIEW,
+            LOCALNET_EXPEDITION_SBF,
+            LOCALNET_CONQUEST_SBF,
+        ] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),
                 "build-frontier.sh checks {}",
@@ -91,10 +98,21 @@ mod tests {
     #[test]
     fn the_expedition_artefact_can_never_accept_the_conquest_kinds() {
         let cargo = include_str!("../Cargo.toml");
-        let line = |name: &str| cargo.lines().find(|l| l.starts_with(&format!("{name} = "))).unwrap_or_else(|| panic!("{name} feature"));
-        assert_eq!(line("localnet-expedition-sbf"), r#"localnet-expedition-sbf = ["expedition-dispatch-experimental"]"#);
+        let line = |name: &str| {
+            cargo
+                .lines()
+                .find(|l| l.starts_with(&format!("{name} = ")))
+                .unwrap_or_else(|| panic!("{name} feature"))
+        };
+        assert_eq!(
+            line("localnet-expedition-sbf"),
+            r#"localnet-expedition-sbf = ["expedition-dispatch-experimental"]"#
+        );
         assert!(!line("expedition-dispatch-experimental").contains("conquest"));
-        assert!(line("localnet-conquest-sbf").contains(r#""localnet-expedition-sbf""#) && line("localnet-conquest-sbf").contains(r#""conquest-dispatch-experimental""#));
+        assert!(
+            line("localnet-conquest-sbf").contains(r#""localnet-expedition-sbf""#)
+                && line("localnet-conquest-sbf").contains(r#""conquest-dispatch-experimental""#)
+        );
         let lib = include_str!("lib.rs");
         assert!(lib.contains("feature = \"conquest-dispatch-experimental\",\n    not(feature = \"localnet-conquest-sbf\")"), "SBF guard present");
         let script = include_str!("../../scripts/build-frontier.sh");

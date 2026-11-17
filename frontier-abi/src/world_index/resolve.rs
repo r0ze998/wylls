@@ -1203,7 +1203,10 @@ fn reservation_entry(
         return Ok(None);
     }
     let m = site_mirror(pd, s)?;
-    if m.state != SM2::STATE_FREE_CITY || m.gen != 0 || m.order != 0 || mirror(pd, s)?[SM::FACTION] != NEUTRAL
+    if m.state != SM2::STATE_FREE_CITY
+        || m.gen != 0
+        || m.order != 0
+        || mirror(pd, s)?[SM::FACTION] != NEUTRAL
     {
         return Ok(None);
     }
@@ -1284,7 +1287,9 @@ fn apply_reservations(
             changed = true;
         }
         if conquest.entry(s as u8)?.is_none() {
-            conquest.idle_prefix(s as u8, Record::read(pd, s)?)?.write(pd, s)?;
+            conquest
+                .idle_prefix(s as u8, Record::read(pd, s)?)?
+                .write(pd, s)?;
         }
     }
     Ok((conquest, changed))

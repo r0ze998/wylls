@@ -46,24 +46,26 @@ use fclient::Address;
 use frontier_abi::addr::{host_id, AddrCtx};
 use frontier_abi::bytes::{wr_arr, wr_i16, wr_u16, wr_u32, wr_u64};
 use frontier_abi::entry::{write_entry, Entry, EntryOp};
+use frontier_abi::layout::world::{frontier as FR, ring_seed as RS};
 use frontier_abi::layout::{
     header,
     player::{citizen as C1, holding_ref as HR},
     province::{entry as E, site as SM1},
 };
+use frontier_abi::v2::layout::world::join_shard as JS;
 use frontier_abi::v2::layout::{
     player::{citizen as C, holding as H},
     province::{province as P, site as SM},
     world::season as S,
 };
 use frontier_abi::v2::layout::{write_header, AccountKind as K2};
-use frontier_abi::v2::layout::world::join_shard as JS;
-use frontier_abi::v2::presets::{RULES_VERSION_S1, RULESET_HASH_V3, S1_LOCAL_7D, SEASON_CQ_OFFSET};
-use frontier_abi::layout::world::{frontier as FR, ring_seed as RS};
+use frontier_abi::v2::presets::{RULESET_HASH_V3, RULES_VERSION_S1, S1_LOCAL_7D, SEASON_CQ_OFFSET};
+use frontier_abi::world_index::{
+    expedition::AccountResolver, expedition_dispatch_ix as wire, WideHostRef,
+};
+use localnet::{server, Chain, Config};
 use permutation_rules::frontier::beacon::{genesis_ts as beacon_genesis_ts, BeaconClock};
 use permutation_rules::frontier::geometry::ProvinceCoord;
-use frontier_abi::world_index::{expedition::AccountResolver, expedition_dispatch_ix as wire, WideHostRef};
-use localnet::{server, Chain, Config};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -107,7 +109,13 @@ pub struct Options {
 /// The only keeper value: public drand Quicknet rounds, verified.
 pub const KEEPER_PUBLIC_QUICKNET: &str = "public-quicknet";
 
-const FLAGS: [&str; 5] = ["--artifact", "--artifact-sha256", "--player-wallet", "--rpc-port", "--ws-port"];
+const FLAGS: [&str; 5] = [
+    "--artifact",
+    "--artifact-sha256",
+    "--player-wallet",
+    "--rpc-port",
+    "--ws-port",
+];
 
 /// Exactly the five `--flag value` pairs, each once, any order, and
 /// optionally `--keeper public-quicknet` once.
@@ -126,8 +134,12 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, Str
     }
     let mut wide_destination = false;
     if let Some(i) = args.iter().position(|a| a == "--wide-destination") {
-        if i % 2 != 0 || args.get(i + 1).map(String::as_str) != Some(crate::wide_destination::MODE) {
-            return Err(format!("--wide-destination takes exactly `{}`", crate::wide_destination::MODE));
+        if i % 2 != 0 || args.get(i + 1).map(String::as_str) != Some(crate::wide_destination::MODE)
+        {
+            return Err(format!(
+                "--wide-destination takes exactly `{}`",
+                crate::wide_destination::MODE
+            ));
         }
         args.drain(i..i + 2);
         wide_destination = true;
@@ -136,11 +148,17 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, Str
         }
     }
     if args.len() != FLAGS.len() * 2 {
-        return Err(format!("usage: {}", FLAGS.map(|f| format!("{f} <value>")).join(" ")));
+        return Err(format!(
+            "usage: {}",
+            FLAGS.map(|f| format!("{f} <value>")).join(" ")
+        ));
     }
     let mut values: [Option<&str>; 5] = [None; 5];
     for pair in args.chunks(2) {
-        let i = FLAGS.iter().position(|f| *f == pair[0]).ok_or_else(|| format!("unknown argument {}", pair[0]))?;
+        let i = FLAGS
+            .iter()
+            .position(|f| *f == pair[0])
+            .ok_or_else(|| format!("unknown argument {}", pair[0]))?;
         if values[i].replace(&pair[1]).is_some() {
             return Err(format!("{} given twice", pair[0]));
         }
@@ -151,10 +169,16 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, Str
         return Err("--artifact must be an absolute path".into());
     }
     let sha256 = v(1).to_owned();
-    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return Err("--artifact-sha256 must be 64 lowercase hex characters".into());
     }
-    let player_wallet: Address = v(2).parse().map_err(|_| "--player-wallet is not a public key".to_string())?;
+    let player_wallet: Address = v(2)
+        .parse()
+        .map_err(|_| "--player-wallet is not a public key".to_string())?;
     if player_wallet.to_string() != v(2) {
         return Err("--player-wallet is not a canonical public key".into());
     }
@@ -168,7 +192,15 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, Str
     };
     let (rpc_port, ws_port) = (port(3, "--rpc-port")?, port(4, "--ws-port")?);
     check_ports(rpc_port, ws_port)?;
-    Ok(Options { artifact, sha256, player_wallet, rpc_port, ws_port, keeper, wide_destination })
+    Ok(Options {
+        artifact,
+        sha256,
+        player_wallet,
+        rpc_port,
+        ws_port,
+        keeper,
+        wide_destination,
+    })
 }
 
 /// Explicit, distinct, free loopback ports in 41000–41999, never 41970 or a
@@ -180,7 +212,9 @@ pub fn check_ports(rpc: u16, ws: u16) -> Result<(), String> {
             return Err("ports must be explicit (not 0)".into());
         }
         if p == REFUSED_PORT {
-            return Err(format!("port {REFUSED_PORT} belongs to the usual stack; refused"));
+            return Err(format!(
+                "port {REFUSED_PORT} belongs to the usual stack; refused"
+            ));
         }
         server::check_port(p)?;
     }
@@ -194,7 +228,10 @@ pub fn check_ports(rpc: u16, ws: u16) -> Result<(), String> {
 /// not the dedicated program, not the program's Season.
 pub fn check_wallet(w: &Address) -> Result<(), String> {
     let program = Address::new_from_array(PROGRAM);
-    if *w == Address::default() || *w == program || *w == fclient::addr::season_pda(&program, SEASON_ID).0 {
+    if *w == Address::default()
+        || *w == program
+        || *w == fclient::addr::season_pda(&program, SEASON_ID).0
+    {
         return Err("--player-wallet is not a usable public key".into());
     }
     Ok(())
@@ -227,12 +264,18 @@ pub fn inspect(path: PathBuf, bytes: Vec<u8>, expected_sha: &str) -> Result<Arti
     }
     let sha256 = hex::encode(Sha256::digest(&bytes));
     if sha256 != expected_sha {
-        return Err(format!("the artifact's SHA-256 is {sha256}, not the expected {expected_sha}"));
+        return Err(format!(
+            "the artifact's SHA-256 is {sha256}, not the expected {expected_sha}"
+        ));
     }
     if !bytes.windows(MARKER.len()).any(|w| w == MARKER) {
         return Err("the marker PSF_LOCALNET_EXPEDITION_SBF_BUILD is not in the artifact".into());
     }
-    Ok(Artifact { path, bytes, sha256 })
+    Ok(Artifact {
+        path,
+        bytes,
+        sha256,
+    })
 }
 
 pub fn read_artifact(o: &Options) -> Result<Artifact, String> {
@@ -282,7 +325,10 @@ fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
     let p = S1_LOCAL_7D.base;
     let mut cq = S1_LOCAL_7D.cq;
     cq.r_max_ceiling = 0;
-    let clock = BeaconClock { genesis: p.drand_genesis, period: p.drand_period as i64 };
+    let clock = BeaconClock {
+        genesis: p.drand_genesis,
+        period: p.drand_period as i64,
+    };
     let target = now - INTO_SEASON;
     // round_time(r) = genesis + (r - 1) * period; genesis_ts = round_time + 600
     let r = ((target - 600 - p.drand_genesis) / p.drand_period as i64 + 1).max(1) as u64;
@@ -310,7 +356,11 @@ fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
     assert!(wr_arr(&mut s, S::CREATED_TS, &genesis_ts.to_le_bytes()));
     w32(&mut s, S::JOIN_CLOSE_BELL, p.join_close_bell);
     w32(&mut s, S::END_BELL, p.end_bell);
-    assert!(wr_arr(&mut s, S::DRAND_GENESIS, &p.drand_genesis.to_le_bytes()));
+    assert!(wr_arr(
+        &mut s,
+        S::DRAND_GENESIS,
+        &p.drand_genesis.to_le_bytes()
+    ));
     w32(&mut s, S::DRAND_PERIOD, p.drand_period);
     s[S::NETWORK] = p.network;
     assert!(wr_arr(&mut s, S::QUICKNET_PK_HASH, &p.quicknet_pk_hash));
@@ -325,7 +375,11 @@ fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
     s[S::TRANSIT_SLOTS] = p.transit_slots;
     assert!(wr_u64(&mut s, S::MARCH_FEE, p.march_fee));
     assert!(wr_u64(&mut s, S::SEAL_BOND, p.seal_bond));
-    w32(&mut s, S::MIN_REVEAL_PRIORITY_MILLI, p.min_reveal_priority_milli);
+    w32(
+        &mut s,
+        S::MIN_REVEAL_PRIORITY_MILLI,
+        p.min_reveal_priority_milli,
+    );
     w32(&mut s, S::REVEAL_CU_LIMIT, p.reveal_cu_limit);
     assert!(wr_u16(&mut s, S::BUCKET_RATE_PER_H, p.bucket_rate_per_h));
     assert!(wr_u16(&mut s, S::BUCKET_BURST, p.bucket_burst));
@@ -369,7 +423,10 @@ impl Base {
     pub fn new(now: i64) -> Result<Base, String> {
         let program = Address::new_from_array(PROGRAM);
         let (season, bump) = fclient::addr::season_pda(&program, SEASON_ID);
-        let ctx = AddrCtx { program: PROGRAM, season: season.to_bytes() };
+        let ctx = AddrCtx {
+            program: PROGRAM,
+            season: season.to_bytes(),
+        };
         let (s, genesis_ts, genesis_round) = season_bytes(bump, now)?;
         let coord = ProvinceCoord::new(128, 0);
         let ring = coord.ring() as u16;
@@ -396,15 +453,34 @@ impl Base {
         let ring_seed = Address::new_from_array(ctx.ring_seed(ring));
         let fund_key = Address::new_from_array(ctx.province_fund(wedge));
         Ok(Base {
-            season, frontier, ring_seed, fund: fund_key, home_ring: ring, genesis_ts, genesis_round,
-            accounts: vec![(season, s, FIXTURE_LAMPORTS), (frontier, fr, FIXTURE_LAMPORTS), (ring_seed, rs, FIXTURE_LAMPORTS), (fund_key, fund, FUND_LAMPORTS)],
+            season,
+            frontier,
+            ring_seed,
+            fund: fund_key,
+            home_ring: ring,
+            genesis_ts,
+            genesis_round,
+            accounts: vec![
+                (season, s, FIXTURE_LAMPORTS),
+                (frontier, fr, FIXTURE_LAMPORTS),
+                (ring_seed, rs, FIXTURE_LAMPORTS),
+                (fund_key, fund, FUND_LAMPORTS),
+            ],
         })
     }
 
     /// Writes the base accounts, owned by the dedicated program.
     pub fn install(&self, c: &mut Chain) -> Result<(), String> {
         for (key, data, lamports) in &self.accounts {
-            c.set_account(*key, Account { lamports: *lamports, data: data.clone(), owner: Address::new_from_array(PROGRAM), executable: false })?;
+            c.set_account(
+                *key,
+                Account {
+                    lamports: *lamports,
+                    data: data.clone(),
+                    owner: Address::new_from_array(PROGRAM),
+                    executable: false,
+                },
+            )?;
         }
         Ok(())
     }
@@ -413,12 +489,22 @@ impl Base {
     /// `authority` (an in-memory test key's public key) as its authority.
     pub fn set_authority(&mut self, authority: &Address) {
         let season = self.season;
-        let s = &mut self.accounts.iter_mut().find(|(k, _, _)| *k == season).expect("the Season").1;
+        let s = &mut self
+            .accounts
+            .iter_mut()
+            .find(|(k, _, _)| *k == season)
+            .expect("the Season")
+            .1;
         assert!(wr_arr(s, S::AUTHORITY, &authority.to_bytes()));
     }
 
     fn data(&self, key: &Address) -> &[u8] {
-        &self.accounts.iter().find(|(k, _, _)| k == key).expect("a base account").1
+        &self
+            .accounts
+            .iter()
+            .find(|(k, _, _)| k == key)
+            .expect("a base account")
+            .1
     }
 }
 
@@ -433,19 +519,42 @@ pub fn open_home(c: &mut Chain) -> Result<(Vec<u8>, String), String> {
     c.airdrop(&fclient::Signer::pubkey(&payer), 10_000_000_000)?;
     c.produce_block();
     let program = Address::new_from_array(PROGRAM);
-    let ix = fclient::ix::open_province(&fclient::addr::Addresses::new(program, SEASON_ID), fclient::Signer::pubkey(&payer), 128, 0);
-    let budget = fclient::tx::TxBudget { cu_limit: 1_400_000, cu_price: 0, loaded_limit: fclient::fees::RUNTIME_MAX_LOADED, heap: Some(256 * 1024) };
+    let ix = fclient::ix::open_province(
+        &fclient::addr::Addresses::new(program, SEASON_ID),
+        fclient::Signer::pubkey(&payer),
+        128,
+        0,
+    );
+    let budget = fclient::tx::TxBudget {
+        cu_limit: 1_400_000,
+        cu_price: 0,
+        loaded_limit: fclient::fees::RUNTIME_MAX_LOADED,
+        heap: Some(256 * 1024),
+    };
     let (blockhash, _) = c.latest_blockhash();
     let t = fclient::tx::build(&[ix], &budget, &[&payer], &blockhash)?;
-    let sig = c.submit(&fclient::tx::wire(&t)).map_err(|e| format!("OpenProvince refused before landing: {e}"))?;
+    let sig = c
+        .submit(&fclient::tx::wire(&t))
+        .map_err(|e| format!("OpenProvince refused before landing: {e}"))?;
     c.produce_block();
-    let landed = c.transaction(&sig).cloned().ok_or("OpenProvince did not land")?;
+    let landed = c
+        .transaction(&sig)
+        .cloned()
+        .ok_or("OpenProvince did not land")?;
     if let Some(err) = landed.err {
         let tail: Vec<_> = landed.logs.iter().rev().take(6).rev().cloned().collect();
-        return Err(format!("OpenProvince failed: {err} (code {:?}) {tail:?}", landed.code));
+        return Err(format!(
+            "OpenProvince failed: {err} (code {:?}) {tail:?}",
+            landed.code
+        ));
     }
-    let ctx = AddrCtx { program: PROGRAM, season: fclient::addr::season_pda(&program, SEASON_ID).0.to_bytes() };
-    let home = c.account(&Address::new_from_array(ctx.province(128, 0))).ok_or("no Province after OpenProvince")?;
+    let ctx = AddrCtx {
+        program: PROGRAM,
+        season: fclient::addr::season_pda(&program, SEASON_ID).0.to_bytes(),
+    };
+    let home = c
+        .account(&Address::new_from_array(ctx.province(128, 0)))
+        .ok_or("no Province after OpenProvince")?;
     Ok((home.data, sig.to_string()))
 }
 
@@ -459,9 +568,13 @@ impl Fixture {
     /// stay exactly the program's.
     pub fn new(wallet: &Address, base: &Base, opened: &[u8]) -> Result<Fixture, String> {
         let program = Address::new_from_array(PROGRAM);
-        let ctx = AddrCtx { program: PROGRAM, season: base.season.to_bytes() };
+        let ctx = AddrCtx {
+            program: PROGRAM,
+            season: base.season.to_bytes(),
+        };
         let resolver = AccountResolver::for_season(&ctx).map_err(|e| format!("resolver: {e:?}"))?;
-        let pv = fclient::decode::Province::decode(opened).map_err(|e| format!("opened Province: {e:?}"))?;
+        let pv = fclient::decode::Province::decode(opened)
+            .map_err(|e| format!("opened Province: {e:?}"))?;
         if (pv.p, pv.q) != (128, 0) {
             return Err("opened Province is not (128, 0)".into());
         }
@@ -471,7 +584,9 @@ impl Fixture {
         let tile = pv.sites[site as usize];
         let gen = 2u8;
         let id = host_id(128, 0, site, gen, 0).ok_or("host id")?;
-        let host = resolver.legacy_host_ref(id).map_err(|e| format!("host: {e:?}"))?;
+        let host = resolver
+            .legacy_host_ref(id)
+            .map_err(|e| format!("host: {e:?}"))?;
         let citizen = Address::new_from_array(ctx.citizen(&wallet.to_bytes()));
 
         let mut h = header_bytes(H::SIZE, H::MAGIC);
@@ -531,7 +646,11 @@ impl Fixture {
         // `validate_inventory`) see the identifier a real Join leaves.
         let mut cd = header_bytes(C::SIZE, C::MAGIC);
         assert!(wr_arr(&mut cd, C::WALLET, &wallet.to_bytes()));
-        assert!(wr_u64(&mut cd, C::CITIZEN_TAG, frontier_abi::addr::citizen_tag(&citizen.to_bytes())));
+        assert!(wr_u64(
+            &mut cd,
+            C::CITIZEN_TAG,
+            frontier_abi::addr::citizen_tag(&citizen.to_bytes())
+        ));
         // Join also records the wallet's join shard (`addr::join_shard_of`), and
         // InitShards + Join + PlaceHome (+ finality) leave that faction shard's
         // JoinShard counting this one member and its one final home Holding.
@@ -543,8 +662,15 @@ impl Fixture {
         let mut js = header_bytes(JS::SIZE, JS::MAGIC);
         js[JS::FACTION] = FACTION;
         js[JS::SHARD] = shard;
-        let wedge = permutation_rules::frontier::geometry::ProvinceCoord::new(128, 0).wedge().unwrap_or(0) as usize;
-        for off in [JS::MEMBERS, JS::HOLDINGS, JS::FINAL_HOLDINGS, JS::HOLDINGS_BY_WEDGE + 4 * wedge] {
+        let wedge = permutation_rules::frontier::geometry::ProvinceCoord::new(128, 0)
+            .wedge()
+            .unwrap_or(0) as usize;
+        for off in [
+            JS::MEMBERS,
+            JS::HOLDINGS,
+            JS::FINAL_HOLDINGS,
+            JS::HOLDINGS_BY_WEDGE + 4 * wedge,
+        ] {
             assert!(wr_u32(&mut js, off, 1));
         }
         assert!(wr_u32(&mut cd, C1::BUCKET_MILLI, 5_000));
@@ -562,8 +688,16 @@ impl Fixture {
         cd[slot + HR::SITE] = site;
         cd[slot + HR::GEN] = gen;
 
-        let holding = Address::new_from_array(resolver.holding_address(&host).map_err(|e| format!("holding: {e:?}"))?);
-        let home_key = Address::new_from_array(resolver.province_address(host.key()).map_err(|e| format!("province: {e:?}"))?);
+        let holding = Address::new_from_array(
+            resolver
+                .holding_address(&host)
+                .map_err(|e| format!("holding: {e:?}"))?,
+        );
+        let home_key = Address::new_from_array(
+            resolver
+                .province_address(host.key())
+                .map_err(|e| format!("province: {e:?}"))?,
+        );
         let _ = program;
         Ok(Fixture {
             season: base.season,
@@ -595,10 +729,18 @@ impl Fixture {
     /// stay as the base and the program left them).
     pub fn install(&self, c: &mut Chain) -> Result<(), String> {
         for (key, data) in self.accounts[1..4].iter().chain(self.accounts[6..].iter()) {
-            let a = Account { lamports: FIXTURE_LAMPORTS, data: data.clone(), owner: Address::new_from_array(PROGRAM), executable: false };
+            let a = Account {
+                lamports: FIXTURE_LAMPORTS,
+                data: data.clone(),
+                owner: Address::new_from_array(PROGRAM),
+                executable: false,
+            };
             let a = match c.account(key) {
                 // the home keeps the lamports the program funded it with
-                Some(old) if *key == self.home => Account { lamports: old.lamports, ..a },
+                Some(old) if *key == self.home => Account {
+                    lamports: old.lamports,
+                    ..a
+                },
                 _ => a,
             };
             c.set_account(*key, a)?;
@@ -628,29 +770,56 @@ fn max_len(len: usize) -> usize {
 /// Starts the node, after the same port and wallet checks as the command
 /// line (explicit, distinct, free, 41000–41999, never 41970; a usable public
 /// key), whoever calls it.
-pub async fn launch(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16) -> Result<Play, String> {
+pub async fn launch(
+    artifact: &Artifact,
+    wallet: Address,
+    rpc_port: u16,
+    ws_port: u16,
+) -> Result<Play, String> {
     launch_with(artifact, wallet, rpc_port, ws_port, false).await
 }
 
 /// As [`launch`]; `keeper` only states in the metadata that the caller will
 /// run the opt-in keeper loop on this node (it is started by the binary).
-pub async fn launch_with(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16, keeper: bool) -> Result<Play, String> {
+pub async fn launch_with(
+    artifact: &Artifact,
+    wallet: Address,
+    rpc_port: u16,
+    ws_port: u16,
+    keeper: bool,
+) -> Result<Play, String> {
     launch_full(artifact, wallet, rpc_port, ws_port, keeper, false).await
 }
 
 /// [`launch_with`], optionally with the wide-destination fixture: the
 /// SYNTHETIC Season authority and requested ring-129 record are installed
 /// at bootstrap; the REAL instructions run later (`wide_destination::run`).
-pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16, keeper: bool, wide: bool) -> Result<Play, String> {
+pub async fn launch_full(
+    artifact: &Artifact,
+    wallet: Address,
+    rpc_port: u16,
+    ws_port: u16,
+    keeper: bool,
+    wide: bool,
+) -> Result<Play, String> {
     check_ports(rpc_port, ws_port)?;
     check_wallet(&wallet)?;
     if localnet::bls_and_sbpf_v2_active() != (true, true) {
         return Err("the node's feature set lacks the BLS12-381 syscalls or SBPF v2".into());
     }
-    let cfg = Config { allow_tamper: false, data_dir: None, ..Config::default() };
+    let cfg = Config {
+        allow_tamper: false,
+        data_dir: None,
+        ..Config::default()
+    };
     let mut c = Chain::new(cfg);
     let program = Address::new_from_array(PROGRAM);
-    c.deploy(program, &artifact.bytes, max_len(artifact.bytes.len()), None)?;
+    c.deploy(
+        program,
+        &artifact.bytes,
+        max_len(artifact.bytes.len()),
+        None,
+    )?;
     c.airdrop(&wallet, PLAYER_LAMPORTS)?;
     c.produce_block();
     let mut base = Base::new(c.unix_timestamp())?;
@@ -669,13 +838,32 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
             let now = c.unix_timestamp();
             let season_bytes = c.account(&base.season).ok_or("no Season")?.data;
             let legacy = c.account(&base.ring_seed).ok_or("no ring-128 seed")?.data;
-            let (key, data, round) = crate::wide_destination::requested_ring_seed(&base.season, &season_bytes, &legacy, now, &fclient::Signer::pubkey(&k))?;
+            let (key, data, round) = crate::wide_destination::requested_ring_seed(
+                &base.season,
+                &season_bytes,
+                &legacy,
+                now,
+                &fclient::Signer::pubkey(&k),
+            )?;
             if c.account(&key).is_some() {
                 return Err("the ring-129 seed already exists".into());
             }
-            c.set_account(key, Account { lamports: FIXTURE_LAMPORTS, data, owner: program, executable: false })?;
+            c.set_account(
+                key,
+                Account {
+                    lamports: FIXTURE_LAMPORTS,
+                    data,
+                    owner: program,
+                    executable: false,
+                },
+            )?;
             c.produce_block();
-            Some(crate::wide_destination::Plan::new(k, base.season, round, now))
+            Some(crate::wide_destination::Plan::new(
+                k,
+                base.season,
+                round,
+                now,
+            ))
         }
         None => None,
     };
@@ -685,7 +873,8 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
     // `getSignatureStatuses` context.instance
     let runner_instance = hex::encode(c.status_instance());
     let state = Arc::new(Mutex::new(c));
-    let running = server::start_with_policy(state, rpc_port, ws_port, server::Policy::MEMORY_ONLY).await?;
+    let running =
+        server::start_with_policy(state, rpc_port, ws_port, server::Policy::MEMORY_ONLY).await?;
     let metadata = json!({
         "schema": SCHEMA,
         "rpc_url": running.url(),
@@ -731,7 +920,12 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
         "services_not_started": if keeper { json!(["herald", "gateway", "relay", "the Reveal (the player's own transaction)", "terminal settlements other than the member path"]) } else { json!(["keeper", "herald", "gateway", "relay", "beacon"]) },
     });
     let fixture = fixture;
-    Ok(Play { running, metadata, fixture, wide: wide_plan })
+    Ok(Play {
+        running,
+        metadata,
+        fixture,
+        wide: wide_plan,
+    })
 }
 
 #[cfg(test)]
@@ -740,11 +934,16 @@ mod tests {
 
     fn args(rpc: &str, ws: &str) -> Vec<String> {
         [
-            "--artifact", "/tmp/x.so",
-            "--artifact-sha256", &"ab".repeat(32),
-            "--player-wallet", &Address::new_from_array([7; 32]).to_string(),
-            "--rpc-port", rpc,
-            "--ws-port", ws,
+            "--artifact",
+            "/tmp/x.so",
+            "--artifact-sha256",
+            &"ab".repeat(32),
+            "--player-wallet",
+            &Address::new_from_array([7; 32]).to_string(),
+            "--rpc-port",
+            rpc,
+            "--ws-port",
+            ws,
         ]
         .map(String::from)
         .to_vec()
@@ -753,28 +952,57 @@ mod tests {
     /// while it checks), or `None` if every candidate is taken.
     /// Each test scans its own band so parallel tests never race for a port.
     fn free_port_in(from: u16) -> Option<u16> {
-        (from..from + 15).filter(|p| *p != REFUSED_PORT).find(|p| server::check_port(*p).is_ok())
+        (from..from + 15)
+            .filter(|p| *p != REFUSED_PORT)
+            .find(|p| server::check_port(*p).is_ok())
     }
     fn free_port() -> Option<u16> {
         free_port_in(41_900)
     }
     /// The next free port in the same band as `p`.
     fn free_after(p: u16) -> u16 {
-        (p + 1..p + 15).find(|x| *x != REFUSED_PORT && server::check_port(*x).is_ok()).unwrap()
+        (p + 1..p + 15)
+            .find(|x| *x != REFUSED_PORT && server::check_port(*x).is_ok())
+            .unwrap()
     }
 
     #[test]
     fn the_wide_destination_flag_is_opt_in_and_exact() {
-        let Some(p) = free_port_in(41_915) else { return };
+        let Some(p) = free_port_in(41_915) else {
+            return;
+        };
         let q = free_after(p);
         let base = args(&p.to_string(), &q.to_string());
-        assert!(!parse_args(base.clone()).unwrap().wide_destination, "off by default");
-        let with = |extra: &[&str]| { let mut v = base.clone(); v.extend(extra.iter().map(|s| s.to_string())); parse_args(v) };
-        assert!(with(&["--wide-destination", "public-quicknet"]).unwrap().wide_destination);
+        assert!(
+            !parse_args(base.clone()).unwrap().wide_destination,
+            "off by default"
+        );
+        let with = |extra: &[&str]| {
+            let mut v = base.clone();
+            v.extend(extra.iter().map(|s| s.to_string()));
+            parse_args(v)
+        };
+        assert!(
+            with(&["--wide-destination", "public-quicknet"])
+                .unwrap()
+                .wide_destination
+        );
         assert!(with(&["--wide-destination", "other"]).is_err());
         assert!(with(&["--wide-destination"]).is_err());
-        assert!(with(&["--wide-destination", "public-quicknet", "--wide-destination", "public-quicknet"]).is_err());
-        let both = with(&["--keeper", "public-quicknet", "--wide-destination", "public-quicknet"]).unwrap();
+        assert!(with(&[
+            "--wide-destination",
+            "public-quicknet",
+            "--wide-destination",
+            "public-quicknet"
+        ])
+        .is_err());
+        let both = with(&[
+            "--keeper",
+            "public-quicknet",
+            "--wide-destination",
+            "public-quicknet",
+        ])
+        .unwrap();
         assert!(both.keeper && both.wide_destination);
     }
 
@@ -837,7 +1065,10 @@ mod tests {
         let sha = hex::encode(Sha256::digest(&elf));
         let a = inspect("/a".into(), elf, &sha).unwrap();
         let w = Address::new_from_array([7; 32]);
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         for (rpc, ws, wallet) in [
             (REFUSED_PORT, q, w),
             (p, REFUSED_PORT, w),
@@ -868,7 +1099,12 @@ mod tests {
         assert!(inspect("/a".into(), v1.clone(), &hex::encode(Sha256::digest(&v1))).is_err());
         let mut unmarked = elf.clone();
         unmarked[64] ^= 1;
-        assert!(inspect("/a".into(), unmarked.clone(), &hex::encode(Sha256::digest(&unmarked))).is_err());
+        assert!(inspect(
+            "/a".into(),
+            unmarked.clone(),
+            &hex::encode(Sha256::digest(&unmarked))
+        )
+        .is_err());
         assert!(inspect("/a".into(), vec![1; 128], &sha).is_err());
     }
 
@@ -889,62 +1125,131 @@ mod tests {
         let citizen = &f.accounts[1].1;
         assert_eq!(&citizen[C::WALLET..C::WALLET + 32], wallet.as_ref());
         let h = &f.accounts[2].1;
-        assert_eq!(&h[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32], f.citizen.as_ref());
-        assert_eq!((h[H::SITE], h[H::TILE]), (1, 33), "the holding sits on the site's real tile");
+        assert_eq!(
+            &h[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32],
+            f.citizen.as_ref()
+        );
+        assert_eq!(
+            (h[H::SITE], h[H::TILE]),
+            (1, 33),
+            "the holding sits on the site's real tile"
+        );
         // the rent payer is the fresh funding wallet, never zero (= the
         // executable System Program, refused by every refund to it)
         assert_eq!(&h[H::RENT_PAYER..H::RENT_PAYER + 32], f.rent_payer.as_ref());
         assert_ne!(f.rent_payer, Address::new_from_array([0; 32]));
         assert_ne!(f.rent_payer, wallet);
-        assert_ne!(Fixture::new(&wallet, &base, &opened).unwrap().rent_payer, f.rent_payer, "fresh per fixture");
+        assert_ne!(
+            Fixture::new(&wallet, &base, &opened).unwrap().rent_payer,
+            f.rent_payer,
+            "fresh per fixture"
+        );
         let home = &f.accounts[3].1;
-        assert_eq!((home[P::site(1) + SM::STATE], home[P::site(1) + SM::GEN]), (SM1::STATE_HOLDING, 2));
+        assert_eq!(
+            (home[P::site(1) + SM::STATE], home[P::site(1) + SM::GEN]),
+            (SM1::STATE_HOLDING, 2)
+        );
         // a NEUTRAL faction left by OpenProvince on the free site becomes the owner's 0
         let mut neutral = opened.clone();
         neutral[P::site(1) + SM::FACTION] = 0xff;
         let g = Fixture::new(&wallet, &base, &neutral).unwrap();
-        assert_eq!((g.accounts[3].1[P::site(1) + SM::FACTION], g.accounts[3].1[P::site(1) + SM::ORDER]), (0, 1));
+        assert_eq!(
+            (
+                g.accounts[3].1[P::site(1) + SM::FACTION],
+                g.accounts[3].1[P::site(1) + SM::ORDER]
+            ),
+            (0, 1)
+        );
         // the Citizen is in the resident poststate of Join + PlaceHome, so a
         // reader gating on it (web/frontier/fland.mjs landState) sees a FINAL
         // first holding, not an open ticket
-        assert_eq!(citizen[C::FLAGS], C::FLAG_JOINED | C::FLAG_FIRST_HOLDING_FINAL | C::FLAG_HOME_GRANTED);
-        assert_eq!(citizen[C::FLAGS] & (C::FLAG_PROVISIONAL | C::FLAG_REFUGEE), 0);
+        assert_eq!(
+            citizen[C::FLAGS],
+            C::FLAG_JOINED | C::FLAG_FIRST_HOLDING_FINAL | C::FLAG_HOME_GRANTED
+        );
+        assert_eq!(
+            citizen[C::FLAGS] & (C::FLAG_PROVISIONAL | C::FLAG_REFUGEE),
+            0
+        );
         assert_eq!(citizen[C::HOLDINGS_N], 1);
-        assert_eq!(u32::from_le_bytes(citizen[C::TICKET_BELL..C::TICKET_BELL + 4].try_into().unwrap()), C::NO_TICKET);
+        assert_eq!(
+            u32::from_le_bytes(
+                citizen[C::TICKET_BELL..C::TICKET_BELL + 4]
+                    .try_into()
+                    .unwrap()
+            ),
+            C::NO_TICKET
+        );
         let s1 = C::holding_of_slot(1);
-        assert_eq!((i16::from_le_bytes([citizen[s1 + HR::P], citizen[s1 + HR::P + 1]]), citizen[s1 + HR::SITE], citizen[s1 + HR::GEN]), (128, 1, 2));
+        assert_eq!(
+            (
+                i16::from_le_bytes([citizen[s1 + HR::P], citizen[s1 + HR::P + 1]]),
+                citizen[s1 + HR::SITE],
+                citizen[s1 + HR::GEN]
+            ),
+            (128, 1, 2)
+        );
         for unused in 2..=3u8 {
             let o = C::holding_of_slot(unused);
-            assert_eq!(citizen[o + HR::GEN], C::EMPTY_GEN, "slot {unused} is empty (gen 0xFF), not gen 0");
+            assert_eq!(
+                citizen[o + HR::GEN],
+                C::EMPTY_GEN,
+                "slot {unused} is empty (gen 0xFF), not gen 0"
+            );
             assert!(citizen[o..o + HR::GEN].iter().all(|&b| b == 0));
         }
         // one faction across the Citizen, the Holding, the mirror and the roster
-        assert_eq!((citizen[C::FACTION], h[H::FACTION], home[P::site(1) + SM::FACTION]), (FACTION, FACTION, FACTION));
-        assert_eq!(u32::from_le_bytes(h[H::TICKET_BELL..H::TICKET_BELL + 4].try_into().unwrap()), C::NO_TICKET);
+        assert_eq!(
+            (
+                citizen[C::FACTION],
+                h[H::FACTION],
+                home[P::site(1) + SM::FACTION]
+            ),
+            (FACTION, FACTION, FACTION)
+        );
+        assert_eq!(
+            u32::from_le_bytes(h[H::TICKET_BELL..H::TICKET_BELL + 4].try_into().unwrap()),
+            C::NO_TICKET
+        );
         let e = frontier_abi::entry::read_entry(home, 0).unwrap();
         assert_eq!(e.faction, FACTION);
         assert_eq!((e.tile, e.troops), (33, 12_000));
         let s = fclient::decode::Season::decode(&f.accounts[0].1).unwrap();
         assert_eq!(s.program_version, PROGRAM_VERSION);
         assert_eq!(s.ruleset_hash, RULESET_HASH_V3);
-        assert_eq!(f.season, fclient::addr::season_pda(&Address::new_from_array(PROGRAM), SEASON_ID).0);
+        assert_eq!(
+            f.season,
+            fclient::addr::season_pda(&Address::new_from_array(PROGRAM), SEASON_ID).0
+        );
         // a real Quicknet beacon, as the browser's seal pin checks it
         let q = fclient::beacon::quicknet_info();
         assert_eq!(f.accounts[0].1[S::NETWORK], S::NETWORK_QUICKNET);
-        assert_eq!(s.quicknet_pk_hash, <[u8; 32]>::from(Sha256::digest(q.public_key)));
-        assert_eq!((s.drand_genesis, s.drand_period as u64), (q.genesis_time as i64, q.period as u64));
+        assert_eq!(
+            s.quicknet_pk_hash,
+            <[u8; 32]>::from(Sha256::digest(q.public_key))
+        );
+        assert_eq!(
+            (s.drand_genesis, s.drand_period as u64),
+            (q.genesis_time as i64, q.period as u64)
+        );
         assert!(s.seed_margin > 0 && s.reveal_window > 0);
         assert_eq!(s.r_max, 128);
-        assert_eq!(fclient::clock::SeasonClock::from_season(&s).bell_at(1_785_600_000), Some(10));
+        assert_eq!(
+            fclient::clock::SeasonClock::from_season(&s).bell_at(1_785_600_000),
+            Some(10)
+        );
         let fr = fclient::decode::Frontier::decode(&f.accounts[4].1).unwrap();
         assert_eq!((fr.rings_opened, f.home_ring), (129, 128));
         assert_eq!(f.accounts[5].1[RS::STATUS], RS::STATUS_SEEDED);
-        assert_eq!(&f.accounts[5].1[RS::SEED..RS::SEED + 32], &[0u8; 32], "a zero seed, not a beacon value");
+        assert_eq!(
+            &f.accounts[5].1[RS::SEED..RS::SEED + 32],
+            &[0u8; 32],
+            "a zero seed, not a beacon value"
+        );
         // no free site: refused
         opened[P::site(1) + SM::STATE] = SM1::STATE_HOLDING;
         assert!(Fixture::new(&wallet, &base, &opened).is_err());
     }
-
 
     /// With the real artifact (`WYLLS_EXPEDITION_SBF` = absolute path,
     /// `WYLLS_EXPEDITION_SBF_SHA256` = its digest): start on two free loopback
@@ -956,27 +1261,54 @@ mod tests {
         let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
         let path = PathBuf::from(need("WYLLS_EXPEDITION_SBF"));
         assert!(path.is_absolute());
-        let artifact = inspect(path.clone(), std::fs::read(&path).unwrap(), &need("WYLLS_EXPEDITION_SBF_SHA256")).unwrap();
+        let artifact = inspect(
+            path.clone(),
+            std::fs::read(&path).unwrap(),
+            &need("WYLLS_EXPEDITION_SBF_SHA256"),
+        )
+        .unwrap();
         let wallet = Address::new_from_array([7; 32]);
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
             let p = free_port_in(41_955).expect("a free port in 41955-41969");
             let q = free_after(p);
             let play = launch(&artifact, wallet, p, q).await.unwrap();
-            assert_eq!((play.running.addr.port(), play.running.ws_addr.port()), (p, q));
+            assert_eq!(
+                (play.running.addr.port(), play.running.ws_addr.port()),
+                (p, q)
+            );
             let addr = play.running.addr;
             assert!(addr.ip().is_loopback() && play.running.ws_addr.ip().is_loopback());
             let rpc = fclient::rpc::RpcClient::new(play.running.url());
-            let program = rpc.call("getAccountInfo", json!([Address::new_from_array(PROGRAM).to_string(), {"encoding": "base64"}])).await.unwrap();
+            let program = rpc
+                .call(
+                    "getAccountInfo",
+                    json!([Address::new_from_array(PROGRAM).to_string(), {"encoding": "base64"}]),
+                )
+                .await
+                .unwrap();
             assert_eq!(program["value"]["executable"], true, "{program}");
             let season = play.metadata["season"].as_str().unwrap().to_owned();
-            let s = rpc.call("getAccountInfo", json!([season, {"encoding": "base64"}])).await.unwrap();
-            assert_eq!(s["value"]["owner"], Address::new_from_array(PROGRAM).to_string());
-            let bal = rpc.call("getBalance", json!([wallet.to_string()])).await.unwrap();
+            let s = rpc
+                .call("getAccountInfo", json!([season, {"encoding": "base64"}]))
+                .await
+                .unwrap();
+            assert_eq!(
+                s["value"]["owner"],
+                Address::new_from_array(PROGRAM).to_string()
+            );
+            let bal = rpc
+                .call("getBalance", json!([wallet.to_string()]))
+                .await
+                .unwrap();
             assert_eq!(bal["value"], PLAYER_LAMPORTS);
             // tamper, snapshot-to-path and restore are refused by the policy,
             // with no file written and the Season account unchanged
-            let path = std::env::temp_dir().join(format!("expedition-play-never-{}.snap", std::process::id()));
+            let path = std::env::temp_dir()
+                .join(format!("expedition-play-never-{}.snap", std::process::id()));
             for (method, params) in [
                 ("frontier_setAccount", json!([season, null])),
                 ("frontier_snapshot", json!([path.to_str().unwrap()])),
@@ -988,13 +1320,19 @@ mod tests {
             assert!(!path.exists());
             // (the slot ticker keeps running, so the whole-state hash moves;
             // the refused targets' accounts are compared instead)
-            let s2 = rpc.call("getAccountInfo", json!([season, {"encoding": "base64"}])).await.unwrap();
+            let s2 = rpc
+                .call("getAccountInfo", json!([season, {"encoding": "base64"}]))
+                .await
+                .unwrap();
             assert_eq!(s2["value"]["data"], s["value"]["data"]);
             assert_eq!(play.metadata["tamper_rpc"], false);
             assert_eq!(play.metadata["automatic_send"], false);
             play.running.stop();
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            assert!(tokio::net::TcpStream::connect(addr).await.is_err(), "the RPC port is released");
+            assert!(
+                tokio::net::TcpStream::connect(addr).await.is_err(),
+                "the RPC port is released"
+            );
         });
     }
 }
@@ -1019,13 +1357,25 @@ mod real_depart {
     fn the_new_first_world_takes_a_real_signed_depart_with_a_real_wide_seal() {
         let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
         let path = PathBuf::from(need("WYLLS_EXPEDITION_SBF"));
-        let artifact = inspect(path.clone(), std::fs::read(&path).unwrap(), &need("WYLLS_EXPEDITION_SBF_SHA256")).unwrap();
+        let artifact = inspect(
+            path.clone(),
+            std::fs::read(&path).unwrap(),
+            &need("WYLLS_EXPEDITION_SBF_SHA256"),
+        )
+        .unwrap();
         let kp = Keypair::new();
         let wallet = kp.pubkey();
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            let p = (41_975..41_990u16).find(|p| *p != REFUSED_PORT && server::check_port(*p).is_ok()).unwrap();
-            let q = (p + 1..41_999u16).find(|x| *x != REFUSED_PORT && server::check_port(*x).is_ok()).unwrap();
+            let p = (41_975..41_990u16)
+                .find(|p| *p != REFUSED_PORT && server::check_port(*p).is_ok())
+                .unwrap();
+            let q = (p + 1..41_999u16)
+                .find(|x| *x != REFUSED_PORT && server::check_port(*x).is_ok())
+                .unwrap();
             let play = launch(&artifact, wallet, p, q).await.unwrap();
             let f = &play.fixture;
             let program = Address::new_from_array(PROGRAM);
@@ -1037,19 +1387,39 @@ mod real_depart {
                 let bell = clock.bell_at(c.unix_timestamp()).unwrap();
                 // the home is the program's OpenProvince output: real terrain and sites,
                 // resolved_next = opened_bell = the bell it opened at
-                let home = fclient::decode::Province::decode(&c.account(&f.home).unwrap().data).unwrap();
-                assert!(home.passable_mask != 0 && home.site_count > 0, "terrain and sites from OpenProvince");
+                let home =
+                    fclient::decode::Province::decode(&c.account(&f.home).unwrap().data).unwrap();
+                assert!(
+                    home.passable_mask != 0 && home.site_count > 0,
+                    "terrain and sites from OpenProvince"
+                );
                 assert_eq!(home.resolved_next, bell);
-                assert_eq!(home.sites[f.host.site() as usize], c.account(&f.holding).unwrap().data[H::TILE]);
-                eprintln!("home (128,0): site_count {}, passable bits {}, resolved_next {}", home.site_count, home.passable_mask.count_ones(), home.resolved_next);
+                assert_eq!(
+                    home.sites[f.host.site() as usize],
+                    c.account(&f.holding).unwrap().data[H::TILE]
+                );
+                eprintln!(
+                    "home (128,0): site_count {}, passable bits {}, resolved_next {}",
+                    home.site_count,
+                    home.passable_mask.count_ones(),
+                    home.resolved_next
+                );
                 let arrive = bell + 5;
-                let tip = fclient::fees::min_tip_lamports(season.min_reveal_priority_milli, season.reveal_cu_limit, season.reveal_loaded_limit);
-                let (path_len, path_bits) = permutation_rules::frontier::seal::encode_path(&[0]).unwrap();
+                let tip = fclient::fees::min_tip_lamports(
+                    season.min_reveal_priority_milli,
+                    season.reveal_cu_limit,
+                    season.reveal_loaded_limit,
+                );
+                let (path_len, path_bits) =
+                    permutation_rules::frontier::seal::encode_path(&[0]).unwrap();
                 let plain = WidePlain {
                     version: frontier_abi::world_index::seal::WIDE_PLAIN_VERSION,
                     host: f.host,
                     arrive_bell: arrive,
-                    dest: ProvinceKey::new(f.host.key().world(), WideCoord::checked(129, 0).unwrap()),
+                    dest: ProvinceKey::new(
+                        f.host.key().world(),
+                        WideCoord::checked(129, 0).unwrap(),
+                    ),
                     dest_tile: 30,
                     stance: 0,
                     retreat_bps: 0,
@@ -1058,14 +1428,63 @@ mod real_depart {
                     reserved: [0; frontier_abi::world_index::seal::WIDE_RESERVED_BYTES],
                 };
                 let q = fclient::beacon::quicknet_info();
-                let sealed = fclient::wide_seal::seal_wide(&plain, &f.host, arrive, &q.public_key, clock.tlock_round(arrive)).unwrap();
-                let ctx = AddrCtx { program: PROGRAM, season: f.season.to_bytes() };
-                let draft = Draft::for_wallet(&ctx, f.host, f.host.key(), wallet, wallet, 0, arrive, tip, sealed.commit, sealed.seal).unwrap();
+                let sealed = fclient::wide_seal::seal_wide(
+                    &plain,
+                    &f.host,
+                    arrive,
+                    &q.public_key,
+                    clock.tlock_round(arrive),
+                )
+                .unwrap();
+                let ctx = AddrCtx {
+                    program: PROGRAM,
+                    season: f.season.to_bytes(),
+                };
+                let draft = Draft::for_wallet(
+                    &ctx,
+                    f.host,
+                    f.host.key(),
+                    wallet,
+                    wallet,
+                    0,
+                    arrive,
+                    tip,
+                    sealed.commit,
+                    sealed.seal,
+                )
+                .unwrap();
                 let (blockhash, last_valid) = c.latest_blockhash();
-                let observation = BlockhashObservation { blockhash: blockhash.to_bytes(), context_slot: c.slot(), valid: true, block_height: last_valid.saturating_sub(100), last_valid_block_height: last_valid };
-                let budget = TxBudget { cu_limit: 1_000_000, cu_price: 0, loaded_limit: fclient::fees::RUNTIME_MAX_LOADED, heap: Some(DEPART_HEAP_FRAME) };
-                let limits = Limits { max_locks: 32, max_writes: 16, min_context_slot: 0, min_remaining_block_heights: 2 };
-                let prepared = prepare_depart(&draft, Target { program, season: f.season, program_version: PROGRAM_VERSION }, observation, budget, limits).unwrap();
+                let observation = BlockhashObservation {
+                    blockhash: blockhash.to_bytes(),
+                    context_slot: c.slot(),
+                    valid: true,
+                    block_height: last_valid.saturating_sub(100),
+                    last_valid_block_height: last_valid,
+                };
+                let budget = TxBudget {
+                    cu_limit: 1_000_000,
+                    cu_price: 0,
+                    loaded_limit: fclient::fees::RUNTIME_MAX_LOADED,
+                    heap: Some(DEPART_HEAP_FRAME),
+                };
+                let limits = Limits {
+                    max_locks: 32,
+                    max_writes: 16,
+                    min_context_slot: 0,
+                    min_remaining_block_heights: 2,
+                };
+                let prepared = prepare_depart(
+                    &draft,
+                    Target {
+                        program,
+                        season: f.season,
+                        program_version: PROGRAM_VERSION,
+                    },
+                    observation,
+                    budget,
+                    limits,
+                )
+                .unwrap();
                 let t = tx::sign(prepared.message().clone(), &[&kp]).unwrap();
                 let sig = c.submit(&tx::wire(&t)).unwrap();
                 c.produce_block();
@@ -1075,9 +1494,16 @@ mod real_depart {
             };
             play.running.stop();
             let (err, code, holding, ct_hash) = outcome;
-            assert_eq!(err, None, "the real program refused the Depart: code {code:?}");
+            assert_eq!(
+                err, None,
+                "the real program refused the Depart: code {code:?}"
+            );
             // the Holding now carries the escrow of the departure
-            let escrow = u64::from_le_bytes(holding[frontier_abi::layout::player::holding::ESCROW..][..8].try_into().unwrap());
+            let escrow = u64::from_le_bytes(
+                holding[frontier_abi::layout::player::holding::ESCROW..][..8]
+                    .try_into()
+                    .unwrap(),
+            );
             assert!(escrow > 0);
             let _ = ct_hash;
         });

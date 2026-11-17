@@ -40,8 +40,8 @@ fn m2_a_view_is_read() {
         "holdings": [],
         "quota": {"left": 38},
     });
-    let me = me_from_answer(wallet(), Ok(Some(serde_json::to_vec(&body).unwrap())))
-        .expect("a view");
+    let me =
+        me_from_answer(wallet(), Ok(Some(serde_json::to_vec(&body).unwrap()))).expect("a view");
     assert_eq!(me.quota_left, Some(38));
     assert!(me.citizen.is_none());
 }
@@ -77,7 +77,16 @@ fn m4_a_body_that_is_not_the_view_is_an_error() {
 fn m5_observe_reads_me_through_it() {
     let src = include_str!("../src/bot.rs");
     let at = src.find("pub async fn observe<").expect("observe");
-    let body = src[at..].split("let mut overviews").next().expect("the reads");
-    assert!(body.contains("me_from_answer(wallet, sh.herald.get(&me_path).await)?"), "{body}");
-    assert!(!body.contains("json_of(&sh.herald, &format!(\"/h/me/"), "{body}");
+    let body = src[at..]
+        .split("let mut overviews")
+        .next()
+        .expect("the reads");
+    assert!(
+        body.contains("me_from_answer(wallet, sh.herald.get(&me_path).await)?"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("json_of(&sh.herald, &format!(\"/h/me/"),
+        "{body}"
+    );
 }

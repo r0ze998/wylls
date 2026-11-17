@@ -33,28 +33,56 @@ fn i16_at(d: &[u8], o: usize) -> Option<i16> {
 
 /// `at`: the site the landed PlaceHome was identified at; `citizen`, `holding`, `province`: the bytes of the accounts at
 /// `a.citizen(wallet)`, `a.holding(at)` and `a.province(at.0, at.1)` after it landed.
-pub fn natural_home(a: &Addresses, wallet: &Address, at: (i16, i16, u8), citizen: &[u8], holding: &[u8], province: &[u8]) -> Result<NaturalHome, String> {
+pub fn natural_home(
+    a: &Addresses,
+    wallet: &Address,
+    at: (i16, i16, u8),
+    citizen: &[u8],
+    holding: &[u8],
+    province: &[u8],
+) -> Result<NaturalHome, String> {
     let citizen_key = a.citizen(wallet);
     // the Citizen: this wallet's, home granted, slot 1 at the PlaceHome's site
-    if citizen.len() < C::FLAGS + 1 || citizen.get(C::WALLET..C::WALLET + 32) != Some(wallet.to_bytes().as_slice()) {
+    if citizen.len() < C::FLAGS + 1
+        || citizen.get(C::WALLET..C::WALLET + 32) != Some(wallet.to_bytes().as_slice())
+    {
         return Err("the Citizen is not this wallet's".into());
     }
     if citizen[C::FLAGS] & C::FLAG_HOME_GRANTED == 0 {
         return Err("the Citizen's home is not granted".into());
     }
     let slot = C::holding_of_slot(1);
-    let (sp, sq) = (i16_at(citizen, slot + HR::P).ok_or("the Citizen is too short")?, i16_at(citizen, slot + HR::Q).ok_or("the Citizen is too short")?);
-    let (ssite, sgen) = (*citizen.get(slot + HR::SITE).ok_or("the Citizen is too short")?, *citizen.get(slot + HR::GEN).ok_or("the Citizen is too short")?);
+    let (sp, sq) = (
+        i16_at(citizen, slot + HR::P).ok_or("the Citizen is too short")?,
+        i16_at(citizen, slot + HR::Q).ok_or("the Citizen is too short")?,
+    );
+    let (ssite, sgen) = (
+        *citizen
+            .get(slot + HR::SITE)
+            .ok_or("the Citizen is too short")?,
+        *citizen
+            .get(slot + HR::GEN)
+            .ok_or("the Citizen is too short")?,
+    );
     if (sp, sq, ssite) != at {
-        return Err(format!("the Citizen's home slot is at {:?}, not the PlaceHome's {at:?}", (sp, sq, ssite)));
+        return Err(format!(
+            "the Citizen's home slot is at {:?}, not the PlaceHome's {at:?}",
+            (sp, sq, ssite)
+        ));
     }
     // the Holding: legacy, at the PlaceHome's site, FINAL, owned by this Citizen, the same gen as the Citizen's slot
     if holding.len() < H::OWNER_CITIZEN + 32 || holding.get(..8) != Some(b"PSF1HOLD".as_slice()) {
         return Err("the Holding is not a legacy Holding".into());
     }
-    let (hp, hq) = (i16_at(holding, H::P).ok_or("the Holding is too short")?, i16_at(holding, H::Q).ok_or("the Holding is too short")?);
+    let (hp, hq) = (
+        i16_at(holding, H::P).ok_or("the Holding is too short")?,
+        i16_at(holding, H::Q).ok_or("the Holding is too short")?,
+    );
     if (hp, hq, holding[H::SITE]) != at {
-        return Err(format!("the Holding is at {:?}, not the PlaceHome's {at:?}", (hp, hq, holding[H::SITE])));
+        return Err(format!(
+            "the Holding is at {:?}, not the PlaceHome's {at:?}",
+            (hp, hq, holding[H::SITE])
+        ));
     }
     if holding[H::STATE] != H::STATE_FINAL {
         return Err("the Holding is not final".into());
@@ -64,22 +92,50 @@ pub fn natural_home(a: &Addresses, wallet: &Address, at: (i16, i16, u8), citizen
     }
     let gen = holding[H::GEN];
     if sgen != gen {
-        return Err(format!("the Citizen's home slot has gen {sgen}, the Holding {gen}"));
+        return Err(format!(
+            "the Citizen's home slot has gen {sgen}, the Holding {gen}"
+        ));
     }
     // the home Province: at (p, q), its site mirror `site` HOLDING with the Holding's gen
-    let (pp, pq) = (i16_at(province, P::P).ok_or("the Province is too short")?, i16_at(province, P::Q).ok_or("the Province is too short")?);
+    let (pp, pq) = (
+        i16_at(province, P::P).ok_or("the Province is too short")?,
+        i16_at(province, P::Q).ok_or("the Province is too short")?,
+    );
     if (pp, pq) != (at.0, at.1) {
-        return Err(format!("the home Province is at {:?}, not the PlaceHome's {:?}", (pp, pq), (at.0, at.1)));
+        return Err(format!(
+            "the home Province is at {:?}, not the PlaceHome's {:?}",
+            (pp, pq),
+            (at.0, at.1)
+        ));
     }
-    if at.2 as usize >= *province.get(P::SITE_COUNT).ok_or("the Province is too short")? as usize {
+    if at.2 as usize
+        >= *province
+            .get(P::SITE_COUNT)
+            .ok_or("the Province is too short")? as usize
+    {
         return Err("the PlaceHome's site is not one of the Province's sites".into());
     }
     let m = P::site(at.2 as usize);
-    let (mstate, mgen) = (*province.get(m + SM::STATE).ok_or("the Province is too short")?, *province.get(m + SM::GEN).ok_or("the Province is too short")?);
+    let (mstate, mgen) = (
+        *province
+            .get(m + SM::STATE)
+            .ok_or("the Province is too short")?,
+        *province
+            .get(m + SM::GEN)
+            .ok_or("the Province is too short")?,
+    );
     if mstate != SM::STATE_HOLDING || mgen != gen {
-        return Err(format!("the Province's site {} is not this Holding (state {mstate}, gen {mgen})", at.2));
+        return Err(format!(
+            "the Province's site {} is not this Holding (state {mstate}, gen {mgen})",
+            at.2
+        ));
     }
-    Ok(NaturalHome { holding: a.holding(at.0 as i32, at.1 as i32, at.2), home: (at.0, at.1), site: at.2, gen })
+    Ok(NaturalHome {
+        holding: a.holding(at.0 as i32, at.1 as i32, at.2),
+        home: (at.0, at.1),
+        site: at.2,
+        gen,
+    })
 }
 
 #[cfg(test)]
@@ -125,7 +181,15 @@ mod tests {
         let (a, w) = (addrs(), Address::new_from_array([7; 32]));
         let (c, h, p) = records(&w);
         let n = natural_home(&a, &w, AT, &c, &h, &p).unwrap();
-        assert_eq!(n, NaturalHome { holding: a.holding(1, 1, 0), home: (1, 1), site: 0, gen: 2 });
+        assert_eq!(
+            n,
+            NaturalHome {
+                holding: a.holding(1, 1, 0),
+                home: (1, 1),
+                site: 0,
+                gen: 2
+            }
+        );
     }
 
     #[test]
@@ -140,23 +204,60 @@ mod tests {
         };
         let s = C::holding_of_slot(1);
         refuse(&|c, _, _| c[C::WALLET] ^= 1, "another wallet's Citizen");
-        refuse(&|c, _, _| c[C::FLAGS] &= !C::FLAG_HOME_GRANTED, "home not granted");
-        refuse(&|c, _, _| c[s + HR::SITE] = 1, "the Citizen's slot at another site");
-        refuse(&|c, _, _| c[s + HR::P] = 2, "the Citizen's slot in another province");
-        refuse(&|c, _, _| c[s + HR::GEN] = 3, "the Citizen's slot with another gen");
-        refuse(&|_, h, _| h[..8].copy_from_slice(b"PSF2HOLD"), "not a legacy Holding");
+        refuse(
+            &|c, _, _| c[C::FLAGS] &= !C::FLAG_HOME_GRANTED,
+            "home not granted",
+        );
+        refuse(
+            &|c, _, _| c[s + HR::SITE] = 1,
+            "the Citizen's slot at another site",
+        );
+        refuse(
+            &|c, _, _| c[s + HR::P] = 2,
+            "the Citizen's slot in another province",
+        );
+        refuse(
+            &|c, _, _| c[s + HR::GEN] = 3,
+            "the Citizen's slot with another gen",
+        );
+        refuse(
+            &|_, h, _| h[..8].copy_from_slice(b"PSF2HOLD"),
+            "not a legacy Holding",
+        );
         refuse(&|_, h, _| h[H::SITE] = 4, "the Holding at another site");
         refuse(&|_, h, _| h[H::Q] = 9, "the Holding in another province");
         refuse(&|_, h, _| h[H::STATE] = 0, "the Holding not final");
-        refuse(&|_, h, _| h[H::OWNER_CITIZEN] ^= 1, "the Holding owned by another Citizen");
+        refuse(
+            &|_, h, _| h[H::OWNER_CITIZEN] ^= 1,
+            "the Holding owned by another Citizen",
+        );
         refuse(&|_, _, p| p[P::P] = 5, "the Province at another coordinate");
-        refuse(&|_, _, p| p[P::SITE_COUNT] = 0, "the site is not one of the Province's");
-        refuse(&|_, _, p| p[P::site(0) + SM::STATE] = SM::STATE_FREE, "the site mirror is not a holding");
-        refuse(&|_, _, p| p[P::site(0) + SM::GEN] = 9, "the site mirror's gen differs");
-        refuse(&|c, h, p| { c.truncate(10); h.truncate(10); p.truncate(10); }, "short records");
+        refuse(
+            &|_, _, p| p[P::SITE_COUNT] = 0,
+            "the site is not one of the Province's",
+        );
+        refuse(
+            &|_, _, p| p[P::site(0) + SM::STATE] = SM::STATE_FREE,
+            "the site mirror is not a holding",
+        );
+        refuse(
+            &|_, _, p| p[P::site(0) + SM::GEN] = 9,
+            "the site mirror's gen differs",
+        );
+        refuse(
+            &|c, h, p| {
+                c.truncate(10);
+                h.truncate(10);
+                p.truncate(10);
+            },
+            "short records",
+        );
         // another PlaceHome site than the records' is refused (the pair must come from the one PlaceHome)
         let (c, h, p) = base.clone();
         assert!(natural_home(&a, &w, (1, 1, 1), &c, &h, &p).is_err());
-        assert!(natural_home(&a, &other, AT, &c, &h, &p).is_err(), "another wallet asked");
+        assert!(
+            natural_home(&a, &other, AT, &c, &h, &p).is_err(),
+            "another wallet asked"
+        );
     }
 }

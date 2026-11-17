@@ -124,12 +124,16 @@ fn season_cluster(source: Option<&str>, cluster: Option<&str>) -> Result<String,
     if source == Some("rpc") {
         return match cluster {
             Some(c) if !c.trim().is_empty() => Ok(c.to_string()),
-            _ => Err("--source rpc requires --cluster NAME (the cluster /h/season names; \
+            _ => Err(
+                "--source rpc requires --cluster NAME (the cluster /h/season names; \
                       the herald cannot tell which chain an RPC serves)"
-                .into()),
+                    .into(),
+            ),
         };
     }
-    Ok(cluster.map(str::to_string).unwrap_or_else(|| "localnet".into()))
+    Ok(cluster
+        .map(str::to_string)
+        .unwrap_or_else(|| "localnet".into()))
 }
 
 async fn main_inner() -> Result<(), String> {
@@ -227,13 +231,15 @@ async fn main_inner() -> Result<(), String> {
         None => None,
         Some(path) => {
             use herald_fold::local_play;
-            if read_only || a.get("source").map(String::as_str).unwrap_or("localnet") != "localnet" {
+            if read_only || a.get("source").map(String::as_str).unwrap_or("localnet") != "localnet"
+            {
                 return Err("--local-play-metadata needs --source localnet".into());
             }
             local_play::loopback_rpc(&rpc)?;
             local_play::loopback_listen(&listen)?;
             local_play::fresh_data_dir(&data)?;
-            let text = std::fs::read_to_string(path).map_err(|e| format!("--local-play-metadata: {e}"))?;
+            let text =
+                std::fs::read_to_string(path).map_err(|e| format!("--local-play-metadata: {e}"))?;
             let e = local_play::expected(&text, &program, season, &rpc)?;
             let snap = local_play::read(&rpc, &e).await?;
             local_play::check(&e, &snap)?;
@@ -382,8 +388,14 @@ mod season_cluster_tests {
 
     #[test]
     fn c2_rpc_takes_the_named_cluster() {
-        assert_eq!(season_cluster(Some("rpc"), Some("devnet")), Ok("devnet".to_string()));
-        assert_eq!(season_cluster(Some("rpc"), Some("localnet")), Ok("localnet".to_string()));
+        assert_eq!(
+            season_cluster(Some("rpc"), Some("devnet")),
+            Ok("devnet".to_string())
+        );
+        assert_eq!(
+            season_cluster(Some("rpc"), Some("localnet")),
+            Ok("localnet".to_string())
+        );
     }
 
     #[test]
@@ -392,6 +404,10 @@ mod season_cluster_tests {
             assert_eq!(season_cluster(s, None), Ok("localnet".to_string()));
             assert_eq!(season_cluster(s, Some("devnet")), Ok("devnet".to_string()));
         }
-        assert_eq!(season_cluster(None, Some("")), Ok(String::new()), "as before: given as is");
+        assert_eq!(
+            season_cluster(None, Some("")),
+            Ok(String::new()),
+            "as before: given as is"
+        );
     }
 }

@@ -38,7 +38,10 @@ fn via(a: &[AccountInfo], inner: &[u8]) -> R<()> {
         let kind = dx::Kind::of_conquest(inner).expect("a conquest command");
         let wire = dx::encode(kind, inner).expect("a conquest wire");
         // raw bytes stay closed on the same accounts
-        assert_eq!(crate::dispatch(&program(), a, inner), Err(FrontierError::NotImplemented.into()));
+        assert_eq!(
+            crate::dispatch(&program(), a, inner),
+            Err(FrontierError::NotImplemented.into())
+        );
         crate::dispatch(&program(), a, &wire)
     }
     #[cfg(not(feature = "conquest-dispatch-experimental"))]
@@ -241,17 +244,13 @@ fn legacy_origin_lapse_credits_live_only_and_rejects_malformed_source() {
             source.clone(),
         ];
         if case == 3 {
-            refused(&s, || {
-                via(&s, &wix::SettleSiege { site: 1 }.to_bytes())
-            });
+            refused(&s, || via(&s, &wix::SettleSiege { site: 1 }.to_bytes()));
             continue;
         }
         let old = source.try_borrow_data().unwrap().to_vec();
         let logs = LOGS.lock().unwrap().len();
         via(&s, &wix::SettleSiege { site: 1 }.to_bytes()).unwrap();
-        refused(&s, || {
-            via(&s, &wix::SettleSiege { site: 1 }.to_bytes())
-        });
+        refused(&s, || via(&s, &wix::SettleSiege { site: 1 }.to_bytes()));
         if case == 0 {
             let gold = permutation_rules::frontier::holding::Resource::Gold as usize;
             let after = source.try_borrow_data().unwrap();
@@ -651,9 +650,7 @@ fn failed_refund_clears_exact_obligation_and_retry_is_unchanged() {
     .entry(0)
     .unwrap()
     .is_none());
-    refused(&a, || {
-        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-    });
+    refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
     assert_eq!(LOGS.lock().unwrap().len(), 1);
 }
 
@@ -678,16 +675,12 @@ fn failed_refund_negatives_are_directly_atomic() {
             }
             _ => a[3].is_writable = false,
         }
-        refused(&a, || {
-            via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-        });
+        refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
     }
     let f = Fixture::new(CR::KIND_NONE, 0);
     let a = f.siege(false);
     let _borrow = a[6].try_borrow_lamports().unwrap();
-    refused(&a, || {
-        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-    });
+    refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
 }
 
 #[test]
@@ -697,9 +690,7 @@ fn active_lapse_waits_for_final_bell_then_burns_missing_source() {
     let f = Fixture::new(CR::KIND_SIEGE, 0);
     let mut a = f.siege(true);
     time(100);
-    refused(&a, || {
-        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-    });
+    refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
     put(
         &mut a[2].try_borrow_mut_data().unwrap(),
         PV::RESOLVED_NEXT,
@@ -729,9 +720,7 @@ fn active_lapse_rejects_mirror_contradictions_before_any_effect() {
         put(&mut pd, PV::RESOLVED_NEXT, &100u32.to_le_bytes());
         pd[off] = value;
         drop(pd);
-        refused(&a, || {
-            via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-        });
+        refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
     }
 }
 
@@ -742,9 +731,7 @@ fn failed_refund_checks_site_bounds_but_not_later_target_ownership() {
     let f = Fixture::new(CR::KIND_NONE, 0);
     let a = f.siege(false);
     a[2].try_borrow_mut_data().unwrap()[PV::SITE_COUNT] = 0;
-    refused(&a, || {
-        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-    });
+    refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
     let mut pd = a[2].try_borrow_mut_data().unwrap();
     pd[PV::SITE_COUNT] = 2;
     let off = PV::site(0);
@@ -861,9 +848,7 @@ fn capture_due_cannot_use_failed_settlement_and_wrong_source_never_burns_silentl
     let _stub = install();
     let f = Fixture::new(CR::KIND_CAPTURE_DUE, 0);
     let a = f.siege(true);
-    refused(&a, || {
-        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-    });
+    refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
     let f = Fixture::new(CR::KIND_SIEGE, 0);
     let mut a = f.siege(true);
     time(100);
@@ -873,9 +858,7 @@ fn capture_due_cannot_use_failed_settlement_and_wrong_source_never_burns_silentl
         &100u32.to_le_bytes(),
     );
     a[7] = wallet([0xee; 32], false, true, 0);
-    refused(&a, || {
-        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
-    });
+    refused(&a, || via(&a, &wix::SettleSiege { site: 0 }.to_bytes()));
 }
 
 #[test]
@@ -1032,7 +1015,10 @@ fn terminal_close_preserves_ended_grace_and_accepts_canonical_tombstone() {
         let inner = wix::CloseCaptureEscrow.to_bytes();
         let wire = dx::encode(dx::Kind::CloseCaptureEscrow, &inner).unwrap();
         refused(&a, || crate::dispatch(&program(), &a, &wire));
-        assert_eq!(crate::dispatch(&program(), &a, &wire), Err(FrontierError::BadAccount.into()));
+        assert_eq!(
+            crate::dispatch(&program(), &a, &wire),
+            Err(FrontierError::BadAccount.into())
+        );
     }
     close_capture_escrow_inner(&program(), &a).unwrap();
 }

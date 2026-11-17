@@ -56,11 +56,17 @@
 compile_error!("wide-world-experimental is a host-only draft, not deployable");
 // The localnet SBF lane uses the real SBF syscalls only: no host proof,
 // native-crypto, oracle, test-beacon, trace or other preview substitutes.
-#[cfg(all(feature = "localnet-expedition-sbf", any(
-    feature = "public-proof-tests", feature = "native-crypto-tests",
-    feature = "oracle", feature = "test-beacon", feature = "trace",
-    feature = "runtime-contract-tests"
-)))]
+#[cfg(all(
+    feature = "localnet-expedition-sbf",
+    any(
+        feature = "public-proof-tests",
+        feature = "native-crypto-tests",
+        feature = "oracle",
+        feature = "test-beacon",
+        feature = "trace",
+        feature = "runtime-contract-tests"
+    )
+))]
 compile_error!("localnet-expedition-sbf cannot combine with host proof, crypto, oracle, beacon or trace features");
 
 // The conquest kinds 12–17 never reach an SBF artefact except through the
@@ -72,13 +78,21 @@ compile_error!("localnet-expedition-sbf cannot combine with host proof, crypto, 
     not(feature = "localnet-conquest-sbf")
 ))]
 compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest-sbf (its marker and build script)");
-#[cfg(all(feature = "localnet-conquest-sbf", not(feature = "localnet-expedition-sbf")))]
+#[cfg(all(
+    feature = "localnet-conquest-sbf",
+    not(feature = "localnet-expedition-sbf")
+))]
 compile_error!("localnet-conquest-sbf extends the localnet-expedition-sbf lane only");
 
-#[cfg(all(feature = "expedition-dispatch-experimental", any(
-    feature = "nft-experimental", feature = "rights-experimental",
-    feature = "capacity-preview", feature = "custody-preview"
-)))]
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    any(
+        feature = "nft-experimental",
+        feature = "rights-experimental",
+        feature = "capacity-preview",
+        feature = "custody-preview"
+    )
+))]
 compile_error!("expedition-dispatch-experimental has an isolated host-only program version");
 
 // Public-fixture proof arithmetic is confined to host unit tests. It must
@@ -180,7 +194,10 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 /// with every deployable change. Version 3 integrates first homes and
 /// authoritative province-time scoring on the conquest layout (version 2);
 /// version 4 is the S1 program (the arms economy on the same layout).
-#[cfg(all(not(feature = "custody-preview"), not(feature = "expedition-dispatch-experimental")))]
+#[cfg(all(
+    not(feature = "custody-preview"),
+    not(feature = "expedition-dispatch-experimental")
+))]
 pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
     | if cfg!(feature = "nft-experimental") {
         0x8000

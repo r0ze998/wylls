@@ -69,15 +69,30 @@ fn r4_why_a_zero_sample_is_never_observed() {
     let at0 = Instant::now();
     let t = GENESIS_TS + 600;
     let mut c = GameClock::new(1.0);
-    c.observe(ClockSysvar { slot: 0, unix_timestamp: 0, ..ClockSysvar::default() }, at0);
     c.observe(
-        ClockSysvar { slot: 5, unix_timestamp: t, ..ClockSysvar::default() },
+        ClockSysvar {
+            slot: 0,
+            unix_timestamp: 0,
+            ..ClockSysvar::default()
+        },
+        at0,
+    );
+    c.observe(
+        ClockSysvar {
+            slot: 5,
+            unix_timestamp: t,
+            ..ClockSysvar::default()
+        },
         at0 + Duration::from_secs(2),
     );
     assert!(c.scale() > 1e8, "scale {} from a (0, 0) sample", c.scale());
     let mut ok = GameClock::new(1.0);
     ok.observe(
-        ClockSysvar { slot: 5, unix_timestamp: t, ..ClockSysvar::default() },
+        ClockSysvar {
+            slot: 5,
+            unix_timestamp: t,
+            ..ClockSysvar::default()
+        },
         at0 + Duration::from_secs(2),
     );
     assert_eq!(ok.scale(), 1.0, "one real sample: the default scale");

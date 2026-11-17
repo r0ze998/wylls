@@ -3,7 +3,7 @@
 //! signature is verified, and no program or transaction is executed.
 #![cfg(feature = "wide-world-experimental")]
 
-use frontier_abi::world_index::event::{self as wev, WideEntity, WideKind, WideLink, encode};
+use frontier_abi::world_index::event::{self as wev, encode, WideEntity, WideKind, WideLink};
 use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
 use keeper_core::wideduty::{return_candidates, settle_candidates};
 use keeper_core::wideindex::{Limits, Presence, Scope, WideBatch, WideDiscovery};

@@ -28,7 +28,8 @@ const REPORT_FIXTURE: &str =
     include_str!("../../runtime-contract-tests/fixtures/expedition-depart-prepared-report.json");
 const ACCOUNTS_SCHEMA: &str = "frontier-runtime-contract-depart-accounts-v1";
 const PROGRAM: [u8; 32] = [0x12; 32];
-const COMPUTE_BUDGET: Pubkey = Pubkey::from_str_const("ComputeBudget111111111111111111111111111111");
+const COMPUTE_BUDGET: Pubkey =
+    Pubkey::from_str_const("ComputeBudget111111111111111111111111111111");
 
 fn hexs(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -108,15 +109,35 @@ struct Prepared {
 /// Depart whose Message digest matches.
 fn prepared(report: &str) -> Prepared {
     let v = Json::parse(report).expect("strict report");
-    let s = |path: &[&str]| v.at(path).and_then(Json::str).unwrap_or_else(|| panic!("{path:?}"));
-    assert_eq!(s(&["schema"]), "frontier-experimental-expedition-depart-prepare-report-v1");
+    let s = |path: &[&str]| {
+        v.at(path)
+            .and_then(Json::str)
+            .unwrap_or_else(|| panic!("{path:?}"))
+    };
+    assert_eq!(
+        s(&["schema"]),
+        "frontier-experimental-expedition-depart-prepare-report-v1"
+    );
     assert_eq!(s(&["status"]), "prepared");
     assert_eq!(v.get("host_only"), Some(&Json::Bool(true)));
-    for k in ["ready", "deployment_verified", "admitted", "signed", "enqueued", "relay_submission_available", "automatic_send", "seal_verified"] {
+    for k in [
+        "ready",
+        "deployment_verified",
+        "admitted",
+        "signed",
+        "enqueued",
+        "relay_submission_available",
+        "automatic_send",
+        "seal_verified",
+    ] {
         assert_eq!(v.get(k), Some(&Json::Bool(false)), "{k}");
     }
     assert_eq!(s(&["prepared", "action"]), "Depart");
-    assert_eq!(v.at(&["prepared", "budget", "cu_price"]).and_then(Json::str), Some("0"));
+    assert_eq!(
+        v.at(&["prepared", "budget", "cu_price"])
+            .and_then(Json::str),
+        Some("0")
+    );
     assert_eq!(v.at(&["prepared", "budget", "heap"]), Some(&Json::Null));
     let bytes = um::base64_standard(s(&["prepared", "message_b64"])).unwrap();
     assert_eq!(
@@ -156,7 +177,10 @@ fn prepared(report: &str) -> Prepared {
 /// the message keys in order (fixture bytes by key; the compute-budget
 /// program a native-loader stub that is never invoked), the last instruction
 /// is the call. No policy: see `check`.
-fn call(m: &um::Message, world: &Accounts) -> Result<(Accounts, u16, Vec<InstructionAccount>, Vec<u8>), &'static str> {
+fn call(
+    m: &um::Message,
+    world: &Accounts,
+) -> Result<(Accounts, u16, Vec<InstructionAccount>, Vec<u8>), &'static str> {
     let game = m.instructions.last().ok_or("Instructions")?;
     let accounts = m
         .keys
@@ -166,7 +190,11 @@ fn call(m: &um::Message, world: &Accounts) -> Result<(Accounts, u16, Vec<Instruc
             match world.iter().find(|(w, _)| *w == k) {
                 Some(found) => Ok(found.clone()),
                 None if k == COMPUTE_BUDGET => {
-                    let mut stub = AccountSharedData::new(1, 0, &Pubkey::from_str_const("NativeLoader1111111111111111111111111111111"));
+                    let mut stub = AccountSharedData::new(
+                        1,
+                        0,
+                        &Pubkey::from_str_const("NativeLoader1111111111111111111111111111111"),
+                    );
                     stub.set_executable(true);
                     Ok((k, stub))
                 }
@@ -174,7 +202,12 @@ fn call(m: &um::Message, world: &Accounts) -> Result<(Accounts, u16, Vec<Instruc
             }
         })
         .collect::<Result<Accounts, _>>()?;
-    Ok((accounts, u16::from(game.program), m.privileges(game), game.data.clone()))
+    Ok((
+        accounts,
+        u16::from(game.program),
+        m.privileges(game),
+        game.data.clone(),
+    ))
 }
 
 /// The strict boundary policy against the report: exactly the three
@@ -198,12 +231,17 @@ fn check(p: &Prepared) -> Result<(), &'static str> {
     let mut loaded = vec![4];
     loaded.extend_from_slice(&p.loaded_limit.to_le_bytes());
     for (ix, data) in m.instructions.iter().zip([limit, price, loaded]) {
-        if b58(ix.program.into()) != COMPUTE_BUDGET.to_string() || !ix.accounts.is_empty() || ix.data != data {
+        if b58(ix.program.into()) != COMPUTE_BUDGET.to_string()
+            || !ix.accounts.is_empty()
+            || ix.data != data
+        {
             return Err("ComputeBudget");
         }
     }
     let game = &m.instructions[3];
-    if b58(game.program.into()) != p.program || p.program != Pubkey::new_from_array(PROGRAM).to_string() {
+    if b58(game.program.into()) != p.program
+        || p.program != Pubkey::new_from_array(PROGRAM).to_string()
+    {
         return Err("Program");
     }
     if b58(0) != p.fee_payer || p.roles.get(1).map(|r| &r.0) != Some(&p.fee_payer) {
@@ -229,7 +267,9 @@ fn check(p: &Prepared) -> Result<(), &'static str> {
         return Err("Role");
     }
     for i in 0..m.keys.len() {
-        let named = p.roles.iter().any(|r| r.0 == b58(i)) || b58(i) == p.program || b58(i) == COMPUTE_BUDGET.to_string();
+        let named = p.roles.iter().any(|r| r.0 == b58(i))
+            || b58(i) == p.program
+            || b58(i) == COMPUTE_BUDGET.to_string();
         if !named {
             return Err("ExtraAccount");
         }
@@ -243,7 +283,10 @@ fn check(p: &Prepared) -> Result<(), &'static str> {
 /// One native boundary call. `ok`: the handler's result is the call's result.
 /// Otherwise the handler must refuse, and the closure returns `Ok` so the
 /// official writeback runs and would expose any partial write.
-fn run(call: (Accounts, u16, Vec<InstructionAccount>, Vec<u8>), ok: bool) -> rt::system_cpi::Output {
+fn run(
+    call: (Accounts, u16, Vec<InstructionAccount>, Vec<u8>),
+    ok: bool,
+) -> rt::system_cpi::Output {
     let (accounts, program, privileges, data) = call;
     // SAFETY: official aligned serializer owns every AccountInfo; the handler
     // keeps no reference; signer bits are fixture privileges.
@@ -276,18 +319,36 @@ fn keeper_prepared_message_reaches_the_actual_departure_handler_and_writeback() 
     check(&p).unwrap();
     let c = call(&p.message, &world).unwrap();
     // The keeper's canonical draft is byte for byte this fixture's command.
-    assert_eq!(c.3, ix::encode(ix::Kind::Depart, &command.to_bytes()).unwrap());
+    assert_eq!(
+        c.3,
+        ix::encode(ix::Kind::Depart, &command.to_bytes()).unwrap()
+    );
     // Role for role the existing fixture: key and privileges, and the
     // standing/home alias is one transaction account on both sides.
     assert_eq!(c.2.len(), roles.len());
     for (i, (m, f)) in c.2.iter().zip(&roles).enumerate() {
-        assert_eq!(c.0[m.index_in_transaction as usize].0, world[f.index_in_transaction as usize].0, "role {i}");
-        assert_eq!((m.is_signer(), m.is_writable()), (f.is_signer(), f.is_writable()), "role {i}");
+        assert_eq!(
+            c.0[m.index_in_transaction as usize].0, world[f.index_in_transaction as usize].0,
+            "role {i}"
+        );
+        assert_eq!(
+            (m.is_signer(), m.is_writable()),
+            (f.is_signer(), f.is_writable()),
+            "role {i}"
+        );
     }
     assert_eq!(c.2[5].index_in_transaction, c.2[7].index_in_transaction);
     let accounts = c.0.clone();
     let via_message = run(c, true);
-    let via_fixture = run((world.clone(), program_index, roles.clone(), ix::encode(ix::Kind::Depart, &command.to_bytes()).unwrap()), true);
+    let via_fixture = run(
+        (
+            world.clone(),
+            program_index,
+            roles.clone(),
+            ix::encode(ix::Kind::Depart, &command.to_bytes()).unwrap(),
+        ),
+        true,
+    );
     // The same handler outcome: per key the same writeback, logs and CPIs.
     for ((k, before), out) in accounts.iter().zip(&via_message.accounts) {
         match world.iter().position(|(w, _)| w == k) {
@@ -303,17 +364,34 @@ fn keeper_prepared_message_reaches_the_actual_departure_handler_and_writeback() 
     assert_eq!(via_message.logs.len(), 1);
     let at = |role: usize| p.message.instructions[3].accounts[role] as usize;
     assert_eq!(via_message.accounts[at(8)].owner().to_bytes(), PROGRAM);
-    assert_eq!(Ro(via_message.accounts[at(4)].data()).u64(H::ESCROW).unwrap(), command.tip);
     assert_eq!(
-        via_message.accounts.iter().map(|a| a.lamports() as u128).sum::<u128>(),
-        accounts.iter().map(|(_, a)| a.lamports() as u128).sum::<u128>()
+        Ro(via_message.accounts[at(4)].data())
+            .u64(H::ESCROW)
+            .unwrap(),
+        command.tip
+    );
+    assert_eq!(
+        via_message
+            .accounts
+            .iter()
+            .map(|a| a.lamports() as u128)
+            .sum::<u128>(),
+        accounts
+            .iter()
+            .map(|(_, a)| a.lamports() as u128)
+            .sum::<u128>()
     );
 }
 
 #[test]
 fn real_message_bytes_are_refused_by_the_strict_decoder_when_reshaped() {
     let v = Json::parse(REPORT_FIXTURE).unwrap();
-    let bytes = um::base64_standard(v.at(&["prepared", "message_b64"]).and_then(Json::str).unwrap()).unwrap();
+    let bytes = um::base64_standard(
+        v.at(&["prepared", "message_b64"])
+            .and_then(Json::str)
+            .unwrap(),
+    )
+    .unwrap();
     assert!(um::decode(&bytes).is_ok());
     let mut versioned = vec![0x80];
     versioned.extend_from_slice(&bytes);
@@ -326,7 +404,10 @@ fn real_message_bytes_are_refused_by_the_strict_decoder_when_reshaped() {
     for (bad, e) in [
         (versioned, um::MessageError::Versioned),
         (trailing, um::MessageError::TrailingBytes),
-        (bytes[..bytes.len() - 1].to_vec(), um::MessageError::Truncated),
+        (
+            bytes[..bytes.len() - 1].to_vec(),
+            um::MessageError::Truncated,
+        ),
         (duplicate, um::MessageError::DuplicateKey),
     ] {
         assert_eq!(um::decode(&bad), Err(e));
@@ -345,37 +426,106 @@ fn tampered_prepared_messages_are_refused_before_any_effect() {
     type Tamper = fn(&mut Prepared, &[u8]);
     let cases: [(&str, Tamper, &str, bool); 13] = [
         // fee payer and wallet swapped: the wallet would pay and be writable
-        ("fee payer", |p, _| p.message.keys.swap(0, 1), "FeePayer", true),
+        (
+            "fee payer",
+            |p, _| p.message.keys.swap(0, 1),
+            "FeePayer",
+            true,
+        ),
         // another program key (no such program account is presented)
-        ("program", |p, _| {
-            let i = usize::from(p.message.instructions[3].program);
-            p.message.keys[i] = [0x13; 32];
-        }, "Program", false),
-        ("report version", |p, _| p.program_version = (crate::PROGRAM_VERSION ^ 0x0800).to_string(), "Version", false),
-        ("wire version", |p, _| p.message.instructions[3].data[2] ^= 1, "Instruction", true),
-        ("kind", |p, _| p.message.instructions[3].data[3] = ix::Kind::Dissolve as u8, "Instruction", true),
-        ("truncated", |p, _| { p.message.instructions[3].data.pop(); }, "Instruction", true),
-        ("extended", |p, _| p.message.instructions[3].data.push(0), "Instruction", true),
+        (
+            "program",
+            |p, _| {
+                let i = usize::from(p.message.instructions[3].program);
+                p.message.keys[i] = [0x13; 32];
+            },
+            "Program",
+            false,
+        ),
+        (
+            "report version",
+            |p, _| p.program_version = (crate::PROGRAM_VERSION ^ 0x0800).to_string(),
+            "Version",
+            false,
+        ),
+        (
+            "wire version",
+            |p, _| p.message.instructions[3].data[2] ^= 1,
+            "Instruction",
+            true,
+        ),
+        (
+            "kind",
+            |p, _| p.message.instructions[3].data[3] = ix::Kind::Dissolve as u8,
+            "Instruction",
+            true,
+        ),
+        (
+            "truncated",
+            |p, _| {
+                p.message.instructions[3].data.pop();
+            },
+            "Instruction",
+            true,
+        ),
+        (
+            "extended",
+            |p, _| p.message.instructions[3].data.push(0),
+            "Instruction",
+            true,
+        ),
         // one more account on the call (a duplicate of the holding)
-        ("extra account", |p, _| {
-            let h = p.message.instructions[3].accounts[4];
-            p.message.instructions[3].accounts.push(h);
-        }, "Roles", true),
-        ("missing account", |p, _| { p.message.instructions[3].accounts.pop(); }, "Roles", true),
+        (
+            "extra account",
+            |p, _| {
+                let h = p.message.instructions[3].accounts[4];
+                p.message.instructions[3].accounts.push(h);
+            },
+            "Roles",
+            true,
+        ),
+        (
+            "missing account",
+            |p, _| {
+                p.message.instructions[3].accounts.pop();
+            },
+            "Roles",
+            true,
+        ),
         // the transit role aliased to the writable Holding
-        ("alias", |p, r| p.message.instructions[3].accounts[8] = r[4], "Role", true),
+        (
+            "alias",
+            |p, r| p.message.instructions[3].accounts[8] = r[4],
+            "Role",
+            true,
+        ),
         // the read-only signer wallet escalated to writable: refused here
         // by the boundary policy only; the actual handler's role check
         // accepts extra privilege on the wallet (asserted below)
-        ("wallet writable", |p, _| p.message.header.readonly_signed = 0, "Privilege", false),
+        (
+            "wallet writable",
+            |p, _| p.message.header.readonly_signed = 0,
+            "Privilege",
+            false,
+        ),
         // one more key escalated to a requested signer
-        ("extra signer", |p, _| p.message.header.signatures += 1, "Privilege", true),
+        (
+            "extra signer",
+            |p, _| p.message.header.signatures += 1,
+            "Privilege",
+            true,
+        ),
         // one extra, unreferenced key in the message
         // (read-only, so no existing key changes privilege)
-        ("unreferenced key", |p, _| {
-            p.message.keys.push([0x77; 32]);
-            p.message.header.readonly_unsigned += 1;
-        }, "ExtraAccount", false),
+        (
+            "unreferenced key",
+            |p, _| {
+                p.message.keys.push([0x77; 32]);
+                p.message.header.readonly_unsigned += 1;
+            },
+            "ExtraAccount",
+            false,
+        ),
     ];
     let indices: Vec<u8> = (0..9).map(index_of).collect();
     for (name, tamper, code, handler) in cases {
@@ -398,7 +548,9 @@ fn tampered_prepared_messages_are_refused_before_any_effect() {
     let mut other = world.clone();
     let season = roles[2].index_in_transaction as usize;
     let mut sd = other[season].1.data().to_vec();
-    Rw(&mut sd).set_u16(S::PROGRAM_VERSION, crate::PROGRAM_VERSION ^ 0x0800).unwrap();
+    Rw(&mut sd)
+        .set_u16(S::PROGRAM_VERSION, crate::PROGRAM_VERSION ^ 0x0800)
+        .unwrap();
     other[season].1.set_data_from_slice(&sd);
     check(&good).unwrap();
     refused_without_effects(call(&good.message, &other).unwrap());

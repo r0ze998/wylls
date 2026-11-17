@@ -23,13 +23,16 @@
 pub mod abi;
 pub mod addr;
 pub mod beacon;
-pub mod budgets;
 /// Bounded public blockhash reads; no signing or transaction admission.
 pub mod blockhash_preflight;
+pub mod budgets;
 pub mod clash_model;
 pub mod clock;
 pub mod conquest;
 pub mod decode;
+/// Explicit unsigned messages for the separate host-only execution revision.
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_expedition_message;
 pub mod fees;
 pub mod http;
 pub mod ix;
@@ -38,31 +41,28 @@ pub mod log;
 pub mod payers;
 pub mod play;
 pub mod ports;
-pub mod rpc;
 /// Opt-in bounded HTTPS transport restricted to public read-only RPC methods.
 pub mod readonly_https_rpc;
+pub mod rpc;
 pub mod seal;
 #[cfg(feature = "snapshot")]
 pub mod snapshot;
 pub mod tx;
-/// Keyless legacy-message shape and external blockhash observation checks.
-pub mod unsigned_message_preflight;
-/// Explicit unsigned messages for the separate host-only execution revision.
-#[cfg(feature = "expedition-dispatch-experimental")]
-pub mod experimental_expedition_message;
 #[cfg(feature = "wide-records-experimental")]
 pub mod typed_log;
-/// Real 264-byte wide march seals (fresh key, stock tlock); legacy `seal` untouched.
-#[cfg(feature = "wide-records-experimental")]
-pub mod wide_seal;
+/// Keyless legacy-message shape and external blockhash observation checks.
+pub mod unsigned_message_preflight;
 pub mod vectors;
-/// Closed resident account/byte proposals, never an executable instruction.
-#[cfg(feature = "wide-records-experimental")]
-pub mod wide_resident_draft;
 /// Closed account/byte proposal of the one player-signed conquest step
 /// (wide DeclareSiege by an original host); never an executable instruction.
 #[cfg(feature = "wide-records-experimental")]
 pub mod wide_conquest_draft;
+/// Closed resident account/byte proposals, never an executable instruction.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_resident_draft;
+/// Real 264-byte wide march seals (fresh key, stock tlock); legacy `seal` untouched.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_seal;
 
 /// Closed original-host outbound account and byte proposals only.
 #[cfg(feature = "wide-records-experimental")]

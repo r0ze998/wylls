@@ -1776,7 +1776,11 @@ fn map_growth_expansion_is_refused_from_the_end_bell_of_a_finite_season() {
     assert_eq!(w.frontier_data(), before, "nothing written");
     assert!(records().is_empty(), "nothing logged");
     at_bell(3);
-    assert_eq!(w.extend_frontier(5), Err(E::WrongStatus as u32), "nor later");
+    assert_eq!(
+        w.extend_frontier(5),
+        Err(E::WrongStatus as u32),
+        "nor later"
+    );
     at_bell(1);
     assert_eq!(w.extend_frontier(5), Ok(()), "the last bell still grows");
     assert_eq!(w.frontier_state().1, 5);
@@ -1862,9 +1866,21 @@ fn map_growth_heartland_first_homes_alone_stop_the_map_at_ring_5() {
     {
         let base = frontier_abi::presets::M1_LOCAL_7D;
         let mut d = w.season.try_borrow_mut_data().unwrap();
-        put(&mut d, S::THETA_EARLY_BPS, &base.theta_early_bps.to_le_bytes());
-        put(&mut d, S::THETA_LATE_BPS, &base.theta_late_bps.to_le_bytes());
-        put(&mut d, S::THETA_SWITCH_SECS, &base.theta_switch_secs.to_le_bytes());
+        put(
+            &mut d,
+            S::THETA_EARLY_BPS,
+            &base.theta_early_bps.to_le_bytes(),
+        );
+        put(
+            &mut d,
+            S::THETA_LATE_BPS,
+            &base.theta_late_bps.to_le_bytes(),
+        );
+        put(
+            &mut d,
+            S::THETA_SWITCH_SECS,
+            &base.theta_switch_secs.to_le_bytes(),
+        );
     }
     w.open_rings_for_capacity(4);
     let hmr = w.cq.heartland_max_ring as u32;
@@ -1881,7 +1897,11 @@ fn map_growth_heartland_first_homes_alone_stop_the_map_at_ring_5() {
             .collect()
     };
     assert_eq!(heart, [60; 6], "free heartland sites per wedge");
-    assert_eq!(open(&mut w), vec![108; 6], "open sites of rings 2-4 per wedge");
+    assert_eq!(
+        open(&mut w),
+        vec![108; 6],
+        "open sites of rings 2-4 per wedge"
+    );
 
     // Early: one home short of a full heartland in wedge 0 is not enough.
     w.set_shard_homes(0, 0, 0, heart[0] - 1);
@@ -1903,7 +1923,10 @@ fn map_growth_heartland_first_homes_alone_stop_the_map_at_ring_5() {
         assert_eq!(w.open_province(c), Ok(()), "OpenProvince {c:?}");
     }
     let opened = open(&mut w);
-    assert!(opened.iter().all(|&o| o > 108), "ring 5's sites counted: {opened:?}");
+    assert!(
+        opened.iter().all(|&o| o > 108),
+        "ring 5's sites counted: {opened:?}"
+    );
     at_bell(3);
     w.fold();
     assert_eq!(
@@ -1918,10 +1941,13 @@ fn map_growth_heartland_first_homes_alone_stop_the_map_at_ring_5() {
     let late_bell = (frontier_abi::presets::M1_LOCAL_7D.theta_switch_secs / 600) + 4;
     at_bell(late_bell);
     w.fold();
-    assert_eq!(w.extend_frontier(6), Err(E::Capacity as u32), "late, ring 6");
+    assert_eq!(
+        w.extend_frontier(6),
+        Err(E::Capacity as u32),
+        "late, ring 6"
+    );
     assert!(
-        (heart[0] as u64) * 10_000
-            < frontier_abi::presets::M1_LOCAL_7D.theta_late_bps as u64 * 108,
+        (heart[0] as u64) * 10_000 < frontier_abi::presets::M1_LOCAL_7D.theta_late_bps as u64 * 108,
         "late, even before ring 5: 60/108 < 65 %"
     );
 }

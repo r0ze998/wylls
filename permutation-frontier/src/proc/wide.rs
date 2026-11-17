@@ -218,7 +218,13 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
     // Preserve the existing parser's priority before considering a v2 wrapper.
     let decoded = C::decode(data);
     #[cfg(feature = "expedition-dispatch-experimental")]
-    if decoded.is_err() && data.get(1..3) == Some(&[wix::ENVELOPE_ESCAPE, frontier_abi::world_index::expedition_dispatch_ix::VERSION]) {
+    if decoded.is_err()
+        && data.get(1..3)
+            == Some(&[
+                wix::ENVELOPE_ESCAPE,
+                frontier_abi::world_index::expedition_dispatch_ix::VERSION,
+            ])
+    {
         return expedition_dispatch::execute(p, a, data);
     }
     match decoded? {
@@ -2780,17 +2786,17 @@ mod economy_exec;
 #[path = "wide_garrison_exec.rs"]
 mod garrison_exec;
 
-/// Original legacy departure/Spend and paired origin settlement candidates.
-/// The original public gate remains false; ResidentAct does not admit them.
-/// A separate host-only versioned wrapper may route to these consumers.
-#[path = "wide_expedition_exec.rs"]
-mod expedition_exec;
 #[cfg(feature = "expedition-dispatch-experimental")]
 #[path = "wide_expedition_dispatch.rs"]
 mod expedition_dispatch;
 #[cfg(all(test, feature = "runtime-contract-tests", not(target_os = "solana")))]
 #[path = "wide_expedition_dispatch_tests.rs"]
 mod expedition_dispatch_tests;
+/// Original legacy departure/Spend and paired origin settlement candidates.
+/// The original public gate remains false; ResidentAct does not admit them.
+/// A separate host-only versioned wrapper may route to these consumers.
+#[path = "wide_expedition_exec.rs"]
+mod expedition_exec;
 
 /// Original resident dissolve/return consumer. Raw/default dispatch is closed;
 /// the separate host-only experimental wrapper checks its exact Season version.
@@ -3427,7 +3433,11 @@ pub fn resolve_with_conquest(p: &Pubkey, a: &[AccountInfo], x: &wix::ResolveWith
 
 /// One authenticated implementation shared by the gated public route and
 /// private byte consumer. This does not admit a public instruction.
-fn execute_resolve_with_conquest(p: &Pubkey, a: &[AccountInfo], x: &wix::ResolveWithConquest) -> R<()> {
+fn execute_resolve_with_conquest(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    x: &wix::ResolveWithConquest,
+) -> R<()> {
     check_accounts(TopLevelShape(wix::RESOLVE_WITH_CONQUEST), a, None)?;
     prologue::top_level(TopLevelShape(wix::RESOLVE_WITH_CONQUEST))?;
     resolve_inner(

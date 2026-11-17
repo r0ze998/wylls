@@ -20,7 +20,9 @@ use common::{tmp, tree, VecSource};
 use herald_fold::clash::Provisional;
 use herald_fold::cqfixture::{self, SEASON_ID};
 use herald_fold::cqfmt::FinalFile;
-use herald_fold::files::{gunzip, output_mode_word, Out, OUTPUT_COMPACT_V1, OUTPUT_COMPACT_V2, OUTPUT_MODE_FILE};
+use herald_fold::files::{
+    gunzip, output_mode_word, Out, OUTPUT_COMPACT_V1, OUTPUT_COMPACT_V2, OUTPUT_MODE_FILE,
+};
 use herald_fold::fold::{Fold, FoldCfg};
 use herald_fold::runner::{Ingest, IngestCfg};
 use herald_fold::server::{self, App};
@@ -196,9 +198,18 @@ async fn compact_v2_compresses_the_store_gives_the_same_output_and_keeps_its_mod
         while ing.step(&mut src).await.unwrap() > 0 {}
         ing.checkpoint().unwrap();
     }
-    assert_eq!(std::fs::read(data.join(OUTPUT_MODE_FILE)).unwrap(), OUTPUT_COMPACT_V2);
-    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(data.join("findex/archive/manifest.json")).unwrap()).unwrap();
-    assert_eq!(m["codec"], json!("gzip-v1"), "the archive records its codec");
+    assert_eq!(
+        std::fs::read(data.join(OUTPUT_MODE_FILE)).unwrap(),
+        OUTPUT_COMPACT_V2
+    );
+    let m: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(data.join("findex/archive/manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        m["codec"],
+        json!("gzip-v1"),
+        "the archive records its codec"
+    );
     {
         // a crash (no checkpoint), then the whole season
         let mut ing = Ingest::open(c.clone(), diffs.clone()).unwrap();
@@ -214,16 +225,30 @@ async fn compact_v2_compresses_the_store_gives_the_same_output_and_keeps_its_mod
         let f = ing.fold.read().unwrap();
         assert_eq!(f.st.folded_through, txs.len() as u64);
         assert!(f.cq.final_done);
-        let codec: i64 = ing.findex.index.conn.query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| r.get(0)).unwrap();
+        let codec: i64 = ing
+            .findex
+            .index
+            .conn
+            .query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(codec, 1, "the index records its codec");
         assert_eq!(ing.findex.archive.verify().unwrap(), txs.len() as u64);
     }
-    assert_eq!(tree(&data.join("files")), tree(&reference.join("files")), "the same output as compact-v1");
+    assert_eq!(
+        tree(&data.join("files")),
+        tree(&reference.join("files")),
+        "the same output as compact-v1"
+    );
     // never reopened as compact-v1, nor without a word
     let mut v1 = c.clone();
     v1.store_codec = findex::codec::Codec::Plain;
     let e = Ingest::open(v1, diffs.clone()).err().expect("refused");
-    assert!(e.contains("cannot be reopened as --output compact-v1"), "{e}");
+    assert!(
+        e.contains("cannot be reopened as --output compact-v1"),
+        "{e}"
+    );
     let mut plain = c.clone();
     plain.compact_output = false;
     plain.store_codec = findex::codec::Codec::Plain;
@@ -232,7 +257,10 @@ async fn compact_v2_compresses_the_store_gives_the_same_output_and_keeps_its_mod
     // a compressed store without compact output is not a mode
     let mut odd = c.clone();
     odd.compact_output = false;
-    assert!(Ingest::open(odd, diffs.clone()).err().expect("refused").contains("only with compact output"));
+    assert!(Ingest::open(odd, diffs.clone())
+        .err()
+        .expect("refused")
+        .contains("only with compact output"));
     // a compact-v1 world is never reopened as compact-v2; an existing default world's store is never started as one
     let w1 = tmp("cq-v1-world");
     {
@@ -244,12 +272,25 @@ async fn compact_v2_compresses_the_store_gives_the_same_output_and_keeps_its_mod
         ing.findex.resume(&mut src);
         while ing.step(&mut src).await.unwrap() > 0 {}
         ing.checkpoint().unwrap();
-        let m: serde_json::Value = serde_json::from_slice(&std::fs::read(w1.join("findex/archive/manifest.json")).unwrap()).unwrap();
-        assert!(m.get("codec").is_none(), "compact-v1 keeps the default store bytes");
+        let m: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(w1.join("findex/archive/manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            m.get("codec").is_none(),
+            "compact-v1 keeps the default store bytes"
+        );
         d.store_codec = findex::codec::Codec::GzipV1;
         let e = Ingest::open(d, diffs.clone()).err().expect("refused");
-        assert!(e.contains("cannot be reopened as --output compact-v2"), "{e}");
-        assert_eq!(std::fs::read(w1.join(OUTPUT_MODE_FILE)).unwrap(), OUTPUT_COMPACT_V1, "its mode is unchanged");
+        assert!(
+            e.contains("cannot be reopened as --output compact-v2"),
+            "{e}"
+        );
+        assert_eq!(
+            std::fs::read(w1.join(OUTPUT_MODE_FILE)).unwrap(),
+            OUTPUT_COMPACT_V1,
+            "its mode is unchanged"
+        );
     }
     let w0 = tmp("cq-v0-world");
     {
@@ -265,7 +306,11 @@ async fn compact_v2_compresses_the_store_gives_the_same_output_and_keeps_its_mod
         d.store_codec = findex::codec::Codec::GzipV1;
         let e = Ingest::open(d, diffs.clone()).err().expect("refused");
         assert!(e.contains("compact-v2 needs a new data directory"), "{e}");
-        assert_eq!(tree(&w0.join("findex")), before, "the old store is not touched");
+        assert_eq!(
+            tree(&w0.join("findex")),
+            before,
+            "the old store is not touched"
+        );
         assert!(!w0.join(OUTPUT_MODE_FILE).exists());
     }
     // an unknown word is never recorded

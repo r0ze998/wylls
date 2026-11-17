@@ -127,16 +127,25 @@ fn seal_with(
     k: &[u8; ks::K_LEN],
 ) -> Result<WideSealed, WideSealError> {
     let mut ibe = Vec::with_capacity(IBE_LEN);
-    tlock::encrypt(&mut ibe, &k[..], pk96, round).map_err(|e| WideSealError::Encrypt(e.to_string()))?;
-    let ibe: [u8; IBE_LEN] = ibe
-        .as_slice()
-        .try_into()
-        .map_err(|_| WideSealError::Encrypt(format!("tlock produced {} B, want {IBE_LEN}", ibe.len())))?;
-    let reveal = WideReveal { plain: ws::pack(pt), salt: ks::salt_of(k) };
+    tlock::encrypt(&mut ibe, &k[..], pk96, round)
+        .map_err(|e| WideSealError::Encrypt(e.to_string()))?;
+    let ibe: [u8; IBE_LEN] = ibe.as_slice().try_into().map_err(|_| {
+        WideSealError::Encrypt(format!("tlock produced {} B, want {IBE_LEN}", ibe.len()))
+    })?;
+    let reveal = WideReveal {
+        plain: ws::pack(pt),
+        salt: ks::salt_of(k),
+    };
     let seal = ws::assemble(&ibe, &ws::body_xor(k, &reveal.plain));
     let commit = ws::commit(&reveal.plain, &reveal.salt);
     let ct_hash = ws::ct_hash(&seal);
-    Ok(WideSealed { seal, commit, ct_hash, seal_root: ws::seal_root(&commit, &ct_hash), reveal })
+    Ok(WideSealed {
+        seal,
+        commit,
+        ct_hash,
+        seal_root: ws::seal_root(&commit, &ct_hash),
+        reveal,
+    })
 }
 
 /// Opens a wide seal with the round's signature and judges it against the
@@ -191,7 +200,10 @@ mod tests {
         r
     }
     fn key(p: i64, q: i64) -> ProvinceKey {
-        ProvinceKey::new(WorldId::new([0x77; 32]).unwrap(), WideCoord::checked(p, q).unwrap())
+        ProvinceKey::new(
+            WorldId::new([0x77; 32]).unwrap(),
+            WideCoord::checked(p, q).unwrap(),
+        )
     }
     fn host() -> WideHostRef {
         WideHostRef::new(key(129, 0), 3, 1, 7).unwrap()
@@ -220,11 +232,17 @@ mod tests {
         // Depart's seal-flag syntax: a compressed, non-infinity G2 point
         assert!(s.seal[0] & 0x80 != 0 && s.seal[0] & 0x40 == 0);
         // real pairing + FO check through the stock opener, then the ABI body
-        assert_eq!(open_wide(&s.seal, &r.sig, &s.commit, &host(), 500), Ok(plain()));
+        assert_eq!(
+            open_wide(&s.seal, &r.sig, &s.commit, &host(), 500),
+            Ok(plain())
+        );
         // secret comparisons are boolean with fixed messages: a failure never
         // prints k, the salt or the plaintext
         let mut k = crate::seal::open_ibe(&ws::ibe_block(&s.seal), &r.sig).unwrap();
-        assert!(ks::salt_of(&k) == *s.reveal.salt(), "the opened key's salt is not the sealed salt");
+        assert!(
+            ks::salt_of(&k) == *s.reveal.salt(),
+            "the opened key's salt is not the sealed salt"
+        );
         assert!(
             ws::open_body(&k, &s.seal, &s.commit).is_some_and(|pt| pt == *s.reveal.plain()),
             "the opened body is not the sealed plaintext"
@@ -243,7 +261,10 @@ mod tests {
             ct_hash: s.ct_hash,
             beneficiary: [9; 32],
         };
-        assert_eq!(rev.to_bytes().len(), frontier_abi::world_index::wide_ix::ExpeditionReveal::LEN);
+        assert_eq!(
+            rev.to_bytes().len(),
+            frontier_abi::world_index::wide_ix::ExpeditionReveal::LEN
+        );
         assert_eq!(format!("{:?}", s.reveal), "WideReveal(<redacted>)");
     }
 
@@ -263,29 +284,62 @@ mod tests {
         let r = published();
         // a plaintext that is not the transit's is never encrypted
         let other = WideHostRef::new(key(129, 0), 3, 1, 8).unwrap();
-        assert_eq!(seal_wide(&plain(), &other, 500, &r.pk, r.round).err(), Some(WideSealError::Plain(WidePlainError::HostMismatch)));
-        assert_eq!(seal_wide(&plain(), &host(), 501, &r.pk, r.round).err(), Some(WideSealError::Plain(WidePlainError::ArriveMismatch)));
+        assert_eq!(
+            seal_wide(&plain(), &other, 500, &r.pk, r.round).err(),
+            Some(WideSealError::Plain(WidePlainError::HostMismatch))
+        );
+        assert_eq!(
+            seal_wide(&plain(), &host(), 501, &r.pk, r.round).err(),
+            Some(WideSealError::Plain(WidePlainError::ArriveMismatch))
+        );
         let mut far = plain();
-        far.dest = ProvinceKey::new(WorldId::new([0x78; 32]).unwrap(), WideCoord::checked(130, -1).unwrap());
-        assert_eq!(seal_wide(&far, &host(), 500, &r.pk, r.round).err(), Some(WideSealError::Plain(WidePlainError::WorldMismatch)));
+        far.dest = ProvinceKey::new(
+            WorldId::new([0x78; 32]).unwrap(),
+            WideCoord::checked(130, -1).unwrap(),
+        );
+        assert_eq!(
+            seal_wide(&far, &host(), 500, &r.pk, r.round).err(),
+            Some(WideSealError::Plain(WidePlainError::WorldMismatch))
+        );
         let s = seal_wide(&plain(), &host(), 500, &r.pk, r.round).unwrap();
         // another round's real signature: FO check
-        assert_eq!(open_wide(&s.seal, &r.prev, &s.commit, &host(), 500), Err(WideOpenError::Ibe(OpenError::FoCheck)));
+        assert_eq!(
+            open_wide(&s.seal, &r.prev, &s.commit, &host(), 500),
+            Err(WideOpenError::Ibe(OpenError::FoCheck))
+        );
         // a sealed-to-another-round seal does not open with this signature
         let later = seal_wide(&plain(), &host(), 500, &r.pk, r.round + 1).unwrap();
-        assert!(matches!(open_wide(&later.seal, &r.sig, &later.commit, &host(), 500), Err(WideOpenError::Ibe(_))));
+        assert!(matches!(
+            open_wide(&later.seal, &r.sig, &later.commit, &host(), 500),
+            Err(WideOpenError::Ibe(_))
+        ));
         // a body byte flipped: opens, but the commitment no longer matches
         let mut body = s.seal;
         body[IBE_LEN + 70] ^= 1;
-        assert_eq!(open_wide(&body, &r.sig, &s.commit, &host(), 500), Err(WideOpenError::Commit));
+        assert_eq!(
+            open_wide(&body, &r.sig, &s.commit, &host(), 500),
+            Err(WideOpenError::Commit)
+        );
         // a garbage U
         let mut u = s.seal;
         u[..96].fill(0xab);
-        assert!(matches!(open_wide(&u, &r.sig, &s.commit, &host(), 500), Err(WideOpenError::Ibe(_))));
+        assert!(matches!(
+            open_wide(&u, &r.sig, &s.commit, &host(), 500),
+            Err(WideOpenError::Ibe(_))
+        ));
         // another logged commitment
-        assert_eq!(open_wide(&s.seal, &r.sig, &[0; 32], &host(), 500), Err(WideOpenError::Commit));
+        assert_eq!(
+            open_wide(&s.seal, &r.sig, &[0; 32], &host(), 500),
+            Err(WideOpenError::Commit)
+        );
         // opened correctly, judged against another transit
-        assert_eq!(open_wide(&s.seal, &r.sig, &s.commit, &other, 500), Err(WideOpenError::Plain(WidePlainError::HostMismatch)));
-        assert_eq!(open_wide(&s.seal, &r.sig, &s.commit, &host(), 499), Err(WideOpenError::Plain(WidePlainError::ArriveMismatch)));
+        assert_eq!(
+            open_wide(&s.seal, &r.sig, &s.commit, &other, 500),
+            Err(WideOpenError::Plain(WidePlainError::HostMismatch))
+        );
+        assert_eq!(
+            open_wide(&s.seal, &r.sig, &s.commit, &host(), 499),
+            Err(WideOpenError::Plain(WidePlainError::ArriveMismatch))
+        );
     }
 }

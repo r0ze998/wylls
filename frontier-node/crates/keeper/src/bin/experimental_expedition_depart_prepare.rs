@@ -7,8 +7,7 @@
 //! the target, payer, ruleset and budgets are explicit arguments.
 use fclient::{blockhash_preflight, rpc::RpcPort};
 use keeper_core::{
-    experimental_expedition_depart_prepare as depart,
-    experimental_expedition_prepare::Settings,
+    experimental_expedition_depart_prepare as depart, experimental_expedition_prepare::Settings,
     wideexpedition_preview as preview,
 };
 use std::{ffi::OsString, io::Write, time::Duration};
@@ -31,7 +30,12 @@ fn options(args: impl IntoIterator<Item = OsString>) -> Result<(String, Settings
         .into_iter()
         .map(|s| s.into_string().map_err(|_| "RequestInvalid"))
         .collect::<Result<_, _>>()?;
-    if args.len() != NAMES.len() * 2 || NAMES.iter().enumerate().any(|(i, name)| args[i * 2] != *name) {
+    if args.len() != NAMES.len() * 2
+        || NAMES
+            .iter()
+            .enumerate()
+            .any(|(i, name)| args[i * 2] != *name)
+    {
         return Err("RequestInvalid");
     }
     preview::validate_rpc_url(&args[1]).map_err(|_| "RequestInvalid")?;
@@ -43,7 +47,11 @@ fn options(args: impl IntoIterator<Item = OsString>) -> Result<(String, Settings
         Ok(a)
     };
     let mut ruleset_hash = [0; 32];
-    if args[9].len() != 64 || !args[9].bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if args[9].len() != 64
+        || !args[9]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return Err("RequestInvalid");
     }
     hex::decode_to_slice(&args[9], &mut ruleset_hash).map_err(|_| "RequestInvalid")?;
@@ -62,7 +70,10 @@ fn options(args: impl IntoIterator<Item = OsString>) -> Result<(String, Settings
         cu_limit: number(&args[11])?,
         loaded_limit: number(&args[13])?,
     };
-    if settings.program == settings.season || settings.cu_limit > 1_400_000 || settings.loaded_limit > 64 * 1024 * 1024 {
+    if settings.program == settings.season
+        || settings.cu_limit > 1_400_000
+        || settings.loaded_limit > 64 * 1024 * 1024
+    {
         return Err("RequestInvalid");
     }
     Ok((args[1].clone(), settings))
@@ -77,8 +88,16 @@ fn run(args: impl IntoIterator<Item = OsString>, stdin: impl std::io::Read) -> s
         Ok(x) => x,
         Err(code) => return depart::failure(None, code),
     };
-    let source = RpcPort::new_with_response_limit(url.clone(), settings.program, preview::MAX_RPC_RESPONSE_BYTES);
-    let runtime = match tokio::runtime::Builder::new_current_thread().enable_io().enable_time().build() {
+    let source = RpcPort::new_with_response_limit(
+        url.clone(),
+        settings.program,
+        preview::MAX_RPC_RESPONSE_BYTES,
+    );
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+    {
         Ok(r) => r,
         Err(_) => return depart::failure(Some(&request), "SourceUnavailable"),
     };
@@ -87,7 +106,9 @@ fn run(args: impl IntoIterator<Item = OsString>, stdin: impl std::io::Read) -> s
         match tokio::time::timeout(
             TIMEOUT,
             depart::prepare(&request, settings, &source, |floor| async move {
-                blockhash_preflight::read(rpc_url, floor).await.map_err(|_| ())
+                blockhash_preflight::read(rpc_url, floor)
+                    .await
+                    .map_err(|_| ())
             }),
         )
         .await
@@ -149,7 +170,16 @@ mod tests {
         assert_eq!(v["schema"], depart::REPORT_SCHEMA);
         assert_eq!(v["status"], "blocked");
         assert_eq!(v["host_only"], true);
-        for k in ["ready", "deployment_verified", "admitted", "signed", "enqueued", "relay_submission_available", "automatic_send", "seal_verified"] {
+        for k in [
+            "ready",
+            "deployment_verified",
+            "admitted",
+            "signed",
+            "enqueued",
+            "relay_submission_available",
+            "automatic_send",
+            "seal_verified",
+        ] {
             assert_eq!(v[k], false, "{k}");
         }
         assert_eq!(v["prepared"], serde_json::Value::Null);
@@ -215,7 +245,11 @@ mod tests {
         closed(&v);
         assert_eq!(v["blocker"]["code"], "RequestInvalid");
         assert_eq!(v["request"], serde_json::Value::Null);
-        for body in [&b""[..], b"null", b"{\"schema\":\"frontier-experimental-expedition-prepare-request-v1\"}"] {
+        for body in [
+            &b""[..],
+            b"null",
+            b"{\"schema\":\"frontier-experimental-expedition-prepare-request-v1\"}",
+        ] {
             let v = run(os(&good()), std::io::Cursor::new(body.to_vec()));
             closed(&v);
             assert_eq!(v["blocker"]["code"], "RequestInvalid");
@@ -226,7 +260,12 @@ mod tests {
     /// with an explicit port 1–65535 and a plain path; nothing else.
     #[test]
     fn only_explicit_loopback_http_with_a_port_is_accepted() {
-        for ok in ["http://127.0.0.1:8899", "http://[::1]:8899", "http://127.0.0.1:1/rpc", "http://[::1]:65535/a-b_c.d~e"] {
+        for ok in [
+            "http://127.0.0.1:8899",
+            "http://[::1]:8899",
+            "http://127.0.0.1:1/rpc",
+            "http://[::1]:65535/a-b_c.d~e",
+        ] {
             let mut v = good();
             v[1] = ok.into();
             assert!(options(os(&v)).is_ok(), "{ok}");

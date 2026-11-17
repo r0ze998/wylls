@@ -46,9 +46,9 @@ use frontier_abi::resident_auth::{self as ra, Refusal};
 use frontier_abi::resident_wire::{self, Command};
 
 use super::Ctx;
-use crate::Severity;
 use crate::codes::*;
 use crate::world::{Ix, Key, Tx, World};
+use crate::Severity;
 
 const V: &str = "V28";
 
@@ -1283,10 +1283,9 @@ mod tests {
         let v = judge_wide(&w, Some(&f));
         assert_eq!(fails(&v), vec![]);
         assert_eq!(v.len(), 5, "{v:?}");
-        assert!(
-            v.iter()
-                .all(|x| x.1 == Severity::Unverifiable && x.2 == RESIDENT_INNER_UNMODELLED)
-        );
+        assert!(v
+            .iter()
+            .all(|x| x.1 == Severity::Unverifiable && x.2 == RESIDENT_INNER_UNMODELLED));
         for (seq, ix, what) in [
             (8, wide(A, 1), "A after the transfer"),
             (8, wide(A, 0), "A's signature from before the transfer"),

@@ -301,7 +301,8 @@ impl SnapshotSource for Source {
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::layout::province::site as SMV1;
 use keeper_core::experimental_conquest_prepare::{
-    failure, free_city_tile, output_bytes, parse_request as conquest_parse, REPORT_SCHEMA, REQUEST_SCHEMA,
+    failure, free_city_tile, output_bytes, parse_request as conquest_parse, REPORT_SCHEMA,
+    REQUEST_SCHEMA,
 };
 use permutation_rules::frontier::clash::NEUTRAL;
 
@@ -358,7 +359,15 @@ fn a_blocked_report_is_closed_and_bounded() {
     assert_eq!(v["status"], "blocked");
     assert_eq!(v["blocker"]["code"], "DispatchKindUnavailable");
     assert_eq!(v["request"], *r.echo());
-    for k in ["ready", "deployment_verified", "admitted", "signed", "enqueued", "relay_submission_available", "automatic_send"] {
+    for k in [
+        "ready",
+        "deployment_verified",
+        "admitted",
+        "signed",
+        "enqueued",
+        "relay_submission_available",
+        "automatic_send",
+    ] {
         assert_eq!(v[k], false, "{k}");
     }
     assert_eq!(v["host_only"], true);
@@ -384,7 +393,11 @@ fn province(sites: &[(u8, u8, u8, u8, u8)]) -> Vec<u8> {
 #[test]
 fn a_site_is_a_free_city_only_exactly_as_the_handler_requires() {
     let city = (43, SM::STATE_FREE_CITY, 0, 0, NEUTRAL);
-    let d = province(&[(10, SMV1::STATE_HOLDING, 1, 1, 2), city, (20, SMV1::STATE_FREE, 0, 0, 0)]);
+    let d = province(&[
+        (10, SMV1::STATE_HOLDING, 1, 1, 2),
+        city,
+        (20, SMV1::STATE_FREE, 0, 0, 0),
+    ]);
     assert_eq!(free_city_tile(&d, 1), Ok(43));
     // a village, free land, a site past the count
     assert_eq!(free_city_tile(&d, 0), Err("TargetNotFreeCity"));
@@ -398,14 +411,20 @@ fn a_site_is_a_free_city_only_exactly_as_the_handler_requires() {
         (43, SM::STATE_FREE_CITY, 0, 0, 2),
         (43, SMV1::STATE_HOLDING, 0, 0, NEUTRAL),
     ] {
-        assert_eq!(free_city_tile(&province(&[bad]), 0), Err("TargetNotFreeCity"));
+        assert_eq!(
+            free_city_tile(&province(&[bad]), 0),
+            Err("TargetNotFreeCity")
+        );
     }
     // a count beyond the array is not read as sites
     let mut over = province(&[city]);
     over[PV::SITE_COUNT] = PV::SITES_N as u8 + 1;
     assert_eq!(free_city_tile(&over, 0), Err("TargetNotFreeCity"));
     // bytes too short to hold the mirror
-    assert_eq!(free_city_tile(&d[..PV::SITE_COUNT], 1), Err("SourceUnavailable"));
+    assert_eq!(
+        free_city_tile(&d[..PV::SITE_COUNT], 1),
+        Err("SourceUnavailable")
+    );
 }
 
 // ------------------------------------------------------------------ the whole preparation over ONE union snapshot
@@ -431,13 +450,31 @@ impl SnapshotSource for Union {
         rent: bool,
         min_slot: u64,
     ) -> Pin<Box<dyn Future<Output = Result<Snapshot, SnapshotError>> + Send + 'a>> {
-        self.asked.lock().unwrap().push((keys.to_vec(), rent, min_slot));
+        self.asked
+            .lock()
+            .unwrap()
+            .push((keys.to_vec(), rent, min_slot));
         let mut values: Vec<_> = keys
             .iter()
-            .map(|k| self.accounts.get(k).and_then(|a| a.as_ref()).map_or(Value::Null, encoded))
+            .map(|k| {
+                self.accounts
+                    .get(k)
+                    .and_then(|a| a.as_ref())
+                    .map_or(Value::Null, encoded)
+            })
             .collect();
-        values.push(encoded(&Account { data: self.clock.encode().to_vec(), owner: sysvar_owner(), lamports: 1, executable: false }));
-        let result = parse_snapshot_response(&json!({"context": {"slot": self.slot}, "value": values}), keys, rent, min_slot);
+        values.push(encoded(&Account {
+            data: self.clock.encode().to_vec(),
+            owner: sysvar_owner(),
+            lamports: 1,
+            executable: false,
+        }));
+        let result = parse_snapshot_response(
+            &json!({"context": {"slot": self.slot}, "value": values}),
+            keys,
+            rent,
+            min_slot,
+        );
         Box::pin(async move { result })
     }
 }
@@ -445,7 +482,10 @@ impl SnapshotSource for Union {
 /// under the dispatch revision the conquest request requires.
 fn staying() -> Fixture {
     let mut f = Fixture::new();
-    f.scope.deployment = Some(Deployment { program_version: DISPATCH, ruleset_hash: [9; 32] });
+    f.scope.deployment = Some(Deployment {
+        program_version: DISPATCH,
+        ruleset_hash: [9; 32],
+    });
     let season = f.scope.season;
     assert!(wr_u16(f.data(season), S::PROGRAM_VERSION, DISPATCH));
     f.entry(E::STATE_ROSTER, EntryOp::None);
@@ -467,16 +507,34 @@ fn conquest_request(f: &Fixture, site: u8, entry: u8, floor: &str) -> Value {
 }
 fn union(f: &Fixture, slot: u64) -> Union {
     // (the Clock of a response is of that response's slot)
-    let clock = ClockSysvar { slot, ..f.reads.clock.unwrap() };
-    Union { accounts: f.reads.accounts.clone(), clock, slot, asked: Mutex::new(Vec::new()) }
+    let clock = ClockSysvar {
+        slot,
+        ..f.reads.clock.unwrap()
+    };
+    Union {
+        accounts: f.reads.accounts.clone(),
+        clock,
+        slot,
+        asked: Mutex::new(Vec::new()),
+    }
 }
 fn settings(f: &Fixture) -> Settings {
-    Settings { program: f.scope.program, season: f.scope.season, fee_payer: a(7), ruleset_hash: [9; 32], cu_limit: 400_000, loaded_limit: 1_048_576 }
+    Settings {
+        program: f.scope.program,
+        season: f.scope.season,
+        fee_payer: a(7),
+        ruleset_hash: [9; 32],
+        cu_limit: 400_000,
+        loaded_limit: 1_048_576,
+    }
 }
 /// Run the preparation; the blockhash provider must never be reached unless the dispatch feature wraps.
 fn blocker(f: &Fixture, v: &Value, s: &Union) -> String {
     let r = conquest_parse(&serde_json::to_vec(v).unwrap()).unwrap();
-    let out = tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(prepare(&r, settings(f), s, |_| async { Err(()) }));
+    let out = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(prepare(&r, settings(f), s, |_| async { Err(()) }));
     assert_eq!(out["status"], "blocked", "{out}");
     for k in ["signed", "ready", "admitted", "enqueued", "automatic_send"] {
         assert_eq!(out[k], false);
@@ -485,7 +543,11 @@ fn blocker(f: &Fixture, v: &Value, s: &Union) -> String {
 }
 /// What a preparation that passed EVERY read check answers in this build: without the conquest dispatch feature the
 /// closed kind blocker; with it, the (injected, failing) blockhash read is the first thing after the checks.
-const PASSED: &str = if cfg!(feature = "conquest-dispatch-experimental") { "BlockhashUnavailable" } else { "DispatchKindUnavailable" };
+const PASSED: &str = if cfg!(feature = "conquest-dispatch-experimental") {
+    "BlockhashUnavailable"
+} else {
+    "DispatchKindUnavailable"
+};
 
 #[test]
 fn one_union_snapshot_carries_every_check_and_its_slot_is_the_reports() {
@@ -493,7 +555,11 @@ fn one_union_snapshot_carries_every_check_and_its_slot_is_the_reports() {
     let s = union(&f, 100);
     assert_eq!(blocker(&f, &conquest_request(&f, 1, 2, "80"), &s), PASSED);
     let asked = s.asked.lock().unwrap();
-    assert_eq!(asked.len(), 1, "ONE read: nothing is taken from an earlier or a second one");
+    assert_eq!(
+        asked.len(),
+        1,
+        "ONE read: nothing is taken from an earlier or a second one"
+    );
     let (keys, rent, min_slot) = &asked[0];
     assert!(!rent);
     assert_eq!(*min_slot, 80);
@@ -503,7 +569,10 @@ fn one_union_snapshot_carries_every_check_and_its_slot_is_the_reports() {
     }
     assert!(keys.contains(&f.keys.roster()) && keys.contains(&f.keys.standing()));
     assert_eq!(keys.len(), f.keys.keys().len() + 3);
-    assert_eq!(keys.iter().collect::<std::collections::BTreeSet<_>>().len(), keys.len());
+    assert_eq!(
+        keys.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        keys.len()
+    );
 }
 
 #[test]
@@ -511,8 +580,14 @@ fn the_roster_entry_must_be_the_selected_host_in_the_same_snapshot() {
     // the same entry index, the same state and tile in the Province, but the roster now pairs it with ANOTHER host of
     // the same village (the next sequence): an entry reused after the selected host left
     let mut f = staying();
-    let ctx = AddrCtx { program: f.scope.program.to_bytes(), season: f.scope.season.to_bytes() };
-    let other = AccountResolver::for_season(&ctx).unwrap().legacy_host_ref(frontier_abi::addr::host_id(128, 0, 1, 2, 1).unwrap()).unwrap();
+    let ctx = AddrCtx {
+        program: f.scope.program.to_bytes(),
+        season: f.scope.season.to_bytes(),
+    };
+    let other = AccountResolver::for_season(&ctx)
+        .unwrap()
+        .legacy_host_ref(frontier_abi::addr::host_id(128, 0, 1, 2, 1).unwrap())
+        .unwrap();
     assert_ne!(other.to_bytes(), f.selected.host.to_bytes());
     let roster = WideRoster::new(ID, f.selected.standing, a(8).to_bytes());
     let mut rd = vec![0; wide_roster::SIZE];
@@ -523,7 +598,10 @@ fn the_roster_entry_must_be_the_selected_host_in_the_same_snapshot() {
     assert!(wr_u32(f.data(village), H::HOST_SEQ, 2));
     let code = blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 101));
     assert_ne!(code, PASSED);
-    assert!(["SourceBlocked", "SiegeUnavailable", "HostNotOnTarget"].contains(&code.as_str()), "{code}");
+    assert!(
+        ["SourceBlocked", "SiegeUnavailable", "HostNotOnTarget"].contains(&code.as_str()),
+        "{code}"
+    );
     // an empty roster entry (the host is gone, nobody took it) is refused the same way
     let mut f = staying();
     let roster = WideRoster::new(ID, f.selected.standing, a(8).to_bytes());
@@ -531,7 +609,10 @@ fn the_roster_entry_must_be_the_selected_host_in_the_same_snapshot() {
     roster.write_header(&mut rd).unwrap();
     let at = f.keys.roster();
     *f.data(at) = rd;
-    assert_ne!(blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 101)), PASSED);
+    assert_ne!(
+        blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 101)),
+        PASSED
+    );
 }
 
 #[test]
@@ -539,19 +620,31 @@ fn a_host_that_is_leaving_spent_or_in_transit_is_not_offered_a_siege() {
     // a pending Leave (the turn has not processed it yet)
     let mut f = staying();
     f.entry(E::STATE_ROSTER, EntryOp::Leave);
-    assert_eq!(blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)), "SiegeUnavailable");
+    assert_eq!(
+        blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)),
+        "SiegeUnavailable"
+    );
     // departed with its Leave processed (the return stage)
     let mut f = staying();
     f.entry(E::STATE_DEPARTED, EntryOp::Leave);
-    assert_eq!(blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)), "SiegeUnavailable");
+    assert_eq!(
+        blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)),
+        "SiegeUnavailable"
+    );
     // a pending Spend
     let mut f = staying();
     f.entry(E::STATE_ROSTER, EntryOp::Spend { cost: 1 });
-    assert_ne!(blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)), PASSED);
+    assert_ne!(
+        blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)),
+        PASSED
+    );
     // a bridge in flight
     let mut f = staying();
     f.bridge();
-    assert_ne!(blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)), PASSED);
+    assert_ne!(
+        blocker(&f, &conquest_request(&f, 1, 2, "80"), &union(&f, 100)),
+        PASSED
+    );
 }
 
 #[test]
@@ -560,44 +653,97 @@ fn the_context_only_moves_forward_and_the_floor_is_the_requests() {
     // the snapshot is older than the observation the request was made on
     // (refused by the snapshot reader itself: a response below the asked floor is no snapshot)
     let old = blocker(&f, &conquest_request(&f, 1, 2, "101"), &union(&f, 100));
-    assert!(["SourceBlocked", "SourceUnavailable"].contains(&old.as_str()), "{old}");
+    assert!(
+        ["SourceBlocked", "SourceUnavailable"].contains(&old.as_str()),
+        "{old}"
+    );
     let s = union(&f, 100);
     blocker(&f, &conquest_request(&f, 1, 2, "100"), &s);
-    assert_eq!(s.asked.lock().unwrap()[0].2, 100, "the read is asked for at no older a slot than the request's observation");
+    assert_eq!(
+        s.asked.lock().unwrap()[0].2,
+        100,
+        "the read is asked for at no older a slot than the request's observation"
+    );
     // newer is fine, and every check is then made at the newer slot
-    assert_eq!(blocker(&f, &conquest_request(&f, 1, 2, "100"), &union(&f, 100)), PASSED);
-    assert_eq!(blocker(&f, &conquest_request(&f, 1, 2, "90"), &union(&f, 250)), PASSED);
+    assert_eq!(
+        blocker(&f, &conquest_request(&f, 1, 2, "100"), &union(&f, 100)),
+        PASSED
+    );
+    assert_eq!(
+        blocker(&f, &conquest_request(&f, 1, 2, "90"), &union(&f, 250)),
+        PASSED
+    );
 }
 
 #[test]
 fn the_target_is_this_free_city_under_this_entry_with_an_absent_holding_position() {
     let f = staying();
     // another site of the province is not a Free City; a site past the count; another entry than the host's
-    assert_eq!(blocker(&f, &conquest_request(&f, 0, 2, "80"), &union(&f, 100)), "TargetNotFreeCity");
-    assert_eq!(blocker(&f, &conquest_request(&f, 5, 2, "80"), &union(&f, 100)), "TargetNotFreeCity");
-    assert_eq!(blocker(&f, &conquest_request(&f, 1, 3, "80"), &union(&f, 100)), "HostNotOnTarget");
+    assert_eq!(
+        blocker(&f, &conquest_request(&f, 0, 2, "80"), &union(&f, 100)),
+        "TargetNotFreeCity"
+    );
+    assert_eq!(
+        blocker(&f, &conquest_request(&f, 5, 2, "80"), &union(&f, 100)),
+        "TargetNotFreeCity"
+    );
+    assert_eq!(
+        blocker(&f, &conquest_request(&f, 1, 3, "80"), &union(&f, 100)),
+        "HostNotOnTarget"
+    );
     // the Free City is on another tile than the host stands on
     let mut g = staying();
     let (tile, standing) = (g.entry.tile, g.keys.standing());
     g.data(standing)[P::SITES + 1] = tile.wrapping_add(2) % 61;
-    assert_eq!(blocker(&g, &conquest_request(&g, 1, 2, "80"), &union(&g, 100)), "HostNotOnTarget");
+    assert_eq!(
+        blocker(&g, &conquest_request(&g, 1, 2, "80"), &union(&g, 100)),
+        "HostNotOnTarget"
+    );
     // the site already has a generation (not the initial Free City)
     let mut g = staying();
     let standing = g.keys.standing();
     g.data(standing)[P::site(1) + SM::GEN] = 1;
-    assert_eq!(blocker(&g, &conquest_request(&g, 1, 2, "80"), &union(&g, 100)), "TargetNotFreeCity");
+    assert_eq!(
+        blocker(&g, &conquest_request(&g, 1, 2, "80"), &union(&g, 100)),
+        "TargetNotFreeCity"
+    );
     // the canonical holding position already holds an account
     let g = staying();
-    let ctx = AddrCtx { program: g.scope.program.to_bytes(), season: g.scope.season.to_bytes() };
-    let position = Address::new_from_array(frontier_abi::world_index::holding::holding_address(&ctx, g.selected.standing.coord(), 1));
+    let ctx = AddrCtx {
+        program: g.scope.program.to_bytes(),
+        season: g.scope.season.to_bytes(),
+    };
+    let position = Address::new_from_array(frontier_abi::world_index::holding::holding_address(
+        &ctx,
+        g.selected.standing.coord(),
+        1,
+    ));
     let mut s = union(&g, 100);
-    s.accounts.insert(position, Some(Account { lamports: 1, data: vec![1; 8], owner: g.scope.program, executable: false }));
-    assert_eq!(blocker(&g, &conquest_request(&g, 1, 2, "80"), &s), "SiegeUnavailable");
+    s.accounts.insert(
+        position,
+        Some(Account {
+            lamports: 1,
+            data: vec![1; 8],
+            owner: g.scope.program,
+            executable: false,
+        }),
+    );
+    assert_eq!(
+        blocker(&g, &conquest_request(&g, 1, 2, "80"), &s),
+        "SiegeUnavailable"
+    );
     // another wallet than the relay's pinned payer
     let g = staying();
-    let r = conquest_parse(&serde_json::to_vec(&conquest_request(&g, 1, 2, "80")).unwrap()).unwrap();
-    let other = Settings { fee_payer: a(8), ..settings(&g) };
-    let out = tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(prepare(&r, other, &union(&g, 100), |_| async { Err(()) }));
+    let r =
+        conquest_parse(&serde_json::to_vec(&conquest_request(&g, 1, 2, "80")).unwrap()).unwrap();
+    let other = Settings {
+        fee_payer: a(8),
+        ..settings(&g)
+    };
+    let out = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(prepare(&r, other, &union(&g, 100), |_| async { Err(()) }));
     assert_eq!(out["blocker"]["code"], "RequestInvalid");
 }
 
@@ -613,16 +759,29 @@ fn the_whole_prepared_report_is_the_recorded_one() {
     const RECORDED: &str = include_str!("fixtures/conquest_declare_siege_report_v1.json");
     let f = staying();
     let s = union(&f, 100);
-    let r = conquest_parse(&serde_json::to_vec(&conquest_request(&f, 1, 2, "80")).unwrap()).unwrap();
+    let r =
+        conquest_parse(&serde_json::to_vec(&conquest_request(&f, 1, 2, "80")).unwrap()).unwrap();
     let observed = |floor: u64| async move {
-        assert_eq!(floor, 100, "the blockhash is asked for at the snapshot's own slot");
+        assert_eq!(
+            floor, 100,
+            "the blockhash is asked for at the snapshot's own slot"
+        );
         Ok(ObservedBlockhash {
-            observation: BlockhashObservation { blockhash: [24; 32], context_slot: 101, valid: true, block_height: 200, last_valid_block_height: 210 },
+            observation: BlockhashObservation {
+                blockhash: [24; 32],
+                context_slot: 101,
+                valid: true,
+                block_height: 200,
+                last_valid_block_height: 210,
+            },
             latest_context_slot: 100,
             height_min_context_slot: 101,
         })
     };
-    let out = tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(prepare(&r, settings(&f), &s, observed));
+    let out = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(prepare(&r, settings(&f), &s, observed));
     assert_eq!(out["status"], "prepared", "{out}");
     assert_eq!(s.asked.lock().unwrap().len(), 1, "one snapshot");
     let p = &out["prepared"];
@@ -633,7 +792,15 @@ fn the_whole_prepared_report_is_the_recorded_one() {
     assert_eq!(p["roles"].as_array().unwrap().len(), 12);
     assert_eq!(p["instruction_hex"], "daff020cdaff01050102");
     assert_eq!(out["source"]["context_slot"], "100");
-    for k in ["ready", "deployment_verified", "admitted", "signed", "enqueued", "relay_submission_available", "automatic_send"] {
+    for k in [
+        "ready",
+        "deployment_verified",
+        "admitted",
+        "signed",
+        "enqueued",
+        "relay_submission_available",
+        "automatic_send",
+    ] {
         assert_eq!(out[k], false, "{k}");
     }
     println!("CONQUEST_REPORT_BEGIN{}CONQUEST_REPORT_END", out);

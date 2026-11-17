@@ -6429,8 +6429,8 @@ fn settled_transit_with(dep_mass: u32, troops_after: u32, root: [u8; 32]) -> Wid
 /// the planner's headroom rule: the one province account must take two
 /// records, `ChainOverflow("dest_province")` when it can take only one.
 #[test]
-fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_shared_expectations(
-) {
+fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_shared_expectations()
+{
     let j = return_expectations();
     let escrowed_season = {
         let mut s = season_bytes(SL::STATUS_RUNNING, 10_000);
@@ -6447,7 +6447,10 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
     // --- Retreated in the final set: the record's values home, the
     // stamina dated the arrival, the tip to its own slot's beneficiary.
     let c = expectation(&j, "retreated_final_set_roster_entry");
-    assert!(c["source"].as_str().unwrap().starts_with("dispatcher - real Resolve retreat"));
+    assert!(c["source"]
+        .as_str()
+        .unwrap()
+        .starts_with("dispatcher - real Resolve retreat"));
     let mut fx = SettleFx::new();
     fx.season = escrowed_season.clone();
     fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
@@ -6470,7 +6473,11 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
         )],
     ));
     let mut sd = slot_bytes_at(away(), 1, host());
-    assert!(wr_arr(&mut sd, wa::wide_arrival_slot::RENT_TO, &payer().to_bytes()));
+    assert!(wr_arr(
+        &mut sd,
+        wa::wide_arrival_slot::RENT_TO,
+        &payer().to_bytes()
+    ));
     fx.slot = Some(sd);
     let (pd, rd) = home_with_entries(&[]);
     fx.home = Some(pd);
@@ -6482,7 +6489,10 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
     assert!(f.in_final_set && f.own_slot);
     let r = f.return_home.unwrap();
     assert_eq!(r.troops_milli as u64, expected_u64(c, "troops_home_milli"));
-    assert_eq!((r.stamina, r.stamina_bell, r.routed), (61, ARRIVE_BELL, false));
+    assert_eq!(
+        (r.stamina, r.stamina_bell, r.routed),
+        (61, ARRIVE_BELL, false)
+    );
     assert_eq!(
         roles(f),
         vec![
@@ -6527,7 +6537,10 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
         "boundary_1000_reserve_one",
     ] {
         let c = expectation(&j, name);
-        assert!(c["source"].as_str().unwrap().starts_with("isolated-handler"));
+        assert!(c["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("isolated-handler"));
         let mass = expected_u64(c, "dep_mass_milli") as u32;
         let staged = expected_u64(c, "troops_after_staged_milli") as u32;
         let mut fx = SettleFx::new();
@@ -6548,9 +6561,15 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
         };
         fx.home = Some(pd);
         fx.home_roster = Some(rd);
-        let cand = fx.plan().unwrap_or_else(|b| panic!("{name}: blocked: {b:?}"));
+        let cand = fx
+            .plan()
+            .unwrap_or_else(|b| panic!("{name}: blocked: {b:?}"));
         let f = settle_facts(&cand);
-        assert_eq!(f.outcome_code as u64, expected_u64(c, "outcome_code"), "{name}");
+        assert_eq!(
+            f.outcome_code as u64,
+            expected_u64(c, "outcome_code"),
+            "{name}"
+        );
         assert!(!f.in_final_set && !f.own_slot);
         assert_eq!(f.troops_after_milli, staged, "{name}: the transit's value");
         assert_eq!(
@@ -6605,7 +6624,11 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
     assert_eq!(c["keeper_block"], "InputsUnresolved");
     let (ibe, k) = recorded_vector();
     let pt = plain_for(host(), ARRIVE_BELL);
-    assert_eq!(pt.dest, home(), "the reveal fixture's plaintext names the home");
+    assert_eq!(
+        pt.dest,
+        home(),
+        "the reveal fixture's plaintext names the home"
+    );
     let plain = wseal::pack(&pt);
     let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &plain));
     let salt = salt_of(&k);
@@ -6633,7 +6656,9 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
         // The record and the slots of (home, arrive): absent, or the
         // staged resolved record with the host bounced at position 1 and
         // its own slot there.
-        reads.accounts.insert(inputs_addr(), resolved.clone().and_then(acct));
+        reads
+            .accounts
+            .insert(inputs_addr(), resolved.clone().and_then(acct));
         for i in 0..4u8 {
             let s = if i == 1 && resolved.is_some() {
                 acct_with(slot_bytes_at(home(), 1, host()), FUNDED_WALLET)
@@ -6712,7 +6737,10 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
     // an agreement: the dispatcher settles the unresolved one the planner
     // refuses; the resolved one has planner evidence only.
     let c = expectation(&j, "home_is_destination_unresolved_rout");
-    assert!(c["comparison"].as_str().unwrap().starts_with("coverage gap"));
+    assert!(c["comparison"]
+        .as_str()
+        .unwrap()
+        .starts_with("coverage gap"));
     let c = expectation(&j, "home_is_destination_resolved_headroom");
     assert!(c["comparison"]
         .as_str()
@@ -6736,7 +6764,10 @@ fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_sh
 fn settle_transit_resolved_home_destination_retreated_matches_the_shared_expectation() {
     let j = return_expectations();
     let c = expectation(&j, "home_is_destination_resolved_retreated");
-    assert!(c["comparison"].as_str().unwrap().starts_with("matching settlement semantics only"));
+    assert!(c["comparison"]
+        .as_str()
+        .unwrap()
+        .starts_with("matching settlement semantics only"));
     let mass = expected_u64(c, "dep_mass_milli") as u32;
     let (ibe, k) = recorded_vector();
     let pt = plain_for(host(), ARRIVE_BELL);
@@ -6786,7 +6817,11 @@ fn settle_transit_resolved_home_destination_retreated_matches_the_shared_expecta
             )),
         );
         let mut sd = slot_bytes_at(home(), 0, host());
-        assert!(wr_arr(&mut sd, wa::wide_arrival_slot::RENT_TO, &payer().to_bytes()));
+        assert!(wr_arr(
+            &mut sd,
+            wa::wide_arrival_slot::RENT_TO,
+            &payer().to_bytes()
+        ));
         for i in 0..4u8 {
             let s = if i == 0 {
                 acct_with(sd.clone(), FUNDED_WALLET)
@@ -6813,14 +6848,21 @@ fn settle_transit_resolved_home_destination_retreated_matches_the_shared_expecta
     let (fx, reads) = build(u64::MAX - 2);
     let cand = plan_home(&fx, &reads).unwrap_or_else(|b| panic!("blocked: {b:?}"));
     let f = settle_facts(&cand);
-    assert_eq!((f.dest, f.home), (home(), home()), "one province in both roles");
+    assert_eq!(
+        (f.dest, f.home),
+        (home(), home()),
+        "one province in both roles"
+    );
     assert_eq!(f.outcome_code as u64, expected_u64(c, "outcome_code"));
     assert_eq!(f.fate, wa::wide_arrival::FATE_RETREATED);
     assert!(f.in_final_set && f.own_slot && !f.stays);
     assert_eq!(f.position, 0);
     let r = f.return_home.unwrap();
     assert_eq!(r.troops_milli as u64, expected_u64(c, "troops_home_milli"));
-    assert_eq!((r.stamina, r.stamina_bell, r.routed), (61, ARRIVE_BELL, false));
+    assert_eq!(
+        (r.stamina, r.stamina_bell, r.routed),
+        (61, ARRIVE_BELL, false)
+    );
     assert!(r.entry.is_some() && r.home_roster_present);
     assert_eq!(r.credited_milli as u64, expected_u64(c, "credited_milli"));
     assert_eq!(
@@ -6904,10 +6946,16 @@ fn settle_transit_routed_survivor_boundaries_match_the_shared_expectations() {
         "routed_boundary_2000_to_1000_reserve_one",
     ] {
         let c = expectation(&j, name);
-        assert!(c["source"].as_str().unwrap().starts_with("isolated-handler"));
+        assert!(c["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("isolated-handler"));
         let mass = expected_u64(c, "dep_mass_milli") as u32;
         let staged = expected_u64(c, "troops_after_staged_milli") as u32;
-        assert!(staged >= DESTROYED_BELOW, "{name}: a post-origin value the line admits");
+        assert!(
+            staged >= DESTROYED_BELOW,
+            "{name}: a post-origin value the line admits"
+        );
         assert_eq!(
             rout_survivors(staged) as u64,
             expected_u64(c, "troops_home_milli"),
@@ -6927,9 +6975,15 @@ fn settle_transit_routed_survivor_boundaries_match_the_shared_expectations() {
         let (pd, rd) = home_with_entries(&eight);
         fx.home = Some(pd);
         fx.home_roster = Some(rd);
-        let cand = fx.plan().unwrap_or_else(|b| panic!("{name}: blocked: {b:?}"));
+        let cand = fx
+            .plan()
+            .unwrap_or_else(|b| panic!("{name}: blocked: {b:?}"));
         let f = settle_facts(&cand);
-        assert_eq!(f.outcome_code as u64, expected_u64(c, "outcome_code"), "{name}");
+        assert_eq!(
+            f.outcome_code as u64,
+            expected_u64(c, "outcome_code"),
+            "{name}"
+        );
         assert_eq!(
             f.outcome_code,
             WideOutcome::Routed { resolved: true }.code(),
@@ -6945,7 +6999,11 @@ fn settle_transit_routed_survivor_boundaries_match_the_shared_expectations() {
         let destroyed = f.destroyed_on_return;
         assert_eq!(
             f.troops_logged_milli as u64,
-            if destroyed { 0 } else { expected_u64(c, "troops_home_milli") },
+            if destroyed {
+                0
+            } else {
+                expected_u64(c, "troops_home_milli")
+            },
             "{name}: the troops logged"
         );
         let pays: Vec<(&str, String, PayRoute)> = f
@@ -6974,7 +7032,11 @@ fn settle_transit_routed_survivor_boundaries_match_the_shared_expectations() {
                 assert!(r.entry.is_none() && r.live_own == 8, "{name}: the cap");
                 assert_eq!(r.troops_milli as u64, expected_u64(c, "troops_home_milli"));
                 assert!(r.routed && r.stamina == 0 && r.stamina_bell == now_bell_of(&fx));
-                assert_eq!(r.credited_milli as u64, expected_u64(c, "credited_milli"), "{name}");
+                assert_eq!(
+                    r.credited_milli as u64,
+                    expected_u64(c, "credited_milli"),
+                    "{name}"
+                );
                 assert_eq!(
                     (r.reserve_after - r.reserve_before) as u64,
                     expected_u64(c, "reserve_delta_units"),

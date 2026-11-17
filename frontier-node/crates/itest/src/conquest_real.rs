@@ -27,11 +27,14 @@
 use fclient::{Address, Keypair, Signer};
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::world_index::{
-    expedition_transport::OwnedBridgeTransit, land::province_address, march::transit_address, ProvinceKey, TileAddress, WideCoord,
+    expedition_transport::OwnedBridgeTransit, land::province_address, march::transit_address,
+    ProvinceKey, TileAddress, WideCoord,
 };
 use localnet::server::lock;
 
-use crate::destination_real::{advance, derive_route_to, keep_rx, masks_of, ports, raw_secs, reveal_ix, travel_upper};
+use crate::destination_real::{
+    advance, derive_route_to, keep_rx, masks_of, ports, raw_secs, reveal_ix, travel_upper,
+};
 use crate::expedition_play::{inspect, launch_full, PROGRAM, PROGRAM_VERSION, SEASON_ID};
 use crate::keeper_loop::{public_quicknet, submit_and_wait, Pilot, Sent, LAND_TIMEOUT};
 use crate::local_keeper as lk;
@@ -42,7 +45,8 @@ fn conquest_artifact() -> crate::expedition_play::Artifact {
     let path = std::path::PathBuf::from(need("WYLLS_CONQUEST_SBF"));
     let bytes = std::fs::read(&path).unwrap();
     let sha = need("WYLLS_CONQUEST_SBF_SHA256");
-    crate::conquest_world::markers_ok(&bytes, &sha).expect("the conquest artefact carries both markers");
+    crate::conquest_world::markers_ok(&bytes, &sha)
+        .expect("the conquest artefact carries both markers");
     inspect(path, bytes, &sha).unwrap()
 }
 
@@ -64,7 +68,11 @@ fn store(hd: &[u8], i: usize) -> (i64, i64, i64, i64) {
 }
 fn log_source_stores(c: &localnet::Chain, f: &crate::expedition_play::Fixture, when: &str) {
     let hd = c.account(&f.holding).unwrap().data;
-    eprintln!("source Holding stores {when}: arms {:?} gold {:?} (value, rate, cap, t0; milli)", store(&hd, ARMS_I), store(&hd, GOLD_I));
+    eprintln!(
+        "source Holding stores {when}: arms {:?} gold {:?} (value, rate, cap, t0; milli)",
+        store(&hd, ARMS_I),
+        store(&hd, GOLD_I)
+    );
 }
 
 /// SYNTHETIC initial fixture design for the STRONG case only, before any real
@@ -73,17 +81,29 @@ fn log_source_stores(c: &localnet::Chain, f: &crate::expedition_play::Fixture, w
 /// `siege_stake_gold`), value and cap equal, rate 0. Refused unless both stores
 /// are the untouched fixture's (value 0, rate 0, cap 0). Not natural income:
 /// the default fixture keeps empty stores and stays the Insufficient control.
-fn provision_fixture_holding_for_one_declaration(state: &localnet::server::Shared, f: &crate::expedition_play::Fixture) -> (i64, i64) {
+fn provision_fixture_holding_for_one_declaration(
+    state: &localnet::server::Shared,
+    f: &crate::expedition_play::Fixture,
+) -> (i64, i64) {
     let mut c = lock(state);
     let sd = c.account(&f.season).unwrap().data;
-    let stake = frontier_abi::v2::presets::ConquestParams::of_season(&sd).expect("the Season's conquest params").siege_stake_gold as i64;
+    let stake = frontier_abi::v2::presets::ConquestParams::of_season(&sd)
+        .expect("the Season's conquest params")
+        .siege_stake_gold as i64;
     let cost = permutation_rules::frontier::arms::siege_cost();
     let want = [(ARMS_I, cost[ARMS_I]), (GOLD_I, stake * 1000)];
-    assert!(cost.iter().enumerate().all(|(i, x)| *x == 0 || i == ARMS_I), "siege_cost is arms only");
+    assert!(
+        cost.iter().enumerate().all(|(i, x)| *x == 0 || i == ARMS_I),
+        "siege_cost is arms only"
+    );
     let mut acc = c.account(&f.holding).expect("the fixture's source Holding");
     for (i, amount) in want {
         let (value, rate, cap, t0) = store(&acc.data, i);
-        assert_eq!((value, rate, cap), (0, 0, 0), "only the untouched fixture store is provisioned");
+        assert_eq!(
+            (value, rate, cap),
+            (0, 0, 0),
+            "only the untouched fixture store is provisioned"
+        );
         let o = frontier_abi::v2::layout::player::holding::STORES + 40 * i;
         acc.data[o..o + 8].copy_from_slice(&amount.to_le_bytes());
         acc.data[o + 16..o + 24].copy_from_slice(&amount.to_le_bytes());
@@ -98,27 +118,53 @@ fn provision_fixture_holding_for_one_declaration(state: &localnet::server::Share
 /// host: the fixture's own roster entry in its home Province gets `troops`.
 /// Refused unless the entry is exactly the fixture's (same host id, the
 /// fixture's 12 troops), so it can never rewrite a played or resolved state.
-fn strengthen_fixture_host(state: &localnet::server::Shared, f: &crate::expedition_play::Fixture, troops: u32) {
+fn strengthen_fixture_host(
+    state: &localnet::server::Shared,
+    f: &crate::expedition_play::Fixture,
+    troops: u32,
+) {
     use frontier_abi::entry::{find_entry, read_entry, write_entry};
-    assert!(troops <= permutation_rules::frontier::host::MAX_HOST_TROOPS, "within the rules' host cap");
-    let ctx = AddrCtx { program: PROGRAM, season: f.season.to_bytes() };
-    let id = frontier_abi::world_index::expedition::AccountResolver::for_season(&ctx).unwrap().legacy_host_id(&f.host).unwrap();
+    assert!(
+        troops <= permutation_rules::frontier::host::MAX_HOST_TROOPS,
+        "within the rules' host cap"
+    );
+    let ctx = AddrCtx {
+        program: PROGRAM,
+        season: f.season.to_bytes(),
+    };
+    let id = frontier_abi::world_index::expedition::AccountResolver::for_season(&ctx)
+        .unwrap()
+        .legacy_host_id(&f.host)
+        .unwrap();
     let mut c = lock(state);
     let mut acc = c.account(&f.home).expect("the fixture's home Province");
     let i = find_entry(&acc.data, id).expect("the fixture host's roster entry");
     let before = read_entry(&acc.data, i).unwrap();
-    assert_eq!(before.troops, FIXTURE_TROOPS_MILLI, "only the untouched fixture entry is redesigned");
-    write_entry(&mut acc.data, i, &frontier_abi::entry::Entry { troops, ..before }).unwrap();
+    assert_eq!(
+        before.troops, FIXTURE_TROOPS_MILLI,
+        "only the untouched fixture entry is redesigned"
+    );
+    write_entry(
+        &mut acc.data,
+        i,
+        &frontier_abi::entry::Entry { troops, ..before },
+    )
+    .unwrap();
     c.set_account(f.home, acc).unwrap();
     let after = read_entry(&c.account(&f.home).unwrap().data, i).unwrap();
-    assert_eq!(after, frontier_abi::entry::Entry { troops, ..before }, "only the troops differ");
+    assert_eq!(
+        after,
+        frontier_abi::entry::Entry { troops, ..before },
+        "only the troops differ"
+    );
     eprintln!("SYNTHETIC strong fixture: host entry {i} troops {} -> {} (whole: {} -> {}); FRONTIER_7 free_city_garrison 300; MAX_HOST_TROOPS 30000",
         before.troops, troops, before.troops / 1000, troops / 1000);
 }
 
 #[test]
 #[ignore]
-fn a_real_conquest_world_states_its_free_city_and_a_natural_order_declaration_is_refused_not_resident() {
+fn a_real_conquest_world_states_its_free_city_and_a_natural_order_declaration_is_refused_not_resident(
+) {
     scenario(None)
 }
 
@@ -139,7 +185,8 @@ fn with_an_explicitly_strong_fixture_host_the_arrival_meets_the_free_city_in_reg
 /// play; nothing about the reservation, the return or the cost is weakened.
 #[test]
 #[ignore]
-fn with_an_explicitly_strong_fixture_host_a_reservation_whose_host_dissolves_is_not_applied_and_returned_in_full() {
+fn with_an_explicitly_strong_fixture_host_a_reservation_whose_host_dissolves_is_not_applied_and_returned_in_full(
+) {
     scenario_with(Some(STRONG_TROOPS_MILLI), Path::DissolveBeforeItsBell)
 }
 
@@ -169,16 +216,25 @@ fn h3_synthetic_cursor_immediate_declaration_with_a_full_roster_lands_on_real_sb
 #[ignore]
 fn the_runner_metadata_instance_is_the_served_signature_status_instance() {
     let art = conquest_artifact();
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         let (p, q) = ports(41_990);
         let player = Keypair::new();
-        let play = launch_full(&art, player.pubkey(), p, q, false, false).await.unwrap();
-        let want = play.metadata["runner_instance"].as_str().expect("metadata runner_instance").to_string();
+        let play = launch_full(&art, player.pubkey(), p, q, false, false)
+            .await
+            .unwrap();
+        let want = play.metadata["runner_instance"]
+            .as_str()
+            .expect("metadata runner_instance")
+            .to_string();
         assert_eq!(want.len(), 64);
         assert!(want.bytes().all(|b| b.is_ascii_hexdigit()) && want != "0".repeat(64));
         let rpc = |method: &str, params: serde_json::Value| {
-            let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+            let body =
+                serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
             let url = play.running.url();
             async move {
                 let r = fclient::http::post_json(&url, &body).await.unwrap();
@@ -186,11 +242,29 @@ fn the_runner_metadata_instance_is_the_served_signature_status_instance() {
                 serde_json::from_slice::<serde_json::Value>(&r.body).unwrap()
             }
         };
-        let st = rpc("getSignatureStatuses", serde_json::json!([["1".repeat(64)]])).await;
-        assert_eq!(st["result"]["context"]["instance"].as_str(), Some(want.as_str()), "served instance = metadata");
-        let bal = rpc("getBalance", serde_json::json!([player.pubkey().to_string()])).await;
-        assert!(bal["result"]["context"].get("instance").is_none(), "only signature statuses carry it");
-        eprintln!("runner_instance {}… equals the served context.instance", &want[..8]);
+        let st = rpc(
+            "getSignatureStatuses",
+            serde_json::json!([["1".repeat(64)]]),
+        )
+        .await;
+        assert_eq!(
+            st["result"]["context"]["instance"].as_str(),
+            Some(want.as_str()),
+            "served instance = metadata"
+        );
+        let bal = rpc(
+            "getBalance",
+            serde_json::json!([player.pubkey().to_string()]),
+        )
+        .await;
+        assert!(
+            bal["result"]["context"].get("instance").is_none(),
+            "only signature statuses carry it"
+        );
+        eprintln!(
+            "runner_instance {}… equals the served context.instance",
+            &want[..8]
+        );
     });
 }
 
@@ -209,10 +283,17 @@ fn scenario(strong: Option<u32>) {
 }
 
 fn scenario_with(strong: Option<u32>, path: Path) {
-    assert_eq!(std::env::var("WYLLS_PUBLIC_DRAND").as_deref(), Ok("1"), "reads the public drand API");
+    assert_eq!(
+        std::env::var("WYLLS_PUBLIC_DRAND").as_deref(),
+        Ok("1"),
+        "reads the public drand API"
+    );
     let art = conquest_artifact();
     let t0 = std::time::Instant::now();
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         let (p, q) = ports(41_990);
         let player = Keypair::new();
@@ -592,10 +673,21 @@ fn scenario_with(strong: Option<u32>, path: Path) {
 /// ABI steps on THIS chain's real accounts and prints the first that errors.
 /// Reads only; changes nothing; proves nothing about the program by itself.
 #[allow(clippy::too_many_arguments)]
-fn diagnose_reservation(c: &localnet::Chain, ctx: &AddrCtx, f: &crate::expedition_play::Fixture, dest: ProvinceKey, dest_key: &Address, site: u8, entry: u8, bell: u32) {
+fn diagnose_reservation(
+    c: &localnet::Chain,
+    ctx: &AddrCtx,
+    f: &crate::expedition_play::Fixture,
+    dest: ProvinceKey,
+    dest_key: &Address,
+    site: u8,
+    entry: u8,
+    bell: u32,
+) {
     use frontier_abi::conquest_model::Record;
     use frontier_abi::v2::layout::player::citizen as C;
-    use frontier_abi::world_index::conquest::{self as wc, Reservation, WideCaptureEscrow, WideConquest, CaptureBinding, RES_PENDING};
+    use frontier_abi::world_index::conquest::{
+        self as wc, CaptureBinding, Reservation, WideCaptureEscrow, WideConquest, RES_PENDING,
+    };
     use frontier_abi::world_index::roster::{roster_address, WideRoster};
     let pd = c.account(dest_key).unwrap().data;
     let n = pd[frontier_abi::v2::layout::province::province::SITE_COUNT] as usize;
@@ -607,10 +699,16 @@ fn diagnose_reservation(c: &localnet::Chain, ctx: &AddrCtx, f: &crate::expeditio
             eprintln!("DIAG site {s} (count {n}): {r:?} -> paired(empty) {v:?}");
         }
     }
-    let rd = c.account(&Address::new_from_array(roster_address(ctx, dest))).unwrap().data;
+    let rd = c
+        .account(&Address::new_from_array(roster_address(ctx, dest)))
+        .unwrap()
+        .data;
     let roster = WideRoster::read(&rd).unwrap();
     let host = roster.ref_at(&rd, entry as usize);
-    eprintln!("DIAG roster ref_at({entry}) = {host:?}; fixture host {:?}", f.host);
+    eprintln!(
+        "DIAG roster ref_at({entry}) = {host:?}; fixture host {:?}",
+        f.host
+    );
     let cd = c.account(&f.citizen).unwrap().data;
     let citizen = f.citizen.to_bytes();
     let faction = cd[C::FACTION];
@@ -618,39 +716,79 @@ fn diagnose_reservation(c: &localnet::Chain, ctx: &AddrCtx, f: &crate::expeditio
         use frontier_abi::v2::layout::world::season as S;
         let sd = c.account(&f.season).unwrap().data;
         let sid = u64::from_le_bytes(sd[S::SEASON_ID..S::SEASON_ID + 8].try_into().unwrap());
-        let ctx_world = frontier_abi::world_index::WorldId::derive_legacy_season(&ctx.season, &ctx.program);
-        let stored_tag = u64::from_le_bytes(cd[C::CITIZEN_TAG..C::CITIZEN_TAG + 8].try_into().unwrap());
+        let ctx_world =
+            frontier_abi::world_index::WorldId::derive_legacy_season(&ctx.season, &ctx.program);
+        let stored_tag =
+            u64::from_le_bytes(cd[C::CITIZEN_TAG..C::CITIZEN_TAG + 8].try_into().unwrap());
         eprintln!("DIAG season id real {sid} vs SEASON_ID {SEASON_ID}; dest world == ctx world: {:?}; citizen tag stored {stored_tag:#x} computed {:#x}; citizen len {} (C::SIZE {}); slots {:#04x}",
             ctx_world.map(|w| w == dest.world()), frontier_abi::addr::citizen_tag(&citizen), cd.len(), C::SIZE, cd[C::SLOTS]);
         let e = WideCaptureEscrow::new(sid, dest.world(), citizen, [2; 32]).unwrap();
-        eprintln!("DIAG validate_inventory with the real season id -> {:?}", e.validate_inventory(sid, dest.world(), citizen, &cd));
+        eprintln!(
+            "DIAG validate_inventory with the real season id -> {:?}",
+            e.validate_inventory(sid, dest.world(), citizen, &cd)
+        );
         // the source Holding's stores the declaration pays from (value, rate, cap, t0 per resource)
         let hd = c.account(&f.holding).unwrap().data;
         for (i, name) in [(4usize, "arms(horses slot)"), (5, "gold")] {
             let o = frontier_abi::v2::layout::player::holding::STORES + 40 * i;
             let v = |k: usize| i64::from_le_bytes(hd[o + 8 * k..o + 8 * k + 8].try_into().unwrap());
-            eprintln!("DIAG source store {name}: value {} rate {} cap {} t0 {}", v(0), v(1), v(2), v(3));
+            eprintln!(
+                "DIAG source store {name}: value {} rate {} cap {} t0 {}",
+                v(0),
+                v(1),
+                v(2),
+                v(3)
+            );
         }
     }
     let Ok(Some(host)) = host else { return };
     let prefix = Record::read(&pd, site as usize).unwrap();
     for slot in [2u8, 3] {
         let r = Reservation {
-            status: RES_PENDING, site, entry, reserved_slot: slot, faction, done: 0, bell, seq: 0, citizen, host,
-            actor_tag: frontier_abi::addr::citizen_tag(&citizen), gold_milli: 1, arms_milli: 1,
+            status: RES_PENDING,
+            site,
+            entry,
+            reserved_slot: slot,
+            faction,
+            done: 0,
+            bell,
+            seq: 0,
+            citizen,
+            host,
+            actor_tag: frontier_abi::addr::citizen_tag(&citizen),
+            gold_milli: 1,
+            arms_milli: 1,
         };
         let res = empty.reserve(prefix, r);
-        eprintln!("DIAG slot {slot}: reserve -> {:?}; source {:?}", res.as_ref().map(|x| x.2.seq), r.source());
+        eprintln!(
+            "DIAG slot {slot}: reserve -> {:?}; source {:?}",
+            res.as_ref().map(|x| x.2.seq),
+            r.source()
+        );
         let world = dest.world();
         let e = WideCaptureEscrow::new(SEASON_ID, world, citizen, [2; 32]).unwrap();
-        eprintln!("DIAG slot {slot}: escrow.validate_inventory(before mark) -> {:?}", e.validate_inventory(SEASON_ID, world, citizen, &cd));
-        let b = CaptureBinding { key: dest, site, gen: 0, declaration_bell: bell };
+        eprintln!(
+            "DIAG slot {slot}: escrow.validate_inventory(before mark) -> {:?}",
+            e.validate_inventory(SEASON_ID, world, citizen, &cd)
+        );
+        let b = CaptureBinding {
+            key: dest,
+            site,
+            gen: 0,
+            declaration_bell: bell,
+        };
         let er = e.reserve(slot, b, 1_000_000, [3; 32]);
         let mut cd2 = cd.clone();
         let m = wc::mark(&mut cd2, slot);
-        eprintln!("DIAG slot {slot}: escrow.reserve -> {:?}; mark -> {m:?}", er.as_ref().map(|x| x.1));
+        eprintln!(
+            "DIAG slot {slot}: escrow.reserve -> {:?}; mark -> {m:?}",
+            er.as_ref().map(|x| x.1)
+        );
         if let (Ok((t, _, rr)), Ok((eo, _)), Ok(())) = (&res, &er, &m) {
-            eprintln!("DIAG slot {slot}: validate_paired_reservation -> {:?}", eo.validate_paired_reservation(t, rr.seq, citizen, &cd2));
+            eprintln!(
+                "DIAG slot {slot}: validate_paired_reservation -> {:?}",
+                eo.validate_paired_reservation(t, rr.seq, citizen, &cd2)
+            );
         }
     }
 }
@@ -665,7 +803,9 @@ fn conquest_receipts(ctx: &AddrCtx, logs: &[String]) -> Vec<(String, String, u8,
     let resolver = frontier_abi::world_index::expedition::AccountResolver::for_season(ctx).unwrap();
     let mut out = Vec::new();
     for line in logs {
-        let Some(rest) = line.strip_prefix("Program data: ") else { continue };
+        let Some(rest) = line.strip_prefix("Program data: ") else {
+            continue;
+        };
         let fields: Vec<Vec<u8>> = rest.split(' ').filter_map(|x| b64.decode(x).ok()).collect();
         if fields.len() != 2 {
             continue;
@@ -681,7 +821,12 @@ fn conquest_receipts(ctx: &AddrCtx, logs: &[String]) -> Vec<(String, String, u8,
             }
         } else if fields[0] == le::PREFIX && fields[1].get(1) == Some(&le::KIND) {
             match le::Record::decode(&resolver, &fields[1]) {
-                Ok(r) => out.push(("PS2".into(), format!("LegacySource{:?}", r.source.direction), r.source.receipt.action, r.source.bell)),
+                Ok(r) => out.push((
+                    "PS2".into(),
+                    format!("LegacySource{:?}", r.source.direction),
+                    r.source.receipt.action,
+                    r.source.bell,
+                )),
                 Err(e) => out.push(("PS2".into(), format!("undecodable {e:?}"), 0, 0)),
             }
         }
@@ -692,12 +837,25 @@ fn conquest_receipts(ctx: &AddrCtx, logs: &[String]) -> Vec<(String, String, u8,
 /// TEST-ONLY public account evidence for the Fable reader: the conquest table,
 /// the destination Province and the Citizen exactly as this chain holds them
 /// (addresses, owners, lamports, base64 bytes). Public data only; no key.
-fn snapshot(c: &localnet::Chain, ctx: &AddrCtx, f: &crate::expedition_play::Fixture, dest: ProvinceKey, dest_key: &Address, site: u8, stage: &str, bell: u32) -> serde_json::Value {
+fn snapshot(
+    c: &localnet::Chain,
+    ctx: &AddrCtx,
+    f: &crate::expedition_play::Fixture,
+    dest: ProvinceKey,
+    dest_key: &Address,
+    site: u8,
+    stage: &str,
+    bell: u32,
+) -> serde_json::Value {
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD;
-    let table = Address::new_from_array(frontier_abi::world_index::conquest::conquest_address(ctx, dest));
+    let table = Address::new_from_array(frontier_abi::world_index::conquest::conquest_address(
+        ctx, dest,
+    ));
     let acct = |k: &Address| match c.account(k) {
-        Some(a) => serde_json::json!({"address": k.to_string(), "owner": a.owner.to_string(), "lamports": a.lamports, "executable": a.executable, "bytes": a.data.len(), "data_base64": b64.encode(&a.data)}),
+        Some(a) => {
+            serde_json::json!({"address": k.to_string(), "owner": a.owner.to_string(), "lamports": a.lamports, "executable": a.executable, "bytes": a.data.len(), "data_base64": b64.encode(&a.data)})
+        }
         None => serde_json::json!({"address": k.to_string(), "absent": true}),
     };
     serde_json::json!({"stage": stage, "reservation_bell": bell, "slot": c.slot(), "unix_timestamp": c.unix_timestamp(),
@@ -705,8 +863,18 @@ fn snapshot(c: &localnet::Chain, ctx: &AddrCtx, f: &crate::expedition_play::Fixt
         "target_holding": acct(&Address::new_from_array(frontier_abi::world_index::holding::holding_address(ctx, dest.coord(), site)))})
 }
 /// Writes the evidence only when `WYLLS_REAL_EVIDENCE` names a file.
-fn write_evidence(snaps: &[serde_json::Value], cli: &serde_json::Value, ctx: &AddrCtx, f: &crate::expedition_play::Fixture, wallet: &Address, dest: ProvinceKey, artifact_sha256: &str) {
-    let Ok(path) = std::env::var("WYLLS_REAL_EVIDENCE") else { return };
+fn write_evidence(
+    snaps: &[serde_json::Value],
+    cli: &serde_json::Value,
+    ctx: &AddrCtx,
+    f: &crate::expedition_play::Fixture,
+    wallet: &Address,
+    dest: ProvinceKey,
+    artifact_sha256: &str,
+) {
+    let Ok(path) = std::env::var("WYLLS_REAL_EVIDENCE") else {
+        return;
+    };
     let doc = serde_json::json!({
         "schema": "claude-conquest-reservation-real-evidence-v1",
         "synthetic": "memory-only test chain; SYNTHETIC initial state (strong fixture host, one declaration's cost provisioned, Season/Citizen/Holding fixture); every later byte written by the real SBF program; not natural play; heapConfirmed/pageBinding stay false",
@@ -721,21 +889,55 @@ fn write_evidence(snaps: &[serde_json::Value], cli: &serde_json::Value, ctx: &Ad
         "snapshots": snaps,
         "cli": cli,
     });
-    std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).expect("write the evidence file");
+    std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap())
+        .expect("write the evidence file");
     eprintln!("EVIDENCE written: {path}");
 }
 
 /// The NOT_APPLIED path on real SBF (see the test's doc). Asserts the program's
 /// own outcome and the full return; never fabricates a state.
 #[allow(clippy::too_many_arguments)]
-async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut Pilot, ctx: &AddrCtx, f: &crate::expedition_play::Fixture,
-    player: &Keypair, dest: ProvinceKey, dest_key: &Address, site: u8, bell: u32, provisioned: (i64, i64), clock: &fclient::clock::SeasonClock,
-    t0: std::time::Instant, evidence: &mut Vec<serde_json::Value>) {
+async fn not_applied_and_returned(
+    state: &localnet::server::Shared,
+    pilot: &mut Pilot,
+    ctx: &AddrCtx,
+    f: &crate::expedition_play::Fixture,
+    player: &Keypair,
+    dest: ProvinceKey,
+    dest_key: &Address,
+    site: u8,
+    bell: u32,
+    provisioned: (i64, i64),
+    clock: &fclient::clock::SeasonClock,
+    t0: std::time::Instant,
+    evidence: &mut Vec<serde_json::Value>,
+) {
     use frontier_abi::v2::layout::player::citizen as C;
-    use frontier_abi::world_index::conquest::{capture_escrow_address, conquest_address, WideCaptureEscrow, WideConquest, RES_NOT_APPLIED};
-    let deadline: u64 = std::env::var("WYLLS_REAL_DEADLINE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(52);
-    let rn_of = |c: &localnet::Chain| u32::from_le_bytes(c.account(dest_key).unwrap().data[frontier_abi::v2::layout::province::province::RESOLVED_NEXT..][..4].try_into().unwrap());
-    let table_of = |c: &localnet::Chain| WideConquest::read(&c.account(&Address::new_from_array(conquest_address(ctx, dest))).unwrap().data, SEASON_ID, dest).unwrap();
+    use frontier_abi::world_index::conquest::{
+        capture_escrow_address, conquest_address, WideCaptureEscrow, WideConquest, RES_NOT_APPLIED,
+    };
+    let deadline: u64 = std::env::var("WYLLS_REAL_DEADLINE_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(52);
+    let rn_of = |c: &localnet::Chain| {
+        u32::from_le_bytes(
+            c.account(dest_key).unwrap().data
+                [frontier_abi::v2::layout::province::province::RESOLVED_NEXT..][..4]
+                .try_into()
+                .unwrap(),
+        )
+    };
+    let table_of = |c: &localnet::Chain| {
+        WideConquest::read(
+            &c.account(&Address::new_from_array(conquest_address(ctx, dest)))
+                .unwrap()
+                .data,
+            SEASON_ID,
+            dest,
+        )
+        .unwrap()
+    };
     let escrow_addr = Address::new_from_array(capture_escrow_address(ctx, &f.citizen.to_bytes()));
 
     // a. the keeper resolves to bell-1 while the clock stays INSIDE the reservation's bell: the
@@ -744,9 +946,22 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
         if rn_of(&lock(state)) >= bell - 1 {
             break;
         }
-        assert!(pilot.tick(state).await, "the keeper halted: {:?}", pilot.keeper.status);
-        if let Some(step) = pilot.keeper.status.resident_step.as_deref().filter(|s| s.starts_with("Stopped") || s.starts_with("Unknown")) {
-            panic!("t+{:.1}s the resident driver stopped (not resent): {step}", t0.elapsed().as_secs_f32());
+        assert!(
+            pilot.tick(state).await,
+            "the keeper halted: {:?}",
+            pilot.keeper.status
+        );
+        if let Some(step) = pilot
+            .keeper
+            .status
+            .resident_step
+            .as_deref()
+            .filter(|s| s.starts_with("Stopped") || s.starts_with("Unknown"))
+        {
+            panic!(
+                "t+{:.1}s the resident driver stopped (not resent): {step}",
+                t0.elapsed().as_secs_f32()
+            );
         }
         let now = lock(state).unix_timestamp();
         if clock.bell_at(now + 30) == Some(bell) {
@@ -766,34 +981,98 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
     let (cd0, stores0, esc0) = {
         let c = lock(state);
         let hd = c.account(&f.holding).unwrap().data;
-        (c.account(&f.citizen).unwrap().data, (store(&hd, ARMS_I).0, store(&hd, GOLD_I).0), c.account(&escrow_addr).unwrap())
+        (
+            c.account(&f.citizen).unwrap().data,
+            (store(&hd, ARMS_I).0, store(&hd, GOLD_I).0),
+            c.account(&escrow_addr).unwrap(),
+        )
     };
-    assert_eq!(stores0, (0, 0), "before the return the collected cost is out of the source");
+    assert_eq!(
+        stores0,
+        (0, 0),
+        "before the return the collected cost is out of the source"
+    );
 
     // b. the player's own real Dissolve of the fixture's own host (resident order, 256 KiB frame)
     let wire = {
-        use fclient::experimental_expedition_message::{prepare_resident, Target, RESIDENT_HEAP_FRAME};
+        use fclient::experimental_expedition_message::{
+            prepare_resident, Target, RESIDENT_HEAP_FRAME,
+        };
         use fclient::tx::{self, TxBudget};
         use fclient::unsigned_message_preflight::{BlockhashObservation, Limits};
         use frontier_abi::world_index::{expedition_dispatch_ix::Kind, wide_ix as wix};
-        let draft = fclient::wide_resident_draft::Draft::for_wallet(ctx, f.host, dest, player.pubkey(), player.pubkey()).unwrap();
+        let draft = fclient::wide_resident_draft::Draft::for_wallet(
+            ctx,
+            f.host,
+            dest,
+            player.pubkey(),
+            player.pubkey(),
+        )
+        .unwrap();
         let c = lock(state);
         let (blockhash, last_valid) = c.latest_blockhash();
-        let obs = BlockhashObservation { blockhash: blockhash.to_bytes(), context_slot: c.slot(), valid: true, block_height: last_valid.saturating_sub(100),
-            last_valid_block_height: last_valid };
-        let budget = TxBudget { cu_limit: 1_400_000, cu_price: 0, loaded_limit: fclient::fees::RUNTIME_MAX_LOADED, heap: Some(RESIDENT_HEAP_FRAME) };
-        let limits = Limits { max_locks: 32, max_writes: 16, min_context_slot: 0, min_remaining_block_heights: 2 };
-        let prepared = prepare_resident(&draft, Target { program: Address::new_from_array(PROGRAM), season: f.season, program_version: PROGRAM_VERSION },
-            obs, budget, limits).unwrap();
+        let obs = BlockhashObservation {
+            blockhash: blockhash.to_bytes(),
+            context_slot: c.slot(),
+            valid: true,
+            block_height: last_valid.saturating_sub(100),
+            last_valid_block_height: last_valid,
+        };
+        let budget = TxBudget {
+            cu_limit: 1_400_000,
+            cu_price: 0,
+            loaded_limit: fclient::fees::RUNTIME_MAX_LOADED,
+            heap: Some(RESIDENT_HEAP_FRAME),
+        };
+        let limits = Limits {
+            max_locks: 32,
+            max_writes: 16,
+            min_context_slot: 0,
+            min_remaining_block_heights: 2,
+        };
+        let prepared = prepare_resident(
+            &draft,
+            Target {
+                program: Address::new_from_array(PROGRAM),
+                season: f.season,
+                program_version: PROGRAM_VERSION,
+            },
+            obs,
+            budget,
+            limits,
+        )
+        .unwrap();
         // the program instruction is the versioned dispatch wrapper of kind 4 (Dissolve)
         let m = prepared.message();
-        let ix = m.instructions.iter().find(|i| m.account_keys[i.program_id_index as usize] == Address::new_from_array(PROGRAM)).expect("the program instruction");
-        assert_eq!(&ix.data[..4], &[wix::TAG_DEPART, wix::ENVELOPE_ESCAPE, 2, Kind::Dissolve as u8], "dispatch v2 kind 4 = Dissolve");
+        let ix = m
+            .instructions
+            .iter()
+            .find(|i| {
+                m.account_keys[i.program_id_index as usize] == Address::new_from_array(PROGRAM)
+            })
+            .expect("the program instruction");
+        assert_eq!(
+            &ix.data[..4],
+            &[
+                wix::TAG_DEPART,
+                wix::ENVELOPE_ESCAPE,
+                2,
+                Kind::Dissolve as u8
+            ],
+            "dispatch v2 kind 4 = Dissolve"
+        );
         tx::wire(&tx::sign(m.clone(), &[player]).unwrap())
     };
     let sim = lock(state).simulate(&wire, true).unwrap();
-    eprintln!("Dissolve(own host) at bell {now_bell}, resolved_next {rn}: err {:?} code {:?}, {} CU", sim.err, sim.code, sim.units);
-    assert!(sim.err.is_none(), "the player's Dissolve is accepted (code {:?})", sim.code);
+    eprintln!(
+        "Dissolve(own host) at bell {now_bell}, resolved_next {rn}: err {:?} code {:?}, {} CU",
+        sim.err, sim.code, sim.units
+    );
+    assert!(
+        sim.err.is_none(),
+        "the player's Dissolve is accepted (code {:?})",
+        sim.code
+    );
     let sig = lock(state).submit(&wire).expect("the Dissolve submitted");
     let mut landed = false;
     for _ in 0..100 {
@@ -804,13 +1083,26 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
             break;
         }
     }
-    assert!(landed, "the Dissolve did not land (outcome unknown; not resent)");
+    assert!(
+        landed,
+        "the Dissolve did not land (outcome unknown; not resent)"
+    );
     // the escrow ledger and the funder's balance AFTER the player's own Dissolve fee was paid
     let (escrow_ledger0, funder, funder0) = {
         let c = lock(state);
-        let w = WideCaptureEscrow::read(&c.account(&escrow_addr).unwrap().data, SEASON_ID, dest.world(), f.citizen.to_bytes()).unwrap();
+        let w = WideCaptureEscrow::read(
+            &c.account(&escrow_addr).unwrap().data,
+            SEASON_ID,
+            dest.world(),
+            f.citizen.to_bytes(),
+        )
+        .unwrap();
         let funder = Address::new_from_array(w.funder());
-        (w.escrow(), funder, c.account(&funder).map(|a| a.lamports).unwrap_or(0))
+        (
+            w.escrow(),
+            funder,
+            c.account(&funder).map(|a| a.lamports).unwrap_or(0),
+        )
     };
 
     // c. the keeper resolves the reservation's bell (not applied, by the program's rule), then settles it
@@ -821,9 +1113,22 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
         if t0.elapsed().as_secs() >= deadline {
             break;
         }
-        assert!(pilot.tick(state).await, "the keeper halted: {:?}", pilot.keeper.status);
-        if let Some(step) = pilot.keeper.status.resident_step.as_deref().filter(|s| s.starts_with("Stopped") || s.starts_with("Unknown")) {
-            panic!("t+{:.1}s the resident driver stopped (not resent): {step}", t0.elapsed().as_secs_f32());
+        assert!(
+            pilot.tick(state).await,
+            "the keeper halted: {:?}",
+            pilot.keeper.status
+        );
+        if let Some(step) = pilot
+            .keeper
+            .status
+            .resident_step
+            .as_deref()
+            .filter(|s| s.starts_with("Stopped") || s.starts_with("Unknown"))
+        {
+            panic!(
+                "t+{:.1}s the resident driver stopped (not resent): {step}",
+                t0.elapsed().as_secs_f32()
+            );
         }
         let (rn_now, t) = {
             let c = lock(state);
@@ -831,13 +1136,28 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
         };
         if rn_now > bell {
             resolved_past = true;
-            assert!(t.entry(site).unwrap().is_none(), "the reservation must NOT become a siege entry");
+            assert!(
+                t.entry(site).unwrap().is_none(),
+                "the reservation must NOT become a siege entry"
+            );
             if let Some(r) = t.reservations().iter().flatten().find(|r| r.bell == bell) {
-                assert_eq!(r.status, RES_NOT_APPLIED, "not applied by the program's rule");
+                assert_eq!(
+                    r.status, RES_NOT_APPLIED,
+                    "not applied by the program's rule"
+                );
                 if !seen_not_applied {
                     eprintln!("t+{:.1}s NOT APPLIED observed at bell {bell}: seq {} done {} (full return owed)", t0.elapsed().as_secs_f32(), r.seq, r.done);
                     let c = lock(state);
-                    evidence.push(snapshot(&c, ctx, f, dest, dest_key, site, "not_applied", bell));
+                    evidence.push(snapshot(
+                        &c,
+                        ctx,
+                        f,
+                        dest,
+                        dest_key,
+                        site,
+                        "not_applied",
+                        bell,
+                    ));
                 }
                 seen_not_applied = true;
             }
@@ -849,8 +1169,16 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
         let now = lock(state).unix_timestamp();
         advance(state, now + 200); // SYNTHETIC test-clock step only
     }
-    assert!(resolved_past, "bell {bell} not resolved in time: {}", pilot.keeper.status.json());
-    assert!(freed, "the keeper's SettleReservation did not complete the full return in time: {}", pilot.keeper.status.json());
+    assert!(
+        resolved_past,
+        "bell {bell} not resolved in time: {}",
+        pilot.keeper.status.json()
+    );
+    assert!(
+        freed,
+        "the keeper's SettleReservation did not complete the full return in time: {}",
+        pilot.keeper.status.json()
+    );
     if !seen_not_applied {
         // never inferred from the record's disappearance alone: the separate evidence below
         // (no site entry, empty table, the exact full return, the action-9 receipt) must all hold
@@ -865,12 +1193,29 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
     let (arms, gold) = provisioned;
     eprintln!("t+{:.1}s RETURNED: source arms {} gold {} (before {:?}, provisioned {:?}); slots byte {:#04x} -> {:#04x}; sieges_today {} -> {}",
         t0.elapsed().as_secs_f32(), store(&hd, ARMS_I).0, store(&hd, GOLD_I).0, stores0, provisioned, cd0[C::SLOTS], cd[C::SLOTS], cd0[C::SIEGES_TODAY], cd[C::SIEGES_TODAY]);
-    assert_eq!((store(&hd, ARMS_I).0, store(&hd, GOLD_I).0), (arms, gold), "every collected arms and gold milli returned to the source");
-    assert_eq!(cd[C::SIEGES_TODAY], cd0[C::SIEGES_TODAY], "the day's declaration count stays consumed (not restored)");
-    assert_eq!(cd0[C::SIEGES_TODAY], 1, "the reservation consumed one count of the day's cap");
-    assert_eq!(wc_reserved(cd[C::SLOTS]), 0, "the Citizen's reservation slot mark is cleared");
+    assert_eq!(
+        (store(&hd, ARMS_I).0, store(&hd, GOLD_I).0),
+        (arms, gold),
+        "every collected arms and gold milli returned to the source"
+    );
+    assert_eq!(
+        cd[C::SIEGES_TODAY],
+        cd0[C::SIEGES_TODAY],
+        "the day's declaration count stays consumed (not restored)"
+    );
+    assert_eq!(
+        cd0[C::SIEGES_TODAY],
+        1,
+        "the reservation consumed one count of the day's cap"
+    );
+    assert_eq!(
+        wc_reserved(cd[C::SLOTS]),
+        0,
+        "the Citizen's reservation slot mark is cleared"
+    );
     let esc1 = c.account(&escrow_addr).unwrap();
-    let w = WideCaptureEscrow::read(&esc1.data, SEASON_ID, dest.world(), f.citizen.to_bytes()).unwrap();
+    let w =
+        WideCaptureEscrow::read(&esc1.data, SEASON_ID, dest.world(), f.citizen.to_bytes()).unwrap();
     assert_eq!(w.active_mask(), 0, "the escrow binding is refunded");
     // the rent: the ledger's decrease is the expected refund; the escrow lost exactly that and the
     // funder received exactly that (the keeper, not the funder, paid the SettleReservation fee)
@@ -879,13 +1224,31 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
     eprintln!("rent: escrow ledger {escrow_ledger0} -> {} (expected refund {expected_refund}); escrow lamports {} -> {}; funder {funder} lamports {funder0} -> {funder1}",
         w.escrow(), esc0.lamports, esc1.lamports);
     assert!(expected_refund > 0, "a nonzero rent refund is owed");
-    assert_eq!(esc0.lamports - esc1.lamports, expected_refund, "the escrow lost exactly the refund");
-    assert_eq!(funder1 - funder0, expected_refund, "the funder received exactly the refund");
+    assert_eq!(
+        esc0.lamports - esc1.lamports,
+        expected_refund,
+        "the escrow lost exactly the refund"
+    );
+    assert_eq!(
+        funder1 - funder0,
+        expected_refund,
+        "the funder received exactly the refund"
+    );
 
     // e. the SettleReservation receipts from its own transaction log
     let r = pilot.resident.as_ref().expect("the resident bells driver");
-    let line = r.log.iter().rev().find(|l| l.contains("Landed(\"SettleReservation")).cloned()
-        .unwrap_or_else(|| panic!("no landed SettleReservation in the keeper log: {:?}", r.log.iter().rev().take(5).collect::<Vec<_>>()));
+    let line = r
+        .log
+        .iter()
+        .rev()
+        .find(|l| l.contains("Landed(\"SettleReservation"))
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "no landed SettleReservation in the keeper log: {:?}",
+                r.log.iter().rev().take(5).collect::<Vec<_>>()
+            )
+        });
     let sig_str = line.rsplit('"').nth(1).expect("the signature").to_string();
     let rsig = sig_str.parse().expect("a signature");
     let l = c.transaction(&rsig).expect("the landed SettleReservation");
@@ -894,8 +1257,16 @@ async fn not_applied_and_returned(state: &localnet::server::Shared, pilot: &mut 
     let rs = conquest_receipts(ctx, &l.logs);
     eprintln!("RECEIPTS of the SettleReservation tx {sig_str}: {rs:?}");
     let refund = frontier_abi::world_index::event::conquest::RESERVATION_REFUND;
-    assert!(rs.iter().any(|r| r.0 == "PSW1" && r.1 == "ConquestSettled" && r.2 == refund), "ConquestSettled with action 9 (RESERVATION_REFUND)");
-    assert!(rs.iter().any(|r| r.2 == refund && (r.1 == "ConquestCredited" || r.1 == "LegacySourceCredit")), "the source credit record carries action 9");
+    assert!(
+        rs.iter()
+            .any(|r| r.0 == "PSW1" && r.1 == "ConquestSettled" && r.2 == refund),
+        "ConquestSettled with action 9 (RESERVATION_REFUND)"
+    );
+    assert!(
+        rs.iter()
+            .any(|r| r.2 == refund && (r.1 == "ConquestCredited" || r.1 == "LegacySourceCredit")),
+        "the source credit record carries action 9"
+    );
 }
 fn wc_reserved(slots: u8) -> u8 {
     frontier_abi::world_index::conquest::wide_reservations(slots).unwrap()
@@ -903,8 +1274,10 @@ fn wc_reserved(slots: u8) -> u8 {
 
 /// A pinned binary: the path from `var`, its sha256 must equal `${var}_SHA256` (re-hashed now).
 fn pinned_bin(var: &str) -> String {
-    let path = std::env::var(var).unwrap_or_else(|_| panic!("{var} (absolute path of the binary) is required"));
-    let want = std::env::var(format!("{var}_SHA256")).unwrap_or_else(|_| panic!("{var}_SHA256 is required"));
+    let path = std::env::var(var)
+        .unwrap_or_else(|_| panic!("{var} (absolute path of the binary) is required"));
+    let want = std::env::var(format!("{var}_SHA256"))
+        .unwrap_or_else(|_| panic!("{var}_SHA256 is required"));
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let got = hex_of(&permutation_rules::hash::sha256(&[&bytes]));
     assert_eq!(got, want, "{var}: {path} does not match its pinned sha256");
@@ -918,12 +1291,22 @@ fn hex_of(b: &[u8]) -> String {
 fn run_cli(bin: &str, args: &[&str], stdin: &[u8]) -> (serde_json::Value, Option<i32>) {
     use std::io::Write;
     use std::process::{Command, Stdio};
-    let mut child = Command::new(bin).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().unwrap_or_else(|e| panic!("spawn {bin}: {e}"));
+    let mut child = Command::new(bin)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("spawn {bin}: {e}"));
     child.stdin.take().unwrap().write_all(stdin).unwrap();
     let out = child.wait_with_output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
-    let v = serde_json::from_str(text.trim()).unwrap_or_else(|e| panic!("{bin}: not one JSON line ({e}): {text} / stderr {}", String::from_utf8_lossy(&out.stderr)));
+    let v = serde_json::from_str(text.trim()).unwrap_or_else(|e| {
+        panic!(
+            "{bin}: not one JSON line ({e}): {text} / stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
     (v, out.status.code())
 }
 
@@ -931,10 +1314,20 @@ fn run_cli(bin: &str, args: &[&str], stdin: &[u8]) -> (serde_json::Value, Option
 /// CLI's message is byte-compared with the builder's rebuilt from the CLI's own blockhash observation, then
 /// signed by the in-memory key. Returns the wire and both reports (for the evidence file).
 #[allow(clippy::too_many_arguments)]
-fn cli_route_wire(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::expedition_play::Fixture, player: &Keypair, dest: ProvinceKey,
-    site: u8, entry: u8, url: &str) -> (Vec<u8>, serde_json::Value) {
+fn cli_route_wire(
+    state: &localnet::server::Shared,
+    ctx: &AddrCtx,
+    f: &crate::expedition_play::Fixture,
+    player: &Keypair,
+    dest: ProvinceKey,
+    site: u8,
+    entry: u8,
+    url: &str,
+) -> (Vec<u8>, serde_json::Value) {
     use base64::Engine as _;
-    use fclient::experimental_expedition_message::{prepare_conquest_declare, Target, CONQUEST_DECLARE_HEAP_FRAME};
+    use fclient::experimental_expedition_message::{
+        prepare_conquest_declare, Target, CONQUEST_DECLARE_HEAP_FRAME,
+    };
     use fclient::tx::{self, TxBudget};
     use fclient::unsigned_message_preflight::{BlockhashObservation, Limits};
     use frontier_abi::v2::layout::world::season as S;
@@ -953,60 +1346,199 @@ fn cli_route_wire(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::ex
         "host": hex_of(&f.host.to_bytes()), "original_owner": f.citizen.to_string(),
         "standing": {"p": dest.coord().p().to_string(), "q": dest.coord().q().to_string()},
         "min_slot": slot.to_string(), "wallet": wallet, "payer": wallet});
-    let (preview, preview_exit) = run_cli(&preview_bin, &["--rpc-url", url], &serde_json::to_vec(&preview_req).unwrap());
-    eprintln!("PREVIEW CLI: exit {preview_exit:?} status {} source {}", preview["status"], preview["source"]);
-    assert_eq!(preview_exit, Some(0), "the preview CLI exits successfully: {preview}");
-    assert_eq!(preview["status"], "preview", "the preview CLI inspects the host: {preview}");
+    let (preview, preview_exit) = run_cli(
+        &preview_bin,
+        &["--rpc-url", url],
+        &serde_json::to_vec(&preview_req).unwrap(),
+    );
+    eprintln!(
+        "PREVIEW CLI: exit {preview_exit:?} status {} source {}",
+        preview["status"], preview["source"]
+    );
+    assert_eq!(
+        preview_exit,
+        Some(0),
+        "the preview CLI exits successfully: {preview}"
+    );
+    assert_eq!(
+        preview["status"], "preview",
+        "the preview CLI inspects the host: {preview}"
+    );
     // P2: the exact observation fields the prepare CLI itself requires (wideexpedition::plan(..).describe())
     let facts = &preview["facts"];
-    eprintln!("P2: observed {} next_prerequisite {}", facts["observed"], facts["next_prerequisite"]);
-    assert_eq!(facts["observed"]["kind"], "original-host-wide-resident", "P2: observation kind: {preview}");
-    assert_eq!(facts["observed"]["state"], 1, "P2: the host's entry state is roster (1): {preview}");
-    assert_eq!(facts["observed"]["entry"].as_u64(), Some(u64::from(entry)), "P2: the observed entry is the one the declaration names");
-    assert_eq!(facts["next_prerequisite"], "OwnerDissolve", "P2: next prerequisite: {preview}");
+    eprintln!(
+        "P2: observed {} next_prerequisite {}",
+        facts["observed"], facts["next_prerequisite"]
+    );
+    assert_eq!(
+        facts["observed"]["kind"], "original-host-wide-resident",
+        "P2: observation kind: {preview}"
+    );
+    assert_eq!(
+        facts["observed"]["state"], 1,
+        "P2: the host's entry state is roster (1): {preview}"
+    );
+    assert_eq!(
+        facts["observed"]["entry"].as_u64(),
+        Some(u64::from(entry)),
+        "P2: the observed entry is the one the declaration names"
+    );
+    assert_eq!(
+        facts["next_prerequisite"], "OwnerDissolve",
+        "P2: next prerequisite: {preview}"
+    );
     let request = serde_json::json!({"schema": "frontier-local-play-conquest-prepare-request-v1", "request_id": "v2-route-run",
         "action": "DeclareSiege", "source_request": preview_req, "source_context_slot": preview["source"]["context_slot"],
         "source_snapshot_digest": preview["source"]["digest"], "target": {"site": site, "entry": entry}});
     // the budget the real launcher passes to the relay (local-play-launcher.mjs:459), unless overridden (recorded)
-    let cu: u32 = std::env::var("WYLLS_V2_CU_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000_000);
-    let loaded: u32 = std::env::var("WYLLS_V2_LOADED_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(67_108_864);
+    let cu: u32 = std::env::var("WYLLS_V2_CU_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1_000_000);
+    let loaded: u32 = std::env::var("WYLLS_V2_LOADED_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(67_108_864);
     let (cu_s, loaded_s) = (cu.to_string(), loaded.to_string());
     eprintln!("V2 budget passed to the CLI: cu_limit {cu}, loaded_limit {loaded}");
-    let args = ["--rpc-url", url, "--program", program.as_str(), "--season", season.as_str(), "--fee-payer", wallet.as_str(),
-        "--ruleset-hash", ruleset.as_str(), "--cu-limit", cu_s.as_str(), "--loaded-limit", loaded_s.as_str()];
-    let (report, prepare_exit) = run_cli(&prepare_bin, &args, &serde_json::to_vec(&request).unwrap());
-    eprintln!("PREPARE CLI: exit {prepare_exit:?} status {} blocker {} dispatch {} budget {}", report["status"], report["blocker"], report["prepared"]["dispatch"], report["prepared"]["budget"]);
-    assert_eq!(prepare_exit, Some(0), "the prepare CLI exits 0 only for status prepared: {report}");
-    assert_eq!(report["status"], "prepared", "H2: the CLI prepares on this reservation-capable chain (blocker {}); not worked around", report["blocker"]);
+    let args = [
+        "--rpc-url",
+        url,
+        "--program",
+        program.as_str(),
+        "--season",
+        season.as_str(),
+        "--fee-payer",
+        wallet.as_str(),
+        "--ruleset-hash",
+        ruleset.as_str(),
+        "--cu-limit",
+        cu_s.as_str(),
+        "--loaded-limit",
+        loaded_s.as_str(),
+    ];
+    let (report, prepare_exit) =
+        run_cli(&prepare_bin, &args, &serde_json::to_vec(&request).unwrap());
+    eprintln!(
+        "PREPARE CLI: exit {prepare_exit:?} status {} blocker {} dispatch {} budget {}",
+        report["status"],
+        report["blocker"],
+        report["prepared"]["dispatch"],
+        report["prepared"]["budget"]
+    );
+    assert_eq!(
+        prepare_exit,
+        Some(0),
+        "the prepare CLI exits 0 only for status prepared: {report}"
+    );
+    assert_eq!(
+        report["status"], "prepared",
+        "H2: the CLI prepares on this reservation-capable chain (blocker {}); not worked around",
+        report["blocker"]
+    );
     let p = &report["prepared"];
-    assert_eq!((p["dispatch"]["tag"].as_u64(), p["dispatch"]["kind"].as_u64()), (Some(0xDA), Some(12)), "kind 12 under tag 0xDA");
-    assert_eq!((p["budget"]["cu_limit"].as_u64(), p["budget"]["loaded_limit"].as_u64(), p["budget"]["heap"].as_u64()),
-        (Some(cu as u64), Some(loaded as u64), Some(CONQUEST_DECLARE_HEAP_FRAME as u64)), "the budget passed to the CLI and the 256 KiB frame");
-    let cli_msg = base64::engine::general_purpose::STANDARD.decode(p["message_b64"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        (
+            p["dispatch"]["tag"].as_u64(),
+            p["dispatch"]["kind"].as_u64()
+        ),
+        (Some(0xDA), Some(12)),
+        "kind 12 under tag 0xDA"
+    );
+    assert_eq!(
+        (
+            p["budget"]["cu_limit"].as_u64(),
+            p["budget"]["loaded_limit"].as_u64(),
+            p["budget"]["heap"].as_u64()
+        ),
+        (
+            Some(cu as u64),
+            Some(loaded as u64),
+            Some(CONQUEST_DECLARE_HEAP_FRAME as u64)
+        ),
+        "the budget passed to the CLI and the 256 KiB frame"
+    );
+    let cli_msg = base64::engine::general_purpose::STANDARD
+        .decode(p["message_b64"].as_str().unwrap())
+        .unwrap();
     // the builder's message from the CLI's own observation and pins: must be byte-identical (H1)
     let bh = &report["blockhash"];
     let num = |k: &str| bh[k].as_str().unwrap().parse::<u64>().unwrap();
     let hash: fclient::Hash = bh["hash"].as_str().unwrap().parse().unwrap();
-    let obs = BlockhashObservation { blockhash: hash.to_bytes(), context_slot: num("validity_context_slot"), valid: true,
-        block_height: num("block_height"), last_valid_block_height: num("last_valid_block_height") };
-    let budget = TxBudget { cu_limit: cu, cu_price: 0, loaded_limit: loaded, heap: Some(CONQUEST_DECLARE_HEAP_FRAME) };
-    let limits = Limits { max_locks: 32, max_writes: 16, min_context_slot: 0, min_remaining_block_heights: 2 };
-    let draft = fclient::wide_conquest_draft::Draft::declare_siege(ctx, f.host, dest, site, entry, player.pubkey()).unwrap();
-    let prepared = prepare_conquest_declare(&draft, Target { program: Address::new_from_array(PROGRAM), season: f.season, program_version: PROGRAM_VERSION },
-        obs, budget, limits).unwrap();
+    let obs = BlockhashObservation {
+        blockhash: hash.to_bytes(),
+        context_slot: num("validity_context_slot"),
+        valid: true,
+        block_height: num("block_height"),
+        last_valid_block_height: num("last_valid_block_height"),
+    };
+    let budget = TxBudget {
+        cu_limit: cu,
+        cu_price: 0,
+        loaded_limit: loaded,
+        heap: Some(CONQUEST_DECLARE_HEAP_FRAME),
+    };
+    let limits = Limits {
+        max_locks: 32,
+        max_writes: 16,
+        min_context_slot: 0,
+        min_remaining_block_heights: 2,
+    };
+    let draft = fclient::wide_conquest_draft::Draft::declare_siege(
+        ctx,
+        f.host,
+        dest,
+        site,
+        entry,
+        player.pubkey(),
+    )
+    .unwrap();
+    let prepared = prepare_conquest_declare(
+        &draft,
+        Target {
+            program: Address::new_from_array(PROGRAM),
+            season: f.season,
+            program_version: PROGRAM_VERSION,
+        },
+        obs,
+        budget,
+        limits,
+    )
+    .unwrap();
     let mine = prepared.message_bytes().unwrap();
-    assert_eq!(mine, cli_msg, "H1: the CLI's message bytes equal the builder's from the same observation and pins");
-    eprintln!("H1: CLI message {} bytes, digest {}, byte-identical to the builder's", cli_msg.len(), p["message_digest"]);
+    assert_eq!(
+        mine, cli_msg,
+        "H1: the CLI's message bytes equal the builder's from the same observation and pins"
+    );
+    eprintln!(
+        "H1: CLI message {} bytes, digest {}, byte-identical to the builder's",
+        cli_msg.len(),
+        p["message_digest"]
+    );
     // the chain's own loaded-accounts size of THIS message (accounts + base + ProgramData), before any send
     let (loaded_size, program_len, snap) = {
         let c = lock(state);
         let dest_key = Address::new_from_array(province_address(ctx, dest.coord()));
         // the bell recorded is the chain clock's current bell at this read (never a placeholder)
-        let now_bell = fclient::decode::Season::decode(&c.account(&f.season).unwrap().data).ok()
+        let now_bell = fclient::decode::Season::decode(&c.account(&f.season).unwrap().data)
+            .ok()
             .and_then(|s| fclient::clock::SeasonClock::from_season(&s).bell_at(c.unix_timestamp()))
             .expect("the current bell from the chain's own clock");
-        (c.loaded_size(prepared.message()), c.account(&Address::new_from_array(PROGRAM)).map(|a| a.data.len()),
-            snapshot(&c, ctx, f, dest, &dest_key, site, "cli_prepared_before_send", now_bell))
+        (
+            c.loaded_size(prepared.message()),
+            c.account(&Address::new_from_array(PROGRAM))
+                .map(|a| a.data.len()),
+            snapshot(
+                &c,
+                ctx,
+                f,
+                dest,
+                &dest_key,
+                site,
+                "cli_prepared_before_send",
+                now_bell,
+            ),
+        )
     };
     eprintln!("LOADED SIZE of the CLI message on this chain: {loaded_size} bytes (program account data {program_len:?}); budget loaded_limit {loaded}");
     if let Ok(path) = std::env::var("WYLLS_REAL_EVIDENCE") {
@@ -1019,7 +1551,8 @@ fn cli_route_wire(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::ex
             "prepare_cli": {"path": prepare_bin, "sha256": std::env::var("WYLLS_CONQUEST_PREPARE_CLI_SHA256").unwrap(), "exit": prepare_exit, "report": report},
             "snapshot": snap});
         let early_path = format!("{path}.cli-prepared.json");
-        std::fs::write(&early_path, serde_json::to_vec_pretty(&early).unwrap()).expect("write the early V2 evidence");
+        std::fs::write(&early_path, serde_json::to_vec_pretty(&early).unwrap())
+            .expect("write the early V2 evidence");
         eprintln!("EVIDENCE (before send) written: {early_path}");
     }
     let wire = tx::wire(&tx::sign(prepared.message().clone(), &[player]).unwrap());
@@ -1034,9 +1567,20 @@ fn cli_route_wire(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::ex
 
 /// H3 synthetic branch (see the test's doc). Every synthetic write is logged; nothing is resolved afterwards.
 #[allow(clippy::too_many_arguments)]
-fn h3_immediate(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::expedition_play::Fixture, player: &Keypair, dest: ProvinceKey,
-    dest_key: &Address, site: u8, clock: &fclient::clock::SeasonClock, t0: std::time::Instant) {
-    use fclient::experimental_expedition_message::{prepare_conquest_declare, Target, CONQUEST_DECLARE_HEAP_FRAME};
+fn h3_immediate(
+    state: &localnet::server::Shared,
+    ctx: &AddrCtx,
+    f: &crate::expedition_play::Fixture,
+    player: &Keypair,
+    dest: ProvinceKey,
+    dest_key: &Address,
+    site: u8,
+    clock: &fclient::clock::SeasonClock,
+    t0: std::time::Instant,
+) {
+    use fclient::experimental_expedition_message::{
+        prepare_conquest_declare, Target, CONQUEST_DECLARE_HEAP_FRAME,
+    };
     use fclient::tx::{self, TxBudget};
     use fclient::unsigned_message_preflight::{BlockhashObservation, Limits};
     use frontier_abi::entry::{read_entry, write_entry, Entry, EntryOp};
@@ -1056,8 +1600,18 @@ fn h3_immediate(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::expe
         let rn_before = u32::from_le_bytes(pa.data[rn_off..rn_off + 4].try_into().unwrap());
         let tile = pa.data[frontier_abi::v2::layout::province::province::SITES + site as usize];
         // the player's own host on the city's tile
-        let residents = crate::resident_bells::residents_of(&c, &fclient::addr::Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID), dest, &pa.data, &f.holding).unwrap();
-        let (entry, _, _) = residents.first().copied().expect("the host stays at the Free City's province");
+        let residents = crate::resident_bells::residents_of(
+            &c,
+            &fclient::addr::Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID),
+            dest,
+            &pa.data,
+            &f.holding,
+        )
+        .unwrap();
+        let (entry, _, _) = residents
+            .first()
+            .copied()
+            .expect("the host stays at the Free City's province");
         let mine = read_entry(&pa.data, entry as usize).unwrap();
         let other_faction = (mine.faction + 1) % 6;
         let other_tile = if tile == 0 { 1 } else { tile - 1 };
@@ -1066,13 +1620,30 @@ fn h3_immediate(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::expe
             if read_entry(&pa.data, i).unwrap().state != E::STATE_FREE {
                 continue;
             }
-            let host = WideHostRef::new(dest, ((i % 11) as u8 + 2) % 12, 1, 10_000 + i as u32).unwrap();
+            let host =
+                WideHostRef::new(dest, ((i % 11) as u8 + 2) % 12, 1, 10_000 + i as u32).unwrap();
             let alias = roster.claim(&mut ra.data, i, &host).unwrap();
-            write_entry(&mut pa.data, i, &Entry { id: alias, faction: other_faction, unit: 2, tile: other_tile, state: E::STATE_ROSTER,
-                troops: 1_000, stamina_value: permutation_rules::frontier::host::STAMINA_CAP, op: EntryOp::None, ..Entry::FREE }).unwrap();
+            write_entry(
+                &mut pa.data,
+                i,
+                &Entry {
+                    id: alias,
+                    faction: other_faction,
+                    unit: 2,
+                    tile: other_tile,
+                    state: E::STATE_ROSTER,
+                    troops: 1_000,
+                    stamina_value: permutation_rules::frontier::host::STAMINA_CAP,
+                    op: EntryOp::None,
+                    ..Entry::FREE
+                },
+            )
+            .unwrap();
             filled += 1;
         }
-        let live = (0..PL::ENTRIES_N).filter(|i| read_entry(&pa.data, *i).unwrap().state != E::STATE_FREE).count();
+        let live = (0..PL::ENTRIES_N)
+            .filter(|i| read_entry(&pa.data, *i).unwrap().state != E::STATE_FREE)
+            .count();
         pa.data[PL::N_ENTRIES] = live as u8;
         pa.data[rn_off..rn_off + 4].copy_from_slice(&now_bell.to_le_bytes());
         c.set_account(*dest_key, pa).unwrap();
@@ -1081,52 +1652,137 @@ fn h3_immediate(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::expe
         let pd = c.account(dest_key).unwrap().data;
         let rd = c.account(&roster_key).unwrap().data;
         let table = WideRoster::read(&rd).unwrap().table(&rd).unwrap();
-        assert_eq!(table.len(), PL::ENTRIES_N, "the lead check's roster table is at its maximum");
-        let lead = frontier_abi::world_index::resolve::siege_lead(&pd, &WideRoster::read(&rd).unwrap(), &rd, tile, mine.faction, now_bell).unwrap();
-        assert_eq!(lead.map(|(i, _)| i), Some(entry as usize), "the player's host still leads its faction on the city's tile");
+        assert_eq!(
+            table.len(),
+            PL::ENTRIES_N,
+            "the lead check's roster table is at its maximum"
+        );
+        let lead = frontier_abi::world_index::resolve::siege_lead(
+            &pd,
+            &WideRoster::read(&rd).unwrap(),
+            &rd,
+            tile,
+            mine.faction,
+            now_bell,
+        )
+        .unwrap();
+        assert_eq!(
+            lead.map(|(i, _)| i),
+            Some(entry as usize),
+            "the player's host still leads its faction on the city's tile"
+        );
         (now_bell, entry as u8, filled, rn_before, live)
     };
     // b. the player's immediate DeclareSiege: launcher budget, 256 KiB heap
-    let draft = fclient::wide_conquest_draft::Draft::declare_siege(ctx, f.host, dest, site, entry, player.pubkey()).unwrap();
+    let draft = fclient::wide_conquest_draft::Draft::declare_siege(
+        ctx,
+        f.host,
+        dest,
+        site,
+        entry,
+        player.pubkey(),
+    )
+    .unwrap();
     let (wire, loaded_size) = {
         let c = lock(state);
         let (blockhash, last_valid) = c.latest_blockhash();
-        let obs = BlockhashObservation { blockhash: blockhash.to_bytes(), context_slot: c.slot(), valid: true, block_height: last_valid.saturating_sub(100),
-            last_valid_block_height: last_valid };
-        let budget = TxBudget { cu_limit: 1_000_000, cu_price: 0, loaded_limit: 67_108_864, heap: Some(CONQUEST_DECLARE_HEAP_FRAME) };
-        let limits = Limits { max_locks: 32, max_writes: 16, min_context_slot: 0, min_remaining_block_heights: 2 };
-        let prepared = prepare_conquest_declare(&draft, Target { program: Address::new_from_array(PROGRAM), season: f.season, program_version: PROGRAM_VERSION },
-            obs, budget, limits).unwrap();
-        (tx::wire(&tx::sign(prepared.message().clone(), &[player]).unwrap()), c.loaded_size(prepared.message()))
+        let obs = BlockhashObservation {
+            blockhash: blockhash.to_bytes(),
+            context_slot: c.slot(),
+            valid: true,
+            block_height: last_valid.saturating_sub(100),
+            last_valid_block_height: last_valid,
+        };
+        let budget = TxBudget {
+            cu_limit: 1_000_000,
+            cu_price: 0,
+            loaded_limit: 67_108_864,
+            heap: Some(CONQUEST_DECLARE_HEAP_FRAME),
+        };
+        let limits = Limits {
+            max_locks: 32,
+            max_writes: 16,
+            min_context_slot: 0,
+            min_remaining_block_heights: 2,
+        };
+        let prepared = prepare_conquest_declare(
+            &draft,
+            Target {
+                program: Address::new_from_array(PROGRAM),
+                season: f.season,
+                program_version: PROGRAM_VERSION,
+            },
+            obs,
+            budget,
+            limits,
+        )
+        .unwrap();
+        (
+            tx::wire(&tx::sign(prepared.message().clone(), &[player]).unwrap()),
+            c.loaded_size(prepared.message()),
+        )
     };
     let sim = lock(state).simulate(&wire, true).unwrap();
     eprintln!("H3 immediate DeclareSiege at bell {now_bell} (cursor {now_bell}, {filled} synthetic hosts): err {:?} code {:?}, {} CU; loaded size {loaded_size}", sim.err, sim.code, sim.units);
     for l in &sim.logs {
         eprintln!("  {l}");
     }
-    assert!(sim.err.is_none(), "the immediate path with a full roster runs within the 256 KiB frame (code {:?})", sim.code);
+    assert!(
+        sim.err.is_none(),
+        "the immediate path with a full roster runs within the 256 KiB frame (code {:?})",
+        sim.code
+    );
     let sig = lock(state).submit(&wire).expect("submitted");
     let mut landed = false;
     for _ in 0..100 {
         std::thread::sleep(std::time::Duration::from_millis(100));
         if let Some(l) = lock(state).transaction(&sig) {
-            assert!(l.err.is_none(), "the immediate declaration failed: {:?}", l.err);
+            assert!(
+                l.err.is_none(),
+                "the immediate declaration failed: {:?}",
+                l.err
+            );
             landed = true;
             break;
         }
     }
-    assert!(landed, "the immediate declaration did not land (outcome unknown; not resent)");
+    assert!(
+        landed,
+        "the immediate declaration did not land (outcome unknown; not resent)"
+    );
     // c. it took the IMMEDIATE path: DECLARE receipt, site entry at once, no reservation record
     let c = lock(state);
     let l = c.transaction(&sig).unwrap();
     let rs = conquest_receipts(ctx, &l.logs);
-    eprintln!("t+{:.1}s RECEIPTS of the immediate declaration {sig}: {rs:?}", t0.elapsed().as_secs_f32());
+    eprintln!(
+        "t+{:.1}s RECEIPTS of the immediate declaration {sig}: {rs:?}",
+        t0.elapsed().as_secs_f32()
+    );
     let declare = frontier_abi::world_index::event::conquest::DECLARE;
-    assert!(rs.iter().any(|r| r.0 == "PSW1" && r.1 == "ConquestDeclared" && r.2 == declare && r.3 == now_bell), "ConquestDeclared action 1 (DECLARE) at bell {now_bell}");
-    let t = WideConquest::read(&c.account(&Address::new_from_array(conquest_address(ctx, dest))).unwrap().data, SEASON_ID, dest).unwrap();
-    let e = t.entry(site).unwrap().expect("the site entry is written at once");
+    assert!(
+        rs.iter().any(|r| r.0 == "PSW1"
+            && r.1 == "ConquestDeclared"
+            && r.2 == declare
+            && r.3 == now_bell),
+        "ConquestDeclared action 1 (DECLARE) at bell {now_bell}"
+    );
+    let t = WideConquest::read(
+        &c.account(&Address::new_from_array(conquest_address(ctx, dest)))
+            .unwrap()
+            .data,
+        SEASON_ID,
+        dest,
+    )
+    .unwrap();
+    let e = t
+        .entry(site)
+        .unwrap()
+        .expect("the site entry is written at once");
     assert_eq!(e.declaration_bell, now_bell);
-    assert!(t.reservations().iter().all(Option::is_none), "no reservation record on the immediate path");
+    assert!(
+        t.reservations().iter().all(Option::is_none),
+        "no reservation record on the immediate path"
+    );
     eprintln!("H3 IMMEDIATE PATH LANDED: entry kind {} required {} declaration_bell {}; SYNTHETIC cursor and roster; not natural play", e.rules.kind, e.rules.required, e.declaration_bell);
     // d. public evidence (no key): the synthetic writes, the receipts, the measured CU / loaded size, a 4-account snapshot
     if let Ok(path) = std::env::var("WYLLS_REAL_EVIDENCE") {
@@ -1140,7 +1796,8 @@ fn h3_immediate(state: &localnet::server::Shared, ctx: &AddrCtx, f: &crate::expe
             "result": {"path": "immediate", "receipt_action": declare, "site_entry_declaration_bell": e.declaration_bell, "site_entry_kind": e.rules.kind,
                 "reservation_records": 0},
             "snapshot_after": snapshot(&c, ctx, f, dest, dest_key, site, "h3_immediate_after", now_bell)});
-        std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).expect("write the H3 evidence");
+        std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap())
+            .expect("write the H3 evidence");
         eprintln!("EVIDENCE written: {path}");
     }
 }

@@ -127,7 +127,10 @@ pub struct SiteIn {
 }
 
 impl SiteIn {
-    pub const NONE: SiteIn = SiteIn { tile: OPEN, holding: None };
+    pub const NONE: SiteIn = SiteIn {
+        tile: OPEN,
+        holding: None,
+    };
 }
 
 /// A host of the roster as the fold reads it.
@@ -215,7 +218,13 @@ pub fn steps(a: u8, b: u8) -> u32 {
 impl Land {
     /// A province's land with nothing held, counting from bell `bell`.
     pub const fn new(bell: u32) -> Land {
-        Land { next_bell: bell, owner: [OPEN; N], village: 0, by: [NOBODY; N], count: [0; N] }
+        Land {
+            next_bell: bell,
+            owner: [OPEN; N],
+            village: 0,
+            by: [NOBODY; N],
+            count: [0; N],
+        }
     }
 
     /// Tiles of nation `f` (village land and claimed).
@@ -224,7 +233,9 @@ impl Land {
     }
     /// Claimed (not village) tiles of nation `f`.
     pub fn claimed_of(&self, f: u8) -> u32 {
-        (0..N).filter(|&t| self.owner[t] == f && !bit(self.village, t)).count() as u32
+        (0..N)
+            .filter(|&t| self.owner[t] == f && !bit(self.village, t))
+            .count() as u32
     }
     /// Is `t` village land?
     pub fn is_village(&self, t: u8) -> bool {
@@ -240,8 +251,12 @@ impl Land {
         let mut ch = Changes::default();
         self.villages(x);
         let standing: alloc::vec::Vec<HostIn> = {
-            let mut v: alloc::vec::Vec<HostIn> =
-                x.hosts.iter().copied().filter(|h| stands(h, b, p)).collect();
+            let mut v: alloc::vec::Vec<HostIn> = x
+                .hosts
+                .iter()
+                .copied()
+                .filter(|h| stands(h, b, p))
+                .collect();
             v.sort_by_key(|h| (h.tile, h.id));
             v
         };
@@ -255,7 +270,9 @@ impl Land {
             let t = h.tile as usize;
             let o = self.owner[t];
             if o == OPEN || o == h.faction {
-                if b.saturating_sub(h.from_bell) < p.stand_bells || !self.touches(h.tile, h.faction, x) {
+                if b.saturating_sub(h.from_bell) < p.stand_bells
+                    || !self.touches(h.tile, h.faction, x)
+                {
                     continue;
                 }
                 if o == OPEN && bit(x.passable, t) {
@@ -264,13 +281,19 @@ impl Land {
                 }
                 for j in neighbours(h.tile) {
                     let j = j as usize;
-                    if self.owner[j] != OPEN || !bit(x.passable, j) || self.denied(j as u8, h.faction, x, &standing) {
+                    if self.owner[j] != OPEN
+                        || !bit(x.passable, j)
+                        || self.denied(j as u8, h.faction, x, &standing)
+                    {
                         continue;
                     }
                     self.take(j, h.faction);
                     ch.claimed += 1;
                 }
-            } else if !bit(self.village, t) && !stranger(h.faction) && !self.defended(h.tile, o, &standing) {
+            } else if !bit(self.village, t)
+                && !stranger(h.faction)
+                && !self.defended(h.tile, o, &standing)
+            {
                 pressed[t] = h.faction;
             }
         }
@@ -296,7 +319,10 @@ impl Land {
                 ch.seized += 1;
                 for j in neighbours(t as u8) {
                     let j = j as usize;
-                    if self.owner[j] == g && !bit(self.village, j) && !self.defended(j as u8, g, &standing) {
+                    if self.owner[j] == g
+                        && !bit(self.village, j)
+                        && !self.defended(j as u8, g, &standing)
+                    {
                         self.take(j, f);
                         ch.seized += 1;
                     }
@@ -352,7 +378,10 @@ impl Land {
 
     /// Does `t` touch land (or the keep) of `f`?
     fn touches(&self, t: u8, f: u8, x: &BellIn) -> bool {
-        if self.owner[t as usize] == f || x.keep == Some((t, f)) || bit(x.outside[f as usize], t as usize) {
+        if self.owner[t as usize] == f
+            || x.keep == Some((t, f))
+            || bit(x.outside[f as usize], t as usize)
+        {
             return true;
         }
         neighbours(t).any(|j| self.owner[j as usize] == f || x.keep == Some((j, f)))
@@ -361,12 +390,16 @@ impl Land {
     /// A hostile host of `f` stands on `t` or next to it.
     fn denied(&self, t: u8, f: u8, x: &BellIn, standing: &[HostIn]) -> bool {
         let stranger = |g: u8| x.heartland_of.is_some_and(|h| h != g);
-        standing.iter().any(|h| h.faction != f && !stranger(h.faction) && (h.tile == t || steps(h.tile, t) == 1))
+        standing.iter().any(|h| {
+            h.faction != f && !stranger(h.faction) && (h.tile == t || steps(h.tile, t) == 1)
+        })
     }
 
     /// A host of `g` stands on `t` or next to it.
     fn defended(&self, t: u8, g: u8, standing: &[HostIn]) -> bool {
-        standing.iter().any(|h| h.faction == g && (h.tile == t || steps(h.tile, t) == 1))
+        standing
+            .iter()
+            .any(|h| h.faction == g && (h.tile == t || steps(h.tile, t) == 1))
     }
 
     /// Claimed land cut off from its nation's anchors frays; returns tiles fallen.
@@ -381,8 +414,12 @@ impl Land {
             }
             let anchor = bit(self.village, t)
                 || bit(x.outside[o as usize], t)
-                || x.keep.is_some_and(|(k, h)| h == o && (k as usize == t || neighbours(k).any(|j| j as usize == t)))
-                || standing.iter().any(|h| h.faction == o && h.tile as usize == t);
+                || x.keep.is_some_and(|(k, h)| {
+                    h == o && (k as usize == t || neighbours(k).any(|j| j as usize == t))
+                })
+                || standing
+                    .iter()
+                    .any(|h| h.faction == o && h.tile as usize == t);
             if anchor {
                 joined |= 1 << t;
                 stack.push(t as u8);
@@ -427,7 +464,11 @@ impl Land {
 }
 
 fn stands(h: &HostIn, b: u32, p: &LandParams) -> bool {
-    h.resident && h.fights && h.troops >= p.floor_troops && h.from_bell <= b && (h.tile as usize) < N
+    h.resident
+        && h.fights
+        && h.troops >= p.floor_troops
+        && h.from_bell <= b
+        && (h.tile as usize) < N
 }
 
 fn check(x: &BellIn) -> Result<(), LandError> {
@@ -440,10 +481,14 @@ fn check(x: &BellIn) -> Result<(), LandError> {
             return Err(LandError::BadInput);
         }
     }
-    if x.hosts.iter().any(|h| bad_f(h.faction) || h.tile as usize >= N) {
+    if x.hosts
+        .iter()
+        .any(|h| bad_f(h.faction) || h.tile as usize >= N)
+    {
         return Err(LandError::BadInput);
     }
-    if x.keep.is_some_and(|(t, f)| t as usize >= N || bad_f(f)) || x.heartland_of.is_some_and(bad_f) {
+    if x.keep.is_some_and(|(t, f)| t as usize >= N || bad_f(f)) || x.heartland_of.is_some_and(bad_f)
+    {
         return Err(LandError::BadInput);
     }
     Ok(())
@@ -453,7 +498,10 @@ fn check(x: &BellIn) -> Result<(), LandError> {
 /// basis points: `min(claimed_f × per_tile_bps / villages_f, cap_bps)`; 0
 /// where `f` has no village here.
 pub fn bonus_bps(land: &Land, sites: &[SiteIn; SITES_PER_PROVINCE], f: u8, p: &LandParams) -> u32 {
-    let villages = sites.iter().filter(|s| s.holding.is_some_and(|(g, _)| g == f)).count() as u32;
+    let villages = sites
+        .iter()
+        .filter(|s| s.holding.is_some_and(|(g, _)| g == f))
+        .count() as u32;
     if villages == 0 {
         return 0;
     }
@@ -482,7 +530,15 @@ mod tests {
         s
     }
     fn host(id: u64, faction: u8, tile: u8, from_bell: u32) -> HostIn {
-        HostIn { id, faction, tile, troops: 600_000, fights: true, resident: true, from_bell }
+        HostIn {
+            id,
+            faction,
+            tile,
+            troops: 600_000,
+            fights: true,
+            resident: true,
+            from_bell,
+        }
     }
     fn t(q: i32, r: i32) -> u8 {
         tile_index(Hex::new(q, r)).unwrap()
@@ -502,30 +558,93 @@ mod tests {
     fn village_land_is_the_worked_radius_and_follows_a_capture() {
         let s0 = sites(&[(t(0, 0), Some((1, Tier::Hamlet)))]);
         let mut land = Land::new(0);
-        land.fold(0, &BellIn { sites: &s0, hosts: &[], keep: None, passable: ALL, heartland_of: None, outside: [0; 6] }, &P).unwrap();
+        land.fold(
+            0,
+            &BellIn {
+                sites: &s0,
+                hosts: &[],
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+            &P,
+        )
+        .unwrap();
         assert_eq!(land.tiles_of(1), 7);
         assert_eq!(land.claimed_of(1), 0);
         // the program's siege flips the mirror to nation 3: the land goes with it
         let s1 = sites(&[(t(0, 0), Some((3, Tier::Hamlet)))]);
-        land.fold(1, &BellIn { sites: &s1, hosts: &[], keep: None, passable: ALL, heartland_of: None, outside: [0; 6] }, &P).unwrap();
+        land.fold(
+            1,
+            &BellIn {
+                sites: &s1,
+                hosts: &[],
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+            &P,
+        )
+        .unwrap();
         assert_eq!(land.tiles_of(1), 0);
         assert_eq!(land.tiles_of(3), 7);
         // tier-up widens it (Town: radius 2 = 19 tiles)
         let s2 = sites(&[(t(0, 0), Some((3, Tier::Town)))]);
-        land.fold(2, &BellIn { sites: &s2, hosts: &[], keep: None, passable: ALL, heartland_of: None, outside: [0; 6] }, &P).unwrap();
+        land.fold(
+            2,
+            &BellIn {
+                sites: &s2,
+                hosts: &[],
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+            &P,
+        )
+        .unwrap();
         assert_eq!(land.tiles_of(3), 19);
         // released: it falls open
         let s3 = sites(&[(t(0, 0), None)]);
-        land.fold(3, &BellIn { sites: &s3, hosts: &[], keep: None, passable: ALL, heartland_of: None, outside: [0; 6] }, &P).unwrap();
+        land.fold(
+            3,
+            &BellIn {
+                sites: &s3,
+                hosts: &[],
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+            &P,
+        )
+        .unwrap();
         assert_eq!(land.tiles_of(3), 0);
     }
 
     #[test]
     fn nearer_site_wins_and_water_is_never_land() {
-        let s = sites(&[(t(-1, 0), Some((0, Tier::Hamlet))), (t(1, 0), Some((2, Tier::Hamlet)))]);
+        let s = sites(&[
+            (t(-1, 0), Some((0, Tier::Hamlet))),
+            (t(1, 0), Some((2, Tier::Hamlet))),
+        ]);
         let water = ALL & !(1u64 << t(0, 1));
         let mut land = Land::new(5);
-        land.fold(5, &BellIn { sites: &s, hosts: &[], keep: None, passable: water, heartland_of: None, outside: [0; 6] }, &P).unwrap();
+        land.fold(
+            5,
+            &BellIn {
+                sites: &s,
+                hosts: &[],
+                keep: None,
+                passable: water,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+            &P,
+        )
+        .unwrap();
         // (0,0) is one step from both: site 0 (lower index) takes it
         assert_eq!(land.owner[t(0, 0) as usize], 0);
         assert_eq!(land.owner[t(0, 1) as usize], OPEN);
@@ -534,7 +653,14 @@ mod tests {
     #[test]
     fn fold_is_strictly_in_bell_order() {
         let s = sites(&[]);
-        let x = BellIn { sites: &s, hosts: &[], keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x = BellIn {
+            sites: &s,
+            hosts: &[],
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         let mut land = Land::new(10);
         assert_eq!(land.fold(9, &x, &P), Err(LandError::OutOfOrder));
         assert_eq!(land.fold(11, &x, &P), Err(LandError::OutOfOrder));
@@ -548,7 +674,14 @@ mod tests {
         let mut land = Land::new(0);
         // stand at the edge of the village land: (-1,0) touches (-2,0)
         let h1 = [host(7, 1, t(-1, 0), 0)];
-        let x1 = BellIn { sites: &s, hosts: &h1, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x1 = BellIn {
+            sites: &s,
+            hosts: &h1,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         land.fold(0, &x1, &P).unwrap();
         land.fold(1, &x1, &P).unwrap();
         assert_eq!(land.claimed_of(1), 0, "not stood long enough");
@@ -558,14 +691,33 @@ mod tests {
         assert_eq!(land.owner[t(-1, 0) as usize], 1);
         // march on two tiles east and stand again: still touching, the land grows again
         let h2 = [host(7, 1, t(1, 0), 3)];
-        let x2 = BellIn { sites: &s, hosts: &h2, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x2 = BellIn {
+            sites: &s,
+            hosts: &h2,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         run(&mut land, 3, 6, &x2);
-        assert!(land.claimed_of(1) > after_first, "{} > {}", land.claimed_of(1), after_first);
+        assert!(
+            land.claimed_of(1) > after_first,
+            "{} > {}",
+            land.claimed_of(1),
+            after_first
+        );
         assert_eq!(land.owner[t(1, 0) as usize], 1);
         // and again
         let mid = land.claimed_of(1);
         let h3 = [host(7, 1, t(3, 0), 6)];
-        let x3 = BellIn { sites: &s, hosts: &h3, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x3 = BellIn {
+            sites: &s,
+            hosts: &h3,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         run(&mut land, 6, 9, &x3);
         assert!(land.claimed_of(1) > mid);
         assert_eq!(land.owner[t(3, 0) as usize], 1);
@@ -575,7 +727,14 @@ mod tests {
     fn a_host_away_from_its_land_claims_nothing() {
         let s = sites(&[(t(-3, 0), Some((1, Tier::Hamlet)))]);
         let h = [host(7, 1, t(3, 0), 0)];
-        let x = BellIn { sites: &s, hosts: &h, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x = BellIn {
+            sites: &s,
+            hosts: &h,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         let mut land = Land::new(0);
         assert_eq!(run(&mut land, 0, 10, &x).claimed, 0);
     }
@@ -584,7 +743,14 @@ mod tests {
     fn the_keep_is_a_foothold_for_its_holder() {
         let s = sites(&[]);
         let h = [host(7, 4, t(1, 0), 0)];
-        let x = BellIn { sites: &s, hosts: &h, keep: Some((t(0, 0), 4)), passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x = BellIn {
+            sites: &s,
+            hosts: &h,
+            keep: Some((t(0, 0), 4)),
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         let mut land = Land::new(0);
         run(&mut land, 0, 3, &x);
         assert_eq!(land.owner[t(1, 0) as usize], 4);
@@ -601,7 +767,14 @@ mod tests {
         busy.resident = false;
         for h in [scout, small, busy] {
             let hs = [h];
-            let x = BellIn { sites: &s, hosts: &hs, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+            let x = BellIn {
+                sites: &s,
+                hosts: &hs,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            };
             let mut land = Land::new(0);
             assert_eq!(run(&mut land, 0, 6, &x).claimed, 0, "{h:?}");
         }
@@ -612,9 +785,33 @@ mod tests {
         let s = sites(&[(t(-3, 0), Some((1, Tier::Hamlet)))]);
         let mut land = Land::new(0);
         let h = [host(7, 1, t(-1, 0), 0)];
-        run(&mut land, 0, 3, &BellIn { sites: &s, hosts: &h, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] });
+        run(
+            &mut land,
+            0,
+            3,
+            &BellIn {
+                sites: &s,
+                hosts: &h,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+        );
         let h = [host(7, 1, t(0, 0), 3)];
-        run(&mut land, 3, 6, &BellIn { sites: &s, hosts: &h, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] });
+        run(
+            &mut land,
+            3,
+            6,
+            &BellIn {
+                sites: &s,
+                hosts: &h,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+        );
         assert_eq!(land.owner[t(1, 0) as usize], 1);
         (land, s)
     }
@@ -625,7 +822,14 @@ mod tests {
         let before = land.claimed_of(1);
         // nation 1's host went home (it stands on village land, far from (1,0))
         let h = [host(7, 1, t(-3, 0), 6), host(9, 2, t(1, 0), 6)];
-        let x = BellIn { sites: &s, hosts: &h, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x = BellIn {
+            sites: &s,
+            hosts: &h,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         run(&mut land, 6, 9, &x);
         assert_eq!(land.owner[t(1, 0) as usize], 1, "three bells of four");
         assert_eq!(land.by[t(1, 0) as usize], 2);
@@ -640,11 +844,35 @@ mod tests {
     fn a_defender_beside_the_tile_breaks_the_count() {
         let (mut land, s) = contested_land();
         let attack = [host(9, 2, t(1, 0), 6)];
-        run(&mut land, 6, 9, &BellIn { sites: &s, hosts: &attack, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] });
+        run(
+            &mut land,
+            6,
+            9,
+            &BellIn {
+                sites: &s,
+                hosts: &attack,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+        );
         assert_eq!(land.count[t(1, 0) as usize], 3);
         // a defender arrives next to it
         let both = [host(7, 1, t(0, 0), 9), host(9, 2, t(1, 0), 6)];
-        run(&mut land, 9, 20, &BellIn { sites: &s, hosts: &both, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] });
+        run(
+            &mut land,
+            9,
+            20,
+            &BellIn {
+                sites: &s,
+                hosts: &both,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside: [0; 6],
+            },
+        );
         assert_eq!(land.owner[t(1, 0) as usize], 1);
         assert_eq!(land.by[t(1, 0) as usize], NOBODY);
         assert_eq!(land.count[t(1, 0) as usize], 0);
@@ -654,7 +882,14 @@ mod tests {
     fn village_land_is_taken_only_by_taking_the_village() {
         let s = sites(&[(t(0, 0), Some((1, Tier::Hamlet)))]);
         let h = [host(9, 2, t(1, 0), 0)];
-        let x = BellIn { sites: &s, hosts: &h, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x = BellIn {
+            sites: &s,
+            hosts: &h,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         let mut land = Land::new(0);
         assert_eq!(run(&mut land, 0, 50, &x).seized, 0);
         assert_eq!(land.tiles_of(1), 7);
@@ -664,7 +899,14 @@ mod tests {
     fn strangers_in_a_heartland_do_nothing() {
         let (mut land, s) = contested_land();
         let h = [host(9, 2, t(1, 0), 6)];
-        let x = BellIn { sites: &s, hosts: &h, keep: None, passable: ALL, heartland_of: Some(1), outside: [0; 6] };
+        let x = BellIn {
+            sites: &s,
+            hosts: &h,
+            keep: None,
+            passable: ALL,
+            heartland_of: Some(1),
+            outside: [0; 6],
+        };
         assert_eq!(run(&mut land, 6, 30, &x).seized, 0);
         assert_eq!(land.owner[t(1, 0) as usize], 1);
     }
@@ -676,7 +918,14 @@ mod tests {
         // simplest cut-off: the village is released, then claimed land has no anchor.
         let gone = sites(&[(t(-3, 0), None)]);
         let none: [HostIn; 0] = [];
-        let x = BellIn { sites: &gone, hosts: &none, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x = BellIn {
+            sites: &gone,
+            hosts: &none,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         let claimed = land.claimed_of(1);
         assert!(claimed > 0);
         land.fold(6, &x, &P).unwrap();
@@ -693,7 +942,14 @@ mod tests {
         let (mut land, _) = contested_land();
         let gone = sites(&[(t(-3, 0), None)]);
         let h = [host(7, 1, t(0, 0), 3)];
-        let x = BellIn { sites: &gone, hosts: &h, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] };
+        let x = BellIn {
+            sites: &gone,
+            hosts: &h,
+            keep: None,
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         run(&mut land, 6, 20, &x);
         assert!(land.owner[t(0, 0) as usize] == 1 && land.owner[t(1, 0) as usize] == 1);
     }
@@ -705,7 +961,11 @@ mod tests {
         assert!(claimed > 0);
         let bonus = bonus_bps(&land, &s, 1, &P);
         assert_eq!(bonus, (claimed * 200).min(3_000));
-        assert_eq!(bonus_bps(&land, &s, 2, &P), 0, "no village of nation 2 here");
+        assert_eq!(
+            bonus_bps(&land, &s, 2, &P),
+            0,
+            "no village of nation 2 here"
+        );
         let base = catalog::base_production(Tier::Hamlet);
         let with = production_with_land(base, bonus);
         for r in 0..RESOURCES {
@@ -728,7 +988,21 @@ mod tests {
         let s = sites(&[]);
         let h = [host(1, 6, 0, 0)];
         let mut land = Land::new(0);
-        assert_eq!(land.fold(0, &BellIn { sites: &s, hosts: &h, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] }, &P), Err(LandError::BadInput));
+        assert_eq!(
+            land.fold(
+                0,
+                &BellIn {
+                    sites: &s,
+                    hosts: &h,
+                    keep: None,
+                    passable: ALL,
+                    heartland_of: None,
+                    outside: [0; 6]
+                },
+                &P
+            ),
+            Err(LandError::BadInput)
+        );
         assert_eq!(land.next_bell, 0);
         assert!(LandParams::PREVIEW.validate().is_ok());
         assert!(LandParams::TEST.validate().is_ok());
@@ -738,12 +1012,27 @@ mod tests {
     /// later the other side walks onto that land. Land keeps changing hands, never both at once.
     #[test]
     fn a_long_contest_moves_land_back_and_forth() {
-        let s = sites(&[(t(-4, 0), Some((1, Tier::Hamlet))), (t(4, 0), Some((2, Tier::Hamlet)))]);
+        let s = sites(&[
+            (t(-4, 0), Some((1, Tier::Hamlet))),
+            (t(4, 0), Some((2, Tier::Hamlet))),
+        ]);
         let mut land = Land::new(0);
         let mut b = 0;
         let go = |land: &mut Land, b: &mut u32, hosts: &[HostIn], n: u32| {
             for _ in 0..n {
-                land.fold(*b, &BellIn { sites: &s, hosts, keep: None, passable: ALL, heartland_of: None, outside: [0; 6] }, &P).unwrap();
+                land.fold(
+                    *b,
+                    &BellIn {
+                        sites: &s,
+                        hosts,
+                        keep: None,
+                        passable: ALL,
+                        heartland_of: None,
+                        outside: [0; 6],
+                    },
+                    &P,
+                )
+                .unwrap();
                 *b += 1;
             }
         };
@@ -779,7 +1068,12 @@ mod tests {
         for t in 0..N {
             assert!(land.owner[t] == OPEN || land.owner[t] <= 5);
         }
-        assert_eq!(land.tiles_of(1) + land.tiles_of(2) + land.owner.iter().filter(|&&o| o == OPEN).count() as u32, N as u32);
+        assert_eq!(
+            land.tiles_of(1)
+                + land.tiles_of(2)
+                + land.owner.iter().filter(|&&o| o == OPEN).count() as u32,
+            N as u32
+        );
     }
 
     #[test]
@@ -791,23 +1085,73 @@ mod tests {
         let away = [host(7, 1, t(2, 0), 0)];
         let edge = [host(7, 1, t(4, 0), 0)];
         let mut land = Land::new(0);
-        run(&mut land, 0, 4, &BellIn { sites: &s, hosts: &away, keep: None, passable: ALL, heartland_of: None, outside });
+        run(
+            &mut land,
+            0,
+            4,
+            &BellIn {
+                sites: &s,
+                hosts: &away,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside,
+            },
+        );
         assert_eq!(land.tiles_of(1), 0, "not touching");
         let mut land = Land::new(0);
-        run(&mut land, 0, 4, &BellIn { sites: &s, hosts: &edge, keep: None, passable: ALL, heartland_of: None, outside });
+        run(
+            &mut land,
+            0,
+            4,
+            &BellIn {
+                sites: &s,
+                hosts: &edge,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside,
+            },
+        );
         assert!(land.tiles_of(1) >= 3);
         // the host leaves: the land stays joined across the border, it does not fray
         let none: [HostIn; 0] = [];
-        let c = run(&mut land, 4, 20, &BellIn { sites: &s, hosts: &none, keep: None, passable: ALL, heartland_of: None, outside });
+        let c = run(
+            &mut land,
+            4,
+            20,
+            &BellIn {
+                sites: &s,
+                hosts: &none,
+                keep: None,
+                passable: ALL,
+                heartland_of: None,
+                outside,
+            },
+        );
         assert_eq!(c.frayed, 0);
         assert!(land.tiles_of(1) >= 3);
     }
 
     #[test]
     fn the_same_inputs_give_the_same_land() {
-        let s = sites(&[(t(-3, 0), Some((1, Tier::Town))), (t(3, 0), Some((2, Tier::Hamlet)))]);
-        let h = [host(5, 1, t(0, 1), 0), host(6, 2, t(1, -1), 0), host(4, 1, t(-1, 2), 0)];
-        let x = BellIn { sites: &s, hosts: &h, keep: Some((t(0, -3), 2)), passable: ALL, heartland_of: None, outside: [0; 6] };
+        let s = sites(&[
+            (t(-3, 0), Some((1, Tier::Town))),
+            (t(3, 0), Some((2, Tier::Hamlet))),
+        ]);
+        let h = [
+            host(5, 1, t(0, 1), 0),
+            host(6, 2, t(1, -1), 0),
+            host(4, 1, t(-1, 2), 0),
+        ];
+        let x = BellIn {
+            sites: &s,
+            hosts: &h,
+            keep: Some((t(0, -3), 2)),
+            passable: ALL,
+            heartland_of: None,
+            outside: [0; 6],
+        };
         let (mut a, mut b) = (Land::new(0), Land::new(0));
         run(&mut a, 0, 12, &x);
         let mut hr = h;

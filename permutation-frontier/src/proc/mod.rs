@@ -58,10 +58,6 @@ pub mod beacon;
 #[cfg(feature = "capacity-preview")]
 pub mod capacity;
 pub mod caravan;
-/// Preview (`land-preview`): FoldLand / ClaimLandYield on the provisional
-/// tags 0xCD / 0xCE; absent from every default build.
-#[cfg(feature = "land-preview")]
-pub mod land;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
@@ -70,6 +66,10 @@ pub mod custody;
 pub mod defence;
 pub mod holding;
 pub mod host;
+/// Preview (`land-preview`): FoldLand / ClaimLandYield on the provisional
+/// tags 0xCD / 0xCE; absent from every default build.
+#[cfg(feature = "land-preview")]
+pub mod land;
 pub mod map;
 pub mod nation;
 pub mod resident;

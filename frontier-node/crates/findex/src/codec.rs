@@ -64,7 +64,10 @@ impl Codec {
         match self {
             Codec::Plain => raw.to_vec(),
             Codec::GzipV1 => {
-                let mut e = GzEncoder::new(Vec::with_capacity(raw.len() / 4 + 64), Compression::default());
+                let mut e = GzEncoder::new(
+                    Vec::with_capacity(raw.len() / 4 + 64),
+                    Compression::default(),
+                );
                 e.write_all(raw).expect("writing to memory");
                 e.finish().expect("writing to memory")
             }
@@ -90,7 +93,9 @@ pub fn decode(stored: &[u8], max: usize) -> Result<Vec<u8>, String> {
         .read_to_end(&mut out)
         .map_err(|e| format!("store codec: not a valid gzip entry: {e}"))?;
     if n > max {
-        return Err(format!("store codec: an entry decodes past its limit of {max} bytes"));
+        return Err(format!(
+            "store codec: an entry decodes past its limit of {max} bytes"
+        ));
     }
     if !d.into_inner().is_empty() {
         return Err("store codec: bytes after the gzip entry".into());
@@ -115,7 +120,11 @@ mod tests {
     fn plain_is_the_bytes_themselves_and_records_nothing() {
         let raw = province_like();
         assert_eq!(Codec::Plain.encode(&raw), raw);
-        assert_eq!(Codec::Plain.decode(&raw, 1).unwrap(), raw, "plain is never bounded or changed");
+        assert_eq!(
+            Codec::Plain.decode(&raw, 1).unwrap(),
+            raw,
+            "plain is never bounded or changed"
+        );
         assert_eq!(Codec::default(), Codec::Plain);
         assert_eq!(Codec::Plain.word(), None);
         assert_eq!(Codec::from_word(None).unwrap(), Codec::Plain);
@@ -128,7 +137,10 @@ mod tests {
         assert_eq!(&s[..2], &[0x1f, 0x8b]);
         assert!(s.len() * 4 < raw.len(), "{} of {}", s.len(), raw.len());
         assert_eq!(Codec::GzipV1.decode(&s, SNAPSHOT_DECODE_MAX).unwrap(), raw);
-        assert_eq!(Codec::GzipV1.decode(&Codec::GzipV1.encode(&[]), 0).unwrap(), Vec::<u8>::new());
+        assert_eq!(
+            Codec::GzipV1.decode(&Codec::GzipV1.encode(&[]), 0).unwrap(),
+            Vec::<u8>::new()
+        );
         assert_eq!(Codec::from_word(Some(GZIP_V1)).unwrap(), Codec::GzipV1);
         assert_eq!(Codec::GzipV1.word(), Some("gzip-v1"));
     }
@@ -151,11 +163,16 @@ mod tests {
         let mut body = s.clone();
         body[n / 2] ^= 0x55;
         assert!(decode(&body, SNAPSHOT_DECODE_MAX).is_err(), "body");
-        assert!(decode(&s[..n - 3], SNAPSHOT_DECODE_MAX).is_err(), "truncated");
+        assert!(
+            decode(&s[..n - 3], SNAPSHOT_DECODE_MAX).is_err(),
+            "truncated"
+        );
         // a second member, trailing bytes, not gzip at all
         let mut two = s.clone();
         two.extend_from_slice(&s);
-        assert!(decode(&two, 2 * SNAPSHOT_DECODE_MAX).unwrap_err().contains("after"));
+        assert!(decode(&two, 2 * SNAPSHOT_DECODE_MAX)
+            .unwrap_err()
+            .contains("after"));
         let mut tail = s.clone();
         tail.push(0);
         assert!(decode(&tail, SNAPSHOT_DECODE_MAX).is_err());

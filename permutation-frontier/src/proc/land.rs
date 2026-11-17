@@ -62,7 +62,10 @@ fn bytes_err(e: LandBytesError) -> crate::Error {
 }
 
 /// `[fee_payer s,w] [season]` and the keeper prologue over a Running Season.
-fn keeper(p: &Pubkey, a: &[AccountInfo]) -> R<(addr::AddrCtx, frontier_abi::prologue::SeasonHdr, i64)> {
+fn keeper(
+    p: &Pubkey,
+    a: &[AccountInfo],
+) -> R<(addr::AddrCtx, frontier_abi::prologue::SeasonHdr, i64)> {
     let payer = a.first().ok_or(FrontierError::TooManyAccounts)?;
     if !payer.is_signer {
         return Err(FrontierError::Auth.into());
@@ -86,7 +89,12 @@ fn province_at(p: &Pubkey, ctx: &addr::AddrCtx, ai: &AccountInfo, season_id: u64
 }
 
 /// A present land record of this season at the address of its own `(p, q)`.
-fn land_present(p: &Pubkey, ctx: &addr::AddrCtx, ai: &AccountInfo, season_id: u64) -> R<LandHeader> {
+fn land_present(
+    p: &Pubkey,
+    ctx: &addr::AddrCtx,
+    ai: &AccountInfo,
+    season_id: u64,
+) -> R<LandHeader> {
     if ai.owner != p || ai.data_len() != LD::SIZE {
         return Err(BAD_ACCOUNT);
     }
@@ -119,18 +127,39 @@ fn fold(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let start = resolved_next.saturating_sub(1);
         let signer = SeasonSigner::new(hdr.id, hdr.bump);
         let rent = init::rent(LD::SIZE)?;
-        init::init_with_seed(&a[0], land, season, &signer, &fl::land_seed(pp, pq), LD::SIZE, rent, p)?;
+        init::init_with_seed(
+            &a[0],
+            land,
+            season,
+            &signer,
+            &fl::land_seed(pp, pq),
+            LD::SIZE,
+            rent,
+            p,
+        )?;
         let mut ld = land.try_borrow_mut_data()?;
-        fl::write_header(&mut ld, &LandHeader { season_id: hdr.id, p: pp, q: pq, yield_bell: [start; 12] })
-            .map_err(bytes_err)?;
+        fl::write_header(
+            &mut ld,
+            &LandHeader {
+                season_id: hdr.id,
+                p: pp,
+                q: pq,
+                yield_bell: [start; 12],
+            },
+        )
+        .map_err(bytes_err)?;
     }
     land_present(p, &ctx, land, hdr.id)?;
     let mut next: Vec<(ProvinceCoord, Vec<u8>)> = Vec::new();
     for n in &a[fl::FOLD_FIXED..] {
         let h = land_present(p, &ctx, n, hdr.id)?;
-        next.push((ProvinceCoord::new(h.p as i32, h.q as i32), n.try_borrow_data()?.to_vec()));
+        next.push((
+            ProvinceCoord::new(h.p as i32, h.q as i32),
+            n.try_borrow_data()?.to_vec(),
+        ));
     }
-    let next_refs: Vec<(ProvinceCoord, &[u8])> = next.iter().map(|(c, v)| (*c, v.as_slice())).collect();
+    let next_refs: Vec<(ProvinceCoord, &[u8])> =
+        next.iter().map(|(c, v)| (*c, v.as_slice())).collect();
     let max = d[1].clamp(1, fl::MAX_FOLD_BELLS);
     let pd = province.try_borrow_data()?;
     let heartland = fl::heartland_of(&pd);
@@ -164,7 +193,13 @@ fn claim(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (hp, hq, site, gen, faction) = {
         let hd = holding.try_borrow_data()?;
         let r = Ro(&hd);
-        (r.i16(H::P)?, r.i16(H::Q)?, r.u8(H::SITE)?, r.u8(H::GEN)?, r.u8(H::FACTION)?)
+        (
+            r.i16(H::P)?,
+            r.i16(H::Q)?,
+            r.u8(H::SITE)?,
+            r.u8(H::GEN)?,
+            r.u8(H::FACTION)?,
+        )
     };
     expect_key(holding, &ctx.holding(hp as i32, hq as i32, site))?;
     let (pp, pq) = province_at(p, &ctx, province, hdr.id)?;
@@ -174,7 +209,10 @@ fn claim(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let pd = province.try_borrow_data()?;
     let o = P::site(site as usize);
     let r = Ro(&pd);
-    if r.u8(o + SM::STATE)? != SM::STATE_HOLDING || r.u8(o + SM::GEN)? != gen || r.u8(o + SM::FACTION)? != faction {
+    if r.u8(o + SM::STATE)? != SM::STATE_HOLDING
+        || r.u8(o + SM::GEN)? != gen
+        || r.u8(o + SM::FACTION)? != faction
+    {
         return Err(BAD_ACCOUNT);
     }
     let mut h = land_present(p, &ctx, land, hdr.id)?;
@@ -197,7 +235,8 @@ fn claim(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let y = fl::yield_for(k.production, bonus, bells);
         for (i, amount) in y.iter().enumerate().take(RESOURCES) {
             if *amount > 0 {
-                k.credit(now, Resource::ALL[i], *amount).map_err(holding_err)?;
+                k.credit(now, Resource::ALL[i], *amount)
+                    .map_err(holding_err)?;
             }
         }
         write_holding(&mut hd, &k, now)?;

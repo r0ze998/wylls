@@ -911,12 +911,26 @@ impl Fold {
     /// own, outside the account kinds and their indexes and diffs; it rides
     /// the province envelope as `land`. `true` when `key` was one (handled).
     #[cfg(feature = "land-preview")]
-    fn capture_land_post(&mut self, key: &[u8; 32], a: Option<&fclient::ports::Account>, tx: &TxRecord) -> bool {
+    fn capture_land_post(
+        &mut self,
+        key: &[u8; 32],
+        a: Option<&fclient::ports::Account>,
+        tx: &TxRecord,
+    ) -> bool {
         use frontier_abi::land_preview::land as LD;
-        let is_land = |d: &[u8]| d.len() == LD::SIZE && d[..8] == LD::MAGIC && season_of(d) == Some(self.cfg.season_id);
+        let is_land = |d: &[u8]| {
+            d.len() == LD::SIZE && d[..8] == LD::MAGIC && season_of(d) == Some(self.cfg.season_id)
+        };
         match a {
             Some(acc) if acc.owner == self.cfg.program && is_land(&acc.data) => {
-                self.st.accounts.insert(*key, Capture { slot: tx.slot, tx: tx.seq, data: acc.data.clone() });
+                self.st.accounts.insert(
+                    *key,
+                    Capture {
+                        slot: tx.slot,
+                        tx: tx.seq,
+                        data: acc.data.clone(),
+                    },
+                );
                 true
             }
             None if self.st.accounts.get(key).is_some_and(|c| is_land(&c.data)) => {
@@ -960,8 +974,11 @@ impl Fold {
         });
         // land preview: the province's land record, when one exists
         #[cfg(feature = "land-preview")]
-        if let Some(c) = self.cap(&frontier_abi::land_preview::land_address(&self.ctx, pq.0, pq.1)) {
-            env["land"] = json!({"key": format!("ld:{p},{q}"), "slot": c.slot, "bytes": B64.encode(&c.data)});
+        if let Some(c) = self.cap(&frontier_abi::land_preview::land_address(
+            &self.ctx, pq.0, pq.1,
+        )) {
+            env["land"] =
+                json!({"key": format!("ld:{p},{q}"), "slot": c.slot, "bytes": B64.encode(&c.data)});
         }
         Some(env)
     }

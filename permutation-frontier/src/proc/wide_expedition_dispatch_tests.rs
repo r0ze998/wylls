@@ -129,8 +129,19 @@ fn expedition_wire_is_exact_and_keeps_legacy_parsers_closed() {
 fn conquest_kinds_12_to_17_route_only_with_the_host_conquest_feature() {
     let p = Pubkey::new_from_array([12; 32]);
     let inners: [(u8, Vec<u8>); 6] = [
-        (12, wix::DeclareSiege { site: 1, entry: 2 }.to_bytes().to_vec()),
-        (13, wix::ResolveWithConquest { bell: 20, beneficiary: [7; 32] }.to_bytes().to_vec()),
+        (
+            12,
+            wix::DeclareSiege { site: 1, entry: 2 }.to_bytes().to_vec(),
+        ),
+        (
+            13,
+            wix::ResolveWithConquest {
+                bell: 20,
+                beneficiary: [7; 32],
+            }
+            .to_bytes()
+            .to_vec(),
+        ),
         (14, wix::SettleCapture { site: 1 }.to_bytes().to_vec()),
         (15, wix::SettleSiege { site: 1 }.to_bytes().to_vec()),
         (16, wix::CloseConquest { p: 129, q: 0 }.to_bytes().to_vec()),
@@ -140,19 +151,34 @@ fn conquest_kinds_12_to_17_route_only_with_the_host_conquest_feature() {
     for (k, inner) in inners {
         let mut d = vec![inner[0], 0xff, 2, k];
         d.extend_from_slice(&inner);
-        assert!(wix::WideCommand::decode(&d).is_err(), "kind {k} is no existing command");
-        assert_eq!(crate::dispatch(&p, &[], &inner), Err(FrontierError::NotImplemented.into()), "raw kind {k} stays closed");
+        assert!(
+            wix::WideCommand::decode(&d).is_err(),
+            "kind {k} is no existing command"
+        );
+        assert_eq!(
+            crate::dispatch(&p, &[], &inner),
+            Err(FrontierError::NotImplemented.into()),
+            "raw kind {k} stays closed"
+        );
         let got = crate::dispatch(&p, &[], &d);
         #[cfg(feature = "conquest-dispatch-experimental")]
         {
             assert_eq!(ix::Command::decode(&d).unwrap().kind() as u8, k);
-            assert_eq!(got, Err(FrontierError::TooManyAccounts.into()), "kind {k} routed to the Season check");
+            assert_eq!(
+                got,
+                Err(FrontierError::TooManyAccounts.into()),
+                "kind {k} routed to the Season check"
+            );
         }
         #[cfg(not(feature = "conquest-dispatch-experimental"))]
         {
             assert!(ix::Command::decode(&d).is_err());
             #[cfg(feature = "expedition-dispatch-experimental")]
-            assert_eq!(got, Err(FrontierError::BadData.into()), "kind {k} unknown without the feature");
+            assert_eq!(
+                got,
+                Err(FrontierError::BadData.into()),
+                "kind {k} unknown without the feature"
+            );
             #[cfg(not(feature = "expedition-dispatch-experimental"))]
             assert!(got.is_err());
         }
@@ -506,7 +532,12 @@ fn expedition_version2_actual_departure_passes_prologue_and_native_system_writeb
     feature = "expedition-dispatch-experimental",
     feature = "system-cpi-tests"
 ))]
-pub(super) fn departure_accounts() -> (Accounts, Vec<InstructionAccount>, u16, wix::ExpeditionDepart) {
+pub(super) fn departure_accounts() -> (
+    Accounts,
+    Vec<InstructionAccount>,
+    u16,
+    wix::ExpeditionDepart,
+) {
     let (fixture, command) = expedition_exec::tests::fixture();
     let mut accounts: Accounts = Vec::new();
     let mut roles = Vec::new();

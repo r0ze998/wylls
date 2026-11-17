@@ -347,5 +347,5 @@ pub(super) fn runtime_settle(
 }
 
 pub(super) fn settle_reverse_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
- settlement::reverse_settlement::execute_draft(p,a,d)
+    settlement::reverse_settlement::execute_draft(p, a, d)
 }

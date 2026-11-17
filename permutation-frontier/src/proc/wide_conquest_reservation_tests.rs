@@ -104,7 +104,11 @@ fn resolve(a: &[AccountInfo<'static>], bell: u32) -> R<()> {
 /// entry 1 on the Free City's tile, and a retained empty escrow exactly like
 /// the first Citizen's (so no System CPI is needed). Returns its 12-role
 /// DeclareSiege account list. Must run before the first declaration.
-fn second(a: &[AccountInfo<'static>], faction: u8, troops: MilliTroops) -> Vec<AccountInfo<'static>> {
+fn second(
+    a: &[AccountInfo<'static>],
+    faction: u8,
+    troops: MilliTroops,
+) -> Vec<AccountInfo<'static>> {
     let ctx = addr::ctx(&key(&a[2]), &PROGRAM);
     let world = world_of(&ctx).unwrap();
     let coord = WideCoord::checked(129, 0).unwrap();
@@ -265,7 +269,12 @@ const CLOSE_TABLE: wix::CloseConquest = wix::CloseConquest { p: 129, q: 0 };
 /// exactly this accrual, as the existing capture test computes it).
 fn accrued(d: &[u8]) -> (i64, i64) {
     let mut h = hold::read_holding(d).unwrap();
-    hold::settle_tiered(&mut h, prologue::now().unwrap().ts, hold::terrain_ore(d).unwrap()).unwrap();
+    hold::settle_tiered(
+        &mut h,
+        prologue::now().unwrap().ts,
+        hold::terrain_ore(d).unwrap(),
+    )
+    .unwrap();
     (h.stores[GOLD].value, h.stores[ARMS].value)
 }
 fn stored(d: &[u8]) -> (i64, i64) {
@@ -335,12 +344,21 @@ fn not_applied() -> Vec<AccountInfo<'static>> {
 
 // ------------------------------------------------------------ A. resolver
 
-fn trace(a: &[AccountInfo<'static>], bells: core::ops::RangeInclusive<u32>) -> Vec<(Option<WideConquestEntry>, u8, u8, u32, u8)> {
+fn trace(
+    a: &[AccountInfo<'static>],
+    bells: core::ops::RangeInclusive<u32>,
+) -> Vec<(Option<WideConquestEntry>, u8, u8, u32, u8)> {
     let mut v = Vec::new();
     for bell in bells {
         resolve(a, bell).unwrap();
         let p = prefix(a);
-        v.push((tbl(a).entry(1).unwrap(), p.kind, p.flags, p.bell, p.progress));
+        v.push((
+            tbl(a).entry(1).unwrap(),
+            p.kind,
+            p.flags,
+            p.bell,
+            p.progress,
+        ));
     }
     v
 }
@@ -361,12 +379,18 @@ fn a1_reservation_applies_at_its_bell_exactly_as_an_immediate_declaration() {
     let t = tbl(&a);
     assert!(t.entry(1).unwrap().is_none());
     assert_eq!(t.pending_at(1, 10).len(), 1);
-    assert_eq!((prefix(&a).kind, prefix(&a).flags), (CR::KIND_NONE, CR::FLAG_PENDING));
+    assert_eq!(
+        (prefix(&a).kind, prefix(&a).flags),
+        (CR::KIND_NONE, CR::FLAG_PENDING)
+    );
     // Bell 9: nothing to apply, still pending, flag kept.
     resolve(&a, 9).unwrap();
     assert_eq!(cursor(&a), 10);
     assert_eq!(tbl(&a).pending_at(1, 10).len(), 1);
-    assert_eq!((prefix(&a).kind, prefix(&a).flags), (CR::KIND_NONE, CR::FLAG_PENDING));
+    assert_eq!(
+        (prefix(&a).kind, prefix(&a).flags),
+        (CR::KIND_NONE, CR::FLAG_PENDING)
+    );
     // Bell 10 applies it; the record is freed.
     let reserved = trace(&a, 10..=10 + required);
     assert!(tbl(&a).reservations().iter().all(Option::is_none));
@@ -389,7 +413,10 @@ fn a1_reservation_applies_at_its_bell_exactly_as_an_immediate_declaration() {
     assert_eq!(a[10].lamports(), i[10].lamports());
     assert_eq!(slot_marks(&a[3]), slot_marks(&i[3]));
     assert_eq!(sieges_today(&a[3]), 1);
-    assert_eq!(stored(&a[4].try_borrow_data().unwrap()), stored(&i[4].try_borrow_data().unwrap()));
+    assert_eq!(
+        stored(&a[4].try_borrow_data().unwrap()),
+        stored(&i[4].try_borrow_data().unwrap())
+    );
 }
 
 #[test]
@@ -427,7 +454,10 @@ fn a2_cross_faction_reservations_same_bell_first_in_order_applies() {
             let roster = WideRoster::read(&rd).unwrap();
             for (i, f) in [(0usize, 0u8), (1, 1)] {
                 let h = roster.ref_at(&rd, i).unwrap().unwrap();
-                assert_eq!(wres::siege_lead(&pd, &roster, &rd, 1, f, 10).unwrap(), Some((i, h)));
+                assert_eq!(
+                    wres::siege_lead(&pd, &roster, &rd, 1, f, 10).unwrap(),
+                    Some((i, h))
+                );
             }
         }
         resolve(&a, 10).unwrap();
@@ -437,7 +467,10 @@ fn a2_cross_faction_reservations_same_bell_first_in_order_applies() {
         assert_eq!(e.declaration_bell, 10);
         assert!(t.reservation(0).is_none());
         let (_, loser) = t.reservation(1).unwrap();
-        assert_eq!((loser.status, loser.citizen, loser.done), (wc::RES_NOT_APPLIED, second_c, 0));
+        assert_eq!(
+            (loser.status, loser.citizen, loser.done),
+            (wc::RES_NOT_APPLIED, second_c, 0)
+        );
         assert_eq!(prefix(&a).kind, CR::KIND_SIEGE);
     }
 }
@@ -456,7 +489,10 @@ fn a3_first_in_order_not_leading_second_leader_applies() {
     let t = tbl(&a);
     assert_eq!(t.entry(1).unwrap().unwrap().citizen, key(&a[3]));
     let (_, first) = t.reservation(0).unwrap();
-    assert_eq!((first.status, first.citizen), (wc::RES_NOT_APPLIED, key(&b[3])));
+    assert_eq!(
+        (first.status, first.citizen),
+        (wc::RES_NOT_APPLIED, key(&b[3]))
+    );
     assert!(t.reservation(1).is_none());
 }
 
@@ -589,7 +625,11 @@ fn a8_stale_pending_reservation_refuses_resolve_with_conquest() {
     let (i, r) = tbl(&a).reservation(0).unwrap();
     let off = wc::CONQUEST_SIZE - (wc::RESERVATIONS_N - i) * wc::RESERVATION_LEN + 8;
     assert_eq!(
-        u32::from_le_bytes(a[9].try_borrow_data().unwrap()[off..off + 4].try_into().unwrap()),
+        u32::from_le_bytes(
+            a[9].try_borrow_data().unwrap()[off..off + 4]
+                .try_into()
+                .unwrap()
+        ),
         r.bell
     );
     // FIXTURE (between handlers): a PENDING record older than the cursor
@@ -623,7 +663,10 @@ fn b1_full_return_is_exact_and_cap_stays_consumed() {
     let _stub = install();
     let a = not_applied();
     let (_, r) = tbl(&a).reservation(0).unwrap();
-    assert_eq!(r.gold_milli, FRONTIER_7.siege_stake_gold as u64 * MILLI as u64);
+    assert_eq!(
+        r.gold_milli,
+        FRONTIER_7.siege_stake_gold as u64 * MILLI as u64
+    );
     assert_eq!(
         r.arms_milli as i64,
         permutation_rules::frontier::arms::siege_cost()[ARMS]
@@ -675,8 +718,14 @@ fn b2_b4_no_room_refuses_unchanged_then_returns_once_never_twice() {
     assert_eq!(a[1].lamports(), payer + wide_rent());
     assert_eq!(slot_marks(&a[3]), 0);
     let (_, kept) = tbl(&a).reservation(0).unwrap();
-    assert_eq!((kept.status, kept.done), (wc::RES_NOT_APPLIED, wc::RES_SLOT_RENT_RELEASED));
-    assert_eq!((kept.gold_milli, kept.arms_milli), (r.gold_milli, r.arms_milli));
+    assert_eq!(
+        (kept.status, kept.done),
+        (wc::RES_NOT_APPLIED, wc::RES_SLOT_RENT_RELEASED)
+    );
+    assert_eq!(
+        (kept.gold_milli, kept.arms_milli),
+        (r.gold_milli, r.arms_milli)
+    );
     // Retry with no room: refused, nothing at all changes, debt kept.
     let before = snapshot(&s);
     let logs = LOGS.lock().unwrap().clone();
@@ -727,11 +776,18 @@ fn b3_absent_or_new_generation_source_keeps_the_debt() {
         let replaced = snapshot(&s[7..8]);
         let payer = a[1].lamports();
         settle(&s, 0).unwrap();
-        assert_eq!(snapshot(&s[7..8]), replaced, "case {case}: nothing credited or burnt");
+        assert_eq!(
+            snapshot(&s[7..8]),
+            replaced,
+            "case {case}: nothing credited or burnt"
+        );
         assert_eq!(a[1].lamports(), payer + wide_rent(), "case {case}");
         assert_eq!(slot_marks(&a[3]), 0);
         let (_, kept) = tbl(&a).reservation(0).unwrap();
-        assert_eq!((kept.status, kept.done), (wc::RES_NOT_APPLIED, wc::RES_SLOT_RENT_RELEASED));
+        assert_eq!(
+            (kept.status, kept.done),
+            (wc::RES_NOT_APPLIED, wc::RES_SLOT_RENT_RELEASED)
+        );
         assert_eq!(settle(&s, 0), Err(FrontierError::Capacity.into()));
         // The original live Holding still receives the full return later.
         s[7] = a[4].clone();
@@ -785,7 +841,12 @@ fn b6_fake_or_non_canonical_accounts_are_refused() {
             // a province at a non-canonical address
             2 => s[2] = copy(5, [0x33; 32]),
             // the source at a non-canonical address
-            3 => s[7] = copy(4, wh::holding_address(&ctx, WideCoord::checked(129, 0).unwrap(), 2)),
+            3 => {
+                s[7] = copy(
+                    4,
+                    wh::holding_address(&ctx, WideCoord::checked(129, 0).unwrap(), 2),
+                )
+            }
             // the canonical escrow absent while the Season is live
             4 => s[5] = absent(key(&a[10])),
             // a funder that is not the escrow's
@@ -819,7 +880,10 @@ fn c1_close_conquest_refused_while_any_reservation_record_exists() {
     let b = not_applied();
     set_gold(&b[4], gold_cap(&b[4]));
     settle(&sr(&b), 0).unwrap();
-    assert_eq!(tbl(&b).reservation(0).unwrap().1.done, wc::RES_SLOT_RENT_RELEASED);
+    assert_eq!(
+        tbl(&b).reservation(0).unwrap().1.done,
+        wc::RES_SLOT_RENT_RELEASED
+    );
     ended_after_grace(&b);
     let ct = close_table_accounts(&b);
     refused(&ct, || via(&ct, &CLOSE_TABLE.to_bytes()));
@@ -867,7 +931,11 @@ fn c3_after_escrow_and_citizen_close_resources_still_return() {
     let _stub = install();
     let a = not_applied();
     ended_after_grace(&a);
-    via(&close_escrow_accounts(&a), &wix::CloseCaptureEscrow.to_bytes()).unwrap();
+    via(
+        &close_escrow_accounts(&a),
+        &wix::CloseCaptureEscrow.to_bytes(),
+    )
+    .unwrap();
     let mut s = sr(&a);
     // FIXTURE (between handlers): the Citizen canonically absent, standing
     // for the existing season-end CloseCitizen (not run in this harness).
@@ -968,7 +1036,10 @@ fn c5_live_escrow_with_absent_citizen_keeps_slot_rent_owed() {
         (gold + r.gold_milli as i64, arms + r.arms_milli as i64)
     );
     let (_, kept) = tbl(&a).reservation(0).unwrap();
-    assert_eq!((kept.status, kept.done), (wc::RES_NOT_APPLIED, wc::RES_RESOURCES_RETURNED));
+    assert_eq!(
+        (kept.status, kept.done),
+        (wc::RES_NOT_APPLIED, wc::RES_RESOURCES_RETURNED)
+    );
     let source = a[4].try_borrow_data().unwrap().to_vec();
     assert_eq!(settle(&s, 0), Err(FrontierError::Capacity.into()));
     assert_eq!(a[4].try_borrow_data().unwrap().as_ref(), &source[..]);
@@ -1041,7 +1112,9 @@ fn b7_slot_released_by_r1_reused_by_r2_then_r1_resources_return_without_touching
     // R1: seq 0, site 1, bell 10, slot 3 -> NOT_APPLIED (host arrives at 11).
     let a = not_applied();
     let _topup = Installed(Some(solana_program::program_stubs::set_syscall_stubs(
-        Box::new(TopupStubs { escrow: key(&a[10]) }),
+        Box::new(TopupStubs {
+            escrow: key(&a[10]),
+        }),
     )));
     TOPUPS.lock().unwrap().clear();
     let (_, r1) = tbl(&a).reservation(0).unwrap();
@@ -1053,7 +1126,10 @@ fn b7_slot_released_by_r1_reused_by_r2_then_r1_resources_return_without_touching
     settle(&s, 0).unwrap();
     assert_eq!(a[1].lamports(), payer + wide_rent());
     assert_eq!(slot_marks(&a[3]), 0);
-    assert_eq!(tbl(&a).reservation(0).unwrap().1.done, wc::RES_SLOT_RENT_RELEASED);
+    assert_eq!(
+        tbl(&a).reservation(0).unwrap().1.done,
+        wc::RES_SLOT_RENT_RELEASED
+    );
     // Room is made before R2 so R2's own debit can be paid.
     set_gold(&a[4], 1_000_000 * MILLI);
     // R2: the same Citizen, same site, later bell 12 (cursor 11 behind),
@@ -1072,11 +1148,17 @@ fn b7_slot_released_by_r1_reused_by_r2_then_r1_resources_return_without_touching
     assert_eq!(a[1].lamports(), payer_r2 - wide_rent());
     assert_eq!(sieges_today(&a[3]), 2, "cap consumed twice, never restored");
     assert_eq!(slot_marks(&a[3]), C::reserved_bit(3));
-    assert_eq!((prefix(&a).kind, prefix(&a).flags), (CR::KIND_NONE, CR::FLAG_PENDING));
+    assert_eq!(
+        (prefix(&a).kind, prefix(&a).flags),
+        (CR::KIND_NONE, CR::FLAG_PENDING)
+    );
     let ctx = addr::ctx(&key(&a[2]), &PROGRAM);
     let e2 = escrow(&program(), &ctx, SID, pk(&a).world(), &a[3], &a[10]).unwrap();
     assert_eq!(e2.binding(3).unwrap(), Some(r2.binding(pk(&a))));
-    assert_eq!((e2.escrow(), e2.active_mask()), (wide_rent(), C::reserved_bit(3)));
+    assert_eq!(
+        (e2.escrow(), e2.active_mask()),
+        (wide_rent(), C::reserved_bit(3))
+    );
     // R2 state, before R1's second settlement.
     let r2_record = reservation_bytes(&a, tbl(&a).reservation(1).unwrap().0);
     let escrow_state = snapshot(&a[10..11]);
@@ -1100,7 +1182,13 @@ fn b7_slot_released_by_r1_reused_by_r2_then_r1_resources_return_without_touching
     let p = prefix(&a);
     assert_eq!(
         (p.kind, p.flags, p.bell, p.progress, p.required),
-        (prefix_before.kind, prefix_before.flags, prefix_before.bell, prefix_before.progress, prefix_before.required)
+        (
+            prefix_before.kind,
+            prefix_before.flags,
+            prefix_before.bell,
+            prefix_before.progress,
+            prefix_before.required
+        )
     );
     assert_eq!(settle(&s, 0), Err(FrontierError::AlreadyDone.into()));
     // R2 to its own outcome: judged at bell 12, where its host (arrived at
@@ -1146,7 +1234,10 @@ impl solana_program::program_stubs::SyscallStubs for FreshStubs {
             wc::conquest_address(&ctx, k),
             wc::capture_escrow_address(&ctx, &self.citizen),
         ];
-        if ix.program_id.to_bytes() != prologue::ids::SYSTEM_PROGRAM || d.len() < 4 || infos.len() != 2 {
+        if ix.program_id.to_bytes() != prologue::ids::SYSTEM_PROGRAM
+            || d.len() < 4
+            || infos.len() != 2
+        {
             return Err(ProgramError::InvalidInstructionData);
         }
         match u32::from_le_bytes(d[..4].try_into().unwrap()) {
@@ -1160,8 +1251,14 @@ impl solana_program::program_stubs::SyscallStubs for FreshStubs {
                     return Err(ProgramError::InvalidArgument);
                 }
                 let n = u64::from_le_bytes(d[4..].try_into().unwrap());
-                let from = infos[0].lamports().checked_sub(n).ok_or(ProgramError::InsufficientFunds)?;
-                let to = infos[1].lamports().checked_add(n).ok_or(ProgramError::ArithmeticOverflow)?;
+                let from = infos[0]
+                    .lamports()
+                    .checked_sub(n)
+                    .ok_or(ProgramError::InsufficientFunds)?;
+                let to = infos[1]
+                    .lamports()
+                    .checked_add(n)
+                    .ok_or(ProgramError::ArithmeticOverflow)?;
                 **infos[0].try_borrow_mut_lamports()? = from;
                 **infos[1].try_borrow_mut_lamports()? = to;
                 Ok(())
@@ -1183,10 +1280,12 @@ impl solana_program::program_stubs::SyscallStubs for FreshStubs {
                     || base != self.season
                     || base != key(&infos[1])
                     || expected.as_bytes() != &d[44..44 + n]
-                    || key(&infos[0]) != permutation_rules::hash::sha256(&[&base, &d[44..44 + n], &owner])
+                    || key(&infos[0])
+                        != permutation_rules::hash::sha256(&[&base, &d[44..44 + n], &owner])
                     || !targets.contains(&key(&infos[0]))
                     || !seeds.iter().any(|s| {
-                        Pubkey::create_program_address(s, &program()).is_ok_and(|k| k.to_bytes() == base)
+                        Pubkey::create_program_address(s, &program())
+                            .is_ok_and(|k| k.to_bytes() == base)
                     })
                 {
                     return Err(ProgramError::InvalidSeeds);
@@ -1247,7 +1346,14 @@ fn legacy_at(p: i16, q: i16) -> Vec<AccountInfo<'static>> {
     Rw(&mut hd).set_u8(H1::STATE, H1::STATE_FINAL).unwrap();
     Rw(&mut hd).set_u32(H1::HOST_SEQ, 1).unwrap();
     crate::layout::set_chain(&mut hd, 7, &[0x6a; 32]).unwrap();
-    a[4] = declaration::ai(resolver.holding_address(&host).unwrap(), PROGRAM, hd, a[4].lamports(), false, true);
+    a[4] = declaration::ai(
+        resolver.holding_address(&host).unwrap(),
+        PROGRAM,
+        hd,
+        a[4].lamports(),
+        false,
+        true,
+    );
     let mut sp = vec![0; K2::Province.size()];
     assert!(write_header(&mut sp, K2::Province, SID));
     Rw(&mut sp).set_i16(PV::P, p).unwrap();
@@ -1256,7 +1362,14 @@ fn legacy_at(p: i16, q: i16) -> Vec<AccountInfo<'static>> {
     sp[PV::site(0) + SM::STATE] = SM::STATE_HOLDING;
     sp[PV::site(0) + SM::GEN] = 1;
     sp[PV::site(0) + SM::ORDER] = 1;
-    a[7] = declaration::ai(resolver.province_address(host.key()).unwrap(), PROGRAM, sp, 1_000_000_000, false, false);
+    a[7] = declaration::ai(
+        resolver.province_address(host.key()).unwrap(),
+        PROGRAM,
+        sp,
+        1_000_000_000,
+        false,
+        false,
+    );
     {
         let mut cd = a[3].try_borrow_mut_data().unwrap();
         wh::unbind(&mut cd, 2).unwrap();
@@ -1278,7 +1391,9 @@ fn legacy_at(p: i16, q: i16) -> Vec<AccountInfo<'static>> {
         let mut e = read_entry(&pd, 0).unwrap();
         e.id = alias;
         write_entry(&mut pd, 0, &e).unwrap();
-        roster.validate_paired(&rd, &wres::live_ids(&pd).unwrap()).unwrap();
+        roster
+            .validate_paired(&rd, &wres::live_ids(&pd).unwrap())
+            .unwrap();
     }
     a
 }
@@ -1295,7 +1410,9 @@ fn host_seq(a: &[AccountInfo], seq: u32) {
     let mut e = read_entry(&pd, 0).unwrap();
     e.id = alias;
     write_entry(&mut pd, 0, &e).unwrap();
-    roster.validate_paired(&rd, &wres::live_ids(&pd).unwrap()).unwrap();
+    roster
+        .validate_paired(&rd, &wres::live_ids(&pd).unwrap())
+        .unwrap();
     Rw(&mut a[4].try_borrow_mut_data().unwrap())
         .set_u32(H1::HOST_SEQ, seq + 1)
         .unwrap();
@@ -1324,9 +1441,27 @@ fn a9_fresh_sidecars_reserve_like_immediate_for_wide_and_legacy_sources() {
                     if sidecars > 0 {
                         let rt = init::rent(wc::CONQUEST_SIZE).unwrap();
                         let re = init::rent(wc::CAPTURE_ESCROW_SIZE).unwrap();
-                        let (pt, pe) = if sidecars == 2 { (rt / 3, re / 2) } else { (0, 0) };
-                        a[9] = declaration::ai(key(&a[9]), prologue::ids::SYSTEM_PROGRAM, vec![], pt, false, true);
-                        a[10] = declaration::ai(key(&a[10]), prologue::ids::SYSTEM_PROGRAM, vec![], pe, false, true);
+                        let (pt, pe) = if sidecars == 2 {
+                            (rt / 3, re / 2)
+                        } else {
+                            (0, 0)
+                        };
+                        a[9] = declaration::ai(
+                            key(&a[9]),
+                            prologue::ids::SYSTEM_PROGRAM,
+                            vec![],
+                            pt,
+                            false,
+                            true,
+                        );
+                        a[10] = declaration::ai(
+                            key(&a[10]),
+                            prologue::ids::SYSTEM_PROGRAM,
+                            vec![],
+                            pe,
+                            false,
+                            true,
+                        );
                     }
                     let _fresh = Installed(Some(solana_program::program_stubs::set_syscall_stubs(
                         Box::new(FreshStubs {
@@ -1350,7 +1485,10 @@ fn a9_fresh_sidecars_reserve_like_immediate_for_wide_and_legacy_sources() {
     }
     assert!(failed.is_empty(), "A9 failures: {failed:?}");
     for (_, _, _, next, _, shape) in &results {
-        assert_eq!(*shape, Some(if *next == 10 { (true, 0) } else { (false, 1) }));
+        assert_eq!(
+            *shape,
+            Some(if *next == 10 { (true, 0) } else { (false, 1) })
+        );
     }
 }
 
@@ -1383,10 +1521,17 @@ fn a9_replay_ring128_legacy_source_checks() {
         let id = resolver.legacy_host_id(&chosen);
         std::println!("A9R ({p},{q}) legacy_host_id {:?}", id);
         if let Ok(id) = id {
-            std::println!("A9R ({p},{q}) legacy_host_ref round trip {:?}", resolver.legacy_host_ref(id).map(|r| r == chosen));
+            std::println!(
+                "A9R ({p},{q}) legacy_host_ref round trip {:?}",
+                resolver.legacy_host_ref(id).map(|r| r == chosen)
+            );
         }
         if let Ok(Some(h)) = &src {
-            std::println!("A9R ({p},{q}) source family legacy={} coord ok={}", h.family == AccountFamily::Legacy, h.coord == chosen.key().coord());
+            std::println!(
+                "A9R ({p},{q}) source family legacy={} coord ok={}",
+                h.family == AccountFamily::Legacy,
+                h.coord == chosen.key().coord()
+            );
             let cd = a[3].try_borrow_data().unwrap();
             let hd = a[4].try_borrow_data().unwrap();
             let want = SlotBinding::Legacy(wh::HoldingRef {
@@ -1395,10 +1540,22 @@ fn a9_replay_ring128_legacy_source_checks() {
                 site: h.site,
                 gen: h.gen,
             });
-            std::println!("A9R ({p},{q}) slot {} binding {:?} want {:?}", h.slot, wh::binding_of(&cd, h.slot), want);
-            std::println!("A9R ({p},{q}) capture_lock_of {:?}", capture_lock_of(&a[7].try_borrow_data().unwrap(), &hd));
+            std::println!(
+                "A9R ({p},{q}) slot {} binding {:?} want {:?}",
+                h.slot,
+                wh::binding_of(&cd, h.slot),
+                want
+            );
+            std::println!(
+                "A9R ({p},{q}) capture_lock_of {:?}",
+                capture_lock_of(&a[7].try_borrow_data().unwrap(), &hd)
+            );
             let source_ref = WideHostRef::new(ProvinceKey::new(world, h.coord), h.site, h.gen, 0);
-            std::println!("A9R ({p},{q}) source_ref {:?} == holding_ref {}", source_ref.is_ok(), source_ref.ok() == Some(chosen.holding_ref()));
+            std::println!(
+                "A9R ({p},{q}) source_ref {:?} == holding_ref {}",
+                source_ref.is_ok(),
+                source_ref.ok() == Some(chosen.holding_ref())
+            );
         }
         drop(rd);
         let e = declare(&a, 0);

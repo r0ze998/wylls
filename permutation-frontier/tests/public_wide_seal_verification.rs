@@ -56,7 +56,9 @@ fn main() -> std::process::ExitCode {
             "--test-threads" if args.next().as_deref() == Some("1") => {}
             value if !value.starts_with('-') && filter.is_none() => filter = Some(arg),
             _ => {
-                eprintln!("unsupported argument; use one filter, --exact, --list or --test-threads=1");
+                eprintln!(
+                    "unsupported argument; use one filter, --exact, --list or --test-threads=1"
+                );
                 return std::process::ExitCode::from(2);
             }
         }
@@ -152,7 +154,10 @@ fn synthetic_wide_body_opens_with_published_ibe() {
     // This exact structural root is computed from the synthetic bytes,
     // not claimed to be a published golden vector or a logged chain root.
     let expected_root = xmd::sha256(&[&commitment, &xmd::sha256(&[&synthetic])]);
-    assert_eq!(seal::wide_seal_root_of(&commitment, &synthetic), expected_root);
+    assert_eq!(
+        seal::wide_seal_root_of(&commitment, &synthetic),
+        expected_root
+    );
 
     let opened = seal::open_wide(&verified, &synthetic, &commitment)
         .expect("open_wide must repeat real IBE recovery and open all 136 bytes");

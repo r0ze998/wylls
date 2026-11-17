@@ -68,7 +68,10 @@ mod tests {
         assert!(member::DraftCommand::decode(&b).is_err());
         assert!(super::super::expedition_retained_failure_ix::DraftCommand::decode(&b).is_err());
         assert!(super::super::expedition_reverse_ix::Depart::decode(
-            &crate::addr::AddrCtx { season: [2; 32], program: [1; 32] },
+            &crate::addr::AddrCtx {
+                season: [2; 32],
+                program: [1; 32]
+            },
             &b
         )
         .is_err());

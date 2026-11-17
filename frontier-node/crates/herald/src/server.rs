@@ -308,16 +308,16 @@ async fn status(State(app): State<Shared>) -> Response {
     let f = read_fold(&app);
     let a = f.st.alarms;
     let mut v = json!({
-            "v": 1, "foldedThrough": f.st.folded_through, "events": f.st.events.to_string(),
-            "lastSlot": f.st.last_slot, "live": f.live.map(|l| json!([l.0, l.1])),
-            "provinces": f.provinces.len(), "rings": f.rings.keys().collect::<Vec<_>>(),
-            "alarms": {"rewrites": a.rewrites, "badRecords": a.bad_records, "clashMismatch": a.clash_mismatch,
-                "clashUnchecked": a.clash_unchecked, "writeErrors": a.write_errors},
-            "ingest": f.ingest.json(),
-            "ws": {"open": app.ws_stats.open.load(std::sync::atomic::Ordering::SeqCst),
-                "total": app.ws_stats.total.load(std::sync::atomic::Ordering::SeqCst),
-                "droppedSlow": app.ws_stats.dropped_slow.load(std::sync::atomic::Ordering::SeqCst)},
-        });
+        "v": 1, "foldedThrough": f.st.folded_through, "events": f.st.events.to_string(),
+        "lastSlot": f.st.last_slot, "live": f.live.map(|l| json!([l.0, l.1])),
+        "provinces": f.provinces.len(), "rings": f.rings.keys().collect::<Vec<_>>(),
+        "alarms": {"rewrites": a.rewrites, "badRecords": a.bad_records, "clashMismatch": a.clash_mismatch,
+            "clashUnchecked": a.clash_unchecked, "writeErrors": a.write_errors},
+        "ingest": f.ingest.json(),
+        "ws": {"open": app.ws_stats.open.load(std::sync::atomic::Ordering::SeqCst),
+            "total": app.ws_stats.total.load(std::sync::atomic::Ordering::SeqCst),
+            "droppedSlow": app.ws_stats.dropped_slow.load(std::sync::atomic::Ordering::SeqCst)},
+    });
     if let Some(lp) = &app.local_play {
         v["localPlay"] = lp.clone();
     }

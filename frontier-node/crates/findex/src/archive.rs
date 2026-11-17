@@ -560,7 +560,10 @@ impl Archive {
                 )));
             }
             for (expect, p) in (s.first_seq..).zip(frames) {
-                let p = self.codec.decode(&p, self.frame_max).map_err(|e| io_err(format!("{}: {e}", s.name)))?;
+                let p = self
+                    .codec
+                    .decode(&p, self.frame_max)
+                    .map_err(|e| io_err(format!("{}: {e}", s.name)))?;
                 let v: Value = serde_json::from_slice(&p).map_err(io_err)?;
                 let r = record_from_json(&v).map_err(io_err)?;
                 if r.seq != expect {
@@ -601,7 +604,10 @@ impl Archive {
                 return Err(format!("{}: corrupt frame after {good} B", s.name));
             }
             for f in frames {
-                let f = self.codec.decode(&f, self.frame_max).map_err(|e| format!("{}: {e}", s.name))?;
+                let f = self
+                    .codec
+                    .decode(&f, self.frame_max)
+                    .map_err(|e| format!("{}: {e}", s.name))?;
                 let v: Value = serde_json::from_slice(&f).map_err(|e| e.to_string())?;
                 let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
                 if seq != expect {
@@ -787,16 +793,37 @@ mod tests {
         let mut a = Archive::open_with(&d, 600_000, Codec::GzipV1).unwrap();
         a.append(&[rec(1)], json!(1)).unwrap();
         a.commit().unwrap();
-        let (seq, len, m) = (a.manifest.next_seq, a.open_segment_len().unwrap(), fs::read(d.join("manifest.json")).unwrap());
+        let (seq, len, m) = (
+            a.manifest.next_seq,
+            a.open_segment_len().unwrap(),
+            fs::read(d.join("manifest.json")).unwrap(),
+        );
         // the limit just under the second record's JSON: the batch is refused, the record before it in the batch too
-        let big = { let mut r = rec(3); r.post[0].1.as_mut().unwrap().data = vec![7; 4096]; r };
-        a.frame_max = serde_json::to_vec(&record_to_json(&TxRecord { seq: seq + 1, ..big.clone() })).unwrap().len() - 1;
-        let e = a.append(&[rec(2), big.clone()], json!(2)).unwrap_err().to_string();
+        let big = {
+            let mut r = rec(3);
+            r.post[0].1.as_mut().unwrap().data = vec![7; 4096];
+            r
+        };
+        a.frame_max = serde_json::to_vec(&record_to_json(&TxRecord {
+            seq: seq + 1,
+            ..big.clone()
+        }))
+        .unwrap()
+        .len()
+            - 1;
+        let e = a
+            .append(&[rec(2), big.clone()], json!(2))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("refused, nothing of this batch written"), "{e}");
         assert_eq!(a.manifest.next_seq, seq, "no sequence taken");
         assert_eq!(a.open_segment_len().unwrap(), len, "no byte written");
         a.commit().unwrap();
-        assert_eq!(fs::read(d.join("manifest.json")).unwrap(), m, "the manifest is as it was");
+        assert_eq!(
+            fs::read(d.join("manifest.json")).unwrap(),
+            m,
+            "the manifest is as it was"
+        );
         // the archive goes on: a record within the limit is appended and every record reads back
         a.append(&[rec(2)], json!(3)).unwrap();
         a.commit().unwrap();

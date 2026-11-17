@@ -15,10 +15,14 @@ use frontier_abi::world_index::{ProvinceKey, WideCoord, WorldId};
 use permutation_rules::frontier::seal as ks;
 use serde_json::Value;
 
-const CROSS: &str = include_str!("../../../../permutation-gateway/test/fixtures/wide-seal-cross-v1.json");
+const CROSS: &str =
+    include_str!("../../../../permutation-gateway/test/fixtures/wide-seal-cross-v1.json");
 
 fn key(p: i64, q: i64) -> ProvinceKey {
-    ProvinceKey::new(WorldId::new([0x77; 32]).unwrap(), WideCoord::checked(p, q).unwrap())
+    ProvinceKey::new(
+        WorldId::new([0x77; 32]).unwrap(),
+        WideCoord::checked(p, q).unwrap(),
+    )
 }
 fn host() -> WideHostRef {
     WideHostRef::new(key(128, 0), 3, 1, 7).unwrap()
@@ -39,12 +43,22 @@ fn plain() -> WidePlain {
     }
 }
 fn q4() -> (u64, [u8; 48], [u8; 48]) {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(fclient::seal::fixture_dir().join("q4-vector.json")).unwrap()).unwrap();
+    let v: Value = serde_json::from_str(
+        &std::fs::read_to_string(fclient::seal::fixture_dir().join("q4-vector.json")).unwrap(),
+    )
+    .unwrap();
     let hx = |k: &str| hex::decode(v[k].as_str().unwrap()).unwrap();
-    (v["round"].as_u64().unwrap(), hx("sig").try_into().unwrap(), hx("prev_round_sig").try_into().unwrap())
+    (
+        v["round"].as_u64().unwrap(),
+        hx("sig").try_into().unwrap(),
+        hx("prev_round_sig").try_into().unwrap(),
+    )
 }
 fn arr<const N: usize>(v: &Value) -> [u8; N] {
-    hex::decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
+    hex::decode(v.as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 /// Prints this side's vector (run once with `--ignored --nocapture` to
@@ -69,15 +83,34 @@ fn rust_opens_the_browser_seal_and_both_agree_on_the_plaintext() {
     let (round, sig, prev) = q4();
     assert_eq!(v["round"].as_u64(), Some(round));
     assert_eq!(v["host"].as_str().unwrap(), hex::encode(host().to_bytes()));
-    assert_eq!(v["plain"].as_str().unwrap(), hex::encode(ws::pack(&plain())), "the browser's packed plaintext is Rust's");
+    assert_eq!(
+        v["plain"].as_str().unwrap(),
+        hex::encode(ws::pack(&plain())),
+        "the browser's packed plaintext is Rust's"
+    );
     for side in ["rust", "js"] {
         let seal: [u8; WIDE_SEAL_LEN] = arr(&v[side]["seal"]);
         let commit: [u8; 32] = arr(&v[side]["commit"]);
-        assert_eq!(open_wide(&seal, &sig, &commit, &host(), 500), Ok(plain()), "{side}");
-        assert_eq!(hex::encode(ws::ct_hash(&seal)), v[side]["ctHash"].as_str().unwrap(), "{side}");
-        assert_eq!(hex::encode(ws::seal_root(&commit, &ws::ct_hash(&seal))), v[side]["sealRoot"].as_str().unwrap(), "{side}");
+        assert_eq!(
+            open_wide(&seal, &sig, &commit, &host(), 500),
+            Ok(plain()),
+            "{side}"
+        );
+        assert_eq!(
+            hex::encode(ws::ct_hash(&seal)),
+            v[side]["ctHash"].as_str().unwrap(),
+            "{side}"
+        );
+        assert_eq!(
+            hex::encode(ws::seal_root(&commit, &ws::ct_hash(&seal))),
+            v[side]["sealRoot"].as_str().unwrap(),
+            "{side}"
+        );
         // another round's real signature does not open it
-        assert!(open_wide(&seal, &prev, &commit, &host(), 500).is_err(), "{side}");
+        assert!(
+            open_wide(&seal, &prev, &commit, &host(), 500).is_err(),
+            "{side}"
+        );
     }
     assert_ne!(v["rust"]["seal"], v["js"]["seal"], "independent fresh keys");
 }

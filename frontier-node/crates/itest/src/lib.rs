@@ -34,9 +34,9 @@
 #[cfg(feature = "localnet-expedition-play")]
 pub mod expedition_play;
 #[cfg(feature = "localnet-expedition-play")]
-pub mod local_keeper;
-#[cfg(feature = "localnet-expedition-play")]
 pub mod keeper_loop;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod local_keeper;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod origin_driver;
 // the ordinary (legacy) march of a legacy village: SettleDeparture, Decrypt, Reveal, the destination's bells, SettleTransit
@@ -51,32 +51,32 @@ pub mod natural_play;
 // TEST-ONLY capture demo on a natural world: a synthetic clock and test participants, the program's own instructions
 #[cfg(feature = "localnet-expedition-play")]
 pub mod capture_demo;
+pub mod checks;
+#[cfg(feature = "localnet-conquest-play")]
+pub mod conquest_crank;
+#[cfg(all(test, feature = "localnet-conquest-play"))]
+mod conquest_real;
+#[cfg(feature = "localnet-conquest-play")]
+pub mod conquest_world;
 /// TEST-ONLY contest pair: a second player's wallet and village in the same memory-only world (two people; no automatic opponent).
 #[cfg(feature = "localnet-expedition-play")]
 pub mod contest_pair;
-/// TEST-ONLY land lane: the land preview's FoldLand / ClaimLandYield crank beside the keeper (feature `localnet-land-play`).
-#[cfg(feature = "localnet-land-play")]
-pub mod land_lane;
-#[cfg(feature = "localnet-expedition-play")]
-pub mod wide_destination;
+pub mod day;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod destination_driver;
 #[cfg(all(test, feature = "localnet-expedition-play"))]
 mod destination_real;
-#[cfg(feature = "localnet-expedition-play")]
-pub mod resident_bells;
-#[cfg(feature = "localnet-conquest-play")]
-pub mod conquest_crank;
-#[cfg(feature = "localnet-conquest-play")]
-pub mod conquest_world;
-#[cfg(all(test, feature = "localnet-conquest-play"))]
-mod conquest_real;
-pub mod checks;
-pub mod day;
 pub mod direct;
 pub mod gate;
+/// TEST-ONLY land lane: the land preview's FoldLand / ClaimLandYield crank beside the keeper (feature `localnet-land-play`).
+#[cfg(feature = "localnet-land-play")]
+pub mod land_lane;
 pub mod native;
 pub mod program;
 pub mod relay;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod resident_bells;
 pub mod standin;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_destination;
 pub mod world;

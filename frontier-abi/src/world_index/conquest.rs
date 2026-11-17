@@ -609,7 +609,10 @@ impl WideConquest {
         r.seq = self.next_seq;
         r.validate(self.key.world())?;
         let mut next = self.clone();
-        next.next_seq = self.next_seq.checked_add(1).ok_or(ConquestError::Overflow)?;
+        next.next_seq = self
+            .next_seq
+            .checked_add(1)
+            .ok_or(ConquestError::Overflow)?;
         next.reservations[i] = Some(r);
         let prefix = next.idle_prefix(r.site, expected)?;
         Ok((next, prefix, r))
@@ -1241,7 +1244,13 @@ impl WideCaptureEscrow {
             gen: entry.original_target_gen,
             declaration_bell: entry.declaration_bell,
         };
-        self.validate_all_paired(conquest, citizen_key, citizen, entry.reserved_slot, expected)
+        self.validate_all_paired(
+            conquest,
+            citizen_key,
+            citizen,
+            entry.reserved_slot,
+            expected,
+        )
     }
     /// The same three-way check for a slot-holding reservation (by seq):
     /// its binding is the one an immediate declaration at its bell creates.
@@ -1257,7 +1266,12 @@ impl WideCaptureEscrow {
             return Err(ConquestError::Identity);
         }
         if !r.holds_slot() {
-            self.validate_inventory(conquest.season_id, conquest.key.world(), citizen_key, citizen)?;
+            self.validate_inventory(
+                conquest.season_id,
+                conquest.key.world(),
+                citizen_key,
+                citizen,
+            )?;
             return self.validate_bindings_of(conquest);
         }
         self.validate_all_paired(
@@ -1399,7 +1413,10 @@ mod v1_codec_isolation_tests {
     use super::*;
     use crate::world_index::{WideCoord, WorldId};
     fn key() -> ProvinceKey {
-        ProvinceKey::new(WorldId::new([0x77; 32]).unwrap(), WideCoord::checked(129, 0).unwrap())
+        ProvinceKey::new(
+            WorldId::new([0x77; 32]).unwrap(),
+            WideCoord::checked(129, 0).unwrap(),
+        )
     }
     #[test]
     fn without_the_conquest_lane_the_table_is_the_original_v1_codec() {
@@ -1409,7 +1426,10 @@ mod v1_codec_isolation_tests {
         let b = t.to_bytes();
         assert_eq!(b.len(), 1664);
         assert_eq!(u16_at(&b, 16), 1, "table layout version 1");
-        assert!(b[120..128].iter().all(|x| *x == 0), "the original reserved header bytes stay zero");
+        assert!(
+            b[120..128].iter().all(|x| *x == 0),
+            "the original reserved header bytes stay zero"
+        );
         assert_eq!(WideConquest::read(&b, 11, key()).unwrap(), t);
         // a nonzero byte in the old reserved range is refused (no reservation counter in v1)
         let mut bad = b;
@@ -1418,9 +1438,15 @@ mod v1_codec_isolation_tests {
         // a version-2 header is refused (no mixing, no migration)
         let mut v2 = b;
         v2[16..18].copy_from_slice(&2u16.to_le_bytes());
-        assert_eq!(WideConquest::read(&v2, 11, key()), Err(ConquestError::Version));
+        assert_eq!(
+            WideConquest::read(&v2, 11, key()),
+            Err(ConquestError::Version)
+        );
         // a 2688-byte buffer is refused by length
-        assert_eq!(WideConquest::read(&[0u8; 2688], 11, key()), Err(ConquestError::Length));
+        assert_eq!(
+            WideConquest::read(&[0u8; 2688], 11, key()),
+            Err(ConquestError::Length)
+        );
         // no pending state can exist: the original kind-zero prefix rule (flags must be 0) holds
         let mut p = Record::ZERO;
         p.faction = CR::BARRED_NONE;
@@ -1448,10 +1474,24 @@ mod v1_codec_isolation_tests {
             let slot = 2 + (i % 2) as u8;
             if i % 3 == 0 {
                 // kind NONE: a failed siege still owing its slot
-                e[..6].copy_from_slice(&[CR::KIND_NONE, CR::BARRED_NONE, CR::FLAG_SLOT_OWED, 0, slot, 0]);
+                e[..6].copy_from_slice(&[
+                    CR::KIND_NONE,
+                    CR::BARRED_NONE,
+                    CR::FLAG_SLOT_OWED,
+                    0,
+                    slot,
+                    0,
+                ]);
             } else {
                 // kind SIEGE: an active siege declared at bell 20 + i, source host kept
-                e[..6].copy_from_slice(&[CR::KIND_SIEGE, (i % 6) as u8, CR::FLAG_HELD | CR::FLAG_NEUTRAL, 1, 36, CR::target(CR::TARGET_FREE_CITY, slot)]);
+                e[..6].copy_from_slice(&[
+                    CR::KIND_SIEGE,
+                    (i % 6) as u8,
+                    CR::FLAG_HELD | CR::FLAG_NEUTRAL,
+                    1,
+                    36,
+                    CR::target(CR::TARGET_FREE_CITY, slot),
+                ]);
                 e[12..16].copy_from_slice(&(20 + i as u32).to_le_bytes());
                 e[48..104].copy_from_slice(&WideHostRef::new(home, 0, 1, 0).unwrap().to_bytes());
                 e[114..118].copy_from_slice(&(20 + i as u32).to_le_bytes());
@@ -1460,12 +1500,17 @@ mod v1_codec_isolation_tests {
             e[104..112].copy_from_slice(&crate::addr::citizen_tag(&citizen).to_le_bytes());
             e[112] = slot;
         }
-        let t = WideConquest::read(&b, 11, k).expect("the hand-assembled full v1 table is accepted");
+        let t =
+            WideConquest::read(&b, 11, k).expect("the hand-assembled full v1 table is accepted");
         for i in 0..12u8 {
             let e = t.entry(i).unwrap().expect("every site entry decoded");
             assert_eq!(e.citizen, [0x10 + i; 32]);
         }
-        assert_eq!(t.to_bytes(), b, "decode -> encode is byte-identical for a full v1 table");
+        assert_eq!(
+            t.to_bytes(),
+            b,
+            "decode -> encode is byte-identical for a full v1 table"
+        );
     }
 }
 

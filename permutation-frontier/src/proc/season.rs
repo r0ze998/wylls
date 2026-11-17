@@ -272,7 +272,9 @@ fn create_params_ok(x: &frontier_abi::v2::presets::SeasonParamsV2) -> bool {
 /// version equality in [`create_params_ok`] still runs on the real value. Any other version, and every other build,
 /// is checked unchanged (`validate` itself is not relaxed).
 #[cfg(feature = "localnet-expedition-sbf")]
-fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2::presets::SeasonParamsV2 {
+fn range_view(
+    x: &frontier_abi::v2::presets::SeasonParamsV2,
+) -> frontier_abi::v2::presets::SeasonParamsV2 {
     let mut y = *x;
     if y.base.program_version == crate::PROGRAM_VERSION {
         y.base.program_version = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
@@ -280,7 +282,9 @@ fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2
     y
 }
 #[cfg(not(feature = "localnet-expedition-sbf"))]
-fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2::presets::SeasonParamsV2 {
+fn range_view(
+    x: &frontier_abi::v2::presets::SeasonParamsV2,
+) -> frontier_abi::v2::presets::SeasonParamsV2 {
     *x
 }
 
@@ -1180,14 +1184,29 @@ mod tests {
             if v != crate::PROGRAM_VERSION {
                 let mut p = good;
                 p.base.program_version = v;
-                assert!(!create_params_ok(&p), "version {v:#06x} is not this binary's");
+                assert!(
+                    !create_params_ok(&p),
+                    "version {v:#06x} is not this binary's"
+                );
             }
         }
         assert!(refused(|p| p.base.bell_secs = 599), "bad bell");
-        assert!(refused(|p| p.cq.continuous = 2), "bad conquest block (continuous)");
-        assert!(refused(|p| p.cq.placement = 2), "bad conquest block (placement)");
-        assert!(refused(|p| p.cq.dormant_after_secs += 1), "dormancy timers disagree");
-        assert!(refused(|p| p.base.quicknet_pk_hash[0] ^= 1), "another beacon key");
+        assert!(
+            refused(|p| p.cq.continuous = 2),
+            "bad conquest block (continuous)"
+        );
+        assert!(
+            refused(|p| p.cq.placement = 2),
+            "bad conquest block (placement)"
+        );
+        assert!(
+            refused(|p| p.cq.dormant_after_secs += 1),
+            "dormancy timers disagree"
+        );
+        assert!(
+            refused(|p| p.base.quicknet_pk_hash[0] ^= 1),
+            "another beacon key"
+        );
     }
 
     /// The isolated localnet expedition SBF lane: its own version 0x4804 (not in `validate`'s 3/4/5) is accepted by
@@ -1199,15 +1218,25 @@ mod tests {
         use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
         assert_eq!(crate::PROGRAM_VERSION, 0x4804, "the lane's version");
         let good = own_params();
-        assert!(good.validate().is_err(), "the generic validator is unchanged: it refuses 0x4804");
-        assert!(create_params_ok(&good), "CreateSeason accepts the lane's own version");
+        assert!(
+            good.validate().is_err(),
+            "the generic validator is unchanged: it refuses 0x4804"
+        );
+        assert!(
+            create_params_ok(&good),
+            "CreateSeason accepts the lane's own version"
+        );
         assert_eq!(range_view(&good).base.program_version, PROGRAM_VERSION_S1);
         let mut rest = range_view(&good);
         rest.base.program_version = good.base.program_version;
         assert_eq!(rest, good, "only program_version differs in the view");
         let mut other = good;
         other.base.program_version = 0x4805;
-        assert_eq!(range_view(&other), other, "another version is viewed as given");
+        assert_eq!(
+            range_view(&other),
+            other,
+            "another version is viewed as given"
+        );
     }
 
     /// Every other build: the check is the original one (the view is the identity), so 0x4804 is refused and this
@@ -1218,9 +1247,16 @@ mod tests {
         let mut lane = own_params();
         lane.base.program_version = 0x4804;
         assert_eq!(range_view(&lane), lane, "no mapping outside the lane");
-        assert!(!create_params_ok(&lane), "0x4804 is refused outside the lane");
+        assert!(
+            !create_params_ok(&lane),
+            "0x4804 is refused outside the lane"
+        );
         let own = own_params();
-        assert_eq!(create_params_ok(&own), own.validate().is_ok(), "the original rule: validate ∧ exact version ∧ key ∧ table");
+        assert_eq!(
+            create_params_ok(&own),
+            own.validate().is_ok(),
+            "the original rule: validate ∧ exact version ∧ key ∧ table"
+        );
     }
 
     #[test]

@@ -1,6 +1,8 @@
 #![cfg(feature = "expedition-dispatch-experimental")]
 //! Fixed public inputs and unsigned Message compilation only. No keys/network.
-use fclient::experimental_expedition_message::{prepare_depart, prepare_resident, Error, Target, DEPART_HEAP_FRAME, RESIDENT_HEAP_FRAME};
+use fclient::experimental_expedition_message::{
+    prepare_depart, prepare_resident, Error, Target, DEPART_HEAP_FRAME, RESIDENT_HEAP_FRAME,
+};
 use fclient::original_expedition_depart_draft::Draft as Depart;
 use fclient::tx::TxBudget;
 use fclient::unsigned_message_preflight::{BlockhashObservation, Limits};
@@ -46,7 +48,10 @@ fn budget() -> TxBudget {
 }
 /// A Depart's budget: the same three limits and the one fixed heap frame.
 fn resident_budget() -> TxBudget {
-    TxBudget { heap: Some(RESIDENT_HEAP_FRAME), ..budget() }
+    TxBudget {
+        heap: Some(RESIDENT_HEAP_FRAME),
+        ..budget()
+    }
 }
 fn depart_budget() -> TxBudget {
     TxBudget {
@@ -155,7 +160,8 @@ fn resident_actions_compile_separate_version_and_exact_required_signers() {
     for kind in [wire::Kind::Dissolve, wire::Kind::Return] {
         for alias in [false, true] {
             let draft = residents(kind, alias);
-            let p = prepare_resident(&draft, target(), observed(), resident_budget(), limits()).unwrap();
+            let p = prepare_resident(&draft, target(), observed(), resident_budget(), limits())
+                .unwrap();
             assert_eq!(
                 &p.instruction().data[..4],
                 &[kind.tag(), 0xff, 2, kind as u8]
@@ -300,9 +306,15 @@ fn supported_actions_carry_exactly_one_fixed_heap_frame() {
         let draft = departures(same_actor);
         let p = prepare_depart(&draft, target(), observed(), depart_budget(), limits()).unwrap();
         let m = p.message();
-        let cb: Address = "ComputeBudget111111111111111111111111111111".parse().unwrap();
+        let cb: Address = "ComputeBudget111111111111111111111111111111"
+            .parse()
+            .unwrap();
         let program_of = |i: usize| m.account_keys[usize::from(m.instructions[i].program_id_index)];
-        assert_eq!(m.instructions.len(), 5, "limit, price, loaded-data limit, heap frame, dispatch");
+        assert_eq!(
+            m.instructions.len(),
+            5,
+            "limit, price, loaded-data limit, heap frame, dispatch"
+        );
         let mut limit = vec![2u8];
         limit.extend_from_slice(&200_000u32.to_le_bytes());
         let mut price = vec![3u8];
@@ -312,28 +324,65 @@ fn supported_actions_carry_exactly_one_fixed_heap_frame() {
         let mut heap = vec![1u8];
         heap.extend_from_slice(&DEPART_HEAP_FRAME.to_le_bytes());
         for (i, want) in [limit, price, loaded, heap].into_iter().enumerate() {
-            assert_eq!(program_of(i), cb, "instruction {i} is the compute budget program's");
+            assert_eq!(
+                program_of(i),
+                cb,
+                "instruction {i} is the compute budget program's"
+            );
             assert!(m.instructions[i].accounts.is_empty());
             assert_eq!(m.instructions[i].data, want, "instruction {i}");
         }
         assert_eq!(program_of(4), target().program);
         assert_eq!(m.instructions[4].data, p.instruction().data);
-        assert_eq!(m.instructions.iter().filter(|ix| ix.data.first() == Some(&1) && m.account_keys[usize::from(ix.program_id_index)] == cb).count(), 1, "one heap frame");
+        assert_eq!(
+            m.instructions
+                .iter()
+                .filter(|ix| ix.data.first() == Some(&1)
+                    && m.account_keys[usize::from(ix.program_id_index)] == cb)
+                .count(),
+            1,
+            "one heap frame"
+        );
     }
     // Residents independently enforce the same strict fixed shape and reject old no-heap budgets.
     for action in [wire::Kind::Dissolve, wire::Kind::Return] {
         let draft = residents(action, false);
-        let p = prepare_resident(&draft, target(), observed(), resident_budget(), limits()).unwrap();
+        let p =
+            prepare_resident(&draft, target(), observed(), resident_budget(), limits()).unwrap();
         assert_eq!(p.message().instructions.len(), 5);
         let heap = &p.message().instructions[3];
-        let cb: Address = "ComputeBudget111111111111111111111111111111".parse().unwrap();
-        assert_eq!(p.message().account_keys[usize::from(heap.program_id_index)], cb);
+        let cb: Address = "ComputeBudget111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            p.message().account_keys[usize::from(heap.program_id_index)],
+            cb
+        );
         assert!(heap.accounts.is_empty());
         let mut expected = vec![1];
         expected.extend_from_slice(&RESIDENT_HEAP_FRAME.to_le_bytes());
         assert_eq!(heap.data, expected);
-        for value in [None, Some(32768), Some(131072), Some(262143), Some(262145), Some(u32::MAX)] {
-            assert!(matches!(prepare_resident(&draft, target(), observed(), TxBudget { heap: value, ..budget() }, limits()), Err(Error::Budget)));
+        for value in [
+            None,
+            Some(32768),
+            Some(131072),
+            Some(262143),
+            Some(262145),
+            Some(u32::MAX),
+        ] {
+            assert!(matches!(
+                prepare_resident(
+                    &draft,
+                    target(),
+                    observed(),
+                    TxBudget {
+                        heap: value,
+                        ..budget()
+                    },
+                    limits()
+                ),
+                Err(Error::Budget)
+            ));
         }
     }
 }
