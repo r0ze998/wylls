@@ -162,7 +162,7 @@ test('P7b an answer lets go only of the plan its send began with and used', () =
 test('P8 another viewer, herald or world: the choice is let go', () => {
   order(fnOf(ctl, 'function resetViewer('), 'FS.villageReread = null;', 'FS.s1Plan = null;');
   order(fnOf(ctl, 'export function adoptPinnedWorld() {'), 'FS.s1Reread = null;', 'FS.s1Plan = null;', 'dropOtherWorldConquest(world);');
-  assert.ok(ctl.includes('FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null; }'), 'useHerald');
+  assert.ok(ctl.includes('FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null;'), 'useHerald (later bundles add their own resets after it)');
 });
 
 test('P9 the app\'s action', () => {

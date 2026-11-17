@@ -16,6 +16,7 @@ import { DIRECTIONS, TILE_OFFSETS } from '../fgeo.mjs';
 import { dueHtml } from './shell.mjs';
 import { icon } from '../hud/icons.mjs';
 import { cardHead, chip, ring } from './parts.mjs';
+import { holdingName } from '../people/ui.mjs';
 
 /** Up to two chosen tiles. */
 export const toggleTile = (chosen, tile) => (chosen.includes(tile) ? chosen.filter(t => t !== tile) : chosen.length < 2 ? [...chosen, tile] : chosen);
@@ -24,6 +25,27 @@ export const toggleTile = (chosen, tile) => (chosen.includes(tile) ? chosen.filt
 export function directionOf(from, to) {
   const a = TILE_OFFSETS[from], b = TILE_OFFSETS[to];
   return a && b ? DIRECTIONS.findIndex(([dq, dr]) => a.q + dq === b.q && a.r + dr === b.r) : -1;
+}
+
+/** A village's own mark, as the controller writes it (holdingRef): place, site, generation. */
+const refOf = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
+/**
+ * (2026-11-17, ⑦) How the last read of the seed went for THIS village's pending exploration (controller
+ * exploreSeedMark, `FS.exploreSeedState`): 'ready' | 'waiting' | 'failed' with its code, or null when no read answered
+ * for this village and this exploration (another village's read is not this one's).
+ */
+export function seedReadOf(FS, h) {
+  const m = FS.exploreSeedState ?? null;
+  return m && h?.explore?.state > 0 && m.ref === refOf(h) && m.bell === Number(h.explore.bell) ? { state: m.state, code: m.code ?? null } : null;
+}
+/**
+ * The viewer's OTHER villages with an exploration waiting: `[{i, name, bell, due}]` (`due`: the second its result is
+ * about due, or null without the season's clock). The village in hand is the card's own; these had no place anywhere.
+ */
+export function otherExplorations(FS) {
+  const active = activeHolding(FS) ?? null;
+  return (FS.holdings ?? []).map((o, i) => ({ o, i })).filter(({ o }) => o !== active && o?.explore?.state > 0)
+    .map(({ o, i }) => ({ i, name: holdingName(o), bell: Number(o.explore.bell), due: FS.clock ? ticketTimes(FS.clock, o.explore.bell).resultAbout : null }));
 }
 
 export function render(FS) {
@@ -35,6 +57,18 @@ export function render(FS) {
   let targets = [];
   if (draft?.host) targets = exploreTargets(draft.host.province, draft.host);
   const times = pending && FS.clock ? ticketTimes(FS.clock, rec.bell) : null;
+  // (2026-11-17, ⑦: the seed read for this village's exploration, the person's own check, and the other villages)
+  const seed = pending ? seedReadOf(FS, h) : null, checking = FS.exploreSeedCheck?.state === 'loading';
+  const now = FS.chain?.now?.() ?? null;
+  const seedNote = !pending || FS.exploreSeedReady ? '' : html`${checking ? html`<p class="muted" role="status">${L`結果が出たか、確かめています…`}</p>`
+    : seed?.state === 'failed' ? html`<p class="notice error" role="alert">${L`結果が出たかどうかを、読み込めませんでした（${seed.code}）。まだ出ていない、という意味ではありません。`}</p>`
+    : seed?.state === 'waiting' ? html`<p class="muted" role="status">${L`いま確かめたところ、結果はまだ出ていません。`}</p>` : ''}
+    ${FS.mode === 'play' && !checking ? html`<div class="actions"><button type="button" class="btn small" data-act="explore-check">${icon('return')}${L`結果が出たか確かめる`}</button></div>` : ''}`;
+  const others = otherExplorations(FS);
+  const othersNote = others.length ? html`<div class="explore-others"><p class="muted">${L`ほかの村の探索（結果待ち）`}</p><ul class="list">${others.map(x => html`<li>${icon('scout')}<strong>${x.name}</strong> <span class="muted">${
+    x.due === null || now === null ? L`結果待ち` : x.due > now ? Lh`結果は${dueHtml(x.due, now)}に出ます。` : L`結果が出るころを過ぎています。`}</span>
+    ${FS.mode === 'play' ? html`<button type="button" class="btn small" data-act="explore-village" data-i="${x.i}">${L`この村の探索を見る`}</button>` : ''}</li>`)}</ul>
+    <p class="muted">${L`結果を受け取れるのは、その村を選んでいるときです。`}</p></div>` : '';
   return html`<section class="vcard" aria-labelledby="explore-title">
     ${cardHead({ id: 'explore-title', ic: 'scout', title: L`探索`, side: pending ? chip(L`結果待ち`, 'info') : '' })}
     ${pending ? html`<div class="wait-row">${ring(FS.exploreSeedReady ? 1 : null)}<p>${L`探索の結果を待っています。`}${times ? html` ${Lh`結果は${dueHtml(times.resultAbout, FS.chain?.now?.() ?? null)}に出ます。`}` : ''}</p></div>
@@ -43,6 +77,7 @@ export function render(FS) {
       <p class="muted">${targets.length ? L`選んだマス：${draft.tiles.length}` : L`隣に探索できるマスがありません`}</p>
       <div class="actions"><button type="button" class="btn primary" data-act="explore-send" ${raw(draft.tiles.length && !(FS.inFlight > 0) ? '' : 'disabled')}>${icon('scout')}${L`探索に出す`}</button></div>` : ''}
     ${!draft?.host && !pending ? html`<p class="muted">${L`斥候の軍勢の「探索」を押すと、地図で調べるマスを選べます。`}</p>` : ''}
+    ${seedNote}${othersNote}
     <p class="foot-note">${floor > 0 ? L`はじめの探索はあと ${floor} 回、必ず功績 4 を得ます。` : L`探索のたびに半々の確率で功績 4 を得ます。`}</p>
   </section>`;
 }

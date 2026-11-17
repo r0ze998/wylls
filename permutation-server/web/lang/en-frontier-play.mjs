@@ -1761,4 +1761,14 @@ export default {
   '地図で選んだ場所：{0}。行き先の欄の最初の選択にしました。欄で選び直すと、送るのは選び直した場所です。': 'Chosen on the map: {0}. It is the first choice in the destination field. If you choose again in the field, the caravan goes to the place chosen there.',
   '地図で選んだ場所：{0}。出発地の欄の最初の選択にしました。欄で選び直すと、出発するのは選び直した場所です。': 'Chosen on the map: {0}. It is the first choice in the starting place field. If you choose again in the field, the caravan leaves from the place chosen there.',
   '地図で選んだ要塞：マス {0}。要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。': 'Chosen on the map: the fort on tile {0}. It is the first choice in the fort field. If you choose again in the field, the troops go into the fort chosen there. Decide how many troops yourself.',
+  // (2026-11-17, ⑦ exploration: the result's readiness per village, the person's own check, the other villages)
+  'この村には、受け取る探索の結果がありません。': 'This village has no exploration result to collect.',
+  '結果が出たか、確かめています…': 'Checking whether the result has come…',
+  '結果が出たかどうかを、読み込めませんでした（{0}）。まだ出ていない、という意味ではありません。': 'Whether the result has come could not be loaded ({0}). This does not mean it has not come.',
+  'いま確かめたところ、結果はまだ出ていません。': 'Checked just now: the result has not come yet.',
+  '結果が出たか確かめる': 'Check whether the result has come',
+  'ほかの村の探索（結果待ち）': 'Explorations of your other villages (waiting for the result)',
+  '結果が出るころを過ぎています。': 'The result is past its due time.',
+  'この村の探索を見る': 'See this village\'s exploration',
+  '結果を受け取れるのは、その村を選んでいるときです。': 'A result can be collected while its village is the one in hand.',
 };

@@ -687,6 +687,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   FS.marchesRead = null;
   FS.villageReread = null;   // (the former viewer's own re-read and its note — rereadVillage)
   FS.s1Plan = null;          // (a place chosen on the map for the former viewer's caravan or fort — planS1Place)
+  FS.exploreSeedState = exploreSeedMark = null; FS.exploreSeedCheck = null;   // (the former viewer's exploration and its check — checkExploreSeed)
   FS.bellItems = [];
   FS.formingBells = [];
   FS.orders = [];
@@ -836,6 +837,7 @@ export function adoptPinnedWorld() {
   FS.villageReread = null;   // (a re-read asked in the world that was pinned, and its note, are not this world's — rereadVillage)
   FS.s1Reread = null;        // (the same for the trade card's re-read — rereadS1)
   FS.s1Plan = null;          // (a place chosen on the map names a place of the world that was pinned — planS1Place)
+  FS.exploreSeedState = exploreSeedMark = null; FS.exploreSeedCheck = null;   // (a seed read for the world that was pinned is not this world's)
   if (FS.compose && !FS.compose.sending && !FS.compose.pending && !pendingDriver.armed) FS.compose = null;
   if (FS.hand?.host !== undefined && FS.hand?.host !== null) FS.hand = null;
   dropOtherWorldConquest(world);
@@ -1319,7 +1321,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null; }
+export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; FS.meWorld = undefined; FS.villageReread = null; FS.s1Reread = null; FS.s1Plan = null; FS.exploreSeedState = exploreSeedMark = null; FS.exploreSeedCheck = null; }
 
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
@@ -1606,10 +1608,13 @@ export async function refresh() {
     if (me.ok) for (const pq of hostProvinces(me.record, h ? { p: h.p, q: h.q } : null)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; }
     // SettleExplore is offered once the explore bell's seed is readable.
     FS.exploreSeedReady = false;
+    // (2026-11-17, ⑦: the answer is THIS village's and this exploration's — exploreSeedMark; nothing is read more often)
+    FS.exploreSeedState = exploreSeedMark = null;
     if (h?.explore?.state && nowBell() >= h.explore.bell) {
       const r = await herald.bellRegion(h.explore.bell, regionOf(h.explore.p, h.explore.q));
       if (!currentViewer()) return;
       FS.exploreSeedReady = r.ok && !!seedSourceOf(r.record);
+      { const ready = r.ok && !!seedSourceOf(r.record), unread = !ready && !r.ok && r.code !== 'NotFound'; FS.exploreSeedState = exploreSeedMark = exploreMarkOf(h, world, ready ? 'ready' : unread ? 'failed' : 'waiting', unread ? r.code ?? 'Error' : null); }
     }
     await refreshMarches();
     if (!currentViewer()) return;
@@ -2598,10 +2603,62 @@ async function sendTheMarch() {
 }
 
 // ------------------------------------------------------------------ settlement (settle shapes: no authority signer, charged to the requester)
+/**
+ * (2026-11-17, ⑦ exploration) Whose "the result can be collected" is: `FS.exploreSeedReady` was one flag, read for the
+ * village in hand at a refresh — after the person chose another village it stood, until the next refresh, as that
+ * village's, and nothing said which exploration it was read for. `exploreSeedMark = {ref, bell, world, state, code}`
+ * names the village (place, site, generation), the exploration's turn and the pinned world a seed read answered for;
+ * `state`: 'ready' | 'waiting' (no seed yet) | 'failed' (the read did not come: NOT "no seed yet"). The flag is true
+ * only while the mark is the village now in hand, its pending exploration and the world now pinned (startPlay makes
+ * the flag a getter over it; every reader of the flag — the plate, the first steps, the explore card — is unchanged).
+ */
+let exploreSeedRaw = false, exploreSeedMark = null;
+const exploreMarkOf = (h, world, state = 'ready', code = null) => (h?.explore?.state ? { ref: holdingRef(h), bell: Number(h.explore.bell), world, state, code } : null);
+const exploreSeedNow = () => {
+  const h = activeHolding(FS) ?? null, m = exploreSeedMark;
+  return exploreSeedRaw === true && !!m && m.state === 'ready' && !!h && h.explore?.state > 0 && holdingRef(h) === m.ref && Number(h.explore.bell) === m.bell && providerWorld() === m.world;
+};
+/**
+ * The person's own "has the result come?" for the village in hand: ONE read of the exploration's turn record
+ * (herald.bellRegion) — the read refresh makes — and nothing else; nothing is sent, settled or saved. Whose answer: this
+ * press's own run, the herald, the world and the viewer as at the press, and the village and exploration it was pressed
+ * for (the mark). A seed, once there, stays: an answer "not yet" never takes back a "ready" already read for the same
+ * exploration. `FS.exploreSeedCheck = { state: 'loading' }` while it is under way; how it went is the mark's `state`.
+ */
+export async function checkExploreSeed() {
+  const h = activeHolding(FS) ?? null;
+  if (!herald || FS.mode !== 'play' || !(h?.explore?.state > 0)) return false;
+  if (FS.exploreSeedCheck?.state === 'loading') return 'loading';
+  const run = { state: 'loading', ref: holdingRef(h), bell: Number(h.explore.bell) }, at = { herald, world: providerWorld(), viewer: viewerKey() ?? null };
+  const mine = () => FS.exploreSeedCheck === run && herald === at.herald && providerWorld() === at.world && (viewerKey() ?? null) === at.viewer;
+  FS.exploreSeedCheck = run; invalidate('panel');
+  try {
+    const r = await herald.bellRegion(h.explore.bell, regionOf(h.explore.p, h.explore.q)).catch(e => ({ ok: false, code: e?.code ?? 'Error' }));
+    if (!mine()) return false;
+    const ready = r.ok && !!seedSourceOf(r.record), unread = !ready && !r.ok && r.code !== 'NotFound';
+    const had = exploreSeedMark && exploreSeedMark.state === 'ready' && exploreSeedMark.ref === run.ref && exploreSeedMark.bell === run.bell && exploreSeedMark.world === at.world && exploreSeedRaw === true;
+    if (ready || !had) {
+      FS.exploreSeedReady = ready;
+      FS.exploreSeedState = exploreSeedMark = { ref: run.ref, bell: run.bell, world: at.world, state: ready ? 'ready' : unread ? 'failed' : 'waiting', code: unread ? r.code ?? 'Error' : null };
+    }
+    return ready;
+  } finally {
+    if (FS.exploreSeedCheck === run) FS.exploreSeedCheck = null;
+    invalidate('panel', 'tabs', 'chips');
+  }
+}
+
 async function settleExplore() {
-  const h = activeHolding(FS), rec = h.explore;
+  // (2026-11-17, ⑦: a village with no exploration waiting has nothing to collect — said, instead of reading `rec.p` of
+  //  nothing; and what was read for one world, viewer or village is not sent as another's: after the one wait below the
+  //  press's own marks are checked BEFORE anything is built or sent. It only stops; the send is the one it was.)
+  const h = activeHolding(FS) ?? null, rec = h?.explore ?? null;
+  if (!h || !(rec?.state > 0)) return failed({ code: 'ExploreNone', text: L`この村には、受け取る探索の結果がありません。` });
+  const prep = { herald, world: providerWorld(), viewer: viewerKey() ?? null, ref: holdingRef(h), bell: Number(rec.bell) };
   const region = regionOf(rec.p, rec.q);
   const r = await herald.bellRegion(rec.bell, region);
+  { const now = activeHolding(FS) ?? null;
+    if (herald !== prep.herald || providerWorld() !== prep.world || (viewerKey() ?? null) !== prep.viewer || holdingRef(now) !== prep.ref || Number(now?.explore?.bell) !== prep.bell) return { ok: false, code: 'ExploreChanged', sent: false }; }
   const A = io.pinned().addresses;
   const src = r.ok ? seedSourceOf(r.record) : null;
   if (!src) return failed({ code: 'SeedNotReady' });
@@ -3102,6 +3159,8 @@ export const ACTIONS = {
   //  so an answer of the earlier one that comes late is not written; the draft's settings are kept. Not while sending.)
   // (2026-11-17, ⑦ the village screen: the viewer's record and the village's province read again — a read only, never refresh)
   'village-reread': () => { rereadVillage().catch(() => {}); },
+  // (2026-11-17, ⑦ exploration: has the result come for the village in hand — one read, nothing sent or settled)
+  'explore-check': () => { checkExploreSeed().catch(() => {}); },
   // (2026-11-17, ⑦ the trade card: the three S1 feeds read again — a read only, never refreshConquest or refresh)
   's1-reread': () => { rereadS1().catch(() => {}); },
   'dest-retry': () => { const c = FS.compose; if (!c?.dest || c.sending) return undefined; return setDestination({ p: c.dest.p, q: c.dest.q, tile: c.dest.tile }); },
@@ -3282,6 +3341,10 @@ export async function startPlay({ herald: h, cfg }) {
   FS.localPlay = localPlay;
   useHerald(h);
   Object.defineProperty(FS, 'localMarch', { configurable: true, enumerable: false, get: localMarchView });
+  // (2026-11-17, ⑦: "the exploration's result can be collected" is true only for the village and exploration its seed was
+  //  read for — exploreSeedNow. A plain `true` written from outside is taken as the village now in hand's.)
+  Object.defineProperty(FS, 'exploreSeedReady', { configurable: true, enumerable: true, get: exploreSeedNow,
+    set: v => { exploreSeedRaw = v === true; if (exploreSeedRaw) exploreSeedMark = exploreMarkOf(activeHolding(FS) ?? null, providerWorld()); } });
   Object.defineProperty(FS, 'localMarchFor', { configurable: true, enumerable: false, value: (holding, hostId) => localMarchFor(holding ? holdingByRef(FS.holdings, holding) : null, hostId) });
   protoIo.configure({ herald: cfg.herald ?? '' });
   const pin = io.pinned();
