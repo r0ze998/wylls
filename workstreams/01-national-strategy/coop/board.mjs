@@ -156,6 +156,9 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     }
   }
   let tmpSeq = 0;
+  // （2026-11-17 第3版）まだ保存できていない観測がある（メモリにはある）。保存が失敗したら true のまま残し、次の既存の読み
+  // （caravans）で新しい項目がなくても書き直す。確実に rename まで済んだときだけ false に戻す。新しい poll や通信は足さない。
+  let obsDirty = false;
   /** 観測を書き換える：排他で作った一時ファイル → fsync → rename（途中で止まっても前の版か新しい版のどちらか）。 */
   function saveObs() {
     if (!obsWritable) return;
@@ -168,6 +171,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
       fs.writeFileSync(fd, JSON.stringify(obs)); fs.fsyncSync(fd);
       fs.closeSync(fd); fd = null;
       fs.renameSync(tmp, obsFile); made = false;
+      obsDirty = false;
       if (obsHealth !== 'missing') { obsState = 'ok'; obsHealth = 'ok'; }
     } catch (e) {
       if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
@@ -193,7 +197,8 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
       let changed = false;
       for (const e of file.ended ?? []) { const k = caravanKeyOf({ ctx: ctxKey(season), ownerTag: e.ownerTag, seq: e.seq }); if (!(k in obs.ended)) { obs.ended[k] = t; changed = true; } }
       for (const v of file.vaults ?? []) { const k = `${v.p},${v.q},${v.tile}`; if (!(k in obs.vaults)) { obs.vaults[k] = t; changed = true; } }
-      if (changed) saveObs();
+      if (changed) obsDirty = true;
+      if (obsDirty) saveObs();
     }
     return file;
   }
@@ -365,7 +370,8 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
       herald: world.state === 'same' ? 'ok' : world.state === 'different' ? 'missing' : 'unknown',
       chain: reader ? 'unknown' : 'missing',
       store: storeProblems.length || damaged.length ? 'missing' : 'ok',
-      observed: obsHealth,
+      // (第3版) 保存できていない観測が残っている間は、ok と言わない
+      observed: obsDirty && obsHealth === 'ok' ? 'unknown' : obsHealth,
     };
     return {
       ok: Object.values(parts).every(v => v === 'ok'), profile, parts,

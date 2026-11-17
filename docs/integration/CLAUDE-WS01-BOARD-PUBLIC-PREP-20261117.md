@@ -46,6 +46,11 @@
 | **(2) Health's chain part** | `ok` whenever an RPC was configured | **`unknown` when configured** (this check reads no chain; configured is not observed), `missing` without `--rpc`. No probe was added, and no freshness or world match is assumed. The chain part is therefore never `ok` today, so `ok` stays `false` for a board with an RPC. That is honest, not a failure. |
 | **(3) `observed.json`** | The keep-aside `renameSync` could replace an existing aside of the same name; the save opened `observed.json.tmp` with `'w'`, truncating an existing file or the target of a link there. | **Only a plain file with one name** (`lstat`: regular, `nlink` 1) is read or written; a link, a directory or a second name is left as it is (`unknown`, not written). **Keep-aside:** a hard link to a **new** name made exclusively (`EEXIST`: the next name), then the old name released. The bytes are never copied over or deleted, and an earlier aside is never replaced. **Save:** a temporary file named for this process and call, created with `'wx'` (never an existing file or link), `fsync`, `rename`. Only that file is removed on failure; another process's `.tmp` or an old `observed.json.tmp` is never touched. A failure to keep aside or to save is `unknown` (never ok); a successful keep-aside is `missing` (the earlier times are lost). |
 
+**Third tip, the last P3 gap:**
+- **The gap:** `caravans()` updated the times in memory, then saved. After a failed save the items stayed in memory, so the next identical feed found nothing new (`changed` false) and never saved again; a restart lost them.
+- **The fix:** an `obsDirty` mark is set when an item is added, cleared **only** after the temporary file has been renamed over `observed.json`, and kept after any failure. Each ordinary herald read (`caravans()`, no new poll or request) saves again while it is set.
+- **Health:** health never says `ok` while it is set. No concurrent write is possible: the save is synchronous in the one process. The owned-temporary-file and plain-file rules of the second tip are unchanged.
+
 **Still a limit:** the checks are made at each step. A file swapped between the check and the `rename` is not covered (no descriptor-relative operations are used), and a name that resolves to loopback is refused rather than resolved.
 
 ## Regression (written, NOT run): `workstreams/01-national-strategy/test/coop.public-profile.test.mjs`
@@ -58,6 +63,7 @@
 - **(second tip) Every loopback counter-example is refused:** `127.attacker.example`, `127.0.0.1.attacker.example`, `localhost`, a user and/or password, https, ftp, `0.0.0.0`, `10.x`, `[::2]`, not a URL. The four fetches use `fetchNoRedirect` (pinned as text).
 - **(second tip) Health:** a configured RPC gives `unknown`, never ok.
 - **(second tip) `observed.json`:** as a symbolic link or a hard link, it is not read or written, and the outside file is unchanged. With an earlier aside, another process's `.tmp` and an old `observed.json.tmp` present, a new aside is made beside them, all three are untouched, and none of this board's temporary files is left.
+- **(third tip) Retry after a failed save:** a read-only folder makes the save fail (`unknown`, `not saved`). The same feed retries, and after the folder is writable again it saves (`ok`, no `.tmp` left). With nothing new and nothing dirty, the file is not rewritten.
 - **Its folders:** made by `mkdtemp` and removed only by the test.
 
 **Existing tests:** no test compares the whole config (`git grep`). The fields the page and the tests read are unchanged. The test proxy (`coop.test.mjs`) ignores headers.

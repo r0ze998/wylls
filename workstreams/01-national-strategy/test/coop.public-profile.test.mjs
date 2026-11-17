@@ -144,3 +144,28 @@ test('the observed times: an unreadable file is kept aside (never reset in place
     assert.equal(fs.readdirSync(dir).filter(x => x.endsWith('.tmp')).length, 0, 'written through a temporary file and renamed');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// (2026-11-17, third tip; WRITTEN ONLY, NOT RUN) a failed save is retried at the next ordinary read, even with nothing new
+test('observed times not saved stay dirty: the next read saves them again, and only a real save clears it', async () => {
+  const dir = own();
+  try {
+    const feed = { status: 200, json: { ended: [{ ownerTag: '5', seq: 1 }], vaults: [] } };
+    const b = createBoard({ herald: 'http://127.0.0.1:9', programId: PROG, seasonId: '7', dataDir: dir, cluster: 'devnet',
+      fetchHerald: async p => (p === '/h/caravans.json' ? feed : season()) });
+    fs.chmodSync(dir, 0o500);   // the folder cannot take a new file: the save fails
+    await b.caravans();
+    assert.equal((await b.health()).parts.observed, 'unknown', 'not saved: never ok');
+    assert.match(b.config().observed, /^not saved: /);
+    await b.caravans();         // the same feed, nothing new: still asked to save again
+    assert.equal((await b.health()).parts.observed, 'unknown');
+    fs.chmodSync(dir, 0o700);
+    await b.caravans();         // the same feed again: now it is written
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'observed.json'), 'utf8')).ended).length, 1);
+    assert.equal((await b.health()).parts.observed, 'ok');
+    assert.equal(fs.readdirSync(dir).filter(x => x.endsWith('.tmp')).length, 0);
+    // saved and nothing new: no further write (the file is not rewritten)
+    const before = fs.statSync(path.join(dir, 'observed.json')).mtimeMs;
+    await b.caravans();
+    assert.equal(fs.statSync(path.join(dir, 'observed.json')).mtimeMs, before);
+  } finally { try { fs.chmodSync(dir, 0o700); } catch { /* removed */ } fs.rmSync(dir, { recursive: true, force: true }); }
+});
