@@ -797,9 +797,14 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
 
   /** One JSON-RPC message for `principal` (null: unauthenticated) → the response (null for a notification). */
   async function handle(msg, principal) {
-    const reply = result => ({ jsonrpc: '2.0', id: msg.id, result });
-    const error = (code, message) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code, message } });
-    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return error(-32600, 'invalid request');
+    // (2026-11-17) A notification (a valid message without `id`) gets no response of any kind (JSON-RPC 2.0; MCP
+    // 2025-06-18 basic/Messages): `reply` and `error` give null for it, and the transport answers 202 with no body.
+    // What a notification runs is unchanged here (an id-less tools/call still runs its tool: see the report). A message
+    // that is not a valid request at all is answered -32600 with id null by `invalid`, decided before `notification`.
+    const reply = result => (notification ? null : { jsonrpc: '2.0', id: msg.id, result });
+    const error = (code, message) => (notification ? null : { jsonrpc: '2.0', id: msg.id, error: { code, message } });
+    const invalid = () => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32600, message: 'invalid request' } });
+    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return invalid();
     const notification = msg.id === undefined;
     switch (msg.method) {
       case 'initialize': {
