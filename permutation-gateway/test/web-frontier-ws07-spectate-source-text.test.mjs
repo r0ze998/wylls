@@ -10,7 +10,7 @@
 //   S3 followBattles' `still`: same world, same herald object, watch on, no report, the map's move count unchanged;
 //      the fallback flies only on false and only while `still` holds
 //   S4 the move count is the map's own: every non-auto setView (drag, wheel, pinch, keys, a move by name) adds one, and
-//      restore's ifStill reads it; a touch that only halts a flight sets userMoved without adding one (not observed)
+//      restore's ifStill reads it; a touch that only halts a flight adds none (seen through map.touchedAt since the battle-world bundle)
 //   S5 every caller copes with null: the turn's scene, autoBattles and 見る ignore the answer; the preview tests `if (ok)`
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,15 +34,17 @@ test('S1 one origin per request; called off is not "no scene"', () => {
 
 test('S2 an older automatic answer does not replace a newer scene', () => {
   order(pb, 'return null;',
-    'if ((auto || still) && (FS.battles ?? []).some(b => b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;',
+    // (the battle-sync bundle syncs the world first and compares only this world's scenes — web-frontier-ws07-battle-sync-text.test.mjs)
+    'if ((auto || still) && (FS.battles ?? []).some(b => (b.world === undefined || b.world === world) && b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;',
     'if (!r?.ok || !r.inputs) return false;', 'FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), play];');
 });
 
 test('S3 the follow\'s fallback: only "no scene", only while still', () => {
   order(follow, 'const still = () => momentWorld() === world && heraldRef === source', 'playBattle(c.p, c.q, c.bell, { focus: true, still })',
     'if (ok === false && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 });');
-  assert.ok(follow.includes('const source = heraldRef, moves = mapRef?.moves ?? 0;'));
-  assert.ok(follow.includes('&& !FS.report && (mapRef?.moves ?? 0) === moves;'));
+  // (the battle-world bundle adds the map's touch record — web-frontier-ws07-battle-world-text.test.mjs)
+  assert.ok(follow.includes('const source = heraldRef, moves = mapRef?.moves ?? 0, touched = mapRef?.touchedAt ?? null;'));
+  assert.ok(follow.includes('&& !FS.report && (mapRef?.moves ?? 0) === moves && (mapRef?.touchedAt ?? null) === touched;'));
   assert.doesNotMatch(follow, /if \(!ok && still\(\)\)/, 'a called-off request never falls back');
 });
 
@@ -50,7 +52,7 @@ test('S4 the move count is the map\'s existing contract', () => {
   assert.ok(fmap.includes('if (!auto) { this.cam.userMoved = true; this.moves = (this.moves ?? 0) + 1; }'));
   assert.ok(fmap.includes('if (ifStill && Number.isInteger(memo.moves) && (this.moves ?? 0) !== memo.moves) return false;'));
   assert.ok(fmap.includes("this.setView({ x: v.x - (p.x - prev.x) / v.zoom, y: v.y - (p.y - prev.y) / v.zoom }, { clamp: true, soft: 1 });"), 'a drag is a counted move');
-  assert.ok(fmap.includes('if (this.cam.halt()) { this.cam.userMoved = true; this.sync(); }'), 'a touch that only halts a flight: not counted (not observed)');
+  assert.ok(fmap.includes('if (this.cam.halt()) { this.cam.userMoved = true; this.sync(); }'), 'a touch that only halts a flight: not counted here (map.touchedAt sees it)');
 });
 
 test('S5 every caller copes with null', () => {

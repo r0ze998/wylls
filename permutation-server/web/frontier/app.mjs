@@ -182,7 +182,7 @@ import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueB
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
-import { battleScene, startBattle, battleLive, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
+import { battleScene, startBattle, battleLive, endBattle, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
 import { decode as decodeAccount } from './fcodec.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { tileHex, ringProvinces, homeNation, locate } from './fgeo.mjs';
@@ -740,6 +740,9 @@ let peopleCache = { at: -1, value: null };
 export function peopleSource() {
   // (every frame, outside the second's cache: a selection shows its village's character at once)
   setBoardCharacters(boardCharactersNow());
+  // (2026-11-17, ⑦: before the second's cache is used or built: the battle state is made this world's first —
+  //  syncBattleWorld — so neither the cache nor its battles show another world's as this one's)
+  syncBattleWorld();
   const bell = FS.nowBell ?? (FS.clock ? Math.max(0, Math.floor(((FS.chain?.now() ?? 0) - FS.clock.genesisTs) / 600)) : 0);
   const sec = Math.floor(Date.now() / 1000);
   if (peopleCache.at === sec && peopleCache.lang === lang() && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
@@ -3026,8 +3029,39 @@ function showTip(hit, at) {
 const battleSeen = new Map(); // "P,Q" → the last resolved bell a scene was considered for
 // (2026-11-17, ⑦: of one pinned world — with its generation: what was seen in another is forgotten, and that world's
 //  envelopes still held are not looked at, so the first sight of each province in this world is not news)
-let battleSeenWorld;
+let battleWorldNow;
+/**
+ * Make the battle state this pinned world's (2026-11-17, ⑦), at once and in one place: the first thing peopleSource does
+ * (before its second's cache is returned or built) and the first thing playBattle does after its wait (before a scene is
+ * compared). At a change of world: the sightings are forgotten, the scenes of other worlds end on the map and in the
+ * effects layer (endOtherWorldBattles: that world's plays only — a play of this world, also one just placed where an old
+ * one stood, stays), a camera place kept for a battle in another world is let go with its timer, and the cache is built
+ * again. The same world changes nothing. Returns the world.
+ */
+function syncBattleWorld() {
+  const world = momentWorld();
+  if (battleWorldNow === world) return world;
+  battleWorldNow = world;
+  battleSeen.clear();
+  endOtherWorldBattles(world);
+  if (battleKeepWorld !== undefined && battleKeepWorld !== world) { clearTimeout(battleBack); battleBack = null; camKeep.drop('battle'); battleKeepWorld = undefined; }
+  peopleCache.at = -1;
+  return world;
+}
 let battleBack = null;
+// (2026-11-17, ⑦: the camera's place kept for a battle — camKeep 'battle' — belongs to the pinned world it was kept in
+//  (battleKeepWorld), and to the map as the person had last touched it then (`map.touchedAt`: every pointerdown — also
+//  a touch that only stops a flight, which the map's move count does not see —, the wheel, the map's keys). The way
+//  back is not taken into another world, nor after a person touched the map since: the kept place is let go instead)
+let battleKeepWorld, battleTouched = null;
+/** Scenes of another pinned world are ended where they are drawn: the map's own (FS.battles) and the effects layer's. */
+function endOtherWorldBattles(world) {
+  const gone = (FS.battles ?? []).filter(b => b.world !== undefined && b.world !== world);
+  if (!gone.length) return;
+  FS.battles = (FS.battles ?? []).filter(b => !gone.includes(b));
+  for (const b of gone) { endBattle(b); fxEmit('battle:end', { play: b }); }
+  mapRef?.invalidate();
+}
 /** Load a clash and play its scene on the map; `focus` moves the camera to it first. */
 export async function playBattle(p, q, bell, { focus = false, auto = false, still = null } = {}) {
   const fx = FS.ui?.battleFx ?? 'normal';
@@ -3045,7 +3079,10 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
   const world = momentWorld(), source = heraldRef;
   const r = await source.clash(p, q, bell).catch(() => null);
   if (momentWorld() !== world || heraldRef !== source || (still && !still())) return null;
-  if ((auto || still) && (FS.battles ?? []).some(b => b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;
+  // (the battle state is this world's before anything is compared: an older world's scene with a higher bell is ended
+  //  here, not taken for "a later turn of this province" — syncBattleWorld; and only this world's scenes are compared)
+  syncBattleWorld();
+  if ((auto || still) && (FS.battles ?? []).some(b => (b.world === undefined || b.world === world) && b.scene.p === p && b.scene.q === q && b.scene.bell > bell && battleLive(b, performance.now() / 1000))) return null;
   if (!r?.ok || !r.inputs) return false;
   let before = null;
   try { before = r.report?.province_before_b64 ? decodeAccount('Province', fromBase64(r.report.province_before_b64)) : null; } catch { before = null; }
@@ -3069,15 +3106,23 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
   // the camera flies in, to the part of the map no sheet covers (map/fmap.mjs flyTo)
   if (focus && mapRef) {
     // (and comes back when the scene is over, unless the player has moved it: hud/camkeep.mjs)
-    camKeep.keep('battle');
+    // (a place kept in another world is not this world's to go back to: let go, with its timer)
+    if (battleKeepWorld !== world) { clearTimeout(battleBack); battleBack = null; camKeep.drop('battle'); }
+    battleKeepWorld = world;
+    if (camKeep.keep('battle')) battleTouched = mapRef.touchedAt ?? null;
     mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);
     const secs = PHASE.end / (BATTLE_SPEEDS[fx] || 1) + 0.9;
     clearTimeout(battleBack);
     // (the flights to the scene are the page's and the effects layer's own; a place the player goes to meanwhile is
     // reported by name: goToItem, the plate, a selection that flies)
-    battleBack = setTimeout(() => camKeep.back('battle', { ms: calm() ? 0 : 420, slack: Infinity }), secs * 1000);
+    battleBack = setTimeout(() => {
+      battleBack = null;
+      if (momentWorld() !== world || (mapRef?.touchedAt ?? null) !== battleTouched) { camKeep.drop('battle'); return; }
+      camKeep.back('battle', { ms: calm() ? 0 : 420, slack: Infinity });
+    }, secs * 1000);
   }
   const play = startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1);
+  play.world = world;
   FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), play];
   // staged by the effects layer (fx/battle.mjs): the dimmed map, the scene on its own canvas, the title
   fxEmit('battle', { play, focus, zoom: focus ? 2.1 : null, viewerFaction: FS.citizen?.faction ?? null, lossText: n => L`−${fmtNum(n)} 兵`, numText: n => fmtNum(n) });
@@ -3086,8 +3131,7 @@ export async function playBattle(p, q, bell, { focus = false, auto = false, stil
 }
 /** A clash that resolved in a province the page has loaded plays once, when it is new. */
 function autoBattles() {
-  const world = momentWorld();
-  if (battleSeenWorld !== world) { battleSeen.clear(); battleSeenWorld = world; }
+  const world = syncBattleWorld();
   for (const [key, env] of FS.provinces) {
     if (env.world !== undefined && env.world !== world) continue;
     const b = env.province?.resolveSummary?.bell;
@@ -4054,8 +4098,10 @@ function followBattles() {
   //  the herald can be replaced within one world — and no camera move the map counts since (map/fmap.mjs `moves`: a
   //  drag, the wheel, a pinch, the map's keys and buttons, a "go there"; the count map.restore's ifStill reads). A
   //  called-off request (null) never falls back; only "no scene" (false) does, while all of it still holds)
-  const source = heraldRef, moves = mapRef?.moves ?? 0;
-  const still = () => momentWorld() === world && heraldRef === source && FS.watch?.auto !== false && !FS.report && (mapRef?.moves ?? 0) === moves;
+  //  (and `map.touchedAt`: a touch of the map since the ask — also one that only stops a flight, which the move count
+  //  does not see — calls the follow off as well)
+  const source = heraldRef, moves = mapRef?.moves ?? 0, touched = mapRef?.touchedAt ?? null;
+  const still = () => momentWorld() === world && heraldRef === source && FS.watch?.auto !== false && !FS.report && (mapRef?.moves ?? 0) === moves && (mapRef?.touchedAt ?? null) === touched;
   playBattle(c.p, c.q, c.bell, { focus: true, still }).then(ok => { if (ok === false && still()) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
 }
 
