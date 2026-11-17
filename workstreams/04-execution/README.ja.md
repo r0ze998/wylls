@@ -92,3 +92,35 @@ cargo run --bin runexec -- run view   --db /tmp/x.sqlite --run <id>
 | 理由 | 指定のブランチで、基準 commit `4cd901de` から専用の worktree を作るため。一つのブランチは一つの worktree でしか checkout できない |
 | 現在の状態 | `/home/user/wylls` は `9214293` の detached HEAD で、変更は無い。ローカルの `claude/gallant-ride-cunptv` は④の commit を指し、`/home/user/wylls-ws04` で checkout されている。`origin/claude/gallant-ride-cunptv` は `9214293` のまま（push していない） |
 | 戻す場合 | 人の判断で行う。worktree がそのブランチを持っている間は、元の checkout でそのブランチに switch できない |
+
+## 保留つき観測の読み取り（`runexec observe`、2026-11-17、**未実行**）
+
+findex の索引の CARAVAN_SETTLED / RAIDED を、保留したまま JSON 1 行で読む診断用のコマンドです。**ビルドも実行もしていません。** 下の例は使い方を示すだけで、出力例は実行結果ではありません。
+
+```bash
+# findex のストアのディレクトリ（index.sqlite と archive/manifest.json）を読む
+runexec observe store --store /path/to/findex-store --limit 64
+# 索引のファイルだけを読む（アーカイブの epoch は付かない）
+runexec observe db --db /path/to/findex-store/index.sqlite --after 0 --limit 64
+```
+
+- **2 つのモードは明示して選ぶ。** 自動では判別しない。`store` は `observation::read_store_observations`、`db` は `observation::read_observations`。
+- **他の経路には届かない。**
+  - ほかのどのコマンドより先に振り分ける。
+  - 実行ストアを開かない（`Store::open` なし）。
+  - スキーマ、受け付け、取り消し、送信、HTTP、RPC のどれにも届かない。
+- **出力は観測のページそのまま。**
+  - `basis: "unproven"`、`world` / `finality` / `complete` は null で、保留はすべて残る。
+  - `store` モードでは、行ごとの `archive_epoch` と、ページの `store`（同じディレクトリであること、索引と manifest の世代、限界）が付く。
+  - どれも、受領、確定した出来事、送られた隊商の証拠ではない。admit されたものは何もない。
+- **引数は、何かを開く前に確かめる。** 次は exit 2 `BadRequest`:
+  - 未知・重複・値なしのオプション;
+  - 別のオプションを値に取ること;
+  - `--after` / `--limit` が数字だけでないこと;
+  - `--limit` が 1〜256 の外;
+  - `--after` が i64 の範囲を超えること。
+- **読めないとき・拒否したときは exit 1 `ObservationNotRead`。**
+  - 理由: ディレクトリやファイルが無い、シンボリックリンク、通常のファイルでない、スキーマやモードの不一致、manifest の形の違反。
+  - これは隊商や実行について何も言わない。「記録なし」（`NoRecord`）でも「未送信」でもない。
+- **書き込みについて。** このコマンド自身は何も書かない。ただし findex の索引は WAL モードなので、SQLite が `-shm` の補助ファイルを作ることはありうる（「ファイルが一切変わらない」とは言えない）。
+- **試験は書いただけで、一度も走らせていない:** `tests/observe_cli.rs`、`tests/store_observation.rs`。

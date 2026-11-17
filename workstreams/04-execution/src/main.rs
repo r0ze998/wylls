@@ -54,6 +54,28 @@
 //! anything about the run: a caller must not take them for "never
 //! accepted" or "not sent" (no resend on them). `--spec` is read with a
 //! bound of 1 MiB. Exit codes 0–4 as `act`.
+//!
+//! ```text
+//! # Held findex observations (diagnostic read only; 2026-11-17): one JSON line on stdout
+//! runexec observe store --store <findex store dir> [--after <n>] [--limit <1..=256>]
+//! runexec observe db    --db <findex index.sqlite>  [--after <n>] [--limit <1..=256>]
+//! ```
+//!
+//! `observe` is dispatched before every other command and reaches no run
+//! store: no `Store::open`, no schema, accept, cancel, send, HTTP or RPC.
+//! `store` reads a findex store directory (`observation::read_store_observations`:
+//! the index page plus the archive manifest's epochs as diagnostics); `db`
+//! reads one index file (`observation::read_observations`). There is no
+//! automatic choice between the two. The output is the observation page as
+//! it is: `basis: "unproven"`, every hold kept, nothing admitted; a reader
+//! must not take any of it for a receipt, a finalized event or a sent caravan.
+//! Options are checked before anything is opened: an unknown, repeated or
+//! valueless option, a value that is another option, `--after` or `--limit`
+//! not plain decimal digits, `--limit` outside 1..=256: exit 2 `BadRequest`.
+//! A read that fails or is refused: exit 1 `ObservationNotRead` (it says
+//! nothing about any caravan or run: never "no record", never "not sent").
+//! The reader makes no write of its own; SQLite may still create the index's
+//! WAL side file (`-shm`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -509,7 +531,76 @@ fn run(args: &[String]) -> Result<serde_json::Value, ActErr> {
     }
 }
 
+/// `runexec observe store|db …` (module note). Never opens a run store.
+fn observe(args: &[String]) -> Result<serde_json::Value, ActErr> {
+    let bad = |m: String| (2u8, "BadRequest", m);
+    let (mode, allowed): (&str, &[&str]) = match args.get(2).map(String::as_str) {
+        Some("store") => ("store", &["--store", "--after", "--limit"][..]),
+        Some("db") => ("db", &["--db", "--after", "--limit"][..]),
+        _ => return Err(bad("observe store --store <dir> | observe db --db <index.sqlite>".into())),
+    };
+    let opts = run_opts(args, allowed).map_err(bad)?;
+    if let Some((k, _)) = opts.iter().find(|(_, v)| v.is_empty() || v.starts_with("--")) {
+        return Err(bad(format!("{k} needs a non-empty value, not another option")));
+    }
+    // Plain decimal digits only (no sign, no space): `u64::from_str` alone would take "+5".
+    let nat = |k: &str, max: u64| -> Result<Option<u64>, ActErr> {
+        match opts.get(k) {
+            None => Ok(None),
+            Some(v) if !v.is_empty() && v.len() <= 20 && v.bytes().all(|b| b.is_ascii_digit()) => match v.parse::<u64>() {
+                Ok(n) if n <= max => Ok(Some(n)),
+                _ => Err(bad(format!("{k} is out of range (at most {max})"))),
+            },
+            Some(_) => Err(bad(format!("{k} must be plain decimal digits"))),
+        }
+    };
+    let after = nat("--after", i64::MAX as u64)?.unwrap_or(0);
+    let limit = nat("--limit", runexec::observation::MAX_ROWS as u64)?.unwrap_or(64);
+    if limit == 0 {
+        return Err(bad("--limit must be at least 1".into()));
+    }
+    let path = match mode {
+        "store" => opts.get("--store"),
+        _ => opts.get("--db"),
+    }
+    .cloned()
+    .ok_or_else(|| bad(format!("--{} is required", if mode == "store" { "store" } else { "db" })))?;
+    let not_read = |m: String| (1u8, "ObservationNotRead", m);
+    let page = if mode == "store" {
+        runexec::observation::read_store_observations(Path::new(&path), after, limit as usize).map_err(not_read)?
+    } else {
+        runexec::observation::read_observations(Path::new(&path), after, limit as usize).map_err(not_read)?
+    };
+    serde_json::to_value(&page).map_err(|e| not_read(e.to_string()))
+}
+
 fn main() -> ExitCode {
+    // First: a diagnostic read that must never reach a run store or any other command. Its arguments are taken as
+    // OS strings, so a path that is not UTF-8 is a `BadRequest` in JSON, not the panic `std::env::args()` gives
+    // (which the other commands below keep, unchanged).
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if raw.get(1).and_then(|a| a.to_str()) == Some("observe") {
+        let args: Vec<String> = match raw.into_iter().map(|a| a.into_string()).collect::<Result<_, _>>() {
+            Ok(a) => a,
+            Err(_) => {
+                println!("{}", serde_json::json!({ "error": "BadRequest", "message": "observe arguments must be UTF-8" }));
+                return ExitCode::from(2);
+            }
+        };
+        return match observe(&args) {
+            Ok(v) => {
+                println!("{v}");
+                ExitCode::SUCCESS
+            }
+            Err((code, name, message)) => {
+                println!(
+                    "{}",
+                    serde_json::json!({ "error": name, "message": message })
+                );
+                ExitCode::from(code)
+            }
+        };
+    }
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("run") {
         return match run(&args) {
@@ -549,7 +640,7 @@ fn main() -> ExitCode {
         };
     }
     let Some(cmd) = args.get(1).map(String::as_str) else {
-        eprintln!("usage: runexec demo|status|show|cancel|resume --db <path> [...] | runexec act … | runexec run accept|view …");
+        eprintln!("usage: runexec demo|status|show|cancel|resume --db <path> [...] | runexec act … | runexec run accept|view … | runexec observe store|db …");
         return ExitCode::from(2);
     };
     let Some(db) = arg(&args, "--db").map(PathBuf::from) else {
