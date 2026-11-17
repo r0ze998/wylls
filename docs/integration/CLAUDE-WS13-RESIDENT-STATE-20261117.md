@@ -1,6 +1,9 @@
 # ⑬ operator resident: its own stop and submitted keys, read only, in the live factory (2026-11-17)
 
-**Branch:** `claude/ws13-resident-state-20261117`, one commit **on `ebda31cc`** (the live-resident unit's final tip, unchanged).
+**Branch:** `claude/ws13-resident-state-20261117` **on `ebda31cc`** (the live-resident unit's final tip, unchanged).
+- `5ab89984` is the first tip.
+- The correction (the second tip) is on top of it.
+- **Adopt the final tip only:** the diff `ebda31cc..<final>`, 4 paths.
 
 **Adoption:** take this unit's own diff `ebda31cc..<this tip>`, after `fdc9fd0d..ebda31cc`. The two are separate units.
 
@@ -38,6 +41,30 @@ The live step (`resident/live/step.mjs`) took `stop` and `submittedKeys` from wh
 - only `execution.status` of the keys given, which today is none because they are held;
 - never `submit`, `cancel` or a re-send.
 
+## Second tip: the parent's review of `5ab89984`
+
+**Do not adopt `5ab89984` alone.**
+
+1. **The halt check.**
+   - **Before:** the factory used node's `existsSync`, which answers `false` on a permission error or a bad path component as well as on absence. The reader took any non-`true` answer as "not halted".
+   - **Now:** the factory's `existsForHalt` uses `lstatSync`:
+     - present (a link counts, even a dangling one) → `true`;
+     - **only ENOENT** → `false`;
+     - any other error throws.
+   - **The reader accepts only `true` or `false`.** Anything else, or a throw, is `state-unknown` (a stop).
+2. **Owner and policy.**
+   - **Before:** a charter without an owner address skipped the owner comparison, and a missing policy read as "not revoked", so such a state could run as `auto`.
+   - **Now:**
+     - **Owner:** the charter must name `owner.address`, and the ledger's `owner` must equal it. `Resident` creates the ledger record with `owner: charter.owner.address`, so a normal state passes.
+     - **Policy:** it must be the ledger's own shape, an object with `version ≥ 1` (`ledger.mjs` `create` saves `{...policy, version: 1}`; `setPolicy` increments it).
+     - **`revoked`:** absent means not revoked (the normal saved policy, kept backward compatible); a boolean is taken as given; any other value is unknown.
+     - **Anything else is `state-unknown`.**
+3. **Unchanged:**
+   - the stop order;
+   - the submitted keys held (no recorded world or port);
+   - stop-A: results read only, no new operation, no re-send;
+   - `Resident`, the agent ledger and every producer.
+
 ## Not connected (concrete)
 
 1. **Reading the held keys against the live execution port.**
@@ -54,10 +81,12 @@ The live step (`resident/live/step.mjs`) took `stop` and `submittedKeys` from wh
 - **Pinned to `resident.mjs`:** `STATE_VERSION`, and the `#stopReason` order.
 - **The reader** reads no key, writes nothing, and constructs no Resident.
 - **The factory (as text):** reads at `step()` only; the caller can add a stop but not clear one; only the resident's keys are used; nothing is read before `step()`.
+- **(second tip) The halt check:** only `true` or `false` is accepted; `undefined`, `null`, numbers, strings, an object or a throw are unknown. The factory's `existsForHalt` treats only ENOENT as absent, and `existsSync` is not used.
+- **(second tip) Owner and policy:** a normal versioned policy without `revoked` runs. These are unknown: no charter owner, an owner without an address, no ledger owner, no policy, no version, version 0, and a non-boolean `revoked`. `revoked: true` stops (`authority-revoked`), and `revoked: false` runs.
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws13-resident-state-20261117`, one commit on `ebda31cc`, all `100644`:
+**Unit:** `claude/ws13-resident-state-20261117`, two commits on `ebda31cc` (`5ab89984`, then the correction). Take the final tip's diff from `ebda31cc`, all `100644`:
 - `workstreams/13-citizens/resident/live/resident-state.mjs` (A)
 - `workstreams/13-citizens/resident/live/factory.mjs` (M)
 - `workstreams/13-citizens/test/live-resident-state.test.mjs` (A)

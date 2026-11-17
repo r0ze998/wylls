@@ -36,7 +36,7 @@ import { encode as toBase58 } from '../../../../permutation-server/web/sdk/base5
 import { storesAt } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { settled } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/fi18n.mjs';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
 import { observeLive, plannerNow } from './observe.mjs';
 import { readResidentState } from './resident-state.mjs';
 import { liveStep } from './step.mjs';
@@ -76,6 +76,15 @@ export const gameDeps = Object.freeze({
     return Object.fromEntries(RESOURCES.map((r, i) => [r, have[i]]));
   },
 });
+
+/**
+ * (2026-11-17) Whether a path exists, for the resident's halt file: true when it is there (a link counts, even a
+ * dangling one: the halt is taken as present), false ONLY when the system says it does not exist (ENOENT), and throws
+ * for anything else (no permission, a path component that is not a directory, …): never "absent" by failure.
+ */
+export function existsForHalt(p) {
+  try { lstatSync(p); return true; } catch (e) { if (e?.code === 'ENOENT') return false; throw e; }
+}
 
 const sameSeason = (a, b) => !!a && !!b && a.programId === b.programId && String(a.seasonId) === String(b.seasonId) && a.seasonAddress === b.seasonAddress && a.cluster === b.cluster;
 
@@ -117,7 +126,7 @@ export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wal
     step: async ({ stop = null, submittedKeys = [] } = {}) => {
       if (!residentDir) return liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop, submittedKeys, authority });
       // (2026-11-17) the resident's own stop and keys, read now (not at creation); unknown is a stop
-      const rs = readResidentState({ dir: residentDir, wallet, fs: { readText: p => readFileSync(p, 'utf8'), exists: p => existsSync(p) } });
+      const rs = readResidentState({ dir: residentDir, wallet, fs: { readText: p => readFileSync(p, 'utf8'), exists: existsForHalt } });
       const r = await liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop: rs.stop ?? stop, submittedKeys: rs.submitted.keys, authority });
       return { ...r, resident: { stop: rs.stop, facts: rs.facts, submittedHeld: rs.submitted.held, submittedWhy: rs.submitted.why, unsent: rs.unsent } };
     },

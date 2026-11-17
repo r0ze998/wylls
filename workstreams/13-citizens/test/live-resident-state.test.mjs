@@ -18,7 +18,7 @@ const stateOf = (o = {}, rec = {}) => ({ v: 2, turn: 3, journal: {
   'asa:t2:2': { key: 'asa:t2:2', port: 'board', state: 'posted', postId: 'p1' },
   'asa:t3:1': { key: 'asa:t3:1', port: 'action', state: 'landed', sendKey: 'asa:t3:1' },
   'asa:t3:2': { key: 'asa:t3:2', port: 'action', state: 'unresolved', sendKey: 'asa:t3:2' },
-}, agentWallet: { agents: { asa: { mode: 'auto', policy: {}, agentKey: ME, owner: 'Owner1', ...rec } } }, ...o });
+}, agentWallet: { agents: { asa: { mode: 'auto', policy: { allowed: [], budget: {}, version: 1 }, agentKey: ME, owner: 'Owner1', ...rec } } }, ...o });
 const fsOf = (files, halt = false) => ({ readText: p => { if (!(p in files)) throw Object.assign(new Error('no'), { code: 'ENOENT' }); return files[p]; }, exists: p => (p === `${DIR}/HALT` ? (halt instanceof Error ? (() => { throw halt; })() : halt) : false) });
 const files = (c = charter(), st = stateOf()) => ({ [`${DIR}/charter.json`]: typeof c === 'string' ? c : JSON.stringify(c), [`${DIR}/state.json`]: typeof st === 'string' ? st : JSON.stringify(st) });
 
@@ -34,7 +34,7 @@ test('resident state: running; submitted keys found but held (their world is not
 
 test('resident state: the stop in resident.mjs order — revoked, halted, manual, max turns', () => {
   const at = (rec, halt = false, st = {}) => readResidentState({ dir: DIR, wallet: ME, fs: fsOf(files(charter(), stateOf(st, rec)), halt) }).stop;
-  assert.equal(at({ policy: { revoked: true }, mode: 'manual' }, true).why, 'authority-revoked');
+  assert.equal(at({ policy: { version: 2, revoked: true }, mode: 'manual' }, true).why, 'authority-revoked');
   assert.equal(at({ mode: 'manual' }, true).why, 'halted-by-operator');
   assert.equal(at({ mode: 'manual' }).why, 'stopped-by-owner');
   assert.equal(at({ mode: undefined }).why, 'stopped-by-owner', 'no mode is not auto');
@@ -64,7 +64,39 @@ test('resident state reader: pinned to resident.mjs; reads no key, writes nothin
   assert.doesNotMatch(rs, /resident\.key|writeFile|appendFile|rename|mkdir|unlink|new Resident|loadOrCreateKey|\.save\(|setMode|from 'node:fs'/);
   const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
   const step = f.slice(f.indexOf('step: async ({'));
-  assert.match(step, /const rs = readResidentState\(\{ dir: residentDir, wallet, fs: \{ readText: p => readFileSync\(p, 'utf8'\), exists: p => existsSync\(p\) \} \}\);/, 'read at step(), not at creation');
+  assert.match(step, /const rs = readResidentState\(\{ dir: residentDir, wallet, fs: \{ readText: p => readFileSync\(p, 'utf8'\), exists: existsForHalt \} \}\);/, 'read at step(), not at creation');
   assert.match(step, /stop: rs\.stop \?\? stop, submittedKeys: rs\.submitted\.keys/, 'a caller may add a stop, never clear the resident\'s; only the resident\'s keys');
-  assert.doesNotMatch(f.slice(0, f.indexOf('step: async ({')), /readResidentState\(|readFileSync\(|existsSync\(/, 'nothing read before step()');
+  assert.doesNotMatch(f.slice(0, f.indexOf('step: async ({')), /readResidentState\(|readFileSync\(/, 'nothing read before step() (existsForHalt is only defined there, called from step)');
+});
+
+// (2026-11-17, second tip; WRITTEN ONLY, NOT RUN) the halt check, the owner and the policy: unknown is a stop
+test('the halt check: true or false only; any other answer, or a failure, is state-unknown', () => {
+  const withExists = exists => readResidentState({ dir: DIR, wallet: ME, fs: { readText: fsOf(files()).readText, exists } }).stop;
+  assert.equal(withExists(() => false), null, 'certainly absent: running');
+  assert.equal(withExists(() => true).why, 'halted-by-operator');
+  for (const v of [undefined, null, 0, 1, 'false', 'true', {}]) assert.equal(withExists(() => v)?.why, 'state-unknown', `exists → ${JSON.stringify(v)}`);
+  assert.equal(withExists(() => { throw Object.assign(new Error('x'), { code: 'EACCES' }); }).why, 'state-unknown');
+});
+
+test('owner and policy: unknown is a stop; a normal policy without revoked is not revoked (backward compatible)', () => {
+  const u = (c = charter(), rec = {}) => readResidentState({ dir: DIR, wallet: ME, fs: fsOf(files(c, stateOf({}, rec))) }).stop;
+  assert.equal(u(), null, 'the normal saved policy {…, version: 1} without revoked: running');
+  assert.equal(u(charter({ owner: undefined })).why, 'state-unknown', 'no owner in the charter');
+  assert.equal(u(charter({ owner: { name: 'x' } })).why, 'state-unknown', 'an owner without an address');
+  assert.equal(u(charter(), { owner: undefined }).why, 'state-unknown', 'no owner in the ledger');
+  assert.equal(u(charter(), { policy: undefined }).why, 'state-unknown', 'no policy');
+  assert.equal(u(charter(), { policy: { allowed: [] } }).why, 'state-unknown', 'a policy without a version');
+  assert.equal(u(charter(), { policy: { version: 0 } }).why, 'state-unknown');
+  assert.equal(u(charter(), { policy: { version: 1, revoked: 'yes' } }).why, 'state-unknown', 'revoked that is not a boolean');
+  assert.equal(u(charter(), { policy: { version: 3, revoked: false } }), null);
+  assert.equal(u(charter(), { policy: { version: 3, revoked: true } }).why, 'authority-revoked');
+});
+
+test('the real halt check in the factory (as text): only ENOENT is absent; a link counts as present; other errors throw', () => {
+  const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
+  assert.match(f, /export function existsForHalt\(p\) \{\n  try \{ lstatSync\(p\); return true; \} catch \(e\) \{ if \(e\?\.code === 'ENOENT'\) return false; throw e; \}\n\}/);
+  assert.doesNotMatch(f, /existsSync/, 'existsSync answers false on a failure');
+  const rs = readFileSync(new URL('../resident/live/resident-state.mjs', import.meta.url), 'utf8');
+  assert.match(rs, /if \(halted !== true && halted !== false\) return unknown\(/);
+  assert.doesNotMatch(rs, /Boolean\(rec\.policy|\?\? null;\n  if \(charterOwner !== null/, 'no "missing means fine" fallbacks');
 });

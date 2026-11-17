@@ -3,7 +3,8 @@
 //
 // It never constructs a Resident (the constructor may make a key, create the ledger record, switch the mode and save),
 // never writes, never reads a private key (the resident's key file is not opened), and does nothing at import. Reads, through the
-// injected `fs` = {readText(path) → string (throws when absent or unreadable), exists(path) → boolean}:
+// injected `fs` = {readText(path) → string (throws when absent or unreadable), exists(path) → true (present), false
+// (certainly absent), and throws when it cannot tell}; any other answer is taken as not known:
 //   charter.json   resident.mjs createCharter: {v: 1, id, owner, limits.maxTurns, haltFile, …}
 //   state.json     resident.mjs + the agent ledger in ONE file (createStateStore):
 //                  {v: STATE_VERSION, turn, journal: {key: line}, …, agentWallet: {agents: {[id]: {mode, policy, agentKey, owner, …}}}}
@@ -60,11 +61,22 @@ export function readResidentState({ dir, wallet, fs, join = (a, b) => `${a.repla
   const rec = st.agentWallet?.agents?.[ch.id];
   if (!isObj(rec)) return unknown('no ledger record for this resident in state.json');
   if (typeof wallet !== 'string' || rec.agentKey !== wallet) return unknown("the ledger's agent key is not the live wallet");
-  const charterOwner = ch.owner?.address ?? null;
-  if (charterOwner !== null && rec.owner !== charterOwner) return unknown('the owner in the charter and in the ledger differ');
+  // (2026-11-17) the owner must be known and the same in both: the resident makes its ledger record with
+  // owner = charter.owner.address (resident.mjs). A missing or different owner is not known, not "no owner".
+  const charterOwner = typeof ch.owner?.address === 'string' && ch.owner.address ? ch.owner.address : null;
+  if (charterOwner === null) return unknown('the charter names no owner address');
+  if (rec.owner !== charterOwner) return unknown('the owner in the charter and in the ledger differ');
+  // (2026-11-17) the policy as the agent ledger keeps it (ledger.mjs create/setPolicy: {…, version ≥ 1}): `revoked`
+  // is absent in a normal policy (not revoked) and a boolean when set; no policy, no version or a revoked that is not
+  // a boolean is not known, never "not revoked"
+  const pol = rec.policy;
+  if (!isObj(pol) || !Number.isSafeInteger(pol.version) || pol.version < 1) return unknown('the ledger policy is missing or has no version');
+  if (pol.revoked !== undefined && typeof pol.revoked !== 'boolean') return unknown('the ledger policy says revoked in a form that is not a yes or no');
+  // (2026-11-17) the halt file: present (true), certainly absent (false), anything else not known
   let halted;
-  try { halted = fs.exists(ch.haltFile) === true; } catch { return unknown('the halt file could not be checked'); }
-  const facts = Object.freeze({ id: ch.id, turn: st.turn, maxTurns: ch.limits.maxTurns, mode: rec.mode ?? null, revoked: Boolean(rec.policy?.revoked), halted });
+  try { halted = fs.exists(ch.haltFile); } catch { return unknown('the halt file could not be checked'); }
+  if (halted !== true && halted !== false) return unknown('the halt file check gave no yes or no');
+  const facts = Object.freeze({ id: ch.id, turn: st.turn, maxTurns: ch.limits.maxTurns, mode: typeof rec.mode === 'string' ? rec.mode : null, revoked: pol.revoked === true, halted });
   const stop = facts.revoked ? { why: 'authority-revoked' }
     : facts.halted ? { why: 'halted-by-operator' }
     : facts.mode !== 'auto' ? { why: 'stopped-by-owner' }
