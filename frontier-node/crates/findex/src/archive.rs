@@ -28,6 +28,14 @@
 //! segments, rewriting the manifest), so a refused archive is left exactly as it was. The checks are made once, at
 //! open: a file swapped afterwards is not covered.
 //!
+//! **Hard links (2026-11-17).** The archive writes into two existing files: the open (last, unsealed) segment, which
+//! `open` may truncate and every append extends, and a leftover `manifest.json.tmp`, which the next manifest write
+//! truncates (`File::create`). A second name for either inode (a hard link) would make those writes change a file
+//! outside the archive too, so on Unix [`Archive::open`] refuses either when its link count is not 1, and a leftover
+//! `manifest.json.tmp` that is not a regular file. Sealed segments are only read, so a hard link to one is left
+//! allowed. Nothing in this repository makes such links (no writer, backup or restore step). On other systems the link
+//! count is not read, and this check is not made.
+//!
 //! **Codec (round 13, TEST-ONLY, a new archive only).** [`Archive::open_with`] with [`Codec::GzipV1`] stores each
 //! frame's payload gzip-compressed (the frame's length and sha256 prefix are those of the STORED bytes, so the frame
 //! check, the torn-tail truncation and the sealed segments' sha256 work as before) and records `"codec": "gzip-v1"` in
@@ -152,6 +160,18 @@ impl Manifest {
             cursor: v.get("cursor").cloned().unwrap_or(Value::Null),
         })
     }
+}
+
+/// How many names a file has beyond the one it was reached by, when more than none: `Some(n)`. On Unix from the link
+/// count; on other systems the count is not read, and `None` is returned (no check is made: module note).
+#[cfg(unix)]
+fn other_names(m: &fs::Metadata) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    (m.nlink() > 1).then(|| m.nlink() - 1)
+}
+#[cfg(not(unix))]
+fn other_names(_: &fs::Metadata) -> Option<u64> {
+    None
 }
 
 /// The file name of the `k`-th segment (1-based), as this writer has always named it.
@@ -325,6 +345,34 @@ impl Archive {
                         "segment {} is not a regular file (a symbolic link, a directory, …): refused, nothing changed",
                         s.name
                     )))
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
+        // The two existing files the archive writes into: the open segment and a leftover temporary manifest (module
+        // note: hard links). Each must have no other name.
+        let mut written: Vec<PathBuf> = vec![dir.join("manifest.json.tmp")];
+        if let Some(last) = manifest.segments.last() {
+            if last.sha256.is_none() {
+                written.push(dir.join(&last.name));
+            }
+        }
+        for p in &written {
+            match fs::symlink_metadata(p) {
+                Ok(m) if !m.file_type().is_file() => {
+                    return Err(io_err(format!(
+                        "{} is not a regular file: refused, nothing changed",
+                        p.display()
+                    )))
+                }
+                Ok(m) => {
+                    if let Some(n) = other_names(&m) {
+                        return Err(io_err(format!(
+                            "{} has {n} other name(s) (a hard link): the archive would write through them; refused, nothing changed",
+                            p.display()
+                        )));
+                    }
                 }
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e),
@@ -855,6 +903,74 @@ mod tests {
         // the real segment back: it opens again
         fs::remove_dir(&seg).unwrap();
         fs::write(&seg, &kept).unwrap();
+        assert_eq!(Archive::open(&d, 600_000).unwrap().verify(), Ok(2));
+    }
+
+    // (2026-11-17, WRITTEN ONLY: not run) Hard links to the files the archive writes into.
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_linked_open_segment_is_refused_and_neither_name_changes() {
+        let root = segname_root("hardlink-open");
+        let (d, _outside, _) = one_segment(&root.0);
+        let seg = d.join("seg-000001.log");
+        let other = root.0.join("other-name.log"); // a second name for the open segment's inode, outside the archive
+        fs::hard_link(&seg, &other).unwrap();
+        // longer than the manifest names, so a recovery would truncate it (through both names)
+        let mut f = OpenOptions::new().append(true).open(&seg).unwrap();
+        f.write_all(b"unnamed tail").unwrap();
+        drop(f);
+        let (before, other_bytes) = (snapshot(&d), fs::read(&other).unwrap());
+        let e = Archive::open(&d, 600_000).err().expect("a hard-linked open segment was opened");
+        assert!(e.to_string().contains("hard link"), "{e}");
+        assert_eq!(snapshot(&d), before, "nothing in the archive changed");
+        assert_eq!(fs::read(&other).unwrap(), other_bytes, "nothing written through the other name");
+        // the other name removed (the test's own fixture): the archive opens, and recovers its tail as before
+        fs::remove_file(&other).unwrap();
+        let b = Archive::open(&d, 600_000).unwrap();
+        assert_eq!(b.verify(), Ok(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_link_to_a_sealed_segment_is_allowed_and_never_written() {
+        let root = segname_root("hardlink-sealed");
+        let d = root.0.join("archive");
+        let mut a = Archive::open(&d, 600).unwrap();
+        let recs: Vec<TxRecord> = (1..=12).map(rec).collect();
+        a.append(&recs[..9], json!({"after": 9})).unwrap();
+        assert!(a.manifest.segments[0].sha256.is_some(), "the first segment is sealed");
+        drop(a);
+        let other = root.0.join("sealed-copy.log");
+        fs::hard_link(d.join("seg-000001.log"), &other).unwrap();
+        let kept = fs::read(&other).unwrap();
+        let mut b = Archive::open(&d, 600).unwrap();
+        b.append(&recs[9..], json!({"after": 12})).unwrap();
+        assert_eq!(b.verify(), Ok(12));
+        assert_eq!(fs::read(&other).unwrap(), kept, "a sealed segment is only read");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_leftover_temporary_manifest_with_another_name_or_a_link_is_refused() {
+        let root = segname_root("tmp-manifest");
+        let (d, outside, bytes) = one_segment(&root.0);
+        let tmp = d.join("manifest.json.tmp");
+        // a hard link: the next manifest write would truncate the file outside
+        fs::hard_link(&outside, &tmp).unwrap();
+        let before = snapshot(&d);
+        assert!(Archive::open(&d, 600_000).err().expect("opened").to_string().contains("hard link"));
+        assert_eq!(snapshot(&d), before);
+        assert_eq!(fs::read(&outside).unwrap(), bytes);
+        // a symbolic link: the same, refused as not a regular file
+        fs::remove_file(&tmp).unwrap();
+        std::os::unix::fs::symlink(&outside, &tmp).unwrap();
+        let before = snapshot(&d);
+        assert!(Archive::open(&d, 600_000).err().expect("opened").to_string().contains("not a regular file"));
+        assert_eq!(snapshot(&d), before);
+        assert_eq!(fs::read(&outside).unwrap(), bytes);
+        // an ordinary leftover (a crash before the rename) still opens, as before
+        fs::remove_file(&tmp).unwrap();
+        fs::write(&tmp, b"{ partial").unwrap();
         assert_eq!(Archive::open(&d, 600_000).unwrap().verify(), Ok(2));
     }
 

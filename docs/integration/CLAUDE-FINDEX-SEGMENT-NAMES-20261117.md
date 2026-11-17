@@ -47,18 +47,31 @@
 
 1. **`Manifest::from_json`:** segment i + 1 must be named exactly `segment_name(i + 1)` (`format!("seg-{k:06}.log")`, which the roll now uses too). Anything else is refused, shown cut to 80 characters: another number, a path, `./`, a different case, a duplicate. This happens while the manifest is read, **before** `Archive::open` truncates, removes or writes anything.
 2. **`Archive::open`:** before the recovery, every named segment that exists must be a **regular file**. The check uses `symlink_metadata`, which does not follow a link, so a symbolic link, a directory or anything else is refused. A missing segment is left to the existing rules (refused when the manifest names bytes, as before).
-3. **Unchanged:**
+3. **Hard links (addendum, second tip): a link count above 1 is refused for the two existing files the archive writes into.**
+   - **The open (last, unsealed) segment:** `open` may truncate it (`set_len`) and every append extends it.
+   - **A leftover `manifest.json.tmp`:** the next manifest write truncates it with `File::create`. A symbolic link or other non-regular file there is refused too. This is the same write-through, found while checking the segment.
+   - **Why:** `is_file()` is true for a hard link, so before this the writes would change the inode's other name, outside the archive.
+   - **How:** on Unix, from `MetadataExt::nlink()`, before any recovery write.
+   - **Sealed segments are only read**, so a hard link to one stays allowed: it is not written and changes nothing.
+   - **Other systems:** the link count is not read (`other_names` returns `None`), so this check is **not made** there. It is not presented as made.
+   - **Shared inodes in normal use:** none found. No writer, backup, restore or rewind step in this repository makes hard links (`git grep` for `hard_link`, `link-dest`, `cp -l`/`-al`, `ln` without `-s`, `clonefile`, `reflink`, `nlink`). The documented rewind re-points findex; it does not link files.
+     - **The one practice this refuses:** an operator hard-link "snapshot" of a live store, such as `cp -al` or a `--link-dest` backup. That practice is already unsafe for an append-only open segment: the "backup" changes with every append.
+     - **If the owner wants to allow it,** the choice is to copy the open segment instead of linking it. This is not decided here.
+4. **Unchanged:**
    - the recovery itself;
    - the removal rule for unnamed segments, which with canonical names can no longer meet an alias;
    - the formats;
    - group commit, the codec check, and every reader.
 
 **Not claimed:**
-- **Not race-free:** the checks are made once, at open. A file swapped between the check and `set_len`, or later, is not covered. Nothing here canonicalizes paths.
+- **Not race-free:**
+  - the checks are made once, at open. A file swapped between the check and `set_len`, or later, is not covered;
+  - a hard link made after open is not covered either;
+  - no `O_NOFOLLOW`, no descriptor-relative open and no new dependency is used, and nothing canonicalizes paths.
 - **The store directory itself is not covered:** if it, or a component of its path, is a link, that is the caller's choice and is not checked.
 - **No repair:** nothing is deleted or rewritten to repair a refused archive. It is left exactly as it was.
 
-## Regression (written, NOT run): four cases in `archive.rs` `mod tests`
+## Regression (written, NOT run): seven cases in `archive.rs` `mod tests`
 
 **Their own roots:**
 - each test makes its own root with `fs::create_dir`, never an existing one;
@@ -71,6 +84,9 @@
 | `a_name_the_writer_never_gives_is_refused_and_nothing_inside_or_outside_changes` | `../outside.txt`, the outside file's absolute path, `./seg-000001.log`, `seg-1.log`, `seg-000002.log` in position 1, a duplicate, `SEG-000001.LOG`. Each is refused. The archive directory's entries, kinds, lengths and bytes are unchanged, and the 4 KiB file outside is unchanged. The real archive still opens and verifies afterwards. |
 | `a_named_segment_that_is_a_link_or_a_directory_is_refused_and_nothing_is_written_through_it` | (unix) the open segment replaced by a link to the bigger outside file is refused, with nothing truncated through it and the directory unchanged. A directory in its place is refused. With the real segment back, the archive opens and verifies. |
 | `a_sealed_segment_that_is_a_link_is_refused_too` | (unix) the first, sealed segment is a link: refused, and nothing changes. |
+| `a_hard_linked_open_segment_is_refused_and_neither_name_changes` | (unix, addendum) the open segment has a second name outside the archive, plus an unnamed tail a recovery would truncate. Open is refused ("hard link"). The archive is unchanged and the other name's bytes are unchanged. With the other name removed (the test's own fixture), the archive opens, recovers its tail as before, and verifies. |
+| `a_hard_link_to_a_sealed_segment_is_allowed_and_never_written` | (unix, addendum) a hard link to a sealed segment: the archive opens, appends 3 more records, and verifies 12. The other name's bytes are unchanged. |
+| `a_leftover_temporary_manifest_with_another_name_or_a_link_is_refused` | (unix, addendum) `manifest.json.tmp` as a hard link to, then a symbolic link to, the outside file: both refused, with nothing changed inside or outside. An ordinary leftover (a crash before the rename) still opens and verifies, as before. |
 
 **Running them needs its own pre-run evidence and approval:** `cargo test -p findex --lib archive::tests`, under the unchanged `floor21.sh` → `conquest-guard.sh`. Not prepared here.
 
