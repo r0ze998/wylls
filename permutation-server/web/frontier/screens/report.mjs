@@ -798,7 +798,14 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
   const close = html`<button type="button" class="btn small quiet report-x" data-act="report-close">${icon('return')}${L`戻る`}</button>`;
   const head = html`<header class="doc-head"><span class="doc-titles"><h3 id="report-title"><span class="doc-kicker">${L`衝突の報告`}</span><span class="doc-place">${provinceName(FS, r.p, r.q)}</span></h3></span>${chip(html`${icon('bell')}${L`ターン ${fmtNum(r.bell)}`}`)}${close}</header>`;
   if (r.loading) return html`<section aria-labelledby="report-title" class="report doc">${head}<div class="wait-row">${ring(null)}<p class="muted">${L`読み込み中…`}</p></div></section>`;
-  if (r.error) return html`<section aria-labelledby="report-title" class="report doc">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p></section>`;
+  // (2026-11-17, ⑦: a report that could not be read is not the end of the way: the same request can be made again from
+  //  here — app `report-open` → openReport, which keeps its own checks of the world and of the last request — and the
+  //  place can still be gone to. It said only that it could not be read, with 戻る: the person had to find the entry
+  //  again. Not read is not "no clash": said as that.)
+  if (r.error) return html`<section aria-labelledby="report-title" class="report doc">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p>
+    <p class="muted">${L`戦いがなかったという意味ではありません。もう一度読み込めます。`}</p>
+    <div class="actions"><button type="button" class="btn primary" data-act="report-open" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${icon('return')}${L`もう一度読み込む`}</button>
+      <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div></section>`;
   const rep = r.clash?.report ?? {};
   const v = r.verify;
   // (before verification: the records the page holds, the viewer's own side among them: recordRows)
