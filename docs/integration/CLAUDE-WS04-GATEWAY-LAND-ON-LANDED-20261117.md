@@ -87,3 +87,25 @@ They reuse that file's stub and scene.
 - `workstreams/04-execution/src/gateway.rs`
 - `workstreams/04-execution/tests/gateway_facts.rs`
 - this report
+
+## Counter-review of the executor's other status readers (after the first commit)
+
+| Reader (`executor.rs`) | Behaviour now | Result |
+|---|---|---|
+| `undecided` (`:885-925`) | `Landed` without a canonical record → wait one slot | the deferred landing is picked up on the next tick |
+| `reconcile_fees` (`:362-378`) | reads only attempts past `valid_until` | gateway attempts (`u64::MAX`) are never listed, as before |
+| superseding (`:950-965`) | `status` lands only on `landed` | unchanged outcome |
+| evidence (`:1228-1250`) | positive evidence from `status` `Landed` or a CaravanSent record. The record now appears only after a `landed` fate has landed it, so the evidence still comes through `status`. | unchanged outcome |
+
+**No further defect.**
+
+## Hand-over to Lane D (manifest)
+
+- **Unit:** `claude/ws04-gateway-land-on-landed-20261117`, on the base `51daba36` (the aggregate when work began).
+- **Paths** (all mode 100644):
+  - `workstreams/04-execution/src/gateway.rs` (M)
+  - `workstreams/04-execution/tests/gateway_facts.rs` (M: three tests appended)
+  - `docs/integration/CLAUDE-WS04-GATEWAY-LAND-ON-LANDED-20261117.md` (A)
+- **Overlap:** none with the aggregate's later commits (`dea93529`: ③ `server.mjs`, `store.mjs` and two tests). `merge-tree` reports no conflict (objects only).
+- **Not run:** the three new cases, the existing ones, any `cargo` build.
+- **Not connected:** any real chain.
