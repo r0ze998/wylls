@@ -845,9 +845,12 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     if (args === null || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length > 0) {
       return fail('BadRequest', 'get_cooperation_status takes no arguments: the owner is this connection\'s and the world is the server\'s current one');
     }
+    // Both boundaries read the relay now ({fresh: true}, 2026-11-18): the real Game reuses a context read for 15 s, so a
+    // cached "after" would repeat the "before" read and could not see a change during the board read. Every other caller
+    // keeps the cache. Two fresh observations bracket the board read; they do not lock or linearize the remote world.
     const contextOf = async () => {
       try {
-        const c = await game.context();
+        const c = await game.context({ fresh: true });
         if (!c || typeof c.programId !== 'string' || (typeof c.seasonId !== 'string' && !Number.isSafeInteger(c.seasonId))) return null;
         const seasonId = String(c.seasonId);
         if (typeof c.key === 'string' && c.key !== `${c.programId}:${seasonId}`) return null;
