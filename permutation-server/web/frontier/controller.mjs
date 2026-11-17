@@ -1561,6 +1561,10 @@ export function applyMeResult(me) {
 
 /** Refresh the viewer's accounts, provinces, marches, chronicle and quota. */
 export async function refresh() {
+  // (2026-11-17, ⑦: counted while it runs, for rereadVillage — which adopts nothing while a refresh is under way, so a
+  //  refresh goes from its own /h/me answer to its end on one observation. Nothing below is changed by the count.)
+  pollsUnderWay += 1;
+  try {
   if (!herald || !FS.clock) return;
   const request = ++viewerRefresh, world = providerWorld();
   FS.nowBell = nowBell();
@@ -1580,10 +1584,7 @@ export async function refresh() {
     if (!currentViewer()) return;
     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
     if (!currentViewer()) return;
-    // (2026-11-17, ⑦: the person's own re-read — rereadVillage — asked AFTER this refresh began and already adopted is
-    //  the later read: this refresh's older /h/me answer, good or failed, is not put over it. Only the adoption is
-    //  skipped; the rest of this refresh goes on as always, and nothing here is cut short.)
-    if (request > meNewerThan && applyMeResult(me) === 'error') return;
+    if (applyMeResult(me) === 'error') return;
     const h = activeHolding(FS);
     // every holding's province (the rail can switch between them), the active one first
     for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) { await loadEnvelope(o.p, o.q); if (!currentViewer()) return; }
@@ -1621,10 +1622,11 @@ export async function refresh() {
   invalidate('panel', 'tabs', 'chips', 'map');
   if (needsHomeChoice()) await refreshHomes();
   else autoTicket().catch(e => console.error('frontier auto ticket:', e));
+  } finally { pollsUnderWay -= 1; }
 }
 
-/** The refresh number (`viewerRefresh`) at the press of the last village re-read that was adopted; see refresh. */
-let meNewerThan = 0;
+/** How many `refresh` calls are under way (counted at its head and in its `finally`); see rereadVillage. */
+let pollsUnderWay = 0;
 
 /**
  * Whether adopting this /h/me answer through applyMeResult would save nothing on the device: the land stage is the one
@@ -1653,18 +1655,25 @@ function plainMeAnswer(me) {
  *   - what an adoption still does besides memory: `refreshDelegation` may make its public agents read (at most every
  *     AGENTS_REFRESH_MS, while the key does not match) — a read, as in every regular load
  *   - whose answer: this press's own run object, the herald, local play, the wallet, the viewer key and the pinned
- *     world, all as at the press; a regular load that BEGAN after the press is the later read and this one is let go;
- *     one that began before and answers later does not replace this one (`meNewerThan`, in refresh)
+ *     world, all as at the press
+ *   - against the regular load (corrected 2026-11-17: the first version let a refresh that began earlier go on with
+ *     its own older record beside the holdings adopted here — two observations mixed): NOTHING is adopted while any
+ *     refresh is under way ('yielded' — that refresh, from its own answer to its end, is the one observation), and
+ *     an answer is let go without a word when a refresh began after the press and has ended. So a refresh never sees
+ *     this adoption between its steps, and this adoption never stands under an older answer. refresh itself is
+ *     unchanged but for the count; `viewerRefresh` is never moved here
+ *   - which village: the one in hand at the press, by place, site AND generation (`holdingRef`); its province is read
+ *     only if that same village is still among the holdings adopted — another village on the same place is not it
  *   - a press while one is under way starts nothing; the prototype rule's world (its own records ride on the regular
  *     load) and practice are not offered
- * `FS.villageReread = { state: 'loading'|'failed'|'changed'|'provinceFailed', code, key, errAt, citAt }` is the note
+ * `FS.villageReread = { state: 'loading'|'failed'|'changed'|'yielded'|'provinceFailed', code, key, ref, errAt, citAt }` is the note
  * for the screen (screens/holding.mjs holdingRead); null when there is nothing to say.
  */
 export async function rereadVillage() {
   if (!herald || !FS.clock || !FS.wallet || FS.proto || FS.mode !== 'play') return false;
   if (FS.villageReread?.state === 'loading') return 'loading';
   const h0 = activeHolding(FS) ?? null;
-  const run = { state: 'loading', code: null, key: h0 ? `${h0.p},${h0.q}` : null, errAt: null, citAt: null };
+  const run = { state: 'loading', code: null, key: h0 ? `${h0.p},${h0.q}` : null, ref: h0 ? holdingRef(h0) : null, errAt: null, citAt: null };
   const at = { herald, localPlay, address: FS.wallet.address, viewer: viewerKey(), world: providerWorld(), poll: viewerRefresh };
   const mine = () => FS.villageReread === run && herald === at.herald && localPlay === at.localPlay && FS.wallet?.address === at.address
     && viewerKey() === at.viewer && providerWorld() === at.world;
@@ -1676,14 +1685,14 @@ export async function rereadVillage() {
   try {
     const me = await at.herald.me(at.viewer).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     if (!mine()) return false;
+    if (pollsUnderWay > 0) { say('yielded'); return false; }
     if (viewerRefresh !== at.poll) { FS.villageReread = null; return false; }
     if (me.ok && !viewerOwnCitizen(me.citizen)) { say('failed', 'WrongKey'); return false; }
     if (!me.ok && me.code !== 'NotFound') { say('failed', me.code ?? 'Unavailable'); return false; }
     if (!plainMeAnswer(me)) { say('changed'); return false; }
-    meNewerThan = at.poll;
     applyMeResult(me);
     part = 'province';
-    const h = h0 ? (FS.holdings ?? []).find(x => x.p === h0.p && x.q === h0.q) ?? null : null;
+    const h = run.ref ? (FS.holdings ?? []).find(x => holdingRef(x) === run.ref) ?? null : null;
     if (h) {
       const got = await loadEnvelope(h.p, h.q, 'latest', mine);
       if (!mine()) return false;

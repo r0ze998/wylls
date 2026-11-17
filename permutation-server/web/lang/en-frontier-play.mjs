@@ -1715,4 +1715,5 @@ export default {
   '読み直しましたが、土地の状態にかかわる変更がありました。この変更は、次の通常の読み込みで反映します。ここの表示は、まだ前の記録のものです。': 'The record was loaded again, but it carries a change to the state of the land. The next regular load will apply this change. What is shown here is still the earlier record.',
   '村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。': 'The village record was loaded again. The record of this village\'s province was not. The province\'s numbers are still those of the record loaded before.',
   '村の記録を読み直す': 'Load the village record again',
+  '通常の読み込みが進んでいたので、この読み直しの答えは使いませんでした。通常の読み込みの結果をお待ちください。': 'A regular load was under way, so the answer of this press was not used. Please wait for the result of the regular load.',
 };

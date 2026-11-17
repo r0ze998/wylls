@@ -281,7 +281,7 @@ export function holdingRead(FS) {
   //  province part did not come; never in the prototype rule's world.)
   const rr = FS.villageReread ?? null;
   const rrState = !rr ? null : rr.state === 'loading' ? 'loading'
-    : rr.state === 'provinceFailed' ? (key !== null && rr.key === key ? 'provinceFailed' : null)
+    : rr.state === 'provinceFailed' ? (mine && rr.ref === `${h.p},${h.q},${h.site},${h.gen ?? 0}` ? 'provinceFailed' : null)
     : (rr.errAt ?? null) === (FS.meError ?? null) && (rr.citAt ?? null) === (FS.citizen ?? null) ? rr.state : null;
   const can = !!FS.wallet && !FS.proto && FS.mode === 'play' && (FS.meStatus === 'error' || rrState === 'provinceFailed');
   return { viewer, province: !mine ? null : FS.provinces?.has?.(key) ? 'held' : st?.state ?? 'idle', code: st?.code ?? null, p: mine ? h.p : null, q: mine ? h.q : null,
@@ -293,6 +293,7 @@ function rereadLines(rr) {
   if (rr.state === 'loading') lines.push(html`<p class="muted" role="status">${L`村の記録を読み直しています…`}</p>`);
   else if (rr.state === 'failed') lines.push(html`<p class="notice error" role="alert">${L`村の記録を読み直せませんでした（${rr.code}）。前に読めた記録は、そのまま残しています。`}</p>`);
   else if (rr.state === 'changed') lines.push(html`<p class="notice" role="status">${L`読み直しましたが、土地の状態にかかわる変更がありました。この変更は、次の通常の読み込みで反映します。ここの表示は、まだ前の記録のものです。`}</p>`);
+  else if (rr.state === 'yielded') lines.push(html`<p class="notice" role="status">${L`通常の読み込みが進んでいたので、この読み直しの答えは使いませんでした。通常の読み込みの結果をお待ちください。`}</p>`);
   else if (rr.state === 'provinceFailed') lines.push(html`<p class="notice error" role="alert">${L`村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。`}</p>`);
   if (rr.can && rr.state !== 'loading') lines.push(html`<div class="actions"><button type="button" class="btn small" data-act="village-reread">${icon('return')}${L`村の記録を読み直す`}</button></div>`);
   return lines;

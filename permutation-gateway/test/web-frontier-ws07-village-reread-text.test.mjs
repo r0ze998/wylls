@@ -12,9 +12,16 @@
 //   G3 a failed read (also another key's Citizen) is not handed to applyMeResult: values held and the wide data stay
 //   G4 whose answer: the press's own run, herald, local play, wallet, viewer key, world — checked after each wait and
 //      before anything is written; a second press while one is under way starts nothing
-//   G5 order against the regular load: one that began after the press → this answer is let go, no note; one that began
-//      before and answers after an adoption → its /h/me answer is not adopted, the rest of that refresh goes on;
-//      viewerRefresh is never moved by the re-read (flows that await refresh are not cut short)
+//   G5 against the regular load (CORRECTED — the first version skipped only the adoption of an older refresh's answer
+//      and let that refresh go on with its own older record beside the newer holdings: two observations mixed):
+//      - any refresh under way when the answer comes (begun before OR after the press) → nothing adopted, 'yielded'
+//      - a refresh began after the press and has ended → this answer is let go, no note
+//      - so an adoption happens only between refreshes: a refresh runs from its own answer to its end on one
+//        observation (refreshProto included), and no older answer is put over an adoption
+//      - refresh is unchanged but for the count at its head and in its finally: `if (applyMeResult(me) === 'error')
+//        return;` is the line it was; viewerRefresh is never moved by the re-read (flows that await refresh are not
+//        cut short); the count comes down on every way out
+//   G5b which village: by place, site and generation — another village on the same place is not the one pressed for
 //   G6 partial: the viewer's record adopted, the province read not come → 'provinceFailed' for that village; a good read
 //      of that province by anyone ends the note; a throw is a failure of the part it happened in
 //   G7 a change of viewer, herald or world lets the re-read and its note go
@@ -53,7 +60,7 @@ test('G2 adopted only when adopting saves nothing', () => {
   for (const s of ["if (before && gone && ['provisional', 'final', 'ticket'].includes(before)) saveLandPatch(", "if ((after === 'provisional' || after === 'final') && lr.landEnd) saveLandPatch({ landEnd: null });",
     'if (FS.landRec?.ticketSeen === false && shown) saveLandPatch({ ticketSeen: true });']) assert.ok(am.includes(s), s);
   assert.equal((am.match(/saveLandPatch\(/g) ?? []).length, 3, 'no other save in applyMeResult');
-  order(rv, "if (!plainMeAnswer(me)) { say('changed'); return false; }", 'meNewerThan = at.poll;', 'applyMeResult(me);');
+  order(rv, "if (!plainMeAnswer(me)) { say('changed'); return false; }", 'applyMeResult(me);');
 });
 
 test('G3 a failed read is not handed to applyMeResult', () => {
@@ -65,7 +72,7 @@ test('G3 a failed read is not handed to applyMeResult', () => {
 
 test('G4 the answer belongs to the press', () => {
   order(rv, "if (!herald || !FS.clock || !FS.wallet || FS.proto || FS.mode !== 'play') return false;", "if (FS.villageReread?.state === 'loading') return 'loading';",
-    'const h0 = activeHolding(FS) ?? null;', "const run = { state: 'loading', code: null, key: h0 ? `${h0.p},${h0.q}` : null, errAt: null, citAt: null };",
+    'const h0 = activeHolding(FS) ?? null;', "const run = { state: 'loading', code: null, key: h0 ? `${h0.p},${h0.q}` : null, ref: h0 ? holdingRef(h0) : null, errAt: null, citAt: null };",
     'const at = { herald, localPlay, address: FS.wallet.address, viewer: viewerKey(), world: providerWorld(), poll: viewerRefresh };',
     'const mine = () => FS.villageReread === run && herald === at.herald && localPlay === at.localPlay && FS.wallet?.address === at.address',
     '&& viewerKey() === at.viewer && providerWorld() === at.world;', "FS.villageReread = run; invalidate('panel');",
@@ -73,18 +80,31 @@ test('G4 the answer belongs to the press', () => {
   order(rv, '} finally {', "if (FS.villageReread === run && run.state === 'loading') FS.villageReread = null;");
 });
 
-test('G5 order against the regular load', () => {
-  order(rv, 'if (!mine()) return false;', 'if (viewerRefresh !== at.poll) { FS.villageReread = null; return false; }', 'meNewerThan = at.poll;', 'applyMeResult(me);');
-  assert.doesNotMatch(codeOf(rv), /\+\+viewerRefresh|viewerRefresh \+= |viewerRefresh = /, 'the re-read never moves viewerRefresh');
-  assert.ok(ctl.includes('let meNewerThan = 0;'));
-  order(rf, 'const request = ++viewerRefresh, world = providerWorld();', 'const me = await herald.me(viewerKey())', 'if (!currentViewer()) return;',
-    "if (request > meNewerThan && applyMeResult(me) === 'error') return;", 'const h = activeHolding(FS);', 'await refreshMarches();', 'updateHomeGrant();');
-  assert.equal((codeOf(rf).match(/meNewerThan/g) ?? []).length, 1, 'one use in refresh');
-  assert.equal((ctl.match(/meNewerThan = /g) ?? []).length, 2, 'set at its declaration and at an adoption only');
+test('G5 nothing is adopted while a regular load is under way', () => {
+  order(rv, 'await at.herald.me(at.viewer)', 'if (!mine()) return false;', "if (pollsUnderWay > 0) { say('yielded'); return false; }",
+    'if (viewerRefresh !== at.poll) { FS.villageReread = null; return false; }', "if (!plainMeAnswer(me))", 'applyMeResult(me);');
+  assert.doesNotMatch(codeOf(rv), /\+\+viewerRefresh|viewerRefresh \+= |viewerRefresh = |pollsUnderWay [-+]= /, 'the re-read moves neither number');
+  assert.ok(ctl.includes('let pollsUnderWay = 0;'));
+  // refresh: the count at the head, the body as it was, the count down on every way out
+  order(rf, 'export async function refresh() {', 'pollsUnderWay += 1;', 'try {', 'if (!herald || !FS.clock) return;', 'const request = ++viewerRefresh, world = providerWorld();',
+    'const me = await herald.me(viewerKey())', 'if (!currentViewer()) return;', 'if (FS.proto) await refreshProto(me.ok ? me.record : undefined);',
+    "if (applyMeResult(me) === 'error') return;", 'const h = activeHolding(FS);', 'await refreshMarches();', 'updateHomeGrant();',
+    "else autoTicket().catch(e => console.error('frontier auto ticket:', e));", '} finally { pollsUnderWay -= 1; }');
+  assert.equal((ctl.match(/pollsUnderWay \+= 1;/g) ?? []).length, 1);
+  assert.equal((ctl.match(/pollsUnderWay -= 1;/g) ?? []).length, 1);
+  assert.doesNotMatch(ctl, /meNewerThan/, 'the partial skip of the first version is gone');
+  assert.doesNotMatch(codeOf(rf).replace('pollsUnderWay += 1;', '').replace('} finally { pollsUnderWay -= 1; }', ''), /pollsUnderWay|villageReread|rereadVillage/, 'refresh decides nothing by the re-read');
+});
+
+test('G5b the village pressed for, not merely its place', () => {
+  assert.ok(ctl.includes('const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : \'\');'));
+  assert.ok(rv.includes('const h = run.ref ? (FS.holdings ?? []).find(x => holdingRef(x) === run.ref) ?? null : null;'));
+  assert.doesNotMatch(codeOf(rv), /x\.p === h0\.p/, 'not by coordinates alone');
+  assert.ok(hr.includes(": rr.state === 'provinceFailed' ? (mine && rr.ref === `${h.p},${h.q},${h.site},${h.gen ?? 0}` ? 'provinceFailed' : null)"));
 });
 
 test('G6 partial read: the province part', () => {
-  order(rv, "let part = 'viewer';", 'applyMeResult(me);', "part = 'province';", 'const h = h0 ? (FS.holdings ?? []).find(x => x.p === h0.p && x.q === h0.q) ?? null : null;',
+  order(rv, "let part = 'viewer';", 'applyMeResult(me);', "part = 'province';", 'const h = run.ref ? (FS.holdings ?? []).find(x => holdingRef(x) === run.ref) ?? null : null;',
     "if (!got) { say('provinceFailed'); return 'partial'; }", 'FS.villageReread = null;', 'return true;',
     "if (mine()) say(part === 'viewer' ? 'failed' : 'provinceFailed', part === 'viewer' ? e?.code ?? 'Error' : null);");
   const le = fnOf(ctl, 'async function loadEnvelope(');
@@ -100,12 +120,11 @@ test('G7 another viewer, herald or world: the re-read is let go', () => {
 
 test('G8 the screen says what became of the press', () => {
   order(hr, 'const rr = FS.villageReread ?? null;', "const rrState = !rr ? null : rr.state === 'loading' ? 'loading'",
-    ": rr.state === 'provinceFailed' ? (key !== null && rr.key === key ? 'provinceFailed' : null)",
     ': (rr.errAt ?? null) === (FS.meError ?? null) && (rr.citAt ?? null) === (FS.citizen ?? null) ? rr.state : null;',
     "const can = !!FS.wallet && !FS.proto && FS.mode === 'play' && (FS.meStatus === 'error' || rrState === 'provinceFailed');",
     'reread: { can, state: rrState, code: rrState ? rr.code ?? null : null } };');
   order(lines, "if (rr.state === 'loading')", '村の記録を読み直しています…', "else if (rr.state === 'failed')", '村の記録を読み直せませんでした（${rr.code}）。',
-    "else if (rr.state === 'changed')", '読み直しましたが、土地の状態にかかわる変更がありました。', "else if (rr.state === 'provinceFailed')", '村の記録は読み直せました。この村の州の記録は読み直せませんでした。',
+    "else if (rr.state === 'changed')", '読み直しましたが、土地の状態にかかわる変更がありました。', "else if (rr.state === 'yielded')", '通常の読み込みが進んでいたので、この読み直しの答えは使いませんでした。', "else if (rr.state === 'provinceFailed')", '村の記録は読み直せました。この村の州の記録は読み直せませんでした。',
     "if (rr.can && rr.state !== 'loading') lines.push(", 'data-act="village-reread"');
   order(note, "if (r.province && r.province !== 'held') {", 'lines.push(...rereadLines(r.reread));', 'return lines.length ? html`<div class="village-read"');
   assert.ok(hs.includes('const rd = holdingRead(FS), v = rd.viewer, again = rereadLines(rd.reread);'), 'also with no village in hand');
@@ -115,7 +134,8 @@ test('G8 the screen says what became of the press', () => {
 test('G9 English follows; no banned word', () => {
   for (const k of ['村の記録を読み直しています…', '村の記録を読み直せませんでした（{0}）。前に読めた記録は、そのまま残しています。',
     '読み直しましたが、土地の状態にかかわる変更がありました。この変更は、次の通常の読み込みで反映します。ここの表示は、まだ前の記録のものです。',
-    '村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。', '村の記録を読み直す']) {
+    '村の記録は読み直せました。この村の州の記録は読み直せませんでした。州の数は、前に読めた記録のままです。', '村の記録を読み直す',
+    '通常の読み込みが進んでいたので、この読み直しの答えは使いませんでした。通常の読み込みの結果をお待ちください。']) {
     const line = en.split('\n').find(l => l.startsWith(`  '${k}':`));
     assert.ok(line, k);
     assert.doesNotMatch(line.slice(line.indexOf("': ") + 3), /\b(settle[ds]?|settling|keeper|beacon|seed)\b/i);
