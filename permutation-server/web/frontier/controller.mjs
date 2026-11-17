@@ -811,6 +811,16 @@ export function adoptPinnedWorld() {
   FS.worldRings?.clear?.();
   FS.overviewsBell = undefined;
   overviewSource = null; overviewWorld = null;
+  // (2026-11-17, ⑦ the wide map: the province records read for another world are not this world's land — emptied in
+  //  place —, and neither are when each was asked (the wait before asking again) nor how its read went)
+  FS.provinces?.clear?.();
+  fetchedAt.clear();
+  FS.provinceReads?.clear?.();
+  // (the reads under way were asked of another world: their answers are dropped (loadEnvelope) and no province is
+  //  "being read" for this world yet — but their requests go on until they settle, and until then they keep their
+  //  places (readsUnderWay is NOT emptied here: the limit counts what is really under way). Nothing waits from before)
+  artWanted.clear();
+  waitingWant = null;
   dropOtherWorldConquest(world);
   return true;
 }
@@ -846,8 +856,14 @@ async function loadEnvelope(p, q, bell = 'latest', still = null) {
     if (FS.proto) protoLand(key, accepted.proto?.land ?? null);
     const k=keepFromProvince(accepted.province);
     if (k && FS.conquest) FS.conquest.keeps.set(key,k);
+    FS.provinceReads?.delete?.(key);
     return accepted;
   }
+  // (2026-11-17, ⑦ the wide map: how the latest read of a province went, for the one who selected it — hud/inspect.mjs.
+  //  A read that failed is not "being read" for good and not an empty province: `failed` with the herald's code, or
+  //  `missing` when the herald has no record of it (NotFound). Only for the world still pinned — checked above — and
+  //  only while nothing is held: a record read before stays what is shown)
+  if (bell === 'latest' && !FS.provinces.has(`${p},${q}`)) (FS.provinceReads ??= new Map()).set(`${p},${q}`, { state: r.code === 'NotFound' ? 'missing' : 'failed', code: r.code ?? 'Error' });
   return null;
 }
 
@@ -1310,20 +1326,90 @@ export const clearLocalPlayReturn = () => { const ok = localReturn.clearLocalRet
  */
 export const WANT_IN_FLIGHT = 12;
 export const WANT_REFRESH_MS = 30_000;
-const artWanted = new Set();
+// (2026-11-17, ⑦ the wide map: each read under way has its own token, so the end of an older read of a province — one
+//  another world's change let go — neither frees the place of a newer read of that province nor clears what it says)
+const artWanted = new Map();   // "P,Q" → the token of the read under way FOR THE WORLD NOW PINNED
+// (2026-11-17 correction: the places are counted by the reads that are really under way — every token from its start
+//  until its request has settled, whatever world it was asked of. A change of world lets go of what the reads MEAN
+//  (artWanted, above: their answers are dropped) but not of the places they still take: the client cannot call a
+//  request off, so it is not counted as stopped. The limit therefore holds across any number of changes of world.)
+const readsUnderWay = new Set();   // the tokens of every request not settled yet
 const fetchedAt = new Map();
+/**
+ * The ONE read that waits for a free place (2026-11-17, ⑦): the province the person selected, or pressed "read again"
+ * for, when all WANT_IN_FLIGHT places are taken. Never a queue: a later one takes its place. It starts when a read
+ * ends — only if the same world is still pinned and that province is still the one selected; otherwise it is let go.
+ */
+let waitingWant = null;
+const selectedIs = (p, q) => { const s = FS.selected; return !!s && s.p === p && s.q === q; };
+function holdWant(p, q, onLoad) {
+  const key = `${p},${q}`;
+  if (waitingWant && waitingWant.key !== key && FS.provinceReads?.get(waitingWant.key)?.state === 'waiting') FS.provinceReads.delete(waitingWant.key);
+  waitingWant = { p, q, key, onLoad, world: providerWorld() };
+  if (!FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'waiting', code: null });
+}
+function startWaiting() {
+  const w = waitingWant;
+  if (!w) return;
+  if (w.world !== providerWorld() || !selectedIs(w.p, w.q)) {
+    waitingWant = null;
+    if (FS.provinceReads?.get(w.key)?.state === 'waiting') FS.provinceReads.delete(w.key);
+    return;
+  }
+  if (!herald || artWanted.has(w.key) || readsUnderWay.size >= WANT_IN_FLIGHT) return;
+  waitingWant = null;
+  startProvinceRead(w.p, w.q, w.onLoad, Date.now());
+}
+/** Start one read (the caller has checked the limit and that none of this province is under way). */
+function startProvinceRead(p, q, onLoad, now) {
+  const key = `${p},${q}`, token = {}, world = providerWorld();
+  artWanted.set(key, token);
+  readsUnderWay.add(token);
+  fetchedAt.set(key, now);
+  // (the read is under way: a province not held says so, also over an earlier failure or wait)
+  if (!FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'loading', code: null, token });
+  else if (FS.provinceReads?.get(key)?.state === 'waiting') FS.provinceReads.delete(key);
+  loadEnvelope(p, q).catch(() => { if (providerWorld() === world && artWanted.get(key) === token && !FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'failed', code: 'Error' }); return null; })
+    .finally(() => {
+      // (settled — answered, failed or dropped: its own place is free now, and only its own)
+      readsUnderWay.delete(token);
+      // (only this read's own name and words: a newer read of the province keeps its own)
+      if (artWanted.get(key) === token) artWanted.delete(key);
+      const st = FS.provinceReads?.get(key);
+      // (an answer the change of world dropped left "loading" behind for a province nobody asks about now: let go)
+      if (st?.state === 'loading' && st.token === token && !FS.provinces.has(key)) FS.provinceReads.delete(key);
+      startWaiting();
+      onLoad();
+    });
+}
 export function wantProvince(p, q, onLoad = () => {}, { now = Date.now(), bell = nowBell() } = {}) {
   const key = `${p},${q}`;
-  if (!herald || artWanted.has(key) || artWanted.size >= WANT_IN_FLIGHT) return false;
+  if (!herald || artWanted.has(key)) return false;
   const have = FS.provinces.get(key);
   if (have && !(have.bell < bell && now - (fetchedAt.get(key) ?? 0) >= WANT_REFRESH_MS)) return false;
   // (workstream 07: a Province asked for and not stored — its read failed, e.g. 404 for one not on chain yet — waits the
   // same interval: each finished load redraws, and the redraw asked for it again at once, hundreds of times a minute)
   if (!have && fetchedAt.has(key) && now - fetchedAt.get(key) < WANT_REFRESH_MS) return false;
-  artWanted.add(key);
-  fetchedAt.set(key, now);
-  loadEnvelope(p, q).catch(() => null).finally(() => { artWanted.delete(key); onLoad(); });
+  // (every place taken: the map's own asks come again with the next redraw; the province the person selected — also
+  //  from far away, where the map does not ask for it — waits for the next free place instead of being lost)
+  if (readsUnderWay.size >= WANT_IN_FLIGHT) { if (selectedIs(p, q)) holdWant(p, q, onLoad); return false; }
+  startProvinceRead(p, q, onLoad, now);
   return true;
+}
+/**
+ * Read a province again now, at the person's request (the inspector's button; 2026-11-17, ⑦): the wait before asking
+ * again is set aside for this province only. Answers what became of the press, never nothing: 'started', 'loading'
+ * (its read is already under way: not doubled), 'waiting' (every place is taken: it has the one waiting place and
+ * starts when a read ends) or false (no herald). A record held is read again whatever its bell: the person asked.
+ */
+export function retryProvince(p, q, onLoad = () => {}) {
+  const key = `${p},${q}`;
+  if (!herald) return false;
+  if (artWanted.has(key)) return 'loading';
+  fetchedAt.delete(key);
+  if (readsUnderWay.size >= WANT_IN_FLIGHT) { holdWant(p, q, onLoad); return 'waiting'; }
+  startProvinceRead(p, q, onLoad, Date.now());
+  return 'started';
 }
 
 /**

@@ -1674,4 +1674,11 @@ export default {
   'あなたの国が奪取中：{0} / {1} ターン': 'Your nation is taking it: turn {0} of {1}',
   '{0}が奪取中：{1} / {2} ターン': '{0} is taking it: turn {1} of {2}',
   '国の土地から切り離され減っています：{0} / {1} ターン': 'Cut off from its nation\'s land, fading: turn {0} of {1}',
+  // (2026-11-17, Lane C ⑦ the wide map: how the reads behind the inspector's card went)
+  'この州のようすを読み込めませんでした（{0}）。何もない州という意味ではありません。': 'This province could not be loaded ({0}). This does not mean the province is empty.',
+  'この州の記録は、まだ届いていません。何もない州という意味ではありません。': 'No record of this province has arrived yet. This does not mean the province is empty.',
+  'この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。': 'The list of villages in this ring has not been loaded yet. This does not mean there are no villages.',
+  'もう一度読み込む': 'Load again',
+  'この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。': 'This province has not been loaded yet. This does not mean the province is empty.',
+  'この州の読み込みは、順番を待っています。空きしだい読み込みます。': 'Loading this province is waiting its turn. It will be loaded as soon as there is room.',
 };
