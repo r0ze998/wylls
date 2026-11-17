@@ -81,3 +81,9 @@
 - `docs/integration/CLAUDE-FINDEX-DIR-SYNC-20261117.md` (A)
 
 **Not run:** anything.
+
+**Merge checks (objects only, `git merge-tree`):**
+- **with the aggregate's newer tip `c7c1b1c5`:** clean. findex is unchanged there.
+- **with the unadopted writer `a99b961f`:** one conflict in `archive.rs`, only where both append test cases at the end of `mod tests`. Keeping both blocks resolves it.
+  - `a99b961f`'s own `write_manifest` still ignores the directory sync; it would need this change too.
+  - That is not done here: the writer stays unadopted.
