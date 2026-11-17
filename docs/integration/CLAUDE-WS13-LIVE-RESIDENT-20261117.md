@@ -2,7 +2,7 @@
 
 **Approval:** the owner approved an **operator-side independent resident** that reads the same world as people and chooses requests and transport itself. It is separate from connecting a player's own AI over MCP (③).
 
-**Branch:** `claude/ws13-live-resident-20261117`, one commit on the aggregate `6c19555e`.
+**Branch:** `claude/ws13-live-resident-20261117`, on the aggregate `fdc9fd0d` (the aggregate when it was saved).
 
 **Static change, NOT run:**
 - no test, syntax check, import, start, HTTP, RPC, signature, submission, join, model call or charge;
@@ -76,7 +76,7 @@ It makes no key, so it is compatible with `run.sh`'s keyless mode. It was **not 
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws13-live-resident-20261117`, one commit on `6c19555e`, all `100644`, all new:
+**Unit:** `claude/ws13-live-resident-20261117`, on `fdc9fd0d`, all `100644`, all new (take the final tip's diff from `fdc9fd0d`):
 - `workstreams/13-citizens/resident/live/observe.mjs`
 - `workstreams/13-citizens/resident/live/candidates.mjs`
 - `workstreams/13-citizens/resident/live/decide.mjs`
