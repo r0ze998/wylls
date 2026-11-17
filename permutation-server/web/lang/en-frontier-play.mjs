@@ -1669,4 +1669,10 @@ export default {
   // (2026-11-17, Lane C ⑦: the report's replay while it is read, and when it could not be read)
   '戦いを読み込んでいます…': 'Loading the clash…',
   '戦いを読み込めませんでした。報告はそのまま残しています。もう一度押すと読み直します。': 'The clash could not be loaded. The report stays as it was; press again to load it again.',
+  // (2026-11-17, Lane C ⑦ the wide map: how the reads behind the inspector's card went)
+  'この州のようすを読み込めませんでした（{0}）。何もない州という意味ではありません。': 'This province could not be loaded ({0}). This does not mean the province is empty.',
+  'この州の記録は、まだ届いていません。何もない州という意味ではありません。': 'No record of this province has arrived yet. This does not mean the province is empty.',
+  'この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。': 'The list of villages in this ring has not been loaded yet. This does not mean there are no villages.',
+  'もう一度読み込む': 'Load again',
+  'この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。': 'This province has not been loaded yet. This does not mean the province is empty.',
 };

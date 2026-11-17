@@ -811,6 +811,11 @@ export function adoptPinnedWorld() {
   FS.worldRings?.clear?.();
   FS.overviewsBell = undefined;
   overviewSource = null; overviewWorld = null;
+  // (2026-11-17, ⑦ the wide map: the province records read for another world are not this world's land — emptied in
+  //  place —, and neither are when each was asked (the wait before asking again) nor how its read went)
+  FS.provinces?.clear?.();
+  fetchedAt.clear();
+  FS.provinceReads?.clear?.();
   dropOtherWorldConquest(world);
   return true;
 }
@@ -846,8 +851,14 @@ async function loadEnvelope(p, q, bell = 'latest', still = null) {
     if (FS.proto) protoLand(key, accepted.proto?.land ?? null);
     const k=keepFromProvince(accepted.province);
     if (k && FS.conquest) FS.conquest.keeps.set(key,k);
+    FS.provinceReads?.delete?.(key);
     return accepted;
   }
+  // (2026-11-17, ⑦ the wide map: how the latest read of a province went, for the one who selected it — hud/inspect.mjs.
+  //  A read that failed is not "being read" for good and not an empty province: `failed` with the herald's code, or
+  //  `missing` when the herald has no record of it (NotFound). Only for the world still pinned — checked above — and
+  //  only while nothing is held: a record read before stays what is shown)
+  if (bell === 'latest' && !FS.provinces.has(`${p},${q}`)) (FS.provinceReads ??= new Map()).set(`${p},${q}`, { state: r.code === 'NotFound' ? 'missing' : 'failed', code: r.code ?? 'Error' });
   return null;
 }
 
@@ -1322,8 +1333,30 @@ export function wantProvince(p, q, onLoad = () => {}, { now = Date.now(), bell =
   if (!have && fetchedAt.has(key) && now - fetchedAt.get(key) < WANT_REFRESH_MS) return false;
   artWanted.add(key);
   fetchedAt.set(key, now);
-  loadEnvelope(p, q).catch(() => null).finally(() => { artWanted.delete(key); onLoad(); });
+  // (the read is under way: a province not held says so, also over an earlier failure)
+  if (!have) (FS.provinceReads ??= new Map()).set(key, { state: 'loading', code: null });
+  const world = providerWorld();
+  loadEnvelope(p, q).catch(() => { if (providerWorld() === world && !FS.provinces.has(key)) (FS.provinceReads ??= new Map()).set(key, { state: 'failed', code: 'Error' }); return null; })
+    .finally(() => {
+      artWanted.delete(key);
+      // (an answer the change of world dropped left "loading" behind for a province nobody asks about now: let go)
+      if (FS.provinceReads?.get(key)?.state === 'loading' && !FS.provinces.has(key)) FS.provinceReads.delete(key);
+      onLoad();
+    });
   return true;
+}
+/**
+ * Read a province again now, at the person's request (the inspector's button; 2026-11-17, ⑦): the wait before asking
+ * again is set aside for this province only. False while its read is already under way or the limit is reached.
+ */
+export function retryProvince(p, q, onLoad = () => {}) {
+  const key = `${p},${q}`;
+  if (artWanted.has(key)) return false;
+  fetchedAt.delete(key);
+  // (a record held is read again whatever its bell: the person asked)
+  const have = FS.provinces.get(key);
+  if (have) { if (!herald || artWanted.size >= WANT_IN_FLIGHT) return false; artWanted.add(key); fetchedAt.set(key, Date.now()); loadEnvelope(p, q).catch(() => null).finally(() => { artWanted.delete(key); onLoad(); }); return true; }
+  return wantProvince(p, q, onLoad);
 }
 
 /**

@@ -25,7 +25,7 @@ import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
 import { placeName, placeWhere } from '../map/names.mjs';
-import { PLACE, placeNow, ringText } from '../map/world.mjs';
+import { PLACE, placeNow, ringText, ringSeeded } from '../map/world.mjs';
 import { TERRAIN_TEXT, villageDrawn, provinceName, provinceCoords, tileName } from './place.mjs';
 import { unpack } from '../seal.mjs';
 import { materialBytes } from '../marchbook.mjs';
@@ -71,7 +71,13 @@ export function inspectModel(FS, terrainOf) {
   const owners = rec ? [...new Set(rec.owners.filter((f, j) => rec.sites[j] === 1 && f < 6 && (!sv || lv(t?.sites?.[j]) >= 2)))] : [];
   // what the place is before any survey (map/world.mjs): open land, being made, not open yet, or beyond the season's map
   const place = placeNow(FS, s.p, s.q) ?? (rec ? PLACE.open : PLACE.unopened);
-  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
+  // (2026-11-17, ⑦ the wide map: how the reads this card stands on went — the province's own record (controller
+  //  loadEnvelope / wantProvince: loading, failed with a code, missing) and whether the ring's overview has been read at
+  //  all. Not read is not empty: without the overview the card knows no village of this province, and says so)
+  const read = prov ? null : FS.provinceReads?.get?.(`${s.p},${s.q}`) ?? null;
+  // (only a ring that has an overview to read — map/world.mjs ringSeeded, as map/overviews.mjs asks it — can be "not read")
+  const ringRead = !!rec || !FS.world || !ringSeeded(FS.world, ringOf(s.p, s.q)) || !!FS.overviews?.has?.(ringOf(s.p, s.q));
+  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, read, ringRead, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
     relation: Number.isInteger(viewer) && prov ? owners.filter(f => f !== viewer).map(f => ({ faction: f, friendly: friendly(prov.relations, viewer, f) })) : [],
     reportBell: top === 3 ? prov?.resolveSummary?.bell || null : null, tile: null };
   if (!Number.isInteger(s.idx)) return out;
@@ -110,6 +116,29 @@ export function inspectModel(FS, terrainOf) {
   if (land) tile.land = landTile(land, s.idx);
   out.tile = tile;
   return out;
+}
+
+/**
+ * How the reads behind the card went (2026-11-17, ⑦ the wide map), for open land only: the province's record being
+ * read, not read (with the herald's code) or not there yet, and the ring's overview not read — each said as what it is,
+ * never as an empty province, with one button that reads again (app `province-reread`). Nothing when all is read.
+ */
+function readState(m) {
+  if (!m.opened) return '';
+  const again = html`<button type="button" class="btn small" data-act="province-reread" data-p="${m.p}" data-q="${m.q}">${icon('return')}${L`もう一度読み込む`}</button>`;
+  const lines = [];
+  if (!m.loaded) {
+    const st = m.read?.state ?? 'idle';
+    if (st === 'failed') lines.push(html`<p class="notice error" role="alert">${L`この州のようすを読み込めませんでした（${m.read.code}）。何もない州という意味ではありません。`}</p>`);
+    else if (st === 'missing') lines.push(html`<p class="muted" role="status">${L`この州の記録は、まだ届いていません。何もない州という意味ではありません。`}</p>`);
+    else if (st === 'loading') lines.push(html`<p class="muted" role="status">${L`この州のようすを読み込んでいます…`}</p>`);
+    // (nothing under way and nothing held: not asked yet, or an answer that was let go — said as that, with the button)
+    else lines.push(html`<p class="muted" role="status">${L`この州のようすは、まだ読み込んでいません。何もない州という意味ではありません。`}</p>`);
+  }
+  if (!m.ringRead) lines.push(html`<p class="muted" role="status">${L`この輪の村の一覧は、まだ読み込めていません。村がないという意味ではありません。`}</p>`);
+  if (!lines.length) return '';
+  const retry = !m.ringRead || (!m.loaded && m.read?.state !== 'loading');
+  return html`<div class="insp-read" data-read="${!m.loaded ? m.read?.state ?? 'idle' : 'ring'}">${lines}${retry ? html`<div class="actions">${again}</div>` : ''}</div>`;
 }
 
 /** What a place `{p, q, tile}` is called and where it is (map/names.mjs): `{name, where}`, by the same rules as the selection. */
@@ -250,7 +279,7 @@ export function render(FS, terrainOf, activities = null) {
     ${s1On() && FS.mode === 'play' && t && (m.level === 3 || ownHostsOn(FS, m.p, m.q, t.idx).length || raidOffers(FS).some(r => r.p === m.p && r.q === m.q && r.tile === t.idx)) ? renderS1Tile(FS, { p: m.p, q: m.q, idx: t.idx }) : ''}
     ${keepVisible && m.ring >= 2 ? renderKeep(FS, keep) : ''}
     ${site?.state === 'free' && m.level === 3 && !territoryEnabled(FS) ? renderOutpost(FS, { p: m.p, q: m.q, site: site.index }) : ''}
-    ${!m.loaded && m.opened ? html`<p class="muted">${L`この州のようすを読み込んでいます…`}</p>` : ''}
+    ${readState(m)}
     ${fold('i-more', L`くわしく`, html`<dl class="facts">${facts}</dl>${pin ? html`<div class="actions">${html`<button type="button" class="btn small" data-act="${pin.act}" ${dataAttrs(pin.data)}>${icon('pin')}${pin.text}</button>`}</div>` : ''}`)}
   </section>`;
 }

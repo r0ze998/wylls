@@ -68,7 +68,7 @@ import * as returnWords from './hud/returnwords.mjs';
 import * as returnRead from './hud/awayread.mjs';
 import { caravanWatchOf } from './screens/s1.mjs';
 import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
-import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick, localSyncTick } from './controller.mjs';
+import { ACTIONS, FORMS, bind, startPlay, wantProvince, retryProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick, localSyncTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
 // the recorded wide world, read-only (map/widemode.mjs): a button beside the map tools and a sheet over the map;
@@ -3698,6 +3698,9 @@ export const HUD_ACTIONS = {
   'guide-level': d => { if (!guide.GUIDE_LEVELS.includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { guide: d.v }) : { ...(FS.ui ?? {}), guide: d.v }; guideCache.at = 0; invalidate('panel', 'map', 'rail'); renderHudTick(FS.chain?.now?.() ?? 0); },
   'mile-close': () => closeMilestone(),
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
+  // (2026-11-17, ⑦ the wide map: the inspector's "read again" — the province's record now, and the ring overviews still
+  //  wanted; reads only. The selection and the camera stay where the person put them)
+  'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
   // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
