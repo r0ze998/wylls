@@ -226,7 +226,10 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
           if (Array.isArray(msg)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batches are not supported' } });
           const out = await mcp.handle(msg, principal);
           if (out === null) { res.writeHead(202); return res.end(); }
-          const headers = msg.method === 'initialize' ? { 'mcp-session-id': randomBytes(16).toString('hex') } : {};
+          // (2026-11-17) MCP 2025-06-18 transports, session management: a session id is assigned at initialization, on
+          // the HTTP response that contains the InitializeResult. So only a successful initialize gets one, never an
+          // error response (and a notification got 202 above).
+          const headers = msg.method === 'initialize' && out.result !== undefined ? { 'mcp-session-id': randomBytes(16).toString('hex') } : {};
           return send(res, 200, out, headers);
         }
         default:
