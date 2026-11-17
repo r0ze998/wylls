@@ -221,7 +221,15 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
           }
           const v = req.headers['mcp-protocol-version'];
           if (v && !PROTOCOL_VERSIONS.includes(v)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: `unsupported MCP-Protocol-Version ${String(v).slice(0, 20)}` } });
-          const msg = await body(req);
+          // (2026-11-17) /mcp answers in JSON-RPC, also when the body cannot be read: a body that is not JSON is a parse
+          // error (JSON-RPC 2.0: -32700, id null), one over the size limit is refused as an invalid request (-32600).
+          // The OAuth-shaped answers of body() stay for the OAuth routes.
+          let msg;
+          try { msg = await body(req); } catch (e) {
+            if (e instanceof OAuthError && e.status === 413) return send(res, 413, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'the request body is too large' } });
+            if (e instanceof OAuthError && e.status === 400) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error: the body is not JSON' } });
+            throw e;
+          }
           if (!msg || typeof msg !== 'object') return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'a JSON-RPC message is required' } });
           if (Array.isArray(msg)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batches are not supported' } });
           const out = await mcp.handle(msg, principal);
