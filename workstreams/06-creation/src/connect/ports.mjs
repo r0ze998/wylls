@@ -55,10 +55,17 @@ export function run4FromRunexec({ runs, bin, db, execFile = nodeExecFile, timeou
           const line = String(stdout ?? "").trim().split("\n").at(-1) ?? "";
           let v = null;
           try { v = line ? JSON.parse(line) : null; } catch { v = null; }
-          if (!err && v) return resolve(v);
-          // NoRecord (exit 3) is said only by a store that was opened and read; StoreUnavailable is no answer
-          if (v?.error === "NoRecord") return resolve(null);
-          reject(Object.assign(new Error(v?.message ?? String(err?.message ?? "no JSON")), { code: v?.error ?? "Spawn" }));
+          // A view: exit 0 with a JSON object that is not an error answer.
+          if (!err && v && typeof v === "object" && v.error === undefined) return resolve(v);
+          // NoRecord is said only by a store that was opened and read (④ main.rs `run view`: exit 3, `{"error":
+          // "NoRecord"}`); StoreUnavailable (exit 5) is no answer. So null ("④ has no such run": dispatch may accept
+          // again) only when all three agree: the process exited by itself with code 3, not killed, no signal, and its
+          // last line says NoRecord (2026-11-17). A timeout, a kill, a signal, another exit code, a cut or missing
+          // line, or exit 0 with an error answer is no answer about the run: it is thrown, and dispatch keeps lastError.
+          const exitedWith3 = err?.code === 3 && !err.killed && !err.signal;
+          if (exitedWith3 && v?.error === "NoRecord") return resolve(null);
+          const code = v?.error && v.error !== "NoRecord" ? v.error : "NoAnswer";
+          reject(Object.assign(new Error(v?.message ?? String(err?.message ?? "no JSON")), { code, exit: err?.code ?? (err ? null : 0), ...(err?.signal ? { signal: err.signal } : {}), ...(err?.killed ? { killed: true } : {}) }));
         });
       });
     },
