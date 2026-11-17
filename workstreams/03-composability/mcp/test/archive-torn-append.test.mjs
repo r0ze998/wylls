@@ -3,7 +3,7 @@
 // JsonStore.archive after a torn last line: a record appended after a crash-cut line must be on a line of its own, so
 // that after a restart it is still found by id, by requestId (the reconnect guard) and in lists; the bytes already in
 // the archive are never changed. KEY-FREE: imports src/store.mjs only (node:fs, node:path); writes only in its own new
-// temporary directory; no server, relay, network or key. T6–T8 replace fs.writeSync for ONE archive call (restored in
+// temporary directory; no server, relay, network or key. T6–T8 (archive) and T9–T11 (save) replace fs.writeSync for ONE call (restored in
 // `finally`, with syncBuiltinESMExports so store.mjs's imported binding sees it) to make a short or zero-length write.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -127,4 +127,54 @@ test('T8 after a short write, the retry appends on its own line; a restart finds
   assert.equal(r.operation('op_2')?.note, '途中で切れる記録');
   assert.deepEqual(r.operationsWithRequestId(['l1'], 'r-op_2'), ['op_2'], 'one id, not two');
   assert.deepEqual(r.operationsOf(['l1'], 10).map(o => o.id).sort(), ['op_1', 'op_2']);
+});
+
+test('T9 save: a short write throws and the last complete state file is unchanged; the next load reads it', () => {
+  const file = fresh();
+  const s = new JsonStore(file);
+  s.state.operations.op_1 = op('op_1', { note: '保存済み' });
+  s.save();
+  const snapshot = readFileSync(file);
+  s.state.operations.op_2 = op('op_2', { note: '書きかけ ✓' });
+  const n = s.writes;
+  assert.throws(() => withShortWrites(len => Math.floor(len / 2), () => s.save()), /wrote \d+ of \d+ bytes; the state file was not replaced/);
+  assert.equal(s.writes, n + 1, 'the attempt is counted, as before');
+  assert.ok(readFileSync(file).equals(snapshot), 'the state file is byte for byte the last complete one');
+  assert.equal(s.state.operations.op_2?.id, 'op_2', 'the memory state is kept');
+  const r = new JsonStore(file);
+  assert.equal(r.operation('op_1')?.note, '保存済み');
+  assert.equal(r.operation('op_2'), null, 'the refused save did not reach the file');
+});
+
+test('T10 save: a zero-length write throws the same way', () => {
+  const file = fresh();
+  const s = new JsonStore(file);
+  s.save();
+  const snapshot = readFileSync(file);
+  s.state.operations.op_1 = op('op_1');
+  assert.throws(() => withShortWrites(() => 0, () => s.save()), /wrote 0 of \d+ bytes/);
+  assert.ok(readFileSync(file).equals(snapshot));
+});
+
+test('T11 save: the next save after a refused one writes the whole state (multi-byte text), and a restart reads it', () => {
+  const file = fresh();
+  const s = new JsonStore(file);
+  s.state.operations.op_1 = op('op_1', { note: '村 → 倉' });
+  assert.throws(() => withShortWrites(len => len - 1, () => s.save()));
+  s.save();
+  const r = new JsonStore(file);
+  assert.equal(r.operation('op_1')?.note, '村 → 倉');
+});
+
+test('T12 archive then a refused save: after a restart the main copy and the archived line are both there, and the main copy is read', () => {
+  const file = fresh();
+  const s = new JsonStore(file);
+  s.state.operations.op_1 = op('op_1', { note: 'main' });
+  s.save();
+  s.archive(s.state.operations.op_1); // appended and indexed, deleted from memory
+  assert.throws(() => withShortWrites(len => Math.floor(len / 2), () => s.save()));
+  const r = new JsonStore(file);
+  assert.equal(r.operation('op_1')?.note, 'main');
+  assert.deepEqual(r.operationsWithRequestId(['l1'], 'r-op_1'), ['op_1'], 'one id');
+  assert.deepEqual(r.operationsOf(['l1'], 10).map(o => o.id), ['op_1'], 'no duplicate in lists');
 });

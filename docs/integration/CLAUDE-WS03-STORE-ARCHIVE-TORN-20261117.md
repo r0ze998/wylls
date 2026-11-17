@@ -25,7 +25,7 @@
 
 **Test coverage:** the existing `test/archive.test.mjs` "torn last line" case reads the archive once after the cut. It never appends after the cut and restarts.
 
-## The change (`src/store.mjs` `archive()` only)
+## The change (first commit: `src/store.mjs` `archive()`)
 
 - **Opening:** the archive is opened `'a+'` (read and append; every write still goes to the end).
 - **Before writing:**
@@ -39,7 +39,7 @@
   - The in-memory store (no file) is unchanged.
   - Offsets stay in bytes (`fstat` size, `Buffer.byteLength`), so multi-byte text reads back exactly.
 
-**Not changed:** `server`, `receipt-port`, `auth`, `game`, the bin, sending, signing and permissions.
+**Not changed:** `server`, `receipt-port`, `auth`, `game`, the bin, sending, signing and permissions. (This holds for all three commits.)
 
 ## Regression (written, NOT run): `test/archive-torn-append.test.mjs`
 
@@ -105,6 +105,55 @@ T6–T8 replace `fs.writeSync` for one archive call only (restored in `finally`,
 3. **Append-only:** no `truncate`, `ftruncate`, positioned overwrite or removal anywhere in `archive()`. `'a+'` writes always go to the end.
 4. **No loop:** a short write is not continued with the rest. Continuing would make a record out of two writes with no way to tell, after a crash in between, which part belongs to which attempt. A refused archive is retried whole by the caller, and the cut tail is closed by the separator.
 5. **Error text:** byte counts only; no record content, id or path. The server logs it through `scrub`.
-6. **Other users of `writeSync` in `store.mjs`:** `save()` writes the main state to a temporary file and renames it. Its count is not checked either. That is outside this change and is noted: a short write there would make the next load's `JSON.parse` fail, not lose the archive. It is not changed here.
+6. **Other users of `writeSync` in `store.mjs`:** `save()` writes the main state to a temporary file and renames it. Its count was not checked either: a short write would replace the good state file with a cut one, and the next load's `JSON.parse` would fail. **Fixed in the third commit** ("`save()` short writes").
 
-**Final fixed tip:** given in the commit that adds this section.
+## `save()` short writes (added 2026-11-17, third commit)
+
+**Before:**
+- `save()` wrote `JSON.stringify(this.state)` to `<file>.<pid>.tmp`, fsynced it, renamed it over the state file and set mode 0600.
+- It did not compare `writeSync`'s returned count, so a short or zero write could replace the last complete state file with a cut one.
+
+**Now:**
+- The state is written as one UTF-8 `Buffer`, and the count is compared with its byte length.
+- **Anything less, zero included, throws before `fsync` and before the rename.**
+- `closeSync` still runs (`finally`).
+
+**What is protected, exactly:**
+
+| Failure | The state file | The temporary file | Memory |
+|---|---|---|---|
+| `mkdirSync`, `openSync` (of the temporary file) throws | unchanged | not created, or empty | unchanged |
+| a short or zero `writeSync`, or `writeSync` throws | **unchanged** (no rename) | left as written: a partial file, never read (only `<file>` is loaded) and rewritten by the next save with `'w'`; **not deleted** | unchanged |
+| `fsyncSync` throws | **unchanged** (no rename) | left as written | unchanged |
+| `closeSync` throws after a complete write and fsync | unchanged (the exception propagates before the rename) | complete but not renamed | unchanged |
+| `renameSync` throws | unchanged, as far as the platform's rename is atomic | left | unchanged |
+| **after the rename,** `chmodSync` throws | **already replaced** by the new, complete state (the error only says the mode was not set) | — | unchanged |
+
+**Not claimed:**
+- The directory is not fsynced after the rename, as before. On power loss right after a save, the platform may still show the previous file. This is unchanged.
+- A crash *inside* `writeSync` that the call does not report is outside what a count check can see. `fsync` follows only after a complete count.
+
+**Unchanged:**
+- `this.writes` counts save **attempts**: it is incremented first, as before, and nothing else reads it.
+- The memory state is never altered by `save()`.
+- The in-memory store (no file) returns before anything.
+
+**`archive()` then a refused `save()`:**
+- The record is in the archive (appended, synced, indexed), and the operation was deleted from memory.
+- The state file still has the operation, because the save was refused.
+- **After a restart** it is in both places, and the main copy is read: `operation` reads main first; `operationsWithRequestId` and `operationsOf` drop archived ids that are hot.
+- **In the same process,** the cold copy is read until the next successful save writes the state without it.
+- **No double send follows:** the operation is finished (only finished operations are archived), and the id and `requestId` guards find it in either place.
+
+**Regression (written, NOT run):**
+- **T9:** a short save throws. The state file is byte for byte the last complete one, and the memory state is kept. After a restart, the earlier operation is there and the refused one is not.
+- **T10:** a zero-length save throws the same way.
+- **T11:** after a save one byte short is refused, the next save writes the whole state, multi-byte text included.
+- **T12:** archive, then a refused save, then a restart: one id, the main copy, no duplicate in lists.
+
+## Final fixed tip
+
+`claude/ws03-store-archive-torn-20261117`: the commit that adds this section. It holds three code and test commits plus their reports, on `aec70744`, and touches only these paths:
+- `workstreams/03-composability/mcp/src/store.mjs`
+- `workstreams/03-composability/mcp/test/archive-torn-append.test.mjs`
+- `docs/integration/CLAUDE-WS03-STORE-ARCHIVE-TORN-20261117.md`

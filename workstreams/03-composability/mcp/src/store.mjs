@@ -116,7 +116,15 @@ export class JsonStore {
     mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.${process.pid}.tmp`;
     const fd = openSync(tmp, 'w', 0o600);
-    try { writeSync(fd, JSON.stringify(this.state)); fsyncSync(fd); } finally { closeSync(fd); }
+    try {
+      // (2026-11-17) writeSync answers how many bytes it wrote: a short or zero write is refused here, before the
+      // rename, so the last complete state file stays as it was and the next load reads it. The partial temporary
+      // file is left as it is (it is never read: only `this.file` is loaded; the next save rewrites it with 'w').
+      const bytes = Buffer.from(JSON.stringify(this.state), 'utf8');
+      const wrote = writeSync(fd, bytes, 0, bytes.length);
+      if (wrote !== bytes.length) throw new Error(`store: wrote ${wrote} of ${bytes.length} bytes; the state file was not replaced`);
+      fsyncSync(fd);
+    } finally { closeSync(fd); }
     renameSync(tmp, this.file);
     chmodSync(this.file, 0o600);
   }
