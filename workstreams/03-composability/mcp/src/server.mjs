@@ -748,7 +748,10 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     return {
       owner,
       connections: links.map(l => ({ linkId: l.linkId, agentId: l.agentId, scopes: l.scopes, createdAt: new Date(l.createdAt).toISOString(), revokedAt: l.revokedAt ? new Date(l.revokedAt).toISOString() : null,
-        cancellation: receipts.cancellation(l, ops.filter(o => o.linkId === l.linkId)) })),
+        // Every unfinished operation of the link, not only those among the 50 listed (2026-11-17): an older one still
+        // awaiting reconciliation must not read as done. Unfinished operations are never archived (archiveFinished),
+        // so the main store has all of them; nothing is read from the archive for this.
+        cancellation: receipts.cancellation(l, Object.values(db.operations).filter(o => o.linkId === l.linkId)) })),
       operations: ops.map(op => ({ ...receiptOf(op), linkId: op.linkId })),
     };
   }
