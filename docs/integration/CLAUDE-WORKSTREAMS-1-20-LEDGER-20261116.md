@@ -514,3 +514,11 @@ only the allowed confirmation of already-submitted work remains within that boun
 - Official Opus corrected nation to numeric 0..5 (0 is a valid nation), resources to food/wood/stone/ore/arms/gold, and fulfilment to the actual board status object. Unknown nation stays null, not zero. No sending or new authority added.
 - Added producer-consumer regression using the real pure `coopView` and record `fold`, without starting a board or world. Final independent tests **74/74 passed** (41 adapter + 33 integration), zero fail/skip; three JavaScript syntax checks passed.
 - Four modified files integrated through `97325f4120c0b740706ac2002dee6f31e2d54c71`; all four reread from GitHub and matched validated output. Live-board HTTP, real Citizen account/arrivals, real OAuth and world behavior remain unverified.
+
+
+### 2026-11-17 UTC — cooperation world-cache boundary corrected
+
+- Real `Game.context()` reused a 15-second cache, so the earlier before/after calls did not necessarily observe a relay world change. Independently reproduced with injected relay and fixed address builder, no network or key derivation.
+- Official Opus added opt-in `fresh:true` and uses it at both cooperation read boundaries. Other callers retain normal TTL cache behavior. Settled-read ordering prevents an older overlapping read from publishing over a newer result or falling back to a pin from before the latest failure.
+- Independent final validation twice passed **83/83 tests** (41 adapter + 42 integration), zero fail/skip; three JavaScript syntax checks and tracked whitespace check passed. Actual Game regressions cover warm cache, changed world, unavailable relay/address build, overlapping and three-way reads, transport/HTTP failures, and recovery. Fresh observations are not a remote lock.
+- Four files integrated through `0deff9bcf5a7a144f7c88f7e68605d75d57e25e6`, all fetched and matched validated output. No actual world/board, socket, OAuth, signature or deployment was exercised.
