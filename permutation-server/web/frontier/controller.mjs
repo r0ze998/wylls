@@ -1094,6 +1094,16 @@ async function readMarches() {
 }
 
 async function refreshChronicle() {
+  // (2026-11-17, ⑦: the chronicle belongs to one herald and one pinned world — cluster, program, season account as
+  // fchainio.setPin pinned them. When either changed since it was read, what it holds is another world's: it is
+  // forgotten — not shown as this world's, and not told as empty — and read again from the new world's start. A
+  // read that the change overtakes writes nothing.)
+  const worldNow = () => { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.cluster ?? ''}|${p.programId}|${p.addresses.season}` : null; };
+  const h0 = herald, w0 = worldNow();
+  if (FS.chronicleSource !== h0 || FS.chronicleWorld !== w0) {
+    if (FS.chronicleSource !== undefined) { cursor = 0; FS.chronicle = undefined; FS.chronicleRead = undefined; FS.life = undefined; }
+    FS.chronicleSource = h0; FS.chronicleWorld = w0;
+  }
   if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);
   // (workstream 07: a page that could not be read is said as such — screens/chronicle.mjs chronicleState —, never as an
   // empty record: FS.chronicle stays undefined until a page has been read, and FS.chronicleRead says how the last poll went)
@@ -1101,6 +1111,8 @@ async function refreshChronicle() {
   for (let page = 0; page < CHRONICLE_PAGES; page++) {
     let r;
     try { r = await herald.events(cursor); } catch (e) { r = { ok: false, code: e?.code ?? 'network' }; }
+    // (the herald or the pinned world changed while this page was read: nothing of it is written, FS stays as it is)
+    if (herald !== h0 || worldNow() !== w0) return;
     if (!r?.ok) { failed = String(r?.code ?? 'Unavailable'); break; }
     pages++;
     const { records } = decodePage(r.events);
@@ -1114,8 +1126,10 @@ async function refreshChronicle() {
   }
   if (pages > 0 && FS.chronicle === undefined) FS.chronicle = [];
   FS.chronicleRead = { ok: failed === null, code: failed, pages, bell: nowBell() };
-  const own = FS.holdings ?? [];
+  // (the viewer's holdings when a line is drawn, not when the record was read: after a wallet change the former
+  // viewer's lines are not marked as this one's)
   FS.isMine = rec => {
+    const own = FS.holdings ?? [];
     if (rec.host_id !== undefined) { const h = hostParts(rec.host_id); return !!h && own.some(o => o.p === h.p && o.q === h.q && o.site === h.site); }
     return rec.p !== undefined && own.some(o => o.p === rec.p && o.q === rec.q && (rec.site === undefined || rec.site === o.site));
   };
@@ -1126,7 +1140,10 @@ async function refreshChronicle() {
     return { ...x.record, faction: ov && h ? ov.owners[h.site] : null };
   }).filter(d => d.faction !== null && d.faction < 6);
   const k = FS.kernel ?? null;
-  FS.incoming = FS.citizen ? incomingWarnings({ kernel: k, departures, holdings: own.map(o => ({ p: o.p, q: o.q, site: o.site, tile: o.tile, shieldUntilBell: FS.provinces.get(`${o.p},${o.q}`)?.province?.siteMirror?.[o.site]?.shieldUntilBell })), faction: FS.citizen.faction, genesisTs: FS.clock.genesisTs, nowBell: nowBell(), unitOf: () => WARNING_UNIT }) : [];
+  // (the viewer's holdings as they stand after this read — no await since the pages — as before 2026-11-17; isMine reads
+  // them itself when a line is drawn)
+  const holdingsNow = FS.holdings ?? [];
+  FS.incoming = FS.citizen ? incomingWarnings({ kernel: k, departures, holdings: holdingsNow.map(o => ({ p: o.p, q: o.q, site: o.site, tile: o.tile, shieldUntilBell: FS.provinces.get(`${o.p},${o.q}`)?.province?.siteMirror?.[o.site]?.shieldUntilBell })), faction: FS.citizen.faction, genesisTs: FS.clock.genesisTs, nowBell: nowBell(), unitOf: () => WARNING_UNIT }) : [];
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
