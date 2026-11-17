@@ -50,7 +50,18 @@ const read = f => readFileSync(new URL(`../../permutation-server/web/${f}`, impo
 const ctl = read('frontier/controller.mjs'), app = read('frontier/app.mjs'), inc = read('frontier/screens/incoming.mjs'), fm = read('frontier/fmarch.mjs'), en = read('lang/en-frontier-play.mjs');
 const fnOf = (src, head) => { const at = src.indexOf(head); assert.ok(at >= 0, head); return src.slice(at, src.indexOf('\n}\n', at) + 2); };
 const order = (body, ...parts) => { let at = -1; for (const p of parts) { const i = body.indexOf(p, at + 1); assert.ok(i > at, `in order: ${p}`); at = i; } };
-const codeOf = body => body.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+// The code without its comments: `//` lines and block comments that begin a line (`/* … */`, `/** … */`, as the
+// doc comments are written), so a word in a comment is never taken for a call. Code lines are kept whole.
+const codeOf = body => {
+  const out = []; let block = false;
+  for (const l of body.split('\n')) {
+    const t = l.trim();
+    if (block) { if (t.includes('*/')) block = false; continue; }
+    if (t.startsWith('/*')) { if (!t.includes('*/')) block = true; continue; }
+    if (!t.startsWith('//')) out.push(l);
+  }
+  return out.join('\n');
+};
 const chron = fnOf(ctl, 'async function refreshChronicle() {'), item = fnOf(inc, 'function warningItem(FS, w, ctx) {'), card = fnOf(inc, 'export function render(FS) {');
 
 test('I1 the judging is unchanged; the warning names its village whole and how it was read is kept', () => {

@@ -76,7 +76,9 @@ test('O3 the record is a fact of its own, never proof of an order', () => {
   // only the order's own number: no map of copies, no sorting of orders, no counting of one order for another
   assert.doesNotMatch(codeOf(vo), /copies|need\.(get|set|has)|\.sort\(|new Map\(/);
   // the fact is kept for the unknown class only, and worded with what the record cannot say
-  assert.ok(model.includes("fact: cls === 'unknown' ? recordFactOf(o, h, now) : null });"));
+  // (the entry has since gained the order's `place` after `fact`; the fact itself is still the unknown class's only)
+  assert.ok(model.includes("fact: cls === 'unknown' ? recordFactOf(o, h, now) : null, place: orderPlace(o, h) });"));
+  assert.equal((model.match(/\bfact: /g) ?? []).length, 1, 'one fact field, set in one place');
   order(words, "if (f.kind === 'build')", 'つです（建設中を含みます）。この命令で増えたものかどうかは、記録からは分かりません。',
     '昇格の工事が列にあります。この命令によるものかどうかは、記録からは分かりません。', '昇格の工事は列にありません。');
   order(view, 'const fact = factWords(x.fact);', '<span class="vo-fact"> ${fact}</span>');

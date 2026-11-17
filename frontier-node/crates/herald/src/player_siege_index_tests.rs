@@ -376,7 +376,7 @@ fn active_siege_selected_declaration_end_handlers_and_lapse() {
                 progress: 12,
             };
             conquest_event(&mut cq, &mut f, &tx(), (0, 0), 2, &e, &pl, 2, "1111");
-            let first = cq.sieges[&(0, 0, 2, 1)].end.clone().unwrap();
+            let first = cq.sieges[&(0, 0, 2, 1)].end.unwrap();
             assert_eq!(first.outcome, outcome);
             assert_eq!(
                 first.broken_by_defender,

@@ -214,8 +214,8 @@ pub(crate) mod tests {
 
     #[test]
     fn g2_generator_constant_is_arks() {
-        use super::*;
         use super::super::field::from_be;
+        use super::*;
         use ark_bls12_381::{Fq, Fq2, G2Affine};
         use ark_ec::AffineRepr;
         let f = |o: usize| from_be::<Fq, 6>(&G2_GEN[o..o + 48]).unwrap();

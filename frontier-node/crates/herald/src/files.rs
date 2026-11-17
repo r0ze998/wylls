@@ -573,7 +573,7 @@ mod tests {
         }
         // a plain file without its sibling is served plain to both
         fs::remove_file(d.join("h/province/0,0/3.json.gz")).unwrap();
-        assert_eq!(o.serve("h/province/0,0/3.json", true).unwrap().1, false);
+        assert!(!o.serve("h/province/0,0/3.json", true).unwrap().1);
         assert!(o.serve("h/province/0,0/999.json", true).is_none(), "absent");
         assert!(o.serve("h/../x", true).is_none(), "not allowed");
         let _ = fs::remove_dir_all(&d);

@@ -66,7 +66,9 @@ test('the two modes stay apart, and the unfinished on-screen capture is said', (
 
 test('the demo pace the guide states is the source\'s', () => {
   const kl = read('frontier-node/crates/itest/src/keeper_loop.rs'), bin = read('frontier-node/crates/itest/src/bin/localnet_natural_play.rs');
-  assert.match(kl, /pub const DEMO_PACE: Pace = Pace::Demo \{ short: Duration::from_secs\(1\), burst: 8 \}/);
+  // the values, whatever rustfmt's layout (one line or one field per line, with or without a trailing comma)
+  assert.match(kl, /pub const DEMO_PACE: Pace = Pace::Demo \{\s*short: Duration::from_secs\(1\),\s*burst: 8,?\s*\};/);
+  assert.equal(kl.match(/pub const DEMO_PACE\b/g)?.length, 1, 'one demo pace');
   assert.match(bin, /let pace = if demo\.is_some\(\) \{ itest::keeper_loop::DEMO_PACE \} else \{ itest::keeper_loop::Pace::Natural \};/);
 });
 

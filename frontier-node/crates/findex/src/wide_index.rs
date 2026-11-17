@@ -32,6 +32,9 @@ fn sql<T>(r: rusqlite::Result<T>) -> Result<T, String> {
 fn seq_i64(n: u64) -> Result<i64, String> {
     i64::try_from(n).map_err(|_| "archive sequence exceeds index capacity".into())
 }
+/// Stored `wide_meta` identity row: schema, program, world, resident season,
+/// expedition mode.
+type MetaIdentity = (i64, Vec<u8>, Vec<u8>, Option<Vec<u8>>, bool);
 fn u64_blob(bytes: Vec<u8>) -> Result<u64, String> {
     Ok(u64::from_be_bytes(
         bytes.try_into().map_err(|_| "invalid stored sequence")?,
@@ -158,7 +161,7 @@ impl WideIndex {
             PRIMARY KEY(archive_seq,ordinal,entity),
             FOREIGN KEY(archive_seq,ordinal) REFERENCES wide_event(archive_seq,ordinal));",
         ))?;
-        let meta: Option<(i64, Vec<u8>, Vec<u8>, Option<Vec<u8>>, bool)> = sql(conn
+        let meta: Option<MetaIdentity> = sql(conn
             .query_row(
                 "SELECT schema,program,world,resident_season,expedition FROM wide_meta WHERE id=1",
                 [],

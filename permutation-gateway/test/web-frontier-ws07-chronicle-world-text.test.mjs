@@ -43,10 +43,13 @@ test('R3 the keep needs the same world', () => {
 });
 
 test('R4 a report of another pinned world is closed when the season is read', () => {
-  const body = app.slice(app.indexOf('async function loadSeason(herald) {'), app.indexOf('async function loadSeason(herald) {') + 1600);
-  const was = body.indexOf('const reportWas = reportWorld();');
-  const pin = body.indexOf('FS.pin = setPin(');
-  const close = body.indexOf("if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }");
+  // (the whole function, not a fixed number of characters: comments added to loadSeason moved the close past 1600)
+  const from = app.indexOf('async function loadSeason(herald) {');
+  const body = app.slice(from, app.indexOf('\n}\n', from) + 2);
+  const once = k => { const i = body.indexOf(k); assert.ok(i > 0 && body.indexOf(k, i + 1) < 0, `once in loadSeason: ${k}`); return i; };
+  const was = once('const reportWas = reportWorld();');
+  const pin = once('FS.pin = setPin(');
+  const close = once("if (FS.report && reportWas !== null && reportWorld() !== reportWas) { FS.report = null; if (FS.practice?.whatif) FS.practice = null; invalidate('panel'); }");
   assert.ok(was > 0 && pin > was && close > pin, 'the world before the pin, the pin, then the close');
 });
 

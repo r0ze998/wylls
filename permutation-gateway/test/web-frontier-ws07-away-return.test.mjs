@@ -107,14 +107,19 @@ test('worlds: a mark of another world is not used; a mark without a world reads 
 test('resuming: a reading of an old scope that answers late is stale and carries nothing', async () => {
   let release;
   const slow = new Promise(r => { release = r; });
-  const events = async after => (after === '100' ? slow : { ok: true, events: [], next: null, full: false });
+  // (an empty page answers as herald.mjs `events` does: `next` is the cursor it was asked from, a string — that client
+  //  refuses a page whose `next` is not the newest seq, so a `next: null` page never reaches the reader)
+  const events = async after => (after === '100' ? slow : { ok: true, events: [], next: after, full: false });
   const reader = RR.createAwayReader({ events });
   const first = reader.start({ scope: 'A', from: '100' });
   const second = reader.start({ scope: 'B', from: '0' });
-  release({ ok: true, events: [], next: null, full: false });
+  release({ ok: true, events: [], next: '100', full: false });
   const [a, b] = await Promise.all([first, second]);
-  assert.deepEqual([a.stale, a.records.length], [true, 0]);
-  assert.deepEqual([b.stale, b.complete, reader.scope], [false, true, 'B']);
+  assert.deepEqual([a.stale, a.records.length, a.next], [true, 0, null]);
+  assert.deepEqual([b.stale, b.complete, b.failed, b.next, reader.scope], [false, true, false, '0', 'B']);
+  // the late answer of scope A moved nothing: reading on continues from B's own cursor
+  const more = await reader.more();
+  assert.deepEqual([more.stale, more.after, more.complete], [false, '0', true]);
 });
 
 test('English follows', () => {

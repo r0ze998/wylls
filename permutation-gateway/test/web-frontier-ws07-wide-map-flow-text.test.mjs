@@ -70,7 +70,13 @@ test('F5 the action reads again and moves nothing', () => {
   assert.ok(line);
   for (const s of ["FS.mode === 'practice') return;", 'loadOverviews(heraldRef)', 'retryProvince(p, q, () => { mapRef?.invalidate(); invalidate(\'panel\'); });']) assert.ok(line.includes(s), s);
   assert.doesNotMatch(line, /FS\.selected =|flyTo|setView/, 'the selection and the camera are the person\'s');
-  assert.ok(app.includes('startPlay, wantProvince, retryProvince, wantKeepHistory,'));
+  // (the controller's retryProvince is the one imported; other names have since been added to that import list between
+  //  retryProvince and wantKeepHistory, so the list is matched by its names, not as one fixed run of text)
+  const imps = [...app.matchAll(/^import \{([^}]*)\} from '\.\/controller\.mjs';$/gm)];
+  assert.ok(imps.length > 0, 'app.mjs imports from the controller');
+  const names = imps.flatMap(m => m[1].split(',').map(s => s.trim()));
+  for (const n of ['startPlay', 'wantProvince', 'retryProvince', 'wantKeepHistory']) assert.ok(names.includes(n), n);
+  assert.ok(ctl.includes('export function retryProvince(p, q, onLoad = () => {}) {'), 'the controller exports the retry the action calls');
 });
 
 test('F6 another world\'s province records are not this world\'s', () => {

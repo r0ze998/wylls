@@ -40,6 +40,11 @@ fn province(i: u64) -> Vec<u8> {
     v
 }
 
+/// The province account `rec(i)` writes: one of seven, filled with `(i % 7) + 1`.
+fn account(i: u64) -> Address {
+    Address::new_from_array([(i % 7) as u8 + 1; 32])
+}
+
 fn rec(i: u64) -> TxRecord {
     TxRecord {
         seq: i,
@@ -53,7 +58,7 @@ fn rec(i: u64) -> TxRecord {
         units: 1_000,
         fee: 5_000,
         post: vec![(
-            Address::new_from_array([(i % 7) as u8 + 1; 32]),
+            account(i),
             Some(Account {
                 lamports: 1_000 + i,
                 data: province(i),
@@ -186,7 +191,7 @@ fn gzip_snapshots_give_back_every_byte_and_are_stored_compressed() {
     )
     .unwrap();
     for i in 1..=12u64 {
-        let a = Address::new_from_array([(i % 7) as u8 + 1; 32]);
+        let a = account(i);
         let snap = s.index.snapshot_at(&a, i).unwrap().unwrap();
         assert_eq!(snap.seq, i);
         assert_eq!(snap.data, province(i), "snapshot {i}: every byte");
@@ -439,7 +444,7 @@ fn a_directly_opened_index_reads_and_writes_the_codec_it_records() {
     );
     // a direct open: the snapshot comes back as its bytes, never the gzip it is stored as
     let mut ix = index_at(&d);
-    let a = Address::new_from_array([(4 % 7) as u8 + 1; 32]);
+    let a = account(4);
     assert_eq!(ix.latest(&a).unwrap().unwrap().data, province(4));
     // a direct add writes in the recorded codec (no mixed rows), and it reads back
     ix.add(&[rec(5)]).unwrap();
@@ -456,13 +461,7 @@ fn a_directly_opened_index_reads_and_writes_the_codec_it_records() {
         blobs.iter().all(|b| b.starts_with(&[0x1f, 0x8b])),
         "every stored row is gzip"
     );
-    assert_eq!(
-        ix.latest(&Address::new_from_array([(5 % 7) as u8 + 1; 32]))
-            .unwrap()
-            .unwrap()
-            .data,
-        province(5)
-    );
+    assert_eq!(ix.latest(&account(5)).unwrap().unwrap().data, province(5));
     // asked for the default, it refuses; asked for its own codec, it goes on
     assert!(ix
         .use_snapshot_codec(Codec::Plain)

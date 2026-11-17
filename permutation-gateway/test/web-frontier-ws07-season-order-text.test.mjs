@@ -31,7 +31,12 @@ const ls = fnOf(app, 'async function loadSeason(herald) {');
 test('Q1 two readers, one herald, no shared request', () => {
   order(herald, 'async season() {', 'const r = await get(f, `${root}/h/season`);');
   assert.ok(herald.includes("r = await f(url, { cache: 'no-store', signal: AbortSignal.timeout?.(timeoutMs) });"));
-  order(app, 'if (await loadSeason(herald)) {', 'const seasonLoop = createPollLoop({', 'const ok = await loadSeason(herald);', 'seasonLoop.start(Math.min(30, pollCap(FS.chain)));');
+  // (boot awaits its read before the loop exists; since a boot whose season read failed starts later from the first good
+  //  poll — startWithSeason — the boot's read is `bootRead = await loadSeason(herald)`, no longer `if (await …) {`)
+  order(app, 'try { bootRead = await loadSeason(herald); }', 'if (bootRead) startWithSeason();', 'const seasonLoop = createPollLoop({',
+    'const ok = await loadSeason(herald);', 'if (ok) startWithSeason();', 'seasonLoop.start(Math.min(30, pollCap(FS.chain)));');
+  const appCode = app.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  assert.equal([...appCode.matchAll(/(?<!function )loadSeason\(/g)].length, 2, 'loadSeason is called only by the boot and by the loop');
   assert.ok(loop.includes('if (busy) { again = true; return; }'), 'one tick at a time');
   assert.ok(ctl.includes('const r = await request.herald.season();'), 'the other reader');
 });
