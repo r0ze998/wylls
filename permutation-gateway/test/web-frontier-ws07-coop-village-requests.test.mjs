@@ -77,3 +77,21 @@ test('the card: the view is read when the card asks, said under the button, and 
   // a view that comes after stop changes nothing
   assert.equal(String(renderCoopSlot(FS())), '');
 });
+
+// (2026-11-17, sends; WRITTEN ONLY, NOT RUN) the sends of this village's requests, by the outcome the board checked
+test('the sends: counted by 01\'s outcome; anything not known stays not known; no line without sends', () => {
+  const z = status => ({ walletSig: status, outcome: { status } });
+  const v = { read: 'ok', requests: [
+    req({ id: 'a', sendings: [z('landed'), z('failed'), z('expired')] }),
+    req({ id: 'b', sendings: [z('mismatch'), z('seq-taken'), z('unknown'), z('something-else')] }),
+    req({ id: 'other-village', to: { p: 9, q: 9, site: 1, gen: 1 }, sendings: [z('landed')] }),
+  ] };
+  const lines = CB.villageRequests(FS(), board(cfg('7')), v).lines;
+  assert.equal(lines[2], '送信 7：記録された 1・断られた 1・期限切れ 1・確かめが要る 2・まだ確かめられない 2');
+  assert.equal(CB.villageRequests(FS(), board(cfg('7')), { read: 'ok', requests: [req()] }).lines.length, 2, 'no sends: no line');
+});
+
+test('probeView: a send without its outcome is not read', async () => {
+  assert.deepEqual(await CB.probeView({ fetch: async () => json(200, { requests: [req({ sendings: [{ walletSig: 'x' }] })] }) }), { read: 'unread', code: 'BadView' });
+  assert.equal((await CB.probeView({ fetch: async () => json(200, { requests: [req({ sendings: [] })] }) })).read, 'ok');
+});
