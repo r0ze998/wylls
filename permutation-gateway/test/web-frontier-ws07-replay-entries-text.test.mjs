@@ -10,7 +10,7 @@
 //   N3 called off (null: another world or herald, or a report the person opened meanwhile): the notice goes, no word
 //   N4 an earlier press that answers after a later one: touches nothing (the later press's notice is its own: `req`)
 //   N5 the person puts the notice away while it is read: the press is no longer the last → no scene, no flight
-//   N6 a change of world: the notice goes with the world it was asked in
+//   N6 a change of world: the notice of the world that was left goes with it; one asked in the new world stays
 //   N7 pressed inside a report: the report's own line, no stack notice (as before)
 //   N8 the stack: one item between the status and the toasts; no send, FS.notice or lastAct is used; the feed's records
 //      are not written
@@ -26,10 +26,10 @@ const code = s => s.split('\n').filter(l => !l.trim().startsWith('//')).join('\n
 const ask = fnOf('async function playAsked(p, q, bell) {'), note = fnOf('function replayNotice(a) {');
 
 test('N1 N2 N3 N4 N7 the press\'s own state, from the ask to the answer', () => {
-  order(ask, 'const req = ++playAskSeq;', 'const rep = FS.report ?? null, world = reportWorld();', "FS.replayAsk = rep ? null : { p, q, bell, state: 'loading', req };", 'renderFeed();',
+  order(ask, 'const req = ++playAskSeq;', 'const rep = FS.report ?? null, world = reportWorld();', "FS.replayAsk = rep ? null : { p, q, bell, state: 'loading', req, world };", 'renderFeed();',
     'const asked = () => req === playAskSeq && (FS.report ?? null) === rep && reportWorld() === world;', 'try { ok = await playBattle(p, q, bell, { focus: true, asked }); }',
     'if (req !== playAskSeq) return;',
-    "if (!rep && FS.replayAsk?.req === req) { FS.replayAsk = ok === false && asked() ? { p, q, bell, state: 'failed', req } : null; renderFeed(); }",
+    "if (!rep && FS.replayAsk?.req === req) { FS.replayAsk = ok === false && asked() ? { p, q, bell, state: 'failed', req, world } : null; renderFeed(); }",
     'if (ok === true) { if (rep && FS.report === rep) leaveReport(); return; }');
   assert.equal(code(ask).split('await ').length - 1, 1);
 });
@@ -47,7 +47,8 @@ test('N2 the notice: not read is not "no clash"; the same request again', () => 
 test('N5 N6 put away, and another world', () => {
   assert.ok(app.includes("'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },"));
   const sync = fnOf('function syncBattleWorld() {');
-  order(sync, 'if (battleWorldNow === world) return world;', 'peopleCache.at = -1;', 'if (FS.replayAsk) { FS.replayAsk = null; renderFeed(); }', 'return world;');
+  // (corrected: only another world's notice goes — web-frontier-ws07-replay-world-text.test.mjs)
+  order(sync, 'if (battleWorldNow === world) return world;', 'peopleCache.at = -1;', 'if (FS.replayAsk && FS.replayAsk.world !== world) { FS.replayAsk = null; renderFeed(); }', 'return world;');
 });
 
 test('N8 one item on the stack; not a send, not a record', () => {

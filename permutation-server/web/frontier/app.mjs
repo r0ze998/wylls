@@ -3048,8 +3048,10 @@ function syncBattleWorld() {
   endOtherWorldBattles(world);
   if (battleKeepWorld !== undefined && battleKeepWorld !== world) { clearTimeout(battleBack); battleBack = null; camKeep.drop('battle'); battleKeepWorld = undefined; }
   peopleCache.at = -1;
-  // (a replay asked for in another world: its notice goes with it — the request itself is called off by playBattle)
-  if (FS.replayAsk) { FS.replayAsk = null; renderFeed(); }
+  // (a replay asked for in another world: its notice goes with it — the request itself is called off by playBattle.
+  //  Corrected: only a notice of ANOTHER world. One asked in this world — the person pressed before this sync came
+  //  round — is this world's own: it stays, being read or not read, and its answer still finds it)
+  if (FS.replayAsk && FS.replayAsk.world !== world) { FS.replayAsk = null; renderFeed(); }
   return world;
 }
 let battleBack = null;
@@ -3342,7 +3344,10 @@ async function playAsked(p, q, bell) {
   //  read, then gone when the scene plays, or "not read" with the same request to make again — shown as one notice on
   //  the map's stack (renderFeed). It is not a record: nothing of the notices' list or its seen marks is touched. A
   //  press inside a report keeps to the report's own line.)
-  FS.replayAsk = rep ? null : { p, q, bell, state: 'loading', req };
+  //  (corrected: the notice carries the world it was asked in — `world`, the pin with its generation, the same string
+  //  as momentWorld — so the battle state's sync lets go of another world's notice only, never one asked in this world
+  //  before that sync came round)
+  FS.replayAsk = rep ? null : { p, q, bell, state: 'loading', req, world };
   renderFeed();
   // (2026-11-17 correction: the request's validity reaches playBattle before its effects — `asked`: the last press, and
   //  the report open now is the one it was pressed in (none for none) in the same world. A later press, a report opened,
@@ -3356,7 +3361,7 @@ async function playAsked(p, q, bell) {
   // (outside a report: the scene plays → the notice goes; "no scene" (false, or a throw) with nothing changed since →
   //  "not read", to ask again; called off (null: another world or herald, a report opened meanwhile) → the notice goes
   //  without a word, as nothing failed. Only this press's own notice is touched: `req`)
-  if (!rep && FS.replayAsk?.req === req) { FS.replayAsk = ok === false && asked() ? { p, q, bell, state: 'failed', req } : null; renderFeed(); }
+  if (!rep && FS.replayAsk?.req === req) { FS.replayAsk = ok === false && asked() ? { p, q, bell, state: 'failed', req, world } : null; renderFeed(); }
   if (ok === true) { if (rep && FS.report === rep) leaveReport(); return; }
   if (rep && ok === false && FS.report === rep && reportWorld() === world) rep.playFailed = true;
   if (rep) invalidate('panel');
