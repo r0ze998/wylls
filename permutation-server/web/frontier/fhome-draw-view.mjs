@@ -25,6 +25,11 @@ export function createDrawView({ draw = drawHome, growth = growthView } = {}) {
       const next = typeof w === 'string' && w ? w : null;
       if (next !== wallet) { wallet = next; clear(); }
     },
+    /**
+     * (correction, 2026-11-18) End the question under way without clearing what is shown: its answer, when it comes,
+     * is not shown (the page's newer request asks again). Used when the page starts a newer request.
+     */
+    cancel() { seq++; status = shown ? VIEW.shown : VIEW.empty; },
     /** The world the page reads now ({cluster, programId, seasonId, gen}). Another one, or an unknown one, clears. */
     setWorld(w) {
       const next = worldKeyOf(w);

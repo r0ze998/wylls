@@ -3,7 +3,7 @@
 **Branch:** `claude/home-draw-provisional-20261118` on the aggregate `0cc3ca30` (read only; nothing of it changed).
 **New paths only.** No existing file is changed: not the controller, `home.mjs`, `confirmHome`, the join screens, the program, the herald, a profile or a world.
 
-**Status: PROVISIONAL, NOT PRODUCTION, NOT ENABLED.**
+**Status: PROVISIONAL, NOT PRODUCTION, NOT ENABLED.** The first tip `6a4675fa` is corrected by the second (below); adopt only the final tip, and only on the owner's word.
 - **Written, NOT run:** no test, syntax check, import, page, herald, world, runner, signature, send or charge.
 - **Not for automatic adoption:** Lane D aggregates it only on the owner's word.
 
@@ -16,8 +16,10 @@
 - the map grows by exploration.
 - The earlier options A, B and C stay on hold.
 
-**This unit implements the draw as a provisional rule:** a reproducible place from the existing world key (the Season's `genesis_seed`) and the citizen key.
-- **Predictable:** anyone who knows the world key can work out any wallet's place before it joins.
+**This unit implements the draw as a provisional rule:** a place from the existing world key (the Season's `genesis_seed`) and the citizen key.
+- **Reproducible only within a stated range (corrected):** each place's score is fixed by the world key, the citizen key and the place. The place drawn is the lowest score among the free places read. So the same world key, citizen key, candidate snapshot (which places the overviews and Province reads show free, taken or held) and parameters give the same place. When places are taken or freed, the map grows, or the parameters change, the same wallet in the same world can be drawn elsewhere.
+- **Not a reservation:** nothing holds a drawn place, and nothing stops anyone from asking again.
+- **Predictable:** anyone who knows the world key and reads the same map can work out any wallet's place before it joins.
 - **Not resistant to many accounts:** wallets can be made until one lands where wanted.
 - **Neither is solved.** Both are stated in the code and on the screen.
 
@@ -125,7 +127,7 @@ Fake overviews and Province envelopes in memory.
 
 | Case | What it checks |
 |---|---|
-| D1 | Reproducible, and independent of read order. |
+| D1 | Reproducible for the same snapshot and parameters, and independent of read order. |
 | D2 | All nations are candidates; draws mix nations. |
 | D3 | Unknown is never free. |
 | D4 | Another world is refused, including another generation. |
@@ -139,6 +141,28 @@ Fake overviews and Province envelopes in memory.
 | D12 | The screen: escaped, no banned words, banner and limits. |
 | D13 | The page as text: the gate, GET reads only, no join, confirm, signer or send, not linked. |
 | D14 | The core as text: no clock, randomness, storage or fetch; sorted by score; no nation filter. |
+| D15 | (correction) The page's requests: only the current Draw touches the page after each await; typing or a newer Draw ends it; each request has its own herald client and pin; a throw is its own failure; the view's `cancel`. |
+| D16 | (correction) A changed snapshot moves the place; the texts claim no reservation and no sameness beyond the same snapshot and parameters. |
+
+## Correction (second tip): the parent's review of `6a4675fa`
+
+### 1. The page's requests
+
+- **The defect:** the Draw handler awaited the season and the overviews with no request of its own. Only the view's own counter guarded the draw itself. An older Draw that finished late could still set the world and ask, over a newer Draw or a wallet just typed.
+- **Now:**
+  - each Draw takes a number when it starts, with the wallet typed at that moment;
+  - typing in the wallet field, or a newer Draw, ends it (`current++`, and the view's new `cancel()` drops its answer under way without clearing what is shown);
+  - after every await (season, overviews, draw), the request checks that it is still current, for the same wallet, before `herald.pin`, `view.setWorld`, `view.ask`, the failure note or the paint;
+  - an ended request changes nothing, so an older answer or failure never replaces or clears a newer one;
+  - **each request has its own herald client,** so no Season pin is shared between requests;
+  - **a throw** is the request's own failure, shown (a fixed sentence) only while that request is current.
+
+### 2. Reproducibility, stated exactly
+
+- **The first tip said** the same world key and citizen key give the same place. **That was too broad.**
+- **The score is fixed,** but the place drawn depends on the free places read and on the parameters.
+- **Corrected in the core's header, its limits list, the screen's limits and its note, and this document:** the same place only for the same world key, citizen key, candidate snapshot and parameters.
+- **No reservation and no protection against asking again** is claimed.
 
 ## Open (the owner's decisions; not decided here)
 
@@ -150,7 +174,7 @@ Fake overviews and Province envelopes in memory.
 
 ## Hand-over (Lane D, NOT for automatic adoption)
 
-One commit on `0cc3ca30`, all `100644`, all new (A):
+Two commits on `0cc3ca30` (`6a4675fa`, then the correction). Take the final tip's diff from `0cc3ca30`, all `100644`, all new (A):
 - `permutation-server/web/frontier/fhome-draw.mjs`
 - `permutation-server/web/frontier/fhome-draw-frontier.mjs`
 - `permutation-server/web/frontier/fhome-draw-view.mjs`

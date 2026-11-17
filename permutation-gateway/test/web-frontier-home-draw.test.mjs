@@ -2,7 +2,7 @@
 // WRITTEN, NOT RUN. KEY-FREE: fake overviews and Province envelopes in memory; no herald, page, world, signer or send.
 // The core, the growth view, the view state and the screen text are imported (they load fgeo/fland/sdk only, no
 // language tables); the page module is read as TEXT (it loads config/herald/map world, which load lang.mjs).
-//   D1 reproducible and independent of the order candidates were read in
+//   D1 reproducible for the same world key, citizen key, candidate snapshot and parameters, whatever the read order
 //   D2 no nation is excluded; nations are mixed among draws
 //   D3 unknown is never free: an unread ring, an unread Province, an unreadable site → unread, never another place
 //   D4 another world: an overview, a Province or a Season of another one → otherWorld
@@ -16,6 +16,11 @@
 //   D12 the screen: escaped, no banned words, test-only banner, limits stated
 //   D13 the page (text): gated on loopback + ?provisional=home-draw; GET reads only; no join/confirmHome/signer/send
 //   D14 the core (text): no clock, randomness, storage or fetch
+//   D15 (correction) the page's requests: each Draw owns a number; wallet typing or a newer Draw ends it; after every
+//       await only the current request touches the world, the view, the failure note or the paint; its own herald
+//       client (no shared pin); a throw is its own failure; the view's cancel drops an answer under way
+//   D16 (correction) reproducibility only within its range: a changed snapshot can move the place; the text says so
+//       and claims no reservation or protection against asking again
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -271,4 +276,60 @@ test('D14 the core: no clock, randomness, storage, fetch or send', () => {
   assert.doesNotMatch(cand, /homeNation|wedgeOf|faction/);
   assert.equal(drawRings(EXTENT, CONTIGUOUS).drawn.join(','), '2,3,4');
   assert.equal(drawRings({ ...EXTENT, rMaxCeiling: 8 }, CONTIGUOUS).near.join(','), '5');
+});
+
+test('D15 the page: only the current request touches the page', async () => {
+  const page = code(read('home-draw-page.mjs'));
+  const start = page.slice(page.indexOf('export async function start('));
+  // no herald client shared by requests: it is made inside the Draw handler, after the request's number
+  assert.doesNotMatch(start.slice(0, start.indexOf("addEventListener('submit'")), /createHerald\(/);
+  const sub = start.slice(start.indexOf("addEventListener('submit'"));
+  const order = (body, ...parts) => { let at = -1; for (const p of parts) { const i = body.indexOf(p, at + 1); assert.ok(i > at, `in order: ${p}`); at = i; } };
+  order(sub, 'const my = ++current, wallet = input.value.trim();', 'view.cancel();', 'view.setWallet(wallet);',
+    "const live = () => my === current && view.state().wallet === (wallet || null);",
+    'const fail = () => { if (!live()) return;',
+    'try {', 'const herald = createHerald({ base: cfg.herald });',
+    'const s = await herald.season();', 'if (!live()) return;', 'if (!s?.ok) return fail();',
+    'herald.pin(s.record.season);', 'view.setWorld(worldOfRecord(s.record));', 'paint();',
+    'await readRings(herald, rings.drawn)', 'if (!live()) return;',
+    'await view.ask(', 'if (!live()) return;', 'paint();', '} catch { fail(); }');
+  // every await in the handler is followed by the check before anything else
+  const awaits = sub.split('\n').filter(l => /\bawait\b/.test(l)).length;
+  assert.equal(awaits, 3);
+  // typing ends the request under way
+  const inp = start.slice(start.indexOf("input.addEventListener('input'"), start.indexOf("addEventListener('submit'"));
+  order(inp, 'current++;', 'view.cancel();', 'view.setWallet(input.value.trim());', 'paint();');
+  // the failure note belongs to the request that failed and shows only while it is current
+  assert.match(start, /failedFor !== 0 && failedFor === current \?/);
+  assert.match(start, /failedFor = my;/);
+  // the view: cancel drops an answer under way and keeps what is shown
+  let release;
+  const v = createDrawView({ draw: a => new Promise(res => { release = () => res({ kind: DRAW.full, world: a.world, citizen: a.citizen }); }), growth: () => null });
+  v.setWallet('Wallet1111'); v.setWorld(WORLD);
+  const first = v.ask({}); release(); assert.deepEqual(await first, { applied: true });
+  const shown = v.state().answer;
+  const late = v.ask({});
+  v.cancel();
+  assert.equal(v.state().status, VIEW.shown);
+  release(); assert.deepEqual(await late, { applied: false, why: 'stale' });
+  assert.equal(v.state().answer, shown);
+});
+
+test('D16 reproducible only for the same snapshot and parameters; no reservation claimed', async () => {
+  const a = await drawHome(base());
+  assert.deepEqual((await drawHome(base())).place, a.place);
+  // the drawn place taken in the next overview: the same wallet in the same world is drawn elsewhere
+  const moved = await drawHome(base({ overviews: overviews({ taken: (p, q, i) => p === a.place.p && q === a.place.q && i === a.place.site }) }));
+  assert.equal(moved.kind, DRAW.assigned);
+  assert.notDeepEqual(moved.place, a.place);
+  // the score alone is fixed
+  assert.equal(moved.checked.length >= 1, true);
+  const core = read('fhome-draw.mjs'), screen = read('screens/home-draw.mjs'), doc = readFileSync(new URL('../../docs/integration/CLAUDE-HOME-DRAW-PROVISIONAL-20261118.md', import.meta.url), 'utf8');
+  assert.match(core, /the same candidate snapshot/);
+  assert.match(core, /Nothing holds or\n\/\/     reserves a drawn place/);
+  assert.ok(LIMITS_TEXT.some(l => l.startsWith('Not a reservation: the same wallet gets the same place only while the free places and these settings stay the same.')));
+  for (const t of [core, screen, doc]) {
+    assert.doesNotMatch(t, /always (gets? )?the same place|always the same place|give the same place,\n\/\/ +whatever order/i);
+    assert.doesNotMatch(t, /reserved for|is reserved|kept for you|guaranteed/i);
+  }
 });

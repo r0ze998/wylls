@@ -11,7 +11,8 @@ const li = items => items.map(t => `<li>${esc(t)}</li>`).join('');
 
 export const LIMITS_TEXT = Object.freeze([
   'A test of a new rule: not the real join, not on the public world, not switched on.',
-  'Predictable: anyone who knows the world can work out any wallet\'s place before it joins.',
+  'Predictable: anyone who knows the world and reads the same map can work out any wallet\'s place before it joins.',
+  'Not a reservation: the same wallet gets the same place only while the free places and these settings stay the same. When places are taken or freed, or the map or the settings change, it can be drawn elsewhere, and nothing holds the place.',
   'Not protected against many accounts: wallets can be made until one lands where wanted.',
   'The real join still checks the home rings, the nation and the place itself, and would refuse a place outside them.',
 ]);
@@ -43,7 +44,7 @@ function answerHtml(a) {
       return `<p class="draw-place">Your village would be placed in province ${esc(p.p)}, ${esc(p.q)} (ring ${esc(p.ring)}), place ${esc(p.site)}.</p>`
         + (Number.isInteger(nation) ? `<p>That land is nation ${esc(nation)}'s; nations are mixed in this draw.</p>` : '')
         + `<p>${esc(chainText(a.chain))}</p>`
-        + `<p class="draw-note">Drawn from the map as last read. The place can be taken by someone else before a real join.</p>`;
+        + `<p class="draw-note">Drawn from the map as last read. The place is not held: someone else can take it before a real join, and a later draw on a changed map can give another place.</p>`;
     }
     case DRAW.full: return '<p>No free place in the open map right now.</p>';
     case DRAW.unread: return `<p>Part of the map could not be read, so no place is drawn. Land that is not read is never counted as free.</p>${Array.isArray(a.unreadRings) && a.unreadRings.length ? `<p>Rings not read: ${esc(a.unreadRings.join(', '))}</p>` : ''}`;

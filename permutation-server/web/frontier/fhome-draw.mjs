@@ -4,11 +4,17 @@
 // map of the existing world, nations mixed, no new beginner shield, the map growing by exploration. This file is the
 // independent core of that draw, as a provisional implementation:
 //
-//   * reproducible: the same world draw key (the Season's genesis_seed) and the same citizen key give the same place,
-//     whatever order the candidates were read in (each free place gets its own score; the lowest score wins);
+//   * reproducible only within a stated range (corrected 2026-11-18): each place's score is fixed by the world draw key
+//     (the Season's genesis_seed), the citizen key and the place; the place drawn is the lowest score among the free
+//     places read. So the same world key, the same citizen key, the same candidate snapshot (the overviews and the
+//     Province reads: which places are free, taken or held) and the same parameters (density, rings, confirm reads)
+//     give the same place, whatever order the candidates were read in. When places are taken or freed, the map
+//     grows, or the parameters change, the same wallet in the same world can be drawn elsewhere. Nothing holds or
+//     reserves a drawn place, and nothing here stops anyone from asking again;
 //   * no nation is excluded: every free place of every nation in the drawn rings is a candidate;
-//   * PREDICTABLE and NOT resistant to many accounts: anyone who knows the world's key can compute any wallet's place
-//     before joining, and can make wallets until one lands where it wants. Stated, not solved.
+//   * PREDICTABLE and NOT resistant to many accounts: anyone who knows the world's key and reads the same map can
+//     compute any wallet's place before joining, and can make wallets until one lands where it wants. Stated, not
+//     solved.
 //
 // It is NOT the program's rule and never claims to be. The program's PlaceHome (proc/citizen.rs place_home_as) takes a
 // place only in rings 2..=heartland_max_ring, below rings_opened, whose home nation (geometry::home_nation; placement 1
@@ -43,7 +49,8 @@ export const PROVISIONAL_PARAMS = Object.freeze({ fromRing: 2, nearRings: 1, max
 export const PROVISIONAL = Object.freeze({ production: false, enabled: false, kind: DRAW_KIND,
   limits: Object.freeze([
     'provisional: not a rule of the game, not production, not enabled',
-    'predictable: the world key and the citizen key give the place before joining',
+    'predictable: the world key, the citizen key and the same map read give the place before joining',
+    'not a reservation: the same place only for the same candidate snapshot and parameters; nothing holds it',
     'not resistant to many accounts: wallets can be made until one lands where wanted',
     'not the program: PlaceHome checks rings 2..heartland, the nation and the site itself',
   ]) });
