@@ -24,6 +24,8 @@
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   td, th { border-bottom: 1px solid var(--line); padding: 4px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
   .req { border-top: 1px solid var(--line); padding: 8px 0; }
+  .req.focus { background: #fff3d6; box-shadow: inset 4px 0 0 var(--warn); padding-left: 12px; }
+  .req.focus::before { content: '入口で選んだ依頼'; display: block; font-size: 12px; font-weight: 600; color: var(--warn); }
   .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   #msg { min-height: 1.5em; }
   code { font-size: 12px; overflow-wrap: anywhere; }

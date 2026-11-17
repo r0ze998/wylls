@@ -1,6 +1,9 @@
 # Village card → one request on ①'s board, checked on both ends (2026-11-17)
 
-**Branch:** `claude/ws07-ws01-request-link-20261117`, one commit **on `c296c41a`** (the board-page-reads unit's final tip, unchanged).
+**Branch:** `claude/ws07-ws01-request-link-20261117`, **on `c296c41a`** (the board-page-reads unit's final tip, unchanged).
+- `c4e9ecb0` is the first tip.
+- The correction (the second tip) is on top of it.
+- **Adopt the final tip only.**
 
 **Adoption order:**
 - `c18eee20` → `64dda7b8` → `6a77007d` → `c296c41a` → this.
@@ -39,6 +42,38 @@ The card showed counts and one general link to the board. A player could not go 
 
 **Language:** 7 keys in the same cooperation block of `lang/en-frontier-play.mjs` (mid-file; Lane C appends at the end). No banned word.
 
+## Correction (second tip): the parent's review of `c4e9ecb0`
+
+**Do not adopt `c4e9ecb0` alone.**
+
+1. **A regression in the page's start-up** (`coop/coop-ui.mjs`).
+   - **The cause:** the named-request lines were inserted between the destination's fill line (`if (to && format && sameWorld) …`) and its `else if (to && format)` warning. The `else if` was then bound to the new `if (reqParam !== null && !focus)`.
+   - **The effect:** a correct same-world entry, with or without a request, fell into the `else if` and showed "入口の村は別の世界…の村のため、届け先に入れていない" (or "どの世界か分からない"), although the destination was filled.
+   - **The fix:** the destination chain is again exactly as in `c296c41a` (fill → another world / no world → broken `?to=`). The named request is decided **after** it, on its own (`entryOk`, `sameWorld`, the id), and gives its own reason:
+     - no or broken entry village: "入口の村が渡されていないか読めない";
+     - another or unnamed world: "この板の世界の村だと確かめられない";
+     - an unreadable id: "依頼の名前が読めない".
+2. **The mark was invisible** (`coop/index.html`).
+   - **Before:** the page's style had no `.focus` rule, so the request was only scrolled to.
+   - **Now:** `.req.focus` has a tinted background, a left bar in the page's own `--warn` colour, and the label "入口で選んだ依頼" (not by colour alone).
+
+**Traced statically after the fix:**
+
+| Entry | Destination | Notice | Named request |
+|---|---|---|---|
+| this world, `request=` | filled | none | kept, checked on each view |
+| this world, no `request=` (the old link) | filled | none | none, nothing said |
+| another world | not filled | "別の世界" | refused, with the reason |
+| world not named | not filled | "どの世界か分からない" | refused, with the reason |
+| broken `?to=` | not filled | "読めない" | refused, with the reason |
+
+**Reviewed again, no other change:**
+- **The request's checks:** present, `ctx` of this world, `to` the entry's village.
+- **Each applied view:** the mark is set again, but the page scrolls only once per page load (a reload scrolls again).
+- **When a read fails:** the old display keeps its mark, and its age is said by the read state line.
+- **When the request disappears:** said, and the mark goes with the re-render.
+- **Nothing is accepted, signed or sent.**
+
 ## Regression (written, NOT run)
 
 **`web-frontier-ws07-coop-village-requests.test.mjs`** (appended):
@@ -51,10 +86,14 @@ The card showed counts and one general link to the board. A player could not go 
 - the three checks (present, `ctx`, `to`) and every reason text;
 - nothing is posted or sent by `applyFocus`;
 - it runs after every applied view.
+- **(second tip)** the request's three reasons;
+- **(second tip)** the destination chain is unbroken (fill → another world → broken, then the request; the `else if` follows the fill line directly; no request code inside the chain, and no destination code after it);
+- **(second tip)** the `.req.focus` style and label in `coop/index.html`.
 
 ## Hand-over (Lane D)
 
-**Unit:** `claude/ws07-ws01-request-link-20261117`, one commit on `c296c41a`, all `100644`:
+**Unit:** `claude/ws07-ws01-request-link-20261117`, two commits on `c296c41a` (`c4e9ecb0`, then the correction). Take the final tip's diff from `c296c41a`, all `100644`:
+- `workstreams/01-national-strategy/coop/index.html` (M, second tip)
 - `permutation-server/web/frontier/hud/coopboard.mjs` (M)
 - `permutation-server/web/frontier/hud/coopentry.mjs` (M)
 - `permutation-server/web/lang/en-frontier-play.mjs` (M)

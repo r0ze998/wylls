@@ -432,16 +432,20 @@ $('judge').addEventListener('change', refresh);
   // 入れずに理由を言う（同じ座標でも別の世界の村になるため）。届け先は手で入れられる（依頼の確かめはこれまでどおり）。
   const sameWorld = qs.get('program') === cfg.season.programId && qs.get('season') === String(cfg.season.seasonId);
   if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to) && sameWorld) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
-  // （2026-11-17、一つの依頼）名指しされた依頼は、届け先と同じく、入口の村の世界がこの板の世界のときだけ持つ
-  const reqParam = qs.get('request');
-  focus = to && /^-?\d+,-?\d+,\d+,\d+$/.test(to) && sameWorld && typeof reqParam === 'string' && reqParam && reqParam.length <= 128 ? { id: reqParam, to, seen: false } : null;
-  if (reqParam !== null && !focus) focusSay('入口で選んだ依頼は、入口の村とこの板の世界を確かめられないため開いていません。一覧から選んでください');
   else if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) {
     $('entryWarn').textContent = qs.get('program') === null || qs.get('season') === null
       ? '入口の村が、どの世界（シーズン・プログラム）の村か分からないため、届け先に入れていない。この板の世界の届け先の村を入れてください'
       : `入口の村は別の世界（シーズン ${qs.get('season').slice(0, 20)}）の村のため、届け先に入れていない。この板の世界（シーズン ${cfg.season.seasonId}）の届け先の村を入れてください`;
     $('entryWarn').hidden = false;
   } else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
+  // （2026-11-17、一つの依頼）名指しされた依頼は、届け先と同じく、入口の村の世界がこの板の世界のときだけ持つ。
+  // 届け先の分岐（上）とは別に決める（届け先の入れ方・知らせは変えない）
+  const reqParam = qs.get('request');
+  const entryOk = !!to && /^-?\d+,-?\d+,\d+,\d+$/.test(to);
+  focus = entryOk && sameWorld && typeof reqParam === 'string' && reqParam && reqParam.length <= 128 ? { id: reqParam, to, seen: false } : null;
+  if (reqParam !== null && !focus) focusSay(!entryOk ? '入口で選んだ依頼は、入口の村が渡されていないか読めないため開いていません。一覧から選んでください'
+    : !sameWorld ? '入口で選んだ依頼は、入口の村がこの板の世界の村だと確かめられないため開いていません。一覧から選んでください'
+    : '入口で選んだ依頼の名前が読めないため開いていません。一覧から選んでください');
   await refresh();
   setInterval(() => { refresh(); }, 4000);   // （2026-11-17）refresh は投げず、失敗は読み込みの状態の一行で言う（黙らない）
 })().catch(e => say(`読み込めない：${e.message ?? e}`, 'bad'));
