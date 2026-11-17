@@ -164,7 +164,8 @@ test('to a storehouse (settle_caravan cuts at the vault\'s cap, the record keeps
   setLang('ja');
   assert.deepEqual(arrivalOf([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]), { state: 'settledUnverified', why: 'vault', recorded: F400 });
   const t = RW.itemText(sum([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
-  assert.match(t, /^隊商（ターン 292）：到着しましたが、入った量は確認できません（食料 最大 400）。倉庫は上限を超えた分を切り捨てます/);
+  // corrected 2026-11-17 (Lane C): the record's numbers, not "最大" (the record is no upper bound of a storehouse's intake)
+  assert.match(t, /^隊商（ターン 292）：到着しましたが、入った量は確認できません（記録の積荷：食料 400）。倉庫は上限を超えた分を切り捨てます/);
   assert.equal(t.split('到着しました').length - 1, 1, 'said once, not twice');
   assert.doesNotMatch(t, /全量|一部が入りました|村に入った量/);
   assert.deepEqual(heldSince([settled(102, 0n, F400)]), { state: 'settledUnverified', why: 'dstUnknown', recorded: F400 });

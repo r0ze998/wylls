@@ -1453,12 +1453,12 @@ export default {
   '送付記録の数量に対して一部が入りました：{0}': 'Part of the send record\'s amount was taken in: {0}',
   '送付記録の数量：{0}': 'Amount on the send record: {0}',
   '送付記録の数量に対して全量が入りました：{0}': 'All of the send record\'s amount was taken in: {0}',
-  // workstream 07: the arrival's bounds and the states 04's contract asks for (hud/statusview.mjs v7: atLeastText, atMostText)
+  // workstream 07: the arrival's bounds and the states 04's contract asks for (hud/statusview.mjs v7: atLeastText; a
+  // storehouse's record as the record's numbers, recordedText, 2026-11-17: no "at most" is made from it)
   '{0} {1} 以上': (r, n) => `at least ${n} ${r}`,
   '0 以上': 'at least 0',
-  '{0} 最大 {1}': (r, n) => `at most ${n} ${r}`,
-  '最大 0': 'at most 0',
-  '到着しましたが、入った量は確認できません（{0}）': 'It arrived, but the amount taken in cannot be verified ({0})',
+  '到着しましたが、入った量は確認できません（記録の積荷：{0}）': 'It arrived, but the amount taken in cannot be verified (cargo on the record: {0})',
+  '記録の数は 1 未満を切り捨て、大きすぎる値は上限で止まるため、入った量の上限も記録からは決まりません': 'The record drops anything under one and stops at its largest value, so it does not give an upper bound for the amount taken in either',
   '到着しましたが、入った量は確認できません': 'It arrived, but the amount taken in cannot be verified',
   '別の場所に着きました（原因を確認中）': 'It ended at another place (the cause is being checked)',
   '送付記録の行き先と違う場所で決着しました。この隊商の到着としては、入った量を数えません': 'Its journey ended at another place than the send record names. Nothing is counted as taken in for this caravan',

@@ -35,7 +35,13 @@ test('a caravan\'s arrival in its states: overdue is not arrived, settled-unveri
   assert.doesNotMatch([o.text, ...o.details].join(), /着きました|入りました/, 'past the turn is not arrived');
   const v = SV.arrivalView({ state: 'settledUnverified', why: 'vault', recorded: C(400) });
   assert.deepEqual([v.key, v.symbol], ['arrival:settledUnverified:vault', '?']);
-  assert.equal(v.text, '到着しましたが、入った量は確認できません（食料 最大 400）', 'a storehouse: arrived, the intake unknown, at most the record (04 DeliveredUnverified)');
+  // corrected 2026-11-17 (Lane C): the record is floor(milli / 1000) saturated at u32::MAX and a storehouse adds milli
+  // before its cap, so the record is no upper bound: shown as the record's numbers, never "最大" (at most)
+  assert.equal(v.text, '到着しましたが、入った量は確認できません（記録の積荷：食料 400）', 'a storehouse: arrived, the intake unknown, the record shown as the record (04 DeliveredUnverified)');
+  assert.doesNotMatch([v.text, ...v.details].join(), /最大/, 'no upper bound is made from the record');
+  const z = SV.arrivalView({ state: 'settledUnverified', why: 'vault', recorded: C(0) });
+  assert.equal(z.text, '到着しましたが、入った量は確認できません（記録の積荷：0）', 'an all-zero record is the record 0, not 0 taken in');
+  assert.doesNotMatch([z.text, ...z.details].join(), /最大 0|なし/);
   assert.match(v.details.join(), /倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷（食料 400）が載る/);
   assert.doesNotMatch([v.text, ...v.details].join(), /失われ|入りませんでした|0 以上/, 'never said lost or nothing');
   assert.equal(SV.arrivalView({ state: 'settledUnverified', why: 'vault' }).text, '到着しましたが、入った量は確認できません', 'no record: no bound is made up');

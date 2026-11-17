@@ -52,8 +52,13 @@ const isCargo = c => Array.isArray(c) && c.length === 8 && c.every(n => Number.i
  * "0 以上", never "なし" (which would say nothing went in).
  */
 export const atLeastText = c => c.map((n, i) => (n > 0 ? L`${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))} 以上` : null)).filter(Boolean).join(L`・`) || L`0 以上`;
-/** A storehouse's intake bound in words: at most the record's whole amounts (settle_caravan cuts at the cap, never adds more). */
-export const atMostText = c => c.map((n, i) => (n > 0 ? L`${RESOURCES[RESOURCE_ORDER[i]]} 最大 ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || L`最大 0`;
+/**
+ * A settle record's cargo in words, as the record's own numbers and nothing more (2026-11-17): cargo_log writes
+ * floor(milli / 1000) saturated at u32::MAX (permutation-frontier proc/caravan.rs), and a storehouse adds the milli
+ * cargo before cutting at its cap. So the record is neither a lower nor an upper bound of what a storehouse took in:
+ * no "最大" (at most) is made from it, and all zero is "0" (the record's number), never "なし" or "最大 0".
+ */
+export const recordedText = c => c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || '0';
 export const cargoText = c => c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || L`なし`;
 const notReceived = (key, errors) => ({ ok: false, key, symbol: '?', text: L`状態を受け取れていません`, details: [], tone: 'unknown', errors });
 
@@ -130,16 +135,17 @@ export function arrivalView(x) {
   }
   if (x.state === 'settledUnverified') {
     if (!UNVERIFIED_WHY.includes(x.why)) return notReceived('arrival', [`why: ${x.why ?? 'missing'}`]);
-    const rec = isCargo(x.recorded) ? cargoText(x.recorded) : null;
+    const rec = isCargo(x.recorded) ? recordedText(x.recorded) : null;
     const details = {
-      vault: [L`倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷${rec ? L`（${rec}）` : ''}が載るため、入った量は記録からはわかりません`],
+      vault: [L`倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷${rec ? L`（${rec}）` : ''}が載るため、入った量は記録からはわかりません`,
+        L`記録の数は 1 未満を切り捨て、大きすぎる値は上限で止まるため、入った量の上限も記録からは決まりません`],
       dstUnknown: [L`行き先を記録から読めないため、入った量は確かめられません`],
       rulesUnknown: [L`このシーズンのプログラムの版では、入った量の確かめ方を確認していません`],
       outcomeUnknown: [L`決着の結果を記録から読めないため、入った量は確かめられません`],
     }[x.why];
-    // (a storehouse took the caravan in — it was delivered — and took at most the record's cargo: said with that bound,
-    // never as 0, a loss or a failure. 04 HANDOFF §2 DeliveredUnverified)
-    const text = x.why === 'vault' ? (isCargo(x.recorded) ? L`到着しましたが、入った量は確認できません（${atMostText(x.recorded)}）` : L`到着しましたが、入った量は確認できません`)
+    // (a storehouse took the caravan in — it was delivered — and what it took is not known: the record's cargo is shown as
+    // the record's numbers, never as a bound, 0 taken in, a loss or a failure. 04 HANDOFF §2 DeliveredUnverified)
+    const text = x.why === 'vault' ? (isCargo(x.recorded) ? L`到着しましたが、入った量は確認できません（記録の積荷：${recordedText(x.recorded)}）` : L`到着しましたが、入った量は確認できません`)
       : L`決着しました。入った量はまだ確かめられていません`;
     return { ok: true, key: `arrival:settledUnverified:${x.why}`, symbol: '?', tone: 'unknown', errors: [], text, details };
   }
