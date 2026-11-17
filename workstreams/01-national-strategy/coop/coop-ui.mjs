@@ -257,9 +257,37 @@ async function refresh() {
   }
   appliedSeq = seq; shownFor = viewerAt; shownAt = new Date();
   readState('');
+  try { applyFocus(); } catch (e) { focusSay(`入口で選んだ依頼を示せませんでした（${e.message ?? e}）。一覧から選び直してください`); }
   return true;
 }
 /** 最新の読みが当たらなかった：前の表示が残っていれば、それが古いことを言う。 */
+/**
+ * （2026-11-17、一つの依頼）入口が名指しした依頼：{id, to, seen}。入口の村の世界がこの板の世界と同じときだけ持つ。
+ * 当てた表示ごとに確かめる：その依頼が表示にあり、この板の世界の依頼で、入口の村あてのときだけ目印を付ける（最初の一回だけ
+ * そこへ動かす）。無い・消えた・別の村や世界なら理由を言い、一覧から選び直してもらう。応じる・署名・準備・送信はしない。
+ */
+let focus = null;
+function focusSay(text) {
+  let p = document.getElementById('focusState');
+  if (!p) { p = document.createElement('p'); p.id = 'focusState'; p.className = 'warn'; p.dataset.testid = 'focus-state'; $('msg').after(p); }
+  p.textContent = text ?? ''; p.hidden = !text;
+}
+function applyFocus() {
+  if (!focus || !view) return;
+  const q = view.requests.find(x => x.id === focus.id);
+  if (!q) return focusSay(focus.seen ? '入口で選んだ依頼は、いまの表示にありません（記録が変わったか、別の世界の依頼です）。一覧から選び直してください'
+    : '入口で選んだ依頼は、この板にありません（消えたか、別の世界の依頼です）。一覧から選び直してください');
+  const ctxOk = q.ctx && q.ctx.programId === cfg.season.programId && String(q.ctx.seasonId) === String(cfg.season.seasonId);
+  const toOk = q.to && [q.to.p, q.to.q, q.to.site, q.to.gen].join(',') === focus.to;
+  if (!ctxOk || !toOk) return focusSay('入口で選んだ依頼は、入口の村あての、この板の世界の依頼ではありません。一覧から選び直してください');
+  const el = [...document.querySelectorAll('#requests .req')].find(e => e.dataset.req === q.id);
+  if (!el) return focusSay('入口で選んだ依頼を表示できませんでした。一覧から選び直してください');
+  el.classList.add('focus');
+  if (!focus.seen) el.scrollIntoView?.({ block: 'center' });
+  focus.seen = true;
+  focusSay('');
+}
+
 function staleSay(why) {
   readState(view ? `${why}。表示は ${shownAt ? shownAt.toLocaleTimeString() : '前'} の読み込みのまま（古い）。自動で読み直しを続けます` : `${why}。まだ表示できるものがありません。自動で読み直しを続けます`);
 }
@@ -410,6 +438,14 @@ $('judge').addEventListener('change', refresh);
       : `入口の村は別の世界（シーズン ${qs.get('season').slice(0, 20)}）の村のため、届け先に入れていない。この板の世界（シーズン ${cfg.season.seasonId}）の届け先の村を入れてください`;
     $('entryWarn').hidden = false;
   } else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
+  // （2026-11-17、一つの依頼）名指しされた依頼は、届け先と同じく、入口の村の世界がこの板の世界のときだけ持つ。
+  // 届け先の分岐（上）とは別に決める（届け先の入れ方・知らせは変えない）
+  const reqParam = qs.get('request');
+  const entryOk = !!to && /^-?\d+,-?\d+,\d+,\d+$/.test(to);
+  focus = entryOk && sameWorld && typeof reqParam === 'string' && reqParam && reqParam.length <= 128 ? { id: reqParam, to, seen: false } : null;
+  if (reqParam !== null && !focus) focusSay(!entryOk ? '入口で選んだ依頼は、入口の村が渡されていないか読めないため開いていません。一覧から選んでください'
+    : !sameWorld ? '入口で選んだ依頼は、入口の村がこの板の世界の村だと確かめられないため開いていません。一覧から選んでください'
+    : '入口で選んだ依頼の名前が読めないため開いていません。一覧から選んでください');
   await refresh();
   setInterval(() => { refresh(); }, 4000);   // （2026-11-17）refresh は投げず、失敗は読み込みの状態の一行で言う（黙らない）
 })().catch(e => say(`読み込めない：${e.message ?? e}`, 'bad'));

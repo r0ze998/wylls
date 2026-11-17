@@ -81,3 +81,43 @@ test('the herald caravan list: read or not read, applied with the view; not read
   assert.match(m, /return \(feed\.data\.moving \?\? \[\]\)\.filter\(/);
   assert.match(ui, /cands === null \? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない/);
 });
+
+// (2026-11-17, one request; WRITTEN ONLY, NOT RUN) the board page points at a named request only after checking it
+test('a named request: kept only for this world, then checked against the view (present, this world, to the entry\'s village)', () => {
+  assert.match(ui, /const entryOk = !!to && \/\^-\?\\d\+,-\?\\d\+,\\d\+,\\d\+\$\/\.test\(to\);/);
+  assert.match(ui, /focus = entryOk && sameWorld && typeof reqParam === 'string' && reqParam && reqParam\.length <= 128 \? \{ id: reqParam, to, seen: false \} : null;/);
+  assert.match(ui, /入口で選んだ依頼は、入口の村が渡されていないか読めないため開いていません/);
+  assert.match(ui, /入口で選んだ依頼は、入口の村がこの板の世界の村だと確かめられないため開いていません/);
+  assert.match(ui, /入口で選んだ依頼の名前が読めないため開いていません/);
+  const f = ui.slice(ui.indexOf('function applyFocus()'), ui.indexOf('function staleSay('));
+  assert.match(f, /const ctxOk = q\.ctx && q\.ctx\.programId === cfg\.season\.programId && String\(q\.ctx\.seasonId\) === String\(cfg\.season\.seasonId\);/);
+  assert.match(f, /const toOk = q\.to && \[q\.to\.p, q\.to\.q, q\.to\.site, q\.to\.gen\]\.join\(','\) === focus\.to;/);
+  assert.match(f, /この板にありません（消えたか、別の世界の依頼です）。一覧から選び直してください/);
+  assert.match(f, /いまの表示にありません（記録が変わったか、別の世界の依頼です）/);
+  assert.match(f, /入口の村あての、この板の世界の依頼ではありません/);
+  assert.doesNotMatch(f, /post\(|sendFor\(|sendOnce\(|click\(\)/, 'nothing is accepted, signed or sent by pointing at it');
+  // checked again on every view that is applied (after a reload too)
+  const r = ui.slice(ui.indexOf('async function refresh()'), ui.indexOf('function staleSay('));
+  assert.ok(r.indexOf('try { applyFocus(); }') > r.indexOf("readState('');"));
+});
+
+// (2026-11-17, correction; WRITTEN ONLY, NOT RUN) the named request is decided apart from the destination's branches:
+// the 'another world' warning stays bound to the fill line, so a same-world entry (with or without a request) never warns
+test('the destination branches stay one chain; the named request is decided after them, on its own', () => {
+  const i = ui.slice(ui.indexOf("const sameWorld = qs.get('program')"), ui.indexOf('await refresh();\n  setInterval('));
+  const fill = i.indexOf("if (to && /^-?\\d+,-?\\d+,\\d+,\\d+$/.test(to) && sameWorld) [$('toP').value");
+  const other = i.indexOf("else if (to && /^-?\\d+,-?\\d+,\\d+,\\d+$/.test(to)) {");
+  const broken = i.indexOf("} else if (to !== null) {");
+  const req = i.indexOf("const reqParam = qs.get('request');");
+  assert.ok(fill >= 0 && other > fill && broken > other && req > broken, 'fill → another world → broken, then the request');
+  assert.match(i.slice(fill, other), /to\.split\(','\);\n  else if/, 'the another-world branch follows the fill line directly');
+  assert.doesNotMatch(i.slice(0, req), /reqParam|focus/, 'nothing about the request inside the destination chain');
+  assert.doesNotMatch(i.slice(req), /entryWarn|toP'\)\.value/, 'the request part neither fills nor warns about the destination');
+});
+
+test('the request pointed at is visible: its own style on the board page', () => {
+  const page = readFileSync(new URL('../coop/index.html', import.meta.url), 'utf8');
+  assert.match(page, /\.req\.focus \{ background: #fff3d6; box-shadow: inset 4px 0 0 var\(--warn\); padding-left: 12px; \}/);
+  assert.match(page, /\.req\.focus::before \{ content: '入口で選んだ依頼';/);
+  assert.match(ui, /el\.classList\.add\('focus'\);/);
+});

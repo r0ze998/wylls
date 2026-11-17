@@ -103,3 +103,36 @@ test('boardHref: the village with the page\'s own program and Season; no world s
   assert.equal(CB.boardHref(FS({ pin: {} }), b), `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}`, 'no program: no world');
   assert.equal(CB.boardHref(FS({ season: null }), b), `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}`, 'no Season: no world');
 });
+
+// (2026-11-17, one request; WRITTEN ONLY, NOT RUN) each counted request can be opened on the board itself
+test('links: only the requests counted (this world, this village), open first, at most five, the id encoded', () => {
+  const b = board(cfg('7'));
+  const v = { read: 'ok', requests: [
+    req({ id: 'closed-1', stateNow: 'expired', fulfilment: { status: 'fulfilled' } }),
+    req({ id: 'a b&c', fulfilment: { status: 'none' } }),
+    ...[2, 3, 4, 5, 6].map(n => req({ id: `open-${n}` })),
+    req({ id: 'other-village', to: { p: 9, q: 9, site: 1, gen: 1 } }),
+    req({ id: 'other-season', ctx: { programId: PROG, seasonId: '6' } }),
+  ] };
+  const d = CB.villageRequests(FS(), b, v);
+  assert.equal(d.links.length, 5, 'at most five');
+  assert.ok(d.links.every(x => !['other-village', 'other-season', 'closed-1'].includes(x.id)), 'open ones first; never another village or world');
+  const ab = d.links.find(x => x.id === 'a b&c');
+  assert.equal(ab.href, `${CB.BOARD_PAGE}?to=${encodeURIComponent('2,-1,3,4')}&program=${PROG}&season=7&request=${encodeURIComponent('a b&c')}`);
+  assert.match(ab.text, /を板で開く（受付中・まだ隊商がない）/);
+  // no world for this page: no link at all (the board could not check the request against it)
+  assert.deepEqual(CB.villageRequests(FS({ pin: {} }), board({ season: { seasonId: '7' }, page: CB.BOARD_PAGE }), v).links, undefined, 'no program: the cannot-be-checked line, no links');
+  assert.equal(CB.boardHref(FS({ pin: {} }), b, 'x').includes('&request='), false);
+});
+
+test('the slot draws the links as same-origin paths only, in a new tab, with their text escaped', async () => {
+  const { registerCoopEntry } = await import('../../permutation-server/web/frontier/hud/coopentry.mjs');
+  const off = registerCoopEntry({ id: 't', title: () => 'T', state: () => ({ available: true }), open: () => {},
+    detail: () => ({ lines: ['l'], links: [{ href: '/ws01/x?request=a%26b', text: '<b>x</b>' }, { href: '//evil.example/x', text: 'no' }, { href: 'https://evil.example', text: 'no' }] }) });
+  try {
+    const h = String(renderCoopSlot(FS()));
+    assert.match(h, /<a class="btn small" href="\/ws01\/x\?request=a%26b" target="_blank" rel="noopener">/);
+    assert.doesNotMatch(h, /evil\.example/);
+    assert.doesNotMatch(h, /<b>x<\/b>/, 'the text is escaped');
+  } finally { off(); }
+});
