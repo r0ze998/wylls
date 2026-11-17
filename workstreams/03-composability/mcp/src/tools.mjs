@@ -78,7 +78,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'get_run_status',
     title: 'Run status',
-    description: 'Every operation of this connection sent with this runId, each followed as get_operation_status does, and workstream 04\'s registry receipts for the run when a registry is configured. Sends nothing. No change.',
+    description: 'This connection\'s operations sent with this runId (the run is chosen first; at most 1000, newest first: operationsTruncated and operationsTotal say when there are more), each followed as get_operation_status does, and workstream 04\'s registry receipts for the run when a registry is configured (at most 50 rows: registry.truncated says when there are more). Sends nothing. No change.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['runId'], properties: { runId: { type: 'string', pattern: RUN_ID.source } } },
     annotations: { ...read, title: 'Run status' },
     securitySchemes: oauth([SCOPES.READ]),

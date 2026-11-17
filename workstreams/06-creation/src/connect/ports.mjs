@@ -92,8 +92,13 @@ export function act3FromMcp({ callTool }) {
       const r = await callTool("get_run_status", { runId });
       if (r?.error) throw fail(r);
       if (!r?.registry?.read) throw Object.assign(new Error("③ could not read ④'s registry"), { code: "RegistryUnreadable" });
-      const mine = (r.registry.acts ?? []).filter((a) => a.source === "mcp" && typeof a.idempotencyKey === "string" && a.idempotencyKey.endsWith(`:${requestId}`));
+      const acts = r.registry.acts ?? [];
+      const mine = acts.filter((a) => a.source === "mcp" && typeof a.idempotencyKey === "string" && a.idempotencyKey.endsWith(`:${requestId}`));
       if (mine.length > 1) throw Object.assign(new Error(`${mine.length} acts for one requestId`), { code: "Inconsistent" });
+      // ③ lists at most part of the run's acts and says so (server.mjs runStatus: `registry.truncated`). Then neither
+      // "not registered" (null: dispatch may send) nor "this is the only one" is shown by the rows: no answer, like
+      // an unread registry. dispatch.mjs keeps lastError and reads again later; it never sends on a throw (2026-11-17).
+      if (r.registry.truncated === true) throw Object.assign(new Error(`③ listed ${acts.length} of the run's acts (truncated): this requestId's act is not known from them`), { code: "RegistryTruncated" });
       return mine[0] ?? null;
     },
   };
