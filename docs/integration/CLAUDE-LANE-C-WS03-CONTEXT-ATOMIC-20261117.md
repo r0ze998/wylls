@@ -20,7 +20,7 @@ On a new key, the code ran in this order:
   - The next call re-read the relay (`t - undefined` is `NaN`). The key equalled `pinned.key`, so it **skipped the assembly**, set `pinnedAt`, and returned a context with no addresses. `view` then failed on `this.addresses.of`.
 - **On a switch:**
   - `pinned` named the new world while `addresses` and the herald pin were still the old world's, and `contextChanges` already recorded a switch that had not happened.
-  - Within the TTL of the previous `pinnedAt`, that mismatched context was returned. After the TTL, the same key skipped the assembly for good.
+  - On the next relay read, if the same key is returned, the assembly is skipped and `pinnedAt` is refreshed while the old addresses and herald pin remain.
 
 `herald.pin` (`permutation-server/web/frontier/herald.mjs:452`) only assigns two variables and does not throw.
 
