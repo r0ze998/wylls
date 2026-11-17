@@ -129,3 +129,45 @@ The scope boundary is kept, and the mark only ever covers what was read: `confir
   - the real away notice on a page;
   - real storage failures and a real second world.
 - **Candidate command (independent, key-free):** `node --test permutation-gateway/test/web-frontier-ws07-away-return-text.test.mjs`.
+
+## The queue's hand-off is bound to the scope too (2026-11-17; nothing run)
+
+**Defect (in `43982911`).** `app.mjs` `awayTake()` (called by `tickFeed`) did `awayQueue.splice(0)`, then `awayPump()`, and returned the spliced items as they were.
+
+A reading's head and items wait in `awayQueue` until the next tick. If the world, wallet or season changed in between, `awayPump` reset the queue for the new scope, but the **already spliced** items of the old scope were returned. They were then inserted into the new scope's feed and notices. "確認した" was already refused for them (scope and world checks), but they were still shown.
+
+**Fix (`awayTake` only).** It takes the scope of this moment (`awayScopeNow()`) **before** handing anything on, and passes only queued items whose `scope` equals it. With no scope (no pinned world, wallet or season), nothing passes and the queue is emptied. Then the next reading starts (`awayPump`), as before.
+
+**Reverse review (static):**
+
+| Case | Result |
+|---|---|
+| Same scope | Every queued item carries `scope: sc` (head and items, `start` and `more`), so nothing is lost |
+| Scope changed after a reading queued its items, before the tick | Old items are dropped at the hand-off; `awayPump` then resets for the new scope (as before) |
+| A late answer of an old scope | Rejected where it resolves (`r.stale` or `r.scope !== awayScopeNow()`), as before. One that resolved before the change and waited in the queue is dropped at the hand-off |
+| A reading busy at the change | `awayPump` returns early while busy, so the queue is not reset at that moment; the hand-off filter still drops the old items. The busy reading's own result is rejected by its scope check |
+| No pin, wallet or season | The scope is `null`: nothing is handed on, and the queue is emptied |
+| Saving | Unchanged: "確認した" needs the scope and the world kept with the summary, and saves with that world |
+| Bad-only wording, auxiliary-only failure warning | Unchanged |
+
+**Regression (written, not run):** `web-frontier-ws07-away-return-text.test.mjs` adds **T7**: the order (scope of the moment, then the filtered splice, then `awayPump`), the old unfiltered one-liner gone, and both queue pushes carrying `scope: sc`. The behaviour test does not import `app.mjs`; that file is too large and page-bound to drive without a page.
+
+## Final manifest (updated; for D, the aggregate is not changed here)
+
+- **Base:** `2ff95beb9e7bb7f3b72b2bf210f1c08f23cc56cb`.
+- **Branch:** `claude/lane-c-ws07-away-return-flow-20261117`. Commits: `a7aea42e` (A1–A4), `43982911` (①–③), then this hand-off fix, which is the final tip.
+- **Paths against the base (eight, unchanged set):**
+  - `permutation-server/web/frontier/hud/returnsum.mjs`;
+  - `permutation-server/web/frontier/hud/returnwords.mjs`;
+  - `permutation-server/web/frontier/app.mjs` (away path only);
+  - `permutation-server/web/lang/en-frontier-play.mjs`;
+  - `workstreams/07-player-experience/CONTRACTS.ja.md`;
+  - `permutation-gateway/test/web-frontier-ws07-away-return.test.mjs`;
+  - `permutation-gateway/test/web-frontier-ws07-away-return-text.test.mjs`;
+  - this report.
+- **This commit changes:** `app.mjs` (`awayTake`), the text test (T7) and this report.
+- **Not run or verified:**
+  - every test;
+  - the real away notice on a page, a real scope switch while a reading is queued or busy;
+  - real storage failures, a real second world.
+- **Candidate (independent, key-free):** `node --test permutation-gateway/test/web-frontier-ws07-away-return-text.test.mjs`.

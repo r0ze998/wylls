@@ -9,6 +9,7 @@
 //   T5 English keys for every new Japanese sentence
 //   T6 the scope names the world (from setPin's checked season account, never made up); "seen" saves under the world the
 //      summary was read in; an auxiliary-only save failure keeps the head with confirmedText's words
+//   T7 the queue's hand-off passes only items of the scope of that moment (none without a scope), before the next reading
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -64,4 +65,15 @@ test('T6 one world from reading to saving; an auxiliary-only failure is shown', 
   assert.ok(app.includes('if (keepHead) FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, saved), away: { ...y.away, ok: false, saved } } : y));'));
   assert.ok(app.includes('&& !(keepHead && y.id === x.id)).map(y => y.id)]);'), 'the head is not dismissed then');
   assert.doesNotMatch(app, /FS\.pin\.seasonAddress/, 'setPin has no seasonAddress field: never read as one');
+});
+
+test('T7 the hand-off passes only the current scope\'s items', () => {
+  const body = app.slice(app.indexOf('function awayTake() {'), app.indexOf('function awayTake() {') + 400);
+  const now = body.indexOf('const sc = awayScopeNow();');
+  const take = body.indexOf('const out = awayQueue.splice(0).filter(x => sc !== null && x.scope === sc);');
+  const pump = body.indexOf('awayPump();');
+  assert.ok(now > 0 && take > now && pump > take, 'the scope of this moment, then the filtered hand-off, then the next reading');
+  assert.doesNotMatch(app, /function awayTake\(\) \{ const out = awayQueue\.splice\(0\); awayPump\(\); return out; \}/, 'the unfiltered hand-off is gone');
+  // every item put in the queue carries its scope
+  for (const push of [/awayQueue\.push\(\{ id: `away:\$\{sc\}:[^\n]*kind: 'away', scope: sc,/, /\.map\(i => \(\{ \.\.\.awayItem\(i\), scope: sc \}\)\)\);/]) assert.match(app, push);
 });

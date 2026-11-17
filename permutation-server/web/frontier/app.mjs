@@ -2589,8 +2589,18 @@ function renderAwayEntry() {
   b.hidden = false;
   doc.body.dataset.awayEntry = '1';
 }
-/** What the away reading found since the last tick (and the next reading started). */
-function awayTake() { const out = awayQueue.splice(0); awayPump(); return out; }
+/**
+ * What the away reading found since the last tick (and the next reading started). Only what belongs to the scope of this
+ * moment is handed on (2026-11-17): a reading's items wait in the queue until the next tick, and the world, wallet or
+ * season may change in between — items of another scope are dropped here, not shown in the new one's feed. With no
+ * scope (no pinned world, no wallet or no season) nothing is handed on and the queue is emptied.
+ */
+function awayTake() {
+  const sc = awayScopeNow();
+  const out = awayQueue.splice(0).filter(x => sc !== null && x.scope === sc);
+  awayPump();
+  return out;
+}
 /** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
 const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
 /** The away notices in the page's language (they are kept as words; the language may change after they were told). */
