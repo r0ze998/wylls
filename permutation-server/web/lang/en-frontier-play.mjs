@@ -1840,4 +1840,11 @@ export default {
   '（ターン {0} に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、いまの村の命令であることまでは、記録からは分かりません。）': ' (Ordered on turn {0}, from this village\'s tile. The turn moving on does not mean its result was confirmed. An order record does not name the village\'s generation, so the record does not go as far as saying it is the present village\'s order.)',
   'この州で出した{0}の命令（ターン {1}）に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません。': 'An order in this province — {0}, turn {1} — has a result that is not confirmed yet. The record does not say whether it is this village\'s.',
   'この州で、このターンに{0}の命令が受け付けられています。この村の命令かどうかは、記録からは分かりません。': 'An order in this province — {0} — was accepted this turn. The record does not say whether it is this village\'s.',
+  // (2026-11-17, ⑦ from the troops card to the hosts)
+  'この村の軍勢：編成の反映待ち {0}、立っている {1}、進軍中 {2}。': 'This village\'s hosts: {0} waiting to form up, {1} standing, {2} on the march.',
+  '軍勢がどの州にいるかの一覧をまだ読めていないので、この数がすべてとは限りません。': 'The list of provinces your hosts stand in is not loaded yet, so these numbers may not be all.',
+  '読めていない州があるので、この数がすべてとは限りません。': 'Some provinces are not loaded, so these numbers may not be all.',
+  'この村の軍勢の一覧を開く': 'Open the list of this village\'s hosts',
+  '編成した軍勢は、記録に出ると「編成の反映待ち」に入ります。進軍の計画は、軍勢の一覧から立てます。': 'A host you form up shows under "waiting to form up" once it is in the record. A march is planned from the list of hosts.',
+  '（この州で出した命令です。この村の命令かどうかは、記録からは分かりません。）': ' (An order given in this province. The record does not say whether it is this village\'s.)',
 };
