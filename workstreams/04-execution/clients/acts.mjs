@@ -16,7 +16,7 @@
 // (final); pending (wait); unknown = result unknown (hold: it may have landed, never send again);
 // unqueryable = could not ask (read again; says nothing about the act). Before the first read the
 // state is `registered`. `next` says the same as one word: done | new-attempt | wait | hold | read-again.
-import { execFile } from 'node:child_process';
+import { execFile as nodeExecFile } from 'node:child_process';
 
 export const SOURCES = Object.freeze(['ai', 'mcp', 'browser', 'resident']);
 
@@ -29,13 +29,24 @@ export class ActsError extends Error {
   }
 }
 
-function run(bin, args, timeoutMs) {
+// (2026-11-17) runexec answers NoRecord only with exit 3 (workstream 4 src/main.rs: an opened store holds no such act or
+// run). Before, the code was taken from the last JSON line whatever the exit, so a killed or timed-out process, a
+// signal, an output over maxBuffer or another exit code whose last line said NoRecord read as "never registered" —
+// which workstream 13's acts port (resident/ports/ws04-acts.mjs status) answers as null: never sent. Such an answer is
+// now Spawn (no answer: read again), like a process that printed nothing usable. runexec's own NoRecord (exit 3, not
+// killed, no signal), a normal answer (exit 0) and every other error code are unchanged. (Workstreams 6 and 13 apply
+// the same rule to `run view`: 06 src/connect/ports.mjs, 13 resident/ports/ws04-run.mjs.)
+const runexecNoRecord = err => err?.code === 3 && !err.killed && !err.signal;
+const noRecordWithoutExit3 = err => `runexec said NoRecord without its exit 3 (exit ${err?.code ?? null}${err?.signal ? `, signal ${err.signal}` : ''}${err?.killed ? ', killed' : ''}): no answer`;
+
+function run(bin, args, timeoutMs, execFile = nodeExecFile) {
   return new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: timeoutMs, maxBuffer: 1 << 20, shell: false }, (err, stdout) => {
       const line = String(stdout ?? '').trim().split('\n').at(-1) ?? '';
       let v = null;
       try { v = line ? JSON.parse(line) : null; } catch { v = null; }
       if (!err) return v ? resolve(v) : reject(new ActsError('StoreError', 'runexec printed no JSON', 0));
+      if (v?.error === 'NoRecord' && !runexecNoRecord(err)) return reject(new ActsError('Spawn', noRecordWithoutExit3(err), err.code));
       if (v?.error) return reject(new ActsError(v.error, v.message ?? v.error, err.code));
       reject(new ActsError('Spawn', String(err.message ?? err), err.code));
     });
@@ -49,8 +60,9 @@ function run(bin, args, timeoutMs) {
  * @param {number} [o.gatewayPort] the agent wallet's port on 127.0.0.1 (omit: answer from the store only)
  * @param {boolean} [o.bridge]    workstream 04's test bridge (`/fate?key=`) instead of the wallet's route
  * @param {number} [o.timeoutMs]
+ * @param {Function} [o.execFile]  node:child_process execFile (the default); a stand-in only for a test
  */
-export function createActsClient({ bin, db, gatewayPort = null, bridge = false, timeoutMs = 15_000 }) {
+export function createActsClient({ bin, db, gatewayPort = null, bridge = false, timeoutMs = 15_000, execFile = nodeExecFile }) {
   if (!bin || !db) throw new Error('bin and db are required');
   const base = ['act'];
   const tail = ['--db', db];
@@ -60,7 +72,7 @@ export function createActsClient({ bin, db, gatewayPort = null, bridge = false, 
     register({ agentId, key, source, runId = null, slot = 0 }) {
       if (!SOURCES.includes(source)) return Promise.reject(new ActsError('BadRequest', `source must be one of ${SOURCES.join(', ')}`, 2));
       const a = [...base, 'register', '--agent', agentId, '--key', key, '--source', source, '--slot', String(slot), ...(runId ? ['--run', runId] : []), ...tail];
-      return run(bin, a, timeoutMs);
+      return run(bin, a, timeoutMs, execFile);
     },
     /**
      * The act's receipt. With a gateway port (and `read` not false) the wallet is read once and the answer
@@ -68,11 +80,11 @@ export function createActsClient({ bin, db, gatewayPort = null, bridge = false, 
      */
     status(q, { read = true } = {}) {
       const g = read && gatewayPort ? ['--gateway', String(gatewayPort), ...(bridge ? ['--bridge'] : [])] : [];
-      return run(bin, [...base, 'status', ...who(q), ...g, ...tail], timeoutMs);
+      return run(bin, [...base, 'status', ...who(q), ...g, ...tail], timeoutMs, execFile);
     },
     /** Every act registered under a caller's run id. */
     list(runId) {
-      return run(bin, [...base, 'list', '--run', runId, ...tail], timeoutMs);
+      return run(bin, [...base, 'list', '--run', runId, ...tail], timeoutMs, execFile);
     },
   };
 }

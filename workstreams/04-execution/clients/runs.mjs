@@ -13,7 +13,7 @@
 //   const runs = createRunsClient({ bin, db, rpc: 'http://127.0.0.1:8899', program, season });
 //   const r = await runs.accept(spec, { actor, generation, citizen, authenticatedBy: 'gateway:ed25519-session' });
 //   // r.accept is Created | Existing; r.detail… carries the check that admitted it
-import { execFile } from 'node:child_process';
+import { execFile as nodeExecFile } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,6 +38,16 @@ export function requesterFile({ actor, generation, citizen, authenticatedBy }) {
   return JSON.stringify({ actor, generation, citizen, authenticatedBy });
 }
 
+// (2026-11-17) runexec answers NoRecord only with exit 3 (workstream 4 src/main.rs: an opened store holds no such act or
+// run). Before, the code was taken from the last JSON line whatever the exit, so a killed or timed-out process, a
+// signal, an output over maxBuffer or another exit code whose last line said NoRecord was passed on as NoRecord —
+// which a caller may take as "no such record" (workstream 13's ports answer it as null). Such an answer is
+// now Spawn (no answer: read again), like a process that printed nothing usable. runexec's own NoRecord (exit 3, not
+// killed, no signal), a normal answer (exit 0) and every other error code are unchanged. (Workstreams 6 and 13 apply
+// the same rule to `run view`: 06 src/connect/ports.mjs, 13 resident/ports/ws04-run.mjs.)
+const runexecNoRecord = err => err?.code === 3 && !err.killed && !err.signal;
+const noRecordWithoutExit3 = err => `runexec said NoRecord without its exit 3 (exit ${err?.code ?? null}${err?.signal ? `, signal ${err.signal}` : ''}${err?.killed ? ', killed' : ''}): no answer`;
+
 /**
  * @param {object} o
  * @param {string} o.bin      the runexec binary
@@ -45,8 +55,9 @@ export function requesterFile({ actor, generation, citizen, authenticatedBy }) {
  * @param {string} o.rpc      http:// JSON-RPC endpoint the pass is read from (a local node or a loopback proxy)
  * @param {string} o.program  the game program (base58)
  * @param {string} o.season   the Season (base58)
+ * @param {Function} [o.execFile] node:child_process execFile (the default); a stand-in only for a test
  */
-export function createRunsClient({ bin, db, rpc, program, season, timeoutMs = 15_000 }) {
+export function createRunsClient({ bin, db, rpc, program, season, timeoutMs = 15_000, execFile = nodeExecFile }) {
   if (!bin || !db || !rpc || !program || !season) throw new Error('bin, db, rpc, program and season are required');
   return {
     accept(spec, requester, { slot = 0 } = {}) {
@@ -70,6 +81,7 @@ export function createRunsClient({ bin, db, rpc, program, season, timeoutMs = 15
           let v = null;
           try { v = line ? JSON.parse(line) : null; } catch { v = null; }
           if (!err) return v ? resolve(v) : reject(new RunsError('StoreError', 'runexec printed no JSON', 0));
+          if (v?.error === 'NoRecord' && !runexecNoRecord(err)) return reject(new RunsError('Spawn', noRecordWithoutExit3(err), err.code));
           if (v?.error) return reject(new RunsError(v.error, v.message ?? v.error, err.code));
           reject(new RunsError('Spawn', String(err.message ?? err), err.code));
         });
