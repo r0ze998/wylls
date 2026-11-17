@@ -473,8 +473,25 @@ export class Resident {
 
   #intent(key, spec) {
     const j = this.state.journal;
-    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, createdBell: this.bell, ...spec };
+    // (2026-11-17) where a NEW line belongs, fixed once at its creation and saved with it before any send (#enact and
+    // #duties save after #intent, before #run): never added to or rewritten on an existing line or a reused key.
+    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, createdBell: this.bell, ...spec, provenance: this.#provenance() };
     return j[key];
+  }
+
+  /**
+   * (2026-11-17) The world, clock, execution port and identity a new journal line is made under, as the ports declare
+   * them (it grants nothing and changes no send): the observe port's {cluster, world_id} and clock (frame.mjs: the test
+   * harness declares MOCK_WORLD and MOCK_CLOCK), the execution port's explicit `origin` {registry, agentId, kind?}
+   * (attached by whoever wires the port; a `kind` label alone names no registry, so without an origin it is null), and
+   * the resident's address. A reader (live/resident-state.mjs) reads a key only where all of these match its own.
+   */
+  #provenance() {
+    const ob = this.ports?.observe, o = this.ports?.execution?.origin;
+    const world = ob?.world && typeof ob.world === 'object' ? { cluster: typeof ob.world.cluster === 'string' ? ob.world.cluster : null, world_id: typeof ob.world.world_id === 'string' ? ob.world.world_id : null } : null;
+    const execution = o && typeof o.registry === 'string' && o.registry && typeof o.agentId === 'string' && o.agentId
+      ? { registry: o.registry, agentId: o.agentId, kind: typeof o.kind === 'string' ? o.kind : null } : null;
+    return { v: 1, world, clock: clockId(ob?.clock), execution, identity: typeof this.address === 'string' ? this.address : null };
   }
 
   async #run(it) {

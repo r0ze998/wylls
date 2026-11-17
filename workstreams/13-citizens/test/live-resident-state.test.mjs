@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readResidentState, STATE_VERSION } from '../resident/live/resident-state.mjs';
+import { readResidentState, provenanceMismatch, STATE_VERSION } from '../resident/live/resident-state.mjs';
 
 const ME = 'Me1111111111111111111111111111111';
 
@@ -28,7 +28,8 @@ test('resident state: running; submitted keys found but held (their world is not
   assert.deepEqual(r.facts, { id: 'asa', turn: 3, maxTurns: 500, mode: 'auto', revoked: false, halted: false });
   assert.deepEqual(r.submitted.keys, [], 'none read against the live execution port');
   assert.deepEqual(r.submitted.held.map(h => h.key).sort(), ['asa:t1:1', 'asa:t1:2#a2', 'asa:t3:2']);
-  assert.match(r.submitted.why, /do not record which world/);
+  assert.match(r.submitted.why, /not read/);
+  assert.ok(r.submitted.held.every(h => /no provenance recorded|live world is not known/.test(h.why)), 'lines made before the record, or no live frame: held');
   assert.deepEqual([...r.unsent], ['asa:t2:1']);
 });
 
@@ -64,7 +65,7 @@ test('resident state reader: pinned to resident.mjs; reads no key, writes nothin
   assert.doesNotMatch(rs, /resident\.key|writeFile|appendFile|rename|mkdir|unlink|new Resident|loadOrCreateKey|\.save\(|setMode|from 'node:fs'/);
   const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
   const step = f.slice(f.indexOf('step: async ({'));
-  assert.match(step, /const rs = readResidentState\(\{ dir: residentDir, wallet, fs: \{ readText: p => readFileSync\(p, 'utf8'\), exists: existsForHalt \} \}\);/, 'read at step(), not at creation');
+  assert.match(step, /const rs = readResidentState\(\{ dir: residentDir, wallet, fs: \{ readText: p => readFileSync\(p, 'utf8'\), exists: existsForHalt \}, live \}\);/, 'read at step(), not at creation');
   assert.match(step, /stop: rs\.stop \?\? stop, submittedKeys: rs\.submitted\.keys/, 'a caller may add a stop, never clear the resident\'s; only the resident\'s keys');
   assert.doesNotMatch(f.slice(0, f.indexOf('step: async ({')), /readResidentState\(|readFileSync\(/, 'nothing read before step() (existsForHalt is only defined there, called from step)');
 });
@@ -99,4 +100,61 @@ test('the real halt check in the factory (as text): only ENOENT is absent; a lin
   const rs = readFileSync(new URL('../resident/live/resident-state.mjs', import.meta.url), 'utf8');
   assert.match(rs, /if \(halted !== true && halted !== false\) return unknown\(/);
   assert.doesNotMatch(rs, /Boolean\(rec\.policy|\?\? null;\n  if \(charterOwner !== null/, 'no "missing means fine" fallbacks');
+});
+
+// (2026-11-17, third tip; WRITTEN ONLY, NOT RUN) provenance: recorded at a new line's creation, matched before a read
+const LIVE = { world: { cluster: 'localnet', world_id: 'Prog/Sea' }, clock: 'season-bell:1000:60', execution: { registry: 'runexec:/srv/acts.sqlite', agentId: 'asa', kind: 'workstream 4 act registry' } };
+const PROV = (o = {}) => ({ v: 1, world: { cluster: 'localnet', world_id: 'Prog/Sea' }, clock: 'season-bell:1000:60', execution: { registry: 'runexec:/srv/acts.sqlite', agentId: 'asa', kind: 'workstream 4 act registry' }, identity: ME, ...o });
+
+test('provenanceMismatch: only a full match reads; every missing, mock or different point holds, with why', () => {
+  assert.equal(provenanceMismatch(PROV(), LIVE, ME), null);
+  assert.equal(provenanceMismatch(PROV({ execution: { registry: 'runexec:/srv/acts.sqlite', agentId: 'asa', kind: null } }), LIVE, ME), null, 'a kind recorded on one side only does not decide');
+  const cases = [
+    [undefined, LIVE, /no provenance/], [PROV({ v: 2 }), LIVE, /not one this reader knows/],
+    [PROV(), null, /live world/], [PROV(), { ...LIVE, clock: null }, /live clock/], [PROV(), { ...LIVE, execution: { kind: 'workstream 4 act registry' } }, /declares no registry/],
+    [PROV({ world: { cluster: 'ws13-mock', world_id: null } }), LIVE, /no ws08 world/], [PROV({ world: { cluster: 'devnet', world_id: 'Prog/Sea' } }), LIVE, /another world/],
+    [PROV({ world: { cluster: 'localnet', world_id: 'Prog/Other' } }), LIVE, /another world/], [PROV({ clock: 'mock-world' }), LIVE, /another clock/], [PROV({ clock: null }), LIVE, /another clock/],
+    [PROV({ execution: null }), LIVE, /no declared execution registry/], [PROV({ execution: { kind: 'workstream 4 act registry' } }), LIVE, /no declared execution registry/],
+    [PROV({ execution: { registry: 'runexec:/elsewhere', agentId: 'asa' } }), LIVE, /another execution registry/], [PROV({ execution: { registry: 'runexec:/srv/acts.sqlite', agentId: 'ren' } }), LIVE, /another execution registry or agent/],
+    [PROV({ execution: { registry: 'runexec:/srv/acts.sqlite', agentId: 'asa', kind: 'test-world (mock)' } }), LIVE, /another kind/], [PROV({ identity: 'Another' }), LIVE, /another identity/],
+  ];
+  for (const [p, live, re] of cases) assert.match(provenanceMismatch(p, live, ME) ?? 'MATCHED', re, JSON.stringify(p));
+});
+
+test('readResidentState with a live frame: a matching key is read; older, mock and other lines stay held', () => {
+  const st = stateOf();
+  st.journal['asa:t1:1'].provenance = PROV();
+  st.journal['asa:t3:2'].provenance = PROV({ world: { cluster: 'ws13-mock', world_id: null } });
+  const r = readResidentState({ dir: DIR, wallet: ME, fs: fsOf(files(charter(), st)), live: LIVE });
+  assert.deepEqual([...r.submitted.keys], ['asa:t1:1']);
+  assert.deepEqual(r.submitted.held.map(h => [h.key, /no provenance/.test(h.why) ? 'none' : /no ws08 world/.test(h.why) ? 'mock' : h.why]).sort(), [['asa:t1:2#a2', 'none'], ['asa:t3:2', 'mock']]);
+  // stopped: the stop stands; the matching key is what stop-A may read
+  st.agentWallet.agents.asa.mode = 'manual';
+  const s = readResidentState({ dir: DIR, wallet: ME, fs: fsOf(files(charter(), st)), live: LIVE });
+  assert.equal(s.stop.why, 'stopped-by-owner');
+  assert.deepEqual([...s.submitted.keys], ['asa:t1:1']);
+});
+
+test('resident.mjs (as text): provenance only at a new line\'s creation, before the save that precedes any send; from the declared ports only', () => {
+  const res = readFileSync(new URL('../resident/resident.mjs', import.meta.url), 'utf8');
+  assert.match(res, /if \(!j\[key\]\) j\[key\] = \{ key, state: 'intended', attempts: 1, nextBell: this\.bell, createdBell: this\.bell, \.\.\.spec, provenance: this\.#provenance\(\) \};/, 'after spec: a spec cannot replace it; only when the key is new');
+  assert.equal((res.match(/provenance/g) ?? []).filter(Boolean).length >= 2, true);
+  assert.doesNotMatch(res.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ''), /\.provenance\s*=|provenance: (?!this\.#provenance\(\))/, 'never assigned or rewritten elsewhere');
+  const p = res.slice(res.indexOf('  #provenance() {'), res.indexOf('\n  }\n', res.indexOf('  #provenance() {')));
+  assert.match(p, /this\.ports\?\.observe, o = this\.ports\?\.execution\?\.origin;/);
+  assert.match(p, /clock: clockId\(ob\?\.clock\)/);
+  assert.doesNotMatch(p, /execution\?\.kind|execution\.kind/, "the port's kind label is not read as its registry");
+  assert.match(p, /typeof o\.registry === 'string' && o\.registry && typeof o\.agentId === 'string' && o\.agentId/, 'an origin needs a registry and an agent id');
+  const enact = res.slice(res.indexOf('  async #enact(d, bell) {'));
+  assert.ok(enact.indexOf('d.enacted = keys;\n      this.save();') < enact.indexOf('for (const key of d.enacted) await this.#run('), 'intents are saved before any send');
+  assert.match(res, /this\.#intent\(key, \{ port: 'action', turn: this\.state\.turn, purpose: \{ type: 'return'[^\n]*\n      this\.save\(\);\n      await this\.#run\(this\.state\.journal\[key\]\);/, 'a duty is saved before its send too');
+});
+
+test('factory (as text): the live frame for matching is read at step() from the herald and the declared execution origin', () => {
+  const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
+  const step = f.slice(f.indexOf('step: async ({'));
+  assert.match(step, /const live = \{ world: null, clock: null, execution: execution\?\.origin \?\? null \};/);
+  assert.match(step, /const w = worldFromSeason\(s\.json\); if \(w\.world\) \{ live\.world = w\.world; live\.clock = clockId\(seasonClock\(w\.clock\)\); \}/);
+  assert.match(step, /\} catch \{ \/\* not known: every key stays held \*\/ \}/);
+  assert.match(step, /stop: rs\.stop \?\? stop, submittedKeys: rs\.submitted\.keys/);
 });

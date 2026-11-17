@@ -39,6 +39,7 @@ import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/fi18
 import { readFileSync, lstatSync } from 'node:fs';
 import { observeLive, plannerNow } from './observe.mjs';
 import { readResidentState } from './resident-state.mjs';
+import { seasonClock, clockId } from '../frame.mjs';
 import { liveStep } from './step.mjs';
 
 const bytesOf = b64 => {
@@ -126,9 +127,16 @@ export function createLiveResident({ heraldUrl, boardUrl = null, rpc = null, wal
     step: async ({ stop = null, submittedKeys = [] } = {}) => {
       if (!residentDir) return liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop, submittedKeys, authority });
       // (2026-11-17) the resident's own stop and keys, read now (not at creation); unknown is a stop
-      const rs = readResidentState({ dir: residentDir, wallet, fs: { readText: p => readFileSync(p, 'utf8'), exists: existsForHalt } });
+      // (2026-11-17) the live frame a submitted key must match: this herald's world and clock (read now), and the
+      // execution port's declared origin (explicit; a kind label alone is not one)
+      const live = { world: null, clock: null, execution: execution?.origin ?? null };
+      try {
+        const s = await herald.get('/h/season');
+        if (s.status >= 200 && s.status < 300 && s.json) { const w = worldFromSeason(s.json); if (w.world) { live.world = w.world; live.clock = clockId(seasonClock(w.clock)); } }
+      } catch { /* not known: every key stays held */ }
+      const rs = readResidentState({ dir: residentDir, wallet, fs: { readText: p => readFileSync(p, 'utf8'), exists: existsForHalt }, live });
       const r = await liveStep({ wallet, ports: { observe, execution }, deps: depsFor, provider, allow, stop: rs.stop ?? stop, submittedKeys: rs.submitted.keys, authority });
-      return { ...r, resident: { stop: rs.stop, facts: rs.facts, submittedHeld: rs.submitted.held, submittedWhy: rs.submitted.why, unsent: rs.unsent } };
+      return { ...r, resident: { stop: rs.stop, facts: rs.facts, live, submittedRead: rs.submitted.keys, submittedHeld: rs.submitted.held, submittedWhy: rs.submitted.why, unsent: rs.unsent } };
     },
   });
 }
