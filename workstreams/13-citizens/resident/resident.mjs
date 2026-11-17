@@ -494,6 +494,30 @@ export class Resident {
     return { v: 1, world, clock: clockId(ob?.clock), execution, identity: typeof this.address === 'string' ? this.address : null };
   }
 
+  /**
+   * (2026-11-17) null when a line may use the ports NOW under its key, else why not. A line made before provenance was
+   * recorded (none on it) keeps the old behaviour. A line with provenance may use them only while they declare the
+   * same world, clock and identity, and for an action line the same execution registry and agent (a kind label alone
+   * never decides). Checked right before each use of the key (post, status, submit, cancel), also after an await, so
+   * a line made under one port is never sent, re-sent, read or cancelled through another. A mismatch holds the line:
+   * its state is unchanged (never failed, never not-sent), `bindingHeld` says why, and the provenance is never
+   * rewritten to fit.
+   */
+  #bindingMismatch(it) {
+    if (!it || !('provenance' in it)) return null;
+    const p = it.provenance, now = this.#provenance();
+    const sameExec = (a, b) => (a === null || b === null ? a === b
+      : a.registry === b.registry && a.agentId === b.agentId && !(typeof a.kind === 'string' && typeof b.kind === 'string' && a.kind !== b.kind));
+    const why = !p || typeof p !== 'object' || p.v !== 1 ? 'its provenance is unreadable'
+      : JSON.stringify(p.world ?? null) !== JSON.stringify(now.world) ? 'the ports declare another world'
+      : (p.clock ?? null) !== now.clock ? 'the ports declare another clock'
+      : (p.identity ?? null) !== now.identity ? 'another identity'
+      : it.port === 'action' && !sameExec(p.execution ?? null, now.execution) ? 'the ports declare another execution registry or agent'
+      : null;
+    if (why) it.bindingHeld = { why, bell: this.bell }; else delete it.bindingHeld;
+    return why;
+  }
+
   async #run(it) {
     if (it.state !== 'intended' || it.nextBell > this.bell) return it;
     if (it.after) {
@@ -501,6 +525,7 @@ export class Resident {
       if (!dep || dep.state === 'intended') return it;
       if (dep.state !== 'posted') { it.state = 'cancelled'; it.why = `depends on ${it.after} (${dep.state})`; return it; }
     }
+    if (this.#bindingMismatch(it)) return it;   // (2026-11-17) held: not posted, read or sent through other ports
     const sendKey = it.attempts > 1 ? `${it.key}#a${it.attempts}` : it.key;
     if (it.port === 'board') {
       const r = await this.ports.board.post(it.body);
@@ -512,6 +537,8 @@ export class Resident {
     let res;
     let fromSubmit = false;
     try { res = await this.ports.execution.status(sendKey); } catch { res = null; }
+    // (2026-11-17) the ports may have changed during the read: checked again right before the submit
+    if (!res && this.#bindingMismatch(it)) return it;
     if (!res) {
       fromSubmit = true;
       it.submittedBell = this.bell;
@@ -626,6 +653,8 @@ export class Resident {
     for (const it of Object.values(this.state.journal)) {
       if (it.state === 'intended' && send) await this.#run(it);
       if (!['sent', 'unresolved'].includes(it.state) || (it.nextQueryBell ?? 0) > this.bell) continue;
+      // (2026-11-17) a line whose ports are not the ones it was made under is not read through these: held, unchanged
+      if (this.#bindingMismatch(it)) continue;
       let s;
       try { s = await this.ports.execution.status(it.sendKey); } catch { s = { fate: 'unknown', unavailable: true }; }
       if (s?.fate === 'landed') { Object.assign(it, { state: 'landed', landedBell: s.landedBell }); this.#clearUnclear(it); continue; }
@@ -690,6 +719,9 @@ export class Resident {
     if (!it) return { key, refused: 'NoSuchAction' };
     if (['deliver', 'return'].includes(it.purpose?.type)) return { key, refused: 'Owed', why: `a ${it.purpose.type} owed to someone: not cancelled by a cancel` };
     if (!OPEN_STATES.includes(it.state)) return { key, refused: 'AlreadyFinal', state: it.state };
+    // (2026-11-17) a cancel that would ask the execution port: only through the ports the line was made under
+    const unsent = it.state === 'intended' && !(it.lastError === 'Transport' && it.sendKey);
+    if (!unsent) { const why = this.#bindingMismatch(it); if (why) { this.save(); return { key, refused: 'BindingMismatch', why }; } }
     it.cancelRequested = { by, bell: this.bell };
     let port = null;
     if (it.state === 'intended' && !(it.lastError === 'Transport' && it.sendKey)) {

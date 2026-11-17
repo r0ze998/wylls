@@ -60,6 +60,16 @@ export function provenanceMismatch(p, live, wallet) {
   return null;
 }
 
+/**
+ * (2026-11-17) Whether a recorded provenance is complete enough that only the live frame could decide it: a ws08
+ * world, a clock, a declared registry and agent, an identity. Such a key is worth one world read; any other is held
+ * without one.
+ */
+export function provenanceComplete(p) {
+  return isObj(p) && p.v === 1 && isObj(p.world) && !!str(p.world.world_id) && !!str(p.world.cluster) && !!str(p.clock)
+    && isObj(p.execution) && !!str(p.execution.registry) && !!str(p.execution.agentId) && !!str(p.identity);
+}
+
 function readJson(fs, p) {
   let t;
   try { t = fs.readText(p); } catch (e) { return { why: `${p.split('/').pop()}: not readable (${String(e?.code ?? e?.message ?? e).slice(0, 40)})` }; }
@@ -115,7 +125,8 @@ export function readResidentState({ dir, wallet, fs, live = null, join = (a, b) 
   const keys = [], held = [];
   for (const j of mayHaveLeft) {
     const why = provenanceMismatch(j.provenance, live, wallet);
-    if (why) held.push(Object.freeze({ key: j.sendKey, line: j.key, state: j.state, submittedBell: Number.isInteger(j.submittedBell) ? j.submittedBell : null, why }));
+    if (why) held.push(Object.freeze({ key: j.sendKey, line: j.key, state: j.state, submittedBell: Number.isInteger(j.submittedBell) ? j.submittedBell : null, why,
+      needsLive: !live && provenanceComplete(j.provenance) && j.provenance.identity === wallet }));
     else keys.push(j.sendKey);
   }
   return {

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readResidentState, provenanceMismatch, STATE_VERSION } from '../resident/live/resident-state.mjs';
+import { readResidentState, provenanceMismatch, provenanceComplete, STATE_VERSION } from '../resident/live/resident-state.mjs';
 
 const ME = 'Me1111111111111111111111111111111';
 
@@ -65,7 +65,7 @@ test('resident state reader: pinned to resident.mjs; reads no key, writes nothin
   assert.doesNotMatch(rs, /resident\.key|writeFile|appendFile|rename|mkdir|unlink|new Resident|loadOrCreateKey|\.save\(|setMode|from 'node:fs'/);
   const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
   const step = f.slice(f.indexOf('step: async ({'));
-  assert.match(step, /const rs = readResidentState\(\{ dir: residentDir, wallet, fs: \{ readText: p => readFileSync\(p, 'utf8'\), exists: existsForHalt \}, live \}\);/, 'read at step(), not at creation');
+  assert.match(step, /const fs = \{ readText: p => readFileSync\(p, 'utf8'\), exists: existsForHalt \};\n      let rs = readResidentState\(\{ dir: residentDir, wallet, fs \}\);/, 'read at step(), not at creation; the files first');
   assert.match(step, /stop: rs\.stop \?\? stop, submittedKeys: rs\.submitted\.keys/, 'a caller may add a stop, never clear the resident\'s; only the resident\'s keys');
   assert.doesNotMatch(f.slice(0, f.indexOf('step: async ({')), /readResidentState\(|readFileSync\(/, 'nothing read before step() (existsForHalt is only defined there, called from step)');
 });
@@ -150,11 +150,48 @@ test('resident.mjs (as text): provenance only at a new line\'s creation, before 
   assert.match(res, /this\.#intent\(key, \{ port: 'action', turn: this\.state\.turn, purpose: \{ type: 'return'[^\n]*\n      this\.save\(\);\n      await this\.#run\(this\.state\.journal\[key\]\);/, 'a duty is saved before its send too');
 });
 
-test('factory (as text): the live frame for matching is read at step() from the herald and the declared execution origin', () => {
+test('factory (as text): the files first; the world is read only for a stopped resident whose keys need it', () => {
   const f = readFileSync(new URL('../resident/live/factory.mjs', import.meta.url), 'utf8');
   const step = f.slice(f.indexOf('step: async ({'));
-  assert.match(step, /const live = \{ world: null, clock: null, execution: execution\?\.origin \?\? null \};/);
+  const gate = "if (rs.stop && execution?.origin && rs.submitted.held.some(h => h.needsLive)) {";
+  assert.ok(step.includes(gate));
+  assert.ok(step.indexOf('let rs = readResidentState({ dir: residentDir, wallet, fs });') < step.indexOf(gate), 'the files are read before any network read');
+  assert.equal(step.split("herald.get('/h/season')").length - 1, 1, 'one world read');
+  assert.ok(step.indexOf("herald.get('/h/season')") > step.indexOf(gate) && step.indexOf("herald.get('/h/season')") < step.indexOf('rs = readResidentState({ dir: residentDir, wallet, fs, live });'), 'only inside the gate');
   assert.match(step, /const w = worldFromSeason\(s\.json\); if \(w\.world\) \{ live\.world = w\.world; live\.clock = clockId\(seasonClock\(w\.clock\)\); \}/);
   assert.match(step, /\} catch \{ \/\* not known: every key stays held \*\/ \}/);
+  assert.match(step, /read: 'herald \/h\/season \(world and clock only, to match submitted keys\)'/, 'the read is said as what it is');
   assert.match(step, /stop: rs\.stop \?\? stop, submittedKeys: rs\.submitted\.keys/);
+});
+
+// (2026-11-17, fourth tip; WRITTEN ONLY, NOT RUN) a line's binding checked before each use of its key; the frame read only when needed
+test('needsLive: only a complete recorded provenance under this wallet asks for the world read', () => {
+  assert.equal(provenanceComplete(PROV()), true);
+  for (const p of [undefined, PROV({ world: { cluster: 'ws13-mock', world_id: null } }), PROV({ execution: null }), PROV({ clock: null }), PROV({ identity: null })]) assert.equal(provenanceComplete(p), false, JSON.stringify(p));
+  const st = stateOf();
+  st.journal['asa:t1:1'].provenance = PROV();
+  st.journal['asa:t3:2'].provenance = PROV({ identity: 'Another' });
+  st.agentWallet.agents.asa.mode = 'manual';
+  const r = readResidentState({ dir: DIR, wallet: ME, fs: fsOf(files(charter(), st)) });
+  assert.deepEqual(r.submitted.held.filter(h => h.needsLive).map(h => h.key), ['asa:t1:1']);
+  const withLive = readResidentState({ dir: DIR, wallet: ME, fs: fsOf(files(charter(), st)), live: LIVE });
+  assert.ok(withLive.submitted.held.every(h => h.needsLive === false));
+});
+
+test('resident.mjs (as text): the binding is checked right before every use of a line\'s key; a mismatch holds, never fails', () => {
+  const res = readFileSync(new URL('../resident/resident.mjs', import.meta.url), 'utf8');
+  const bm = res.slice(res.indexOf('  #bindingMismatch(it) {'), res.indexOf('\n  }\n', res.indexOf('  #bindingMismatch(it) {')));
+  assert.match(bm, /if \(!it \|\| !\('provenance' in it\)\) return null;/, 'an older line keeps the old behaviour');
+  assert.match(bm, /it\.port === 'action' && !sameExec\(p\.execution \?\? null, now\.execution\)/);
+  assert.match(bm, /typeof a\.kind === 'string' && typeof b\.kind === 'string' && a\.kind !== b\.kind/, 'a kind label alone never makes two registries the same');
+  assert.doesNotMatch(bm, /it\.state\s*=|Object\.assign\(it|provenance\s*=/, 'holds without changing the state or the record');
+  const run = res.slice(res.indexOf('  async #run(it) {'));
+  const at = t => { const i = run.indexOf(t); assert.ok(i >= 0, t); return i; };
+  assert.ok(at('if (this.#bindingMismatch(it)) return it;') < at('await this.ports.board.post('), 'before a post');
+  assert.ok(at('if (this.#bindingMismatch(it)) return it;') < at('await this.ports.execution.status(sendKey)'), 'before a status read');
+  assert.ok(at('await this.ports.execution.status(sendKey)') < at('if (!res && this.#bindingMismatch(it)) return it;') && at('if (!res && this.#bindingMismatch(it)) return it;') < at('await this.ports.execution.submit('), 'again after the read, before the submit');
+  const rec = res.slice(res.indexOf('  async #reconcile({ send }) {'));
+  assert.ok(rec.indexOf('if (this.#bindingMismatch(it)) continue;') < rec.indexOf('await this.ports.execution.status(it.sendKey)'), 'reconcile reads only through the same ports');
+  const cancel = res.slice(res.indexOf('  async cancelAction(key'));
+  assert.ok(cancel.indexOf("return { key, refused: 'BindingMismatch', why }") < cancel.indexOf('it.cancelRequested = {') && cancel.indexOf('it.cancelRequested = {') < cancel.indexOf('await this.ports.execution.cancel('), 'a cancel through other ports is refused before anything changes');
 });
