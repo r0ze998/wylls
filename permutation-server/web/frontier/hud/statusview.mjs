@@ -150,8 +150,9 @@ export function arrivalView(x) {
     return { ok: true, key: `arrival:settledUnverified:${x.why}`, symbol: '?', tone: 'unknown', errors: [], text, details };
   }
   if (x.state === 'lost') {
-    const rec = isCargo(x.recorded) ? cargoText(x.recorded) : null;
-    return { ok: true, key: 'arrival:lost', symbol: '✕', tone: 'loss', errors: [], text: rec ? L`積荷は失われました：${rec}` : L`積荷は失われました`, details: [L`行き先が無くなっていたため、どこにも入っていません（確定）`] };
+    // (the record's cargo is floor(milli / 1000), saturated: shown as the record, all zero as '0', never 'なし' — 2026-11-17)
+    const rec = isCargo(x.recorded) ? recordedText(x.recorded) : null;
+    return { ok: true, key: 'arrival:lost', symbol: '✕', tone: 'loss', errors: [], text: rec ? L`積荷は失われました（記録の積荷：${rec}）` : L`積荷は失われました`, details: [L`行き先が無くなっていたため、どこにも入っていません（確定）`] };
   }
   if (x.state === 'unread') {
     // (the caravan left the road's list while this page watched, and no record of its end has been read: whether it
@@ -178,7 +179,7 @@ export function arrivalView(x) {
   if (x.state === 'verifiedPartial') {
     return { ok: true, key: 'arrival:verifiedPartial', symbol: '◐', tone: 'loss', errors: [],
       text: L`送付記録の数量に対して一部が入りました：${atLeastText(x.arrived)}`,
-      details: [L`送付記録の数量：${cargoText(x.sent)}`, ...basis, L`差の理由は、記録で確かめるまで決めません`, units] };
+      details: [L`送付記録の数量：${recordedText(x.sent)}`, ...basis, L`差の理由は、記録で確かめるまで決めません`, units] };
   }
   return { ok: true, key: 'arrival:verifiedFull', symbol: '●', tone: 'result', errors: [],
     text: L`送付記録の数量に対して全量が入りました：${atLeastText(x.arrived)}`, details: [...basis, units] };

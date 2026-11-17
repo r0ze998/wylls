@@ -1,4 +1,6 @@
-# ⑦ village card / returns: a storehouse arrival shows the record's cargo as the record, never "最大" (Lane C, 2026-11-17)
+# ⑦ caravan state, arrival and quantity on the game page: one completion unit (Lane C, 2026-11-17)
+
+The first commit (`f99af84d`) fixed the storehouse record. The section "Completion unit" below covers the rest of the same display path, done on the same branch.
 
 **Branch:** `claude/lane-c-ws07-vault-arrival-record-20261117`, from the shared aggregate at `51daba36b64eed064db3ba4d3f8c109eda487c5c` (fixed base). The aggregate and every other branch are unchanged.
 
@@ -47,3 +49,82 @@ No run of anything. The real page (returns feed, village card) was not loaded.
 - **Base:** `51daba36b64eed064db3ba4d3f8c109eda487c5c`.
 - **Branch:** `claude/lane-c-ws07-vault-arrival-record-20261117` (the tip is given in the session report).
 - **Nine paths:** the seven above, this report, and the new text test.
+
+## Completion unit: the whole display path, same branch (2026-11-17; nothing run)
+
+**Path traced once, end to end (source):**
+- **Producer:** `permutation-frontier/src/proc/caravan.rs`. `cargo_log` writes floor(milli / 1000) saturated at u32::MAX; the vault cuts after adding milli; `caravan_outcome` is 0 DELIVERED or 1 LOST.
+- **Away summary:** `hud/returnsum.mjs` (`itemOf`, `withArrival`) → `hud/statussources.mjs` `arrivalSettled` → `hud/statusview.mjs` `arrivalView` → `hud/returnwords.mjs` `itemText`.
+- **Village card:** `screens/s1.mjs` `caravanStatus` (④'s registered `caravanArrival`, else `arrivalOnRoad` → overdue) → `arrivalView`.
+- **Dictionary:** `lang/en-frontier-play.mjs`.
+
+**Mismatches found and fixed:**
+
+| # | Where | Before | After |
+|---|---|---|---|
+| F1 | `statusview.mjs` vault (`f99af84d`) | "（食料 最大 400）", "（最大 0）" | "（記録の積荷：食料 400）", "（記録の積荷：0）", plus the truncation and saturation sentence |
+| F2 | `statusview.mjs` lost | "積荷は失われました：食料 400", and "：なし" for all zero (a fraction may have been lost) | "積荷は失われました（記録の積荷：食料 400）", "（記録の積荷：0）" |
+| F3 | `statusview.mjs` verifiedPartial detail | "送付記録の数量：なし" for an all-zero send record | "送付記録の数量：0". Non-zero is unchanged |
+| F4 | `returnwords.mjs` uncertain settle (your send, holder not known) | Always "到着が記録されました", even for **LOST (outcome 1, a valid ABI value)** or an unreadable outcome | Outcome 0: unchanged. 1: "積荷が失われたと記録されました…失ったのは奪った側です". Other: "決着が記録されました。結果を記録から読めないため、着いたとも失われたとも言いません" |
+| F5 | `returnsum.mjs` `itemOf` | `delivered: true` for any outcome other than 1 | `delivered` only for outcome 0. The uncertain path carries `lost` and `delivered` for F4. Tones are unchanged (the holder-me text already comes from `arrivalSettled` `outcomeUnknown`) |
+
+**Checked and consistent (no change):**
+- the village lower bound ("n 以上", "0 以上", saturation still a valid lower bound) and verifiedFull/Partial against the send record;
+- misdelivered (no amount, no cause named), overdue, unread and outcomeUnknown;
+- invalid cargo: `isCargo` refuses negative, NaN, text and wrong length, so verified states return "状態を受け取れていません", and the vault and lost lines omit the amounts. The provider's loose `ok()` is therefore not visible.
+
+**Out of scope, noted:**
+- `costView` "未確定：最大 …" belongs to ⑤ costs.
+- `workstreams/07-player-experience/src/return-summary.mjs` is ⑦'s prototype copy, consumed only by `prototype/app.mjs` and its own tests, not by the game page.
+- An unknown **raid** choice in MCP was noted earlier.
+
+**Dictionary:** English entries were added for every new Japanese template. The keys that became unused were removed: `'{0} 最大 {1}'`, `'最大 0'`, `'積荷は失われました：{0}'`. There are no banned English words.
+
+**Contract:** `workstreams/07-player-experience/CONTRACTS.ja.md` now has:
+- the `settledUnverified` row (F1) and the `lost` row (F2);
+- a new paragraph on the uncertain settle (F4/F5);
+- the storehouse section's note on rounding and saturation.
+
+**Existing expectations corrected (with reasons in place):**
+- `test/web-frontier-ws07-contracts.test.mjs` (vault, lost);
+- `test/web-frontier-ws07-connect.test.mjs` (vault feed line);
+- `screens/ws07-s1-page.screen.mjs`, `screens/ws07-s1-pure.screen.mjs` (vault).
+
+All other pins still hold. "送付記録の数量：食料 400" and the uncertain-delivered line (`screens/ws07-s1.screen.mjs:52`) are unchanged. No test deep-compares the uncertain item's facts.
+
+**Regression sources (written, not run):**
+- `test/web-frontier-ws07-arrival-quantity.test.mjs` (new). It drives the real functions (`arrivalSettled` → `arrivalView`, `itemText`) for:
+  - normal; not read; 0; fractions; u32 saturation; invalid;
+  - the uncertain settle by outcome;
+  - English.
+- `test/web-frontier-ws07-vault-record-text.test.mjs`: a key-free text check, V1–V4 (V4 covers F4/F5 and the dictionary).
+
+## Pre-run audit of the test candidates (static; nothing run)
+
+| Test | Static import closure | Refused subjects reached | Key scan | Verdict |
+|---|---|---|---|---|
+| `web-frontier-ws07-vault-record-text.test.mjs` | Itself only (`node:test`, `node:assert`, `node:fs`). It reads five source files as text; no write, network, key or environment | None | Not listed, no key API | **The only independent candidate**: `node --test permutation-gateway/test/web-frontier-ws07-vault-record-text.test.mjs` (from the repository root; or through `scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-ws07-vault-record-text.test.mjs`) |
+| `web-frontier-ws07-arrival-quantity.test.mjs` | 29 files; no `child_process`, `worker_threads`, dynamic `import()` or `new Function` | `lang.mjs`, `fi18n.mjs` | No key API in the closure (it would not need listing) | **Held**: refused-adjacent; the coordinator decides |
+| `web-frontier-ws07-contracts.test.mjs`, `web-frontier-ws07-connect.test.mjs` | ~100 files | `fland.mjs`, `rulebook.mjs`, `lang.mjs`, `fi18n.mjs` | **Listed** in `node-key-tests.txt` (the closure names key APIs: the vendored noble curves, `tilt.mjs`) | **Held**: manual key-tests job only, and refused-adjacent |
+| `screens/ws07-s1*.screen.mjs` | Browser (Chromium) | — | — | **Not run**: unaudited page runs |
+
+## Done / not done
+
+- **Done (static):** F1–F5 in the real page path, English synced, the contract aligned, expectations corrected, regression sources written, the closures audited.
+- **Not done or not verified:**
+  - no test has run;
+  - the returns feed and the village card were not loaded;
+  - no real world was run;
+  - `myVerified`-like data decisions are not in this unit.
+
+## Hand-over to D (the aggregate is not changed here)
+
+- **Base:** `51daba36b64eed064db3ba4d3f8c109eda487c5c`.
+- **Branch:** `claude/lane-c-ws07-vault-arrival-record-20261117`, two commits: `f99af84d`, then this completion unit, which is the tip.
+- **Paths against the base (12):**
+  - code: `hud/statusview.mjs`, `hud/returnsum.mjs`, `hud/returnwords.mjs` and `lang/en-frontier-play.mjs` (all under `permutation-server/web/`);
+  - `workstreams/07-player-experience/CONTRACTS.ja.md`;
+  - tests: `permutation-gateway/test/web-frontier-ws07-{contracts,connect}.test.mjs` (corrected), `web-frontier-ws07-arrival-quantity.test.mjs` (new), `web-frontier-ws07-vault-record-text.test.mjs` (new);
+  - screens: `permutation-gateway/screens/ws07-s1-{page,pure}.screen.mjs` (corrected);
+  - this report.
+- **Likely conflict points:** `en-frontier-play.mjs`, near the arrival keys, is a shared dictionary, and `CONTRACTS.ja.md` is shared. Both edits are local and line-based.

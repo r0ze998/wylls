@@ -23,7 +23,10 @@ export function itemText(i) {
       return f.choice === 'burn' ? L`あなたの軍勢が隊商を焼きました${c ? L`：${c}` : ''}` : L`あなたの軍勢が隊商を奪いました${c ? L`：${c}` : ''}`;
     case 'RAID_OPENED': return i.tone === 'uncertain' ? L`あなたが送った隊商が襲われました（ターン ${fmtNum(i.bell)}）。いまの持ち主があなたかどうかは、読み込んだ記録からはわかりません` : L`隊商が襲われ、相手が奪うか焼くかを決めるところです（ターン ${fmtNum(i.bell)}）`;
     case 'CARAVAN_SETTLED':
-      if (i.tone === 'uncertain') return L`あなたが送った隊商の到着が記録されました（ターン ${fmtNum(i.bell)}）。途中で奪われていたなら、受け取ったのは奪った側です（読み込んだ記録からは確かめられません）${c ? L`：${c}` : ''}`;
+      // (the record's outcome decides the words: a lost or unreadable outcome is never told as an arrival — 2026-11-17)
+      if (i.tone === 'uncertain') return f.lost ? L`あなたが送った隊商の行き先がなくなり、積荷が失われたと記録されました（ターン ${fmtNum(i.bell)}）。途中で奪われていたなら、失ったのは奪った側です（読み込んだ記録からは確かめられません）${c ? L`：${c}` : ''}`
+        : f.delivered ? L`あなたが送った隊商の到着が記録されました（ターン ${fmtNum(i.bell)}）。途中で奪われていたなら、受け取ったのは奪った側です（読み込んだ記録からは確かめられません）${c ? L`：${c}` : ''}`
+        : L`あなたが送った隊商の決着が記録されました（ターン ${fmtNum(i.bell)}）。結果を記録から読めないため、着いたとも失われたとも言いません${c ? L`：${c}` : ''}`;
       // (a settlement of the viewer's: its arrival as statussources.mjs judges it, never "arrived" without the amount verified;
       // the state's own words say what happened, so the lead names only the caravan and the turn)
       if (f.arrival) { const v = arrivalView(f.arrival); return L`隊商（ターン ${fmtNum(i.bell)}）：${[v.text, ...v.details].join(L`。`)}`; }
