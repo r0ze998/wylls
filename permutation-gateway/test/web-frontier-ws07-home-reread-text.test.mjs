@@ -104,8 +104,10 @@ test('H6 an answer is applied to the choice as it stands, never to the copy take
 test('H10 a join or placing begun meanwhile keeps its own state', () => {
   // (confirmHome writes on the choice in hand; the reading does not replace that object while busy)
   const ch = fnOf(ctl, 'export async function confirmHome() {');
-  order(ch, 'FS.homeChoice.busy = true; FS.homeChoice.error = null;', 'const pending = p => { FS.homeChoice.pending = p;', 'const error = (code, text) => { FS.homeChoice.error = { code, text };',
-    'finally { if (FS.homeChoice) { FS.homeChoice.busy = false; FS.homeChoice.pending = null; }');
+  // (rewritten by the confirm's own bundle — it writes on the choice it was pressed on, `run.choice`, which is the
+  //  choice in hand while it is its own: web-frontier-ws07-home-confirm-owner-text.test.mjs)
+  order(ch, 'const run = { choice: FS.homeChoice,', 'run.choice.busy = true; run.choice.error = null;', 'const pending = p => { if (!mine()) return; run.choice.pending = p;',
+    'const error = (code, text) => { if (!mine()) return; run.choice.error = { code, text };', 'run.choice.busy = false; run.choice.pending = null;');
   assert.ok(rh.includes('if (!c || c.busy) { letGo(); return null; }'));
   const lg = rh.split('\n').find(l => l.includes('const letGo = () =>'));
   assert.doesNotMatch(lg, /busy|pending|error|selected|candidates|FS\.homeChoice = /, 'letting go touches the reading mark only');
