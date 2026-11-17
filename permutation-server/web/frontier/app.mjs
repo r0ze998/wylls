@@ -2268,9 +2268,41 @@ const settledHolding = (h, now) => { try { return h ? settled(h, now) : h; } cat
 let momentPrev = null;
 /** The viewer's villages ("P,Q,site") at the last look of checkMoments. */
 let ownSitesSeen = new Set();
+/**
+ * The world the moments compare (2026-11-17): cluster, program and season account as fchainio.setPin pinned them
+ * (`addresses.season`, derived and checked against the herald's record); null while none is pinned — nothing is made up:
+ * "no pin" is a state of its own, and a pin that comes or changes is a change of world. Two looks are compared only within one world: another world's villages, buildings and hosts
+ * at the same coordinates are not news here (a village "lost" or "taken", a building "finished").
+ */
+const momentWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+/**
+ * What stood when the world last changed: the providers do not empty themselves then (FS.provinces keeps its envelopes
+ * until each is read again; FS.holdings until the viewer's record is read; FS.life until the chronicle is). Until the
+ * holdings array is replaced no look is taken, when the last world had holdings (a first look of the new world is not
+ * news; a page with no viewer has none to wait for); after that, only province
+ * envelopes replaced since the change are looked at, and a construction that was under way at the change is left out
+ * until it has gone (its end is the old world's, not a building finished here).
+ */
+let momentFence = null;   // {world, envelopes: Set, holdings, builds: Set}
+const buildKeys = cs => new Set(cs.map(c => `${c.p},${c.q},${c.site}`));
 function checkMoments() {
   if (!FS.provinces) return;
-  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
+  const world = momentWorld();
+  if (!momentFence || momentFence.world !== world) {
+    const first = momentFence === null;
+    momentPrev = null; ownSitesSeen = new Set();
+    // (the page's first world fences nothing: its providers are read for it; only a change leaves another world behind)
+    const held = Array.isArray(FS.holdings) && FS.holdings.length > 0 ? FS.holdings : null;
+    momentFence = { world, envelopes: first ? new Set() : new Set(FS.provinces.values()), holdings: first ? null : held, builds: first ? new Set() : buildKeys(constructionsNow()) };
+  }
+  // (the viewer's record not yet read in this world: no look — neither a baseline nor news — is taken from the last world's holdings)
+  if (momentFence.holdings !== null && FS.holdings === momentFence.holdings) return;
+  momentFence.holdings = null;
+  const fresh0 = new Map([...FS.provinces].filter(([, env]) => !momentFence.envelopes.has(env)));
+  const builds0 = constructionsNow();
+  const nowKeys = buildKeys(builds0);
+  for (const k of [...momentFence.builds]) if (!nowKeys.has(k)) momentFence.builds.delete(k);
+  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: builds0.filter(c => !momentFence.builds.has(`${c.p},${c.q},${c.site}`)), provinces: fresh0, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
