@@ -156,7 +156,8 @@ export function ws04ExecutionPort(client, { specOf, requesterOf = null }) {
 
 /**
  * `runexec run view` for the port's `view` (workstream 4's clients/runs.mjs has `accept` only). Read-only; no shell.
- * Throws `{code}` from runexec's JSON (NoRecord, StoreUnavailable, StoreError, BadRequest) or Spawn.
+ * Throws `{code}` from runexec's JSON (NoRecord, StoreUnavailable, StoreError, BadRequest) or Spawn. NoRecord only
+ * with runexec's own exit 3; a NoRecord line without it is Spawn (below).
  */
 export function runViewClient({ bin, db, timeoutMs = 15_000, execFile }) {
   if (!bin || !db || typeof execFile !== 'function') throw new TypeError('bin, db and execFile (node:child_process) are required');
@@ -166,6 +167,15 @@ export function runViewClient({ bin, db, timeoutMs = 15_000, execFile }) {
       let v = null;
       try { v = line ? JSON.parse(line) : null; } catch { v = null; }
       if (!err && v && !v.error) return resolve(v);
+      // (2026-11-17) NoRecord — which the port reads as "never accepted here" (null) — only when runexec said it the
+      // way it says it: the process exited by itself with code 3, not killed, no signal, and its last line names
+      // NoRecord (workstream 4 src/main.rs `run view`: "Exit 3 `NoRecord` only when an opened run store holds no run
+      // of that id"). A NoRecord line with a timeout, a kill, a signal, another exit code or exit 0 is no answer about
+      // the run: Spawn, as for a process that printed nothing usable, so the resident reads again. Every other error
+      // answer keeps its own code, as before. (Workstream 6 src/connect/ports.mjs run4FromRunexec has the same rule.)
+      if (v?.error === 'NoRecord' && !(err?.code === 3 && !err.killed && !err.signal)) {
+        return reject(Object.assign(new Error(`runexec said NoRecord without its exit 3 (exit ${err?.code ?? (err ? null : 0)}${err?.signal ? `, signal ${err.signal}` : ''}${err?.killed ? ', killed' : ''}): no answer about the run`), { code: 'Spawn' }));
+      }
       if (v?.error) return reject(Object.assign(new Error(v.message ?? v.error), { code: v.error }));
       reject(Object.assign(new Error(String(err?.message ?? 'runexec printed no JSON')), { code: 'Spawn' }));
     });
