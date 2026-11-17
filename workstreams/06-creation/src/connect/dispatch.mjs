@@ -261,7 +261,16 @@ export class Dispatch {
   status(key) {
     const p = this.data.plans[key];
     if (!p) return { ok: false, code: "NO_RECORD" };
-    const steps = p.steps.map((s) => ({ step: s.step, runId: s.runId, requestId: s.requestId ?? null, state: s.state, final: !!s.final, result: s.result ?? null, why: s.why ?? null, attempts: s.attempts ?? 0 }));
+    // (2026-11-17) Each step also says which definition it runs and where its result was read. `pin` is what plan()
+    // fixed beside the run id (caravan.mjs: ④'s Run has no field for the definition it came from): the plan hash, the
+    // manifest's author, name, version and hash, and the confirmed effect revision. It is never replaced — a plan
+    // under the same key with other content is CONFLICT, the same request answers what is there — so a re-edited
+    // definition (a new version, so a new plan hash and a new key) never changes the version an earlier run shows.
+    // Before, it was kept in the journal and shown nowhere. `resultFrom` names the record `result` was read from:
+    // ④'s run view (run route, resultOfRun4) or ④'s act registry receipt read through ③ (act route, resultOfAct);
+    // null while there is no result. Neither adds a call or changes what any other field means.
+    const resultFrom = p.route === "run" ? "④ run view" : "④ act registry receipt (p04-acts/0.1), read through ③";
+    const steps = p.steps.map((s) => ({ step: s.step, runId: s.runId, requestId: s.requestId ?? null, state: s.state, final: !!s.final, result: s.result ?? null, why: s.why ?? null, attempts: s.attempts ?? 0, pin: s.pin ? clone(s.pin) : null, resultFrom: s.result ? resultFrom : null }));
     const complete = p.route === "run" && steps.every((s) => s.final && s.result?.state === "Fulfilled" && s.result.evidence?.usable);
     // `saved: false` (2026-11-17): what is shown here is newer than anything seen saved — the last save of this request
     // threw, so the journal on disk may hold this or an older state (a restart reads that one). Only about the journal:
