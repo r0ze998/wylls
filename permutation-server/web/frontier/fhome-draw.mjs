@@ -55,7 +55,11 @@ export const PROVISIONAL = Object.freeze({ production: false, enabled: false, ki
     'not the program: PlaceHome checks rings 2..heartland, the nation and the site itself',
   ]) });
 
-/** The answers. */
+/**
+ * The answers. (corrected 2026-11-18) `full` keeps its name but means only that NO CANDIDATE MEETS THE PROVISIONAL
+ * CONDITIONS (the drawn rings, the density limit, Provinces the overview shows opened): it is never a statement that
+ * the map has no free place. Free places outside those conditions are not counted or reported.
+ */
 export const DRAW = Object.freeze({ assigned: 'assigned', full: 'full', unread: 'unread', otherWorld: 'otherWorld', contested: 'contested', held: 'held' });
 
 const int = Number.isInteger;
@@ -228,10 +232,10 @@ export async function drawHome({ world, season, extent, contiguous, citizen, ove
   const rings = drawRings(extent, contiguous, p);
   if (!rings) return done({ kind: DRAW.held, why: 'the map extent is not read' });
   const withRings = o => done({ rings, ...o });
-  if (!rings.drawn.length) return withRings({ kind: DRAW.full, why: 'no ring of the open map is drawn (the map has no ring from ' + p.fromRing + ' yet)' });
+  if (!rings.drawn.length) return withRings({ kind: DRAW.full, why: 'no candidate meets the provisional conditions: the open map has no ring from ' + p.fromRing + ' yet (not a statement that the map has no free place)' });
   const c = candidatesFrom({ drawKey: key, citizen, seasonId: w.seasonId, rings: rings.drawn, overviews, params: p });
   if (!c.ok) return withRings({ kind: c.kind, why: c.why, unreadRings: c.rings });
-  if (!c.candidates.length) return withRings({ kind: DRAW.full, why: 'every drawn ring is read and has no free place under the density limit', basis: c.basis });
+  if (!c.candidates.length) return withRings({ kind: DRAW.full, why: 'no candidate meets the provisional conditions (the drawn rings, the density limit, opened Provinces): not a statement that the map has no free place', basis: c.basis });
   const hmr = Number(season?.conquestParams?.heartlandMaxRing ?? season?.heartlandMaxRing);
   const checked = [];
   for (const cand of c.candidates.slice(0, p.maxConfirmReads)) {

@@ -35,6 +35,14 @@ function chainText(chain) {
   return 'Whether the current world would take this place is not checked here.';
 }
 
+/** The words for `full`: no place meets this test draw's conditions; the map as a whole may still have free places. */
+export function fullText(params) {
+  const ring = Number.isInteger(params?.fromRing) ? params.fromRing : null;
+  const bps = Number.isInteger(params?.maxOccupiedBps) ? params.maxOccupiedBps : null;
+  const cond = ring !== null && bps !== null ? ` (rings from ${ring} out to the open edge, in provinces less than ${bps / 100}% taken)` : '';
+  return `No place meets this test draw's conditions${cond}. This does not mean the whole map has no free place.`;
+}
+
 function answerHtml(a) {
   if (!a) return '<p>No draw yet.</p>';
   switch (a.kind) {
@@ -46,7 +54,8 @@ function answerHtml(a) {
         + `<p>${esc(chainText(a.chain))}</p>`
         + `<p class="draw-note">Drawn from the map as last read. The place is not held: someone else can take it before a real join, and a later draw on a changed map can give another place.</p>`;
     }
-    case DRAW.full: return '<p>No free place in the open map right now.</p>';
+    // (corrected 2026-11-18) `full` is no candidate under this draw's provisional conditions, never a full map
+    case DRAW.full: return `<p>${esc(fullText(a.params))}</p>`;
     case DRAW.unread: return `<p>Part of the map could not be read, so no place is drawn. Land that is not read is never counted as free.</p>${Array.isArray(a.unreadRings) && a.unreadRings.length ? `<p>Rings not read: ${esc(a.unreadRings.join(', '))}</p>` : ''}`;
     case DRAW.otherWorld: return '<p>An answer came from another world; nothing of it is shown.</p>';
     case DRAW.contested: return '<p>The places drawn first were taken since the map was read. Read the map again.</p>';

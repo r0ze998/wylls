@@ -3,7 +3,7 @@
 **Branch:** `claude/home-draw-provisional-20261118` on the aggregate `0cc3ca30` (read only; nothing of it changed).
 **New paths only.** No existing file is changed: not the controller, `home.mjs`, `confirmHome`, the join screens, the program, the herald, a profile or a world.
 
-**Status: PROVISIONAL, NOT PRODUCTION, NOT ENABLED.** The first tip `6a4675fa` is corrected by the second (below); adopt only the final tip, and only on the owner's word.
+**Status: PROVISIONAL, NOT PRODUCTION, NOT ENABLED.** The first tip `6a4675fa` is corrected by the second `c8db35f1` and the third (below); adopt only the final tip, and only on the owner's word.
 - **Written, NOT run:** no test, syntax check, import, page, herald, world, runner, signature, send or charge.
 - **Not for automatic adoption:** Lane D aggregates it only on the owner's word.
 
@@ -51,7 +51,7 @@ Pure functions. No DOM, fetch, clock, randomness or storage.
 | Answer | When |
 |---|---|
 | `assigned` | A place confirmed free by a Province read. |
-| `full` | Every drawn ring is read, and no place is free under the density limit. |
+| `full` | Every drawn ring is read, and **no candidate meets the provisional conditions** (the drawn rings, the density limit, opened Provinces). **It never says the map has no free place** (corrected in the third tip). |
 | `unread` | A ring overview, the confirming Province, or a site or cohort state is not read. **Unknown is never free and never skipped.** The confirm reads can also run out on slots that do not exist. |
 | `otherWorld` | An overview, a Province or the Season is of another Season, or names none. |
 | `contested` | The places drawn first were taken since the overviews were read. |
@@ -164,6 +164,15 @@ Fake overviews and Province envelopes in memory.
 - **Corrected in the core's header, its limits list, the screen's limits and its note, and this document:** the same place only for the same world key, citizen key, candidate snapshot and parameters.
 - **No reservation and no protection against asking again** is claimed.
 
+## Correction (third tip): the parent's review of `c8db35f1`
+
+- **The defect:** the screen said "No free place in the open map right now" for `full`. That is a full map, but `full` only means no candidate met the provisional conditions (rings from 2 to the open edge, the 75% density limit, opened Provinces).
+- **Now:**
+  - the screen says no place meets this test draw's conditions, names them, and says this does not mean the whole map has no free place (`fullText`);
+  - the core's two `full` reasons say "no candidate meets the provisional conditions … not a statement that the map has no free place";
+  - the kind keeps its name `full`, documented as "no eligible candidate".
+- **Unchanged:** the conditions, the draw, the chain view, and every other answer.
+
 ## Open (the owner's decisions; not decided here)
 
 1. **Making the draw a rule the chain accepts.** PlaceHome's ring and nation checks would have to change. That is a program change, not done here.
@@ -174,7 +183,7 @@ Fake overviews and Province envelopes in memory.
 
 ## Hand-over (Lane D, NOT for automatic adoption)
 
-Two commits on `0cc3ca30` (`6a4675fa`, then the correction). Take the final tip's diff from `0cc3ca30`, all `100644`, all new (A):
+Three commits on `0cc3ca30` (`6a4675fa`, `c8db35f1`, then the third-tip correction). Take the final tip's diff from `0cc3ca30`, all `100644`, all new (A):
 - `permutation-server/web/frontier/fhome-draw.mjs`
 - `permutation-server/web/frontier/fhome-draw-frontier.mjs`
 - `permutation-server/web/frontier/fhome-draw-view.mjs`

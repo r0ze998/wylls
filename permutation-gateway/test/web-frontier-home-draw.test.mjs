@@ -6,7 +6,8 @@
 //   D2 no nation is excluded; nations are mixed among draws
 //   D3 unknown is never free: an unread ring, an unread Province, an unreadable site → unread, never another place
 //   D4 another world: an overview, a Province or a Season of another one → otherWorld
-//   D5 full: nothing free, or only Provinces at the density limit
+//   D5 full: no candidate under the provisional conditions (nothing free, or only Provinces at the density limit);
+//      (third tip) its reason and its screen words never say the map has no free place
 //   D6 taken since the overviews → the next place by score; all taken → contested; only absent slots → unread
 //   D7 ticket cohorts: a live one holds the Province; an old one does not; an open one without the herald turn → unknown
 //   D8 the chain's view never says accepted: beyond the heartland or another nation → refused-by-rule
@@ -125,7 +126,18 @@ test('D5 full, and the density limit', async () => {
   const r = await drawHome(base({ overviews: overviews({ taken: (p, q, i) => i < 8 }) }));
   assert.equal(r.kind, DRAW.assigned);
   assert.ok(r.place.site >= 8);
-  assert.equal((await drawHome(base({ contiguous: 2 }))).kind, DRAW.full);
+  const none = await drawHome(base({ contiguous: 2 }));
+  assert.equal(none.kind, DRAW.full);
+  // (third tip) a full answer caused by the density limit alone: free places exist, and nothing says otherwise
+  const dense = await drawHome(base({ overviews: overviews({ taken: (p, q, i) => i < 9 }) }));
+  for (const a of [none, dense]) {
+    assert.match(a.why, /^no candidate meets the provisional conditions/);
+    assert.match(a.why, /not a statement that the map has no free place/);
+    const html = homeDrawHtml({ status: VIEW.shown, answer: a, growth: null });
+    assert.match(html, /No place meets this test draw&#39;s conditions \(rings from 2 out to the open edge, in provinces less than 75% taken\)\. This does not mean the whole map has no free place\./);
+    assert.doesNotMatch(html, /No free place|map is full|no free place in/i);
+  }
+  assert.doesNotMatch(read('screens/home-draw.mjs'), /No free place in the open map/);
 });
 
 test('D6 taken since the overviews: the next by score; all taken: contested', async () => {
