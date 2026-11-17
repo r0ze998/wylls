@@ -38,6 +38,11 @@ export function viewerState(FS) {
   // choice for a player who has a village. A record that answered before and fails now keeps what it showed: a Citizen,
   // a village, or "not joined" (workstream 16's review of 9b547d9d: a refresh failing in the nation choice closed it).)
   if (FS.meStatus === 'error' && !FS.meAnswered && !FS.citizen && !(FS.holdings ?? []).length) return 'unreachable';
+  // (2026-11-17, ⑦: a wallet whose record is still being asked for — controller.adoptConnectedWallet sets 'loading', and
+  //  only an answer or a failure ends it — is not known yet. `FS.land` is set the moment a wallet is adopted
+  //  (landState(null)), so the line below said "known: not joined" in that gap: after a wallet switch, and after a start
+  //  whose first read threw before the record was asked. Waiting, not the nation choice.)
+  if (FS.wallet && FS.meStatus === 'loading' && !FS.meAnswered && !FS.citizen && !(FS.holdings ?? []).length) return 'pending';
   if (FS.land || FS.citizen || (FS.holdings ?? []).length) return 'known';
   if (!FS.playReady) return FS.error && !FS.record ? 'unreachable' : 'pending';
   return FS.viewerMissed ? 'unreachable' : 'known';

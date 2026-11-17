@@ -46,7 +46,8 @@ test('S1 why play never started after a failed first read', () => {
 });
 
 test('S2 start once, at the first good read', () => {
-  order(boot, 'let seasonStarted = false;', 'const startWithSeason = () => {', 'if (seasonStarted || !FS.pin || !FS.season) return;', 'seasonStarted = true;',
+  // (the late-start bundle marks each step and the whole done only after they ran — web-frontier-ws07-late-start-text.test.mjs)
+  order(boot, 'let seasonStarted = false;', 'const startWithSeason = () => {', 'if (seasonStarted || !FS.pin || !FS.season) return;', "seasonStarted = FS.mode !== 'play' || started.coop;",
     'let bootRead = false;', "try { bootRead = await loadSeason(herald); } catch (e) { console.error('frontier season:', e); }", 'if (bootRead) startWithSeason();',
     'FS.overviewsBooted = true;', 'const seasonLoop = createPollLoop({', 'const ok = await loadSeason(herald);', 'errors = ok ? 0 : errors + 1;', 'if (ok) startWithSeason();',
     'seasonLoop.start(Math.min(30, pollCap(FS.chain)));');
@@ -56,8 +57,8 @@ test('S2 start once, at the first good read', () => {
 test('S3 the body is the former boot block, unchanged', () => {
   const body = boot.slice(boot.indexOf('const startWithSeason = () => {'), boot.indexOf('let bootRead = false;'));
   order(body, "loadOverviews(herald).catch(e => console.error('frontier overviews:', e));",
-    "if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }",
-    "if (FS.mode === 'spectate') startSpectate(herald);", "if (FS.mode === 'play') {", "installCoopBoard({ changed: () => invalidate('panel') });",
+    "FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel');",
+    'startSpectate(herald);', "if (FS.mode === 'play') {", "installCoopBoard({ changed: () => invalidate('panel') });",
     "startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land;",
     "FS.tab = 'map';");
   assert.doesNotMatch(body, /prize|faucet|payAndJoin|paidJoin|claim/i);

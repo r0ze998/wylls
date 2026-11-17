@@ -2926,22 +2926,29 @@ export async function startPlay({ herald: h, cfg }) {
         .then(cap => { if (FS.wallet?.address === asked) { localMarchCapability = cap; invalidate('panel'); } }).catch(() => {});
     }
   }
-  // A silent reconnect of the wallet used last time (no popup; nothing if it does not trust this page).
-  const last = localPlay ? null : wallet.lastWalletName();
-  const entry = last && (FS.walletList ?? []).find(w => w.name === last && !w.why);
-  if (entry) {
-    const c = await wallet.connect(entry, { chain: wallet.chainOf(pin?.cluster ?? 'localnet'), silent: true }).catch(() => null);
-    if (c) {
-      adoptConnectedWallet(c);
-      const restored = await fsession.restore(scope(), c.address);
-      if (FS.wallet?.address === c.address && wallet.connected()?.address === c.address) FS.session = restored;
+  // (2026-11-17, ⑦: the first read is not a precondition of the rest of the start. A throw in it — the reconnect's
+  //  session restore, the wallet sync, or the first refresh, whose reads the poll's own tick also guards — left the
+  //  start there: no wallet events were followed and the poll below was never made, so the page never read again. It
+  //  is reported, and the start goes on: the poll reads again. What the viewer is stays unknown until a read answers:
+  //  hud/drawer.mjs viewerState says "pending" or "unreachable", never "not joined".)
+  try {
+    // A silent reconnect of the wallet used last time (no popup; nothing if it does not trust this page).
+    const last = localPlay ? null : wallet.lastWalletName();
+    const entry = last && (FS.walletList ?? []).find(w => w.name === last && !w.why);
+    if (entry) {
+      const c = await wallet.connect(entry, { chain: wallet.chainOf(pin?.cluster ?? 'localnet'), silent: true }).catch(() => null);
+      if (c) {
+        adoptConnectedWallet(c);
+        const restored = await fsession.restore(scope(), c.address);
+        if (FS.wallet?.address === c.address && wallet.connected()?.address === c.address) FS.session = restored;
+      }
     }
-  }
-  // The rules module once (the incoming warnings need it too); a missing
-  // frontier.wasm is tolerated (the page says what needs it).
-  await kernelOrNull();
-  if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
-  await refresh();
+    // The rules module once (the incoming warnings need it too); a missing
+    // frontier.wasm is tolerated (the page says what needs it).
+    await kernelOrNull();
+    if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
+    await refresh();
+  } catch (e) { console.error('frontier first read:', e); }
   // Local play: the player this boot read must still be the gate's wallet's own Citizen; otherwise the page lets go
   // of the wallet and says so (sends stay refused either way).
   if (localPlay && FS.wallet && !localPlayIdentityOk(localPlay, io.pinned(), FS.season, FS.citizen)) {
@@ -2951,7 +2958,8 @@ export async function startPlay({ herald: h, cfg }) {
     invalidate('status', 'panel');
   }
   walletEventsReady = true;
-  if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
+  // (the same: a failed sync here is read again by the poll and by the next wallet event)
+  try { if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet(); } catch (e) { console.error('frontier wallet sync:', e); }
   let errors = 0;
   const hidden = () => !!globalThis.document?.hidden;
   const poll = pollLoop = createPollLoop({

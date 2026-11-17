@@ -4384,23 +4384,34 @@ export async function boot() {
   //  while the herald was briefly unreachable showed the season once it came back but never started play, spectating
   //  or practice: the viewer's record was never asked and the drawer said "reading" for good. A read that throws at
   //  boot no longer ends the boot before the season poll starts: the poll reads again.)
+  // (each step is marked done once it has run, and a step that registers a loop, a timer or a listener — spectating,
+  //  the cooperation board, play — runs at most once: a step that threw is tried again at the next good read, the others
+  //  are not run twice. startPlay is async and never throws here: a failure inside it is its own promise's. A throw no
+  //  longer leaves the start marked as done with the rest never run, nor ends the boot or the season poll's tick.)
   let seasonStarted = false;
+  const started = { practice: false, spectate: false, coop: false, play: false };
   const startWithSeason = () => {
     if (seasonStarted || !FS.pin || !FS.season) return;
-    seasonStarted = true;
     // Ring summaries stream in while viewer setup starts; no whole-world boot barrier.
     loadOverviews(herald).catch(e => console.error('frontier overviews:', e));
-    // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
-    if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
-    if (FS.mode === 'spectate') startSpectate(herald);
-    if (FS.mode === 'play') {
-      // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
-      // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
-      installCoopBoard({ changed: () => invalidate('panel') });
-      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
-      // the drawer starts closed: the tab of the last visit is not reopened over the map
-      FS.tab = 'map';
-    }
+    try {
+      // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
+      if (FS.mode === 'practice' && !started.practice) { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); started.practice = true; }
+      if (FS.mode === 'spectate' && !started.spectate) { startSpectate(herald); started.spectate = true; }
+      if (FS.mode === 'play') {
+        // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
+        // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
+        // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
+        if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        if (!started.play) {
+          started.play = true;
+          startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
+          // the drawer starts closed: the tab of the last visit is not reopened over the map
+          FS.tab = 'map';
+        }
+      }
+      seasonStarted = FS.mode !== 'play' || started.coop;
+    } catch (e) { console.error('frontier start:', e); }
   };
   let bootRead = false;
   try { bootRead = await loadSeason(herald); } catch (e) { console.error('frontier season:', e); }
