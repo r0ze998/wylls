@@ -2149,8 +2149,13 @@ export function ackHomeGrant() {
 
 export async function confirmHome() {
   if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;
+  // (corrected 2026-11-17: the press is of the context it was made in — viewer, herald, world — and that is taken
+  //  BEFORE the first wait. A candidates reading that outlasts a change of wallet or world leaves a choice of the page
+  //  as it has become: this press does not go on with it.)
+  const pressed = contextSeq;
   const faction = wantedHomeFaction();
   if (!FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction)) await refreshHomes({ force: true });
+  if (contextSeq !== pressed) return;
   if (!FS.homeChoice?.selected || FS.homeChoice.busy) return;
   // (2026-11-17, ⑦: THIS confirm — the choice it was pressed on (the object), the context number of that moment
   //  (viewer, herald, world: nextContext), the world, and where that viewer's home record is kept.
@@ -2160,7 +2165,7 @@ export async function confirmHome() {
   //   - what it SENT is another matter: the note of a sent Join / PlaceHome is saved in the record taken here
   //     (`run.note`) whatever the page has become — see saveHomePatch just below.
   //   - at its end it lets go of its own busy mark only; a newer choice's is not its to take off.)
-  const run = { choice: FS.homeChoice, ctx: contextSeq, world: providerWorld(), visitor: !FS.wallet, note: homeNoteNow(), sent: new Set() };
+  const run = { choice: FS.homeChoice, ctx: pressed, world: providerWorld(), herald, visitor: !FS.wallet, note: homeNoteNow(), sent: new Set() };
   run.choice.busy = true; run.choice.error = null;
   const mine = () => FS.homeChoice === run.choice && contextSeq === run.ctx;
   const pending = p => { if (!mine()) return; run.choice.pending = p; invalidate('panel'); };
@@ -2172,13 +2177,19 @@ export async function confirmHome() {
     if (typeof patch?.pending?.signature === 'string') { run.sent.add(patch.pending.signature); return saveHomeAt(run.note, patch); }
     return mine() ? saveHomeAt(run.note, patch) : null;
   };
-  // (a visitor who pressed and connected: the visitor's choice went with the visitor (resetViewer); the choice standing
-  //  now is the wallet's own. This confirm goes on only for the SAME world, on that choice, and only if it already
-  //  holds a selection — the one saved for this wallet. The visitor's selection is not carried over; with none, nothing
-  //  is sent and the screen shows the wallet's own state.)
+  // (a visitor who pressed and connected. The visitor's choice went with the visitor (resetViewer); the choice standing
+  //  now is the wallet's own. This confirm goes on with it only when what the page HOLDS shows that the one change
+  //  since the press is the connect it asked for — `connectedAs`, below — and that nothing changed after it: the same
+  //  wallet, the same herald and world, the context number exactly one past the press (one change of viewer; any
+  //  other wallet, NFT, herald or world moves it further). And only on a choice that is not under way and already
+  //  holds a selection — the one saved for this wallet: the visitor's selection is not carried over. Anything less:
+  //  nothing is sent, and the person presses again on the page as it is.)
+  let connectedAs = null;
+  const connectStands = () => connectedAs !== null && contextSeq === run.ctx + 1 && herald === run.herald && providerWorld() === run.world
+    && !FS.resident && FS.wallet?.address === connectedAs && wallet.connected()?.address === connectedAs;
   const takeOver = () => {
     const c = FS.homeChoice ?? null;
-    if (!c || c === run.choice || c.busy || !c.selected || providerWorld() !== run.world) return false;
+    if (!connectStands() || !c || c === run.choice || c.busy || !c.selected) return false;
     run.choice.busy = false; run.choice.pending = null;
     run.choice = c; run.ctx = contextSeq; run.note = homeNoteNow();
     c.busy = true; c.error = null;
@@ -2189,14 +2200,19 @@ export async function confirmHome() {
     if (!FS.wallet) {
       const i = (FS.walletList ?? []).findIndex(w => !w.why);
       if (i < 0) return error('NoWallet', L`参加に使うウォレットを接続してください。`);
+      const asked = FS.walletList[i];
       pending('connecting'); await ACTIONS.connect({ i: String(i) });
       if (!FS.wallet) return;
-      // (only the connect this confirm asked for, from no wallet, in the same world, is its own change of viewer)
-      if (!run.visitor || providerWorld() !== run.world) return;
+      // (the connect this confirm asked for: the wallet now connected is the one asked for by name, the page has
+      //  adopted exactly it, and that adoption is the only change since the press)
+      const w = wallet.connected();
+      if (!run.visitor || !w || w.name !== asked?.name || FS.wallet.address !== w.address) return;
+      connectedAs = w.address;
+      if (!connectStands()) return;
       fromConnect = true;
     }
     if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }
-    if (fromConnect ? !(mine() || takeOver()) : !mine()) return;
+    if (fromConnect ? !takeOver() : !mine()) return;
     const saved = readHome();
     if (saved.pending && localPlay) {
       // LOCAL PLAY: the note is of a page-signed Join or PlaceHome. It is asked about as every local order is — ONCE, at
