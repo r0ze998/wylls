@@ -29,6 +29,8 @@ import { row, dueHtml } from './shell.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
+import { hostsIn } from '../fland.mjs';
+import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
 
@@ -250,6 +252,32 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
 }
 
 /**
+ * (2026-11-17, ⑦ from the troops card to the hosts) The hosts of THIS village, from the provinces the page holds — the
+ * same rows the hosts drawer lists (fland.mjs hostsIn: a host's id carries its village's place, site and generation, so
+ * a host is this village's by its own id, not by where it stands): `{forming, standing, marching, total, partial}`.
+ *   forming   mustered, not yet in the record as formed (state 2) — what a muster just given becomes
+ *   standing  formed and standing somewhere; marching: on the road
+ *   partial   'unknown' — the list of provinces the viewer's hosts stand in is not read for what the page is now —,
+ *             'unread' — some of those provinces are not held —, or null: the counts are all the page can know.
+ * A count is of what the page holds; with `partial` it is not said to be all.
+ */
+export function villageHosts(FS, h) {
+  const out = { forming: 0, standing: 0, marching: 0, total: 0, partial: null };
+  if (!h) return out;
+  const bell = FS.nowBell ?? 0;
+  for (const env of FS.provinces?.values?.() ?? []) {
+    if (!env?.province) continue;
+    for (const r of hostsIn(env.province, h, bell)) {
+      if (r.inTransit || r.state === 3) out.marching += 1; else if (r.state === 2) out.forming += 1; else out.standing += 1;
+      out.total += 1;
+    }
+  }
+  const un = unreadHostPlaces(FS);
+  out.partial = !un.known ? 'unknown' : un.places.length ? 'unread' : null;
+  return out;
+}
+
+/**
  * How the reads behind the village screen went (2026-11-17, ⑦) — nothing is asked here, only said:
  *  - `viewer`: by where the answer shown really came from (corrected 2026-11-17). With no village in hand: 'none' (nobody
  *    to ask — no wallet —, or the record answered "none" FOR THIS WORLD and the last read is good), 'noneStale' (it
@@ -399,11 +427,23 @@ export function render(FS) {
     ${blockedLine(m.blocks.Muster)}</form>`;
   // the action that makes sense now stands open; the other waits behind a fold
   const musterFirst = musterable >= 100;
+  // (2026-11-17, ⑦ from the troops card to the hosts: train → the reserve → form up → the host — and from here on to the
+  //  hosts drawer, where its march is planned. The card had no way on: after 「編成する」 the host it made was shown
+  //  nowhere on this screen, and nothing led to the drawer that lists it. The button is the existing tab action; the
+  //  drawer shows the village in hand — this one.)
+  const vh = FS.mode === 'play' ? villageHosts(FS, m.rawHolding) : null;
+  const hostsWay = vh ? html`<div class="village-hosts" data-hosts="${vh.total}" data-partial="${vh.partial ?? ''}">
+      <p>${L`この村の軍勢：編成の反映待ち ${fmtNum(vh.forming)}、立っている ${fmtNum(vh.standing)}、進軍中 ${fmtNum(vh.marching)}。`}</p>
+      ${vh.partial === 'unknown' ? html`<p class="muted" role="status">${L`軍勢がどの州にいるかの一覧をまだ読めていないので、この数がすべてとは限りません。`}</p>`
+        : vh.partial === 'unread' ? html`<p class="muted" role="status">${L`読めていない州があるので、この数がすべてとは限りません。`}</p>` : ''}
+      <div class="actions"><button type="button" class="btn" data-act="tab" data-tab="hosts">${icon('sword')}${L`この村の軍勢の一覧を開く`}</button></div>
+      <p class="muted">${L`編成した軍勢は、記録に出ると「編成の反映待ち」に入ります。進軍の計画は、軍勢の一覧から立てます。`}</p></div>` : '';
   const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
     ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: html`<span class="c-count">${L`控え ${fmtNum(musterable)}`}</span>` })}
     ${label(musterFirst ? L`軍勢を編成する` : L`兵を訓練する`)}
     ${musterFirst ? musterForm : trainForm}
-    ${fold(musterFirst ? 'v-train' : 'v-muster', musterFirst ? L`兵を訓練する` : L`軍勢を編成する`, musterFirst ? trainForm : musterForm)}</section>`;
+    ${fold(musterFirst ? 'v-train' : 'v-muster', musterFirst ? L`兵を訓練する` : L`軍勢を編成する`, musterFirst ? trainForm : musterForm)}
+    ${hostsWay}</section>`;
 
   const others = html`<section class="vcard vcard-folds" aria-label="${L`そのほか`}">
     ${fold('v-garrison', html`${icon('shield')}${L`守備隊を増やす`}`, html`<form class="vform" id="hp-garrison" data-form="garrison">

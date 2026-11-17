@@ -121,7 +121,9 @@ export function villageOrdersModel(FS, h, now, kinds = VILLAGE_ORDER_KINDS) {
     //  only while the village's record is still behind it)
     const outcome = orderOutcome(o), cls = outcome === 'accepted' ? (recordBehind(o, recordFactOf(o, h, now)) ? 'waiting' : null) : outcome;
     if (!cls) continue;
-    out.push({ id: o.id, kind: o.kind, name: villageOrderName(o), cls, code: o.code ?? null, why: o.why ?? (o.code ? clientText(o.code) : ''), fact: cls === 'unknown' ? recordFactOf(o, h, now) : null });
+    // (`place`: whose village the record says it was — orderPlace. A muster's or a fort order's record names its own tile:
+    //  it is listed as an order of this province, and the line says its village is not in the record)
+    out.push({ id: o.id, kind: o.kind, name: villageOrderName(o), cls, code: o.code ?? null, why: o.why ?? (o.code ? clientText(o.code) : ''), fact: cls === 'unknown' ? recordFactOf(o, h, now) : null, place: orderPlace(o, h) });
   }
   return out;
 }
@@ -193,14 +195,17 @@ function factWords(f) {
 export function renderVillageOrders(FS, h, now, { rereadShown = false, kinds = VILLAGE_ORDER_KINDS, reread = null } = {}) {
   const list = villageOrdersModel(FS, h, now, kinds);
   if (!list.length) return '';
+  // (corrected: an order whose record does not name its village — a muster, a fort order — is not said to be this
+  //  village's: its line carries that)
+  const whose = x => (x.place === 'unknown' ? html`<span class="vo-whose"> ${L`（この州で出した命令です。この村の命令かどうかは、記録からは分かりません。）`}</span>` : '');
   const line = x => {
-    if (x.cls === 'notSent') return html`<p class="notice error vo vo-notsent" data-order="${x.cls}">${icon('flag')}<span>${L`${x.name}：送られていません。`}${x.why ? html`<span class="vo-why"> ${x.why}</span>` : ''}</span></p>`;
-    if (x.cls === 'sentFailed') return html`<p class="notice error vo vo-failed" data-order="${x.cls}">${icon('flag')}<span>${L`${x.name}：送信しましたが、成立しませんでした。`}${x.why ? html`<span class="vo-why"> ${x.why}</span>` : ''}</span></p>`;
-    if (x.cls === 'held') return html`<p class="notice vo vo-held" data-order="${x.cls}">${icon('hourglass')}<span>${L`${x.name}：送信済みです。結果はまだ確認できていません。同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。`}</span></p>`;
-    if (x.cls === 'waiting') return html`<p class="notice vo vo-waiting" data-order="${x.cls}">${icon('hourglass')}<span>${L`${x.name}：受け付けられました。いま読めている村の記録には、まだ出ていません。`}</span></p>`;
+    if (x.cls === 'notSent') return html`<p class="notice error vo vo-notsent" data-order="${x.cls}">${icon('flag')}<span>${L`${x.name}：送られていません。`}${x.why ? html`<span class="vo-why"> ${x.why}</span>` : ''}${whose(x)}</span></p>`;
+    if (x.cls === 'sentFailed') return html`<p class="notice error vo vo-failed" data-order="${x.cls}">${icon('flag')}<span>${L`${x.name}：送信しましたが、成立しませんでした。`}${x.why ? html`<span class="vo-why"> ${x.why}</span>` : ''}${whose(x)}</span></p>`;
+    if (x.cls === 'held') return html`<p class="notice vo vo-held" data-order="${x.cls}">${icon('hourglass')}<span>${L`${x.name}：送信済みです。結果はまだ確認できていません。同じ命令は送り直しません。同じ命令をもう一度押すと、結果を確認します。`}${whose(x)}</span></p>`;
+    if (x.cls === 'waiting') return html`<p class="notice vo vo-waiting" data-order="${x.cls}">${icon('hourglass')}<span>${L`${x.name}：受け付けられました。いま読めている村の記録には、まだ出ていません。`}${whose(x)}</span></p>`;
     // unknown: the order's result stays unconfirmed whatever the record holds; the record is said as its own fact
     const fact = factWords(x.fact);
-    return html`<p class="notice vo vo-unknown" data-order="${x.cls}">${icon('hourglass')}<span>${L`${x.name}：送信済みです。この命令の結果は、まだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。`}${fact ? html`<span class="vo-fact"> ${fact}</span>` : ''}</span></p>`;
+    return html`<p class="notice vo vo-unknown" data-order="${x.cls}">${icon('hourglass')}<span>${L`${x.name}：送信済みです。この命令の結果は、まだ確認できていません（送られていない、という意味ではありません）。もう一度命じると、二重になることがあります。`}${fact ? html`<span class="vo-fact"> ${fact}</span>` : ''}${whose(x)}</span></p>`;
   };
   const again = reread ?? { act: 'village-reread', label: L`村の記録を読み直す`, offered: villageRereadOffered(FS) };
   const ask = list.some(x => x.cls === 'unknown' || x.cls === 'waiting') && !rereadShown && again.offered === true;
