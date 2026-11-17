@@ -9,6 +9,13 @@ default** (see "MCP wiring" below).
 
 ## Status: be honest about what this is
 
+- **Real-board contract bug fixed on 2026-11-17 UTC; the corrected output is independently verified, 74/74 passed.** Until this fix the adapter
+  required a string nation name and capitalised resource names. The real board sends a numeric zero-based faction
+  and lowercase resource names, so the adapter would have answered `malformed` for every healthy real board with a
+  verified viewer or any request. All 65 earlier passing tests used invented fixtures (`'North'`, `'Stone'`) and so
+  could not see this. See "Real-board contract" below. The coordinator has now rerun the corrected final suites:
+  **41 adapter + 33 integration = 74/74 passed, zero failures/skips**, including actual pure coopView/fold output.
+  Earlier 34/26/31/60/65 pass counts retained below are historical, not live-board evidence.
 - **Wired in code, off by default; fixture integration verified.** `src/server.mjs`, `src/tools.mjs`, `bin/wylls-mcp.mjs` and the new
   `bin/coop-read-settings.mjs` connect the adapter to the server's existing dispatch. No real server has been started
   with it on, and no real env or settings were changed. Nothing was tried against a live board, hosted MCP client or game
@@ -26,6 +33,97 @@ default** (see "MCP wiring" below).
 - **Principal shape:** `{owner, scopes}`. The server passes only these two fields of its authenticated principal.
   The adapter does not import `auth.mjs`, because its imports reach the gateway, so `COOP_READ_SCOPE`
   (`'wylls.read'`) restates `SCOPES.READ`.
+
+## Real-board contract (corrected 2026-11-17 UTC)
+
+### What was wrong
+
+The adapter and both test suites were written against fixtures that the implementation session invented, not
+against the board's source. Two shapes were wrong, and the adapter enforced the wrong ones:
+
+| field | adapter required (wrong) | the real board sends | source |
+|---|---|---|---|
+| `view.nation.nation`, `view.personal.nation` | a string name matching `/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$/` (fixtures: `'North'`) | the verified Citizen's `faction`: a **number**, zero-based; `null` when unverified | `coop/goal.mjs` `coopView` (`nation: vf.faction`; `personal.nation: vf.status === 'verified' ? vf.faction : null`); `coop/chain.mjs` `citizenOf` returns the decoded Citizen `faction` |
+| resource keys in `need`, `myVerified` | capitalised, `/^[A-Z][A-Za-z]{1,15}$/` (fixtures: `Stone`, `Wood`) | lowercase: `food`, `wood`, `stone`, `ore`, `arms`, `gold` | `coop/record.mjs` `RESOURCES`; `needOf` accepts only these keys |
+
+Effect: a real, healthy board was refused as `malformed` (`CoopBoardMalformed`) whenever the viewer's nation was
+verified (a number is not a string) or the viewer had any request (lowercase keys failed the capitalised pattern).
+Only an unverified viewer with no requests and no verified amounts could have been read. The 65 passing tests did
+not show this because their fixtures matched the adapter's wrong expectation, not the board.
+
+### What the adapter requires now
+
+- **Nation:** `nation.nation` is `null` (unknown) or a faction number: `typeof 'number'`, a whole number, `0..5`,
+  not `-0`. `0` is the first faction and is a verified nation; it is compared with `null`, never by truthiness.
+  Nothing is coerced: `'0'`, `'North'`, `1.5`, `6`, `-1`, `true` are `malformed`. The number is passed through
+  unchanged as `nation.nation`. It is the zero-based id; a screen may show it 1-based (`chain.mjs` prints
+  `faction + 1`), the adapter does not.
+- **The bound 0..5** comes from source, not from a guess:
+  - `permutation-rules/src/frontier/geometry.rs`: `pub const FACTIONS: u8 = 6;` ("Player factions"), and
+    `valid_faction`: "a player faction `0..=5`, or also `clash::NEUTRAL` (6: barbarians and Free Cities)". A
+    citizen's nation is a player faction, so 6 is refused.
+  - `permutation-server/web/sdk/frontier/abi-v2-layouts.mjs`: Citizen `FACTION` is a `u8` at offset 136 (so the
+    decoder yields an integer), and the per-faction tables are six wide (for example `CAPTURES_BY [u16;6]`).
+  - `coop/record.mjs` bounds the declared nation of a record the same way: `isInt(rec.nation, 0, 5)`.
+  - Not read: the on-chain program's own join check. `citizenOf` itself does not range-check the decoded byte, so
+    a Citizen account holding a faction above 5 (which the rules above do not allow) would be refused here as
+    `malformed` rather than shown.
+- **`personal.nation`** must be present and strictly equal to `nation.nation` (the board always sends both). A
+  missing value is no longer read as `null`.
+- **Resources:** keys of `need` and `myVerified` must be one of the six lowercase names exactly
+  (`COOP_RESOURCES`). `Stone`, `science`, `influence`, `__proto__` and anything else are `malformed`. Amounts stay
+  whole, non-negative (`myVerified`: positive) safe integers; a string amount is not coerced.
+- **Fulfilment** (a third fixture mismatch, found while fixing the two above): the board's
+  `coop/ws04.mjs` `fulfilmentOf` always returns an object whose `status` is `none`, `fulfilled`, `not-reached` or
+  `undetermined`. The old fixtures used `{status: 'Partial'}` and the bare string `'Fulfilled'`, which the board
+  never sends (those are names of ④'s per-caravan terminal states). The old adapter happened to accept the real
+  shape too, so this did not refuse real boards; it now accepts only the real shape and the four statuses, and
+  `mine.requests[].fulfilment` is always one of those four strings (never `null`).
+
+`COOP_FACTIONS`, `COOP_RESOURCES` and `COOP_FULFILMENT_STATUSES` are exported. The adapter still imports nothing, so
+these restate the board's constants; the unit suite compares `COOP_RESOURCES` with `coop/record.mjs` `RESOURCES`.
+
+Privacy, bounds and authority are unchanged: the same fixed projection, the same limits, no recipient or target
+list, no send authority. One limitation line was added to `COOP_READ_LIMITATIONS` (the nation is a zero-based
+number, resource names are lowercase).
+
+### Regression tests with the real coopView (independently passed)
+
+Both suites now import the real `coopView` and `GOALS` (`coop/goal.mjs`) and the real `fold` and `recordId`
+(`coop/record.mjs`), and build the `/coop/view` body the way `coop/board.mjs` `view()` does
+(`{...coopView(...), heraldFeed, chain, damaged, contexts, store}`).
+
+- **Not `createBoard`:** it creates the data directory and may write `observed.json`. No board process, HTTP
+  server, socket, RPC or herald is started.
+- **State:** the real `fold` of three unsigned fixture records (two requests with lowercase needs, one response).
+  `fold` checks shape and state, not signatures; the board's signature check (`verifySig`) is not exercised. No
+  `link` or `sending` records and no herald file, so neither `fold` nor `coopView` derives an address.
+- **Nationality:** `checks.citizens` is given in the shape `citizenOf` returns (`{status: 'verified', faction: 0}`),
+  keyed as `coopView` looks it up. `citizenOf` itself (an RPC read and account decode) is not called.
+- **Cases:** verified nation `0` with lowercase needs (exact projection, no leaks, no authority fields); unknown
+  nationality (status `unknown`, null counts, the board's Japanese `why`/`note` not copied); in the unit suite
+  also an empty real board for each faction `0..5`. The integration suite passes the verified and unknown views
+  through the real adapter and the real `createWyllsMcp(...).handle`.
+
+What this still does not prove: a live board over HTTP, a real Citizen account decoded by `citizenOf`, arrivals
+(`counted`) from real chain logs, or a game world.
+
+### Other mismatches noticed (reported, not all changed)
+
+- **Resource naming differs inside this server.** The board uses lowercase names; this server's caravan tools use
+  capitalised names (`Food`, `Wood`, … in `src/tools.mjs` `cargoSchema` and `src/server.mjs`), and they also have
+  `Science` and `Influence`, which the board does not. `get_cooperation_status` passes the board's lowercase names
+  through. A client must not feed a cooperation `need` straight into `prepare_caravan` cargo. Not changed
+  (outside the four files); the added limitation line says it.
+- **`COOP_TOOL.description`** (`src/tools.mjs`) does not say that the nation is a number. Not changed (outside the
+  four files).
+- **Need amounts:** the board accepts `1..100000` per resource (`record.mjs` `MAX_QTY`); the adapter accepts any
+  non-negative safe integer. Looser, never refuses real data. Not changed.
+- **Request `state`:** the board sends `open`, `cancelled` or `expired`; the adapter accepts any short word. Looser,
+  never refuses real data. Not changed.
+- **Hand-written fixtures remain simplified** (ids like `req-000001`, a `g-vault` goal, arrival entries without
+  the board's full fields). They no longer contradict the board's types, but only the real-coopView tests are
+  evidence about the board's actual output.
 
 ## MCP wiring (get_cooperation_status)
 
@@ -58,7 +156,7 @@ default** (see "MCP wiring" below).
 - **Same dispatch as every tool:** the own-name lookup, the `Unauthenticated` refusal, the per-connection rate limit
   (30 burst, 1/s), and InternalError on a throw. No existing tool, scope, grant, auth flow, store record or write
   path changed.
-- **One deliberate dispatch difference (review fix, 2026-11-18):** `tools/call` runs `archiveFinished()` (which may
+- **One deliberate dispatch difference (review fix, 2026-11-17 UTC):** `tools/call` runs `archiveFinished()` (which may
   move old finished operations to the archive and save the store) after every tool. It now skips that sweep **only**
   for `get_cooperation_status`, whatever the outcome (ok or any refusal). So the tool really stores nothing locally.
   Every other tool keeps the sweep exactly as before.
@@ -163,7 +261,7 @@ the board's `view()` calls `caravans()`, which may refresh and save the board's 
 | `contexts.length !== 1` (the board keeps previous worlds) | `unsupported` |
 | `damaged.length > 0` or `store.problems.length > 0` (config or view) | `damaged` |
 | the second config differs from the first (season, cluster, contexts, damaged/problem counts, judge), or the view's contexts/store disagree with config | `changed` |
-| missing or ill-typed fields; `personal.nation` differs from `nation.nation`; an owner's request not among `view.requests`, not the owner's, or duplicated; an owner's response the board does not record; an entry of another responder listed as the owner's; non-integer amounts | `malformed` |
+| missing or ill-typed fields; a nation that is not `null` or a faction number `0..5` (no coercion); `personal.nation` missing or not strictly equal to `nation.nation`; a resource name that is not one of the board's six lowercase names; a fulfilment that is not the board's `{status}` object with one of its four statuses; an owner's request not among `view.requests`, not the owner's, or duplicated; an owner's response the board does not record; an entry of another responder listed as the owner's; non-integer amounts | `malformed` |
 | network error, timeout, non-200, redirect, oversize, no stream, non-UTF-8, non-JSON | `unavailable` |
 
 Nothing is ever shown partially. On any status other than `ok`, `nation` and `mine` are `null`.
@@ -180,15 +278,17 @@ Nothing is ever shown partially. On any status other than `ok`, `nation` and `mi
   owner: string|null,          // principal.owner
   nation: {
     status: 'verified'|'unknown',
-    nation: string|null,
+    nation: 0|1|2|3|4|5|null,           // the board's zero-based faction number (0 is a nation); null when unknown
     requests: number|null,              // null when unknown, never 0 for unknown
     deliveredFromNation: number|null,
     note: string|null,                  // fixed adapter text; the board's nation.why/nationWhy is never copied
   } | null,
   mine: {
-    requests:  [{ id, state, need: {Resource: whole}, entries: { listed, counted }, fulfilment: string|null }],
+    // resource = 'food'|'wood'|'stone'|'ore'|'arms'|'gold' (the board's lowercase names)
+    requests:  [{ id, state, need: {resource: whole}, entries: { listed, counted },
+                  fulfilment: 'none'|'fulfilled'|'not-reached'|'undetermined' }],
     responses: [{ id, responded: true, myEntries: { listed, counted } }],
-    verified:  { Resource: positive whole },   // board's myVerified (counted arrivals the owner delivered)
+    verified:  { resource: positive whole },   // board's myVerified (counted arrivals the owner delivered)
     left:      [goalId],
   } | null,
   limitations: COOP_READ_LIMITATIONS,
@@ -217,9 +317,18 @@ not verified), `disabled`, `refused` and the failure statuses.
 - The output excludes: raw config/view spreads, other wallets (requesters, responders, contributors), signatures,
   tokens, proofs, response/request notes, the board's `why`/`note`/`nationWhy` text, herald/relay/rpc URLs, page
   paths, store segment paths, `joint`, `rejected`, `sendings`, and caravan ids.
-- An object `fulfilment` without a recognisable `status` word becomes `null` (not known), not an error.
+- `fulfilment` is the `status` of the board's fulfilment object. `fulfilled` and `not-reached` are the board's
+  proofs from counted lower and upper bounds; `undetermined` and `none` assert nothing. Any other shape is
+  `malformed` (changed 2026-11-17 UTC; before, an unrecognised object became `null`).
 
 ## Tests
+
+**Read this first:** the pass counts in this section and in the two verification sections after it are historical.
+They were obtained with the pre-fix fixtures (string nation, capitalised resources). After the 2026-11-17 UTC fix the
+adapter suite has 41 tests: the earlier 34 with corrected fixtures, 4 new contract tests (faction numbers `0..5`;
+wrong nation types and bounds; resource names; fulfilment shape) and 3 real-coopView tests. The integration suite
+has 33: the earlier 31 with corrected fixtures (three malformed cases added to an existing test) and 2
+real-coopView tests. The coordinator executed the final corrected suites: 74/74 passed, zero failures/skips.
 
 ### Integration suite: `test/coop-read-integration.test.mjs` (26/26 independently passed; later SDK tests not executed)
 
@@ -252,7 +361,7 @@ no keys, signatures, network, child processes or filesystem writes. It covers:
 Status of the suite above: the coordinator reported **60/60 passed** (34 adapter + 26 integration) and five syntax
 checks, before the SDK tests below were added.
 
-#### Official SDK transport tests (added 2026-11-18, written, NOT executed)
+#### Official SDK transport tests (added 2026-11-17 UTC, written, NOT executed)
 
 These use the pinned `@modelcontextprotocol/sdk` 1.32.1 (installed by the coordinator):
 `Client` from `client/index.js` and `StreamableHTTPClientTransport` from `client/streamableHttp.js`.
@@ -315,10 +424,14 @@ The implementation CLI wrote these tests without running them. The coordinator s
 side effects and ran the completed suite: 34 tests, 34 pass, 0 fail, 0 skipped. No real network, key, signature,
 transaction, filesystem write or game-world operation was exercised.
 
-## Final coordinator verification (2026-11-17 UTC)
+## Historical pre-fix coordinator verification (2026-11-17 UTC)
 
 After the implementation session completed, the coordinator ran both suites together: **60 tests, 60 pass, 0 fail, 0 skipped** (adapter 34 + integration 26). All five changed/new JavaScript wiring files passed `node --check`. The integration worktree initially lacked the existing SDK peer dependency; the test run used the already installed local dependencies (`@magicblock-labs/ephemeral-rollups-sdk` 0.17.2 and `@solana/web3.js` 1.99.0), without a package or lockfile change. The real server logic and HTTP handler ran with fixtures only. Live OAuth, board networking, a real MCP client, the game world, deployment and the complete pre-existing regression suite remain untested.
 
-### Official SDK follow-up verification (2026-11-17 UTC)
+### Historical pre-fix official SDK verification (2026-11-17 UTC)
 
 After the final CLI correction, independent execution passed **65/65 tests**, zero failures/skips (34 adapter + 31 integration, including five SDK/bridge cases). The real `@modelcontextprotocol/sdk` 1.32.1 Client and StreamableHTTPClientTransport performed initialization, tool discovery and calls through injected fetch into the real HTTP handler. Global network fetch was guarded against use. SDK request timeout timers and the server initialization session identifier were exercised; no wallet keys, signatures, external network, socket listener, real OAuth or world process was used. Dependencies were installed from the existing lockfile with lifecycle scripts disabled; package/lockfile contents were unchanged. No live MCP/board/world process was found. Live-world startup remains held because earlier startup refusals are unresolved, not bypassed by these tests.
+
+### Final corrected-contract verification (2026-11-17 UTC)
+
+After the official Opus task finished, the coordinator reran both corrected suites: **74 tests, 74 pass, 0 fail, 0 skipped**. Adapter 41, integration 33. All three modified JavaScript files passed syntax checks. This includes real pure coopView/fold-produced records passing through the adapter and MCP dispatch, plus the official SDK client/transport fixtures. No board server, world, actual OAuth, wallet signature or external network was run. The code remains opt-in and off by default.
