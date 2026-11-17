@@ -490,7 +490,15 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         if (choice === 'taken') { op.outcome = 'taken'; op.arrival = receipts.arrival(op); step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
       }
       if (x.kind === KINDS.CARAVAN_SETTLED) {
-        const o = SETTLE_OUTCOME[x.payload.outcome] ?? 'settled';
+        // caravan_outcome (frontier-abi v2/log.rs) has two values, 0 DELIVERED and 1 LOST. Any other value, or none, is a
+        // record this server cannot read: held as Inconsistent (not a state: nothing is decided, nothing released), never
+        // completed as a generic "settled" that ④'s view would call Failed (2026-11-17). Stored terminal operations are
+        // not reread (the loop stops at a terminal state above).
+        if (!Object.hasOwn(SETTLE_OUTCOME, String(x.payload.outcome))) {
+          hold(op, 'Inconsistent', `the settle record's outcome ${JSON.stringify(x.payload.outcome ?? null)} is not one the ABI defines (0 delivered, 1 lost): nothing is decided`, { evidence: ref });
+          continue;
+        }
+        const o = SETTLE_OUTCOME[x.payload.outcome];
         op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
         op.caravan.settledAtBell = x.bell;
         op.caravan.settle = { record: ref, cargoLogged: named(x.payload.cargo ?? []), precision: 'whole units, floor(milli / 1000): a lower bound of the cargo carried, 0 included' };
