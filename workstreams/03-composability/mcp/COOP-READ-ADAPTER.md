@@ -172,13 +172,14 @@ What this still does not prove: a live board over HTTP, a real Citizen account d
   1. Check `wylls.read`. Without it the answer is the existing `InsufficientScope` step-up error.
   2. Accept only empty arguments (`{}`, or omitted). Anything else (viewer, owner, world, url, an array) is
      `BadRequest`.
-  3. Read `game.context()` and require `{programId, seasonId}` consistent with its `key`. If it can't be read, the
-     answer is `ContextUnavailable` (retryable).
+  3. Read `game.context({fresh: true})` and require `{programId, seasonId}` consistent with its `key`. If it can't be
+     read, the answer is `ContextUnavailable` (retryable). (Before 2026-11-18 this was a plain `game.context()`; see
+     "Game context cache hole" below.)
   4. Call `adapter.read({principal: {owner, scopes}, context: {programId, seasonId, cluster: <configured>}})`. The
      viewer is always the authenticated owner. The world is always the server's current context plus the
      configured cluster. The caller chooses neither.
-  5. Read `game.context()` again. If it is now another world, or can't be read, the answer is `ContextChanged`
-     (retryable) and nothing is shown.
+  5. Read `game.context({fresh: true})` again. If it is now another world, or can't be read, the answer is
+     `ContextChanged` (retryable) and nothing is shown.
   6. On `ok`, the adapter's result is the tool result (`structuredContent` plus the same JSON as text). Otherwise
      it is an error with the adapter's result in `error.cooperation` (`nation`/`mine` are null) and this code:
 
@@ -192,6 +193,73 @@ What this still does not prove: a live board over HTTP, a real Citizen account d
 | `malformed` | `CoopBoardMalformed` | no |
 | `refused` | `CoopReadRefused` | no |
 | `disabled` | `CoopReadDisabled` | no |
+
+### Game context cache hole (independently verified 2026-11-17 UTC)
+
+**What was wrong.** Steps 3 and 5 called `game.context()`, but the real `src/game.mjs` `Game.context()` reuses a relay
+read for `contextTtlMs` (15 s). Within that window the "after" call returned the cached "before" answer without asking
+the relay, so a world switch during the board read could never be seen. The coordinator reproduced this with the real
+`Game`, a fake fetch and a fixed clock: before = season 3, the relay switches to 4, after = still 3, relay fetched
+once. The fixture `fakeGame` in the integration suite answered each call afresh, so the 74 passing tests could not
+show it.
+
+**The change (`src/game.mjs`, `src/server.mjs`).**
+
+- `Game.context({fresh = false} = {})`. `{fresh: true}` skips the TTL reuse and reads `GET /f/season` now. Without it
+  (every other caller: `get_connection`, `resume`, `track`, `season()`/`view()`) the cache is unchanged.
+- `get_cooperation_status` uses `{fresh: true}` at both boundaries; nothing else in the server changed.
+- Publication is still build-first: the new context, addresses, herald pin, change history and `pinnedAt` are
+  published together only after `addressesFor` succeeded. A failure leaves all of them as they were.
+- **Overlapping reads** (corrected after review, 2026-11-18). Each relay read takes a number when it starts; a read
+  *settles* when its relay call comes back, whatever the outcome (published, transport failure, non-200, unreadable
+  answer, addresses not built). A read that settles after a read started later has already settled never publishes.
+  It returns the published context only when that publication is the newest settled read's own
+  (`contextPublishedSeq === contextSettledSeq`); otherwise it throws `ContextUnavailable` (retryable). So it never
+  falls back to a world from before the latest failed observation (the first version did: it returned an older
+  publication after a newer read failed to build, and a newer read's transport/HTTP failure did not count at all).
+  A read that starts after a failure and succeeds publishes as usual. The guard applies to every read that reaches
+  the relay; the TTL reuse of a published context (default callers) is intentionally unchanged.
+- Fail closed: a relay failure at the first boundary is `ContextUnavailable` with no board read, even when a cached
+  context exists; at the second it is `ContextChanged` with no data.
+
+**Limits, honestly.**
+
+- A fresh read is one observation of the relay at one moment. The two observations bracket the board read; they do
+  not lock the remote world and are not linearizable with it. A switch and switch-back between the two reads, or a
+  switch right after the second, is not seen. The board's own world is checked separately by the adapter.
+- The relay itself may serve a stale or cached season; this change only removes this server's own 15 s reuse at the
+  two boundaries.
+- After a failed build, a default (non-fresh) `context()` within the TTL still returns the old cached context without
+  asking the relay: that is the unchanged default cache semantics, not new behaviour.
+- There is no remote lock and no "latest world" guarantee: the guard orders this process's own reads by start, it
+  says nothing about the order in which the relay served them or what the relay serves now. After a failed newest
+  read, overlapping older reads fail closed until a new read succeeds; a plain (non-fresh) call within the TTL
+  still answers from the published cache.
+
+**Regression tests** (end of `test/coop-read-integration.test.mjs`, real `Game` with a fake relay fetch answering only
+`GET /f/season`, a fixed clock, `addressesFor` returning constants, `herald.pin` wrapped to record calls; no herald
+request, no address derivation, no network). Written by the implementation session and **not executed by it**:
+
+1. default `context()` still caches within 15 s (the reproduced hole), `{fresh: true}` sees the switch and publishes
+   context, addresses, pin and history together; default caching resumes and re-reads after the TTL;
+2. through `get_cooperation_status`: no switch is ok with two relay reads; a 3 → 4 switch during the board read is
+   `ContextChanged` with no data; a warm season-3 cache does not stand in for the first boundary (`CoopBoardMismatch`;
+   three relay reads: the warm one and both boundaries — the expectation of 2 was wrong and was corrected after the
+   coordinator's run);
+3. initial relay failure (transport, HTTP 503; cold and warm cache): `ContextUnavailable`, zero board fetches;
+4. final relay failure (transport, HTTP 500): `ContextChanged`, no data;
+5. addresses for the new context that cannot be built: old context, addresses, `pinnedAt`, pin and history kept,
+   directly and through the tool at either boundary;
+6. an older overlapping read answering last returns the newer context and does not re-pin; in-order reads publish as
+   before;
+7. an older read answering after a newer read that could not publish throws `ContextUnavailable`, old state kept;
+8. exactly three overlapping reads: B publishes 4, C answers 5 but its addresses fail, then A answers 3: A throws
+   `ContextUnavailable` (neither B's 4 nor its own 3); a later read recovers;
+9. two overlapping reads where the newer fails at the relay (transport; HTTP 503): the older's answer is not
+   published (`ContextUnavailable`), old state kept; a later successful fresh read recovers and publishes.
+
+Coordinator run before the review fix: 81 tests, 80 pass, 1 fail (the relay-read count in case 2). The fix and
+cases 8–9 were subsequently independently executed on the final output: **83/83 passed** (41 adapter + 42 integration), zero failures/skips.
 
 ### What the wiring does not do
 
@@ -329,6 +397,9 @@ adapter suite has 41 tests: the earlier 34 with corrected fixtures, 4 new contra
 wrong nation types and bounds; resource names; fulfilment shape) and 3 real-coopView tests. The integration suite
 has 33: the earlier 31 with corrected fixtures (three malformed cases added to an existing test) and 2
 real-coopView tests. The coordinator executed the final corrected suites: 74/74 passed, zero failures/skips.
+On 2026-11-18 nine real-`Game` context tests were added to the integration suite (42 written there now; see "Game
+context cache hole"). The coordinator's run of the first seven gave 81 tests, 80 pass, 1 fail; the corrected
+expectation, the overlapping-read fix and the two new tests were subsequently rerun: **83/83 passed**, zero failures/skips.
 
 ### Integration suite: `test/coop-read-integration.test.mjs` (26/26 independently passed; later SDK tests not executed)
 
@@ -435,3 +506,7 @@ After the final CLI correction, independent execution passed **65/65 tests**, ze
 ### Final corrected-contract verification (2026-11-17 UTC)
 
 After the official Opus task finished, the coordinator reran both corrected suites: **74 tests, 74 pass, 0 fail, 0 skipped**. Adapter 41, integration 33. All three modified JavaScript files passed syntax checks. This includes real pure coopView/fold-produced records passing through the adapter and MCP dispatch, plus the official SDK client/transport fixtures. No board server, world, actual OAuth, wallet signature or external network was run. The code remains opt-in and off by default.
+
+### Final world-cache correction verification (2026-11-17 UTC)
+
+After the official Opus session completed, independent validation passed **83/83 tests** (adapter 41 + integration 42), zero failures/skips. Syntax checks passed for game.mjs, server.mjs and coop-read-integration.test.mjs; the tracked source diff passed whitespace checks. The two review-discovered concurrency fallbacks are covered by deterministic, injected relay fixtures. No real network, socket, world process, wallet key, signature, or address derivation was exercised. Fresh observations are not a lock on the remote world.
