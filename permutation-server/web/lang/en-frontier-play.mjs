@@ -1822,5 +1822,6 @@ export default {
   '{0}は送信しましたが、成立しませんでした。': '{0}: sent, but it did not take effect.',
   '{0}は、送られていません。': '{0}: not sent.',
   '斥候の命令の結果を確かめる': 'Check what became of the scouts\' order',
-  '（ターン {0} に出した命令です。ターンが進んでも、結果が確かめられたわけではありません。）': ' (Ordered on turn {0}. The turn moving on does not mean its result was confirmed.)',
+  '（ターン {0} に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、そのあとに村を建て直していた場合は、前の村の命令です。）': ' (Ordered on turn {0}, from this village\'s tile. The turn moving on does not mean its result was confirmed. An order record does not name the village\'s generation, so if the village was founded anew since, it is the earlier village\'s order.)',
+  'この州で出した{0}の命令（ターン {1}）に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません（同じ州の、あなたの別の村の命令かもしれません）。': 'An order in this province — {0}, turn {1} — has a result that is not confirmed yet. The record does not say whether it is this village\'s (it may be another of your villages in the same province).',
 };

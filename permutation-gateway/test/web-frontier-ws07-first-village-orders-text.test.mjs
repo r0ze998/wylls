@@ -14,20 +14,23 @@
 //   F2 an order record is classed in ONE place (orderOutcome): not sent / sent and failed / sent, outcome unknown —
 //      both shapes: refused with `sent` and a tracker's code, and 'unconfirmed' with any code but the local hold's — /
 //      held (local) / accepted
-//   F3 which record the guide reads, for the step's own kind and unit (Train or Muster, Scouts), given from THIS
-//      village, made under the context the page is in NOW:
-//      - a record whose outcome is NOT CONFIRMED (sent, not read; or local play's hold) is read whatever its turn
-//        (CORRECTED — only this turn's records were read: an order sent with its outcome unknown lost its warning when
-//        the turn moved, and the guide and the pill offered the same order again as if that were safe)
-//      - an answer (accepted, sent and failed, not sent) only of THIS turn; an earlier turn's answer is not kept
-//      - a not-confirmed record stands before a later answer of the same kind (a later "not sent" does not confirm it)
-//      - a record made before a change of viewer, herald or pinned world is another context's: never read, whatever
-//        its turn and tile (its number is not above the floor the context's change set)
-//      - another village's tile, another unit → not it; none → nothing is added
-//      - what ends the warning is the village's record moving the guide on to the next step (the reserve, the host):
-//        a turn going by, or a count that merely matches, ends nothing
-//      - limits, said in the source and the report: the page keeps the last ORDERS_MAX records in memory only; a
-//        record does not name its village's generation
+//   F3 which record the guide reads, for the step's own kind and unit (Train or Muster, Scouts), made under the
+//      context the page is in NOW, and WHERE it was given from — only by what the record itself holds: its tile and its
+//      turn (CORRECTED TWICE — first: only this turn's records, so an unconfirmed order lost its warning at the turn's
+//      change; second: a muster was taken for this village's whenever the PROVINCE matched, so another village's
+//      scouts forming up in the same province were told in this village's guide as its own):
+//      - the record's tile is the village's own tile → given from the village that stands on this tile
+//        · not confirmed (sent, not read; local hold) → read whatever its turn, newest first, before a later answer
+//        · an answer (accepted, sent and failed, not sent) → only of THIS turn
+//      - the same province, another tile (another village's muster; a muster formed up on another tile) → NOT known
+//        to be this village's: returned only while not confirmed, as that — the guide says the record does not tell
+//        whose it is, stays careful, and claims nothing of this village
+//      - another province, or a record older than this village's own ticket turn → not this village's: never read
+//      - a record made before a change of viewer, herald or world → another context's: never read
+//      - the record names no site and no generation: a village founded anew on the same tile after the order is not
+//        told apart; the carried note says so
+//      - the village screen's own list keeps its rule (a muster by province) — unchanged here, and named as a limit
+//      - limits: the last ORDERS_MAX records, in memory only
 //   F4 what the guide says: accepted → "accepted this turn; it may not be in the village record yet; ordering again
 //      does it once more"; unknown → "sent, result not confirmed (not 'not sent'); ordering again may do it twice";
 //      held → "press the button below again to check its result"; sent and failed / not sent → as that, with the reason.
@@ -66,10 +69,19 @@ test('F2 an order record is classed in one place', () => {
 });
 
 test('F3 the newest order of this village, this turn, this kind and unit', () => {
-  const lv = fnOf(vo, 'export function latestVillageOrder(FS, h, match) {');
-  order(lv, 'if (!h) return null;', 'const turn = FS.nowBell ?? null;', 'const mine = (FS.orders ?? []).filter(x => ofContext(FS, x) && ofVillage(x, h) && match(x));',
-    "const o = mine.find(x => { const c = orderOutcome(x); return c === 'unknown' || c === 'held'; }) ?? mine.find(x => x.turn === turn) ?? null;", 'const outcome = o ? orderOutcome(o) : null;',
-    "return outcome ? { order: o, outcome, why: o.why ?? (o.code ? clientText(o.code) : ''), turn: o.turn ?? null, carried: o.turn !== turn } : null;");
+  const lv = fnOf(vo, 'export function latestVillageOrder(FS, h, match) {'), place = fnOf(vo, 'export function orderPlace(o, h, nowBell = null) {');
+  order(place, 'if (!o?.tile || !h || o.tile.p !== h.p || o.tile.q !== h.q) return null;',
+    'const born = Number(h.ticketBell), known = Number.isInteger(born) && born >= 0 && born < 0xffffffff && (nowBell === null || born <= nowBell);',
+    'if (known && Number.isInteger(o.turn) && o.turn < born) return null;', "return o.tile.tile === h.tile ? 'tile' : 'province';");
+  order(lv, 'if (!h) return null;', "const turn = FS.nowBell ?? null, open = x => { const c = orderOutcome(x); return c === 'unknown' || c === 'held'; };",
+    "const all = (FS.orders ?? []).filter(x => ofContext(FS, x) && match(x)), here = all.filter(x => orderPlace(x, h, turn) === 'tile');", 'const o = here.find(open) ?? here.find(x => x.turn === turn) ?? null;',
+    "const far = o ? null : all.find(x => orderPlace(x, h, turn) === 'province' && open(x)) ?? null;", 'const pick = o ?? far, outcome = pick ? orderOutcome(pick) : null;',
+    "carried: pick.turn !== turn, place: o ? 'tile' : 'province' } : null;");
+  assert.doesNotMatch(codeOf(lv), /ofVillage\(/, 'the guide\'s lookup does not take a province for a village');
+  // what the records hold of their place: the village's own tile by default; a muster's own tile; no site, no generation
+  assert.ok(ctl.includes('const tile = extra.tile && Number.isInteger(extra.tile.tile) ? { p: extra.tile.p, q: extra.tile.q, tile: extra.tile.tile } : h && Number.isInteger(h.tile) ? { p: h.p, q: h.q, tile: h.tile } : null;'));
+  assert.ok(ctl.includes("order: orderOf('muster', 'Muster', { unit, troops, tile: h ? { p: h.p, q: h.q, tile: at } : null,"));
+  assert.ok(ctl.includes('const at = Number.isInteger(tile) ? tile : h?.tile;'), 'the guide\'s own muster names no tile: it forms up on the village\'s');
   // the context a record was made under: the controller's own count of orders, and the floor set when the context moves
   assert.ok(vo.includes("export const ofContext = (FS, o) => { const n = Number(String(o?.id ?? '').slice(1)); return !Number.isInteger(FS.orderFloor) || (Number.isInteger(n) && n > FS.orderFloor); };"));
   assert.ok(ctl.includes('const nextContext = () => { contextSeq += 1; FS.contextSeq = contextSeq; FS.orderFloor = orderSeq; };'));
@@ -78,6 +90,7 @@ test('F3 the newest order of this village, this turn, this kind and unit', () =>
   assert.equal((ctl.match(/nextContext\(\);/g) ?? []).length, 3, 'another viewer, herald, world');
   assert.equal((ctl.match(/orderSeq/g) ?? []).length, 3, 'its declaration, orderOf, the floor — nothing else reads or writes it');
   assert.ok(ctl.includes('export const ORDERS_MAX = 40;'), 'the page keeps this many records');
+  // (the village screen's own list keeps its rule — unchanged)
   assert.ok(vo.includes("const ofVillage = (o, h) => !!o?.tile && o.tile.p === h.p && o.tile.q === h.q && (o.kind === 'muster' || o.kind === 's1-fort' || o.tile.tile === h.tile);"));
   order(note, 'const x = latestVillageOrder(FS, h, o => o.kind === kind && o.unit === SCOUT);', 'if (!x) return null;');
   // the records the guide's two orders write: the controller's own, with their unit
@@ -87,12 +100,16 @@ test('F3 the newest order of this village, this turn, this kind and unit', () =>
 });
 
 test('F4 what the guide says of the last press', () => {
-  order(note, "x.outcome === 'accepted' ? L`${name}は、このターンに受け付けられています。村の記録に、まだ出ていないことがあります。もう一度命じると、もう一度行います。`",
+  // another tile of the province: not known to be this village's — said as that, careful, nothing claimed
+  order(note, "if (x.place !== 'tile') {", "return { outcome: x.outcome, again: false, place: x.place,", 'data-place="province">',
+    'に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません（同じ州の、あなたの別の村の命令かもしれません）。',
+    "x.outcome === 'accepted' ? L`${name}は、このターンに受け付けられています。村の記録に、まだ出ていないことがあります。もう一度命じると、もう一度行います。`",
     ": x.outcome === 'unknown' ? L`${name}は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。もう一度命じると、二重になることがあります。`",
     ": x.outcome === 'held' ? L`${name}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。`",
     ": x.outcome === 'sentFailed' ? L`${name}は送信しましたが、成立しませんでした。` : L`${name}は、送られていません。`;", "const careful = x.outcome === 'accepted' || x.outcome === 'unknown';",
-    "const earlier = x.carried && Number.isInteger(x.turn) ? L`（ターン ${fmtNum(x.turn)} に出した命令です。ターンが進んでも、結果が確かめられたわけではありません。）` : '';",
-    'return { outcome: x.outcome, again: !careful,', 'data-carried="${x.carried ? 1 : 0}">${text}${earlier}', 'careful && villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">');
+    'に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、そのあとに村を建て直していた場合は、前の村の命令です。）',
+    "return { outcome: x.outcome, again: !careful, place: 'tile',", 'data-carried="${x.carried ? 1 : 0}" data-place="tile">${text}${earlier}',
+    'careful && villageRereadOffered(FS) ? html`<button type="button" class="btn primary" data-act="village-reread">');
   order(step, "const on = scoutOrderNote(FS, h, 'muster'); return html`${on?.note ?? ''}<p>", "class=\"btn${on && !on.again ? '' : ' primary'}\" data-act=\"home-scout-muster\"",
     "const on = scoutOrderNote(FS, h, 'train');", "return html`${on?.note ?? ''}<p>", "class=\"btn${on && !on.again ? '' : ' primary'}\" data-act=\"home-scout-train\"");
   assert.doesNotMatch(note + step.slice(step.indexOf("scoutOrderNote(FS, h, 'muster')")), /disabled/, 'nothing is disabled: the button stays');
@@ -119,7 +136,8 @@ test('F7 English follows; no banned word', () => {
   for (const k of ['斥候の訓練', '斥候隊の編成', '{0}は、このターンに受け付けられています。村の記録に、まだ出ていないことがあります。もう一度命じると、もう一度行います。',
     '{0}は送信済みで、結果をまだ確認できていません（送っていない、という意味ではありません）。もう一度命じると、二重になることがあります。',
     '{0}は送信済みで、結果をまだ確認できていません。同じ命令は送り直しません。下のボタンをもう一度押すと、結果を確認します。', '{0}は送信しましたが、成立しませんでした。', '{0}は、送られていません。',
-    '斥候の命令の結果を確かめる', '村の記録を読み直す', '（ターン {0} に出した命令です。ターンが進んでも、結果が確かめられたわけではありません。）']) {
+    '斥候の命令の結果を確かめる', '村の記録を読み直す', '（ターン {0} に、この村のマスから出した命令です。ターンが進んでも、結果が確かめられたわけではありません。命令の記録は村の世代を持たないので、そのあとに村を建て直していた場合は、前の村の命令です。）',
+    'この州で出した{0}の命令（ターン {1}）に、結果をまだ確認できていないものがあります。この村の命令かどうかは、記録からは分かりません（同じ州の、あなたの別の村の命令かもしれません）。']) {
     const line = en.split('\n').find(l => l.startsWith(`  '${k}':`));
     assert.ok(line, k);
     assert.doesNotMatch(line.slice(line.indexOf("': ") + 3), /\b(settle[ds]?|settling|keeper|beacon|seed)\b/i);
