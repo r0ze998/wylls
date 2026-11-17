@@ -24,6 +24,7 @@ import { receiptPortFor } from '../src/receipt-port.mjs';
 import { createHandler, listen } from '../src/http.mjs';
 import { pathToFileURL } from 'node:url';
 import { ws04ActsSettingsError } from './ws04-acts-settings.mjs';
+import { mcpSettings, connectLine } from './mcp-settings.mjs';
 
 const env = process.env;
 if (env.WYLLS_MCP_TEST_AS !== '1') { console.error('set WYLLS_MCP_TEST_AS=1: only the local test authorization server is implemented'); process.exit(2); }
@@ -31,14 +32,16 @@ if (env.WYLLS_MCP_STORE && !env.WYLLS_MCP_SEAL_KEY) { console.error('WYLLS_MCP_S
 // ④'s act registry: all three settings or none, refused here before the store, the relay or the registry is touched.
 const ws04SettingsError = ws04ActsSettingsError(env);
 if (ws04SettingsError) { console.error(ws04SettingsError); process.exit(2); }
-const port = Number(env.WYLLS_MCP_PORT ?? 41960);
-const host = env.WYLLS_MCP_HOST ?? '127.0.0.1';
-const issuer = env.WYLLS_MCP_ISSUER ?? `http://127.0.0.1:${port}`;
+// The port, host, issuer, relay and herald (2026-11-17): checked before anything is opened. The resource clients must
+// be given is exactly <issuer>/mcp; a setting that cannot name one is refused here, not found at sign-in.
+const settings = mcpSettings(env);
+if (settings.error) { console.error(settings.error); process.exit(2); }
+const { port, host, issuer, resource } = settings;
 const log = m => process.stderr.write(`[wylls-mcp] ${m}\n`);
 const store = new JsonStore(env.WYLLS_MCP_STORE ?? null);
-const game = new Game({ relay: env.WYLLS_MCP_RELAY ?? 'http://127.0.0.1:41933', herald: env.WYLLS_MCP_HERALD ?? 'http://127.0.0.1:41940' });
+const game = new Game({ relay: settings.relay, herald: settings.herald });
 const redirectProfiles = env.WYLLS_MCP_REDIRECT_PROFILES ? env.WYLLS_MCP_REDIRECT_PROFILES.split(',').map(x => x.trim()).filter(Boolean) : undefined;
-const auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer: new Sealer(env.WYLLS_MCP_SEAL_KEY ?? null), game, log, ...(redirectProfiles ? { redirectProfiles } : {}), allowGlobalRotate: env.WYLLS_MCP_ALLOW_GLOBAL_ROTATE === '1' });
+const auth = new Auth({ issuer, resource, store, sealer: new Sealer(env.WYLLS_MCP_SEAL_KEY ?? null), game, log, ...(redirectProfiles ? { redirectProfiles } : {}), allowGlobalRotate: env.WYLLS_MCP_ALLOW_GLOBAL_ROTATE === '1' });
 log(`redirect profiles: ${auth.redirectProfiles.join(', ')}`);
 const receipts = receiptPortFor(env.WYLLS_MCP_RECEIPT_PORT ?? 'local');
 // Workstream 04's act registry, through ④'s own client (never re-implemented here). All three settings or none.
@@ -60,3 +63,5 @@ const seal = auth.sealCheck();
 if (seal.unopenable) log(`warning: ${seal.unopenable} of ${seal.sealed} connection capabilities cannot be opened with this WYLLS_MCP_SEAL_KEY; their sends are held (CapabilityUnavailable) until the key is restored or the owner revokes the connection`);
 await listen(createHandler({ auth, mcp, log }), { port, host });
 log(`listening on http://${host}:${port}/mcp (issuer ${issuer})`);
+// The one URL a client is given (the resource, exactly), and on loopback the Claude Code preflight for it.
+log(connectLine(resource));

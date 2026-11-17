@@ -51,6 +51,8 @@ WYLLS_MCP_TEST_AS=1 WYLLS_MCP_RELAY=http://127.0.0.1:41740/gw WYLLS_MCP_HERALD=h
 node bin/wylls-mcp-preflight.mjs http://127.0.0.1:41960/mcp claude-code     # exit 0 であること
 
 # 3. 登録（scope は local。URL は resource と完全に同じ 127.0.0.1 の形で）
+#    使う URL は、起動時に bin が `connect a client to <URL>` と出す1行のもの（2026-11-17 追記、未実行）。PORT・ISSUER・RELAY・HERALD が
+#    その URL を作れない値（範囲外の番号、パスや末尾の余計な文字のある ISSUER など）なら、bin は起動せず、どの設定かを1行で言う（bin/mcp-settings.mjs）
 claude mcp add --transport http wylls-local http://127.0.0.1:41960/mcp
 
 # 4. Claude Code の中で /mcp → wylls-local → sign-in。ブラウザに同意画面が開く
