@@ -52,19 +52,31 @@ export class Dispatch {
     const j = journal.load();
     this.data = j ? clone(j) : { format: JOURNAL_FORMAT, plans: {} };
     if (this.data.format !== JOURNAL_FORMAT) throw new Error(`journal format ${this.data.format}`);
+    this.#remember(this.data);
   }
 
   /**
-   * Keys planned in this process whose save has not been seen to succeed (2026-11-17). A save that throws does not
-   * show what is on disk (the journal may have been renamed into place before a later step failed), so nothing is
-   * taken back from memory: the key stays here until a save succeeds. Every save writes the whole journal, so one
-   * that succeeds covers every key.
+   * Each plan as it was last seen on the journal: as loaded, or as written by a save that returned (2026-11-17). A
+   * plan that differs from it (new, or changed since) is not known to be saved: a save that throws does not show what
+   * is on disk (the journal may have been renamed into place before a later step failed), so nothing is taken back
+   * from memory, and the plan reads as not saved until a save returns. Every save writes the whole journal.
    */
-  #unsaved = new Set();
+  #saved = new Map();
+
+  #remember(data) {
+    this.#saved = new Map(Object.entries(data.plans ?? {}).map(([k, p]) => [k, JSON.stringify(p)]));
+  }
+
+  /** Whether this key's plan, as it is in memory now, was seen saved. Reads only. */
+  #isSaved(key) {
+    const p = this.data.plans[key];
+    return p !== undefined && this.#saved.get(key) === JSON.stringify(p);
+  }
 
   #save() {
-    this.journal.save(clone(this.data));
-    this.#unsaved.clear();
+    const snapshot = clone(this.data);
+    this.journal.save(snapshot);
+    this.#remember(snapshot);
   }
 
   /** Key of one run request of one plan: the plan hash and the request's nonce. */
@@ -100,11 +112,10 @@ export class Dispatch {
       if (!same) return { ok: false, findings: [{ code: "CONFLICT", key, detail: "this run request was planned with other content" }] };
       // The same request again, but its earlier save threw: it is saved now, and answered only if that succeeds
       // (a save that throws again throws to the caller, as the first one did). Never "already" while not saved.
-      if (this.#unsaved.has(key)) { this.#save(); return { ok: true, key, steps: clone(had.steps) }; }
+      if (!this.#isSaved(key)) { this.#save(); return { ok: true, key, steps: clone(had.steps) }; }
       return { ok: true, key, already: true, steps: clone(had.steps) };
     }
     this.data.plans[key] = fresh;
-    this.#unsaved.add(key);
     this.#save();
     return { ok: true, key, steps: clone(steps) };
   }
@@ -252,7 +263,10 @@ export class Dispatch {
     if (!p) return { ok: false, code: "NO_RECORD" };
     const steps = p.steps.map((s) => ({ step: s.step, runId: s.runId, requestId: s.requestId ?? null, state: s.state, final: !!s.final, result: s.result ?? null, why: s.why ?? null, attempts: s.attempts ?? 0 }));
     const complete = p.route === "run" && steps.every((s) => s.final && s.result?.state === "Fulfilled" && s.result.evidence?.usable);
-    return { ok: true, key, route: p.route, complete, held: steps.some((s) => s.state === "held"), steps };
+    // `saved: false` (2026-11-17): what is shown here is newer than anything seen saved — the last save of this request
+    // threw, so the journal on disk may hold this or an older state (a restart reads that one). Only about the journal:
+    // whether anything outside happened is what each step's state and result say. Absent when it was seen saved.
+    return { ok: true, key, route: p.route, complete, held: steps.some((s) => s.state === "held"), steps, ...(this.#isSaved(key) ? {} : { saved: false }) };
   }
 }
 
