@@ -458,8 +458,8 @@ test('the pointer keeps out of the HUD\'s columns: it slides along its edge, the
 });
 
 test('the far view\'s names never cover each other; a fixed name stays where it is', () => {
-  // six nations whose hearts lie close around the Concord (the spectator's world of three rings)
-  const items = [{ text: 'Concord', x: 0, y: 0, w: 70, h: 20, priority: 8, fixed: true }];
+  // six nations whose hearts lie close together (the spectator's world of three rings), round a fixed name in the middle
+  const items = [{ text: 'Fixed', x: 0, y: 0, w: 70, h: 20, priority: 8, fixed: true }];
   for (let f = 0; f < 6; f++) { const a = f * Math.PI / 3; items.push({ text: `N${f}`, x: Math.cos(a) * 300, y: Math.sin(a) * 120, w: 110, h: 29, priority: 1, dir: { x: Math.cos(a), y: Math.sin(a) } }); }
   const zoom = 0.1;
   const out = layoutLabels(items, { zoom });
@@ -478,9 +478,12 @@ test('the far view\'s names never cover each other; a fixed name stays where it 
 test('the world chart names through the layout and writes the names it is given', () => {
   const g = recorder();
   const recs = new Map([['2,0', { p: 2, q: 0, owners: [0, 0, 0, 7, 7, 7, 7, 7, 7, 7, 7, 7], sites: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] }]]);
-  paintRealmLabels(g, recs, 0.1, f => (f === 'concord' ? 'C' : `N${f}`), { extra: [{ block: 30, x: 0, y: 0 }, { text: 'My Town', x: 900, y: 0, below: 11 }] });
+  const asked = [];
+  paintRealmLabels(g, recs, 0.1, f => { asked.push(f); return `N${f}`; }, { extra: [{ block: 30, x: 0, y: 0 }, { text: 'My Town', x: 900, y: 0, below: 11 }] });
   const said = g.calls.filter(c => c[0] === 'fillText').map(c => c[1]);
-  assert.deepEqual(said.sort(), ['C', 'My Town', 'N0']);
+  // (⑭ abolished, 2026-11-18: no centre is named; it was 'C' for the Concord)
+  assert.deepEqual(said.sort(), ['My Town', 'N0']);
+  assert.ok(!asked.includes('concord'), 'the Concord\'s name is never asked for');
   const quiet = recorder();
   paintRealmLabels(quiet, recs, 0.1, null, { nations: false, extra: [{ text: 'My Town', x: 900, y: 0 }] });
   assert.deepEqual(quiet.calls.filter(c => c[0] === 'fillText').map(c => c[1]), ['My Town'], 'the land lens: the viewer\'s village still has its name');
@@ -607,7 +610,7 @@ test('a place is called by its name; its coordinates are the small print', () =>
   FS.selected = { p: 2, q: 0, idx: 30 };
   assert.equal(placeName(inspect.inspectModel(FS, terrainOf)), '草原');
   FS.selected = { p: 0, q: 0 };
-  assert.equal(placeName(inspect.inspectModel(FS, terrainOf)), '大協約');
+  assert.equal(placeName(inspect.inspectModel(FS, terrainOf)), '州 0,0', 'the origin province by its coordinates: no centre is named (⑭ abolished)');
   FS.selected = { p: 2, q: 0 };
   assert.equal(placeName(inspect.inspectModel(FS, terrainOf)), '第2輪の州');
   setLang('en');

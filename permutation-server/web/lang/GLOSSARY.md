@@ -302,7 +302,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | Wylls | Wylls | the game's name |
 | ターン / ターン N | turn / Turn N | the ten-minute step and its number, and the change from one to the next; never "tick", "bell" or the old Japanese word for it (the guard test in web-lang.test.mjs): the dial (`Turn 1,034 · 6:12 left`), the banner at a change (「新しいターン — ターン 43」 / "A new turn — Turn 43"), 「次のターンから」 / "from the next turn", lists, the inspector, the order card, the marches, the chronicle, a report's stamp, the spectator's stepper, notifications, the canvas's labels. In a sentence "on turn 43"; as a label "Turn 43". The period is a turn too: 到着のターン / "the arrival turn", このターン / "this turn", ターンの始まり / "when the turn begins" |
 | 州 | province | a province has no name of its own: a person reads it in words, 「ラマールの町のある州」 / "Ramar's Town province" (the viewer's village in it) or 「シンダー方面・第2輪の州」 / "a ring-2 province on Cinder's side" (`hud/place.mjs` provinceName); 「州 2,0」 / "Province 2,0" only under details |
-| 輪 / 第d輪 | ring / Ring d | ring 0 is the Concord |
+| 輪 / 第d輪 | ring / Ring d | a band of the opened land (internally: distance from province (0,0), a coordinate, not a centre: ⑭ abolished; no "Concord" place name) |
 | 扇区（本拠の扇区） | wedge (home wedge) | |
 | 辺境区 | March | the 7-province district; capital M |
 | 進軍 | march | the movement; lower case |
@@ -321,7 +321,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | 保護 | Shield | |
 | 夜番の時間 | vigil hours | |
 | 村の申し込み（旧: 入植希望） | village request | formerly "site ticket" (UX design 11.13) |
-| 中心の土地 | the central land | the heartland: rings 2 .. `heartland_max_ring`, the only rings where PlaceHome places a first village at once (⑧ doc 31 §1) |
+| 本国の土地 | the heartland | rings 2 .. `heartland_max_ring`, the only rings where PlaceHome places a first village at once (⑧ doc 31 §1) |
 | 休眠 | dormant | |
 | 敗走 | routed | the 50% loss of a march whose seal was not opened |
 | 村へ押し戻された（旧: 本拠へ押し戻された） | bounced home | no room, or lost the field with nowhere to fall back; troops lost in the fight stay lost, so no "(no loss)" |

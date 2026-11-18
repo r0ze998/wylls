@@ -40,7 +40,7 @@ export const tileName = (FS, p, q, tile) => tileWhat(FS, p, q, tile).name ?? L`�
 /** A tile's name with its province: 「蛮族の野営地（州 2,0）」 (for "details": the play screen reads the name alone). */
 export const tilePlace = (FS, p, q, tile) => L`${tileName(FS, p, q, tile)}（州 ${p},${q}）`;
 
-/** The nation on whose side of the frontier a province lies (its wedge), or null for the Concord. */
+/** The nation on whose side of the frontier a province lies (its wedge), or null for the lattice's origin province (0, 0). */
 export function sideOf(p, q) {
   const w = wedgeOf(p, q);
   if (w === null) return null;
@@ -50,17 +50,17 @@ export function sideOf(p, q) {
 
 /**
  * A province in words a person reads (UX design 11.13: names before coordinates; a province has no name of its
- * own): the Concord by its name; a province where the viewer has a village by that village, 「ラマールの町のある州」;
+ * own; no province is a centre, ⑭ abolished): a province where the viewer has a village by that village, 「ラマールの町のある州」;
  * any other by the nation on whose side of the frontier it lies and its ring, 「シンダー方面・第2輪の州」. The
  * coordinates stay under "details" (`provinceCoords`). `own: false` skips the village form (for a line that already
  * names the village and says where it stands).
  */
 export function provinceName(FS, p, q, { own: byVillage = true } = {}) {
-  if (p === 0 && q === 0) return L`大協約`;
   const own = byVillage ? (FS?.holdings ?? []).find(h => h.p === p && h.q === q) : null;
   if (own) return L`${holdingName(own)}のある州`;
   const f = sideOf(p, q), d = ringOf(p, q);
-  return f === null ? L`第${d}輪の州` : L`${factionName(f)}方面・第${d}輪の州`;
+  // (the origin province (0, 0) lies on no nation's side: it is named by its coordinates, like the small print)
+  return f === null ? provinceCoords(p, q) : L`${factionName(f)}方面・第${d}輪の州`;
 }
 
 /** A province by its coordinates: the small print of "details". */

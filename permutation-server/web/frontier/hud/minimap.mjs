@@ -1,7 +1,7 @@
 // The minimap and the lenses (UI plan C3, C4; Civ's minimap with its lens
 // buttons): the whole open world in a corner of the map — each province a
 // hex in the colour of the realm that holds most of it (land colour when
-// nobody does), the Concord at the centre, clouds beyond the rim, clashes
+// nobody does; no province is a centre: ⑭ abolished), clouds beyond the rim, clashes
 // of this bell as red dots, the viewer's holdings ringed, and the part of
 // the world the map shows as a frame. A press moves the map there.
 //
@@ -29,7 +29,7 @@ const LAND = '#6f8f55', CLOUD = '#e8ecef';
 /** The tile index of a province's centre. */
 const CENTRE_TILE = TILE_OFFSETS.findIndex(o => o.q === 0 && o.r === 0);
 /** The survey's materials at this size (map/survey.mjs): the chart, surveyed land out of sight, land in sight, the viewer's gold. */
-export const MINI_SURVEY = Object.freeze({ chart: '#d8caa5', line: 'rgba(96,80,48,.45)', surveyed: '#7d8a70', sight: '#8fb866', you: '#f3d58a', engine: '#f4efe0', engineInk: '#17302b' });
+export const MINI_SURVEY = Object.freeze({ chart: '#d8caa5', line: 'rgba(96,80,48,.45)', surveyed: '#7d8a70', sight: '#8fb866', you: '#f3d58a' });
 
 /** The faction that holds most of a province's sites in an overview record, or null. */
 export function majority(rec) {
@@ -84,7 +84,7 @@ function paintMinimapBase(ctx, { recs, rings, own, px, dpr, lens, survey, seeded
     const owner = rec ? majority(rec) : null;
     hex(c.x, c.y, r);
     const sv = limited && rec ? survey.province(pr.p, pr.q) : null;
-    ctx.fillStyle = !rec ? CLOUD : limited ? MINI_SURVEY.chart : pr.d === 0 ? '#e6dcc2' : owner !== null && lens !== 'land' ? FACTION_FILL[owner] : LAND;
+    ctx.fillStyle = !rec ? CLOUD : limited ? MINI_SURVEY.chart : owner !== null && lens !== 'land' ? FACTION_FILL[owner] : LAND;
     ctx.globalAlpha = !rec ? 0.55 : !limited && lens === 'war' && owner !== null ? 0.55 : 1;
     ctx.fill();
     ctx.globalAlpha = 1;
@@ -112,10 +112,6 @@ function paintMinimapBase(ctx, { recs, rings, own, px, dpr, lens, survey, seeded
       ctx.fillStyle = nation;
       for (const t of landTiles({ q: hx.q, r: hx.r, tier: v.tier ?? 0 })) { if ((survey.tiles.get(hexKey(t.q, t.r)) ?? 0) < 2) continue; const at = project(t.q, t.r), c = fr.toPx(at.x, at.y); ctx.fillRect(c.x - w / 2 - 0.3, c.y - h / 2 - 0.3, w + 0.6, h + 0.6); }
     }
-    // the Engine: the one landmark everyone has. A small bell tower in ivory and slate, never gold (gold is the viewer's own mark)
-    const ex = px / 2, ey = px / 2;
-    ctx.fillStyle = MINI_SURVEY.engine; ctx.strokeStyle = MINI_SURVEY.engineInk; ctx.lineWidth = 1; ctx.lineJoin = 'round';
-    ctx.beginPath(); ctx.moveTo(ex, ey - 6.5); ctx.lineTo(ex + 2.6, ey - 2.2); ctx.lineTo(ex + 1.9, ey - 2.2); ctx.lineTo(ex + 1.9, ey + 2.6); ctx.lineTo(ex - 1.9, ey + 2.6); ctx.lineTo(ex - 1.9, ey - 2.2); ctx.lineTo(ex - 2.6, ey - 2.2); ctx.closePath(); ctx.fill(); ctx.stroke();
   } else for (const o of own) {
     const c = (pp => fr.toPx(pp.x, pp.y))(provincePixel(o.p, o.q));
     ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 2; hex(c.x, c.y, r * 1.05); ctx.stroke();
