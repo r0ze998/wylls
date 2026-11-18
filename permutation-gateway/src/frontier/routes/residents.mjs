@@ -81,7 +81,7 @@ export const residentRoutes = {
   'GET /f/residents': async (ctx, req) => {
     const owner = req.url.searchParams.get('owner') ?? '';
     try { new PublicKey(owner); } catch { throw new RouteError(400, 'owner: a base58 wallet address', 'BadRequest'); }
-    // ⑳: the undecided-item defaults this build runs with (not owner decisions), for the page to state.
+    // ⑳: the defaults this build runs with (confirmed by r0ze 2026-11-18 21:44 JST, t353u), for the page to state.
     return { body: { ...(await listResidents({ connection: ctx.connection, owner, addrs: residentAddrs(ctx) })), terms: RESIDENT_TERMS } };
   },
 };

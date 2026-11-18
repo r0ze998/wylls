@@ -1,8 +1,8 @@
 // ⑳ NFT resident ID: the relay's copy of the undecided-item switches
 // (`frontier-abi/src/resident_terms.rs`, DEFAULT). Owner decision 2026-11-18
-// 18:26 JST: local and devnet only, no sale. None of these values is an owner
-// decision; each is a conservative default the code and docs already lean to
-// (`permutation-nft-resident-spike/docs/UNDECIDED.ja.md`).
+// 18:26 JST: local and devnet only, no sale. Each value is the conservative
+// default (`permutation-nft-resident-spike/docs/UNDECIDED.ja.md`), confirmed
+// by r0ze 2026-11-18 21:44 JST (t353u, "keep current defaults").
 //
 // The program enforces `transfer` (built with `nft-resident-no-transfer`, only
 // the first holder acts). The others are enforced off chain or describe what

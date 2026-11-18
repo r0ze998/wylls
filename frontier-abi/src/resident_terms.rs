@@ -1,12 +1,12 @@
-//! ⑳ NFT resident ID: the switches for the questions the owner has not
-//! decided yet (`permutation-nft-resident-spike/docs/UNDECIDED.ja.md`).
+//! ⑳ NFT resident ID: the switches for the items listed in
+//! `permutation-nft-resident-spike/docs/UNDECIDED.ja.md`.
 //!
-//! Owner decision 2026-11-18 18:26 JST: implement the NFT resident ID for
-//! local and devnet builds only (no mainnet issuance, no sale, no price, no
-//! royalties). Every undecided item below has the most conservative default
-//! that the code and docs already lean to. None of these values is an owner
-//! decision; each is listed under "Questions for r0ze" in
-//! `reports/ws20-nft-resident.md`.
+//! Owner decision 2026-11-18 18:26 JST (t351u): implement the NFT resident ID
+//! for local and devnet builds only (no mainnet issuance, no sale, no price,
+//! no royalties). Each item below has the most conservative default; r0ze
+//! confirmed these defaults on 2026-11-18 21:44 JST (t353u, "keep current
+//! defaults": transfer only through our own method, AI memory not carried,
+//! votes, cargo and debt follow the resident, no per-wallet cap, no sale).
 //!
 //! Only [`Transfer`] is enforced by the Frontier program
 //! (`resident_binding::check_actor`). The other items are enforced off-chain
@@ -103,7 +103,7 @@ pub struct Terms {
     pub sale: Sale,
 }
 
-/// The defaults (conservative, not owner decisions).
+/// The defaults (conservative; confirmed by r0ze 2026-11-18 21:44 JST, t353u).
 pub const DEFAULT: Terms = Terms {
     transfer: Transfer::Allowed,
     private: Private::NotCarried,
