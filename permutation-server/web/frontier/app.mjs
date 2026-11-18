@@ -47,7 +47,7 @@ import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeN
 const worldNow = () => FS.world ?? worldOf(FS.record);
 const ringsOpenNow = () => Math.max(1, worldNow().ringsOpen);
 const seededNow = () => seededRings(worldNow());
-import { readOverviews, forgetOverviewRefusals } from './map/overviews.mjs';
+import { readOverviews, forgetOverviewRefusals, ringMissMarks } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
@@ -4524,6 +4524,8 @@ async function loadSeason(herald) {
  *    read place (`waiting`) — controller's FS.provinceReads, this world's only, and only while no record is held;
  *  - a ring whose overview was asked for and did not come (`ring`) — FS.overviewMisses, kept by loadOverviews for the
  *    world it asked in: without it the ring's villages are not known, which is not "no villages".
+ *    Said only while the person looks at that ring, and never for a ring the herald refused (map/overviews.mjs
+ *    ringMissMarks).
  * Nothing is marked that was not asked: no province out of the viewer's sight is asked by the map, and a read still
  * under way is not marked (every province would flicker as the map moves). Selecting the province opens its card,
  * whose button reads again (hud/inspect.mjs readState → province-reread). Marks only: nothing of the land is drawn.
@@ -4536,14 +4538,20 @@ function readMarksNow() {
     if (!Number.isInteger(p) || !Number.isInteger(q)) continue;
     out.push({ p, q, state: st.state, text: st.state === 'failed' ? L`読めていません（選ぶと読み直せます）` : L`読み込みの順番待ち` });
   }
-  const miss = FS.overviewMisses;
-  if (miss && miss.world === momentWorld() && FS.world) {
-    // (`rings`: ring → a province of it where the words stand, worked out once when the miss was noted)
-    for (const [d, at] of miss.rings) {
-      if (FS.overviews.has(d) || !at) continue;
-      out.push({ p: at.p, q: at.q, state: 'ring', ring: d, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
-    }
-  }
+  // (fix-stale-tooltip, 2026-11-19: a ring miss is said only on the ring the person is looking at — the selected
+  //  province, or the province at the view's centre once the map is zoomed in past the World chart — and never for a
+  //  ring the herald refused (NoSuchRing) or one outside the open land: map/overviews.mjs ringMissMarks. Before, every
+  //  miss stood on its ring's first province for ever, refused rings 0 and 1 included)
+  for (const m of ringMissMarks(FS, { key: momentWorld(), looking: lookingAt() }))
+    out.push({ p: m.p, q: m.q, state: 'ring', ring: m.ring, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
+  return out;
+}
+/** The places the person is looking at, for the ring marks: the selected province; the view's centre when zoomed in. */
+function lookingAt() {
+  const out = [];
+  if (Number.isInteger(FS.selected?.p) && Number.isInteger(FS.selected?.q)) out.push({ p: FS.selected.p, q: FS.selected.q });
+  const view = mapRef?.view;
+  if (view && mapRef?.lod && mapRef.lod !== 'world') { const h = hexAtPixel(view.x, view.y), c = locate(h.q, h.r); if (c) out.push({ p: c.p, q: c.q }); }
   return out;
 }
 function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
