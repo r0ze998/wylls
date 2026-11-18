@@ -24,6 +24,18 @@
 
 模型の上では、**B が、協力に意味を持たせつつ勝敗を動かさない**。C は評価期間だけを閉じても、閉じる時刻を握ることが先頭を左右し、早期終了と妨害の動機が残った。採否の判断に要る点は [06](docs/06-conflicts-decisions.ja.md) の Q1〜Q8 と [07](docs/07-continuity.ja.md) の M1〜M8 にある。
 
+## 本番への接続（2026-11-18、持ち主の決定：案 B）
+
+持ち主の決定（2026-11-18）：**案 B を採る。** 評価器は共同の達成を判定し、**称号と年代記の行としてだけ**残す。勝敗・得点・賞金・シーズンの終わりには何も加えない。材料は評価期間をまたいで数える（`carryInputs: true`、07 の M5）。案 C は凍結（コードは残すが、本番の経路からは呼ばない）。A は旧経路の互換確認だけ。
+
+| 層 | 場所 | すること |
+|---|---|---|
+| ⑮ | `src/live.mjs` | `PRODUCTION`（variant 'B'）・`productionRuleset()`（B 以外・持ち越しなし・賞金あり・早く閉じる設定を拒む）。ヘラルドの `/h/events` の行と①の板（ws01-board v1）から評価器の入力を作り、判定結果の `awards` から称号・理由（日本語と英語）・年代記の行を作る。`scores`・`prize` は写さない。`effects` は四つとも 'none' |
+| ① | `coop/board.mjs` の `GET /coop/outcomes` | ヘラルドの `/h/season` と `/h/events`（最初から、読んだ所から続ける）を読み、`evaluateLive` に渡す。読むだけ。チェーンの状態・ABI は変えない |
+| ⑦（画面） | `permutation-server/web/frontier/hud/coopoutcomes.mjs` | 同じ入口の `/coop/outcomes` を読み、「その他」の年代記の下に「称号と記録」の札を出す。効果を名乗る答え・B 以外の答えは出さない。板の無いサーバーでは何も出さない |
+
+今の記録で判定できるもの：①の目標 `crossing-storehouse-v1`（倉）には B の目標が対応しない（B の共同目標は砦）。対応を決めるのはルールの判断なので、`GOAL_MAP` は空（持ち主の判断待ち）。このため本番で今出る称号は、S1 の隊商の記録だけで判定できる個人目標 P-raider（他国の隊商を襲った）が中心。共同・材料・発起人・利用の称号は、対応と「どの記録で計画が完成したか」の結び付けが決まってから出る。試験（`test/live.test.mjs`）は、評価器の境界の場面（`boundary-crossing`）で共同・個人の称号が出ることも確かめる。
+
 ## 中身
 
 | パス | 内容 |
@@ -36,10 +48,10 @@
 | [docs/06-conflicts-decisions.ja.md](docs/06-conflicts-decisions.ja.md) | 既存ルールとの衝突、採用に必要な判断、文書とコードの食い違い |
 | [docs/08-peer-contracts.ja.md](docs/08-peer-contracts.ja.md) | ①・④・⑭の実出力との照合（§5d：①の fold() と④の runexec の書き出し、u64）：⑭の t・req・cross と掲示・引受の意味、模型の事実を数えないこと、到着量の下限・ゼロ・不明、評価期間の境界 |
 | [docs/07-continuity.ja.md](docs/07-continuity.ja.md) | 世界を終わらせない評価への訂正：残っていたシーズン依存、変えた挙動、試験、残る移行の判断 |
-| `src/` | 評価器：`contract`（入力）・`ledger`（記録の検査と正準の並び）・`world`（荷・隊商・計画・建物）・`goals`（共同・国・個人）・`evaluate`（判定結果・賞金・選択肢）・`rulesets`（A/B/C） |
+| `src/` | 評価器：`contract`（入力）・`ledger`（記録の検査と正準の並び）・`world`（荷・隊商・計画・建物）・`goals`（共同・国・個人）・`evaluate`（判定結果・賞金・選択肢）・`rulesets`（A/B/C）・`live`（本番の接続：案 B だけ、称号と年代記） |
 | `src/adapters/` | `s1-chain`（S1 の記録）、`ws01`（①の依頼の板）、`ws04`（④の Run Receipt）、`ws14`（⑭の塔、任意） |
 | `scenarios/` | 固定入力 16 件、`fixtures/` に①・④・⑭の出力（作り方と出どころの commit つき）。（`build.mjs` で生成、試験で一致を確認）。`long.mjs` は長期の世界を固定の種で作る |
-| `test/` | `node --test` の 139 件（2026-11-18：Node 20 で④の u64 を読む `parse-exact` の 5 件を追加。CI の `coop15` が Node 20 と 22 で実行。①の fold() と ws01-board v1・④の runexec と chain flow・⑭の tower-facts と centre-facts に対する契約試験を含む）。もとの 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`、長期の確認 `long-run.mjs` |
+| `test/` | `node --test` の 153 件（2026-11-18：本番の接続の `live`（10 件）・`live-board`（4 件、①の板の `/coop/outcomes` と画面の読み手）を追加。同日、Node 20 で④の u64 を読む `parse-exact` の 5 件を追加。CI の `coop15` が Node 20 と 22 で実行。①の fold() と ws01-board v1・④の runexec と chain flow・⑭の tower-facts と centre-facts に対する契約試験を含む）。もとの 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`・`live.browser.mjs`（ゲームの画面の称号の札。ヘラルドと Playwright が要る）、長期の確認 `long-run.mjs` |
 | `play/` | 手で遊べる比較の画面 |
 | `bin/` | `eval.mjs`（1件を判定）、`compare.mjs`（全件の比較表） |
 | `results/` | 実行ログ、比較表、画面の画像 |
