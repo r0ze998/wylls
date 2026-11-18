@@ -22,6 +22,7 @@ import { holdingName } from '../people/ui.mjs';
 import { playerFace } from '../people/faces.mjs';
 import { placeName } from '../people/identity.mjs';
 import { icon } from './icons.mjs';
+import { worded, noticeText } from './words.mjs';
 import { tileWhat, provinceName } from './place.mjs';
 import { cardHead, chip, fold } from '../screens/parts.mjs';
 import { territoryEnabled, territoryOf } from '../territory.mjs';
@@ -120,9 +121,11 @@ function keepItem(k, e, bell) {
  * battle?: {p, q, bell}}]`, kinds 'battle' | 'march' | 'explore' |
  * 'incoming' | 'build' | 'holding' | 'keep' (with `side`: the viewer's nation's part,
  * 'gain' | 'loss' | 'attack' | 'defend' | null). A first snapshot (prev
- * null) is not news.
+ * null) is not news. Each notice carries `words` (its text in every language, as of now: hud/words.mjs), so that it
+ * follows a later switch of language (B11).
  */
-export function diffFeed(prev, next) {
+export const diffFeed = (prev, next) => worded(() => diffFeedNow(prev, next));
+function diffFeedNow(prev, next) {
   if (!prev) return [];
   const out = [];
   const bell = next.bell;
@@ -214,8 +217,9 @@ export function diffFeed(prev, next) {
   return out;
 }
 
-/** The summary of a bell that ended: one line per kind, or null when nothing happened. */
-export function bellSummary(feed, bell) {
+/** The summary of a bell that ended: one line per kind, or null when nothing happened (with `words`, as diffFeed's). */
+export const bellSummary = (feed, bell) => worded(() => bellSummaryNow(feed, bell));
+function bellSummaryNow(feed, bell) {
   const of = feed.filter(x => x.bell === bell && x.kind !== 'summary');
   if (!of.length) return null;
   const n = k => of.filter(x => x.kind === k).length;
@@ -237,7 +241,7 @@ export function pushFeed(feed, items, at = Date.now()) {
 /** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
 export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag', away: 'bell', s1: 'flag' });
 /** A notification's words in a list: a line of the prototype rule "banners" says 試作 first (its toast says so in its heading). */
-export const lineText = x => (x.proto ? L`試作：${x.text}` : x.text);
+export const lineText = x => (x.proto ? L`試作：${noticeText(x)}` : noticeText(x));
 /** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
 const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 // (`proto`: a line of the prototype rule "banners", which only a sample world that serves it writes: it says 試作 on itself)
@@ -294,7 +298,7 @@ export function stackOrder(strip, toasts, { alarmsFirst = false } = {}) {
 export function renderToast(x) {
   return html`<div class="toast toast-${x.kind}" role="status">
     <span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span>
-    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${x.text}${sideTag(x)}</span>
+    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${noticeText(x)}${sideTag(x)}</span>
     <button type="button" class="toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button>
     ${itemActions(x).length ? html`<span class="toast-acts">${itemActions(x)}</span>` : ''}
   </div>`;
@@ -318,7 +322,7 @@ export function renderTurnStrip(strip, { now = -1, faction = null } = {}) {
     ${face ? html`<span class="toast-face">${raw(face)}</span>` : html`<span class="toast-icon">${icon('bell')}</span>`}
     <span class="toast-text"><span class="toast-kind">${L`このターンのできごと`}<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(strip.turn)}`}</span></span></span>
     <button type="button" class="toast-x" data-act="turn-dismiss" aria-label="${L`閉じる`}">${icon('close')}</button>
-    <ol class="turn-rows">${strip.items.map((x, i) => html`<li class="turn-row turn-${x.kind}${i === now ? ' now' : ''}"><span class="turn-ic">${icon(RESULT_ICON[x.kind] ?? 'flag')}</span><span class="turn-text">${x.text}</span><span class="turn-acts">${see(x)}</span></li>`)}</ol>
+    <ol class="turn-rows">${strip.items.map((x, i) => html`<li class="turn-row turn-${x.kind}${i === now ? ' now' : ''}"><span class="turn-ic">${icon(RESULT_ICON[x.kind] ?? 'flag')}</span><span class="turn-text">${noticeText(x)}</span><span class="turn-acts">${see(x)}</span></li>`)}</ol>
   </div>`;
 }
 

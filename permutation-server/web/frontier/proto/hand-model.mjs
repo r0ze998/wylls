@@ -32,6 +32,7 @@ import { troopsOf } from '../fmarch.mjs';
 import { ownHosts } from '../hud/subject.mjs';
 import { factionName, unitCount, clientText } from '../fi18n.mjs';
 import { placeName } from '../people/identity.mjs';
+import { worded } from '../hud/words.mjs';
 
 const int = Number.isInteger;
 
@@ -637,7 +638,8 @@ export function freshNews(FS) {
   // (`premise`: what the world wrote when it began — the villages' land, the neighbours' first banners — is no news)
   const fresh = P.log.filter(r => num(r) > P.newsSeq && r.premise !== true);
   P.newsSeq = Math.max(P.newsSeq, last);
-  const records = fresh.map(r => ({ record: r, own: isOwnRecord(FS, r), did: isOwnDoing(FS, r), item: newsOf(FS, r) }));
+  // (B11: each line in every language now — hud/words.mjs worded; newsOf is pure — so that it follows a switch of language)
+  const records = fresh.map(r => ({ record: r, own: isOwnRecord(FS, r), did: isOwnDoing(FS, r), item: worded(() => newsOf(FS, r)) }));
   // (a walk that mended a frayed banner: the day's pay is a line of the list beside it and no notice of its own — a
   // phone shows one notice, and 「功績 +2」 stood in place of the sentence that says the land counts again)
   if (records.some(x => x.item && opOf(x.record) === 'TEND' && x.record.restored)) for (const x of records) if (x.item && opOf(x.record) === 'WALK') x.item = { ...x.item, quiet: true };

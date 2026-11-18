@@ -163,6 +163,12 @@ const KEYS = {
     '進軍を開く',
     // round 48 (de18bf02): the map's tag once the arrival turn has passed, map/hostmarks.mjs
     '軍勢はターン {0} に到着 · 位置を読み込んでいます',
+    // loop-play2 B10 (2026-11-18): the hosts the Hosts list does not show because they are on the march, screens/host.mjs
+    'ほかに {0} の軍勢が進軍に出ています。到着が読めるまで、この一覧には出ません。到着と結果は「進軍」で確かめられます。',
+    '{0}への進軍',
+    '進軍中の軍勢',
+    '到着しました（ターン {0}）。結果は「進軍」で確かめられます',
+    'ターン {0} に到着の予定',
   ],
 };
 const ALL = Object.entries(KEYS).flatMap(([group, keys]) => keys.map(key => ({ group, key })));
@@ -214,7 +220,9 @@ const KNOWN = {
 };
 const known = (key, rule) => KNOWN[key]?.rule === rule;
 /** 「X」 that is a tab's name, written without quotes (GLOSSARY.md Style: "or no quotes for a name"). */
-const NAMES = { 'あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。': /\bMarches\b/ };
+const NAMES = { 'あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。': /\bMarches\b/,
+  'ほかに {0} の軍勢が進軍に出ています。到着が読めるまで、この一覧には出ません。到着と結果は「進軍」で確かめられます。': /\bMarches\b/,
+  '到着しました（ターン {0}）。結果は「進軍」で確かめられます': /\bMarches\b/ };
 
 test('the audited keys: each in its dictionary, the same English in every dictionary that has it', () => {
   assert.equal(ALL.length, new Set(ALL.map(e => e.key)).size, 'a key is listed twice');
