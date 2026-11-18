@@ -35,6 +35,8 @@ pub mod decode;
 pub mod experimental_expedition_message;
 pub mod fees;
 pub mod http;
+/// The https transport (curl today; the single module a TLS crate would replace).
+pub mod https;
 pub mod ix;
 pub mod land;
 pub mod log;

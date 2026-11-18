@@ -5,19 +5,14 @@
 //! the worker also impose a five-second deadline. No stderr or URL is echoed.
 use crate::ports::{PortError, PortResult};
 use serde_json::Value;
-use std::io::{Read, Write};
-use std::process::{Child, Command, Stdio};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use std::time::{Duration, Instant};
+use std::io::Write;
+use std::sync::{atomic::AtomicBool, Arc};
+use std::time::Duration;
 
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 pub const TIMEOUT_SECONDS: u64 = 5;
 const TRAILER_BYTES: usize = 64;
-const POLL: Duration = Duration::from_millis(10);
 
 fn decode(what: &str) -> PortError {
     PortError::Decode(format!("read-only HTTPS RPC {what}"))
@@ -173,119 +168,31 @@ pub fn parse_output(bytes: &[u8], cap: usize) -> PortResult<Value> {
     }
 }
 
-struct Cancel(Arc<AtomicBool>);
-impl Drop for Cancel {
-    fn drop(&mut self) {
-        self.0.store(true, Ordering::Release);
-    }
-}
-struct Process {
-    child: Child,
-    reaped: bool,
-}
-impl Process {
-    fn stop(&mut self) {
-        if !self.reaped {
-            let _ = self.child.kill();
-            if self.child.wait().is_ok() {
-                self.reaped = true;
-            }
-        }
-    }
-}
-impl Drop for Process {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-fn bounded_output(
-    reader: impl Read,
-    cap: usize,
-    overflow: &AtomicBool,
-) -> std::io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    reader.take((cap + 1) as u64).read_to_end(&mut bytes)?;
-    if bytes.len() > cap {
-        overflow.store(true, Ordering::Release);
-    }
-    Ok(bytes)
-}
-
 fn run(
     args: Vec<String>,
     request: Vec<u8>,
     cap: usize,
     cancelled: Arc<AtomicBool>,
 ) -> PortResult<Value> {
-    // Cancellation while this blocking job was queued must not start a process.
-    if cancelled.load(Ordering::Acquire) {
-        return Err(io("cancelled"));
-    }
-    let start = Instant::now();
-    let child = Command::new("curl")
-        .args(args)
-        .env_remove("SSLKEYLOGFILE")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| io("process unavailable"))?;
-    let mut process = Process {
-        child,
-        reaped: false,
-    };
-    let stdout = process
-        .child
-        .stdout
-        .take()
-        .ok_or_else(|| io("stdout unavailable"))?;
-    let mut stdin = process
-        .child
-        .stdin
-        .take()
-        .ok_or_else(|| io("stdin unavailable"))?;
-    std::thread::scope(move |scope| {
-        // Own the guard inside the scoped closure: a thread-creation panic
-        // must kill curl before scope's automatic joins wait on pipe readers.
-        let mut process = process;
-        let overflow = Arc::new(AtomicBool::new(false));
-        let reader_overflow = overflow.clone();
-        let output =
-            scope.spawn(move || bounded_output(stdout, cap + TRAILER_BYTES, &reader_overflow));
-        let input = scope.spawn(move || stdin.write_all(&request));
-        let status = loop {
-            if cancelled.load(Ordering::Acquire)
-                || overflow.load(Ordering::Acquire)
-                || start.elapsed() >= Duration::from_secs(TIMEOUT_SECONDS)
-            {
-                process.stop();
-                break Err(io("cancelled, timed out or exceeded response limit"));
-            }
-            match process.child.try_wait() {
-                Ok(Some(status)) => {
-                    process.reaped = true;
-                    break Ok(status);
-                }
-                Ok(None) => std::thread::sleep(POLL),
-                Err(_) => {
-                    process.stop();
-                    break Err(io("process wait failed"));
-                }
-            }
-        };
-        // On all monitor exits the child is reaped before joining pipe workers.
-        let output = output
-            .join()
-            .map_err(|_| io("response worker failed"))?
-            .map_err(|_| io("response read failed"))?;
-        let input = input.join().map_err(|_| io("request worker failed"))?;
-        if !status?.success() {
-            return Err(io("curl failed"));
-        }
-        input.map_err(|_| io("request write failed"))?;
-        parse_output(&output, cap)
-    })
+    // The process runner is `crate::https`'s (shared with the general POST);
+    // this policy keeps its own deadline, cap and error texts.
+    use crate::https::RunError;
+    let output = crate::https::run_curl(
+        args,
+        request,
+        cap + TRAILER_BYTES,
+        Duration::from_secs(TIMEOUT_SECONDS),
+        cancelled,
+    )
+    .map_err(|e| match e {
+        RunError::Stopped => io("cancelled, timed out or exceeded response limit"),
+        RunError::Spawn => io("process unavailable"),
+        RunError::Wait => io("process wait failed"),
+        RunError::Read => io("response read failed"),
+        RunError::Write => io("request write failed"),
+        RunError::Exit(_) => io("curl failed"),
+    })?;
+    parse_output(&output, cap)
 }
 
 /// Read-only RPC through verified HTTPS, with public JSON sent via stdin.
@@ -300,7 +207,7 @@ pub async fn call(
     let request = request_bytes(method, params)?;
     let args = curl_args(url, max_response_bytes)?;
     let cancelled = Arc::new(AtomicBool::new(false));
-    let _cancel = Cancel(cancelled.clone());
+    let _cancel = crate::https::Cancel(cancelled.clone());
     tokio::task::spawn_blocking(move || run(args, request, max_response_bytes, cancelled))
         .await
         .map_err(|_| io("worker failed"))?
@@ -311,22 +218,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bounded_reader_stops_after_one_overflow_byte_without_process() {
-        let overflow = AtomicBool::new(false);
-        assert_eq!(
-            bounded_output(&b"abcdef"[..], 3, &overflow).unwrap(),
-            b"abcd"
-        );
-        assert!(overflow.load(Ordering::Acquire));
-        let overflow = AtomicBool::new(false);
-        assert_eq!(bounded_output(&b"abc"[..], 3, &overflow).unwrap(), b"abc");
-        assert!(!overflow.load(Ordering::Acquire));
-    }
-
-    #[test]
     fn cancelled_queued_worker_never_launches_a_process() {
         let cancelled = Arc::new(AtomicBool::new(false));
-        drop(Cancel(cancelled.clone()));
+        drop(crate::https::Cancel(cancelled.clone()));
         assert!(run(vec![], vec![], 100, cancelled).is_err());
     }
 }
