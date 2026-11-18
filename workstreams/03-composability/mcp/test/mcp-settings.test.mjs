@@ -22,6 +22,7 @@ test('P1 defaults', () => {
   for (const env of [{}, { WYLLS_MCP_PORT: '', WYLLS_MCP_ISSUER: '', WYLLS_MCP_RELAY: '', WYLLS_MCP_HERALD: '' }]) {
     assert.deepEqual(mcpSettings(env), {
       port: 41960, host: '127.0.0.1', issuer: 'http://127.0.0.1:41960', resource: 'http://127.0.0.1:41960/mcp',
+      remoteBind: false, allowedHosts: ['127.0.0.1', 'localhost', '[::1]'],
       relay: MCP_DEFAULTS.relay, herald: MCP_DEFAULTS.herald,
     });
   }
