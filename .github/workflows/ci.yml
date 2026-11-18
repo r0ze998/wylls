@@ -202,6 +202,11 @@ jobs:
       - name: Workstream 01 closed caravan link tests (key-free)
         working-directory: .
         run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy test/coop.arrived.test.mjs
+      # The six-nation recording tool (scripts/demo/sixnation): its pure part — argument parsing, the refusal of any
+      # non-TEST cluster, the seed's choices, the launcher's command line, the summary and the grid. No world is started.
+      - name: Six-nation recording tool tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh scripts/demo/sixnation test/lib.test.mjs
 
   # Workstream 12 (memory): its audited key-free test files (workstreams/12-memory/tools/keyfree-tests.txt) through
   # the same runner and guard as the gateway job. No npm install (12 has no dependencies). Node 22: node:sqlite
