@@ -1,8 +1,17 @@
 # play2-land ops (fail-closed starter, guard, watchdog)
 
 **This is not permission to start a world.** Starting the play2-land launcher needs the owner's explicit go, each time.
-These files have **not been run against a real launcher or world**: only against dummy processes (tests below). The
-real arm → exec → launcher path is unverified.
+The real arm → exec → launcher path has been run: loop-play (e328c8ed, after the fix in #35) and loop-play2
+(de781916, 2026-11-18) each reached a capture through it, and the guard's SIGINT and the launcher's close path were
+observed. Each run's report is outside this repository; this file does not record them.
+
+Two limits of the starter as written (seen in loop-play2):
+- **One launcher per machine.** The "no other launcher" check matches any real launcher, even one on other ports.
+  A second world on this machine needs a copy of the starter whose check names its own port.
+- **No operator AI residents.** The starter's fixed ports (`--port 41960 --world-port 41964`) cannot carry the
+  launcher's `--operator-residents <n>`: the residents' relays widen the span to 18 ports, which then includes the
+  refused port 41970 (the launcher stops with `InvalidPorts`). loop-play2 used a copy on 41000/41004 with
+  `--operator-residents 2`.
 
 What a run would be: a TEST-ONLY local world on a synthetic clock (×10) — the capture demo with the land preview and the
 contest pair, two ordinary memory-only test wallets. Not natural speed, not production. No NFT, transfer, session guard,
