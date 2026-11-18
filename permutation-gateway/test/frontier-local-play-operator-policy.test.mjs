@@ -1,7 +1,7 @@
 // TEST-ONLY operator AI residents (⑤ option A): the decision rule, key-free. No process, no port, no network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOperatorResidents, operatorRelayPorts, homesOf, homeCandidates, residentView, createResidentMemory, decideNext, noteOutcome, createOperatorBudget, turnOf, OPERATOR_DEFAULTS,
+import { parseOperatorResidents, operatorRelayPorts, homesOf, homeCandidates, residentView, createResidentMemory, decideNext, noteOutcome, createOperatorBudget, bellOf, BELL_SECS, OPERATOR_ACTIONS_PER_BELL, OPERATOR_DEFAULTS,
   OPERATOR_FACTIONS, OPERATOR_ROTATION, OPERATOR_COOLDOWN, OPERATOR_RESIDENTS_MAX, SESSION_SECONDS } from '../src/frontier/local-play-operator-policy.mjs';
 
 const HOMES = [{ p: 2, q: -1, nation: 4 }, { p: -1, q: 2, nation: 1 }, { p: 1, q: 1, nation: 1 }, { p: 0, q: 3, nation: 1 }];
@@ -86,35 +86,42 @@ test('a host is never asked for below the game minimum (host.rs MIN_HOST_TROOPS 
   assert.ok(trainedBefore >= musters[0].troops && trains.length > 0);
 });
 
-test('the budget: per turn of chain time, refusals in a row, the gap, an optional world cap; a stopped resident stays stopped', () => {
-  const b = createOperatorBudget({ perTurn: 2, maxRefusals: 3, minGapMs: 100 });
-  assert.deepEqual(b.allow(0, null), { ok: false, why: 'the chain clock is not known: no turn to count in', later: true });
+test('the budget: ONE action per bell (Q16-2), refusals in a row, the gap, an optional world cap; a stopped resident stays stopped', () => {
+  const b = createOperatorBudget({ maxRefusals: 3, minGapMs: 100 });
+  assert.deepEqual(b.allow(0, null), { ok: false, why: 'the bell is not known (chain clock or Season genesis unread)', later: true });
   assert.equal(b.allow(0, 7).ok, true); b.spent('landed', 0, 7);
-  assert.deepEqual(b.allow(50, 7), { ok: false, why: 'too soon after the last send', later: true });
-  assert.equal(b.allow(100, 7).ok, true); b.spent('refused', 100, 7);   // (a refusal before the send spends no send, but counts as an ask)
-  assert.deepEqual(b.allow(400, 7), { ok: false, why: "this turn's 2 asks are spent", later: true });
-  assert.equal(b.allow(400, 8).ok, true);                                // (a new turn gives the asks again)
-  b.spent('landed', 400, 8); b.spent('landed', 600, 8);
-  assert.equal(b.allow(10_000, 8).later, true);
-  // (B12) no cap for the whole world by default: many turns later it still plays
-  for (let t = 9; t < 400; t++) { assert.equal(b.allow(t * 1000, t).ok, true, `turn ${t}`); b.spent('landed', t * 1000, t); }
-  assert.equal(b.state().sent, 394); assert.equal(b.state().stopped, null);
-  assert.equal(OPERATOR_DEFAULTS.perTurn, 2); assert.equal(OPERATOR_DEFAULTS.turnSecs, 600); assert.equal(OPERATOR_DEFAULTS.maxActs, null);
+  const taken = { ok: false, why: "this bell's one action is taken: the next bell", later: true };
+  assert.deepEqual(b.allow(50, 7), taken);
+  assert.deepEqual(b.allow(10_000, 7), taken, 'never a second action in the same bell, however long after');
+  assert.equal(b.allow(10_000, 8).ok, true);                     // (a new bell gives the one action again)
+  b.spent('refused', 10_000, 8);                                   // (a refusal before the send uses the bell up too)
+  assert.deepEqual(b.allow(20_000, 8), taken);
+  // (PR #62's relay answer ResidentAlreadyActed: the bell is used up, nothing else is spent)
+  b.spent('held', 30_000, 9);
+  assert.deepEqual(b.allow(40_000, 9), taken);
+  assert.deepEqual([b.state().sent, b.state().refusalsInRow], [1, 1]);
+  // (B12) no cap for the whole world by default: many bells later it still plays, once each
+  for (let t = 10; t < 400; t++) { assert.equal(b.allow(t * 1000, t).ok, true, `bell ${t}`); b.spent('landed', t * 1000, t); assert.equal(b.allow(t * 1000 + 500, t).ok, false); }
+  assert.equal(b.state().sent, 391); assert.equal(b.state().stopped, null);
+  assert.equal(OPERATOR_ACTIONS_PER_BELL, 1); assert.equal(OPERATOR_DEFAULTS.maxActs, null); assert.equal('perTurn' in OPERATOR_DEFAULTS, false);
   // an explicit world cap still stops it for good
-  const c = createOperatorBudget({ perTurn: 5, maxActs: 2, minGapMs: 0 });
-  c.spent('landed', 0, 1); c.spent('landed', 0, 1);
-  assert.deepEqual(c.allow(1, 2), { ok: false, why: 'the budget of 2 sends is spent', stopped: true });
+  const c = createOperatorBudget({ maxActs: 2, minGapMs: 0 });
+  c.spent('landed', 0, 1); c.spent('landed', 0, 2);
+  assert.deepEqual(c.allow(1, 3), { ok: false, why: 'the budget of 2 sends is spent', stopped: true });
   assert.equal(c.allow(1, 99).stopped, true);
   const r = createOperatorBudget({ maxRefusals: 2, minGapMs: 0 });
   r.spent('refused', 0, 1); r.spent('failed', 0, 2);
   assert.deepEqual(r.allow(1, 3), { ok: false, why: '2 refusals in a row', stopped: true });
   assert.equal(r.state().stopped, '2 refusals in a row');
-  for (const bad of [{ maxActs: -1 }, { perTurn: -1 }, { perTurn: 1.5 }, { maxActs: '3' }]) assert.throws(() => createOperatorBudget(bad), JSON.stringify(bad));
+  // the pace per bell is not a setting
+  for (const bad of [{ maxActs: -1 }, { perTurn: 2 }, { perTurn: 1 }, { perBell: 2 }, { maxActs: '3' }]) assert.throws(() => createOperatorBudget(bad), JSON.stringify(bad));
 });
 
-test('the turn is counted from the chain clock in whole turns of turnSecs', () => {
-  assert.equal(turnOf(1_785_633_719), Math.floor(1_785_633_719 / 600));
-  assert.equal(turnOf(1200, 60), 20);
-  for (const bad of [null, 0, -5, 1.5, NaN]) assert.equal(turnOf(bad), null);
-  assert.equal(turnOf(1000, 0), null);
+test("the bell is the program's own: from the Season's genesis, 600 chain seconds each", () => {
+  assert.equal(BELL_SECS, 600);
+  assert.equal(bellOf(1_000_000, 1_000_000), 0);
+  assert.equal(bellOf(1_000_000, 1_000_599), 0);
+  assert.equal(bellOf(1_000_000, 1_000_600), 1);
+  assert.equal(bellOf(1_000_300, 1_000_900), 1, 'aligned to genesis, not to floor(t / 600)');
+  for (const [g, t] of [[null, 5], [10, null], [1000, 999], [1.5, 2000], [10, 0], [-1, 10]]) assert.equal(bellOf(g, t), null, `${g},${t}`);
 });

@@ -86,8 +86,10 @@ export async function answerWorldBoard(req, res, { entry, port, rest, query = ''
     const url = new URL(`${rest}${query ? `?${query}` : ''}`, 'http://127.0.0.1');
     const a = await answerCoop(entry.board, req, url);
     if (!a) return reply(res, 404, { error: 'NotFound' });
-    // (the board's page is named under THIS mount: the game opens it on the launcher's origin, beside its own page)
-    const body = rest === '/coop/config' && a.status === 200 ? { ...a.body, page: `${mount}${PAGE}`, herald: null, mount } : a.body;
+    // (the board's page is named under THIS mount: the game opens it on the launcher's origin, beside its own page.
+    //  `relay: null`: no relay route is passed on here, so ①'s page offers no caravan send from itself — a caravan is
+    //  sent from the game's own village card)
+    const body = rest === '/coop/config' && a.status === 200 ? { ...a.body, page: `${mount}${PAGE}`, herald: null, relay: null, mount } : a.body;
     return reply(res, a.status, body);
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, { error: 'MethodNotAllowed' });

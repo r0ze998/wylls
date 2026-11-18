@@ -90,6 +90,7 @@ test("the launcher serves ①'s board under the world's mount: config, page, rec
   const c = JSON.parse(cfg.text);
   assert.deepEqual(c.season, { programId: PROGRAM, seasonId: '11' });
   assert.equal(c.page, `${m}${PAGE}`); assert.equal(c.mount, m); assert.equal(c.herald, null);
+  assert.equal(c.relay, null, 'no relay under the mount: ①\'s page offers no caravan send from itself');
   // the pair's second proxy names the same board, under its own mount
   assert.equal(JSON.parse((await raw({ path: `${coopMount(PAIR)}/coop/config` })).text).page, `${coopMount(PAIR)}${PAGE}`);
   // ①'s page and the modules it imports, with the board page's own policy

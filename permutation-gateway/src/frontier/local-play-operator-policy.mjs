@@ -12,18 +12,20 @@
 //                                       `ready-for-join` list; the program rechecks the site and refuses a taken one)
 //   3. a village                      → the next command of a fixed rotation (OPERATOR_ROTATION); a command the program
 //                                       refused waits OPERATOR_COOLDOWN decisions before it is asked for again
-// and the budget (`createOperatorBudget`): at most `perTurn` asks per resident per turn of CHAIN time (`turnSecs`, one
-// bell = 600 chain seconds; the turn is read from the herald's clock, never the local one), at most `maxRefusals`
-// refusals in a row (then the resident stops for good), at most one send per `minGapMs`, and — only when it is set —
-// at most `maxActs` sends per resident for the whole world. Nothing is retried blindly: a send whose outcome is unknown
-// is followed by its signature; the next decision is made on a NEW herald read.
+// and the budget (`createOperatorBudget`): ONE action per resident per bell (owner decision Q16-2, 2026-11-18 21:44:
+// "one action per resident per turn; operator AI must not double-act"). The bell is the program's own:
+// floor((chain unix seconds − Season.GENESIS_TS) / 600), the chain time from the herald's `/h/status` and GENESIS_TS from
+// its `/h/season` (never the local clock). Besides that: at most `maxRefusals` refusals in a row (then the resident stops
+// for good), at most one send per `minGapMs`, and — only when it is set — at most `maxActs` sends for the whole world.
+// The relay of a resident may itself hold it to one action per bell (PR #62, `ResidentAlreadyActed`); this budget never
+// asks for a second action in a bell, and an answer `ResidentAlreadyActed` uses up the bell here too (no retry in it).
+// Nothing is retried blindly: a send whose outcome is unknown is followed by its signature; the next decision is made on
+// a NEW herald read.
 //
-// (B12, loop-play2) The default used to be 60 sends for the whole world, which two residents spent in about 20 turns
-// of a ×10 demo, then logged "budget stopped" every 6 s for the rest of it. The default is now per turn: 2 asks per
-// resident per turn, no world cap. On a ×10 two-hour TEST world (≈120 turns) that is at most ≈240 asks per resident,
-// one Harvest/Build/Train/Muster step of the rotation about every 30 s of wall time; on a 1× world (12 turns in two
-// hours) at most 24. This is ⑤ tuning (how busy a resident is), not a rule: every ask is still one ordinary command
-// the program checks like a person's.
+// (B12, loop-play2) The budget used to be 60 sends for the whole world, which two residents spent in about 20 turns of a
+// ×10 demo, then logged "budget stopped" every 6 s for the rest of it. Now: one per bell, no world cap, so a resident
+// keeps playing until the world ends — on a ×10 two-hour TEST world (≈120 bells) at most ≈120 actions per resident, on
+// 1× (12 bells) at most 12.
 // Never: a march, a conquest step, a caravan, a reveal, a vote, an invite, a privileged route, an operator read.
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
@@ -46,13 +48,21 @@ export const OPERATOR_ROTATION = Object.freeze([
   Object.freeze({ name: 'Train', unit: 0, n: 100 }),
 ]);
 export const OPERATOR_COOLDOWN = 3;
+/** The pace: `cadenceMs` between rounds; `maxActs` null = no cap for the whole world. (One action per bell is fixed: Q16-2.) */
+export const OPERATOR_DEFAULTS = Object.freeze({ cadenceMs: 6000, maxActs: null, maxRefusals: 12, minGapMs: 4000 });
+/** Actions per resident per bell: one, by owner decision Q16-2 (not a setting). */
+export const OPERATOR_ACTIONS_PER_BELL = 1;
+/** Seconds per bell (permutation-rules travel.rs BELL_SECS; web clock.mjs BELL_SECS). */
+export const BELL_SECS = 600;
 /**
- * The pace (⑤ tuning, B12): `perTurn` asks per resident per turn of `turnSecs` chain seconds (one bell); `maxActs`
- * null = no cap for the whole world (a number caps the sends a resident makes in the world); `cadenceMs` between rounds.
+ * The bell chain time `secs` (unix seconds) is in, for a Season that began at `genesisTs` — the program's own count
+ * (web clock.mjs `bellAt`; PR #62 resident-turns.mjs `bellAt`) — or null when either is unknown or it is before genesis.
  */
-export const OPERATOR_DEFAULTS = Object.freeze({ cadenceMs: 6000, perTurn: 2, turnSecs: 600, maxActs: null, maxRefusals: 12, minGapMs: 4000 });
-/** The turn of chain time `secs` (unix seconds) falls in, for the per-turn budget, or null when it is not known. */
-export const turnOf = (secs, turnSecs = OPERATOR_DEFAULTS.turnSecs) => (Number.isSafeInteger(secs) && secs > 0 && Number.isSafeInteger(turnSecs) && turnSecs > 0 ? Math.floor(secs / turnSecs) : null);
+export function bellOf(genesisTs, secs) {
+  if (!Number.isSafeInteger(genesisTs) || genesisTs < 0 || !Number.isSafeInteger(secs) || secs <= 0 || secs < genesisTs) return null;
+  return Math.floor((secs - genesisTs) / BELL_SECS);
+}
+
 /** The Join's session expiry: the page's own (controller.mjs: chain now + 30 days − 600 s). */
 export const SESSION_SECONDS = 30 * 86_400 - 600;
 
@@ -174,33 +184,35 @@ export function noteOutcome(memory, decision, outcome) {
 }
 
 /**
- * The resident's budget: `{allow(now, turn) → {ok, why?, later?}, spent(outcome, now, turn), state()}`. `turn` is
- * `turnOf(chain seconds)`; with no known turn nothing is allowed (later). At most `perTurn` asks per turn (every ask
- * counts, a refusal before the send too: so a refusing relay is asked at most `perTurn` times a turn); a NEW turn
- * gives `perTurn` again. A resident with `maxRefusals` refusals in a row, or (when `maxActs` is a number) with
- * `maxActs` sends spent, stops for good: `allow` then says `{ok: false, why, stopped: true}` and it is never refilled
- * while the world runs (it never stops the world).
+ * The resident's budget: `{allow(now, bell) → {ok, why?, later?, stopped?}, spent(outcome, now, bell), state()}`. `bell`
+ * is `bellOf(…)`; with no known bell nothing is allowed (later). ONE ask per bell (Q16-2): every ask uses the bell up — a
+ * refusal before the send too, and `outcome = 'held'` (its relay said the resident already acted in this bell: PR #62
+ * `ResidentAlreadyActed`), which spends nothing else. A NEW bell gives the one ask again. A resident with `maxRefusals`
+ * refusals in a row, or (when `maxActs` is a number) with `maxActs` sends spent, stops for good: `allow` then says
+ * `{ok: false, why, stopped: true}`; it is never refilled while the world runs (it never stops the world).
  */
-export function createOperatorBudget({ perTurn = OPERATOR_DEFAULTS.perTurn, maxActs = OPERATOR_DEFAULTS.maxActs, maxRefusals = OPERATOR_DEFAULTS.maxRefusals, minGapMs = OPERATOR_DEFAULTS.minGapMs } = {}) {
-  if (![perTurn, maxRefusals, minGapMs].every(n => Number.isSafeInteger(n) && n >= 0) || !(maxActs === null || (Number.isSafeInteger(maxActs) && maxActs >= 0))) throw new Error('operator budget');
-  let sent = 0, refusalsInRow = 0, last = -Infinity, stopped = null, turnAt = null, inTurn = 0;
+export function createOperatorBudget({ maxActs = OPERATOR_DEFAULTS.maxActs, maxRefusals = OPERATOR_DEFAULTS.maxRefusals, minGapMs = OPERATOR_DEFAULTS.minGapMs, ...rest } = {}) {
+  if (Object.keys(rest).length) throw new Error(`operator budget: ${Object.keys(rest).join(', ')} is not a setting (one action per bell, Q16-2)`);
+  if (![maxRefusals, minGapMs].every(n => Number.isSafeInteger(n) && n >= 0) || !(maxActs === null || (Number.isSafeInteger(maxActs) && maxActs >= 0))) throw new Error('operator budget');
+  let sent = 0, refusalsInRow = 0, last = -Infinity, stopped = null, bellAt = null, inBell = 0;
   const stop = why => { stopped = why; return { ok: false, why, stopped: true }; };
   return Object.freeze({
-    allow(now, turn) {
+    allow(now, bell) {
       if (stopped) return { ok: false, why: stopped, stopped: true };
       if (maxActs !== null && sent >= maxActs) return stop(`the budget of ${maxActs} sends is spent`);
       if (refusalsInRow >= maxRefusals) return stop(`${maxRefusals} refusals in a row`);
-      if (!Number.isSafeInteger(turn)) return { ok: false, why: 'the chain clock is not known: no turn to count in', later: true };
-      if (turn === turnAt && inTurn >= perTurn) return { ok: false, why: `this turn's ${perTurn} asks are spent`, later: true };
+      if (!Number.isSafeInteger(bell)) return { ok: false, why: 'the bell is not known (chain clock or Season genesis unread)', later: true };
+      if (bell === bellAt && inBell >= OPERATOR_ACTIONS_PER_BELL) return { ok: false, why: 'this bell\'s one action is taken: the next bell', later: true };
       if (now - last < minGapMs) return { ok: false, why: 'too soon after the last send', later: true };
       return { ok: true };
     },
-    spent(outcome, now, turn) {
-      if (turn !== turnAt) { turnAt = Number.isSafeInteger(turn) ? turn : null; inTurn = 0; }
-      inTurn += 1;
+    spent(outcome, now, bell) {
+      if (bell !== bellAt) { bellAt = Number.isSafeInteger(bell) ? bell : null; inBell = 0; }
+      inBell += 1;
+      if (outcome === 'held') return;
       if (outcome !== 'refused') { sent += 1; last = now; }
       refusalsInRow = outcome === 'refused' || outcome === 'failed' ? refusalsInRow + 1 : 0;
     },
-    state: () => ({ sent, refusalsInRow, turn: turnAt, inTurn, stopped }),
+    state: () => ({ sent, refusalsInRow, bell: bellAt, inBell, stopped }),
   });
 }

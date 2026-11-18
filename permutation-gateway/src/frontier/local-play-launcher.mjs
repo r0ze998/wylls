@@ -695,7 +695,7 @@ export async function startOperatorResidents({ n, dir, ports, rpc, herald, playe
   }
   if (stopping()) throw fault('WorldStopped', 503);
   if (!homes) throw fault('OperatorHomesUnknown', 503);
-  const paceArgs = Object.entries({ 'cadence-ms': pace.cadenceMs, 'per-turn': pace.perTurn, 'turn-secs': pace.turnSecs, 'max-acts': pace.maxActs, 'max-refusals': pace.maxRefusals, 'min-gap-ms': pace.minGapMs }).filter(([, v]) => Number.isSafeInteger(v) && v >= 0).flatMap(([k, v]) => [`--${k}`, String(v)]);
+  const paceArgs = Object.entries({ 'cadence-ms': pace.cadenceMs, 'max-acts': pace.maxActs, 'max-refusals': pace.maxRefusals, 'min-gap-ms': pace.minGapMs }).filter(([, v]) => Number.isSafeInteger(v) && v >= 0).flatMap(([k, v]) => [`--${k}`, String(v)]);
   launchSide('operators', process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-operator-residents.mjs'), '--count', String(n), '--relay-ports', ports.join(','),
     '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...paceArgs]);
   let first = null;
@@ -1013,10 +1013,8 @@ export const USAGE = `local-play launcher (this machine only)
        residents (⑤ option A): memory-only TEST wallets made by their own process, funded like the player, each with
        its own relay; they Join, PlaceHome and use the economy commands by a fixed offline rule, through the same
        routes and checks as a page. The page is not told which residents they are. Their relays take 4 more ports per
-       world after the worlds' ten]
-    [--operator-per-turn <1-20>: TEST-ONLY, only with --operator-residents: how many commands each resident may ask
-       for per turn of the chain's clock (one bell, 600 chain seconds); without it 2. There is no cap for the whole
-       world: residents keep playing until the world ends]
+       world after the worlds' ten. Each acts at most ONCE per bell (owner decision Q16-2), with no cap for the
+       whole world: residents keep playing until the world ends]
     [--coop-board ws01-board-v1: TEST-ONLY: each world also gets workstream 01's co-op board (requests between nations
        and their answers, signed records; no resource moves), kept in this process with its records in the world's
        directory and served on this launcher's origin under /coop-world/<the world's proxy port>/; the page signs its
@@ -1025,7 +1023,7 @@ export const USAGE = `local-play launcher (this machine only)
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-per-turn', 'coop-board']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'coop-board']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -1066,15 +1064,12 @@ export async function parseConfig(args) {
   if (out['world-option'] !== undefined && out['world-option'] !== LAND_PREVIEW_OPTION) throw fault('InvalidWorldOption');
   if (out['world-option'] !== undefined && out['capture-demo'] === undefined) throw fault('WorldOptionNeedsCaptureDemo');
   if (operatorResidents !== undefined && !natural) throw fault('OperatorResidentsNeedNatural');
-  // (B12: the residents' pace, per turn of chain time; exactly a whole number 1-20, only with residents)
-  const perTurn = out['operator-per-turn'] === undefined ? undefined : (/^[1-9][0-9]?$/.test(out['operator-per-turn']) && Number(out['operator-per-turn']) <= 20 ? Number(out['operator-per-turn']) : null);
-  if (perTurn === null || (perTurn !== undefined && operatorResidents === undefined)) throw fault('InvalidOperatorPerTurn');
   if (operatorResidents !== undefined && Array.from({ length: span }, (_, i) => worldPort + i).includes(41970)) throw fault('InvalidPorts');
   // (B13: the TEST-ONLY co-op board, asked for in exactly its one word)
   if (out['coop-board'] !== undefined && out['coop-board'] !== COOP_BOARD_MODE) throw fault('InvalidCoopBoard');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(perTurn !== undefined ? { operatorPace: { perTurn } } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }
