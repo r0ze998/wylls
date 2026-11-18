@@ -22,7 +22,10 @@
 //!   records).
 //! - **Accounts.** A Grant account no GRANT_ISSUED explains, or written by
 //!   a transaction with no Grant instruction, is `RightsUnexplainedAccount`;
-//!   a program account of no known kind at all is `UnknownAccount`.
+//!   a program account of no known kind at all is `UnknownAccount`: a FAIL
+//!   under a program version this verifier knows, UNVERIFIABLE under any
+//!   other (⑪, 2026-11-18; the resident policy and links are known kinds
+//!   in workstream 20's `nft-experimental` seasons).
 //! - **Evidence.** A Grant instruction whose post-states are not in the
 //!   archive, or a holding it names whose state before it is unknown, or
 //!   a program account it holds writable without a post-state (r4), is
@@ -239,17 +242,46 @@ pub fn ran_inside(program: &str, logs: &[String]) -> bool {
         .any(|l| l.starts_with(&invoke) && !l.ends_with("[1]"))
 }
 
-fn known_magic(d: &[u8]) -> bool {
+fn known_magic(d: &[u8], pv: Option<u16>) -> bool {
     let Some(m) = d.get(..8).and_then(|m| <[u8; 8]>::try_from(m).ok()) else {
         return false;
     };
-    K2::from_magic(&m).is_some() || m == G::MAGIC
+    K2::from_magic(&m).is_some()
+        || m == G::MAGIC
+        // ⑪ (2026-11-18): workstream 20's `nft-experimental` program owns
+        // its resident policy and links (V27 and V28 judge them).
+        || (pv == Some(super::v0_coverage::PROGRAM_VERSION_NFT_S1)
+            && (m == frontier_abi::resident_policy::MAGIC
+                || m == frontier_abi::resident_binding::MAGIC))
+}
+
+/// A program account of no layout `known_magic` names: a FAIL only under a
+/// program version this verifier knows (that program cannot have written
+/// it); under another version, or none the archive shows, nothing says the
+/// layout is impossible, so it is UNVERIFIABLE (⑪ r13's rule for V0's tags,
+/// 2026-11-18), never a PASS.
+fn unknown_account(cx: &mut Ctx, pv: Option<u16>, k: &Key, tx: Option<usize>) {
+    let d = "a program account of no kind this verifier knows";
+    if pv.is_some_and(super::v0_coverage::known_version) {
+        cx.fail(V, UNKNOWN_ACCOUNT, ent("account", k), 0, tx, d);
+    } else {
+        cx.unverifiable(
+            V,
+            UNKNOWN_ACCOUNT,
+            ent("account", k),
+            0,
+            tx,
+            format!("{d}, under a program version it does not know"),
+        );
+    }
 }
 
 pub fn run(cx: &mut Ctx) {
     let w = cx.w;
     let f = cx.f;
     let sid = cx.cfg.season_id;
+    // The version CreateSeason named (V0 reads the same).
+    let pv = f.params.as_ref().map(|p| p.program_version);
     let program = cx.cfg.program.to_string();
     let input = cx.input;
     let mut models: BTreeMap<Key, Model> = BTreeMap::new();
@@ -762,15 +794,11 @@ pub fn run(cx: &mut Ctx) {
         // Any program account of no known kind.
         for (k, a) in &tx.post {
             if let Some(a) = a {
-                if a.owner.to_bytes() == w.program && !a.data.is_empty() && !known_magic(&a.data) {
-                    cx.fail(
-                        V,
-                        UNKNOWN_ACCOUNT,
-                        ent("account", k),
-                        0,
-                        Some(t),
-                        "a program account of no kind this verifier knows",
-                    );
+                if a.owner.to_bytes() == w.program
+                    && !a.data.is_empty()
+                    && !known_magic(&a.data, pv)
+                {
+                    unknown_account(cx, pv, k, Some(t));
                 }
             }
         }
@@ -834,15 +862,8 @@ pub fn run(cx: &mut Ctx) {
                     }
                 }
             }
-        } else if !known_magic(&a.data) {
-            cx.fail(
-                V,
-                UNKNOWN_ACCOUNT,
-                ent("account", k),
-                0,
-                None,
-                "a program account of no kind this verifier knows",
-            );
+        } else if !known_magic(&a.data, pv) {
+            unknown_account(cx, pv, k, None);
         }
     }
     let _ = issued;
