@@ -113,7 +113,8 @@ test('held, nothing signed, posted or written: no context, another proposal, unk
       [{ step: { ...s, stopped: 'halted-by-operator' } }, /stopped/],
       [{ step: { ...s, context: undefined } }, /no observation context/],
       [{ step: { ...s, context: unfrozen } }, /no observation context/],
-      [{ step: { ...s, context: Object.freeze({ unavailable: 'x' }) } }, /no observation context \(x\)/],
+      // (2026-11-18) the message is enact-step.mjs's own: 'no observation context for this proposal (x)'
+      [{ step: { ...s, context: Object.freeze({ unavailable: 'x' }) } }, /no observation context for this proposal \(x\)/],
       [{ step: { ...s, proposal: { ...s.proposal, candidate: otherCand } } }, /another proposal/],
       [{ step: { ...s, proposal: { ...s.proposal, enacted: true } } }, /no unenacted proposal/],
       [{ step: { ...s, proposal: { ...s.proposal, candidate: { ...s.proposal.candidate, kind: 'send' } } } }, /not a respond/],

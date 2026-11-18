@@ -146,7 +146,11 @@ test('a send is held as unsupported; the one-step entry stays non-enacting', () 
   const once = readFileSync(new URL('../resident/live/once.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(once, /enact\.mjs|enactRespond|signRecord/, 'once.mjs does not enact');
   const src = readFileSync(new URL('../resident/live/enact.mjs', import.meta.url), 'utf8').replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '');
-  assert.doesNotMatch(src, /sendPlanned|fplay|loadOrCreateKey|newKeypair|Date\.now|setMode/, 'no send path, no key, no clock, no mode change');
+  // (2026-11-18) checked on the code without its string literals: SEND_UNSUPPORTED's explanations name sendPlanned and
+  // fplay.submit as text (why a send is held); an import or a call of them would still be caught
+  const code = src.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/g, "''");
+  assert.doesNotMatch(code, /sendPlanned|fplay|loadOrCreateKey|newKeypair|Date\.now|setMode/, 'no send path, no key, no clock, no mode change');
+  assert.doesNotMatch(src, /import[^;]*(send\.mjs|fplay)/, 'no import of a send path');
   assert.ok(src.indexOf("line.state = 'sending';") < src.indexOf("io.post('/coop/records'"), 'sending saved before the POST');
   assert.ok(src.indexOf("state: 'intended'") < src.indexOf('signRecord(signer'), 'intent saved before signing');
 });
@@ -197,8 +201,9 @@ test('the record only from the allowed respond fields; a held candidate, another
 test('an answer seen but not saved is not durable: saved unknown, and the next call only reads back', { skip: process.getuid?.() === 0 ? 'root ignores the read-only directory' : false }, async () => {
   await withResident('auto', async dir => {
     const b = board({ post: () => { chmodSync(dir, 0o500); return { status: 200, json: { ok: true } }; } });
+    let r; // (2026-11-18) declared outside the try: r.lock is read after it (was a ReferenceError)
     try {
-      const r = await enactRespond(args(dir, b));
+      r = await enactRespond(args(dir, b));
       assert.deepEqual([r.ok, r.state, r.durable, r.saved], [true, 'posted', false, 'unknown'], 'observed posted; saved not known');
       assert.match(r.why, /whether the new state reached the disk is not known/);
     } finally { chmodSync(dir, 0o700); }

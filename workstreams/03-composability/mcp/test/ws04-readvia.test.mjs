@@ -60,7 +60,7 @@ test('V5 bin: from the same port value ④\'s client gets', () => {
   const bin = readFileSync(new URL('../bin/wylls-mcp.mjs', import.meta.url), 'utf8');
   assert.match(bin, /const gatewayPort = env\.WYLLS_MCP_WS04_GATEWAY_PORT \? Number\(env\.WYLLS_MCP_WS04_GATEWAY_PORT\) : null;\n\s+acts = createActsClient\(\{ bin: env\.WYLLS_MCP_WS04_RUNEXEC, db: env\.WYLLS_MCP_WS04_DB, gatewayPort \}\);/);
   assert.match(bin, /actsReadVia = gatewayPort \? 'gateway' : 'store-only';/);
-  assert.match(bin, /createWyllsMcp\(\{ auth, game, store, log, receipts, acts, actsReadVia \}\)/);
+  assert.match(bin, /createWyllsMcp\(\{ auth, game, store, log, receipts, acts, actsReadVia(, coopRead)? \}\)/);
   assert.doesNotMatch(bin, /bridge: true/);
 });
 
