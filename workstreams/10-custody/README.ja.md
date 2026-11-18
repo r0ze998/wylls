@@ -1,5 +1,7 @@
 # ⑩ 所有権を保った保管・輸送・利用（custody）
 
+> **状況 2026-11-19（main `1d6c0039`、コードが正）：** コアは main にあり、`custody-preview` の裏。wide（遊べる lane）とは同時に build できない（今の行は `permutation-frontier/src/lib.rs:332-337`）。下の 11-18 の確認の「CI はこの feature を build しない」は古い：PR #51 で CI の `frontier-previews` が host の試験を走らせる。最初の devnet の後。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
+
 作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（統合候補 `integrate/claude-consolidation-20261029` の中。`main` の `921429322d5aecd1a3df0dd8d82c405c87dd985a` を含む）。この担当の成果物はこのディレクトリと、コアへの差分案 [patches/](patches/) です。**このブランチ自体はコアを一行も変えていません。** push・merge・deploy はしていません。
 
 > **2026-11-18 の確認（main `de781916`、コードが正）：** custody のコア（`permutation-rules/src/frontier/custody.rs`、`permutation-frontier/src/proc/custody.rs`、検証器 `frontier-node/crates/verify/src/checks/v26_custody.rs`、LiteSVM `permutation-frontier/svm-tests/src/cover/custody.rs`）は main にある。`custody-preview` は `nft-experimental`・`rights-experimental`・`wide-world-experimental` と同時に build できない（`permutation-frontier/src/lib.rs:282-287`）。遊べる localnet の lane（0x4804）は wide-world を含むので、⑩ は遊べるゲームに入らない。CI はこの feature を build しない。手元の試験（Rust 1.89）：`custody/` 41、`permutation-frontier --features custody-preview` 119、すべて通過。SBF・LiteSVM は未実行。
