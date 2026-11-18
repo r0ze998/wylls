@@ -1,5 +1,7 @@
 # ⑨ 他人の工房の「加工能力」を借りる
 
+> **2026-11-18 の確認（main `de781916`、コードが正）：** 下の 11-08 のコア（`permutation-rules/src/frontier/capacity.rs`、`frontier-abi/src/capacity.rs`、`permutation-frontier/src/proc/capacity.rs`、`Holding.lent_workshops` @700）は main にある。ただし `capacity-preview` は `rights-experimental`・`nft-experimental`・`wide-world-experimental` と同時に build できない（`permutation-frontier/src/lib.rs:276-281` の `compile_error!`）。遊べる localnet の lane（0x4804）は wide-world を含むので、⑨ は遊べるゲームに入らない。画面・gateway の入口も無い。CI はこの feature を build しない。手元の試験（Rust 1.89）：kernel 43＋4、`permutation-rules --features capacity-preview` 524、`frontier-abi --features capacity-preview` 168、`permutation-frontier --features capacity-preview` 123、`capacity-preview,custody-preview` 126、すべて通過。SBF・LiteSVM は未実行のまま。
+
 > **2026-11-08（ゲーム本体へ）：④ の候補 `cf517b55` の上で、コアに `Holding.lent_workshops`（パッチ 0001）、規則 `frontier::capacity`（kernel と 72 万手で一致）、プログラムの 14 命令（feature `capacity-preview`、tag 0xF0–0xFD）、⑩ の区画からの投入と返却を入れた。** [INTEGRATION-04.ja.md](INTEGRATION-04.ja.md)。
 >
 > **2026-11-06（T5・会計・④ の番号）：T5 は ⑩ が `connect` を外して解決し、⑨ も差分試験を外した（比べた時点では 1,000 通りで一致。見つけた ⑨ の不具合 1 点は直した）。返却・端数・再送・押収の会計を毎手検査。④ の仮割当どおりの番号をパッチ 0004 に（記録の kind は ⑨ の 20 種が帯の 10 枠に入らず、④ の判断待ち）。** [CONNECT-10.ja.md](CONNECT-10.ja.md) §7。

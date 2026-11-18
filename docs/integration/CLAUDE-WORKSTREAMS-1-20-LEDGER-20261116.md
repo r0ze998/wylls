@@ -11,6 +11,10 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 - **Integration** = only what was checked in this pass: the folder is in canonical (records integrated). Whether a
   workstream's code or patches are in the canonical program/page was NOT determined here unless stated.
 - ⑯–⑳ have no folder in canonical; their names and states come from references in canonical docs and preserve branches.
+  (2026-11-18 note: ⑯ does have a folder on its own branch: `claude/dreamy-ramanujan-ijj8qj` @ `e9e56300`,
+  `verification/16-independent/` plus 21 `v16_*`/`v16-*` test files, 119 commits not in main, based on `92142932`.
+  Several of its fixes reached main by other routes (herald `holderTag`, verifier V0). See the Grok report
+  `plan-6-9-10-12-16` for the per-patch state.)
 
 ## Ledger
 | # | name | self-claim (date) | last commit | integration | restricted parts |
@@ -32,7 +36,7 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 | ⑮ | coop outcomes (evaluator) | branch ws/15-coop-outcomes (10-30); long-run.json changed in the WIP | bcc63a24 (11-15, WIP) | records in canonical | — |
 | ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded |
 | ⑰ | settlement / prize (x402, USDC) | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | preserve/ws17-0c80381d | not integrated; closed, not pursued | **restricted as a whole** (prize, funds) |
-| ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | preserve/ws18-4fbe0c77 | not determined | — |
+| ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | origin/fix/ws18-clippy-hostile-20261103 @ 0bba3f31 (11-03; = preserve/ws18-4fbe0c77 + clippy fix) | **in main**: all 17 commits applied as one delta in 6b670edb (2026-11-03), patch-id identical per file (2026-11-18 check, see section below) | — |
 | ⑲ | MagicBlock and public RPC | **Integrated; ER lane not adopted (2026-11-18)** — see the dated section at the end | archive/ws19-er-candidate-20261108 (0c2214d5) | findex/verify parts in main (6b670edb, 668e9b66…); consistency tests ported 2026-11-18; frontier-er ER candidate obsolete (O8) | public network: nothing sent |
 | ⑳ | NFT resident ID and authorization | **Reopened 2026-11-18 by owner; devnet/local only** (18:26 JST, supersedes the 14:42 closure of #37): implemented behind `nft-experimental` in the playable localnet lane `localnet-nft-sbf` and the devnet dry-run (`--nft-resident`); no mainnet issuance, no sale — see the section "⑳ NFT resident ID reopened" at the end | grok/ws20-nft-resident | local play check on the real SBF lane passes; devnet not deployed | undecided U-items run on conservative defaults (`frontier_abi::resident_terms`), blocked on r0ze |
 
@@ -676,4 +680,19 @@ closure recorded in the section above (PR #37) for ⑳ only; ⑰ prize stays clo
 - **Not done:** the local-play launcher, its runner and the keeper's expedition prepare tools still pin `0x4804`, so
   the NFT lane is exercised by the localnet harness (`itest --features localnet-nft-harness --test
   localnet_nft_resident`), not by a browser world; the resident program and Metaplex Core are not built or deployed;
-  the devnet candidate's `.so` (1,450,408 B) is over the S1 L(kind) cap (1,441,792 B) of the devnet profile.
+  the devnet candidate's `.so` (1,450,496 B at bf3f85d4, verify-pr53) is over the S1 L(kind) cap (1,441,792 B) of the devnet profile.
+
+### 2026-11-18 JST — ⑱ integration check (ws18-integrate)
+
+- **Code wins: ⑱ is already in `main`.** The 17 commits of `origin/fix/ws18-clippy-hostile-20261103`
+  (3051286d … 0bba3f31, base 4cd901de) were applied to main as one delta in `6b670edb` ("integrate locally:
+  18 v3 fix and 19 A+D on 4.g", 2026-11-03; message names source 0bba3f31). For each of the 20 paths the branch touches,
+  `git diff 4cd901de 0bba3f31 -- <path>` and `git diff 6b670edb^ 6b670edb -- <path>` have the same
+  `git patch-id --stable`. `git cherry` shows `+` for every commit only because the delta was squashed.
+  `preserve/ws18-4fbe0c77` is the same work without the 0bba3f31 clippy fix.
+- Later main commits built on it: `f2c607ae` makes the keeper stop on lost or corrupt journalled Reveal
+  material (stricter than 983fbf88's skip-on-error load); V0's unmodelled list grew with ⑩ custody tags
+  (`verify/src/checks/v0_coverage.rs` test `every_abi_tag_has_a_coverage_answer`).
+- Nothing was ported, because nothing was missing. The live quicknet test (`fclient/tests/live_drand.rs`) is
+  `#[ignore]` and also needs `FRONTIER_LIVE_DRAND=1`. The TLS hostile test (`drand-replay/tests/hostile.rs`) is `#[ignore]`.
+- Report: `~/Projects/wylls-grok-state/reports/ws18-integrate.md` (tests and discrepancies).
