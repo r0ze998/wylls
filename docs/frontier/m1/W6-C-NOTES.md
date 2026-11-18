@@ -33,7 +33,7 @@ The first stack run with the flags (`w6c-b1`) still joined only 75 of 100: **eve
 
 **Request to W6-A / the integrator (R1):** set `bots_args = "--day0-share 1.0 --eager-personas"` in the one-day configs (`w5-smoke.toml`, `nightly.toml`) — but see finding F1 (`late_revealer`) first, since the eager personas make the report's criterion 5 fail today — and `--eager-personas` in the 7-day configs if criterion 5 needs every persona to march.
 
-`late_revealer` now judges "the window has closed" on the time the herald observed on chain (`min(now, season.latest_unix)`), never on the runner's extrapolated clock (test in `owners_reveal_in_the_arrival_bell_by_persona`). **This did not fix the persona's `violated` verdict** in the eager runs (F1, §4).
+`late_revealer` now judges "the window has closed" on the time the herald observed on chain (`min(now, season.latest_unix)`), never on the runner's extrapolated clock (test in `owners_reveal_once_t_arrive_is_published_by_persona`). **This did not fix the persona's `violated` verdict** in the eager runs (F1, §4).
 
 ### 1.4 The `frontier-fund` and `defence-pool` holds aim at their situation (DECISIONS O11, contract v1.9 §25 open item)
 

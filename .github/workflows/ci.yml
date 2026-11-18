@@ -299,6 +299,9 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
           cargo test --locked -p findex --lib
+          # Literal records only (no key generated, derived or signed): a
+          # reader never sees a healthy ingest as blocked (loop-play B4-D).
+          cargo test --locked -p findex --test reader_during_ingest
           cargo test --locked -p herald --lib
 
   frontier-wasm:

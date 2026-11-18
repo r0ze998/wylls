@@ -1,7 +1,9 @@
 //! V0 on the recorded fixtures (⑱, an independent patch): a successful
 //! program instruction the verifier cannot judge is never a PASS. Each case
 //! appends one successful transaction (or rewrites CreateSeason's version)
-//! to a fixture that PASSes, and expects V0's code and a non-PASS verdict.
+//! to a recorded fixture (each PASSes, or for the synthetic march season FAILs
+//! only on its six pinned impossible tickets), and expects V0's code and a
+//! non-PASS verdict.
 
 mod common;
 
@@ -55,11 +57,16 @@ fn v0(r: &verify_core::Report) -> Vec<(Severity, String)> {
 
 #[test]
 fn the_fixtures_have_nothing_for_v0() {
-    for inp in [land(), march(), march_program()] {
+    for inp in [land(), march_program()] {
         let r = verify_core::verify(&inp);
         assert_eq!(v0(&r), vec![], "{}", show(&r));
         assert_eq!(r.verdict, Verdict::Pass);
     }
+    // The synthetic march season FAILs only on its six pinned impossible
+    // tickets (V11, `common::MARCH_SYNTH_IMPOSSIBLE_TICKETS`); V0 has nothing.
+    let r = verify_core::verify(&march());
+    assert_eq!(v0(&r), vec![], "{}", show(&r));
+    assert_only_the_impossible_tickets(&r);
 }
 
 #[test]
