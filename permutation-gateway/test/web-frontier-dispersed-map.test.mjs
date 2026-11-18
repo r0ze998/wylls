@@ -32,7 +32,7 @@ const dispersed = { placement: PLACEMENT_DISPERSED, heartlandMaxRing: 3, genesis
 /** The same placement as the decoded Season carries it (fcodec: a Uint8Array), through home.mjs seasonPlace. */
 const fromSeason = seasonPlace({ conquestParams: { placement: 1, heartlandMaxRing: 3 }, genesisSeed: Uint8Array.from(seed(1)) });
 /** Placements the map must read as nothing: no seed, a short seed, a placement the page does not know. */
-const unreadable = [{ placement: 1 }, { placement: 1, genesisSeed: [1] }, { placement: 2, genesisSeed: seed(1) }, seasonPlace({ conquestParams: { placement: 1 } })];
+const unreadable = [{ placement: 1 }, { placement: 1, genesisSeed: [1] }, { placement: 3, genesisSeed: seed(1) }, seasonPlace({ conquestParams: { placement: 1 } })];
 const size = { width: 1000, height: 800 };
 const legacyLoop = (f, rings) => { const out = []; for (let d = 1; d < Math.max(2, rings); d++) for (const pr of ringProvinces(d)) if (wedgeOf(pr.p, pr.q) === f) out.push({ p: pr.p, q: pr.q, ring: d }); return out; };
 const inPicture = (view, at) => { const s = fmap.worldToScreen(view, size, at.x, at.y); return s.x >= 0 && s.x <= size.width && s.y >= 0 && s.y <= size.height; };

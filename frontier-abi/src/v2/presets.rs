@@ -181,9 +181,11 @@ pub struct ConquestParams {
     pub relations: u8,
     pub flags: u8,
     /// First-home placement: [`PLACEMENT_WEDGE`] (each nation's homes in its
-    /// own wedge) or [`PLACEMENT_DISPERSED`] (each nation's homes in small
+    /// own wedge), [`PLACEMENT_DISPERSED`] (each nation's homes in small
     /// groups spread round the heartland rings,
-    /// `permutation_rules::frontier::geometry::home_nation`).
+    /// `permutation_rules::frontier::geometry::home_nation`) or
+    /// [`PLACEMENT_MIXED`] (the same mixing on every ring, so outer keeps
+    /// start mixed too).
     pub placement: u8,
     /// Map growth: the outermost ring ExtendFrontier may raise the season
     /// to (0 = no extension: `r_max` is final).
@@ -197,6 +199,10 @@ pub struct ConquestParams {
 pub const PLACEMENT_WEDGE: u8 = permutation_rules::frontier::geometry::PLACEMENT_WEDGE;
 /// `placement` 1: dispersed small groups in the heartland rings.
 pub const PLACEMENT_DISPERSED: u8 = permutation_rules::frontier::geometry::PLACEMENT_DISPERSED;
+/// `placement` 2 (⑧ wide land (i)): the dispersed rule on every ring, the
+/// heartland and beyond (`geometry::PLACEMENT_MIXED`). A new value: a
+/// program built before it refuses it at CreateSeason.
+pub const PLACEMENT_MIXED: u8 = permutation_rules::frontier::geometry::PLACEMENT_MIXED;
 
 impl ConquestParams {
     pub fn to_bytes(&self) -> [u8; CONQUEST_PARAMS_LEN] {
@@ -264,7 +270,7 @@ impl ConquestParams {
     pub fn from_bytes(d: &[u8]) -> Option<ConquestParams> {
         use cq_layout as L;
         if d.len() < CONQUEST_PARAMS_LEN
-            || d[L::PLACEMENT] > PLACEMENT_DISPERSED
+            || d[L::PLACEMENT] > PLACEMENT_MIXED
             || d[L::CONTINUOUS] > 1
             || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0)
         {
@@ -384,7 +390,7 @@ impl ConquestParams {
                 "release_after_secs",
             ),
             (p.retire_hosts <= 1, "retire_hosts"),
-            (p.placement <= PLACEMENT_DISPERSED, "placement"),
+            (p.placement <= PLACEMENT_MIXED, "placement"),
             (p.outpost_tier_min <= 3, "outpost_tier_min"),
             (p.outpost_share_bps <= 10_000, "outpost_share_bps"),
             ((1..=8).contains(&p.outpost_range), "outpost_range"),
@@ -646,11 +652,29 @@ pub const S1_LOCAL_7D: SeasonParamsV2 = s1(MC_LOCAL_7D);
 pub const S1_LOCAL_14D: SeasonParamsV2 = s1(MC_LOCAL_14D);
 pub const S1_TEST: SeasonParamsV2 = s1(MC_TEST);
 
+/// A season as a CONTINUOUS world (conquest byte 80 `continuous = 1`, the
+/// end and join-close bells the no-end sentinel): the shape
+/// [`SeasonParamsV2::validate`] requires of a continuous world, every other
+/// byte unchanged.
+pub const fn continuous(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = p;
+    q.cq.continuous = 1;
+    q.base.end_bell = crate::presets::NO_END_BELL;
+    q.base.join_close_bell = crate::presets::NO_END_BELL;
+    q
+}
+
+/// `S1_LOCAL_7D` as a continuous world (⑧ P1: the local launcher's opt-in
+/// `--continuous local-continuous-v1`): the same parameters, no end bell, joins
+/// always open, `EndSeason` refused (`CqError::ContinuousWorld`).
+pub const S1_LOCAL_CONTINUOUS: SeasonParamsV2 = continuous(S1_LOCAL_7D);
+
 /// Every S1 preset with its name (vectors).
-pub const PRESETS_S1: [(&str, SeasonParamsV2); 3] = [
+pub const PRESETS_S1: [(&str, SeasonParamsV2); 4] = [
     ("S1_LOCAL_7D", S1_LOCAL_7D),
     ("S1_LOCAL_14D", S1_LOCAL_14D),
     ("S1_TEST", S1_TEST),
+    ("S1_LOCAL_CONTINUOUS", S1_LOCAL_CONTINUOUS),
 ];
 
 #[cfg(test)]
@@ -697,6 +721,10 @@ mod tests {
         for (name, p) in PRESETS_S1 {
             assert_eq!(p.base.program_version, PROGRAM_VERSION_S1, "{name}");
             assert_eq!(p.validate(), Ok(()), "{name}");
+            if name == "S1_LOCAL_CONTINUOUS" {
+                assert_eq!(continuous(S1_LOCAL_7D), p);
+                continue;
+            }
             let mc = PRESETS
                 .iter()
                 .find(|(n, _)| n[3..] == name[3..])
@@ -704,6 +732,32 @@ mod tests {
                 .unwrap();
             assert_eq!(s1(mc), p);
         }
+    }
+
+    /// ⑧ P1: the local continuous preset is `S1_LOCAL_7D` with exactly the
+    /// three continuous fields changed, it round-trips, and its params hash
+    /// differs from the finite world's.
+    #[test]
+    fn s1_local_continuous_is_s1_local_7d_with_no_end() {
+        let (f, c) = (S1_LOCAL_7D, S1_LOCAL_CONTINUOUS);
+        assert_eq!(c.cq.continuous, 1);
+        assert_eq!(f.cq.continuous, 0);
+        assert_eq!(c.base.end_bell, crate::presets::NO_END_BELL);
+        assert_eq!(c.base.join_close_bell, crate::presets::NO_END_BELL);
+        assert_eq!(c.validate(), Ok(()));
+        let mut back = c;
+        back.cq.continuous = 0;
+        back.base.end_bell = f.base.end_bell;
+        back.base.join_close_bell = f.base.join_close_bell;
+        assert_eq!(back, f, "nothing else changed");
+        let raw = c.to_bytes();
+        assert_eq!(SeasonParamsV2::from_bytes(&raw), Some(c));
+        assert_eq!(raw[SEASON_PARAMS_LEN + cq_layout::CONTINUOUS], 1);
+        let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
+        assert_ne!(
+            params_hash_v2(&raw, &payout),
+            params_hash_v2(&f.to_bytes(), &payout)
+        );
     }
 
     #[test]
@@ -765,7 +819,8 @@ mod tests {
         assert_eq!(bad(|p| p.base.program_version = 1), Err("program_version"));
         assert_eq!(bad(|p| p.cq.relations = 1), Err("relations"));
         assert_eq!(bad(|p| p.cq.flags = 1), Err("flags"));
-        assert_eq!(bad(|p| p.cq.placement = 2), Err("placement"));
+        assert_eq!(bad(|p| p.cq.placement = 3), Err("placement"));
+        assert_eq!(bad(|p| p.cq.placement = PLACEMENT_MIXED), Ok(()));
         // Map growth: 0 (no extension), or above r_max (16) and ≤ 128.
         assert_eq!(bad(|p| p.cq.r_max_ceiling = 16), Err("r_max_ceiling"));
         assert_eq!(bad(|p| p.cq.r_max_ceiling = 129), Err("r_max_ceiling"));
@@ -899,11 +954,35 @@ mod tests {
         bad[80] = 2;
         assert!(ConquestParams::from_bytes(&bad).is_none());
         bad = raw;
-        bad[77] = 2;
+        bad[77] = 3; // (2 is PLACEMENT_MIXED since ⑧ wide land (i))
         assert!(ConquestParams::from_bytes(&bad).is_none());
         bad = raw;
         bad[81] = 1;
         assert!(ConquestParams::from_bytes(&bad).is_none());
+    }
+
+    /// ⑧ wide land (i): placement 2 round-trips, byte 3 is refused, and the
+    /// value is committed by the params hash (a season of placement 2 is
+    /// never the same Season as one of placement 1).
+    #[test]
+    fn placement_mixed_round_trips_and_is_hashed() {
+        assert_eq!(PLACEMENT_MIXED, 2);
+        let mut p = S1_LOCAL_7D;
+        p.cq.placement = PLACEMENT_MIXED;
+        assert_eq!(p.validate(), Ok(()));
+        let raw = p.to_bytes();
+        assert_eq!(raw[SEASON_PARAMS_LEN + cq_layout::PLACEMENT], 2);
+        assert_eq!(SeasonParamsV2::from_bytes(&raw), Some(p));
+        let mut bad = p.cq.to_bytes();
+        bad[cq_layout::PLACEMENT] = 3;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        let mut d = p;
+        d.cq.placement = PLACEMENT_DISPERSED;
+        let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
+        assert_ne!(
+            params_hash_v2(&raw, &payout),
+            params_hash_v2(&d.to_bytes(), &payout)
+        );
     }
 
     #[test]

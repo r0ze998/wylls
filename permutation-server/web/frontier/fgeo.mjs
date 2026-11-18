@@ -114,21 +114,23 @@ export const regionOf = (p, q) => sha256(REGION_DOMAIN, le32(p), le32(q))[0] % R
 
 /** First-home placements (frontier-abi `cq_layout::PLACEMENT`). */
 export const PLACEMENT_WEDGE = 0, PLACEMENT_DISPERSED = 1;
+/** Placement 2 (⑧ wide land (i)): the dispersed rule on EVERY ring >= 2, the heartland and beyond (geometry PLACEMENT_MIXED). */
+export const PLACEMENT_MIXED = 2;
 const PLACEMENT_DOMAIN = utf8('PSF-PLACEMENT-v1');
 /**
  * The nation whose first homes a province takes (permutation-rules
  * `geometry::home_nation`): the wedge, except under the dispersed placement
- * in rings 2..=heartlandMaxRing, where it is (position in the ring +
+ * in rings 2..=heartlandMaxRing (and under the mixed placement in every ring >= 2), where it is (position in the ring +
  * u64le(sha256(domain ‖ genesisSeed ‖ le16 ring)[..8]) mod 6) mod 6.
  * `genesisSeed` is 32 bytes; null for the Concord.
  */
 export function homeNation(p, q, { placement = PLACEMENT_WEDGE, heartlandMaxRing = 3, genesisSeed = null } = {}) {
   const r = ringOf(p, q);
   if (r === 0) return null;
-  if (![PLACEMENT_WEDGE, PLACEMENT_DISPERSED].includes(Number(placement))) return null;
+  if (![PLACEMENT_WEDGE, PLACEMENT_DISPERSED, PLACEMENT_MIXED].includes(Number(placement))) return null;
   if (Number(placement) === PLACEMENT_WEDGE) return wedgeOf(p, q);
   if (!genesisSeed || genesisSeed.length !== 32) return null;
-  if (r < 2 || r > Number(heartlandMaxRing)) return wedgeOf(p, q);
+  if (r < 2 || (Number(placement) === PLACEMENT_DISPERSED && r > Number(heartlandMaxRing))) return wedgeOf(p, q);
   const i = provinceIndex(p, q) - provincesWithin(r - 1);
   const h = sha256(PLACEMENT_DOMAIN, Uint8Array.from(genesisSeed), Uint8Array.of(r & 255, r >> 8));
   const o = Number(new DataView(h.buffer, h.byteOffset, 8).getBigUint64(0, true) % 6n);

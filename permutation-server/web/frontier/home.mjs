@@ -24,12 +24,18 @@ export function saveHome(storage, key, patch) {
   storage.set(key, JSON.stringify(v));
   return loadHome(storage, key);
 }
-/** The season's placement for `homeNation`, or undefined for explicit legacy placement. Missing dispersed evidence never falls back. */
+/**
+ * The season's FIRST-HOME placement for `homeNation`, or undefined for explicit legacy placement. Missing dispersed
+ * evidence never falls back. Placement 2 (⑧ wide land (i): the keeps of every ring start mixed) places first villages
+ * exactly as placement 1 does (program: PlaceHome only in the heartland, where 2 is 1; tickets past the heartland keep
+ * the wedge rule, `ticket_nation_allowed`), so it is the dispersed rule here; the mixed outer keeps are read from the
+ * chain's Keep, never computed from this.
+ */
 export function seasonPlace(season) {
   const cq = season?.conquestParams ?? season ?? {};
   const placement = Number(cq.placement ?? 0), seed = season?.genesisSeed ?? cq.genesisSeed;
   if (placement === 0) return undefined;
-  return { placement, heartlandMaxRing: Number(cq.heartlandMaxRing ?? 3), genesisSeed: seed };
+  return { placement: placement === 2 ? 1 : placement, heartlandMaxRing: Number(cq.heartlandMaxRing ?? 3), genesisSeed: seed };
 }
 export const grantId = h => `${h.p},${h.q},${h.site},${h.gen}`;
 

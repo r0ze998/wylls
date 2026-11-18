@@ -197,12 +197,12 @@ test('the hooks: the page boots once, after the gate, only for local play; the c
   assert.equal(ctrl.split('saveHome(uiStorage').length - 1 + ctrl.split('loadHome(uiStorage').length - 1, 0, 'no direct use of the device\'s storage for the home record is left');
   assert.match(ctrl, /if \(run\) ACTIONS\[name\] = \(\.\.\.a\) => \(localPlay \? failed\(localPlayReadOnly\(\)\) : run\(\.\.\.a\)\);/, 'and runs as before on an ordinary page');
   assert.match(ctrl, /if \(cfg\.dev && cfg\.devWallet !== false && pin\?\.cluster === 'localnet'\) await wallet\.enableDevWallet/, 'the dev wallet stays behind cfg.devWallet, which the gate sets false');
-  assert.match(ctrl, /const mine = \(FS\.walletList \?\? \[\]\)\.find\(w => w\.name === EPHEMERAL_WALLET_NAME && !w\.why\);\n    const c = mine \? await wallet\.connect\(mine, \{ chain: wallet\.chainOf\('localnet'\) \}\)\.catch\(\(\) => null\) : null;\n    if \(c && c\.address === localPlay\.address\) adoptConnectedWallet\(c\);/, 'connected through the ordinary Wallet Standard path, and only if it is the gate\'s wallet');
+  assert.match(ctrl, /const mine = \(FS\.walletList \?\? \[\]\)\.find\(w => LOCAL_PLAY_WALLET_NAMES\.includes\(w\.name\) && !w\.why\);\n    const c = mine \? await wallet\.connect\(mine, \{ chain: wallet\.chainOf\('localnet'\) \}\)\.catch\(\(\) => null\) : null;\n    if \(c && c\.address === localPlay\.address\) adoptConnectedWallet\(c\);/, 'connected through the ordinary Wallet Standard path, and only if it is the gate\'s wallet');
   // flocalplay.mjs itself: no storage, console, key or send API
   const code = lp.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
   assert.doesNotMatch(code, /localStorage|sessionStorage|console\.|innerHTML|insertAdjacentHTML|\.style\b|signTransaction|signMessage|keyFromSeed|fsession|sendTransaction|fetch\(/);
   // (the launcher world's standing notice and the read that confirms its end: web-frontier-local-play-session / -world-instance tests)
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-keystore.mjs', './flocalplay-march.mjs', './flocalplay-session.mjs']);
   // the panel's own stylesheet: every rule scoped to the panel, nothing of the game's styles named
   const css = read('flocalplay.css').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const rule of css.split('}').map(r => r.split('{')[0].trim()).filter(r => r && !r.startsWith('@'))) for (const sel of rule.split(',')) assert.match(sel.trim(), /^#local-play-(gate|session)\b/, `scoped to the panel or the standing notice: ${sel.trim()}`);

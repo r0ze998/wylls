@@ -437,7 +437,16 @@ pub const PLACEMENT_WEDGE: u8 = 0;
 /// First-home placement 1: each nation's heartland is a set of single
 /// provinces spread round every heartland ring ([`home_nation`]).
 pub const PLACEMENT_DISPERSED: u8 = 1;
-/// Domain of the per-ring offset of [`PLACEMENT_DISPERSED`].
+/// First-home placement 2 (⑧ wide land, owner decision (i), 2026-11-18): the
+/// dispersed rule of [`PLACEMENT_DISPERSED`] on EVERY ring `r >= 2`, not only
+/// the heartland, so the nation a province's keep starts with is mixed out to
+/// the disk's edge and on into the wide land with the same formula
+/// (`frontier_abi::world_index::placement::mixed_home_nation`): no rule
+/// switch past the heartland, none at ring 128/129. Homes, heartland safety
+/// and heartland tickets are exactly those of [`PLACEMENT_DISPERSED`];
+/// placements 0 and 1 keep their meaning.
+pub const PLACEMENT_MIXED: u8 = 2;
+/// Domain of the per-ring offset of [`PLACEMENT_DISPERSED`] (and [`PLACEMENT_MIXED`]).
 pub const PLACEMENT_DOMAIN: &[u8] = b"PSF-PLACEMENT-v1";
 
 /// The nation whose first homes (and heartland keep) a province takes.
@@ -452,6 +461,9 @@ pub const PLACEMENT_DOMAIN: &[u8] = b"PSF-PLACEMENT-v1";
 ///   provinces of ring `r`, six positions apart, and the same seed gives
 ///   the same map.
 ///
+/// * [`PLACEMENT_MIXED`] in every ring `r >= 2` (heartland or not): the same
+///   position-plus-offset rule as the dispersed heartland.
+///
 /// `None` for the Concord only.
 pub fn home_nation(
     p: ProvinceCoord,
@@ -460,7 +472,12 @@ pub fn home_nation(
     genesis_seed: &[u8; 32],
 ) -> Option<u8> {
     let r = p.ring();
-    if placement != PLACEMENT_DISPERSED || r < 2 || r > heartland_max_ring as u32 {
+    let mixed_here = match placement {
+        PLACEMENT_DISPERSED => r >= 2 && r <= heartland_max_ring as u32,
+        PLACEMENT_MIXED => r >= 2,
+        _ => false,
+    };
+    if !mixed_here {
         return p.wedge();
     }
     let i = p.index() - provinces_within(r - 1);
@@ -674,5 +691,68 @@ mod tests {
             assert_eq!(ring.len() as u32, ring_size(d));
             assert!(ring.iter().all(|p| p.ring() == d));
         }
+    }
+
+    /// ⑧ wide land (i): placement 2 is the dispersed rule in the heartland
+    /// and the same position-plus-offset rule on every ring past it (no
+    /// wedge fallback), with the same heartland safety; placements 0 and 1
+    /// are unchanged by it.
+    #[test]
+    fn home_nation_mixed_extends_the_dispersed_rule_to_every_ring() {
+        for s in 0..6u8 {
+            let seed = [s; 32];
+            for hmr in 2..=4u8 {
+                for d in 0..=12u32 {
+                    let ring = ring_provinces(d);
+                    let got: Vec<Option<u8>> = ring
+                        .iter()
+                        .map(|p| home_nation(*p, PLACEMENT_MIXED, hmr, &seed))
+                        .collect();
+                    for (i, p) in ring.iter().enumerate() {
+                        if d < 2 {
+                            assert_eq!(got[i], p.wedge(), "rings 0-1 are as before");
+                        } else if d <= hmr as u32 {
+                            assert_eq!(got[i], home_nation(*p, PLACEMENT_DISPERSED, hmr, &seed));
+                        } else {
+                            // the dispersed rule as if the heartland reached ring d
+                            assert_eq!(
+                                got[i],
+                                home_nation(*p, PLACEMENT_DISPERSED, d as u8, &seed)
+                            );
+                        }
+                        for f in 0..6 {
+                            assert_eq!(
+                                is_home_heartland(*p, f, PLACEMENT_MIXED, hmr, &seed),
+                                is_home_heartland(*p, f, PLACEMENT_DISPERSED, hmr, &seed),
+                                "heartland safety is the dispersed one"
+                            );
+                        }
+                    }
+                    if d >= 2 {
+                        for f in 0..6u8 {
+                            assert_eq!(got.iter().filter(|n| **n == Some(f)).count() as u32, d);
+                        }
+                        for i in 0..ring.len() {
+                            assert_ne!(
+                                got[i],
+                                got[(i + 1) % ring.len()],
+                                "ring {d}: neighbours differ"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // placements 0 and 1 outside the heartland: still the wedge
+        let seed = [3u8; 32];
+        for p in ring_provinces(7) {
+            assert_eq!(home_nation(p, PLACEMENT_DISPERSED, 3, &seed), p.wedge());
+            assert_eq!(home_nation(p, PLACEMENT_WEDGE, 3, &seed), p.wedge());
+        }
+        // an unknown placement byte is the wedge (validate refuses it before)
+        assert_eq!(
+            home_nation(ProvinceCoord::new(5, 0), 3, 3, &seed),
+            ProvinceCoord::new(5, 0).wedge()
+        );
     }
 }
