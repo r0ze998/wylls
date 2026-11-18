@@ -76,7 +76,7 @@ export function resultKind(x) {
   return null;
 }
 /** A result as the bus carries it (`turn:results`, `turn:scene`). */
-const pubResult = x => ({ id: x.id, kind: x.result, p: x.p, q: x.q, tile: x.tile ?? null, text: x.text ?? '', battle: x.battle ?? null, at: x.at, secs: x.secs, plays: x.plays, focus: !!x.focus });
+const pubResult = x => ({ id: x.id, kind: x.result, p: x.p, q: x.q, tile: x.tile ?? null, text: x.text ?? '', ...(x.words ? { words: x.words } : {}), battle: x.battle ?? null, at: x.at, secs: x.secs, plays: x.plays, focus: !!x.focus });
 /** Own results in the order they are shown: arrivals, then battles, then warnings; otherwise as they came. */
 export function orderResults(list) {
   return list.map((x, i) => ({ x, i, k: RESULT_ORDER.indexOf(x.result) })).sort((a, b) => a.k - b.k || a.i - b.i).map(o => o.x);

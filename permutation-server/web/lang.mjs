@@ -160,6 +160,18 @@ export function Lh(strings, ...values) {
   return html(strings, ...values);
 }
 
+/**
+ * `fn()` said in every language, at this moment: `{ja, en}` (B11, loop-play2). For words that are kept and shown
+ * later — a notification is made from what the page knew when it came, and a place it names may have changed since —
+ * so that a later switch shows them in the new language with the same facts. `fn` must be pure: it runs once per
+ * language, and the language in hand is put back after it (nothing is saved, no listener runs).
+ */
+export function inEachLang(fn) {
+  const was = current, out = {};
+  try { for (const l of LANGS) { current = l; out[l] = fn(); } } finally { current = was; }
+  return out;
+}
+
 /** A key that is not a template literal: t('メンバー {0}人', n). */
 export function t(key, ...args) {
   if (current === 'en') {
