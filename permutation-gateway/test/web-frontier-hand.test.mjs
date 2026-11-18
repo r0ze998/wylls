@@ -178,6 +178,9 @@ test('the village\'s bar while the owner\'s agent holds the key: the note says s
   setLang('ja');
   const { FS } = world();
   FS.selected = { kind: 'tile', p: 2, q: 0, idx: 30 };
+  // (this device holds a game key: "the key matches" below is about it. Q16-3: with no stored key, a held-elsewhere
+  //  key is told on the bar too — test/web-frontier-rekey-delegation.test.mjs)
+  FS.session = { publicKey: 'ThisDevice111111111111111111111111111111111' };
   assert.equal(hand.handModel(FS).noteTone ?? null, null, 'not delegated: no note');
   Object.assign(FS, { sessionProblem: 'SessionMismatch', delegation: { agentId: 'a1', mode: 'auto' } });
   const m = hand.handModel(FS);
@@ -185,7 +188,7 @@ test('the village\'s bar while the owner\'s agent holds the key: the note says s
   const bar = String(hand.renderHand(m));
   assert.match(bar, /hand-note-agent/);
   assert.match(bar, /代理人に任せています（自動）/);
-  assert.match(bar, /data-act="session"/);
+  assert.match(bar, /data-act="session-replace"/);
   assert.match(bar, /href="agent\.html" data-agent-link/);
   FS.delegation = { agentId: 'a1', mode: 'manual' };
   assert.match(String(hand.renderHand(hand.handModel(FS))), /代理人は停止中/);
