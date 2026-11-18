@@ -35,11 +35,11 @@ Each is a code change for a later unit (none is W6-E's), listed so the owner can
 
 | # | Gap | Evidence | Suggested fix |
 |---|---|---|---|
-| G1 | **No TLS client in `frontier-node`.** `fclient::http` speaks plain `http://` only; the keeper, herald and bots cannot reach `https://api.devnet.solana.com` or the public drand endpoints. (`drand-replay prefetch` shells out to `curl` for HTTPS.) | `fclient/src/http.rs` header; W1-F R4 | an integrator dependency request (`rustls`-based client), or a loopback TLS-terminating forward proxy per host (configuration only, but every request then trusts that proxy) |
-| G2 | **The keeper reads the transaction feed through `frontier_feed`**, a `frontier-localnet` extension (`RpcPort::localnet` in `keeper/src/main.rs`); a public RPC has no such call | `fclient/src/rpc.rs` `feed()` returns `Unsupported` for a public RPC | reuse `findex::RpcPoll` (the herald's `--source rpc` path) in the keeper |
+| G1 | **Addressed 2026-11-18 (devnet-readiness B1, `fclient::https`: curl GET and JSON-RPC POST; no TLS crate, Q-D2).** Was: **No TLS client in `frontier-node`.** `fclient::http` speaks plain `http://` only; the keeper, herald and bots cannot reach `https://api.devnet.solana.com` or the public drand endpoints. (`drand-replay prefetch` shells out to `curl` for HTTPS.) | `fclient/src/http.rs` header; W1-F R4 | an integrator dependency request (`rustls`-based client), or a loopback TLS-terminating forward proxy per host (configuration only, but every request then trusts that proxy) |
+| G2 | **Addressed 2026-11-18 (B2: `keeper.toml` `feed = "rpc"`, `keeper_core::clusterfeed` over `findex::RpcPoll`).** Was: **The keeper reads the transaction feed through `frontier_feed`**, a `frontier-localnet` extension (`RpcPort::localnet` in `keeper/src/main.rs`); a public RPC has no such call | `fclient/src/rpc.rs` `feed()` returns `Unsupported` for a public RPC | reuse `findex::RpcPoll` (the herald's `--source rpc` path) in the keeper |
 | G3 | **No live drand source for the keeper**: `drand-replay` serves an archive or the test key; the keeper's `drand` URLs must answer `/{chain}/public/{round}` over plain HTTP | `drand-replay` modes | G1's TLS client pointed at the public quicknet endpoints, with the keeper's blstrs verification (it already verifies every round) |
 | G4 | **No operator tool** for AnnounceSeason, CreateSeason, InitBeaconLogs and the six InitShards against a public RPC: these steps exist only inside `frontier-stack` (`stack/src/setup.rs`) against the local node | `setup.rs` | a small `frontier-operator` binary (or `frontier-stack operator --rpc`), signing with the upgrade authority from a file or hardware wallet |
-| G5 | **No address listing** for keeper and relay payers and funders | keeper CLI | `frontier-keeper --print-addresses`; the relay's `GET /f/operator/pool` already lists its pool |
+| G5 | **Addressed 2026-11-18 (B4).** Was: **No address listing** for keeper and relay payers and funders | keeper CLI | `frontier-keeper --config keeper.toml --print-addresses`; `frontier-keeper --print-relay-addresses <relay-master.seed>` (offline; the relay's `GET /f/operator/pool` also lists its pool) |
 | G6 | **BLS12-381 syscalls on devnet** are assumed (DESIGN §8.5 cites them for mainnet, Agave 4.0) but were never checked on devnet; without them PostAnchor, PostSeed, ConsumeGenesisSeed and ConsumeRingSeed fail and the season cannot start | M1 ran quicknet verification only in LiteSVM and `frontier-localnet` | a read-only feature-gate check on devnet **[approval]** before anything else |
 | G7 | **Rent on devnet** may differ from the 5,080 lamports per byte the model uses (SIMD-0437 on mainnet) | DESIGN §8.2 | read `getMinimumBalanceForRentExemption` during G6's check **[approval]**; §5 gives both rates |
 | G8 | **Payer floors for a small season:** the keeper's defaults are sized for 50k wallets (reveal R99 4,000 → 0.215 SOL per payer; delay floor 0.5 SOL per payer) | `fclient::payers` | configuration only: `r99_reveals = 150`, `delay_floor = 50000000` (§4) |
@@ -98,6 +98,7 @@ program = "<PROGRAM_ID>"
 season = <ID>
 beneficiary = "<operator beneficiary>"
 rpc = ["<devnet RPC over the G1/G2 path>"]
+feed = "rpc"               # B2: findex RpcPoll feed (feed_poll_ms 2000, feed_max_backoff_ms 60000, rpc_min_gap_ms 150)
 drand = ["<quicknet over the G1/G3 path>"]
 roles = ["beacon","reveal","settle-departure","gather","resolve","skip","settle","tickets","explore","archive","close","fold","rings","dormancy","claims","sweep"]
 reveal_pool = 150
@@ -123,10 +124,11 @@ Keeper B: the same with its own seed, journal, token, beneficiary, `api = "127.0
 frontier-herald --data herald/ --program <PROGRAM_ID> --season <ID> \
   --rpc <devnet RPC over the G1 path> --source rpc --cluster devnet \
   --listen 127.0.0.1:41040 --web permutation-server/web --relay 127.0.0.1:41033 \
-  --drand-info quicknet-info.json --checkpoint-slots 150 --poll-ms 400
+  --drand-info quicknet-info.json --checkpoint-slots 150 --poll-ms 400 \
+  --public-host <the public host name> --rpc-min-gap-ms 150
 ```
 
-A TLS reverse proxy (hosting is the owner's decision, P2) forwards the public origin to `127.0.0.1:41040` and nothing else; the herald's security headers and CSP apply as on the local stack. No other port is public.
+A TLS reverse proxy (hosting is the owner's decision, P2) forwards the public origin to `127.0.0.1:41040` and nothing else; the herald's security headers and CSP apply as on the local stack. No other port is public. The herald answers only requests whose `Host` names loopback or a `--public-host` name (port ignored), and refuses a `WS /h/ws` upgrade from any other browser `Origin` (2026-11-18, devnet-readiness B13; DNS-rebinding defence): the proxy must pass the original `Host` (or rewrite it to one of those names). `--rpc-min-gap-ms` spaces every herald call to the RPC (default 150 ms with `--source rpc`; HTTP 429/503 backs off).
 
 **Ports** stay in 41000–41999 on every host, never 4185, 4190, 4191, 4194, 18899, 17799, 28899, 27799, 26699, 5185 or 5191.
 
