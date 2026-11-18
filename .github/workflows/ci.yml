@@ -399,6 +399,18 @@ jobs:
           # reader never sees a healthy ingest as blocked (loop-play B4-D).
           cargo test --locked -p findex --test reader_during_ingest
           cargo test --locked -p herald --lib
+      # Q16-1 = A (prize gate): the verifier's PLAYABLE lane (program version
+      # 0x4804) is behind the `playable-lane` feature, which no other step
+      # builds. Lint it, and run its checks over the committed recordings
+      # (VL, VWL: wide land, claims, closes, economy, garrison). These tests
+      # read recorded archives only: no key is generated, derived or signed
+      # (every recorder in these files is #[ignore] and is not run here).
+      - name: Verifier playable lane (lints, recorded-fixture tests; key-free)
+        if: hashFiles('frontier-node/Cargo.toml') != ''
+        working-directory: frontier-node
+        run: |
+          cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next
 
   frontier-wasm:
     name: Frontier M1 web kernels (WASM build and hash)
