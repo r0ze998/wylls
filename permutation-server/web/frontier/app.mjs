@@ -18,8 +18,9 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // page; their logic is in screens/{report,practice,onboarding,spectate}.mjs
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
-import { localPlayRequested, openLocalPlayGate } from './flocalplay.mjs';
-import { staleBannerView, rereadLabel } from './stale-banner.mjs';
+import { localPlayRequested, openLocalPlayGate, localPlayWorldCheck } from './flocalplay.mjs';
+import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
+import { createWorldWatch, worldStateOf, worldEndedWord } from './flocalplay-ended.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
@@ -29,7 +30,7 @@ import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
-import { ChainClock, bellChip, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
+import { ChainClock, bellChip, bellAt, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
@@ -46,12 +47,13 @@ import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeN
 const worldNow = () => FS.world ?? worldOf(FS.record);
 const ringsOpenNow = () => Math.max(1, worldNow().ringsOpen);
 const seededNow = () => seededRings(worldNow());
-import { readOverviews } from './map/overviews.mjs';
+import { readOverviews, forgetOverviewRefusals } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
+import * as coopTitles from './hud/coopoutcomes.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -204,6 +206,8 @@ export function chipText(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
   // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
+  // (a local-play world its launcher has ended: the last turn it reached, and that it is over — B5)
+  if (chip.stopped) return L`ターン ${fmtNum(chip.bell)} · 終了済み`;
   if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
   return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
 }
@@ -212,7 +216,7 @@ export function chipText(chip) {
 export function dialParts(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
   if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
-  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.stopped ? worldEndedWord() : chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
 }
 
 /**
@@ -245,16 +249,21 @@ export function dialMarkup(chip) {
   return out;
 }
 
+/** The dial's chip of a world confirmed ended (`FS.worldEnded`): its last turn, marked `stopped`; any other chip as it is. */
+export const stoppedChip = (chip, ended) => (ended && chip && chip.bell !== null && !chip.beforeGenesis ? { ...chip, stopped: true } : chip);
+
 function renderChip() {
   const now = FS.chain?.now() ?? null;
   const chip = $('bell-chip');
-  if (chip) setHtmlIfChanged(chip, dialMarkup(FS.clock ? bellChip(FS.clock, now) : null));
+  if (chip) setHtmlIfChanged(chip, dialMarkup(FS.clock ? stoppedChip(bellChip(FS.clock, now), FS.worldEnded) : null));
   renderHudTick(now);
   FS.stale = staleness({ latestUnix: FS.record?.latestUnix, chainNow: now, behind: FS.chain?.behind() ?? null });
   const banner = $('stale-banner');
   if (banner) {
-    const v = staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
+    // (B5: a world confirmed ended is not "behind" — the banner says that it ended)
+    const v = FS.worldEnded ? endedBannerView() : staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
     banner.hidden = v.hidden;
+    if (banner.dataset && (banner.dataset.ended === '1') !== !!v.ended) { if (v.ended) banner.dataset.ended = '1'; else delete banner.dataset.ended; }
     if (!v.hidden) {
       // (local play: the words and one re-read button, made once and kept, so a press is never lost to the redraw)
       let text = banner.querySelector('.stale-text'), btn = banner.querySelector('[data-act="state-reread"]');
@@ -439,7 +448,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
     const warned = (FS.incoming ?? []).length > 0;
     parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
     settingsMarkup(FS), ...surveyHelpWithProto(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
@@ -2490,6 +2499,11 @@ function landRevision() {
   }
   return s;
 }
+/** The turn of the chain time the herald last reported (ChainClock.seen), or null: never the local clock's extrapolation. */
+function seenBell() {
+  const t = FS.chain?.seen?.() ?? null;
+  return FS.clock && t !== null ? bellAt(FS.clock.genesisTs, t) : null;
+}
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
   tickTurn();
@@ -3991,7 +4005,7 @@ export const HUD_ACTIONS = {
   },
   'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },
   'forecast-retry': () => { const c = FS.compose; if (!c || c.sending || !c.forecast?.unread) return; updateForecast({ again: true }); invalidate('panel'); },
-  'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
+  'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) { forgetOverviewRefusals(FS); loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); } retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
   // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
@@ -4053,6 +4067,21 @@ function renderChips() {
 
 // ------------------------------------------------------------------ wave 4: report, practice, onboarding (W4-E)
 let heraldRef = null;
+/** Local play, launcher worlds: the watch that asks the launcher about this world after a failed herald read (flocalplay-ended.mjs). */
+let worldWatch = null;
+/**
+ * This page's world was confirmed ended (B5): the clock stands at the herald's last sample from now on (ChainClock.halt:
+ * what the local clock added after it never happened), the turn the panels use is that sample's, the season poll's own
+ * "could not connect" gives way to the banner that says the world ended, and everything is drawn again. Never undone.
+ */
+export function worldEnded() {
+  FS.worldEnded = { at: Date.now() };
+  FS.chain?.halt?.();
+  if (FS.error?.source === 'season') FS.error = null;
+  const m = FS.clock ? hud.bellModel(FS.clock, FS.chain?.now() ?? null) : null;
+  if (m && Number.isInteger(m.bell)) FS.nowBell = m.bell;
+  invalidate('chip', 'status', 'map', 'panel', 'tabs', 'rail');
+}
 const num = x => Number.parseInt(x, 10);
 
 /** Save the onboarding flags (ps-fui `dismissed`) of the pinned season; in memory only before a season is pinned. */
@@ -4413,6 +4442,12 @@ async function loadSeason(herald) {
   const seq = askSeason();
   const r = await herald.season();
   if (seasonStale(seq)) return true;
+  // (the loop-play report B5, launcher worlds only: a read that failed by the network is the one reason to ask the
+  //  launcher whether it still runs this world — flocalplay-ended.mjs; a herald that answers is never doubted. Once the
+  //  world is confirmed ended, a read that fails says nothing new: the banner says the world ended, and the season
+  //  poll's "could not connect" is not raised beside it)
+  if (!r.ok && r.code === 'network') worldWatch?.readFailed();
+  if (!r.ok && FS.worldEnded) { clearInspection(FS); clearOutbound(FS); return false; }
   if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) }); invalidate('status'); return false; }
   const { record, season } = r;
   const reportWas = reportWorld();
@@ -4548,6 +4583,9 @@ export async function boot() {
   // takes none of this path.
   if (localPlayRequested(cfg)) cfg = (await openLocalPlayGate({ cfg, makeHerald: base => createHerald({ base }) }).ready).cfg;
   FS.mode = cfg.mode;
+  // (the loop-play report B5: a launcher world that its launcher has ended is said to have ended, and its clock stands
+  //  at the herald's last sample — worldEnded; the launcher is asked only after a herald read failed by the network)
+  { const check = localPlayWorldCheck(cfg); if (check) worldWatch = createWorldWatch({ ask: () => check().then(worldStateOf), onEnded: worldEnded }); }
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
   // the materials drawn by code (paper grain, the sheet's uneven edge, cloth, brushed metal): hud/textures.mjs
@@ -4634,6 +4672,8 @@ export async function boot() {
           threatLabel: w => L`来襲 ターン ${fmtNum(w.bell)}`,
           // the bell now (an overview older than the last bell no longer says "a clash this bell")
           bell: FS.nowBell ?? null,
+          // (the turn of the herald's own latest sample, never extrapolated: what "has arrived" is judged by — B5)
+          seenBell: seenBell(),
           // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap
           actions: actionsNow(),
           hoverRoute,
@@ -4857,6 +4897,9 @@ export async function boot() {
         // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
         // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
         if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        // (workstream 15, ruleset B: the titles and chronicle of cooperation 01's board judges — read only, a record that
+        //  changes no standing; nothing drawn on a server without them. Installs once — hud/coopoutcomes.mjs)
+        try { coopTitles.installCoopOutcomes({ changed: () => invalidate('panel') }); } catch (e) { console.error('frontier coop titles:', e); }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });

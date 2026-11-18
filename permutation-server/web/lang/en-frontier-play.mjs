@@ -1852,4 +1852,24 @@ export default {
   '土地の候補を読み直す': 'Load the candidate places again',
   '土地の候補を読み込んでいます…': 'Loading the candidate places…',
   'あなたの記録をまだ読めていないので、土地の候補を読み直せませんでした。少し待って、もう一度お試しください。': 'Your record is not loaded yet, so the candidate places could not be loaded again. Wait a little and try once more.',
+  // (the loop-play report B5–B9, 2026-11-18)
+  'この世界は終了しました。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。': 'This world has ended. Its turns no longer advance and no order can be sent. To play on, open the start page again and start a new world.',
+  '終了済み': 'ended',
+  'ターン {0} · 終了済み': 'Turn {0} · ended',
+  'ローカルプレイでは、{0}はまだ送れません（読み取りのみ）。': 'In local play, {0} cannot be sent yet (read only).',
+  '他国が占拠を進めている、あなたの国の砦': 'Keeps of your nation that another nation is taking',
+
+  // (2026-11-18, ⑮ ruleset B: the titles and chronicle of cooperation between nations — hud/coopoutcomes.mjs)
+  'ある国': 'a nation',
+  '所属の分からない領主': 'a lord of an unknown nation',
+  '{0}の領主': 'a lord of {0}',
+  '{0}が称号「{1}」を得た': a => `${cap(a)} earned the title “{1}”`,
+  '理由：{0}': 'Why: {0}',
+  '称号と記録': 'Titles and records',
+  '国をまたぐ協力の達成。勝敗・得点・賞金には関わらない': 'What cooperation between nations achieved. It does not affect who wins, scores or prizes',
+  '称号と記録を読み込めませんでした（{0}）。記録が空という意味ではありません': 'Could not load the titles and records ({0}). This does not mean there are none',
+  'まだ判定できない達成 {0}（記録が欠けているか、量が確かめられない）': 'Achievements not decided yet: {0} (records are missing, or amounts are not confirmed)',
+  'まだ称号はありません': 'No titles yet',
+  'それより前の称号（{0}）': 'Earlier titles ({0})',
+  '称号と記録だけです。勝敗・得点・賞金・シーズンの終わりには何も加えません': 'Titles and records only. Nothing is added to who wins, scores, prizes or the end of a season',
 };

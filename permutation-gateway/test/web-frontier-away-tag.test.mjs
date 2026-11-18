@@ -33,7 +33,13 @@ test('the passed-arrival words keep the board\'s rules: public (not "only you"),
   }
 });
 
-test('the map passes the turn now to the away tag', () => {
+// (the loop-play report B5, 2026-11-18: the turn handed to the tag is the turn of the herald's own latest sample
+//  (`seenBell`), not the page's extrapolated turn — a world stopped on turn 8 said "arrived on turn 10")
+test('the map passes the turn the herald last reported to the away tag, never the extrapolated turn', () => {
   const src = readFileSync(new URL('../../permutation-server/web/frontier/map/fmap.mjs', import.meta.url), 'utf8');
-  assert.match(src, /awayText\(B\.away\.arriveBell, Number\.isInteger\(F\.src\?\.bell\) \? F\.src\.bell : null\)/);
+  assert.match(src, /awayText\(B\.away\.arriveBell, Number\.isInteger\(F\.src\?\.seenBell\) \? F\.src\.seenBell : null\)/);
+  assert.doesNotMatch(src, /awayText\([^)]*F\.src\.bell/);
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(app, /seenBell: seenBell\(\),/);
+  assert.match(app, /function seenBell\(\) \{\n  const t = FS\.chain\?\.seen\?\.\(\) \?\? null;\n  return FS\.clock && t !== null \? bellAt\(FS\.clock\.genesisTs, t\) : null;\n\}/);
 });
