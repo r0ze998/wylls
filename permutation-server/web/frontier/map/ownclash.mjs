@@ -35,6 +35,7 @@ import { config } from '../config.mjs';
 import { bus as pageBus } from '../fx/bus.mjs';
 import { battleScene, BATTLE_SPEEDS, PHASE } from '../people/battle.mjs';
 import { provinceName } from '../hud/place.mjs';
+import { said } from '../hud/words.mjs';
 
 const int = Number.isInteger;
 /** The notifications kept (hud/feed.mjs FEED_MAX). */
@@ -102,7 +103,7 @@ export function ownClashItem(fs, { p, q, bell, inputs, before, after }) {
   const scene = battleScene({ p, q, bell, inputs, before, after });
   const part = scene ? ownPart(fs, scene) : null;
   if (!part) return null;
-  return { id: `cl:${p},${q},${bell}`, kind: 'battle', bell: fs?.nowBell ?? bell, p, q, tile: part.tile, battle: { p, q, bell }, text: ownClashText(fs, { p, q, bell }, part), residents: !!scene.residents };
+  return { id: `cl:${p},${q},${bell}`, kind: 'battle', bell: fs?.nowBell ?? bell, p, q, tile: part.tile, battle: { p, q, bell }, ...said(() => ownClashText(fs, { p, q, bell }, part)), residents: !!scene.residents };
 }
 
 /** The CLASH records of the log the page has read that had an engagement: `[{p, q, bell}]`. */

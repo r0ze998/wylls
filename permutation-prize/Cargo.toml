@@ -16,6 +16,10 @@ crate-type = ["cdylib", "lib"]
 
 [features]
 no-entrypoint = []
+# Continuous-world settlement windows (InitEpochPool, EpochTally,
+# EpochFinalize, Sweep; src/epoch.rs). Test assets, local and devnet only;
+# OFF by default, so the default build has none of these instructions.
+epochs = []
 
 [dependencies]
 solana-program = "=4.0.0"

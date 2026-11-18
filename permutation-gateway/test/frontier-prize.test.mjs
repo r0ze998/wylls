@@ -7,16 +7,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { encode as base58 } from '../client/src/base58.mjs';
-import { fromBase64, toBase64, toHex, u64le } from '../client/src/bytes.mjs';
+import { fromBase64, toBase64, toHex, u32le, u64le } from '../client/src/bytes.mjs';
 import { CLOCK_SYSVAR, FrontierAddresses } from '../client/src/frontier/addresses.mjs';
 import { encodeAccount } from '../client/src/frontier/codec.mjs';
 import { rent } from '../client/src/frontier/fees.mjs';
-import { ata, claimAmount, claimIx, classifyPaidJoin, decodeEntry, decodePool, ENTRY_SIZE, entryAddress, joinViaX402, leafHash, merkleTree, nodeHash, opsPart, paidJoinBudget,
-  paidJoinMessage, payIx, POOL_SIZE, prizeAddresses, x402Decode, x402Encode } from '../client/src/frontier/prize.mjs';
+import { ata, claimAmount, claimIx, classifyPaidJoin, decodeEntry, decodePool, ENTRY_SIZE, entryAddress, exclusionAddress, joinViaX402, leafHash, merkleTree, nodeHash, opsPart, paidJoinBudget,
+  paidJoinMessage, payIx, POOL_SIZE, PRIZE_TAG, prizeAddresses, x402Decode, x402Encode } from '../client/src/frontier/prize.mjs';
 import { shapeMessage } from '../client/src/frontier/shapes.mjs';
 import { compileMessage, parseTransaction, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk, verifyTalk } from '../client/src/talk-node.mjs';
 import { createFrontierApps } from '../src/frontier/app.mjs';
+import { isMark } from '../src/frontier/routes/prize.mjs';
 import { InviteBook } from '../src/frontier/invites.mjs';
 import { PayerPool } from '../src/frontier/payers.mjs';
 import { call } from './gateway-fixtures.mjs';
@@ -34,12 +35,13 @@ const FEE = 25_000_000n;
 const gate = Keypair.generate();
 
 const put = (d, o, bytes) => d.set(bytes, o);
-function poolData({ fee = FEE, opsBps = 2000, entries = 0, state = 0, counted = 0, winnersMask = 0, mode = 0, shareNations = 0, totals = [0, 0, 0, 0, 0, 0], area = [0, 0, 0, 0, 0, 0] } = {}) {
+function poolData({ fee = FEE, opsBps = 2000, entries = 0, state = 0, counted = 0, winnersMask = 0, mode = 0, shareNations = 0, totals = [0, 0, 0, 0, 0, 0], area = [0, 0, 0, 0, 0, 0], vault = PRIZE.vault, epoch = null } = {}) {
   const d = new Uint8Array(POOL_SIZE);
   put(d, 0, new TextEncoder().encode('WYPRPOOL'));
   d[10] = state; d[11] = 6; d[12] = winnersMask; d[13] = mode; d[14] = shareNations;
   put(d, 16, u64le(SEASON_ID)); put(d, 24, new PublicKey(PROGRAM).toBytes()); put(d, 56, new PublicKey(A.season).toBytes());
-  put(d, 120, new PublicKey(MINT).toBytes()); put(d, 152, new PublicKey(PRIZE.vault).toBytes());
+  put(d, 120, new PublicKey(MINT).toBytes()); put(d, 152, new PublicKey(vault).toBytes());
+  if (epoch !== null) { put(d, 600, u32le(epoch)); d[620] = 1; put(d, 456, u32le(2_016)); }
   put(d, 184, u64le(fee)); d[192] = opsBps & 255; d[193] = opsBps >> 8; d[194] = 54; d[196] = counted;
   d[232] = entries;
   const collected = fee * BigInt(entries);
@@ -66,7 +68,7 @@ function clockAccount(unix) {
 function fakeChain({ debit = () => 0n, fail = () => null, onSent = () => {} } = {}) {
   const c = {
     accounts: new Map(), confirmedOnly: new Set(), sent: [], simulated: 0, statuses: new Map(), height: 100,
-    set(key, v) { c.accounts.set(String(key), { lamports: v.lamports ?? 1_000_000_000, data: Buffer.from(v.data ?? []) }); },
+    set(key, v) { c.accounts.set(String(key), { lamports: v.lamports ?? 1_000_000_000, data: Buffer.from(v.data ?? []), ...(v.owner ? { owner: v.owner } : {}) }); },
     getAccountInfo: async (key, commitment) => {
       const address = new PublicKey(key).toBase58();
       if (commitment === 'finalized' && c.confirmedOnly.has(address)) return null;
@@ -103,20 +105,21 @@ function fakeChain({ debit = () => 0n, fail = () => null, onSent = () => {} } = 
   return c;
 }
 
-function relay({ chain = fakeChain(), prize = true, gated = true, pool = {}, faucetKey = null, cluster = 'localnet' } = {}) {
+function relay({ chain = fakeChain(), prize = true, gated = true, pool = {}, faucetKey = null, cluster = 'localnet', epoch = null } = {}) {
+  const P = epoch === null ? PRIZE : prizeAddresses({ prizeProgram: PRIZE_PROGRAM, gameProgram: PROGRAM, seasonId: SEASON_ID, mint: MINT, epoch });
   const payers = new PayerPool({ masterSeed: Buffer.alloc(32, 7), n: 150 });
   for (const k of payers.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: encodeAccount('Season', { SEASON_ID, STATUS: 2, GENESIS_TS: BigInt(GENESIS), MARCH_FEE: 10_000n, SEAL_BOND: 20_000n, MIN_REVEAL_PRIORITY_MILLI: 433,
     REVEAL_CU_LIMIT: 26_000, REVEAL_LOADED_LIMIT: 1_048_576, JOIN_GATE: gated ? gate.publicKey.toBytes() : new Uint8Array(32) }) });
   chain.set(CLOCK_SYSVAR, { data: clockAccount(GENESIS + 3_600) });
-  if (prize) chain.set(PRIZE.pool, { data: poolData(pool) });
+  if (prize) chain.set(P.pool, { data: poolData({ ...pool, vault: P.vault, epoch }) });
   const store = { state: {}, save() { store.saves = (store.saves ?? 0) + 1; } };
   const cfg = { cluster, programId: PROGRAM, seasonId: String(SEASON_ID), heraldPeer: '127.0.0.1', heraldUrl: 'http://127.0.0.1:41040', minPoolSol: 1, operatorToken: 'op',
-    prizeProgram: prize ? PRIZE_PROGRAM : null, prizeMint: prize ? MINT : null, faucetAmount: 100_000_000, prizeLedgerFile: null };
+    prizeProgram: prize ? PRIZE_PROGRAM : null, prizeMint: prize ? MINT : null, prizeEpoch: epoch, faucetAmount: 100_000_000, prizeLedgerFile: null };
   const invites = new InviteBook({ secret: Buffer.alloc(32, 3), seasonId: SEASON_ID, store });
   const logs = [];
   const apps = createFrontierApps({ cfg, connection: chain, pool: payers, invites, gateKey: gated ? gate : null, faucetKey, store, log: m => logs.push(m) });
-  return { ...apps, chain, payers, store, logs };
+  return { ...apps, chain, payers, store, logs, invites };
 }
 
 const joinAccounts = (w, withGate = true) => ({ wallet: w, season: A.season, frontier: A.frontier, citizen: A.citizen(w), joinshard: A.joinShardFor(2, w), ...(withGate ? { join_gate: gate.publicKey.toBase58() } : {}) });
@@ -364,6 +367,135 @@ test('joinViaX402: one request, the 402, the paid retry; it refuses requirements
   const viaAdapter = await joinViaX402('http://relay', { ...args, wallet: w2.publicKey.toBase58(), fetch: viaHandler(),
     signTransaction: async wire => { const tx = parseTransaction(wire); return wireTransaction(tx.message, { [w2.publicKey.toBase58()]: signTalk(tx.message, w2) }); } });
   assert.equal(viaAdapter.body.wallet, w2.publicKey.toBase58());
+});
+
+// ⑰ settlement windows (test USDC): the relay names its window in `extra.epoch`; the SDK must derive that window's pool
+// and vault, and still refuse a payee that is not that window's (verify-pr54 D-2: it derived the legacy pool instead).
+test('joinViaX402 into an epoch pool: the SDK derives the window\'s pool and vault from extra.epoch, and refuses another window', async () => {
+  const EPOCH = prizeAddresses({ prizeProgram: PRIZE_PROGRAM, gameProgram: PROGRAM, seasonId: SEASON_ID, mint: MINT, epoch: 0 });
+  assert.notEqual(EPOCH.pool, PRIZE.pool);
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ debit: () => rent(384) + rent(ENTRY_SIZE), onSent: (_, c) => c.set(EPOCH.pool, { data: poolData({ entries: 1, vault: EPOCH.vault, epoch: 0 }) }) });
+  const r = relay({ chain, epoch: 0 });
+  const viaHandler = tamper => async (url, init) => {
+    const a = await call(r.public, init.method, new URL(url).pathname, { body: init.body, headers: Object.fromEntries(Object.entries(init.headers).map(([k, v]) => [k.toLowerCase(), v])), ip: '203.0.113.9' });
+    const json = tamper && a.status === 402 ? tamper(a.json) : a.json;
+    return { status: a.status, headers: { get: k => a.headers[Object.keys(a.headers).find(h => h.toLowerCase() === k.toLowerCase())] ?? null }, json: async () => json };
+  };
+  const req = await requirements(r);
+  assert.deepEqual([req.extra.epoch, req.extra.pool, req.payTo], [0, EPOCH.pool, EPOCH.vault]);
+  const view = (await call(r.public, 'GET', '/f/prize', { ip: '203.0.113.9' })).json;
+  assert.deepEqual([view.epoch, view.pool, view.window.epoch, view.window.endBell], [0, EPOCH.pool, 0, 2_016]);
+  assert.equal((await call(relay().public, 'GET', '/f/prize', { ip: '203.0.113.9' })).json.window, null, 'a legacy pool has no window');
+  const args = { wallet, sign: async m => signTalk(m, w), faction: 2, session: joinFields.session, sessionExpiry: joinFields.session_expiry };
+  // The relay claiming another window than its pool: refused before signing.
+  const otherWindow = j => ({ ...j, accepts: [{ ...j.accepts[0], extra: { ...j.accepts[0].extra, epoch: 1 } }] });
+  await assert.rejects(joinViaX402('http://relay', { ...args, fetch: viaHandler(otherWindow) }), e => e.code === 'X402Mismatch');
+  // Dropping the epoch (a legacy reading of the same requirements): refused too.
+  const noEpoch = j => { const { epoch, ...extra } = j.accepts[0].extra; return { ...j, accepts: [{ ...j.accepts[0], extra }] }; };
+  await assert.rejects(joinViaX402('http://relay', { ...args, fetch: viaHandler(noEpoch) }), e => e.code === 'X402Mismatch');
+  assert.equal(chain.sent.length, 0);
+  const done = await joinViaX402('http://relay', { ...args, maxFee: FEE, fetch: viaHandler() });
+  assert.deepEqual([done.ok, done.paymentResponse.payer], [true, wallet]);
+  assert.equal(chain.sent.length, 1);
+  // The landed transaction pays the epoch pool's vault through the epoch pool.
+  const pay = chain.sent[0].instructions.find(ix => ix.programId === PRIZE_PROGRAM);
+  const payKeys = pay.keys.map(k => k.pubkey);
+  assert.ok(payKeys.includes(EPOCH.pool) && payKeys.includes(EPOCH.vault), 'Pay names the epoch pool and its vault');
+  assert.ok(!payKeys.includes(PRIZE.pool) && !payKeys.includes(PRIZE.vault), 'and never the legacy pool');
+});
+
+// ⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. Operator AI residents and script bots
+// join by operator invite; in an epoch-pool world the relay marks each such wallet on chain (ExcludeWallet, the gate's
+// signature) BEFORE it co-signs the Join, and the paid join's Pay names the exclusion address the program checks.
+// The program's ExcludeWallet, as the fake chain applies it: the mark at keys[4], owned by the prize program.
+const markAccount = () => { const d = new Uint8Array(72); d.set(new TextEncoder().encode('WYPRNOPZ')); return { owner: new PublicKey(PRIZE_PROGRAM), lamports: 1_392_000, data: d }; };
+function programWritesMarks(tx, c) {
+  for (const ix of tx.instructions) if (ix.programId === PRIZE_PROGRAM && ix.data[0] === PRIZE_TAG.EXCLUDE_WALLET) c.set(ix.keys[4].pubkey, markAccount());
+}
+
+// verify-pr54 D-9 (regression): an invited member sends lamports to its own exclusion address before joining. Something
+// is then at the address — a system-owned account with no data — but it is no mark: the relay still marks (the program
+// takes a pre-funded address over), and refuses the join when the mark does not land.
+test('epoch world: a pre-funded exclusion address is no mark — the relay marks anyway, and refuses the join if the mark does not land', async () => {
+  const SYS = new PublicKey('11111111111111111111111111111111');
+  const prefund = w => ({ owner: SYS, lamports: 1_000_000, data: new Uint8Array(0) });
+  const join = async (r, kp, fp) => {
+    const plain = signedBy(shapeMessage({ programId: PROGRAM, name: 'Join', accounts: joinAccounts(kp.publicKey.toBase58()), fields: joinFields, feePayer: fp, recentBlockhash: BLOCKHASH }), kp);
+    const [invite] = r.invites.issue(1);
+    return call(r.public, 'POST', '/f/join', { body: { tx: toBase64(plain), invite }, ip: '203.0.113.9' });
+  };
+  // The program writes the mark over the pre-funded account: marked, then joined.
+  const chain = fakeChain({ debit: () => rent(384), onSent: programWritesMarks });
+  const r = relay({ chain, epoch: 0 });
+  const fp = (await requirements(r)).extra.feePayer;
+  const bypasser = Keypair.generate();
+  const at = exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, bypasser.publicKey.toBase58());
+  chain.set(at, prefund());
+  const ok = await join(r, bypasser, fp);
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal(chain.sent.length, 2, 'the mark was sent although something was at the address, then the Join');
+  assert.ok(chain.sent[0].instructions.some(x => x.programId === PRIZE_PROGRAM && x.data[0] === PRIZE_TAG.EXCLUDE_WALLET));
+  assert.equal(chain.accounts.get(at).owner.toBase58(), PRIZE_PROGRAM);
+  // A mark that does not land (the account stays the member's pre-funded one): the join is refused, no Join is sent.
+  const chain2 = fakeChain({ debit: () => rent(384) });
+  const r2 = relay({ chain: chain2, epoch: 0 });
+  const fp2 = (await requirements(r2)).extra.feePayer;
+  const b2 = Keypair.generate();
+  chain2.set(exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, b2.publicKey.toBase58()), prefund());
+  const refused = await join(r2, b2, fp2);
+  assert.deepEqual([refused.status, refused.json.code], [503, 'MarkFailed']);
+  assert.equal(chain2.sent.length, 1, 'only the mark attempt; the Join was never co-signed');
+  assert.ok(!chain2.sent.some(tx => tx.instructions.some(x => x.programId === PROGRAM)));
+  // Data at the address under another owner is no mark either.
+  assert.equal(isMark({ owner: SYS, data: markAccount().data }, PRIZE_PROGRAM), false);
+  assert.equal(isMark(markAccount(), PRIZE_PROGRAM), true);
+  assert.equal(isMark({ owner: new PublicKey(PRIZE_PROGRAM), data: new Uint8Array(72) }, PRIZE_PROGRAM), false);
+});
+
+test('epoch world: an invite join is marked an operator member on chain first; the paid join names the exclusion address', async () => {
+  const EPOCH = prizeAddresses({ prizeProgram: PRIZE_PROGRAM, gameProgram: PROGRAM, seasonId: SEASON_ID, mint: MINT, epoch: 0 });
+  const chain = fakeChain({ debit: () => rent(384), onSent: programWritesMarks });
+  const r = relay({ chain, epoch: 0 });
+  const ai = Keypair.generate();
+  const wallet = ai.publicKey.toBase58();
+  const { feePayer } = (await call(r.public, 'GET', '/f/season', { ip: '203.0.113.9' })).json;
+  const fp = feePayer ?? (await requirements(r)).extra.feePayer;
+  const plain = signedBy(shapeMessage({ programId: PROGRAM, name: 'Join', accounts: joinAccounts(wallet), fields: joinFields, feePayer: fp, recentBlockhash: BLOCKHASH }), ai);
+  const [invite] = r.invites.issue(1);
+  const res = await call(r.public, 'POST', '/f/join', { body: { tx: toBase64(plain), invite }, ip: '203.0.113.9' });
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(chain.sent.length, 2, 'the mark, then the Join');
+  const [mark, join] = chain.sent;
+  const ix = mark.instructions.find(x => x.programId === PRIZE_PROGRAM);
+  assert.deepEqual([ix.data[0], ix.keys[0].pubkey, ix.keys[0].isSigner], [PRIZE_TAG.EXCLUDE_WALLET, gate.publicKey.toBase58(), true]);
+  assert.equal(ix.keys[4].pubkey, exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, wallet));
+  assert.equal(ix.keys[5].pubkey, wallet);
+  assert.ok(join.instructions.some(x => x.programId === PROGRAM));
+  // A wallet already marked (the program's account: owner and magic) is not marked again: its next invite join sends the Join only.
+  const again = Keypair.generate();
+  chain.set(exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, again.publicKey.toBase58()), markAccount());
+  const plainAgain = signedBy(shapeMessage({ programId: PROGRAM, name: 'Join', accounts: joinAccounts(again.publicKey.toBase58()), fields: joinFields, feePayer: fp, recentBlockhash: BLOCKHASH }), again);
+  const [inv3] = r.invites.issue(1);
+  assert.equal((await call(r.public, 'POST', '/f/join', { body: { tx: toBase64(plainAgain), invite: inv3 }, ip: '203.0.113.9' })).status, 200);
+  assert.equal(chain.sent.length, 3, 'only the Join was added');
+  // The paid join's Pay names the wallet's exclusion address (the program refuses a marked wallet: LiteSVM epoch.rs).
+  const human = Keypair.generate().publicKey.toBase58();
+  const pay = payIx({ prize: EPOCH, wallet: human, payer: fp });
+  assert.equal(pay.keys.length, 10);
+  assert.equal(pay.keys[9].pubkey, exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, human));
+  assert.equal(payIx({ prize: PRIZE, wallet: human, payer: fp }).keys.length, 9, 'a legacy pool\'s Pay is unchanged');
+  const c = claimIx({ prize: EPOCH, wallet: human, citizen: A.citizen(human) });
+  assert.equal(c.keys.at(-1).pubkey, exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, human));
+  // A legacy-pool world never marks anyone.
+  const legacy = relay({ chain: fakeChain({ debit: () => rent(384) }) });
+  const w2 = Keypair.generate();
+  const plain2 = signedBy(shapeMessage({ programId: PROGRAM, name: 'Join', accounts: joinAccounts(w2.publicKey.toBase58()), fields: joinFields, feePayer: fp, recentBlockhash: BLOCKHASH }), w2);
+  const [inv2] = legacy.invites.issue(1);
+  const res2 = await call(legacy.public, 'POST', '/f/join', { body: { tx: toBase64(plain2), invite: inv2 }, ip: '203.0.113.9' });
+  assert.equal(res2.status, 200, JSON.stringify(res2.json));
+  assert.equal(legacy.chain.sent.length, 1);
 });
 
 // ------------------------------------------------------------------ pool view, faucet, claim
