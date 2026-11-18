@@ -34,6 +34,31 @@ const refusedNow=(FS,world,ring)=>{const w=refusals.get(FS)?.get(ring);return !!
 export function overviewRefused(FS,ring) {
   return !FS.overviews?.has?.(ring)&&refusedNow(FS,FS.world,ring);
 }
+/**
+ * The rings whose overview did not come that the map says so of NOW (app.mjs readMarksNow, ⑦; fix-stale-tooltip
+ * 2026-11-19): `[{p, q, ring}]`. Seen live in the six-nation real-client video: the two rings the herald refused
+ * (404 NoSuchRing, PR #46) stayed in FS.overviewMisses, and the words "the list of villages in this ring is not loaded"
+ * stood over the World chart for the whole 85 s. Now a miss is said only
+ *  - for this world's misses (`key`, the pinned world the miss was noted in), on an open, seeded ring of FS.world;
+ *  - never for a ring the herald refused under this extent (`overviewRefused`): nothing is coming, and asking again is
+ *    the province card's explicit re-read, not a map label;
+ *  - never once its overview is held (it goes the moment the read comes);
+ *  - and only for the ring the person is looking at: a place of `looking` (the selected province, the province at the
+ *    view's centre when the map is zoomed in) that lies in it — the words stand on that place. A ring merely missed
+ *    while the person looks elsewhere is retried quietly by the season poll (loadOverviews) and not marked.
+ * Pure: reads FS, asks nothing.
+ */
+export function ringMissMarks(FS,{key,looking=[]}={}) {
+  const miss=FS.overviewMisses,out=[];
+  if(!miss||miss.world!==key||!FS.world||!miss.rings?.has) return out;
+  for(const at of looking) {
+    if(!Number.isInteger(at?.p)||!Number.isInteger(at?.q)) continue;
+    const d=ringOf(at.p,at.q);
+    if(out.some(m=>m.ring===d)||!miss.rings.has(d)||FS.overviews?.has?.(d)||!ringSeeded(FS.world,d)||overviewRefused(FS,d)) continue;
+    out.push({p:at.p,q:at.q,ring:d});
+  }
+  return out;
+}
 /** Forget every refusal: the next read asks those rings again (an explicit re-read by the player). */
 export function forgetOverviewRefusals(FS) {refusals.delete(FS);}
 // (2026-11-17, ⑦: the pinned world a caller names with `source` — a function giving the world now, with its generation —
