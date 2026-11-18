@@ -7,6 +7,10 @@
 //! through fclient's verified curl GET; the chain is pinned, see below). The loopback API serves when `api` is set, with the
 //! `/v1/reveal` accept path reading the same RPC (W3-C).
 //! `--init-seed` writes a fresh 32-byte master seed (mode 0600) and exits.
+//! `--print-addresses` prints the public keys of the configured payers,
+//! funders and claim key and exits; `--print-relay-addresses <seed file>
+//! [--relay-pool-size N]` (no `--config`) prints the relay pool's
+//! (`keeper_core::payerlist`; public keys only, no network).
 //! With `FRONTIER_KEEPER_TICK_LOG=1` every tick prints one `TICK` line to
 //! stderr (slot, the chain's slot at the first send, versions sent, wall
 //! ms per phase; W6T-2), and an idle tick that sent (the in-slot drand
@@ -16,14 +20,14 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use fclient::beacon::HttpDrand;
-use fclient::rpc::RpcPort;
+use keeper_core::clusterfeed::{self, ClusterPort};
 use keeper_core::config::KeeperConfig;
 use keeper_core::journal::{self, Journal};
 use keeper_core::{api, Keeper};
 
 fn usage() -> ! {
     eprintln!(
-        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide] [--follow-wide] [--review-wide <version_hex>:<ruleset_hash_hex>]"
+        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--print-addresses] [--require-existing-journal] [--observe-wide] [--follow-wide] [--review-wide <version_hex>:<ruleset_hash_hex>]\n       frontier-keeper --print-relay-addresses <relay-master.seed> [--relay-pool-size N]"
     );
     std::process::exit(2);
 }
@@ -64,6 +68,9 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut cfg_path = None;
     let (mut dev, mut init, mut require_existing_journal) = (false, false, false);
+    let mut print_addresses = false;
+    let mut relay_seed: Option<PathBuf> = None;
+    let mut relay_pool_size = keeper_core::payerlist::RELAY_POOL_DEFAULT;
     #[cfg(feature = "wide-world-experimental")]
     let mut observe_wide = false;
     // `--follow-wide`: the read-only observation follower after the legacy
@@ -113,13 +120,47 @@ async fn main() {
                 i += 1;
             }
             "--init-seed" => init = true,
+            "--print-addresses" => print_addresses = true,
+            "--print-relay-addresses" => {
+                relay_seed = Some(
+                    args.get(i + 1)
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| usage()),
+                );
+                i += 1;
+            }
+            "--relay-pool-size" => {
+                relay_pool_size = args
+                    .get(i + 1)
+                    .and_then(|x| x.parse().ok())
+                    .filter(|n| (1..=10_000).contains(n))
+                    .unwrap_or_else(|| usage());
+                i += 1;
+            }
             "--require-existing-journal" => require_existing_journal = true,
             _ => usage(),
         }
         i += 1;
     }
+    if let Some(p) = relay_seed {
+        // Offline: the relay's seed file → its pool's public keys.
+        if cfg_path.is_some() || init || print_addresses {
+            usage();
+        }
+        let seed = std::fs::read_to_string(&p)
+            .map_err(|e| e.to_string())
+            .and_then(|t| keeper_core::payerlist::relay_seed(&t))
+            .unwrap_or_else(|e| {
+                eprintln!("{}: {e}", p.display());
+                std::process::exit(2)
+            });
+        for l in keeper_core::payerlist::relay(&seed, relay_pool_size) {
+            println!("{l}");
+        }
+        return;
+    }
     let Some(cfg_path) = cfg_path else { usage() };
-    if init && require_existing_journal {
+    if init && (require_existing_journal || print_addresses) {
         usage();
     }
     #[cfg(feature = "wide-world-experimental")]
@@ -159,6 +200,27 @@ async fn main() {
         eprintln!("{e} (run with --init-seed once)");
         std::process::exit(2)
     });
+    if print_addresses {
+        // Offline: no journal lock, no RPC, no drand; public keys only.
+        let claim = cfg.beneficiary_key_file.as_ref().map(|p| {
+            read_seed(p).unwrap_or_else(|e| {
+                eprintln!("beneficiary_key_file: {e}");
+                std::process::exit(2)
+            })
+        });
+        match keeper_core::payerlist::keeper(&master, &cfg, claim.as_ref()) {
+            Ok(list) => {
+                for l in list {
+                    println!("{l}");
+                }
+                return;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(2)
+            }
+        }
+    }
     let jpath = cfg
         .journal
         .clone()
@@ -210,11 +272,24 @@ async fn main() {
         hex::encode(info.chain_hash),
         info.beacon_id
     );
-    let port = RpcPort::localnet(rpc.clone(), cfg.program);
+    // `feed = "localnet"`: the local node's `frontier_feed`; `feed = "rpc"`:
+    // a public cluster polled through findex's RpcPoll (B2). One pacer for
+    // every client of the RPC (`rpc_min_gap_ms`).
+    let pacer = clusterfeed::pacer(&cfg);
+    let port = ClusterPort::from_config(&cfg, &rpc, &pacer).unwrap_or_else(|e| {
+        eprintln!("keeper.toml: {e}");
+        std::process::exit(2)
+    });
+    eprintln!(
+        "frontier-keeper: rpc {} feed {:?}, {} ms between calls",
+        fclient::https::redact(&rpc),
+        cfg.feed,
+        cfg.rpc_min_gap().as_millis()
+    );
     // The `/v1/reveal` accept path reads the chain through its own client.
     let gate: std::sync::Arc<dyn keeper_core::reveal_accept::RevealGate> =
         std::sync::Arc::new(keeper_core::reveal_accept::ChainGate {
-            port: RpcPort::localnet(rpc, cfg.program),
+            port: clusterfeed::read_port(&cfg, &rpc, &pacer),
             addrs: fclient::addr::Addresses::new(cfg.program, cfg.season_id),
         });
     let drand = HttpDrand::new(cfg.drand.clone(), info);

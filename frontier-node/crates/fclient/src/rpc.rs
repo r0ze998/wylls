@@ -2,10 +2,14 @@
 //!
 //! `RpcPort::localnet(url, program)` also reads the ordered transaction feed
 //! (`frontier_feed`); against a public RPC `feed` needs the
-//! `getSignaturesForAddress` + `getTransaction` pager, which `findex`'s
-//! `RpcPoll` ingest adds in wave 2 (W2-F), so it reports `Unsupported` here.
+//! `getSignaturesForAddress` + `getTransaction` pager, `findex`'s `RpcPoll`,
+//! so it reports `Unsupported` here: the herald (`--source rpc`) and the
+//! keeper (`feed = "rpc"`, `keeper::clusterfeed`) wrap this port with it.
+//! An `https://` URL is served through `crate::https` (B1).
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -23,6 +27,73 @@ pub struct RpcClient {
     pub url: String,
     id: AtomicU64,
     max_response_bytes: Option<usize>,
+    /// Options of an `https://` URL's POSTs (trust anchor, limits).
+    pub https: crate::https::PostOpts,
+    /// Spacing shared with other clients of the same endpoint (a public
+    /// RPC's per-IP limit), `None`: unpaced (loopback).
+    pub pacer: Option<Arc<Pacer>>,
+}
+
+/// Request spacing for one public RPC endpoint, shared by every client that
+/// reads it from this process (devnet-readiness B2: the public devnet RPC
+/// is rate-limited per IP). Each call waits for its turn (`min_gap` after
+/// the previous one); an HTTP 429 or 503 pushes every client back by a
+/// penalty that doubles up to `max_penalty` and clears on the next success.
+#[derive(Debug)]
+pub struct Pacer {
+    pub min_gap: Duration,
+    pub max_penalty: Duration,
+    state: tokio::sync::Mutex<PacerState>,
+}
+
+#[derive(Debug)]
+struct PacerState {
+    next: Option<tokio::time::Instant>,
+    penalty: Duration,
+}
+
+impl Pacer {
+    pub fn new(min_gap: Duration, max_penalty: Duration) -> Arc<Pacer> {
+        Arc::new(Pacer {
+            min_gap,
+            max_penalty: max_penalty.max(Duration::from_millis(1)),
+            state: tokio::sync::Mutex::new(PacerState {
+                next: None,
+                penalty: Duration::ZERO,
+            }),
+        })
+    }
+
+    /// Waits for this caller's turn (FIFO: the lock is held across the
+    /// wait, so callers go one `min_gap` apart in arrival order).
+    pub async fn turn(&self) {
+        let mut st = self.state.lock().await;
+        let now = tokio::time::Instant::now();
+        if let Some(n) = st.next.filter(|n| *n > now) {
+            tokio::time::sleep_until(n).await;
+        }
+        st.next = Some(tokio::time::Instant::now() + self.min_gap);
+    }
+
+    /// The endpoint said "too many requests": everyone waits a penalty.
+    pub async fn throttled(&self) {
+        let mut st = self.state.lock().await;
+        st.penalty = (st.penalty * 2)
+            .max(Duration::from_millis(500))
+            .min(self.max_penalty);
+        let until = tokio::time::Instant::now() + st.penalty;
+        st.next = Some(st.next.map_or(until, |n| n.max(until)));
+    }
+
+    /// A call succeeded: the penalty starts over.
+    pub async fn ok(&self) {
+        self.state.lock().await.penalty = Duration::ZERO;
+    }
+
+    /// The current penalty (tests, status).
+    pub async fn penalty(&self) -> Duration {
+        self.state.lock().await.penalty
+    }
 }
 
 impl RpcClient {
@@ -31,7 +102,22 @@ impl RpcClient {
             url: url.into(),
             id: AtomicU64::new(1),
             max_response_bytes: None,
+            https: crate::https::PostOpts::default(),
+            pacer: None,
         }
+    }
+
+    /// Spaces this client's calls through `pacer` (shared per endpoint).
+    pub fn with_pacer(mut self, pacer: Arc<Pacer>) -> RpcClient {
+        self.pacer = Some(pacer);
+        self
+    }
+
+    /// Trusts `ca` (a PEM file) instead of curl's store for `https://`
+    /// (loopback tests with their own CA).
+    pub fn with_cacert(mut self, ca: impl Into<std::path::PathBuf>) -> RpcClient {
+        self.https.cacert = Some(ca.into());
+        self
     }
 
     /// Opt-in cap on each response's HTTP wire bytes (headers and body).
@@ -39,19 +125,27 @@ impl RpcClient {
     /// Construction stores configuration only; it performs no I/O.
     pub fn new_with_response_limit(url: impl Into<String>, max_bytes: usize) -> RpcClient {
         RpcClient {
-            url: url.into(),
-            id: AtomicU64::new(1),
             max_response_bytes: Some(max_bytes),
+            ..RpcClient::new(url)
         }
     }
 
     pub async fn call(&self, method: &str, params: Value) -> PortResult<Value> {
         let id = self.id.fetch_add(1, Ordering::Relaxed);
         let req = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        let resp = match self.max_response_bytes {
-            Some(max_bytes) => crate::http::post_json_bounded(&self.url, &req, max_bytes).await?,
-            None => crate::http::post_json(&self.url, &req).await?,
-        };
+        if let Some(p) = &self.pacer {
+            p.turn().await;
+        }
+        let resp =
+            crate::http::post_json_with(&self.url, &req, self.max_response_bytes, &self.https)
+                .await?;
+        if let Some(p) = &self.pacer {
+            if matches!(resp.status, 429 | 503) {
+                p.throttled().await;
+            } else if resp.status == 200 {
+                p.ok().await;
+            }
+        }
         if resp.status != 200 {
             return Err(PortError::Http(resp.status));
         }
