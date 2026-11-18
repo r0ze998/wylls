@@ -170,6 +170,26 @@ class Refusals(unittest.TestCase):
         self.assertEqual(run('--print-plan', '--resume', '--fresh')[0], 2)
         self.assertEqual(run('--print-plan', '--resume', '--demo')[0], 2)  # a demo world is never kept
 
+    def test_random_map_is_opt_in_and_only_for_a_new_world(self):
+        # (without the flag: the launcher line is as before, the map is the fixed one, and the plan says so)
+        p = plan()
+        self.assertEqual(p['map'], 'fixed')
+        self.assertNotIn('--fresh-map', p['launcher'])
+        for extra in [(), ('--fresh',), ('--demo',), ('--demo', '--speed', '30'), ('--ai', '0')]:
+            p = plan('--random-map', *extra)
+            self.assertEqual(p['map'], 'fresh', extra)
+            self.assertEqual(p['launcher'].count('--fresh-map local-fresh-map-v1'), 1, extra)
+        # (a kept world keeps the map it was made with: never with --resume, in either order, before any write)
+        st, _ = kept_state()
+        for args in [('--random-map', '--resume'), ('--resume', '--random-map')]:
+            code, out, err = run('--print-plan', *args, env_extra={'PLAY_LOCAL_STATE': st})
+            self.assertEqual((code, out), (2, ''), args)
+            self.assertIn('--random-map', err)
+        self.assertEqual(plan('--resume', env_extra={'PLAY_LOCAL_STATE': st})['map'], 'fixed')
+        # (the word is the launcher's own, read from its source; the help names the flag)
+        self.assertIn("FRESH_MAP_MODE = 'local-fresh-map-v1'", read(os.path.join(ROOT, 'permutation-gateway/src/frontier/local-play-launcher.mjs')))
+        self.assertIn('--random-map', run('--help')[1])
+
     def test_resume_reopens_the_last_kept_world(self):
         st, world = kept_state(port=41930, ai=1)
         p = plan('--resume', env_extra={'PLAY_LOCAL_STATE': st})

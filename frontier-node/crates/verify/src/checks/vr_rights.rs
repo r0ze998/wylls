@@ -274,6 +274,10 @@ fn land_magic(m: &[u8; 8]) -> bool {
         || *m == wl::ring_seed::MAGIC
         || *m == wr::rules_config::MAGIC
         || *m == wl::province::MAGIC
+        // Q16-1 continued (2026-11-19): the wide claims' records (VWL
+        // judges their writes): the wide ticket and the wide holding.
+        || *m == frontier_abi::world_index::ticket::wide_ticket::MAGIC
+        || *m == frontier_abi::world_index::holding::wide_holding::MAGIC
 }
 #[cfg(not(feature = "playable-lane"))]
 fn land_magic(_: &[u8; 8]) -> bool {

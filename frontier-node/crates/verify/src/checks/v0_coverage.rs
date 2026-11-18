@@ -62,7 +62,9 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// handlers, which differ only where a wide marker or bridge is present,
 /// and only a wide instruction writes one), its land preview instructions
 /// by VL, the wide land opening (WideSetRules, WideRequestRingSeed,
-/// WideConsumeRingSeed, WideOpenProvince) by VWL, and every other wide
+/// WideConsumeRingSeed, WideOpenProvince) and the wide claims
+/// (WideClaimSite in its wallet form, WideSettleTicket, WideFinalize) by
+/// VWL, and every other wide
 /// instruction stays UNVERIFIABLE (`WideUnmodelled`, naming the command):
 /// see [`judge_outside_v2`].
 pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
