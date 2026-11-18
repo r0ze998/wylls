@@ -335,7 +335,7 @@ fn h_err(er: String) -> Wrong {
 
 // ------------------------------------------------------------ 0xD9
 
-pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<Key>, Wrong> {
+pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Key, Lam)>, Wrong> {
     n_accounts(ix, 12, "WideClaimSite")?;
     let k = |i: usize| ix.accounts[i].0;
     let (citizen, frontier, province, record) = (k(3), k(4), k(5), k(6));
@@ -679,12 +679,17 @@ pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<Key
     expect_after(e, &citizen, &cd, "the Citizen")?;
     expect_after(e, &anchor_k, &adw, "the anchor")?;
     expect_after(e, &province, &pdw, "the wide province")?;
-    let mut wrote = vec![record, citizen, anchor_k, province];
+    let mut wrote = vec![
+        (record, Lam::Checked),
+        (citizen, Lam::Same),
+        (anchor_k, Lam::Same),
+        (province, Lam::Same),
+    ];
     if flip_prev {
         let mut p = e.before(&prev_k, "the slot-2 holding")?.data;
         p[H::STATE] = H::STATE_FINAL;
         expect_after(e, &prev_k, &p, "the slot-2 holding")?;
-        wrote.push(prev_k);
+        wrote.push((prev_k, Lam::Same));
     }
     Ok(wrote)
 }
@@ -906,7 +911,11 @@ const DISPLACE: u8 = 1;
 const TAKEN: u8 = 2;
 const EXPIRED: u8 = 3;
 
-pub(super) fn settle_ticket(e: &Env, ix: &Ix, x: &wix::SettleTicket) -> Result<Vec<Key>, Wrong> {
+pub(super) fn settle_ticket(
+    e: &Env,
+    ix: &Ix,
+    x: &wix::SettleTicket,
+) -> Result<Vec<(Key, Lam)>, Wrong> {
     let n_disp = match ix.accounts.len() {
         10 => false,
         13 => true,
@@ -1111,8 +1120,13 @@ pub(super) fn settle_ticket(e: &Env, ix: &Ix, x: &wix::SettleTicket) -> Result<V
         wh::bind(&mut cd, slot).map_err(hld)?;
     }
     let mut pdw = pd.clone();
-    let mut wrote = vec![citizen, record, province];
+    let mut wrote = vec![
+        (citizen, Lam::Same),
+        (record, Lam::Checked),
+        (province, Lam::Same),
+    ];
     let mut rec_lamports = ra.lamports;
+    let mut paid_to_program: Option<Key> = None;
     if won {
         record_is_zero(&pd, site)?;
         let o = PV::site(site as usize);
@@ -1159,14 +1173,14 @@ pub(super) fn settle_ticket(e: &Env, ix: &Ix, x: &wix::SettleTicket) -> Result<V
                     .data;
                 wh::unbind(&mut dcd, oldrec.slot).map_err(hld)?;
                 expect_after(e, &dc, &dcd, "the displaced Citizen")?;
-                wrote.push(dc);
+                wrote.push((dc, Lam::Same));
                 if ds == shard {
                     shard_outposts(&mut jdw, -1)?;
                 } else {
                     let mut dsw = dsd.clone();
                     shard_outposts(&mut dsw, -1)?;
                     expect_after(e, &ds, &dsw, "the displaced JoinShard")?;
-                    wrote.push(ds);
+                    wrote.push((ds, Lam::Same));
                 }
                 // The record's wide rent: to the rent payer, or diverted
                 // into the holding's pool_owed (`pay_or_divert`; the payer's
@@ -1175,7 +1189,33 @@ pub(super) fn settle_ticket(e: &Env, ix: &Ix, x: &wix::SettleTicket) -> Result<V
                 // must follow).
                 let got = e.after(&holding, "the holding")?;
                 let owed0 = le(&old.data, H::POOL_OWED, 8);
-                let (l, owed) = if le(&got.data, H::POOL_OWED, 8) == owed0 + rent_w {
+                // A program-owned rent payer is in the archive: the
+                // program never diverts to one (`pay_or_divert` diverts only
+                // for a non-program recipient), so it must have received
+                // exactly the wide rent.
+                let dp_program = e.w.txs[e.tx].post.get(&dp).is_some_and(|a| a.is_some());
+                let diverted = le(&got.data, H::POOL_OWED, 8) == owed0 + rent_w;
+                if dp_program {
+                    if diverted {
+                        return Err(fail(
+                            WIDE_REPLAY_MISMATCH,
+                            "the rent was diverted although the displaced rent payer is a program account",
+                        ));
+                    }
+                    let b = e.before(&dp, "the displaced rent payer")?.lamports;
+                    let a = e.after(&dp, "the displaced rent payer")?.lamports;
+                    lamports_are(a, b + rent_w, "the displaced rent payer")?;
+                    if e.after(&dp, "the displaced rent payer")?.data
+                        != e.before(&dp, "the displaced rent payer")?.data
+                    {
+                        return Err(fail(
+                            WIDE_REPLAY_MISMATCH,
+                            "the displaced rent payer's data changed",
+                        ));
+                    }
+                    paid_to_program = Some(dp);
+                }
+                let (l, owed) = if diverted {
                     (old.lamports + rent_w, owed0 + rent_w)
                 } else {
                     (old.lamports, owed0)
@@ -1261,8 +1301,11 @@ pub(super) fn settle_ticket(e: &Env, ix: &Ix, x: &wix::SettleTicket) -> Result<V
         wr_u32(&mut pdw, PV::ROSTER_EPOCH, ep.wrapping_add(1));
         shard_outposts(&mut jdw, 1)?;
         expect_after(e, &shard, &jdw, "the JoinShard")?;
-        wrote.push(holding);
-        wrote.push(shard);
+        wrote.push((holding, Lam::Checked));
+        if let Some(dp) = paid_to_program {
+            wrote.push((dp, Lam::Checked));
+        }
+        wrote.push((shard, Lam::Same));
     }
     cohort_settle(&mut pdw, ticket_bell);
     expect_after(e, &citizen, &cd, "the Citizen")?;
@@ -1362,7 +1405,7 @@ fn write_founding(
 
 // ------------------------------------------------------------ 0xDF
 
-pub(super) fn finalize(e: &Env, ix: &Ix) -> Result<Vec<Key>, Wrong> {
+pub(super) fn finalize(e: &Env, ix: &Ix) -> Result<Vec<(Key, Lam)>, Wrong> {
     n_accounts(ix, 4, "WideFinalize")?;
     let (holding, province) = (ix.accounts[2].0, ix.accounts[3].0);
     writable(ix, 2, "the holding", true)?;
@@ -1401,5 +1444,5 @@ pub(super) fn finalize(e: &Env, ix: &Ix) -> Result<Vec<Key>, Wrong> {
     let mut w = hd.clone();
     w[H::STATE] = H::STATE_FINAL;
     expect_after(e, &holding, &w, "the holding")?;
-    Ok(vec![holding])
+    Ok(vec![(holding, Lam::Same)])
 }

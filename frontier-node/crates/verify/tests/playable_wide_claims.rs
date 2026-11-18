@@ -1777,3 +1777,165 @@ fn season_mode_judges_the_claims_and_only_the_patches_break_the_season() {
         "the finality re-ran from archived states with no finding"
     );
 }
+
+// ---- round 2 (verify-pr72 B-1): the FULL post-state, lamports included
+
+/// Drains `n` lamports from account `pos` of transaction `t`, data kept.
+fn drain(seg: &mut Input, t: usize, pos: usize, n: u64) -> [u8; 32] {
+    let k = ix_key(seg, t, pos);
+    edit_post(seg, t, &k, |a| a.lamports -= n);
+    k
+}
+
+#[test]
+fn a_claim_that_drains_its_anchor_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_CLAIM)[0];
+    drain(&mut seg, t, 7, 1_000_000);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_claim_that_drains_the_citizen_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_CLAIM)[1];
+    drain(&mut seg, t, 3, 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_settle_that_drains_the_wide_province_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_SETTLE)[0];
+    drain(&mut seg, t, 5, 1_000_000);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_settle_that_drains_the_join_shard_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_SETTLE)[0];
+    drain(&mut seg, t, 6, 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_displacement_that_drains_the_displaced_citizen_fails() {
+    let (mut seg, snap) = segment();
+    let u = displacing(&seg);
+    drain(&mut seg, u, 10, 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, u, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn an_expired_settle_that_drains_its_holding_slot_fails() {
+    // The expired settle writes no holding; its record keeps its lamports.
+    let (mut seg, snap) = segment();
+    let t = expiring(&seg);
+    drain(&mut seg, t, 3, 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_finality_that_drains_the_holding_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_FINALIZE)[0];
+    drain(&mut seg, t, 2, 1_000_000);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_gift_to_a_handlers_account_is_unverifiable_not_a_pass() {
+    // More lamports than before on an account the handler never debits:
+    // a system transfer the archive cannot show. Never PASS, never FAIL.
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_FINALIZE)[0];
+    let k = ix_key(&seg, t, 2);
+    edit_post(&mut seg, t, &k, |a| a.lamports += 5);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "MissingData"), "{:#?}", show(&found));
+    assert!(!at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn an_executable_post_state_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_CLAIM)[0];
+    let k = ix_key(&seg, t, 5);
+    edit_post(&mut seg, t, &k, |a| a.executable = true);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_post_state_of_an_account_the_instruction_does_not_list_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_FINALIZE)[0];
+    // Another claim's ticket record, unchanged data, appears in its post.
+    let other = ix_key(&seg, txs_with(&seg, T_CLAIM)[0], 6);
+    let a = before_of(&seg, &snap, t, &other);
+    seg.txs[t]
+        .post
+        .push((Address::new_from_array(other), Some(a)));
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn season_mode_a_drained_finality_fails() {
+    // verify-pr72's season probe: the drain in the whole archive, the final
+    // kept consistent with the last archived write.
+    let mut inp = whole();
+    let t = txs_with(&inp, T_FINALIZE)[0];
+    let h = ix_key(&inp, t, 2);
+    edit_post(&mut inp, t, &h, |a| a.lamports -= 1_000_000);
+    let last = (0..inp.txs.len())
+        .rev()
+        .find(|&u| {
+            inp.txs[u]
+                .post
+                .iter()
+                .any(|(x, a)| x.to_bytes() == h && a.is_some())
+        })
+        .unwrap();
+    let l = post_of(&inp, last, &h).lamports;
+    if let Some(Some(a)) = inp.finals.get_mut(&h) {
+        a.lamports = l;
+    }
+    let rep = verify_core::verify(&inp);
+    assert!(
+        rep.findings.iter().any(|f| f.check == "VWL"
+            && f.code == "WideReplayMismatch"
+            && f.entity == format!("tx#{t}")
+            && f.severity == verify_core::Severity::Fail),
+        "{:#?}",
+        show(&rep.findings)
+    );
+}
+
+#[test]
+fn a_final_handed_to_another_owner_fails() {
+    // CQ1 (D-verify-pr72-2): the final state of an account whose last
+    // archived write was the program's, now owned by someone else.
+    let mut inp = whole();
+    let (seg, _) = segment();
+    let k = ix_key(&seg, txs_with(&seg, T_CLAIM)[0], 6);
+    let a = inp.finals.get_mut(&k).unwrap().as_mut().unwrap();
+    a.lamports += 1;
+    a.owner = Address::new_from_array([7; 32]);
+    let rep = verify_core::verify(&inp);
+    assert!(
+        rep.findings.iter().any(|f| f.check == "CQ1"
+            && f.severity == verify_core::Severity::Fail
+            && f.entity == Address::new_from_array(k).to_string()),
+        "{:#?}",
+        show(&rep.findings)
+    );
+}

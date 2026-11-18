@@ -354,7 +354,7 @@ fn writable(ix: &Ix, i: usize, what: &str, w: bool) -> Result<(), Wrong> {
 
 // ------------------------------------------------------------ 0xDB
 
-fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<Key>, Wrong> {
+fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wrong> {
     n_accounts(ix, 4, "WideSetRules")?;
     let sd = e.season(ix, &LAND_STATUS)?;
     let (authority, config) = (ix.accounts[0].0, ix.accounts[2].0);
@@ -410,12 +410,12 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<Key>, Wrong> {
     rec.write(&mut want)
         .map_err(|er| fail(WIDE_ACCOUNTS, format!("the configuration's bytes: {er:?}")))?;
     expect_after(e, &config, &want, "the configuration")?;
-    Ok(vec![config])
+    Ok(vec![(config, Lam::Created)])
 }
 
 // ------------------------------------------------------------ 0xD6
 
-fn request_ring_seed(e: &Env, ix: &Ix, x: &wix::RequestRingSeed) -> Result<Vec<Key>, Wrong> {
+fn request_ring_seed(e: &Env, ix: &Ix, x: &wix::RequestRingSeed) -> Result<Vec<(Key, Lam)>, Wrong> {
     n_accounts(ix, 12, "WideRequestRingSeed")?;
     let sd = e.season(ix, &[S::STATUS_RUNNING])?;
     if x.ring < wl::FIRST_WIDE_RING {
@@ -562,7 +562,7 @@ fn request_ring_seed(e: &Env, ix: &Ix, x: &wix::RequestRingSeed) -> Result<Vec<K
             "the last account is not the system program",
         ));
     }
-    Ok(vec![target])
+    Ok(vec![(target, Lam::Checked)])
 }
 
 // ------------------------------------------------------------ 0xD7
@@ -572,7 +572,7 @@ fn consume_ring_seed(
     ix: &Ix,
     x: &wix::ConsumeRingSeed,
     sigs: &mut SigCache,
-) -> Result<Vec<Key>, Wrong> {
+) -> Result<Vec<(Key, Lam)>, Wrong> {
     n_accounts(ix, 3, "WideConsumeRingSeed")?;
     e.season(ix, &LAND_STATUS)?;
     let world = e.world()?;
@@ -627,12 +627,12 @@ fn consume_ring_seed(
         .write(&mut want)
         .map_err(|er| fail(WIDE_ACCOUNTS, format!("the ring seed's bytes: {er:?}")))?;
     expect_after(e, &target, &want, "the ring seed")?;
-    Ok(vec![target])
+    Ok(vec![(target, Lam::Same)])
 }
 
 // ------------------------------------------------------------ 0xD8
 
-fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<Key>, Wrong> {
+fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<(Key, Lam)>, Wrong> {
     n_accounts(ix, 7, "WideOpenProvince")?;
     let sd = e.season(ix, &LAND_STATUS)?;
     let coord = WideCoord::checked(x.p, x.q).map_err(|er| {
@@ -800,15 +800,28 @@ fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<Key>, Wr
             )))
         }
     }
+    // The province holds what it held before (absent: 0, or a pre-funding
+    // the archive shows) plus what the fund paid; less is a FAIL, more a
+    // system transfer the archive may not show (`MissingData`).
     let prov_after = e.after(&target, "the province")?;
-    if spent > prov_after.lamports {
-        return Err(fail(
-            WIDE_REPLAY_MISMATCH,
-            format!(
-                "the fund paid {spent} lamports, more than the province holds ({})",
+    let prov_before = e.acct_before(&target).map(|a| a.lamports).unwrap_or(0);
+    match prov_after.lamports.cmp(&(prov_before + spent)) {
+        std::cmp::Ordering::Equal => {}
+        std::cmp::Ordering::Less => {
+            return Err(fail(
+                WIDE_REPLAY_MISMATCH,
+                format!(
+                    "the province holds {} lamports, less than its {prov_before} before plus the {spent} the fund paid",
+                    prov_after.lamports
+                ),
+            ))
+        }
+        std::cmp::Ordering::Greater => {
+            return Err(Missing(format!(
+                "the province holds {} lamports, more than its {prov_before} before plus the {spent} the fund paid: a pre-funding the archive may not show",
                 prov_after.lamports
-            ),
-        ));
+            )))
+        }
     }
     opening.province.funded_lamports = spent;
     // The province, as the handler writes it into the zeroed account.
@@ -879,7 +892,11 @@ fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<Key>, Wr
         .write(&mut rw)
         .map_err(|er| fail(WIDE_ACCOUNTS, format!("the ring seed's bytes: {er:?}")))?;
     expect_after(e, &k(2), &rw, "the ring seed")?;
-    Ok(vec![target, k(2), k(3)])
+    Ok(vec![
+        (target, Lam::Checked),
+        (k(2), Lam::Same),
+        (k(3), Lam::Checked),
+    ])
 }
 
 /// One instruction: the command's re-run, then every other program account
@@ -901,29 +918,101 @@ fn judge(e: &Env, ix: &Ix, sigs: &mut SigCache) -> Result<(), Wrong> {
         WideCommand::Finalize(_) => claims::finalize(e, ix)?,
         _ => return Ok(()),
     };
+    // The FULL post-state of every program account the transaction shows
+    // (round 2 of #72): listed by the instruction; never executable; the
+    // handler's own accounts as the re-run wrote them (data and owner in
+    // the handler, lamports by the rule it declared); every other one
+    // unchanged in data, owner and lamports.
     for (k, a) in &e.w.txs[e.tx].post {
-        if wrote.contains(k) {
-            continue;
-        }
-        let before = e.acct_before(k).map(|b| b.data);
-        let after = a.as_ref().map(|a| a.data.clone());
-        if before != after {
-            if before.is_none() && !e.known_before(k) && after.is_some() && e.snapshot.is_some() {
-                return Err(Missing(format!(
-                    "account {}: the witness has no state before",
-                    b58(k)
-                )));
-            }
+        if !ix.accounts.iter().any(|(x, _)| x == k) {
             return Err(fail(
                 WIDE_REPLAY_MISMATCH,
                 format!(
-                    "account {} changed, which this handler never writes",
+                    "account {} changed, but the instruction does not list it",
                     b58(k)
                 ),
             ));
         }
+        let before = e.acct_before(k);
+        if a.as_ref().is_some_and(|a| a.executable) || before.as_ref().is_some_and(|b| b.executable)
+        {
+            return Err(fail(
+                WIDE_REPLAY_MISMATCH,
+                format!("account {} is executable", b58(k)),
+            ));
+        }
+        let rule = wrote.iter().find(|(x, _)| x == k).map(|(_, l)| *l);
+        if rule.is_none() {
+            let same = match (&before, a) {
+                (Some(b), Some(a)) => b.data == a.data && b.owner == a.owner,
+                (None, None) => true,
+                _ => false,
+            };
+            if !same {
+                if before.is_none() && !e.known_before(k) && a.is_some() && e.snapshot.is_some() {
+                    return Err(Missing(format!(
+                        "account {}: the witness has no state before",
+                        b58(k)
+                    )));
+                }
+                return Err(fail(
+                    WIDE_REPLAY_MISMATCH,
+                    format!(
+                        "account {} changed, which this handler never writes",
+                        b58(k)
+                    ),
+                ));
+            }
+        }
+        if matches!(rule, None | Some(Lam::Same)) {
+            if let (Some(b), Some(a)) = (&before, a) {
+                lamports_unchanged(b.lamports, a.lamports, k)?;
+            } else if a.is_some() && rule.is_some() {
+                return Err(Missing(format!(
+                    "account {}: the archive has no balance before",
+                    b58(k)
+                )));
+            }
+        }
     }
     Ok(())
+}
+
+/// How a handler's written account's lamports are judged in [`judge`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Lam {
+    /// The handler compared them itself (a created or funded record, a
+    /// fund that paid).
+    Checked,
+    /// The handler never moves its lamports: unchanged.
+    Same,
+    /// Created by the instruction from the payer's wallet: the runtime
+    /// makes it rent-exempt, and more is a pre-funding nobody can rule
+    /// out; nothing to compare.
+    Created,
+}
+
+/// An account whose balance the handler never moves. Only the owning
+/// program can debit it, so a lower balance after is a FAIL; a higher one
+/// may be a system transfer the archive (program transactions only)
+/// never shows: `MissingData`.
+fn lamports_unchanged(before: u64, after: u64, k: &Key) -> Result<(), Wrong> {
+    match after.cmp(&before) {
+        std::cmp::Ordering::Equal => Ok(()),
+        std::cmp::Ordering::Less => Err(fail(
+            WIDE_REPLAY_MISMATCH,
+            format!(
+                "account {} lost {} lamports, which this handler never moves",
+                b58(k),
+                before - after
+            ),
+        )),
+        std::cmp::Ordering::Greater => Err(Missing(format!(
+            "account {} gained {} lamports this handler never moves: a system transfer may have reached it outside the archive",
+            b58(k),
+            after - before
+        ))),
+    }
 }
 
 /// Every successful wide land instruction of `w`, judged; findings in order.

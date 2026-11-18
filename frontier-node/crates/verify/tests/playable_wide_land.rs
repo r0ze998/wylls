@@ -1049,3 +1049,35 @@ fn the_openings_exercise_the_keep_camp_and_free_city_paths() {
         "a keep, a camp and a Free City were opened"
     );
 }
+
+// ---- round 2 of #72 (verify-pr72 B-1): lamports of the #67 handlers
+
+#[test]
+fn a_consume_that_drains_the_ring_seed_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_CONSUME)[0];
+    let k = ix_key(&seg, t, 2);
+    edit_post(&mut seg, t, &k, |a| a.lamports -= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(has(&found, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn an_opening_that_drains_the_ring_seed_or_the_province_fails() {
+    let (mut seg, snap) = segment();
+    let opens = txs_with(&seg, T_OPEN);
+    let k = ix_key(&seg, opens[0], 2);
+    edit_post(&mut seg, opens[0], &k, |a| a.lamports -= 1);
+    let p = ix_key(&seg, opens[1], 4);
+    edit_post(&mut seg, opens[1], &p, |a| a.lamports -= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    for t in [opens[0], opens[1]] {
+        assert!(
+            found
+                .iter()
+                .any(|f| f.code == "WideReplayMismatch" && f.entity == format!("tx#{t}")),
+            "{:#?}",
+            show(&found)
+        );
+    }
+}

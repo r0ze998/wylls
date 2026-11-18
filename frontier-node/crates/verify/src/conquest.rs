@@ -460,6 +460,21 @@ pub fn verify(input: &Input) -> Report {
     for (key, a) in &input.finals {
         if let Some(a) = a {
             if a.owner != input.cfg.program {
+                // Only the program can hand its account to another owner,
+                // and every program write is archived: a final that is no
+                // longer the program's while its last archived write still
+                // was is a missing write (D-verify-pr72-2, round 2 of #72).
+                if states.contains_key(key) {
+                    finding(
+                        &mut findings,
+                        "CQ1",
+                        "FinalStateMismatch",
+                        fclient::Address::new_from_array(*key).to_string(),
+                        0,
+                        "",
+                        "pinned final account is no longer owned by the program, though its last archived write was",
+                    );
+                }
                 continue;
             }
             // Lamports reach any account by a plain system transfer, which
