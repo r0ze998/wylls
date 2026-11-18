@@ -11,6 +11,7 @@
 //! | `custody-preview` | `PSF_CUSTODY_PREVIEW_BUILD` (workstream 10: not a test build, but not deployable until verified) |
 //! | `localnet-expedition-sbf` | `PSF_LOCALNET_EXPEDITION_SBF_BUILD` (isolated localnet lane, never deployable) |
 //! | `localnet-conquest-sbf` | `PSF_LOCALNET_CONQUEST_SBF_BUILD`, in addition to the expedition lane's marker (isolated localnet conquest lane, never deployable) |
+//! | `rights-experimental` | `PSF_RIGHTS_EXPERIMENTAL_BUILD` (workstream 02, option A; never deployable; `build-frontier.sh --features rights-test-beacon` builds it with `test-beacon` for LiteSVM) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
 //! instruction (or every beacon verification) runs, so neither the
@@ -24,6 +25,7 @@ pub const TEST_BEACON: &[u8] = b"PSF_TEST_BEACON_BUILD";
 pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
 pub const LOCALNET_EXPEDITION_SBF: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 pub const LOCALNET_CONQUEST_SBF: &[u8] = b"PSF_LOCALNET_CONQUEST_SBF_BUILD";
+pub const RIGHTS_EXPERIMENTAL: &[u8] = b"PSF_RIGHTS_EXPERIMENTAL_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -34,6 +36,8 @@ pub fn touch() {
     core::hint::black_box(ORACLE.as_ptr());
     #[cfg(feature = "custody-preview")]
     core::hint::black_box(CUSTODY_PREVIEW.as_ptr());
+    #[cfg(feature = "rights-experimental")]
+    core::hint::black_box(RIGHTS_EXPERIMENTAL.as_ptr());
 }
 
 /// Keeps the `localnet-expedition-sbf` marker alive (called by the lane's
@@ -81,6 +85,7 @@ mod tests {
             CUSTODY_PREVIEW,
             LOCALNET_EXPEDITION_SBF,
             LOCALNET_CONQUEST_SBF,
+            RIGHTS_EXPERIMENTAL,
         ] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),

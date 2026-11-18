@@ -32,8 +32,9 @@ export const HARD_REFUSED_RPC_HOST_PATTERNS = ['mainnet', 'testnet'];
 /**
  * The oldest Solana CLI that can deploy this program. `solana program deploy` verifies the ELF locally with the
  * CLI's own syscall table before it sends anything, and agave v3.1.9 does not register `sol_curve_decompress` or
- * `sol_curve_pairing_map` (the BLS12-381 calls of permutation-frontier/src/crypto/sys.rs); v4.0.0 does
- * (agave syscalls/src/lib.rs). The build still uses cargo-build-sbf 3.1.9.
+ * `sol_curve_pairing_map` (the BLS12-381 calls of permutation-frontier/src/crypto/sys.rs); v4.0.0 to v4.4.1 do
+ * when the cluster's enable_bls12_381_syscall feature is active (agave syscalls/src/lib.rs; the CLI reads the
+ * cluster's feature set first). The build still uses cargo-build-sbf 3.1.9.
  */
 export const MIN_SOLANA_CLI = [4, 0, 0];
 

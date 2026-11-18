@@ -35,6 +35,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, parseOperatorResidents, operatorRelayPorts, homesOf } from './local-play-operator-policy.mjs';
 const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
 const RULESET = '234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d';
 /** Worlds at once; a world's life (the default; `--world-ttl-minutes` may choose another); its output; the disk's floor (bytes). */
@@ -708,6 +709,47 @@ export function createWorldProxy({ port, targetPort, launcherPort, relayPort = n
   server.closeNow = () => new Promise(r => { for (const s of sockets) s.destroy(); server.close(() => r()); server.closeAllConnections(); });
   return server;
 }
+/** The lamports each operator resident's wallet is given: the runner's own amount for a player (fees and rent only). */
+export const OPERATOR_LAMPORTS = 10_000_000_000;
+export const OPERATOR_HOMES_MS = 30000, OPERATOR_WALLETS_MS = 10000;
+/**
+ * TEST-ONLY operator residents (⑤ option A) for one natural world, once its herald answers: the runner's own
+ * `ready-for-join` homes are read; the residents' process (local-play-operator-residents.mjs) is started as a SIDE
+ * process (its end never ends the world) and states its public wallets — memory-only TEST keys it made itself; this
+ * launcher never sees a key; each wallet is funded through the runner's RPC with the player's own amount, the one
+ * set-up step the runner does for the player too; then one local-play relay per wallet, with the player's own relay
+ * arguments, on the residents' ports. → `{count, wallets, ports}` (also written to `operators.json`: the operator's
+ * own roster of who is an AI, kept beside the world, never sent to a page). Any refusal ends the world's start.
+ */
+export async function startOperatorResidents({ n, dir, ports, rpc, herald, players, launch, launchSide, relayArgsFor, root, stopping, limit = {}, pace = {}, keysDir = null }) {
+  if (!Number.isInteger(n) || n < 1 || n > OPERATOR_RESIDENTS_MAX || ports.length !== n) throw fault('InvalidOperatorResidents', 503);
+  for (const p of ports) await freePort(p);
+  let homes = null;
+  for (const until = Date.now() + (limit.operatorHomesMs ?? OPERATOR_HOMES_MS); !homes && Date.now() < until && !stopping();) {
+    homes = homesOf(await runnerLines(dir).catch(() => []));
+    if (!homes) await delay(250);
+  }
+  if (stopping()) throw fault('WorldStopped', 503);
+  if (!homes) throw fault('OperatorHomesUnknown', 503);
+  const paceArgs = Object.entries({ 'cadence-ms': pace.cadenceMs, 'max-acts': pace.maxActs, 'max-refusals': pace.maxRefusals, 'min-gap-ms': pace.minGapMs }).filter(([, v]) => Number.isSafeInteger(v) && v >= 0).flatMap(([k, v]) => [`--${k}`, String(v)]);
+  launchSide('operators', process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-operator-residents.mjs'), '--count', String(n), '--relay-ports', ports.join(','),
+    '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...paceArgs,
+    // (⑧ P2, TEST-ONLY: a persisted world keeps its residents' keys in its own private dir, so a resume has the same residents)
+    ...(keysDir ? ['--keys-dir', keysDir] : [])]);
+  let first = null;
+  for (const until = Date.now() + (limit.operatorWalletsMs ?? OPERATOR_WALLETS_MS); !first && Date.now() < until && !stopping();) {
+    try { first = JSON.parse((await fs.readFile(path.join(dir, 'operators.out'), 'utf8')).split('\n')[0]); } catch { /* not a whole line yet */ }
+    if (!first) await delay(100);
+  }
+  const wallets = first?.wallets;
+  if (stopping()) throw fault('WorldStopped', 503);
+  if (!first || first.schema !== OPERATOR_RESIDENTS_SCHEMA || first.mode !== OPERATOR_RESIDENTS_MODE || first.test_only !== true || !Array.isArray(wallets) || wallets.length !== n
+    || !wallets.every(validWallet) || new Set([...wallets, ...players]).size !== n + players.length) throw fault('OperatorResidentsNotReady', 503);
+  for (const w of wallets) await (limit.operatorFund ?? (a => runnerRpc(rpc, 'requestAirdrop', [a, OPERATOR_LAMPORTS])))(w);
+  wallets.forEach((w, i) => launch(`relay-op-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i])]));
+  await fs.writeFile(path.join(dir, 'operators.json'), JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, count: n, wallets, ports, lamports_each: OPERATOR_LAMPORTS, homes: homes.length }), { flag: 'wx' });
+  return Object.freeze({ count: n, wallets: Object.freeze([...wallets]), ports: Object.freeze([...ports]) });
+}
 // Children still alive when this process ends are ended with it: nothing this launcher started outlives it.
 const live = new Set(); let hooked = false;
 function own(child) {
@@ -791,6 +833,15 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false }); } finally { closeSync(out); closeSync(err); }
     children.push(child); own(child); child.once('error', () => { stop(`${name}-failed`); }); child.once('exit', () => { stop(`${name}-exited`); }); return child;
   };
+  // (a side process: stopped with the world, but its own end never ends the world — the TEST-ONLY operator residents:
+  //  a resident that stops or fails leaves the people's world running)
+  const launchSide = (name, executable, args) => {
+    if (stopping) throw fault('WorldStopped', 503);
+    const out = openSync(path.join(dir, name + '.out'), 'wx'), err = openSync(path.join(dir, name + '.err'), 'wx');
+    let child;
+    try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false }); } finally { closeSync(out); closeSync(err); }
+    children.push(child); own(child); child.once('error', () => {}); return child;
+  };
   // the TTL origin: the world's automatic end is fixed here, once (`worldExpiry` refuses a value a Date cannot hold)
   const started = Date.now(); let checking = false;
   let expiresAt;
@@ -865,6 +916,15 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     //  is stopped by the same path as an unready one, never used with the default output in its place)
     if (HERALD_OUTPUT_MODES.includes(c.heraldOutput) && !heraldOutputRecorded(await fs.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8').catch(() => null), c.heraldOutput)) throw fault('HeraldOutputNotCompact', 503);
     await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : [])] }));
+    // (TEST-ONLY operator residents, ⑤ option A: only on a natural world whose launcher was started with
+    //  `--operator-residents <n>`; each is an ordinary participant — its own memory-only TEST wallet, funded like the
+    //  player's, its own relay — and the page is told nothing about them: they are shown as any other resident is)
+    // (⑧ P2: in a persisted world the residents' TEST keys are kept in `<home>/operator-keys/` (0700, 0600 files))
+    const operatorKeys = persist && natural && c.operatorResidents ? path.join(home, 'operator-keys') : null;
+    if (operatorKeys) await ensurePrivateDir(operatorKeys);
+    const operators = natural && c.operatorResidents ? await startOperatorResidents({ keysDir: operatorKeys, n: c.operatorResidents, dir, ports: operatorRelayPorts(c.worldPort, slot, c.operatorResidents, WORLD_LIMIT), rpc, herald,
+      players: [wallet, ...(second !== null ? [second] : [])], launch, launchSide, relayArgsFor, root: c.root, stopping: () => stopping !== null, limit, pace: c.operatorPace ?? {} }) : null;
+    if (operators) await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...operators.ports] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
     const prepared = c.prepareScale ? await prepareWorld({ scale: c.prepareScale, dir, rpc, herald, meta, stopping: () => stopping !== null, limit }) : null;
     let conquestWorld = null;
@@ -1005,16 +1065,24 @@ export const USAGE = `local-play launcher (this machine only)
        looser); a stop keeps it and the next start for that wallet resumes it; the page keeps its key in IndexedDB]
     [--world-ttl-minutes <whole minutes, decimal>: each world's automatic end, counted from its own start; without it
        two hours. Set here only (never over HTTP); fixed once per world and told to its page as its expiry]
+    [--operator-residents <1-4>: TEST-ONLY, natural preset only: each new world also gets that many operator AI
+       residents (⑤ option A): memory-only TEST wallets made by their own process, funded like the player, each with
+       its own relay; they Join, PlaceHome and use the economy commands by a fixed offline rule, through the same
+       routes and checks as a page. The page is not told which residents they are. Their relays take 4 more ports per
+       world after the worlds' ten]
     [--port 41920] [--world-port 41924]
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'continuous', 'persist']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'continuous', 'persist']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
   if (out['natural-runner'] !== undefined && !path.isAbsolute(out['natural-runner'])) throw fault('AbsolutePathRequired');
-  const port = Number(out.port ?? 41920), worldPort = Number(out['world-port'] ?? 41924), span = WORLD_LIMIT * 5;
+  // (TEST-ONLY operator residents: their relays take OPERATOR_RESIDENTS_MAX ports per world after the worlds' own)
+  const operatorResidents = out['operator-residents'] === undefined ? undefined : parseOperatorResidents(out['operator-residents']);
+  if (operatorResidents === null) throw fault('InvalidOperatorResidents');
+  const port = Number(out.port ?? 41920), worldPort = Number(out['world-port'] ?? 41924), span = WORLD_LIMIT * 5 + (operatorResidents ? WORLD_LIMIT * OPERATOR_RESIDENTS_MAX : 0);
   if (!Number.isInteger(port) || !Number.isInteger(worldPort) || port < 41000 || port > 41999 || worldPort < 41000 || worldPort + span - 1 > 41999 || (port >= worldPort && port <= worldPort + span - 1) || [port, ...Array.from({ length: span }, (_, i) => worldPort + i)].some(p => p >= 41904 && p <= 41907)) throw fault('InvalidPorts');
   if (!/^[a-f0-9]{64}$/.test(out['artifact-sha'] ?? '')) throw fault('ArtifactHashRequired');
   const prepareScale = out['prepare-scale'] === undefined ? undefined : Number(out['prepare-scale']);
@@ -1050,9 +1118,11 @@ export async function parseConfig(args) {
   if (out.continuous !== undefined && out.continuous !== CONTINUOUS_MODE) throw fault('InvalidContinuous');
   if (out.persist !== undefined && out.persist !== PERSIST_MODE) throw fault('InvalidPersist');
   if ((out.continuous !== undefined || out.persist !== undefined) && (!natural || out['capture-demo'] !== undefined)) throw fault('PersistNeedsNaturalWorld');
+  if (operatorResidents !== undefined && !natural) throw fault('OperatorResidentsNeedNatural');
+  if (operatorResidents !== undefined && Array.from({ length: span }, (_, i) => worldPort + i).includes(41970)) throw fault('InvalidPorts');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true });
   // (persisted worlds: their parent is private, made so here, and a looser one refuses the launcher's start)

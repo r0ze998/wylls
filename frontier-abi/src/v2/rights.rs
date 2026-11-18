@@ -1,8 +1,12 @@
-//! **Proposal (workstream 02-rights, not adopted):** the first right of
-//! the rights layer, **the workshop-stock swap** (`KIND_STOCK_SWAP`).
-//! Contract text: `workstreams/02-rights/03-CONTRACT.ja.md`. Nothing here
-//! is allocated in the shared ABI: the tags, error codes, seed tag and
-//! layout below are *proposed* values kept out of [`crate::v2::Ix`],
+//! **Workstream 02-rights, owner decision ② = A (2026-11-18), still behind
+//! `rights-experimental`:** the first right of the rights layer, **the
+//! workshop-stock swap** (`KIND_STOCK_SWAP`), with the mitigation the
+//! owner adopted: **the swap's output lands in the grantee's Vault in the
+//! facility's Province and leaves it only by caravan**. Contract text:
+//! `workstreams/02-rights/03-CONTRACT.ja.md` (holding station: superseded,
+//! see `workstreams/02-rights/13-OPTION-A.ja.md`). Nothing here is
+//! allocated in the shared ABI: the tags, error codes, seed tag and layout
+//! below are *proposed* values kept out of [`crate::v2::Ix`],
 //! [`crate::v2::CqError`] and [`crate::v2::layout::AccountKind`] so that
 //! no existing table, vector or exhaustive match changes. The integrator
 //! allocates them on adoption.
@@ -10,11 +14,22 @@
 //! **What the right is.** The grantee may exchange its own ore and wood
 //! for arms **the issuer's workshop holding (the *facility*) has already
 //! made and holds in its store**, at the workshop ratio (`ORE_PER_ARM`,
-//! `WOOD_PER_ARM` per arm), through the grantee's *station* holding in the
-//! same Province, within `max_units` arms and `max_swaps` executed swaps in
-//! all and until `expires_ts`. No key and no ownership of a place moves:
-//! the grantee signs with its own wallet or its own session; the issuer's
-//! keys are not used after IssueGrant.
+//! `WOOD_PER_ARM` per arm), within `max_units` arms and `max_swaps`
+//! executed swaps in all and until `expires_ts`. The grantee's side is its
+//! *station*: **a live S1 Vault of the grantee on a tile of the facility's
+//! Province** (option A; v1 used a holding). The ore and wood come out of
+//! that Vault (they got there by caravan) and the arms go into it; the
+//! only way out of a Vault is SendCaravan (0xB1), which walks the map and
+//! can be raided (0xB3), and the Vault itself can be seized (0xB4). So the
+//! Grant adds no raid-free transport: it moves goods between two places
+//! in **one** Province, a holding and a Vault, at a fixed ratio. No key and
+//! no ownership of a place moves: the grantee signs with its own wallet or
+//! its own session; the issuer's keys are not used after IssueGrant.
+//!
+//! **Issuing** is wallet-only (a session is refused `WalletRequired`, as a
+//! send to another player) and costs [`GRANT_ISSUE_COST`], paid from the
+//! facility's store as an owner action (design 20 §5: "a small cost to
+//! issue a right", its number left to phase 6; **tunable**).
 //!
 //! **What it is not.** It does not run the workshop (there is no "process
 //! once" in the program: workshops convert their own holding's ore and
@@ -28,22 +43,24 @@
 //! Two phases, so a multi-step plan can hold both sides:
 //!
 //! 1. **ReserveSwap(units)**: `units × ORE_PER_ARM` ore and `units ×
-//!    WOOD_PER_ARM` wood leave the station, `units` arms leave the
+//!    WOOD_PER_ARM` wood leave the station Vault, `units` arms leave the
 //!    facility; all three are recorded in the Grant (escrow: in no
-//!    holding's store, so neither production nor any other action can use
-//!    them). At most one reservation is open per Grant.
-//! 2. **ExecuteSwap**: the escrowed arms go to the station, the escrowed
-//!    ore and wood to the facility's store. Final: nothing an executed
-//!    swap moved is ever returned.
+//!    store, so neither production nor any other action can use them). At
+//!    most one reservation is open per Grant.
+//! 2. **ExecuteSwap**: the escrowed arms go into the station Vault (refused
+//!    whole, `VaultFull`, past `CAP − CUSTODY_QUOTA`: haul out first), the
+//!    escrowed ore and wood into the facility's store. Final: nothing an
+//!    executed swap moved is ever returned.
 //!
 //! **ReleaseSwap** undoes an open reservation — by the grantee at any
-//! time, by anyone once the Grant is expired or a pinned holding is stale.
+//! time, by anyone once the Grant is expired or a pinned place is stale.
 //! **RevokeGrant** (issuer) ends the Grant: an open reservation is undone
 //! as by ReleaseSwap, the unused quota is void, executed swaps stay.
-//! Each side goes back to the holding it came from as that holding stands
-//! now; a side whose holding no longer exists **stays in the Grant**
-//! (recorded, not credited anywhere, not burned) until a rule for it is
-//! decided. **CloseGrant** returns the rent once nothing is escrowed.
+//! Each side goes back to the place it came from as that place stands
+//! now (a seized Vault: its captor's); a side whose place no longer exists
+//! or (a Vault) has no room **stays in the Grant** (recorded, not credited
+//! anywhere, not burned) until a rule for it is decided. **CloseGrant**
+//! returns the rent once nothing is escrowed.
 //!
 //! Capacity: the arms come out of the facility's own store, which only its
 //! workshops (or the owner's own deliveries) fill, so a Grant never makes
@@ -111,30 +128,36 @@ pub enum RightsError {
     ReservationOpen = 205,
     /// ExecuteSwap or ReleaseSwap with no open reservation.
     NoReservation = 206,
-    /// The facility or station holding is not the generation (or owner)
-    /// the Grant pins: captured, released or refounded since.
+    /// The facility holding or the station Vault is not the generation
+    /// (or owner) the Grant pins: captured or seized, released, closed or
+    /// refounded since.
     StaleHolding = 207,
     /// IssueGrant: the facility has no workshop.
     NoWorkshop = 208,
-    /// IssueGrant: the station is not the grantee's live holding in the
-    /// facility's Province, or names the facility itself.
+    /// IssueGrant: the station is not the grantee's live Vault on a tile
+    /// of the facility's Province (option A).
     BadStation = 209,
     /// IssueGrant terms out of range (zero quota, past or too-far expiry,
     /// issuer granting itself).
     BadTerms = 210,
     /// CloseGrant while the Grant may still be used or holds escrow.
     StillLive = 211,
-    /// ReleaseSwap that could return nothing: no live holding remains for
-    /// any escrowed side (the escrow stays in the Grant).
+    /// ReleaseSwap that could return nothing: no live place (or, a Vault,
+    /// no room) remains for any escrowed side (the escrow stays in the
+    /// Grant).
     ReturnBlocked = 212,
     /// ReserveSwap or ExecuteSwap whose `seq` is not the Grant's executed
     /// swap count: a retry of a step that already happened, or a step of
     /// another plan.
     SeqMismatch = 213,
+    /// Option A: ExecuteSwap whose arms would take the station Vault past
+    /// `CAP − CUSTODY_QUOTA` (nothing moves; haul out by caravan, or
+    /// release).
+    VaultFull = 214,
 }
 
 impl RightsError {
-    pub const ALL: [RightsError; 14] = {
+    pub const ALL: [RightsError; 15] = {
         use RightsError::*;
         [
             BadGrant,
@@ -151,6 +174,7 @@ impl RightsError {
             StillLive,
             ReturnBlocked,
             SeqMismatch,
+            VaultFull,
         ]
     };
 
@@ -174,6 +198,27 @@ pub const STATE_REVOKED: u8 = 2;
 pub const MAX_GRANT_SECS: i64 = 30 * 86_400;
 /// Most arms one reservation may move (bounds the escrow arithmetic).
 pub const MAX_UNITS_PER_SWAP: u32 = 10_000;
+
+/// IssueGrant's cost (whole units per resource, in
+/// `permutation_rules::frontier::holding::Resource` order: food, wood,
+/// stone, ore, horses/arms, gold, science, influence), paid from the
+/// facility's store with an owner touch and burned (no recipient).
+/// **Tunable** (design 20 §5 leaves the number to phase 6; 02-rights
+/// `04-PROPOSALS.ja.md` §4 names the cost without a number): 25 gold, an
+/// eighth of a Vault's 200 wood + 200 stone + 50 gold in kind, chosen so a
+/// Grant is cheap next to the Vault the grantee needs but not free to spam.
+pub const GRANT_ISSUE_COST: [i64; 8] = [0, 0, 0, 0, 0, 25, 0, 0];
+
+/// [`GRANT_ISSUE_COST`] in milli-units.
+pub const fn grant_issue_cost() -> [i64; 8] {
+    let mut c = [0i64; 8];
+    let mut i = 0;
+    while i < 8 {
+        c[i] = GRANT_ISSUE_COST[i] * 1_000;
+        i += 1;
+    }
+    c
+}
 
 // ------------------------------------------------------------ address
 
@@ -270,8 +315,9 @@ macro_rules! ix_rights {
 
 ix_rights! {
     /// 0xD0 (P, issuer's **wallet**): `[actor s] [payer s,w] [season r]
-    /// [issuer_citizen w] [facility r] [province r] [grantee_citizen r]
-    /// [station r] [grant w] [system]`.
+    /// [issuer_citizen w] [facility w] [province r] [grantee_citizen r]
+    /// [station r] [grant w] [system]`; `station` is the grantee's Vault,
+    /// the facility pays [`GRANT_ISSUE_COST`].
     IssueGrant = tag::ISSUE_GRANT {
         nonce: u32,
         kind: u8,
@@ -601,7 +647,7 @@ pub mod accounts {
             (payer, true, true),
             (season, false, false),
             (issuer_citizen, false, true),
-            (facility, false, false),
+            (facility, false, true),
             (province, false, false),
             (grantee_citizen, false, false),
             (station, false, false),
@@ -851,6 +897,19 @@ pub fn terms_ok(kind: u8, max_swaps: u16, max_units: u32, expires_ts: i64, now: 
 mod tests {
     use super::*;
 
+    /// The issue cost is in the kernel's resource order: 25 gold, nothing
+    /// else (tunable; option A).
+    #[test]
+    fn issue_cost_is_gold_in_the_kernels_order() {
+        use permutation_rules::frontier::holding::{Resource, RESOURCES};
+        assert_eq!(GRANT_ISSUE_COST.len(), RESOURCES);
+        let c = grant_issue_cost();
+        for r in Resource::ALL {
+            let want = if r == Resource::Gold { 25_000 } else { 0 };
+            assert_eq!(c[r as usize], want, "{r:?}");
+        }
+    }
+
     #[test]
     fn tags_and_codes_do_not_collide_with_v2() {
         for t in tag::ISSUE_GRANT..=tag::CLOSE_GRANT {
@@ -872,6 +931,8 @@ mod tests {
         let a = accounts::issue(k(1), k(1), k(2), k(3), k(4), k(5), k(6), k(7), k(8));
         assert_eq!(a.len(), accounts::ISSUE_LEN);
         assert_eq!(a[accounts::ISSUE_FACILITY].0, k(4));
+        // Option A: the facility pays the issue cost.
+        assert!(a[accounts::ISSUE_FACILITY].2);
         assert_eq!(a[accounts::ISSUE_STATION].0, k(7));
         assert_eq!(a[accounts::ISSUE_GRANT], (k(8), false, true));
         let u = accounts::use_grant(k(1), k(1), k(2), k(3), k(9), k(4), k(7), k(5));

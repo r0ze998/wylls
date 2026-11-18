@@ -271,7 +271,13 @@ fn create_params_ok(x: &frontier_abi::v2::presets::SeasonParamsV2) -> bool {
 /// on a copy whose `program_version` is `PROGRAM_VERSION_S1`; every other field is checked as given, and the exact
 /// version equality in [`create_params_ok`] still runs on the real value. Any other version, and every other build,
 /// is checked unchanged (`validate` itself is not relaxed).
-#[cfg(feature = "localnet-expedition-sbf")]
+///
+/// Workstream 02-rights (`rights-experimental`, owner decision ② = A, never
+/// deployable): the same view for EXACTLY that build's own version
+/// (`0x2000 | 4`), which `validate` does not list either; without it the
+/// rights build could not create a Season at all (its Grants ran only on
+/// hand-written Seasons in the host harness).
+#[cfg(any(feature = "localnet-expedition-sbf", feature = "rights-experimental"))]
 fn range_view(
     x: &frontier_abi::v2::presets::SeasonParamsV2,
 ) -> frontier_abi::v2::presets::SeasonParamsV2 {
@@ -281,7 +287,7 @@ fn range_view(
     }
     y
 }
-#[cfg(not(feature = "localnet-expedition-sbf"))]
+#[cfg(not(any(feature = "localnet-expedition-sbf", feature = "rights-experimental")))]
 fn range_view(
     x: &frontier_abi::v2::presets::SeasonParamsV2,
 ) -> frontier_abi::v2::presets::SeasonParamsV2 {
@@ -1239,9 +1245,34 @@ mod tests {
         );
     }
 
+    /// The rights build (02-rights, option A): CreateSeason accepts exactly its own version (`0x2004`), the generic
+    /// `validate` still refuses it, the S1 version and the lane's are refused, and the view maps only that version.
+    #[cfg(all(
+        feature = "rights-experimental",
+        not(feature = "localnet-expedition-sbf")
+    ))]
+    #[test]
+    fn the_rights_build_accepts_exactly_its_own_version() {
+        use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+        assert_eq!(
+            crate::PROGRAM_VERSION,
+            frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1
+        );
+        let good = own_params();
+        assert!(good.validate().is_err(), "validate is unchanged");
+        assert!(create_params_ok(&good), "CreateSeason accepts it");
+        assert_eq!(range_view(&good).base.program_version, PROGRAM_VERSION_S1);
+        for v in [PROGRAM_VERSION_S1, 0x4804, 0x2005] {
+            let mut p = good;
+            p.base.program_version = v;
+            assert_eq!(range_view(&p), p, "{v:#06x} is viewed as given");
+            assert!(!create_params_ok(&p), "{v:#06x} is refused");
+        }
+    }
+
     /// Every other build: the check is the original one (the view is the identity), so 0x4804 is refused and this
     /// binary's own listed version is accepted.
-    #[cfg(not(feature = "localnet-expedition-sbf"))]
+    #[cfg(not(any(feature = "localnet-expedition-sbf", feature = "rights-experimental")))]
     #[test]
     fn other_builds_check_unchanged() {
         let mut lane = own_params();

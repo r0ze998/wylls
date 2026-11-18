@@ -451,7 +451,7 @@ fn memo(o: &Observation, persona: Persona, arrive: u32) -> MarchMemo {
 }
 
 #[test]
-fn owners_reveal_in_the_arrival_bell_by_persona() {
+fn owners_reveal_once_t_arrive_is_published_by_persona() {
     let o = observe(FINAL);
     let reveals = |p: Persona, arrive: u32, direct: bool| -> Vec<(RevealRoute, bool)> {
         let m = memo(&o, p, arrive);
@@ -471,12 +471,22 @@ fn owners_reveal_in_the_arrival_bell_by_persona() {
             .collect()
     };
     let bell = fixture::BELL;
+    // ⑱ (owner decision 2026-11-05, `policy::owner_reveal_open`): an owner
+    // reveals once drand has published T(arrive), at the END of the arrival
+    // bell, until the end of the bell after it. The fixture's time is 100 s
+    // into `bell`, so a march arriving in `bell` is not yet revealable and
+    // one that arrived in `bell - 1` is.
+    let open = bell - 1;
     // min_tip never self-reveals (keepers do).
-    assert!(reveals(Persona::MinTip, bell, true).is_empty());
-    // A plain bot (persona-free behaviour via double_arrival) reveals through the keeper in its arrival bell only.
+    assert!(reveals(Persona::MinTip, open, true).is_empty());
+    // A plain bot (persona-free behaviour via double_arrival) reveals through the keeper in its window only.
     assert_eq!(
-        reveals(Persona::DoubleArrival, bell, false),
+        reveals(Persona::DoubleArrival, open, false),
         vec![(RevealRoute::Keeper, false)]
+    );
+    assert!(
+        reveals(Persona::DoubleArrival, bell, false).is_empty(),
+        "not in the arrival bell before T(arrive) is published"
     );
     assert!(
         reveals(Persona::DoubleArrival, bell + 3, false).is_empty(),
@@ -488,7 +498,7 @@ fn owners_reveal_in_the_arrival_bell_by_persona() {
     );
     // self_tip reveals itself, beneficiary = its wallet.
     assert_eq!(
-        reveals(Persona::SelfTip, bell, true),
+        reveals(Persona::SelfTip, open, true),
         vec![(RevealRoute::DirectSelf, false)]
     );
     // late_revealer: only after the window, both routes.
@@ -519,7 +529,7 @@ fn owners_reveal_in_the_arrival_bell_by_persona() {
     }
     // forger: a forged direct reveal, and the honest one.
     assert_eq!(
-        reveals(Persona::Forger, bell, true),
+        reveals(Persona::Forger, open, true),
         vec![
             (RevealRoute::DirectForged, false),
             (RevealRoute::Keeper, false)

@@ -2077,7 +2077,7 @@
       "vector": {
         "bell": 2114,
         "body_without_tail": "017242080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc1936",
-        "body": "017242080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc193601040400000000000000b5a302be0e6e111fd503a68566206a5dde8da210ae199e7897a3a3881f5095da",
+        "body": "017242080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc193602040400000000000000b5a302be0e6e111fd503a68566206a5dde8da210ae199e7897a3a3881f5095da050500000000000000791efec4febabe7d53e029eb1574c7aa2856c6a313880c86407e687cfa1f3095",
         "decodes": true,
         "chains": [
           {
@@ -2087,6 +2087,14 @@
             "prev_head": "9934560a365e372823e04b7020f67b951d245119aeb8bc447d5a9dd8ab2c3cd6",
             "seq": 4,
             "head": "b5a302be0e6e111fd503a68566206a5dde8da210ae199e7897a3a3881f5095da"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 4,
+            "prev_head": "75f9106b5011a7a85a2f6321a7983b5c3156023460ce05151989daa131e0d3ff",
+            "seq": 5,
+            "head": "791efec4febabe7d53e029eb1574c7aa2856c6a313880c86407e687cfa1f3095"
           }
         ]
       }
@@ -2150,7 +2158,7 @@
       "vector": {
         "bell": 2115,
         "body_without_tail": "017343080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
-        "body": "017343080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc193603040400000000000000be3ce946f58876a21587c95b8a4cdc6fea14947e22466e9130a06549b4abba190505000000000000005d0ba07104ffc6091ad81b8673c4afe9d069fe6aa2ad48fe72ecf670560d344e0506000000000000009c805235f5b6bfd801828aa306b67237e833a1c5d2ef5f41ddff2b81cfa90b5e",
+        "body": "017343080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc193603040400000000000000be3ce946f58876a21587c95b8a4cdc6fea14947e22466e9130a06549b4abba190505000000000000005d0ba07104ffc6091ad81b8673c4afe9d069fe6aa2ad48fe72ecf670560d344e0906000000000000009c805235f5b6bfd801828aa306b67237e833a1c5d2ef5f41ddff2b81cfa90b5e",
         "decodes": true,
         "chains": [
           {
@@ -2170,8 +2178,8 @@
             "head": "5d0ba07104ffc6091ad81b8673c4afe9d069fe6aa2ad48fe72ecf670560d344e"
           },
           {
-            "entity": 5,
-            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "entity": 9,
+            "who": "Vault { p: 5, q: -1, tile: 107 }",
             "prev_seq": 5,
             "prev_head": "b8bebf056de5bd67535b3ef5484cc3781c5ad80bb3cbeff70b96d62723f99e7d",
             "seq": 6,
@@ -2239,7 +2247,7 @@
       "vector": {
         "bell": 2116,
         "body_without_tail": "017444080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
-        "body": "017444080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936030404000000000000001a1a3200f84aed59ae8185a35260f83ecdb1e12ccaae35e4d2d7bc087552a6e4050500000000000000bd2599e7da6b2e0023e4a73af0cf9a6df9530d9c2f470128db09e7eb7744bd0e05060000000000000073f48a929153003ad823f2d69acb63a388d9cde78bf0f1f2a7a49689e22f3ac1",
+        "body": "017444080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936030404000000000000001a1a3200f84aed59ae8185a35260f83ecdb1e12ccaae35e4d2d7bc087552a6e4050500000000000000bd2599e7da6b2e0023e4a73af0cf9a6df9530d9c2f470128db09e7eb7744bd0e09060000000000000073f48a929153003ad823f2d69acb63a388d9cde78bf0f1f2a7a49689e22f3ac1",
         "decodes": true,
         "chains": [
           {
@@ -2259,8 +2267,8 @@
             "head": "bd2599e7da6b2e0023e4a73af0cf9a6df9530d9c2f470128db09e7eb7744bd0e"
           },
           {
-            "entity": 5,
-            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "entity": 9,
+            "who": "Vault { p: 5, q: -1, tile: 107 }",
             "prev_seq": 5,
             "prev_head": "9f8898f4b47ad1262a1c505b29b0f5ea189cf02d06cd021f6df9a25a936be40a",
             "seq": 6,
@@ -2332,7 +2340,7 @@
       "vector": {
         "bell": 2117,
         "body_without_tail": "017545080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
-        "body": "017545080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc193602050400000000000000a62658a6f3d4676469c678a438900adfcf50e1c6fe37522fdcb02ded9aa246b405050000000000000076dfe5c473b76ab622d52febae5821e2f50aab1fc42e4a525765b5fadd4b377b",
+        "body": "017545080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc193602050400000000000000a62658a6f3d4676469c678a438900adfcf50e1c6fe37522fdcb02ded9aa246b409050000000000000076dfe5c473b76ab622d52febae5821e2f50aab1fc42e4a525765b5fadd4b377b",
         "decodes": true,
         "chains": [
           {
@@ -2344,8 +2352,8 @@
             "head": "a62658a6f3d4676469c678a438900adfcf50e1c6fe37522fdcb02ded9aa246b4"
           },
           {
-            "entity": 5,
-            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "entity": 9,
+            "who": "Vault { p: 5, q: -1, tile: 107 }",
             "prev_seq": 4,
             "prev_head": "e853b770f20053cc31832ceee76fa394d27334c41aae168c99e2e4c90aa4d20b",
             "seq": 5,
@@ -2417,7 +2425,7 @@
       "vector": {
         "bell": 2118,
         "body_without_tail": "017646080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
-        "body": "017646080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19360304040000000000000025ac6823a0300f1ca649d10ee1b05b0e5870036fbc2998437eca942c9d0c98820505000000000000008039fcba29466c848b3d97513adf3fb7f3b215223e839bde84e702eef957c97d050600000000000000bfd96dffd17beadf8c34db4fd4e1f9cd62cd06c2770835495f4bc40197a09f5d",
+        "body": "017646080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19360304040000000000000025ac6823a0300f1ca649d10ee1b05b0e5870036fbc2998437eca942c9d0c98820505000000000000008039fcba29466c848b3d97513adf3fb7f3b215223e839bde84e702eef957c97d090600000000000000bfd96dffd17beadf8c34db4fd4e1f9cd62cd06c2770835495f4bc40197a09f5d",
         "decodes": true,
         "chains": [
           {
@@ -2437,8 +2445,8 @@
             "head": "8039fcba29466c848b3d97513adf3fb7f3b215223e839bde84e702eef957c97d"
           },
           {
-            "entity": 5,
-            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "entity": 9,
+            "who": "Vault { p: 5, q: -1, tile: 107 }",
             "prev_seq": 5,
             "prev_head": "d4b1ea266fb73882815b2824cc6d5a3afab9bbeff509398ce29d28a27ae35e52",
             "seq": 6,

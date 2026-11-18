@@ -199,8 +199,15 @@ async fn invalid_expired_or_nearly_expired_hash_is_never_ready() {
 /// Explicit public devnet reads only. No account/wallet data is sent, and no
 /// transaction, simulation, airdrop, key or signature is created or requested.
 #[tokio::test]
-#[ignore = "explicit opt-in public HTTPS RPC observation, no signing or sending"]
+#[ignore = "explicit opt-in public HTTPS RPC observation, no signing or sending; set FRONTIER_LIVE_DEVNET=1"]
 async fn public_devnet_https_blockhash_observation_only() {
+    // `#[ignore]` alone is not an opt-in: a crate-wide `--include-ignored`
+    // run would reach public devnet (verify-pr44). Same gate as live_drand.
+    assert_eq!(
+        std::env::var("FRONTIER_LIVE_DEVNET").as_deref(),
+        Ok("1"),
+        "NOT RUN: set FRONTIER_LIVE_DEVNET=1 (this test reads public devnet)"
+    );
     let observed = blockhash_preflight::read("https://api.devnet.solana.com", 0)
         .await
         .unwrap();

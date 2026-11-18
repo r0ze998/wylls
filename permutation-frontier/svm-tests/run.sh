@@ -7,7 +7,8 @@
 #
 # Builds (scripts/build-frontier.sh, W2-A): the release .so (checked:
 # SBPF v2, overflow checks, no test markers) and the feature builds in
-# PSF_FEATURES (default "test-beacon trace oracle"; each never deployable)
+# PSF_FEATURES (default "test-beacon trace oracle rights-test-beacon"; each
+# never deployable; rights-test-beacon is workstream 02's option A build)
 # into permutation-frontier/target/deploy{,-<feature>}/; the probe
 # (probe/, SBPF v2) into target/deploy-probe/. The tests read them through
 # PSF_SO, PSF_SO_TEST_BEACON, PSF_SO_TRACE, PSF_SO_ORACLE and PSF_PROBE_SO,
@@ -28,7 +29,7 @@ if [ "${PSF_SKIP_BUILD:-0}" != 1 ]; then
     exit 1
   fi
   "$root/scripts/build-frontier.sh"
-  for f in ${PSF_FEATURES-test-beacon trace oracle}; do
+  for f in ${PSF_FEATURES-test-beacon trace oracle rights-test-beacon}; do
     "$root/scripts/build-frontier.sh" --features "$f"
   done
   ( cd "$here/probe" && cargo-build-sbf --tools-version v1.52 --arch v2 \
@@ -42,8 +43,9 @@ set_if PSF_SO "$deploy/deploy/permutation_frontier.so"
 set_if PSF_SO_TEST_BEACON "$deploy/deploy-test-beacon/permutation_frontier.so"
 set_if PSF_SO_TRACE "$deploy/deploy-trace/permutation_frontier.so"
 set_if PSF_SO_ORACLE "$deploy/deploy-oracle/permutation_frontier.so"
+set_if PSF_SO_RIGHTS "$deploy/deploy-rights-test-beacon/permutation_frontier.so"
 set_if PSF_PROBE_SO "$here/target/deploy-probe/psf_probe.so"
-for v in PSF_SO PSF_SO_TEST_BEACON PSF_SO_TRACE PSF_SO_ORACLE PSF_PROBE_SO; do
+for v in PSF_SO PSF_SO_TEST_BEACON PSF_SO_TRACE PSF_SO_ORACLE PSF_SO_RIGHTS PSF_PROBE_SO; do
   echo "svm-tests: $v=${!v:-<unset>}"
 done
 cd "$here" && cargo test --locked "$@"
