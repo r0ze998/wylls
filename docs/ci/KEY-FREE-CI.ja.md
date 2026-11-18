@@ -4,8 +4,10 @@
 
 ## 1. 現状（`.github/workflows/ci.yml`、main と全担当の branch で同じ内容）
 
-- **起動条件**：`on: push`（branch の指定なし）と `pull_request`。
-  - そのため、**どの branch に push しても**、全 9 job が動きます。
+- **起動条件**（2026-11-18、利用者の決定 Q-D6 で変更）：`pull_request` と、`main` への `push` だけ。手動（`workflow_dispatch`）はそのまま。
+  - branch に push しただけでは動きません。pull request があれば、push ごとに 1 回だけ全 job が動きます（以前は push と pull_request で 2 回）。
+  - 同じ pull request に新しい push が来ると、古い実行は取り消されます（`concurrency`）。`main` への push と手動の実行は取り消されません。
+  - それ以前は `on: push`（branch の指定なし）と `pull_request` で、**どの branch に push しても**全 job が動いていました。
   - `doctrine-balance.yml` は手動（`workflow_dispatch`）だけで、鍵も使いません。
 - **鍵を使う段**（`scripts/ci/check-ci-keyfree.py` で機械的に数えた結果は 14 件）：
 

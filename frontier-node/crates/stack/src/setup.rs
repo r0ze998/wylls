@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use fclient::addr::Addresses;
-use fclient::{ix, Keypair, Signer};
+use fclient::{ix, Address, Instruction, Keypair, Signer};
 use frontier_abi::presets::SeasonParams;
 use serde_json::{json, Value};
 
@@ -165,6 +165,161 @@ pub fn continuous_world_guard(
     Ok(())
 }
 
+/// A season's CreateSeason bytes (params ‖ payout) and the AnnounceSeason
+/// hash over them, with the two amounts CreateSeason moves into the
+/// season's funds. Shared by the local stack ([`run`]) and the operator
+/// tool ([`crate::operator`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeasonBytes {
+    pub params: Vec<u8>,
+    pub payout: Vec<u8>,
+    pub params_hash: [u8; 32],
+    /// `pfund_initial`: split over the six ProvinceFunds (`wedge_share`).
+    pub pfund_initial: u64,
+    /// `dpool_initial`: paid into the DefencePool.
+    pub dpool_initial: u64,
+}
+
+/// The payout parameters every season of this code base uses (REV3, borsh).
+pub fn payout_rev3() -> Vec<u8> {
+    permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh()
+}
+
+/// An S1 (v2) season's bytes; the parameters must validate.
+pub fn conquest_bytes(
+    p: &frontier_abi::v2::presets::SeasonParamsV2,
+) -> Result<SeasonBytes, &'static str> {
+    p.validate()?;
+    let payout = payout_rev3();
+    let sp = p.to_bytes();
+    Ok(SeasonBytes {
+        params_hash: frontier_abi::v2::presets::params_hash_v2(&sp, &payout),
+        params: sp.to_vec(),
+        payout,
+        pfund_initial: p.base.pfund_initial,
+        dpool_initial: p.base.dpool_initial,
+    })
+}
+
+/// An M1 season's bytes; the parameters must validate.
+pub fn m1_bytes(p: &SeasonParams) -> Result<SeasonBytes, &'static str> {
+    p.validate()?;
+    let payout = payout_rev3();
+    let sp = p.to_bytes();
+    Ok(SeasonBytes {
+        params_hash: frontier_abi::presets::params_hash(&sp, &payout),
+        params: sp.to_vec(),
+        payout,
+        pfund_initial: p.pfund_initial,
+        dpool_initial: p.dpool_initial,
+    })
+}
+
+/// An account a setup transaction creates: its data size and the lamports
+/// paid into it on top of its rent-exempt minimum (bond, fund float).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewAccount {
+    pub label: String,
+    pub address: Address,
+    pub size: usize,
+    pub extra: u64,
+}
+
+/// One operator transaction of the setup, signed by the authority alone.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Step {
+    pub name: String,
+    pub ixs: Vec<Instruction>,
+    pub creates: Vec<NewAccount>,
+}
+
+/// AnnounceSeason (I-09, I-51): creates the Season PDA, paid by the
+/// authority with its rent and the [`BOND`].
+pub fn announce_step(
+    addrs: &Addresses,
+    authority: Address,
+    params_hash: [u8; 32],
+    t_create_min: i64,
+) -> Step {
+    Step {
+        name: "AnnounceSeason".into(),
+        ixs: vec![ix::announce_season(
+            addrs,
+            authority,
+            params_hash,
+            t_create_min,
+            BOND,
+        )],
+        creates: vec![NewAccount {
+            label: "Season".into(),
+            address: addrs.season,
+            size: fclient::abi::size::SEASON,
+            extra: BOND,
+        }],
+    }
+}
+
+/// The steps after the lead, in the order the program needs them:
+/// CreateSeason, InitBeaconLogs, then InitShards for every faction.
+pub fn after_announce_steps(addrs: &Addresses, authority: Address, sb: &SeasonBytes) -> Vec<Step> {
+    use fclient::abi::{size, FACTIONS, REGIONS, SHARDS_PER_FACTION, WEDGES};
+    let share = sb.pfund_initial / WEDGES as u64;
+    let mut create = vec![NewAccount {
+        label: "Frontier".into(),
+        address: addrs.frontier(),
+        size: size::FRONTIER,
+        extra: 0,
+    }];
+    for (w, a) in addrs.province_funds().into_iter().enumerate() {
+        create.push(NewAccount {
+            label: format!("ProvinceFund[{w}]"),
+            address: a,
+            size: size::PROVINCE_FUND,
+            extra: share,
+        });
+    }
+    create.push(NewAccount {
+        label: "DefencePool".into(),
+        address: addrs.defence_pool(),
+        size: size::DEFENCE_POOL,
+        extra: sb.dpool_initial,
+    });
+    let mut out = vec![
+        Step {
+            name: "CreateSeason".into(),
+            ixs: vec![ix::create_season(addrs, authority, &sb.params, &sb.payout)],
+            creates: create,
+        },
+        Step {
+            name: "InitBeaconLogs".into(),
+            ixs: vec![ix::init_beacon_logs(addrs, authority)],
+            creates: (0..REGIONS)
+                .map(|r| NewAccount {
+                    label: format!("BeaconLog[{r}]"),
+                    address: addrs.beacon_log(r),
+                    size: size::BEACON_LOG,
+                    extra: 0,
+                })
+                .collect(),
+        },
+    ];
+    for f in 0..FACTIONS {
+        out.push(Step {
+            name: format!("InitShards({f})"),
+            ixs: vec![ix::init_shards(addrs, authority, f)],
+            creates: (0..SHARDS_PER_FACTION)
+                .map(|s| NewAccount {
+                    label: format!("JoinShard[{f}][{s}]"),
+                    address: addrs.join_shard(f, s),
+                    size: size::JOIN_SHARD,
+                    extra: 0,
+                })
+                .collect(),
+        });
+    }
+    out
+}
+
 /// Runs the operator steps; returns what the report needs.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
@@ -190,8 +345,7 @@ pub async fn run(
         epoch_gate,
     )?;
     let land = Duration::from_secs(60);
-    let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
-    let (sp, ph) = if conquest {
+    let sb = if conquest {
         let mut p = conquest_params(beacon, end_bell);
         if let Some(k) = keep_bells {
             p.cq.keep_bells = k;
@@ -206,18 +360,11 @@ pub async fn run(
         if let Some(g) = join_gate {
             p.base.join_gate = g;
         }
-        p.validate()
-            .map_err(|e| format!("conquest season params: {e}"))?;
-        let sp = p.to_bytes();
-        let ph = frontier_abi::v2::presets::params_hash_v2(&sp, &payout);
-        (sp.to_vec(), ph)
+        conquest_bytes(&p).map_err(|e| format!("conquest season params: {e}"))?
     } else {
         let mut p = season_params(beacon, end_bell);
         land_overrides.apply(&mut p);
-        p.validate().map_err(|e| format!("season params: {e}"))?;
-        let sp = p.to_bytes();
-        let ph = frontier_abi::presets::params_hash(&sp, &payout);
-        (sp.to_vec(), ph)
+        m1_bytes(&p).map_err(|e| format!("season params: {e}"))?
     };
     // Announce at the run's scale (at 2,000 a slot is 800 game seconds, so
     // the lead would shrink below the program's minimum before landing),
@@ -232,7 +379,7 @@ pub async fn run(
     let auth = authority.pubkey();
     chain
         .send_op(
-            &[ix::announce_season(addrs, auth, ph, t_create_min, BOND)],
+            &announce_step(addrs, auth, sb.params_hash, t_create_min).ixs,
             &[authority],
             land,
         )
@@ -267,20 +414,9 @@ pub async fn run(
     while chain.status().await?.slot < s0 + 2 {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    chain
-        .send_op(
-            &[ix::create_season(addrs, auth, &sp, &payout)],
-            &[authority],
-            land,
-        )
-        .await?;
-    chain
-        .send_op(&[ix::init_beacon_logs(addrs, auth)], &[authority], land)
-        .await?;
-    for f in 0..fclient::abi::FACTIONS {
-        chain
-            .send_op(&[ix::init_shards(addrs, auth, f)], &[authority], land)
-            .await?;
+    // CreateSeason, InitBeaconLogs, InitShards × 6 (the operator tool sends the same steps).
+    for step in after_announce_steps(addrs, auth, &sb) {
+        chain.send_op(&step.ixs, &[authority], land).await?;
     }
     let s = chain
         .season(addrs)
@@ -296,7 +432,7 @@ pub async fn run(
         "created_slot": created.slot, "created_game": created.now,
         "genesis_ts": s.genesis_ts, "genesis_round": s.genesis_round, "end_bell": s.end_bell,
         "join_close_bell": s.join_close_bell, "bell_secs": s.bell_secs,
-        "quicknet_pk_hash": hex::encode(s.quicknet_pk_hash), "params_hash": hex::encode(ph),
+        "quicknet_pk_hash": hex::encode(s.quicknet_pk_hash), "params_hash": hex::encode(sb.params_hash),
         "season_end_at_play_end": end_bell.is_some(),
         "continuous": land_overrides.continuous,
         "conquest": conquest, "program_version": s.program_version, "ruleset_hash": hex::encode(s.ruleset_hash),
@@ -387,6 +523,50 @@ mod tests {
             assert_eq!(short.base.release_after_secs, 72 * 3600);
             assert_eq!(short.cq.release_after_secs, short.base.release_after_secs);
         }
+    }
+
+    /// The shared steps (used by `run` and by `frontier-operator`) are the
+    /// instructions `run` sent before they were shared, in the same order.
+    #[test]
+    fn shared_steps_are_the_stack_instructions() {
+        let a = Addresses::new(Address::new_from_array([3; 32]), 1);
+        let auth = Address::new_from_array([4; 32]);
+        for conquest in [false, true] {
+            let sb = if conquest {
+                conquest_bytes(&conquest_params(Beacon::TestKey, None)).unwrap()
+            } else {
+                m1_bytes(&season_params(Beacon::TestKey, None)).unwrap()
+            };
+            let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
+            assert_eq!(sb.payout, payout);
+            let ann = announce_step(&a, auth, sb.params_hash, 777);
+            assert_eq!(
+                ann.ixs,
+                vec![ix::announce_season(&a, auth, sb.params_hash, 777, BOND)]
+            );
+            let mut want = vec![
+                vec![ix::create_season(&a, auth, &sb.params, &payout)],
+                vec![ix::init_beacon_logs(&a, auth)],
+            ];
+            for f in 0..fclient::abi::FACTIONS {
+                want.push(vec![ix::init_shards(&a, auth, f)]);
+            }
+            let got: Vec<_> = after_announce_steps(&a, auth, &sb)
+                .into_iter()
+                .map(|s| s.ixs)
+                .collect();
+            assert_eq!(got, want);
+        }
+        let sb = conquest_bytes(&conquest_params(Beacon::Archive, None)).unwrap();
+        let mut p = conquest_params(Beacon::Archive, None);
+        let sp = p.to_bytes();
+        assert_eq!(
+            sb.params_hash,
+            frontier_abi::v2::presets::params_hash_v2(&sp, &sb.payout)
+        );
+        // Invalid parameters are refused before anything is built.
+        p.base.end_bell = 0;
+        assert!(conquest_bytes(&p).is_err());
     }
 
     #[test]
