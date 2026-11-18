@@ -417,7 +417,7 @@ test('the wiring: the page\'s two actions go to the controller\'s local-play ent
   assert.match(ctl, /if \(localPlay\) \{ orderAnswered\(order, false, \{ code: 'LocalPlayReadOnly', sent: false \}\); return failed\(localPlayReadOnly\(\)\); \}/);
   // (2026-11-12, the economy path: `join` and `home-confirm` left the list — in local play they are the page-signed Join
   //  and PlaceHome and make no key; what they may do is pinned in web-frontier-local-play.test.mjs and web-frontier-local-play-act.test.mjs)
-  assert.match(ctl, /export const LOCAL_PLAY_REFUSED = Object\.freeze\(\['session', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget'\]\);/);
+  assert.match(ctl, /export const LOCAL_PLAY_REFUSED = Object\.freeze\(\['session', 'session-replace', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget'\]\);/);
   assert.match(ctl, /const restored = sc && !localPlay \? await fsession\.restore\(sc, address\) : null;/);
 });
 
