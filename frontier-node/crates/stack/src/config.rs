@@ -177,6 +177,17 @@ pub struct StackConfig {
     /// counts against the game's ProvinceFunds at the end, so a growing map
     /// needs no figure here.
     pub prize_keeps: u16,
+    /// ⑰ (reopened 2026-11-18; test assets, local/devnet only): with
+    /// `--continuous`, open the prize as settlement windows (epoch pools,
+    /// a `--features epochs` build of permutation-prize) instead of the
+    /// legacy end-of-season pool. Off by default; no mainnet profile sets it.
+    pub prize_epochs: bool,
+    /// Bells per settlement window (`--prize-epoch-bells`); default 2,016
+    /// (14 days at 600 s, the owner's season length Y6).
+    pub prize_epoch_bells: u32,
+    /// Claim window after a window's EpochFinalize, in bells
+    /// (`--prize-claim-bells`); default 1,008 (7 days). PROVISIONAL.
+    pub prize_claim_bells: u32,
     /// Game seconds per real second after the pre-season (20× exit, 100×
     /// nightly, 2× latency run).
     pub scale: f64,
@@ -316,6 +327,9 @@ impl Default for StackConfig {
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
             prize_keeps: 0,
+            prize_epochs: false,
+            prize_epoch_bells: 2_016,
+            prize_claim_bells: 1_008,
             scale: 100.0,
             preseason_scale: 2_000.0,
             drain_scale: None,
@@ -504,6 +518,15 @@ impl StackConfig {
         }
         if let Some(v) = i!("prize_keeps") {
             c.prize_keeps = v as u16;
+        }
+        if let Some(v) = b!("prize_epochs") {
+            c.prize_epochs = v;
+        }
+        if let Some(v) = i!("prize_epoch_bells") {
+            c.prize_epoch_bells = u32::try_from(v).map_err(|_| "`prize_epoch_bells` too large")?;
+        }
+        if let Some(v) = i!("prize_claim_bells") {
+            c.prize_claim_bells = u32::try_from(v).map_err(|_| "`prize_claim_bells` too large")?;
         }
         if let Some(v) = f!("scale") {
             c.scale = pos(v, "scale")?;
@@ -738,10 +761,20 @@ impl StackConfig {
             if self.season_end_at_play_end || self.end_season || self.end_season_requested {
                 return Err("--continuous: the world cannot have a season end".into());
             }
-            if self.prize_so.is_some() {
+            if self.prize_so.is_some() && !self.prize_epochs {
                 return Err(
-                    "--continuous: the legacy end-of-season prize pool is unavailable".into(),
+                    "--continuous: the legacy end-of-season prize pool is unavailable (settlement windows: --prize-epochs)".into(),
                 );
+            }
+        }
+        if self.prize_epochs {
+            if !self.continuous || self.prize_so.is_none() {
+                return Err(
+                    "--prize-epochs: settlement windows are for a --continuous world with --prize-so (a --features epochs build)".into(),
+                );
+            }
+            if self.prize_epoch_bells == 0 || self.prize_claim_bells == 0 {
+                return Err("--prize-epoch-bells and --prize-claim-bells must be > 0".into());
             }
         }
         if self.prize_so.is_some() {
@@ -891,8 +924,15 @@ impl StackConfig {
     /// The prize settings of the run (`null` without `--prize-so`).
     fn prize_json(&self) -> Value {
         match &self.prize_so {
-            Some(p) => json!({"so": p.display().to_string(), "entry_fee": self.entry_fee,
-                "ops_bps": self.prize_ops_bps, "keeps": self.prize_keeps}),
+            Some(p) => {
+                let mut v = json!({"so": p.display().to_string(), "entry_fee": self.entry_fee,
+                    "ops_bps": self.prize_ops_bps, "keeps": self.prize_keeps});
+                if self.prize_epochs {
+                    v["epochs"] = json!({"epoch_bells": self.prize_epoch_bells,
+                        "claim_bells": self.prize_claim_bells, "test_assets_only": true});
+                }
+                v
+            }
             None => Value::Null,
         }
     }
@@ -1044,6 +1084,15 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "entry-fee" => c.entry_fee = count(k, v)?,
             "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
             "prize-keeps" => c.prize_keeps = count(k, v)? as u16,
+            "prize-epochs" => c.prize_epochs = true,
+            "prize-epoch-bells" => {
+                c.prize_epoch_bells =
+                    u32::try_from(count(k, v)?).map_err(|_| "--prize-epoch-bells too large")?
+            }
+            "prize-claim-bells" => {
+                c.prize_claim_bells =
+                    u32::try_from(count(k, v)?).map_err(|_| "--prize-claim-bells too large")?
+            }
             "base-port" => {
                 let p = num(k, v)?;
                 if !(0.0..=65_535.0).contains(&p) {
@@ -1131,6 +1180,7 @@ pub const SWITCHES: &[&str] = &[
     "no-season-end-at-play-end",
     "keeper-rest",
     "keeper-extend",
+    "prize-epochs",
     "no-viewer-follow-status",
     "json",
     "strict",
@@ -1200,6 +1250,67 @@ mod tests {
             "conquest = true\ncontinuous = true\nprize_so = \"legacy.so\"\n"
         )
         .is_err());
+    }
+
+    /// ⑰ settlement windows: only in a continuous world with a prize build,
+    /// off by default, 14-day windows and a 7-day claim window by default.
+    #[test]
+    fn prize_epochs_need_a_continuous_world() {
+        let c = StackConfig::default();
+        assert!(!c.prize_epochs);
+        assert_eq!((c.prize_epoch_bells, c.prize_claim_bells), (2_016, 1_008));
+        let args = |a: &[&str]| {
+            let mut c = StackConfig::default();
+            apply_flags(
+                &mut c,
+                &split_flags(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap(),
+            )
+            .map(|_| c)
+        };
+        let so = "permutation-prize/target/deploy-epochs/permutation_prize.so";
+        let c = args(&[
+            "--conquest",
+            "--continuous",
+            "--prize-so",
+            so,
+            "--prize-epochs",
+        ])
+        .unwrap();
+        assert!(c.prize_epochs && c.continuous);
+        assert_eq!(c.to_json()["prize"]["epochs"]["epoch_bells"], 2_016);
+        assert_eq!(c.to_json()["prize"]["entry_fee"], 25_000_000);
+        assert_eq!(c.to_json()["prize"]["ops_bps"], 2_000);
+        // The legacy pool stays refused in a continuous world.
+        assert!(args(&["--conquest", "--continuous", "--prize-so", so]).is_err());
+        // Windows need the continuous world and the prize build.
+        assert!(args(&["--conquest", "--prize-so", so, "--prize-epochs"]).is_err());
+        assert!(args(&["--conquest", "--continuous", "--prize-epochs"]).is_err());
+        assert!(args(&[
+            "--conquest",
+            "--continuous",
+            "--prize-so",
+            so,
+            "--prize-epochs",
+            "--prize-epoch-bells",
+            "0"
+        ])
+        .is_err());
+        let c = args(&[
+            "--conquest",
+            "--continuous",
+            "--prize-so",
+            so,
+            "--prize-epochs",
+            "--prize-epoch-bells",
+            "144",
+            "--prize-claim-bells",
+            "36",
+        ])
+        .unwrap();
+        assert_eq!((c.prize_epoch_bells, c.prize_claim_bells), (144, 36));
+        let t = StackConfig::from_toml(&format!("conquest = true\ncontinuous = true\nprize_so = \"{so}\"\nprize_epochs = true\nprize_epoch_bells = 72\n")).unwrap();
+        assert!(t.prize_epochs && t.prize_epoch_bells == 72);
+        assert!(StackConfig::from_toml("conquest = true\nprize_epochs = true\n").is_err());
     }
 
     /// The prize pool is an option of a conquest world without bots: its
