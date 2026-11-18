@@ -50,6 +50,7 @@ mod rng;
 mod settle;
 mod sim;
 mod suite;
+mod timelapse;
 mod trade;
 
 use config::Config;
@@ -107,6 +108,7 @@ fn main() {
     let mut leader_max: Option<f64> = None;
     let mut report_only = false;
     let mut gate28 = false;
+    let mut every: u32 = 6;
     let mut i = 2;
     while i < args.len() {
         let v = args.get(i + 1).cloned().unwrap_or_default();
@@ -294,6 +296,7 @@ fn main() {
             "--keep-aggr" => cfg.cq.keep_aggr = v.parse().expect("--keep-aggr"),
             "--threads" => cfg.threads = Some(v.parse().expect("--threads")),
             "--json" => json = Some(v),
+            "--every" => every = v.parse().expect("--every"),
             "--check" => check = Some(v),
             "--thresholds" => thresholds = Some(v),
             "--check-leader-max" => leader_max = Some(v.parse().expect("--check-leader-max")),
@@ -588,6 +591,12 @@ fn main() {
                 }
                 std::fs::write(p, out).expect("series");
             }
+        }
+        "timelapse" => {
+            // A read-only map trace of one season (scripts/demo/sixnation/map).
+            let p = out.clone().expect("timelapse needs --out FILE");
+            std::fs::write(&p, timelapse::trace(&cfg, every)).expect("write trace");
+            eprintln!("wrote {p}");
         }
         "mapmove" => {
             let fs = first_seed.unwrap_or(0);
