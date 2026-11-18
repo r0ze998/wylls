@@ -39,7 +39,7 @@ import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
-import { applySeasonRecord, contiguousRings, worldOf } from './map/world.mjs';
+import { applySeasonRecord, contiguousRings, worldOf, ringSeeded } from './map/world.mjs';
 import { readOverviews } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
@@ -63,7 +63,7 @@ import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_S
 import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
 import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
-import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
+import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
@@ -1915,12 +1915,25 @@ export function wantHostReach(hostId) {
 }
 
 /**
- * How many provinces of a control snapshot have a keep the page cannot place yet: their ring's village list (overview)
- * is not read and no keep of theirs is held from a province record. 0 once every ring named is read.
+ * How many provinces of a control snapshot have a keep the page cannot place YET and that could matter to the reach
+ * list: no keep of theirs is held from a province record, and their ring's village list (overview) is not read but
+ * WILL be — the ring is one this world seeds (`ringSeeded`) — and the province is within a march's reach of an origin
+ * (`origins`: the reach list's own, `[{p, q}]`; at most MAX_ROUTE_PROVINCES provinces away. No origin: not narrowed).
+ * 0 once every such ring is read.
+ * (PR #46 verification R1, 2026-11-18: the first version counted every unread ring. A sparse world never reads the
+ *  rings it does not seed — map/overviews.mjs validRing; rings 0 and 1 of the natural world — so the count stood at 7
+ *  for good and an empty list said "finding the keeps…" for ever, in place of "no keep within reach". A ring the world
+ *  does not seed has nothing to wait for: it is not pending. Fail-safe: without `ringSeeded` no ring counts.)
  */
-export function keepsPending(provinces, keeps, ringRead) {
+export function keepsPending(provinces, keeps, ringRead, ringSeeded = () => false, origins = []) {
+  const from = (origins ?? []).filter(o => Number.isInteger(o?.p) && Number.isInteger(o?.q));
+  const near = c => from.length === 0 || from.some(o => hexDistance(o.p, o.q, c.p, c.q) <= MAX_ROUTE_PROVINCES);
   let n = 0;
-  for (const c of provinces ?? []) if (Number.isInteger(c?.p) && Number.isInteger(c?.q) && !keeps.has(`${c.p},${c.q}`) && !ringRead(ringOf(c.p, c.q))) n += 1;
+  for (const c of provinces ?? []) {
+    if (!Number.isInteger(c?.p) || !Number.isInteger(c?.q) || keeps.has(`${c.p},${c.q}`)) continue;
+    const d = ringOf(c.p, c.q);
+    if (ringSeeded(d) && !ringRead(d) && near(c)) n += 1;
+  }
   return n;
 }
 
@@ -2039,7 +2052,8 @@ export async function refreshConquest() {
       // holder is the same its consolidation bell still stands, so the panel can say if the keep is open
       else if (c.consolidatedUntil === null && k.holder === c.holder) c.consolidatedUntil = k.consolidatedUntil;
     }
-    cq.keepsPending = keepsPending(cq.control.provinces, cq.keeps, d => FS.overviews.has(d));
+    { const w = FS.world ?? (FS.record ? worldOf(FS.record) : null);
+      cq.keepsPending = keepsPending(cq.control.provinces, cq.keeps, d => FS.overviews.has(d), d => !!w && ringSeeded(w, d), reachOrigins(FS).origins); }
     cq.status = 'ready'; cq.error = null;
   } else if (control?.code === 'NotFound' && nowBell() <= 1 + Math.ceil(Number(FS.season.revealWindow ?? 600) / Number(FS.season.bellSecs ?? 600)) && !cq.control) {
     // A fresh world has no completed control snapshot until its first bell settles.

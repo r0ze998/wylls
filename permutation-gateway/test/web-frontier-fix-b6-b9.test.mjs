@@ -28,6 +28,8 @@ import { renderReach, reachLoading } from '../../permutation-server/web/frontier
 import { cachedReach, reachKey } from '../../permutation-server/web/frontier/fkeepreach.mjs';
 import { keepsPending } from '../../permutation-server/web/frontier/controller.mjs';
 import { ringOf } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { worldOf as worldShape, ringSeeded } from '../../permutation-server/web/frontier/map/world.mjs';
+import { renderWideInventoryStatus } from '../../permutation-server/web/frontier/screens/wideholding.mjs';
 
 afterEach(() => setLang('ja'));
 const plain = s => String(s).replace(/<[^>]*>/g, ' ').replace(/&#39;/g, '\'').replace(/\s+/g, ' ');
@@ -242,18 +244,75 @@ test('B9: an empty reach list says it is still being worked out while keeps of t
   assert.match(readFileSync(new URL('hud/keephand.mjs', WEB), 'utf8'), /: Number\(FS\.conquest\?\.keepsPending \?\? 0\) > 0 \? html`<p class="pop-line kh-loading">\$\{L`届く砦を調べています…`\}<\/p>`/);
 });
 
-test('B9: keepsPending counts the control provinces whose ring is not read and whose keep is not held', () => {
+test('B9: keepsPending counts the control provinces whose keep is not held and whose SEEDED ring is not read yet', () => {
   const provinces = [{ p: 2, q: 0 }, { p: -2, q: 4 }, { p: 0, q: 4 }, { p: 1, q: 1 }];
   const far = ringOf(-2, 4);
   assert.equal(ringOf(0, 4), far); assert.notEqual(ringOf(2, 0), far);
-  const read = new Set([ringOf(2, 0), ringOf(1, 1)]);
-  assert.equal(keepsPending(provinces, new Map(), d => read.has(d)), 2, 'the far ring\'s two');
-  assert.equal(keepsPending(provinces, new Map([['-2,4', {}]]), d => read.has(d)), 1, 'a keep held from a province record is placed');
+  const read = new Set([ringOf(2, 0), ringOf(1, 1)]), all = () => true;
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d), all), 2, 'the far ring\'s two');
+  assert.equal(keepsPending(provinces, new Map([['-2,4', {}]]), d => read.has(d), all), 1, 'a keep held from a province record is placed');
   read.add(far);
-  assert.equal(keepsPending(provinces, new Map(), d => read.has(d)), 0, 'every ring read: nothing pending (a province without a keep is not one)');
-  assert.equal(keepsPending(null, new Map(), () => false), 0);
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d), all), 0, 'every ring read: nothing pending (a province without a keep is not one)');
+  assert.equal(keepsPending(null, new Map(), () => false, all), 0);
+  // fail-safe: without a word on which rings the world seeds, nothing is pending (never "finding…" for ever)
+  assert.equal(keepsPending(provinces, new Map(), () => false), 0);
   const ctl = readFileSync(new URL('controller.mjs', WEB), 'utf8');
-  assert.match(ctl, /cq\.keepsPending = keepsPending\(cq\.control\.provinces, cq\.keeps, d => FS\.overviews\.has\(d\)\);/);
+  assert.match(ctl, /cq\.keepsPending = keepsPending\(cq\.control\.provinces, cq\.keeps, d => FS\.overviews\.has\(d\), d => !!w && ringSeeded\(w, d\), reachOrigins\(FS\)\.origins\);/);
+});
+
+// (PR #46 verification R1, 2026-11-18: seen live in a natural launcher world at turn 16 — FS.overviews held rings 2, 3, 4,
+//  the control snapshot named 0,0 and the six ring-1 provinces too, and keepsPending stood at 7 for good: Borealis, with
+//  no other nation's keep in reach, read "Finding the keeps you can reach…" from turn 7 until after the world ended)
+test('B9 round 2: a sparse world whose inner rings are unseeded — its rings 0 and 1 are never read and are NOT pending; the empty list says "no keep within reach"', () => {
+  // the natural world's shape: rings 2, 3 and 4 seeded, 0 and 1 not (map/world.mjs worldOf of a sparse season record)
+  const world = worldShape({ rings: [2, 3, 4].map(d => ({ d, seed: String(d).repeat(64) })) });
+  assert.deepEqual(world.seeded, [2, 3, 4]);
+  for (const d of [0, 1]) assert.equal(ringSeeded(world, d), false, `ring ${d} has no seed: map/overviews.mjs never reads it`);
+  const seeded = d => ringSeeded(world, d);
+  // the control snapshot as the live world had it: the centre, the six of ring 1, and provinces of rings 2-4
+  const ring1 = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]].map(([p, q]) => ({ p, q }));
+  const provinces = [{ p: 0, q: 0 }, ...ring1, { p: 2, q: 0 }, { p: -2, q: 4 }, { p: 3, q: 0 }];
+  assert.deepEqual(ring1.map(c => ringOf(c.p, c.q)), [1, 1, 1, 1, 1, 1]);
+  // every ring the world seeds is read (as in the live dump: FS.overviews = rings [2, 3, 4])
+  const read = new Set([2, 3, 4]);
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d), () => true), 7, 'the fault: counting every unread ring, the seven never go away');
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d), seeded), 0, 'fixed: a ring the world does not seed is not waited for');
+  // and the page says the truthful line again, in either language, on the tab and on the host\'s card
+  for (const [lang, none] of [['en', /No keep of another nation is within reach now\./], ['ja', /いま届く他国の砦はありません。/]]) {
+    setLang(lang);
+    const s = fs([], { keepsPending: keepsPending(provinces, new Map(), d => read.has(d), seeded) });
+    assert.equal(reachLoading(s), false);
+    const text = plain(renderReach(s));
+    assert.match(text, none); assert.doesNotMatch(text, /Finding the keeps|調べています/);
+  }
+  // while a SEEDED ring is still to be read, it is pending — and only its provinces
+  read.delete(4);
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d), seeded), 1, 'the one province of ring 4 named (-2,4)');
+  read.delete(3);
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d), seeded), 2);
+  // a contiguous world (every ring below ringsOpen seeded) is as before: its unread rings are pending
+  const whole = worldShape({ rings: [0, 1, 2, 3, 4].map(d => ({ d, seed: String(d).repeat(64) })) });
+  assert.equal(keepsPending(provinces, new Map(), () => false, d => ringSeeded(whole, d)), provinces.length);
+});
+
+test('B9 round 2: only provinces a march could reach from an origin are waited for (at most 4 provinces away)', () => {
+  const all = () => true, none = () => false;
+  const provinces = [{ p: 2, q: 0 }, { p: 5, q: 0 }, { p: 6, q: 0 }, { p: -4, q: 0 }];
+  const origins = [{ p: 1, q: 0, tile: 20, unit: 0 }];
+  assert.equal(keepsPending(provinces, new Map(), none, all, origins), 2, '2,0 (1 away) and 5,0 (4 away); 6,0 and -4,0 are 5 away');
+  assert.equal(keepsPending(provinces, new Map(), none, all, [...origins, { p: -3, q: 0 }]), 3, 'the nearest origin decides');
+  assert.equal(keepsPending(provinces, new Map(), none, all, []), 4, 'no origin known: not narrowed');
+  assert.equal(keepsPending(provinces, new Map(), none, all, [{ p: 'x' }, null]), 4, 'a malformed origin is no origin');
+});
+
+test('PR #46 verification: after a confirmed end the far-village card raises no second "could not be read (network) · Retry"', () => {
+  setLang('en');
+  const base = { mode: 'play', citizen: { faction: 0 }, wideStatus: 'error', wideError: { code: 'network' } };
+  assert.match(String(renderWideInventoryStatus(base)), /Far-village information could not be read \(network\)[\s\S]*data-act="me-retry"/, 'a world that runs: as before');
+  assert.equal(String(renderWideInventoryStatus({ ...base, worldEnded: { at: 1 } })), '', 'the banner says the world ended; nothing is left to retry');
+  // any other failure, and the "unavailable from this source" line, are still said after the end
+  assert.match(String(renderWideInventoryStatus({ ...base, worldEnded: { at: 1 }, wideError: { code: 'BadWideRecord' } })), /BadWideRecord/);
+  assert.match(String(renderWideInventoryStatus({ ...base, worldEnded: { at: 1 }, wideStatus: 'unavailable', wideError: null })), /unavailable from this source/);
 });
 
 test('B9: the reach answer follows the keeps held — a keep that arrives within the same turn is in the list at once', () => {

@@ -127,7 +127,9 @@ Add one more word to the capture demo command above (it is refused without the d
   tab, which discards that tab's key. A page whose world the launcher has ended says so once its next read of the
   world fails and the launcher (still running) answers that it no longer runs that world: the turn dial stands at the
   last turn the world reported (「ターン N · 終了済み」) and the banner reads 「この世界は終了しました。…」. If the launcher
-  itself is gone (Ctrl-C), the page cannot confirm the end and says only that it cannot connect. Use `--world-ttl-minutes 45` for a short trial.
+  itself is gone (Ctrl-C), the page cannot confirm the end and says only that it cannot connect. After a confirmed end
+  the far-village card no longer raises its own "could not be read (network)" with a Retry; a panel that reads
+  something else of the world may still say that its own read failed. Use `--world-ttl-minutes 45` for a short trial.
 - **What is not natural:** the clock is the demo's compressed clock and the other villages are test participants, as
   in (2). At ×30 a turn is 20 s, so the 72-turn hold takes 24 minutes: it fits a 45-minute world only when the hold
   starts early (a trial on 2026-11-14 completed the capture at turn 84 after a hold that began at turn 13).
