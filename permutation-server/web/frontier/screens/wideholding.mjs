@@ -153,6 +153,9 @@ export function render(FS) {
 export function renderWideInventoryStatus(FS) {
   if (FS?.mode !== 'play' || !FS.citizen || !['error', 'unavailable'].includes(FS.wideStatus)) return '';
   const failed = FS.wideStatus === 'error';
+  // (PR #46 verification, 2026-11-18: a local-play world confirmed ended — flocalplay-ended.mjs — is not read any more:
+  //  its network failure is not said as a second error with a Retry beside the banner that says the world ended)
+  if (failed && FS.worldEnded && FS.wideError?.code === 'network') return '';
   const message = failed
     ? L`遠方の村の情報を読み込めません（${FS.wideError?.code ?? 'Unavailable'}）。保有地がないことを意味しません。`
     : L`この配信元では遠方の村の情報を取得できません。保有地の有無は不明です。`;

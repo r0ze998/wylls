@@ -7,7 +7,10 @@
 // launcher=1 gate starts that local world through the same-origin launcher on a button press; the worlds the
 // launcher runs are listed (public addresses) when it refuses a start at its limit of two, or when the player asks
 // with the panel's own key, and ending one is the player's own two presses on that world's row: nothing here stops
-// a world, or asks anything of the launcher, by itself. A launcher's answer may also say that its world is a conquest
+// a world, or asks anything of the launcher, by itself — with one exception since the loop-play report B5: once the
+// world is connected, the PAGE may ask whether the launcher still runs it (`checkWorld`, the keeper route with this
+// page's own public address), and does so only after a read of the world's herald failed by the network
+// (flocalplay-ended.mjs; never polled, never while the herald answers). A launcher's answer may also say that its world is a conquest
 // world (`conquestWorld`): it is kept only when it names the dedicated program and the very Season this page then
 // verifies, and is handed to the page on the identity (`cfg.localPlay.conquestWorld`, which the controller makes
 // `FS.localPlay`); anything less is no conquest world to this page. Connect reads
@@ -366,7 +369,10 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
       const asked = handle.address, at = base;
       confirmWorldEnd({ expiry: claimedEnd, origin: at, wallet: asked, request, notice: session, now, still: () => !handle.destroyed && handle.address === asked && state.herald === at }).catch(() => {});
     }
-    resolveReady({ cfg: { ...cfg, herald: base, relay: `${base}/gw`, devWallet: false, localPlay: playedAs }, wallet: handle, record: result.record, ...(launcher ? { prepared: state.prepared } : {}) });
+    const cfgOut = { ...cfg, herald: base, relay: `${base}/gw`, devWallet: false, localPlay: playedAs };
+    // (B5: a launcher world's page may ask whether its world still runs — `localPlayWorldCheck(cfg)`, by this very object)
+    if (launcher) worldChecks.set(cfgOut, checkWorld);
+    resolveReady({ cfg: cfgOut, wallet: handle, record: result.record, ...(launcher ? { prepared: state.prepared } : {}) });
     return state;
   };
   // One bounded same-origin POST to the launcher's stop or worlds route: `{ok: true, body}`, or its refusal
@@ -413,7 +419,21 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     if (!launcher || !handle || handle.destroyed || handle.address !== wallet) return null;
     const result = await askLauncher('/local-play/keeper', { wallet }, 'LauncherKeeperFailed');
     if (!handle || handle.destroyed || handle.address !== wallet) return null;
+    // (the launcher's own word that it no longer runs this world — its 404 WorldNotFound — is said as the world's end,
+    //  not as a failed check: the loop-play report B5)
+    if (!result.ok && result.launcher === 'WorldNotFound') return { state: 'ended' };
     return result.ok ? { state: 'reported', keeper: result.body?.keeper ?? null } : { state: 'unavailable' };
+  };
+  // Whether the launcher still runs this page's world (B5; flocalplay-ended.mjs decides what the answer means): asked by
+  // the page ONLY after a read of the world's herald failed by the network — never polled, never while the herald
+  // answers. The same bounded same-origin keeper question, for this page's own public address; nothing is started,
+  // stopped, signed or sent. → the launcher's answer as `askLauncher` gives it, or null for a page that is not a
+  // connected launcher world or lost its key.
+  const checkWorld = async () => {
+    if (!launcher || !done || !handle || handle.destroyed) return null;
+    const wallet = handle.address;
+    const result = await askLauncher('/local-play/keeper', { wallet }, 'LauncherKeeperFailed');
+    return !handle || handle.destroyed || handle.address !== wallet ? null : result;
   };
   // TEST-ONLY contest pair, the second player's own press of the notice's key (never polled): the fort and nation to meet
   // over, checked again on this page (`pairGuideView`: mode, this page's own role, every number), or null once the page
@@ -452,8 +472,16 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
       rejectReady(Object.assign(new Error('local play is not available'), { code: state.code }));
     }
   })();
-  return { ready, connect, endWorld, listWorlds, state: () => ({ ...state }), wallet: () => handle, notice: () => session };
+  return { ready, connect, endWorld, listWorlds, checkWorld, state: () => ({ ...state }), wallet: () => handle, notice: () => session };
 }
+
+/** The gate's `checkWorld` of each launcher world's resolved cfg (by the object itself; nothing is put on the cfg). */
+const worldChecks = new WeakMap();
+/**
+ * The question "does the launcher still run this page's world?" for the cfg a launcher gate resolved, or null for any
+ * other cfg (not local play, an operator's own herald). The page asks it only after a herald read failed by the network.
+ */
+export const localPlayWorldCheck = cfg => (cfg !== null && typeof cfg === 'object' ? worldChecks.get(cfg) ?? null : null);
 
 /** A listed world in a few words: since when, and what it is doing. */
 function worldLine(w, at) {

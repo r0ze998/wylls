@@ -307,7 +307,10 @@ test('round 25: in local play the host bar\'s Dissolve says it cannot be sent th
       invalidate('panel', 'map');
       await new Promise(r => setTimeout(r, 600));
       const b = document.querySelector('#hand .hand-dissolve'), r = b?.getBoundingClientRect();
-      return b ? { x: r.left + r.width / 2, y: r.top + r.height / 2, off: b.classList.contains('off'), disabled: b.getAttribute('aria-disabled'), why: b.querySelector('.hand-why')?.textContent ?? null, note: document.querySelector('#hand .hand-note')?.textContent ?? null } : null;
+      // (the buttons local play refuses carry its plain sentence as their title: their words, in the bar's order)
+      const plain = 'In local play, this order cannot be sent yet (read only).';
+      const refused = [...document.querySelectorAll('#hand .hand-btn')].filter(x => x.getAttribute('title') === plain).map(x => x.querySelector('.hand-word')?.textContent.trim() ?? '?');
+      return b ? { x: r.left + r.width / 2, y: r.top + r.height / 2, off: b.classList.contains('off'), disabled: b.getAttribute('aria-disabled'), why: b.querySelector('.hand-why')?.textContent ?? null, note: document.querySelector('#hand .hand-note')?.textContent ?? null, refused } : null;
     });
     assert.ok(at, 'the host bar shows Dissolve');
     await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
@@ -316,7 +319,11 @@ test('round 25: in local play the host bar\'s Dissolve says it cannot be sent th
     writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ at, pop }, null, 2)}\n`);
     assert.equal(at.off, true); assert.equal(at.disabled, 'true');
     // (round 27: the reason is said in full on the bar's own line; the button stays refused)
-    assert.equal(at.note, 'In local play, this order cannot be sent yet (read only).', 'the reason is on the bar, in full');
+    // (2026-11-18, the loop-play report B6: the line names the refused orders by their buttons' own words — it said
+    //  "this order" under a host whose March was sent. In this fixture the controller's per-host march answer is closed
+    //  too, so March stands in the line beside Dissolve: the sentence that named nothing had hidden that)
+    assert.ok(at.refused.includes('Dissolve'), `Dissolve is refused (${at.refused.join()})`);
+    assert.equal(at.note, `In local play, ${at.refused.map(w => `“${w}”`).join(', ')} cannot be sent yet (read only).`, 'the reason is on the bar, in full, naming the refused orders');
     assert.notEqual(pop, 'dissolve', 'the press opened no card');
   } catch (e) { await failed(page, name, e); }
 });
