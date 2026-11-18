@@ -1,17 +1,27 @@
 //! Temporary NATURAL local-play node (launcher preset `local-natural-v1`; see `itest::natural_play`): a new Season by
 //! its own instructions, the player's real Join and PlaceHome from the page, then the keeper on that home. Prints
-//! public JSON lines, serves on 127.0.0.1 until Ctrl-C, then stops. No key of the player's, no persistence, no tamper
-//! RPC; the only sends are the world's own setup and the keeper's.
+//! public JSON lines, serves on 127.0.0.1 until Ctrl-C, then stops. No key of the player's, no tamper RPC; the only
+//! sends are the world's own setup and the keeper's. No persistence unless `--persist-dir` is given (TEST-ONLY,
+//! `itest::natural_persist`: a private run dir, resumed when it already holds a world).
 //!
 //!   localnet-natural-play --artifact <abs .so> --artifact-sha256 <hex> --player-wallet <base58 public key> \
-//!     --rpc-port <41000-41999> --ws-port <41000-41999> --keeper public-quicknet
+//!     --rpc-port <41000-41999> --ws-port <41000-41999> --keeper public-quicknet \
+//!     [--continuous local-continuous-v1] [--persist-dir <abs private dir>]
 use itest::expedition_play as play;
 use itest::natural_play as natural;
 
 fn main() {
     let result = (|| -> Result<(), String> {
         // the TEST-ONLY capture demo's two options are taken out first (both or neither; the shared parser never sees them)
-        let (rest, demo) = itest::capture_demo::take_demo_args(std::env::args().skip(1).collect())?;
+        // the TEST-ONLY continuous preset and run dir (natural_persist) first: never with the demo's compressed clock
+        let (rest, world_opts) =
+            itest::natural_persist::take_world_args(std::env::args().skip(1).collect())?;
+        let (rest, demo) = itest::capture_demo::take_demo_args(rest)?;
+        if demo.is_some() && (world_opts.continuous || world_opts.persist.is_some()) {
+            return Err(
+                "--continuous and --persist-dir are not accepted with --capture-demo".into(),
+            );
+        }
         // the TEST-ONLY contest pair's two options likewise (both or neither), and only on a capture-demo world
         let (rest, second) = itest::contest_pair::take_pair_args(rest)?;
         if second.is_some() && demo.is_none() {
@@ -46,7 +56,7 @@ fn main() {
             .build()
             .map_err(|e| e.to_string())?;
         rt.block_on(async {
-            let mut world = natural::prepare(&artifact, o.player_wallet, o.rpc_port, o.ws_port).await?;
+            let mut world = natural::prepare_with(&artifact, o.player_wallet, o.rpc_port, o.ws_port, &world_opts).await?;
             // (the TEST-ONLY capture demo is stated in the world's own first line, which the launcher checks against its options)
             if let Some(scale) = demo {
                 itest::capture_demo::demo_metadata(&mut world.metadata, scale);

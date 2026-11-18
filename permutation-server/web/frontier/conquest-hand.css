@@ -120,6 +120,11 @@
 
 /* ---- the reach list and the standings table of the nation tab */
 .kr-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+/* the viewer's own contested keeps (the loop-play report B7): their own list above the other nations', and the word
+   「守りに向かう」 / "Defend" on a line of its own with its shield */
+.kr-rows-defend { margin-bottom: 14px; }
+.kr-defend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 2px; }
+.kr-defend .ic { width: 14px; height: 14px; flex: none; }
 .kr-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--kn) 12%, rgba(255,253,246,.7)); box-shadow: inset 3px 0 0 var(--kn), inset 0 0 0 1px rgba(125,100,40,.35); }
 .cs-nation { display: inline-flex; align-items: center; gap: 6px; }
 .conquest-standings { border-top: 0; padding-top: 0; }

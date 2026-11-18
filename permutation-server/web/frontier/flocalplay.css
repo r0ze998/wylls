@@ -41,13 +41,13 @@
 #local-play-gate .local-play-world-address { grid-column: 1 / -1; font: 600 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff6dc; overflow-wrap: anywhere; }
 #local-play-gate .local-play-world-line { grid-column: 1; font-size: 13px; color: #d8d2bf; }
 #local-play-gate .local-play-world-ask { grid-column: 1 / -1; padding: 6px 8px; border-left: 3px solid #e09a8a; background: rgba(120, 30, 20, .3); font-size: 13px; color: #ffe6de; }
-#local-play-gate .local-play-list { justify-self: start; }
-#local-play-gate .local-play-list, #local-play-gate .local-play-end, #local-play-gate .local-play-end-no, #local-play-gate .local-play-end-yes { min-height: 44px; padding: 6px 14px; border: 1px solid #a8996c; border-radius: 6px;
+#local-play-gate .local-play-list, #local-play-gate .local-play-forget { justify-self: start; }
+#local-play-gate .local-play-list, #local-play-gate .local-play-forget, #local-play-gate .local-play-end, #local-play-gate .local-play-end-no, #local-play-gate .local-play-end-yes { min-height: 44px; padding: 6px 14px; border: 1px solid #a8996c; border-radius: 6px;
   background: rgba(255, 255, 255, .04); color: #f4efe0; font: 650 14px/1.2 inherit; letter-spacing: .04em; cursor: pointer; }
 #local-play-gate .local-play-end { grid-column: 2 / -1; justify-self: end; }
 #local-play-gate .local-play-end-yes { grid-column: 2; border-color: #f0b3a4; background: #8a2a1c; color: #fff4ef; }
 #local-play-gate .local-play-end-no { grid-column: 3; }
-#local-play-gate .local-play-list:disabled, #local-play-gate .local-play-end:disabled, #local-play-gate .local-play-end-no:disabled, #local-play-gate .local-play-end-yes:disabled { opacity: .55; cursor: default; }
+#local-play-gate .local-play-list:disabled, #local-play-gate .local-play-forget:disabled, #local-play-gate .local-play-end:disabled, #local-play-gate .local-play-end-no:disabled, #local-play-gate .local-play-end-yes:disabled { opacity: .55; cursor: default; }
 #local-play-gate .local-play-list:focus-visible, #local-play-gate .local-play-end:focus-visible, #local-play-gate .local-play-end-no:focus-visible, #local-play-gate .local-play-end-yes:focus-visible { outline: 3px solid #7fd4ff; outline-offset: 2px; }
 @media (max-width: 759px) {
   #local-play-gate { place-items: start center; padding: 12px 10px calc(12px + env(safe-area-inset-bottom)); }

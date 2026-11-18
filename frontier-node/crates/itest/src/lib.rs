@@ -48,6 +48,9 @@ pub mod natural_home;
 // the natural world: a new Season by its own instructions, the player's real Join and PlaceHome, then the keeper
 #[cfg(feature = "localnet-expedition-play")]
 pub mod natural_play;
+// TEST-ONLY: the natural world's continuous preset and its private run dir (stop and resume), both opt-in
+#[cfg(feature = "localnet-expedition-play")]
+pub mod natural_persist;
 // TEST-ONLY capture demo on a natural world: a synthetic clock and test participants, the program's own instructions
 #[cfg(feature = "localnet-expedition-play")]
 pub mod capture_demo;
