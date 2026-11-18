@@ -16,13 +16,27 @@
 // Every step is one JSON line on stdout (the launcher keeps it in the world's directory: operators.out).
 // Same rules as a person: no other route, no operator read, no clock control, no account write, no RPC of the runner.
 // No model, no network beyond 127.0.0.1, no paid API. SIGINT/SIGTERM: stops, prints a summary line, exits 0.
+//
+// TEST-ONLY war world (`--war operator-war-v1`, the launcher's `--operator-war`; owner t359u): up to 12 residents, two
+// per nation; each turn the world's eyes are read once (local-play-operator-march.mjs: the page's herald client, keeps
+// and kernel), each resident's war snapshot is taken, the policy decides (defend / attack / muster / train / economy),
+// at most ONE action per resident per turn (owner Q16-2), and a march is sealed and sent by the page's own flow to the
+// resident's own relay (opened only by the page's own capability read with the TEST-ONLY trial).
 import { generateKeyPairSync, sign as edSign } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { parseTransaction, wireTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
+import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_DEFAULTS, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView } from './local-play-operator-policy.mjs';
+import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX, mayActThisTurn } from './local-play-operator-war.mjs';
+import { createWarEyes, openMarch, sendWarMarch } from './local-play-operator-march.mjs';
+
+/** A war world's pace: residents look every 2 s (one action per turn still), and a budget for a long world. */
+export const WAR_DEFAULTS = Object.freeze({ cadenceMs: 2000, maxActs: 5000, maxRefusals: 400, minGapMs: 1000 });
+/** Bells after its arrival a keep a resident marched on counts as taken by it (its contest runs 72 turns). */
+export const TARGET_HOLD_BELLS = 80;
 
 const SPKI_ED25519_PREFIX = 12;   // (an ed25519 SPKI DER is 12 bytes of header, then the 32-byte public key)
 
@@ -82,18 +96,21 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'war'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
+  if (o.war !== undefined && o.war !== OPERATOR_WAR_MODE) throw new Error(`--war must be exactly ${OPERATOR_WAR_MODE}`);
+  const war = o.war === OPERATOR_WAR_MODE;
   const count = Number(o.count);
-  if (!Number.isInteger(count) || count < 1 || count > OPERATOR_RESIDENTS_MAX) throw new Error('--count');
+  if (!/^([1-9]|1[0-2])$/.test(String(o.count)) || count < 1 || count > (war ? OPERATOR_WAR_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('--count');
+  const D = war ? WAR_DEFAULTS : OPERATOR_DEFAULTS;
   const ports = String(o['relay-ports'] ?? '').split(',').map(Number);
   if (ports.length !== count || ports.some(p => !Number.isInteger(p) || p < 41000 || p > 41999)) throw new Error('--relay-ports');
   if (!/^http:\/\/(localhost|127\.0\.0\.1):\d{4,5}$/.test(o.herald ?? '')) throw new Error('--herald (loopback only)');
   const homes = JSON.parse(o.homes ?? 'null');
   if (!Array.isArray(homes) || !homes.length) throw new Error('--homes');
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
-  return { count, ports, herald: o.herald, homes, cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
+  return { count, ports, herald: o.herald, homes, war, cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
 }
 
 /**
@@ -104,12 +121,36 @@ export async function residentTurn(r, { homes, deps }) {
   const t = deps.now();
   let me;
   try { me = await deps.read(r.key.address); } catch (e) { return { resident: r.index, wallet: r.key.address, step: 'read', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 80) }; }
-  const view = residentView(me, (kind, bytes) => decodePrefix(kind, bytes, { profile: 2 }));
-  const d = decideNext(r.memory, view, { homes, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null });
-  const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null };
+  // (`deps.view`: tests only — the same reduction from an already decoded record)
+  const view = deps.view ? deps.view(me) : residentView(me, (kind, bytes) => decodePrefix(kind, bytes, { profile: 2 }));
+  // (a war resident with a village: its war snapshot — the page's own reads, keeps and target finder)
+  let snap = null;
+  if (r.memory.war && view?.holding && deps.warView) { try { snap = await deps.warView(r); } catch (e) { snap = null; } }
+  const nowBell = r.memory.war && deps.nowBell ? deps.nowBell() : null;
+  const d = decideNext(r.memory, view, { homes, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
+    war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
+  const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
+    ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready } : {}) };
   if (d.wait) { noteOutcome(r.memory, d, 'wait'); return { resident: r.index, wallet: r.key.address, step: 'decide', outcome: 'wait', why: d.why, seen }; }
+  // (one action per resident per turn, owner Q16-2: a war resident that acted this turn waits for the next)
+  if (r.memory.war && !mayActThisTurn(r.memory.lastBell, nowBell, d.name)) return { resident: r.index, wallet: r.key.address, step: 'turn', outcome: 'wait', why: 'already acted this turn', want: d.name, seen };
   const allow = r.budget.allow(t);
   if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.later ? 'later' : 'stopped', why: allow.why, want: d.name, seen };
+  if (d.name === 'Depart') {
+    if (!r.marchOpen) return { resident: r.index, wallet: r.key.address, step: 'march', outcome: 'wait', why: 'the march is not open on its own relay', want: 'Depart', seen };
+    r.lastRefusal = null;
+    const m = await deps.march(r, snap);
+    const detail = r.lastRefusal; r.lastRefusal = null;
+    const outcome = m.ok ? 'landed' : m.step === 'check' || m.step === 'route' || m.step === 'sealing' ? 'refused' : m.code === 'TransactionFailed' ? 'failed' : m.step === 'sent' && m.code !== 'network' ? 'refused' : 'unknown';
+    if (outcome !== 'refused') r.memory.lastBell = nowBell;
+    if (outcome === 'landed' || outcome === 'unknown') (r.memory.targets ??= {})[`${d.row.p},${d.row.q}`] = (m.arriveBell ?? nowBell) + TARGET_HOLD_BELLS;
+    noteOutcome(r.memory, d, outcome);
+    r.budget.spent(outcome, deps.now());
+    return { resident: r.index, wallet: r.key.address, step: 'act', act: 'Depart', kind: d.kind, why: d.why, outcome,
+      to: { p: d.row.p, q: d.row.q, tile: d.row.tile, holder: d.row.holder, guard: d.row.troops }, host: { id: String(snap.march.host.id), troops: snap.march.host.troops, from: [d.row.origin.p, d.row.origin.q] },
+      ...(m.arriveBell ? { arrive_bell: m.arriveBell } : {}), ...(m.route ? { route: m.route } : {}), ...(m.code ? { code: m.code } : {}), ...(m.programCode !== undefined ? { program_code: m.programCode } : {}), ...(m.problems ? { problems: m.problems } : {}),
+      ...(m.signature ? { signature: m.signature } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 500) } : {}), seen, budget: r.budget.state() };
+  }
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
   const detail = r.lastRefusal ?? null; r.lastRefusal = null;
@@ -120,6 +161,7 @@ export async function residentTurn(r, { homes, deps }) {
     outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown';
     code = f.code ?? sent.relayCode ?? null;
   }
+  if (r.memory.war && outcome !== 'refused' && d.name !== 'Join') r.memory.lastBell = nowBell;
   noteOutcome(r.memory, d, outcome);
   r.budget.spent(outcome, deps.now());
   return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, fields: JSON.parse(JSON.stringify(d.fields, (_, v) => (typeof v === 'bigint' ? v.toString() : v))), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), ...(signature ? { signature } : {}), seen, budget: r.budget.state() };
@@ -130,10 +172,10 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   try { o = parseArgs(argv); } catch (e) { process.stderr.write(`operator residents: ${e.message}\n`); return 64; }
   const stop = new AbortController();
   for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(s, () => stop.abort(s));
-  const residents = Array.from({ length: o.count }, (_, index) => ({ index, key: memoryTestKey(), port: o.ports[index], memory: createResidentMemory(index),
+  const residents = Array.from({ length: o.count }, (_, index) => ({ index, key: memoryTestKey(), port: o.ports[index], memory: createResidentMemory(index, { war: o.war }),
     budget: createOperatorBudget({ maxActs: o.maxActs, maxRefusals: o.maxRefusals, minGapMs: o.minGapMs }), identity: null, rulesetHash: null }));
   residents.forEach(r => { r.signer = pageShapedSigner(r.key); r.origin = `http://127.0.0.1:${r.port}`; });
-  print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address) }));
+  print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address), ...(o.war ? { war: OPERATOR_WAR_MODE } : {}) }));
   // 2. each resident's own relay, pinned to its own wallet
   for (const r of residents) {
     for (let i = 0; !stop.signal.aborted; i++) {
@@ -159,9 +201,34 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     submit: (order, r) => submitLocalAct(order, { allowed: () => ({ ok: true, relay: r.origin }), identity: () => r.identity, rulesetHash: () => r.rulesetHash, signer: () => r.signer, post: postFor(r) }),
     follow: (signature, r) => followLocalAct(signature, { origin: r.origin, still: () => !stop.signal.aborted, post: postFor(r), tries: 20, every: 1000 }),
   };
+  // (TEST-ONLY war world: the world's eyes, read once per loop; the march opened per resident by its own relay)
+  const eyes = o.war ? createWarEyes({ herald: o.herald }) : null;
+  if (eyes) {
+    deps.warView = r => eyes.view(r.key.address, r.memory);
+    deps.nowBell = () => eyes.world.nowBell;
+    deps.march = (r, snap) => sendWarMarch(r, snap, eyes, { post: marchPostFor(r) });
+  }
+  const marchPosts = new Map();
+  function marchPostFor(r) {
+    if (!marchPosts.has(r.origin)) marchPosts.set(r.origin, (origin, path, body) => postLocalMarch(origin, path, body, { fetch: async (url, init) => {
+      const res = await globalThis.fetch(String(url).replace(`${origin}/gw/`, `${origin}/`), init);
+      if (!res.ok) { try { r.lastRefusal = await res.clone().json(); } catch { /* not JSON */ } }
+      return res;
+    } }));
+    return marchPosts.get(r.origin);
+  }
   let turns = 0;
   while (!stop.signal.aborted) {
-    for (const r of residents) {
+    if (eyes) {
+      try { await eyes.refresh(); } catch (e) { print(JSON.stringify({ at: new Date().toISOString(), turn: turns, step: 'eyes', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 120) })); await delay(o.cadenceMs, stop.signal); continue; }
+      for (const r of residents) if (!r.marchOpen && turns % 5 === 0) {
+        try { const m = await openMarch(r.origin, r.key.address); r.marchOpen = m.open === true; if (r.marchOpen || turns % 50 === 0) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, resident: r.index, step: 'march-capability', open: r.marchOpen, trial: m.trial ?? null, ...(m.why ? { why: m.why } : {}) })); } catch { /* its relay is not up yet */ }
+      }
+    }
+    // (a war world: every resident takes its turn at once — each has its own relay and its own wallet, and a refused
+    //  send's follow must not hold the other residents past the turn; one action per resident per turn still)
+    if (o.war) await Promise.all(residents.map(async r => { if (!stop.signal.aborted) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, ...await residentTurn(r, { homes: o.homes, deps }) })); }));
+    else for (const r of residents) {
       if (stop.signal.aborted) break;
       const line = await residentTurn(r, { homes: o.homes, deps });
       print(JSON.stringify({ at: new Date().toISOString(), turn: turns, ...line }));
