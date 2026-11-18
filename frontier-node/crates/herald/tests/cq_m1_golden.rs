@@ -26,7 +26,13 @@ const TREE: &str = "76e04131995399ebf8d397a1c09c4a8b0d4c6413b46e41179851101bf31c
 const DIFFS: &str = "e1f693a2ea6354cd8ee3eade1c37b251d822b40a229f6aa5e0fa4280542d29da";
 const CHECKPOINT: &str = "0be391db27d2113457f627fa32250dfe98d9f249475e2bc89a8003198638bd4f";
 const ME: &str = "925989bae83dbd7c54da16e5bb4838f5f6ac07c84f908f745b3944a5845230a8";
-const INDEX: &str = "bce3883a982f4d4550aa8da426c32552c9e93823cc2d66be6696e7ad58a9b655";
+/// Since the strict index (1a61caa4) the rows include two meta rows,
+/// `strict_ps2_v2_reject_psw1 = 1` and `strict_ps2_blocked = 1` (this test
+/// calls `Index::add` without the archive/index coordinator, so coverage
+/// stays blocked); without them the digest is the earlier
+/// bce3883a982f4d4550aa8da426c32552c9e93823cc2d66be6696e7ad58a9b655
+/// (checked when regenerating, loop-play B4-D).
+const INDEX: &str = "eb0a5274ca01daf9bb71ee78740b80ece495869c1a1969ad0bfc986c573876a6";
 
 fn h(parts: impl IntoIterator<Item = Vec<u8>>) -> String {
     let mut s = Sha256::new();

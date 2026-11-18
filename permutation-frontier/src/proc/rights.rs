@@ -1,50 +1,62 @@
-//! **Proposal (workstream 02-rights, not adopted):** the workshop-stock
-//! swap Grant (`frontier_abi::v2::rights`, contract
-//! `workstreams/02-rights/03-CONTRACT.ja.md`). Routed by [`crate::dispatch`]
-//! before the v2 tag table, so no allocated tag, code or account kind
-//! changes. The right exchanges the grantee's ore and wood for arms the
-//! facility has **already made**; it neither runs the workshop nor reserves
-//! its future output, and the continuous conversion of `Holding::settle`
-//! is untouched.
+//! **Workstream 02-rights, owner decision ② = A (2026-11-18); still behind
+//! `rights-experimental`:** the workshop-stock swap Grant
+//! (`frontier_abi::v2::rights`, contract
+//! `workstreams/02-rights/03-CONTRACT.ja.md` as amended by
+//! `13-OPTION-A.ja.md`). Routed by [`crate::dispatch`] before the v2 tag
+//! table, so no allocated tag, code or account kind changes. The right
+//! exchanges the grantee's ore and wood for arms the facility has
+//! **already made**; it neither runs the workshop nor reserves its future
+//! output, and the continuous conversion of `Holding::settle` is untouched.
 //!
+//! - **Option A (the station is a Vault).** The grantee's side is its own
+//!   live S1 Vault on a tile of the facility's Province: the ore and wood
+//!   leave that Vault, the arms land in it, and only SendCaravan (0xB1,
+//!   raidable by 0xB3) takes them anywhere else; the Vault itself may be
+//!   seized (0xB4). Credits keep `STORES + CUSTODY_QUOTA ≤ CAP` as
+//!   SettleCaravan does (`VaultFull` on ExecuteSwap; an undo that does not
+//!   fit stays in the Grant).
 //! - **Who signs.** IssueGrant: the issuer's wallet only (a session is
-//!   refused `WalletRequired`, as a send to another player). ReserveSwap
-//!   and ExecuteSwap: the grantee (wallet or its own live session, through
-//!   the player prologue, its action bucket included). RevokeGrant: the
-//!   issuer (wallet or session; revoking only takes power away).
-//!   ReleaseSwap: the grantee, or any signer once the Grant is expired or a
-//!   pinned holding is stale. CloseGrant: any signer once nothing is
-//!   escrowed and the Grant can no longer be used (the rent goes to
-//!   `RENT_TO` whoever signs).
+//!   refused `WalletRequired`, as a send to another player); it pays
+//!   `GRANT_ISSUE_COST` from the facility (an owner action: touched).
+//!   ReserveSwap and ExecuteSwap: the grantee (wallet or its own live
+//!   session, through the player prologue, its action bucket included).
+//!   RevokeGrant: the issuer (wallet or session; revoking only takes power
+//!   away). ReleaseSwap: the grantee, or any signer once the Grant is
+//!   expired or a pinned place is stale. CloseGrant: any signer once
+//!   nothing is escrowed and the Grant can no longer be used (the rent
+//!   goes to `RENT_TO` whoever signs).
 //! - **What is pinned.** The Grant's address is a with-seed address of the
 //!   Season PDA (`gr‖issuer_tag,nonce`), recomputed on every use; the
-//!   facility and the station by key, generation and owner; both in one
-//!   Province, whose capture lock is checked for both.
+//!   facility (a Holding) and the station (a Vault) by key, generation and
+//!   owner; both in one Province, whose capture lock is checked for the
+//!   facility.
 //! - **Where escrow lives.** As numbers in the Grant (`OPEN_*`), in no
-//!   holding's store: no production, owner action or other Grant can
-//!   spend it until ExecuteSwap, ReleaseSwap or RevokeGrant moves it.
-//! - **Not owner activity.** Grant instructions settle the holdings they
-//!   write without `touch_owner` (as a caravan's delivery does): a grantee
-//!   cannot keep an absent owner's holding awake.
-//! - **Undoing.** Each escrowed side goes back to the holding it came from
-//!   as that holding stands now (after a capture, its captor's: redesign
-//!   20 §5 gives a captured store's contents to the captor; contract §6
-//!   lists what that rule does not settle). A side whose holding no longer
-//!   exists is **kept in the Grant**, neither credited elsewhere nor
-//!   burned; ReleaseSwap that can return nothing is `ReturnBlocked`, and
-//!   CloseGrant waits (`StillLive`). A store above its cap keeps a return
+//!   store: no production, owner action or other Grant can spend it until
+//!   ExecuteSwap, ReleaseSwap or RevokeGrant moves it.
+//! - **Not owner activity.** Swap instructions settle the facility without
+//!   `touch_owner` (as a caravan's delivery does): a grantee cannot keep an
+//!   absent owner's holding awake.
+//! - **Undoing.** Each escrowed side goes back to the place it came from
+//!   as that place stands now (after a capture or a seizure, its captor's:
+//!   redesign 20 §5 gives a captured store's contents to the captor). A
+//!   side whose place no longer exists, or (a Vault) has no room, is
+//!   **kept in the Grant**, neither credited elsewhere nor burned;
+//!   ReleaseSwap that can return nothing is `ReturnBlocked`, and
+//!   CloseGrant waits (`StillLive`). A holding above its cap keeps a return
 //!   (`Accrual::add` may exceed the cap; settle never lowers it).
 //! - **Records (candidate, provisional kinds 114–119).** Every instruction
 //!   logs one PS2 record (`frontier_abi::v2::rights::record`): GRANT_ISSUED
-//!   chains the issuer's Citizen; SWAP_RESERVED and SWAP_EXECUTED the
-//!   grantee's Citizen, the station and the facility; SWAP_RELEASED the
-//!   holdings it credited; GRANT_REVOKED the issuer's Citizen and the
-//!   holdings it credited; GRANT_CLOSED nothing. The amounts are the ones
-//!   the holdings moved, so a replay rebuilds every write from the record.
+//!   chains the issuer's Citizen and the facility; SWAP_RESERVED and
+//!   SWAP_EXECUTED the grantee's Citizen, the station Vault and the
+//!   facility; SWAP_RELEASED the places it credited; GRANT_REVOKED the
+//!   issuer's Citizen and the places it credited; GRANT_CLOSED nothing.
+//!   `station_site`/`station_gen` in the records and the Grant are the
+//!   Vault's tile and generation.
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::AddrCtx;
+use frontier_abi::v2::layout::s1::vault as VA;
 use frontier_abi::v2::layout::AccountKind as K2;
 use frontier_abi::v2::rights::{self as rt, layout as G, RightsError};
 use frontier_abi::v2::CqError;
@@ -280,7 +292,8 @@ impl Undone {
 }
 
 /// Logs an undo record chaining `first` (the issuer's Citizen for a
-/// revoke) and exactly the holdings it credited, station then facility.
+/// revoke) and exactly the places it credited, the station Vault then the
+/// facility.
 #[allow(clippy::too_many_arguments)]
 fn emit_undo(
     kind: rec_kind,
@@ -316,7 +329,7 @@ fn emit_undo(
     }
     if let Some(d) = sd.as_mut() {
         chained.push(ChainedV2 {
-            entity: E2::Holding,
+            entity: E2::Vault,
             data: d,
         });
     }
@@ -337,10 +350,11 @@ fn cost(ore: i64, wood: i64, arms_: i64) -> [i64; RESOURCES] {
     c
 }
 
-// ------------------------------------------------------------ holdings
+// ------------------------------------------------------------ places
 
-/// A pinned holding: the key the Grant names (`BadGrant`), then present,
-/// live, of generation `gen` and owned by `owner` (`StaleHolding`).
+/// The pinned facility: the key the Grant names (`BadGrant`), then
+/// present, live, of generation `gen` and owned by `owner`
+/// (`StaleHolding`).
 fn pinned(
     p: &Pubkey,
     sid: u64,
@@ -371,6 +385,97 @@ fn pinned(
         return Err(stale());
     }
     Ok(h)
+}
+
+/// The pinned station Vault: the key the Grant names (`BadGrant`), then
+/// present, live, of generation `gen` and owned by `owner`
+/// (`StaleHolding`: seized, closed).
+fn pinned_vault(
+    p: &Pubkey,
+    sid: u64,
+    ai: &AccountInfo,
+    want: &[u8; 32],
+    gen: u8,
+    owner: &[u8; 32],
+) -> R<()> {
+    if key(ai) != *want {
+        return Err(err(RightsError::BadGrant));
+    }
+    let stale = || err(RightsError::StaleHolding);
+    if present_v2(ai, p, K2::Vault, sid).is_err() {
+        return Err(stale());
+    }
+    let d = ai.try_borrow_data()?;
+    let r = Ro(&d);
+    if r.u8(VA::STATE)? != VA::STATE_LIVE
+        || r.u8(VA::GEN)? != gen
+        || r.arr::<32>(VA::OWNER_CITIZEN)? != *owner
+    {
+        return Err(stale());
+    }
+    Ok(())
+}
+
+/// A Vault's stock as the swap moves it (workstream 10's invariant
+/// `STORES + CUSTODY_QUOTA ≤ CAP` kept on every credit, as SettleCaravan
+/// and the capacity preview keep it; `ix.rs` lists this writer).
+struct VaultStock {
+    stores: [i64; RESOURCES],
+    quota: [i64; RESOURCES],
+    cap: i64,
+}
+
+impl VaultStock {
+    fn read(ai: &AccountInfo) -> R<VaultStock> {
+        let d = ai.try_borrow_data()?;
+        let r = Ro(&d);
+        let mut v = VaultStock {
+            stores: [0; RESOURCES],
+            quota: [0; RESOURCES],
+            cap: r.i64(VA::CAP)?,
+        };
+        for i in 0..RESOURCES {
+            v.stores[i] = r.i64(VA::store(i))?;
+            v.quota[i] = r.i64(VA::custody_quota(i))?;
+        }
+        Ok(v)
+    }
+
+    /// Debits `amount` of `r` (`Insufficient` when short).
+    fn take(&mut self, r: Resource, amount: i64) -> R<()> {
+        let s = &mut self.stores[r as usize];
+        *s = s
+            .checked_sub(amount)
+            .filter(|x| *x >= 0)
+            .ok_or(FrontierError::Insufficient)?;
+        Ok(())
+    }
+
+    /// Whether `amount` of `r` fits under `CAP − CUSTODY_QUOTA`.
+    fn fits(&self, r: Resource, amount: i64) -> bool {
+        let i = r as usize;
+        self.stores[i]
+            .checked_add(amount)
+            .is_some_and(|n| n.saturating_add(self.quota[i]) <= self.cap)
+    }
+
+    /// Credits `amount` of `r` (`VaultFull` past `CAP − CUSTODY_QUOTA`).
+    fn put(&mut self, r: Resource, amount: i64) -> R<()> {
+        if !self.fits(r, amount) {
+            return Err(err(RightsError::VaultFull));
+        }
+        self.stores[r as usize] += amount;
+        Ok(())
+    }
+
+    fn write(&self, ai: &AccountInfo) -> R<()> {
+        let mut d = ai.try_borrow_mut_data()?;
+        let mut w = Rw(&mut d);
+        for i in 0..RESOURCES {
+            w.set_i64(VA::store(i), self.stores[i])?;
+        }
+        Ok(())
+    }
 }
 
 /// The Grant's Province at its canonical address, and the capture lock of
@@ -417,9 +522,9 @@ fn credit(ai: &AccountInfo, now: i64, amounts: &[(Resource, i64)]) -> R<()> {
     store(ai, &h, now)
 }
 
-/// The holding at a pinned key as it stands now, whoever holds it: `None`
-/// when no live holding is there any more (released or closed); `BadGrant`
-/// for another key.
+/// The facility at its pinned key as it stands now, whoever holds it:
+/// `None` when no live holding is there any more (released or closed);
+/// `BadGrant` for another key.
 fn place_now(
     p: &Pubkey,
     sid: u64,
@@ -446,11 +551,25 @@ fn place_now(
     Ok(hold::live(&h).ok().map(|_| h))
 }
 
-/// Undoes the escrow: each side goes back to the holding it came from
-/// **as that holding stands now** — its owner's, or its captor's after a
-/// capture (redesign 20 §5, adopted: a captured store's contents are the
-/// captor's). A side whose holding is gone (closed, released) is **kept
-/// in the Grant**, not burned. A capture not yet settled waits
+/// Whether the station Vault at its pinned key is live now, whoever holds
+/// it (a seized Vault is its captor's); `BadGrant` for another key.
+fn vault_now(p: &Pubkey, sid: u64, ai: &AccountInfo, want: &[u8; 32]) -> R<bool> {
+    if key(ai) != *want {
+        return Err(err(RightsError::BadGrant));
+    }
+    if present_v2(ai, p, K2::Vault, sid).is_err() {
+        return Ok(false);
+    }
+    let d = ai.try_borrow_data()?;
+    Ok(Ro(&d).u8(VA::STATE)? == VA::STATE_LIVE)
+}
+
+/// Undoes the escrow: each side goes back to the place it came from **as
+/// that place stands now** — its owner's, or its captor's after a capture
+/// or a seizure (redesign 20 §5, adopted: a captured store's contents are
+/// the captor's). A side whose place is gone (closed, released) or, the
+/// station Vault, has no room under `CAP − CUSTODY_QUOTA` is **kept in the
+/// Grant**, not burned. A facility capture not yet settled waits
 /// (`CapturePending`). Returns what went back and what stays.
 #[allow(clippy::too_many_arguments)]
 fn unwind(
@@ -470,27 +589,26 @@ fn unwind(
             kept: [0; 3],
         });
     }
-    let st = place_now(p, sid, station, &g.station)?;
+    let st_live = vault_now(p, sid, station, &g.station)?;
     let fa = place_now(p, sid, facility, &g.facility)?;
     let st_due = g.open[0] > 0 || g.open[1] > 0;
     let fa_due = g.open[2] > 0;
-    let st_back = if st_due { st.as_ref() } else { None };
     let fa_back = if fa_due { fa.as_ref() } else { None };
-    let live: alloc::vec::Vec<&frontier_abi::prologue::HoldingHdr> =
-        [st_back, fa_back].into_iter().flatten().collect();
+    let live: alloc::vec::Vec<&frontier_abi::prologue::HoldingHdr> = fa_back.into_iter().collect();
     province_unlocked(p, ctx, sid, g, province, &live)?;
     let mut kept = g.open;
     let mut returned = [0i64; 3];
-    if st_back.is_some() {
-        credit(
-            station,
-            now,
-            &[(Resource::Ore, g.open[0]), (Resource::Wood, g.open[1])],
-        )?;
-        returned[0] = g.open[0];
-        returned[1] = g.open[1];
-        kept[0] = 0;
-        kept[1] = 0;
+    if st_due && st_live {
+        let mut v = VaultStock::read(station)?;
+        if v.fits(Resource::Ore, g.open[0]) && v.fits(Resource::Wood, g.open[1]) {
+            v.put(Resource::Ore, g.open[0])?;
+            v.put(Resource::Wood, g.open[1])?;
+            v.write(station)?;
+            returned[0] = g.open[0];
+            returned[1] = g.open[1];
+            kept[0] = 0;
+            kept[1] = 0;
+        }
     }
     if fa_back.is_some() {
         credit(facility, now, &[(arms::ARMS, g.open[2])])?;
@@ -507,8 +625,10 @@ fn unwind(
 
 // ------------------------------------------------------------ 0xD0 IssueGrant
 
-/// 0xD0 IssueGrant: P (issuer, wallet) + `[facility r] [province r]
-/// [grantee_citizen r] [station r] [grant w] [system]`.
+/// 0xD0 IssueGrant: P (issuer, wallet) + `[facility w] [province r]
+/// [grantee_citizen r] [station r] [grant w] [system]`; `station` is the
+/// grantee's live Vault on a tile of the facility's Province (option A).
+/// The facility pays `GRANT_ISSUE_COST` (an owner action: touched).
 pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let x = rt::IssueGrant::decode(d)?;
     let [_, payer, season_ai, citizen, facility, province, grantee, station, grant, system] = a
@@ -516,10 +636,12 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::TooManyAccounts.into());
     };
     writable(grant)?;
+    writable(facility)?;
     if key(system) != addr::ids::SYSTEM_PROGRAM {
         return Err(BAD_ACCOUNT);
     }
     let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    // Wallet-only (owner decision ② A): a session key cannot issue.
     if pl.pc.by_session {
         return Err(cq(CqError::WalletRequired));
     }
@@ -549,19 +671,33 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if grantee.key == citizen.key {
         return Err(err(RightsError::BadTerms));
     }
-    // The station: the grantee's live holding in the same Province.
-    let sh = {
+    // The station: the grantee's live Vault, at its canonical address, on
+    // a tile of the facility's Province.
+    let (st_tile, st_gen) = {
+        let bad = || err(RightsError::BadStation);
+        present_v2(station, p, K2::Vault, sid).map_err(|_| bad())?;
         let sv = station.try_borrow_data()?;
-        let v = view(station, &sv);
-        frontier_abi::prologue::check_holding(&v, &pl.ctx, sid, &key(grantee))
-            .map_err(|_| err(RightsError::BadStation))?
+        let r = Ro(&sv);
+        let (vp, vq, tile) = (r.i16(VA::P)?, r.i16(VA::Q)?, r.u8(VA::TILE)?);
+        if key(station) != frontier_abi::v2::addr::vault(&pl.ctx, vp as i32, vq as i32, tile)
+            || r.u8(VA::STATE)? != VA::STATE_LIVE
+            || r.arr::<32>(VA::OWNER_CITIZEN)? != key(grantee)
+            || (vp, vq) != (fh.p, fh.q)
+        {
+            return Err(bad());
+        }
+        (tile, r.u8(VA::GEN)?)
     };
-    if hold::live(&sh).is_err() || (sh.p, sh.q) != (fh.p, fh.q) || station.key == facility.key {
-        return Err(err(RightsError::BadStation));
-    }
-    hold::capture_lock(&sh, province)?;
     if !rt::terms_ok(x.kind, x.max_swaps, x.max_units, x.expires_ts, now) {
         return Err(err(RightsError::BadTerms));
+    }
+    // The issue cost, from the facility (the issuer's own action).
+    {
+        let mut h = hold::load_touched(facility, now)?;
+        h.pay(now, &rt::grant_issue_cost())
+            .map_err(hold::holding_err)?;
+        let mut fd = facility.try_borrow_mut_data()?;
+        hold::write_holding(&mut fd, &h, now)?;
     }
     // The Grant.
     let tag = pl.pc.citizen_tag;
@@ -581,9 +717,9 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     w.set_u8(G::KIND, x.kind)?;
     w.set_u8(G::STATE, rt::STATE_ACTIVE)?;
     w.set_u8(G::FACILITY_GEN, fh.gen)?;
-    w.set_u8(G::STATION_GEN, sh.gen)?;
+    w.set_u8(G::STATION_GEN, st_gen)?;
     w.set_u8(G::FACILITY_SITE, fh.site)?;
-    w.set_u8(G::STATION_SITE, sh.site)?;
+    w.set_u8(G::STATION_SITE, st_tile)?;
     w.set_i16(G::P, fh.p)?;
     w.set_i16(G::Q, fh.q)?;
     w.set_u32(G::NONCE, x.nonce)?;
@@ -604,8 +740,8 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         q: fh.q as i32,
         facility_site: fh.site,
         facility_gen: fh.gen,
-        station_site: sh.site,
-        station_gen: sh.gen,
+        station_site: st_tile,
+        station_gen: st_gen,
         max_swaps: x.max_swaps,
         max_units: x.max_units,
         expires_ts: x.expires_ts,
@@ -613,15 +749,22 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     .to_bytes();
     let mut cd = citizen.try_borrow_mut_data()?;
+    let mut fd = facility.try_borrow_mut_data()?;
     emit_v2(
         rec::ISSUED as u8,
         pl.pc.now_bell,
         &rec::key(tag, x.nonce),
         &payload,
-        &mut [ChainedV2 {
-            entity: E2::Citizen,
-            data: &mut cd,
-        }],
+        &mut [
+            ChainedV2 {
+                entity: E2::Citizen,
+                data: &mut cd,
+            },
+            ChainedV2 {
+                entity: E2::Holding,
+                data: &mut fd,
+            },
+        ],
     )
 }
 
@@ -661,8 +804,8 @@ fn swap_prologue<'x, 'a>(p: &Pubkey, a: &'x [AccountInfo<'a>]) -> R<Swap<'x, 'a>
         return Err(err(RightsError::Expired));
     }
     let fh = pinned(p, sid, facility, &g.facility, g.facility_gen, &g.issuer)?;
-    let sh = pinned(p, sid, station, &g.station, g.station_gen, &g.grantee)?;
-    province_unlocked(p, &pl.ctx, sid, &g, province, &[&fh, &sh])?;
+    pinned_vault(p, sid, station, &g.station, g.station_gen, &g.grantee)?;
+    province_unlocked(p, &pl.ctx, sid, &g, province, &[&fh])?;
     Ok(Swap {
         now: pl.now.ts,
         bell: pl.pc.now_bell,
@@ -694,7 +837,7 @@ impl Swap<'_, '_> {
                     data: &mut cd,
                 },
                 ChainedV2 {
-                    entity: E2::Holding,
+                    entity: E2::Vault,
                     data: &mut sd,
                 },
                 ChainedV2 {
@@ -706,9 +849,10 @@ impl Swap<'_, '_> {
     }
 }
 
-/// 0xD1 ReserveSwap(units): the station's ore and wood and the facility's
-/// arms for `units` go into the Grant; all or nothing (`Insufficient`: no
-/// queue, no waiting state; the grantee may try again later).
+/// 0xD1 ReserveSwap(units): the station Vault's ore and wood and the
+/// facility's arms for `units` go into the Grant; all or nothing
+/// (`Insufficient`: no queue, no waiting state; the grantee may try again
+/// later, e.g. after a caravan brings more ore and wood to the Vault).
 pub fn reserve_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let x = rt::ReserveSwap::decode(d)?;
     let u = swap_prologue(p, a)?;
@@ -721,20 +865,22 @@ pub fn reserve_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     rt::quota_allows(g.max_swaps, g.swaps, g.max_units, g.units_swapped, x.units).map_err(err)?;
     let e = escrow_of(x.units)?;
-    let mut sh = settled(u.station, u.now)?;
-    sh.pay(u.now, &cost(e[0], e[1], 0))
-        .map_err(hold::holding_err)?;
+    let mut sv = VaultStock::read(u.station)?;
+    sv.take(Resource::Ore, e[0])?;
+    sv.take(Resource::Wood, e[1])?;
     let mut fh = settled(u.facility, u.now)?;
     fh.pay(u.now, &cost(0, 0, e[2]))
         .map_err(hold::holding_err)?;
-    store(u.station, &sh, u.now)?;
+    sv.write(u.station)?;
     store(u.facility, &fh, u.now)?;
     write_open(u.grant, x.units, u.now, e)?;
     u.emit(rec::RESERVED, x.seq, x.units, e)
 }
 
-/// 0xD2 ExecuteSwap: the escrowed arms to the station, the escrowed ore and
-/// wood to the facility; one swap and its units counted. Final.
+/// 0xD2 ExecuteSwap: the escrowed arms into the station Vault (refused
+/// whole, `VaultFull`, past `CAP − CUSTODY_QUOTA`), the escrowed ore and
+/// wood to the facility; one swap and its units counted. Final. The arms
+/// leave the Vault only by caravan.
 pub fn execute_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let x = rt::ExecuteSwap::decode(d)?;
     let u = swap_prologue(p, a)?;
@@ -745,7 +891,9 @@ pub fn execute_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if x.seq != g.swaps {
         return Err(err(RightsError::SeqMismatch));
     }
-    credit(u.station, u.now, &[(arms::ARMS, g.open[2])])?;
+    let mut sv = VaultStock::read(u.station)?;
+    sv.put(arms::ARMS, g.open[2])?;
+    sv.write(u.station)?;
     credit(
         u.facility,
         u.now,
@@ -779,7 +927,8 @@ fn season_any(p: &Pubkey, season_ai: &AccountInfo, now: i64) -> R<(u64, AddrCtx,
 
 /// 0xD3 ReleaseSwap: `[actor s] [season r] [grantee_citizen r] [grant w]
 /// [facility w] [station w] [province r]`. `ReturnBlocked` when no
-/// escrowed side has a live holding to go back to (nothing changes).
+/// escrowed side has a live place (with room) to go back to (nothing
+/// changes).
 pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let _ = rt::ReleaseSwap::decode(d)?;
     let [actor, season_ai, grantee, grant, facility, station, province] = a else {
@@ -818,11 +967,13 @@ pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 Err(e) if e == err(RightsError::StaleHolding)
             )
         };
+        let stale_vault = matches!(
+            pinned_vault(p, sid, station, &g.station, g.station_gen, &g.grantee),
+            Err(e) if e == err(RightsError::StaleHolding)
+        );
         by = if now >= g.expires_ts {
             rec::by::AFTER_EXPIRY
-        } else if stale(station, &g.station, g.station_gen, &g.grantee)
-            || stale(facility, &g.facility, g.facility_gen, &g.issuer)
-        {
+        } else if stale_vault || stale(facility, &g.facility, g.facility_gen, &g.issuer) {
             rec::by::STALE_HOLDING
         } else {
             return Err(err(RightsError::NotGrantee));

@@ -276,6 +276,25 @@ test('gate open but the program key file is another address: stops before deploy
   assert.ok(!calls.some(([, a]) => a[1] === 'deploy'));
 });
 
+test('gate open but the authority key file is another address: stops before deploy (exit 4)', () => {
+  const { io, calls, errs } = fakeIo({ addresses: { ...goodAddresses, [KEYS.auth]: PROGRAM } });
+  assert.equal(run(openArgs(), io), 4);
+  assert.ok(!calls.some(([, a]) => a[1] === 'deploy'));
+  assert.match(errs.join('\n'), /--upgrade-authority is not/);
+});
+
+test('each key file and the approved sha256 is required: leaving any one out keeps the gate closed', () => {
+  for (const flag of ['--keypair', '--program-keypair', '--upgrade-authority', '--approved-sha256']) {
+    const args = openArgs();
+    args.splice(args.indexOf(flag), 2);
+    const { io, calls, logs } = fakeIo({ addresses: goodAddresses });
+    assert.equal(run(args, io), 0, flag);
+    assert.deepEqual(calls, [], flag);
+    assert.match(logs.join('\n'), /SEND GATE: CLOSED/, flag);
+    assert.match(logs.join('\n'), new RegExp(`${flag} <[^>]+> is required`), flag);
+  }
+});
+
 test('gate open, deploy fails: no verification steps after it (exit 4)', () => {
   const { io, calls } = fakeIo({ addresses: goodAddresses, failStep: 'program deploy' });
   assert.equal(run(openArgs(), io), 4);

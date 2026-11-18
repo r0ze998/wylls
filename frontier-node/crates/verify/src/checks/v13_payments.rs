@@ -379,16 +379,24 @@ fn claims(cx: &mut Ctx) {
             );
             continue;
         }
+        // The program refuses n == 0, n > MAX_SLOTS and any account count
+        // other than 5 + 2n before it pays anything (proc/defence.rs
+        // claim_defence + check_accounts). A recorded successful claim of
+        // that shape is therefore impossible: a contradiction, not missing
+        // evidence. World decodes legacy transactions only, whose messages
+        // carry every account key inline, so a short list is not an archive
+        // gap either (an out-of-range index would not sanitize on chain).
         if call.n == 0
             || call.n as usize > frontier_abi::layout::beacon::defence_claim::MAX_SLOTS
             || ix.accounts.len() != 5 + 2 * call.n as usize
         {
-            cx.missing(
+            cx.fail(
                 V,
+                DEFENCE_REFUND_MISMATCH,
                 what,
                 r.bell,
                 Some(r.tx),
-                "ClaimDefence's slot accounts are incomplete",
+                "the program refuses this ClaimDefence shape (no slot, too many slots, or a slot account count other than 2 per slot), yet a claim is recorded",
             );
             continue;
         }

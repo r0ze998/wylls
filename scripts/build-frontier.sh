@@ -2,7 +2,7 @@
 # Reproducible SBPF v2 build of permutation-frontier (M1 contract §3.2),
 # ported from build-program.sh.
 #
-#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview]
+#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview|rights-test-beacon]
 #
 # Plain build (the deployable artefact):
 #   permutation-frontier/target/deploy/permutation_frontier.so
@@ -25,7 +25,10 @@
 # Feature builds are never deployable: --features trace|oracle|test-beacon|custody-preview
 # builds into permutation-frontier/target/deploy-<feature>/, requires that
 # feature's marker to be present (and the others absent), and prints
-# "deployable no".
+# "deployable no". --features rights-test-beacon (workstream 02-rights,
+# option A, for its LiteSVM tests only) builds the cargo features
+# rights-experimental,test-beacon into deploy-rights-test-beacon/ and
+# requires both PSF_RIGHTS_EXPERIMENTAL_BUILD and PSF_TEST_BEACON_BUILD.
 #
 # Prints file_sha256 (the .so), program_hash (the .so with trailing zero
 # bytes stripped, comparable with on-chain program data), e_flags, the .so
@@ -54,12 +57,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$feature" in
-  ""|trace|oracle|test-beacon|custody-preview) ;;
+  ""|trace|oracle|test-beacon|custody-preview|rights-test-beacon) ;;
   # only via scripts/build-frontier-localnet-expedition-sbf.sh (it sets this)
   localnet-expedition-sbf) [ "${PSF_LOCALNET_EXPEDITION_SBF_LANE:-}" = 1 ] || { echo "localnet-expedition-sbf: use scripts/build-frontier-localnet-expedition-sbf.sh" >&2; exit 2; } ;;
   # only via scripts/build-frontier-localnet-conquest-sbf.sh (it sets this)
   localnet-conquest-sbf) [ "${PSF_LOCALNET_CONQUEST_SBF_LANE:-}" = 1 ] || { echo "localnet-conquest-sbf: use scripts/build-frontier-localnet-conquest-sbf.sh" >&2; exit 2; } ;;
-  *) echo "unknown feature: $feature (trace, oracle, test-beacon or custody-preview)" >&2; exit 2 ;;
+  *) echo "unknown feature: $feature (trace, oracle, test-beacon, custody-preview or rights-test-beacon)" >&2; exit 2 ;;
 esac
 
 want="solana-cargo-build-sbf 3.1.9"
@@ -80,7 +83,11 @@ out=permutation-frontier/target/deploy
 build() { # build <sbf-out-dir> [<cargo target dir>]
   local dir="$1" tgt="${2:-}"
   local args=(--manifest-path "$manifest" --tools-version v1.52 --arch v2 --sbf-out-dir "$dir")
-  [ -n "$feature" ] && args+=(--features "$feature")
+  case "$feature" in
+    "") ;;
+    rights-test-beacon) args+=(--features "rights-experimental,test-beacon") ;;
+    *) args+=(--features "$feature") ;;
+  esac
   # The isolated localnet lane never downloads anything: installed
   # platform-tools only (checked before any build) and no network.
   case "$feature" in localnet-expedition-sbf|localnet-conquest-sbf) args+=(--offline --skip-tools-install) ;; esac
@@ -123,10 +130,10 @@ check() { # check <so>: the refusals; exit 3 on any
     bad=1
   fi
   local m want_m
-  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD; do
+  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD PSF_RIGHTS_EXPERIMENTAL_BUILD; do
     want_m=0
     case "$feature:$m" in
-      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD) want_m=1 ;;
+      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD|rights-test-beacon:PSF_TEST_BEACON_BUILD|rights-test-beacon:PSF_RIGHTS_EXPERIMENTAL_BUILD) want_m=1 ;;
     esac
     local n; n="$(count "$m" "$so")"
     if [ "$want_m" = 1 ] && [ "$n" -eq 0 ]; then echo "$so: marker $m missing from a --features $feature build" >&2; bad=1; fi

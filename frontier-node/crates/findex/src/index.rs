@@ -260,6 +260,30 @@ impl Index {
 
     /// Indexes archived records (in order, `seq` > [`Index::last_seq`]).
     pub fn add(&mut self, recs: &[TxRecord]) -> Result<usize, String> {
+        self.add_inner(recs, None)
+    }
+
+    /// [`Index::add`], and in the **same** SQLite transaction marks the
+    /// coverage complete once `last_seq` reached `through` (the archive's
+    /// last sequence). Readers on another connection (WAL) see either the
+    /// state before (complete, through the previous sequence) or the state
+    /// after (complete, through `through`): never a blocked window between
+    /// two commits, which a concurrent `/h/events` read would report as
+    /// `IndexBusy` (loop-play B4-D). If `last_seq` does not reach `through`
+    /// nothing is committed and the coverage is marked blocked.
+    pub(crate) fn add_complete(
+        &mut self,
+        recs: &[TxRecord],
+        through: u64,
+    ) -> Result<usize, String> {
+        self.add_inner(recs, Some(through))
+    }
+
+    fn add_inner(
+        &mut self,
+        recs: &[TxRecord],
+        complete_through: Option<u64>,
+    ) -> Result<usize, String> {
         let last = self.last_seq()?;
         let program = self.program;
         let ctx = self.ctx;
@@ -278,6 +302,20 @@ impl Index {
                 sql(t.execute("INSERT INTO meta(k, v) VALUES('last_seq', ?1) ON CONFLICT(k) DO UPDATE SET v = ?1", params![r.seq as i64]))?;
                 n += 1;
                 expected = expected.checked_add(1).ok_or("archive sequence overflow")?;
+            }
+            if let Some(through) = complete_through {
+                let now: i64 = sql(t.query_row(
+                    "SELECT COALESCE((SELECT v FROM meta WHERE k = 'last_seq'), 0)",
+                    [],
+                    |r| r.get(0),
+                ))?;
+                if now as u64 != through {
+                    return Err("index did not catch up with archive".into());
+                }
+                sql(t.execute(
+                    "INSERT INTO meta(k, v) VALUES(?1, 0) ON CONFLICT(k) DO UPDATE SET v = 0",
+                    params![BLOCKED_KEY],
+                ))?;
             }
             sql(t.commit())?;
             Ok(n)
