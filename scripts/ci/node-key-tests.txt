@@ -496,6 +496,7 @@ permutation-gateway/test/frontier-local-play-conquest-orders.test.mjs
 permutation-gateway/test/frontier-local-play-contest-pair.test.mjs
 permutation-gateway/test/frontier-local-play-herald-output.test.mjs
 permutation-gateway/test/frontier-local-play-keeper-view.test.mjs
+permutation-gateway/test/frontier-local-play-operator-nations.test.mjs
 permutation-gateway/test/frontier-local-play-pair-guide.test.mjs
 permutation-gateway/test/frontier-local-play-world-guard.test.mjs
 permutation-gateway/test/frontier-outbound-snapshot.test.mjs
@@ -503,6 +504,7 @@ permutation-gateway/test/web-frontier-conquest-identity.test.mjs
 permutation-gateway/test/web-frontier-land-freshness.test.mjs
 permutation-gateway/test/web-frontier-local-play-world-expiry.test.mjs
 permutation-gateway/test/web-sdk.test.mjs
+scripts/demo/sixnation/test/cli.test.mjs
 workstreams/01-national-strategy/test/coop.entry-focus-world.test.mjs
 workstreams/03-composability/mcp/test/initialize-params.test.mjs
 workstreams/03-composability/mcp/test/request-id-type.test.mjs
