@@ -44,6 +44,17 @@ impl Chain {
         }
     }
 
+    /// A public cluster's RPC (no `frontier_*` calls, no localnet feed);
+    /// `https://` goes through `fclient::https` (B1). Used by the operator
+    /// tool ([`crate::operator`]), which only needs the standard methods.
+    pub fn public(url: &str, program: Address) -> Chain {
+        Chain {
+            url: url.to_string(),
+            rpc: RpcClient::new(url),
+            port: RpcPort::new(url, program),
+        }
+    }
+
     pub async fn call(&self, m: &str, p: Value) -> Result<Value, String> {
         timed(self.rpc.call(m, p))
             .await?

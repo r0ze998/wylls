@@ -11,6 +11,7 @@
 //! | `custody-preview` | `PSF_CUSTODY_PREVIEW_BUILD` (workstream 10: not a test build, but not deployable until verified) |
 //! | `localnet-expedition-sbf` | `PSF_LOCALNET_EXPEDITION_SBF_BUILD` (isolated localnet lane, never deployable) |
 //! | `localnet-conquest-sbf` | `PSF_LOCALNET_CONQUEST_SBF_BUILD`, in addition to the expedition lane's marker (isolated localnet conquest lane, never deployable) |
+//! | `devnet-playable-sbf` | `PSF_DEVNET_PLAYABLE_BUILD` (the devnet build of the playable lane, owner decision B7; deployable to devnet only, through `scripts/devnet/devnet-playable-profile.json`, which requires it; every other build and the S1 devnet profile refuse it) |
 //! | `rights-experimental` | `PSF_RIGHTS_EXPERIMENTAL_BUILD` (workstream 02, option A; never deployable; `build-frontier.sh --features rights-test-beacon` builds it with `test-beacon` for LiteSVM) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
@@ -26,6 +27,7 @@ pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
 pub const LOCALNET_EXPEDITION_SBF: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 pub const LOCALNET_CONQUEST_SBF: &[u8] = b"PSF_LOCALNET_CONQUEST_SBF_BUILD";
 pub const RIGHTS_EXPERIMENTAL: &[u8] = b"PSF_RIGHTS_EXPERIMENTAL_BUILD";
+pub const DEVNET_PLAYABLE: &[u8] = b"PSF_DEVNET_PLAYABLE_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -38,6 +40,8 @@ pub fn touch() {
     core::hint::black_box(CUSTODY_PREVIEW.as_ptr());
     #[cfg(feature = "rights-experimental")]
     core::hint::black_box(RIGHTS_EXPERIMENTAL.as_ptr());
+    #[cfg(feature = "devnet-playable-sbf")]
+    core::hint::black_box(DEVNET_PLAYABLE.as_ptr());
 }
 
 /// Keeps the `localnet-expedition-sbf` marker alive (called by the lane's
@@ -86,6 +90,7 @@ mod tests {
             LOCALNET_EXPEDITION_SBF,
             LOCALNET_CONQUEST_SBF,
             RIGHTS_EXPERIMENTAL,
+            DEVNET_PLAYABLE,
         ] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),
@@ -125,5 +130,51 @@ mod tests {
         // the expedition lane wants only its own marker, so a conquest marker in it is refused
         assert!(!script.contains("localnet-expedition-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD"));
         assert!(script.contains("PSF_LOCALNET_CONQUEST_SBF_LANE"));
+    }
+
+    /// The devnet build of the playable lane (owner decision B7) is the land
+    /// lane's code without the localnet lane: no localnet feature (so no
+    /// [0x45; 32] id check and no localnet marker), its own guards, and its
+    /// own script, which requires its marker; every other build refuses it.
+    #[test]
+    fn the_devnet_playable_build_is_separate_from_the_localnet_lanes() {
+        let cargo = include_str!("../Cargo.toml");
+        let line = cargo
+            .lines()
+            .find(|l| l.starts_with("devnet-playable-sbf = "))
+            .expect("devnet-playable-sbf feature");
+        assert_eq!(
+            line,
+            r#"devnet-playable-sbf = ["conquest-dispatch-experimental", "land-preview"]"#
+        );
+        let land = cargo
+            .lines()
+            .find(|l| l.starts_with("localnet-land-sbf = "))
+            .expect("localnet-land-sbf feature");
+        assert!(land.contains(r#""land-preview""#) && land.contains(r#""localnet-conquest-sbf""#));
+        let lib = include_str!("lib.rs");
+        for guard in [
+            "not(feature = \"localnet-expedition-sbf\"),\n    not(feature = \"devnet-playable-sbf\")\n))]\ncompile_error!(\"wide-world-experimental",
+            "not(feature = \"localnet-conquest-sbf\"),\n    not(feature = \"devnet-playable-sbf\")\n))]\ncompile_error!(\"conquest-dispatch-experimental",
+            "#[cfg(all(feature = \"devnet-playable-sbf\", feature = \"localnet-expedition-sbf\"))]\ncompile_error!",
+            "\"devnet-playable-sbf cannot combine with host proof",
+        ] {
+            assert!(lib.contains(guard), "lib.rs guard {guard}");
+        }
+        // the id check stays the localnet lane's only
+        assert!(lib.contains("#[cfg(feature = \"localnet-expedition-sbf\")]\n    if !localnet_identity_ok(program_id)"));
+        let devnet = include_str!("../../scripts/build-frontier-devnet-playable-sbf.sh");
+        assert!(devnet.contains("--features devnet-playable-sbf"));
+        assert!(devnet.contains("PSF_DEVNET_PLAYABLE_BUILD"));
+        let plain = include_str!("../../scripts/build-frontier.sh");
+        assert!(
+            plain.contains("PSF_DEVNET_PLAYABLE_BUILD"),
+            "build-frontier.sh refuses it"
+        );
+        let land_script = include_str!("../../scripts/build-frontier-localnet-land-sbf.sh");
+        assert!(
+            land_script.contains("PSF_DEVNET_PLAYABLE_BUILD"),
+            "the land lane refuses it"
+        );
     }
 }

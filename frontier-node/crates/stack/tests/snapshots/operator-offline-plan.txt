@@ -1,0 +1,212 @@
+frontier-operator: season setup plan (DRY RUN, offline: nothing read, nothing sent)
+cluster    devnet (offline: assumes nothing is done yet)
+program    29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2
+authority  3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3
+season     id 1  8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH  preset S1_LOCAL_7D  beacon quicknet
+params     hash ec2fec4ed02369419ed4bf043c36c1196b150ca85ca9afcf9c050092fde19881  (CreateSeason data: 352 B params + 28 B payout)
+rent       6960 lamports/byte (profile rent.assume; the cluster's own rate is read online)
+t_create_min = chain clock at AnnounceSeason + 86700 s (lead 86400 + margin 300)
+done       nothing
+tx 1  AnnounceSeason  [now]
+      data   57 B: tag 0x08, season_id 1, params_hash ec2fec4ed02369419ed4bf043c36c1196b150ca85ca9afcf9c050092fde19881, t_create_min <chain clock at send + 86700>, bond 1,000,000,000
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -w 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -- 29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2 program
+      acct   -- C9o5Wb2eviT28iKnHe4MbgtXFr6udZ1PZLVvWSVkTALa ProgramData
+      acct   -- 11111111111111111111111111111111 System
+      create Season            2048 B  rent    15,144,960  + float 1,000,000,000
+      cost   rent 15,144,960 + float 1,000,000,000 + fee 5,000 = 1,015,149,960 lamports
+tx 2  CreateSeason  [after the lead]
+      data   381 B: tag 0x01, sha256 35edcc2b28d9b2a8eb8230fd7d15e8944bfe6643410de1cd79f7885f3f62a4f9
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -w 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w 3zDuRfsEXasEJAQZ1A2yU79kwsLceyj8zeDC7qS4bgyG Frontier
+      acct   -w AUk2KvbTXxYzqzfNjBATr3UMLVuYDUqYsHRTefv4jcrh ProvinceFund[0]
+      acct   -w 8ve3LJWF64vCdsrhiGt6EJsrtU5Tk66VzTznpC2VzMvd ProvinceFund[1]
+      acct   -w CkZHbfYNDZumVBK3qhswzokYUUZppxuJpW8pKFfWxtRB ProvinceFund[2]
+      acct   -w AP618NkipXuhaSwQTaHPKDNCFtyi7bUYHK1qR1wVta5s ProvinceFund[3]
+      acct   -w D3qRryv32yi5qeV3as4FTNGLbqF8boVQWvGXj6xQHG4x ProvinceFund[4]
+      acct   -w 3UkZN9o2FCwnK7ay4gFo1AWQJLyih4drgnxb4eDyxbzM ProvinceFund[5]
+      acct   -w ANQUCpq9f8sw3VyNpdDjipemhZ1ekGKEZaUqdiu1CdC3 DefencePool
+      acct   -- 11111111111111111111111111111111 System
+      create Frontier           512 B  rent     4,454,400
+      create ProvinceFund[0]    128 B  rent     1,781,760  + float 3,500,000,000
+      create ProvinceFund[1]    128 B  rent     1,781,760  + float 3,500,000,000
+      create ProvinceFund[2]    128 B  rent     1,781,760  + float 3,500,000,000
+      create ProvinceFund[3]    128 B  rent     1,781,760  + float 3,500,000,000
+      create ProvinceFund[4]    128 B  rent     1,781,760  + float 3,500,000,000
+      create ProvinceFund[5]    128 B  rent     1,781,760  + float 3,500,000,000
+      create DefencePool        256 B  rent     2,672,640  + float 20,000,000,000
+      cost   rent 17,817,600 + float 41,000,000,000 + fee 5,000 = 41,017,822,600 lamports
+tx 3  InitBeaconLogs  [after the lead]
+      data   1 B: tag 0x09, sha256 2b4c342f5433ebe591a1da77e013d1b72475562d48578dca8b84bac6651c3cb9
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w GvZNtA3yw4pNKR3oFNkdDje3uvDSw9Cz23zdYNWgemiQ BeaconLog[0]
+      acct   -w EYF9kzuzaiUVkrzUwtDpFPokDcN2AvQjjwLp483RK5bQ BeaconLog[1]
+      acct   -w CHA6UNVp19JUrUZocaWhZQJbFv2npBq68q65farsCiVV BeaconLog[2]
+      acct   -w GTXAMpJCYAjCJ5TAAauWf4YXd6Hvr8W2Eb9nYtA96kGy BeaconLog[3]
+      acct   -w H8W1BnKjTk3VNE3s22RNcvLe1Wgk46hSshLRc8NAPDDe BeaconLog[4]
+      acct   -w 8J7rshkShj72o1tUu8Z4kAvvuxe2Cmgz48cmBqqwaG4K BeaconLog[5]
+      acct   -w Lt1evm1iUGwVq93bRebfpPZv14cWEUGcYY1NVTsaj4Y BeaconLog[6]
+      acct   -w 7XPaGE8BBqa5gSYFnyyF48MbkiaR2cxtYzbkMBuX2qaz BeaconLog[7]
+      acct   -w 5VDTqy1e5ejAfkFUceNBJVtku2yfbqxpo6SvJvLY1Vqi BeaconLog[8]
+      acct   -w 5JuLw3Rm9yYzLujLj5zYwjGh1BmCG5fEZiemGDMeqHuV BeaconLog[9]
+      acct   -w CqsAvgQtN2K9fgzmimCLPqG8e5ahbmTgPMbBsKGD5Pyg BeaconLog[10]
+      acct   -w 4BXpqFccrM4GwwavyiQpZVnjg6A63sayq6ZUCcNbXpoF BeaconLog[11]
+      acct   -w 2oUzgZUbm3C1ouyvzn2wPdbqoDSuiLtX2qx1gWGbRZNF BeaconLog[12]
+      acct   -w GBfiZnRc23BE7zfUDk2i3SuUZPHxiVCXEb7En25ExFNy BeaconLog[13]
+      acct   -w BB7igGNoY7SUY33zdXrbFSa39t7pE4hq5m3BHGZLCuNm BeaconLog[14]
+      acct   -w EzkJMbCrRS2hWiwbJogy5fPaJrq14abic7H6p3SNiHdV BeaconLog[15]
+      acct   -- 11111111111111111111111111111111 System
+      create BeaconLog[0]       128 B  rent     1,781,760
+      create BeaconLog[1]       128 B  rent     1,781,760
+      create BeaconLog[2]       128 B  rent     1,781,760
+      create BeaconLog[3]       128 B  rent     1,781,760
+      create BeaconLog[4]       128 B  rent     1,781,760
+      create BeaconLog[5]       128 B  rent     1,781,760
+      create BeaconLog[6]       128 B  rent     1,781,760
+      create BeaconLog[7]       128 B  rent     1,781,760
+      create BeaconLog[8]       128 B  rent     1,781,760
+      create BeaconLog[9]       128 B  rent     1,781,760
+      create BeaconLog[10]      128 B  rent     1,781,760
+      create BeaconLog[11]      128 B  rent     1,781,760
+      create BeaconLog[12]      128 B  rent     1,781,760
+      create BeaconLog[13]      128 B  rent     1,781,760
+      create BeaconLog[14]      128 B  rent     1,781,760
+      create BeaconLog[15]      128 B  rent     1,781,760
+      cost   rent 28,508,160 + float 0 + fee 5,000 = 28,513,160 lamports
+tx 4  InitShards(0)  [after the lead]
+      data   2 B: tag 0x02, sha256 99be5efb88ca2013bd8e4eb035fd42d5245468fe9afa70d8ba9c1c419a48c4e8
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w Apxekhk3L7edjXU4hd7j9cAjDhCcYFkCCBF4wDnP5p2x JoinShard[0][0]
+      acct   -w G1fyxYDRAcF7BNUvKAnnLcaWg7QpBLRsnFEbCyWZpAii JoinShard[0][1]
+      acct   -w 5cgvFPVvUBJ58RokY9AZFFZRNML8mXrsmEAtEYn2VBRD JoinShard[0][2]
+      acct   -w 3ZsSCMmKMApfkWvfCSgLm6v2R8DLfyfsKq7sQa7EG733 JoinShard[0][3]
+      acct   -w 6KJDuLno1UWo3caitVpfZADMBU1Nwo9qTyqpiYnuMU6c JoinShard[0][4]
+      acct   -w AVLCrxpDtQt8nCmNLqco7fpz6phzrW6y1EEy9wKFgBW9 JoinShard[0][5]
+      acct   -w 9ENBbFFDaEKa3wkW2sYELGQCEwDCoDdyn7SfZLQQaSda JoinShard[0][6]
+      acct   -w 9gHAY5J4YAifrV57g87iR6ju1cwe9gmrEz4foGz22ZUP JoinShard[0][7]
+      acct   -- 11111111111111111111111111111111 System
+      create JoinShard[0][0]    256 B  rent     2,672,640
+      create JoinShard[0][1]    256 B  rent     2,672,640
+      create JoinShard[0][2]    256 B  rent     2,672,640
+      create JoinShard[0][3]    256 B  rent     2,672,640
+      create JoinShard[0][4]    256 B  rent     2,672,640
+      create JoinShard[0][5]    256 B  rent     2,672,640
+      create JoinShard[0][6]    256 B  rent     2,672,640
+      create JoinShard[0][7]    256 B  rent     2,672,640
+      cost   rent 21,381,120 + float 0 + fee 5,000 = 21,386,120 lamports
+tx 5  InitShards(1)  [after the lead]
+      data   2 B: tag 0x02, sha256 25dfd29c09617dcc9852281c030e5b3037a338a4712a42a21c907f259c6412a0
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w 7rQ4rEvdoGRkZqEyvbTUeuB8KGofUBiLUYYi89oCHB7V JoinShard[1][0]
+      acct   -w 5sqvq2TMH7UP1cfA8i9Hk76vxdckJ43yND1pDxHkhDDK JoinShard[1][1]
+      acct   -w GUkZDWj57vesxbEZMv9AWQLAuJwrWd7f1NFM7rfTEp3L JoinShard[1][2]
+      acct   -w 3hcqUGXcrQ66kFqi54sxyN5atocMuG1EjJ7bdjR89i67 JoinShard[1][3]
+      acct   -w EhNJxio8Q5kbSJGGr4wbcRxQqJr6ob2m42tBPdjS6SdS JoinShard[1][4]
+      acct   -w 7US9gEygGwDfepHMxcwjzJ9Zd2JEMpqrdouzVxrovwDF JoinShard[1][5]
+      acct   -w 88tUozqUZmSZLeydszwrXMvaPnhZDZk3Br3GfAMteZo7 JoinShard[1][6]
+      acct   -w EfW6uYtXvftWMCi8LBtKbuqYhyCKAgRxUVMCetEeNDmY JoinShard[1][7]
+      acct   -- 11111111111111111111111111111111 System
+      create JoinShard[1][0]    256 B  rent     2,672,640
+      create JoinShard[1][1]    256 B  rent     2,672,640
+      create JoinShard[1][2]    256 B  rent     2,672,640
+      create JoinShard[1][3]    256 B  rent     2,672,640
+      create JoinShard[1][4]    256 B  rent     2,672,640
+      create JoinShard[1][5]    256 B  rent     2,672,640
+      create JoinShard[1][6]    256 B  rent     2,672,640
+      create JoinShard[1][7]    256 B  rent     2,672,640
+      cost   rent 21,381,120 + float 0 + fee 5,000 = 21,386,120 lamports
+tx 6  InitShards(2)  [after the lead]
+      data   2 B: tag 0x02, sha256 50cff72c8e550546d661ec235431888fb2f9f7bada40c17020d47f6ccc117aae
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w 3Dm74SCWN89x56KdSS12PYFDkPDn2buTbn7E9QrMRjK6 JoinShard[2][0]
+      acct   -w nT1DiN1eatdddcB65sdmdea3ZKVcxLtSPDvRN4rdPg9 JoinShard[2][1]
+      acct   -w GFevcs1S7iA4RMYEoeehkhfsVen6EuiCbjRRpbm5jpGf JoinShard[2][2]
+      acct   -w Dz1pBTGaXKYFVMPphheGUaMxDBZVYQi1MmVB1e7Dr1EC JoinShard[2][3]
+      acct   -w GYMYE6STX2NC8qJMGiS9Ne1j5LodfoXjBBX17zCvndps JoinShard[2][4]
+      acct   -w 6K4iUj5B58mMZx7sXffeBYLEaofBEPB1XsFETSd1c1ha JoinShard[2][5]
+      acct   -w 9SWPqweha6oNvJytdzXhXJQVN96CHH39ep652kipESQ8 JoinShard[2][6]
+      acct   -w Dvv2nxFTzanSfiHCiS315MpBSwenSi2Pi7EjsGHhTs7e JoinShard[2][7]
+      acct   -- 11111111111111111111111111111111 System
+      create JoinShard[2][0]    256 B  rent     2,672,640
+      create JoinShard[2][1]    256 B  rent     2,672,640
+      create JoinShard[2][2]    256 B  rent     2,672,640
+      create JoinShard[2][3]    256 B  rent     2,672,640
+      create JoinShard[2][4]    256 B  rent     2,672,640
+      create JoinShard[2][5]    256 B  rent     2,672,640
+      create JoinShard[2][6]    256 B  rent     2,672,640
+      create JoinShard[2][7]    256 B  rent     2,672,640
+      cost   rent 21,381,120 + float 0 + fee 5,000 = 21,386,120 lamports
+tx 7  InitShards(3)  [after the lead]
+      data   2 B: tag 0x02, sha256 ee9040f65c341855e070ff438eb0ea9d5b831b2a2c270fb7ef592d750408e3b3
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w 5sFMA4vmFuR7oDNFHV6qWK8gpNEJvW3qW1fEgw6a91yH JoinShard[3][0]
+      acct   -w sgjT7rgcuUWBsFvQS4bQYAja77Bc5LTwJxcXCv9rwJm JoinShard[3][1]
+      acct   -w 3zuk1D6X4Ffksmy9GzaiUtYHQoByfhEP32T4t7QcgcUh JoinShard[3][2]
+      acct   -w 27vHJ2cQTxdojyJsHbWPn6HYjKPBuUgCzdY21w6wdSbJ JoinShard[3][3]
+      acct   -w Gkt33dfdxRbNQw4XZotDdHT8bGUBSKrpANodQrpmDURe JoinShard[3][4]
+      acct   -w B4FqWNS3gBPE4Thvj5n1sziWWnSBX3ouT9EbP7YZsdEH JoinShard[3][5]
+      acct   -w 8rn3Fg3dRdnPJ1a2BpnbTcnfSemkpHw8mE5SQMzgEhGo JoinShard[3][6]
+      acct   -w BumdpVtzhYv9fdbjpswdCX49SoQNmi3Pv4JTfRUKfEDY JoinShard[3][7]
+      acct   -- 11111111111111111111111111111111 System
+      create JoinShard[3][0]    256 B  rent     2,672,640
+      create JoinShard[3][1]    256 B  rent     2,672,640
+      create JoinShard[3][2]    256 B  rent     2,672,640
+      create JoinShard[3][3]    256 B  rent     2,672,640
+      create JoinShard[3][4]    256 B  rent     2,672,640
+      create JoinShard[3][5]    256 B  rent     2,672,640
+      create JoinShard[3][6]    256 B  rent     2,672,640
+      create JoinShard[3][7]    256 B  rent     2,672,640
+      cost   rent 21,381,120 + float 0 + fee 5,000 = 21,386,120 lamports
+tx 8  InitShards(4)  [after the lead]
+      data   2 B: tag 0x02, sha256 421dd6c30feb9149b349ae67525aae7556eb6c552e0b363edd78f8a8d8646ab8
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w 3NuMejYhsNoUzHSpmGz4hkDAXz3SSrb9F37dcXswGgwK JoinShard[4][0]
+      acct   -w fPXL3tHFNB2vk29PvFMjCn1qH29yfBCgnUK3iRGjJjL JoinShard[4][1]
+      acct   -w 6Vpo6b5SnJxPA1DHycQjAbwNDxmo3R2PrsDvqdRtDDSV JoinShard[4][2]
+      acct   -w BsbgJbMjh1xojecgweaaasgQpFoBE1SgA6s6BvRcaEdT JoinShard[4][3]
+      acct   -w 9jNo4LgAXz5EqAwYpvUfRsG33L2BenQtSbWBQexWHYJJ JoinShard[4][4]
+      acct   -w 8m6gwcAZD2gyV7kGHRM4JMvtCqSvPehVZ12D5y2Djtiy JoinShard[4][5]
+      acct   -w 9hi45Ka8eNbimmnB3XXUhg8FKP1VC9h32Wynkbg13j1F JoinShard[4][6]
+      acct   -w 2q5zMveZYFChrzt8sSWoKTB5V24G33Amwmi6DixgskZb JoinShard[4][7]
+      acct   -- 11111111111111111111111111111111 System
+      create JoinShard[4][0]    256 B  rent     2,672,640
+      create JoinShard[4][1]    256 B  rent     2,672,640
+      create JoinShard[4][2]    256 B  rent     2,672,640
+      create JoinShard[4][3]    256 B  rent     2,672,640
+      create JoinShard[4][4]    256 B  rent     2,672,640
+      create JoinShard[4][5]    256 B  rent     2,672,640
+      create JoinShard[4][6]    256 B  rent     2,672,640
+      create JoinShard[4][7]    256 B  rent     2,672,640
+      cost   rent 21,381,120 + float 0 + fee 5,000 = 21,386,120 lamports
+tx 9  InitShards(5)  [after the lead]
+      data   2 B: tag 0x02, sha256 167fa3bd837a7c1db48f1fdd3c79304e9967cc7a3a2cd432d5e4de86386a959a
+      acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
+      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w 5RAeZ1fYzEkHGFKemVaJ92zDp2jUEGcT7jFwYjAKYbhs JoinShard[5][0]
+      acct   -w EAx86zgoNqJSYdtQ7LzMGFeqSyzDQJJh2isj1RoGtKbV JoinShard[5][1]
+      acct   -w pieFFhWwbvuHoewXzVrDrWeTAL8yDUnY45SEhnvu6vP JoinShard[5][2]
+      acct   -w ATf7pPM7LUpwNMaSWiqc6vMLXMZKQmhGR6rJpM3sLVWr JoinShard[5][3]
+      acct   -w EpLK7yLTA2QYM6ksuX1vJ4TsJzXofqSXrxfCHqsFhoxh JoinShard[5][4]
+      acct   -w 6ggGmrjXts1A9U8uoNtqeTGn16FtphPcMKMXswmiRxpB JoinShard[5][5]
+      acct   -w 9SUrvyw71EH5MZcj4Wb9hkojFQoZk8gTXHyWh98Q4P5F JoinShard[5][6]
+      acct   -w 2mccqvARsAT1M173cz6gKEiBNS7TeUnq6VDKfBzLCHea JoinShard[5][7]
+      acct   -- 11111111111111111111111111111111 System
+      create JoinShard[5][0]    256 B  rent     2,672,640
+      create JoinShard[5][1]    256 B  rent     2,672,640
+      create JoinShard[5][2]    256 B  rent     2,672,640
+      create JoinShard[5][3]    256 B  rent     2,672,640
+      create JoinShard[5][4]    256 B  rent     2,672,640
+      create JoinShard[5][5]    256 B  rent     2,672,640
+      create JoinShard[5][6]    256 B  rent     2,672,640
+      create JoinShard[5][7]    256 B  rent     2,672,640
+      cost   rent 21,381,120 + float 0 + fee 5,000 = 21,386,120 lamports
+total      9 tx: rent 189,757,440 + floats 42,000,000,000 + fees 45,000 = 42,189,802,440 lamports (42.189802440 SOL)
+
