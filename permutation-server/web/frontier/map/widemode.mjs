@@ -17,7 +17,7 @@ import { wideActionReview } from './wideactions.mjs';
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { FACTION_COLORS, factionName, BUILDINGS, unitCount } from '../fi18n.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
-import { loadWide, WideWalk, originAt, ORIGIN_CONCORD, layoutWide, nearestTo, formatCoord, describeWalk, ringOfWide, parseWideInt, WideError, sourcePins, worldIdOf } from './wide.mjs';
+import { loadWide, WideWalk, originAt, ORIGIN_ZERO, layoutWide, nearestTo, formatCoord, describeWalk, ringOfWide, parseWideInt, WideError, sourcePins, worldIdOf } from './wide.mjs';
 
 /** Seconds between manifest polls while the mode is open (a new snapshot reloads the walk). */
 export const WIDE_POLL_S = 30;
@@ -48,7 +48,7 @@ const TEXT = {
   facts: () => L`捕捉された州だけを示します。載っていない場所は「不明」で、開いている証拠でも閉じている証拠でもありません。送信も署名もしません。`,
   truncated: () => L`ページ数の上限で打ち切りました。これより先の記録は読んでいません。`,
   recentre: () => L`ここを原点にする`,
-  concord: () => L`大協約を原点にする`,
+  zero: () => L`座標 0,0 を原点にする`,
   zoomIn: () => L`拡大`,
   zoomOut: () => L`縮小`,
   reload: () => L`読み直す`,
@@ -74,7 +74,7 @@ const codeText = code => (CODE_TEXT[code] ?? (() => L`記録を読めません�
 
 /** The state the sheet renders (pure data; exported for tests). */
 export function modeState() {
-  return { open: false, phase: 'closed', code: null, walk: null, origin: ORIGIN_CONCORD, zoom: 1, pan: { x: 0, y: 0 }, selected: null, pointer: null, history: null, focus: null };
+  return { open: false, phase: 'closed', code: null, walk: null, origin: ORIGIN_ZERO, zoom: 1, pan: { x: 0, y: 0 }, selected: null, pointer: null, history: null, focus: null };
 }
 
 /**
@@ -115,7 +115,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
           <button type="button" class="map-btn" id="wide-in">+</button>
           <button type="button" class="map-btn" id="wide-out">−</button>
           <button type="button" class="btn small" id="wide-recentre"></button>
-          <button type="button" class="btn small" id="wide-concord"></button>
+          <button type="button" class="btn small" id="wide-zero"></button>
           <button type="button" class="btn small" id="wide-reload"></button>
         </div>
       </div>
@@ -144,7 +144,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     $('wide-close').setAttribute('aria-label', TEXT.close()); $('wide-close').title = TEXT.close();
     $('wide-facts').textContent = TEXT.facts();
     $('wide-in').setAttribute('aria-label', TEXT.zoomIn()); $('wide-out').setAttribute('aria-label', TEXT.zoomOut());
-    $('wide-recentre').textContent = TEXT.recentre(); $('wide-concord').textContent = TEXT.concord(); $('wide-reload').textContent = TEXT.reload();
+    $('wide-recentre').textContent = TEXT.recentre(); $('wide-zero').textContent = TEXT.zero(); $('wide-reload').textContent = TEXT.reload();
     $('wide-k-origin').textContent = TEXT.origin(); $('wide-k-pointer').textContent = TEXT.pointer(); $('wide-k-selected').textContent = TEXT.selected();
     $('wide-list-title').textContent = TEXT.list();
     $('wide-history-title').textContent = L`観測された履歴（未検証）`;
@@ -385,7 +385,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
 
   // ---- state changes
   function setPhase(phase, code = null) {
-    if (phase === 'error' || phase === 'sample') { controller?.abort(); controller = null; S.walk = null; S.selected = null; S.pointer = null; S.focus = null; S.origin = ORIGIN_CONCORD; S.pan = { x: 0, y: 0 }; S.history = {phase:'error',code:code ?? 'WideIndexUnavailable'}; }
+    if (phase === 'error' || phase === 'sample') { controller?.abort(); controller = null; S.walk = null; S.selected = null; S.pointer = null; S.focus = null; S.origin = ORIGIN_ZERO; S.pan = { x: 0, y: 0 }; S.history = {phase:'error',code:code ?? 'WideIndexUnavailable'}; }
     S.phase = phase; S.code = code; renderText(); invalidate();
   }
   async function load() {
@@ -400,7 +400,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     const rec = recordOf();
     let pins;
     try { pins = sourcePins(rec); } catch (e) { S.walk = null; setPhase('error', e.code ?? 'NoSeasonYet'); return; }
-    if (S.source?.key !== pins.key) { S.walk = null; S.selected = null; S.pointer = null; S.origin = ORIGIN_CONCORD; S.pan = { x: 0, y: 0 }; }
+    if (S.source?.key !== pins.key) { S.walk = null; S.selected = null; S.pointer = null; S.origin = ORIGIN_ZERO; S.pan = { x: 0, y: 0 }; }
     if (S.focus && S.focus.sourceKey !== pins.key) S.focus = null;
     if (S.focus) S.origin = originAt(S.focus.p, S.focus.q);
     S.source = pins;
@@ -463,7 +463,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     controller?.abort();
     controller = null;
     S.focus = null; S.selected = null; S.pointer = null; S.history = null;
-    S.walk = null; S.origin = ORIGIN_CONCORD; S.pan = { x: 0, y: 0 }; S.phase = 'closed';
+    S.walk = null; S.origin = ORIGIN_ZERO; S.pan = { x: 0, y: 0 }; S.phase = 'closed';
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     sheet.hidden = true;
     label();
@@ -515,7 +515,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   $('wide-close').addEventListener('click', close);
   $('wide-in').addEventListener('click', () => { S.zoom = Math.min(ZOOM_MAX, S.zoom * 1.25); invalidate(); });
   $('wide-out').addEventListener('click', () => { S.zoom = Math.max(ZOOM_MIN, S.zoom * 0.8); invalidate(); });
-  $('wide-concord').addEventListener('click', () => recentre(0n, 0n));
+  $('wide-zero').addEventListener('click', () => recentre(0n, 0n));
   $('wide-recentre').addEventListener('click', () => {
     const at = S.selected ?? (S.walk ? nearestTo([...S.walk.entries.values()], S.origin) : null);
     if (at) recentre(at.p, at.q);

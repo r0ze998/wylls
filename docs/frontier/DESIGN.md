@@ -224,7 +224,7 @@ Inputs: the redone spikes SP-V2 and SP-FEE (`scratchpad/frontier/m0b/spikes/`), 
 
 - **Personal:** grow to City and Stronghold; earn **laurels** (if you staked) and **Works**; Chronicle titles.
 - **Nation:** four paths, each measured **per active member and relative to the civilization average** (§5.6): *Dominion* (March control and captures), *Prosperity* (production), *Knowledge* (techs and science), *Concord* (Engine share, treaties kept).
-- **Civilization:** the **Engine** has 5 stages. Each raises everyone's tech ceiling, advances the Era, grows the Civilisation Share and spawns six **Relic Sites**, one per wedge, **three rings inside the current rim** (not on it; §6.6).
+- *[Abolished 2026-11-18 (owner decision, ⑭): there is no central tower or Engine and the map has no centre. The client draws none; province (0,0) is only the lattice's origin. The ring rules below are unchanged in the program; see `workstreams/14-central-tower/README.ja.md`.]* **Civilization:** the **Engine** has 5 stages. Each raises everyone's tech ceiling, advances the Era, grows the Civilisation Share and spawns six **Relic Sites**, one per wedge, **three rings inside the current rim** (not on it; §6.6).
 - **Political:** Warden, then Minister **[designed, M3]**.
 - **Council and the Strike Order [designed, W6]:** your nation's daily council weighs three code-made targets; the adopted target, the Strike Order ("Call" in the code), stays sealed to the nation until its strike bell (§7.4). This replaces the hunting of hidden bots in revisions 1-3.1, which is retired with them (W3).
 

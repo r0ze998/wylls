@@ -561,7 +561,7 @@ export const CONTROL_PROVINCE = 8;
 export const CONTROL_MARCH = 4;
 /** CF-1: a control file covers whole rings 0..=R, R ≤ 127. */
 export const CONTROL_MAX_RING = 127;
-/** Province `control` 6 = the Concord (neutral); 7 = unopened, and "none" elsewhere. */
+/** Province `control` 6 = neutral (the program's code for the origin province (0, 0); no centre is shown: ⑭ abolished); 7 = unopened, and "none" elsewhere. */
 export const CONTROL_NEUTRAL = 6;
 export const CONTROL_NONE = 7;
 export const CONTROL_DELTA_MAX = 64;
@@ -618,7 +618,7 @@ function controlProvince(b, o, index) {
   const at = `province ${index}`;
   check((r.flags & 128) === 0, 'BadReserved', `${at}: flags bit 128`);
   check(r.control <= CONTROL_NONE, 'BadValue', `${at}: control ${r.control}`);
-  check((r.control === CONTROL_NEUTRAL) === (index === 0), 'BadValue', `${at}: control 6 is the Concord's alone`);
+  check((r.control === CONTROL_NEUTRAL) === (index === 0), 'BadValue', `${at}: control 6 is province (0,0)'s alone`);
   const pc = provinceFromIndex(index);
   check(pc !== null, 'BadValue', `${at}: index beyond ring 128`);
   const ring = ringOf(pc.p, pc.q);

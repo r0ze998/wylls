@@ -25,7 +25,7 @@ test('settings: the three required ones; partial groups and foreign settings are
 
 test('runOnce: the no-charge rule fixed (no provider, no allow, no authority); one step; errors are short', async () => {
   let given = null, steps = 0;
-  const make = o => { given = o; return { step: async () => { steps += 1; return { decision: { choice: 'wait', by: 'no-charge-rule', why: 'x' }, proposal: null, world: { cluster: 'localnet', world_id: 'P/S' }, bell: 7 } }; } };
+  const make = o => { given = o; return { step: async () => { steps += 1; return { decision: { choice: 'wait', by: 'no-charge-rule', why: 'x' }, proposal: null, world: { cluster: 'localnet', world_id: 'P/S' }, bell: 7 }; } }; }; // (2026-11-18) braces balanced: the file did not parse
   const r = await runOnce(onceConfig(OK).config, { make, fetchImpl: async () => { throw new Error('never'); } });
   assert.equal(steps, 1);
   assert.equal(given.provider, null);

@@ -9,7 +9,7 @@
 // real chain, a real relay key, a wallet or a paid API. Test keys are made
 // fresh in memory and never written.
 //
-//   node agent-gateway-bridge.mjs        prints "PORT <n>" once listening on 127.0.0.1
+//   node agent-gateway-bridge.mjs        prints "PORT <n>" once listening on 127.0.0.1 (WS04_BRIDGE_PORT=<n> to choose it)
 //
 //   POST /setup   {allowed?, expiresAt?, prices?, budget?}  a fresh relay, owner and agent in auto mode
 //   POST /action  {request, fault?: 'drop'|'sendThrows'}   the gateway's POST /f/agent/action
@@ -121,4 +121,7 @@ const server = http.createServer((req, res) => {
     res.end(b);
   });
 });
-server.listen(0, '127.0.0.1', () => process.stdout.write(`PORT ${server.address().port}\n`));
+// (2026-11-18) WS04_BRIDGE_PORT picks the port (unset: any free one, as before); always 127.0.0.1.
+const wanted = process.env.WS04_BRIDGE_PORT ? Number(process.env.WS04_BRIDGE_PORT) : 0;
+if (!Number.isInteger(wanted) || wanted < 0 || wanted > 65535) { process.stderr.write('WS04_BRIDGE_PORT: a port number 0..65535\n'); process.exit(2); }
+server.listen(wanted, '127.0.0.1', () => process.stdout.write(`PORT ${server.address().port}\n`));

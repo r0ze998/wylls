@@ -285,8 +285,6 @@ export const DIVE = Object.freeze({ ms: 1100, land: 380, ground: 64, sea: 30, ne
 export const APRON = Object.freeze({ margin: 256, pixels: 12_000_000, lead: 0.7, out: 0.8, in: 1.6, away: 0.7, retry: 250 });
 /** The seat's frame: the viewer's village is seen this share of the uncovered height below its middle (a tilted board only). */
 export const SEAT_DROP = 0.08;
-/** The far rows' haze in the view of the bell before joining (of its full strength): the tower stands up into that band. */
-export const BELL_HAZE = 0.4;
 /** The haze of the far rows stops this far inside the sheet's edge (world px): the deckle's nicks reach about that far in. */
 export const HAZE_INSET = 22;
 /**
@@ -405,7 +403,7 @@ export function flightMs(from, to, size) {
 /**
  * The world view's labels, as a map has them: each faction's name over the
  * heart of its land (the weighted centre of the provinces it holds most of
- * in), and the Concord at the centre. Screen-sized type in the display face.
+ * in). The map has no centre and names none (⑭ abolished). Screen-sized type in the display face.
  */
 export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, controlSeen = null, territoryOf = null, seenTile = null, min = 3, home = null, extra = [], nations = true } = {}) {
   // with a survey (`seen(rec, site)`): a nation is named over the villages the viewer has surveyed, and the
@@ -431,6 +429,7 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
   const fontOf = size => `700 ${size * k}px ${face}`;
   ctx.save();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  // (a crowded name moves away from the lattice's origin, province (0, 0): a coordinate, not a place on the map)
   const c0 = provincePixel(0, 0);
   const items = [];
   const add = (text, x, y, size, fill, priority, more = {}) => {
@@ -439,13 +438,12 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
     // (a nation's name carries its sigil before it: room for that)
     items.push({ text, x, y, size, fill, priority, w: w + (Number.isInteger(more.faction) ? size * 1.15 : 0), tw: w - 8, h: size * 1.3, dir: { x: x - c0.x, y: y - c0.y }, ...more });
   };
-  // the viewer's own names first, then the Concord, then the nations (the larger realm first)
+  // the viewer's own names first, then the nations (the larger realm first)
   for (const e of extra) {
     if (e.block) items.push({ text: '', x: e.x, y: e.y, w: e.block, h: e.blockH ?? e.block, priority: 10, fixed: true });
     else add(e.text, e.x, e.y + ((e.below ?? 0) + (e.size ?? 13) * 0.65 + (e.tag ? 5 : 0)) * k, e.size ?? 13, e.fill ?? '#f3d58a', 9, { fixed: true, tag: !!e.tag });
   }
   if (nations) {
-    add(nameOf ? nameOf('concord') : 'Concord', c0.x, c0.y, 15, '#efe6cf', 8, { fixed: true });
     acc.forEach((a, f) => {
       const name = nameOf ? nameOf(f) : String(f);
       if (a.w < min) { if (home && home.faction === f) add(name, home.x, home.y, 22, '#fff6e2', 7, { faction: f }); return; }
@@ -2079,11 +2077,8 @@ export class FrontierMap {
     const words = this.wordsShown ?? 1;
     // (the far edge's haze goes with the words: over a map dimmed for a battle it would be a lighter slab)
     // (the dark of the room above the horizon stays through the dissolve out of the waiting picture: only the picture changes)
-    // (close on the bell before joining, the tower is the picture's subject and stands up into the far rows' band: the
-    // haze is thinner there, BELL_HAZE, or its spire pales with the horizon)
-    // (through a dive the haze and the dark are there from the waiting picture on: only the land comes; the bell's
-    // thinner haze comes as the camera comes down)
-    const thin0 = this.opened?.kind === 'frame' && !this.cam.userMoved ? BELL_HAZE : 1, thin = dive?.seat ? 1 + (thin0 - 1) * dive.p : thin0;
+    // (there is no bell tower to thin the far rows' haze for any more: ⑭ abolished the centre; the haze is the board's own)
+    const thin = 1;
     dressing(v.zoom, T.deg, dive ? 1 : shown, words * thin, staged ? this.sheetClip(v, size, T, G) : 'none', 1 - thin);
     wipe();
     if (shown > 0.4 && words > 0.02) {
@@ -2519,7 +2514,7 @@ export class FrontierMap {
     // on the land, in every kind of frame; so a picture of the ground with its sea can be kept and moved: the apron)
     const marks = c => { c.setTransform(...world); this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); };
     globalThis.__frontierTrace?.('scene: tiles');
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush, budget: prep === 'ask' ? -1 : prep ? DIVE.ground : null, first: rush ? this.diveKey() : null, lo: diving ? DIVE.lo : null, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { c.setTransform(...world); sea(c, null); marks(c); }, ground: (c, phase) => this.groundPass(c, F, phase), stand: KB ? c => { c.setTransform(...world); KB.top(c, F); } : null, terrainAt: terrainLookup(terrainOf, () => { if (this.art) this.art.misses++; }), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush, budget: prep === 'ask' ? -1 : prep ? DIVE.ground : null, first: rush ? this.diveKey() : null, lo: diving ? DIVE.lo : null, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { c.setTransform(...world); sea(c, null); marks(c); }, ground: (c, phase) => this.groundPass(c, F, phase), stand: KB ? c => { c.setTransform(...world); KB.top(c, F); } : null, terrainAt: terrainLookup(terrainOf, () => { if (this.art) this.art.misses++; }), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
@@ -2595,7 +2590,7 @@ export class FrontierMap {
     }
     // (nearer than the world chart the wedge that is looked at, or waited in, still carries its nation's name)
     else if (lod !== 'world' && looked !== null) {
-      // (close on the bell the wedge runs out of the picture: its name stands where the camera looks, `lookPoint`;
+      // (close up the wedge runs out of the picture: its name stands on its near part, `lookPoint`;
       // a dispersed region's name stands on its anchor province at every zoom: map/homeland.mjs homeLook)
       const f = looked, box = lod === 'tile' ? lookPoint(f, ringsOpen, place, src.seeded ?? null) : homeLook(f, ringsOpen, place, { seeded: src.seeded ?? null });
       if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 24, fill: '#fff6e2' }] });

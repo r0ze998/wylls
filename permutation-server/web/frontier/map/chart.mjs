@@ -334,14 +334,6 @@ export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone 
     }
     g.fillStyle = detail === 0 ? 'rgba(92,76,46,0.55)' : 'rgba(92,76,46,0.7)'; g.fill();
   }
-  // the Concord: where the Engine stands, ringed as a chart rings its one sure landmark
-  const c0 = own.get(hexKey(0, 0));
-  if (c0 && g.ellipse) {
-    g.beginPath();
-    for (const rr of [2.3, 2.52]) { g.moveTo(c0.x + rr * RADIUS * SQRT3 / 2, c0.y); g.ellipse(c0.x, c0.y, rr * RADIUS * SQRT3 / 2, rr * RADIUS * SQRT3 / 2 * FLATTEN, 0, 0, Math.PI * 2); }
-    for (let k = 0; k < 12; k++) { const an = (k * Math.PI) / 6, ca = Math.cos(an), sa = Math.sin(an) * FLATTEN, r1 = 2.52 * RADIUS * SQRT3 / 2, r2 = (k % 2 ? 2.72 : 2.95) * RADIUS * SQRT3 / 2; g.moveTo(c0.x + ca * r1, c0.y + sa * r1); g.lineTo(c0.x + ca * r2, c0.y + sa * r2); }
-    g.strokeStyle = 'rgba(92,76,46,0.6)'; g.lineWidth = lw * 1.1; g.stroke();
-  }
   if (alone) { g.globalCompositeOperation = 'destination-in'; g.globalAlpha = 1; g.fillStyle = '#000'; shape(); g.fill(); }
   g.restore();
 }

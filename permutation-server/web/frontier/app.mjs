@@ -123,7 +123,7 @@ function artClashOf(p, q) {
   })();
   return null;
 }
-// ?art=1&ringopen=1 replays the ring-open moment on the outermost open ring; &engine=N previews an Engine stage (presentation only).
+// ?art=1&ringopen=1 replays the ring-open moment on the outermost open ring.
 const ART_Q = new URLSearchParams(globalThis.location?.search ?? '');
 const ART_RINGOPEN = ART_PREVIEW && ART_Q.get('ringopen') === '1';
 // ?art=1&relics=1 places sample Relic Sites and Waystones (M3 features, no accounts in M1; presentation only).
@@ -132,12 +132,9 @@ const ART_RELICS = ART_PREVIEW && ART_Q.get('relics') === '1';
 const ART_RIVERS = ART_PREVIEW && ART_Q.get('rivers') === '1';
 // ?art=1&ally=0-1,2-4 shows those faction pairs as allied (presentation only; real relations come from the Province).
 const ART_ALLY = ART_PREVIEW ? (ART_Q.get('ally') ?? '').split(',').map(x => x.split('-').map(Number)).filter(x => x.length === 2 && x.every(Number.isInteger)) : [];
-// The Engine's stage. Production is always stage 0: no rule raises it yet (⑭ central tower T3 is blocked on the owner's
-// decisions Q7/Q9), so the only way to another stage is this preview switch (map/enginestage.mjs; held by
-// permutation-gateway/test/web-frontier-engine-stage.test.mjs).
-const ART_ENGINE = resolveEngineStage(ART_Q);
+// (⑭, owner decision 2026-11-18: the central tower is abolished, the map has no centre. There is no Engine stage and
+// no Engine preview switch any more; held by permutation-gateway/test/web-frontier-no-centre.test.mjs)
 import * as joinScreen from './screens/join.mjs';
-import { resolveEngineStage } from './map/enginestage.mjs';
 import * as prizeScreen from './screens/prize.mjs';
 import * as holdingScreen from './screens/holding.mjs';
 import * as hostScreen from './screens/host.mjs';
@@ -4622,7 +4619,6 @@ export async function boot() {
           // frames and marks a nation's home region from it (map/homeland.mjs); without a readable one it shows none
           place: seasonPlace(FS.season),
           demoRoads: ART_ROADS,
-          engineStage: ART_ENGINE,
           demoSpecials: ART_RELICS,
           demoRivers: ART_RIVERS,
           alliedPairs: ART_ALLY,
@@ -4630,8 +4626,8 @@ export async function boot() {
           clashOf: ART_ON ? artClashOf : undefined,
           pendingOf: ART_ON ? (p, q) => FS.provinces.get(`${p},${q}`)?.inputs ?? null : undefined,
           people: ART_ON && FS.mode !== 'practice' ? peopleSource : undefined,
-          // the world view's labels: the faction names and the Concord, in the page's language
-          realmName: f => (f === 'concord' ? L`大協約` : factionName(f)),
+          // the world view's labels: the faction names, in the page's language (no centre is named: ⑭ abolished)
+          realmName: f => factionName(f),
           lens: FS.view.lens ?? 'realm',
           // incoming risk around the viewer's holdings (hud/hud.mjs attention, controller incoming warnings)
           threats: (FS.incoming ?? []).map(w => ({ p: w.holding.p, q: w.holding.q, tile: w.holding.tile, bell: w.bell })),
