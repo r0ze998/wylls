@@ -180,6 +180,7 @@ permutation-gateway/test/frontier-expedition-prepare.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
 permutation-gateway/test/frontier-local-play-external-launcher.test.mjs
+permutation-gateway/test/frontier-local-play-fresh-map.test.mjs
 permutation-gateway/test/frontier-local-play-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-natural.test.mjs
 permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs

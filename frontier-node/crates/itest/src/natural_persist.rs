@@ -40,17 +40,37 @@ const WORLD_FILE: &str = "world.json";
 const UPGRADE: &str = "keys/upgrade.seed";
 const PAYER: &str = "keys/payer.seed";
 
-/// The two options, taken out of the runner's arguments before the shared parser sees them.
+/// The fresh-map mode named in the runner's first line (`--map-origin`).
+pub const FRESH_MAP_MODE: &str = "local-fresh-map-v1";
+/// The local chain's fixed clock origin (`localnet::Config::default().g0`, 2026-08-01T00:00:00Z): without
+/// `--map-origin` every natural world starts there, so every world consumes the same genesis round.
+pub const MAP_ORIGIN_DEFAULT: i64 = 1_785_542_400;
+/// `--map-origin` may move the origin back by at most this (365 days: about 10.5 million genesis rounds).
+pub const MAP_ORIGIN_SPAN_SECS: i64 = 365 * 86_400;
+
+/// Whether `g0` is an origin `--map-origin` accepts: in the 365 days BEFORE the fixed origin, never after it. Every
+/// round such a world needs is therefore older than the rounds a default world needs (published long ago), and later
+/// than quicknet's own genesis (2023-08-23).
+pub fn map_origin_ok(g0: i64) -> bool {
+    (MAP_ORIGIN_DEFAULT - MAP_ORIGIN_SPAN_SECS..MAP_ORIGIN_DEFAULT).contains(&g0)
+}
+
+/// The options taken out of the runner's arguments before the shared parser sees them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NaturalOptions {
     pub continuous: bool,
     pub persist: Option<PathBuf>,
+    /// TEST-ONLY `--map-origin <unix seconds>`: the NEW world's chain clock origin instead of the fixed one, so its
+    /// Season fixes another genesis round and the program derives another genesis seed (terrain, sites, Free City,
+    /// dispersed home offsets) by its unchanged rules. Ignored by a resumed world (its ledger's origin wins).
+    pub map_origin: Option<i64>,
 }
 
-/// `--continuous local-continuous-v1` (exactly that word) and `--persist-dir <absolute path>`, each at most once.
+/// `--continuous local-continuous-v1` (exactly that word), `--persist-dir <absolute path>` and `--map-origin <unix
+/// seconds, [`map_origin_ok`]>`, each at most once.
 pub fn take_world_args(mut args: Vec<String>) -> Result<(Vec<String>, NaturalOptions), String> {
     let mut o = NaturalOptions::default();
-    for flag in ["--continuous", "--persist-dir"] {
+    for flag in ["--continuous", "--persist-dir", "--map-origin"] {
         let Some(i) = args.iter().position(|a| a == flag) else {
             continue;
         };
@@ -66,6 +86,22 @@ pub fn take_world_args(mut args: Vec<String>) -> Result<(Vec<String>, NaturalOpt
                 return Err(format!("--continuous takes exactly `{CONTINUOUS_MODE}`"));
             }
             o.continuous = true;
+        } else if flag == "--map-origin" {
+            // (written plainly: digits only, no sign, no leading zero)
+            let plain = !value.is_empty()
+                && value.len() <= 12
+                && value.bytes().all(|b| b.is_ascii_digit())
+                && !value.starts_with('0');
+            match value.parse::<i64>() {
+                Ok(g0) if plain && map_origin_ok(g0) => o.map_origin = Some(g0),
+                _ => {
+                    return Err(format!(
+                        "--map-origin takes unix seconds in {}..{} (the 365 days before the fixed origin)",
+                        MAP_ORIGIN_DEFAULT - MAP_ORIGIN_SPAN_SECS,
+                        MAP_ORIGIN_DEFAULT
+                    ))
+                }
+            }
         } else {
             let p = PathBuf::from(&value);
             if !p.is_absolute() {
@@ -407,6 +443,45 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    /// TEST-ONLY `--map-origin`: plain unix seconds inside the 365 days before the fixed origin, at most once; the
+    /// fixed origin itself, a later one, an earlier one and anything not written plainly are refused. Without the
+    /// option nothing changes (`map_origin: None`).
+    #[test]
+    fn the_map_origin_option_is_bounded_and_optional() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(MAP_ORIGIN_DEFAULT, localnet::Config::default().g0);
+        assert_eq!(take_world_args(a(&["--x"])).unwrap().1.map_origin, None);
+        let lo = MAP_ORIGIN_DEFAULT - MAP_ORIGIN_SPAN_SECS;
+        for ok in [lo, lo + 1, MAP_ORIGIN_DEFAULT - 1] {
+            let (rest, o) =
+                take_world_args(a(&["--map-origin", &ok.to_string(), "--x", "1"])).unwrap();
+            assert_eq!((rest, o.map_origin), (a(&["--x", "1"]), Some(ok)));
+            assert!(!o.continuous && o.persist.is_none());
+        }
+        let near = (MAP_ORIGIN_DEFAULT - 5).to_string();
+        for bad in [
+            (lo - 1).to_string(),
+            MAP_ORIGIN_DEFAULT.to_string(),
+            (MAP_ORIGIN_DEFAULT + 1).to_string(),
+            "0".into(),
+            "-1".into(),
+            String::new(),
+            format!("+{near}"),
+            format!("0{near}"),
+            format!("{near}.0"),
+            format!(" {near}"),
+            "99999999999999999999".into(),
+            "now".into(),
+        ] {
+            assert!(
+                take_world_args(a(&["--map-origin", &bad])).is_err(),
+                "{bad:?}"
+            );
+        }
+        assert!(take_world_args(a(&["--map-origin"])).is_err());
+        assert!(take_world_args(a(&["--map-origin", &near, "--map-origin", &near])).is_err());
     }
 
     #[test]
