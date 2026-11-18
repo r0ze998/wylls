@@ -10,6 +10,10 @@ const G = await import('../../permutation-server/web/frontier/fgeo.mjs');
 const L = await import('../../permutation-server/web/frontier/fland.mjs');
 
 const HOME = L.homeWedge(0);
+// The /h/season record of the pinned world. Since fd1367e1 (controller.mjs recordOfPin) refreshOverviews applies a season
+// record only when it names the pinned cluster, program and season; a record that names no world is left unapplied.
+const { PROGRAM: PIN_PROGRAM, SEASON_ID: PIN_SEASON } = await import('../screens/world.mjs');
+const seasonRecord = (extra = {}) => ({ cluster: 'localnet', programId: PIN_PROGRAM, season: String(PIN_SEASON), rings: [{}, {}, {}, {}], ...extra });
 const ring = d => G.ringProvinces(d).map(({ p, q }) => ({ p, q }));
 // an overview of rings 2 and 3, every site free (owner 7) — or, `full`, the home wedge taken
 const overviews = (fullHome = false) => new Map([2, 3].map(d => [d, { ring: d, provinces: ring(d).map(({ p, q }) => {
@@ -72,7 +76,7 @@ test('autoTicket with a pinned season: a refusal before sending locks nothing; t
   const sc = io.scope();
   let provinceReads = 0, seasonReads = 0;
   C.useHerald({
-    season: async () => { seasonReads++; return { ok: true, record: { rings: [{}, {}, {}, {}] } }; },
+    season: async () => { seasonReads++; return { ok: true, record: seasonRecord() }; },
     overview: async d => ({ ok: d >= 2, ...(overviews().get(d) ?? {}) }),
     province: async (p, q) => { provinceReads++; return { ok: true, province: prov(p, q) }; },
   });
@@ -133,7 +137,7 @@ test('a ticket sent and then failed or expired on chain clears the lock and show
   const { PROGRAM, SEASON_ID } = await import('../screens/world.mjs');
   io.setPin({ programId: PROGRAM, cluster: 'localnet', seasonId: SEASON_ID });
   C.useHerald({
-    season: async () => ({ ok: true, record: { rings: [{}, {}, {}, {}] } }),
+    season: async () => ({ ok: true, record: seasonRecord() }),
     overview: async d => ({ ok: d >= 2, ...(overviews().get(d) ?? {}) }),
     province: async (p, q) => ({ ok: true, province: prov(p, q) }),
   });
@@ -176,7 +180,7 @@ test('the program\'s wedge counters (/h/season wedgeOpen / wedgeOccupied) decide
   const run = async (open, occupied) => {
     overflowReads = 0;
     C.useHerald({
-      season: async () => ({ ok: true, record: { rings: [{}, {}, {}, {}], wedgeOpen: open, wedgeOccupied: occupied } }),
+      season: async () => ({ ok: true, record: seasonRecord({ wedgeOpen: open, wedgeOccupied: occupied }) }),
       overview: async d => ({ ok: d >= 2, ...(overviews().get(d) ?? {}) }),
       // the home wedge looks full when read (short provinces); the adjacent wedges have room
       province: async (p, q) => { if (G.wedgeOf(p, q) !== HOME) overflowReads++; return { ok: true, province: G.wedgeOf(p, q) === HOME ? prov(p, q, { count: 6, free: [] }) : prov(p, q) }; },
