@@ -14,7 +14,9 @@
 //!   transaction's time, of this build's version; the authority account is
 //!   the Season's stored `AUTHORITY`; the configuration at its canonical
 //!   address and absent before (write-once); `config_version` current; the
-//!   record written = `WideRulesConfig::new(season, world, authority,
+//!   keep-holder candidate one the Season's `placement` allows
+//!   (`rules::keep_holder_allowed`: placement 2 takes MixedInterleaved
+//!   only); the record written = `WideRulesConfig::new(season, world, authority,
 //!   bytes)`.
 //! * **WideRequestRingSeed (0xD6)** `[payer] [season] [frontier]
 //!   [previous] [target w] [pfund ×6] [system]`: Running; ring ≥ 129; the
@@ -397,6 +399,27 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
             format!(
                 "config_version {} is not the current table",
                 x.config_version
+            ),
+        ));
+    }
+    // ⑧ wide land (i) (#38, `proc/wide.rs` `set_rules`): a Season whose
+    // disk keeps are mixed on every ring (`placement` 2) takes the same
+    // keep-holder function past ring 128; any other candidate is refused
+    // `BadData` (D-verify-pr72-9).
+    let placement = ConquestParams::of_season(&sd)
+        .ok_or_else(|| fail(WIDE_ACCOUNTS, "the Season's conquest block does not decode"))?
+        .placement;
+    let holder = wr::KeepHolderRule::from_byte(x.keep_holder).map_err(|er| {
+        fail(
+            WIDE_RULE,
+            format!("a keep-holder byte the program refuses ({er:?})"),
+        )
+    })?;
+    if !wr::keep_holder_allowed(placement, holder) {
+        return Err(fail(
+            WIDE_RULE,
+            format!(
+                "keep-holder rule {holder:?} is not allowed under the Season's placement {placement} (the program refuses BadData)"
             ),
         ));
     }
