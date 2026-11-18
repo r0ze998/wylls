@@ -34,6 +34,8 @@ mutate-v13 = []
 mutate-vr = []
 # Q16-1: the playable lane's land check (with `playable-lane`).
 mutate-vl = []
+# Q16-1 continued: the playable lane's wide land check (with `playable-lane`).
+mutate-vwl = []
 # The wide world's event chains (VW1, workstream 04; experimental, opt-in).
 wide-world-experimental = ["frontier-abi/world-index-experimental"]
 # Experimental, opt-in, off by default: the independent state-transition
@@ -48,8 +50,10 @@ wide-economy-experimental = ["frontier-abi/world-index-experimental"]
 # `devnet-playable-sbf` (conquest-dispatch-experimental + land-preview) runs
 # it. With this feature 0x4804 is a known version: its ABI v2 instructions
 # are judged by the S1 checks, the land preview's FoldLand / ClaimLandYield
-# by VL, and every wide instruction stays UNVERIFIABLE with its command
-# named (V0 `WideUnmodelled`). Without it (the default build) 0x4804 stays
+# by VL, the wide land opening (WideSetRules / WideRequestRingSeed /
+# WideConsumeRingSeed / WideOpenProvince) by VWL, and every other wide
+# instruction stays UNVERIFIABLE with its command named (V0
+# `WideUnmodelled`). Without it (the default build) 0x4804 stays
 # `UnknownProgramVersion`. Opt-in so the land/conquest ABI features never
 # unify into the keeper's or herald's default build.
 playable-lane = [
@@ -57,6 +61,9 @@ playable-lane = [
     "frontier-abi/conquest-dispatch-experimental",
     "frontier-abi/land-preview",
     "permutation-rules/land-preview",
+    # VWL re-runs WideOpenProvince's terrain (`terrain::wide`), as the
+    # program's wide build does.
+    "permutation-rules/wide-terrain-experimental",
 ]
 
 # Dependency sections belong to the integrator (contract §3.4, I-55); every
