@@ -11,7 +11,8 @@
 # test/ws12-public-evidence.test.mjs imports this tree's workstream 12 fixture: it runs only when that fixture derives
 # no key on import (workstream 12 1583026f and later); an older fixture derived keys from fixed seeds and is left out.
 #
-# Needs Node 20+ and `npm ci --prefix permutation-gateway` (the residents import the gateway's modules, unchanged).
+# Needs Node 22.15+ (test/keyless-guard.mjs uses module.registerHooks; on Node 20 every file fails to load; corrected
+# 2026-11-18, was "Node 20+") and `npm ci --prefix permutation-gateway` (the residents import the gateway's modules, unchanged).
 # No chain, no model, no network, no API key; it refuses to run with a paid-API key in the environment. Writes
 # results/: the test log, and the demo's summary and transcript for a plain run and for a run restarted at bell 70.
 set -euo pipefail
