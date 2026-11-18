@@ -209,6 +209,11 @@ jobs:
       - name: Six-nation recording tool tests (key-free)
         working-directory: .
         run: scripts/ci/node-keyfree.sh scripts/demo/sixnation test/lib.test.mjs
+      # The six-nation map timelapse (scripts/demo/sixnation/map): argument parsing, the refusal of any chain/RPC/key
+      # flag, the simulator's command line, the video clock and the ffmpeg lines. No browser, no simulator run.
+      - name: Six-nation map timelapse tool tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh scripts/demo/sixnation/map test/lib.test.mjs
 
   # Workstream 12 (memory): its audited key-free test files (workstreams/12-memory/tools/keyfree-tests.txt) through
   # the same runner and guard as the gateway job. No npm install (12 has no dependencies). Node 22: node:sqlite
