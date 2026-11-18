@@ -52,11 +52,61 @@ pub const KNOWN_PROGRAM_VERSIONS: std::ops::RangeInclusive<u16> = 1..=PROGRAM_VE
 /// `PROGRAM_VERSION`; provisional, workstream 4 fixes the integrated value).
 pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 
+/// The PLAYABLE lane (Q16-1 = A, 2026-11-18): S1 (4) | wide 0x4000 | the
+/// expedition dispatch revision 0x0800
+/// (`frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION`),
+/// which the devnet build `devnet-playable-sbf` (conquest-dispatch +
+/// land-preview) and the localnet expedition / conquest / land lanes run.
+/// A known version only in the `playable-lane` build: there its ABI v2
+/// instructions are judged by the S1 checks (the program runs S1's
+/// handlers, which differ only where a wide marker or bridge is present,
+/// and only a wide instruction writes one), its land preview instructions
+/// by VL, and every wide instruction stays UNVERIFIABLE (`WideUnmodelled`,
+/// naming the command): see [`judge_outside_v2`].
+pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
+
+#[cfg(feature = "playable-lane")]
+const _: () = assert!(
+    PROGRAM_VERSION_PLAYABLE == frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION
+);
+
+/// Whether `pv` is the playable lane and this build judges it.
+pub fn playable(pv: Option<u16>) -> bool {
+    cfg!(feature = "playable-lane") && pv == Some(PROGRAM_VERSION_PLAYABLE)
+}
+
+/// Whether a wide instruction (0xD6–0xDF, 0xEE) succeeded anywhere in the
+/// archive: only one writes the wide build's own accounts and markers, so
+/// without one the playable program ran S1's handlers exactly (VR, VL).
+pub fn wide_ran(w: &crate::world::World) -> bool {
+    w.txs
+        .iter()
+        .filter(|t| t.ok)
+        .flat_map(|t| t.ixs.iter())
+        .any(|ix| ix.tag().is_some_and(is_wide_tag))
+}
+
 /// Whether this verifier implements `pv`'s rules.
 pub fn known_version(pv: u16) -> bool {
     KNOWN_PROGRAM_VERSIONS.contains(&pv)
         || pv == PROGRAM_VERSION_NFT_S1
         || pv == frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1
+        || playable(Some(pv))
+}
+
+/// The wide command `data` names, as the playable program's dispatch reads
+/// it (`proc::wide::dispatch`: the tag's own codec first, then the
+/// expedition dispatch envelope `[tag, 0xff, 2, kind]`); `None` when
+/// neither decodes.
+#[cfg(feature = "playable-lane")]
+pub fn wide_command(data: &[u8]) -> Option<String> {
+    use frontier_abi::world_index::{expedition_dispatch_ix as dx, wide_ix as wix};
+    if let Ok(c) = wix::WideCommand::decode(data) {
+        return Some(c.name().to_string());
+    }
+    dx::Command::decode(data)
+        .ok()
+        .map(|c| format!("expedition dispatch {:?}", c.kind()))
 }
 
 /// The version bit of the experimental wide-world build
@@ -160,6 +210,31 @@ pub fn judge_outside_v2(
     // The wide build's own tags, in its own seasons: left to VW (r16), which
     // judges the wide event chains and nothing of the wide rules, so they
     // stay UNVERIFIABLE (`WideUnmodelled`), never a PASS.
+    #[cfg(feature = "playable-lane")]
+    if is_wide_tag(tag) && playable(pv) {
+        // Q16-1: no check of this verifier re-judges a wide command yet (the
+        // opt-in replays of `wide_economy` & co. take caller-supplied
+        // snapshots and no season verdict), so each stays UNVERIFIABLE and
+        // says which command it was.
+        return Some(match wide_command(data) {
+            Some(name) => (
+                Unverifiable,
+                WIDE_UNMODELLED,
+                format!("wide instruction 0x{tag:02x} ({name}) in a playable-lane season: no check of this verifier re-judges it"),
+            ),
+            None => (
+                Unverifiable,
+                WIDE_UNMODELLED,
+                format!("wide instruction 0x{tag:02x} of {} bytes that neither the wide codec nor the dispatch envelope decodes, yet it succeeded in a playable-lane season", data.len()),
+            ),
+        });
+    }
+    // The land preview's FoldLand / ClaimLandYield (0xCD / 0xCE) in a
+    // playable-lane season: VL's (it re-runs both from the states before).
+    #[cfg(feature = "playable-lane")]
+    if frontier_abi::land_preview::is_land_tag(tag) && playable(pv) {
+        return None;
+    }
     if is_wide_tag(tag) && pv.is_some_and(|v| v & WIDE_EXPERIMENTAL_VERSION_BIT != 0) {
         return Some((
             Unverifiable,
@@ -248,7 +323,14 @@ pub fn run(cx: &mut Ctx) {
                 0,
                 None,
                 format!(
-                    "program_version {pv} is not one this verifier implements ({KNOWN_PROGRAM_VERSIONS:?}, {PROGRAM_VERSION_NFT_S1:#06x}, {:#06x})", frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1
+                    "program_version {pv} ({pv:#06x}) is not one this verifier implements ({KNOWN_PROGRAM_VERSIONS:?}, {PROGRAM_VERSION_NFT_S1:#06x}, {:#06x}{})", frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1,
+                    if cfg!(feature = "playable-lane") {
+                        format!(", {PROGRAM_VERSION_PLAYABLE:#06x}")
+                    } else if pv == PROGRAM_VERSION_PLAYABLE {
+                        "; the playable lane is judged only by a build with the `playable-lane` feature".into()
+                    } else {
+                        String::new()
+                    }
                 ),
             );
         }
@@ -319,6 +401,41 @@ pub fn run(cx: &mut Ctx) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Q16-1: the playable lane (0x4804) is a known version only in the
+    /// `playable-lane` build. There a wide tag is UNVERIFIABLE (named), a
+    /// land tag is VL's, and any other tag outside ABI v2 is a FAIL (the
+    /// build refuses it); elsewhere 0x4804 is an unknown version.
+    #[test]
+    fn the_playable_lane_is_known_only_with_its_feature() {
+        use crate::Severity::{Fail, Unverifiable};
+        let pv = Some(PROGRAM_VERSION_PLAYABLE);
+        assert_eq!(
+            known_version(PROGRAM_VERSION_PLAYABLE),
+            cfg!(feature = "playable-lane")
+        );
+        assert_eq!(playable(pv), cfg!(feature = "playable-lane"));
+        // Its siblings stay unknown: the dispatch revision without the wide
+        // bit, the wide build without the revision, a rights/NFT/capacity mix.
+        for v in [0x0804u16, 0x4004, 0x6804, 0xC804, 0x5804] {
+            assert!(!known_version(v), "{v:#06x}");
+        }
+        for s1 in [true, false] {
+            let wide = judge_outside_v2(0xDA, &[0xDA], pv, s1).expect("judged");
+            assert_eq!((wide.0, wide.1), (Unverifiable, WIDE_UNMODELLED));
+            let grant = judge_outside_v2(0xD0, &[0xD0], pv, s1).expect("judged");
+            let land = judge_outside_v2(0xCD, &[0xCD, 1], pv, s1);
+            if cfg!(feature = "playable-lane") {
+                assert_eq!(grant.0, Fail, "the playable build refuses a Grant");
+                assert!(land.is_none(), "VL judges the land tags");
+                let none = judge_outside_v2(0xFE, &[0xFE], pv, s1).expect("judged");
+                assert_eq!((none.0, none.1), (Fail, UNKNOWN_INSTRUCTION));
+            } else {
+                assert_eq!(grant.0, Unverifiable);
+                assert_eq!(land.map(|l| l.0), Some(Unverifiable));
+            }
+        }
+    }
 
     #[test]
     fn every_abi_tag_has_a_coverage_answer() {

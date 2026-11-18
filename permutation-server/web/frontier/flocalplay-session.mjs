@@ -15,6 +15,7 @@
 import { L, onLangChange } from '../lang.mjs';
 import { expiryStable } from './flocalplay-expiry.mjs';
 import { CIV_NAMES } from '../i18n.mjs';
+import { worldEndedText } from './flocalplay-ended.mjs';
 
 export const SESSION_NOTICE_ID = 'local-play-session';
 /** An end time on this machine's clock, `YYYY-MM-DD HH:MM` (the same in either language). */
@@ -30,6 +31,8 @@ export function endTimeText(ms) {
 export function keeperText(view) {
   if (!view || typeof view !== 'object') return null;
   if (view.state === 'unavailable') return L`世界の進行を確認できませんでした。開始サービスを確認して、もう一度押してください。`;
+  // (the launcher no longer runs this world: said as the world's end, not as a check that failed — B5)
+  if (view.state === 'ended') return worldEndedText();
   if (view.state !== 'reported') return null;
   const k = view.keeper;
   if (!k || typeof k !== 'object') return L`世界の進行役の報告はまだありません。少し待ってから、もう一度確認してください。`;

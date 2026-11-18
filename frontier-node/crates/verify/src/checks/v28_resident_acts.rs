@@ -94,13 +94,18 @@ pub struct ActCtx<'a> {
 /// Harvest/Build/Train (0xDA op 3) and Garrison (op 4). A test keeps this list equal to the
 /// program's dispatch (`wide_act_runs_exactly_the_programs_dispatch`).
 #[cfg(feature = "wide-world-experimental")]
-pub const WIDE_ACT_COMMANDS: [&str; 6] = [
+pub const WIDE_ACT_COMMANDS: [&str; 7] = [
     "ClaimSite",
     "Depart",
     "Muster",
     "Dissolve",
     "Economy",
     "Garrison",
+    // Q16-1 (D-ws11-verifier-patches-5): the program's `resident_act` also
+    // routes a resident's Free City DeclareSiege
+    // (`conquest_exec::declare_siege_resident`, the same four trailing
+    // proof accounts). Its inner command stays `ResidentInnerUnmodelled`.
+    "DeclareSiege",
 ];
 
 /// A successful WideResidentAct's generation, inner command and its name, as
@@ -117,6 +122,7 @@ pub fn wide_act(d: &[u8]) -> Option<(u32, &[u8], &'static str)> {
         W::Dissolve(_) => "WideDissolve",
         W::Economy(_) => "WideEconomy",
         W::Garrison(_) => "WideGarrison",
+        W::DeclareSiege(_) => "WideDeclareSiege",
         _ => return None,
     };
     Some((x.generation, x.inner, name))
@@ -360,7 +366,7 @@ pub fn judge_tx(w: &World, ac: &ActCtx, i: usize, t: &Tx) -> Vec<Found> {
                         push(
                             Severity::Fail,
                             RESIDENT_ACT_MISMATCH,
-                            "WideResidentAct succeeded with data the program refuses (not a whole player command it runs: WideClaimSite, WideDepart, the player Muster or Dissolve)".into(),
+                            "WideResidentAct succeeded with data the program refuses (not a whole player command it runs: WideClaimSite, WideDepart, the player Muster, Dissolve, Economy or Garrison, or a Free City DeclareSiege)".into(),
                         );
                         continue;
                     }
