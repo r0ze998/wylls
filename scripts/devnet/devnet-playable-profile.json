@@ -1,0 +1,183 @@
+{
+  "schema": "wylls-devnet-profile-v1",
+  "note": "DRAFT devnet profile of the PLAYABLE lane (owner decision B7, 2026-11-18: expedition / wide land / conquest + the land preview, program_version 0x4804). Nothing here has been deployed. A different program from the S1 profile (its own program id, its own seasons). Every <SET-BY-R0ZE...> value is a placeholder that r0ze fills in; the dry-run refuses to send while any placeholder is left. No key material is ever stored here.",
+  "cluster": "devnet",
+  "rpcUrl": "https://api.devnet.solana.com",
+  "allowedRpcHosts": [
+    "api.devnet.solana.com"
+  ],
+  "refusedRpcHostPatterns": [
+    "mainnet",
+    "api.solana.com",
+    "testnet"
+  ],
+  "programId": "<SET-BY-R0ZE: program address of the PLAYABLE lane (public key of a second program keypair r0ze creates offline; not the S1 program's)>",
+  "upgradeAuthority": "<SET-BY-R0ZE: upgrade-authority public key (offline key; also the only AnnounceSeason signer, I-51)>",
+  "program": {
+    "crate": "permutation-frontier",
+    "build": "scripts/build-frontier-devnet-playable-sbf.sh",
+    "so": "permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so",
+    "maxLenRule": "round_up(1.25 x so_len, 4096) (I-45, fees::deploy_max_len)",
+    "soLenCap": 8388608,
+    "soLenCapSource": "Solana's MAX_PERMITTED_DATA_LENGTH 10,485,760 B bounds the ProgramData; max_len = round_up(1.25 x so_len, 4096) reaches it at so_len 8,388,608. No L(kind) table bounds this lane: every lane client requests the 64 MiB runtime loaded-data limit (local-play-act.mjs LOCAL_ACT_LOADED_LIMIT, flocalplay-reveal.mjs LOCAL_REVEAL_BUDGET).",
+    "minSolanaCli": "4.0.0 (plan.mjs MIN_SOLANA_CLI): the CLI verifies the ELF with its own syscall table before sending, and 3.1.x does not know sol_curve_decompress / sol_curve_pairing_map. The build stays on cargo-build-sbf 3.1.9.",
+    "refusedMarkers": [
+      "PSF_ORACLE_BUILD",
+      "PSF_TRACE_BUILD",
+      "PSF_TEST_BEACON_BUILD",
+      "PSF_CUSTODY_PREVIEW_BUILD",
+      "PSF_LOCALNET_EXPEDITION_SBF_BUILD",
+      "PSF_LOCALNET_CONQUEST_SBF_BUILD",
+      "PSF_RIGHTS_EXPERIMENTAL_BUILD"
+    ],
+    "programVersion": "0x4804",
+    "features": "devnet-playable-sbf = conquest-dispatch-experimental + land-preview (the land lane localnet-land-sbf without the [0x45; 32] id check)",
+    "requiredMarkers": [
+      "PSF_DEVNET_PLAYABLE_BUILD"
+    ]
+  },
+  "rent": {
+    "formula": "rent_exempt(len) = (128 + len) x lamports_per_byte",
+    "lamportsPerByteCandidates": [
+      6960,
+      6333,
+      5080,
+      2575,
+      1322,
+      696
+    ],
+    "assume": 5080,
+    "why": "MEASURED on devnet 2026-11-18 20:40 JST by the devnet-readonly-checks run (read-only public RPC, no key, no transaction; reports/devnet-readonly-checks.md, DRAFT PR #52, which also records it in devnet-profile.json's \"measured\" block): 5080 lamports per byte (SIMD-0437-2 active since epoch 1141; 2575/1322/696 and SIMD-0438's reset to 6960 inactive). It reproduced (128 + len) x 5080 for 16 sizes, including the conquest lane's ProgramData 4,485,165 B = 22.78528844 SOL. The rate can change at an epoch boundary: read it again right before a deploy and pass --rate if it moved."
+  },
+  "fees": {
+    "lamportsPerSignature": 5000,
+    "writeChunkBytes": 850,
+    "signaturesPerWrite": 2,
+    "writeChunkNote": "bytes per loader-v3 Write transaction. With a fee payer and a separate upgrade (= buffer) authority the CLI's calculate_max_chunk_size leaves about 876 B [derived from agave v3.1.9 cli/src/program.rs, not run]; 850 is the conservative figure (fewer bytes = more transactions = a higher estimate). Each Write carries two signatures: the fee payer's and the authority's."
+  },
+  "season": {
+    "preset": "S1_LOCAL_7D",
+    "regions": 16,
+    "rMax": 16,
+    "players": 50,
+    "lamports": {
+      "creationBond": 1000000000,
+      "pfundInitial": 21000000000,
+      "dpoolInitial": 20000000000,
+      "keeperRevealPools": 4800000000,
+      "keeperDelayPools": 6400000000,
+      "keeperBeneficiaries": 200000000,
+      "relayPool": 7500000000,
+      "feesAndTipsPer50Players": 625000000
+    },
+    "lamportsNotes": {
+      "creationBond": "frontier_abi::presets::MIN_CREATION_BOND, returned after a normal season (burned on a post-round pre-join abort, I-09)",
+      "pfundInitial": "S1_LOCAL_7D = MC_LOCAL_7D.pfund_initial (21 SOL; frontier-abi/src/v2/presets.rs). Float.",
+      "dpoolInitial": "M1_LOCAL_7D.dpool_initial (20 SOL), inherited by MC_LOCAL_7D/S1_LOCAL_7D. Returned if unspent.",
+      "keeperRevealPools": "2 keepers x 150 payers x up to 2 x F_r (F_r = 0.0080 SOL at r99_reveals 150; RUN-A-KEEPER 4.3)",
+      "keeperDelayPools": "2 keepers x 32 payers x up to 2 x delay_floor 0.05 SOL (PLAYTEST-RUNBOOK 4)",
+      "keeperBeneficiaries": "2 x 0.1 SOL (ClaimDefence fee payer, RUN-A-KEEPER 1)",
+      "relayPool": "150 relay payers x minPayerLamports 0.05 SOL (permutation-gateway/src/frontier/config.mjs)",
+      "feesAndTipsPer50Players": "PLAYTEST-RUNBOOK 5: <= 2.5 SOL per 200 players-week, scaled to 50 (spent)"
+    },
+    "accounts": [
+      {
+        "name": "Season",
+        "bytes": 2048,
+        "count": 1
+      },
+      {
+        "name": "Frontier",
+        "bytes": 512,
+        "count": 1
+      },
+      {
+        "name": "JoinShard",
+        "bytes": 256,
+        "count": 48
+      },
+      {
+        "name": "BeaconLog",
+        "bytes": 128,
+        "count": 16
+      },
+      {
+        "name": "ProvinceFund",
+        "bytes": 128,
+        "count": 6
+      },
+      {
+        "name": "DefencePool",
+        "bytes": 256,
+        "count": 1
+      },
+      {
+        "name": "RingSeed",
+        "bytes": 128,
+        "count": 17
+      },
+      {
+        "name": "AnchorArchive (16 regions x 16 half-days)",
+        "bytes": 6144,
+        "count": 256
+      },
+      {
+        "name": "BellAnchor float (16 regions x 288 bells kept 48 h) [model]",
+        "bytes": 144,
+        "count": 4608
+      },
+      {
+        "name": "SeedCache float (16 regions x 288 bells kept 48 h) [model]",
+        "bytes": 144,
+        "count": 4608
+      }
+    ],
+    "perPlayerAccounts": [
+      {
+        "name": "Citizen",
+        "bytes": 384
+      },
+      {
+        "name": "Holding",
+        "bytes": 1280
+      }
+    ],
+    "continuousWorldPerDay": [
+      {
+        "name": "AnchorArchive per day (16 regions x 2 half-days), never closed while the world runs [model]",
+        "bytes": 6144,
+        "count": 32
+      }
+    ],
+    "note": "The natural local world (itest natural_play.rs) creates its Season from S1_LOCAL_7D with program_version 0x4804, so the season lines are the S1 profile's. No operator tool creates a 0x4804 season on a public RPC yet (B3), and the verifier cannot PASS a 0x4804 season (Q16-1)."
+  },
+  "services": {
+    "herald": {
+      "listen": "127.0.0.1:41040",
+      "public": "only through a TLS reverse proxy"
+    },
+    "relay": {
+      "port": 41030,
+      "publicPort": 41033,
+      "public": "never directly; the herald proxies /gw/*"
+    },
+    "keeperA": {
+      "api": "127.0.0.1:41050"
+    },
+    "keeperB": {
+      "api": "127.0.0.1:41051"
+    }
+  },
+  "excluded": {
+    "permutation-prize": "owner decision 17 = A (no prize): not deployed",
+    "wylls_resident_program (NFT)": "owner decision 20 = A (no NFT resident): not deployed",
+    "permutation-chain (v9)": "superseded by permutation-frontier: not deployed",
+    "permutation-frontier S1 release": "a separate program (scripts/devnet/devnet-profile.json); B7 ships this playable lane first"
+  },
+  "lane": "playable",
+  "risks": {
+    "SIMD-0500": "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g 'Disable deployment of SBPF v0, v1 and v2 programs' was inactive on devnet at 2026-11-18 20:40 JST (devnet-readonly-checks). This .so is SBPF v2: once it activates, a deploy or upgrade of it is refused. Moving to SBPF v3 leaves the pinned cargo-build-sbf 3.1.9 (blocked on r0ze).",
+    "verifier": "frontier-verify reports a 0x4804 season as UNVERIFIABLE (plan-6-9-10-12-16 Q16-1, r0ze's question).",
+    "seasonTool": "no operator tool creates a 0x4804 season on a public RPC yet (B3)."
+  }
+}

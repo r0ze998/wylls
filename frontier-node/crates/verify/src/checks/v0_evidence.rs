@@ -16,19 +16,31 @@
 //!   r6);
 //! - `IncompleteLogs` (r6): an invocation of the program has no `success`
 //!   line, though the transaction succeeded: the archive lost the tail of
-//!   its logs without the runtime's marker;
+//!   its logs without the runtime's marker. Also (2026-11-18) when its
+//!   logs show fewer top-level invocations of the program than its message
+//!   makes (a whole invocation lost at an invocation boundary, which leaves
+//!   every remaining one ended);
+//! - `UnexplainedInvocation` (2026-11-18): its logs show more top-level
+//!   invocations of the program than its message makes (08 §3's
+//!   "impossible archive": the records come from calls the archive does
+//!   not show, and V0 judges none of them). A real chain does not produce
+//!   it; the archive is inconsistent, which is not evidence the program
+//!   misbehaved, so it is not a FAIL either;
 //! - `UnverifiedInnerInstruction`: the program ran inside another program
 //!   (`Program <id> invoke [n]`, n > 1). The archive keeps top-level
 //!   instructions only; V0 never sees these;
 //! - `MissingPostState` (archives with post-states only): it held writable
 //!   an account of the program the archive knows (a post-state or final
-//!   state of a program kind other than Holding, which V7 covers), and its
-//!   post-states do not include it. A transaction with **no** post-state at
-//!   all is reported only when one of its program instructions is not a
-//!   `Close…` one: the recorded archives keep no post-state for a
-//!   transaction that only closes accounts (CloseArrivalDay and
-//!   CloseArrivalSlot in `march-program`), and V1 judges a closed chain by
-//!   its tombstone;
+//!   state owned by the program, of any layout but a Holding, which V7
+//!   covers), and its post-states do not include it. Any layout (2026-11-18):
+//!   the resident policy and link, the Grant, the wide world's accounts and
+//!   a layout a later build adds are the program's accounts as much as the
+//!   ABI v2 kinds are, and their dropped post-states were PASSes. A
+//!   transaction with **no** post-state at all is reported only when one
+//!   of its program instructions is not a `Close…` one: the recorded
+//!   archives keep no post-state for a transaction that only closes
+//!   accounts (CloseArrivalDay and CloseArrivalSlot in `march-program`), and
+//!   V1 judges a closed chain by its tombstone;
 //! - `UnverifiedRecord` (r7): it carries a record no check judges where it
 //!   stands: a conquest kind outside [`MODELLED_CQ_KINDS`] (a kind a later
 //!   ABI adds, such as workstream 20's RESIDENT_JOINED, is not a PASS
@@ -115,12 +127,16 @@ fn explained(w: &crate::world::World, c: &crate::world::CqRec) -> bool {
     })
 }
 
-/// An account's program kind by its magic: ABI v2's kinds (M1's, MarchState
-/// and S1's Vault, Caravan, Structure, Nation, Lot …), not only M1's, so a
-/// missing post-state of an S1 account is not left unjudged (r15, found by
-/// workstream 2).
-fn program_kind(data: &[u8]) -> Option<AccountKind> {
-    AccountKind::from_magic(data.get(..8)?.try_into().ok()?)
+/// Whether an account's data is a Holding's (V7 judges a Holding's missing
+/// post-state, `MissingData`). Every other layout the program owns is V0E's:
+/// ABI v2's kinds (r15, found by workstream 2) and, since 2026-11-18, any
+/// other (a magic no [`AccountKind`] names, or none), so a dropped
+/// post-state is never a PASS because its layout is not on a list.
+fn is_holding(data: &[u8]) -> bool {
+    data.get(..8)
+        .and_then(|m| <&[u8; 8]>::try_from(m).ok())
+        .and_then(AccountKind::from_magic)
+        == Some(AccountKind::Holding)
 }
 
 pub fn run(cx: &mut Ctx) {
@@ -128,17 +144,15 @@ pub fn run(cx: &mut Ctx) {
     let program = cx.cfg.program.to_string();
     let invoke = format!("Program {program} invoke [");
     // Program accounts the archive knows (by a post-state or a final
-    // state of a program kind), Holdings excepted (V7).
+    // state the program owns, whatever its layout), Holdings excepted (V7).
     let known: BTreeSet<Key> = w
         .txs
         .iter()
         .flat_map(|t| t.post.iter())
         .chain(w.finals.iter())
         .filter(|(_, a)| {
-            a.as_ref().is_some_and(|a| {
-                a.owner.to_bytes() == w.program
-                    && program_kind(&a.data).is_some_and(|k| k != AccountKind::Holding)
-            })
+            a.as_ref()
+                .is_some_and(|a| a.owner.to_bytes() == w.program && !is_holding(&a.data))
         })
         .map(|(k, _)| *k)
         .collect();
@@ -233,6 +247,40 @@ pub fn run(cx: &mut Ctx) {
                 format!(
                     "the program was invoked {} time(s) and {ended} invocation(s) end in the logs: the rest of its records are not in the archive",
                     top + nested
+                ),
+            );
+        }
+        // Top-level invocations in the logs against the top-level program
+        // instructions of the message (a ResidentAct's unwrapped inner
+        // instruction shares its index). Cut logs are `TruncatedLogs`'s, and
+        // none at all for a call `MissingLogs`'s.
+        let calls = t
+            .ixs
+            .iter()
+            .map(|ix| ix.index)
+            .collect::<BTreeSet<_>>()
+            .len();
+        if !truncated && top > calls {
+            cx.unverifiable(
+                V,
+                UNEXPLAINED_INVOCATION,
+                format!("tx#{i}"),
+                0,
+                Some(i),
+                format!(
+                    "its logs show {top} top-level invocation(s) of the program and its message makes {calls}: the records come from calls the archive does not show"
+                ),
+            );
+        }
+        if !truncated && top > 0 && top < calls {
+            cx.unverifiable(
+                V,
+                INCOMPLETE_LOGS,
+                format!("tx#{i}"),
+                0,
+                Some(i),
+                format!(
+                    "its message calls the program {calls} time(s) at top level and its logs show {top}: the rest of its records are not in the archive"
                 ),
             );
         }

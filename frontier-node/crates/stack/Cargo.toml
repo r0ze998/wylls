@@ -15,6 +15,11 @@ path = "src/lib.rs"
 name = "frontier-stack"
 path = "src/main.rs"
 
+# Devnet blocker B3 (G4): the operator's season setup against a public RPC.
+[[bin]]
+name = "frontier-operator"
+path = "src/bin/frontier-operator.rs"
+
 [dependencies]
 fclient.workspace = true
 frontier-abi.workspace = true
@@ -26,3 +31,8 @@ tokio.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 hex.workspace = true
+
+[dev-dependencies]
+# The operator tool's end-to-end test serves an in-process frontier-localnet
+# (in-workspace path crate, already in the lock).
+localnet.workspace = true

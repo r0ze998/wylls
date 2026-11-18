@@ -2,8 +2,8 @@
 
 > **Status: not run. Nothing has been deployed, funded, airdropped or read on devnet.** Every step marked
 > **[r0ze]** needs r0ze's confirmation at the time it runs (owner rule, 2026-11-18 14:42 JST). This runbook only
-> covers getting the program onto devnet and the services that would follow. Season creation is blocked on
-> missing code (§6). It builds on [`../m1/PLAYTEST-RUNBOOK.md`](../m1/PLAYTEST-RUNBOOK.md) and
+> covers getting the program onto devnet, the season setup (§6, `frontier-operator`, tested on a local chain
+> only) and the services that would follow (§7, blocked on missing code). It builds on [`../m1/PLAYTEST-RUNBOOK.md`](../m1/PLAYTEST-RUNBOOK.md) and
 > [`PUBLIC-TEST-DEVNET.ja.md`](PUBLIC-TEST-DEVNET.ja.md). Where they differ, this page follows the code as of
 > `origin/main` 50050623.
 
@@ -37,7 +37,10 @@ hash it prints. (An independent rebuild on 2026-11-18 from a fresh checkout gave
 | Build | `cargo-build-sbf` **3.1.9** (`scripts/build-frontier.sh` refuses any other) | The pinned, reproducible toolchain |
 | Deploy, show, dump | `solana` CLI **4.0.0 or newer** | `solana program deploy` first verifies the ELF locally with the CLI's own syscall table. agave v3.1.9 does not register `sol_curve_decompress` or `sol_curve_pairing_map` (`syscalls/src/lib.rs`), which the program calls for BLS12-381 (`permutation-frontier/src/crypto/sys.rs`), so the 3.1.9 CLI stops with `ELF error` before it sends anything. `--skip-feature-verify` does not help there. v4.0.0 to v4.4.1 register both, but only when the cluster's `enable_bls12_381_syscall` feature is active: the CLI reads the cluster's feature set before it checks the ELF (`cli/src/program.rs` `fetch_feature_set`; `syscalls/src/lib.rs` `register_feature_gated_function!`). See §3. [from source; not run] |
 
-The machine here has only 3.1.9. Installing a 4.x CLI is **[r0ze]**. Keep `active_release` on 3.1.9 (the build script
+The machine here has only 3.1.9 installed. For the read-only checks of §3 a 4.4.1 release was unpacked in isolation
+on 2026-11-18 (`solana-release-aarch64-apple-darwin.tar.bz2` of agave v4.4.1, sha256 `e60d6646…8db369`, equal to the
+digest GitHub publishes for the asset) and called by its full path; the installed 3.1.9 was not touched. Installing a
+4.x CLI for the deploy itself is **[r0ze]**. Keep `active_release` on 3.1.9 (the build script
 puts it first on `PATH` itself) and unpack the 4.x release somewhere else, e.g. `~/solana-4x/bin`. Put that
 directory first on `PATH` only for §3 and §5. The dry run reads `solana --version` and refuses anything older than
 4.0.0.
@@ -61,8 +64,8 @@ there is permanent. For devnet, the file route is enough.
 
 **Never deploy with `--final`.** An immutable program has no upgrade authority, so `AnnounceSeason` could never be
 signed and no season could ever start. A multisig (e.g. Squads) as the authority is possible later. Every
-`AnnounceSeason` would then be a multisig transaction, and the operator tool (G4) does not exist yet. For devnet, one
-offline key is enough.
+`AnnounceSeason` would then be a multisig transaction, and the operator tool (`frontier-operator`, §6) signs from a
+key file only. For devnet, one offline key is enough.
 
 ```sh
 # [r0ze] on r0ze's own machine, outside the repository
@@ -92,6 +95,25 @@ solana rent 1765421 --url devnet   # the ProgramData; divide the answer by (128 
 solana rent 0 --url devnet
 ```
 
+**Measured on 2026-11-18 20:40 JST** (slot 523,617,783, epoch 1212; `solana-cli 4.4.1`, read-only, no key; the
+commands and full outputs are in the run's evidence, summarised in `scripts/devnet/devnet-profile.json` `measured`):
+
+| Check | Result |
+|---|---|
+| BLS12-381 syscalls `b1sg…PCQ` (SIMD-0388) | **active** since epoch 1059, activation slot 457,488,000 |
+| SBPF v2 `F6UV…u6WP` (SIMD-0173/0174) | **active** since epoch 918, activation slot 396,576,000 |
+| Rent | **5,080 lamports per byte**: `solana rent 1765421` = 8.96898892 SOL = (128 + 1,765,421) × 5,080; `solana rent 0` = 650,240 lamports = 128 × 5,080 |
+| Rent feature gates | SIMD-0437-1 (6,333) active since epoch 1137, SIMD-0437-2 (5,080) active since epoch 1141; SIMD-0437-3/4/5 (2,575, 1,322, 696) and SIMD-0438 (reset to 6,960) inactive |
+| `solana genesis-hash` | `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` |
+| `solana cluster-version` | `4.5.0-beta.0` (96 % of stake) |
+
+Two more features matter for a later deploy. **SIMD-0500** (`B8JJ…o83g`, "Disable deployment of SBPF v0, v1 and v2
+programs") is **inactive** today; the `.so` is SBPF v2, so once that feature is active a deploy or an upgrade of it
+would be refused, and the build would have to move to SBPF v3 (active on devnet since epoch 1069). "Apply a minimum
+loaded data size to loader-v3 ProgramData accounts" (`8whk…cWg1`) is active since epoch 1202; its effect on the
+`L(kind)` loaded-data limits was not checked. These are one moment's readings: run the checks again right before a
+deploy.
+
 Do **not** run `solana feature status b1sg…` with the 3.1.9 CLI: it looks the id up in its own table and panics on
 one it does not know (agave v3.1.9 `cli/src/feature.rs:939`, `FEATURE_NAMES.get(feature_id).unwrap()`).
 
@@ -111,8 +133,12 @@ Citizen + Holding = 9,753,600 lamports (DESIGN.md), Province = 24,709,120 (prese
 
 | lamports/byte | ProgramData | Program | Fees | **Peak the payer needs** | Stays locked |
 |---|---|---|---|---|---|
-| 6,960 | 12.2882 | 0.0011 | 0.0166 | **12.31 SOL** | 12.29 SOL |
-| 5,080 | 8.9689 | 0.0008 | 0.0166 | **8.99 SOL** | 8.97 SOL |
+| **5,080 (devnet, measured 2026-11-18)** | 8.9689 | 0.0008 | 0.0166 | **8.99 SOL** | 8.97 SOL |
+| 6,960 (the old rate; devnet would return to it only if SIMD-0438 activates) | 12.2882 | 0.0011 | 0.0166 | **12.31 SOL** | 12.29 SOL |
+
+For comparison, the local-play lane's `.so` (3,587,576 B, `max_len` 4,485,120; **not deployable**, §1) would need
+22.7853 + 0.0008 + 0.0422 = **22.83 SOL** at its peak at 5,080 (`solana rent 4485165` = 22.78528844 SOL, measured),
+and an upgrade float of 18.23 SOL.
 
 **A first deploy does not need "about 2×".** The CLI creates the buffer (37 + `so_len` bytes) but pays into it the
 rent of the final ProgramData (45 + `max_len` bytes). The deploy instruction then returns the buffer's lamports to the
@@ -178,7 +204,55 @@ beyond its arguments]. The L(kind) loaded-data table is computed for a `.so` of 
 --bypass-warning --url devnet` returns the ProgramData rent. Without `--bypass-warning` the CLI only prints its
 warning and closes nothing. The program id can then never be used again.
 
-## 6. Season and services (blocked)
+## 6. Season setup with `frontier-operator` **[r0ze, only after r0ze has confirmed the deploy in §5]**
+
+`frontier-operator` (bin of `frontier-node/crates/stack`) sends the operator's part of the start order: AnnounceSeason,
+then after the 24-hour lead CreateSeason, InitBeaconLogs and InitShards × 6. These are the same steps, built by the
+same code (`stack/src/setup.rs` `announce_step` / `after_announce_steps`), that `frontier-stack up` sends to a local
+node. It has only been run against an in-process `frontier-localnet` on loopback, with the release `.so` and test keys
+(`frontier-node/crates/stack/tests/operator.rs`). **It has never been run against devnet.**
+
+It reads `scripts/devnet/devnet-profile.json`: `rpcUrl`, `allowedRpcHosts`, `refusedRpcHostPatterns`, `programId`,
+`upgradeAuthority`, `rent.assume`, `season.preset` and the `operator` block (`seasonId`, `beacon`). Fill in
+`programId` and `upgradeAuthority` after the deploy. The tool refuses:
+
+- a URL that is not loopback and not `https` on an `allowedRpcHosts` host. Hosts containing `mainnet` or `testnet` are
+  refused whatever the profile says. `--cluster-url` overrides `rpcUrl` under the same rule;
+- a cluster whose `getGenesisHash` (the first call it makes) is mainnet-beta's or testnet's, or for a public URL is not
+  devnet's (`EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG`);
+- a key file that is a symlink, not owned by you, or readable by group/other (anything but mode 600 or stricter). It
+  never prints the key;
+- a key whose address is not the profile's `upgradeAuthority`, or not the program's upgrade authority on chain (I-51);
+- an announced season with another `params_hash` or authority, a season past setup, or a missed 7-day CreateSeason
+  window (the season id is then used up: pick a new `seasonId`);
+- sending without `--yes-send`, and sending when the authority's balance is below the plan's total.
+
+```sh
+cd frontier-node && cargo build --locked --release -p stack --bin frontier-operator
+B=frontier-node/target/release/frontier-operator; P=scripts/devnet/devnet-profile.json; K=~/wylls-devnet-keys/authority.json
+
+$B --profile $P --offline                 # the plan at rent.assume, no RPC (works before the deploy too, once the
+                                          # profile has programId and upgradeAuthority)
+$B --profile $P --authority $K            # dry run: reads devnet, prints what is missing, the cluster's rent, balance
+$B --profile $P --authority $K --yes-send # sends AnnounceSeason, then exits 3: "CreateSeason opens at chain clock T"
+# ... 24 h 5 min later (or add --wait to the line above and leave it running):
+$B --profile $P --authority $K --yes-send # sends CreateSeason, InitBeaconLogs, InitShards(0..5); exit 0
+```
+
+Every run reads the chain first and plans only what is missing, so it can be run again at any time: after the lead,
+after a failure half-way (a transaction that did not land is simply planned again), or to check (`setup complete:
+nothing to send`). `--max-txs N` stops after N transactions. Exit codes: 0 done (or plan printed), 1 failed, 2
+refused, 3 waiting for `t_create_min`.
+
+**What it costs** at the preset `S1_LOCAL_7D`, 6,960 lamports per byte (the plan prints the cluster's own rate when
+online): 9 transactions, rent 0.1385 SOL, floats 42 SOL (bond 1, ProvinceFunds 6 × 3.5, DefencePool 20), fees
+0.000045 SOL: **42.1385 SOL** from the authority. The bond comes back after a normal season; the floats are the
+season's funds (the same lines as the dry run's season cost). The local test checks that the lamports spent equal the dry run's
+total.
+
+Then keeper A's `beacon` role sends ConsumeGenesisSeed (PLAYTEST-RUNBOOK §3 step 9), which needs §7.
+
+## 7. Services (blocked)
 
 These cannot run against devnet with today's code (re-checked 2026-11-18):
 
@@ -186,7 +260,7 @@ These cannot run against devnet with today's code (re-checked 2026-11-18):
 |---|---|---|
 | G1 | The Rust services cannot POST JSON-RPC over `https`. `https://` GETs (live drand) now go through a hardened `curl` | `frontier-node/crates/fclient/src/http.rs:5-18, 83-84` |
 | G2 | The keeper reads the program feed through `frontier_feed`, a localnet-only call | `frontier-node/crates/keeper/src/main.rs:213` `RpcPort::localnet`; `fclient/src/rpc.rs:624` |
-| G4 | No operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs and InitShards against a public RPC | only `frontier-node/crates/stack/src/setup.rs` |
+| G4 | **Addressed (§6, `frontier-operator`; local tests only).** Was: no operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs and InitShards against a public RPC | `frontier-node/crates/stack/src/operator.rs` |
 | G5 | No address listing for keeper and relay payers | no `--print-addresses` in the keeper |
 
 Once they are closed, the order and flags are PLAYTEST-RUNBOOK §3 (steps 7–10) and §4, with `--cluster devnet` for
