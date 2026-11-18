@@ -51,6 +51,7 @@ import { HERO, paintPlates, scaffoldAt, villagePlace } from './plates.mjs';
 import { villageSprite } from './village.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { paintBellTower, towerSprite } from './belltower.mjs';
+import { engineLandmark } from './enginestage.mjs';
 import { RELIEF, paintMountainShadow, paintWoodFloor, reliefSprite, woodOf } from './relief.mjs';
 import { paintBlend, paintSwell, paintShores, forgetShores, spriteColour, waterLoops, clipOutside } from './groundblend.mjs';
 import { landUse, paintLandUse } from './landuse.mjs';
@@ -1364,12 +1365,12 @@ export class SpriteArt {
       // the Engine stands over the Concord's centre and its six neighbours
       if (t.centre && t.ring === 0) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 2.4;
-        const stage = Math.max(0, Math.min(5, engineStage | 0));
-        const en = this.image('specials', es.key, `engine_${stage}`);
+        const mark = engineLandmark(engineStage);
+        const en = this.image('specials', es.key, mark.sprite);
         // (stage 0 is a ring of markers lying on the ground; a raised Engine stands)
-        if (en) (stage > 0 ? raise : (x, y, fn) => fn())(t.x, t.y, () => g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m));
+        if (en) (mark.raised ? raise : (x, y, fn) => fn())(t.x, t.y, () => g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m));
         // the bell's tower stands inside the ring of markers until the Engine itself is raised (map/belltower.mjs): the chart's one landmark
-        if (stage === 0) {
+        if (mark.tower) {
           const tw = towerSprite(RADIUS * zoom * dpr);
           raise(t.x, t.y, () => {
             if (tw) { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(tw.cv, t.x - tw.ox * RADIUS, t.y - tw.oy * RADIUS, tw.w * RADIUS, tw.h * RADIUS); g.imageSmoothingEnabled = was; }

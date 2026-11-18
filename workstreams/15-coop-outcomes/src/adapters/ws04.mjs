@@ -43,16 +43,59 @@ const UNKEPT = { 6: 'science', 7: 'influence' };
 const unkeptOf = cargo => (cargo ?? []).flatMap((q, i) => (q && UNKEPT[i] ? [`${UNKEPT[i]} ${q} (slot ${i})`] : []));
 const OUTCOME_LOST = 1;
 
+/** Whether this JavaScript gives JSON.parse's reviver the source text (Node 21+, recent browsers). */
+export const HAS_JSON_SOURCE = (() => {
+  try { return JSON.parse('1', (k, v, ctx) => ctx?.source === '1') === true; } catch { return false; }
+})();
+
+const CANON_INT = /^-?(?:0|[1-9]\d*)$/;
+const NUMBER_CHAR = /[-+.eE0-9]/;
+
+/**
+ * The same JSON text with every integer literal beyond 2^53 (outside strings)
+ * put in quotes, so that a plain JSON.parse reads it as its decimal string.
+ * Only canonical integer literals are quoted: a fraction, an exponent or an
+ * invalid literal (a leading zero, a number in a key's place) is left as it
+ * is, so JSON.parse still reads or refuses it exactly as before. Strings are
+ * copied untouched, escapes included.
+ */
+export function quoteUnsafeIntegers(text) {
+  let out = '', from = 0, i = 0;
+  const n = text.length;
+  while (i < n) {
+    const c = text[i];
+    if (c === '"') {
+      for (i++; i < n && text[i] !== '"'; i++) if (text[i] === '\\') i++;
+      i++;
+    } else if (c === '-' || (c >= '0' && c <= '9')) {
+      const start = i;
+      while (i < n && NUMBER_CHAR.test(text[i])) i++;
+      const tok = text.slice(start, i);
+      let j = i;
+      while (j < n && (text[j] === ' ' || text[j] === '\t' || text[j] === '\n' || text[j] === '\r')) j++;
+      // a literal before ':' is in a key's place, where JSON allows no number: left as it is, still refused
+      if (CANON_INT.test(tok) && text[j] !== ':' && !Number.isSafeInteger(Number(tok))) {
+        out += `${text.slice(from, start)}"${tok}"`;
+        from = i;
+      }
+    } else i++;
+  }
+  return from === 0 ? text : out + text.slice(from);
+}
+
 /**
  * JSON text → value, with every integer beyond 2^53 kept as its decimal string
  * (④'s store keeps a receipt's body and a run's spec as raw JSON text, where
- * u64 tags are plain numbers). Needs JSON.parse's source text (Node 21+).
+ * u64 tags are plain numbers). Uses JSON.parse's source text where this
+ * JavaScript has it (Node 21+); elsewhere (Node 20, the repository's CI
+ * version, and older browsers) the same integers are quoted before parsing,
+ * which gives the same value.
  */
 export function parseExact(text) {
+  if (!HAS_JSON_SOURCE) return JSON.parse(quoteUnsafeIntegers(text));
   return JSON.parse(text, (k, v, ctx) => {
     if (typeof v !== 'number' || Number.isSafeInteger(v)) return v;
     if (ctx && /^-?\d+$/.test(ctx.source)) return ctx.source;
-    if (!ctx) throw new Error('parseExact: this JavaScript does not give JSON.parse the source text');
     return v;
   });
 }
