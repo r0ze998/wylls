@@ -94,6 +94,11 @@
       { "name": "AnchorArchive per day (16 regions x 2 half-days), never closed while the world runs [model]", "bytes": 6144, "count": 32 }
     ]
   },
+  "operator": {
+    "seasonId": 1,
+    "beacon": "quicknet",
+    "note": "frontier-operator (frontier-node/crates/stack, devnet blocker B3/G4) reads this block with rpcUrl, allowedRpcHosts, refusedRpcHostPatterns, programId, upgradeAuthority, rent.assume and season.preset. seasonId: the Season PDA id AnnounceSeason uses (never reusable). beacon: quicknet for the release build (test-key is refused on a public URL)."
+  },
   "services": {
     "herald": { "listen": "127.0.0.1:41040", "public": "only through a TLS reverse proxy" },
     "relay": { "port": 41030, "publicPort": 41033, "public": "never directly; the herald proxies /gw/*" },
