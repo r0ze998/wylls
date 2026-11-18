@@ -220,7 +220,7 @@ cannot be resumed) and off the natural preset:
 ### (6) Operator AI residents at war (TEST-ONLY, owner t359u 2026-11-19)
 Add to the capture demo command (both words are refused without `--operator-residents` and the capture demo):
 ```bash
---operator-residents 12 --operator-war operator-war-v1 --demo-scale 30
+--operator-residents 12 --operator-war operator-war-v1 --demo-scale 15
 ```
 - **Who:** up to 12 operator AI residents (⑤ A): two per nation, every nation from six on (residents 0–3 join Borealis,
   Ember, Cinder and Fjordal as before; 4 and 5 add Aster and Dunmar). 5–12 residents are accepted only with this word.
@@ -242,8 +242,9 @@ Add to the capture demo command (both words are refused without `--operator-resi
 - **Siege and capture here** are the keep contest of the rules: a host of one hostile nation on a keep's tile counts one
   turn per resolved turn, a defender on the tile breaks the count, and at 72 the keep is taken (then 288 turns of
   protection). A village siege (DeclareSiege) has no local-play route; the residents never ask for one.
-- **Pace:** use ×30. At ×60 a turn is 10 s, and the keeper (13 villages) missed reveal windows and the herald fell
-  behind in a 12-resident world (2026-11-19).
+- **Pace:** use ×15 (a turn is 40 s). At ×60 (10 s) and at ×30 (20 s) the keeper (13 villages) missed reveal
+  windows (village keepers stopped their destination driver) and the herald's control snapshot fell 14–49 turns behind
+  in a 12-resident world (ws05-ai-war trials 2–5, 2026-11-19).
 - **Ports:** with 12 residents each world slot keeps 12 relay ports, so the launcher spans `--world-port` + 33
   (for example 41404–41437).
 
