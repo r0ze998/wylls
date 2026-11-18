@@ -81,7 +81,12 @@ async function getJson(url, ms = 4000) {
   if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
   return r.json();
 }
-const delay = (ms, signal) => new Promise(r => { const t = setTimeout(r, ms); signal?.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
+/** A wait of `ms`, cut short by `signal`; its abort listener is removed either way (one per round would pile up: loop-play-b12 live run). */
+export const delay = (ms, signal) => new Promise(r => {
+  const done = () => { clearTimeout(t); signal?.removeEventListener('abort', done); r(); };
+  const t = setTimeout(done, ms);
+  signal?.addEventListener('abort', done, { once: true });
+});
 
 export function parseArgs(argv) {
   const o = {};

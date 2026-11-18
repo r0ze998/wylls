@@ -3,7 +3,7 @@
 // no network: the relay is its own validator (local-play-act.mjs localActSubmit) called in memory.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { memoryTestKey, pageShapedSigner, relayPost, residentTurn, parseArgs, chainSecondsOf, createQuietLog } from '../src/frontier/local-play-operator-residents.mjs';
+import { memoryTestKey, pageShapedSigner, relayPost, residentTurn, parseArgs, chainSecondsOf, createQuietLog, delay } from '../src/frontier/local-play-operator-residents.mjs';
 import { createResidentMemory, createOperatorBudget } from '../src/frontier/local-play-operator-policy.mjs';
 import { localActSubmit, LocalActError } from '../src/frontier/local-play-act.mjs';
 import { LOCAL_PLAY_SEASON_ID } from '../src/frontier/local-play-relay.mjs';
@@ -103,6 +103,15 @@ test('(B12) the log does not repeat a resident\'s same wait; a send is always sa
   let printed = 0;
   for (let i = 0; i < 1200; i++) printed += q.fresh({ resident: 2, step: 'decide', outcome: 'wait', why: 'x', seen: { joined: true } }) ? 1 : 0;
   assert.equal(printed, 1);
+});
+
+test('(B12) the round wait leaves no abort listener behind; an abort still cuts it short', async () => {
+  const { getEventListeners } = await import('node:events');
+  const stop = new AbortController();
+  for (let i = 0; i < 30; i++) await delay(1, stop.signal);
+  assert.equal(getEventListeners(stop.signal, 'abort').length, 0);
+  const t0 = Date.now(); const w = delay(10_000, stop.signal); stop.abort('x'); await w;
+  assert.ok(Date.now() - t0 < 1000);
 });
 
 test("the Join's clock is the chain's as the herald saw it, never the local clock", () => {
