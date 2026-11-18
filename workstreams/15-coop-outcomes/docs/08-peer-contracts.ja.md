@@ -172,7 +172,7 @@
 
 | 点 | 実出力 | ⑮の扱い |
 |---|---|---|
-| body と spec | オブジェクトではなく JSON の**文字列**（`body_json`、`run_specs_json`）。u64 は JSON の数 | `parseExact`：2⁵³ を超える整数は 10 進の文字列のまま読む（Node の JSON.parse の source text）。`fromRunexecDump` で読む |
+| body と spec | オブジェクトではなく JSON の**文字列**（`body_json`、`run_specs_json`）。u64 は JSON の数 | `parseExact`：2⁵³ を超える整数は 10 進の文字列のまま読む（Node 21 以上では JSON.parse の source text、それが無い Node 20 などでは文字列の外にある整数の字句を引用符で囲んでから読む。どちらも同じ値。`test/parse-exact.test.mjs`）。`fromRunexecDump` で読む |
 | 持ち主の照合 | subject の 16 進（`cv:77:0`）と body の `key.owner`（119）の両方にある | 両方が正確に一致するときだけ使う。一致しない・正確でないときは欠落として残し、別の人に付け替えない |
 | run の outcome | 書き出しにない（delivered・verification なし） | settle の記録から決める（④ §3）：倉あてで `credited` があれば下限［b, b+1）、なければ不明［0, cargo+1）、LOST はゼロ。outcome を渡せばそれを使う（KnownZero → ゼロ） |
 | demo の積荷 | 8 枠の 6 番（Science）に 3 | 評価器は Science・Influence を持たない。**黙って捨てず**、「数えない資源」として報告し、記録の位置は保つ（欠落にしない） |

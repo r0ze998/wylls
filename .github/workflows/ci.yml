@@ -202,6 +202,23 @@ jobs:
       - name: Workstream 12 tests (key-free)
         run: scripts/ci/node-keyfree.sh workstreams/12-memory $(grep -v '^#' workstreams/12-memory/tools/keyfree-tests.txt | grep .)
 
+  # Workstream 15 (co-op outcome evaluator): its node tests through the same runner and guard. No npm install (15 has
+  # no dependencies). Node 20 and 22: parseExact reads ④'s u64 tags through JSON.parse's source text on 22 and through
+  # its quoting fallback on 20; both must give the same result.
+  coop15:
+    name: Workstream 15 co-op evaluator tests (key-free, Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Workstream 15 tests (key-free)
+        run: scripts/ci/node-keyfree.sh workstreams/15-coop-outcomes 'test/*.test.mjs'
+
   # ------------------------------------------------------------------ M1
   # Frontier M1 (docs/frontier/m1/M1-CONTRACT.md §3.2, §12; CL-36). The
   # crates arrive wave by wave (frontier-abi and frontier-node in wave 1,

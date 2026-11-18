@@ -132,8 +132,12 @@ const ART_RELICS = ART_PREVIEW && ART_Q.get('relics') === '1';
 const ART_RIVERS = ART_PREVIEW && ART_Q.get('rivers') === '1';
 // ?art=1&ally=0-1,2-4 shows those faction pairs as allied (presentation only; real relations come from the Province).
 const ART_ALLY = ART_PREVIEW ? (ART_Q.get('ally') ?? '').split(',').map(x => x.split('-').map(Number)).filter(x => x.length === 2 && x.every(Number.isInteger)) : [];
-const ART_ENGINE = ART_PREVIEW ? Math.max(0, Math.min(5, Number(ART_Q.get('engine') ?? 0) | 0)) : 0;
+// The Engine's stage. Production is always stage 0: no rule raises it yet (⑭ central tower T3 is blocked on the owner's
+// decisions Q7/Q9), so the only way to another stage is this preview switch (map/enginestage.mjs; held by
+// permutation-gateway/test/web-frontier-engine-stage.test.mjs).
+const ART_ENGINE = resolveEngineStage(ART_Q);
 import * as joinScreen from './screens/join.mjs';
+import { resolveEngineStage } from './map/enginestage.mjs';
 import * as prizeScreen from './screens/prize.mjs';
 import * as holdingScreen from './screens/holding.mjs';
 import * as hostScreen from './screens/host.mjs';
