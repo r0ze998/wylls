@@ -12,7 +12,7 @@
 //! world, the same pass in every world. The holder's authority (Core owner,
 //! resident generation and session) is global and read on every instruction.
 
-use frontier_abi::{resident_auth, resident_binding, resident_policy, resident_terms};
+use frontier_abi::{resident_auth, resident_binding, resident_policy};
 use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
 
 const LINK_SEED: &[u8] = b"nft-citizen-link";
@@ -136,7 +136,7 @@ fn check_addresses(
     .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
-
+#[cfg(not(feature = "nft-resident-no-transfer"))]
 fn check_actor(
     policy: &resident_auth::Policy,
     asset: &AccountInfo<'_>,
@@ -171,16 +171,7 @@ fn check_actor(
         now,
         session_allowed,
     )
-    .map_err(|e| ProgramError::Custom(e.error().code()))?;
-    // ⑳ U7 switch (`frontier_abi::resident_terms`): with transfers refused
-    // (feature `nft-resident-no-transfer`), only the first holder acts.
-    // `authorize` has just checked that `generation` is the current one.
-    if !resident_terms::ACTIVE.holder_may_act(generation) {
-        return Err(ProgramError::Custom(
-            resident_auth::Refusal::NotCurrentAuthority.error().code(),
-        ));
-    }
-    Ok(())
+    .map_err(|e| ProgramError::Custom(e.error().code()))
 }
 
 /// Verify the immutable canonical link and current owner/session at the same
@@ -294,4 +285,55 @@ pub(crate) fn join_accounts<'a>(
             _ => Err(crate::error::BAD_ACCOUNT),
         }
     }
+}
+
+/// ⑳ U7 switch, the soulbound build only (`nft-resident-no-transfer`,
+/// `frontier_abi::resident_terms::ACTIVE.transfer == Refused`): the same
+/// check as above, then only the first holder (generation 0) acts.
+/// `authorize` has just checked that `generation` is the current one. Every
+/// other build (transfers allowed: `holder_may_act` is always true) compiles
+/// the function above unchanged, so the plain localnet and devnet playable
+/// artefacts stay byte-identical.
+#[cfg(feature = "nft-resident-no-transfer")]
+fn check_actor(
+    policy: &resident_auth::Policy,
+    asset: &AccountInfo<'_>,
+    resident: &AccountInfo<'_>,
+    actor: &AccountInfo<'_>,
+    generation: u32,
+    now: i64,
+    session_allowed: bool,
+) -> Result<(), ProgramError> {
+    let a = asset.try_borrow_data()?;
+    let r = resident.try_borrow_data()?;
+    let binding = resident_auth::Binding {
+        asset: asset.key.to_bytes(),
+        resident: resident.key.to_bytes(),
+    };
+    resident_auth::authorize(
+        &binding,
+        policy,
+        &resident_auth::Account {
+            key: asset.key.to_bytes(),
+            owner: asset.owner.to_bytes(),
+            data: &a,
+        },
+        &resident_auth::Account {
+            key: resident.key.to_bytes(),
+            owner: resident.owner.to_bytes(),
+            data: &r,
+        },
+        actor.key.as_array(),
+        actor.is_signer,
+        generation,
+        now,
+        session_allowed,
+    )
+    .map_err(|e| ProgramError::Custom(e.error().code()))?;
+    if !frontier_abi::resident_terms::ACTIVE.holder_may_act(generation) {
+        return Err(ProgramError::Custom(
+            resident_auth::Refusal::NotCurrentAuthority.error().code(),
+        ));
+    }
+    Ok(())
 }
