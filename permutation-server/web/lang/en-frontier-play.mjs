@@ -36,6 +36,8 @@ export default {
   "マス {0}": "Tile {0}",
   "命令の結果を確認しています。": "Checking the result of your order.",
   "最初の村を置いています": "Placing your first village",
+  "すぐに村を置ける中心の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。": "The central land, where a first village is placed at once, has no free site right now. A village request is sent to open land instead.",
+  "この国は、すぐに村を置ける中心の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。中心に空きのある国なら、すぐに村を置けます。": "This nation has no free site right now on the central land, where a first village is placed at once. If you begin with this nation, a village request is sent to open land instead (about 11 to 21 minutes until the village is decided). A nation with free sites on the central land places your village at once.",
   "村を築いて始める": "Found a village and begin",
   "領土を確保する": "Claim territory",
   "食料・鉱石・金の配分を見ながら、最初の兵を訓練しましょう。": "Balance food, ore and gold as you train your first troops.",
