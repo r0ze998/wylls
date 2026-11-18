@@ -232,7 +232,9 @@ fn march_fixture_is_fresh() {
             .collect()
     };
     assert_eq!(tags(&fresh), tags(&committed));
-    assert_eq!(verify_core::verify(&fresh).verdict, Verdict::Pass);
+    // Like the committed season, the fresh one fails only on its six
+    // impossible tickets (V11, `common::MARCH_SYNTH_IMPOSSIBLE_TICKETS`).
+    assert_only_the_impossible_tickets(&verify_core::verify(&fresh));
 }
 
 /// The CLI's exit codes: 0 PASS, 1 FAIL, 2 cannot verify.

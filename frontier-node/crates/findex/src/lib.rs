@@ -185,10 +185,19 @@ impl Findex {
             return Ok(vec![]);
         }
         // The archive first (the source a reopen catches the index up
-        // from), then the index between its incomplete and complete marks.
-        // Every store write stops this ingester on failure (reopen
-        // required). A stop between the two leaves the index behind the
-        // archive, which open() and the check at the top of ingest() see.
+        // from), then the index: its rows, `last_seq` and the complete mark
+        // in ONE SQLite transaction (`Index::add_complete`), so a reader on
+        // another connection never sees the blocked window that separate
+        // incomplete / add / complete commits opened (loop-play B4-D: a
+        // concurrent `/h/events` got 503 IndexBusy). This is safe without a
+        // durable "incomplete" mark first: a failed or interrupted
+        // transaction rolls back to the previous complete state, a prefix
+        // of the archive (what a reader racing any ingest sees anyway), and
+        // `add` itself persists the blocked mark on failure. A stop between
+        // the archive and the index leaves the index behind the archive,
+        // which open() (it marks the coverage blocked while catching up)
+        // and the check at the top of ingest() see. Every store write stops
+        // this ingester on failure (reopen required).
         let stored = if src.ledger_seq() {
             self.archive.append_feed(&got, src.cursor())
         } else {
@@ -198,25 +207,8 @@ impl Findex {
             self.poisoned = true;
             IngestError::Store(e.to_string())
         })?;
-        self.index.mark_incomplete().map_err(|e| {
-            self.poisoned = true;
-            IngestError::Store(e)
-        })?;
-        self.index.add(&stored).map_err(|e| {
-            self.poisoned = true;
-            IngestError::Store(e)
-        })?;
-        let caught_up = self.index.last_seq().map_err(|e| {
-            self.poisoned = true;
-            IngestError::Store(e)
-        })?;
-        if caught_up != self.archive.last_seq() {
-            self.poisoned = true;
-            return Err(IngestError::Store(
-                "index did not catch up with archive".into(),
-            ));
-        }
-        self.index.mark_complete().map_err(|e| {
+        let through = self.archive.last_seq();
+        self.index.add_complete(&stored, through).map_err(|e| {
             self.poisoned = true;
             IngestError::Store(e)
         })?;
