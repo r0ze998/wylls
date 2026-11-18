@@ -30,6 +30,7 @@ import { keepsPending } from '../../permutation-server/web/frontier/controller.m
 import { ringOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { worldOf as worldShape, ringSeeded } from '../../permutation-server/web/frontier/map/world.mjs';
 import { renderWideInventoryStatus } from '../../permutation-server/web/frontier/screens/wideholding.mjs';
+import { readOverviews, overviewRefused } from '../../permutation-server/web/frontier/map/overviews.mjs';
 
 afterEach(() => setLang('ja'));
 const plain = s => String(s).replace(/<[^>]*>/g, ' ').replace(/&#39;/g, '\'').replace(/\s+/g, ' ');
@@ -257,7 +258,7 @@ test('B9: keepsPending counts the control provinces whose keep is not held and w
   // fail-safe: without a word on which rings the world seeds, nothing is pending (never "finding…" for ever)
   assert.equal(keepsPending(provinces, new Map(), () => false), 0);
   const ctl = readFileSync(new URL('controller.mjs', WEB), 'utf8');
-  assert.match(ctl, /cq\.keepsPending = keepsPending\(cq\.control\.provinces, cq\.keeps, d => FS\.overviews\.has\(d\), d => !!w && ringSeeded\(w, d\), reachOrigins\(FS\)\.origins\);/);
+  assert.match(ctl, /cq\.keepsPending = keepsPending\(cq\.control\.provinces, cq\.keeps, /, 'the controller\'s call: its exact arguments are pinned in the round-3 test');
 });
 
 // (PR #46 verification R1, 2026-11-18: seen live in a natural launcher world at turn 16 — FS.overviews held rings 2, 3, 4,
@@ -293,6 +294,74 @@ test('B9 round 2: a sparse world whose inner rings are unseeded — its rings 0 
   // a contiguous world (every ring below ringsOpen seeded) is as before: its unread rings are pending
   const whole = worldShape({ rings: [0, 1, 2, 3, 4].map(d => ({ d, seed: String(d).repeat(64) })) });
   assert.equal(keepsPending(provinces, new Map(), () => false, d => ringSeeded(whole, d)), provinces.length);
+});
+
+// (PR #46 round 3, 2026-11-18: the verifier's live natural world, round 2 — FS.world had NO `seeded` (the record's rings
+//  carry no `d`), so every ring 0..4 counted as seeded; rings 0 and 1 went unread because the HERALD refused them:
+//  /h/overview{,2}/{0,1}/latest.bin → 404 NoSuchRing. keepsPending stood at 7: (0,0) and the six ring-1 provinces)
+test('B9 round 3: the LIVE record shape (rings without d) and a herald that refuses rings 0–1 with 404 — nothing is pending, the empty list says "no keep within reach"', async () => {
+  const record = { rings: [1, 2, 3, 4, 5].map(i => ({ seed: String(i).repeat(64) })), ringProvinces: [1, 6, 12, 18, 24] };
+  const world = worldShape(record);
+  assert.equal(world.seeded, undefined); assert.equal(ringSeeded(world, 0), true); assert.equal(ringSeeded(world, 1), true);
+  // the page's own overview queue, over a herald that answers as the live one did
+  const asked = [];
+  const answer = ring => (ring <= 1 ? { ok: false, code: 'NotFound', error: 'HTTP 404', httpStatus: 404 } : { ok: true, ring, bell: 0, provinces: [] });
+  const herald = { overview: async ring => { asked.push(ring); return answer(ring); }, overview2: async ring => { asked.push(ring); return answer(ring); } };
+  const PS = { world, overviews: new Map(), holdings: [] };
+  await readOverviews(PS, { herald, v2: true });
+  for (let i = 0; i < 3; i++) await readOverviews(PS, { herald, v2: true });   // the page's refreshes
+  assert.deepEqual([...PS.overviews.keys()].sort(), [2, 3, 4], 'as in the live dump: FS.overviews = rings 2, 3, 4');
+  assert.equal(asked.filter(d => d <= 1).length, 2, 'rings 0 and 1 asked once each, then not again (the live page asked 125 times)');
+  // the control snapshot of the live world: the centre (control 6), ring 1 unheld (7), and rings 2–4
+  const ring1 = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]].map(([p, q]) => ({ p, q, control: 7, contender: 7, heartland: false }));
+  const provinces = [{ p: 0, q: 0, control: 6, contender: 7, heartland: false }, ...ring1,
+    { p: 2, q: 0, control: 1, contender: 7, heartland: true }, { p: -2, q: 4, control: 1, contender: 7, heartland: true }, { p: 3, q: 0, control: 0, contender: 7, heartland: false }];
+  const origins = [{ p: 0, q: 2, tile: 20, unit: 0 }], read = d => PS.overviews.has(d) || overviewRefused(PS, d), seeded = d => ringSeeded(world, d);
+  // the round-2 count (no refusal, no holder) is the live fault: 7
+  assert.equal(keepsPending(provinces, new Map(), d => PS.overviews.has(d), seeded, origins), 7, 'the fault, reproduced');
+  // either half of round 3 alone ends it — the refusal, or the holder rule (p2 is Borealis, nation 1) —, and both together
+  assert.equal(keepsPending(provinces, new Map(), read, seeded, origins), 0, 'herald-refused rings are not waited for');
+  assert.equal(keepsPending(provinces, new Map(), d => PS.overviews.has(d), seeded, origins, 1), 0, 'no keep that could be a row is in rings 0–1');
+  assert.equal(keepsPending(provinces, new Map(), read, seeded, origins, 1), 0);
+  for (const [lang, none] of [['en', /No keep of another nation is within reach now\./], ['ja', /いま届く他国の砦はありません。/]]) {
+    setLang(lang);
+    const text = plain(renderReach(fs([], { keepsPending: keepsPending(provinces, new Map(), read, seeded, origins, 1) })));
+    assert.match(text, none); assert.doesNotMatch(text, /Finding the keeps|調べています/);
+  }
+  // the controller passes both
+  const ctl = readFileSync(new URL('controller.mjs', WEB), 'utf8');
+  assert.match(ctl, /cq\.keepsPending = keepsPending\(cq\.control\.provinces, cq\.keeps, d => FS\.overviews\.has\(d\) \|\| overviewRefused\(FS, d\), d => !!w && ringSeeded\(w, d\), reachOrigins\(FS\)\.origins, FS\.citizen\?\.faction \?\? null, FS\.overviews\);/);
+});
+
+test('B9 round 3: the holder rule waits only for a keep that could be a row — another nation\'s outside a heartland, or the viewer\'s own contested', () => {
+  const all = () => true, none = () => false, at = (p, q, extra) => ({ p, q, control: 7, contender: 7, heartland: false, ...extra });
+  const provinces = [at(2, 0, { control: 0 }), at(3, 0, { control: 2, heartland: true }), at(2, 1, { control: 1 }), at(2, -1, { control: 1, contender: 0 }), at(0, 0, { control: 6 }), at(1, 0)];
+  assert.deepEqual(provinces.map(c => keepsPending([c], new Map(), none, all, [], 1)), [1, 0, 0, 1, 0, 0],
+    'Aster\'s (another nation): yes · Cinder\'s heartland: no · Borealis\'s own, quiet: no · Borealis\'s own, contested: yes · the centre: no · unheld: no');
+  assert.equal(keepsPending(provinces, new Map(), none, all, []), 6, 'without the viewer\'s nation: not narrowed');
+});
+
+// (round 3, seen live in this round's own natural world: the herald's latest control snapshot lags the turn by about
+//  three (control bell 6 at turn 9). Ring 4 opened at the start; its overview held −2,4 with keep tile 18 from turn 2,
+//  but the latest snapshot still covered rings 0–3 only until turn 5 — p1's list said "no keep" for turns 2–4)
+test('B9 round 3: a keep the overview shows in a province the lagging control snapshot does not cover yet is waited for; covered, it is a row or nothing', () => {
+  const all = () => true, read = () => true, origins = [{ p: 1, q: 1, tile: 34, unit: 0 }];
+  const overviews = new Map([[4, { provinces: [{ p: -2, q: 4, keepTile: 18 }, { p: 4, q: 0, keepTile: null }] }], [2, { provinces: [{ p: 2, q: 0, keepTile: 30 }] }]]);
+  // the snapshot of turn 0–1: rings 0..3 only (no −2,4), every one of them settled
+  const lagging = [{ p: 0, q: 0, control: 6, contender: 7 }, { p: 2, q: 0, control: 0, contender: 7, heartland: true }];
+  assert.equal(keepsPending(lagging, new Map(), read, all, origins, 0, overviews), 1, '−2,4: in the overview, not in the snapshot yet');
+  assert.equal(keepsPending(lagging, new Map(), read, all, origins, 0, null), 0, 'without the overviews: as round 2');
+  // a province with no keep tile is never waited for; one beyond reach neither
+  assert.equal(keepsPending(lagging, new Map(), read, all, [{ p: 9, q: -9 }], 0, overviews), 0, 'beyond 4 provinces of every origin');
+  // the snapshot covers it now (turn 5): it is a row (held by Borealis) — or, held by the viewer's own quiet nation, nothing
+  const caught = [...lagging, { p: -2, q: 4, control: 1, contender: 7, heartland: false }];
+  assert.equal(keepsPending(caught, new Map([['-2,4', {}]]), read, all, origins, 0, overviews), 0, 'covered and held: placed');
+  assert.equal(keepsPending([...lagging, { p: -2, q: 4, control: 0, contender: 7, heartland: false }], new Map(), read, all, origins, 0, overviews), 0, 'covered, the viewer\'s own quiet keep: nothing to wait for');
+  // what the page then says while it waits, either language
+  for (const [lang, want] of [['en', /Finding the keeps you can reach…/], ['ja', /届く砦を調べています…/]]) {
+    setLang(lang);
+    assert.match(plain(renderReach(fs([], { keepsPending: keepsPending(lagging, new Map(), read, all, origins, 0, overviews) }))), want);
+  }
 });
 
 test('B9 round 2: only provinces a march could reach from an origin are waited for (at most 4 provinces away)', () => {

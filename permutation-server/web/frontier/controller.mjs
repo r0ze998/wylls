@@ -40,7 +40,7 @@ import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
 import { applySeasonRecord, contiguousRings, worldOf, ringSeeded } from './map/world.mjs';
-import { readOverviews } from './map/overviews.mjs';
+import { readOverviews, overviewRefused } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
@@ -1925,14 +1925,32 @@ export function wantHostReach(hostId) {
  *  for good and an empty list said "finding the keeps…" for ever, in place of "no keep within reach". A ring the world
  *  does not seed has nothing to wait for: it is not pending. Fail-safe: without `ringSeeded` no ring counts.)
  */
-export function keepsPending(provinces, keeps, ringRead, ringSeeded = () => false, origins = []) {
+export function keepsPending(provinces, keeps, ringRead, ringSeeded = () => false, origins = [], faction = null, overviews = null) {
   const from = (origins ?? []).filter(o => Number.isInteger(o?.p) && Number.isInteger(o?.q));
   const near = c => from.length === 0 || from.some(o => hexDistance(o.p, o.q, c.p, c.q) <= MAX_ROUTE_PROVINCES);
+  const nation = v => Number.isInteger(v) && v >= 0 && v <= 5;
+  // (round 3: only a province whose keep could be a ROW of the list — fkeepreach.mjs contestableKeeps / defendableKeeps:
+  //  held by another nation and not a heartland, or held by the viewer's nation and contested. The centre (control 6),
+  //  an unheld province and a heartland can never be one, so nothing is waited for there. Without the viewer's nation
+  //  the holder is not narrowed)
+  const could = c => !nation(faction) || (nation(c.control) && (c.control !== faction ? !c.heartland : nation(c.contender) && c.contender !== faction));
   let n = 0;
   for (const c of provinces ?? []) {
-    if (!Number.isInteger(c?.p) || !Number.isInteger(c?.q) || keeps.has(`${c.p},${c.q}`)) continue;
+    if (!Number.isInteger(c?.p) || !Number.isInteger(c?.q) || keeps.has(`${c.p},${c.q}`) || !could(c)) continue;
     const d = ringOf(c.p, c.q);
     if (ringSeeded(d) && !ringRead(d) && near(c)) n += 1;
+  }
+  // (round 3, seen live: the herald's latest control snapshot lags the turn by about three — control bell 6 at turn 9 —
+  //  so a ring opened since (ring 4 of the natural world) has a keep in its overview, −2,4 with keep tile 18, before the
+  //  snapshot covers its province: the keep is not in `keeps` (no holder known yet) and the list said "no keep within
+  //  reach" for three turns although the runner had already named it reachable. A keep the page's overviews show in a
+  //  province the snapshot does not cover yet is waited for, within reach; once the snapshot covers it, it is a row or
+  //  it is not. Its holder is not known, so the holder rule cannot drop it.)
+  const covered = new Set((provinces ?? []).map(c => `${c?.p},${c?.q}`));
+  for (const ov of overviews?.values?.() ?? []) for (const o of ov?.provinces ?? []) {
+    if (!Number.isInteger(o?.p) || !Number.isInteger(o?.q) || o.keepTile === null || o.keepTile === undefined) continue;
+    const key = `${o.p},${o.q}`;
+    if (!covered.has(key) && !keeps.has(key) && near(o)) n += 1;
   }
   return n;
 }
@@ -2053,7 +2071,7 @@ export async function refreshConquest() {
       else if (c.consolidatedUntil === null && k.holder === c.holder) c.consolidatedUntil = k.consolidatedUntil;
     }
     { const w = FS.world ?? (FS.record ? worldOf(FS.record) : null);
-      cq.keepsPending = keepsPending(cq.control.provinces, cq.keeps, d => FS.overviews.has(d), d => !!w && ringSeeded(w, d), reachOrigins(FS).origins); }
+      cq.keepsPending = keepsPending(cq.control.provinces, cq.keeps, d => FS.overviews.has(d) || overviewRefused(FS, d), d => !!w && ringSeeded(w, d), reachOrigins(FS).origins, FS.citizen?.faction ?? null, FS.overviews); }
     cq.status = 'ready'; cq.error = null;
   } else if (control?.code === 'NotFound' && nowBell() <= 1 + Math.ceil(Number(FS.season.revealWindow ?? 600) / Number(FS.season.bellSecs ?? 600)) && !cq.control) {
     // A fresh world has no completed control snapshot until its first bell settles.
