@@ -707,10 +707,11 @@ pub const CENTRE_PLAYABLE: u8 = CENTRE_CONCORD;
 
 /// `S1_LOCAL_7D`, `S1_LOCAL_14D` and `S1_TEST`: the MC presets of the same
 /// names for the S1 program (redesign 30, J5: stage 1 runs in a new
-/// season). `S1_LOCAL_7D` and `S1_LOCAL_14D` are the playable/devnet
-/// presets (the devnet profiles, frontier-operator and the local natural
-/// world use them) and are [`centreless`] (⑭ R1); `S1_TEST` (itests and
-/// smokes only) keeps the wedge, as every MC preset does.
+/// season). `S1_LOCAL_7D` and `S1_LOCAL_14D` are the playable presets (the
+/// S1 devnet profile, frontier-operator and the local natural world use
+/// them; the playable lane's devnet profile uses [`S1_DEVNET_WIDE_7D`], whose
+/// map can reach the wide land) and are [`centreless`] (⑭ R1); `S1_TEST`
+/// (itests and smokes only) keeps the wedge, as every MC preset does.
 pub const S1_LOCAL_7D: SeasonParamsV2 = centreless(s1(MC_LOCAL_7D));
 pub const S1_LOCAL_14D: SeasonParamsV2 = centreless(s1(MC_LOCAL_14D));
 pub const S1_TEST: SeasonParamsV2 = s1(MC_TEST);
