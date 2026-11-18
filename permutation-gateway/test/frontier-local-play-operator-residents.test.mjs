@@ -99,3 +99,16 @@ test('the command line: loopback herald only, a port per resident, at most four'
     ['--count', '1', '--relay-ports', '41420', '--herald', 'http://127.0.0.1:41412', '--homes', '[1]', '--key', 'x'],
   ]) assert.throws(() => parseArgs(bad), String(bad));
 });
+
+test('the command line: --nations names one nation per resident, up to six; without it, at most four', () => {
+  const h = ['--herald', 'http://127.0.0.1:41312', '--homes', '[{"p":1,"q":1,"nation":1}]'];
+  const six = parseArgs(['--count', '6', '--relay-ports', '41320,41321,41322,41323,41324,41325', '--nations', '1,4,2,5,0,3', ...h]);
+  assert.deepEqual([six.count, six.nations], [6, [1, 4, 2, 5, 0, 3]]);
+  assert.equal(parseArgs(['--count', '1', '--relay-ports', '41320', ...h]).nations, undefined);
+  for (const bad of [
+    ['--count', '6', '--relay-ports', '41320,41321,41322,41323,41324,41325', ...h],
+    ['--count', '2', '--relay-ports', '41320,41321', '--nations', '1', ...h],
+    ['--count', '2', '--relay-ports', '41320,41321', '--nations', '1,1', ...h],
+    ['--count', '1', '--relay-ports', '41320', '--nations', '6', ...h],
+  ]) assert.throws(() => parseArgs(bad), String(bad));
+});
