@@ -32,7 +32,7 @@
 //! stack's crank tallies each Province within a bell of the close, so this
 //! is the rare case, not the rule.
 //!
-//! PROVISIONAL (`provisional::TIE_EQUAL_SPLIT`): a tie for first place is
+//! DECIDED (owner, 2026-11-18 21:44 JST, t353u; `decided::TIE_EQUAL_SPLIT`): a tie for first place is
 //! shared equally. The legacy tie break reads cumulative territory bells,
 //! which in a live world depend on when the tally runs.
 
@@ -48,16 +48,31 @@ use super::*;
 /// build and the devnet profile's default refuse it).
 pub const MARKER: &[u8] = b"PRZ_EPOCHS_TEST_USDC_BUILD";
 
-/// Provisional rules of epoch pools (undecided by the owner; listed by the
-/// tooling next to [`super::provisional::RULES`]).
-pub mod provisional {
-    pub const VOID_AFTER_CLOSE: &str = "epoch: a keep taken after the window's end bell (since_bell > end_bell) before it was tallied counts for nobody";
-    pub const TIE_EQUAL_SPLIT: &str =
-        "epoch: a tie for first place is shared equally (no territory-bell tie break)";
-    pub const ROLLOVER: &str = "epoch: after the claim window, the unclaimed prize (and rounding dust) moves to a later epoch's open pool (Sweep); the operator's part is unaffected";
+/// Rules of epoch pools the owner decided on 2026-11-18 21:44 JST (t353u,
+/// "keep the current defaults"; devnet/local test USDC only, mainnet needs a
+/// legal review).
+pub mod decided {
     pub const PER_EPOCH_ENTRY: &str =
         "epoch: an entry is per window; only a wallet that paid into this epoch's pool can claim from it";
-    pub const RULES: [&str; 4] = [VOID_AFTER_CLOSE, TIE_EQUAL_SPLIT, ROLLOVER, PER_EPOCH_ENTRY];
+    pub const ROLLOVER: &str = "epoch: after the claim window, the unclaimed prize (and rounding dust) moves to a later epoch's open pool (Sweep); the operator's part is unaffected";
+    pub const TIE_EQUAL_SPLIT: &str =
+        "epoch: a tie for first place is shared equally (no territory-bell tie break)";
+    pub const RING_17: &str = "epoch: the prize covers maps up to ring 17 only (InitEpochPool refuses a larger r_max or r_max_ceiling)";
+    pub const NO_OPERATOR_AI: &str = "epoch: no AI residents in paid periods: a wallet the season's join gate marked as an operator member (ExcludeWallet) can neither Pay nor Claim";
+    pub const RULES: [&str; 5] = [
+        PER_EPOCH_ENTRY,
+        ROLLOVER,
+        TIE_EQUAL_SPLIT,
+        RING_17,
+        NO_OPERATOR_AI,
+    ];
+}
+
+/// Rules of epoch pools still undecided by the owner (listed by the tooling
+/// next to [`super::provisional::RULES`]).
+pub mod provisional {
+    pub const VOID_AFTER_CLOSE: &str = "epoch: a keep taken after the window's end bell (since_bell > end_bell) before it was tallied counts for nobody";
+    pub const RULES: [&str; 1] = [VOID_AFTER_CLOSE];
 }
 
 /// The end of an epoch pool's window, in unix seconds.
@@ -75,6 +90,112 @@ pub(crate) fn pay_open(pd: &[u8], now_ts: i64) -> R<()> {
     if now_ts >= end_ts(pd)? {
         return Err(E::EpochClosed.into());
     }
+    Ok(())
+}
+
+/// ⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid
+/// periods. Operator AI residents and script bots join a gated season by
+/// invite, with the season's join-gate key; only that key can mark a wallet
+/// here, and an epoch pool's Pay and Claim refuse a marked wallet
+/// (`OperatorMember`). PDA `["noprize", game, le64(season), wallet]`.
+pub const EXCLUSION_SEED: &[u8] = b"noprize";
+pub mod exclusion {
+    pub const MAGIC: [u8; 8] = *b"WYPRNOPZ";
+    pub const SIZE: usize = 72;
+    pub const SEASON: usize = 8;
+    pub const WALLET: usize = 40;
+}
+
+/// The exclusion address of `wallet` in a season of a game program.
+pub fn exclusion_address(
+    program: &Pubkey,
+    game: &Pubkey,
+    season_id: u64,
+    wallet: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            EXCLUSION_SEED,
+            game.as_ref(),
+            &season_id.to_le_bytes(),
+            wallet.as_ref(),
+        ],
+        program,
+    )
+}
+
+/// Pay and Claim in an epoch pool: `ai` is the wallet's exclusion address
+/// in the pool's season, and nothing is there.
+pub(crate) fn not_excluded(
+    program: &Pubkey,
+    pd: &[u8],
+    wallet: &Pubkey,
+    ai: &AccountInfo,
+) -> R<()> {
+    let game = key_at(pd, pool::GAME_PROGRAM)?;
+    let sid = u64_at(pd, pool::SEASON_ID)?;
+    if exclusion_address(program, &game, sid, wallet).0 != *ai.key {
+        return Err(E::BadAccount.into());
+    }
+    if !is_empty(ai) {
+        return Err(E::OperatorMember.into());
+    }
+    Ok(())
+}
+
+/// 12 ExcludeWallet: `[gate s] [payer s,w] [season] [game program]
+/// [exclusion w] [wallet] [system]`. The season's join gate (the key that
+/// admits operator members by invite) marks `wallet` as an operator member
+/// of the season: no Pay and no Claim in any epoch pool of it. Repeating it
+/// is a no-op; nothing removes a mark.
+pub(crate) fn exclude_wallet(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [gate, payer, season, game, excl, wallet, system] = a else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+    if !gate.is_signer || !payer.is_signer || *system.key != SYSTEM_PROGRAM {
+        return Err(E::BadAccount.into());
+    }
+    let sid = {
+        let sd = season.try_borrow_data()?;
+        if season.owner != game.key || sd.len() != S::SIZE || sd[..8] != S::MAGIC {
+            return Err(E::BadAccount.into());
+        }
+        let g: [u8; 32] = rd(&sd, S::JOIN_GATE)?;
+        if g == [0u8; 32] || g != gate.key.to_bytes() {
+            return Err(E::NotOperator.into());
+        }
+        u64_at(&sd, S::SEASON_ID)?
+    };
+    let (season_pda, _) =
+        Pubkey::find_program_address(&[S::PDA_PREFIX, &sid.to_le_bytes()], game.key);
+    if season_pda != *season.key {
+        return Err(E::BadAccount.into());
+    }
+    let (key, bump) = exclusion_address(program, game.key, sid, wallet.key);
+    if key != *excl.key {
+        return Err(E::BadAccount.into());
+    }
+    if excl.owner == program && excl.try_borrow_data()?.get(..8) == Some(&exclusion::MAGIC[..]) {
+        return Ok(());
+    }
+    create(
+        payer,
+        excl,
+        exclusion::SIZE,
+        program,
+        &[
+            EXCLUSION_SEED,
+            game.key.as_ref(),
+            &sid.to_le_bytes(),
+            wallet.key.as_ref(),
+            &[bump],
+        ],
+    )?;
+    let mut d = excl.try_borrow_mut_data()?;
+    put(&mut d, 0, &exclusion::MAGIC)?;
+    put(&mut d, exclusion::SEASON, season.key.as_ref())?;
+    put(&mut d, exclusion::WALLET, wallet.key.as_ref())?;
+    msg!("PRIZE exclude season={} wallet={}", sid, wallet.key);
     Ok(())
 }
 

@@ -429,7 +429,8 @@ impl Prize {
         if let Some(e) = self.epoch {
             v["epoch"] = json!({"epoch": e, "end_bell": cfg.prize_epoch_bells.saturating_mul(e + 1),
                 "epoch_bells": cfg.prize_epoch_bells, "claim_bells": cfg.prize_claim_bells,
-                "provisional": ["void after close", "tie shared equally", "rollover to a later window", "entry per window"]});
+                "decided": ["entry per window", "rollover to a later window", "tie shared equally", "ring 17 maps only", "no operator AI in paid windows (invite joins excluded on chain)"],
+                "provisional": ["void after close", "window length (default 2,016 bells)", "paid joining closed between windows"]});
         }
         v
     }

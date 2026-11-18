@@ -482,6 +482,16 @@ Words in the last column: **built** (code exists and was run), **in progress** (
 
 **Y4/Y5 status update (owner, 2026-11-18 18:26 JST): ⑰ prize — Reopened 2026-11-18 by owner; devnet/test-USDC only; mainnet needs legal review.** This supersedes the ⑰ part of the closure above (PR #37); the ⑳ part stands. The prize is implemented as settlement windows of the continuous world: one pool per window, a `permutation-prize` build with feature `epochs`, which is off by default. The owner's 25 / 80 / 20 numbers apply, on test USDC, local and devnet only. There is no mainnet and no real-money USDC: a real-money prize on mainnet needs a legal review first. The 2026-10-11 mainnet plan above stays history. Undecided parts are provisional defaults: entry per window, a keep taken after the close counts for nobody, a tie is shared, the unclaimed rest rolls over, 14-day windows. Design: `docs/frontier/payments/X402-PRIZE-EPOCHS.md`.
 
+**Y4/Y5 status update (owner, 2026-11-18 21:44 JST, t353u): ⑰ defaults decided.** r0ze kept the current defaults:
+- an entry fee per window;
+- the unclaimed rest rolls into the next window;
+- a tie is shared equally;
+- the prize covers maps of ring ≤ 17 only;
+- no AI residents in paid periods (enforced on chain for operator-run residents, which join by invite: ExcludeWallet and `OperatorMember`; an outside AI that pays like a person cannot be told apart);
+- devnet/local test USDC only; mainnet needs a legal review.
+
+Keeps taken after the close, the window length and paid joining between windows remain open (`X402-PRIZE-EPOCHS.md` §5).
+
 Other owner decisions already on record that remain valid next to part Y: memory is the core of the AI citizens and is in the hackathon build (X1); pacts and betrayal are out (X2); contract v1.3 (branch `frontier/ai-integ`) is the AI line's normative spec, with its documents in this tree as commit `19fe89c`; the wording is nation and village (国 / 村; hamlet, town, city and stronghold are tier names) and Strike Order (攻撃命令; code name Call); no paid API; the M1 exit-season result stays valid for the current program build, because the program is not changed. The 2026-10-04 no-push instruction is historical; the rebuild has not run on devnet or mainnet, while the earlier version's devnet/test-USDC season remains a separate historical record.
 
 Not decided by the owner and left as architect defaults or open questions (not part of Y): the order of work after the hackathon (Q13), the score formula (Q6), whether the labels on the audit page and the roster stay (Q2), the machine windows (Q27), and the 15 conquest questions (Y8 to Y10).

@@ -119,6 +119,8 @@ pub mod tag {
     pub const EPOCH_TALLY: u8 = 9;
     pub const EPOCH_FINALIZE: u8 = 10;
     pub const SWEEP: u8 = 11;
+    /// ⑰ (owner 2026-11-18 21:44): mark a wallet as an operator member, never in a paid window.
+    pub const EXCLUDE_WALLET: u8 = 12;
 }
 
 /// Pool account (640 B, PDA `["pool", game program, le64(season id)]`).
@@ -249,6 +251,10 @@ pub enum PrizeError {
     ClaimWindowOpen = 0x115,
     /// EpochTally or EpochFinalize before the window's end bell's time.
     WindowOpen = 0x116,
+    /// Pay or Claim in an epoch pool by a wallet the season's join gate marked as an
+    /// operator member (operator AI residents and script bots join by invite; owner
+    /// decision 2026-11-18 21:44: no AI residents in paid periods).
+    OperatorMember = 0x117,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -516,6 +522,37 @@ impl PoolSigner {
     }
 }
 
+/// The accounts after Pay's or Claim's fixed list: none for a legacy pool;
+/// for an epoch pool exactly one, the wallet's exclusion address, which must
+/// be empty (feature `epochs`, [`epoch::not_excluded`]).
+fn member_check(
+    program: &Pubkey,
+    pool_ai: &AccountInfo,
+    wallet: &Pubkey,
+    rest: &[AccountInfo],
+) -> R<()> {
+    let pd = pool_ai.try_borrow_data()?;
+    if !is_epoch_pool(&pd) {
+        return if rest.is_empty() {
+            Ok(())
+        } else {
+            Err(ProgramError::NotEnoughAccountKeys)
+        };
+    }
+    #[cfg(feature = "epochs")]
+    {
+        let [exclusion] = rest else {
+            return Err(ProgramError::NotEnoughAccountKeys);
+        };
+        epoch::not_excluded(program, &pd, wallet, exclusion)
+    }
+    #[cfg(not(feature = "epochs"))]
+    {
+        let _ = (program, wallet);
+        Err(E::WrongState.into())
+    }
+}
+
 /// Whether a pool is an epoch pool. Always false without feature `epochs`
 /// (no such pool can then exist: only InitEpochPool writes the kind).
 pub(crate) fn is_epoch_pool(pd: &[u8]) -> bool {
@@ -642,10 +679,14 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 }
 
 fn pay(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    // An epoch pool's Pay takes one more account: the wallet's exclusion
+    // address (it must be empty). A legacy pool's takes exactly nine.
+    let (a, rest) = a.split_at(a.len().min(9));
     let [wallet, payer, pool_ai, entry_ai, from, vault, mint, token, system] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     pool_of(program, pool_ai)?;
+    member_check(program, pool_ai, wallet.key, rest)?;
     if !wallet.is_signer
         || !payer.is_signer
         || *token.key != TOKEN_PROGRAM
@@ -903,10 +944,12 @@ fn set_shares(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 }
 
 fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let (a, rest) = a.split_at(a.len().min(8));
     let [wallet, pool_ai, entry_ai, citizen, vault, to, mint, token] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     pool_of(program, pool_ai)?;
+    member_check(program, pool_ai, wallet.key, rest)?;
     if !wallet.is_signer || *token.key != TOKEN_PROGRAM {
         return Err(E::BadAccount.into());
     }
@@ -1146,6 +1189,8 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
         tag::EPOCH_FINALIZE if d.is_empty() => epoch::epoch_finalize(program, a),
         #[cfg(feature = "epochs")]
         tag::SWEEP if d.is_empty() => epoch::sweep(program, a),
+        #[cfg(feature = "epochs")]
+        tag::EXCLUDE_WALLET if d.is_empty() => epoch::exclude_wallet(program, a),
         _ => Err(E::BadData.into()),
     }
 }

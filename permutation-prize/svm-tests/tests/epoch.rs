@@ -42,6 +42,8 @@ struct World {
     ctx: AddrCtx,
     operator: Keypair,
     mint: Address,
+    /// The season's join gate: the key that admits operator members by invite.
+    gate: Keypair,
 }
 
 /// The epochs build. A path given in `PRIZE_EPOCH_SO` must exist; the
@@ -184,6 +186,7 @@ fn set_season(w: &mut World, status: u8, continuous: u8) {
     // A continuous world has no end bell or join deadline of its own.
     put(&mut d, S::END_BELL, &u32::MAX.to_le_bytes());
     d[SEASON_CQ_OFFSET + cq_layout::CONTINUOUS] = continuous;
+    put(&mut d, S::JOIN_GATE, w.gate.pubkey().as_ref());
     let k = w.season.to_bytes();
     game_account(w, k, d);
 }
@@ -304,6 +307,7 @@ fn world() -> Option<World> {
         },
         operator,
         mint: mint.pubkey(),
+        gate: Keypair::new(),
     };
     set_season(&mut w, S::STATUS_RUNNING, 1);
     set_funds(&mut w, 61);
@@ -385,10 +389,45 @@ fn pay(w: &mut World, epoch: u32, k: &Keypair, ta: &Address) -> Result<(), Strin
             AccountMeta::new_readonly(w.mint, false),
             AccountMeta::new_readonly(TOKEN, false),
             AccountMeta::new_readonly(SYSTEM, false),
+            AccountMeta::new_readonly(exclusion(w, &k.pubkey()), false),
         ],
         data: vec![tag::PAY],
     };
     send(&mut w.svm, &[ix], &[k])
+}
+
+/// The wallet's exclusion address in the season (`["noprize", game, season, wallet]`).
+fn exclusion(w: &World, wallet: &Address) -> Address {
+    Address::find_program_address(
+        &[
+            b"noprize",
+            w.game.as_ref(),
+            &SEASON_ID.to_le_bytes(),
+            wallet.as_ref(),
+        ],
+        &w.prize,
+    )
+    .0
+}
+
+/// ExcludeWallet signed by `signer` (the season's gate, or someone else).
+fn exclude(w: &mut World, signer: &Keypair, wallet: &Address) -> Result<(), String> {
+    let payer = Keypair::new();
+    w.svm.airdrop(&payer.pubkey(), SOL).unwrap();
+    let ix = Instruction {
+        program_id: w.prize,
+        accounts: vec![
+            AccountMeta::new_readonly(signer.pubkey(), true),
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new_readonly(w.season, false),
+            AccountMeta::new_readonly(w.game, false),
+            AccountMeta::new(exclusion(w, wallet), false),
+            AccountMeta::new_readonly(*wallet, false),
+            AccountMeta::new_readonly(SYSTEM, false),
+        ],
+        data: vec![tag::EXCLUDE_WALLET],
+    };
+    send(&mut w.svm, &[ix], &[&payer, signer])
 }
 
 fn crank(w: &mut World, t: u8, pool: Address, rest: &[Address]) -> Result<(), String> {
@@ -494,6 +533,7 @@ fn claim(
             AccountMeta::new(*ta, false),
             AccountMeta::new_readonly(w.mint, false),
             AccountMeta::new_readonly(TOKEN, false),
+            AccountMeta::new_readonly(exclusion(w, &k.pubkey()), false),
         ],
         data: d,
     };
@@ -803,4 +843,147 @@ fn the_default_build_has_no_epoch_instructions() {
 
 fn permutation_prize_marker() -> &'static [u8] {
     b"PRZ_EPOCHS_TEST_USDC_BUILD"
+}
+
+// ------------------------------------------------------------ owner decisions 2026-11-18 21:44 (t353u)
+
+/// No AI residents in paid periods: a wallet the season's join gate marked
+/// as an operator member (operator AI residents and script bots join by
+/// invite with that key) can neither Pay into nor Claim from an epoch pool.
+/// Only the gate can mark; a mark is idempotent and permanent.
+#[test]
+fn operator_members_cannot_pay_or_claim_in_a_paid_window() {
+    let Some(mut w) = world() else { return };
+    init_epoch(&mut w, 0, E0).unwrap();
+    let (ai, tai) = player(&mut w, 2 * FEE);
+    // Not the gate: refused. The operator (season authority) is not the gate either.
+    let stranger = Keypair::new();
+    w.svm.airdrop(&stranger.pubkey(), SOL).unwrap();
+    fails(exclude(&mut w, &stranger, &ai.pubkey()), E::NotOperator);
+    let op = w.operator.insecure_clone();
+    fails(exclude(&mut w, &op, &ai.pubkey()), E::NotOperator);
+    let gate = w.gate.insecure_clone();
+    exclude(&mut w, &gate, &ai.pubkey()).unwrap();
+    exclude(&mut w, &gate, &ai.pubkey()).unwrap(); // repeat: no-op
+    fails(pay(&mut w, 0, &ai, &tai), E::OperatorMember);
+    assert_eq!(balance(&w, &tai), 2 * FEE, "nothing was taken");
+    // Leaving the exclusion account out does not get around it.
+    let pool = epool(&w, 0);
+    let short = Instruction {
+        program_id: w.prize,
+        accounts: vec![
+            AccountMeta::new_readonly(ai.pubkey(), true),
+            AccountMeta::new(ai.pubkey(), true),
+            AccountMeta::new(pool, false),
+            AccountMeta::new(entry(&w, &pool, &ai.pubkey()), false),
+            AccountMeta::new(tai, false),
+            AccountMeta::new(vault(&w, &pool), false),
+            AccountMeta::new_readonly(w.mint, false),
+            AccountMeta::new_readonly(TOKEN, false),
+            AccountMeta::new_readonly(SYSTEM, false),
+        ],
+        data: vec![tag::PAY],
+    };
+    let r = send(&mut w.svm, std::slice::from_ref(&short), &[&ai]);
+    assert!(
+        r.as_ref()
+            .is_err_and(|m| m.contains("NotEnoughAccountKeys")),
+        "{r:?}"
+    );
+    // Naming another wallet's (empty) exclusion address is refused too.
+    let mut other = short;
+    other.accounts.push(AccountMeta::new_readonly(
+        exclusion(&w, &stranger.pubkey()),
+        false,
+    ));
+    fails(send(&mut w.svm, &[other], &[&ai]), E::BadAccount);
+
+    // A wallet that paid first and is marked later cannot claim.
+    let (late, tlate) = player(&mut w, FEE);
+    let (human, thuman) = player(&mut w, FEE);
+    pay(&mut w, 0, &late, &tlate).unwrap();
+    pay(&mut w, 0, &human, &thuman).unwrap();
+    exclude(&mut w, &gate, &late.pubkey()).unwrap();
+    let provinces = set_provinces(&mut w, &holders_1_wins(), E0);
+    let cl = set_citizen(&mut w, &late.pubkey(), 1);
+    let ch = set_citizen(&mut w, &human.pubkey(), 1);
+    set_time(&mut w, at_bell(E0));
+    tally(&mut w, 0, &provinces).unwrap();
+    finalize(&mut w, 0).unwrap();
+    let p = pool.to_bytes();
+    let ll = leaf(&p, &late.pubkey().to_bytes(), 1, 1);
+    let lh = leaf(&p, &human.pubkey().to_bytes(), 1, 1);
+    set_shares(
+        &mut w,
+        0,
+        pool::MODE_SHARES,
+        [0, 2, 0, 0, 0, 0],
+        node(&ll, &lh),
+    )
+    .unwrap();
+    fails(
+        claim(&mut w, 0, &late, &tlate, &cl, 1, 1, &[lh]),
+        E::OperatorMember,
+    );
+    claim(&mut w, 0, &human, &thuman, &ch, 1, 1, &[ll]).unwrap();
+    // A season without a join gate has no operator-member key at all.
+    let mut d = w.svm.get_account(&w.season).unwrap().data;
+    d[S::JOIN_GATE..S::JOIN_GATE + 32].fill(0);
+    let k = w.season.to_bytes();
+    game_account(&mut w, k, d);
+    fails(exclude(&mut w, &gate, &stranger.pubkey()), E::NotOperator);
+}
+
+/// Entry per period: a wallet that paid into window 0 only cannot claim
+/// from window 1 (no Entry there), even in the winning nation.
+#[test]
+fn an_entry_counts_for_its_own_window_only() {
+    let Some(mut w) = world() else { return };
+    init_epoch(&mut w, 0, E0).unwrap();
+    init_epoch(&mut w, 1, E1).unwrap();
+    let (a, ta) = player(&mut w, 2 * FEE);
+    let (b, tb) = player(&mut w, FEE);
+    pay(&mut w, 0, &a, &ta).unwrap();
+    pay(&mut w, 1, &b, &tb).unwrap();
+    let ca = set_citizen(&mut w, &a.pubkey(), 1);
+    let provinces = set_provinces(&mut w, &holders_1_wins(), E1);
+    set_time(&mut w, at_bell(E1));
+    tally(&mut w, 1, &provinces).unwrap();
+    finalize(&mut w, 1).unwrap();
+    let p1 = epool(&w, 1).to_bytes();
+    let la = leaf(&p1, &a.pubkey().to_bytes(), 1, 1);
+    let lb = leaf(&p1, &b.pubkey().to_bytes(), 1, 1);
+    set_shares(
+        &mut w,
+        1,
+        pool::MODE_SHARES,
+        [0, 2, 0, 0, 0, 0],
+        node(&la, &lb),
+    )
+    .unwrap();
+    // a's Entry is window 0's: window 1 has none for a.
+    let r = claim(&mut w, 1, &a, &ta, &ca, 1, 1, &[lb]);
+    assert!(
+        r.is_err(),
+        "a wallet with no Entry in this window cannot claim from it"
+    );
+}
+
+/// Prize scope is the ring-17 map: an epoch pool refuses a season whose map
+/// may grow past ring 17 (`CeilingPastTally`) or starts past it.
+#[test]
+fn epoch_pools_refuse_maps_past_ring_17() {
+    let Some(mut w) = world() else { return };
+    let mut d = w.svm.get_account(&w.season).unwrap().data;
+    let at = SEASON_CQ_OFFSET + cq_layout::R_MAX_CEILING;
+    d[at..at + 2].copy_from_slice(&18u16.to_le_bytes());
+    let k = w.season.to_bytes();
+    game_account(&mut w, k, d.clone());
+    fails(init_epoch(&mut w, 0, E0), E::CeilingPastTally);
+    d[at..at + 2].copy_from_slice(&17u16.to_le_bytes());
+    game_account(&mut w, k, d.clone());
+    init_epoch(&mut w, 0, E0).unwrap();
+    d[S::R_MAX..S::R_MAX + 2].copy_from_slice(&18u16.to_le_bytes());
+    game_account(&mut w, k, d);
+    fails(init_epoch(&mut w, 1, E1), E::BadParams);
 }

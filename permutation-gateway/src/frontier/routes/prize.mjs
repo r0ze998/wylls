@@ -29,7 +29,7 @@ import { createAtaIdempotentIx } from '../../../client/src/player.mjs';
 import { baseFee, rent } from '../../../client/src/frontier/fees.mjs';
 import { profileForSeason } from '../../../client/src/frontier/profile.mjs';
 import { decodeAccount } from '../../../client/src/frontier/codec.mjs';
-import { ata, claimIx, classifyPaidJoin, decodeEntry, decodePool, decodeTokenAccount, ENTRY_SIZE, entryAddress, paidJoinBudget, POOL_STATE, PRIZE_ERRORS,
+import { ata, claimIx, classifyPaidJoin, decodeEntry, decodePool, decodeTokenAccount, ENTRY_SIZE, entryAddress, excludeIx, exclusionAddress, paidJoinBudget, POOL_STATE, PRIZE_ERRORS,
   TOKEN_PROGRAM, x402Encode, x402Network } from '../../../client/src/frontier/prize.mjs';
 import { classify, JOIN_TAG } from '../../../client/src/frontier/shapes.mjs';
 import { compileMessage, parseTransaction, wireTransaction } from '../../../client/src/solana-tx.mjs';
@@ -87,6 +87,24 @@ async function sendOwn(ctx, ixs, signers = [], beforeSend = () => {}) {
   if (reported !== signature) throw new RouteError(503, 'RPC returned a different signature; outcome unknown', 'SendOutcomeUnknown', { signature });
   await landed(ctx, signature);
   return signature;
+}
+
+/**
+ * ⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. In a world whose pool is an epoch pool,
+ * every wallet the relay admits by operator invite (operator AI residents, script bots) is first marked on chain as an
+ * operator member (ExcludeWallet, signed by the season's join gate); the program then refuses its Pay and Claim in
+ * every epoch pool of the season. Idempotent: an existing mark is kept. Throws (and the invite join is refused) if the
+ * mark cannot be written.
+ */
+export async function markOperatorMember(ctx, wallet) {
+  const prize = ctx.prize;
+  if (!prize || prize.epoch === undefined) return null;
+  const at = exclusionAddress(prize.program, prize.game, BigInt(prize.seasonId), wallet);
+  if (await account(ctx, at)) return { exclusion: at, already: true };
+  if (!ctx.gateKey) throw new RouteError(503, 'this relay does not hold the season\'s join-gate key', 'GateUnavailable');
+  const signature = await sendOwn(ctx, payer => [excludeIx({ prize, gate: ctx.gateKey.publicKey.toBase58(), payer, season: ctx.addresses.season, wallet })], [ctx.gateKey]);
+  ctx.log?.(`f/join operator member ${wallet} excluded from paid windows (${signature})`);
+  return { exclusion: at, already: false, signature };
 }
 
 /** Waits for a finalized result; confirmed transactions can still roll back. */

@@ -25,7 +25,7 @@ export { ata, TOKEN_PROGRAM };
 
 export const PRIZE_TAG = Object.freeze({ INIT_POOL: 0, PAY: 1, TALLY: 2, FINALIZE: 3, SET_SHARES: 4, CLAIM: 5, WITHDRAW_OPS: 6, RECORD_NATION: 7,
   // ⑰ settlement windows (feature `epochs` builds only)
-  INIT_EPOCH_POOL: 8, EPOCH_TALLY: 9, EPOCH_FINALIZE: 10, SWEEP: 11 });
+  INIT_EPOCH_POOL: 8, EPOCH_TALLY: 9, EPOCH_FINALIZE: 10, SWEEP: 11, EXCLUDE_WALLET: 12 });
 export const POOL_SIZE = 640;
 export const ENTRY_SIZE = 128;
 export const POOL_STATE = Object.freeze({ OPEN: 0, FINAL: 1, SHARES: 2, SWEPT: 3 });
@@ -35,7 +35,7 @@ export const FACTIONS = 6;
 export const PRIZE_ERRORS = Object.freeze({ 0x100: 'BadData', 0x101: 'BadAccount', 0x102: 'BadParams', 0x103: 'NotOperator', 0x104: 'WrongState', 0x105: 'AlreadyPaid',
   0x106: 'SeasonNotEnded', 0x107: 'ProvinceNotFinal', 0x108: 'NoKeep', 0x109: 'TallyIncomplete', 0x10A: 'BadShares', 0x10B: 'BadProof', 0x10C: 'NotWinner',
   0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x111: 'CeilingPastTally', 0x112: 'ContinuousSeason',
-  0x113: 'FiniteSeason', 0x114: 'EpochClosed', 0x115: 'ClaimWindowOpen', 0x116: 'WindowOpen' });
+  0x113: 'FiniteSeason', 0x114: 'EpochClosed', 0x115: 'ClaimWindowOpen', 0x116: 'WindowOpen', 0x117: 'OperatorMember' });
 /** What Pay adds to a Join's compute-unit and loaded-data limits (the prize and token programs, five more accounts). */
 export const PAID_JOIN_EXTRA_CU = 80_000;
 export const PAID_JOIN_EXTRA_LOADED = 524_288;
@@ -54,6 +54,12 @@ const magic = (d, text) => utf8(text).every((b, i) => d[i] === b);
 export const poolAddress = (prizeProgram, gameProgram, seasonId) => findProgramAddress([utf8('pool'), pubkeyBytes(gameProgram), u64le(seasonId)], prizeProgram)[0];
 /** ⑰ settlement window `epoch` of a continuous season (permutation-prize feature `epochs`). */
 export const epochPoolAddress = (prizeProgram, gameProgram, seasonId, epoch) => findProgramAddress([utf8('epool'), pubkeyBytes(gameProgram), u64le(seasonId), u32le(epoch)], prizeProgram)[0];
+/**
+ * ⑰ (owner 2026-11-18 21:44: no AI residents in paid periods): a wallet's exclusion address in a season,
+ * `["noprize", game, le64(season), wallet]`. Only the season's join gate can create it (ExcludeWallet); an epoch
+ * pool's Pay and Claim name it and refuse a wallet that has one (OperatorMember).
+ */
+export const exclusionAddress = (prizeProgram, gameProgram, seasonId, wallet) => findProgramAddress([utf8('noprize'), pubkeyBytes(gameProgram), u64le(seasonId), pubkeyBytes(wallet)], prizeProgram)[0];
 export const vaultAddress = (prizeProgram, pool) => findProgramAddress([utf8('vault'), pubkeyBytes(pool)], prizeProgram)[0];
 export const entryAddress = (prizeProgram, pool, wallet) => findProgramAddress([utf8('entry'), pubkeyBytes(pool), pubkeyBytes(wallet)], prizeProgram)[0];
 
@@ -64,7 +70,7 @@ export const entryAddress = (prizeProgram, pool, wallet) => findProgramAddress([
 export function prizeAddresses({ prizeProgram, gameProgram, seasonId, mint, epoch = null }) {
   const pool = epoch === null || epoch === undefined ? poolAddress(prizeProgram, gameProgram, seasonId) : epochPoolAddress(prizeProgram, gameProgram, seasonId, epoch);
   const out = { program: prizeProgram, pool, vault: vaultAddress(prizeProgram, pool), mint };
-  if (epoch !== null && epoch !== undefined) out.epoch = Number(epoch);
+  if (epoch !== null && epoch !== undefined) Object.assign(out, { epoch: Number(epoch), game: gameProgram, seasonId: String(seasonId) });
   return out;
 }
 
@@ -156,8 +162,15 @@ export function merkleTree(leaves) {
 /** Pay: the wallet's fee into the vault and its Entry (`payer` pays the Entry's rent). */
 export function payIx({ prize, wallet, payer, walletToken = null }) {
   return { programId: prize.program, data: Uint8Array.of(PRIZE_TAG.PAY), keys: [R(wallet, true), W(payer, true), W(prize.pool), W(entryAddress(prize.program, prize.pool, wallet)),
-    W(walletToken ?? ata(wallet, prize.mint)), W(prize.vault), R(prize.mint), R(TOKEN_PROGRAM), R(SYSTEM_PROGRAM)] };
+    W(walletToken ?? ata(wallet, prize.mint)), W(prize.vault), R(prize.mint), R(TOKEN_PROGRAM), R(SYSTEM_PROGRAM), ...exclusionKey(prize, wallet)] };
 }
+
+/** An epoch pool's Pay and Claim name the wallet's exclusion address last; a legacy pool's do not. */
+const exclusionKey = (prize, wallet) => (prize.epoch === undefined ? [] : [R(exclusionAddress(prize.program, prize.game, BigInt(prize.seasonId), wallet))]);
+
+/** ExcludeWallet: the season's join gate marks `wallet` as an operator member (no Pay, no Claim in any epoch pool). */
+export const excludeIx = ({ prize, gate, payer, season, wallet }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.EXCLUDE_WALLET),
+  keys: [R(gate, true), W(payer, true), R(season), R(prize.game), W(exclusionAddress(prize.program, prize.game, BigInt(prize.seasonId), wallet)), R(wallet), R(SYSTEM_PROGRAM)] });
 
 /** Tally: count `provinces` (Province account addresses) once each. */
 export const tallyIx = ({ prize, season, provinces }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.TALLY), keys: [W(prize.pool), R(season), ...provinces.map(p => R(p))] });
@@ -177,7 +190,8 @@ export function setSharesIx({ prize, operator, mode, totals, root, ledgerHash })
 /** Claim: `citizen` is the wallet's Citizen of the game; in refund mode nation, points and proof are ignored. */
 export function claimIx({ prize, wallet, citizen, nation = 0, points = 0n, proof = [], dest = null }) {
   return { programId: prize.program, data: concat([PRIZE_TAG.CLAIM, nation], u64le(points), [proof.length], ...proof),
-    keys: [R(wallet, true), W(prize.pool), W(entryAddress(prize.program, prize.pool, wallet)), R(citizen), W(prize.vault), W(dest ?? ata(wallet, prize.mint)), R(prize.mint), R(TOKEN_PROGRAM)] };
+    keys: [R(wallet, true), W(prize.pool), W(entryAddress(prize.program, prize.pool, wallet)), R(citizen), W(prize.vault), W(dest ?? ata(wallet, prize.mint)), R(prize.mint), R(TOKEN_PROGRAM),
+      ...exclusionKey(prize, wallet)] };
 }
 
 export const withdrawOpsIx = ({ prize, operator, dest = null }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.WITHDRAW_OPS),
@@ -230,7 +244,7 @@ export function classifyPaidJoin(tx, { programId, prize, profile = 1 }) {
   const feePayer = tx.signers[0];
   const wallet = pay.keys[0]?.pubkey;
   const want = payIx({ prize, wallet: wallet ?? feePayer, payer: feePayer, walletToken: pay.keys[4]?.pubkey });
-  if (pay.keys.length !== want.keys.length) return refuse('Pay takes nine accounts');
+  if (pay.keys.length !== want.keys.length) return refuse(`Pay takes ${want.keys.length} accounts`);
   for (let i = 0; i < want.keys.length; i++) {
     const [w, h] = [want.keys[i], pay.keys[i]];
     if (w.pubkey !== h.pubkey) return refuse(`Pay account ${i} is not this season's pool, vault, mint or the wallet's entry`);

@@ -670,6 +670,14 @@ first; nothing here deploys, spends SOL or uses a key.
   counts for nobody; a tie is shared equally; the unclaimed rest rolls into a later window; 14-day windows with a 7-day
   claim window.
 - ⑮ is unchanged (titles and chronicle, no prize effect).
+- **Owner decisions 2026-11-18 21:44 JST (t353u, "keep the current defaults"):** entry per window; the unclaimed
+  rest rolls into the next window; a tie is shared equally; the prize covers maps of ring ≤ 17 only; **no AI residents
+  in paid periods**; devnet/local test USDC only, and mainnet needs a legal review. The last rule is enforced on chain:
+  the season's join-gate key marks every invite-joined (operator-run) wallet with ExcludeWallet, and epoch-pool Pay
+  and Claim refuse marked wallets (`OperatorMember`). The relay marks before it co-signs an invite join, and the
+  local-play launcher refuses `--prize-epochs` (with ⑤A/⑤B residents: `AiResidentsInPaidWindow`). Limit: an outside AI
+  (⑤B) that pays like a person cannot be told apart on chain. Still open: keeps taken after the close (counted for
+  nobody), the window length (2,016 bells by default), and paid joining between windows.
 
 
 ### 2026-11-18 JST — ⑱ integration check (ws18-integrate)

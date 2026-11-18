@@ -29,9 +29,9 @@ The design is behind the cargo feature **`epochs`** of `permutation-prize`, whic
 | Fees | until the first Tally | until `genesis_ts + end_bell × bell_secs` (`EpochClosed`) |
 | "The end" | Season Ended | the window's `end_bell` (time-based) |
 | Count | `Tally` | `EpochTally`: anyone may send it, only after the window's time (`WindowOpen`), any number of transactions |
-| Winner | most provinces; a tie is broken by territory bells | most provinces; **a tie is shared equally** (provisional) |
+| Winner | most provinces; a tie is broken by territory bells | most provinces; **a tie is shared equally** (decided by r0ze 21:44, t353u) |
 | Shares, claims, operator's part | SetShares, Claim, WithdrawOps, RecordNation | the same instructions, unchanged (signed with the epoch pool's seeds) |
-| Unclaimed rest | stays in the vault | `Sweep` (anyone, after `claim_bells` past EpochFinalize) moves it into a **later** window's pool that still takes fees (provisional) |
+| Unclaimed rest | stays in the vault | `Sweep` (anyone, after `claim_bells` past EpochFinalize) moves it into a **later** window's pool that still takes fees (decided by r0ze 21:44, t353u) |
 
 The account layout is the legacy pool's 640 bytes with the same magic. Bytes 600–640 hold the window: `EPOCH`,
 `EPOCH_BELL_SECS`, `EPOCH_GENESIS_TS`, `CLAIM_BELLS`, `KIND` (0 legacy, 1 epoch), `DEADLINE_TS` and `ROLLED_OUT`. These
@@ -102,7 +102,8 @@ change: four new instructions, and none of the shares, claim or operator code ch
 - **Program, host:** `cd permutation-prize && cargo test --features epochs` (9 tests, 3 of them new: the Pay close,
   the account tail, the continuous-season check) and `cargo test` (6, the default build).
 - **Program, LiteSVM** (`scripts/build-prize.sh --features epochs` first):
-  `cd permutation-prize/svm-tests && cargo test --release --test epoch` (7). These cover the full cycle across two
+  `cd permutation-prize/svm-tests && cargo test --release --test epoch` (10; round 3 added the operator-member refusal,
+  the per-window entry and the ring-17 limit). These cover the full cycle across two
   windows, the snapshot rule, a tie, refund mode, InitEpochPool's guards, Sweep's guards and the default build refusing
   the epoch tags. A path given in `PRIZE_EPOCH_SO` must exist (CI's key-tests job names it); with the default path
   missing the tests print SKIP and pass. `--test pool` (15, the
@@ -123,25 +124,39 @@ change: four new instructions, and none of the shares, claim or operator code ch
 Not run: EpochTally, EpochFinalize, SetShares, Claim and Sweep on a live localnet (no crank tool yet; LiteSVM covers
 them), and anything on devnet.
 
-## 5. Open questions for the owner (the code uses the conservative default)
+## 5. Owner decisions (r0ze, 2026-11-18 21:44 JST, t353u: "keep the current defaults")
 
-1. **An entry per window, or one per world?** The code's default is one entry per window: only a wallet with an Entry
-   in that window's pool can claim from it. A new player's x402 Pay+Join pays into window 0. A later window has no
-   relay route yet, so an existing citizen would send Pay alone.
-2. **Does the world stay gated after window 0?** With `--prize-epochs` the season's join gate is set, as with the
-   legacy pool. Once window 0 closes, a paid join fails (`EpochClosed`) until the operator opens the next window and
-   the relay is pointed at it, and no tool does that yet. The alternative is a free-to-join world where the prize entry
-   is opt-in.
-3. **A keep taken after the close and before the tally:** count it for nobody (code), or for `last_taken_from`, the
-   holder before the last capture (exact only if it changed once)?
-4. **A tie for first place:** equal split (code), or the legacy territory-bell tie break? The territory-bell counters
-   are cumulative and keep moving in a live world.
-5. **The unclaimed rest:** roll it into a later window (code), refund the payers, or give it to the operator? The
-   claim window is 1,008 bells by default.
-6. **Window length:** 2,016 bells (14 days, from Y6) by default.
-7. **The infinite map (⑭):** the tally bitmap covers rings 0–17, so InitEpochPool refuses a season whose
-   `r_max_ceiling` is above 17 (`CeilingPastTally`). A prize on an unbounded map needs another count structure.
-8. **⑤ W4:** whether AI residents may enter money windows. Today operator AI join by invite, have no Entry and cannot
-   claim. This is still open in `GAME-DESIGN.ja.md` Q17.
-9. **⑮ is unchanged:** achievements stay titles and chronicle entries with no prize effect. The window winner is still
-   the owner's legacy rule: the most provinces at the end.
+| # | Question | Decision | Where the code enforces it | Test |
+|---|---|---|---|---|
+| 1 | Entry per window, or once per world? | **Decided by r0ze 21:44 (t353u): an entry is per window.** | Entry PDA `["entry", pool, wallet]`; Claim needs this pool's Entry | LiteSVM `an_entry_counts_for_its_own_window_only` |
+| 3 | A keep taken after the close and before the tally | Not in the decision. The code counts it for nobody, and it stays provisional (`epoch::provisional::VOID_AFTER_CLOSE`) | `epoch_tally` | `keeps_count_as_they_stood_at_the_end_bell` |
+| 4 | A tie for first place | **Decided by r0ze 21:44 (t353u): a tie is shared equally.** | `epoch_finalize` → `largest_area` | `a_tie_is_shared_and_a_grown_map_is_counted_whole` |
+| 5 | The unclaimed rest | **Decided by r0ze 21:44 (t353u): it rolls into the next window.** The operator's part is untouched | `sweep` | `an_epoch_pays_out_and_rolls_the_rest_into_the_next`, `sweep_guards` |
+| 7 | The infinite map (⑭) | **Decided by r0ze 21:44 (t353u): the prize covers maps of ring ≤ 17 only.** | `init_epoch_pool` → `season_rings_fit` (`CeilingPastTally`, `BadParams`) | `epoch_pools_refuse_maps_past_ring_17` |
+| 8 | AI residents in money windows (⑤ W4, Q17) | **Decided by r0ze 21:44 (t353u): no AI residents in paid periods.** See §5.1 | on chain: ExcludeWallet, plus Pay and Claim → `OperatorMember`; relay `markOperatorMember`; launcher `AiResidentsInPaidWindow` | `operator_members_cannot_pay_or_claim_in_a_paid_window`, the gateway test "epoch world: an invite join is marked…", the launcher test |
+| — | Scope | **Decided: devnet/local test USDC only; mainnet needs a legal review.** | relay `--prize-epoch` (localnet/devnet, mainnet USDC refused), devnet dry run (plan only) | `frontier-prize-epochs.test.mjs`, dry-run tests |
+| 2 | Paid joining between windows (no tool opens the next window yet) | Open (not in the decision) | — | live round 2: `EpochClosed` |
+| 6 | Window length | Not in the decision; the default is 2,016 bells (14 days, Y6) | `--prize-epoch-bells` | config tests |
+| 9 | ⑮ | Unchanged: achievements stay titles and chronicle entries | — | — |
+
+### 5.1 "No AI residents in paid periods": how it is enforced, and its limit
+
+- **On chain (cannot be bypassed by a resident).** Operator-run residents join a gated season by operator invite. These
+  are ⑤A operator AI residents, the stack's script bots and the AI fleet, and the join needs the season's **join-gate**
+  key. That same key is the only signer of **ExcludeWallet** (tag 12). ExcludeWallet creates
+  `["noprize", game, le64(season), wallet]`, an idempotent and permanent mark. An epoch pool's **Pay** and **Claim**
+  must name that address, and refuse a wallet that has the mark (`OperatorMember`, 0x117). Leaving the account out is
+  refused (`NotEnoughAccountKeys`), and so is naming another wallet's address (`BadAccount`). A wallet that paid
+  before it was marked cannot claim.
+- **Relay.** In an epoch-pool world, `POST /f/join` with an invite first sends ExcludeWallet for the joining wallet,
+  signed by the gate key. It co-signs the Join only after that mark has landed. If the mark fails, the join is refused.
+  A human's paid x402 join is unaffected.
+- **Launcher.** `local-play-launcher.mjs` has no prize lane. It refuses `--prize-epochs` (`PrizeNotInLauncher`). Combined
+  with `--operator-residents` (⑤A, PR #40) or `--external-residents` (⑤B, PR #57), it refuses with
+  `AiResidentsInPaidWindow`.
+- **Limit (⑤B and any outside AI).** The chain cannot tell an AI from a person. A ⑤B external resident (PR #57) has its
+  own wallet and joins like a person: with the paid x402 join in a gated world, or as an admitted address in the
+  launcher. So the on-chain rule binds **operator-run** residents, the ones that join by operator invite. An outside
+  AI that pays like a person cannot be detected. In the stack, nothing admits ⑤B agents. In the launcher, there are no
+  paid windows, and ⑤B with `--prize-epochs` is refused. If ⑤B admission ever reaches a paid-window world, the
+  admitting tool must call ExcludeWallet for each admitted address: it knows them, and the gate key is the operator's.
