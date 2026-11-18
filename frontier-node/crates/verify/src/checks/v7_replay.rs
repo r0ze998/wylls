@@ -62,6 +62,45 @@ use crate::world::le;
 const V: &str = "V7";
 
 /// ClashInputs fate code of a kernel fate (1–5, the transit outcomes).
+/// Whether `k` is the Holding of a ClaimLandYield VL judges (the
+/// playable lane's land preview, 0xCE, as its transaction's only program
+/// instruction; `playable-lane` build only).
+fn land_claim_writes(cx: &Ctx, tx: &crate::world::Tx, k: &crate::world::Key) -> bool {
+    #[cfg(feature = "playable-lane")]
+    {
+        let pv = cx.f.params.as_ref().map(|p| p.program_version);
+        super::v0_coverage::playable(pv)
+            && tx.ixs.len() == 1
+            && tx.ixs[0].tag() == Some(frontier_abi::land_preview::TAG_CLAIM_LAND_YIELD)
+            && tx.ixs[0].key(4) == Some(*k)
+    }
+    #[cfg(not(feature = "playable-lane"))]
+    {
+        let _ = (cx, tx, k);
+        false
+    }
+}
+
+/// The instruction of `tx` outside ABI v2 that may write `k` and that V0
+/// judges UNVERIFIABLE (`judge_outside_v2`), if any.
+fn unmodelled_writer(cx: &Ctx, tx: &crate::world::Tx, k: &crate::world::Key) -> Option<String> {
+    let pv = cx.f.params.as_ref().map(|p| p.program_version);
+    tx.ixs.iter().find_map(|ix| {
+        let tag = ix.tag()?;
+        if frontier_abi::v2::Ix::from_tag(tag).is_some()
+            || !ix.accounts.iter().any(|(a, w)| a == k && *w)
+        {
+            return None;
+        }
+        match super::v0_coverage::judge_outside_v2(tag, &ix.data, pv, cx.s1) {
+            Some((crate::Severity::Unverifiable, _, _)) => {
+                Some(format!("instruction {} (tag {tag:#04x})", ix.index))
+            }
+            _ => None,
+        }
+    })
+}
+
 pub fn fate_code(f: &Fate) -> u8 {
     match f {
         Fate::Stays { .. } => transit_outcome::STAYS,
@@ -1065,6 +1104,25 @@ fn continuity(cx: &mut Ctx) {
                     // 02-rights (candidate): a Grant instruction settles
                     // without a touch and moves exactly its records' amounts.
                     (what, want)
+                } else if land_claim_writes(cx, tx, k) {
+                    // Q16-1: the playable lane's ClaimLandYield settles and
+                    // credits the land yield: VL re-runs it and compares the
+                    // whole Holding it wrote (not this check's).
+                    continue;
+                } else if let Some(why) = unmodelled_writer(cx, tx, k) {
+                    // An instruction V0 already calls UNVERIFIABLE (outside
+                    // ABI v2 under a version this verifier does not judge,
+                    // or a wide command) wrote it: its rules are not
+                    // modelled, so its write is not a forgery claim.
+                    cx.unverifiable(
+                        V,
+                        UNVERIFIED_INSTRUCTION,
+                        format!("holding ({}, {}, {})", pqs.0, pqs.1, pqs.2),
+                        bell,
+                        Some(t),
+                        format!("the Holding was written by {why}, which no check of this verifier models"),
+                    );
+                    continue;
                 } else if conquest_settlement_writes(tx, k) {
                     // SettleSiege (the stake returned), SettleCapture (the
                     // captured Holding and the stake) and RetireHost write
