@@ -362,7 +362,8 @@ pub const RULESET_DOMAIN_V3: &[u8] = b"PSF-RULESET-v3";
 /// The S1 rules' kernel versions (pinned order, append only): the MC
 /// list with the S1 bumps (frontier 12, catalog 3, doctrine 3, holding 4),
 /// then `arms` (1a), `caravan` (1b), `structure` (1d, 1e) and `nation`
-/// (1e).
+/// (1e). ⑧ (a) (2026-11-18): `geometry` 2 → 3 (placement 2,
+/// `geometry::GEOMETRY_VERSION_V3`).
 pub const KERNEL_VERSIONS_V3: [(&str, u16); 29] = [
     ("frontier", RULES_VERSION_FRONTIER_V3),
     ("beacon", beacon::BEACON_VERSION),
@@ -380,7 +381,7 @@ pub const KERNEL_VERSIONS_V3: [(&str, u16); 29] = [
     ("travel", travel::TRAVEL_VERSION),
     ("holding", holding::HOLDING_VERSION_V4),
     ("host", host::HOST_VERSION),
-    ("geometry", geometry::GEOMETRY_VERSION_V2),
+    ("geometry", geometry::GEOMETRY_VERSION_V3),
     ("stance", stance::STANCE_VERSION),
     ("index", index::INDEX_VERSION),
     ("laurel", laurel::LAUREL_VERSION),

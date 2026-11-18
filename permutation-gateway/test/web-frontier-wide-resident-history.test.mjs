@@ -164,8 +164,8 @@ test('original UI reads both parts with explicit original-home attribution and n
 // output. Reading these bytes is not evidence of a live chain or full replay.
 test('unchanged native Dissolve and Return receipt exports reach the original history parser', () => {
   for (const [file, digest] of [
-    ['dissolve_v1.bin', '0d46cd2d175c57c947af8e67f14f2d002e18c9e7e7d47fb4a944e98023f39a84'],
-    ['return_v1.bin', '6f22a8e606852e52d87f66e0f2452fd00c6a26aa42716a2fc874feb4643d7da3'],
+    ['dissolve_v1.bin', '174fea8fa31dd6530f1ee221d5792c74f64c1657d8b0c0613e2d7d40a8bc19e0'],
+    ['return_v1.bin', '11ffcbd5015593c7a2d330a488a81eb95b9de5ba3910b7d66167f18484452894'],
   ]) {
     const bytes = readFileSync(new URL(`../../frontier-node/crates/verify/tests/fixtures/wide_expedition_resident/${file}`, import.meta.url));
     assert.equal(Buffer.from(sha256(bytes)).toString('hex'), digest);

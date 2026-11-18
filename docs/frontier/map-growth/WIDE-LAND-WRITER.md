@@ -330,8 +330,8 @@ Who may act: the player handlers have `_as` forms taking the program's `Auth` (w
 | item | what it is | status |
 |---|---|---|
 | `WideRulesConfig` | the record and its codec; `new` refuses a partial configuration; `read` refuses unset, unknown, wrong-version, reserved, zero-world bytes | the only input an opening reads its rules from |
-| `KeepHolderRule` 1 = `placement::mixed_home_nation`, 2 = `placement::orbit_balanced_outer_nation` | candidates for the nation holding a wide keep | **not approved**; the owner confirmed mixing, not which |
-| `FreeCityRule` 1 = none, 2 = `wide_free_city_site` (`sha256(PSF-FREE-CITY-WIDE-v1 ‖ seed ‖ LE64(ring) ‖ LE64(pos))` over the canonical copy, `mod site_count`) | candidates for the wide Free City | **not approved**; the deployed rule hashes `LE32(P) ‖ LE32(Q)` |
+| `KeepHolderRule` 1 = `placement::mixed_home_nation`, 2 = `placement::orbit_balanced_outer_nation` | candidates for the nation holding a wide keep | a placement-2 Season takes only 1 (⑧ (i), `keep_holder_allowed`); otherwise **not approved** |
+| `FreeCityRule` 1 = none, 2 = `wide_free_city_site` (`sha256(PSF-FREE-CITY-WIDE-v1 ‖ seed ‖ LE64(ring) ‖ LE64(pos))` over the canonical copy, `mod site_count`), 3 = `deployed_free_city_site` (table v2, `WIDE_RULES_CONFIG_VERSION` 2: the deployed `terrain::free_city_site` itself, `LE32(P) ‖ LE32(Q)` over the canonical copy, up to ring 2³⁰) | candidates for the wide Free City | **3 is the approved rule** (⑧ (d), owner decision t346u, 2026-11-18: "as deployed"). A placement-2 Season refuses 2 (`free_city_allowed`, SetRules `BadData`); 1 stays allowed for a world configured without wide Free Cities. A version-1 record is still read with version 1's table |
 | `CampRule` 1 = none, 2 = `wide_initial_camp` (the deployed camp kernel's candidate list and troop range, drawn over the 17-byte sort key) | candidates for the wide initial camp | **not approved** |
 | `RegionRule` 1 = `wide_region` (`sha256(frontier/region/wide-v1 ‖ sort key)[0] mod 16`) | candidate for the beacon region | **not approved** |
 | `wide_keep_open` | `keep::try_open` without the `ProvinceCoord` | pinned equal to the kernel |

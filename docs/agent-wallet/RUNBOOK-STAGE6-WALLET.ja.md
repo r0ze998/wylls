@@ -44,7 +44,7 @@ frontier-node/target/release/frontier-stack up --conquest --mode accel --beacon 
 4. このシーズンが S1 であることを記録する。
 
 ```sh
-curl -s http://127.0.0.1:41640/h/season | grep -o '"rulesetHash":"[0-9a-f]*"'   # 234c0dc2…（RULESET_HASH_V3、S1）であること
+curl -s http://127.0.0.1:41640/h/season | grep -o '"rulesetHash":"[0-9a-f]*"'   # 1511ae14…（RULESET_HASH_V3、S1。2026-11-18 の ⑧ (a) で 234c0dc2… から変更）であること
 curl -s http://127.0.0.1:41640/h/status/conquest | grep -o '"conquest":[a-z]*'      # true
 ```
 

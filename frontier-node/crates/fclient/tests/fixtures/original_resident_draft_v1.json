@@ -8,7 +8,7 @@
       "provenance": {
         "kind": "native-role-snapshot",
         "archive": "verify/tests/fixtures/wide_expedition_resident/dissolve_v1.bin",
-        "sha256": "0d46cd2d175c57c947af8e67f14f2d002e18c9e7e7d47fb4a944e98023f39a84"
+        "sha256": "174fea8fa31dd6530f1ee221d5792c74f64c1657d8b0c0613e2d7d40a8bc19e0"
       },
       "request": {
         "schema": "frontier-original-expedition-request-v1",
@@ -18,7 +18,7 @@
         "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
         "deployment": {
           "program_version": "16388",
-          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+          "ruleset_hash": "1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2"
         },
         "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
         "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
@@ -92,7 +92,7 @@
       "provenance": {
         "kind": "native-role-snapshot",
         "archive": "verify/tests/fixtures/wide_expedition_resident/return_v1.bin",
-        "sha256": "6f22a8e606852e52d87f66e0f2452fd00c6a26aa42716a2fc874feb4643d7da3"
+        "sha256": "11ffcbd5015593c7a2d330a488a81eb95b9de5ba3910b7d66167f18484452894"
       },
       "request": {
         "schema": "frontier-original-expedition-request-v1",
@@ -102,7 +102,7 @@
         "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
         "deployment": {
           "program_version": "16388",
-          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+          "ruleset_hash": "1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2"
         },
         "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
         "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
@@ -174,7 +174,7 @@
         "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
         "deployment": {
           "program_version": "16388",
-          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+          "ruleset_hash": "1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2"
         },
         "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
         "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",
@@ -258,7 +258,7 @@
         "season": "Eu2Suupd3ds87yhcTA7XyK3AYZt7h3hK5Uy3NCQf9afs",
         "deployment": {
           "program_version": "16388",
-          "ruleset_hash": "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d"
+          "ruleset_hash": "1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2"
         },
         "host": "0160eb51069960c73ce91d799fb858e7827f7cbe03d77476390e540f3522b2ab180000000000000080000000000000000000000100000000",
         "original_owner": "AmYM1jySkHyGFuEQg37NCnGwzBxairuUtXwQhJ3GPvx",

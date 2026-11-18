@@ -785,8 +785,10 @@ pub fn legacy_wedge_allowed(
 /// `ticket_nation_allowed` over `wedge_allowed`): inside a dispersed
 /// heartland (`placement` 1 or 2, rings `2..=heartland_max_ring`) the site's
 /// province must be the nation's (`home_nation`, the rule PlaceHome uses);
-/// everywhere else — the wedge placement, an M1 season, the rings outside
-/// the heartland — the legacy wedge rule with its adjacent-wedge overflow.
+/// under placement 2 the outer rings too (⑧ (b)), with the legacy overflow
+/// into another wedge kept; everywhere else — the wedge placement, an M1
+/// season, placement 1's outer rings — the legacy wedge rule with its
+/// adjacent-wedge overflow.
 /// `None` when the evidence is missing: a conquest season (`v3`) without
 /// its conquest block, a dispersed heartland site without the GENESIS_SEED,
 /// an unknown placement. An M1 season has no conquest block by design and
@@ -821,15 +823,28 @@ pub fn ticket_site_rule(
     };
     match cq.placement {
         PLACEMENT_WEDGE => Some(legacy),
-        // (placement 2, ⑧ wide land (i): the dispersed heartland rule; the outer
-        //  ticket rule stays the legacy wedge one, as in the program)
-        PLACEMENT_DISPERSED | PLACEMENT_MIXED => {
+        PLACEMENT_DISPERSED => {
             let ring = coord.ring();
             if ring < 2 || ring > cq.heartland_max_ring as u32 {
                 return Some(legacy);
             }
             let seed = genesis_seed?;
             Some(home_nation(coord, cq.placement, cq.heartland_max_ring, seed)? == faction)
+        }
+        // (placement 2, ⑧ (b): every ring ≥ 2 follows the mixed nation; past
+        //  the heartland the legacy overflow into another wedge stays, as in
+        //  the program's `ticket_nation_allowed`)
+        PLACEMENT_MIXED => {
+            let ring = coord.ring();
+            if ring < 2 {
+                return Some(legacy);
+            }
+            let seed = genesis_seed?;
+            let mixed = home_nation(coord, cq.placement, cq.heartland_max_ring, seed)? == faction;
+            if ring <= cq.heartland_max_ring as u32 {
+                return Some(mixed);
+            }
+            Some(mixed || (legacy && wedge != faction))
         }
         _ => None,
     }
@@ -1258,6 +1273,32 @@ mod tests {
         }
         assert!(legacy_wedge_allowed((w4 + 1) % 6, w4, 4, 10, 10, 5));
         assert!(!legacy_wedge_allowed((w4 + 1) % 6, w4, 4, 10, 9, 5));
+        // ⑧ (b): under placement 2 an outer site follows the mixed nation,
+        // with the legacy overflow into another wedge kept; no seed, no answer
+        for c in ring_provinces(4) {
+            let w = c.wedge().unwrap();
+            let nation = home_nation(
+                c,
+                permutation_rules::frontier::geometry::PLACEMENT_MIXED,
+                3,
+                &seed,
+            )
+            .unwrap();
+            for (open, occ) in [(10u32, 0u32), (10, 10)] {
+                for f in 0..6u8 {
+                    let legacy = legacy_wedge_allowed(f, w, 4, open, occ, 5);
+                    assert_eq!(
+                        ticket_site_rule(true, Some(&cq(2, 3)), Some(&seed), c, f, open, occ, 5),
+                        Some(nation == f || (legacy && w != f)),
+                        "{c:?} f{f}"
+                    );
+                    assert_eq!(
+                        ticket_site_rule(true, Some(&cq(2, 3)), None, c, f, open, occ, 5),
+                        None
+                    );
+                }
+            }
+        }
         // the Concord is never a ticket site
         assert_eq!(
             ticket_site_rule(

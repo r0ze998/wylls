@@ -471,7 +471,7 @@ test('a world of stand-in processes: ready through its proxy; an explicit stop e
   assert.deepEqual(heraldArgs, ['--data', path.join(dir, 'herald'), '--program', '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', '--season', '11', '--rpc', `http://127.0.0.1:${ports.rpc}`, '--listen', `127.0.0.1:${ports.internalHerald}`, '--source', 'localnet', '--cluster', 'localnet', '--local-play-metadata', path.join(dir, 'metadata.json'), '--relay', `127.0.0.1:${ports.relay}`]);
   assert.ok(!heraldArgs.includes('--web'));
   const relayArgs = JSON.parse((await fsp.readFile(path.join(dir, 'relay.out'), 'utf8')).split('\n')[0]).args;
-  assert.deepEqual(relayArgs, ['--local-play', '--rpc', `http://127.0.0.1:${ports.rpc}`, '--program', '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', '--season', SEASON, '--wallet', wallet, '--ruleset-hash', '234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d', '--prepare-bin', '/abs/depart', '--preview-bin', '/abs/preview', '--resident-bin', '/abs/resident', '--cu-limit', '1000000', '--loaded-limit', '67108864', '--listen-port', String(ports.relay)]);
+  assert.deepEqual(relayArgs, ['--local-play', '--rpc', `http://127.0.0.1:${ports.rpc}`, '--program', '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', '--season', SEASON, '--wallet', wallet, '--ruleset-hash', '1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2', '--prepare-bin', '/abs/depart', '--preview-bin', '/abs/preview', '--resident-bin', '/abs/resident', '--cu-limit', '1000000', '--loaded-limit', '67108864', '--listen-port', String(ports.relay)]);
   assert.ok(!relayArgs.includes('--conquest-bin'), 'no conquest CLI unless the launcher\'s own command line names one');
   // the explicit stop
   const stopping = w.stop('requested'); assert.equal(w.stop('again'), stopping, 'one stop, however often asked');
@@ -688,7 +688,7 @@ test('a preset that cannot be had is refused before or at the runner: never a wo
 test('the proof itself: only the runner\'s own statement counts, every reason is given; the relay\'s own modules decide the hand-over, and today they keep it closed', { timeout: 60000 }, async t => {
   const { c, tmp } = await standIns(t); Object.assign(c, await artefact(tmp), { worldPreset: CONQUEST_WORLD_PRESET, prepareScale: 30 });
   const meta = { schema: 'frontier-localnet-expedition-play-v1', program: PLAY_PROGRAM, season: SEASON, rpc_url: 'http://127.0.0.1:41924', artifact: { sha256: c.artifactSha, marker: 'PSF_LOCALNET_EXPEDITION_SBF_BUILD' }, wide_destination: { dest: [129, 0] } };
-  const opened = { schema: 'frontier-local-play-wide-destination-v1', step: 'opened', detail: { dest: [129, 0], ring: 129, rules: { keep_holder: 1, free_city: 2, camp: 1, region: 1 } } };
+  const opened = { schema: 'frontier-local-play-wide-destination-v1', step: 'opened', detail: { dest: [129, 0], ring: 129, rules: { keep_holder: 1, free_city: 3, camp: 1, region: 1 } } };
   const statement = stated(c, 41924), line = (s = statement) => ({ schema: 'frontier-localnet-expedition-play-v1', conquest_world: s });
   const good = await conquestProof({ c, meta, lines: [opened, line()] });
   assert.deepEqual(good.why, []); assert.deepEqual(Object.keys(good.capability), ['schema', 'artifact_sha256', 'markers', 'program', 'season', 'rpc', 'world_preset', 'free_city']); assert.deepEqual(Object.keys(good.world), ['schema', 'program', 'season', 'world_preset', 'free_city']);
@@ -756,7 +756,7 @@ test('the proof itself: only the runner\'s own statement counts, every reason is
   // of the dedicated program's own Season on a relay-acceptable port; nothing is started, nothing is sent):
   // its parser, its bounded reader, its constructor. Today the constructor refuses, and for the conditions alone.
   const pins = await import('../src/frontier/local-play-relay.mjs');
-  assert.equal(pins.LOCAL_PLAY_RULESET_HASH, '234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d', 'the ruleset hash the launcher gives every relay is the relay\'s own');
+  assert.equal(pins.LOCAL_PLAY_RULESET_HASH, '1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2', 'the ruleset hash the launcher gives every relay is the relay\'s own');
   assert.equal(pins.LOCAL_PLAY_PROGRAM, PLAY_PROGRAM);
   const season11 = seasonAddresses(PLAY_PROGRAM, String(pins.LOCAL_PLAY_SEASON_ID)).season, synthetic = { ...good.capability, season: season11, rpc: 'http://127.0.0.1:41944' };
   const capabilityFile = path.join(tmp, 'synthetic-capability.json'); await fsp.writeFile(capabilityFile, JSON.stringify(synthetic));

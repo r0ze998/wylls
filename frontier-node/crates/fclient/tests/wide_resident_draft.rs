@@ -82,11 +82,11 @@ fn proposed_roles_and_host_match_both_actual_native_invocations() {
     for (bytes, digest) in [
         (
             DISSOLVE,
-            "0d46cd2d175c57c947af8e67f14f2d002e18c9e7e7d47fb4a944e98023f39a84",
+            "174fea8fa31dd6530f1ee221d5792c74f64c1657d8b0c0613e2d7d40a8bc19e0",
         ),
         (
             RETURN,
-            "6f22a8e606852e52d87f66e0f2452fd00c6a26aa42716a2fc874feb4643d7da3",
+            "11ffcbd5015593c7a2d330a488a81eb95b9de5ba3910b7d66167f18484452894",
         ),
     ] {
         assert_eq!(

@@ -28,6 +28,15 @@ pub const GEOMETRY_VERSION: u16 = 1;
 /// `ruleset_hash_input_v2` only; [`GEOMETRY_VERSION`] keeps the M1 value
 /// (staged ABI, MC §5.1).
 pub const GEOMETRY_VERSION_V2: u16 = 2;
+/// The S1 rules' version of this kernel (⑧ (a), owner decision t346u,
+/// 2026-11-18): [`home_nation`] takes [`PLACEMENT_MIXED`] (the mixing on
+/// every ring). Strictly by `super::ruleset_hash_input`'s rule ("an
+/// algorithm change that keeps every constant must bump its module's
+/// version"), not the placement-1 precedent. Bound into
+/// `ruleset_hash_input_v3` (and so v4) only; an MC season (program version
+/// 3) refuses placement 2 (`SeasonParamsV2::validate`), so
+/// [`GEOMETRY_VERSION_V2`] and `RULESET_HASH_V2` stay.
+pub const GEOMETRY_VERSION_V3: u16 = 3;
 /// Default outermost heartland ring (`heartland_max_ring`, MC §3.12): the
 /// M1 heartland, rings 2–3.
 pub const HEARTLAND_MAX_RING_DEFAULT: u8 = 3;

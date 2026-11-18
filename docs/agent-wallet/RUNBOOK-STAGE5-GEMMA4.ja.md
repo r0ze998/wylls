@@ -50,7 +50,7 @@ frontier-node/target/release/frontier-stack up --conquest --mode accel --beacon 
   --game-hours 48 --season-end-at-play-end --bots 0 --personas off --prize-so permutation-prize/target/deploy/permutation_prize.so \
   --entry-fee 25000000 --run-id $RUN --base-port 41600 --season 69 &
 # 「s of setup」が出てから、数分待って：
-curl -s http://127.0.0.1:41640/h/season | grep -o '"rulesetHash":"[0-9a-f]*"'   # 234c0dc2…（RULESET_HASH_V3、S1）であること
+curl -s http://127.0.0.1:41640/h/season | grep -o '"rulesetHash":"[0-9a-f]*"'   # 1511ae14…（RULESET_HASH_V3、S1。2026-11-18 の ⑧ (a) で 234c0dc2… から変更）であること
 curl -s http://127.0.0.1:41640/h/status/conquest | grep -o '"conquest":[a-z]*'      # true であること
 curl -s http://127.0.0.1:41640/h/status | grep -o '"rings":\[[^]]*\]'              # ring が 5 つ公開されていること
 frontier-node/target/release/frontier-stack down --run-id $RUN

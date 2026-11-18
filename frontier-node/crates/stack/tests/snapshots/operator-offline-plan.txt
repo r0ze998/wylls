@@ -3,12 +3,12 @@ cluster    devnet (offline: assumes nothing is done yet)
 program    29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2
 authority  3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3
 season     id 1  8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH  preset S1_LOCAL_7D  beacon quicknet
-params     hash fccdba50e3eceacfffeaa1b94a5fa19b9af6a6848d8b0c10cf1c521f64cf0e8b  (CreateSeason data: 352 B params + 28 B payout)
+params     hash 96036dc3b20ef17f3874857b2961a937a02812efa3628d74b4f42bc6a6791bc2  (CreateSeason data: 352 B params + 28 B payout)
 rent       6960 lamports/byte (profile rent.assume; the cluster's own rate is read online)
 t_create_min = chain clock at AnnounceSeason + 86700 s (lead 86400 + margin 300)
 done       nothing
 tx 1  AnnounceSeason  [now]
-      data   57 B: tag 0x08, season_id 1, params_hash fccdba50e3eceacfffeaa1b94a5fa19b9af6a6848d8b0c10cf1c521f64cf0e8b, t_create_min <chain clock at send + 86700>, bond 1,000,000,000
+      data   57 B: tag 0x08, season_id 1, params_hash 96036dc3b20ef17f3874857b2961a937a02812efa3628d74b4f42bc6a6791bc2, t_create_min <chain clock at send + 86700>, bond 1,000,000,000
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
       acct   -w 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
       acct   -- 29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2 program
@@ -17,7 +17,7 @@ tx 1  AnnounceSeason  [now]
       create Season            2048 B  rent    15,144,960  + float 1,000,000,000
       cost   rent 15,144,960 + float 1,000,000,000 + fee 5,000 = 1,015,149,960 lamports
 tx 2  CreateSeason  [after the lead]
-      data   381 B: tag 0x01, sha256 ca70912fc0347357c2054c05a88304784d71f87cde360a8ef5f81d2810996cb2
+      data   381 B: tag 0x01, sha256 9866fb3874c0aee4607916a0a87586ff83965a06faf8facd169272bf76ac60a4
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
       acct   -w 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
       acct   -w 3zDuRfsEXasEJAQZ1A2yU79kwsLceyj8zeDC7qS4bgyG Frontier

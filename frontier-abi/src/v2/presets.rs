@@ -129,10 +129,11 @@ pub const RULESET_HASH_V2: [u8; 32] = [
 /// writes in an S1 season, pinned by `ruleset_hash_v3_is_the_kernels`
 /// against `permutation_rules::frontier::ruleset_hash_v3` (and by the rules
 /// crate's `s1_ruleset_hash_pinned_and_older_hashes_unchanged`). The M1 and
-/// MC hashes are unchanged.
+/// MC hashes are unchanged. Re-pinned 2026-11-18 (⑧ (a): `geometry` 3 for
+/// placement 2): `234c0dc2…422d` → `1511ae14…3ea2`.
 pub const RULESET_HASH_V3: [u8; 32] = [
-    0x23, 0x4c, 0x0d, 0xc2, 0x25, 0xe5, 0xce, 0x32, 0x36, 0x87, 0x75, 0x6b, 0x91, 0x3f, 0x78, 0xe3,
-    0x30, 0x75, 0x7a, 0xbb, 0x96, 0x9d, 0xf2, 0x90, 0x74, 0x5e, 0xae, 0x1e, 0x9a, 0xae, 0x42, 0x2d,
+    0x15, 0x11, 0xae, 0x14, 0x3c, 0x1a, 0x29, 0xfe, 0x89, 0xe3, 0xf6, 0x97, 0xcc, 0xb6, 0x05, 0x31,
+    0x36, 0xe0, 0xf1, 0xa4, 0x05, 0xad, 0xb9, 0x74, 0x84, 0x27, 0x8d, 0x4c, 0x8a, 0x00, 0x3e, 0xa2,
 ];
 
 /// `RULESET_HASH_V4` (workstream 10, a preview): the hash the
@@ -142,8 +143,8 @@ pub const RULESET_HASH_V3: [u8; 32] = [
 /// `RULESET_HASH_V3`: a custody program refuses every S1 season, and the S1
 /// program (which has no custody instructions) refuses every custody one.
 pub const RULESET_HASH_V4: [u8; 32] = [
-    0x2f, 0x43, 0x0c, 0x06, 0x2f, 0xbc, 0x2f, 0x12, 0xf5, 0x87, 0xec, 0xfd, 0x46, 0xc3, 0x8e, 0x57,
-    0x2f, 0x30, 0x3a, 0xa4, 0xcb, 0x6a, 0xbc, 0x6b, 0x3d, 0x78, 0x15, 0x47, 0xfd, 0xf4, 0x86, 0x35,
+    0x04, 0x0f, 0x41, 0x30, 0xce, 0xc9, 0x6c, 0x7b, 0xed, 0xb6, 0x19, 0x8b, 0x1c, 0xd3, 0x8a, 0x9a,
+    0x43, 0xea, 0x7b, 0xe7, 0xa0, 0xf5, 0xc5, 0x7e, 0xca, 0x32, 0x10, 0xb5, 0x11, 0xd7, 0x7f, 0x42,
 ];
 
 /// The conquest block (§5.2.5).
@@ -451,6 +452,12 @@ impl SeasonParamsV2 {
         {
             return Err("program_version");
         }
+        // ⑧ (a): placement 2 is an S1 rule (`geometry` 3, bound into
+        // RULESET_HASH_V3/V4 only); an MC season, whose RULESET_HASH_V2 does
+        // not commit to it, refuses it.
+        if self.cq.placement == PLACEMENT_MIXED && self.base.program_version < PROGRAM_VERSION_S1 {
+            return Err("placement");
+        }
         if self.base.dormant_after_secs != self.cq.dormant_after_secs
             || self.base.release_after_secs != self.cq.release_after_secs
         {
@@ -645,9 +652,12 @@ pub const fn s1(p: SeasonParamsV2) -> SeasonParamsV2 {
 /// `reveal_profile_matches_v2_budgets`).
 pub const REVEAL_LOADED_LIMIT_S1: u32 = 1_867_776;
 
-/// The placement a new playable/devnet season starts with (⑭ R1, owner
-/// decision t346u, 2026-11-18: no wedge pointing at (0,0)).
-pub const PLACEMENT_PLAYABLE: u8 = PLACEMENT_DISPERSED;
+/// The placement a new playable/devnet season starts with (owner decision
+/// t346u, 2026-11-18): ⑭ R1 (no wedge pointing at (0,0)) together with ⑧ (c)
+/// — [`PLACEMENT_MIXED`], the dispersed heartland with the same mixing on
+/// every outer ring and on into the wide land. Only these presets: every
+/// MC preset and `S1_TEST` keep the wedge.
+pub const PLACEMENT_PLAYABLE: u8 = PLACEMENT_MIXED;
 
 /// A season with no centre (⑭ R1): the playable/devnet presets' first homes
 /// are not laid out as six wedges about (0,0) but by
@@ -859,7 +869,12 @@ mod tests {
         assert_eq!(bad(|p| p.cq.relations = 1), Err("relations"));
         assert_eq!(bad(|p| p.cq.flags = 1), Err("flags"));
         assert_eq!(bad(|p| p.cq.placement = 3), Err("placement"));
-        assert_eq!(bad(|p| p.cq.placement = PLACEMENT_MIXED), Ok(()));
+        // ⑧ (a): placement 2 is S1's (RULESET_HASH_V2 does not commit to it)
+        assert_eq!(bad(|p| p.cq.placement = PLACEMENT_MIXED), Err("placement"));
+        assert_eq!(bad(|p| p.cq.placement = PLACEMENT_DISPERSED), Ok(()));
+        let mut s = s1(base);
+        s.cq.placement = PLACEMENT_MIXED;
+        assert_eq!(s.validate(), Ok(()));
         // Map growth: 0 (no extension), or above r_max (16) and ≤ 128.
         assert_eq!(bad(|p| p.cq.r_max_ceiling = 16), Err("r_max_ceiling"));
         assert_eq!(bad(|p| p.cq.r_max_ceiling = 129), Err("r_max_ceiling"));

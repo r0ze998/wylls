@@ -2656,13 +2656,18 @@ pub(crate) fn holding_wedge(coord: ProvinceCoord) -> u8 {
 }
 
 /// Inside dispersed heartland, tickets use the same nation assignment as PlaceHome.
-/// Outside heartland the existing ticket/overflow rule remains unchanged.
-/// [`geometry::PLACEMENT_MIXED`] is the dispersed placement here: in the
-/// heartland the same nation as PlaceHome; outside it the existing
-/// wedge/overflow rule (`wedge_allowed`, tied to the per-wedge crowding
-/// counters), although the outer keeps start mixed — whether outer first
-/// villages should follow the mixed nation instead is a separate rule
-/// question, not decided by ⑧ (i).
+/// Outside heartland the existing ticket/overflow rule remains unchanged
+/// under [`geometry::PLACEMENT_DISPERSED`].
+///
+/// [`geometry::PLACEMENT_MIXED`] (⑧ (b), owner decision t346u, 2026-11-18:
+/// "no rule switch at ring 128/129"): on EVERY ring ≥ 2 a first village
+/// follows the mixed nation (`home_nation`), as the province's keep does.
+/// Past the heartland the legacy rule's overflow branch stays as the escape
+/// hatch: a site in another nation's province is allowed only where
+/// `wedge_allowed` allows it outside the citizen's own wedge (the own wedge
+/// full on the folded Frontier, an adjacent wedge's outermost open ring),
+/// so a crowded nation is never left with no site before θ opens a ring.
+/// (`legacy_allowed` is `wedge_allowed(…)`, `site_wedge` the province's.)
 fn ticket_nation_allowed(
     coord: ProvinceCoord,
     faction: u8,
@@ -2671,11 +2676,15 @@ fn ticket_nation_allowed(
     seed: &[u8; 32],
     legacy_allowed: bool,
 ) -> bool {
+    let ring = coord.ring();
     if (placement == geometry::PLACEMENT_DISPERSED || placement == geometry::PLACEMENT_MIXED)
-        && coord.ring() >= 2
-        && coord.ring() <= u32::from(heartland_max_ring)
+        && ring >= 2
+        && ring <= u32::from(heartland_max_ring)
     {
         geometry::home_nation(coord, placement, heartland_max_ring, seed) == Some(faction)
+    } else if placement == geometry::PLACEMENT_MIXED && ring >= 2 {
+        geometry::home_nation(coord, placement, heartland_max_ring, seed) == Some(faction)
+            || (legacy_allowed && coord.wedge() != Some(faction))
     } else {
         legacy_allowed
     }
@@ -2725,14 +2734,49 @@ mod tests {
                 allowed
             );
             assert_eq!(
-                ticket_nation_allowed(outside, 2, 2, 3, &seed, allowed),
-                allowed,
-                "placement 2 keeps the outer ticket rule"
-            );
-            assert_eq!(
                 ticket_nation_allowed(ProvinceCoord::new(2, 0), 2, 0, 3, &seed, allowed),
                 allowed
             );
+        }
+    }
+
+    /// ⑧ (b): under placement 2 an outer-ring first village follows the mixed
+    /// nation (as the keep does), with the legacy overflow branch (another
+    /// wedge, only when `wedge_allowed` allowed it) as the escape hatch;
+    /// placement 1 keeps the legacy outer rule unchanged.
+    #[test]
+    fn mixed_outer_tickets_follow_the_mixed_nation_with_the_overflow_kept() {
+        let seed = [7u8; 32];
+        for ring in [4u32, 5, 9] {
+            for c in geometry::ring_provinces(ring) {
+                let n = geometry::home_nation(c, 2, 3, &seed).unwrap();
+                let w = c.wedge().unwrap();
+                for f in 0..6u8 {
+                    // no overflow: exactly the mixed nation
+                    let legacy_own = f == w;
+                    assert_eq!(
+                        ticket_nation_allowed(c, f, 2, 3, &seed, legacy_own),
+                        n == f,
+                        "{c:?} f{f}"
+                    );
+                    // the overflow (another wedge, allowed by wedge_allowed)
+                    if f != w {
+                        assert!(ticket_nation_allowed(c, f, 2, 3, &seed, true));
+                    }
+                    // placement 1: the legacy rule past the heartland
+                    for allowed in [false, true] {
+                        assert_eq!(ticket_nation_allowed(c, f, 1, 3, &seed, allowed), allowed);
+                    }
+                }
+            }
+        }
+        // each nation gets exactly r provinces of ring r: none is left out
+        for ring in [4u32, 7] {
+            let mut per = [0u32; 6];
+            for c in geometry::ring_provinces(ring) {
+                per[geometry::home_nation(c, 2, 3, &seed).unwrap() as usize] += 1;
+            }
+            assert_eq!(per, [ring; 6]);
         }
     }
 
