@@ -87,13 +87,22 @@ compile_error!("localnet-conquest-sbf extends the localnet-expedition-sbf lane o
 #[cfg(all(
     feature = "expedition-dispatch-experimental",
     any(
-        feature = "nft-experimental",
         feature = "rights-experimental",
         feature = "capacity-preview",
         feature = "custody-preview"
     )
 ))]
 compile_error!("expedition-dispatch-experimental has an isolated host-only program version");
+// ⑳ (owner decision 2026-11-18 18:26 JST): NFT residents join the
+// expedition revision under their own version 0xC804 (host, and on SBF only
+// through the dedicated NFT lane with its marker and build script).
+#[cfg(all(
+    target_os = "solana",
+    feature = "nft-experimental",
+    feature = "localnet-expedition-sbf",
+    not(feature = "localnet-nft-sbf")
+))]
+compile_error!("nft-experimental on the localnet SBF lane requires localnet-nft-sbf (its marker and build script)");
 
 // Public-fixture proof arithmetic is confined to host unit tests. It must
 // never enable the separate native gameplay experiment or another beacon.
@@ -215,8 +224,18 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
         0
     }
     | capacity_bit();
-#[cfg(feature = "expedition-dispatch-experimental")]
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    not(feature = "nft-experimental")
+))]
 pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
+/// ⑳: the expedition revision with NFT residents (0xC804, provisional).
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    feature = "nft-experimental"
+))]
+pub const PROGRAM_VERSION: u16 =
+    frontier_abi::world_index::expedition_dispatch_ix::RESIDENT_PROGRAM_VERSION;
 
 /// The only program id the `localnet-expedition-sbf` lane runs under. Not a
 /// keypair's public key; production ids come from deploy keypairs and are

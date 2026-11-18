@@ -1,7 +1,8 @@
 // ⑳ NFT residents (provisional, nft-experimental programs): the page's NFT
 // choice before the first login.
 //
-//   GET /f/residents?owner=<wallet>  → {residents: [{asset, generation, citizen, joined, link}], policy} | {residents: [], policy: null}
+//   GET /f/residents?owner=<wallet>  → {residents: [{asset, generation, citizen, joined, link}], policy, terms} | {residents: [], policy: null, terms}
+//   (`terms`: ⑳'s undecided-item defaults, `../resident-terms.mjs`)
 //   (`joined`: this season's NFT Citizen exists; `link`: this season's link exists — one link per season and NFT, so it matches `joined`)
 //
 // The relay reads, for the season it serves: the Frontier program's resident
@@ -17,6 +18,7 @@ import { PublicKey } from '@solana/web3.js';
 import { encode as b58 } from '../../../client/src/base58.mjs';
 import { decodeAssetOwner, decodeResident, linkAddress, policyAddress, residentAddress, residentCitizen } from '../../../client/src/frontier/resident.mjs';
 import { RouteError } from '../../routes/errors.mjs';
+import { RESIDENT_TERMS } from '../resident-terms.mjs';
 
 /** The policy record (`PSFNP002`, 136 B) → its four addresses, or null. */
 export function decodePolicy(d) {
@@ -79,6 +81,7 @@ export const residentRoutes = {
   'GET /f/residents': async (ctx, req) => {
     const owner = req.url.searchParams.get('owner') ?? '';
     try { new PublicKey(owner); } catch { throw new RouteError(400, 'owner: a base58 wallet address', 'BadRequest'); }
-    return { body: await listResidents({ connection: ctx.connection, owner, addrs: residentAddrs(ctx) }) };
+    // ⑳: the undecided-item defaults this build runs with (not owner decisions), for the page to state.
+    return { body: { ...(await listResidents({ connection: ctx.connection, owner, addrs: residentAddrs(ctx) })), terms: RESIDENT_TERMS } };
   },
 };

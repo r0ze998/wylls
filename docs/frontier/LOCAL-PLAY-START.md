@@ -68,6 +68,24 @@ scripts/build-frontier-localnet-conquest-sbf.sh
   `wide-world-experimental` refuses:
   `(cd frontier-node && cargo build --locked -p herald --features local-play-bootstrap,wide-world-experimental --bin frontier-herald)`.
 
+### 2a. ⑳ NFT resident ID lane (owner decision 2026-11-18 18:26 JST: devnet/local only, no sale)
+Reopened 2026-11-18 by owner; devnet/local only. A separate artefact of the same lane with the NFT resident
+instructions (`nft-experimental`: CreateResidentPolicy 0xE0, JoinResident 0xE1, ResidentAct 0xE2):
+
+```bash
+# writes permutation-frontier/target/deploy-localnet-nft-sbf/permutation_frontier.so (version 0xC804; never deployable)
+scripts/build-frontier-localnet-nft-sbf.sh
+# the local play check on that artefact (an NFT resident and a wallet player in one world, then a transfer)
+(cd frontier-node && WYLLS_NFT_SBF=$SO WYLLS_NFT_SBF_SHA256=$SHA \
+  cargo test --locked -p itest --features localnet-nft-harness --test localnet_nft_resident -- --nocapture)
+```
+
+- The launcher (§3) does **not** start this artefact yet: its runner, herald metadata check and the keeper's
+  expedition prepare tools accept only version `0x4804`. The NFT lane's Seasons are `0xC804`.
+- Metaplex Core and the resident program are not run locally: the harness writes the asset and the resident record
+  in the state their instructions leave (`frontier-node/crates/itest/tests/localnet_nft_resident.rs`, module doc).
+- The undecided items run on the defaults of `frontier-abi/src/resident_terms.rs` (not owner decisions).
+
 ## 3. Start
 Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret). Put each path in
 a shell variable first, as absolute paths:

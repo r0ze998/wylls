@@ -15,7 +15,7 @@
     "soLenCap": 1441792,
     "soLenCapSource": "frontier-abi/src/v2/budgets.rs PLACEHOLDER_SO_LEN_S1: the L(kind) loaded-data limits of the S1 program are computed for a .so no longer than this",
     "minSolanaCli": "4.0.0 (plan.mjs MIN_SOLANA_CLI): the CLI verifies the ELF with its own syscall table before sending, and 3.1.x does not know sol_curve_decompress / sol_curve_pairing_map. The build stays on cargo-build-sbf 3.1.9.",
-    "refusedMarkers": ["PSF_ORACLE_BUILD", "PSF_TRACE_BUILD", "PSF_TEST_BEACON_BUILD", "PSF_CUSTODY_PREVIEW_BUILD", "PSF_LOCALNET_EXPEDITION_SBF_BUILD", "PSF_LOCALNET_CONQUEST_SBF_BUILD", "PSF_RIGHTS_EXPERIMENTAL_BUILD"]
+    "refusedMarkers": ["PSF_ORACLE_BUILD", "PSF_TRACE_BUILD", "PSF_TEST_BEACON_BUILD", "PSF_CUSTODY_PREVIEW_BUILD", "PSF_LOCALNET_EXPEDITION_SBF_BUILD", "PSF_LOCALNET_CONQUEST_SBF_BUILD", "PSF_RIGHTS_EXPERIMENTAL_BUILD", "PSF_NFT_EXPERIMENTAL_BUILD", "PSF_LOCALNET_NFT_SBF_BUILD"]
   },
   "rent": {
     "formula": "rent_exempt(len) = (128 + len) x lamports_per_byte",
@@ -74,6 +74,23 @@
       { "name": "AnchorArchive per day (16 regions x 2 half-days), never closed while the world runs [model]", "bytes": 6144, "count": 32 }
     ]
   },
+  "nftResident": {
+    "status": "Reopened 2026-11-18 by owner; devnet/local only (no mainnet issuance, no sale, no price, no royalties)",
+    "build": ["scripts/build-frontier.sh", "--features", "nft-experimental"],
+    "so": "permutation-frontier/target/deploy-nft-experimental/permutation_frontier.so",
+    "marker": "PSF_NFT_EXPERIMENTAL_BUILD",
+    "programVersion": "0x8004 (PROGRAM_VERSION_S1 | resident bit 0x8000, provisional; workstream 4)",
+    "terms": { "transfer": "allowed (U7; nft-resident-no-transfer = soulbound)", "memoryAndTalk": "not carried to a new holder (U8/U9)", "voting": "kept by the resident (U5)", "obligations": "moved with the resident (U17)", "sealed": "until public time (U10)", "perWallet": "many (U31)", "migration": "none (U6/U38)", "sale": "none (U1/U20/U24/U30)" },
+    "notPlanned": [
+      "the resident program (permutation-nft-resident-spike/program, wylls_resident_program) and Metaplex Core on devnet: no build, cost or deploy step here (U22, U25, U26)",
+      "the collection and its authority, CreateResidentPolicy (0xE0, signed by the upgrade authority) (U2, U23, U27, U29)",
+      "minting: no sale path; waitlist only (U1, U24, U31)",
+      "AnnounceSeason/CreateSeason of a 0x8004 Season: SeasonParamsV2::validate accepts only 3 and 4 (no tool exists yet)"
+    ],
+    "sendBlocked": [
+      "--nft-resident: ⑳ is devnet-ready only; deploying it needs r0ze's confirmation and the items under notPlanned (no deploy, key or SOL without it)"
+    ]
+  },
   "services": {
     "herald": { "listen": "127.0.0.1:41040", "public": "only through a TLS reverse proxy" },
     "relay": { "port": 41030, "publicPort": 41033, "public": "never directly; the herald proxies /gw/*" },
@@ -82,7 +99,7 @@
   },
   "excluded": {
     "permutation-prize": "owner decision 17 = A (no prize): not deployed",
-    "wylls_resident_program (NFT)": "owner decision 20 = A (no NFT resident): not deployed",
+    "wylls_resident_program (NFT)": "owner decision 20 reopened 2026-11-18 18:26 JST (devnet/local only, no sale): not in the default plan; see nftResident and dry-run.mjs --nft-resident",
     "permutation-chain (v9)": "superseded by permutation-frontier: not deployed"
   }
 }

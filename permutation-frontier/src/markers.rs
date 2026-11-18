@@ -11,6 +11,8 @@
 //! | `custody-preview` | `PSF_CUSTODY_PREVIEW_BUILD` (workstream 10: not a test build, but not deployable until verified) |
 //! | `localnet-expedition-sbf` | `PSF_LOCALNET_EXPEDITION_SBF_BUILD` (isolated localnet lane, never deployable) |
 //! | `localnet-conquest-sbf` | `PSF_LOCALNET_CONQUEST_SBF_BUILD`, in addition to the expedition lane's marker (isolated localnet conquest lane, never deployable) |
+//! | `nft-experimental` | `PSF_NFT_EXPERIMENTAL_BUILD` (⑳ NFT resident ID, local and devnet only; never in the plain deployable build) |
+//! | `localnet-nft-sbf` | `PSF_LOCALNET_NFT_SBF_BUILD`, in addition to both localnet markers (the playable lane with NFT residents, never deployable) |
 //! | `rights-experimental` | `PSF_RIGHTS_EXPERIMENTAL_BUILD` (workstream 02, option A; never deployable; `build-frontier.sh --features rights-test-beacon` builds it with `test-beacon` for LiteSVM) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
@@ -26,6 +28,8 @@ pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
 pub const LOCALNET_EXPEDITION_SBF: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 pub const LOCALNET_CONQUEST_SBF: &[u8] = b"PSF_LOCALNET_CONQUEST_SBF_BUILD";
 pub const RIGHTS_EXPERIMENTAL: &[u8] = b"PSF_RIGHTS_EXPERIMENTAL_BUILD";
+pub const NFT_EXPERIMENTAL: &[u8] = b"PSF_NFT_EXPERIMENTAL_BUILD";
+pub const LOCALNET_NFT_SBF: &[u8] = b"PSF_LOCALNET_NFT_SBF_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -38,6 +42,8 @@ pub fn touch() {
     core::hint::black_box(CUSTODY_PREVIEW.as_ptr());
     #[cfg(feature = "rights-experimental")]
     core::hint::black_box(RIGHTS_EXPERIMENTAL.as_ptr());
+    #[cfg(feature = "nft-experimental")]
+    core::hint::black_box(NFT_EXPERIMENTAL.as_ptr());
 }
 
 /// Keeps the `localnet-expedition-sbf` marker alive (called by the lane's
@@ -48,6 +54,8 @@ pub fn touch_localnet_expedition_sbf() {
     core::hint::black_box(LOCALNET_EXPEDITION_SBF.as_ptr());
     #[cfg(feature = "localnet-conquest-sbf")]
     core::hint::black_box(LOCALNET_CONQUEST_SBF.as_ptr());
+    #[cfg(feature = "localnet-nft-sbf")]
+    core::hint::black_box(LOCALNET_NFT_SBF.as_ptr());
 }
 
 /// Keeps the `test-beacon` marker alive (called by every beacon
@@ -86,6 +94,8 @@ mod tests {
             LOCALNET_EXPEDITION_SBF,
             LOCALNET_CONQUEST_SBF,
             RIGHTS_EXPERIMENTAL,
+            NFT_EXPERIMENTAL,
+            LOCALNET_NFT_SBF,
         ] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),
@@ -125,5 +135,44 @@ mod tests {
         // the expedition lane wants only its own marker, so a conquest marker in it is refused
         assert!(!script.contains("localnet-expedition-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD"));
         assert!(script.contains("PSF_LOCALNET_CONQUEST_SBF_LANE"));
+    }
+
+    /// ⑳: only the NFT lane's script builds the playable lane with NFT
+    /// residents, it wants all four markers, and no other lane accepts an
+    /// NFT marker.
+    #[test]
+    fn the_nft_lane_is_its_own_artefact() {
+        let cargo = include_str!("../Cargo.toml");
+        let line = |name: &str| {
+            cargo
+                .lines()
+                .find(|l| l.starts_with(&format!("{name} = ")))
+                .unwrap_or_else(|| panic!("{name} feature"))
+        };
+        assert_eq!(
+            line("localnet-nft-sbf"),
+            r#"localnet-nft-sbf = ["localnet-conquest-sbf", "nft-experimental"]"#
+        );
+        assert!(!line("localnet-conquest-sbf").contains("nft"));
+        let lib = include_str!("lib.rs");
+        assert!(
+            lib.contains(
+                "feature = \"localnet-expedition-sbf\",\n    not(feature = \"localnet-nft-sbf\")"
+            ),
+            "SBF guard present"
+        );
+        let script = include_str!("../../scripts/build-frontier.sh");
+        for m in [
+            "PSF_LOCALNET_EXPEDITION_SBF_BUILD",
+            "PSF_LOCALNET_CONQUEST_SBF_BUILD",
+            "PSF_LOCALNET_NFT_SBF_BUILD",
+            "PSF_NFT_EXPERIMENTAL_BUILD",
+        ] {
+            assert!(script.contains(&format!("localnet-nft-sbf:{m}")), "{m}");
+        }
+        assert!(script.contains("nft-experimental:PSF_NFT_EXPERIMENTAL_BUILD"));
+        assert!(!script.contains("localnet-conquest-sbf:PSF_NFT_EXPERIMENTAL_BUILD"));
+        assert!(!script.contains("nft-experimental:PSF_LOCALNET_NFT_SBF_BUILD|"));
+        assert!(script.contains("PSF_LOCALNET_NFT_SBF_LANE"));
     }
 }

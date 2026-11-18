@@ -185,7 +185,7 @@ export function dataRelocsWithAddend(d) {
 }
 
 /** Checks the deployable .so the way scripts/build-frontier.sh does, plus the L(kind) size cap. */
-export function checkSo(buf, profile) {
+export function checkSo(buf, profile, { nftResident = false } = {}) {
   const problems = [];
   const isElf = buf.length >= 64 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
   if (!isElf) return { problems: ['not an ELF file'] };
@@ -193,8 +193,11 @@ export function checkSo(buf, profile) {
   if (eFlags !== 2) problems.push(`e_flags ${eFlags}, not 2 (SBPF v2)`);
   const overflowPanics = count(buf, /attempt to (add|subtract|multiply) with overflow/g);
   if (!overflowPanics) problems.push('built without overflow checks (no overflow panic message)');
-  const markers = profile.program.refusedMarkers.filter(m => buf.includes(Buffer.from(m, 'latin1')));
+  // ⑳ --nft-resident: the nft-experimental build carries its own marker (wanted), every other one is refused.
+  const wanted = nftResident ? profile.nftResident.marker : null;
+  const markers = profile.program.refusedMarkers.filter(m => m !== wanted && buf.includes(Buffer.from(m, 'latin1')));
   for (const m of markers) problems.push(`carries ${m} (a test or localnet build; never deployable)`);
+  if (wanted && !buf.includes(Buffer.from(wanted, 'latin1'))) problems.push(`--nft-resident: marker ${wanted} missing (not a build-frontier.sh --features nft-experimental artefact)`);
   const relocs = dataRelocsWithAddend(buf);
   if (relocs) problems.push(`${relocs} data relocation(s) with a non-zero addend`);
   const soLen = buf.length;
@@ -234,6 +237,8 @@ export function keyFileProblems(label, file, { stat, repoRoot, uid }) {
 
 export function sendProblems(opts, { profile, so, stat, repoRoot, uid }) {
   const out = [];
+  // ⑳ (owner decision 2026-11-18 18:26 JST: devnet-ready, but no deploy, keys or SOL without r0ze's confirmation).
+  if (opts.nftResident) out.push(...profile.nftResident.sendBlocked);
   if (!opts.approval) out.push(`${APPROVAL_FLAG} not given: dry run only`);
   out.push(...keyFileProblems('--keypair', opts.keypair, { stat, repoRoot, uid }));
   out.push(...keyFileProblems('--program-keypair', opts.programKeypair, { stat, repoRoot, uid }));
@@ -288,6 +293,7 @@ export function parseArgs(argv) {
       case '--build': o.build = true; break;
       case '--twice': o.twice = true; break;
       case '--json': o.json = true; break;
+      case '--nft-resident': o.nftResident = true; break;
       case '--profile': o.profile = val(i, a); i++; break;
       case '--so': o.so = val(i, a); i++; break;
       case '--rpc': o.rpcUrl = val(i, a); i++; break;
@@ -304,17 +310,27 @@ export function parseArgs(argv) {
   return o;
 }
 
-export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json]
+export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json] [--nft-resident]
   Dry run (default): checks the .so, computes the devnet cost and prints the plan. Sends nothing.
+  --nft-resident (⑳, devnet/local only, no sale): plan the nft-experimental build instead
+  (build-frontier.sh --features nft-experimental, marker PSF_NFT_EXPERIMENTAL_BUILD); its send gate stays closed.
   Send (r0ze only): add ${APPROVAL_FLAG} --keypair FILE --program-keypair FILE --upgrade-authority FILE --approved-sha256 HEX
   (key files: absolute paths, mode 600, outside the repository; never read by this script;
    Solana CLI ${MIN_SOLANA_CLI.join('.')} or newer: 3.1.x cannot verify this program's BLS12-381 syscalls).`;
 
 // ---------------------------------------------------------------- the run
 
-function planText({ profile, so, soPath, costs, season, rate, commands, blocked }) {
+function planText({ profile, so, soPath, costs, season, rate, commands, blocked, nftResident }) {
   const L = [];
   L.push('WYLLS devnet deploy plan (DRY RUN unless the gate below says OPEN)');
+  if (nftResident) {
+    const n = profile.nftResident;
+    L.push(`with ⑳ NFT resident ID (${n.status})`);
+    L.push(`  build ${n.build.join(' ')}  marker ${n.marker}  version ${n.programVersion}`);
+    L.push(`  terms (defaults, not owner decisions): ${Object.entries(n.terms).map(([k, v]) => `${k}=${v}`).join(', ')}`);
+    L.push('  also needed on devnet, NOT planned here:');
+    for (const r of n.notPlanned) L.push(`    - ${r}`);
+  }
   L.push(`cluster ${profile.cluster}  rpc ${profile.rpcUrl}`);
   L.push(`program ${profile.programId}`);
   L.push(`upgrade authority ${profile.upgradeAuthority}`);
@@ -373,7 +389,8 @@ export function run(argv, io) {
   const rate = opts.rate ?? profile.rent.assume;
   if (!profile.rent.lamportsPerByteCandidates.includes(rate)) { io.err(`--rate ${rate}: one of ${profile.rent.lamportsPerByteCandidates.join(', ')}`); return 2; }
 
-  const soPath = opts.so ?? `${io.repoRoot}/${profile.program.so}`;
+  if (opts.nftResident && !profile.nftResident) { io.err('--nft-resident: the profile has no nftResident section'); return 2; }
+  const soPath = opts.so ?? `${io.repoRoot}/${opts.nftResident ? profile.nftResident.so : profile.program.so}`;
   if (opts.build) {
     // cargo-build-sbf writes <name>-keypair.json next to the .so when the file is missing
     // (agave v3.1.9 platform-tools-sdk/cargo-build-sbf/src/post_processing.rs: `if !program_keypair.exists()`),
@@ -383,11 +400,12 @@ export function run(argv, io) {
     try {
       if (!io.exists(holder)) { io.mkdir(path.posix.dirname(holder)); io.writeFile(holder, 'PLACEHOLDER: not a key. Exists so cargo-build-sbf skips program-keypair generation (scripts/devnet/dry-run.mjs).\n'); }
     } catch (e) { io.err(`cannot write the keypair placeholder ${holder}: ${e.message}`); return 3; }
-    const r = io.exec(`${io.repoRoot}/${profile.program.build}`, opts.twice ? ['--twice'] : [], { cwd: io.repoRoot });
-    if (r.status !== 0) { io.err(`build failed (${profile.program.build}, exit ${r.status})`); return 3; }
+    const [script, ...extra] = opts.nftResident ? profile.nftResident.build : [profile.program.build];
+    const r = io.exec(`${io.repoRoot}/${script}`, [...(opts.twice ? ['--twice'] : []), ...extra], { cwd: io.repoRoot });
+    if (r.status !== 0) { io.err(`build failed (${script}, exit ${r.status})`); return 3; }
   }
   if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (scripts/build-frontier.sh)`); return 3; }
-  const so = checkSo(io.readFile(soPath), profile);
+  const so = checkSo(io.readFile(soPath), profile, { nftResident: !!opts.nftResident });
   const costs = profile.rent.lamportsPerByteCandidates.map(r => deployCost({ soLen: so.soLen ?? 0, maxLen: so.maxLen ?? 0, rate: r, ...profile.fees }));
   const season = seasonCost(profile.season, rate);
   const dumpPath = `${io.tmpDir}/wylls-devnet-dump.so`;
@@ -395,8 +413,8 @@ export function run(argv, io) {
   const blocked = sendProblems(opts, { profile, so, stat: io.stat, repoRoot: io.repoRoot, uid: io.uid });
   if (opts.json) {
     const big = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
-    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId }, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked }, big, 2));
-  } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked }));
+    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId }, nftResident: opts.nftResident ? profile.nftResident : undefined, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked }, big, 2));
+  } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked, nftResident: !!opts.nftResident }));
   if (so.problems.length) return 3;
   if (blocked.length) return 0;
 

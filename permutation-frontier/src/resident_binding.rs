@@ -12,7 +12,7 @@
 //! world, the same pass in every world. The holder's authority (Core owner,
 //! resident generation and session) is global and read on every instruction.
 
-use frontier_abi::{resident_auth, resident_binding, resident_policy};
+use frontier_abi::{resident_auth, resident_binding, resident_policy, resident_terms};
 use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
 
 const LINK_SEED: &[u8] = b"nft-citizen-link";
@@ -171,7 +171,16 @@ fn check_actor(
         now,
         session_allowed,
     )
-    .map_err(|e| ProgramError::Custom(e.error().code()))
+    .map_err(|e| ProgramError::Custom(e.error().code()))?;
+    // ⑳ U7 switch (`frontier_abi::resident_terms`): with transfers refused
+    // (feature `nft-resident-no-transfer`), only the first holder acts.
+    // `authorize` has just checked that `generation` is the current one.
+    if !resident_terms::ACTIVE.holder_may_act(generation) {
+        return Err(ProgramError::Custom(
+            resident_auth::Refusal::NotCurrentAuthority.error().code(),
+        ));
+    }
+    Ok(())
 }
 
 /// Verify the immutable canonical link and current owner/session at the same

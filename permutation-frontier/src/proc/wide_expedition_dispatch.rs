@@ -2,7 +2,7 @@
 //! The old outbound gate and raw private codecs remain closed. No caller may
 //! supply a proof verdict, receipt or prepared state instead of runtime inputs.
 use super::*;
-use frontier_abi::world_index::expedition_dispatch_ix::{Command, Kind, PROGRAM_VERSION};
+use frontier_abi::world_index::expedition_dispatch_ix::{is_dispatch_version, Command, Kind};
 
 pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
     let command = Command::decode(data)?;
@@ -19,8 +19,11 @@ pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
     if sd.len() != frontier_abi::v2::layout::AccountKind::Season.size() {
         return Err(BAD_ACCOUNT);
     }
-    if Ro(&sd).u16(S::PROGRAM_VERSION)? != PROGRAM_VERSION
-        || crate::PROGRAM_VERSION != PROGRAM_VERSION
+    // This binary's own exact version, which must be a dispatch revision
+    // (0x4804, or 0xC804 with ⑳'s NFT residents): each lane runs only its
+    // own Seasons.
+    if Ro(&sd).u16(S::PROGRAM_VERSION)? != crate::PROGRAM_VERSION
+        || !is_dispatch_version(crate::PROGRAM_VERSION)
     {
         return Err(FrontierError::RulesetMismatch.into());
     }

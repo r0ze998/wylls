@@ -50,6 +50,15 @@ localnet-expedition-harness = ["fclient/expedition-dispatch-experimental", "fron
 # ClaimLandYield on the program's provisional land tags. Off by default.
 localnet-land-play = ["localnet-expedition-play", "frontier-abi/land-preview", "permutation-rules/land-preview"]
 
+# ⑳ NFT resident ID (owner decision 2026-11-18 18:26 JST, local and devnet only): the localnet harness of the
+# NFT lane artefact (scripts/build-frontier-localnet-nft-sbf.sh). Same crates and features as the local-play
+# runner (no new dependency); off by default.
+localnet-nft-harness = ["localnet-expedition-play"]
+
+[[test]]
+name = "localnet_nft_resident"
+required-features = ["localnet-nft-harness"]
+
 [[test]]
 name = "localnet_expedition_depart"
 required-features = ["localnet-expedition-harness"]

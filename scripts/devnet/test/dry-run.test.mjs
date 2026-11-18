@@ -348,3 +348,43 @@ test('--json gives machine-readable numbers', () => {
   assert.equal(j.rate, 5080);
   assert.equal(j.costs.length, 6);
 });
+
+// ⑳ NFT resident ID (owner decision 2026-11-18 18:26 JST: devnet/local only, no sale).
+const NFT_SO = `${REPO}/permutation-frontier/target/deploy-nft-experimental/permutation_frontier.so`;
+
+test('--nft-resident plans the nft-experimental build, wants its marker and keeps the gate closed', () => {
+  const { io, logs } = fakeIo({ files: { [NFT_SO]: fakeSo({ marker: 'PSF_NFT_EXPERIMENTAL_BUILD' }) } });
+  assert.equal(run(['--nft-resident'], io), 0);
+  const out = logs.join('\n');
+  assert.match(out, /with ⑳ NFT resident ID \(Reopened 2026-11-18 by owner; devnet\/local only/);
+  assert.match(out, /build scripts\/build-frontier\.sh --features nft-experimental/);
+  assert.match(out, /checks pass/);
+  assert.match(out, /SEND GATE: CLOSED[\s\S]*--nft-resident: ⑳ is devnet-ready only/);
+});
+
+test('--nft-resident refuses an artefact without the NFT marker or with a localnet marker', () => {
+  for (const [marker, want] of [[null, /marker PSF_NFT_EXPERIMENTAL_BUILD missing/], ['PSF_LOCALNET_NFT_SBF_BUILD', /carries PSF_LOCALNET_NFT_SBF_BUILD/]]) {
+    const { io, logs } = fakeIo({ files: { [NFT_SO]: fakeSo({ marker }) } });
+    assert.equal(run(['--nft-resident'], io), 3);
+    assert.match(logs.join('\n'), want);
+  }
+});
+
+test('the default plan refuses the NFT builds', () => {
+  for (const marker of ['PSF_NFT_EXPERIMENTAL_BUILD', 'PSF_LOCALNET_NFT_SBF_BUILD']) {
+    const { io, logs } = fakeIo({ files: { [SO_PATH]: fakeSo({ marker }) } });
+    assert.equal(run([], io), 3);
+    assert.match(logs.join('\n'), new RegExp(`carries ${marker}`));
+  }
+});
+
+test('--nft-resident --build runs build-frontier.sh with the nft-experimental feature, and the gate stays closed even when everything else is given', () => {
+  const { io, calls, logs } = fakeIo({ files: { [NFT_SO]: fakeSo({ marker: 'PSF_NFT_EXPERIMENTAL_BUILD' }) }, addresses: { [KEYS.program]: PROGRAM, [KEYS.auth]: AUTHORITY } });
+  const so = checkSo(io.readFile(NFT_SO), filled(), { nftResident: true });
+  assert.deepEqual(so.problems, []);
+  const argv = ['--nft-resident', '--build', APPROVAL_FLAG, '--keypair', KEYS.payer, '--program-keypair', KEYS.program, '--upgrade-authority', KEYS.auth, '--approved-sha256', so.sha256];
+  assert.equal(run(argv, io), 0);
+  assert.deepEqual(calls[0], [`${REPO}/scripts/build-frontier.sh`, ['--features', 'nft-experimental']]);
+  assert.ok(!calls.some(([c]) => c === 'solana'), 'nothing is sent');
+  assert.match(logs.join('\n'), /SEND GATE: CLOSED/);
+});
