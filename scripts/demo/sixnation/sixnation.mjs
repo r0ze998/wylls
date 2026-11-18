@@ -115,13 +115,16 @@ export async function main(argv = process.argv.slice(2)) {
     // 3. the player page starts the world and joins the seed's nation
     browser = await pw.chromium.launch({ headless: true });
     const { w, h } = opts.tile;
-    const newView = async (name, label) => {
+    const newView = async (name, label, { follow = true } = {}) => {
       const t0 = Date.now();
       const ctx = await browser.newContext({ viewport: { width: w, height: h }, locale: 'en-US', recordVideo: { dir: path.join(out, 'views', '.raw'), size: { width: w, height: h } } });
       await ctx.addInitScript(text => {
         addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.textContent = text; d.setAttribute('aria-hidden', 'true');
           d.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:2147483647;pointer-events:none;background:rgba(0,0,0,.72);color:#fff;font:600 13px system-ui;padding:3px 8px;border-radius:4px'; document.documentElement.appendChild(d); });
       }, label);
+      // (a nation's view stays on its nation: the spectator's camera-follows-battles switch, the page's own stored
+      //  choice `ps-fwatch:v1`, is set off in that view's own isolated storage before the page loads)
+      if (!follow) await ctx.addInitScript(() => { try { localStorage.setItem('ps-fwatch:v1', '0'); } catch { /* none */ } });
       const page = await ctx.newPage();
       const errors = [];
       page.on('pageerror', e => errors.push(String(e).slice(0, 300)));
@@ -172,7 +175,7 @@ export async function main(argv = process.argv.slice(2)) {
     const nationViews = [];
     for (const n of [0, 1, 2, 3, 4, 5]) {
       const r = ready.residents.find(x => x.faction === n);
-      nationViews.push(Object.assign(await newView(`nation-${n}-${NATIONS[n].toLowerCase()}`, `${NATIONS[n]} — operator AI resident ${r?.resident ?? '?'}${n === plan.player ? ' (+ player, test participants)' : ''}`), { nation: n, resident: r }));
+      nationViews.push(Object.assign(await newView(`nation-${n}-${NATIONS[n].toLowerCase()}`, `${NATIONS[n]} — operator AI resident ${r?.resident ?? '?'}${n === plan.player ? ' (+ player, test participants)' : ''}`, { follow: false }), { nation: n, resident: r }));
     }
     const dash = await newView('summary', 'live summary (operators.out + herald)');
     for (const v of [overview, ...nationViews]) await v.page.goto(spectate, { waitUntil: 'domcontentloaded' });
@@ -189,6 +192,9 @@ export async function main(argv = process.argv.slice(2)) {
         await delay(800);
         const village = summarize(jsonLines(fs.readFileSync(path.join(worldDir, 'operators.out'), 'utf8'))).nations.find(x => x.nation === v.nation)?.village;
         const [p, q] = village ? village.split(',') : [];
+        // (an open province card stands in place of the highlights: put the selection away first, as its × does)
+        await v.page.evaluate(() => document.querySelector('[data-act=sel-clear]')?.click());
+        await delay(600);
         const went = await v.page.evaluate(([p, q]) => {
           const all = [...document.querySelectorAll('#panel [data-act=goto]')];
           const b = all.find(x => p !== undefined && x.dataset.p === p && x.dataset.q === q) ?? all[0];
