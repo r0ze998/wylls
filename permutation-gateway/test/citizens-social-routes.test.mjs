@@ -258,10 +258,18 @@ test('the real herald client (createHerald over HTTP, real Citizen and Holding b
   const holding = accountBytes('Holding', { SEASON_ID: SEASON, STATE: 2, FACTION: 3 });
   const citizen = accountBytes('Citizen', { SEASON_ID: SEASON, WALLET: alice.wallet, SESSION: alice.key.pub, SESSION_EXPIRY: UNIX0 + 10 ** 6, FACTION: 3, HOLDINGS_N: 1, CITIZEN_TAG: alice.tag });
   void u64;
+  const incomplete = makeCitizen('real-incomplete', { faction: 3 });
   const server = createServer((req, res) => {
+    // The me record as the herald serves it (ac16d39e: the client refuses one without the `slots` list as incomplete;
+    // the recorded answer in fixtures/ai-social-me-recorded.json carries `slots: []` too).
+    const me = { v: 1, wallet: alice.b58, citizen: { address: 'x', bytes_b64: toBase64(citizen) }, holdings: [{ address: 'y', bytes_b64: toBase64(holding) }], slots: [] };
     if (req.url === `/h/me/${alice.b58}`) {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ v: 1, wallet: alice.b58, citizen: { address: 'x', bytes_b64: toBase64(citizen) }, holdings: [{ address: 'y', bytes_b64: toBase64(holding) }] }));
+      res.end(JSON.stringify(me));
+    } else if (req.url === `/h/me/${incomplete.b58}`) {
+      // the same record without `slots`: an incomplete view
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ...me, wallet: incomplete.b58, slots: undefined }));
     } else { res.writeHead(404); res.end('{}'); }
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -287,6 +295,9 @@ test('the real herald client (createHerald over HTTP, real Citizen and Holding b
     const clock = makeClock();
     const social = createSocial({ herald: createHerald({ base, seasonId: String(SEASON) }), roster: { season: SEASON }, clock, season: SEASON });
     assert.equal((await post(social, '/f/ai/talk', builders(clock).talk(w0.cits.alice, {}).body)).body.code, 'NotEligible');
+    // a me record without its `slots` list is an incomplete view: the herald "could not be asked", never a pass
+    const half = await post(social, '/f/ai/talk', builders(clock).talk(incomplete, { channel: 1, target: 3, text: 'half a record' }).body);
+    assert.deepEqual([half.status, half.body.code], [503, 'HeraldUnavailable'], JSON.stringify(half.body));
   } finally {
     await new Promise(r => server.close(r));
   }

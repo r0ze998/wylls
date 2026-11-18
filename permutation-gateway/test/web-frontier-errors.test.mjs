@@ -151,6 +151,27 @@ test('every code the page\'s own modules return has a text', () => {
   assert.deepEqual(missing, [], 'page codes without a text');
 });
 
+// (B3 of the loop-play report, 2026-11-18) The ⑦ codes of 2026-11-17 that had no text. The ones that stop before a
+// send say that nothing was sent; the generic `Error` (it can stand for a thrown order) says neither "not sent" nor
+// "try again"; the board's unread view names its code as BadConfig does.
+test('the page codes of ⑦ (2026-11-17) say what did not happen, and the generic Error asks for no blind retry', () => {
+  for (const code of ['ScopeChanged', 'ContextChanged', 'ExploreChanged', 'S1PrepChanged']) {
+    setLang('ja'); assert.match(fi18n.failureText({ code }), /変わりました。.*(送っていません|受け取っていません)/, code);
+    setLang('en'); assert.match(fi18n.failureText({ code }), /changed while .*(not sent|nothing was sent|not collected)/i, code);
+  }
+  setLang('ja');
+  assert.match(fi18n.failureText({ code: 'ExploreNone' }), /受け取る探索の結果がありません/);
+  assert.match(fi18n.failureText({ code: 'BadView' }), /協力の板.*BadView/);
+  const ja = fi18n.failureText({ code: 'Error' });
+  assert.match(ja, /確かめてください/); assert.doesNotMatch(ja, /送っていません|送りませんでした|もう一度試|再送してください/);
+  setLang('en');
+  assert.match(fi18n.failureText({ code: 'ExploreNone' }), /no exploration result to collect/);
+  assert.match(fi18n.failureText({ code: 'BadView' }), /co-op board.*BadView/);
+  const en = fi18n.failureText({ code: 'Error' });
+  assert.match(en, /check whether it was recorded/); assert.doesNotMatch(en, /not sent|try again|send it again/i);
+  setLang('ja');
+});
+
 test('failureText: number, then name, then the page\'s codes, then the HTTP status; unknowns say so', () => {
   setLang('en');
   assert.equal(fi18n.failureText({ code: 'HostInTransit' }), fi18n.errorText(58));
