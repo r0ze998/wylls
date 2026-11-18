@@ -73,3 +73,5 @@ scripts/play-local.sh
     confirmed yet], that host can no longer move in this world. Start a new world (see report D-r0ze-play-kit-1).
   - The title's "a turn every 10 minutes" and the start screen's "two hours by default" do not hold for this test world
     (at ×60 a turn is 10 s; the world lasts 90 minutes).
+  - At ×60 the land preview's FoldLand is often refused for running out of compute units (`fold_refused` in
+    runner.out). To check land yield, use `--speed 30` or lower.
