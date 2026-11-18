@@ -37,6 +37,8 @@ export const HARD_REFUSED_RPC_HOST_PATTERNS = ['mainnet', 'testnet'];
  * cluster's feature set first). The build still uses cargo-build-sbf 3.1.9.
  */
 export const MIN_SOLANA_CLI = [4, 0, 0];
+/** The largest account (so the largest ProgramData) the runtime allows: solana-system-interface MAX_PERMITTED_DATA_LENGTH. */
+export const MAX_PERMITTED_DATA_LENGTH = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------- numbers
 
@@ -142,6 +144,9 @@ export function profileProblems(profile) {
   const r = rpcProblem(profile.rpcUrl, profile);
   if (r) out.push(r);
   if (!profile.rent?.lamportsPerByteCandidates?.includes(profile.rent?.assume)) out.push('rent.assume must be one of rent.lamportsPerByteCandidates');
+  const refused = profile.program?.refusedMarkers ?? [];
+  for (const m of profile.program?.requiredMarkers ?? []) if (refused.includes(m)) out.push(`marker ${m} is both required and refused`);
+  if (!(Number.isSafeInteger(profile.program?.soLenCap) && profile.program.soLenCap > 0 && maxLenFor(profile.program.soLenCap) <= MAX_PERMITTED_DATA_LENGTH)) out.push(`program.soLenCap must be a positive length whose max_len fits ${MAX_PERMITTED_DATA_LENGTH} B`);
   return out;
 }
 
@@ -194,11 +199,16 @@ export function checkSo(buf, profile) {
   const overflowPanics = count(buf, /attempt to (add|subtract|multiply) with overflow/g);
   if (!overflowPanics) problems.push('built without overflow checks (no overflow panic message)');
   const markers = profile.program.refusedMarkers.filter(m => buf.includes(Buffer.from(m, 'latin1')));
-  for (const m of markers) problems.push(`carries ${m} (a test or localnet build; never deployable)`);
+  for (const m of markers) problems.push(`carries ${m} (a test, localnet or other-lane build; never deployable with this profile)`);
+  // A lane profile (scripts/devnet/devnet-playable-profile.json) names the marker its own build carries: an artefact
+  // without it is some other build, whatever its bytes look like.
+  for (const m of profile.program.requiredMarkers ?? []) if (!buf.includes(Buffer.from(m, 'latin1'))) problems.push(`marker ${m} missing (not this profile's build: ${profile.program.build})`);
   const relocs = dataRelocsWithAddend(buf);
   if (relocs) problems.push(`${relocs} data relocation(s) with a non-zero addend`);
   const soLen = buf.length;
-  if (soLen > profile.program.soLenCap) problems.push(`so_len ${soLen} > ${profile.program.soLenCap}: the S1 L(kind) loaded-data limits no longer cover the program (regenerate frontier-abi v2 budgets first)`);
+  if (soLen > profile.program.soLenCap) problems.push(profile.program.requiredMarkers?.length
+    ? `so_len ${soLen} > ${profile.program.soLenCap}: over this profile's cap (${profile.program.soLenCapSource ?? 'program.soLenCap'})`
+    : `so_len ${soLen} > ${profile.program.soLenCap}: the S1 L(kind) loaded-data limits no longer cover the program (regenerate frontier-abi v2 budgets first)`);
   let n = buf.length;
   while (n && buf[n - 1] === 0) n--;
   const maxLen = maxLenFor(soLen);
@@ -349,6 +359,8 @@ export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE]
   Dry run (default): checks the .so, computes the devnet cost and prints the plan. Sends nothing.
   --with-prize: also checks the test-USDC prize program (17, settlement windows; devnet only, mainnet needs a legal review)
   and adds its deploy and per-window costs. Plan only: the prize program is never sent by this tool.
+  Profiles: scripts/devnet/devnet-profile.json (default, the S1 release) or scripts/devnet/devnet-playable-profile.json
+  (the playable lane, owner decision B7: scripts/build-frontier-devnet-playable-sbf.sh, marker PSF_DEVNET_PLAYABLE_BUILD).
   Send (r0ze only): add ${APPROVAL_FLAG} --keypair FILE --program-keypair FILE --upgrade-authority FILE --approved-sha256 HEX
   (key files: absolute paths, mode 600, outside the repository; never read by this script;
    Solana CLI ${MIN_SOLANA_CLI.join('.')} or newer: 3.1.x cannot verify this program's BLS12-381 syscalls).`;
@@ -373,6 +385,7 @@ function planText({ profile, so, soPath, costs, season, rate, commands, blocked,
   const L = [];
   L.push('WYLLS devnet deploy plan (DRY RUN unless the gate below says OPEN)');
   L.push(`cluster ${profile.cluster}  rpc ${profile.rpcUrl}`);
+  if (profile.lane) L.push(`lane ${profile.lane}  program_version ${profile.program.programVersion ?? '?'}  build ${profile.program.build}`);
   L.push(`program ${profile.programId}`);
   L.push(`upgrade authority ${profile.upgradeAuthority}`);
   L.push('');
@@ -444,7 +457,7 @@ export function run(argv, io) {
     const r = io.exec(`${io.repoRoot}/${profile.program.build}`, opts.twice ? ['--twice'] : [], { cwd: io.repoRoot });
     if (r.status !== 0) { io.err(`build failed (${profile.program.build}, exit ${r.status})`); return 3; }
   }
-  if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (scripts/build-frontier.sh)`); return 3; }
+  if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (${profile.program.build})`); return 3; }
   const so = checkSo(io.readFile(soPath), profile);
   let prize = null;
   // The profile's `prize.enabled` (false as committed) includes it as --with-prize does; either way it is plan only.
@@ -464,7 +477,7 @@ export function run(argv, io) {
   const blocked = sendProblems(opts, { profile, so, stat: io.stat, repoRoot: io.repoRoot, uid: io.uid });
   if (opts.json) {
     const big = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
-    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId }, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked, ...(prize ? { prize } : {}) }, big, 2));
+    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId, lane: profile.lane ?? 's1' }, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked, ...(prize ? { prize } : {}) }, big, 2));
   } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked, prize }));
   if (so.problems.length || prize?.so.problems.length) return 3;
   if (blocked.length) return 0;

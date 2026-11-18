@@ -42,7 +42,7 @@ ovf="$(count 'attempt to (add|subtract|multiply) with overflow' "$so")"
 for m in PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD; do
   [ "$(count "$m" "$so")" -gt 0 ] || { echo "$so: marker $m missing" >&2; bad=1; }
 done
-for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD; do
+for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_DEVNET_PLAYABLE_BUILD; do
   [ "$(count "$m" "$so")" -eq 0 ] || { echo "$so: carries $m (a test build); refused" >&2; bad=1; }
 done
 [ "$bad" = 0 ] || exit 3

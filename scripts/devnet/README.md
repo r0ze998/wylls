@@ -9,16 +9,32 @@ its gate is open, and only r0ze opens it.
 | `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`) |
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
-| `test/dry-run.test.mjs` | 36 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
+| `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land / conquest + the land preview, version 0x4804): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080 |
+| `test/dry-run.test.mjs` | 36 tests (29 + 7 of ⑰ `--with-prize` / `prize.enabled`) with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
+| `test/playable-profile.test.mjs` | 9 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
 
 ```sh
-node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 6,960 lamports/byte)
-node scripts/devnet/dry-run.mjs --rate 5080      # the same at the SIMD-0437 rate the code's figures use
+node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 5,080 lamports/byte, measured on devnet 2026-11-18)
+node scripts/devnet/dry-run.mjs --rate 6960      # the same at the old pre-SIMD-0437 rate
 node scripts/devnet/dry-run.mjs --build          # build first (scripts/build-frontier.sh), then plan
 node scripts/devnet/dry-run.mjs --build --twice  # reproducible build (two fresh target dirs, same hash)
 node scripts/devnet/dry-run.mjs --players 200 --json
 node scripts/devnet/dry-run.mjs --with-prize      # ⑰ (devnet/test USDC only): also check the epochs prize .so and add its cost; never sent
 ```
+
+**The playable lane** (B7) is a second program with its own profile:
+
+```sh
+scripts/build-frontier-devnet-playable-sbf.sh --twice                                   # reproducible, key-free
+node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json   # plan at 5,080 lamports/byte
+node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json --build --twice
+```
+
+It is the land lane's code (`localnet-land-sbf`) as cargo feature `devnet-playable-sbf`, without the localnet lane's
+`[0x45; 32]` program-id check, so it can run under a real program id. Each profile refuses the other's artefact:
+the S1 profile refuses `PSF_DEVNET_PLAYABLE_BUILD`, and the playable profile requires it and refuses both localnet
+markers. The build keeps the release profile (opt-level 3). Smaller profiles were measured and push S1 instructions
+past the CU limits the clients request (reports/devnet-playable-lane.md).
 
 **⑰ prize (`--with-prize`).** The owner reopened ⑰ on 2026-11-18, for devnet and test USDC only. A real-money prize on mainnet needs a legal review first. The profile's `prize` section is `enabled: false` (`true` includes it as `--with-prize` does). Its test mint is a placeholder, and it refuses Circle's mainnet USDC mint. `--with-prize` checks the `scripts/build-prize.sh --features epochs` artefact (SBPF v2, overflow checks, marker `PRZ_EPOCHS_TEST_USDC_BUILD`), then prints its deploy peak and rent per window. The send gate and its steps are the game program's only: this tool never deploys the prize program.
 
@@ -54,8 +70,8 @@ With the gate open, it runs these steps in order and stops at the first failure:
 5. `solana program show`.
 6. `solana program dump`. The dumped bytes, with trailing zeros removed, must hash to the `.so`'s `program_hash`.
 
-**Cost.** A first deploy needs ProgramData rent + Program rent + fees at its peak (12.31 SOL at 6,960 lamports per
-byte for today's `.so`), not twice that: the CLI funds the buffer with the ProgramData rent and the deploy returns it
+**Cost.** A first deploy needs ProgramData rent + Program rent + fees at its peak (8.99 SOL at 5,080 lamports per
+byte, devnet's rate as read on 2026-11-18, for today's `.so`; 12.31 SOL at the old 6,960), not twice that: the CLI funds the buffer with the ProgramData rent and the deploy returns it
 before the ProgramData is paid. A later upgrade holds a returned buffer float (`upgrade(temp)` in the plan).
 
 There is no airdrop, no `--final` (the upgrade authority is the only `AnnounceSeason` signer, I-51, so an immutable

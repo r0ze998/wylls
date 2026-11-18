@@ -178,6 +178,7 @@ permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-preview.test.mjs
 permutation-gateway/test/frontier-local-play-runner-instance.test.mjs
 permutation-gateway/test/frontier-local-play-test-form-bounds.test.mjs
+permutation-gateway/test/frontier-playable-lane-profile.test.mjs
 permutation-gateway/test/frontier-prize-epochs.test.mjs
 permutation-gateway/test/frontier-relay-resume.test.mjs
 permutation-gateway/test/package.test.mjs
