@@ -2,7 +2,7 @@
 //
 //   node permutation-gateway/src/frontier/local-play-operator-residents.mjs --count <1-4> \
 //     --relay-ports <p1,p2,…> --herald http://localhost:<world proxy port> --homes <runner ready-for-join JSON> \
-//     [--cadence-ms 6000] [--max-acts 60] [--max-refusals 12] [--min-gap-ms 4000]
+//     [--cadence-ms 6000] [--max-acts 60] [--max-refusals 12] [--min-gap-ms 4000] [--keys-dir <abs private dir>]
 //
 // Started by local-play-launcher.mjs for a world opened with `--operator-residents <n>` (never over HTTP). What it does:
 //   1. makes <count> TEST ed25519 keys IN MEMORY ONLY (node:crypto; never written, never printed, gone with the
@@ -16,7 +16,14 @@
 // Every step is one JSON line on stdout (the launcher keeps it in the world's directory: operators.out).
 // Same rules as a person: no other route, no operator read, no clock control, no account write, no RPC of the runner.
 // No model, no network beyond 127.0.0.1, no paid API. SIGINT/SIGTERM: stops, prints a summary line, exits 0.
-import { generateKeyPairSync, sign as edSign } from 'node:crypto';
+// `--keys-dir` (TEST-ONLY, NOT FOR PRODUCTION; passed by the launcher only for a world started with `--persist
+// local-persist-v1`, ⑧ P2): instead of step 1's memory-only keys, each resident's TEST key is kept as a PKCS#8 file
+// `resident-<i>.pkcs8.pem` (mode 0600) in that directory (mode 0700), so a RESUMED world has the same residents and
+// villages. The directory or a key file that another user may use, or a symbolic link, is refused (exit 64); nothing
+// is repaired. The key bytes are never printed.
+import { generateKeyPairSync, createPrivateKey, createPublicKey, sign as edSign } from 'node:crypto';
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { parseTransaction, wireTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
@@ -30,6 +37,26 @@ const SPKI_ED25519_PREFIX = 12;   // (an ed25519 SPKI DER is 12 bytes of header,
 export function memoryTestKey() {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   const address = encode(publicKey.export({ type: 'spki', format: 'der' }).subarray(SPKI_ED25519_PREFIX));
+  return Object.freeze({ address, signMessage: bytes => new Uint8Array(edSign(null, Buffer.from(bytes), privateKey)) });
+}
+
+/** Refuses a link, another kind, or any group/other bit (`mode & 0o077`). */
+function privateOrThrow(p, dir) {
+  const st = lstatSync(p);
+  if (st.isSymbolicLink() || (dir ? !st.isDirectory() : !st.isFile()) || (st.mode & 0o077) !== 0) throw new Error(`${dir ? 'the keys dir' : 'a resident key'} is not private (0700 dir / 0600 file, no link): refusing`);
+}
+/**
+ * TEST-ONLY, persisted worlds: resident `index`'s key kept in `dir` (see the header): read when it is there, made and
+ * written (0600, never over an existing file) when it is not. → the same shape as `memoryTestKey`.
+ */
+export function keptTestKey(dir, index) {
+  privateOrThrow(dir, true);
+  const file = path.join(dir, `resident-${index}.pkcs8.pem`);
+  let privateKey;
+  let exists = true; try { lstatSync(file); } catch { exists = false; }
+  if (exists) { privateOrThrow(file, false); privateKey = createPrivateKey(readFileSync(file)); if (privateKey.asymmetricKeyType !== 'ed25519') throw new Error('a resident key is not ed25519: refusing'); }
+  else { privateKey = generateKeyPairSync('ed25519').privateKey; writeFileSync(file, privateKey.export({ type: 'pkcs8', format: 'pem' }), { flag: 'wx', mode: 0o600 }); }
+  const address = encode(createPublicKey(privateKey).export({ type: 'spki', format: 'der' }).subarray(SPKI_ED25519_PREFIX));
   return Object.freeze({ address, signMessage: bytes => new Uint8Array(edSign(null, Buffer.from(bytes), privateKey)) });
 }
 
@@ -82,7 +109,7 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'keys-dir'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   const count = Number(o.count);
@@ -93,7 +120,9 @@ export function parseArgs(argv) {
   const homes = JSON.parse(o.homes ?? 'null');
   if (!Array.isArray(homes) || !homes.length) throw new Error('--homes');
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
-  return { count, ports, herald: o.herald, homes, cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
+  if (o['keys-dir'] !== undefined && !path.isAbsolute(o['keys-dir'])) throw new Error('--keys-dir (absolute path)');
+  if (o['keys-dir'] !== undefined) privateOrThrow(o['keys-dir'], true);
+  return { count, ports, herald: o.herald, homes, ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
 }
 
 /**
@@ -130,10 +159,12 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   try { o = parseArgs(argv); } catch (e) { process.stderr.write(`operator residents: ${e.message}\n`); return 64; }
   const stop = new AbortController();
   for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(s, () => stop.abort(s));
-  const residents = Array.from({ length: o.count }, (_, index) => ({ index, key: memoryTestKey(), port: o.ports[index], memory: createResidentMemory(index),
+  let keys;
+  try { keys = Array.from({ length: o.count }, (_, index) => (o.keysDir ? keptTestKey(o.keysDir, index) : memoryTestKey())); } catch (e) { process.stderr.write(`operator residents: ${e.message}\n`); return 64; }
+  const residents = Array.from({ length: o.count }, (_, index) => ({ index, key: keys[index], port: o.ports[index], memory: createResidentMemory(index),
     budget: createOperatorBudget({ maxActs: o.maxActs, maxRefusals: o.maxRefusals, minGapMs: o.minGapMs }), identity: null, rulesetHash: null }));
   residents.forEach(r => { r.signer = pageShapedSigner(r.key); r.origin = `http://127.0.0.1:${r.port}`; });
-  print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address) }));
+  print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: o.keysDir ? 'TEST keys kept in the persisted world\'s private keys dir (0600 files, 0700 dir); never printed' : 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address) }));
   // 2. each resident's own relay, pinned to its own wallet
   for (const r of residents) {
     for (let i = 0; !stop.signal.aborted; i++) {

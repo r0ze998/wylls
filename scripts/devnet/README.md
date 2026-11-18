@@ -10,7 +10,7 @@ its gate is open, and only r0ze opens it.
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
 | `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land / conquest + the land preview, version 0x4804): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080 |
-| `test/dry-run.test.mjs` | 36 tests (29 + 7 of ⑰ `--with-prize` / `prize.enabled`) with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
+| `test/dry-run.test.mjs` | 40 tests (33 + 7 of ⑰ `--with-prize` / `prize.enabled`) with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 | `test/playable-profile.test.mjs` | 9 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
 
 ```sh
@@ -20,6 +20,7 @@ node scripts/devnet/dry-run.mjs --build          # build first (scripts/build-fr
 node scripts/devnet/dry-run.mjs --build --twice  # reproducible build (two fresh target dirs, same hash)
 node scripts/devnet/dry-run.mjs --players 200 --json
 node scripts/devnet/dry-run.mjs --with-prize      # ⑰ (devnet/test USDC only): also check the epochs prize .so and add its cost; never sent
+node scripts/devnet/dry-run.mjs --nft-resident      # ⑳ (devnet/local only, no sale): plan the nft-experimental build; the send gate stays closed
 ```
 
 **The playable lane** (B7) is a second program with its own profile:

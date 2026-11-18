@@ -560,6 +560,7 @@ fn first_login_creates_one_citizen_and_logs_resident_joined() {
     let _ = w.season_id;
 }
 
+#[cfg(not(feature = "nft-resident-no-transfer"))]
 #[test]
 fn only_the_current_owner_logs_in() {
     let _g = begin();
@@ -571,6 +572,7 @@ fn only_the_current_owner_logs_in() {
     assert_eq!(w.join(B, 1), Ok(()));
 }
 
+#[cfg(not(feature = "nft-resident-no-transfer"))]
 #[test]
 fn transfer_and_buy_back_refuse_every_old_authority() {
     let _g = begin();
@@ -682,6 +684,7 @@ fn the_same_nft_joins_a_new_world_with_its_own_citizen() {
     assert_eq!(w1.join(A, 0), Err(crate::FrontierError::AlreadyDone as u32));
 }
 
+#[cfg(not(feature = "nft-resident-no-transfer"))]
 #[test]
 fn after_a_transfer_only_the_current_owner_acts_in_every_world() {
     let _g = begin();
@@ -716,6 +719,7 @@ fn after_a_transfer_only_the_current_owner_acts_in_every_world() {
     }
 }
 
+#[cfg(not(feature = "nft-resident-no-transfer"))]
 #[test]
 fn a_new_owner_logs_in_to_a_new_world_and_the_old_owner_cannot() {
     let _g = begin();
@@ -883,4 +887,23 @@ fn the_frontier_session_and_the_wallet_paths_never_act_for_an_nft_citizen() {
         w.citizen.clone(),
     ];
     assert!(run(&zero, &v).is_err());
+}
+
+/// ⑳ U7 switch, soulbound build (`nft-resident-no-transfer`): the first
+/// holder plays; after a TransferResident nobody acts for the resident, the
+/// new holder included, and a buy-back does not bring the first holder back.
+#[cfg(feature = "nft-resident-no-transfer")]
+#[test]
+fn soulbound_terms_refuse_every_holder_after_a_transfer() {
+    let _g = begin();
+    let mut w = World::new(7);
+    assert_eq!(w.join(A, 0), Ok(()));
+    assert_eq!(w.vigil(A, true, 0), Ok(()), "the first holder acts");
+    w.transfer(&B, None);
+    at_day(10);
+    assert_eq!(w.vigil(B, true, 1), Err(NOT_CURRENT), "the new holder");
+    assert_eq!(w.vigil(A, true, 0), Err(STALE));
+    w.transfer(&A, None);
+    at_day(20);
+    assert_eq!(w.vigil(A, true, 2), Err(NOT_CURRENT), "bought back");
 }

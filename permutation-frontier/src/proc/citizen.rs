@@ -2657,6 +2657,12 @@ pub(crate) fn holding_wedge(coord: ProvinceCoord) -> u8 {
 
 /// Inside dispersed heartland, tickets use the same nation assignment as PlaceHome.
 /// Outside heartland the existing ticket/overflow rule remains unchanged.
+/// [`geometry::PLACEMENT_MIXED`] is the dispersed placement here: in the
+/// heartland the same nation as PlaceHome; outside it the existing
+/// wedge/overflow rule (`wedge_allowed`, tied to the per-wedge crowding
+/// counters), although the outer keeps start mixed — whether outer first
+/// villages should follow the mixed nation instead is a separate rule
+/// question, not decided by ⑧ (i).
 fn ticket_nation_allowed(
     coord: ProvinceCoord,
     faction: u8,
@@ -2665,7 +2671,7 @@ fn ticket_nation_allowed(
     seed: &[u8; 32],
     legacy_allowed: bool,
 ) -> bool {
-    if placement == geometry::PLACEMENT_DISPERSED
+    if (placement == geometry::PLACEMENT_DISPERSED || placement == geometry::PLACEMENT_MIXED)
         && coord.ring() >= 2
         && coord.ring() <= u32::from(heartland_max_ring)
     {
@@ -2695,11 +2701,33 @@ mod tests {
                 }
             }
         }
+        // placement 2 (⑧ wide land (i)): the heartland exactly as dispersed
+        for p in -3..=3 {
+            for q in -3..=3 {
+                let c = ProvinceCoord::new(p, q);
+                if c.ring() < 2 || c.ring() > 3 {
+                    continue;
+                }
+                for f in 0..6 {
+                    for allowed in [false, true] {
+                        assert_eq!(
+                            ticket_nation_allowed(c, f, 2, 3, &seed, allowed),
+                            ticket_nation_allowed(c, f, 1, 3, &seed, allowed)
+                        );
+                    }
+                }
+            }
+        }
         let outside = ProvinceCoord::new(4, 0);
         for allowed in [false, true] {
             assert_eq!(
                 ticket_nation_allowed(outside, 2, 1, 3, &seed, allowed),
                 allowed
+            );
+            assert_eq!(
+                ticket_nation_allowed(outside, 2, 2, 3, &seed, allowed),
+                allowed,
+                "placement 2 keeps the outer ticket rule"
             );
             assert_eq!(
                 ticket_nation_allowed(ProvinceCoord::new(2, 0), 2, 0, 3, &seed, allowed),
