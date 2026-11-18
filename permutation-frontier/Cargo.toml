@@ -57,8 +57,17 @@ oracle = []
 # `drand-replay --test-key` and its own QUICKNET_PK_HASH; marker
 # PSF_TEST_BEACON_BUILD, never deployable.
 test-beacon = []
-# Local development only: unallocated wire tag, no deployment or stable ABI.
+# ⑳ NFT resident ID (tags 0xE0–0xE2, provisional). Owner decision
+# 2026-11-18 18:26 JST: implemented for local and devnet builds only (no
+# mainnet issuance, no sale). Marker PSF_NFT_EXPERIMENTAL_BUILD; the plain
+# build-frontier.sh build and the devnet profile refuse it, and
+# `build-frontier.sh --features nft-experimental` builds the devnet candidate
+# into deploy-nft-experimental/ (deployable no; `dry-run.mjs --nft-resident`).
 nft-experimental = ["program"]
+# ⑳ switch (U7, undecided): soulbound residents. Only the first holder
+# (generation 0) acts; after a TransferResident every action is refused.
+# Off by default (option B: transfers allowed).
+nft-resident-no-transfer = ["nft-experimental", "frontier-abi/resident-transfer-refused"]
 # Workstream 10 (custody), a preview: the custody instructions, embedding
 # RULESET_HASH_V4 and program_version 5 (so it refuses every S1 season, and
 # the default S1 build refuses every custody tag). Marker
@@ -119,6 +128,13 @@ conquest-dispatch-experimental = ["expedition-dispatch-experimental", "frontier-
 # built only by scripts/build-frontier-localnet-conquest-sbf.sh, same
 # program id [0x45; 32] and version 0x4804.
 localnet-conquest-sbf = ["localnet-expedition-sbf", "conquest-dispatch-experimental"]
+# ⑳ The playable localnet lane WITH NFT residents (never deployable): the
+# conquest lane plus nft-experimental, version 0xC804 (the lane's 0x4804 plus
+# the resident bit 0x8000; `expedition_dispatch_ix::RESIDENT_PROGRAM_VERSION`),
+# markers PSF_LOCALNET_EXPEDITION_SBF_BUILD, PSF_LOCALNET_CONQUEST_SBF_BUILD
+# and PSF_LOCALNET_NFT_SBF_BUILD (and PSF_NFT_EXPERIMENTAL_BUILD), built only
+# by scripts/build-frontier-localnet-nft-sbf.sh, program id [0x45; 32].
+localnet-nft-sbf = ["localnet-conquest-sbf", "nft-experimental"]
 # "Standing Ground" land, a preview (local development only, 2026-11-15):
 # FoldLand / ClaimLandYield on the PROVISIONAL, unallocated tags 0xCD / 0xCE
 # (`proc::land`; ABI-ALLOCATION rev 6 lists 0xCD-0xCF as free), dispatched

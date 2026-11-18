@@ -21,7 +21,9 @@
 
 use fclient::addr::Addresses;
 use fclient::{ix, tx, Address, Keypair, Signer};
-use frontier_abi::v2::presets::{params_hash_v2, ConquestParams, SeasonParamsV2, S1_LOCAL_7D};
+use frontier_abi::v2::presets::{
+    params_hash_v2, ConquestParams, SeasonParamsV2, S1_LOCAL_7D, S1_LOCAL_CONTINUOUS,
+};
 use localnet::server::{lock, Shared};
 use permutation_rules::frontier::beacon::{
     genesis_seed_round, genesis_ts as beacon_genesis_ts, round_time, BeaconClock,
@@ -31,6 +33,7 @@ use serde_json::{json, Value};
 
 use crate::expedition_play::{Artifact, PLAYER_LAMPORTS, PROGRAM, PROGRAM_VERSION, SEASON_ID};
 use crate::natural_home::{natural_home, NaturalHome};
+use crate::natural_persist::{self as persist, NaturalOptions, Opened, RunDir, WorldRecord};
 
 pub const NATURAL_SCHEMA: &str = "frontier-localnet-natural-play-v1";
 /// The launcher's preset name for this world.
@@ -44,7 +47,17 @@ const POLL: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// The season parameters: the real S1_LOCAL_7D preset with the deployed program's version.
 pub fn params() -> SeasonParamsV2 {
-    let mut p = S1_LOCAL_7D;
+    params_for(false)
+}
+
+/// [`params`], or with `continuous` the real `S1_LOCAL_CONTINUOUS` preset (the same parameters, no end bell, joins
+/// always open; TEST-ONLY option `--continuous local-continuous-v1`), with the deployed program's version.
+pub fn params_for(continuous: bool) -> SeasonParamsV2 {
+    let mut p = if continuous {
+        S1_LOCAL_CONTINUOUS
+    } else {
+        S1_LOCAL_7D
+    };
     p.base.program_version = PROGRAM_VERSION;
     p
 }
@@ -305,6 +318,30 @@ pub struct World {
     pub a: Addresses,
     pub homes: Vec<(i16, i16, u8)>,
     pub metadata: Value,
+    /// Re-opened from its run dir's ledger (`--persist-dir`): the player's Join and PlaceHome are looked for in the
+    /// whole recovered history, not only after the start.
+    pub resumed: bool,
+}
+
+/// Every heartland home province of a Season (`(p, q, nation)`, the order `prepare` opens them in): rings
+/// `2..=heartland_max_ring`, each province whose `home_nation` the placement gives.
+pub fn home_provinces(cq: &ConquestParams, seed: &[u8; 32]) -> Vec<(i16, i16, u8)> {
+    let mut homes = Vec::new();
+    for ring in 2..=cq.heartland_max_ring as i32 {
+        for pp in -ring..=ring {
+            for qq in -ring..=ring {
+                let coord = ProvinceCoord::new(pp, qq);
+                if coord.ring() as i32 != ring {
+                    continue;
+                }
+                if let Some(nation) = home_nation(coord, cq.placement, cq.heartland_max_ring, seed)
+                {
+                    homes.push((pp as i16, qq as i16, nation));
+                }
+            }
+        }
+    }
+    homes
 }
 
 /// Builds the world up to `ready-for-join` (the clock then natural). The first line is printed by the caller.
@@ -314,26 +351,87 @@ pub async fn prepare(
     rpc_port: u16,
     ws_port: u16,
 ) -> Result<World, String> {
+    prepare_with(
+        artifact,
+        wallet,
+        rpc_port,
+        ws_port,
+        &NaturalOptions::default(),
+    )
+    .await
+}
+
+/// [`prepare`] with the TEST-ONLY options (`natural_persist`): the continuous preset, and a private run dir whose
+/// world is created there, or resumed from its own ledger when it already holds one.
+pub async fn prepare_with(
+    artifact: &Artifact,
+    wallet: Address,
+    rpc_port: u16,
+    ws_port: u16,
+    o: &NaturalOptions,
+) -> Result<World, String> {
     crate::expedition_play::check_ports(rpc_port, ws_port)?;
     crate::expedition_play::check_wallet(&wallet)?;
     if localnet::bls_and_sbpf_v2_active() != (true, true) {
         return Err("the node's feature set lacks the BLS12-381 syscalls or SBPF v2".into());
     }
-    let upgrade = Keypair::new();
-    let payer = Keypair::new();
+    let run = o.persist.as_deref().map(RunDir::open).transpose()?;
+    let opened = run
+        .as_ref()
+        .map(|r| r.start(&wallet, artifact.sha256(), o.continuous))
+        .transpose()?;
+    let (upgrade, payer, resume) = match opened {
+        None => (Keypair::new(), Keypair::new(), None),
+        Some(Opened::Fresh { upgrade, payer }) => (upgrade, payer, None),
+        Some(Opened::Resume {
+            record,
+            upgrade,
+            payer,
+        }) => (upgrade, payer, Some(record)),
+    };
     let program = Address::new_from_array(PROGRAM);
     let a = Addresses::new(program, SEASON_ID);
     let (t_create_min, round, genesis_ts) = genesis_plan();
-    let p = params();
-    let mut c = localnet::Chain::new(localnet::Config {
+    let p = params_for(o.continuous);
+    let fresh_record = |done: bool| WorldRecord {
+        wallet,
+        artifact_sha256: artifact.sha256().to_owned(),
+        continuous: o.continuous,
+        program,
+        season: a.season,
+        season_id: SEASON_ID,
+        upgrade: upgrade.pubkey(),
+        payer: payer.pubkey(),
+        setup_complete: done,
+    };
+    if let (Some(r), None) = (&run, &resume) {
+        r.record(&fresh_record(false))?;
+    }
+    let mut c = localnet::Chain::open(localnet::Config {
         allow_tamper: false,
-        data_dir: None,
+        data_dir: run.as_ref().map(RunDir::chain_dir),
+        keep_snapshots: 2,
         ..localnet::Config::default()
-    });
+    })
+    .map_err(|e| format!("the chain: {e}"))?;
     c.set_paused(true);
     let bytes = std::fs::read(artifact.path()).map_err(|e| format!("artefact: {e}"))?;
     if hex::encode(localnet::persist::sha256(&[&bytes])) != artifact.sha256() {
         return Err("the artefact changed after verification".into());
+    }
+    if let Some(record) = &resume {
+        return resume_world(
+            c,
+            record,
+            &a,
+            wallet,
+            rpc_port,
+            ws_port,
+            artifact,
+            bytes.len(),
+            o,
+        )
+        .await;
     }
     c.deploy(
         program,
@@ -354,14 +452,15 @@ pub async fn prepare(
         localnet::server::Policy::MEMORY_ONLY,
     )
     .await?;
-    let metadata = json!({"schema": NATURAL_SCHEMA, "world": "natural", "world_preset": PRESET, "runner_instance": runner_instance,
+    let mut metadata = json!({"schema": NATURAL_SCHEMA, "world": "natural", "world_preset": PRESET, "runner_instance": runner_instance,
         "rpc_url": running.url(), "program": program.to_string(), "program_version": format!("0x{PROGRAM_VERSION:04x}"),
         "season": a.season.to_string(), "season_id": SEASON_ID, "player_wallet": wallet.to_string(),
         "artifact": {"path": artifact.path().display().to_string(), "sha256": artifact.sha256(), "bytes": bytes.len()},
         "player_airdrop_lamports": PLAYER_LAMPORTS,
         "initial_world": "a new Season by its own instructions (AnnounceSeason, CreateSeason, InitBeaconLogs, InitShards, ConsumeGenesisSeed, OpenRing, OpenProvince); nothing is written into an account for the player",
         "clock": "SYNTHETIC only before genesis (the chain's fixed g0); NATURAL from ready-for-join on, never moved again",
-        "memory_only": true});
+        "memory_only": run.is_none()});
+    world_metadata(&mut metadata, o, false);
     let sp = p.to_bytes();
     let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
     send(
@@ -440,26 +539,17 @@ pub async fn prepare(
             "OpenRing",
         )?;
     }
-    let mut homes: Vec<(i16, i16, u8)> = Vec::new();
-    for ring in 2..=cq.heartland_max_ring as i32 {
-        for pp in -ring..=ring {
-            for qq in -ring..=ring {
-                let coord = ProvinceCoord::new(pp, qq);
-                if coord.ring() as i32 != ring {
-                    continue;
-                }
-                if let Some(nation) = home_nation(coord, cq.placement, cq.heartland_max_ring, &seed)
-                {
-                    send(
-                        &state,
-                        &[&payer],
-                        &[ix::open_province(&a, payer.pubkey(), pp as i16, qq as i16)],
-                        "OpenProvince",
-                    )?;
-                    homes.push((pp as i16, qq as i16, nation));
-                }
-            }
-        }
+    let homes = home_provinces(&cq, &seed);
+    for &(pp, qq, _) in &homes {
+        send(
+            &state,
+            &[&payer],
+            &[ix::open_province(&a, payer.pubkey(), pp, qq)],
+            "OpenProvince",
+        )?;
+    }
+    if let Some(r) = &run {
+        r.record(&fresh_record(true))?;
     }
     Ok(World {
         running,
@@ -467,6 +557,89 @@ pub async fn prepare(
         a,
         homes,
         metadata,
+        resumed: false,
+    })
+}
+
+/// The TEST-ONLY options on the runner's first line: `continuous` always; `persist` with a run dir.
+fn world_metadata(m: &mut Value, o: &NaturalOptions, resumed: bool) {
+    let obj = m.as_object_mut().expect("an object");
+    obj.insert("continuous".into(), json!(o.continuous));
+    if o.continuous {
+        obj.insert("continuous_mode".into(), json!(persist::CONTINUOUS_MODE));
+    }
+    if o.persist.is_some() {
+        obj.insert(
+            "persist".into(),
+            json!({"mode": persist::PERSIST_MODE, "resumed": resumed, "test_only": true, "not_for_production": true}),
+        );
+    }
+}
+
+/// A world re-opened from its run dir: nothing is deployed, funded or sent; the recovered Season must be the
+/// recorded one (`natural_persist::check_resumed_season`); the home provinces are those the Season's own seed and
+/// parameters give (as `prepare` opened them).
+#[allow(clippy::too_many_arguments)]
+async fn resume_world(
+    c: localnet::Chain,
+    record: &WorldRecord,
+    a: &Addresses,
+    wallet: Address,
+    rpc_port: u16,
+    ws_port: u16,
+    artifact: &Artifact,
+    artifact_len: usize,
+    o: &NaturalOptions,
+) -> Result<World, String> {
+    let program = Address::new_from_array(PROGRAM);
+    if record.program != program || record.season != a.season || record.season_id != SEASON_ID {
+        return Err("this run dir's world is of another program or Season; refusing".into());
+    }
+    if !c.account(&program).is_some_and(|acc| acc.executable) {
+        return Err("the resumed chain has no deployed program; refusing".into());
+    }
+    let sd = c
+        .account(&a.season)
+        .map(|acc| acc.data)
+        .ok_or("the resumed chain has no Season; refusing")?;
+    persist::check_resumed_season(&sd, record)?;
+    let cq = ConquestParams::of_season(&sd).ok_or("the Season's conquest params")?;
+    let seed: [u8; 32] = sd[frontier_abi::v2::layout::world::season::GENESIS_SEED..][..32]
+        .try_into()
+        .map_err(|_| "the Season's seed")?;
+    let homes = home_provinces(&cq, &seed);
+    for &(pp, qq, _) in &homes {
+        if c.account(&a.province(pp as i32, qq as i32)).is_none() {
+            return Err("a heartland province is missing on the resumed chain; refusing".into());
+        }
+    }
+    let runner_instance = hex::encode(c.status_instance());
+    let slot = c.slot();
+    let state: Shared = std::sync::Arc::new(std::sync::Mutex::new(c));
+    let running = localnet::server::start_with_policy(
+        state.clone(),
+        rpc_port,
+        ws_port,
+        localnet::server::Policy::MEMORY_ONLY,
+    )
+    .await?;
+    let mut metadata = json!({"schema": NATURAL_SCHEMA, "world": "natural", "world_preset": PRESET, "runner_instance": runner_instance,
+        "rpc_url": running.url(), "program": program.to_string(), "program_version": format!("0x{PROGRAM_VERSION:04x}"),
+        "season": a.season.to_string(), "season_id": SEASON_ID, "player_wallet": wallet.to_string(),
+        "artifact": {"path": artifact.path().display().to_string(), "sha256": artifact.sha256(), "bytes": artifact_len},
+        "player_airdrop_lamports": PLAYER_LAMPORTS,
+        "initial_world": "RESUMED: the same chain, re-opened from its own ledger (every re-executed transaction repeated its recorded outcome); nothing was deployed, funded or sent at this start",
+        "resumed_at_slot": slot,
+        "clock": "NATURAL; it stood still while the world was stopped and continues from the game time of its last record",
+        "memory_only": false});
+    world_metadata(&mut metadata, o, true);
+    Ok(World {
+        running,
+        state,
+        a: a.clone(),
+        homes,
+        metadata,
+        resumed: true,
     })
 }
 
@@ -479,7 +652,12 @@ pub async fn await_home(
 ) -> Result<(NaturalHome, String), String> {
     let program = Address::new_from_array(PROGRAM);
     let citizen = w.a.citizen(wallet);
-    let mut cursor = lock(&w.state).transaction_count();
+    // (a resumed world: the Join and PlaceHome may be in the recovered history, so it is read from its start)
+    let mut cursor = if w.resumed {
+        0
+    } else {
+        lock(&w.state).transaction_count()
+    };
     lock(&w.state).set_paused(false); // NATURAL from here
     step(
         "ready-for-join",
@@ -551,6 +729,183 @@ pub async fn await_home(
             return Ok((n, sig.clone()));
         }
         tokio::select! { _ = tokio::time::sleep(POLL) => {} _ = stop.changed() => {} }
+    }
+}
+
+/// ⑧ P2 (TEST-ONLY): a natural world in a private run dir is stopped and RESUMED from its own ledger: the same Season,
+/// the player's Citizen and Holding byte for byte, the same home found again in the recovered history; another wallet
+/// or the other continuous word is refused. `#[ignore]` and approval-gated like the other real natural-world tests:
+/// it builds a Season by its own instructions (the genesis round from the public drand API, BLS-verified) on loopback
+/// ports 41380/41381, and signs the player's Join and PlaceHome with a fresh in-memory TEST key.
+///   WYLLS_PUBLIC_DRAND=1 WYLLS_EXPEDITION_SBF=<abs .so> WYLLS_EXPEDITION_SBF_SHA256=<hex> \
+///   cargo test -p itest --features localnet-expedition-play --lib natural_play::resume -- --ignored
+#[cfg(test)]
+mod resume {
+    use super::*;
+    use crate::keeper_loop::submit_and_wait;
+    use std::time::Duration;
+
+    fn rx() -> tokio::sync::watch::Receiver<bool> {
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        std::mem::forget(tx);
+        rx
+    }
+
+    #[test]
+    #[ignore]
+    fn a_stopped_continuous_world_resumes_with_the_same_village() {
+        let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
+        assert_eq!(need("WYLLS_PUBLIC_DRAND"), "1");
+        let path = std::path::PathBuf::from(need("WYLLS_EXPEDITION_SBF"));
+        let art = crate::expedition_play::inspect(
+            path.clone(),
+            std::fs::read(&path).unwrap(),
+            &need("WYLLS_EXPEDITION_SBF_SHA256"),
+        )
+        .unwrap();
+        let dir = std::env::temp_dir().join(format!("psf-natural-resume-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let o = NaturalOptions {
+            continuous: true,
+            persist: Some(dir.clone()),
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let player = Keypair::new();
+        let w = player.pubkey();
+        let (a, home, before) = rt.block_on(async {
+            let world = prepare_with(&art, w, 41_380, 41_381, &o)
+                .await
+                .expect("the world");
+            assert!(!world.resumed);
+            assert_eq!(world.metadata["continuous"], true);
+            assert_eq!(world.metadata["persist"]["resumed"], false);
+            assert_eq!(world.metadata["memory_only"], false);
+            let (state, a) = (world.state.clone(), world.a.clone());
+            lock(&state).set_paused(false);
+            let send = |ix, what: &'static str| {
+                let (state, player) = (state.clone(), player.insecure_clone());
+                async move {
+                    match submit_and_wait(
+                        &state,
+                        &player,
+                        ix,
+                        what,
+                        Duration::from_secs(60),
+                        &mut rx(),
+                    )
+                    .await
+                    {
+                        crate::keeper_loop::Sent::Landed(sig) => sig,
+                        other => panic!("{what}: {other:?}"),
+                    }
+                }
+            };
+            let now = lock(&state).unix_timestamp();
+            send(
+                ix::join(&a, w, w, world.homes[0].2, &w, now + 3_600, None),
+                "Join",
+            )
+            .await;
+            let (faction, shard) =
+                joined(&account(&state, &a.citizen(&w), "c").unwrap(), &w).expect("joined");
+            let site = {
+                use frontier_abi::v2::layout::province::{province as PV, site as SM};
+                world
+                    .homes
+                    .iter()
+                    .filter(|h| h.2 == faction)
+                    .find_map(|(pp, qq, _)| {
+                        let pd = account(&state, &a.province(*pp as i32, *qq as i32), "p").unwrap();
+                        (0..pd[PV::SITE_COUNT] as usize)
+                            .find(|i| {
+                                matches!(
+                                    pd[PV::site(*i) + SM::STATE],
+                                    SM::STATE_FREE | SM::STATE_RELEASED_FREE
+                                )
+                            })
+                            .map(|i| (*pp, *qq, i as u8))
+                    })
+                    .expect("a free heartland site")
+            };
+            let me = ix::Player {
+                actor: w,
+                payer: w,
+                wallet: w,
+            };
+            send(
+                ix::place_home(
+                    &a,
+                    &me,
+                    ix::Site {
+                        p: site.0,
+                        q: site.1,
+                        site: site.2,
+                    },
+                    faction,
+                    shard,
+                ),
+                "PlaceHome",
+            )
+            .await;
+            let holding = a.holding(site.0 as i32, site.1 as i32, site.2);
+            let home = (holding, (site.0, site.1));
+            let before =
+                [a.season, a.citizen(&w), holding].map(|k| account(&state, &k, "b").unwrap());
+            // (the world stops: its server ends and the chain, with its ledger writer, is dropped)
+            let World { running, state, .. } = world;
+            running.stop();
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            drop(state);
+            (a, home, before)
+        });
+        // the ledger and the keys are there, private
+        assert!(dir.join("chain").join(localnet::persist::WAL_FILE).exists());
+        crate::natural_persist::check_private(&dir.join("keys/upgrade.seed"), false, "k").unwrap();
+        rt.block_on(async {
+            // another wallet, or the finite word: refused before anything starts
+            let other = NaturalOptions {
+                continuous: false,
+                persist: Some(dir.clone()),
+            };
+            assert!(prepare_with(&art, w, 41_380, 41_381, &other)
+                .await
+                .err()
+                .unwrap()
+                .contains("continuous"));
+            let stranger = Keypair::new().pubkey();
+            assert!(prepare_with(&art, stranger, 41_380, 41_381, &o)
+                .await
+                .err()
+                .unwrap()
+                .contains("another wallet"));
+            // the same: resumed
+            let world = prepare_with(&art, w, 41_380, 41_381, &o)
+                .await
+                .expect("the resumed world");
+            assert!(world.resumed);
+            assert_eq!(world.metadata["persist"]["resumed"], true);
+            let state = world.state.clone();
+            let after =
+                [a.season, a.citizen(&w), home.0].map(|k| account(&state, &k, "a").unwrap());
+            assert_eq!(
+                after, before,
+                "the Season, the Citizen and the Holding, byte for byte"
+            );
+            let (_tx, mut stop) = tokio::sync::watch::channel(false);
+            let (again, _) = await_home(&world, &w, &mut stop)
+                .await
+                .expect("the same home, found again");
+            assert_eq!(
+                (again.holding, again.home),
+                home,
+                "the home is found in the recovered history"
+            );
+            world.running.stop();
+        });
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

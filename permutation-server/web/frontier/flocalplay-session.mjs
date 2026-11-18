@@ -94,7 +94,7 @@ const mounted = new WeakMap();
  * `doc` / `win`: the page's (tests pass stand-ins); `onCheck`: the gate's keeper ask (optional). →
  * `{destroyed(), unmount(), isDestroyed(), …}`, or null without a document.
  */
-export function mountSessionNotice({ doc = globalThis.document, win = globalThis.window, onCheck = null, demo = null, onPair = null } = {}) {
+export function mountSessionNotice({ doc = globalThis.document, win = globalThis.window, onCheck = null, demo = null, onPair = null, persisted = false } = {}) {
   if (!doc?.createElement) return null;
   const prior = mounted.get(doc);
   if (prior) return prior;
@@ -124,13 +124,19 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
   let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null, folded = false, pairAsking = false, pairAnswer = null;
   const label = () => {
     title.textContent = L`この試験世界について`;
-    items[0].textContent = L`鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。`;
-    items[1].textContent = end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。`
+    // (TEST-ONLY, a launcher that keeps its worlds: the key is kept in this browser and the world's progress is kept;
+    //  the launcher's time stops the world's processes, and a start in the same browser resumes it)
+    items[0].textContent = persisted ? L`試験用（本番用ではありません）：鍵は取り出せない形でこのブラウザに保存されています。再読み込みしても、この世界の同じ村に戻れます。`
+      : L`鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。`;
+    items[1].textContent = persisted && end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろにいったん止まります（開始サービスが決めた時刻。この端末の時計で表示）。`
+      : end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。`
       : L`自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。`;
-    items[2].textContent = L`世界が終わると、その世界の進行は保存されません。`;
+    items[2].textContent = persisted ? L`止まっても進行は保存されています。同じブラウザで開始を押すと、続きから再開します。`
+      : L`世界が終わると、その世界の進行は保存されません。`;
     if (isDemo) items[3].textContent = L`この世界は試験用の攻略デモです。時計は ${demo} 倍の合成時計で、ほかの村は試験参加者です（自然な世界の時間ではありません）。`;
     gone.textContent = L`このページの試験用の鍵は破棄されました。このページからこの世界は続けられません。新しい鍵や新しい世界は自動では作りません。`;
-    short.textContent = L`鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。`;
+    short.textContent = persisted ? L`試験用：鍵はこのブラウザに保存されています（本番用ではありません）。`
+      : L`鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。`;
     fold.textContent = folded ? L`詳しく見る` : L`たたむ`;
     fold.setAttribute?.('aria-expanded', folded ? 'false' : 'true');
     if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = keeperText(answer); said.textContent = t ?? ''; said.hidden = t === null; }
