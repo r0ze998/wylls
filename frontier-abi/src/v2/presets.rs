@@ -645,11 +645,27 @@ pub const fn s1(p: SeasonParamsV2) -> SeasonParamsV2 {
 /// `reveal_profile_matches_v2_budgets`).
 pub const REVEAL_LOADED_LIMIT_S1: u32 = 1_867_776;
 
+/// The placement a new playable/devnet season starts with (⑭ R1, owner
+/// decision t346u, 2026-11-18: no wedge pointing at (0,0)).
+pub const PLACEMENT_PLAYABLE: u8 = PLACEMENT_DISPERSED;
+
+/// A season with no centre (⑭ R1): the playable/devnet presets' first homes
+/// are not laid out as six wedges about (0,0) but by
+/// [`PLACEMENT_PLAYABLE`]. Every other byte is unchanged.
+pub const fn centreless(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = p;
+    q.cq.placement = PLACEMENT_PLAYABLE;
+    q
+}
+
 /// `S1_LOCAL_7D`, `S1_LOCAL_14D` and `S1_TEST`: the MC presets of the same
 /// names for the S1 program (redesign 30, J5: stage 1 runs in a new
-/// season).
-pub const S1_LOCAL_7D: SeasonParamsV2 = s1(MC_LOCAL_7D);
-pub const S1_LOCAL_14D: SeasonParamsV2 = s1(MC_LOCAL_14D);
+/// season). `S1_LOCAL_7D` and `S1_LOCAL_14D` are the playable/devnet
+/// presets (the devnet profiles, frontier-operator and the local natural
+/// world use them) and are [`centreless`] (⑭ R1); `S1_TEST` (itests and
+/// smokes only) keeps the wedge, as every MC preset does.
+pub const S1_LOCAL_7D: SeasonParamsV2 = centreless(s1(MC_LOCAL_7D));
+pub const S1_LOCAL_14D: SeasonParamsV2 = centreless(s1(MC_LOCAL_14D));
 pub const S1_TEST: SeasonParamsV2 = s1(MC_TEST);
 
 /// A season as a CONTINUOUS world (conquest byte 80 `continuous = 1`, the
@@ -730,8 +746,31 @@ mod tests {
                 .find(|(n, _)| n[3..] == name[3..])
                 .map(|(_, q)| *q)
                 .unwrap();
-            assert_eq!(s1(mc), p);
+            if name == "S1_TEST" {
+                assert_eq!(s1(mc), p);
+            } else {
+                assert_eq!(centreless(s1(mc)), p, "{name}");
+            }
         }
+    }
+
+    /// ⑭ R1: the playable/devnet presets start centre-free; the MC presets
+    /// and `S1_TEST` keep the wedge; only `placement` differs from the MC
+    /// preset of the same name.
+    #[test]
+    fn playable_presets_are_centreless_r1() {
+        for p in [S1_LOCAL_7D, S1_LOCAL_14D, S1_LOCAL_CONTINUOUS] {
+            assert_eq!(p.cq.placement, PLACEMENT_PLAYABLE);
+            assert_ne!(p.cq.placement, PLACEMENT_WEDGE);
+            assert_eq!(p.validate(), Ok(()));
+        }
+        assert_eq!(S1_TEST.cq.placement, PLACEMENT_WEDGE);
+        for (_, p) in PRESETS {
+            assert_eq!(p.cq.placement, PLACEMENT_WEDGE);
+        }
+        let mut back = S1_LOCAL_7D;
+        back.cq.placement = PLACEMENT_WEDGE;
+        assert_eq!(back, s1(MC_LOCAL_7D), "nothing else changed");
     }
 
     /// ⑧ P1: the local continuous preset is `S1_LOCAL_7D` with exactly the
