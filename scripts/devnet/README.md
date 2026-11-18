@@ -11,7 +11,7 @@ its gate is open, and only r0ze opens it.
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
 | `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land / conquest + the land preview, version 0x4804): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080 |
 | `test/dry-run.test.mjs` | 29 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
-| `test/playable-profile.test.mjs` | 9 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
+| `test/playable-profile.test.mjs` | 10 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
 
 ```sh
 node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 5,080 lamports/byte, measured on devnet 2026-11-18)
