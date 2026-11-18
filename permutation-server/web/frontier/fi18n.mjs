@@ -387,6 +387,10 @@ const CLIENT_TEXT = {
   LocalActNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchClosed: () => L`この軍勢の進軍は、いまローカルプレイでは送れません。`,
+  // (2026-11-19, fix-march-held) the runner's definite rejection (not sent), and a sent march whose blockhash expired
+  LocalActRejected: () => L`チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。`,
+  LocalMarchRejected: () => L`チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。`,
+  LocalMarchExpired: () => L`進軍は期限までに記録されませんでした。これから記録されることはありません。`,
   HostStepUnknown: () => L`この軍勢には、その手順がありません。`,
   HostStepInFlight: () => L`この軍勢の別の手順が進んでいます。その結果を待ってください。`,
   RevealAlreadyIn: () => L`この封はすでに開けられています。`,

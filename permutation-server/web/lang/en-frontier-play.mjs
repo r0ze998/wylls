@@ -1888,4 +1888,16 @@ export default {
   'まだ称号はありません': 'No titles yet',
   'それより前の称号（{0}）': 'Earlier titles ({0})',
   '称号と記録だけです。勝敗・得点・賞金・シーズンの終わりには何も加えません': 'Titles and records only. Nothing is added to who wins, scores, prizes or the end of a season',
+  // (2026-11-19, fix-march-held) a march the runner rejected (not sent), one sent and not confirmed, and its re-check
+  '進軍は送信済みですが、まだ確認できていません。同じ進軍は送り直しません。しばらく自動で確かめます（「もう一度」でも確認できます）。署名 {0}': 'The march was sent, but it is not confirmed yet. The same march is not sent again. The page keeps checking for a while (Try again checks too). Signature {0}',
+  '送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。': 'The turn changed while it was being sent, and the province it leaves from had not settled the previous turn yet.',
+  '送るあいだにターンが変わり、この到着ターンには着けなくなりました。': 'The turn changed while it was being sent, and the host can no longer arrive on that turn.',
+  '命令は送られていません。カードはそのままです。確かめてから、もう一度押してください。': 'The order was not sent. The card is kept as it was: check it and press again.',
+  '送信済みの進軍の結果を確認しています…': 'Checking the outcome of the march already sent…',
+  '送信済みだった進軍は記録されました。軍勢は進軍中です。': 'The march that was sent is recorded. The host is on its way.',
+  '送信済みだった進軍はチェーンで断られました。軍勢は村にいます。もう一度命令できます。': 'The march that was sent was refused on chain. The host is still at the village and can be ordered again.',
+  '送信済みだった進軍は期限までに記録されませんでした（これから記録されることはありません）。軍勢は村にいます。もう一度命令できます。': 'The march that was sent was not recorded in time (it can no longer be). The host is still at the village and can be ordered again.',
+  'チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this order before running it. It was not sent.',
+  'チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this march before running it. It was not sent.',
+  '進軍は期限までに記録されませんでした。これから記録されることはありません。': 'The march was not recorded in time. It can no longer be.',
 };

@@ -142,7 +142,8 @@ export async function residentTurn(r, { homes, deps }) {
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
   const detail = r.lastRefusal ?? null; r.lastRefusal = null;
-  if (!sent.ok) { outcome = 'refused'; code = sent.code; }
+  // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
+  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
   else {
     signature = sent.signature;
     const f = await deps.follow(signature, r);
