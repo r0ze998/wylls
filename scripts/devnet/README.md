@@ -12,8 +12,8 @@ its gate is open, and only r0ze opens it.
 | `test/dry-run.test.mjs` | 29 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 
 ```sh
-node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 6,960 lamports/byte)
-node scripts/devnet/dry-run.mjs --rate 5080      # the same at the SIMD-0437 rate the code's figures use
+node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 5,080 lamports/byte, measured on devnet 2026-11-18)
+node scripts/devnet/dry-run.mjs --rate 6960      # the same at the old pre-SIMD-0437 rate
 node scripts/devnet/dry-run.mjs --build          # build first (scripts/build-frontier.sh), then plan
 node scripts/devnet/dry-run.mjs --build --twice  # reproducible build (two fresh target dirs, same hash)
 node scripts/devnet/dry-run.mjs --players 200 --json
@@ -51,8 +51,8 @@ With the gate open, it runs these steps in order and stops at the first failure:
 5. `solana program show`.
 6. `solana program dump`. The dumped bytes, with trailing zeros removed, must hash to the `.so`'s `program_hash`.
 
-**Cost.** A first deploy needs ProgramData rent + Program rent + fees at its peak (12.31 SOL at 6,960 lamports per
-byte for today's `.so`), not twice that: the CLI funds the buffer with the ProgramData rent and the deploy returns it
+**Cost.** A first deploy needs ProgramData rent + Program rent + fees at its peak (8.99 SOL at 5,080 lamports per
+byte, devnet's rate as read on 2026-11-18, for today's `.so`; 12.31 SOL at the old 6,960), not twice that: the CLI funds the buffer with the ProgramData rent and the deploy returns it
 before the ProgramData is paid. A later upgrade holds a returned buffer float (`upgrade(temp)` in the plan).
 
 There is no airdrop, no `--final` (the upgrade authority is the only `AnnounceSeason` signer, I-51, so an immutable
