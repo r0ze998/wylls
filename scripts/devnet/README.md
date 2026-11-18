@@ -9,7 +9,9 @@ its gate is open, and only r0ze opens it.
 | `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`) |
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
+| `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land / conquest + the land preview, version 0x4804): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080 |
 | `test/dry-run.test.mjs` | 29 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
+| `test/playable-profile.test.mjs` | 9 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
 
 ```sh
 node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 5,080 lamports/byte, measured on devnet 2026-11-18)
@@ -18,6 +20,20 @@ node scripts/devnet/dry-run.mjs --build          # build first (scripts/build-fr
 node scripts/devnet/dry-run.mjs --build --twice  # reproducible build (two fresh target dirs, same hash)
 node scripts/devnet/dry-run.mjs --players 200 --json
 ```
+
+**The playable lane** (B7) is a second program with its own profile:
+
+```sh
+scripts/build-frontier-devnet-playable-sbf.sh --twice                                   # reproducible, key-free
+node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json   # plan at 5,080 lamports/byte
+node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json --build --twice
+```
+
+It is the land lane's code (`localnet-land-sbf`) as cargo feature `devnet-playable-sbf`, without the localnet lane's
+`[0x45; 32]` program-id check, so it can run under a real program id. Each profile refuses the other's artefact:
+the S1 profile refuses `PSF_DEVNET_PLAYABLE_BUILD`, and the playable profile requires it and refuses both localnet
+markers. The build keeps the release profile (opt-level 3). Smaller profiles were measured and push S1 instructions
+past the CU limits the clients request (reports/devnet-playable-lane.md).
 
 **`--build` stays key-free.** `cargo-build-sbf` writes `<name>-keypair.json` next to the `.so` when that file is
 missing, and never reads it (agave v3.1.9 `platform-tools-sdk/cargo-build-sbf/src/post_processing.rs`:
