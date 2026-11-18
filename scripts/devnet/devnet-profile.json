@@ -1,0 +1,86 @@
+{
+  "schema": "wylls-devnet-profile-v1",
+  "note": "DRAFT devnet profile (2026-11-18). Nothing here has been deployed. Every <SET-BY-R0ZE...> value is a placeholder that r0ze fills in; the dry-run refuses to send while any placeholder is left. No key material is ever stored here: only public addresses and file paths given on the command line.",
+  "cluster": "devnet",
+  "rpcUrl": "https://api.devnet.solana.com",
+  "allowedRpcHosts": ["api.devnet.solana.com"],
+  "refusedRpcHostPatterns": ["mainnet", "api.solana.com", "testnet"],
+  "programId": "<SET-BY-R0ZE: program address (public key of the program keypair r0ze creates offline)>",
+  "upgradeAuthority": "<SET-BY-R0ZE: upgrade-authority public key (offline key; also the only AnnounceSeason signer, I-51)>",
+  "program": {
+    "crate": "permutation-frontier",
+    "build": "scripts/build-frontier.sh",
+    "so": "permutation-frontier/target/deploy/permutation_frontier.so",
+    "maxLenRule": "round_up(1.25 x so_len, 4096) (I-45, fees::deploy_max_len)",
+    "soLenCap": 1441792,
+    "soLenCapSource": "frontier-abi/src/v2/budgets.rs PLACEHOLDER_SO_LEN_S1: the L(kind) loaded-data limits of the S1 program are computed for a .so no longer than this",
+    "refusedMarkers": ["PSF_ORACLE_BUILD", "PSF_TRACE_BUILD", "PSF_TEST_BEACON_BUILD", "PSF_CUSTODY_PREVIEW_BUILD", "PSF_LOCALNET_EXPEDITION_SBF_BUILD", "PSF_LOCALNET_CONQUEST_SBF_BUILD"]
+  },
+  "rent": {
+    "formula": "rent_exempt(len) = (128 + len) x lamports_per_byte",
+    "lamportsPerByteCandidates": [6960, 6333, 5080, 2575, 1322],
+    "assume": 6960,
+    "why": "devnet's current rate was not read (no devnet contact allowed). 6960 is the pre-SIMD-0437 rate and the highest of the staged feature gates set_lamports_per_byte_to_{6333,5080,2575,1322} (agave feature-set), so it is the conservative bound. The code's own figures use 5080 (frontier-abi presets comments)."
+  },
+  "fees": {
+    "lamportsPerSignature": 5000,
+    "writeChunkBytes": 900,
+    "writeChunkNote": "conservative bytes per loader-v3 Write transaction (the CLI packs about 1 KB; fewer bytes = more transactions = a higher estimate)"
+  },
+  "season": {
+    "preset": "S1_LOCAL_7D",
+    "regions": 16,
+    "rMax": 16,
+    "players": 50,
+    "lamports": {
+      "creationBond": 1000000000,
+      "pfundInitial": 21000000000,
+      "dpoolInitial": 20000000000,
+      "keeperRevealPools": 4800000000,
+      "keeperDelayPools": 6400000000,
+      "keeperBeneficiaries": 200000000,
+      "relayPool": 7500000000,
+      "feesAndTipsPer50Players": 625000000
+    },
+    "lamportsNotes": {
+      "creationBond": "frontier_abi::presets::MIN_CREATION_BOND, returned after a normal season (burned on a post-round pre-join abort, I-09)",
+      "pfundInitial": "S1_LOCAL_7D = MC_LOCAL_7D.pfund_initial (21 SOL; frontier-abi/src/v2/presets.rs). Float.",
+      "dpoolInitial": "M1_LOCAL_7D.dpool_initial (20 SOL), inherited by MC_LOCAL_7D/S1_LOCAL_7D. Returned if unspent.",
+      "keeperRevealPools": "2 keepers x 150 payers x up to 2 x F_r (F_r = 0.0080 SOL at r99_reveals 150; RUN-A-KEEPER 4.3)",
+      "keeperDelayPools": "2 keepers x 32 payers x up to 2 x delay_floor 0.05 SOL (PLAYTEST-RUNBOOK 4)",
+      "keeperBeneficiaries": "2 x 0.1 SOL (ClaimDefence fee payer, RUN-A-KEEPER 1)",
+      "relayPool": "150 relay payers x minPayerLamports 0.05 SOL (permutation-gateway/src/frontier/config.mjs)",
+      "feesAndTipsPer50Players": "PLAYTEST-RUNBOOK 5: <= 2.5 SOL per 200 players-week, scaled to 50 (spent)"
+    },
+    "accounts": [
+      { "name": "Season", "bytes": 2048, "count": 1 },
+      { "name": "Frontier", "bytes": 512, "count": 1 },
+      { "name": "JoinShard", "bytes": 256, "count": 48 },
+      { "name": "BeaconLog", "bytes": 128, "count": 16 },
+      { "name": "ProvinceFund", "bytes": 128, "count": 6 },
+      { "name": "DefencePool", "bytes": 256, "count": 1 },
+      { "name": "RingSeed", "bytes": 128, "count": 17 },
+      { "name": "AnchorArchive (16 regions x 16 half-days)", "bytes": 6144, "count": 256 },
+      { "name": "BellAnchor float (16 regions x 288 bells kept 48 h) [model]", "bytes": 144, "count": 4608 },
+      { "name": "SeedCache float (16 regions x 288 bells kept 48 h) [model]", "bytes": 144, "count": 4608 }
+    ],
+    "perPlayerAccounts": [
+      { "name": "Citizen", "bytes": 384 },
+      { "name": "Holding", "bytes": 1280 }
+    ],
+    "continuousWorldPerDay": [
+      { "name": "AnchorArchive per day (16 regions x 2 half-days), never closed while the world runs [model]", "bytes": 6144, "count": 32 }
+    ]
+  },
+  "services": {
+    "herald": { "listen": "127.0.0.1:41040", "public": "only through a TLS reverse proxy" },
+    "relay": { "port": 41030, "publicPort": 41033, "public": "never directly; the herald proxies /gw/*" },
+    "keeperA": { "api": "127.0.0.1:41050" },
+    "keeperB": { "api": "127.0.0.1:41051" }
+  },
+  "excluded": {
+    "permutation-prize": "owner decision 17 = A (no prize): not deployed",
+    "wylls_resident_program (NFT)": "owner decision 20 = A (no NFT resident): not deployed",
+    "permutation-chain (v9)": "superseded by permutation-frontier: not deployed"
+  }
+}
