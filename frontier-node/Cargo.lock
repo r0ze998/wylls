@@ -4490,6 +4490,7 @@ dependencies = [
  "frontier-abi",
  "hex",
  "keeper",
+ "localnet",
  "permutation-rules",
  "rusqlite",
  "serde_json",

@@ -22,6 +22,9 @@ pub const MISSING_LOGS: &str = "MissingLogs";
 pub const TRUNCATED_LOGS: &str = "TruncatedLogs";
 /// A program invocation of a successful transaction without its `success` line (UNVERIFIABLE, V0E).
 pub const INCOMPLETE_LOGS: &str = "IncompleteLogs";
+/// Logs that show a top-level invocation of the program the message does
+/// not make (UNVERIFIABLE, V0E; ⑪ 2026-11-18).
+pub const UNEXPLAINED_INVOCATION: &str = "UnexplainedInvocation";
 /// The program run inside another program; no inner instruction archived (UNVERIFIABLE, V0E).
 pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
 /// A written program account with no post-state in the archive (UNVERIFIABLE, V0E).

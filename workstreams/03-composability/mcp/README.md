@@ -24,6 +24,9 @@ The design and the facts are in [../07-mcp.ja.md](../07-mcp.ja.md) (Japanese). T
 | `src/store.mjs`, `src/seal.mjs` | Atomic JSON store (mode 0600) and AES-256-GCM sealing of the agent capability. |
 | `test/` | Contract tests on a scripted chain (protocol and OAuth, the play, attacks) and the official MCP SDK client. |
 | `e2e/local-stack.mjs` | The play end to end on a real local stack (frontier-stack). |
+| `src/local-play-game.mjs`, `bin/wylls-mcp-local-play.mjs` | (⑤ B, 2026-11-18) The **read-only** observation server of one local-play TEST world: `wylls.read` only, read tools only, a link is the resident's own (agentId = owner). |
+| `examples/external-resident/` | (⑤ B) A reference external AI resident with its own TEST key: discovers its world like a page, observes over this server, acts on the page's own route. [README](examples/external-resident/README.md) — how to plug in your own AI. |
+| `e2e/external-resident-probes.mjs` | (⑤ B) What an external resident cannot do, checked against a running local world. |
 
 ## Test
 
