@@ -698,7 +698,10 @@ export async function startOperatorResidents({ n, dir, ports, rpc, herald, playe
   if (!first || first.schema !== OPERATOR_RESIDENTS_SCHEMA || first.mode !== OPERATOR_RESIDENTS_MODE || first.test_only !== true || !Array.isArray(wallets) || wallets.length !== n
     || !wallets.every(validWallet) || new Set([...wallets, ...players]).size !== n + players.length) throw fault('OperatorResidentsNotReady', 503);
   for (const w of wallets) await (limit.operatorFund ?? (a => runnerRpc(rpc, 'requestAirdrop', [a, OPERATOR_LAMPORTS])))(w);
-  wallets.forEach((w, i) => launch(`relay-op-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i])]));
+  // (each is a RESIDENT's relay: one action per bell for its wallet's Citizen, Q16-2 — one lease directory per world,
+  //  so a second relay for the same wallet in this world could not double-act either)
+  const turnsDir = path.resolve(dir, 'resident-turns');
+  wallets.forEach((w, i) => launch(`relay-op-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i]), '--resident-turns', turnsDir]));
   await fs.writeFile(path.join(dir, 'operators.json'), JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, count: n, wallets, ports, lamports_each: OPERATOR_LAMPORTS, homes: homes.length }), { flag: 'wx' });
   return Object.freeze({ count: n, wallets: Object.freeze([...wallets]), ports: Object.freeze([...ports]) });
 }

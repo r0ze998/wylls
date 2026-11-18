@@ -11,6 +11,7 @@ permutation-gateway/test/agent-wallet-gateway.test.mjs
 permutation-gateway/test/agent-wallet-mcp.test.mjs
 permutation-gateway/test/agent-wallet-money.test.mjs
 permutation-gateway/test/agent-wallet-regression.test.mjs
+permutation-gateway/test/agent-wallet-resident-turns.test.mjs
 permutation-gateway/test/agent-wallet-review.test.mjs
 permutation-gateway/test/agent-wallet-runner.test.mjs
 permutation-gateway/test/agent-wallet-sendcaravan.test.mjs
@@ -60,6 +61,7 @@ permutation-gateway/test/frontier-local-play-conquest.test.mjs
 permutation-gateway/test/frontier-local-play-march.test.mjs
 permutation-gateway/test/frontier-local-play-operator-residents.test.mjs
 permutation-gateway/test/frontier-local-play-relay.test.mjs
+permutation-gateway/test/frontier-local-play-resident-turns.test.mjs
 permutation-gateway/test/frontier-local-play-resident.test.mjs
 permutation-gateway/test/frontier-local-play-reveal.test.mjs
 permutation-gateway/test/frontier-prize.test.mjs

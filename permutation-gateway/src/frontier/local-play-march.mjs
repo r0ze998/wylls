@@ -21,6 +21,7 @@ import { decode, encode } from '../../client/src/base58.mjs';
 import { parseTransaction } from '../../client/src/solana-tx.mjs';
 import { localPlayRelayConfigProblems, fetchRpc, LOCAL_PLAY_SEASON_ID } from './local-play-relay.mjs';
 import { localActAccountsCheck, LOCAL_ACT_LOADED_LIMIT } from './local-play-act.mjs';
+import { localPlayTurnGate } from './local-play-turns.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { accountsFor, buildShape } from '../../../permutation-server/web/frontier/fplay.mjs';
 import { seasonAddresses, hostParts } from '../../../permutation-server/web/frontier/faddr.mjs';
@@ -54,13 +55,17 @@ const ERRORS = Object.freeze({
   LocalMarchSendRefused: [502, 'the runner refused the send'],
   LocalMarchUnknownSignature: [404, 'not a march sent through this relay'],
   LocalMarchNoInstance: [404, 'this relay has no pinned runner instance: no march capability'],
+  // (one action per resident per bell, local-play-turns.mjs: only on a relay started with --resident-turns)
+  ResidentAlreadyActed: [409, 'this resident already acted in this bell'],
+  ResidentTurnUnavailable: [503, 'the resident turn lease cannot be recorded'],
 });
 export class LocalMarchError extends Error {
   constructor(code, detail = undefined) { super(ERRORS[code]?.[1] ?? code); this.code = code; this.status = ERRORS[code]?.[0] ?? 400; if (detail !== undefined) this.detail = detail; }
 }
 /** Refusals made BEFORE the send: the page may say "not sent" for these only. */
 export const LOCAL_MARCH_PRESEND_REFUSALS = Object.freeze(['LocalMarchInvalid', 'LocalMarchNotAllowed', 'LocalMarchWideHolding', 'LocalMarchNotYourHost', 'LocalMarchSeal',
-  'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed']);
+  'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed',
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
 const fail = (code, detail) => { throw new LocalMarchError(code, detail); };
 const check = (ok, code = 'LocalMarchInvalid') => { if (!ok) fail(code); };
 const exact = (v, keys) => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
@@ -162,7 +167,7 @@ export function localMarchAccountsCheck(intent, pins, { citizenAt, holdingAt }, 
 }
 
 /** The flow over the relay's closed `cfg`, `rpc` and the runner's pinned instance (or null). Constructing it reads and sends nothing. */
-export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, trial = false }) {
+export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, trial = false, turns = null }) {
   if (trial !== false && trial !== true) throw new Error('local-play march refused: trial must be a boolean');
   // DEFAULT CLOSED (independent review, 2026-11-13): the march exists only for the TEST-ONLY trial entry and only over
   // a pinned runner instance. Without both nothing is built, so no listener can serve a signed Depart: neither an
@@ -175,6 +180,7 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
   const pins = Object.freeze({ program: cfg.program, season: cfg.season, seasonId: LOCAL_PLAY_SEASON_ID, wallet: cfg.wallet, rulesetHash: cfg.rulesetHash });
   const A = seasonAddresses(pins.program, String(pins.seasonId));
   const citizenAt = A.of('Citizen', { wallet: pins.wallet });
+  const gate = localPlayTurnGate({ turns, cfg, citizen: citizenAt });
   const seen = new Map();   // digest → {signature}: for good
   let closed = false;
   const open = () => { if (closed) fail('LocalMarchClosed'); };
@@ -212,9 +218,13 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
         if (!Number.isSafeInteger(ctx?.slot) || ctx.slot < 0 || !Array.isArray(value) || value.length !== 1 || ctx.instance !== runnerInstance) fail('LocalMarchRpcUnavailable');
         if (value[0] !== null) { seen.set(digest, Object.freeze({ signature: ok.signature })); fail('LocalMarchMessageUsed'); }
       }
+      // A resident's relay: the chain's bell, read last; claimed synchronously below (first writer of the bell wins).
+      const turnBell = gate !== null ? await gate.bell(ask, () => fail('LocalMarchRpcUnavailable')) : null;
       check(!seen.has(digest), 'LocalMarchMessageUsed'); check(seen.size < LOCAL_MARCH_MAX_HISTORY, 'LocalMarchBusy');
       open();   // the last thing before the send
+      const ticket = gate !== null ? gate.claim(turnBell, 'local-play', (code, detail) => fail(code, detail)) : null;
       seen.set(digest, Object.freeze({ signature: ok.signature }));   // before sending: at most once
+      ticket?.sent(ok.signature);
       const binding = sealBinding(ok.intent);
       let sent;
       try { sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]); }

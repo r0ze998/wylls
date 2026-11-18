@@ -18,6 +18,7 @@ import { decode, encode } from '../../client/src/base58.mjs';
 import { parseTransaction } from '../../client/src/solana-tx.mjs';
 import { localPlayRelayConfigProblems, fetchRpc, LOCAL_PLAY_SEASON_ID } from './local-play-relay.mjs';
 import { citizenIdentity } from './conquest-table-read.mjs';
+import { localPlayTurnGate } from './local-play-turns.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { accountsFor, buildShape, SIGNED_BY } from '../../../permutation-server/web/frontier/fplay.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
@@ -48,6 +49,9 @@ const ERRORS = Object.freeze({
   LocalActClosed: [503, 'the local-play relay is closing'],
   // (the instance read of the context route: this relay was started without a pinned runner instance)
   LocalActNoInstance: [404, 'this relay has no pinned runner instance to confirm'],
+  // (one action per resident per bell, local-play-turns.mjs: only on a relay started with --resident-turns)
+  ResidentAlreadyActed: [409, 'this resident already acted in this bell'],
+  ResidentTurnUnavailable: [503, 'the resident turn lease cannot be recorded'],
 });
 export class LocalActError extends Error {
   constructor(code, detail) { const known = Object.hasOwn(ERRORS, code) ? code : 'LocalActInvalid'; super(ERRORS[known][1]); this.code = known; this.status = ERRORS[known][0]; if (detail !== undefined) this.detail = detail; }
@@ -59,7 +63,8 @@ export class LocalActError extends Error {
  * were submitted before, or the runner already knows the signature) — in both the transaction may be on the chain.
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
-  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed']);
+  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
 const fail = code => { throw new LocalActError(code); };
 const check = (ok, code = 'LocalActInvalid') => { if (!ok) fail(code); };
 const exact = (v, keys) => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
@@ -229,7 +234,8 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
 // not pass it): `{rpcOk(url), sendGuard()}`. The RPC must then be the TEST runner's (the test range, and not an
 // ordinary one), a runner instance must be pinned, and `sendGuard` is asked as the last thing before the one send:
 // when it throws, nothing is sent and the bytes are not consumed. Nothing else about the flow differs.
-export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, test = null }) {
+// `turns` (resident-turns.mjs, from `--resident-turns`): one action per bell for this wallet's Citizen; Join is none.
+export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, test = null, turns = null }) {
   if (test !== null && (test === undefined || typeof test !== 'object' || typeof test.rpcOk !== 'function' || typeof test.sendGuard !== 'function' || runnerInstance === null)) throw new Error('local-play act refused: bad test form');
   const problems = localPlayRelayConfigProblems(cfg, test === null ? {} : { testRpcOk: test.rpcOk });
   if (problems.length) throw new Error('local-play act refused: ' + problems.join('; '));
@@ -237,6 +243,7 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
   const pins = Object.freeze({ program: cfg.program, season: cfg.season, seasonId: LOCAL_PLAY_SEASON_ID, wallet: cfg.wallet, rulesetHash: cfg.rulesetHash });
   const A = seasonAddresses(pins.program, String(pins.seasonId));
   const citizenAt = A.of('Citizen', { wallet: pins.wallet });
+  const gate = localPlayTurnGate({ turns, cfg, citizen: citizenAt });
   // digest → {signature, name}: a submitted message, for good (the record that bars its bytes and that `status` answers from)
   const seen = new Map();
   // CLOSED (`close()`, called when the listener begins to stop): a latch. From then on nothing is read and nothing is
@@ -290,11 +297,18 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
         if (!Number.isSafeInteger(ctx?.slot) || ctx.slot < 0 || !Array.isArray(value) || value.length !== 1 || ctx.instance !== runnerInstance) fail('LocalActRpcUnavailable');
         if (value[0] !== null) { seen.set(digest, Object.freeze({ signature: ok.signature, name: intent.name })); fail('LocalActMessageUsed'); }
       }
+      // A resident's relay: the chain's bell, read last (one read of the Season and the Clock at one slot).
+      const turnBell = gate !== null && intent.name !== 'Join' ? await gate.bell(ask, () => fail('LocalActRpcUnavailable')) : null;
+      open();
       // (re-checked after the awaits: a concurrent submit of the same bytes may have taken it. Synchronous from here to the send.)
       check(!seen.has(digest), 'LocalActMessageUsed'); check(seen.size < LOCAL_ACT_MAX_HISTORY, 'LocalActBusy');
       open();   // THE LAST THING BEFORE THE SEND: a relay that is closing sends nothing
       if (test !== null) test.sendGuard();   // (test form: the test run's own end / send latch — throws: nothing sent, bytes not consumed)
+      // One action per resident per bell: claimed synchronously, the first writer of the bell wins; a refusal here is
+      // before the send (nothing sent, the bytes not consumed). From the claim to the send nothing can refuse.
+      const ticket = gate !== null && intent.name !== 'Join' ? gate.claim(turnBell, 'local-play', (code, detail) => { throw new LocalActError(code, detail); }) : null;
       seen.set(digest, Object.freeze({ signature: ok.signature, name: intent.name }));   // before sending: at most once
+      ticket?.sent(ok.signature);
       let sent;
       try { sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]); }
       catch { return { status: 'unknown', name: intent.name, signature: ok.signature, status_route: LOCAL_ACT_ROUTES.status }; }   // (the outcome is unknown: asked about by its signature, never sent again)

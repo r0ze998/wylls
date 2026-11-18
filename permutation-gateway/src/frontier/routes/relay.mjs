@@ -32,6 +32,8 @@ import { RouteError } from '../../routes/errors.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { dailyTxs, dayEnd, gameDay } from '../quota.mjs';
 import { allowanceFor, checkRelayShape, drainGuard, feeOf, lamportsPerDay, quotaKeyOf } from '../shapes.mjs';
+import { bellAt, residentTurnOf, ResidentTurnError, RESIDENT_ALREADY_ACTED } from '../resident-turns.mjs';
+export { residentTurnOf };
 
 /** Per-signer limits (on top of the per-address ones and the quotas). */
 export const FRONTIER_SIGNER_LIMITS = Object.freeze({ relay: { burst: 24, perSecond: 1 }, join: { burst: 4, perSecond: 0.05 } });
@@ -107,6 +109,10 @@ export async function citizenQuota(ctx, citizen) {
   return { left, resetsAt };
 }
 
+const residentTurnRouteError = e => (e instanceof ResidentTurnError
+  ? new RouteError(e.code === RESIDENT_ALREADY_ACTED ? 409 : 503, `relay refused: ${e.message}`, e.code, e.extra)
+  : e);
+
 /** RPC acknowledgement is submission, not finality. Block another sponsor
  * write until every signed attempt has a finalized chain outcome. */
 async function requireNoUnfinalizedRelaySend(ctx) {
@@ -138,7 +144,7 @@ function unfinalizedRelaySend(attempts) {
 async function quotaFrame(ctx) {
   const season = await ctx.chain.season();
   const clock = await ctx.chain.clock();
-  return { season, genesisTs: Number(season.GENESIS_TS), day: gameDay(clock.unixTimestamp, season.GENESIS_TS), lamportsCap: lamportsPerDay(season) };
+  return { season, genesisTs: Number(season.GENESIS_TS), unixTimestamp: Number(clock.unixTimestamp), day: gameDay(clock.unixTimestamp, season.GENESIS_TS), lamportsCap: lamportsPerDay(season) };
 }
 
 /**
@@ -154,7 +160,7 @@ async function quotaFrame(ctx) {
  * such a permission remains used if the RPC outcome is ambiguous.
  * `viaAgent`: the agent gateway's own path (see AgentKeyDirect).
  */
-export async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterCitizenAddr = null, extraSigners = [], limitKind = 'relay', lastValidBlockHeight, onSent, beforeSend, extraAllowance = 0n, viaAgent = false }) {
+export async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterCitizenAddr = null, extraSigners = [], limitKind = 'relay', lastValidBlockHeight, onSent, beforeSend, extraAllowance = 0n, viaAgent = false, turnSource = null }) {
   const { pool, connection, chain, quota, relayed, limiter, blockhashes } = ctx;
   checkRelayShape(shape, { pool, addresses: ctx.addresses });
   // An operator-run agent's key acts only through the agent wallet (its policy and budget), never around it.
@@ -173,7 +179,11 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   // pass (integ-W2 review of W2-D); released on every refusal below.
   relayed.refuseRepeat(replayKey);
   relayed.add(replayKey);
-  const release = () => relayed.seen.delete(replayKey); // guards.mjs ReplayCache keeps its keys in `seen`
+  // The resident's turn lease (residentTurnOf), when this write takes one: given back with everything else on every
+  // refusal before the bytes leave; kept once they may have left.
+  let turn = null;
+  const release = () => { relayed.seen.delete(replayKey); turn?.release(); }; // guards.mjs ReplayCache keeps its keys in `seen`
+  const turnCitizen = residentTurnOf(ctx, shape, { viaAgent, limitKind });
   let frame;
   let key;
   let allowance;
@@ -191,6 +201,15 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
     allowance = allowanceFor(shape, { season: frame.season, citizen }) + BigInt(extraAllowance);
     key = quotaKeyOf(shape, { requesterCitizen: settleCitizen, ip: req.ip });
     quota.check(key, { day: frame.day, lamports: allowance, lamportsCap: frame.lamportsCap, genesisTs: frame.genesisTs });
+    // One action per resident per bell: the chain's bell of the chain's clock (the same reads as the quota day). Claimed
+    // synchronously after the last await above, so concurrent writers for one resident cannot both pass.
+    if (turnCitizen !== null) {
+      const bell = bellAt(frame.genesisTs, frame.unixTimestamp);
+      if (bell !== null) {
+        try { turn = ctx.residentTurns.claim({ citizen: turnCitizen, bell, source: turnSource ?? (viaAgent ? 'agent' : 'wallet') }); }
+        catch (e) { throw residentTurnRouteError(e); }
+      }
+    }
   } catch (e) {
     release();
     throw e;
@@ -246,6 +265,7 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
     throw new RouteError(503, 'cannot durably record a signed relay attempt', 'RelayPending', { signature: signedSignature });
   }
   ctx.sent.set(signedSignature, { lastValidBlockHeight: expiry, kind: shape.name });
+  turn?.sent(signedSignature);   // (from here the bytes may leave: the resident's turn is spent)
   let signature;
   try {
     signature = await connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });

@@ -24,7 +24,8 @@
 // the inspector accepted it).
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import { decode, encode } from '../../client/src/base58.mjs';
-import { seasonPda } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { seasonPda, seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { localPlayTurnGate } from './local-play-turns.mjs';
 import { createExpeditionDepartPrepare, ExpeditionDepartPrepareError, DEPART_PREPARE_PROGRAM_VERSION } from './expedition-depart-prepare.mjs';
 
 export const LOCAL_PLAY_PROGRAM = encode(new Uint8Array(32).fill(0x45));
@@ -54,6 +55,9 @@ const ERRORS = Object.freeze({
   LocalPlayBusy: [429, 'too many prepared messages are waiting'],
   LocalPlayRpcUnavailable: [503, 'the local-play runner did not answer'],
   LocalPlaySendRefused: [502, 'the local-play runner refused the transaction'],
+  // (one action per resident per bell, local-play-turns.mjs: only on a relay started with --resident-turns)
+  ResidentAlreadyActed: [409, 'this resident already acted in this bell'],
+  ResidentTurnUnavailable: [503, 'the resident turn lease cannot be recorded'],
 });
 export class LocalPlayError extends Error {
   constructor(code, detail) {
@@ -179,7 +183,7 @@ const heightOf = h => (h && !h.error && Number.isSafeInteger(h.result) && h.resu
  * land": only an answer that carries this very id in the SAME status response is about the chain the transaction was
  * sent to. Without it (today: no runner states one) nothing is ever settled that way — a not-found stays `pending`.
  */
-export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now(), flow = null, runnerInstance = null }) {
+export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now(), flow = null, runnerInstance = null, turns = null }) {
   if (runnerInstance !== null && (typeof runnerInstance !== 'string' || !/^[0-9a-f]{64}$/.test(runnerInstance) || /^0{64}$/.test(runnerInstance))) throw new Error('local-play relay refused: bad runner instance');
   if (flow !== null && (!prepare || !exact(flow, ['routes', 'submitSchema', 'statusSchema', 'scopeOf']) || typeof flow.scopeOf !== 'function'
       || !exact(flow.routes, ['prepare', 'submit', 'status']) || [flow.submitSchema, flow.statusSchema].some(s => typeof s !== 'string' || s === SUBMIT_SCHEMA || s === STATUS_SCHEMA)
@@ -195,6 +199,8 @@ export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetc
     season: cfg.season,
   });
   const walletKey = edKey(decode(cfg.wallet));
+  // (one action per resident per bell, only with `turns`: keyed by this wallet's Citizen of the pinned Season)
+  const gate = localPlayTurnGate({ turns, cfg, citizen: seasonAddresses(cfg.program, String(LOCAL_PLAY_SEASON_ID)).of('Citizen', { wallet: cfg.wallet }) });
   /**
    * The replay barrier: message_digest → {message, lastValid, state:
    * open|reserved|used|expired, at, signature?}. A digest stays here — refused for
@@ -290,6 +296,15 @@ export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetc
       try { height = heightOf(await rpc('getBlockHeight', [{ commitment: 'confirmed' }])); } catch { height = null; }
       if (height === null) { entry.state = 'open'; fail('LocalPlayRpcUnavailable'); }
       if (height > entry.lastValid) { entry.state = 'expired'; fail('LocalPlayMessageExpired'); }
+      // A resident's relay (--resident-turns): one action per bell for the wallet's Citizen, the first writer of the
+      // bell wins. The bell is read, then claimed synchronously; a refusal gives the reservation back (nothing sent).
+      let ticket = null;
+      if (gate !== null) {
+        try {
+          const bell = await gate.bell(async (m, p) => { let r; try { r = await rpc(m, p); } catch { r = null; } if (!r || r.error !== undefined) fail('LocalPlayRpcUnavailable'); return r; }, () => fail('LocalPlayRpcUnavailable'));
+          ticket = gate.claim(bell, 'local-play', (code, detail) => fail(code, detail));
+        } catch (e) { entry.state = 'open'; throw e; }
+      }
       // From here the message is consumed, whatever happens: one send at most.
       // The signature is known from the wire, so it is recorded before sending
       // and `status` can look it up for as long as the ticket is in the barrier.
@@ -297,6 +312,7 @@ export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetc
       // (the height just read is the slot this message is sent at: kept for `status`, which never settles an absence
       //  read at a lower slot — a chain that went backwards is another chain)
       entry.state = 'used'; entry.signature = sig; entry.sentSlot = height;
+      ticket?.sent(sig);
       let sent;
       try {
         sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]);

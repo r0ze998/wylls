@@ -40,7 +40,8 @@ export const LOCAL_ACT_SEASON_ID = '11';
  * `LocalActSendRefused` (the send was attempted) and `LocalActMessageUsed` (the bytes or the signature are already known).
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
-  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed']);
+  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
 export const LOCAL_ACT_MAX_BYTES = 16 * 1024;
 export const LOCAL_ACT_TIMEOUT_MS = 30_000;
 

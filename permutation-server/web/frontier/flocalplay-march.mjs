@@ -146,7 +146,8 @@ export const LOCAL_MARCH_SUBMIT_SCHEMA = 'frontier-local-play-march-submit-v1';
 export const LOCAL_MARCH_STATUS_SCHEMA = 'frontier-local-play-march-status-v1';
 /** The relay's refusals made BEFORE its send (local-play-march.mjs `LOCAL_MARCH_PRESEND_REFUSALS`): only these say "not sent". */
 export const LOCAL_MARCH_PRESEND_REFUSALS = Object.freeze(['LocalMarchInvalid', 'LocalMarchNotAllowed', 'LocalMarchWideHolding', 'LocalMarchNotYourHost', 'LocalMarchSeal',
-  'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed']);
+  'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed',
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
 export const LOCAL_MARCH_BOOK_KEY = 'local-march:memory';
 export const LOCAL_MARCH_MAX_BYTES = 16 * 1024;
 const POST_PATHS = Object.freeze([LOCAL_ACT_CONTEXT_PATH, LOCAL_MARCH_SUBMIT_PATH, LOCAL_MARCH_STATUS_PATH]);
