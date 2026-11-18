@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  APPROVAL_FLAG, base58Decode, checkSo, deployCost, isAddress, maxLenFor, profileProblems, rentExempt, rpcProblem, run, seasonCost, sol,
+  APPROVAL_FLAG, base58Decode, checkSo, cliTooOld, deployCost, isAddress, keyFileProblems, maxLenFor, parseCliVersion, profileProblems, rentExempt,
+  rpcProblem, run, seasonCost, sol,
 } from '../plan.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -32,13 +33,14 @@ function fakeSo({ flags = 2, overflow = true, marker = null, len = 4096, trailin
 const SO_PATH = `${REPO}/permutation-frontier/target/deploy/permutation_frontier.so`;
 const KEYS = { payer: '/keys/devnet-payer.json', program: '/keys/program.json', auth: '/keys/authority.json' };
 
-function fakeIo({ files = {}, prof = filled(), modes = {}, addresses = {}, dump = null, failStep = null } = {}) {
+function fakeIo({ files = {}, prof = filled(), modes = {}, addresses = {}, dump = null, failStep = null, cliVersion = 'solana-cli 4.4.1 (src:00000000; feat:0, client:Agave)' } = {}) {
   const fs = { [`${REPO}/scripts/devnet/devnet-profile.json`]: Buffer.from(JSON.stringify(prof)), [SO_PATH]: fakeSo(), ...files };
-  const calls = [], logs = [], errs = [], writes = [];
+  const calls = [], logs = [], errs = [], writes = [], mkdirs = [];
   const io = {
     repoRoot: REPO, tmpDir: '/tmp/fake', uid: 501,
     readFile: f => { if (!(f in fs)) throw new Error(`ENOENT ${f}`); return fs[f]; },
     writeFile: (f, t) => { writes.push(f); fs[f] = Buffer.from(t); },
+    mkdir: d => { mkdirs.push(d); },
     exists: f => f in fs,
     stat: f => {
       if (!Object.values(KEYS).includes(f) && !(f in modes)) throw new Error('ENOENT');
@@ -47,13 +49,14 @@ function fakeIo({ files = {}, prof = filled(), modes = {}, addresses = {}, dump 
     exec: (cmd, args) => {
       calls.push([cmd, args]);
       if (failStep && args.join(' ').startsWith(failStep)) return { status: 1, stdout: '' };
+      if (cmd === 'solana' && args[0] === '--version') return { status: 0, stdout: `${cliVersion}\n` };
       if (cmd === 'solana' && args[0] === 'address') return { status: 0, stdout: `${addresses[args[2]] ?? ''}\n` };
       if (cmd === 'solana' && args[0] === 'program' && args[1] === 'dump') fs[args[3]] = dump ?? Buffer.concat([fs[SO_PATH], Buffer.alloc(9000)]);
       return { status: 0, stdout: '' };
     },
     log: t => logs.push(t), err: t => errs.push(t),
   };
-  return { io, calls, logs, errs, writes, fs };
+  return { io, calls, logs, errs, writes, mkdirs, fs };
 }
 const sha = b => checkSo(b, profile()).sha256;
 const openArgs = (so = fakeSo()) => [APPROVAL_FLAG, '--keypair', KEYS.payer, '--program-keypair', KEYS.program, '--upgrade-authority', KEYS.auth, '--approved-sha256', sha(so)];
@@ -74,16 +77,20 @@ test('rent formula reproduces the code\'s own figures at 5,080 lamports per byte
   assert.equal(sol(1_234_567_891n), '1.2345');
 });
 
-test('deploy cost: peak is buffer + programdata + program + fees; the buffer comes back', () => {
-  const c = deployCost({ soLen: 1_409_560, maxLen: 1_765_376, rate: 6960, lamportsPerSignature: 5000, writeChunkBytes: 900 });
-  assert.equal(c.buffer, (128n + 37n + 1_409_560n) * 6960n);
+test('deploy cost follows the CLI: the buffer is funded with the ProgramData rent and returned first', () => {
+  const c = deployCost({ soLen: 1_409_560, maxLen: 1_765_376, rate: 6960, lamportsPerSignature: 5000, writeChunkBytes: 850, signaturesPerWrite: 2 });
   assert.equal(c.programdata, (128n + 45n + 1_765_376n) * 6960n);
   assert.equal(c.program, (128n + 36n) * 6960n);
-  assert.equal(c.writes, 1567);
-  assert.equal(c.fees, BigInt(2 + 1567 + 3) * 5000n);
-  assert.equal(c.peak, c.buffer + c.programdata + c.program + c.fees);
-  assert.equal(c.net, c.programdata + c.program + c.fees);
-  assert.equal(sol(c.peak), '22.1089');
+  assert.equal(c.writes, 1659);
+  // every Write is signed by the fee payer and by the buffer (= upgrade) authority
+  assert.equal(c.fees, BigInt(2 + 2 * 1659 + 3) * 5000n);
+  assert.equal(c.kept, c.programdata + c.program);
+  // no separate buffer hold: agave's DeployWithMaxDataLen drains the buffer to the payer before the ProgramData is paid
+  assert.equal(c.peak, c.programdata + c.program + c.fees);
+  assert.equal(sol(c.peak), '12.3059');
+  assert.equal(sol(deployCost({ soLen: 1_409_560, maxLen: 1_765_376, rate: 5080 }).peak), '8.9864');
+  assert.equal(c.upgradeFloat, (128n + 45n + 1_409_560n) * 6960n);
+  assert.equal(c.buffer, undefined);
 });
 
 test('season cost sums its lines and scales player rent', () => {
@@ -128,6 +135,10 @@ test('RPC: devnet https hosts of the profile only', () => {
   assert.match(rpcProblem('http://api.devnet.solana.com', p), /https only/);
   assert.match(rpcProblem('https://u:p@api.devnet.solana.com', p), /credentials/);
   assert.match(rpcProblem('https://example.org', p), /allowedRpcHosts/);
+  // a hand-made profile cannot allow mainnet or testnet
+  const wide = { ...p, allowedRpcHosts: ['api.mainnet-beta.solana.com', 'api.testnet.solana.com'], refusedRpcHostPatterns: [] };
+  assert.match(rpcProblem('https://api.mainnet-beta.solana.com', wide), /refused/);
+  assert.match(rpcProblem('https://api.testnet.solana.com', wide), /refused/);
 });
 
 // ------------------------------------------------------------ the artefact
@@ -184,6 +195,33 @@ test('key files: mode 600 and outside the repository only', () => {
     assert.equal(run(args, io), 0);
     assert.deepEqual(calls, []);
     assert.match(logs.join('\n'), re);
+  }
+});
+
+test('key file paths must be normalised, so ".." cannot hide a file inside the repository', () => {
+  const stat = () => ({ isFile: () => true, mode: 0o100600, uid: 501 });
+  const sneaky = `/tmp/../${REPO.slice(1)}/key.json`;
+  assert.match(keyFileProblems('--keypair', sneaky, { stat, repoRoot: REPO, uid: 501 }).join(), /normalised/);
+  assert.match(keyFileProblems('--keypair', `${REPO}/key.json`, { stat, repoRoot: REPO, uid: 501 }).join(), /inside the repository/);
+  assert.deepEqual(keyFileProblems('--keypair', '/keys/a.json', { stat, repoRoot: REPO, uid: 501 }), []);
+  assert.match(keyFileProblems('--keypair', '/keys/a.json', { stat, repoRoot: REPO, uid: 502 }).join(), /not owned/);
+});
+
+test('Solana CLI versions: 3.1.x cannot deploy this program', () => {
+  assert.deepEqual(parseCliVersion('solana-cli 3.1.9 (src:765ee54a; feat:1620780344, client:Agave)'), [3, 1, 9]);
+  assert.equal(parseCliVersion('something else'), null);
+  assert.ok(cliTooOld([3, 1, 9]));
+  assert.ok(!cliTooOld([4, 0, 0]));
+  assert.ok(!cliTooOld([4, 4, 1]));
+  assert.ok(!cliTooOld([5, 0, 0]));
+});
+
+test('gate open but the Solana CLI is 3.1.9 or unreadable: stops before any key file is used (exit 4)', () => {
+  for (const cliVersion of ['solana-cli 3.1.9 (src:765ee54a; feat:1620780344, client:Agave)', 'garbage']) {
+    const { io, calls, errs } = fakeIo({ addresses: goodAddresses, cliVersion });
+    assert.equal(run(openArgs(), io), 4);
+    assert.deepEqual(calls.map(([c, a]) => `${c} ${a[0]}`), ['solana --version']);
+    assert.match(errs.join('\n'), /need 4\.0\.0 or newer/);
   }
 });
 
@@ -254,12 +292,25 @@ test('--build writes a non-key placeholder only when the file is missing, then b
   const a = fakeIo({ prof: profile() });
   assert.equal(run(['--build'], a.io), 0);
   assert.deepEqual(a.writes, [holder]);
+  assert.deepEqual(a.mkdirs, [path.dirname(holder)], 'a fresh checkout has no target/deploy directory yet');
   assert.match(a.fs[holder].toString(), /^PLACEHOLDER: not a key/);
   assert.deepEqual(a.calls, [[`${REPO}/scripts/build-frontier.sh`, []]]);
   const b = fakeIo({ prof: profile(), files: { [holder]: Buffer.from('{"existing": true}') } });
   assert.equal(run(['--build', '--twice'], b.io), 0);
   assert.deepEqual(b.writes, []);
   assert.deepEqual(b.calls, [[`${REPO}/scripts/build-frontier.sh`, ['--twice']]]);
+  // a placeholder that cannot be written stops the build (exit 3) instead of letting cargo-build-sbf make a key
+  const c = fakeIo({ prof: profile() });
+  c.io.writeFile = () => { throw new Error('EACCES'); };
+  assert.equal(run(['--build'], c.io), 3);
+  assert.deepEqual(c.calls, []);
+});
+
+test('build-frontier.sh --twice puts a placeholder in both temporary out dirs (no key is generated)', () => {
+  const build = readFileSync(path.join(REPO, 'scripts/build-frontier.sh'), 'utf8');
+  const i = build.indexOf('PLACEHOLDER: not a key'), j = build.indexOf('build "$tmp/out1" "$tmp/t1"');
+  assert.ok(i > 0 && j > i, 'the placeholders are written before the first build');
+  assert.match(build, /the keypair placeholder was replaced/);
 });
 
 test('bad arguments and rates are refused (exit 2)', () => {
@@ -276,5 +327,5 @@ test('--json gives machine-readable numbers', () => {
   const j = JSON.parse(logs[0]);
   assert.equal(j.gate, 'closed');
   assert.equal(j.rate, 5080);
-  assert.equal(j.costs.length, 5);
+  assert.equal(j.costs.length, 6);
 });

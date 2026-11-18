@@ -9,7 +9,7 @@ its gate is open, and only r0ze opens it.
 | `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`) |
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
-| `test/dry-run.test.mjs` | 23 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
+| `test/dry-run.test.mjs` | 27 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 
 ```sh
 node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 6,960 lamports/byte)
@@ -22,7 +22,10 @@ node scripts/devnet/dry-run.mjs --players 200 --json
 **`--build` stays key-free.** `cargo-build-sbf` writes `<name>-keypair.json` next to the `.so` when that file is
 missing, and never reads it (agave v3.1.9 `platform-tools-sdk/cargo-build-sbf/src/post_processing.rs`:
 `if !program_keypair.exists() { write_keypair_file(&Keypair::new(), …) }`). So before building, the dry run writes a
-text placeholder (`PLACEHOLDER: not a key…`) there if nothing exists. An existing file is never changed.
+text placeholder (`PLACEHOLDER: not a key…`) there if nothing exists (creating `target/deploy/` on a fresh
+checkout). An existing file is never changed. `--twice` builds into two temporary directories, and
+`scripts/build-frontier.sh --twice` puts the same kind of placeholder in both and fails (exit 5) if either was
+replaced.
 
 **The send gate.** Every one of these must hold, or the dry run prints `SEND GATE: CLOSED` with the reasons and exits
 without starting any process:
@@ -33,17 +36,24 @@ without starting any process:
   the Solana CLI does;
 - `--approved-sha256 HEX`, equal to the `.so`'s `file_sha256`. The approval is for one artefact;
 - `programId` and `upgradeAuthority` filled in the profile with real base58 addresses;
-- an `https` RPC URL whose host is in `allowedRpcHosts`. Hosts naming mainnet or testnet are refused;
+- an `https` RPC URL whose host is in `allowedRpcHosts`. Hosts naming mainnet or testnet are refused by the code
+  itself, whatever a `--profile` file allows;
 - a `.so` that passes every check.
 
 With the gate open, it runs these steps in order and stops at the first failure:
 
-1. `solana --version`.
+1. `solana --version`. It must be 4.0.0 or newer: the 3.1.9 CLI cannot verify this program's BLS12-381 syscalls
+   (`sol_curve_decompress`, `sol_curve_pairing_map`) and would stop with an ELF error. The build stays on
+   `cargo-build-sbf` 3.1.9.
 2. `solana address` on both key files. Each address must match the profile.
 3. `solana balance`.
 4. `solana program deploy … --max-len <round_up(1.25 × .so, 4 KiB)> --use-rpc`.
 5. `solana program show`.
 6. `solana program dump`. The dumped bytes, with trailing zeros removed, must hash to the `.so`'s `program_hash`.
+
+**Cost.** A first deploy needs ProgramData rent + Program rent + fees at its peak (12.31 SOL at 6,960 lamports per
+byte for today's `.so`), not twice that: the CLI funds the buffer with the ProgramData rent and the deploy returns it
+before the ProgramData is paid. A later upgrade holds a returned buffer float (`upgrade(temp)` in the plan).
 
 There is no airdrop, no `--final` (the upgrade authority is the only `AnnounceSeason` signer, I-51, so an immutable
 program could never start a season) and no season step: the operator tool for those does not exist yet (G4).

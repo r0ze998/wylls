@@ -7,7 +7,7 @@
 //
 // This file only wires the real file system and processes into plan.mjs's run().
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,10 +20,11 @@ const io = {
   uid: process.getuid?.(),
   readFile: f => readFileSync(f),
   writeFile: (f, t) => writeFileSync(f, t, { flag: 'wx' }),
+  mkdir: d => mkdirSync(d, { recursive: true }),
   exists: f => existsSync(f),
   stat: f => statSync(f),
   exec: (cmd, args, { cwd }) => {
-    const capture = cmd === 'solana' && args[0] === 'address';
+    const capture = cmd === 'solana' && (args[0] === 'address' || args[0] === '--version');
     const r = spawnSync(cmd, args, { cwd, stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit', encoding: 'utf8' });
     return { status: r.status ?? 1, stdout: r.stdout ?? '' };
   },

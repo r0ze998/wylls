@@ -28,7 +28,19 @@ The release build measured on 2026-11-18 (this branch, solana-cargo-build-sbf 3.
 | `program_hash` (trailing zeros stripped) | `f8833dd94c705d6d5fa87224a406ccbffc048b06800005638e2cc604797739d8` |
 
 Another toolchain or another commit can give another hash. Before approving, run the build again and approve the
-hash it prints.
+hash it prints. (An independent rebuild on 2026-11-18 from a fresh checkout gave the same two hashes.)
+
+**Two tool versions are needed** (checked against agave source, 2026-11-18):
+
+| Step | Tool | Why |
+|---|---|---|
+| Build | `cargo-build-sbf` **3.1.9** (`scripts/build-frontier.sh` refuses any other) | The pinned, reproducible toolchain |
+| Deploy, show, dump | `solana` CLI **4.0.0 or newer** | `solana program deploy` first verifies the ELF locally with the CLI's own syscall table. agave v3.1.9 does not register `sol_curve_decompress` or `sol_curve_pairing_map` (`syscalls/src/lib.rs`), which the program calls for BLS12-381 (`permutation-frontier/src/crypto/sys.rs`), so the 3.1.9 CLI stops with `ELF error` before it sends anything. `--skip-feature-verify` does not help. v4.0.0 and later register both. [from source; not run] |
+
+The machine here has only 3.1.9. Installing a 4.x CLI is **[r0ze]**. Keep `active_release` on 3.1.9 (the build script
+puts it first on `PATH` itself) and unpack the 4.x release somewhere else, e.g. `~/solana-4x/bin`. Put that
+directory first on `PATH` only for §3 and §5. The dry run reads `solana --version` and refuses anything older than
+4.0.0.
 
 ## 2. Keys (r0ze only; never in the repository, never on a shared machine)
 
@@ -36,7 +48,16 @@ hash it prints.
 |---|---|---|
 | **Fee payer / deployer** | Pays the buffer, ProgramData and fees | A file on r0ze's machine, mode 600. Can be emptied and thrown away after the deploy |
 | **Program keypair** | Its public key is the program id. Signs only the first deploy | Same. After the deploy it has no power (upgrades need the authority, not this key), but keep it: it proves the address |
-| **Upgrade authority** | Upgrades the program, **and is the only key that can sign `AnnounceSeason`** (I-51, `proc/season.rs:118`) | Offline (hardware wallet or an encrypted file). Never on the herald, relay or keeper host |
+| **Upgrade authority** | Upgrades the program, **and is the only key that can sign `AnnounceSeason`** (I-51, `proc/season.rs:118`) | A key **file** on r0ze's machine while the deploy runs, offline (an encrypted file) the rest of the time. Never on the herald, relay or keeper host |
+
+**The upgrade authority is not offline during the deploy.** `solana program deploy --upgrade-authority FILE` makes
+that key the buffer's authority, and the buffer authority signs **every** Write transaction (about 1,650 of them) and
+the final deploy (agave v3.1.9 `cli/src/program.rs`, `do_process_program_deploy`). So the file must be on the
+deploying machine for those minutes, and a hardware wallet is not practical for this command. If the authority must
+never touch an online machine, the other route is to deploy with a throwaway authority and hand over afterwards with
+`solana program set-upgrade-authority <PROGRAM_ID> --upgrade-authority throwaway.json --new-upgrade-authority
+<address> --skip-new-upgrade-authority-signer-check`. The dry run does not script that route, and a wrong address
+there is permanent. For devnet, the file route is enough.
 
 **Never deploy with `--final`.** An immutable program has no upgrade authority, so `AnnounceSeason` could never be
 signed and no season could ever start. A multisig (e.g. Squads) as the authority is possible later. Every
@@ -60,34 +81,54 @@ These need nothing but the public RPC, and they decide whether the deploy can wo
 
 ```sh
 # BLS12-381 syscalls (SIMD-0388): PostAnchor, PostSeed, ConsumeGenesisSeed and ConsumeRingSeed need them.
-# The agave feature id (feature-set/src/lib.rs enable_bls12_381_syscall):
-solana feature status b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ --url devnet
-# The rent rate (SIMD-0437 lowers it in steps: 6,960 → 6,333 → 5,080 → 2,575 → 1,322 lamports per byte)
+# The agave feature id (master feature-set/src/lib.rs enable_bls12_381_syscall; v3.1.9 does not have it):
+solana feature status b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ --url devnet   # needs the 4.x CLI
+# With any CLI version: the feature account exists and its data starts with 01 when the feature is active.
+solana account b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ --url devnet
+# SBPF v2 programs may be deployed (enable_sbpf_v2_deployment_and_execution; the .so is e_flags 2):
+solana feature status F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP --url devnet
+# The rent rate (SIMD-0437 changes it in steps: 6,960 → 6,333 → 5,080 → 2,575 → 1,322 → 696 lamports per byte)
 solana rent 1765421 --url devnet   # the ProgramData; divide the answer by (128 + 1,765,421) for the rate
 solana rent 0 --url devnet
 ```
 
-If the BLS feature is **not active**, stop. The program uses those syscalls, and a deploy's ELF check refuses an
-unknown syscall, so the deploy would fail after the buffer is written. The buffer's SOL can be recovered (§5), but the
-game cannot run.
+Do **not** run `solana feature status b1sg…` with the 3.1.9 CLI: it looks the id up in its own table and panics on
+one it does not know (agave v3.1.9 `cli/src/feature.rs:939`, `FEATURE_NAMES.get(feature_id).unwrap()`).
+
+If the BLS feature or the SBPF v2 feature is **not active**, stop. Without SBPF v2 the deploy is refused. Without
+the BLS feature the deploy may still go through, because agave 4.x registers the syscall names whether or not the
+feature is active (`syscalls/src/lib.rs`), but the beacon instructions cannot work, so the game cannot run [from
+source; not run].
 
 ## 4. Cost and funding
 
 Rent-exempt minimum: `(128 + data_len) × lamports_per_byte`. This reproduces the code's own figures at 5,080:
 Citizen + Holding = 9,753,600 lamports (DESIGN.md), Province = 24,709,120 (presets.rs).
 
-| lamports/byte | Buffer (held during the deploy, returned) | ProgramData | Program | Fees | **Peak the payer needs** | Stays locked |
-|---|---|---|---|---|---|---|
-| 6,960 | 9.8116 | 12.2882 | 0.0011 | 0.0078 | **22.11 SOL** | 12.29 SOL |
-| 5,080 | 7.1614 | 8.9689 | 0.0008 | 0.0078 | **16.14 SOL** | 8.97 SOL |
+| lamports/byte | ProgramData | Program | Fees | **Peak the payer needs** | Stays locked |
+|---|---|---|---|---|---|
+| 6,960 | 12.2882 | 0.0011 | 0.0166 | **12.31 SOL** | 12.29 SOL |
+| 5,080 | 8.9689 | 0.0008 | 0.0166 | **8.99 SOL** | 8.97 SOL |
+
+**A first deploy does not need "about 2×".** The CLI creates the buffer (37 + `so_len` bytes) but pays into it the
+rent of the final ProgramData (45 + `max_len` bytes). The deploy instruction then returns the buffer's lamports to the
+payer **before** the payer pays for the ProgramData (agave v3.1.9 `cli/src/program.rs` `do_process_program_deploy`;
+`programs/bpf_loader/src/lib.rs`, "Drain the Buffer account to payer before paying for programdata account"). So the
+peak is ProgramData + Program + fees. Fees: about 1,660 Write transactions with two signatures each (fee payer and
+authority) at 5,000 lamports.
+
+A later **upgrade** holds a second sum for a while: a buffer funded with `rent(45 + so_len)`, 9.81 SOL at 6,960 (7.16
+at 5,080), returned when the upgrade lands.
 
 `node scripts/devnet/dry-run.mjs [--rate N]` prints this for the `.so` on disk, and per-season costs too. The devnet
-faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so a deploy alone takes 4–5 requests.
+faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so a deploy alone takes 3 requests at
+6,960 (2 at 5,080).
 
 ## 5. Deploy **[r0ze]**
 
 ```sh
-node scripts/devnet/dry-run.mjs --build --twice                       # note file_sha256
+node scripts/devnet/dry-run.mjs --build --twice                       # note file_sha256 (cargo-build-sbf 3.1.9)
+export PATH="$HOME/solana-4x/bin:$PATH"                               # the 4.x CLI for the deploy (§1)
 node scripts/devnet/dry-run.mjs \
   --i-have-r0ze-approval \
   --keypair ~/wylls-devnet-keys/deployer.json \
@@ -96,8 +137,8 @@ node scripts/devnet/dry-run.mjs \
   --approved-sha256 <file_sha256 from the line above>
 ```
 
-The script runs these and stops at the first failure: `solana --version`, `solana address` on both key files (they
-must match the profile), `solana balance`, then this deploy command:
+The script runs these and stops at the first failure: `solana --version` (4.0.0 or newer), `solana address` on both
+key files (they must match the profile), `solana balance`, then this deploy command:
 
 ```sh
 solana program deploy permutation-frontier/target/deploy/permutation_frontier.so --url https://api.devnet.solana.com \
@@ -124,12 +165,14 @@ PLAYTEST-RUNBOOK §6):
 solana program deploy <new .so> --program-id <PROGRAM_ID address> --upgrade-authority authority.json --keypair deployer.json --url devnet --use-rpc
 ```
 
-A larger `.so` needs `solana program extend <PROGRAM_ID> <bytes>` first (the CLI extends by itself unless
-`--no-auto-extend`). The L(kind) loaded-data table is computed for a `.so` of at most 1,441,792 B
+A larger `.so` than `--max-len` needs the ProgramData extended first. `solana program deploy` does that by itself
+unless `--no-auto-extend` is given; `solana program extend <PROGRAM_ID> <bytes>` is the manual form [not checked
+beyond its arguments]. The L(kind) loaded-data table is computed for a `.so` of at most 1,441,792 B
 (`PLACEHOLDER_SO_LEN_S1`), and the dry run refuses anything larger. Today's build leaves 32,232 B of headroom.
 
-**Ending the test:** `solana program close <PROGRAM_ID> --authority authority.json --recipient <address> --url devnet`
-returns the ProgramData rent. The program id can then never be used again.
+**Ending the test:** `solana program close <PROGRAM_ID> --authority authority.json --recipient <address>
+--bypass-warning --url devnet` returns the ProgramData rent. Without `--bypass-warning` the CLI only prints its
+warning and closes nothing. The program id can then never be used again.
 
 ## 6. Season and services (blocked)
 

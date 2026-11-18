@@ -14,8 +14,10 @@
 //   with valid addresses; the RPC URL a devnet host of the profile; the .so
 //   passing every check; each key file a regular file, mode 0600, outside
 //   the repository; and the CLI's own reading of the key files matching the
-//   profile's addresses. There is no airdrop, no mainnet and no --final path.
+//   profile's addresses; and a Solana CLI new enough to know the program's
+//   syscalls (MIN_SOLANA_CLI). There is no airdrop, no mainnet and no --final path.
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
 export const LAMPORTS_PER_SOL = 1_000_000_000n;
 /** Account storage overhead counted by rent (solana-rent ACCOUNT_STORAGE_OVERHEAD). */
@@ -25,6 +27,15 @@ export const PROGRAM_ACCOUNT_LEN = 36n;
 export const PROGRAMDATA_META = 45n;
 export const BUFFER_META = 37n;
 export const APPROVAL_FLAG = '--i-have-r0ze-approval';
+/** Host fragments refused whatever the profile says (a --profile file cannot widen this). */
+export const HARD_REFUSED_RPC_HOST_PATTERNS = ['mainnet', 'testnet'];
+/**
+ * The oldest Solana CLI that can deploy this program. `solana program deploy` verifies the ELF locally with the
+ * CLI's own syscall table before it sends anything, and agave v3.1.9 does not register `sol_curve_decompress` or
+ * `sol_curve_pairing_map` (the BLS12-381 calls of permutation-frontier/src/crypto/sys.rs); v4.0.0 does
+ * (agave syscalls/src/lib.rs). The build still uses cargo-build-sbf 3.1.9.
+ */
+export const MIN_SOLANA_CLI = [4, 0, 0];
 
 // ---------------------------------------------------------------- numbers
 
@@ -47,21 +58,26 @@ export function sol(lamports) {
 }
 
 /**
- * What `solana program deploy` costs the fee payer for a first deploy:
- * the Buffer (held while the ELF is written, returned to the payer when the
- * deploy instruction drains it), the ProgramData and Program accounts (kept),
- * and the signature fees (one Write per chunk, plus create/deploy).
+ * What `solana program deploy` costs the fee payer for a FIRST deploy (agave v3.1.9 cli/src/program.rs
+ * `do_process_program_deploy`, programs/bpf_loader `DeployWithMaxDataLen`):
+ *   1. the CLI creates the Buffer (37 + so_len bytes) but funds it with the rent of the final ProgramData
+ *      (45 + max_len bytes), not of the buffer's own size;
+ *   2. one Write per chunk, each signed by the fee payer AND the buffer authority (= the upgrade authority);
+ *   3. the deploy instruction drains the Buffer to the payer FIRST, then the payer pays the ProgramData rent,
+ *      and the payer funds the 36-byte Program account.
+ * So the payer's peak is ProgramData rent + Program rent + fees: the buffer is not an extra hold on top.
+ * `upgradeFloat` is what a later upgrade holds for a while (a buffer funded with rent(45 + so_len), returned).
  */
-export function deployCost({ soLen, maxLen, rate, lamportsPerSignature = 5000, writeChunkBytes = 900 }) {
-  const buffer = rentExempt(BUFFER_META + BigInt(soLen), rate);
+export function deployCost({ soLen, maxLen, rate, lamportsPerSignature = 5000, writeChunkBytes = 850, signaturesPerWrite = 2 }) {
   const programdata = rentExempt(PROGRAMDATA_META + BigInt(maxLen), rate);
   const program = rentExempt(PROGRAM_ACCOUNT_LEN, rate);
+  const upgradeFloat = rentExempt(PROGRAMDATA_META + BigInt(soLen), rate);
   const writes = Math.ceil(soLen / writeChunkBytes);
-  // create buffer (2 signatures) + writes (1 each) + deploy (3: payer, program, authority)
-  const signatures = 2 + writes + 3;
+  // create buffer (2: payer, buffer) + writes (payer + authority each) + deploy (3: payer, program, authority)
+  const signatures = 2 + writes * signaturesPerWrite + 3;
   const fees = BigInt(signatures) * BigInt(lamportsPerSignature);
   const kept = programdata + program;
-  return { rate, buffer, programdata, program, writes, signatures, fees, kept, peak: buffer + kept + fees, net: kept + fees };
+  return { rate, programdata, program, writes, signatures, fees, kept, peak: kept + fees, upgradeFloat };
 }
 
 /** Per-season lines: [name, lamports, kind]. */
@@ -112,6 +128,7 @@ export function rpcProblem(url, profile) {
   if (u.protocol !== 'https:') return `RPC URL ${url}: https only`;
   if (u.username || u.password) return `RPC URL ${url}: no credentials in the URL`;
   const host = u.hostname.toLowerCase();
+  for (const p of HARD_REFUSED_RPC_HOST_PATTERNS) if (host.includes(p)) return `RPC URL ${url}: host ${host} is refused (${p}); devnet only`;
   for (const p of profile.refusedRpcHostPatterns ?? []) if (host.includes(p)) return `RPC URL ${url}: host ${host} is refused (${p}); devnet only`;
   if (!(profile.allowedRpcHosts ?? []).includes(host)) return `RPC URL ${url}: host ${host} is not in the profile's allowedRpcHosts`;
   return null;
@@ -209,6 +226,7 @@ export function keyFileProblems(label, file, { stat, repoRoot, uid }) {
   if (uid !== undefined && st.uid !== uid) out.push(`${label} ${file}: not owned by this user`);
   const abs = file.startsWith('/') ? file : null;
   if (!abs) out.push(`${label} ${file}: give an absolute path`);
+  else if (path.posix.normalize(abs) !== abs) out.push(`${label} ${file}: give a normalised path (no "..", "." or doubled "/")`);
   else if (abs === repoRoot || abs.startsWith(repoRoot.endsWith('/') ? repoRoot : repoRoot + '/')) out.push(`${label} ${file}: key files never live inside the repository`);
   return out;
 }
@@ -227,6 +245,16 @@ export function sendProblems(opts, { profile, so, stat, repoRoot, uid }) {
   if (!opts.approvedSha256) out.push('--approved-sha256 <sha256 of the .so r0ze approved> is required');
   else if (so && opts.approvedSha256 !== so.sha256) out.push(`--approved-sha256 ${opts.approvedSha256} is not this .so (${so.sha256})`);
   return out;
+}
+
+/** "solana-cli 4.4.1 (src:…)" → [4, 4, 1]; null when it is not a version line. */
+export function parseCliVersion(text) {
+  const m = /^solana-cli (\d+)\.(\d+)\.(\d+)/.exec(String(text).trim());
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+export function cliTooOld(v, min = MIN_SOLANA_CLI) {
+  for (let i = 0; i < 3; i++) if (v[i] !== min[i]) return v[i] < min[i];
+  return false;
 }
 
 // ---------------------------------------------------------------- the commands
@@ -278,7 +306,8 @@ export function parseArgs(argv) {
 export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json]
   Dry run (default): checks the .so, computes the devnet cost and prints the plan. Sends nothing.
   Send (r0ze only): add ${APPROVAL_FLAG} --keypair FILE --program-keypair FILE --upgrade-authority FILE --approved-sha256 HEX
-  (key files: absolute paths, mode 600, outside the repository; never read by this script).`;
+  (key files: absolute paths, mode 600, outside the repository; never read by this script;
+   Solana CLI ${MIN_SOLANA_CLI.join('.')} or newer: 3.1.x cannot verify this program's BLS12-381 syscalls).`;
 
 // ---------------------------------------------------------------- the run
 
@@ -298,8 +327,11 @@ function planText({ profile, so, soPath, costs, season, rate, commands, blocked 
   }
   L.push('');
   L.push('Program deploy cost, rent_exempt(len) = (128 + len) x lamports_per_byte:');
-  L.push('  rate   buffer(temp)  programdata  program  fees     peak     kept');
-  for (const c of costs) L.push(`  ${String(c.rate).padEnd(5)}  ${sol(c.buffer).padStart(11)}  ${sol(c.programdata).padStart(11)}  ${sol(c.program).padStart(7)}  ${sol(c.fees).padStart(6)}  ${sol(c.peak).padStart(7)}  ${sol(c.kept).padStart(7)}`);
+  L.push('  (first deploy: the CLI funds the buffer with the ProgramData rent and the deploy returns it before');
+  L.push('   paying for the ProgramData, so the peak is programdata + program + fees; "upgrade" is the');
+  L.push('   returned float a later upgrade holds)');
+  L.push('  rate   programdata  program  fees     peak     kept     upgrade(temp)');
+  for (const c of costs) L.push(`  ${String(c.rate).padEnd(5)}  ${sol(c.programdata).padStart(11)}  ${sol(c.program).padStart(7)}  ${sol(c.fees).padStart(6)}  ${sol(c.peak).padStart(7)}  ${sol(c.kept).padStart(7)}  ${sol(c.upgradeFloat).padStart(13)}`);
   L.push('');
   L.push(`One season (${profile.season.preset}, ${profile.season.players} players) at ${rate} lamports/byte:`);
   for (const [n, l, k] of season.lines) L.push(`  ${sol(l).padStart(9)} SOL  ${k.padEnd(19)} ${n}`);
@@ -319,7 +351,7 @@ function planText({ profile, so, soPath, costs, season, rate, commands, blocked 
 }
 
 /**
- * The whole dry run. `io`: { repoRoot, readFile(path) → Buffer, writeFile(path, text), exists(path), stat(path),
+ * The whole dry run. `io`: { repoRoot, readFile(path) → Buffer, writeFile(path, text), mkdir(path), exists(path), stat(path),
  * exec(cmd, args, {cwd}) → {status, stdout}, log(text), err(text), uid, tmpDir }.
  * Returns the exit code: 0 dry run done (or sent), 2 bad arguments/profile, 3 artefact refused, 4 send step failed.
  */
@@ -346,7 +378,10 @@ export function run(argv, io) {
     // (agave v3.1.9 platform-tools-sdk/cargo-build-sbf/src/post_processing.rs: `if !program_keypair.exists()`),
     // and never reads it. A placeholder that is not a key keeps the build key-free; a real file is left alone.
     const holder = soPath.replace(/\.so$/, '-keypair.json');
-    if (!io.exists(holder)) io.writeFile(holder, 'PLACEHOLDER: not a key. Exists so cargo-build-sbf skips program-keypair generation (scripts/devnet/dry-run.mjs).\n');
+    // (--twice builds into two temporary directories; scripts/build-frontier.sh puts the same kind of placeholder there.)
+    try {
+      if (!io.exists(holder)) { io.mkdir(path.posix.dirname(holder)); io.writeFile(holder, 'PLACEHOLDER: not a key. Exists so cargo-build-sbf skips program-keypair generation (scripts/devnet/dry-run.mjs).\n'); }
+    } catch (e) { io.err(`cannot write the keypair placeholder ${holder}: ${e.message}`); return 3; }
     const r = io.exec(`${io.repoRoot}/${profile.program.build}`, opts.twice ? ['--twice'] : [], { cwd: io.repoRoot });
     if (r.status !== 0) { io.err(`build failed (${profile.program.build}, exit ${r.status})`); return 3; }
   }
@@ -367,7 +402,10 @@ export function run(argv, io) {
   // ---- the gate is open: r0ze's run. Each step must succeed before the next.
   const [version, progAddr, authAddr, balance, deploy, show, dump] = commands;
   const step = ([c, a]) => io.exec(c, a, { cwd: io.repoRoot });
-  if (step(version).status !== 0) { io.err('solana CLI not found'); return 4; }
+  const ver = step(version);
+  if (ver.status !== 0) { io.err('solana CLI not found'); return 4; }
+  const cli = parseCliVersion(ver.stdout);
+  if (!cli || cliTooOld(cli)) { io.err(`Solana CLI ${cli ? cli.join('.') : '(unreadable version)'}: need ${MIN_SOLANA_CLI.join('.')} or newer to deploy this program (its local ELF check must know sol_curve_decompress and sol_curve_pairing_map)`); return 4; }
   const pa = step(progAddr), aa = step(authAddr);
   if (pa.status !== 0 || String(pa.stdout).trim() !== profile.programId) { io.err(`--program-keypair is not ${profile.programId}`); return 4; }
   if (aa.status !== 0 || String(aa.stdout).trim() !== profile.upgradeAuthority) { io.err(`--upgrade-authority is not ${profile.upgradeAuthority}`); return 4; }
