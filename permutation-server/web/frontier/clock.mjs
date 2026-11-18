@@ -94,7 +94,26 @@ export class ChainClock {
     this.minOffset = Infinity;
     /** Wall ms at which the herald's chain time last moved forward. */
     this.advancedAt = null;
+    /** Whether the world this clock is of was CONFIRMED ended (`halt`): then it stands at the last sample for good. */
+    this.halted = false;
   }
+
+  /**
+   * The world of this clock has ended, and that was confirmed by the service that ran it (local play only:
+   * flocalplay-ended.mjs — a launcher world its launcher no longer runs). From now on `now()` is the chain time of the
+   * LAST SAMPLE the herald gave, not a second more: what the local clock added after that sample never happened in a
+   * world that was already gone (the loop-play report B5: a world stopped on turn 8 read "Turn 19" and a host "arrived
+   * on turn 10"). This is the one place the clock goes back, and it is never undone: later samples are ignored (a
+   * world that ended does not go on; another world gets a new clock), and nothing is behind any more.
+   * Nothing but a confirmed end calls this: a herald that only lags or cannot be reached keeps the clock running.
+   */
+  halt() { this.halted = true; if (this.last) this.floor = this.last.unix; }
+
+  /**
+   * The chain time the herald itself last reported (the latest sample's, never extrapolated), or null before any
+   * sample: what a statement about something that HAS happened is judged by (the away tag's "arrived").
+   */
+  seen() { return this.last ? this.last.unix : null; }
 
   /** Mark the clock accelerated (localnet) or not; a real cluster resets the rate to 1. */
   setAccelerated(on) {
@@ -122,7 +141,7 @@ export class ChainClock {
    */
   observe(unix, slot) {
     const u = sampleNumber(unix), n = sampleNumber(slot);
-    if (u === null || n === null) return;
+    if (u === null || n === null || this.halted) return;
     const s = { unix: u, slot: n, at: this.wall() };
     if (this.last && s.slot < this.last.slot) return; // an older answer arriving late
     if (this.accelerated && this.declared === null && this.last && s.at - this.last.at >= 2000 && s.unix > this.last.unix) {
@@ -138,6 +157,7 @@ export class ChainClock {
   /** Chain seconds now (fractional), or null before any sample. */
   now() {
     if (!this.last) return null;
+    if (this.halted) return this.floor;
     const t = this.last.unix + ((this.wall() - this.last.at) / 1000) * this.rate;
     this.floor = Math.max(this.floor, t);
     return this.floor;
@@ -155,6 +175,8 @@ export class ChainClock {
    */
   behind() {
     if (!this.last) return null;
+    // (a world confirmed ended is not behind: there is nothing later to read)
+    if (this.halted) return 0;
     // (a world that declares it stands still is not behind: nothing is passing there)
     if (this.accelerated && this.declared === 0) return 0;
     if (this.accelerated) return Math.max(0, (this.wall() - this.advancedAt) / 1000);
@@ -174,6 +196,8 @@ export class ChainClock {
  * (The polls were set for ten-minute turns; a local stack or the sample world turns in seconds.)
  */
 export function pollCap(chain) {
+  // (a world confirmed ended: nothing passes there, the usual polls stand)
+  if (chain?.halted) return Infinity;
   const r = chain?.accelerated ? Number(chain.rate) : 1;
   // (a declared rate of 0: a sample world that stands still and is stepped from outside; it is read every 2 s)
   if (chain?.accelerated && chain.declared === 0) return 2;
