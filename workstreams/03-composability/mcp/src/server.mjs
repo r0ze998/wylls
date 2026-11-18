@@ -13,7 +13,7 @@ import { AGENT_PRICE_NOT_READ, prepareNotice } from './confirm.mjs';
 import { LocalReceiptPort, assertReceiptPort, WS04_UNQUERYABLE, readViaOf, ws04ActAfterRead, ws04ActAfterFailedRead } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
-import { COOP_TOOL, REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
+import { COOP_TOOL, REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, READ_ONLY_INSTRUCTIONS, TOOLS } from './tools.mjs';
 import { toolNamed, unknownToolText } from './dispatch.mjs';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
@@ -77,7 +77,7 @@ function coopReadOf(c) {
  * @param {JsonStore} o.store
  * @param {{adapter: object, cluster: string} | null} [o.coopRead]  the opt-in cooperation board read (off by default)
  */
-export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null, actsReadVia = null, coopRead = null }) {
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null, actsReadVia = null, coopRead = null, readOnly = false }) {
   assertReceiptPort(receipts);
   const coop = coopReadOf(coopRead);
   // How a status call to ④ is asked, from the caller's configuration of ④'s client (bin/wylls-mcp.mjs): 'gateway' |
@@ -869,10 +869,15 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     return fail(code, String(r.why ?? r.status), { retryable, cooperation: r });
   }
 
-  const tools = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps,
+  const all = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps,
     ...(coop ? { get_cooperation_status: cooperation } : {}) };
+  // (2026-11-18, ⑤ option B) `readOnly`: the observation server of a local-play world (bin/wylls-mcp-local-play.mjs).
+  // Only tools annotated readOnlyHint, and not prepare_caravan (a plan for a send this server cannot make), are listed
+  // AND dispatched: a write tool's name is an unknown tool there. Off (the default): every tool, as before.
+  const readable = t => t.annotations?.readOnlyHint === true && t.name !== 'prepare_caravan';
+  const tools = readOnly ? Object.fromEntries(Object.entries(all).filter(([n]) => readable([...TOOLS, COOP_TOOL].find(t => t.name === n) ?? {}))) : all;
   // What tools/list answers agrees with what tools/call dispatches: the cooperation tool only when it is on.
-  const listed = coop ? Object.freeze([...TOOLS, COOP_TOOL]) : TOOLS;
+  const listed = readOnly ? Object.freeze((coop ? [...TOOLS, COOP_TOOL] : TOOLS).filter(readable)) : coop ? Object.freeze([...TOOLS, COOP_TOOL]) : TOOLS;
 
   /** One JSON-RPC message for `principal` (null: unauthenticated) → the response (null for a notification). */
   async function handle(msg, principal) {
@@ -903,7 +908,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
           return error(-32602, 'invalid params: initialize needs protocolVersion (string), capabilities (object) and clientInfo {name, version} (strings)');
         }
         const asked = msg.params?.protocolVersion;
-        return reply({ protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0], capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: SERVER_INSTRUCTIONS });
+        return reply({ protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0], capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: readOnly ? READ_ONLY_INSTRUCTIONS : SERVER_INSTRUCTIONS });
       }
       case 'notifications/initialized': case 'notifications/cancelled': return null;
       case 'ping': return reply({});

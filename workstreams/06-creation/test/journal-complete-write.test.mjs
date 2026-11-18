@@ -148,7 +148,11 @@ test("J8 Dispatch saves before it sends, outside the send's try", () => {
   const tryAt = src.indexOf("try {", save);
   const send = src.indexOf("await this.act.send(", save);
   assert.ok(save > 0 && save < tryAt && tryAt < send, "save, then the try that sends");
-  assert.match(src, /#save\(\) \{\n\s+this\.journal\.save\(clone\(this\.data\)\);\n\s+\}/, "#save does not catch");
+  // #save snapshots, saves, then remembers the snapshot as saved (c7c1b1c5); a throwing save must reach the caller
+  const body = src.match(/\n  #save\(\) \{\n([\s\S]*?)\n  \}\n/);
+  assert.ok(body, "#save found");
+  assert.match(body[1], /^\s+const snapshot = clone\(this\.data\);\n\s+this\.journal\.save\(snapshot\);\n\s+this\.#remember\(snapshot\);$/, "#save: snapshot, save, then remember");
+  assert.doesNotMatch(body[1], /\btry\b|\bcatch\b/, "#save does not catch");
 });
 
 test("J9 a temporary file that is not this attempt's stays; the open ends", () => {
