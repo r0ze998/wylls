@@ -59,7 +59,7 @@ function renderWallets(FS) {
  * heartland is not counted as a place for a village; with no season record yet the overviews alone bound it.
  */
 export function factionCards(FS) {
-  // (the rings a first village may be in are counted from the Concord without a gap — map/world.mjs contiguousRings —
+  // (the rings a first village may be in are counted from province (0, 0) without a gap — map/world.mjs contiguousRings —
   //  never by the record's length: a sparse world that seeds ring 128 alone has one entry and no ring 0)
   const open = FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : undefined;
   const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
@@ -124,7 +124,7 @@ export function renderNations(FS) {
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
-    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、大協約の地のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義、そしてあなたの姿です。`}</p></header>
+    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、果てのない辺境を分け合っています。国で決まるのは、村を置く土地と教義、そしてあなたの姿です。`}</p></header>
     <ul class="banners">${banners}</ul>
     ${confirm}
   </section>`;

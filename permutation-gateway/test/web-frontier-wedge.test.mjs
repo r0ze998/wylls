@@ -143,7 +143,7 @@ test('a sparse world\'s anchor, look and standard are on a seeded ring, under th
   assert.match(fmap, /homeLook\(looked, ringsOpen, place, \{ seeded: src\.seeded \?\? null \}\)/);
   assert.match(fmap, /wedgeHome\(faction, ringsOpen, place = undefined, seeded = null\) \{/, 'an explicit fourth argument');
   assert.doesNotMatch(fmap, /arguments\[/, 'never read from `arguments`');
-  assert.match(op, /wedgeBox\(h\.faction, rings, place, src\?\.seeded \?\? null\)/); assert.match(op, /lookPoint\(frame\.nation, rings, place, src\?\.seeded \?\? null\)/);
+  assert.match(op, /wedgeBox\(h\.faction, rings, place, src\?\.seeded \?\? null\)/); assert.match(op, /wedgeBox\(frame\.nation, rings, place, src\?\.seeded \?\? null\)/);
 });
 
 test('the standard\'s place is kept by nation, rings, placement AND seeded rings: the same rings with other seeded rings is worked out again', async () => {

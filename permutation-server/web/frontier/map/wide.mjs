@@ -64,14 +64,14 @@ export const parseU64 = (s, code = 'BadValue') => {
 
 const abs = x => (x < 0n ? -x : x);
 
-/** Hex distance of province (p, q) from the Concord, exact. */
+/** Hex distance of province (p, q) from province (0, 0), exact. */
 export const ringOfWide = (p, q) => (abs(p) + abs(q) + abs(p + q)) / 2n;
 
 /**
  * Ring, wedge (sextant) and position along the wedge, the rule of
  * frontier-abi `WideCoord::ring_position`: the wedge is the first of six
  * 60° turns back that lands in {q > 0, r ≥ 0}; the position is the r there.
- * → {ring: BigInt, wedge: 0–5, pos: BigInt}; the Concord is (0, 0, 0).
+ * → {ring: BigInt, wedge: 0–5, pos: BigInt}; province (0, 0) is (0, 0, 0).
  */
 export function ringPosition(p, q) {
   const ring = ringOfWide(p, q);
@@ -396,7 +396,8 @@ export function originAt(p, q) {
   check(abs(P) <= WIDE_BOUND && abs(Q) <= WIDE_BOUND, 'BadCoord', 'origin out of bounds');
   return Object.freeze({ p: P, q: Q });
 }
-export const ORIGIN_CONCORD = originAt(0n, 0n);
+/** The lattice's coordinate origin, province (0, 0): a coordinate, not a place (⑭ abolished the centre). */
+export const ORIGIN_ZERO = originAt(0n, 0n);
 
 /**
  * The lattice offset of (p, q) from `origin` as plain integers, exact: the difference is taken in BigInt and becomes

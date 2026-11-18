@@ -134,7 +134,7 @@ export function landRadius(ringsOpen) {
 }
 
 const boxes = new Map();
-/** The opened land's own box about the Concord: `{x, y}` half its width and half its height (world px, to the tiles' edges). */
+/** The opened land's own box about province (0, 0): `{x, y}` half its width and half its height (world px, to the tiles' edges). */
 export function landBox(ringsOpen) {
   const d = Math.max(1, ringsOpen ?? 1);
   if (boxes.has(d)) return boxes.get(d);

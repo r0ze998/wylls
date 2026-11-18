@@ -94,7 +94,7 @@ test('a unit with its count, a province in words: names before coordinates', () 
   const village = `${placeName(2, 0, 3).ja}の町`;
   assert.equal(place.provinceName(FS, 2, 0), `${village}のある州`);
   assert.equal(place.provinceName(FS, 2, 0, { own: false }), 'アステル方面・第2輪の州', 'for a line that already names the village');
-  assert.equal(place.provinceName(FS, 0, 0), '大協約');
+  assert.equal(place.provinceName(FS, 0, 0), '州 0,0', 'no centre is named (⑭ abolished): the origin province by its coordinates');
   assert.equal(place.provinceName(null, 1, 1), 'アステル方面・第2輪の州');
   assert.deepEqual([0, 1, 2, 3, 4, 5].map(f => place.sideOf(...[[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]][f])), [0, 1, 2, 3, 4, 5], 'one wedge per nation');
   assert.equal(place.sideOf(0, 0), null);
