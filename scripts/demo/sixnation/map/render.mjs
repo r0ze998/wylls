@@ -78,7 +78,9 @@ function setup(trace) {
   // The opening bell of each province is when its keep first shows a holder.
   const first = new Map();
   for (const f of frames) f.ctl.forEach((c, i) => { if (c !== NO && !first.has(i)) first.set(i, f.b); });
-  for (const p of P) p.rise = first.get(p.i) ?? Infinity;
+  // The land the season starts with is there from the first picture (no fade on the intro hold); later rings rise.
+  const start = frames[0].b;
+  for (const p of P) { const r = first.get(p.i) ?? Infinity; p.rise = r <= start ? -RISE_BELLS : r; }
 }
 
 /** A per-zoom cache of each province's terrain, drawn at screen resolution (one bitmap per province). */
