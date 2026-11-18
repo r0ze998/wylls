@@ -8,6 +8,7 @@ import path from 'node:path';
 import { promises as fsp } from 'node:fs';
 import { parseOperatorNations, createResidentMemory, operatorRelayPorts, OPERATOR_NATIONS_MAX, OPERATOR_RESIDENTS_MAX, OPERATOR_FACTIONS } from '../src/frontier/local-play-operator-policy.mjs';
 import { parseConfig } from '../src/frontier/local-play-launcher.mjs';
+import { externalPorts } from '../src/frontier/local-play-external-residents.mjs';
 
 test('the nation list: distinct whole numbers 0-5, one to six of them, written exactly', () => {
   assert.equal(OPERATOR_NATIONS_MAX, 6);
@@ -58,4 +59,11 @@ test('the launcher: --operator-nations and --operator-max-acts, TEST-only, natur
   // (two worlds × (5 + 6) = 22 ports from --world-port: 41980 would run past 41999; 41950 would cross 41970)
   await refused({ ...base, 'operator-nations': '0', 'world-port': '41980' }, 'InvalidPorts');
   await refused({ ...base, 'operator-nations': '0', 'world-port': '41950', port: '41940' }, 'InvalidPorts');
+  // (with ⑤B's --external-residents, merged from main: the external proxies and relays come after SIX relay ports per
+  //  world, not four — two worlds × (5 + 6 + 4) = 30 ports from --world-port, none shared with a resident's relay)
+  const both = { ...base, 'operator-nations': '0,1,2,3,4,5', 'external-residents': '11111111111111111111111111111112' };
+  assert.deepEqual([...(await parseConfig(argv({ ...both, 'world-port': '41870', port: '41860' }))).operatorNations], [0, 1, 2, 3, 4, 5]);
+  await refused({ ...both, 'world-port': '41971', port: '41960' }, 'InvalidPorts');
+  const taken = new Set([0, 1].flatMap(slot => operatorRelayPorts(41310, slot, 6, 2, OPERATOR_NATIONS_MAX)));
+  for (const slot of [0, 1]) for (const x of externalPorts(41310, slot, 2, { worldLimit: 2, operatorMax: OPERATOR_NATIONS_MAX })) assert.ok(!taken.has(x.herald) && !taken.has(x.relay) && x.relay <= 41310 + 29);
 });
