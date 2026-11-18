@@ -506,7 +506,11 @@ pub fn run(cx: &mut Ctx) {
         })
     };
     // A wide holding a VWL-judged WideClose closed has no final bytes: its
-    // chain ends at its last archived state, the one the close ran from.
+    // chain ends at its last archived state, the one the close ran from. A
+    // closed wide province's ends one record later: the terminal
+    // `ProvinceClosed` its close chained on that state's header before the
+    // account was erased.
+    let mut ended: Vec<Vec<u8>> = vec![];
     if playable {
         for (i, t) in cx.w.txs.iter().enumerate() {
             if !t.ok || !vwl_owns(i) {
@@ -522,14 +526,35 @@ pub fn run(cx: &mut Ctx) {
                         .filter(|&&u| u < i)
                         .find_map(|&u| cx.w.txs[u].post.get(k).and_then(|a| a.as_ref()))
                 });
-                if let Some(a) =
-                    last.filter(|a| a.owner == cx.cfg.program && WideHolding::read(&a.data).is_ok())
-                {
+                let Some(a) = last.filter(|a| a.owner == cx.cfg.program) else {
+                    continue;
+                };
+                if WideHolding::read(&a.data).is_ok() {
                     finals.push(a.data.as_slice());
+                } else if let (Ok(p), Some((_, (seq, head)))) =
+                    (WideProvince::read(&a.data), account_chain(&a.data))
+                {
+                    let key = ProvinceKey::new(p.world, p.coord);
+                    let bodies = psw1_bodies(&cx.input.txs[i].logs, &program).unwrap_or_default();
+                    let link = bodies.iter().find_map(|b| {
+                        let r = WideRecord::decode(b).ok()?;
+                        (r.kind == frontier_abi::world_index::event::WideKind::ProvinceClosed
+                            && r.province_of() == Some(key))
+                        .then(|| advance(WideEntity::Province, seq, &head, r.body_without_tail))
+                        .flatten()
+                    });
+                    if let Some(l) = link {
+                        let mut d = a.data.clone();
+                        d[header::EVENT_SEQ..header::EVENT_SEQ + 8]
+                            .copy_from_slice(&l.seq.to_le_bytes());
+                        d[header::EVENT_HEAD..header::EVENT_HEAD + 32].copy_from_slice(&l.head);
+                        ended.push(d);
+                    }
                 }
             }
         }
     }
+    finals.extend(ended.iter().map(Vec::as_slice));
     // Every wide record of the season printed by an instruction VWL
     // re-ran: nothing of them is left unmodelled.
     let all_judged = playable

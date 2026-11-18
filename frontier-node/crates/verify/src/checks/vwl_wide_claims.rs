@@ -88,7 +88,7 @@ pub(super) fn judged(cmd: &WideCommand) -> Option<&'static str> {
         WideCommand::SettleTicket(_) => Some("WideSettleTicket"),
         WideCommand::Finalize(_) => Some("WideFinalize"),
         WideCommand::Close(x) => super::close::judged(x.what),
-        _ => None,
+        c => super::economy::judged(c),
     }
 }
 

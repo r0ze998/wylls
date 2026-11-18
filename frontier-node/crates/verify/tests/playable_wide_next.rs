@@ -2260,3 +2260,393 @@ fn season_mode_judges_the_closes() {
         show(&rep.findings)
     );
 }
+
+// ---- 3. the wide economy and garrison
+
+/// `tag ‖ escape ‖ version ‖ op` (the wide envelope).
+fn economy_head() -> [u8; 4] {
+    let b = wix::Economy {
+        action: Action::Harvest,
+    }
+    .to_bytes()
+    .unwrap();
+    [b[0], b[1], b[2], b[3]]
+}
+
+fn garrison_head() -> [u8; 4] {
+    let b = wix::Garrison { delta: 1 }.to_bytes().unwrap();
+    [b[0], b[1], b[2], b[3]]
+}
+
+/// The successful economy actions and garrisons of the recording.
+fn actions(inp: &Input) -> (Vec<usize>, Vec<usize>) {
+    (
+        txs_like(inp, &economy_head(), true),
+        txs_like(inp, &garrison_head(), true),
+    )
+}
+
+fn action_of(inp: &Input, t: usize) -> Action {
+    wix::Economy::decode(&first_ix(inp, t).unwrap().0)
+        .unwrap()
+        .action
+}
+
+fn post_data(inp: &Input, t: usize, k: &[u8; 32]) -> Vec<u8> {
+    inp.txs[t]
+        .post
+        .iter()
+        .find(|(x, _)| x.to_bytes() == *k)
+        .and_then(|(_, a)| a.clone())
+        .expect("a post-state")
+        .data
+}
+
+fn any_fail_at(found: &[verify_core::Finding], t: usize) -> bool {
+    found.iter().any(|f| {
+        f.check == "VWL"
+            && f.entity == format!("tx#{t}")
+            && f.severity == verify_core::Severity::Fail
+    })
+}
+
+#[test]
+fn the_honest_wide_economy_and_garrison_re_run() {
+    let (seg, snap) = segment();
+    let (eco, gar) = actions(&seg);
+    let got: Vec<Action> = eco.iter().map(|&t| action_of(&seg, t)).collect();
+    assert_eq!(
+        got,
+        vec![
+            Action::Harvest,
+            Action::Build { item: 0 },
+            Action::Build { item: 6 },
+            Action::Train { unit: 0, n: 5 },
+            Action::Harvest,
+            Action::Harvest,
+        ],
+        "Harvest, a building, the walls (a mirror write), a training, and a second owner's Harvest"
+    );
+    assert_eq!(gar.len(), 2);
+    // The first Harvest flips its provisional holding final (lazy finality).
+    let h = ix_key(&seg, eco[0], 4);
+    assert_eq!(
+        state_before(&seg, &snap, eco[0], &h).data[H::STATE],
+        H::STATE_PROVISIONAL
+    );
+    assert_eq!(post_data(&seg, eco[0], &h)[H::STATE], H::STATE_FINAL);
+    // The walls wrote the province's mirror; a Harvest lists it read-only.
+    let p = ix_key(&seg, eco[2], 5);
+    assert_ne!(
+        post_data(&seg, eco[2], &p),
+        state_before(&seg, &snap, eco[2], &p).data
+    );
+    assert!(!seg.txs[eco[0]].post.iter().any(|(x, _)| x.to_bytes() == p));
+    // The program's own refusals are archived, not judged: the tier-up of
+    // a Hamlet, another Citizen's holding, a garrison above the reserve.
+    assert_eq!(txs_like(&seg, &economy_head(), false).len(), 2);
+    assert_eq!(txs_like(&seg, &garrison_head(), false).len(), 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(found.is_empty(), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_forged_store_after_a_wide_economy_action_fails() {
+    let (seg0, snap) = segment();
+    let (eco, _) = actions(&seg0);
+    for &t in &eco {
+        let mut seg = seg0.clone();
+        let h = ix_key(&seg, t, 4);
+        edit_post(&mut seg, t, &h, |a| a.data[H::store(1) + AC::VALUE] ^= 1);
+        let found = vwl::judge_segment(&seg, &snap);
+        assert!(
+            has_at(&found, "WideReplayMismatch", t, "holding"),
+            "tx {t}: {:#?}",
+            show(&found)
+        );
+    }
+}
+
+#[test]
+fn a_training_that_gave_more_troops_than_it_paid_for_fails() {
+    let (mut seg, snap) = segment();
+    let (eco, _) = actions(&seg);
+    let t = eco[3];
+    let h = ix_key(&seg, t, 4);
+    edit_post(&mut seg, t, &h, |a| a.data[H::reserve(0)] += 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "holding"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_wide_economy_action_on_a_holding_of_another_citizen_fails() {
+    let (mut seg, mut snap) = segment();
+    let (eco, _) = actions(&seg);
+    let t = eco[0];
+    let h = ix_key(&seg, t, 4);
+    edit_before(&mut seg, &mut snap, t, &h, |a| {
+        a.data[H::OWNER_CITIZEN] ^= 1
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideRule", t, "NotOwner"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_wide_economy_action_by_someone_who_is_not_the_citizens_wallet_fails() {
+    let (mut seg, mut snap) = segment();
+    let (eco, gar) = actions(&seg);
+    let citizen = ix_key(&seg, eco[0], 3);
+    edit_before(&mut seg, &mut snap, eco[0], &citizen, |a| {
+        a.data[frontier_abi::layout::player::citizen::WALLET] ^= 1
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideAccounts", eco[0], "player prologue"),
+        "{:#?}",
+        show(&found)
+    );
+    let _ = gar;
+}
+
+#[test]
+fn a_record_that_is_not_the_instructions_action_fails() {
+    // The instruction says Build, the record (and the state) say Harvest.
+    let (mut seg, snap) = segment();
+    let (eco, _) = actions(&seg);
+    let t = eco[0];
+    verify_core::tamper::edit_ix_tag(&mut seg, t, wix::TAG_DEPART, |d| {
+        *d = wix::Economy {
+            action: Action::Build { item: 1 },
+        }
+        .to_bytes()
+        .unwrap()
+        .to_vec()
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "not the instruction's"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_record_of_another_time_than_the_transactions_fails() {
+    let (mut seg, snap) = segment();
+    let (eco, gar) = actions(&seg);
+    seg.txs[eco[1]].block_time += 1;
+    seg.txs[gar[0]].block_time += 1;
+    let found = vwl::judge_segment(&seg, &snap);
+    for t in [eco[1], gar[0]] {
+        assert!(
+            has_at(&found, "WideReplayMismatch", t, "now_ts"),
+            "tx {t}: {:#?}",
+            show(&found)
+        );
+    }
+}
+
+#[test]
+fn an_action_whose_record_is_not_in_the_logs_is_unverifiable() {
+    let (mut seg, snap) = segment();
+    let (eco, gar) = actions(&seg);
+    for t in [eco[0], gar[0]] {
+        seg.txs[t].logs.retain(|l| !l.starts_with("Program data:"));
+    }
+    let found = vwl::judge_segment(&seg, &snap);
+    for t in [eco[0], gar[0]] {
+        assert!(only_missing(&found, t), "tx {t}: {:#?}", show(&found));
+    }
+}
+
+#[test]
+fn an_action_that_drains_its_accounts_fails() {
+    let (seg0, snap) = segment();
+    let (eco, gar) = actions(&seg0);
+    for (t, at) in [
+        (eco[0], 3),
+        (eco[1], 4),
+        (eco[2], 5),
+        (gar[0], 5),
+        (gar[1], 4),
+    ] {
+        let mut seg = seg0.clone();
+        let k = ix_key(&seg, t, at);
+        edit_post(&mut seg, t, &k, |a| a.lamports -= 1);
+        let found = vwl::judge_segment(&seg, &snap);
+        assert!(
+            has_at(&found, "WideReplayMismatch", t, "lost"),
+            "tx {t}: {:#?}",
+            show(&found)
+        );
+    }
+}
+
+#[test]
+fn a_forged_wall_mirror_fails() {
+    let (mut seg, snap) = segment();
+    let (eco, _) = actions(&seg);
+    let t = eco[2];
+    assert!(action_of(&seg, t).mirror_write());
+    let (h, p) = (ix_key(&seg, t, 4), ix_key(&seg, t, 5));
+    let site = state_before(&seg, &snap, t, &h).data[H::SITE] as usize;
+    let before = state_before(&seg, &snap, t, &p).data;
+    let after = post_data(&seg, t, &p);
+    let o = PV::site(site);
+    let at = (o..o + SM::SIZE)
+        .find(|&i| before[i] != after[i])
+        .expect("the walls wrote the site mirror");
+    edit_post(&mut seg, t, &p, |a| a.data[at] ^= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "province"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_forged_garrison_fails() {
+    let (seg0, snap) = segment();
+    let (_, gar) = actions(&seg0);
+    let t = gar[0];
+    let (h, p) = (ix_key(&seg0, t, 4), ix_key(&seg0, t, 5));
+    let site = state_before(&seg0, &snap, t, &h).data[H::SITE] as usize;
+    // More troops pending than the reserve gave.
+    let mut seg = seg0.clone();
+    edit_post(&mut seg, t, &p, |a| {
+        a.data[PV::site(site) + SM::PEND0_DELTA] ^= 1
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "province"),
+        "{:#?}",
+        show(&found)
+    );
+    // The reserve was not debited.
+    let before = state_before(&seg0, &snap, t, &h).data;
+    let mut seg = seg0.clone();
+    edit_post(&mut seg, t, &h, |a| {
+        let o = H::reserve(0);
+        a.data[o..o + 4].copy_from_slice(&before[o..o + 4])
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "holding"),
+        "{:#?}",
+        show(&found)
+    );
+    // The instruction's delta is not the record's.
+    let mut seg = seg0.clone();
+    verify_core::tamper::edit_ix_tag(&mut seg, t, wix::TAG_DEPART, |d| {
+        *d = wix::Garrison { delta: 8 }.to_bytes().unwrap().to_vec()
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "delta"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_garrison_in_a_province_that_is_not_resolved_fails() {
+    // The province two bells behind: the program refuses NotResident. The
+    // receipt no longer commits to this pre-state, so the re-run refuses.
+    let (mut seg, mut snap) = segment();
+    let (_, gar) = actions(&seg);
+    let t = gar[0];
+    let p = ix_key(&seg, t, 5);
+    edit_before(&mut seg, &mut snap, t, &p, |a| {
+        a.data[PV::RESOLVED_NEXT..PV::RESOLVED_NEXT + 4].copy_from_slice(&0u32.to_le_bytes())
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(any_fail_at(&found, t), "{:#?}", show(&found));
+}
+
+#[test]
+fn an_action_that_writes_an_account_it_does_not_list_fails() {
+    let (mut seg, snap) = segment();
+    let (eco, _) = actions(&seg);
+    let t = eco[4];
+    // A Harvest lists its province read-only; here the province changes.
+    let p = ix_key(&seg, t, 5);
+    let mut a = state_before(&seg, &snap, t, &p);
+    a.data[PV::RESOLVED_NEXT] ^= 1;
+    seg.txs[t].post.push((Address::new_from_array(p), Some(a)));
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(any_fail_at(&found, t), "{:#?}", show(&found));
+}
+
+/// Season mode: V0 leaves the economy and the garrison to VWL, and a wide
+/// record in a transaction's logs no longer fails the PS2 checks (CQ1, V1).
+/// In this archive the economy runs after the declared patch 3, which the
+/// archive never saw an instruction write, so VWL's findings there are the
+/// patch showing.
+#[test]
+fn season_mode_judges_the_economy_and_wide_records_do_not_fail_the_ps2_checks() {
+    let inp = common::fixture("playable-next-whole.json.gz");
+    let (eco, gar) = actions(&inp);
+    assert_eq!((eco.len(), gar.len()), (6, 2));
+    let rep = verify_core::verify(&inp);
+    let sigs: Vec<String> = eco
+        .iter()
+        .chain(&gar)
+        .chain(&closes(&inp).2)
+        .map(|&t| inp.txs[t].signature.to_string())
+        .collect();
+    let others: Vec<_> = rep
+        .findings
+        .iter()
+        .filter(|f| sigs.contains(&f.signature) && f.check != "VWL")
+        .map(|f| (f.check, f.code.clone(), f.detail.clone()))
+        .collect();
+    assert!(others.is_empty(), "{others:#?}");
+    assert!(
+        !rep.findings.iter().any(|f| f.code == "WideUnmodelled"),
+        "every wide instruction and record of this archive is VWL's: {:#?}",
+        show(&rep.findings)
+    );
+    assert!(!rep
+        .findings
+        .iter()
+        .any(|f| f.detail.contains("UnsupportedWideRecord")));
+    // The wide event chains (VW1) of the closed holdings and provinces end
+    // where their closes left them: nothing unproven, nothing broken.
+    assert!(
+        !rep.findings.iter().any(|f| f.check == "VW1"),
+        "{:#?}",
+        show(&rep.findings)
+    );
+    // A terminal record that does not continue the province's chain is seen.
+    let mut bad = inp.clone();
+    let t = closes(&bad).2[0];
+    let p = ix_key(&bad, t, 2);
+    let before = (0..t)
+        .rev()
+        .find(|&u| {
+            bad.txs[u].err.is_none()
+                && bad.txs[u]
+                    .post
+                    .iter()
+                    .any(|(x, a)| x.to_bytes() == p && a.is_some())
+        })
+        .unwrap();
+    edit_post(&mut bad, before, &p, |a| {
+        a.data[frontier_abi::layout::header::EVENT_HEAD] ^= 1
+    });
+    let rep = verify_core::verify(&bad);
+    assert!(
+        rep.findings.iter().any(|f| f.check == "VW1"),
+        "{:#?}",
+        show(&rep.findings)
+    );
+}

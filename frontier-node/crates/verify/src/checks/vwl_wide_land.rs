@@ -64,7 +64,8 @@
 //! wide claims (WideClaimSite, WideSettleTicket, WideFinalize) are VWL's
 //! too, in `vwl_wide_claims.rs` (2026-11-19), and so are the season-end
 //! WideCloses of a ticket record, a holding and a province
-//! (`vwl_wide_close.rs`). The other wide commands stay V0's
+//! (`vwl_wide_close.rs`) and the wide economy and garrison
+//! (`vwl_wide_economy.rs`). The other wide commands stay V0's
 //! `WideUnmodelled`.
 //!
 //! Lamports: the archive holds program transactions only, and anyone can
@@ -142,10 +143,15 @@ pub fn judged(data: &[u8]) -> Option<&'static str> {
 mod claims;
 #[path = "vwl_wide_close.rs"]
 mod close;
+#[path = "vwl_wide_economy.rs"]
+mod economy;
 
 /// The states one instruction is judged from.
 struct Env<'a> {
     w: &'a World,
+    /// The archive's records, in `w.txs` order (the logs: the wide economy
+    /// reads the record a transaction printed).
+    recs: &'a [fclient::ports::TxRecord],
     /// An execution witness (the segment's pre-states), consulted for an
     /// account no earlier transaction of the archive wrote.
     snapshot: Option<&'a BTreeMap<Key, Option<Account>>>,
@@ -967,6 +973,8 @@ fn judge(e: &Env, ix: &Ix, sigs: &mut SigCache) -> Result<(), Wrong> {
         WideCommand::SettleTicket(x) => claims::settle_ticket(e, ix, x)?,
         WideCommand::Finalize(_) => claims::finalize(e, ix)?,
         WideCommand::Close(x) => close::close(e, ix, x)?,
+        WideCommand::Economy(x) => economy::economy(e, ix, x)?,
+        WideCommand::Garrison(x) => economy::garrison(e, ix, x)?,
         _ => return Ok(()),
     };
     // The FULL post-state of every account of the transaction that the
@@ -1083,6 +1091,7 @@ fn lamports_unchanged(before: u64, after: u64, k: &Key) -> Result<(), Wrong> {
 /// Every successful wide land instruction of `w`, judged; findings in order.
 fn judge_all(
     w: &World,
+    recs: &[fclient::ports::TxRecord],
     snapshot: Option<&BTreeMap<Key, Option<Account>>>,
     program: &Key,
     season_id: u64,
@@ -1116,6 +1125,7 @@ fn judge_all(
             }
             let e = Env {
                 w,
+                recs,
                 snapshot,
                 ctx,
                 sid: season_id,
@@ -1139,6 +1149,7 @@ pub fn run(cx: &mut Ctx) {
     let mut sigs = SigCache::default();
     let found = judge_all(
         cx.w,
+        &cx.input.txs,
         None,
         &cx.cfg.program.to_bytes(),
         cx.cfg.season_id,
@@ -1179,6 +1190,7 @@ pub fn judge_segment(input: &Input, snapshot: &BTreeMap<Key, Option<Account>>) -
     let mut sigs = SigCache::default();
     judge_all(
         &w,
+        &input.txs,
         Some(snapshot),
         &input.cfg.program.to_bytes(),
         input.cfg.season_id,

@@ -58,6 +58,9 @@ wide-economy-experimental = ["frontier-abi/world-index-experimental"]
 # unify into the keeper's or herald's default build.
 playable-lane = [
     "wide-world-experimental",
+    # VWL judges WideEconomy / WideGarrison with the independent replays of
+    # `wide_economy` / `wide_garrison` (over the archive's states).
+    "wide-economy-experimental",
     "frontier-abi/conquest-dispatch-experimental",
     "frontier-abi/land-preview",
     "permutation-rules/land-preview",
