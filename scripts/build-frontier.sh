@@ -2,7 +2,7 @@
 # Reproducible SBPF v2 build of permutation-frontier (M1 contract §3.2),
 # ported from build-program.sh.
 #
-#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview]
+#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview|rights-test-beacon]
 #
 # Plain build (the deployable artefact):
 #   permutation-frontier/target/deploy/permutation_frontier.so
@@ -25,7 +25,10 @@
 # Feature builds are never deployable: --features trace|oracle|test-beacon|custody-preview
 # builds into permutation-frontier/target/deploy-<feature>/, requires that
 # feature's marker to be present (and the others absent), and prints
-# "deployable no".
+# "deployable no". --features rights-test-beacon (workstream 02-rights,
+# option A, for its LiteSVM tests only) builds the cargo features
+# rights-experimental,test-beacon into deploy-rights-test-beacon/ and
+# requires both PSF_RIGHTS_EXPERIMENTAL_BUILD and PSF_TEST_BEACON_BUILD.
 #
 # Prints file_sha256 (the .so), program_hash (the .so with trailing zero
 # bytes stripped, comparable with on-chain program data), e_flags, the .so
@@ -34,7 +37,9 @@
 # L(kind) counts, §10.1).
 #
 # --twice builds twice into two fresh target directories and fails (exit 4)
-# unless both artefacts hash the same.
+# unless both artefacts hash the same. It puts a text placeholder where
+# cargo-build-sbf would otherwise write a new program keypair, so it creates
+# no key (exit 5 if the placeholder was replaced).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
@@ -52,12 +57,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$feature" in
-  ""|trace|oracle|test-beacon|custody-preview) ;;
+  ""|trace|oracle|test-beacon|custody-preview|rights-test-beacon) ;;
   # only via scripts/build-frontier-localnet-expedition-sbf.sh (it sets this)
   localnet-expedition-sbf) [ "${PSF_LOCALNET_EXPEDITION_SBF_LANE:-}" = 1 ] || { echo "localnet-expedition-sbf: use scripts/build-frontier-localnet-expedition-sbf.sh" >&2; exit 2; } ;;
   # only via scripts/build-frontier-localnet-conquest-sbf.sh (it sets this)
   localnet-conquest-sbf) [ "${PSF_LOCALNET_CONQUEST_SBF_LANE:-}" = 1 ] || { echo "localnet-conquest-sbf: use scripts/build-frontier-localnet-conquest-sbf.sh" >&2; exit 2; } ;;
-  *) echo "unknown feature: $feature (trace, oracle, test-beacon or custody-preview)" >&2; exit 2 ;;
+  *) echo "unknown feature: $feature (trace, oracle, test-beacon, custody-preview or rights-test-beacon)" >&2; exit 2 ;;
 esac
 
 want="solana-cargo-build-sbf 3.1.9"
@@ -78,7 +83,11 @@ out=permutation-frontier/target/deploy
 build() { # build <sbf-out-dir> [<cargo target dir>]
   local dir="$1" tgt="${2:-}"
   local args=(--manifest-path "$manifest" --tools-version v1.52 --arch v2 --sbf-out-dir "$dir")
-  [ -n "$feature" ] && args+=(--features "$feature")
+  case "$feature" in
+    "") ;;
+    rights-test-beacon) args+=(--features "rights-experimental,test-beacon") ;;
+    *) args+=(--features "$feature") ;;
+  esac
   # The isolated localnet lane never downloads anything: installed
   # platform-tools only (checked before any build) and no network.
   case "$feature" in localnet-expedition-sbf|localnet-conquest-sbf) args+=(--offline --skip-tools-install) ;; esac
@@ -121,10 +130,10 @@ check() { # check <so>: the refusals; exit 3 on any
     bad=1
   fi
   local m want_m
-  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD; do
+  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD PSF_RIGHTS_EXPERIMENTAL_BUILD; do
     want_m=0
     case "$feature:$m" in
-      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD) want_m=1 ;;
+      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD|rights-test-beacon:PSF_TEST_BEACON_BUILD|rights-test-beacon:PSF_RIGHTS_EXPERIMENTAL_BUILD) want_m=1 ;;
     esac
     local n; n="$(count "$m" "$so")"
     if [ "$want_m" = 1 ] && [ "$n" -eq 0 ]; then echo "$so: marker $m missing from a --features $feature build" >&2; bad=1; fi
@@ -143,8 +152,16 @@ so_name=permutation_frontier.so
 if [ "$twice" = 1 ]; then
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/build-frontier.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
+  # cargo-build-sbf writes a fresh <name>-keypair.json into an out dir that has none (agave v3.1.9
+  # cargo-build-sbf post_processing.rs). These two directories are temporary, so no key is wanted there:
+  # a text placeholder keeps the build key-free, and the build fails if it was replaced.
+  holder="PLACEHOLDER: not a key. Exists so cargo-build-sbf skips program-keypair generation (scripts/build-frontier.sh --twice)."
+  for o in "$tmp/out1" "$tmp/out2"; do mkdir -p "$o"; printf '%s\n' "$holder" > "$o/${so_name%.so}-keypair.json"; done
   build "$tmp/out1" "$tmp/t1"
   build "$tmp/out2" "$tmp/t2"
+  for o in "$tmp/out1" "$tmp/out2"; do
+    [ "$(cat "$o/${so_name%.so}-keypair.json")" = "$holder" ] || { echo "$o: the keypair placeholder was replaced (a key was generated)" >&2; exit 5; }
+  done
   h1="$(sha "$tmp/out1/$so_name")"; h2="$(sha "$tmp/out2/$so_name")"
   if [ "$h1" != "$h2" ]; then
     echo "not reproducible: $h1 vs $h2" >&2

@@ -66,6 +66,8 @@ pub const T0: i64 = 1_789_862_400;
 pub const SO_NAME: &str = "permutation_frontier.so";
 /// Marker strings (§3.2, I-53): a release binary carries none of them.
 pub const MARKER_TEST_BEACON: &[u8] = b"PSF_TEST_BEACON_BUILD";
+/// Workstream 02-rights (option A): the `rights-experimental` marker.
+pub const MARKER_RIGHTS: &[u8] = b"PSF_RIGHTS_EXPERIMENTAL_BUILD";
 pub const MARKER_TRACE: &[u8] = b"PSF_TRACE_BUILD";
 pub const MARKER_ORACLE: &[u8] = b"PSF_ORACLE_BUILD";
 
@@ -80,6 +82,12 @@ pub enum Build {
     Trace,
     /// `--features oracle`: adds ResolveClash (tests); never deployable.
     Oracle,
+    /// Workstream 02-rights, option A: `build-frontier.sh --features
+    /// rights-test-beacon` (cargo features `rights-experimental` and
+    /// `test-beacon`, version `0x2004`); never deployable. Not in
+    /// [`Build::ALL`]: it carries two markers (its own and the test key's)
+    /// and only `tests/rights.rs` loads it.
+    Rights,
 }
 
 impl Build {
@@ -97,6 +105,7 @@ impl Build {
             Build::TestBeacon => "PSF_SO_TEST_BEACON",
             Build::Trace => "PSF_SO_TRACE",
             Build::Oracle => "PSF_SO_ORACLE",
+            Build::Rights => "PSF_SO_RIGHTS",
         }
     }
     /// The output directory `run.sh` builds it into (§3.2).
@@ -106,6 +115,7 @@ impl Build {
             Build::TestBeacon => "deploy-test-beacon",
             Build::Trace => "deploy-trace",
             Build::Oracle => "deploy-oracle",
+            Build::Rights => "deploy-rights-test-beacon",
         }
     }
     /// The marker the build must carry (none for the release).
@@ -115,11 +125,12 @@ impl Build {
             Build::TestBeacon => Some(MARKER_TEST_BEACON),
             Build::Trace => Some(MARKER_TRACE),
             Build::Oracle => Some(MARKER_ORACLE),
+            Build::Rights => Some(MARKER_RIGHTS),
         }
     }
     /// Whether the build verifies test-key beacons (else real quicknet).
     pub const fn test_key(self) -> bool {
-        matches!(self, Build::TestBeacon)
+        matches!(self, Build::TestBeacon | Build::Rights)
     }
 }
 

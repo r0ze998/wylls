@@ -59,7 +59,7 @@ P = プレイヤー前処理 `[actor s] [payer s,w] [season r] [citizen w]`（�
 
 | tag | 命令と data | アカウント | 署名 | 効果 |
 |---|---|---|---|---|
-| 0xD0 | IssueGrant `{nonce u32, kind u8, max_swaps u16, max_units u32, expires_ts i64}` | P + `[facility r] [province r] [grantee_citizen r] [station r] [grant w] [system]` | issuer の**財布** | Grant を作る（季節 PDA の AllocateWithSeed CPI） |
+| 0xD0 | IssueGrant `{nonce u32, kind u8, max_swaps u16, max_units u32, expires_ts i64}` | P + `[facility r] [province r] [grantee_citizen r] [station r] [grant w] [system]`（**案 A：facility は w、station は利用者の倉。13 を参照**） | issuer の**財布** | Grant を作る（季節 PDA の AllocateWithSeed CPI）。案 A では金 25 を施設から払う |
 | 0xD1 | ReserveSwap `{units u32, seq u16}` | P + `[grant w] [facility w] [station w] [province r]` | grantee | 受取口から鉱石 `2u`・木材 `u`、施設から武具 `u` を預かる |
 | 0xD2 | ExecuteSwap `{seq u16}` | 同上 | grantee | 預かりを相手側へ。`SWAPS += 1`。確定 |
 | 0xD3 | ReleaseSwap `{}` | `[actor s] [season r] [grantee_citizen r] [grant w] [facility w] [station w] [province r]` | grantee、または期限切れ・世代切れの後は誰でも | 戻せる側を戻す。何も戻せなければ `ReturnBlocked` |

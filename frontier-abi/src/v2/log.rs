@@ -926,28 +926,24 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             }
             c.push(E::Lot, EntityRefV2::Lot(k), false);
         }
-        // 02-rights (proposal): the issuer's Citizen (its P prologue).
+        // 02-rights (option A, `rights-experimental`): the issuer's Citizen
+        // (its P prologue) and the facility, which pays the issue cost.
         CqKind::GRANT_ISSUED => {
             let issuer = CitizenRef::Tag8(rd_u64(key, 0)?);
             c.push(E::Citizen, Base(EntityRef::Citizen(issuer)), false);
+            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
+            let site = rd_u8(pay("facility_site")?, 0)?;
+            c.push(E::Holding, Base(EntityRef::Holding { p, q, site }), false);
         }
-        // The grantee's Citizen, then the station, then the facility (the
-        // program's order; the sort is stable within one entity kind).
+        // The grantee's Citizen, the facility (a Holding) and the station
+        // (option A: the grantee's Vault, `station_site` its tile).
         CqKind::SWAP_RESERVED | CqKind::SWAP_EXECUTED => {
             let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
             let grantee = CitizenRef::Tag8(rd_u64(pay("grantee_tag")?, 0)?);
             c.push(E::Citizen, Base(EntityRef::Citizen(grantee)), false);
-            let station = rd_u8(pay("station_site")?, 0)?;
+            let tile = rd_u8(pay("station_site")?, 0)?;
             let facility = rd_u8(pay("facility_site")?, 0)?;
-            c.push(
-                E::Holding,
-                Base(EntityRef::Holding {
-                    p,
-                    q,
-                    site: station,
-                }),
-                false,
-            );
+            c.push(E::Vault, Vault { p, q, tile }, false);
             c.push(
                 E::Holding,
                 Base(EntityRef::Holding {
@@ -958,9 +954,9 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
                 false,
             );
         }
-        // An undo chains exactly the holdings it credited (named by the
-        // returned amounts, never optional: two optional Holding links
-        // could not be told apart); a revoke also the issuer's Citizen.
+        // An undo chains exactly the places it credited (named by the
+        // returned amounts, never optional); a revoke also the issuer's
+        // Citizen.
         CqKind::SWAP_RELEASED | CqKind::GRANT_REVOKED => {
             let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
             if k == CqKind::GRANT_REVOKED {
@@ -969,8 +965,8 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             }
             let amt = |n: &str| -> Option<i64> { rd_i64(pay(n)?, 0) };
             if amt("ret_ore")? > 0 || amt("ret_wood")? > 0 {
-                let site = rd_u8(pay("station_site")?, 0)?;
-                c.push(E::Holding, Base(EntityRef::Holding { p, q, site }), false);
+                let tile = rd_u8(pay("station_site")?, 0)?;
+                c.push(E::Vault, Vault { p, q, tile }, false);
             }
             if amt("ret_arms")? > 0 {
                 let site = rd_u8(pay("facility_site")?, 0)?;
