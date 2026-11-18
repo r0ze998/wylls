@@ -266,7 +266,14 @@ fn known_magic(d: &[u8], pv: Option<u16>) -> bool {
 
 #[cfg(feature = "playable-lane")]
 fn land_magic(m: &[u8; 8]) -> bool {
+    use frontier_abi::world_index::{land as wl, rules as wr};
     *m == frontier_abi::land_preview::land::MAGIC
+        // Q16-1 continued: the wide land opening's records (VWL judges
+        // their writes): the ring seed, the rules configuration and the
+        // wide province.
+        || *m == wl::ring_seed::MAGIC
+        || *m == wr::rules_config::MAGIC
+        || *m == wl::province::MAGIC
 }
 #[cfg(not(feature = "playable-lane"))]
 fn land_magic(_: &[u8; 8]) -> bool {

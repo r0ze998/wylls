@@ -30,3 +30,19 @@ fn the_default_build_does_not_judge_the_playable_lane() {
         .iter()
         .any(|f| f.severity == verify_core::Severity::Fail));
 }
+
+/// The natural season with a real WideSetRules (VWL's recording): the
+/// default build has no VWL and no 0x4804, so never a PASS and no FAIL.
+#[test]
+fn the_default_build_does_not_judge_wide_set_rules() {
+    let rep = verify_core::verify(&common::fixture("playable-wide-setrules.json.gz"));
+    assert_eq!(rep.verdict, verify_core::Verdict::Unverifiable);
+    assert!(rep
+        .findings
+        .iter()
+        .any(|f| f.code == "UnknownProgramVersion"));
+    assert!(!rep
+        .findings
+        .iter()
+        .any(|f| f.severity == verify_core::Severity::Fail));
+}
