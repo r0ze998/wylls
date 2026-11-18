@@ -12,7 +12,7 @@ import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByNation, ticketTimes } from '../fland.mjs';
-import { homeRingsOpen, seasonPlace } from '../home.mjs';
+import { heartlandFull, noFreeHome, homeRingsOpen, seasonPlace } from '../home.mjs';
 import { contiguousRings, worldOf } from '../map/world.mjs';
 import { dueHtml } from './shell.mjs';
 import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
@@ -86,7 +86,22 @@ export function factionCards(FS) {
  */
 const homeReread = (FS, busy) => (FS.mode === 'play' ? html`<div class="actions"><button type="button" class="btn small" data-act="home-reread" ${raw(busy || FS.homeChoice?.loading ? 'disabled' : '')}>${icon('return')}${L`土地の候補を読み直す`}</button></div>` : '');
 
+/**
+ * (2026-11-18, ⑧ doc 31 §1 option A; page only) The heartland — the land where a first village is placed at once — has
+ * no free site for the nation: one line that says so and what happens instead (the village request, the program's
+ * own FileTicket path, unchanged). `data-home-fallback` = "request" in the request's wait view (a Citizen without a
+ * village), "nation" under the nation choice (a visitor: what beginning with this nation will do).
+ * (The nation line wears `nc-early`, the confirm plate's own status line: readable on the dark plate, shown on a phone.)
+ */
+const fallbackLine = () => html`<p class="muted" data-home-fallback="request">${L`すぐに村を置ける本国の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。`}</p>`;
+const fallbackNation = (FS, busy) => { const again = homeReread(FS, busy); return html`<p class="nc-early" role="status" data-home-fallback="nation">${L`この国は、すぐに村を置ける本国の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。本国に空きのある国なら、すぐに村を置けます。`}</p>${again}`; };
+/** Whether the nation choice says that line: a wallet that has not joined, in play (not local play: no FileTicket there), the chosen nation full. */
+const nationFull = FS => { const f = FS.joinDraft?.faction; return Number(FS.season?.programVersion ?? 1) >= 2 && FS.mode === 'play' && !FS.localPlay && !FS.citizen && !FS.resident && (noFreeHome(FS.homeChoice, f) || (Number.isInteger(f) && FS.homeChoice?.full === f)); };
+
 export function renderNations(FS) {
+  // (⑧ doc 31 §1-A: a full heartland is not a failed reading on this screen — the press joins and the village request
+  //  follows, controller confirmHome — so the choice is drawn without its error and with `fallbackNation` instead)
+  if (nationFull(FS) && FS.homeChoice.error) return renderNations({ ...FS, homeChoice: { ...FS.homeChoice, error: null, full: FS.homeChoice.faction } });
   const cards = factionCards(FS);
   const pick = cards.find(c => c.chosen) ?? null;
   const instant = Number(FS.season?.programVersion ?? 1) >= 2;
@@ -118,6 +133,7 @@ export function renderNations(FS) {
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}` : ''}
     ${instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
+    ${nationFull(FS) ? fallbackNation(FS, busy) : ''}
     <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
     ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}
     ${renderWorldLines(FS)}
@@ -255,6 +271,7 @@ function renderPlacing(FS) {
     const more = a.state === 'nofree' ? L`新しい輪がひらけば、そこも探します。` : failureText({ code: a.code });
     return html`<section class="vcard wait-card wait-stuck" aria-labelledby="join-sites">
       ${waitHead(FS, L`村の申し込みが通っていません`, a.state)}
+      ${heartlandFull(FS) ? fallbackLine() : ''}
       <div class="wait-state"><p class="wait-warn" role="alert"><span class="warn-chip">${icon('alert')}${why}</span><span class="wait-why">${more}</span></p>
         <div class="actions wait-acts"><button type="button" class="btn primary" data-act="auto-ticket">${icon('return')}${L`いますぐやり直す`}</button></div>
         <p class="wait-auto">${icon('hourglass')}<span>${c ? Lh`次のターンに自動でやり直します（あと ${html`<span class="wait-left" data-wait-clock>${c.text}</span>`}）` : L`次のターンに自動でやり直します`}</span></p></div>
@@ -270,6 +287,7 @@ function renderPlacing(FS) {
   }[a?.state] ?? (() => L`まもなく村の申し込みを自動で出します。`);
   return html`<section class="vcard wait-card" aria-labelledby="join-sites">
     ${waitHead(FS, again ? L`新しい村の場所を探しています` : L`村の申し込みを出しています`, a?.state ?? null)}
+    ${heartlandFull(FS) ? fallbackLine() : ''}
     <div class="wait-state"><p role="status">${line()}</p>
       ${a?.state === 'waiting' && FS.landRec?.autoTryFailed ? html`<div class="actions wait-acts"><button type="button" class="btn" data-act="auto-ticket">${icon('return')}${L`いますぐやり直す`}</button></div>` : ''}</div>
     ${waitClockBox(c, L`次のターンまで`)}
@@ -383,6 +401,7 @@ export function render(FS) {
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;
-  if (instant && stage !== 'refugee' && !(Number(FS.citizen?.flags ?? 0) & (32 | 4))) return renderInstantPlacing(FS);
+  // (⑧ doc 31 §1-A: a full heartland — the request's wait view, with its one line of reason, not the planner)
+  if (instant && stage !== 'refugee' && !(Number(FS.citizen?.flags ?? 0) & (32 | 4)) && !heartlandFull(FS)) return renderInstantPlacing(FS);
   return renderPlacing(FS);
 }

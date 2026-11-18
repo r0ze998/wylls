@@ -321,6 +321,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | 保護 | Shield | |
 | 夜番の時間 | vigil hours | |
 | 村の申し込み（旧: 入植希望） | village request | formerly "site ticket" (UX design 11.13) |
+| 本国の土地 | the heartland | rings 2 .. `heartland_max_ring`, the only rings where PlaceHome places a first village at once (⑧ doc 31 §1) |
 | 休眠 | dormant | |
 | 敗走 | routed | the 50% loss of a march whose seal was not opened |
 | 村へ押し戻された（旧: 本拠へ押し戻された） | bounced home | no room, or lost the field with nowhere to fall back; troops lost in the fight stay lost, so no "(no loss)" |
