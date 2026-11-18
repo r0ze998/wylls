@@ -61,6 +61,7 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   /** The test-asset prize pool (permutation-prize): its program id and test mint; null when the season has none. */
   prizeProgram: null,
   prizeMint: null,
+  prizeEpoch: null,
   /** The test mint's authority (the local faucet); only with a prize pool, only on localnet. */
   faucetKeyFile: null,
   /** Test tokens one POST /f/faucet gives a wallet (base units), once per wallet. TEST VALUE. */
@@ -182,6 +183,8 @@ export function loadFrontierConfig(argv = [], env = {}) {
     gateKeyFile: pick('gate-key-file', 'FRONTIER_GATE_KEY_FILE', d.gateKeyFile),
     prizeProgram: pick('prize-program', 'FRONTIER_PRIZE_PROGRAM', d.prizeProgram),
     prizeMint: pick('prize-mint', 'FRONTIER_PRIZE_MINT', d.prizeMint),
+    // ⑰ settlement windows (test assets): the epoch pool the relay takes fees into; null = the legacy per-season pool.
+    prizeEpoch: pick('prize-epoch', 'FRONTIER_PRIZE_EPOCH', d.prizeEpoch),
     faucetKeyFile: pick('faucet-key-file', 'FRONTIER_FAUCET_KEY_FILE', d.faucetKeyFile),
     faucetAmount: int(pick('faucet-amount', 'FRONTIER_FAUCET_AMOUNT', d.faucetAmount), '--faucet-amount'),
     prizeLedgerFile: pick('prize-ledger-file', 'FRONTIER_PRIZE_LEDGER_FILE', d.prizeLedgerFile),
@@ -231,6 +234,13 @@ export function checkFrontierConfig(cfg) {
   if (!cfg.programId) out.push('--program is required');
   if (cfg.seasonId === null || cfg.seasonId === undefined || !/^\d{1,20}$/.test(String(cfg.seasonId))) out.push('--season (the season id) is required');
   if (!!cfg.prizeProgram !== !!cfg.prizeMint) out.push('--prize-program and --prize-mint go together');
+  if (cfg.prizeEpoch !== null && cfg.prizeEpoch !== undefined) {
+    if (!cfg.prizeProgram) out.push('--prize-epoch needs --prize-program');
+    if (!/^\d{1,10}$/.test(String(cfg.prizeEpoch)) || Number(cfg.prizeEpoch) > 0xffff_ffff) out.push('--prize-epoch must be a u32');
+    // Test USDC only: settlement windows are refused on mainnet whatever the other flags say.
+    if (!['localnet', 'devnet'].includes(cfg.cluster)) out.push(`--prize-epoch: test assets only, localnet or devnet (cluster ${cfg.cluster}); a real-money prize needs a legal review first`);
+    if (cfg.prizeMint === MAINNET_USDC_MINT) out.push('--prize-epoch: --prize-mint is mainnet USDC; settlement windows take a test mint only');
+  }
   if (cfg.faucetKeyFile && cfg.cluster !== 'localnet') out.push('--faucet-key-file: the test-token faucet exists on localnet only');
   if (!(cfg.minPoolSol >= 0)) out.push('--min-pool-sol must be ≥ 0');
   if (cfg.agentWallet) {
@@ -360,9 +370,12 @@ export function validateAgentDepositSends(wallet) {
     }
   }
 }
+/** Circle's mainnet USDC mint: never a prize mint of this relay's settlement windows (⑰ test assets only). */
+export const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export const runIdentity = cfg => ({
   programId: String(cfg.programId), seasonId: String(cfg.seasonId),
   prizeProgram: cfg.prizeProgram ?? null, prizeMint: cfg.prizeMint ?? null,
+  ...(cfg.prizeEpoch === null || cfg.prizeEpoch === undefined ? {} : { prizeEpoch: String(cfg.prizeEpoch) }),
 });
 export const sameRun = (saved, cfg) => isObject(saved)
   && Object.entries(runIdentity(cfg)).every(([key, value]) => saved[key] === value);

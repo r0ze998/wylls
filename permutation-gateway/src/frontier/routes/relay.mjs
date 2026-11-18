@@ -30,6 +30,7 @@ import { signTalk as signEd25519, verifyTalk as verifyEd25519 } from '../../../c
 import { parseWire, signatureOf, signedBy } from '../../cosign.mjs';
 import { RouteError } from '../../routes/errors.mjs';
 import { simulateWatching } from '../chain.mjs';
+import { markOperatorMember } from './prize.mjs';
 import { dailyTxs, dayEnd, gameDay } from '../quota.mjs';
 import { allowanceFor, checkRelayShape, drainGuard, feeOf, lamportsPerDay, quotaKeyOf } from '../shapes.mjs';
 import { bellAt, residentTurnOf, ResidentTurnError, RESIDENT_ALREADY_ACTED } from '../resident-turns.mjs';
@@ -336,6 +337,8 @@ export const relayRoutes = {
     const nonce = ctx.invites?.reserve(b.invite);
     if (!nonce) throw new RouteError(403, 'this season needs a valid, unused invite to join', 'InviteRequired');
     try {
+      // ⑰ no AI residents in paid periods: an invite admits an operator member, marked on chain first.
+      await markOperatorMember(ctx, shape.authority);
       return { body: await sponsor(ctx, req, { tx, wire, shape, extraSigners: [ctx.gateKey], limitKind: 'join', lastValidBlockHeight: b.lastValidBlockHeight,
         beforeSend: () => ctx.invites.consume(nonce) }) };
     } finally {

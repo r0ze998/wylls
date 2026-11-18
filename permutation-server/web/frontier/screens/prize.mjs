@@ -31,7 +31,9 @@ export function renderJoinTerms(FS) {
     </dl>
     ${w ? html`<p class="prize-wallet">${L`このウォレットのテストUSDC：${w.balance}`}${w.paid ? html` <span class="muted">${L`（参加費は支払い済み）`}</span>` : ''}</p>` : ''}
     ${w && !w.paid && !w.canPay ? html`<p><button type="button" class="btn" data-act="prize-faucet">${L`テストUSDCを受け取る`}</button> <span class="muted">${L`足りない場合は、参加の前に自動で受け取ります。`}</span></p>` : ''}
-    <p class="muted">${L`テストUSDCはこのローカルのテスト用チェーンだけの通貨で、価値はありません。季節の終わりに最も多くの州を持つ国が勝ち、賞金プールはその国の参加費を払ったメンバーに分けられます。`}</p>
+    <p class="muted">${m.window
+      ? L`テストUSDCはこのローカルのテスト用チェーンだけの通貨で、価値はありません。この世界は終わりません。賞金の区切り${m.window.epoch}が終わる第${fmtNum(m.window.endBell)}ターンに最も多くの州を持つ国が勝ち、その区切りの賞金プールは、その国の、この区切りに参加費を払ったメンバーに分けられます。`
+      : L`テストUSDCはこのローカルのテスト用チェーンだけの通貨で、価値はありません。季節の終わりに最も多くの州を持つ国が勝ち、賞金プールはその国の参加費を払ったメンバーに分けられます。`}</p>
   </section>`;
 }
 
