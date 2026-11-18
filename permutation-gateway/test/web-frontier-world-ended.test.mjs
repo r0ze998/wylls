@@ -151,7 +151,7 @@ test('the page: the dial, the season poll, the gate and the map are wired to the
   // the gate's question: the keeper route, this page's own address, only a connected launcher world
   assert.match(gate, /const checkWorld = async \(\) => \{\n    if \(!launcher \|\| !done \|\| !handle \|\| handle\.destroyed\) return null;\n    const wallet = handle\.address;\n    const result = await askLauncher\('\/local-play\/keeper', \{ wallet \}, 'LauncherKeeperFailed'\);/);
   assert.match(gate, /if \(launcher\) worldChecks\.set\(cfgOut, checkWorld\);/, 'only a launcher world\'s cfg carries the question');
-  assert.equal(gate.split('checkWorld').length - 1, 4, 'defined, registered for the cfg, returned by the gate (and named once in a comment): never called by the gate itself');
+  assert.equal(gate.split('checkWorld(').length - 1, 0, 'never called by the gate itself: it is handed to the page');
   // the English dial text holds the word the dial cuts out of it
   const en = readFileSync(new URL('../../permutation-server/web/lang/en-frontier-play.mjs', import.meta.url), 'utf8');
   assert.match(en, /'ターン \{0\} · 終了済み': 'Turn \{0\} · ended',/);

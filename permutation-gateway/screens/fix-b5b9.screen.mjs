@@ -209,6 +209,8 @@ for (const lang of ['en', 'ja']) test(`B8 (${lang}): on the title the one "Choos
     const byRole = page.getByRole('button', { name });
     assert.equal(await byRole.count(), 1, 'one in the accessibility tree');
     assert.equal(await byRole.isVisible(), true);
+    // (the title's words rise in over three seconds: the picture is taken once the key is fully drawn)
+    await page.waitForFunction(() => { const b = document.querySelector('.intro-go'); return !!b && getComputedStyle(b).opacity === '1' && b.getAnimations().every(x => x.playState === 'finished'); }, null, { timeout: 15_000 });
     await shot(page, `b8-title-one-visible-key-${lang}`);
     // pressed as Playwright presses (its own visibility and hit checks, no coordinates given)
     await byRole.click({ timeout: 10_000 });

@@ -7,7 +7,10 @@
 // launcher=1 gate starts that local world through the same-origin launcher on a button press; the worlds the
 // launcher runs are listed (public addresses) when it refuses a start at its limit of two, or when the player asks
 // with the panel's own key, and ending one is the player's own two presses on that world's row: nothing here stops
-// a world, or asks anything of the launcher, by itself. A launcher's answer may also say that its world is a conquest
+// a world, or asks anything of the launcher, by itself — with one exception since the loop-play report B5: once the
+// world is connected, the PAGE may ask whether the launcher still runs it (`checkWorld`, the keeper route with this
+// page's own public address), and does so only after a read of the world's herald failed by the network
+// (flocalplay-ended.mjs; never polled, never while the herald answers). A launcher's answer may also say that its world is a conquest
 // world (`conquestWorld`): it is kept only when it names the dedicated program and the very Season this page then
 // verifies, and is handed to the page on the identity (`cfg.localPlay.conquestWorld`, which the controller makes
 // `FS.localPlay`); anything less is no conquest world to this page. Connect reads
