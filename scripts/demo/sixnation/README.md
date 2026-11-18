@@ -1,5 +1,8 @@
 # Six-nation bot session + multi-view recording (TEST local world only)
 
+> For **one map of the whole world** (the owner's preferred view: borders moving, captures, growth, little text), see
+> [`map/`](map/README.md): a timelapse of a frontier-sim conquest season.
+
 One command starts a **TEST-only local world** on the playable lane (natural preset, page-signed economy, capture-demo
 clock), adds **six operator AI residents (⑤ A), one per nation**, lets a headless page join as a player, and records
 **9 views** with Playwright's built-in `recordVideo`. If `ffmpeg` is installed, it also combines them into a 3×3 `grid.mp4`.

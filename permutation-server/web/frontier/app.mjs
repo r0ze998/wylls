@@ -48,7 +48,7 @@ import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeN
 const worldNow = () => FS.world ?? worldOf(FS.record);
 const ringsOpenNow = () => Math.max(1, worldNow().ringsOpen);
 const seededNow = () => seededRings(worldNow());
-import { readOverviews, forgetOverviewRefusals } from './map/overviews.mjs';
+import { readOverviews, forgetOverviewRefusals, ringMissMarks } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
@@ -165,6 +165,7 @@ import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
+import { said, worded, reworded } from './hud/words.mjs';
 import * as status from './hud/status.mjs';
 import * as title from './intro/title.mjs';
 import { mountTitleScene } from './intro/scene.mjs';
@@ -1950,20 +1951,21 @@ function protoNews() {
   if (small && records.some(x => x.own || x.did)) P.toastHold = Date.now() + PROTO_TOAST_HOLD_MS;
   if (records.some(x => x.did && ['TEND', 'WALK'].includes(String(x.record.op ?? '').toUpperCase()))) P.guide.walked = true;
   const seen = (P.threatSeen ??= new Set()), news = [...items], standing = (P.threatsUp ??= new Map());
-  const now = pm.threatsOf(FS);
+  // (B11: the threats' words in every language now — hud/words.mjs worded; threatsOf and threatGone are pure)
+  const now = worded(() => pm.threatsOf(FS));
   P.threatsNow = new Set(now.map(t => t.id));
   for (const t of now) {
     standing.set(t.id, t);
     if (seen.has(t.id)) continue;
     seen.add(t.id); P.guide.threat = true;
     // (`own`: a notice of its own on the board even while a sheet is open or the turn's notices are gathered into one line)
-    news.push({ id: t.id, kind: 'proto', proto: true, own: true, alarm: true, bell: FS.nowBell ?? null, p: t.p, q: t.q, tile: t.tile, text: t.text, ...(Number.isInteger(t.slot) ? { banner: { p: t.p, q: t.q, slot: t.slot } } : {}), send: { p: t.p, q: t.q, tile: t.tile } });
+    news.push({ id: t.id, kind: 'proto', proto: true, own: true, alarm: true, bell: FS.nowBell ?? null, p: t.p, q: t.q, tile: t.tile, text: t.text, ...(t.words ? { words: t.words } : {}), ...(Number.isInteger(t.slot) ? { banner: { p: t.p, q: t.q, slot: t.slot } } : {}), send: { p: t.p, q: t.q, tile: t.tile } });
   }
   // (a threat that was told of and stands no longer: what the records say became of it — the other nation's count is
   // gone, the banner was defended — said once; a tile a host of the viewer's now holds is the guide's next step)
   for (const [id, was] of standing) {
     if (now.some(t => t.id === id)) continue;
-    const line = pm.threatGone(FS, was);
+    const line = worded(() => pm.threatGone(FS, was));
     // (what became of it, for the guide's list: stopped, ended, kept — or the banner rose, or was taken)
     { const out = pm.threatOutcome(FS, was); if (out) P.guide.answer = out; }
     if (!line) { if ((FS.nowBell ?? 0) > (was.goneAt ??= FS.nowBell ?? 0) + 2) standing.delete(id); continue; }
@@ -2791,7 +2793,8 @@ function awayTake() {
 /** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
 const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
 /** The away notices in the page's language (they are kept as words; the language may change after they were told). */
-const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : x)); };
+// (B11, loop-play2: and every other notice, by the words it keeps in every language — hud/words.mjs)
+const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away || x.words)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : reworded(x))); };
 onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
 let feedBell = null;
 /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */
@@ -2842,15 +2845,17 @@ async function clashTold(x) {
     const tile = scene ? scene.tiles.find(t => sides(t).some(s0 => mine(s0.id))) ?? null : null;
     if (tile) {
       const me = sides(tile).find(s0 => mine(s0.id)), foe = sides(tile).find(s0 => !mine(s0.id) && Number.isInteger(s0.faction) && s0.faction !== (FS.citizen?.faction ?? -1)) ?? null;
-      const where = tileNameOf({ p, q, tile: tile.idx });
-      const who = foe && foe.faction >= 0 && foe.faction < 6 ? factionName(foe.faction) : null;
       const lost = Number.isFinite(me.before) && Number.isFinite(me.after) ? Math.max(0, me.before - me.after) : null;
-      item = { ...item, tile: tile.idx, text: who
+      // (B11: the words in every language now — hud/words.mjs said — so that a switch of language shows the same line)
+      item = { ...item, tile: tile.idx, ...said(() => {
+        const where = tileNameOf({ p, q, tile: tile.idx }), who = foe && foe.faction >= 0 && foe.faction < 6 ? factionName(foe.faction) : null;
+        return who
         ? (lost !== null ? L`${where}で、あなたの軍勢が${who}の軍勢と戦いました（ターン ${fmtNum(bell)}・${fmtNum(lost)} 兵を失いました）` : L`${where}で、あなたの軍勢が${who}の軍勢と戦いました（ターン ${fmtNum(bell)}）`)
-        : L`${where}で、あなたの軍勢が戦いました（ターン ${fmtNum(bell)}）` };
+        : L`${where}で、あなたの軍勢が戦いました（ターン ${fmtNum(bell)}）`;
+      }) };
     } else if (scene) {
       // (nobody of the viewer's fought: a public fact of the province, in the list with its report)
-      item = { ...item, quiet: true, tile: scene.tiles[0]?.idx ?? null, text: L`${placeProvinceName(FS, p, q)}で、ほかの国どうしの戦いがありました（ターン ${fmtNum(bell)}）` };
+      item = { ...item, quiet: true, tile: scene.tiles[0]?.idx ?? null, ...said(() => L`${placeProvinceName(FS, p, q)}で、ほかの国どうしの戦いがありました（ターン ${fmtNum(bell)}）`) };
     }
   } catch (e) { console.error('frontier feed:', e); }
   const speed = BATTLE_SPEEDS[FS.ui?.battleFx ?? 'normal'] || 0;
@@ -2932,12 +2937,8 @@ const OUTCOME_BEAT_MS = 1500;
 let outcomeTimer = null;
 /** A standing threat's notice as it is now: the count the records give, and whether the answer is on its way. */
 function protoAlarmNow(x, up) {
-  const at = pm.marchingTo(FS, up);
-  // (in the turn it arrives in, and until that turn is settled: arrived, the fight not told yet — the notice said "on its way" for a turn that had passed)
-  if (at !== null) return { ...x, send: null, text: (FS.nowBell ?? 0) < at ? L`${up.text}。あなたの軍勢が向かっています（ターン ${fmtNum(at)} に到着）` : L`${up.text}。あなたの軍勢が着きました。戦いの結果を待っています` };
-  // (outnumbered — a new hamlet against a host of 500 —: the notice carries the numbers, as the guide's step does)
-  const force = up.foe ? pm.strengthOf(FS) : null;
-  return force && force.best < up.foe.troops ? { ...x, text: L`${up.text}。${pm.threatNumbers(up, force)}数で下回っています` } : { ...x, text: up.text };
+  // (the live words are made by the hand's model as the notice is drawn, in every language: proto/hand-model.mjs alarmNow)
+  return pm.alarmNow(FS, x, up);
 }
 /**
  * "What happened this turn" (UX design 8.3): after the toll the effects layer plays this turn's own results on
@@ -4525,6 +4526,8 @@ async function loadSeason(herald) {
  *    read place (`waiting`) — controller's FS.provinceReads, this world's only, and only while no record is held;
  *  - a ring whose overview was asked for and did not come (`ring`) — FS.overviewMisses, kept by loadOverviews for the
  *    world it asked in: without it the ring's villages are not known, which is not "no villages".
+ *    Said only while the person looks at that ring, and never for a ring the herald refused (map/overviews.mjs
+ *    ringMissMarks).
  * Nothing is marked that was not asked: no province out of the viewer's sight is asked by the map, and a read still
  * under way is not marked (every province would flicker as the map moves). Selecting the province opens its card,
  * whose button reads again (hud/inspect.mjs readState → province-reread). Marks only: nothing of the land is drawn.
@@ -4537,14 +4540,20 @@ function readMarksNow() {
     if (!Number.isInteger(p) || !Number.isInteger(q)) continue;
     out.push({ p, q, state: st.state, text: st.state === 'failed' ? L`読めていません（選ぶと読み直せます）` : L`読み込みの順番待ち` });
   }
-  const miss = FS.overviewMisses;
-  if (miss && miss.world === momentWorld() && FS.world) {
-    // (`rings`: ring → a province of it where the words stand, worked out once when the miss was noted)
-    for (const [d, at] of miss.rings) {
-      if (FS.overviews.has(d) || !at) continue;
-      out.push({ p: at.p, q: at.q, state: 'ring', ring: d, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
-    }
-  }
+  // (fix-stale-tooltip, 2026-11-19: a ring miss is said only on the ring the person is looking at — the selected
+  //  province, or the province at the view's centre once the map is zoomed in past the World chart — and never for a
+  //  ring the herald refused (NoSuchRing) or one outside the open land: map/overviews.mjs ringMissMarks. Before, every
+  //  miss stood on its ring's first province for ever, refused rings 0 and 1 included)
+  for (const m of ringMissMarks(FS, { key: momentWorld(), looking: lookingAt() }))
+    out.push({ p: m.p, q: m.q, state: 'ring', ring: m.ring, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
+  return out;
+}
+/** The places the person is looking at, for the ring marks: the selected province; the view's centre when zoomed in. */
+function lookingAt() {
+  const out = [];
+  if (Number.isInteger(FS.selected?.p) && Number.isInteger(FS.selected?.q)) out.push({ p: FS.selected.p, q: FS.selected.q });
+  const view = mapRef?.view;
+  if (view && mapRef?.lod && mapRef.lod !== 'world') { const h = hexAtPixel(view.x, view.y), c = locate(h.q, h.r); if (c) out.push({ p: c.p, q: c.q }); }
   return out;
 }
 function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {

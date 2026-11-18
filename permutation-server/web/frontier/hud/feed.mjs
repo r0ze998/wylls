@@ -14,7 +14,7 @@
 // a × dismisses one; the More tab keeps the last FEED_MAX with filters.
 // Nothing here blocks the game: no modal, no sound.
 import { html, raw } from '../../util.mjs';
-import { L, fmtNum, lang } from '../../lang.mjs';
+import { L, fmtNum, lang, inEachLang } from '../../lang.mjs';
 import { BUILDINGS, TIERS, factionName } from '../fi18n.mjs';
 import { queueItem, buildItemOf } from '../fland.mjs';
 import { keepEventSide } from '../fconquest.mjs';
@@ -22,6 +22,7 @@ import { holdingName } from '../people/ui.mjs';
 import { playerFace } from '../people/faces.mjs';
 import { placeName } from '../people/identity.mjs';
 import { icon } from './icons.mjs';
+import { worded, noticeText } from './words.mjs';
 import { tileWhat, provinceName } from './place.mjs';
 import { cardHead, chip, fold } from '../screens/parts.mjs';
 import { territoryEnabled, territoryOf } from '../territory.mjs';
@@ -51,12 +52,15 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
     // (once the arrival turn has ended its clash may have changed what stands there — a camp it cleared is grass —: the
     // line that tells of the clash names the place as it was when the host came to it)
     const nameNow = m.dest && Number.isInteger(m.dest.tile) ? tileWhat(FS, m.dest.p, m.dest.q, m.dest.tile).name ?? null : null;
+    // (B11 round 2: the same name in every language, kept beside it — a notice made later names the place in each)
+    const namesNow = m.dest && Number.isInteger(m.dest.tile) ? inEachLang(() => tileWhat(FS, m.dest.p, m.dest.q, m.dest.tile).name ?? null) : null;
     const ended = Number.isInteger(arrive) && Number.isInteger(FS.nowBell) && FS.nowBell > arrive;
-    const destName = ended && was && was.bell === arrive && was.destName ? was.destName : nameNow;
+    const kept = ended && was && was.bell === arrive && was.destName;
+    const destName = kept ? was.destName : nameNow, destNames = kept ? was.destNames ?? null : namesNow;
     const same = !!was && was.bell === arrive;
     if (k) marches.set(k, { pipeline: same && was.pipeline === 'resolved' ? 'resolved' : m.facts?.pipeline ?? null,
       revealed: !!m.facts?.slotPresent || (same && was.revealed), settle: !!m.facts?.settleReady,
-      dest: m.dest ?? null, destName, bell: arrive, outcome: m.transit?.outcome ?? null });
+      dest: m.dest ?? null, destName, destNames, bell: arrive, outcome: m.transit?.outcome ?? null });
   }
   const builds = new Set(), pendingBuilds = new Set(), holdings = new Map();
   for (const h of FS.holdings ?? []) {
@@ -96,7 +100,7 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
       const id = `${p},${q},${c.tile},${c.bell},${c.from},${c.to},${c.reason}`;
       territorySeen.add(id);
       if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(p, q, c.tile) !== 3) continue;
-      territory.set(id, { ...c, p, q, mine: c.to === FS.citizen.faction, name: tileWhat(FS, p, q, c.tile).name ?? provinceName(FS, p, q) });
+      territory.set(id, { ...c, p, q, mine: c.to === FS.citizen.faction, name: tileWhat(FS, p, q, c.tile).name ?? provinceName(FS, p, q), names: inEachLang(() => tileWhat(FS, p, q, c.tile).name ?? provinceName(FS, p, q)) });
     }
   }
   // keep events (controller refreshKeepEvents): null until the season's days are read, so the past is not news
@@ -120,9 +124,11 @@ function keepItem(k, e, bell) {
  * battle?: {p, q, bell}}]`, kinds 'battle' | 'march' | 'explore' |
  * 'incoming' | 'build' | 'holding' | 'keep' (with `side`: the viewer's nation's part,
  * 'gain' | 'loss' | 'attack' | 'defend' | null). A first snapshot (prev
- * null) is not news.
+ * null) is not news. Each notice carries `words` (its text in every language, as of now: hud/words.mjs), so that it
+ * follows a later switch of language (B11).
  */
-export function diffFeed(prev, next) {
+export const diffFeed = (prev, next) => worded(() => diffFeedNow(prev, next));
+function diffFeedNow(prev, next) {
   if (!prev) return [];
   const out = [];
   const bell = next.bell;
@@ -131,7 +137,9 @@ export function diffFeed(prev, next) {
   const own = { holdings: [...next.holdings.values(), ...[...prev.holdings.values()].filter(h => !next.holdings.has(`${h.p},${h.q},${h.site}`))] };
   const village = h => (Number.isInteger(h?.site) ? holdingName({ p: h.p, q: h.q, site: h.site }, h.tier ?? 0) : provinceName(own, h.p, h.q));
   const villageIn = (p, q) => { const h = own.holdings.find(x => x.p === p && x.q === q); return h ? village(h) : provinceName(own, p, q); };
-  const destOf = m => m.destName ?? provinceName(own, m.dest.p, m.dest.q);
+  // (a kept name in the language of this run when the snapshot has it in every language: B11 round 2)
+  const named = (names, name) => names?.[lang()] ?? name ?? null;
+  const destOf = m => named(m.destNames, m.destName) ?? provinceName(own, m.dest.p, m.dest.q);
   for (const [k, m] of next.marches) {
     const was = prev.marches.get(k);
     const d = m.dest;
@@ -141,7 +149,7 @@ export function diffFeed(prev, next) {
       // (the place by the name it had before the turn was resolved: a camp that this very clash cleared is still
       // "the camp" in the line that tells of it. With no engagement in the record nobody stood there: the host
       // simply arrived, and no battle is staged for it)
-      const name = was.destName ?? destOf(m), quiet = next.fights?.get(`${d.p},${d.q},${m.bell}`) === 0;
+      const name = named(was.destNames, was.destName) ?? destOf(m), quiet = next.fights?.get(`${d.p},${d.q},${m.bell}`) === 0;
       if (quiet) out.push({ id: `rs:${k}`, kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(m.bell)} の到着）` });
       else out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`${name}の衝突が決着しました（ターン ${fmtNum(m.bell)} の到着）` });
     }
@@ -165,7 +173,7 @@ export function diffFeed(prev, next) {
     // event after gaining sight, is not: remember records even while their tile is hidden.
     if (prev.territorySeen?.has(k) || !prev.territoryKnown?.has(`${c.p},${c.q}`)) continue;
     out.push({ id: `tr:${k}`, kind: 'territory', bell: c.bell, p: c.p, q: c.q, tile: c.tile,
-      text: c.mine ? (c.reason === 'battle' ? L`${c.name}の戦いに勝ち、領地を獲得しました` : L`${c.name}へ到着し、領地を獲得しました`) : L`${c.name}の領地を失いました` });
+      text: c.mine ? (c.reason === 'battle' ? L`${named(c.names, c.name)}の戦いに勝ち、領地を獲得しました` : L`${named(c.names, c.name)}へ到着し、領地を獲得しました`) : L`${named(c.names, c.name)}の領地を失いました` });
   }
   if (prev.keeps && next.keeps) for (const [k, e] of next.keeps) {
     if (prev.keeps.has(k) || (Number.isInteger(bell) && e.bell < bell - KEEP_NEWS_BELLS)) continue;
@@ -214,8 +222,9 @@ export function diffFeed(prev, next) {
   return out;
 }
 
-/** The summary of a bell that ended: one line per kind, or null when nothing happened. */
-export function bellSummary(feed, bell) {
+/** The summary of a bell that ended: one line per kind, or null when nothing happened (with `words`, as diffFeed's). */
+export const bellSummary = (feed, bell) => worded(() => bellSummaryNow(feed, bell));
+function bellSummaryNow(feed, bell) {
   const of = feed.filter(x => x.bell === bell && x.kind !== 'summary');
   if (!of.length) return null;
   const n = k => of.filter(x => x.kind === k).length;
@@ -237,7 +246,7 @@ export function pushFeed(feed, items, at = Date.now()) {
 /** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
 export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag', away: 'bell', s1: 'flag' });
 /** A notification's words in a list: a line of the prototype rule "banners" says 試作 first (its toast says so in its heading). */
-export const lineText = x => (x.proto ? L`試作：${x.text}` : x.text);
+export const lineText = x => (x.proto ? L`試作：${noticeText(x)}` : noticeText(x));
 /** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
 const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 // (`proto`: a line of the prototype rule "banners", which only a sample world that serves it writes: it says 試作 on itself)
@@ -294,7 +303,7 @@ export function stackOrder(strip, toasts, { alarmsFirst = false } = {}) {
 export function renderToast(x) {
   return html`<div class="toast toast-${x.kind}" role="status">
     <span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span>
-    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${x.text}${sideTag(x)}</span>
+    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${noticeText(x)}${sideTag(x)}</span>
     <button type="button" class="toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button>
     ${itemActions(x).length ? html`<span class="toast-acts">${itemActions(x)}</span>` : ''}
   </div>`;
@@ -318,7 +327,7 @@ export function renderTurnStrip(strip, { now = -1, faction = null } = {}) {
     ${face ? html`<span class="toast-face">${raw(face)}</span>` : html`<span class="toast-icon">${icon('bell')}</span>`}
     <span class="toast-text"><span class="toast-kind">${L`このターンのできごと`}<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(strip.turn)}`}</span></span></span>
     <button type="button" class="toast-x" data-act="turn-dismiss" aria-label="${L`閉じる`}">${icon('close')}</button>
-    <ol class="turn-rows">${strip.items.map((x, i) => html`<li class="turn-row turn-${x.kind}${i === now ? ' now' : ''}"><span class="turn-ic">${icon(RESULT_ICON[x.kind] ?? 'flag')}</span><span class="turn-text">${x.text}</span><span class="turn-acts">${see(x)}</span></li>`)}</ol>
+    <ol class="turn-rows">${strip.items.map((x, i) => html`<li class="turn-row turn-${x.kind}${i === now ? ' now' : ''}"><span class="turn-ic">${icon(RESULT_ICON[x.kind] ?? 'flag')}</span><span class="turn-text">${noticeText(x)}</span><span class="turn-acts">${see(x)}</span></li>`)}</ol>
   </div>`;
 }
 
