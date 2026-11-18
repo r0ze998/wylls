@@ -163,6 +163,17 @@ class Check(unittest.TestCase):
         # nothing installed into HOME (macOS system tools may create ~/Library caches; that is not this script)
         self.assertEqual([d for d in os.listdir(home) if d != 'Library'], [])
 
+    def test_no_listener_at_all_does_not_end_the_check(self):
+        # lsof exits 1 when nothing is listening (a fresh CI runner); under pipefail that once ended the check, exit 1
+        home = tempfile.mkdtemp(prefix='play-local-home-')
+        fake = tempfile.mkdtemp(prefix='play-local-bin-')
+        with open(os.path.join(fake, 'lsof'), 'w') as f:
+            f.write('#!/bin/sh\nexit 1\n')
+        os.chmod(os.path.join(fake, 'lsof'), 0o755)
+        code, out, err = run('--check-only', '--port', '41972', env_extra={'PATH': fake + ':/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': home})
+        self.assertEqual(code, 3, (out, err))
+        self.assertIn('installs nothing', out)
+
 
 class Static(unittest.TestCase):
     def test_script_never_installs_or_deploys(self):

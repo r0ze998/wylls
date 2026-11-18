@@ -233,7 +233,8 @@ NEED_GIB=6
 [ "$FREE_GIB" -ge "$NEED_GIB" ] || miss "free disk >= ${NEED_GIB} GiB at $ROOT (have ${FREE_GIB} GiB)"
 BUSY=()
 if command -v lsof >/dev/null; then
-  LISTENING="$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 { n = split($9, a, ":"); print a[n] }' | sort -u)"
+  # (lsof exits 1 when nothing at all is listening: under pipefail that would end the check silently)
+  LISTENING="$({ lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || true; } | awk 'NR > 1 { n = split($9, a, ":"); print a[n] }' | sort -u)"
   for ((p = PORT; p <= LAST; p++)); do
     if grep -qx "$p" <<<"$LISTENING"; then BUSY+=("$p"); fi
   done
