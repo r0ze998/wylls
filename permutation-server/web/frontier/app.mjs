@@ -52,6 +52,7 @@ import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
+import * as coopTitles from './hud/coopoutcomes.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -442,7 +443,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
     const warned = (FS.incoming ?? []).length > 0;
     parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
     settingsMarkup(FS), ...surveyHelpWithProto(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
@@ -4861,6 +4862,9 @@ export async function boot() {
         // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
         // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
         if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        // (workstream 15, ruleset B: the titles and chronicle of cooperation 01's board judges — read only, a record that
+        //  changes no standing; nothing drawn on a server without them. Installs once — hud/coopoutcomes.mjs)
+        try { coopTitles.installCoopOutcomes({ changed: () => invalidate('panel') }); } catch (e) { console.error('frontier coop titles:', e); }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
