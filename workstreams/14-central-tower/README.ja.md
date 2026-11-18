@@ -16,8 +16,8 @@
 
 | 項目 | 事実 | 出典 |
 |---|---|---|
-| 描画 | 大協約の中心タイルに「Engine」の絵を描く。段階0は地面の標石の輪で、その中にコードで描いた**鐘楼**を立てる。段階1〜5は Engine の画像 | `permutation-server/web/frontier/map/sprites.mjs:1351-1370`、`map/belltower.mjs:1-16` |
-| 段階の値 | 本番では常に0。`?art=1&engine=N` の見本表示でだけ変わる。チェーンの状態から読む経路はない | `app.mjs:101,110,3581`（`ART_ENGINE`） |
+| 描画 | 大協約の中心タイルに「Engine」の絵を描く。段階0は地面の標石の輪で、その中にコードで描いた**鐘楼**を立てる。段階1〜5は Engine の画像 | `permutation-server/web/frontier/map/sprites.mjs:1365-1382`、`map/enginestage.mjs`（`engineLandmark`）、`map/belltower.mjs:1-16` |
+| 段階の値 | 本番では常に0。`?art=1&engine=N` の見本表示でだけ変わる。チェーンの状態から読む経路はない | `app.mjs:98,138,4625`（`ART_ENGINE`）、`map/enginestage.mjs`（`resolveEngineStage`）。試験：`permutation-gateway/test/web-frontier-engine-stage.test.mjs` |
 | ほかの描画 | 石畳と広場の絵、小地図の鐘楼の印、参加前のカメラが塔に寄る | `sprites.mjs:1107,1389`、`hud/minimap.mjs:104-106`、`map/opening.mjs:147` |
 | 選んだとき | 州の名前「大協約」と地形だけ。塔の画面はない | `hud/place.mjs:20-56`、`app.mjs:3590` |
 | チェーン上 | Engine・誓約（pledge）・中央塔の命令、アカウント、欄は**ない** | `frontier-abi/src`、`permutation-frontier/src` を検索（物見櫓の `KIND_TOWER` と `base64::Engine` だけ当たる） |
