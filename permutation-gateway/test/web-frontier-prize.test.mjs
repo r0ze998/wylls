@@ -72,6 +72,20 @@ test('the join screen states the fee, the x402 payment and the pool only for a s
   assert.doesNotMatch(plain(renderJoinTerms(fs({ prize: pool() }))), /[぀-ヿ㐀-鿿]/);
 });
 
+test('⑰ settlement windows: the join terms say the window\'s end turn, not the end of the season (verify-pr54 D-6)', () => {
+  const w = { window: { epoch: 0, endBell: 2016, claimBells: 1008, deadlineTs: null, rolledOut: '0' } };
+  const ja = plain(renderJoinTerms(fs({ prize: pool(w) })));
+  assert.match(ja, /この世界は終わりません/);
+  assert.match(ja, /賞金の区切り0が終わる第2,016ターン/);
+  assert.doesNotMatch(ja, /季節の終わり/);
+  assert.match(plain(renderJoinTerms(fs({ prize: pool() }))), /季節の終わり/, 'a legacy season keeps its sentence');
+  setLang('en');
+  const en = plain(renderJoinTerms(fs({ prize: pool(w) })));
+  assert.match(en, /This world does not end/);
+  assert.match(en, /at turn 2,016, when prize window 0 ends/);
+  assert.doesNotMatch(en, /[぀-ヿ㐀-鿿]/);
+});
+
 test('the 賞金 panel: the pool while open; after the end the chain\'s area and winner, attackers and supporters with signatures, and the split as 試算', () => {
   assert.equal(String(panel(fs())), '');
   const open = plain(panel(fs({ prize: pool() })));
