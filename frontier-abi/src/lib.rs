@@ -58,6 +58,7 @@ pub mod resident_citizen;
 pub mod resident_guard;
 pub mod resident_join_candidate;
 pub mod resident_policy;
+pub mod resident_terms;
 pub mod resident_wire;
 pub mod rest_model;
 pub mod tags;

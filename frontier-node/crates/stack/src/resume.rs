@@ -428,6 +428,7 @@ fn existing_file(path: &Path, label: &str) -> Result<(), String> {
 
 fn saved_seed(path: &Path, label: &str) -> Result<[u8; 32], String> {
     existing_file(path, label)?;
+    run::check_private_secret(path, label)?;
     let encoded = std::fs::read_to_string(path)
         .map_err(|_| format!("unreadable saved {label}; refusing resume"))?;
     hex::decode(encoded.trim())
@@ -438,6 +439,7 @@ fn saved_seed(path: &Path, label: &str) -> Result<[u8; 32], String> {
 
 fn saved_token(path: &Path, label: &str) -> Result<String, String> {
     existing_file(path, label)?;
+    run::check_private_secret(path, label)?;
     let encoded = std::fs::read_to_string(path)
         .map_err(|_| format!("unreadable saved {label}; refusing resume"))?;
     if hex::decode(encoded.trim()).is_ok_and(|b| b.len() == 24) {
@@ -564,6 +566,7 @@ fn check_saved_keypair(
     label: &str,
 ) -> Result<(), String> {
     existing_file(path, label)?;
+    run::check_private_secret(path, label)?;
     let bytes =
         std::fs::read(path).map_err(|_| format!("unreadable saved {label}; refusing resume"))?;
     let bytes: Vec<u8> = serde_json::from_slice(&bytes)

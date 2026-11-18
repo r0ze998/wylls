@@ -382,12 +382,14 @@ fn theta_bps(v: u64) -> Result<u16, String> {
 
 /// `--r-max` / `r_max`: the program's hard maximum (the season's own
 /// validation also wants it above the genesis ring).
-/// `--placement`: 0 (wedge) or 1 (dispersed), as the preset validation.
+/// `--placement`: 0 (wedge), 1 (dispersed) or 2 (mixed on every ring, ⑧ wide land (i)), as the preset validation.
 fn placement(v: u64) -> Result<u8, String> {
-    if v <= 1 {
+    if v <= 2 {
         Ok(v as u8)
     } else {
-        Err(format!("placement {v}: 0 (wedge) or 1 (dispersed)"))
+        Err(format!(
+            "placement {v}: 0 (wedge), 1 (dispersed) or 2 (mixed on every ring)"
+        ))
     }
 }
 
@@ -1483,12 +1485,16 @@ mod tests {
         assert_eq!(c.to_json()["r_max_ceiling"], json!(8));
         let f = split_flags(&["--r-max-ceiling", "129"].map(String::from)).unwrap();
         assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
-        // --placement: unset by default, 0 or 1 only
+        // --placement: unset by default, 0, 1 or 2 (⑧ wide land (i)) only
         assert!(c.placement.is_none());
         let f = split_flags(&["--placement", "1"].map(String::from)).unwrap();
         apply_flags(&mut c, &f).unwrap();
         assert_eq!(c.to_json()["placement"], json!(1));
         let f = split_flags(&["--placement", "2"].map(String::from)).unwrap();
+        let mut mixed = c.clone();
+        apply_flags(&mut mixed, &f).unwrap();
+        assert_eq!(mixed.to_json()["placement"], json!(2));
+        let f = split_flags(&["--placement", "3"].map(String::from)).unwrap();
         assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
     }
 }
