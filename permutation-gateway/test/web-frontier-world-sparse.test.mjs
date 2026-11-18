@@ -171,23 +171,34 @@ test('the survey of a sparse world: the seeded ring is charted, the unseeded inn
 
 test('the march route refresh reads the sparse world\'s own ring, and 0 .. n − 1 of a contiguous one', async () => {
   const source = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
-  const start = source.indexOf('let overviewRefresh = null, overviewSource = null;');
+  // (fd1367e1, ⑦ 2026-11-17: a refresh is also for one pinned world — `overviewWorld` — and applies a season record only
+  //  when it is the pinned world's and no later answer was applied: the block now names providerWorld, recordOfPin and
+  //  the askSeason / seasonStale / takeSeason order, handed in below as the block's other dependencies are)
+  const start = source.indexOf('let overviewRefresh = null, overviewSource = null, overviewWorld = null;');
   const end = source.indexOf('// ------------------------------------------------------------------ the composer', start);
   assert.ok(start > 0 && end > start);
   const block = source.slice(start, end);
   assert.match(block, /const rings = world\?\.seeded \? \[\.\.\.world\.seeded\] : Array\.from\(\{ length: count \}/);
-  const run = async record => {
+  assert.match(block, /if \(r\?\.ok && r\.record && recordOfPin\(r\.record\) && !seasonStale\(seq\)\) \{\n\s*applySeasonRecord\(FS, r\.record,/);
+  const run = async (record, { ofPin = true } = {}) => {
     const asked = [];
+    let seasonAsked = 0, seasonTaken = 0;
     const FS = { record: null, world: null, overviews: new Map(), season: {}, nowBell: 5, clock: null };
     const herald = { season: async () => ({ ok: true, record }) };
     const isolated = new Function('FS', 'herald', 'applySeasonRecord', 'readOverviews', 'conquestEnabled', 'invalidate',
+      'providerWorld', 'recordOfPin', 'askSeason', 'seasonStale', 'takeSeason',
       `${block}\nreturn { refresh: refreshOverviews };`);
     const api = isolated(FS, herald, (fs, rec) => { fs.record = rec; fs.world = W.worldOf(rec); },
-      async (_fs, { rings }) => { asked.push(...rings); return rings.map(() => true); }, () => false, () => {});
+      async (_fs, { rings }) => { asked.push(...rings); return rings.map(() => true); }, () => false, () => {},
+      () => '0|localnet|P|S', () => ofPin,
+      // (the order of season answers, as controller.mjs keeps it)
+      () => { seasonAsked += 1; return seasonAsked; }, seq => !(seq > seasonTaken), seq => { if (!(seq > seasonTaken)) return false; seasonTaken = seq; return true; });
     await api.refresh(5);
     return asked;
   };
   assert.deepEqual(await run(ONLY_128), [128]);
   assert.deepEqual(await run({ rings: [{ d: 2, seed: '00' }, { d: 128, seed: '00' }], ringsOpened: 129 }), [2, 128]);
   assert.deepEqual(await run({ rings: contiguous(3) }), [0, 1, 2]);
+  // a record of another world is not applied: the page knows no ring of it, and reads only what it had (here: ring 0)
+  assert.deepEqual(await run(ONLY_128, { ofPin: false }), [0], "another world's sparse ring is not read as this world's");
 });

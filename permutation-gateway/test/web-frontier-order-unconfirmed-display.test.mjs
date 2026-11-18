@@ -45,7 +45,12 @@ test('the status toast: an unknown outcome is its own state, not a refusal and n
     assert.equal(statusOf({ notice: n, lastAct }, { canRetry: false }).retry, false);
     const html = String(renderStatus(st));
     assert.match(html, /tx-unconfirmed/); assert.match(html, /role="status"/);
-    assert.doesNotMatch(html, /できませんでした|role="alert"/);
+    // Not the refusal toast: no alert, and no refusal headline (hud/status.mjs: <span class="toast-kind">できませんでした</span>).
+    // The headline is what is pinned, not the bare phrase: TxUnqueryable's own text (fi18n, since 3b3ddecf) says
+    // "取引の状態を照会できませんでした。失敗したという意味ではなく…", which is the code's sentence the toast is meant to show.
+    assert.doesNotMatch(html, /role="alert"|toast-kind|tx-refused|tx-what/);
+    assert.doesNotMatch(html, />\s*できませんでした\s*</, 'no refusal headline');
+    if (n.code === 'TxUnqueryable') assert.match(html, /照会できませんでした。失敗したという意味ではなく/, 'the code\'s own text, which says it is no failure');
   }
   // local play's notice (controller: setNotice with code LocalActUnconfirmed)
   const local = { busy: false, text: () => '送信済みの線', code: 'LocalActUnconfirmed' };

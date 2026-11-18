@@ -311,9 +311,13 @@ test('the page wires every boundary control the card renders, and keeps the draf
   for (const act of acts) assert.ok(table.includes(`\n  '${act}': `), `${act} is a HUD action`);
   assert.match(table, /\n  'outbound-arrival-earliest': \(\) => useEarliestOriginalOutboundArrival\(\),\n/);
   assert.match(app, /import \{[^}]*\buseEarliestOriginalOutboundArrival\b[^}]*\} from '\.\/controller\.mjs';/);
-  const kept = /FS\.hand\?\.pop === OUTBOUND_POP && !\[([^\]]*)\]\.includes\(el\.dataset\.act\)\) clearOutbound\(FS\);/.exec(app);
+  // (the local reveal strip's own presses — LOCAL_REVEAL_ACTS — keep the draft too; they are no boundary control)
+  const kept = /FS\.hand\?\.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS\.includes\(el\.dataset\.act\) && !\[([^\]]*)\]\.includes\(el\.dataset\.act\)\) clearOutbound\(FS\);/.exec(app);
   assert.ok(kept, 'the click handler\'s list of presses that keep the boundary draft');
   assert.deepEqual(kept[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')).sort(), acts, 'a control missing here would clear the draft before it runs');
+  const reveal = /const LOCAL_REVEAL_ACTS = Object\.freeze\(\[([^\]]*)\]\)/.exec(app);
+  assert.ok(reveal, 'the reveal strip\'s presses are a list of their own');
+  assert.ok(!reveal[1].split(',').some(x => x.trim().replace(/^'|'$/g, '').startsWith('outbound-')), 'no boundary control hides in the reveal list: each is named in the list above');
 });
 
 test('the press is a local edit and a read: an export beside the other boundary reads, outside ACTIONS and FORMS', () => {
