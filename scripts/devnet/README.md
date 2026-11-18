@@ -9,7 +9,7 @@ its gate is open, and only r0ze opens it.
 | `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`) |
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
-| `test/dry-run.test.mjs` | 29 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
+| `test/dry-run.test.mjs` | 35 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 
 ```sh
 node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 6,960 lamports/byte)
@@ -17,7 +17,10 @@ node scripts/devnet/dry-run.mjs --rate 5080      # the same at the SIMD-0437 rat
 node scripts/devnet/dry-run.mjs --build          # build first (scripts/build-frontier.sh), then plan
 node scripts/devnet/dry-run.mjs --build --twice  # reproducible build (two fresh target dirs, same hash)
 node scripts/devnet/dry-run.mjs --players 200 --json
+node scripts/devnet/dry-run.mjs --with-prize      # ⑰ (devnet/test USDC only): also check the epochs prize .so and add its cost; never sent
 ```
+
+**⑰ prize (`--with-prize`).** The owner reopened ⑰ on 2026-11-18, for devnet and test USDC only. A real-money prize on mainnet needs a legal review first. The profile's `prize` section is `enabled: false`. Its test mint is a placeholder, and it refuses Circle's mainnet USDC mint. `--with-prize` checks the `scripts/build-prize.sh --features epochs` artefact (SBPF v2, overflow checks, marker `PRZ_EPOCHS_TEST_USDC_BUILD`), then prints its deploy peak and rent per window. The send gate and its steps are the game program's only: this tool never deploys the prize program.
 
 **`--build` stays key-free.** `cargo-build-sbf` writes `<name>-keypair.json` next to the `.so` when that file is
 missing, and never reads it (agave v3.1.9 `platform-tools-sdk/cargo-build-sbf/src/post_processing.rs`:

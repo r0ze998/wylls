@@ -216,11 +216,14 @@ export const prizeRoutes = {
     const network = x402Network(ctx.cfg.cluster);
     const requirements = {
       scheme: 'exact', network, maxAmountRequired: String(pool.fee), resource: '/f/x402/join',
-      description: `Entry to Wylls season ${ctx.addresses.seasonId} (test tokens on the local test chain; ${10_000 - pool.opsBps} of 10,000 parts go to the prize pool)`,
+      description: prize.epoch === undefined
+        ? `Entry to Wylls season ${ctx.addresses.seasonId} (test tokens on the local test chain; ${10_000 - pool.opsBps} of 10,000 parts go to the prize pool)`
+        : `Entry to Wylls settlement window ${prize.epoch} of world ${ctx.addresses.seasonId} (test tokens only; ${10_000 - pool.opsBps} of 10,000 parts go to the window's prize pool, until bell ${pool.endBell})`,
       mimeType: 'application/json', payTo: prize.vault, maxTimeoutSeconds: 60, asset: prize.mint,
       extra: {
         testAssetsOnly: true, feePayer: ctx.pool.draw().publicKey.toBase58(), recentBlockhash: blockhash, lastValidBlockHeight,
         programId: ctx.programId, seasonId: ctx.addresses.seasonId.toString(), season: ctx.addresses.season, profile, joinGate: gate,
+        ...(prize.epoch === undefined ? {} : { epoch: prize.epoch, endBell: pool.endBell }),
         prizeProgram: prize.program, pool: prize.pool, decimals: pool.decimals, opsBps: pool.opsBps, instruction: 'Pay+Join', budget: paidJoinBudget(profile),
         entries: pool.entries, prize: String(pool.prize),
       },

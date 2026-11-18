@@ -31,7 +31,7 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 | ⑭ | central tower | pushed 11-08; stage value always 0 in production | 45da6d38 (11-08) | records in canonical | — |
 | ⑮ | coop outcomes (evaluator) | branch ws/15-coop-outcomes (10-30); long-run.json changed in the WIP | bcc63a24 (11-15, WIP) | records in canonical | — |
 | ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded |
-| ⑰ | settlement / prize (x402, USDC) | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | preserve/ws17-0c80381d | not integrated; closed, not pursued | **restricted as a whole** (prize, funds) |
+| ⑰ | settlement / prize (x402, USDC) | **Reopened 2026-11-18 by owner; devnet/test-USDC only; mainnet needs legal review** (18:26 JST; supersedes the 14:42 closure and PR #37's note) — settlement windows behind feature `epochs`, see the dated section at the end | preserve/ws17-0c80381d; grok/ws17-prize (draft PR) | epoch pools implemented and tested locally (LiteSVM); local stack only, OFF by default; not deployed | real-money prize, mainnet: **restricted** (legal review first) |
 | ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | preserve/ws18-4fbe0c77 | not determined | — |
 | ⑲ | MagicBlock and public RPC | **Integrated; ER lane not adopted (2026-11-18)** — see the dated section at the end | archive/ws19-er-candidate-20261108 (0c2214d5) | findex/verify parts in main (6b670edb, 668e9b66…); consistency tests ported 2026-11-18; frontier-er ER candidate obsolete (O8) | public network: nothing sent |
 | ⑳ | NFT resident ID and authorization | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | — | not integrated; closed, not pursued | **restricted as a whole** (NFT) |
@@ -593,6 +593,8 @@ only the allowed confirmation of already-submitted work remains within that boun
 
 ### 2026-11-18 JST — ⑰ prize and ⑳ NFT resident ID closed (out of scope for the playable version)
 
+> **⑰ superseded the same day (18:26 JST):** ⑰ was reopened by the owner — see "2026-11-18 JST (18:26) — ⑰ prize reopened" below. The ⑳ part of this section stands.
+
 Owner decision (r0ze, 2026-11-18 14:42 JST). This is a documentation-only status change: no code, feature flag or
 `preserve/*` branch was deleted or changed. Earlier sections above stay as historical records; where they say ⑰ and ⑳
 "cannot be completed under the current restrictions", read that as "closed, out of scope for the playable version".
@@ -648,4 +650,24 @@ Run ws19-integrate (branch `grok/ws19-integrate` from main 28ef2f02). Code wins 
 - **Devnet:** the first devnet milestone deploys only `permutation-frontier`, which has no MagicBlock code. ⑲'s
   ER work is **not required** for it. The MagicBlock SDK and delegation tests on main belong to the older
   `permutation-chain` program (Sept 2026), not to Frontier.
+
+## 2026-11-18 JST (18:26) — ⑰ prize reopened: settlement windows, devnet/test USDC only
+
+**Reopened 2026-11-18 by owner; devnet/test-USDC only; mainnet needs legal review.** This owner decision (r0ze,
+2026-11-18 18:26 JST) supersedes the 14:42 decision "⑰ A: none" and the closure note of PR #37 (section "⑰ prize and ⑳
+NFT resident ID closed" above, whose ⑰ part is now historical). A real-money prize on mainnet needs a legal review
+first; nothing here deploys, spends SOL or uses a key.
+
+- **What was built** (branch `grok/ws17-prize`, draft PR): `permutation-prize` feature `epochs` (OFF by default) adds
+  epoch pools: InitEpochPool, EpochTally, EpochFinalize and Sweep. Shares, claims and the operator's part reuse the
+  legacy instructions. The numbers are the owner's: 25 test USDC per entry, 80% prize, 20% operator. Design and OSS
+  comparison: [`docs/frontier/payments/X402-PRIZE-EPOCHS.md`](../frontier/payments/X402-PRIZE-EPOCHS.md)
+  ([JA](../frontier/payments/X402-PRIZE-EPOCHS.ja.md)).
+- **Wiring:** `frontier-stack up --conquest --continuous --prize-so <epochs .so> --prize-epochs` (local stack only), the
+  relay's `--prize-epoch N` (localnet/devnet only; the mainnet USDC mint is refused), and the devnet dry run's
+  `--with-prize` (plan only, never sent). The local-play launcher is **not** wired.
+- **Provisional defaults pending the owner** (listed in the doc §5): entry per window; a keep taken after the close
+  counts for nobody; a tie is shared equally; the unclaimed rest rolls into a later window; 14-day windows with a 7-day
+  claim window.
+- ⑮ is unchanged (titles and chronicle, no prize effect).
 

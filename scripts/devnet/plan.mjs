@@ -210,6 +210,45 @@ export function checkSo(buf, profile) {
   };
 }
 
+// ---------------------------------------------------------------- the prize (17, test USDC)
+
+export const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+/** The profile's prize section: devnet test USDC only (refused outright otherwise). */
+export function prizeProfileProblems(prize) {
+  if (!prize) return ['the profile has no `prize` section'];
+  const out = [];
+  const refused = new Set([MAINNET_USDC_MINT, ...(prize.refusedMints ?? [])]);
+  if (refused.has(prize.testMint)) out.push(`prize.testMint ${prize.testMint} is a refused (mainnet) mint: test USDC only`);
+  if (!isPlaceholder(prize.testMint) && !isAddress(prize.testMint)) out.push(`prize.testMint ${prize.testMint} is not a 32-byte base58 address`);
+  if (!prize.requiredMarker) out.push('prize.requiredMarker is missing');
+  if (!(prize.entryFee > 0) || !(prize.opsBps >= 0 && prize.opsBps <= 10_000)) out.push('prize.entryFee > 0 and 0 <= prize.opsBps <= 10000');
+  if (!(prize.epochBells > 0) || !(prize.claimBells > 0)) out.push('prize.epochBells and prize.claimBells must be > 0');
+  return out;
+}
+
+/** The prize .so: SBPF v2, overflow checks, the epochs marker, no game test marker. */
+export function checkPrizeSo(buf, profile) {
+  const isElf = buf.length >= 64 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
+  if (!isElf) return { problems: ['not an ELF file'] };
+  const problems = [];
+  const eFlags = buf.readUInt32LE(48);
+  if (eFlags !== 2) problems.push(`e_flags ${eFlags}, not 2 (SBPF v2)`);
+  if (!count(buf, /attempt to (add|subtract|multiply) with overflow/g)) problems.push('built without overflow checks (no overflow panic message)');
+  if (!buf.includes(Buffer.from(profile.prize.requiredMarker, 'latin1'))) problems.push(`no ${profile.prize.requiredMarker}: not a --features epochs build (the default build has no settlement windows)`);
+  for (const m of profile.program.refusedMarkers) if (buf.includes(Buffer.from(m, 'latin1'))) problems.push(`carries ${m}`);
+  const soLen = buf.length;
+  const maxLen = maxLenFor(soLen);
+  return { problems, eFlags, soLen, maxLen, sha256: createHash('sha256').update(buf).digest('hex') };
+}
+
+/** Rent held per settlement window (pool + vault) and per paying wallet (Entry), lamports. */
+export function prizeWindowCost(prize, players, rate) {
+  const fixed = prize.accounts.reduce((s, a) => s + BigInt(a.count) * rentExempt(a.bytes, rate), 0n);
+  const per = prize.perPlayerAccounts.reduce((s, a) => s + rentExempt(a.bytes, rate), 0n);
+  return { fixed, perPlayer: per, total: fixed + per * BigInt(players) };
+}
+
 // ---------------------------------------------------------------- the send gate
 
 /**
@@ -288,8 +327,10 @@ export function parseArgs(argv) {
       case '--build': o.build = true; break;
       case '--twice': o.twice = true; break;
       case '--json': o.json = true; break;
+      case '--with-prize': o.withPrize = true; break;
       case '--profile': o.profile = val(i, a); i++; break;
       case '--so': o.so = val(i, a); i++; break;
+      case '--prize-so': o.prizeSo = val(i, a); i++; break;
       case '--rpc': o.rpcUrl = val(i, a); i++; break;
       case '--rate': o.rate = Number(val(i, a)); i++; break;
       case '--players': o.players = Number(val(i, a)); i++; break;
@@ -304,15 +345,31 @@ export function parseArgs(argv) {
   return o;
 }
 
-export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json]
+export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json] [--with-prize [--prize-so FILE]]
   Dry run (default): checks the .so, computes the devnet cost and prints the plan. Sends nothing.
+  --with-prize: also checks the test-USDC prize program (17, settlement windows; devnet only, mainnet needs a legal review)
+  and adds its deploy and per-window costs. Plan only: the prize program is never sent by this tool.
   Send (r0ze only): add ${APPROVAL_FLAG} --keypair FILE --program-keypair FILE --upgrade-authority FILE --approved-sha256 HEX
   (key files: absolute paths, mode 600, outside the repository; never read by this script;
    Solana CLI ${MIN_SOLANA_CLI.join('.')} or newer: 3.1.x cannot verify this program's BLS12-381 syscalls).`;
 
 // ---------------------------------------------------------------- the run
 
-function planText({ profile, so, soPath, costs, season, rate, commands, blocked }) {
+function prizeText(prize, profile, rate) {
+  const L = [''];
+  L.push('Prize program (17, settlement windows): DEVNET, TEST USDC ONLY. A real-money prize on mainnet needs a legal review first.');
+  L.push(`  artefact ${prize.soPath}`);
+  if (prize.so.soLen !== undefined) L.push(`  so_len ${prize.so.soLen}  max_len ${prize.so.maxLen}  file_sha256 ${prize.so.sha256}`);
+  L.push(`  checks ${prize.so.problems.length ? 'FAIL: ' + prize.so.problems.join('; ') : 'pass'}`);
+  L.push(`  test mint ${profile.prize.testMint}`);
+  L.push(`  entry ${profile.prize.entryFee} base units, operator ${profile.prize.opsBps} bps, window ${profile.prize.epochBells} bells, claim window ${profile.prize.claimBells} bells`);
+  if (prize.deploy) L.push(`  deploy at ${rate}: peak ${sol(prize.deploy.peak)} SOL (programdata ${sol(prize.deploy.programdata)} + program ${sol(prize.deploy.program)} + fees ${sol(prize.deploy.fees)})`);
+  L.push(`  per window: ${sol(prize.window.fixed)} SOL (pool + vault) + ${sol(prize.window.perPlayer)} SOL per paying wallet = ${sol(prize.window.total)} SOL for ${profile.season.players}`);
+  L.push('  NOT SENT: this tool has no prize deploy step; the gate below is the game program\'s only.');
+  return L;
+}
+
+function planText({ profile, so, soPath, costs, season, rate, commands, blocked, prize }) {
   const L = [];
   L.push('WYLLS devnet deploy plan (DRY RUN unless the gate below says OPEN)');
   L.push(`cluster ${profile.cluster}  rpc ${profile.rpcUrl}`);
@@ -341,6 +398,7 @@ function planText({ profile, so, soPath, costs, season, rate, commands, blocked 
   const dc = costs.find(c => c.rate === rate);
   L.push('');
   L.push(`TOTAL to hold (deploy peak + one season) at ${rate}: ${sol(dc.peak + season.total)} SOL`);
+  if (prize) L.push(...prizeText(prize, profile, rate));
   L.push('');
   L.push('Commands (argv; run only with the gate open):');
   for (const [c, a] of commands) L.push(`  ${c} ${a.join(' ')}`);
@@ -388,6 +446,16 @@ export function run(argv, io) {
   }
   if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (scripts/build-frontier.sh)`); return 3; }
   const so = checkSo(io.readFile(soPath), profile);
+  let prize = null;
+  if (opts.withPrize) {
+    const pp2 = prizeProfileProblems(profile.prize);
+    if (pp2.length) { io.err(`prize profile refused:\n${pp2.map(p => `  - ${p}`).join('\n')}`); return 2; }
+    const prizeSoPath = opts.prizeSo ?? `${io.repoRoot}/${profile.prize.so}`;
+    if (!io.exists(prizeSoPath)) { io.err(`${prizeSoPath} not found: build it with ${profile.prize.build}`); return 3; }
+    const pso = checkPrizeSo(io.readFile(prizeSoPath), profile);
+    const deploy = pso.soLen ? deployCost({ soLen: pso.soLen, maxLen: pso.maxLen, rate, ...profile.fees }) : null;
+    prize = { soPath: prizeSoPath, so: pso, deploy, window: prizeWindowCost(profile.prize, profile.season.players, rate), sent: false, testAssetsOnly: true };
+  }
   const costs = profile.rent.lamportsPerByteCandidates.map(r => deployCost({ soLen: so.soLen ?? 0, maxLen: so.maxLen ?? 0, rate: r, ...profile.fees }));
   const season = seasonCost(profile.season, rate);
   const dumpPath = `${io.tmpDir}/wylls-devnet-dump.so`;
@@ -395,9 +463,9 @@ export function run(argv, io) {
   const blocked = sendProblems(opts, { profile, so, stat: io.stat, repoRoot: io.repoRoot, uid: io.uid });
   if (opts.json) {
     const big = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
-    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId }, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked }, big, 2));
-  } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked }));
-  if (so.problems.length) return 3;
+    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId }, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked, ...(prize ? { prize } : {}) }, big, 2));
+  } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked, prize }));
+  if (so.problems.length || prize?.so.problems.length) return 3;
   if (blocked.length) return 0;
 
   // ---- the gate is open: r0ze's run. Each step must succeed before the next.

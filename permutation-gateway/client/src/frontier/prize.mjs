@@ -12,7 +12,7 @@
 // `entry`); test/frontier-prize.test.mjs checks the hashes against vectors
 // computed by that crate.
 import { decode as fromBase58, encode as toBase58 } from '../base58.mjs';
-import { concat, fromBase64, toBase64, u64le, utf8 } from '../bytes.mjs';
+import { concat, fromBase64, toBase64, u32le, u64le, utf8 } from '../bytes.mjs';
 import { ata, TOKEN_PROGRAM } from '../player.mjs';
 import { sha256 } from '../sha256.mjs';
 import { compileMessage, findProgramAddress, parseTransaction, pubkeyBytes, wireTransaction } from '../solana-tx.mjs';
@@ -22,16 +22,19 @@ import { classify, frontierIx, JOIN_TAG } from './shapes.mjs';
 
 export { ata, TOKEN_PROGRAM };
 
-export const PRIZE_TAG = Object.freeze({ INIT_POOL: 0, PAY: 1, TALLY: 2, FINALIZE: 3, SET_SHARES: 4, CLAIM: 5, WITHDRAW_OPS: 6 });
+export const PRIZE_TAG = Object.freeze({ INIT_POOL: 0, PAY: 1, TALLY: 2, FINALIZE: 3, SET_SHARES: 4, CLAIM: 5, WITHDRAW_OPS: 6, RECORD_NATION: 7,
+  // ⑰ settlement windows (feature `epochs` builds only)
+  INIT_EPOCH_POOL: 8, EPOCH_TALLY: 9, EPOCH_FINALIZE: 10, SWEEP: 11 });
 export const POOL_SIZE = 640;
 export const ENTRY_SIZE = 128;
-export const POOL_STATE = Object.freeze({ OPEN: 0, FINAL: 1, SHARES: 2 });
+export const POOL_STATE = Object.freeze({ OPEN: 0, FINAL: 1, SHARES: 2, SWEPT: 3 });
 export const SHARE_MODE = Object.freeze({ SHARES: 1, REFUND: 2 });
 export const FACTIONS = 6;
 /** permutation-prize's errors (`Custom(code)`). */
 export const PRIZE_ERRORS = Object.freeze({ 0x100: 'BadData', 0x101: 'BadAccount', 0x102: 'BadParams', 0x103: 'NotOperator', 0x104: 'WrongState', 0x105: 'AlreadyPaid',
   0x106: 'SeasonNotEnded', 0x107: 'ProvinceNotFinal', 0x108: 'NoKeep', 0x109: 'TallyIncomplete', 0x10A: 'BadShares', 0x10B: 'BadProof', 0x10C: 'NotWinner',
-  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x112: 'ContinuousSeason' });
+  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x111: 'CeilingPastTally', 0x112: 'ContinuousSeason',
+  0x113: 'FiniteSeason', 0x114: 'EpochClosed', 0x115: 'ClaimWindowOpen', 0x116: 'WindowOpen' });
 /** What Pay adds to a Join's compute-unit and loaded-data limits (the prize and token programs, five more accounts). */
 export const PAID_JOIN_EXTRA_CU = 80_000;
 export const PAID_JOIN_EXTRA_LOADED = 524_288;
@@ -48,13 +51,20 @@ const magic = (d, text) => utf8(text).every((b, i) => d[i] === b);
 // ------------------------------------------------------------------ addresses
 
 export const poolAddress = (prizeProgram, gameProgram, seasonId) => findProgramAddress([utf8('pool'), pubkeyBytes(gameProgram), u64le(seasonId)], prizeProgram)[0];
+/** ⑰ settlement window `epoch` of a continuous season (permutation-prize feature `epochs`). */
+export const epochPoolAddress = (prizeProgram, gameProgram, seasonId, epoch) => findProgramAddress([utf8('epool'), pubkeyBytes(gameProgram), u64le(seasonId), u32le(epoch)], prizeProgram)[0];
 export const vaultAddress = (prizeProgram, pool) => findProgramAddress([utf8('vault'), pubkeyBytes(pool)], prizeProgram)[0];
 export const entryAddress = (prizeProgram, pool, wallet) => findProgramAddress([utf8('entry'), pubkeyBytes(pool), pubkeyBytes(wallet)], prizeProgram)[0];
 
-/** Everything a client needs to name a season's pool: `{program, pool, vault, mint}` (base58). */
-export function prizeAddresses({ prizeProgram, gameProgram, seasonId, mint }) {
-  const pool = poolAddress(prizeProgram, gameProgram, seasonId);
-  return { program: prizeProgram, pool, vault: vaultAddress(prizeProgram, pool), mint };
+/**
+ * Everything a client needs to name a season's pool: `{program, pool, vault, mint}` (base58), plus `epoch` when
+ * `epoch` is given (an epoch pool of a continuous world; null/undefined: the legacy per-season pool).
+ */
+export function prizeAddresses({ prizeProgram, gameProgram, seasonId, mint, epoch = null }) {
+  const pool = epoch === null || epoch === undefined ? poolAddress(prizeProgram, gameProgram, seasonId) : epochPoolAddress(prizeProgram, gameProgram, seasonId, epoch);
+  const out = { program: prizeProgram, pool, vault: vaultAddress(prizeProgram, pool), mint };
+  if (epoch !== null && epoch !== undefined) out.epoch = Number(epoch);
+  return out;
 }
 
 // ------------------------------------------------------------------ decoding
@@ -72,6 +82,9 @@ export function decodePool(data) {
     entries: rdU(d, 232, 4), claims: rdU(d, 236, 4), collected: rdU64(d, 240), prize: rdU64(d, 248), ops: rdU64(d, 256), opsWithdrawn: rdU64(d, 264),
     claimed: rdU64(d, 272), area: six(280, 2), bells: six(296, 8), totalPoints: six(344, 8), sharesRoot: d.slice(392, 424), ledgerHash: d.slice(424, 456),
     endBell: rdU(d, 456, 4),
+    // Bytes 600..640: zero in a legacy pool; an epoch pool's settlement window (permutation-prize `epoch`).
+    kind: d[620] === 1 ? 'epoch' : 'legacy', epoch: rdU(d, 600, 4), bellSecs: rdU(d, 604, 4), genesisTs: Number(rdU64(d, 608)),
+    claimBells: rdU(d, 616, 4), deadlineTs: Number(rdU64(d, 624)), rolledOut: rdU64(d, 632),
   };
 }
 

@@ -80,8 +80,30 @@
     "keeperA": { "api": "127.0.0.1:41050" },
     "keeperB": { "api": "127.0.0.1:41051" }
   },
+  "prize": {
+    "enabled": false,
+    "note": "Owner decision 17 reopened 2026-11-18 18:26 JST: implement the prize as settlement windows of the continuous world, devnet and test USDC only. A real-money prize on mainnet needs a legal review first. Off by default: `--with-prize` adds this program's .so checks and costs to the plan. This tool never sends it (no prize deploy step exists).",
+    "crate": "permutation-prize",
+    "build": "scripts/build-prize.sh --features epochs",
+    "so": "permutation-prize/target/deploy-epochs/permutation_prize.so",
+    "requiredMarker": "PRZ_EPOCHS_TEST_USDC_BUILD",
+    "testMint": "<SET-BY-R0ZE: devnet test-USDC mint address (6 decimals); never mainnet USDC>",
+    "refusedMints": ["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+    "refusedMintsNote": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v is Circle's mainnet USDC; it can never be the prize mint here",
+    "entryFee": 25000000,
+    "opsBps": 2000,
+    "epochBells": 2016,
+    "claimBells": 1008,
+    "accounts": [
+      { "name": "Pool (one per settlement window)", "bytes": 640, "count": 1 },
+      { "name": "Vault token account (one per settlement window)", "bytes": 165, "count": 1 }
+    ],
+    "perPlayerAccounts": [
+      { "name": "Entry (one per paying wallet per window; rent paid by the relay)", "bytes": 128 }
+    ]
+  },
   "excluded": {
-    "permutation-prize": "owner decision 17 = A (no prize): not deployed",
+    "permutation-prize": "default: not deployed. Owner decision 17 reopened 2026-11-18 (devnet/test USDC only, mainnet needs legal review): the plan includes it only with --with-prize (see `prize`), and never sends it",
     "wylls_resident_program (NFT)": "owner decision 20 = A (no NFT resident): not deployed",
     "permutation-chain (v9)": "superseded by permutation-frontier: not deployed"
   }

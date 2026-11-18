@@ -37,6 +37,8 @@ npm ci --prefix permutation-gateway
 
 > **Status 2026-11-18 (owner decision): the prize is closed, out of scope for the playable version.** The prize recipes in this section and in sections 4 and 5 are the earlier season-end path, kept in the tree for regression only. They do not apply to a continuous world (`--continuous` refuses `--prize-so`), and the local-play launcher ([LOCAL-PLAY-START.md](frontier/LOCAL-PLAY-START.md)) does not use the prize program or the `nft-experimental` feature. Reopening needs a legal review and a settlement design for continuous worlds.
 
+> **Update 2026-11-18 18:26 JST: ⑰ reopened (devnet/test-USDC only; mainnet needs legal review).** A continuous world can now take the prize as settlement windows: build with `scripts/build-prize.sh --features epochs`, then run `frontier-stack up --conquest --continuous --prize-so permutation-prize/target/deploy-epochs/permutation_prize.so --prize-epochs`. `--continuous` with `--prize-so` still refuses the legacy pool unless `--prize-epochs` is given. Design and open questions: [X402-PRIZE-EPOCHS.md](frontier/payments/X402-PRIZE-EPOCHS.md). The local-play launcher is still not wired to the prize.
+
 `up` stays in the foreground; use a second terminal for everything else. The flags below mirror [`ai-cq-season.toml`](../permutation-gateway/citizens/stack/ai-cq-season.toml) without bots or AI: 16 game hours (96 turns) at 10x, ended at the end of play so that provinces can be tallied. This makes a **new** world, not the recorded `own1` ledger.
 
 ```sh
