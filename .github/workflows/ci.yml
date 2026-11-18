@@ -219,6 +219,19 @@ jobs:
       - name: Workstream 15 tests (key-free)
         run: scripts/ci/node-keyfree.sh workstreams/15-coop-outcomes 'test/*.test.mjs'
 
+  # Devnet readiness (DRAFT, 2026-11-18): the dry-run planner's tests (cost model, artefact checks, send gate) with a
+  # fake file system and a fake Solana CLI. Nothing builds, deploys or contacts a cluster; no npm install.
+  devnet-dry-run:
+    name: Devnet dry-run planner tests (key-free)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Devnet dry-run tests (key-free)
+        run: scripts/ci/node-keyfree.sh scripts/devnet 'test/*.test.mjs'
+
   # ------------------------------------------------------------------ M1
   # Frontier M1 (docs/frontier/m1/M1-CONTRACT.md §3.2, §12; CL-36). The
   # crates arrive wave by wave (frontier-abi and frontier-node in wave 1,

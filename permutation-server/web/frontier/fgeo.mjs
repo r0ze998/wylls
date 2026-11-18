@@ -17,7 +17,7 @@ export const REGIONS = 16;
 export const DIRECTIONS = Object.freeze([[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]);
 
 export const hexDistance = (aq, ar, bq, br) => (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(aq + ar - bq - br)) / 2;
-/** Province-grid distance from the Concord. */
+/** Province-grid distance from province (0, 0). */
 export const ringOf = (p, q) => (Math.abs(p) + Math.abs(q) + Math.abs(p + q)) / 2;
 const rotate = ([q, r]) => [0 - r, q + r];
 const unrotate = ([q, r]) => [q + r, 0 - q];
@@ -38,7 +38,7 @@ export const provincesWithin = d => 1 + 3 * d * (d + 1);
 /** Provinces in ring d. */
 export const ringSize = d => (d === 0 ? 1 : 6 * d);
 
-/** Dense index (host ids): the Concord is 0; ring d ≥ 1 wedge by wedge. 0xffffffff beyond ring 128. */
+/** Dense index (host ids): province (0, 0) is 0; ring d ≥ 1 wedge by wedge. 0xffffffff beyond ring 128. */
 export function provinceIndex(p, q) {
   const d = ringOf(p, q);
   if (d === 0) return 0;
@@ -60,7 +60,7 @@ export function provinceFromIndex(i) {
   return { p, q };
 }
 
-/** Wedge (home faction) of a province, null for the Concord. */
+/** Wedge (home faction) of a province, null for province (0, 0). */
 export const wedgeOf = (p, q) => (p === 0 && q === 0 ? null : sextant(p, q));
 
 const floorDiv = (a, b) => Math.floor(a / b);
@@ -122,7 +122,7 @@ const PLACEMENT_DOMAIN = utf8('PSF-PLACEMENT-v1');
  * `geometry::home_nation`): the wedge, except under the dispersed placement
  * in rings 2..=heartlandMaxRing (and under the mixed placement in every ring >= 2), where it is (position in the ring +
  * u64le(sha256(domain ‖ genesisSeed ‖ le16 ring)[..8]) mod 6) mod 6.
- * `genesisSeed` is 32 bytes; null for the Concord.
+ * `genesisSeed` is 32 bytes; null for province (0, 0).
  */
 export function homeNation(p, q, { placement = PLACEMENT_WEDGE, heartlandMaxRing = 3, genesisSeed = null } = {}) {
   const r = ringOf(p, q);

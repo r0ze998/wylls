@@ -187,7 +187,6 @@ test('English: a place inside a sentence takes its article; one spelling; a vill
   assert.equal(inText('Hills'), 'the hills');
   assert.equal(inText('Mountain'), 'the mountains');
   assert.equal(inText('Free City'), 'the Free City');
-  assert.equal(inText('The Concord'), 'the Concord');
   assert.equal(inText("Town of Ramar's province"), "the town of Ramar's province");
   assert.equal(inText('Aster side, ring 2'), 'the Aster side (ring 2)');
   assert.equal(inText('600 Spearmen'), '600 Spearmen', 'anything else is left as it is');

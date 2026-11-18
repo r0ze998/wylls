@@ -11,7 +11,11 @@
 # test/ws12-public-evidence.test.mjs imports this tree's workstream 12 fixture: it runs only when that fixture derives
 # no key on import (workstream 12 1583026f and later); an older fixture derived keys from fixed seeds and is left out.
 #
-# Needs Node 20+ and `npm ci --prefix permutation-gateway` (the residents import the gateway's modules, unchanged).
+# Needs Node 22.15+ (test/keyless-guard.mjs uses module.registerHooks; on Node 20 every file fails to load; corrected
+# 2026-11-18, was "Node 20+") and `npm ci --prefix permutation-gateway` (the residents import the gateway's modules, unchanged).
+# (2026-11-18) The summary grep takes both reporters (Node 20 TAP `# tests`, Node 22+ spec `ℹ tests`): before, on the only
+# Node it supports it matched nothing and pipefail made every run exit 1 before the demo; and the empty `pre` array of
+# --with-keys is expanded so macOS bash 3.2 (`set -u`) does not stop with "pre[@]: unbound variable".
 # No chain, no model, no network, no API key; it refuses to run with a paid-API key in the environment. Writes
 # results/: the test log, and the demo's summary and transcript for a plain run and for a run restarted at bell 70.
 set -euo pipefail
@@ -31,9 +35,9 @@ else
   files=(); for f in "$here"/test/*.test.mjs; do [ "$(basename "$f")" = ws12-public-evidence.test.mjs ] && [ $lazy12 = no ] && continue; files+=("$f"); done
 fi
 echo "ws13: mode $mode"
-( cd "$here" && node "${pre[@]}" --test "${files[@]}" ) 2>&1 | tee "$out/tests.log" | grep -E '^# (tests|pass|fail|skipped)'
-node "${pre[@]}" "$here/demo/run-demo.mjs" --out "$work/plain" --bells 200 > /dev/null
-node "${pre[@]}" "$here/demo/run-demo.mjs" --out "$work/restart" --bells 200 --restart-at 70 > /dev/null
+( cd "$here" && node ${pre[@]+"${pre[@]}"} --test "${files[@]}" ) 2>&1 | tee "$out/tests.log" | grep -E '^(#|ℹ) (tests|pass|fail|skipped) '
+node ${pre[@]+"${pre[@]}"} "$here/demo/run-demo.mjs" --out "$work/plain" --bells 200 > /dev/null
+node ${pre[@]+"${pre[@]}"} "$here/demo/run-demo.mjs" --out "$work/restart" --bells 200 --restart-at 70 > /dev/null
 cp "$work/plain/summary.json" "$out/demo-summary.json"
 cp "$work/plain/transcript.md" "$out/demo-transcript.ja.md"
 cp "$work/restart/summary.json" "$out/demo-restart-summary.json"

@@ -39,10 +39,10 @@ before(async () => {
 after(async () => { srv?.heraldWith(null); await browser?.close(); await srv?.close(); });
 
 const WORDS = {
-  ja: { nation: /この国は、すぐに村を置ける中心の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。中心に空きのある国なら、すぐに村を置けます。/,
-    request: /すぐに村を置ける中心の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。/, dead: /入植できる土地がまだ見つかりません/, planner: /最初の村を置いています/, begin: /村を築いて始める/ },
-  en: { nation: /This nation has no free site right now on the central land, where a first village is placed at once\. If you begin with this nation, a village request is sent to open land instead \(about 11 to 21 minutes until the village is decided\)\. A nation with free sites on the central land places your village at once\./,
-    request: /The central land, where a first village is placed at once, has no free site right now\. A village request is sent to open land instead\./, dead: /No available land was found yet/, planner: /Placing your first village/, begin: /Found a village and begin/ },
+  ja: { nation: /この国は、すぐに村を置ける本国の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。本国に空きのある国なら、すぐに村を置けます。/,
+    request: /すぐに村を置ける本国の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。/, dead: /入植できる土地がまだ見つかりません/, planner: /最初の村を置いています/, begin: /村を築いて始める/ },
+  en: { nation: /This nation has no free site right now in its heartland, where a first village is placed at once\. If you begin with this nation, a village request is sent to open land instead \(about 11 to 21 minutes until the village is decided\)\. A nation with free sites in its heartland places your village at once\./,
+    request: /The heartland, where a first village is placed at once, has no free site right now\. A village request is sent to open land instead\./, dead: /No available land was found yet/, planner: /Placing your first village/, begin: /Found a village and begin/ },
 };
 const text = loc => loc.evaluate(e => (e.innerText ?? e.textContent ?? '').replace(/\s+/g, ' ').trim());
 function initScript({ storage }) { try { for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v); } catch { /* no storage */ } }

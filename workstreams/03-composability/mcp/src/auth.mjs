@@ -229,7 +229,11 @@ export class Auth {
       : kind === '0008' ? c.op === 'issue-capability' && c.params?.source === 'mcp'
         : c.op === 'rotate-capability' && c.params?.source === undefined);
     // A relay that issues per-sender capabilities never gets the global rotation from this server: it would stop ⑤'s.
-    if (!okOp || c.owner !== owner || c.agentId !== agentId) throw new OAuthError(400, 'invalid_request', perSource ? 'a caravan grant needs the owner\'s signed issue-capability command (source mcp) for this agent' : 'a caravan grant needs the owner\'s signed rotate-capability command for this agent');
+    // (2026-11-18) The refusal names the command this relay kind takes (capabilityCommandFor's): before, every per-sender
+    // relay was told `issue-capability`, which ⑤'s relay (`senderCapabilities`) does not have (owner-auth.mjs OWNER_OPS):
+    // it takes `rotate-capability {source: mcp}`.
+    const want = kind === 'ws05' ? 'rotate-capability command (source mcp)' : kind === '0008' ? 'issue-capability command (source mcp)' : 'rotate-capability command';
+    if (!okOp || c.owner !== owner || c.agentId !== agentId) throw new OAuthError(400, 'invalid_request', `a caravan grant needs the owner's signed ${want} for this agent`);
     const r = await this.game.ownerCommand({ command: c, signature });
     if (r.transport || r.status !== 200 || typeof r.json?.capability?.token !== 'string') throw new OAuthError(403, 'access_denied', `the relay refused the owner's command (${r.json?.code ?? r.status ?? 'unreachable'})`);
     // The token must be the mcp sender's own: anything else (an unscoped token from a relay that ignored the source)

@@ -50,8 +50,6 @@ import { landShape, landTiles } from './ownland.mjs';
 import { HERO, paintPlates, scaffoldAt, villagePlace } from './plates.mjs';
 import { villageSprite } from './village.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
-import { paintBellTower, towerSprite } from './belltower.mjs';
-import { engineLandmark } from './enginestage.mjs';
 import { RELIEF, paintMountainShadow, paintWoodFloor, reliefSprite, woodOf } from './relief.mjs';
 import { paintBlend, paintSwell, paintShores, forgetShores, spriteColour, waterLoops, clipOutside } from './groundblend.mjs';
 import { landUse, paintLandUse } from './landuse.mjs';
@@ -477,7 +475,7 @@ export class SpriteArt {
    * The cache holds at most FAR_PIXELS pixels (oldest dropped first).
    *
    * With a survey (map/survey.mjs) a province is one of three things. Nothing
-   * of it surveyed: a sheet of chart (with the Engine on the Concord's),
+   * of it surveyed: a sheet of chart,
    * cheap, painted at once. All of it in sight: the painted bitmap, as ever.
    * Else: the painted bitmap of its surveyed tiles is kept on its own (it
    * changes only when a tile becomes surveyed), and the survey is laid over a
@@ -521,7 +519,7 @@ export class SpriteArt {
       const had = this.misses;
       this.misses = 0;
       const { cv, g } = sheet();
-      this.paint(g, [e], { zoom: res, dpr: 1, terrainAt, fogAt, alliedPairs, far: 'props', survey });   // the Engine, where this is the Concord
+      this.paint(g, [e], { zoom: res, dpr: 1, terrainAt, fogAt, alliedPairs, far: 'props', survey });
       const v = { cv, ...box, px: size * size };
       if (this.misses === 0) keep(k, v);
       this.misses += had;
@@ -1055,7 +1053,7 @@ export class SpriteArt {
    * `sea`: the caller paints the cloud sea itself (map/cloudsea.mjs): cloud tiles carry no sprite here.
    */
   paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, passing = false, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
-    ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
+    ringsOpen = null, replayRing = null, replayEvery = 6000,
     relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
     part = null, between = null, stamp = undefined, survey = null, sea = false, up = null, rush = false, budget = null, first = null, lo = null }) {
     // `budget` (ms): after the first new ground bitmap of this call no other is begun once this long has passed;
@@ -1102,8 +1100,8 @@ export class SpriteArt {
     // ground at the tile view: it is in the province's ground bitmap, not drawn tile by tile on every moving frame
     // (some 600 sprites a frame, most of a moving frame's props). Not where a tile carries something of its own
     const lowProp = (t) => !far && !t.cloud && t.lv >= L2 && LOW_PROPS.has(t.name) && !t.river && !siteGround(t) && !t.relic && !t.waystone
-      && !(t.ring === 0 && t.name !== 'water') && !(t.ring <= 1 && (t.centre || nearCentre(t)));
-    // the still ground of one tile: its sprite, the Concord's paving, shores and beaches, roads
+      && !(t.ring === 1 && (t.centre || nearCentre(t)));
+    // the still ground of one tile: its sprite, shores and beaches, roads
     const groundOf = (t) => {
       const img = t.river ? this.image('rivers', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
         : this.image(siteGround(t) ? 'sites' : 'terrain', s.key, `${coded(t) ? RELIEF_GROUND[t.name] : t.name}_${t.v}`);
@@ -1112,7 +1110,6 @@ export class SpriteArt {
       if (lowProp(t)) { const low = this.image('props', s.key, `${t.name}_${t.v}`); if (low) draw(low, t); }
       // (a wood's floor lies on the ground: the shade under the crowns, each tree's own shadow)
       if (t.name === 'forest' && coded(t)) paintWoodFloor(g, t.x, t.y, RADIUS, woodAt(t), { ring: siteGround(t) });
-      if (t.ring === 0 && t.name !== 'water' && t.name !== 'mountain') { const pv = this.image('specials', s.key, 'concord_paving'); if (pv) draw(pv, t); }
       EDGE_DIRS.forEach(([dq, dr], e) => {
         const nb = nameAt(t.q + dq, t.r + dr);
         if (!nb || nb === 'cloud') return;
@@ -1361,28 +1358,10 @@ export class SpriteArt {
         });
         return;
       }
-      const paved = t.ring === 0 && t.name !== 'water' && t.name !== 'mountain';
-      // the Engine stands over the Concord's centre and its six neighbours
-      if (t.centre && t.ring === 0) {
-        const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 2.4;
-        const mark = engineLandmark(engineStage);
-        const en = this.image('specials', es.key, mark.sprite);
-        // (stage 0 is a ring of markers lying on the ground; a raised Engine stands)
-        if (en) (mark.raised ? raise : (x, y, fn) => fn())(t.x, t.y, () => g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m));
-        // the bell's tower stands inside the ring of markers until the Engine itself is raised (map/belltower.mjs): the chart's one landmark
-        if (mark.tower) {
-          const tw = towerSprite(RADIUS * zoom * dpr);
-          raise(t.x, t.y, () => {
-            if (tw) { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(tw.cv, t.x - tw.ox * RADIUS, t.y - tw.oy * RADIUS, tw.w * RADIUS, tw.h * RADIUS); g.imageSmoothingEnabled = was; }
-            else paintBellTower(g, t.x, t.y, RADIUS);
-          });
-        }
-        return;
-      }
-      // the chart carries nothing that stands: the Engine above is its one landmark (everyone hears the bell)
+      // (⑭ abolished, 2026-11-18: the map has no centre. Province (0, 0) is land like any other: no Engine, no bell
+      // tower, no paving or plaza; it carries what its own tiles carry. Held by web-frontier-no-centre.test.mjs)
       // (a ring that has just opened still sheds its cloud: the chart comes out from under it)
       if (t.lv < L2) { if (opening !== null && t.ring === opening && openFrame < 8) { const c = this.image('fog', s.key, `cloud_1_open_${openFrame}`); if (c) draw(c, t); } return; }
-      if (t.ring === 0 && nearCentre(t)) return;
       // a Seat's camp spreads over its province's centre and six neighbours
       if (t.centre && t.ring === 1) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 1.8;
@@ -1398,14 +1377,12 @@ export class SpriteArt {
         return;
       }
       if (t.waystone) { const img = this.image('specials', s.key, `waystone_${ART_FACTIONS[t.waystone.faction] ?? 'ember'}`); if (img) stand(img, t); return; }
-      const decor = ((t.q * 5 + t.r * 11) % 3 + 3) % 3 === 0;
-      const pr = paved ? (t.site === undefined && decor ? this.image('specials', s.key, `concord_plaza_${1 + (t.v % 2)}`) : null)
-        : t.river ? this.image('rivers_props', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
+      const pr = t.river ? this.image('rivers_props', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
         : coded(t) || lowProp(t) ? null : this.image(siteGround(t) ? 'sites_props' : 'props', s.key, `${t.name}_${t.v}`);
-      if (!paved && coded(t)) reliefOf(t);
-      // (the Concord's paving and what floats on water lie in the plane)
+      if (coded(t)) reliefOf(t);
+      // (what floats on water lies in the plane)
       if (pr) {
-        if (paved || t.name === 'water') draw(t.lv === L2 && !far ? mutedSprite(pr) : pr, t);
+        if (t.name === 'water') draw(t.lv === L2 && !far ? mutedSprite(pr) : pr, t);
         else if (!far && (t.name === 'mountain' || t.name === 'forest') && !t.river) risen(pr, t);
         else stand(pr, t);
       }
@@ -1496,8 +1473,8 @@ export class SpriteArt {
     // (the survey is in the ground and the sprites already: muted land, the chart and their edge; nothing veils the frame)
     // a tile whose battle is playing shows the scene's figures, not the hosts' sprites (UI plan D4)
     // ground a player's character can stand on beside its village (people/onboard.mjs characterSpot): painted land
-    // the viewer has surveyed, with no water, wood or mountain, nothing built or camped on it, and not the Concord
-    const openGround = (hq, hr) => { const u = byHex.get(keyOf(hq, hr)); return !!u && !u.cloud && u.lv >= L2 && LOW_PROPS.has(u.name) && u.name !== 'water' && u.site === undefined && !u.camp && !(u.centre && u.ring <= 1) && u.ring !== 0; };
+    // the viewer has surveyed, with no water, wood or mountain, and nothing built or camped on it
+    const openGround = (hq, hr) => { const u = byHex.get(keyOf(hq, hr)); return !!u && !u.cloud && u.lv >= L2 && LOW_PROPS.has(u.name) && u.name !== 'water' && u.site === undefined && !u.camp && !(u.centre && u.ring === 1); };
     const fightingAt = battleTiles((people?.battles ?? []).filter(shown), (globalThis.performance?.now?.() ?? Date.now()) / 1000);
     // the viewer's own records for the board (map/board.mjs, through the survey): the hosts' stamina, who can act,
     // the hosts whose seal is open and that stand on their destination, the marches the map draws itself

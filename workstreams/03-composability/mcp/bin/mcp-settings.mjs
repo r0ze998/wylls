@@ -10,11 +10,22 @@
 // `:0`, and an issuer with a trailing slash or a path named `…//mcp` or `…/x/mcp` — a resource no client can match,
 // found only at sign-in. Now such a setting stops the launcher with one line saying which one.
 //
-// What it does not do: it decides no host, scheme or exposure policy (http on loopback and https behind a tunnel are
-// both accepted, as before; whether a client accepts the scheme is preflight's and the client's), and it reads nothing
-// from the network.
+// What it does not do: it decides no scheme policy (http on loopback and https behind a tunnel are both accepted, as
+// before; whether a client accepts the scheme is preflight's and the client's), and it reads nothing from the network.
+//
+// Exposure (2026-11-18): the listen host is loopback (127.0.0.1, localhost, ::1) unless WYLLS_MCP_ALLOW_REMOTE_BIND=1.
+// The only authorization server here is the local TEST one (auth.mjs), and with an http issuer its tokens and codes
+// travel in plaintext; a tunnel (https issuer) still connects to 127.0.0.1, so it needs no opt-in. And the Host header
+// is checked (DNS rebinding, as the MCP SDK's createMcpExpressApp does for a localhost server): `allowedHosts` is the
+// loopback names, the issuer's host name and WYLLS_MCP_ALLOWED_HOSTS (comma-separated host names, for a proxy that
+// sends another Host); http.mjs refuses any other Host with 403 before anything is read.
 
 export const MCP_DEFAULTS = Object.freeze({ port: 41960, host: '127.0.0.1', relay: 'http://127.0.0.1:41933', herald: 'http://127.0.0.1:41940' });
+/** Listen hosts that are this machine only. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+/** Host header names always accepted (URL hostname form: IPv6 in brackets). */
+export const LOOPBACK_NAMES = Object.freeze(['127.0.0.1', 'localhost', '[::1]']);
+const HOST_NAME = /^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)$/;
 
 /** A URL a setting may name, or null: http(s), no user or password, no query, no fragment. */
 function httpUrl(text) {
@@ -41,6 +52,9 @@ export function mcpSettings(env = {}) {
     if (!(port >= 1 && port <= 65535)) return { error: 'WYLLS_MCP_PORT: a port number from 1 to 65535 (the issuer and the resource name it)' };
   }
   const host = given('WYLLS_MCP_HOST') ? String(env.WYLLS_MCP_HOST) : MCP_DEFAULTS.host;
+  const remoteBind = !LOOPBACK_HOSTS.has(host);
+  if (given('WYLLS_MCP_ALLOW_REMOTE_BIND') && env.WYLLS_MCP_ALLOW_REMOTE_BIND !== '1') return { error: 'WYLLS_MCP_ALLOW_REMOTE_BIND: 1 (listen on a host other than loopback) or unset' };
+  if (remoteBind && env.WYLLS_MCP_ALLOW_REMOTE_BIND !== '1') return { error: 'WYLLS_MCP_HOST: a loopback host (127.0.0.1, localhost, ::1); this server has only the local test authorization server. Behind a tunnel keep it on loopback; to listen elsewhere set WYLLS_MCP_ALLOW_REMOTE_BIND=1' };
   let issuer = `http://127.0.0.1:${port}`;
   if (given('WYLLS_MCP_ISSUER')) {
     const u = httpUrl(env.WYLLS_MCP_ISSUER);
@@ -49,7 +63,11 @@ export function mcpSettings(env = {}) {
     // as written, less one trailing slash (not u.origin, which drops a port written as the scheme's default)
     issuer = String(env.WYLLS_MCP_ISSUER).replace(/\/$/, '');
   }
-  const out = { port, host, issuer, resource: `${issuer}/mcp` };
+  const extra = given('WYLLS_MCP_ALLOWED_HOSTS') ? String(env.WYLLS_MCP_ALLOWED_HOSTS).split(',').map(x => x.trim()).filter(Boolean) : [];
+  if (extra.some(h => !HOST_NAME.test(h))) return { error: 'WYLLS_MCP_ALLOWED_HOSTS: comma-separated host names (no scheme, port or path; IPv6 in brackets)' };
+  const issuerHost = new URL(issuer).hostname;
+  const allowedHosts = [...new Set([...LOOPBACK_NAMES, issuerHost.toLowerCase(), ...extra.map(h => h.toLowerCase())])];
+  const out = { port, host, issuer, resource: `${issuer}/mcp`, remoteBind, allowedHosts };
   for (const [k, name] of [['relay', 'WYLLS_MCP_RELAY'], ['herald', 'WYLLS_MCP_HERALD']]) {
     if (!given(name)) { out[k] = MCP_DEFAULTS[k]; continue; }
     if (!httpUrl(env[name])) return { error: `${name}: an http or https URL, with no user, password, query or fragment` };

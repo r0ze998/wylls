@@ -56,7 +56,7 @@ const joined = (season, f, homeChoice, extra = {}) => ({ mode: 'play', season, m
   provinces: new Map(), nowBell: 10, chain: { now: () => 1000 }, land: { stage: 'joined' }, ui: { dismissed: [] }, homeChoice, ...extra });
 const visitor = (season, f, homeChoice, extra = {}) => ({ ...joined(season, f, homeChoice), citizen: null, session: null, land: { stage: 'none' }, joinDraft: { faction: f }, ...extra });
 const plain = s => String(s).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
-const REASON = { ja: /すぐに村を置ける中心の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。/, en: /The central land, where a first village is placed at once, has no free site right now\. A village request is sent to open land instead\./ };
+const REASON = { ja: /すぐに村を置ける本国の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。/, en: /The heartland, where a first village is placed at once, has no free site right now\. A village request is sent to open land instead\./ };
 const NO_LAND = { ja: /入植できる土地がまだ見つかりません/, en: /No land to settle has been found yet|No free land/ };
 
 test('60 occupied heartland sites: the planner reads NoFreeHome and the page shows the village request, with its reason, in both languages', async () => {
@@ -158,8 +158,8 @@ test('heartlandFull is only a finished "no free home" reading for the Citizen\'s
 test('a visitor whose chosen nation is full is told what beginning does, and the one button still begins (ja / en)', async () => {
   const f = 1, full = inHeart(v2d, f), result = await plan(v2d, world(v2d, (p, q) => full(p, q)), f);
   assert.equal(result.error, 'NoFreeHome');
-  const WORDS = { ja: /この国は、すぐに村を置ける中心の土地がいま空いていません。.*村の申し込みを出します（村が決まるまで約11〜21分）。中心に空きのある国なら、すぐに村を置けます。/,
-    en: /This nation has no free site right now on the central land.*a village request is sent to open land instead \(about 11 to 21 minutes until the village is decided\)\. A nation with free sites on the central land places your village at once\./ };
+  const WORDS = { ja: /この国は、すぐに村を置ける本国の土地がいま空いていません。.*村の申し込みを出します（村が決まるまで約11〜21分）。本国に空きのある国なら、すぐに村を置けます。/,
+    en: /This nation has no free site right now in its heartland.*a village request is sent to open land instead \(about 11 to 21 minutes until the village is decided\)\. A nation with free sites in its heartland places your village at once\./ };
   for (const lang of ['ja', 'en']) {
     setLang(lang);
     const FS = visitor(v2d, f, choiceOf(result, f));
@@ -199,6 +199,6 @@ test('the controller: a full heartland needs no home choice, the request is file
   assert.equal(ctl.split("act('FileTicket'").length - 1, 1);
   // both languages have the two sentences
   const en = source('lang/en-frontier-play.mjs');
-  assert.ok(en.includes('"すぐに村を置ける中心の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。":'));
-  assert.ok(en.includes('"この国は、すぐに村を置ける中心の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。中心に空きのある国なら、すぐに村を置けます。":'));
+  assert.ok(en.includes('"すぐに村を置ける本国の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。":'));
+  assert.ok(en.includes('"この国は、すぐに村を置ける本国の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。本国に空きのある国なら、すぐに村を置けます。":'));
 });

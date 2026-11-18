@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseWideInt, ringOfWide, ringPosition, compareRingOrder, worldIdOf, parseWideManifest, parseWidePage, WideWalk, loadWide,
-  sourcePins, originAt, ORIGIN_CONCORD, relativeTo, layoutWide, nearestTo, formatCoord, describeWalk, WideError, WIDE_BOUND, WORLD_DOMAIN, PAGE_MAX,
+  sourcePins, originAt, ORIGIN_ZERO, relativeTo, layoutWide, nearestTo, formatCoord, describeWalk, WideError, WIDE_BOUND, WORLD_DOMAIN, PAGE_MAX,
 } from '../../permutation-server/web/frontier/map/wide.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import { sha256 } from '../../permutation-server/web/sdk/sha256.mjs';
@@ -286,13 +286,13 @@ test('the layout is relative to a BigInt origin, exact where a double would not 
   assert.deepEqual(relativeTo(o, (1n << 62n) - 5n, 3n), { dp: -4, dq: 3 });
   // the same difference through Number is wrong: 2^62 and 2^62 − 1 are one double
   assert.equal(Number(1n << 62n) - Number((1n << 62n) - 1n), 0);
-  assert.equal(relativeTo(ORIGIN_CONCORD, 1n << 62n, 0n), null, 'too far for this camera: recentre first');
-  assert.equal(relativeTo(ORIGIN_CONCORD, 1n << 31n, 0n), null);
-  assert.deepEqual(relativeTo(ORIGIN_CONCORD, (1n << 31n) - 1n, -(1n << 31n) + 1n), { dp: 2 ** 31 - 1, dq: -(2 ** 31 - 1) });
+  assert.equal(relativeTo(ORIGIN_ZERO, 1n << 62n, 0n), null, 'too far for this camera: recentre first');
+  assert.equal(relativeTo(ORIGIN_ZERO, 1n << 31n, 0n), null);
+  assert.deepEqual(relativeTo(ORIGIN_ZERO, (1n << 31n) - 1n, -(1n << 31n) + 1n), { dp: 2 ** 31 - 1, dq: -(2 ** 31 - 1) });
   refused(() => originAt('4611686018427387905', '0'), 'BadCoord');
   refused(() => originAt(1, 0), 'BadCoord');
   const entries = parseWidePage(page([entry(2, 0, 2, 0, 0), entry(1, 1, 2, 0, 1), { ...entry(0, 0, 0, 0, 0), p: '4611686018427387904', ring: '4611686018427387904', legacy: null }]), { world: WORLD, snapshot: { epoch: 4n, stamp: STAMP } }).entries;
-  const lay = layoutWide(entries, ORIGIN_CONCORD);
+  const lay = layoutWide(entries, ORIGIN_ZERO);
   assert.deepEqual(lay.near.map(n => [n.dp, n.dq]), [[2, 0], [1, 1]]);
   assert.equal(lay.far, 1);
   const farLay = layoutWide(entries, originAt(1n << 62n, 0n));
@@ -300,7 +300,7 @@ test('the layout is relative to a BigInt origin, exact where a double would not 
   assert.equal(farLay.far, 2);
   assert.equal(nearestTo(entries, originAt(3n, 0n)).key, '2,0');
   assert.equal(nearestTo(entries, originAt((1n << 62n) - 7n, 0n)).key, '4611686018427387904,0');
-  assert.equal(nearestTo([], ORIGIN_CONCORD), null);
+  assert.equal(nearestTo([], ORIGIN_ZERO), null);
 });
 
 // ------------------------------------------------------------------ the herald client

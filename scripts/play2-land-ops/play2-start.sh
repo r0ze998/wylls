@@ -56,7 +56,9 @@ PIN=(
 [ -d $X ] || stop "no export $X"
 [ "$(cat $X/EXPORT-SOURCE.txt 2>/dev/null)" = "export $X from $C[EXPORT_COMMIT]" ] || stop "export source is not $C[EXPORT_COMMIT]"
 for p in {41960..41975}; do lsof -nP -iTCP:$p -sTCP:LISTEN > /dev/null 2>&1 && stop "port $p in use"; done
-pgrep -f local-play-launcher.mjs > /dev/null && stop "another launcher runs"
+# (only a real launcher process: `node …/local-play-launcher.mjs …`; a process that merely names the file in its
+#  arguments — an editor, a log tail, an agent session whose prompt mentions it — is not a launcher)
+pgrep -f '^[^ ]*node [^ ]*local-play-launcher\.mjs( |$)' > /dev/null && stop "another launcher runs"
 fk=$(df -k ${DATA:h} | tail -1 | awk '{print $4}'); (( fk >= 21 * 1024 * 1024 )) || stop "free $fk KiB < 21 GiB"
 for f in ${(k)PIN}; do
   [ -f $f ] || stop "missing $f"

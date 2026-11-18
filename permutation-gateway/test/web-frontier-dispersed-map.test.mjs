@@ -198,19 +198,17 @@ test('dispersed: the camera frames all of the nation\'s provinces, the standard 
     assert.deepEqual(HL.homeLook(f, 4, dispersed), at);
     assert.deepEqual(HL.homeLook(f, 4, dispersed, { near: true, reach: 0.72 }), at, 'near or far, the anchor: a scattered region has no near side');
     assert.deepEqual(opening.lookPoint(f, 4, dispersed), at);
-    assert.ok(Math.hypot(box.x, box.y) < Math.hypot(at.x, at.y), 'the box\'s middle lies toward the Concord: not where the name or the standard may stand');
+    assert.ok(Math.hypot(box.x, box.y) < Math.hypot(at.x, at.y), 'the box\'s middle lies toward the lattice\'s origin: not where the name or the standard may stand');
     // joined, waiting: every province of the region in the picture
     const joined = opening.openHint({ mode: 'play', land: { stage: 'joined' }, citizen: { faction: f } });
     const w = opening.openingPlan(joined, src, size);
     assert.equal(w.kind, 'wedge');
     for (const pr of region) assert.ok(inPicture(w.view, provincePixel(pr.p, pr.q)), `nation ${f}: province ${pr.p},${pr.q} is in the wait's picture`);
     assert.notDeepEqual(w.view, opening.openingPlan(joined, { ...src, place: undefined }, size).view, 'not the wedge\'s view');
-    // the nation choice: the camera frames the scattered provinces (no near side to turn to) with the bell among them
+    // the nation choice: the camera frames the scattered provinces (⑭ abolished: no bell tower to keep in the picture)
     const look = opening.openingPlan({ ...none, frame: { nation: f } }, src, size);
     assert.equal(look.kind, 'frame');
     for (const pr of region) assert.ok(inPicture(look.view, provincePixel(pr.p, pr.q)), `nation ${f}: province ${pr.p},${pr.q} is in the nation choice's picture`);
-    assert.ok(inPicture(look.view, { x: 0, y: 0 }), 'the bell too');
-    assert.ok(look.view.zoom < opening.ENGINE_VIEW.min, 'from further out than the bell view');
     assert.notDeepEqual(look.view, opening.openingPlan({ ...none, frame: { nation: f } }, { ...src, place: undefined }, size).view, 'not the turn toward the wedge');
   }
   // the standard: on the anchor province's middle tile, and kept per placement and seed

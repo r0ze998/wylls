@@ -323,7 +323,7 @@ test('minimap: the majority holder of a province, a frame that maps world and mi
   const fr = MINI.frameOf(4, 188);
   const p = fr.toPx(123, -45), w = fr.toWorld(p.x, p.y);
   assert.ok(Math.abs(w.x - 123) < 1e-6 && Math.abs(w.y + 45) < 1e-6);
-  assert.deepEqual(fr.toPx(0, 0), { x: 94, y: 94 }, 'the Concord at the centre');
+  assert.deepEqual(fr.toPx(0, 0), { x: 94, y: 94 }, 'the lattice origin, province (0, 0), in the middle of the minimap frame');
   assert.deepEqual(MINI.LENSES, ['realm', 'war', 'land', 'settle']);
 });
 

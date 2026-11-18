@@ -2,8 +2,8 @@
 // opens"; UX design 7.1 and 11.9): a title scene the first time a device
 // opens the Frontier (and on demand: More → "show the title", ?intro=1 for
 // the demo). It is an opaque scene of its own, not a card over the game: a
-// picture drawn by code (intro/scene.mjs: the bell's tower large on the chart
-// at dusk, the six nations' standards round it, the bell's ring spreading),
+// picture drawn by code (intro/scene.mjs: the chart at dusk, the six
+// nations' standards on it, the bell's ring spreading),
 // and over its foot the title, one line, one sentence, the six leaders standing; the
 // live line says the season is real ("Season 7 · turn 1,034 · 1,055
 // villages"). Nothing of the game behind it shows or can be reached until
@@ -91,7 +91,7 @@ export const TAGLINE = 'Play the agent economy';
 
 /**
  * The title scene's markup. `mode` 'play' | 'spectate' | 'practice'; `stage` as `ctaText`. The picture is a canvas
- * the page paints (intro/scene.mjs: the bell's tower on the chart at dusk, the six standards round it); over its
+ * the page paints (intro/scene.mjs: the chart at dusk, the six standards on it); over its
  * dark foot stand the wordmark, one line, one sentence of what the game is, the six characters standing in a row,
  * the live line and the one button. (The second review: the first five seconds showed an emblem and a paragraph,
  * no picture of the game; in English the tagline broke with one orphan word and its ornaments drifted apart.)
