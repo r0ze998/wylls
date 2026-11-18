@@ -15,7 +15,7 @@
     "soLenCap": 1441792,
     "soLenCapSource": "frontier-abi/src/v2/budgets.rs PLACEHOLDER_SO_LEN_S1: the L(kind) loaded-data limits of the S1 program are computed for a .so no longer than this",
     "minSolanaCli": "4.0.0 (plan.mjs MIN_SOLANA_CLI): the CLI verifies the ELF with its own syscall table before sending, and 3.1.x does not know sol_curve_decompress / sol_curve_pairing_map. The build stays on cargo-build-sbf 3.1.9.",
-    "refusedMarkers": ["PSF_ORACLE_BUILD", "PSF_TRACE_BUILD", "PSF_TEST_BEACON_BUILD", "PSF_CUSTODY_PREVIEW_BUILD", "PSF_LOCALNET_EXPEDITION_SBF_BUILD", "PSF_LOCALNET_CONQUEST_SBF_BUILD"]
+    "refusedMarkers": ["PSF_ORACLE_BUILD", "PSF_TRACE_BUILD", "PSF_TEST_BEACON_BUILD", "PSF_CUSTODY_PREVIEW_BUILD", "PSF_LOCALNET_EXPEDITION_SBF_BUILD", "PSF_LOCALNET_CONQUEST_SBF_BUILD", "PSF_RIGHTS_EXPERIMENTAL_BUILD"]
   },
   "rent": {
     "formula": "rent_exempt(len) = (128 + len) x lamports_per_byte",
