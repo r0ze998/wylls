@@ -37,7 +37,10 @@ hash it prints. (An independent rebuild on 2026-11-18 from a fresh checkout gave
 | Build | `cargo-build-sbf` **3.1.9** (`scripts/build-frontier.sh` refuses any other) | The pinned, reproducible toolchain |
 | Deploy, show, dump | `solana` CLI **4.0.0 or newer** | `solana program deploy` first verifies the ELF locally with the CLI's own syscall table. agave v3.1.9 does not register `sol_curve_decompress` or `sol_curve_pairing_map` (`syscalls/src/lib.rs`), which the program calls for BLS12-381 (`permutation-frontier/src/crypto/sys.rs`), so the 3.1.9 CLI stops with `ELF error` before it sends anything. `--skip-feature-verify` does not help there. v4.0.0 to v4.4.1 register both, but only when the cluster's `enable_bls12_381_syscall` feature is active: the CLI reads the cluster's feature set before it checks the ELF (`cli/src/program.rs` `fetch_feature_set`; `syscalls/src/lib.rs` `register_feature_gated_function!`). See §3. [from source; not run] |
 
-The machine here has only 3.1.9. Installing a 4.x CLI is **[r0ze]**. Keep `active_release` on 3.1.9 (the build script
+The machine here has only 3.1.9 installed. For the read-only checks of §3 a 4.4.1 release was unpacked in isolation
+on 2026-11-18 (`solana-release-aarch64-apple-darwin.tar.bz2` of agave v4.4.1, sha256 `e60d6646…8db369`, equal to the
+digest GitHub publishes for the asset) and called by its full path; the installed 3.1.9 was not touched. Installing a
+4.x CLI for the deploy itself is **[r0ze]**. Keep `active_release` on 3.1.9 (the build script
 puts it first on `PATH` itself) and unpack the 4.x release somewhere else, e.g. `~/solana-4x/bin`. Put that
 directory first on `PATH` only for §3 and §5. The dry run reads `solana --version` and refuses anything older than
 4.0.0.
@@ -92,6 +95,25 @@ solana rent 1765421 --url devnet   # the ProgramData; divide the answer by (128 
 solana rent 0 --url devnet
 ```
 
+**Measured on 2026-11-18 20:40 JST** (slot 523,617,783, epoch 1212; `solana-cli 4.4.1`, read-only, no key; the
+commands and full outputs are in the run's evidence, summarised in `scripts/devnet/devnet-profile.json` `measured`):
+
+| Check | Result |
+|---|---|
+| BLS12-381 syscalls `b1sg…PCQ` (SIMD-0388) | **active** since epoch 1059, activation slot 457,488,000 |
+| SBPF v2 `F6UV…u6WP` (SIMD-0173/0174) | **active** since epoch 918, activation slot 396,576,000 |
+| Rent | **5,080 lamports per byte**: `solana rent 1765421` = 8.96898892 SOL = (128 + 1,765,421) × 5,080; `solana rent 0` = 650,240 lamports = 128 × 5,080 |
+| Rent feature gates | SIMD-0437-1 (6,333) active since epoch 1137, SIMD-0437-2 (5,080) active since epoch 1141; SIMD-0437-3/4/5 (2,575, 1,322, 696) and SIMD-0438 (reset to 6,960) inactive |
+| `solana genesis-hash` | `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` |
+| `solana cluster-version` | `4.5.0-beta.0` (96 % of stake) |
+
+Two more features matter for a later deploy. **SIMD-0500** (`B8JJ…o83g`, "Disable deployment of SBPF v0, v1 and v2
+programs") is **inactive** today; the `.so` is SBPF v2, so once that feature is active a deploy or an upgrade of it
+would be refused, and the build would have to move to SBPF v3 (active on devnet since epoch 1069). "Apply a minimum
+loaded data size to loader-v3 ProgramData accounts" (`8whk…cWg1`) is active since epoch 1202; its effect on the
+`L(kind)` loaded-data limits was not checked. These are one moment's readings: run the checks again right before a
+deploy.
+
 Do **not** run `solana feature status b1sg…` with the 3.1.9 CLI: it looks the id up in its own table and panics on
 one it does not know (agave v3.1.9 `cli/src/feature.rs:939`, `FEATURE_NAMES.get(feature_id).unwrap()`).
 
@@ -111,8 +133,12 @@ Citizen + Holding = 9,753,600 lamports (DESIGN.md), Province = 24,709,120 (prese
 
 | lamports/byte | ProgramData | Program | Fees | **Peak the payer needs** | Stays locked |
 |---|---|---|---|---|---|
-| 6,960 | 12.2882 | 0.0011 | 0.0166 | **12.31 SOL** | 12.29 SOL |
-| 5,080 | 8.9689 | 0.0008 | 0.0166 | **8.99 SOL** | 8.97 SOL |
+| **5,080 (devnet, measured 2026-11-18)** | 8.9689 | 0.0008 | 0.0166 | **8.99 SOL** | 8.97 SOL |
+| 6,960 (the old rate; devnet would return to it only if SIMD-0438 activates) | 12.2882 | 0.0011 | 0.0166 | **12.31 SOL** | 12.29 SOL |
+
+For comparison, the local-play lane's `.so` (3,587,576 B, `max_len` 4,485,120; **not deployable**, §1) would need
+22.7853 + 0.0008 + 0.0422 = **22.83 SOL** at its peak at 5,080 (`solana rent 4485165` = 22.78528844 SOL, measured),
+and an upgrade float of 18.23 SOL.
 
 **A first deploy does not need "about 2×".** The CLI creates the buffer (37 + `so_len` bytes) but pays into it the
 rent of the final ProgramData (45 + `max_len` bytes). The deploy instruction then returns the buffer's lamports to the

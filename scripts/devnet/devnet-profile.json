@@ -20,8 +20,28 @@
   "rent": {
     "formula": "rent_exempt(len) = (128 + len) x lamports_per_byte",
     "lamportsPerByteCandidates": [6960, 6333, 5080, 2575, 1322, 696],
-    "assume": 6960,
-    "why": "devnet's current rate was not read (no devnet contact allowed). 6960 is the pre-SIMD-0437 rate and the highest of the staged feature gates set_lamports_per_byte_to_{6333,5080,2575,1322,696} (agave master feature-set/src/lib.rs; v3.1.9 has none of them), so it is the conservative bound. The code's own figures use 5080 (frontier-abi presets comments)."
+    "assume": 5080,
+    "why": "MEASURED on devnet 2026-11-18 20:40 JST (read-only public RPC, solana-cli 4.4.1; see \"measured\" below): 5080 lamports per byte. SIMD-0437-2 (set_lamports_per_byte_to_5080) is active since epoch 1141; the next steps 2575, 1322 and 696 are inactive, and so is SIMD-0438 (reset to 6960). The rate can change at any epoch boundary: read it again right before a deploy (runbook section 3) and pass --rate if it moved. 5080 is also what the code's own figures use (frontier-abi presets comments)."
+  },
+  "measured": {
+    "note": "Facts read from devnet with read-only RPC queries. No key, no transaction, no airdrop. A record of one moment, not a guarantee: the dry run does not read this block.",
+    "at": "2026-11-18T20:40:00+09:00",
+    "slot": 523617783,
+    "epoch": 1212,
+    "cli": "solana-cli 4.4.1 (src:5bb30402; feat:9fd5a0b5, client:Agave)",
+    "clusterVersion": "4.5.0-beta.0",
+    "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+    "lamportsPerByte": 5080,
+    "rentExemptLamports": { "0": 650240, "36": 833120, "1409605": 7161443640, "1765421": 8968988920, "3587621": 18225764920, "4485165": 22785288440 },
+    "features": {
+      "b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ": { "name": "SIMD-0388: BLS12-381 syscalls", "status": "active", "epoch": 1059, "activationSlot": 457488000 },
+      "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP": { "name": "SIMD-0173 and SIMD-0174: SBPFv2 deployment and execution", "status": "active", "epoch": 918, "activationSlot": 396576000 },
+      "61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81": { "name": "SIMD-0437-2: Set lamports per byte to 5080", "status": "active", "epoch": 1141, "activationSlot": 492912000 },
+      "rntCigrTppP5JdZz7K8TyN9sMzLdAcXp8SejYpVpX6D": { "name": "SIMD-0437-3: Set lamports per byte to 2575", "status": "inactive" },
+      "rnt8ZQpz2HYhX3DkYBDGjJS1a36mYq69oXka7JrhEdi": { "name": "SIMD-0438: Reset lamports per byte to legacy value of 6960", "status": "inactive" },
+      "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g": { "name": "SIMD-0500: Disable deployment of SBPF v0, v1 and v2 programs", "status": "inactive", "risk": "the .so is SBPF v2 (e_flags 2): once this activates, a new deploy or upgrade of it would be refused" },
+      "8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1": { "name": "Apply a minimum loaded data size to loader-v3 ProgramData accounts", "status": "active", "epoch": 1202, "activationSlot": 519264000 }
+    }
   },
   "fees": {
     "lamportsPerSignature": 5000,
