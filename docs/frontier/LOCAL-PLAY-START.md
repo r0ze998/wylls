@@ -4,7 +4,8 @@ This page says how to build and start the local-play launcher from a clone of th
 the two modes shows on screen, and what is not done yet. Every step here comes from the sources in this repository.
 A start from a fresh clone on a new machine has **not** been run end to end yet.
 
-**Shortcut:** `scripts/play-local.sh` does §1's checks, §2's builds (land-preview lane) and §3's capture-demo start in one
+**Shortcut:** `scripts/play-local.sh` does §1's checks and §2's builds (land-preview lane), then starts a kept world
+(§3 (1) with (5): `--continuous` + `--persist`; `--resume` reopens it) or, with `--demo`, §3 (2)'s capture demo, in one
 command; see [PLAY-LOCAL.md](PLAY-LOCAL.md) / [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md).
 
 Two modes, never mixed:
