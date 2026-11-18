@@ -38,6 +38,11 @@ scripts/play-local.sh
 - Useful options:
   - `--resume`: continue the last kept world
   - `--fresh`: start a new kept world (the same as leaving out `--resume`)
+  - `--random-map`: give the new world its own map. Without it **every local world has the same map** (the local chain
+    always starts at one fixed clock origin, so every world draws the same genesis seed: the same terrain, village
+    sites and Free City). With it the world starts at a randomly picked earlier origin and the program derives another
+    seed by its unchanged rules. What stays the same by rule: the six-fold symmetry of the terrain, and (until the
+    centre-free rules of PR #69) each nation's homes in its own wedge. Not with `--resume`: a kept world keeps its map.
   - `--demo`: the 15-minute capture demo (`--speed 30` makes it ×30)
   - `--ai 0`: no AI residents (default 2)
   - `--port 41930`: other ports
