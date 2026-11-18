@@ -393,6 +393,15 @@ async fn fixture_wallets_act_in_the_relays_shapes() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An arrival bell whose owner reveal window is open at the fixture's
+/// time (`fixture::NOW`, 100 s into `fixture::BELL`). ⑱ (owner decision
+/// 2026-11-05, `agents::policy::owner_reveal_open`): an owner sends its
+/// material only once drand has published `T(arrive)`, which is at the END
+/// of the arrival bell, until the end of the bell after it. A march arriving
+/// in `fixture::BELL` is therefore not yet revealable; one that arrived in
+/// the bell before is.
+const REVEAL_OPEN: u32 = fixture::BELL - 1;
+
 /// A march of the `FINAL` wallet: its host in transit in the fixture
 /// (sequence 5, slot 3) unless `landed_host` (sequence 1, no transit).
 fn memo_for(arrive: u32, kind: SealKind, landed_host: bool) -> MarchMemo {
@@ -483,7 +492,7 @@ async fn owners_reveal_through_the_keeper_link() {
     let mut bot = Bot::new(spec(FINAL, Arch::Daily, None), SEED);
     bot.mem
         .marches
-        .push(memo_for(fixture::BELL, SealKind::Honest, false));
+        .push(memo_for(REVEAL_OPEN, SealKind::Honest, false));
     bot.step(&sh, false).await;
     let log = sh.relay.log.lock().unwrap();
     assert_eq!(log.reveals.len(), 1);
@@ -528,11 +537,11 @@ async fn personas_meet_the_refusals_they_expect() {
         .marches
         .push(memo_for(fixture::BELL - 2, SealKind::Honest, false));
     l.step(&sh, false).await;
-    // forger: a forged direct reveal in the bell (and the honest one).
+    // forger: a forged direct reveal in its window (and the honest one).
     let mut f = Bot::new(spec(FINAL, Arch::Bot, Some(Persona::Forger)), SEED);
     f.mem
         .marches
-        .push(memo_for(fixture::BELL, SealKind::Honest, false));
+        .push(memo_for(REVEAL_OPEN, SealKind::Honest, false));
     f.step(&sh, false).await;
     // spammer: a burst until the quota says no.
     let mut s = Bot::new(spec(FINAL, Arch::Bot, Some(Persona::Spammer)), SEED);
@@ -889,9 +898,10 @@ async fn revealed_only_on_observed_reveal() {
             })
             .collect()
     };
-    // (a) In its arrival bell: the owner's POST is answered 202.
+    // (a) In its reveal window (T(arrive) published): the owner's POST is
+    // answered 202.
     let mut bot = Bot::new(spec(FINAL, Arch::Daily, None), SEED);
-    let mut a = memo_for(fixture::BELL, SealKind::Honest, false);
+    let mut a = memo_for(REVEAL_OPEN, SealKind::Honest, false);
     a.key.1 = 31;
     bot.mem.marches.push(a);
     bot.step(&sh, false).await;
@@ -917,7 +927,7 @@ async fn revealed_only_on_observed_reveal() {
     let mut sh2 = shared::<NoDirect>(relay, None);
     sh2.journal = Some(Journal::open(&jp).unwrap());
     let mut bot = Bot::new(spec(FINAL, Arch::Daily, None), SEED);
-    let mut c = memo_for(fixture::BELL, SealKind::Honest, false);
+    let mut c = memo_for(REVEAL_OPEN, SealKind::Honest, false);
     c.key.1 = 33;
     bot.mem.marches.push(c);
     bot.step(&sh2, false).await;

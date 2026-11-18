@@ -111,3 +111,30 @@ and automatic-send gates remain intact. No private-key operation, real
 transaction, fixture exporter, deployment or CI run is authorized by this
 change. The original user-playable path remains radius 128; this is not
 production wide conquest or a claim of an infinite playable world.
+
+## Addendum 2026-11-18: the legacy step keeps its own copy (G1 compute)
+
+Measured afterwards on SBF (LiteSVM, release `.so`): routing the legacy
+`conquest_model::step` through `site_transition` raised the worst G1
+ResolveFromInputs from 289,140 to 291,072 CU (gate 290,000; loop-play
+report B2, first bad commit this one, fb00f3d8). The worst fill ends a siege
+on every site in one bell; per site the step cost 330 instead of 244 CU
+(failure), 342 instead of 275 (occupation) and 565 instead of 382 (capture),
+for 10,513 instead of 7,778 CU in that one `step`. Lazy mirror reads,
+inlining and a write-through adapter recovered at most ~1,500 of it.
+
+So the program's `step` again runs the pre-fb00f3d8 in-place functions
+(`step_siege`, `capture_flip`, `step_occupation`, byte-for-byte the
+6699d905 code), and `site_transition` stays the pure entry point for wide
+adapters (`world_index`, the wide conquest lane). The paragraph above that
+says the legacy step is "connected" to the extracted function no longer
+holds: there are two copies of the site rules. They are held equal by
+`site_transition_matches_the_legacy_step` (tests/conquest_site_transition.rs):
+60,000 seeded cases over kinds, flags, targets and slots, progress, vigil,
+record bells, mirror states and values, capture counters, reports, bells and
+two parameter sets; `site_transition`'s effects are applied to the same
+Province bytes and every byte, event, flag and error is compared with `step`,
+and every outcome (none, progress, failure, occupation, capture, occupation
+end, refusal) is reached at least 200 times. Mutating the legacy copy
+(immunity, respite, wall halving, slot order, stake flags, actor or source
+retention, the credited flag) fails it. Change one copy, change both.

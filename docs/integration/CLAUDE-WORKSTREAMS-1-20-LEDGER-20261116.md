@@ -33,7 +33,7 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 | ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded |
 | ⑰ | settlement / prize (x402, USDC) | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | preserve/ws17-0c80381d | not integrated; closed, not pursued | **restricted as a whole** (prize, funds) |
 | ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | origin/fix/ws18-clippy-hostile-20261103 @ 0bba3f31 (11-03; = preserve/ws18-4fbe0c77 + clippy fix) | **in main**: all 17 commits applied as one delta in 6b670edb (2026-11-03), patch-id identical per file (2026-11-18 check, see section below) | — |
-| ⑲ | MagicBlock and public RPC | local branch claude/ecstatic-cannon-d0jfc4, "not received"; read-only check 11-07 | preserve/ws19-a91b7a4f (+supp d793ebd4) | not determined | public network: nothing sent |
+| ⑲ | MagicBlock and public RPC | **Integrated; ER lane not adopted (2026-11-18)** — see the dated section at the end | archive/ws19-er-candidate-20261108 (0c2214d5) | findex/verify parts in main (6b670edb, 668e9b66…); consistency tests ported 2026-11-18; frontier-er ER candidate obsolete (O8) | public network: nothing sent |
 | ⑳ | NFT resident ID and authorization | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | — | not integrated; closed, not pursued | **restricted as a whole** (NFT) |
 
 ## The ordinary game lane (separate from ①–⑳): first playable vs full
@@ -628,6 +628,26 @@ Owner decision (r0ze, 2026-11-18 14:42 JST). This is a documentation-only status
   - CI (`.github/workflows/ci.yml`) still builds and tests the prize program (the prize-program job, workstream 04's
     host E2E, the key-tests job's SBF build and LiteSVM tests): regression checks of code kept in the tree, not part
     of the playable build. No CI job enables `nft-experimental`.
+
+## 2026-11-18 JST — ⑲ MagicBlock / public RPC: integrated; the ER candidate is not adopted
+
+Run ws19-integrate (branch `grok/ws19-integrate` from main 28ef2f02). Code wins over the older rows above.
+
+- **Already in main.** The findex and verify parts of ⑲ (history-gap check, provenance, open-item tests,
+  "19 A+D") were applied by `6b670edb`. For all 7 paths, the patch-id of `4cd901de..d793ebd4` equals the patch-id
+  of `6b670edb`. The later ⑲ history/ledger/rewind work is in main through `668e9b66`, `7ab2b0b2` and `d0949fd4`.
+  The save-failure stop `0be5f9f5` is superseded by ④'s `e11bf897`, which is on main. The map-golden KEEP change
+  on `claude/ecstatic-cannon-d0jfc4` is in main, in an extended form, through `3f898a9f`.
+- **Ported in this run:** test-only `1e577a8a` (`findex/tests/consistency.rs` 5 tests and
+  `herald/tests/consistency.rs` 1 test). They pass on main unchanged. Also ported: the docs-only report
+  `59d95fa3` (`CLAUDE-WS19-WS4-EVIDENCE-GAP-20261117.md`).
+- **Obsolete, not ported:** `frontier-er/` (the ER delegation model, the board program and the LiteSVM/ER
+  end-to-end tests) and `docs/frontier/er-candidate/*`. Decision O8 says Season 1 uses the Solana base layer only,
+  with no ER lane, and the branch itself is labelled archive-only (`0c2214d5`). `docs/frontier/er-candidate/README.md`
+  now points to the archived files that main's code comments cite.
+- **Devnet:** the first devnet milestone deploys only `permutation-frontier`, which has no MagicBlock code. ⑲'s
+  ER work is **not required** for it. The MagicBlock SDK and delegation tests on main belong to the older
+  `permutation-chain` program (Sept 2026), not to Frontier.
 
 
 ### 2026-11-18 JST — ⑱ integration check (ws18-integrate)
