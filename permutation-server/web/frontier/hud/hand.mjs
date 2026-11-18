@@ -82,6 +82,8 @@ import { returnCard } from './returncard.mjs';
 //  after it is pressed. Nothing local play can send changes; an ordinary session is as before.)
 const localRefuses = (FS, name) => !!FS?.localPlay && localOrderRoute({ localPlay: FS.localPlay, name, v: {}, signer: undefined, requester: null }) === 'refuse';
 const localReadOnlyText = () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`;
+/** The bar's line for the orders local play refuses, named by their buttons' words (B6): 「進軍」・「解散」 / March, Dissolve. */
+export const localReadOnlyNamed = words => L`ローカルプレイでは、${words.map(w => L`「${w}」`).join(L`・`)}はまだ送れません（読み取りのみ）。`;
 // (round 26: a march — the bar's March, its return home, a march on a keep — is sent in local play only while the march's
 //  own answer is open (controller.mjs sendTheMarch: FS.localMarch.open), and refused with the same sentence otherwise)
 const localMarchClosed = (FS, r = null) => {
@@ -232,9 +234,13 @@ function hostModel(FS, sub) {
   const note0 = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
   // (round 27: local play's refusal is said in full on the bar's own line, which wraps — inside a button it was clipped to
   //  two short lines, "In local play, this order cannot be sent yet (rea…" in a live world; the refused buttons stay refused)
-  const lro = localReadOnlyText(), localSaid = buttons.some(b => b.why === lro);
-  if (localSaid) for (const b of buttons) if (b.why === lro) b.said = true;
-  const note = localSaid && note0 !== lro ? (note0 ? `${note0} ${lro}` : lro) : note0;
+  // (the loop-play report B6: the bar's line said "this order cannot be sent yet" with nothing saying WHICH — it stood
+  //  under a host whose March and March on a keep were sent normally, raised by Dissolve alone. The line names the
+  //  refused orders by their buttons' own words; each refused button keeps the plain sentence as its title)
+  const lro = localReadOnlyText(), localOff = buttons.filter(b => b.why === lro), localSaid = localOff.length > 0;
+  for (const b of localOff) b.said = true;
+  const lroNamed = localSaid ? localReadOnlyNamed(localOff.map(b => b.word)) : null;
+  const note = localSaid ? (note0 && note0 !== lro ? `${note0} ${lroNamed}` : lroNamed) : note0;
   return { kind: 'host', key: `h:${r.id}`, name, label: L`${name}の行動`, unit: r.unit, faction, sub: st.text, tone: st.tone, where, note, noteTone: note ? 'why' : null,
     chips: sub.hosts.length > 1 ? sub.hosts.filter(x => x.id !== r.id).map(x => hostChip(FS, x)) : [], villageHere: r.home ? holdingName(h) : null,
     buttons, host: r, march: mc, explore: ex, dissolve: dLocal ? { ok: false, text: localReadOnlyText() } : dc, armed, away, stamina: r.stamina };

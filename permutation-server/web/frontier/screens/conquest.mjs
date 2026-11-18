@@ -232,6 +232,13 @@ export function renderOutpost(FS, site) {
   </section>`;
 }
 
+/**
+ * Whether the reach list is still being worked out (B9): keeps of the control snapshot that the page cannot place yet
+ * (controller.mjs keepsPending — a ring's village list not read). An empty list then says so, and never that no keep is
+ * within reach.
+ */
+export const reachLoading = FS => Number(FS?.conquest?.keepsPending ?? 0) > 0;
+
 /** The keeps of other nations a march of the viewer can reach now, nearest first. */
 export function renderReach(FS) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !activeHolding(FS) || !Number.isInteger(FS.citizen?.faction)) return '';
@@ -239,13 +246,24 @@ export function renderReach(FS) {
   const r = FS.conquest?.reach;
   const row = x => html`<li class="kr-row kh-n${x.holder}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${routeLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}</span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
+  // (the loop-play report B7: a keep of the viewer's OWN nation that another nation is counting on is in this list so
+  //  that a host can go and defend it (fkeepreach.mjs defendableKeeps, `defend: true`; the host's forts card says
+  //  「守りに向かう」). Here it stood under "keeps of other nations", named by its own nation, with nothing saying
+  //  it is to be defended. It has its own list and its own words now; the list of other nations' keeps is theirs alone)
+  const defendRow = x => html`<li class="kr-row kr-row-defend kh-n${x.holder}" data-keep-defend="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`あなたの国が保持`}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${routeLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}
+      <span class="kr-defend">${icon('shield')}<strong>${L`守りに向かう`}</strong> · ${L`マスに残れば占拠を止めます`}</span></span>
+    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
+  const defends = r?.ok ? r.rows.filter(x => x.defend === true) : [], others = r?.ok ? r.rows.filter(x => x.defend !== true) : [];
   // (measured from the village because no host can depart this moment: a host that is on its way to being ready says so,
   // with the turn from which it can depart; only a player without any combat host is told to train one)
   const waits = r?.ok && r.home ? hostWaits(FS) : [];
-  return html`<section class="conquest-reach hpanel" aria-labelledby="conquest-reach-title"><h4 id="conquest-reach-title">${L`あなたの軍が届く他国の砦`}</h4>
+  // (the keeps to defend come first, under their own heading; then the other nations' keeps under theirs)
+  return html`<section class="conquest-reach hpanel" aria-labelledby="conquest-reach-title">
+    ${defends.length ? html`<h4 class="kr-defend-title" id="conquest-defend-title">${L`他国が占拠を進めている、あなたの国の砦`}</h4><ul class="list kr-rows kr-rows-defend" aria-labelledby="conquest-defend-title">${defends.map(defendRow)}</ul>` : ''}
+    <h4 id="conquest-reach-title">${L`あなたの軍が届く他国の砦`}</h4>
     ${!r ? html`<p class="muted">${L`届く砦を調べています…`}</p>` : !r.ok ? html`<p class="muted">${clientText(r.code)}</p>` : html`
       ${r.home ? (waits.length ? html`${renderWaits(FS, waits)}<p class="muted">${L`そのあいだは、村からの道のりで調べています。`}</p>` : html`<p class="muted">${L`出発できる戦闘部隊がいないため、村からの道のりで調べています。`}</p>`) : ''}
-      ${r.rows.length ? html`<ul class="list kr-rows">${r.rows.map(row)}</ul>` : html`<p>${L`いま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`}`}
+      ${others.length ? html`<ul class="list kr-rows" aria-labelledby="conquest-reach-title">${others.map(row)}</ul>` : reachLoading(FS) ? html`<p class="muted kr-loading">${L`届く砦を調べています…`}</p>` : html`<p>${L`いま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`}`}
   </section>`;
 }
 

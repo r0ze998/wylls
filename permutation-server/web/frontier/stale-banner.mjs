@@ -2,6 +2,7 @@
 // state (unchanged). On local play a reload would lose the page's memory-only key and the world could not be
 // continued, so it says not to reload and offers a re-read instead (controller.mjs `state-reread`: a read only).
 import { L } from '../lang.mjs';
+import { worldEndedText } from './flocalplay-ended.mjs';
 
 /** `{ hidden, text, reread }` for `stale` = herald.mjs staleness(…) and `localPlay` = whether this page is local play. */
 export function staleBannerView({ stale, localPlay = false }) {
@@ -10,6 +11,12 @@ export function staleBannerView({ stale, localPlay = false }) {
   if (!localPlay) return { hidden: false, text: L`表示が ${behind} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください。`, reread: false };
   return { hidden: false, text: L`表示が ${behind} 秒遅れています。再読み込みはしないでください（この世界の鍵が消え、続けられなくなります）。下のボタンで最新の状態を読み直せます。`, reread: true };
 }
+
+/**
+ * The banner of a local-play world confirmed ended (the loop-play report B5; flocalplay-ended.mjs): it is not "behind" —
+ * it says that the world ended, and offers no re-read, since nothing is left to read.
+ */
+export const endedBannerView = () => ({ hidden: false, text: worldEndedText(), reread: false, ended: true });
 
 /** The re-read button's words. */
 export const rereadLabel = () => L`最新の状態を読み直す`;
