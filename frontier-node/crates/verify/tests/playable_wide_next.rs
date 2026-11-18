@@ -2342,10 +2342,17 @@ fn the_honest_wide_economy_and_garrison_re_run() {
         state_before(&seg, &snap, eco[2], &p).data
     );
     assert!(!seg.txs[eco[0]].post.iter().any(|(x, _)| x.to_bytes() == p));
-    // The program's own refusals are archived, not judged: the tier-up of
-    // a Hamlet, another Citizen's holding, a garrison above the reserve.
-    assert_eq!(txs_like(&seg, &economy_head(), false).len(), 2);
-    assert_eq!(txs_like(&seg, &garrison_head(), false).len(), 1);
+    // The program's own refusals are archived, not judged: a tier-up with
+    // the build queue full (QueueFull), another Citizen's holding
+    // (NotOwner), a garrison above the reserve (Insufficient).
+    let codes = |head: &[u8]| -> Vec<Option<u32>> {
+        txs_like(&seg, head, false)
+            .into_iter()
+            .map(|t| seg.txs[t].code)
+            .collect()
+    };
+    assert_eq!(codes(&economy_head()), vec![Some(22), Some(20)]);
+    assert_eq!(codes(&garrison_head()), vec![Some(21)]);
     let found = vwl::judge_segment(&seg, &snap);
     assert!(found.is_empty(), "{:#?}", show(&found));
 }

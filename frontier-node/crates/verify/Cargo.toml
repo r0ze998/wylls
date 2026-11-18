@@ -51,9 +51,11 @@ wide-economy-experimental = ["frontier-abi/world-index-experimental"]
 # it. With this feature 0x4804 is a known version: its ABI v2 instructions
 # are judged by the S1 checks, the land preview's FoldLand / ClaimLandYield
 # by VL, the wide land opening (WideSetRules / WideRequestRingSeed /
-# WideConsumeRingSeed / WideOpenProvince) by VWL, and every other wide
-# instruction stays UNVERIFIABLE with its command named (V0
-# `WideUnmodelled`). Without it (the default build) 0x4804 stays
+# WideConsumeRingSeed / WideOpenProvince), the wide claims (WideClaimSite
+# wallet form / WideSettleTicket / WideFinalize), the season-end WideClose
+# of a ticket record, a holding and a province, and the wide economy and
+# garrison (wallet forms) by VWL, and every other wide instruction stays
+# UNVERIFIABLE with its command named (V0 `WideUnmodelled`). Without it (the default build) 0x4804 stays
 # `UnknownProgramVersion`. Opt-in so the land/conquest ABI features never
 # unify into the keeper's or herald's default build.
 playable-lane = [
