@@ -8,6 +8,7 @@ import { STATE_JA } from './arrival.mjs';
 import { OUTCOME_JA, requestHistory } from './history.mjs';
 import { jointOfRequest, requestsOfJoint, personalLinks, sameCtx } from './crosslinks.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
+import { mountOf, under } from './mount.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { parseTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
@@ -33,8 +34,12 @@ const goalId = 'crossing-storehouse-v1';
 
 function say(text, kind = '') { $('msg').innerHTML = text ? `<span class="${kind}">${esc(text)}</span>` : ''; }
 
+// （2026-11-18、B13）板が入口の下の道に置かれたとき（ローカルプレイの世界ごとの板）、/coop/*・/h/* はその下で読む
+const MOUNT = mountOf(globalThis.location?.pathname);
+const at = p => under(MOUNT, p);
+
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const r = await fetch(at(path), body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
   return r.json();
 }
 /**
@@ -43,7 +48,7 @@ async function api(path, body) {
  */
 async function apiRead(path) {
   let r;
-  try { r = await fetch(path); } catch (e) { throw new Error(`届かない（${e.message ?? e}）`); }
+  try { r = await fetch(at(path)); } catch (e) { throw new Error(`届かない（${e.message ?? e}）`); }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   try { return await r.json(); } catch { throw new Error('答えが JSON でない'); }
 }
@@ -65,11 +70,13 @@ const DEV = 'dev';
  * ウォレットを選ぶ：ゲームと同じ wallet.mjs で、ブラウザにある Wallet Standard のウォレットを並べる（Phantom などの拡張）。
  * Dev Wallet（localnet だけ）は、選んで押したときに初めて有効にする（有効にすると、この画面の localStorage に鍵の種を作るため）。
  */
+let walletPicked = false;
 function renderWallets() {
   const list = W.list(chainOf()).filter(e => !e.dev);
   const opts = [...list.map((e, i) => `<option value="${i}"${e.why ? ' disabled' : ''}>${esc(e.name)}${e.why ? `（${esc(e.why)}）` : ''}</option>`),
     ...(chainOf() === 'solana:localnet' ? [`<option value="${DEV}">Dev Wallet（ローカル）</option>`] : [])];
-  const keep = $('wallet').value;
+  // （2026-11-18、B13）人が選ぶ前は、あとから見つかったウォレット（ゲームの画面が渡すローカルプレイの鍵など）を Dev Wallet より先に選ぶ
+  const keep = walletPicked ? $('wallet').value : null;
   $('wallet').innerHTML = opts.join('') || '<option disabled>使えるウォレットが見つからない</option>';
   if ([...$('wallet').options].some(o => o.value === keep && !o.disabled)) $('wallet').value = keep;
   else { const first = [...$('wallet').options].find(o => !o.disabled); if (first) $('wallet').value = first.value; }
@@ -112,7 +119,7 @@ async function post(rec, done) {
   // はっきり分かるもの以外（ほかの状態・空・形の違う答え・届かない）は「届いたか分からない」：未送信とも断りとも言わない。
   let status, body = null;
   try {
-    const res = await fetch('/coop/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(signed) });
+    const res = await fetch(at('/coop/records'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(signed) });
     status = res.status;
     try { body = await res.json(); } catch { body = null; }
   } catch (e) { await refresh(); return say(`板に届いたか分からない（${e.message ?? e}）。読み直した表示で確かめてください`, 'warn'); }
@@ -285,7 +292,7 @@ document.addEventListener('toggle', e => {
  * 鍵は 送る人｜プログラム｜シーズン｜依頼。読み直した表示で結び付いた・送信の記録がある隊商は、出すときにもう一度除く。
  */
 // 状態の持ち方は arrived.mjs createArrivedPicks（答えは始めた鍵にだけ当てる。同じ鍵の新しい読みが古い答えを捨てる）
-const arrivedPicks = createArrivedPicks({ scan: a => arrivedCandidates(rpcReader('/coop/rpc'), a.season, a.wallet, a.request, a.opts), changed: () => { if (view) renderRequests(); } });
+const arrivedPicks = createArrivedPicks({ scan: a => arrivedCandidates(rpcReader(at('/coop/rpc')), a.season, a.wallet, a.request, a.opts), changed: () => { if (view) renderRequests(); } });
 const arrivedPickKey = q => (signer && cfg ? [signer.address, cfg.season.programId, cfg.season.seasonId, q.id].join('|') : null);
 // 行の描き方は arrived.mjs renderArrived（試験と同じ関数）。着いたと言うのは delivered だけ・量は言わない
 const arrivedHtml = q => renderArrived({ ready: !!(signer && cfg?.chain && cfg?.rpcProxy), pick: arrivedPicks.get(arrivedPickKey(q)), request: q, ctx: q.ctx ?? cfg.season, view, ctxKey, names: RESOURCE_JA });
@@ -333,7 +340,7 @@ async function refresh() {
   let v2, f2;
   try {
     // （2026-11-17）ヘラルドの隊商の一覧は、読めたかどうかを持つ：{state: 'ok', data} | {state: 'unread', why}（view と同じ snapshot で当てる）
-    const feedRead = fetch('/h/caravans.json').then(async r => {
+    const feedRead = fetch(at('/h/caravans.json')).then(async r => {
       if (!r.ok) return { state: 'unread', why: `HTTP ${r.status}` };
       let j;
       try { j = await r.json(); } catch { return { state: 'unread', why: 'JSON でない' }; }
@@ -521,7 +528,7 @@ async function loadSources(q) {
   const pick = { seq: ++srcSeq, status: 'loading', why: null, cands: null, chosen: prev ? prev.chosen : null, preview: null };
   srcPicks.set(key, pick);
   renderRequests();
-  const r = await sourceCandidates(rpcReader('/coop/rpc'), cfg.season, signer.address);
+  const r = await sourceCandidates(rpcReader(at('/coop/rpc')), cfg.season, signer.address);
   if (srcPicks.get(key) !== pick) return;
   Object.assign(pick, r.status === 'ok' ? { status: 'ok', why: null, cands: r.cands } : { status: 'unread', why: r.why, cands: null });
   renderRequests();
@@ -552,7 +559,7 @@ async function previewSource(q) {
   pick.preview = { chosen: chosenAt, basis, status: 'loading', text: '見込みをチェーンから読んでいる…' };
   renderRequests();
   let plan;
-  try { plan = await planSend({ reader: rpcReader('/coop/rpc'), season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source }); }
+  try { plan = await planSend({ reader: rpcReader(at('/coop/rpc')), season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source }); }
   catch (e) { plan = { ok: false, why: `チェーンを読めない：${e.message ?? e}` }; }
   if (srcPicks.get(key) !== pick || pick.previewSeq !== seq || pick.chosen !== chosenAt || srcKey(q) !== key || W.connected()?.address !== c.address) return;
   // 読んでいる間に、依頼の中身（状態・届け先・量・世界・自分の答え）が変わったら、古い依頼で立てた見込みは出さない
@@ -577,7 +584,7 @@ async function sendOnce(q) {
   if (!use.ok) return say(`送れない：${use.why}`, 'warn');
   // （2026-11-17、同じ入口）送る前に、この入口のヘラルドの世界を読み直す。別の世界なら送らない（分からないときは、これまでどおり）
   if ((await readComposition()).state === 'different') return say(`送れない：${compositionText(composed, cfg)}`, 'bad');
-  const reader = rpcReader('/coop/rpc');
+  const reader = rpcReader(at('/coop/rpc'));
   say('送り元・道・番号をチェーンから読んでいます…');
   const plan = await planSend({ reader, season: cfg.season, wallet: c.address, request: q, cargo: resp.offer, source: use.source });
   // 計画を読んでいる間に、送る人・依頼・送り元の選択が変わったら、この計画は使わない（新しい選択に古い計画を当てない）
@@ -627,7 +634,7 @@ async function sendOnce(q) {
  * 成功したときだけ結び付ける。失敗・不一致・番号を取られた・期限切れなら、送り直せる。分からないままなら、板の記録が残るので次は送らない。
  */
 async function followSend(q, z, signature = null) {
-  const reader = rpcReader('/coop/rpc');
+  const reader = rpcReader(at('/coop/rpc'));
   const plan = { wallet: z.responder, caravan: z.caravan, src: z.src, dst: q.to, cargo: RESOURCES.map(r => z.cargo[r] ?? 0) };
   for (let i = 0; i < FOLLOW_TRIES; i++) {
     const o = await sendOutcome(reader, cfg.season, plan, { signature, walletSig: z.walletSig, blockhash: z.blockhash });
@@ -653,6 +660,7 @@ $('send').addEventListener('click', () => {
 });
 $('leave').addEventListener('click', () => post({ kind: 'leave', goalId }, 'この目的から抜けた。自分の依頼は取り消し、応じた答えは取り下げた。送った隊商はそのまま届く'));
 $('connect').addEventListener('click', connectWallet);
+$('wallet').addEventListener('change', () => { walletPicked = true; });
 $('nation').addEventListener('change', refresh);
 $('judge').addEventListener('change', refresh);
 

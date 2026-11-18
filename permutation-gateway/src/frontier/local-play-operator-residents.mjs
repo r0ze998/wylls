@@ -2,7 +2,7 @@
 //
 //   node permutation-gateway/src/frontier/local-play-operator-residents.mjs --count <1-4> \
 //     --relay-ports <p1,p2,…> --herald http://localhost:<world proxy port> --homes <runner ready-for-join JSON> \
-//     [--cadence-ms 6000] [--max-acts 60] [--max-refusals 12] [--min-gap-ms 4000]
+//     [--cadence-ms 6000] [--per-turn 2] [--turn-secs 600] [--max-acts <n>] [--max-refusals 12] [--min-gap-ms 4000]
 //
 // Started by local-play-launcher.mjs for a world opened with `--operator-residents <n>` (never over HTTP). What it does:
 //   1. makes <count> TEST ed25519 keys IN MEMORY ONLY (node:crypto; never written, never printed, gone with the
@@ -13,6 +13,11 @@
 //      decides by the fixed rule (local-play-operator-policy.mjs), and — within its budget — sends that ONE command
 //      with the PAGE'S OWN code (flocalplay-act.mjs `submitLocalAct`: context, the game's builder, one signature, one
 //      submit) to ITS OWN relay; then follows it by its signature (`followLocalAct`), never sending it again.
+//      The budget is per turn of the CHAIN's clock (`/h/status`, read once a round): `--per-turn` asks per resident
+//      per `--turn-secs` chain seconds (local-play-operator-policy.mjs OPERATOR_DEFAULTS: 2 per 600 s bell).
+//   4. (B12) a line that only repeats the resident's previous one (the same wait, the same "this turn is spent") is
+//      not printed again; a resident that is stopped for good is said once and then skipped; once EVERY resident is
+//      stopped for good the process prints its summary and exits 0 (the world goes on: it is a side process).
 // Every step is one JSON line on stdout (the launcher keeps it in the world's directory: operators.out).
 // Same rules as a person: no other route, no operator read, no clock control, no account write, no RPC of the runner.
 // No model, no network beyond 127.0.0.1, no paid API. SIGINT/SIGTERM: stops, prints a summary line, exits 0.
@@ -22,7 +27,7 @@ import { encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { parseTransaction, wireTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
-import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_DEFAULTS, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView } from './local-play-operator-policy.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_DEFAULTS, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, turnOf } from './local-play-operator-policy.mjs';
 
 const SPKI_ED25519_PREFIX = 12;   // (an ed25519 SPKI DER is 12 bytes of header, then the 32-byte public key)
 
@@ -82,7 +87,7 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'per-turn', 'turn-secs', 'max-acts', 'max-refusals', 'min-gap-ms'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   const count = Number(o.count);
@@ -93,23 +98,27 @@ export function parseArgs(argv) {
   const homes = JSON.parse(o.homes ?? 'null');
   if (!Array.isArray(homes) || !homes.length) throw new Error('--homes');
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
-  return { count, ports, herald: o.herald, homes, cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
+  const turnSecs = num('turn-secs', OPERATOR_DEFAULTS.turnSecs);
+  if (turnSecs < 1) throw new Error('--turn-secs');
+  return { count, ports, herald: o.herald, homes, cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), perTurn: num('per-turn', OPERATOR_DEFAULTS.perTurn), turnSecs,
+    maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
 }
 
 /**
- * One resident's one turn: read, decide, maybe send and follow. → the line to print. `deps` (tests): `read(wallet)`,
- * `submit(order, ctx)`, `follow(signature)`, `now()` (ms), `nowSecs()`.
+ * One resident's one round: its budget first (a resident with nothing to spend this turn reads nothing), then read,
+ * decide, maybe send and follow. → the line to print. `turn`: the chain turn of this round (`turnOf`), or null.
+ * `deps` (tests): `read(wallet)`, `submit(order, ctx)`, `follow(signature)`, `now()` (ms), `nowSecs()`.
  */
-export async function residentTurn(r, { homes, deps }) {
+export async function residentTurn(r, { homes, deps, turn = null }) {
   const t = deps.now();
+  const allow = r.budget.allow(t, turn);
+  if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.stopped ? 'stopped' : 'later', why: allow.why };
   let me;
   try { me = await deps.read(r.key.address); } catch (e) { return { resident: r.index, wallet: r.key.address, step: 'read', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 80) }; }
   const view = residentView(me, (kind, bytes) => decodePrefix(kind, bytes, { profile: 2 }));
   const d = decideNext(r.memory, view, { homes, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null };
   if (d.wait) { noteOutcome(r.memory, d, 'wait'); return { resident: r.index, wallet: r.key.address, step: 'decide', outcome: 'wait', why: d.why, seen }; }
-  const allow = r.budget.allow(t);
-  if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.later ? 'later' : 'stopped', why: allow.why, want: d.name, seen };
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
   const detail = r.lastRefusal ?? null; r.lastRefusal = null;
@@ -121,8 +130,26 @@ export async function residentTurn(r, { homes, deps }) {
     code = f.code ?? sent.relayCode ?? null;
   }
   noteOutcome(r.memory, d, outcome);
-  r.budget.spent(outcome, deps.now());
+  r.budget.spent(outcome, deps.now(), turn);
   return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, fields: JSON.parse(JSON.stringify(d.fields, (_, v) => (typeof v === 'bigint' ? v.toString() : v))), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), ...(signature ? { signature } : {}), seen, budget: r.budget.state() };
+}
+
+/**
+ * (B12) The log's filter: a line is printed unless it only repeats the same resident's previous printed line (the same
+ * step, outcome, reason and code — a wait, a "this turn is spent", a herald that does not answer). A send is always
+ * printed, and after one the next wait is printed again. `fresh(line)` → whether to print it.
+ */
+export function createQuietLog() {
+  const last = new Map();
+  return Object.freeze({
+    fresh(line) {
+      if (line?.step === 'act') { last.delete(line.resident); return true; }
+      const k = JSON.stringify([line?.step, line?.outcome, line?.why, line?.code ?? null, line?.seen ?? null]);
+      if (last.get(line?.resident) === k) return false;
+      last.set(line?.resident, k);
+      return true;
+    },
+  });
 }
 
 export async function main(argv = process.argv.slice(2), { print = s => process.stdout.write(`${s}\n`) } = {}) {
@@ -131,7 +158,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   const stop = new AbortController();
   for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(s, () => stop.abort(s));
   const residents = Array.from({ length: o.count }, (_, index) => ({ index, key: memoryTestKey(), port: o.ports[index], memory: createResidentMemory(index),
-    budget: createOperatorBudget({ maxActs: o.maxActs, maxRefusals: o.maxRefusals, minGapMs: o.minGapMs }), identity: null, rulesetHash: null }));
+    budget: createOperatorBudget({ perTurn: o.perTurn, maxActs: o.maxActs, maxRefusals: o.maxRefusals, minGapMs: o.minGapMs }), identity: null, rulesetHash: null }));
   residents.forEach(r => { r.signer = pageShapedSigner(r.key); r.origin = `http://127.0.0.1:${r.port}`; });
   print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address) }));
   // 2. each resident's own relay, pinned to its own wallet
@@ -159,17 +186,22 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     submit: (order, r) => submitLocalAct(order, { allowed: () => ({ ok: true, relay: r.origin }), identity: () => r.identity, rulesetHash: () => r.rulesetHash, signer: () => r.signer, post: postFor(r) }),
     follow: (signature, r) => followLocalAct(signature, { origin: r.origin, still: () => !stop.signal.aborted, post: postFor(r), tries: 20, every: 1000 }),
   };
-  let turns = 0;
+  let turns = 0, why = null;
+  const quiet = createQuietLog();
   while (!stop.signal.aborted) {
+    // (the chain's turn, once a round, for every resident's per-turn budget: unknown = nobody sends this round)
+    const chainTurn = turnOf(await deps.nowSecs().catch(() => null), o.turnSecs);
     for (const r of residents) {
       if (stop.signal.aborted) break;
-      const line = await residentTurn(r, { homes: o.homes, deps });
-      print(JSON.stringify({ at: new Date().toISOString(), turn: turns, ...line }));
+      if (r.budget.state().stopped) continue;   // (said once, when it stopped)
+      const line = await residentTurn(r, { homes: o.homes, deps, turn: chainTurn });
+      if (quiet.fresh(line)) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, chainTurn, ...line }));
     }
     turns++;
+    if (residents.every(r => r.budget.state().stopped)) { why = 'every resident is stopped for good'; break; }
     await delay(o.cadenceMs, stop.signal);
   }
-  print(JSON.stringify({ step: 'stopped', why: String(stop.signal.reason ?? 'stopped'), turns, residents: residents.map(r => ({ resident: r.index, wallet: r.key.address, budget: r.budget.state() })) }));
+  print(JSON.stringify({ step: 'stopped', why: why ?? String(stop.signal.reason ?? 'stopped'), turns, residents: residents.map(r => ({ resident: r.index, wallet: r.key.address, budget: r.budget.state() })) }));
   return 0;
 }
 

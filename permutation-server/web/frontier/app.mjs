@@ -18,7 +18,8 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // page; their logic is in screens/{report,practice,onboarding,spectate}.mjs
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
-import { localPlayRequested, openLocalPlayGate } from './flocalplay.mjs';
+import { localPlayRequested, localLauncherRequested, openLocalPlayGate } from './flocalplay.mjs';
+import { currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import { staleBannerView, rereadLabel } from './stale-banner.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
@@ -52,6 +53,7 @@ import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
+import { localCoopBoardOptions } from './hud/coopboard-local.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -4561,6 +4563,9 @@ export async function boot() {
   $('panel')?.addEventListener('scroll', e => { releaseRows(e.target); }, { capture: true, passive: true });
   // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
   globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
+  // (B13, TEST-ONLY: in a launcher world ①'s co-op board is the launcher's, under that world's mount, and its records
+  //  are signed with this page's memory-only key — hud/coopboard-local.mjs; elsewhere the board is looked for as before)
+  const coopOptions = cfg.localPlay ? localCoopBoardOptions({ herald: cfg.herald, handle: currentEphemeralWallet(), launcher: localLauncherRequested(cfg) }) : null;
   const herald = createHerald({ base: cfg.herald });
   rosterRef = createRoster({ base: cfg.herald ?? '', onChange: () => { mapRef?.invalidate(); invalidate('panel'); } });
   FS.roster = rosterRef;
@@ -4856,7 +4861,7 @@ export async function boot() {
         // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
         // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
         // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
-        if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel'), ...(coopOptions ?? {}) }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });

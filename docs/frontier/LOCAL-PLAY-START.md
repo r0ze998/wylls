@@ -148,6 +148,32 @@ command (refused without the demo):
   made the store about a sixth of its size. This has not been measured in a running world yet: measure first, as above.
   A world started with one word is never reopened with another word, or without it.
 
+### (5) Operator AI residents and the co-op board (TEST-ONLY)
+Two more options of the natural world's launcher (both TEST-ONLY):
+```bash
+--operator-residents 2 [--operator-per-turn 2]   # ⑤ option A: AI residents (natural preset only)
+--coop-board ws01-board-v1                         # ① the co-op board of each world
+```
+- **Operator residents** (`--operator-residents <1-4>`): each new world also gets that many AI residents. Each has its own
+  memory-only TEST wallet and relay, and Joins, places a home and uses the economy commands by a fixed offline rule,
+  through the same checks as a page. The page does not say which villages they are. So with this option the world is
+  **not** "no automatic opponent, nothing here is an AI" (contrast §3 (3)). Their roster is `operators.json` and their
+  log `operators.out` in the world's directory.
+  - **Pace** (`--operator-per-turn`, default **2**): each resident asks for at most that many commands per turn of the
+    chain's clock (one bell, 600 chain seconds), with no cap for the whole world, so residents keep playing until the
+    world ends. On a ×10 two-hour test world (about 120 turns) that is at most about 240 commands per resident; on 1×
+    (12 turns) at most 24. A resident stops for good only after 12 refusals in a row. Its log says a wait once, not
+    every round. (Before 2026-11-18 the budget was 60 commands per world, spent in about 20 turns: loop-play2 B12.)
+- **Co-op board** (`--coop-board ws01-board-v1`): workstream 01's board of requests between nations, for each world. The
+  launcher keeps it in its own process (records in the world's directory, `coop/`) and serves it on its own origin under
+  `/coop-world/<the world's proxy port>/`. The village card's co-op slot then opens 「国をまたぐ依頼を開く」 in a new
+  tab. That tab is offered **"Local Play Wallet (memory only) — co-op records only"**: the game tab's own key, which
+  there signs only ①'s board records (never a transaction). Choose it, press connect, and file or answer a request.
+  - Keep the game tab open: the board tab signs through it. Reloading the game tab makes a new key (as always in local
+    play), which is a different person to the board.
+  - Not in local play: sending a caravan from the board's page (the launcher passes no relay route there). Requests and
+    answers are records only. Nothing here moves resources.
+
 ### Then
 The page follows the browser's language; the top-right button switches Japanese ⇄ English. English labels in brackets
 (as the page showed them on 2026-11-15).

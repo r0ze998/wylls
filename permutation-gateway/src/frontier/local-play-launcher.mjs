@@ -35,6 +35,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
+import { COOP_BOARD_MODE, openWorldBoard, answerWorldBoard, coopRouteOf, coopTarget } from './local-play-coop-board.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, parseOperatorResidents, operatorRelayPorts, homesOf } from './local-play-operator-policy.mjs';
 const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
 const RULESET = '234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d';
@@ -509,12 +510,21 @@ export class WorldManager {
       //  so a second start of the same address, a list or a reconnect answers the same and nothing extends it)
       record.expiry = world.expiry ?? null;
       record.keeper = typeof world.keeper === 'function' ? world.keeper : null;
+      record.coop = world.coop ?? null;
       record.pairHerald = opts.second ? (world.pair?.second === opts.second && typeof world.pair.herald === 'string' ? world.pair.herald : null) : null;
       record.pairView = opts.second && typeof world.pairView === 'function' ? world.pairView : null;
       if (opts.second && record.pairHerald === null) { await world.stop(); throw fault('PairNotReady', 503); }
       return { herald: world.herald, ...(opts.second ? { pair: { role: 'first', mode: CONTEST_PAIR_MODE } } : {}), ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.captureDemo ? { captureDemo: world.captureDemo } : {}), ...(world.landPreview === true ? { landPreview: true } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
     }).catch(e => { forget(); throw e; });
     return record.promise;
+  }
+  /**
+   * (B13, TEST-ONLY `--coop-board`) The co-op board of the live world one of whose proxies listens on `port`, or null
+   * (no such world, one still starting or ending, or a launcher without the board).
+   */
+  coopFor(port) {
+    for (const w of this.worlds.values()) if (!w.stopping && w.herald && w.coop?.ports.includes(port)) return w.coop;
+    return null;
   }
   /** One world's keeper view (`keeperSummary`), named by its public address; none for a world still starting or ending. */
   async keeper(wallet) {
@@ -685,7 +695,7 @@ export async function startOperatorResidents({ n, dir, ports, rpc, herald, playe
   }
   if (stopping()) throw fault('WorldStopped', 503);
   if (!homes) throw fault('OperatorHomesUnknown', 503);
-  const paceArgs = Object.entries({ 'cadence-ms': pace.cadenceMs, 'max-acts': pace.maxActs, 'max-refusals': pace.maxRefusals, 'min-gap-ms': pace.minGapMs }).filter(([, v]) => Number.isSafeInteger(v) && v >= 0).flatMap(([k, v]) => [`--${k}`, String(v)]);
+  const paceArgs = Object.entries({ 'cadence-ms': pace.cadenceMs, 'per-turn': pace.perTurn, 'turn-secs': pace.turnSecs, 'max-acts': pace.maxActs, 'max-refusals': pace.maxRefusals, 'min-gap-ms': pace.minGapMs }).filter(([, v]) => Number.isSafeInteger(v) && v >= 0).flatMap(([k, v]) => [`--${k}`, String(v)]);
   launchSide('operators', process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-operator-residents.mjs'), '--count', String(n), '--relay-ports', ports.join(','),
     '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...paceArgs]);
   let first = null;
@@ -851,6 +861,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     //  is stopped by the same path as an unready one, never used with the default output in its place)
     if (HERALD_OUTPUT_MODES.includes(c.heraldOutput) && !heraldOutputRecorded(await fs.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8').catch(() => null), c.heraldOutput)) throw fault('HeraldOutputNotCompact', 503);
     await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : [])] }));
+    // (B13, TEST-ONLY `--coop-board`: ①'s co-op board for this world, in this process, its records in the world's own
+    //  directory; served on the launcher's origin under the mount of each of this world's proxies — local-play-coop-board.mjs)
+    const coop = c.coopBoard === true ? await (limit.openWorldBoard ?? openWorldBoard)({ dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null }) : null;
     // (TEST-ONLY operator residents, ⑤ option A: only on a natural world whose launcher was started with
     //  `--operator-residents <n>`; each is an ordinary participant — its own memory-only TEST wallet, funded like the
     //  player's, its own relay — and the page is told nothing about them: they are shown as any other resident is)
@@ -892,7 +905,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     const keeper = async () => { try { return keeperSummary(await runnerLines(dir)); } catch { return null; } };
     // (TEST-ONLY contest pair: the fort and nations the two players meet over, read only when a player asks)
     const pairView = second !== null ? async () => { try { return pairTargetSummary(await runnerLines(dir)); } catch { return null; } } : null;
-    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
+    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(coop ? { coop } : {}), ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
   } catch (e) { await stop(`startup-failed${e?.status && e.code ? `:${e.code}` : ''}`); throw e; }
 }
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm', '.txt': 'text/plain' };
@@ -921,6 +934,12 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
         if (url.pathname === '/local-play/keeper') return answer(res, 200, await manager.keeper(wallet));
         if (url.pathname === '/local-play/pair') return answer(res, 200, await manager.pair(wallet));
         return answer(res, 200, url.pathname === '/local-play/start' ? await manager.start(wallet) : await manager.stop(wallet));
+      }
+      // (B13, TEST-ONLY `--coop-board`: ①'s board of one live world, under that world's mount — local-play-coop-board.mjs)
+      const coopRoute = c.coopBoard === true ? coopRouteOf(url.pathname) : null;
+      if (coopRoute) {
+        const target = coopTarget(req.url); if (!target) throw fault('BadPath', 400);
+        return await answerWorldBoard(req, res, { entry: manager.coopFor(coopRoute.port), port: coopRoute.port, rest: coopRoute.rest, query: target.query, origin: `http://${req.headers.host}` });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw fault('MethodNotAllowed', 405);
       const moved = location => { res.writeHead(302, { ...SHIELD, 'content-security-policy': API_CSP, 'cache-control': 'no-store', location }); res.end(); };
@@ -995,11 +1014,18 @@ export const USAGE = `local-play launcher (this machine only)
        its own relay; they Join, PlaceHome and use the economy commands by a fixed offline rule, through the same
        routes and checks as a page. The page is not told which residents they are. Their relays take 4 more ports per
        world after the worlds' ten]
+    [--operator-per-turn <1-20>: TEST-ONLY, only with --operator-residents: how many commands each resident may ask
+       for per turn of the chain's clock (one bell, 600 chain seconds); without it 2. There is no cap for the whole
+       world: residents keep playing until the world ends]
+    [--coop-board ws01-board-v1: TEST-ONLY: each world also gets workstream 01's co-op board (requests between nations
+       and their answers, signed records; no resource moves), kept in this process with its records in the world's
+       directory and served on this launcher's origin under /coop-world/<the world's proxy port>/; the page signs its
+       records with its own memory-only key. No caravan is sent from the board's page here (no relay route)]
     [--port 41920] [--world-port 41924]
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-per-turn', 'coop-board']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -1040,10 +1066,15 @@ export async function parseConfig(args) {
   if (out['world-option'] !== undefined && out['world-option'] !== LAND_PREVIEW_OPTION) throw fault('InvalidWorldOption');
   if (out['world-option'] !== undefined && out['capture-demo'] === undefined) throw fault('WorldOptionNeedsCaptureDemo');
   if (operatorResidents !== undefined && !natural) throw fault('OperatorResidentsNeedNatural');
+  // (B12: the residents' pace, per turn of chain time; exactly a whole number 1-20, only with residents)
+  const perTurn = out['operator-per-turn'] === undefined ? undefined : (/^[1-9][0-9]?$/.test(out['operator-per-turn']) && Number(out['operator-per-turn']) <= 20 ? Number(out['operator-per-turn']) : null);
+  if (perTurn === null || (perTurn !== undefined && operatorResidents === undefined)) throw fault('InvalidOperatorPerTurn');
   if (operatorResidents !== undefined && Array.from({ length: span }, (_, i) => worldPort + i).includes(41970)) throw fault('InvalidPorts');
+  // (B13: the TEST-ONLY co-op board, asked for in exactly its one word)
+  if (out['coop-board'] !== undefined && out['coop-board'] !== COOP_BOARD_MODE) throw fault('InvalidCoopBoard');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(perTurn !== undefined ? { operatorPace: { perTurn } } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }

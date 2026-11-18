@@ -3,7 +3,7 @@
 // no network: the relay is its own validator (local-play-act.mjs localActSubmit) called in memory.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { memoryTestKey, pageShapedSigner, relayPost, residentTurn, parseArgs, chainSecondsOf } from '../src/frontier/local-play-operator-residents.mjs';
+import { memoryTestKey, pageShapedSigner, relayPost, residentTurn, parseArgs, chainSecondsOf, createQuietLog } from '../src/frontier/local-play-operator-residents.mjs';
 import { createResidentMemory, createOperatorBudget } from '../src/frontier/local-play-operator-policy.mjs';
 import { localActSubmit, LocalActError } from '../src/frontier/local-play-act.mjs';
 import { LOCAL_PLAY_SEASON_ID } from '../src/frontier/local-play-relay.mjs';
@@ -61,26 +61,48 @@ test('the relay post goes to the resident\'s own relay (no /gw prefix), the page
   await assert.rejects(post('http://127.0.0.1:41420', '/gw/f/local-play/march/submit', {}), e => e.code === 'BadLocalActPath');
 });
 
-test('one turn: read, decide, send within the budget, follow; a refusal is said as one', async () => {
+test('one turn: the budget first, then read, decide, send within the budget, follow; a refusal is said as one', async () => {
   const key = memoryTestKey();
-  const r = { index: 0, key, memory: createResidentMemory(0), budget: createOperatorBudget({ maxActs: 3, maxRefusals: 5, minGapMs: 0 }) };
-  const sent = [];
+  const r = { index: 0, key, memory: createResidentMemory(0), budget: createOperatorBudget({ perTurn: 2, maxActs: 3, maxRefusals: 5, minGapMs: 0 }) };
+  const sent = [], reads = [];
   let t = 1000;
-  const deps = { now: () => t, nowSecs: async () => 1_700_000_000, read: async () => ({ v: 1, citizen: null, holdings: [] }),
+  const deps = { now: () => t, nowSecs: async () => 1_700_000_000, read: async w => { reads.push(w); return { v: 1, citizen: null, holdings: [] }; },
     submit: async order => { sent.push(order); return { ok: true, signature: 'S1' }; }, follow: async () => ({ state: 'landed' }) };
-  const a = await residentTurn(r, { homes: [{ p: -1, q: 2, nation: 1 }], deps });
+  const a = await residentTurn(r, { homes: [{ p: -1, q: 2, nation: 1 }], deps, turn: 5 });
   assert.deepEqual([a.step, a.act, a.outcome, a.signature, a.fields.session_expiry], ['act', 'Join', 'landed', 'S1', String(1_700_000_000 + 30 * 86_400 - 600)]);
   assert.equal(sent[0].v.faction, 1);
   // the herald gives no answer: nothing is decided or sent
-  const b = await residentTurn(r, { homes: [], deps: { ...deps, read: async () => { throw new Error('down'); } } });
+  const b = await residentTurn(r, { homes: [], deps: { ...deps, read: async () => { throw new Error('down'); } }, turn: 5 });
   assert.deepEqual([b.step, b.outcome], ['read', 'no-answer']); assert.equal(sent.length, 1);
-  // a pre-send refusal (the page's own "not sent")
-  const c = await residentTurn(r, { homes: [], deps: { ...deps, read: async () => ({ v: 1, citizen: null, holdings: [] }), submit: async () => ({ ok: false, code: 'LocalActAlreadyJoined' }) } });
+  // a pre-send refusal (the page's own "not sent"): the turn's second ask
+  const c = await residentTurn(r, { homes: [], deps: { ...deps, submit: async () => ({ ok: false, code: 'LocalActAlreadyJoined' }) }, turn: 5 });
   assert.deepEqual([c.outcome, c.code], ['refused', 'LocalActAlreadyJoined']);
-  // out of budget: no send
-  r.budget.spent('landed', t); r.budget.spent('landed', t);
-  const d = await residentTurn(r, { homes: [], deps });
+  // this turn is spent: nothing is read or sent until the next one
+  const n = reads.length;
+  const w = await residentTurn(r, { homes: [], deps, turn: 5 });
+  assert.deepEqual([w.step, w.outcome, w.why], ['budget', 'later', "this turn's 2 asks are spent"]); assert.equal(reads.length, n);
+  // no chain clock: no turn, nothing sent
+  assert.equal((await residentTurn(r, { homes: [], deps, turn: null })).outcome, 'later');
+  // the world cap (only when set) is spent: stopped for good, said as such
+  r.budget.spent('landed', t, 6); r.budget.spent('landed', t, 6);
+  const d = await residentTurn(r, { homes: [], deps, turn: 7 });
   assert.deepEqual([d.step, d.outcome], ['budget', 'stopped']); assert.equal(sent.length, 1);
+});
+
+test('(B12) the log does not repeat a resident\'s same wait; a send is always said', () => {
+  const q = createQuietLog();
+  const later = { resident: 0, step: 'budget', outcome: 'later', why: "this turn's 2 asks are spent" };
+  assert.equal(q.fresh(later), true);
+  assert.equal(q.fresh({ ...later }), false);
+  assert.equal(q.fresh({ ...later, resident: 1 }), true);   // (another resident's own line)
+  assert.equal(q.fresh({ resident: 0, step: 'act', act: 'Harvest', outcome: 'landed' }), true);
+  assert.equal(q.fresh({ resident: 0, step: 'act', act: 'Harvest', outcome: 'landed' }), true);
+  assert.equal(q.fresh(later), true);                         // (after a send, the next wait is said again)
+  assert.equal(q.fresh({ ...later, why: 'too soon after the last send' }), true);
+  // 1200 rounds of the same wait print one line
+  let printed = 0;
+  for (let i = 0; i < 1200; i++) printed += q.fresh({ resident: 2, step: 'decide', outcome: 'wait', why: 'x', seen: { joined: true } }) ? 1 : 0;
+  assert.equal(printed, 1);
 });
 
 test("the Join's clock is the chain's as the herald saw it, never the local clock", () => {
@@ -90,12 +112,16 @@ test("the Join's clock is the chain's as the herald saw it, never the local cloc
 
 test('the command line: loopback herald only, a port per resident, at most four', () => {
   const ok = parseArgs(['--count', '2', '--relay-ports', '41420,41421', '--herald', 'http://127.0.0.1:41412', '--homes', '[{"p":1,"q":1,"nation":1}]']);
-  assert.deepEqual([ok.count, ok.ports, ok.cadenceMs], [2, [41420, 41421], 6000]);
+  assert.deepEqual([ok.count, ok.ports, ok.cadenceMs, ok.perTurn, ok.turnSecs, ok.maxActs], [2, [41420, 41421], 6000, 2, 600, null]);
+  const paced = parseArgs(['--count', '1', '--relay-ports', '41420', '--herald', 'http://127.0.0.1:41412', '--homes', '[{"p":1,"q":1,"nation":1}]', '--per-turn', '3', '--turn-secs', '60', '--max-acts', '500']);
+  assert.deepEqual([paced.perTurn, paced.turnSecs, paced.maxActs], [3, 60, 500]);
   for (const bad of [
     ['--count', '5', '--relay-ports', '1,2,3,4,5', '--herald', 'http://127.0.0.1:41412', '--homes', '[1]'],
     ['--count', '2', '--relay-ports', '41420', '--herald', 'http://127.0.0.1:41412', '--homes', '[1]'],
     ['--count', '1', '--relay-ports', '41420', '--herald', 'http://example.com:41412', '--homes', '[1]'],
     ['--count', '1', '--relay-ports', '41420', '--herald', 'http://127.0.0.1:41412', '--homes', '[]'],
     ['--count', '1', '--relay-ports', '41420', '--herald', 'http://127.0.0.1:41412', '--homes', '[1]', '--key', 'x'],
+    ['--count', '1', '--relay-ports', '41420', '--herald', 'http://127.0.0.1:41412', '--homes', '[1]', '--turn-secs', '0'],
+    ['--count', '1', '--relay-ports', '41420', '--herald', 'http://127.0.0.1:41412', '--homes', '[1]', '--per-turn', '-1'],
   ]) assert.throws(() => parseArgs(bad), String(bad));
 });

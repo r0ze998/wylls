@@ -84,6 +84,7 @@ permutation-gateway/test/web-chainio.test.mjs
 permutation-gateway/test/web-frontier-agent.test.mjs
 permutation-gateway/test/web-frontier-chainio.test.mjs
 permutation-gateway/test/web-frontier-controller.test.mjs
+permutation-gateway/test/web-frontier-coopboard-local.test.mjs
 permutation-gateway/test/web-frontier-delegation.test.mjs
 permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs
 permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs
@@ -172,6 +173,7 @@ permutation-gateway/test/frontier-conquest-v2-cli-report.test.mjs
 permutation-gateway/test/frontier-expedition-prepare.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
+permutation-gateway/test/frontier-local-play-coop-board.test.mjs
 permutation-gateway/test/frontier-local-play-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-natural.test.mjs
 permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs
