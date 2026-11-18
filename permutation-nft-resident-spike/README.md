@@ -1,5 +1,7 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
+> **再開（2026-11-18 18:26 JST、所有者の決定）：devnet とローカルだけ。** 下の「終了」（同日 14:42 の決定、#37）を ⑳ について置き換える。NFT の住民 ID を `nft-experimental` の内側で実装する：遊べるローカルの lane `localnet-nft-sbf`（`scripts/build-frontier-localnet-nft-sbf.sh`、版 `0xC804`）と、devnet の dry-run の `--nft-resident`（送信の門は閉じたまま）。本番の発行、販売、価格、ロイヤリティはしない。配備、鍵、SOL は使わない。未決の U 項目は、コードと文書が寄っている保守的な既定値で動かす（`frontier-abi/src/resident_terms.rs`）。どれも所有者の決定ではない：譲渡は可（U7、B 案。`nft-resident-no-transfer` で譲渡不可）、非公開の会話と AI の記憶は持ち越さない（U8・U9）、投票資格の起点は住民に残す（U5）、預かり物と債務は住民と共に移る（U17）。
+
 > **終了（遊べる版の範囲外）。所有者の決定 2026-11-18**：遊べる版では NFT を使わない（⑳ A）。住民 ID は、譲渡できない普通のアカウント（財布の Citizen）のまま。
 > - 理由：住民の売買・譲渡には法務確認が要り、U1〜U34（`docs/UNDECIDED.ja.md`）が未決。
 > - 再開の条件：所有者の新しい決定。再開するなら B（ローカルだけで「譲渡できる住民」を試す。お金は使わず、devnet にも出さない）から始め、先に U9（譲渡で記憶を持ち越すか）を決める。

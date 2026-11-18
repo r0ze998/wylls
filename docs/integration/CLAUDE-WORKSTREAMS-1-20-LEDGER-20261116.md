@@ -35,10 +35,10 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 | ⑭ | central tower | pushed 11-08; stage value always 0 in production | 45da6d38 (11-08) | records in canonical | — |
 | ⑮ | coop outcomes (evaluator) | branch ws/15-coop-outcomes (10-30); long-run.json changed in the WIP | bcc63a24 (11-15, WIP) | records in canonical | — |
 | ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded |
-| ⑰ | settlement / prize (x402, USDC) | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | preserve/ws17-0c80381d | not integrated; closed, not pursued | **restricted as a whole** (prize, funds) |
+| ⑰ | settlement / prize (x402, USDC) | **Reopened 2026-11-18 by owner; devnet/test-USDC only; mainnet needs legal review** (18:26 JST; supersedes the 14:42 closure and PR #37's note) — settlement windows behind feature `epochs`, see the dated section at the end | preserve/ws17-0c80381d; grok/ws17-prize (draft PR) | epoch pools implemented and tested locally (LiteSVM); local stack only, OFF by default; not deployed | real-money prize, mainnet: **restricted** (legal review first) |
 | ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | origin/fix/ws18-clippy-hostile-20261103 @ 0bba3f31 (11-03; = preserve/ws18-4fbe0c77 + clippy fix) | **in main**: all 17 commits applied as one delta in 6b670edb (2026-11-03), patch-id identical per file (2026-11-18 check, see section below) | — |
 | ⑲ | MagicBlock and public RPC | **Integrated; ER lane not adopted (2026-11-18)** — see the dated section at the end | archive/ws19-er-candidate-20261108 (0c2214d5) | findex/verify parts in main (6b670edb, 668e9b66…); consistency tests ported 2026-11-18; frontier-er ER candidate obsolete (O8) | public network: nothing sent |
-| ⑳ | NFT resident ID and authorization | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | — | not integrated; closed, not pursued | **restricted as a whole** (NFT) |
+| ⑳ | NFT resident ID and authorization | **Reopened 2026-11-18 by owner; devnet/local only** (18:26 JST, supersedes the 14:42 closure of #37): implemented behind `nft-experimental` in the playable localnet lane `localnet-nft-sbf` and the devnet dry-run (`--nft-resident`); no mainnet issuance, no sale — see the section "⑳ NFT resident ID reopened" at the end | grok/ws20-nft-resident | local play check on the real SBF lane passes; devnet not deployed | undecided U-items run on conservative defaults (`frontier_abi::resident_terms`), blocked on r0ze |
 
 ## The ordinary game lane (separate from ①–⑳): first playable vs full
 - **First playable (ordinary wallets, local test world)** critical path, from
@@ -597,6 +597,8 @@ only the allowed confirmation of already-submitted work remains within that boun
 
 ### 2026-11-18 JST — ⑰ prize and ⑳ NFT resident ID closed (out of scope for the playable version)
 
+> **⑰ superseded the same day (18:26 JST):** ⑰ was reopened by the owner — see "2026-11-18 JST (18:26) — ⑰ prize reopened" below. The ⑳ part of this section stands.
+
 Owner decision (r0ze, 2026-11-18 14:42 JST). This is a documentation-only status change: no code, feature flag or
 `preserve/*` branch was deleted or changed. Earlier sections above stay as historical records; where they say ⑰ and ⑳
 "cannot be completed under the current restrictions", read that as "closed, out of scope for the playable version".
@@ -653,6 +655,62 @@ Run ws19-integrate (branch `grok/ws19-integrate` from main 28ef2f02). Code wins 
   ER work is **not required** for it. The MagicBlock SDK and delegation tests on main belong to the older
   `permutation-chain` program (Sept 2026), not to Frontier.
 
+## 2026-11-18 JST (18:26) — ⑰ prize reopened: settlement windows, devnet/test USDC only
+
+**Reopened 2026-11-18 by owner; devnet/test-USDC only; mainnet needs legal review.** This owner decision (r0ze,
+2026-11-18 18:26 JST) supersedes the 14:42 decision "⑰ A: none" and the closure note of PR #37 (section "⑰ prize and ⑳
+NFT resident ID closed" above, whose ⑰ part is now historical). A real-money prize on mainnet needs a legal review
+first; nothing here deploys, spends SOL or uses a key.
+
+- **What was built** (branch `grok/ws17-prize`, draft PR): `permutation-prize` feature `epochs` (OFF by default) adds
+  epoch pools: InitEpochPool, EpochTally, EpochFinalize and Sweep. Shares, claims and the operator's part reuse the
+  legacy instructions. The numbers are the owner's: 25 test USDC per entry, 80% prize, 20% operator. Design and OSS
+  comparison: [`docs/frontier/payments/X402-PRIZE-EPOCHS.md`](../frontier/payments/X402-PRIZE-EPOCHS.md)
+  ([JA](../frontier/payments/X402-PRIZE-EPOCHS.ja.md)).
+- **Wiring:** `frontier-stack up --conquest --continuous --prize-so <epochs .so> --prize-epochs` (local stack only), the
+  relay's `--prize-epoch N` (localnet/devnet only; the mainnet USDC mint is refused), and the devnet dry run's
+  `--with-prize` (plan only, never sent). The local-play launcher is **not** wired.
+- **Provisional defaults pending the owner** (listed in the doc §5): entry per window; a keep taken after the close
+  counts for nobody; a tie is shared equally; the unclaimed rest rolls into a later window; 14-day windows with a 7-day
+  claim window.
+- ⑮ is unchanged (titles and chronicle, no prize effect).
+- **Owner decisions 2026-11-18 21:44 JST (t353u, "keep the current defaults"):** entry per window; the unclaimed
+  rest rolls into the next window; a tie is shared equally; the prize covers maps of ring ≤ 17 only; **no AI residents
+  in paid periods**; devnet/local test USDC only, and mainnet needs a legal review. The last rule is enforced on chain:
+  the season's join-gate key marks every invite-joined (operator-run) wallet with ExcludeWallet, and epoch-pool Pay
+  and Claim refuse marked wallets (`OperatorMember`). The relay marks before it co-signs an invite join, and the
+  local-play launcher refuses `--prize-epochs` (with ⑤A/⑤B residents: `AiResidentsInPaidWindow`). Limit: an outside AI
+  (⑤B) that pays like a person cannot be told apart on chain. Still open: keeps taken after the close (counted for
+  nobody), the window length (2,016 bells by default), and paid joining between windows.
+
+## 2026-11-18 JST — ⑳ NFT resident ID reopened (devnet/local only)
+
+Owner decision (r0ze, 2026-11-18 18:26 JST), authoritative: implement ⑳ NFT resident ID for local and devnet
+builds only. No mainnet issuance, no sale, price or royalties, no deploy, keys or SOL. This **supersedes** the 14:42
+closure recorded in the section above (PR #37) for ⑳ only; ⑰ prize stays closed (as written by ws20; the same 18:26 decision also reopened ⑰, see the ⑰ section just above — merge note, verify-pr54 round 4). Run `ws20-nft-resident`, branch
+`grok/ws20-nft-resident`.
+
+- **Status: Reopened 2026-11-18 by owner; devnet/local only.**
+- **Playable localnet lane with NFT residents:** `permutation-frontier` feature `localnet-nft-sbf`
+  (= `localnet-conquest-sbf` + `nft-experimental`), version `0xC804` (the lane's `0x4804` plus the resident bit,
+  `expedition_dispatch_ix::RESIDENT_PROGRAM_VERSION`, provisional), built only by
+  `scripts/build-frontier-localnet-nft-sbf.sh` (markers `PSF_LOCALNET_EXPEDITION_SBF_BUILD`,
+  `PSF_LOCALNET_CONQUEST_SBF_BUILD`, `PSF_LOCALNET_NFT_SBF_BUILD`, `PSF_NFT_EXPERIMENTAL_BUILD`; never deployable).
+  The plain lane keeps `0x4804`; each lane refuses the other's Seasons.
+- **Devnet candidate:** `scripts/build-frontier.sh --features nft-experimental` (marker
+  `PSF_NFT_EXPERIMENTAL_BUILD`, `deployable no`); `node scripts/devnet/dry-run.mjs --nft-resident` plans it and keeps
+  the send gate closed. The plain build and the default dry-run refuse both NFT markers. The nft-experimental build
+  can now run the real CreateSeason for its own version `0x8004` (`proc/season.rs` `range_view`).
+- **Undecided items:** conservative defaults in `frontier-abi/src/resident_terms.rs` (mirrored by
+  `permutation-gateway/src/frontier/resident-terms.mjs`): transfer allowed (U7, option B; feature
+  `nft-resident-no-transfer` makes residents soulbound), private talk and AI memory not carried (U8/U9), voting start
+  kept by the resident (U5), obligations moved with the resident (U17), sealed information hidden until its public
+  time (U10), several residents per wallet (U31), no migration of wallet Citizens (U6/U38), no sale (U1/U20/U24/U30).
+  None is an owner decision; each is listed as a question for r0ze in `reports/ws20-nft-resident.md`.
+- **Not done:** the local-play launcher, its runner and the keeper's expedition prepare tools still pin `0x4804`, so
+  the NFT lane is exercised by the localnet harness (`itest --features localnet-nft-harness --test
+  localnet_nft_resident`), not by a browser world; the resident program and Metaplex Core are not built or deployed;
+  the devnet candidate's `.so` (1,450,496 B at bf3f85d4, verify-pr53) is over the S1 L(kind) cap (1,441,792 B) of the devnet profile.
 
 ### 2026-11-18 JST — ⑱ integration check (ws18-integrate)
 

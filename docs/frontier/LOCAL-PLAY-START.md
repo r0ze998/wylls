@@ -4,12 +4,16 @@ This page says how to build and start the local-play launcher from a clone of th
 the two modes shows on screen, and what is not done yet. Every step here comes from the sources in this repository.
 A start from a fresh clone on a new machine has **not** been run end to end yet.
 
+**Shortcut:** `scripts/play-local.sh` does §1's checks and §2's builds (land-preview lane), then starts a kept world
+(§3 (1) with (5): `--continuous` + `--persist`; `--resume` reopens it) or, with `--demo`, §3 (2)'s capture demo, in one
+command; see [PLAY-LOCAL.md](PLAY-LOCAL.md) / [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md).
+
 Two modes, never mixed:
 
 | | (1) Natural world | (2) Capture demo (TEST-ONLY) |
 |---|---|---|
 | Clock | real time: a turn is 600 s | after your home, compressed ×10–×60 (`--demo-scale`) |
-| Other villages | none; you are alone (unless operator AI residents are added, §3 (5)) | test participants, each with its own in-memory key (and residents, §3 (5)) |
+| Other villages | none; you are alone (unless operator AI residents are added, §3 (6)) | test participants, each with its own in-memory key (and residents, §3 (6)) |
 | Rules | the program's rules | the same rules; nothing is changed |
 | On screen | always the session notice | also a fourth line: 「この世界は試験用の攻略デモです…」 |
 | What it can show | home, economy, army, an ordinary march | also the next ring opening, the fort list, a march onto a fort and its hold count |
@@ -68,8 +72,27 @@ scripts/build-frontier-localnet-conquest-sbf.sh
   `wide-world-experimental` refuses:
   `(cd frontier-node && cargo build --locked -p herald --features local-play-bootstrap,wide-world-experimental --bin frontier-herald)`.
 
+### 2a. ⑳ NFT resident ID lane (owner decision 2026-11-18 18:26 JST: devnet/local only, no sale)
+Reopened 2026-11-18 by owner; devnet/local only. A separate artefact of the same lane with the NFT resident
+instructions (`nft-experimental`: CreateResidentPolicy 0xE0, JoinResident 0xE1, ResidentAct 0xE2):
+
+```bash
+# writes permutation-frontier/target/deploy-localnet-nft-sbf/permutation_frontier.so (version 0xC804; never deployable)
+scripts/build-frontier-localnet-nft-sbf.sh
+# the local play check on that artefact (an NFT resident and a wallet player in one world, then a transfer)
+(cd frontier-node && WYLLS_NFT_SBF=$SO WYLLS_NFT_SBF_SHA256=$SHA \
+  cargo test --locked -p itest --features localnet-nft-harness --test localnet_nft_resident -- --nocapture)
+```
+
+- The launcher (§3) does **not** start this artefact yet: its runner, herald metadata check and the keeper's
+  expedition prepare tools accept only version `0x4804`. The NFT lane's Seasons are `0xC804`.
+- Metaplex Core and the resident program are not run locally: the harness writes the asset and the resident record
+  in the state their instructions leave (`frontier-node/crates/itest/tests/localnet_nft_resident.rs`, module doc).
+- The undecided items run on the defaults of `frontier-abi/src/resident_terms.rs` (not owner decisions).
+
 ## 3. Start
-Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret). Put each path in
+Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret, except with
+`--persist`, §3 (5), which also keeps each world's two TEST operator keys there, in private 0700/0600 directories and files). Put each path in
 a shell variable first, as absolute paths:
 - `ROOT`: the repository root;
 - `DATA`: the records directory;
@@ -119,10 +142,17 @@ Add one more word to the capture demo command above (it is refused without the d
   not set the contest up (then end it and start a new world).
   - The page shows this only for the second player of a pair, only for the world it started in, and only before that
     world's end. Any other answer is not shown.
-- **Defending:** the fort's own nation sees its fort in the fort list as 「守りに向かう」 while another nation is counting on
-  it. A host of the holding nation that stays on the fort's tile breaks the count (the program's own rule).
+- **Defending:** the fort's own nation sees its fort as 「守りに向かう」 while another nation is counting on it: in the
+  host's fort list (「砦へ進軍」 on the host's bar), and in 「国と領土」 under its own heading
+  「他国が占拠を進めている、あなたの国の砦」, apart from the other nations' forts. A host of the holding nation that stays
+  on the fort's tile breaks the count (the program's own rule).
 - **Ending:** one Ctrl-C (or the end of the world's time) ends the world for **both**. Each person then closes their own
-  tab, which discards that tab's key. Use `--world-ttl-minutes 45` for a short trial.
+  tab, which discards that tab's key. A page whose world the launcher has ended says so once its next read of the
+  world fails and the launcher (still running) answers that it no longer runs that world: the turn dial stands at the
+  last turn the world reported (「ターン N · 終了済み」) and the banner reads 「この世界は終了しました。…」. If the launcher
+  itself is gone (Ctrl-C), the page cannot confirm the end and says only that it cannot connect. After a confirmed end
+  the far-village card no longer raises its own "could not be read (network)" with a Retry; a panel that reads
+  something else of the world may still say that its own read failed. Use `--world-ttl-minutes 45` for a short trial.
 - **What is not natural:** the clock is the demo's compressed clock and the other villages are test participants, as
   in (2). At ×30 a turn is 20 s, so the 72-turn hold takes 24 minutes: it fits a 45-minute world only when the hold
   starts early (a trial on 2026-11-14 completed the capture at turn 84 after a hold that began at turn 13).
@@ -148,15 +178,55 @@ command (refused without the demo):
   made the store about a sixth of its size. This has not been measured in a running world yet: measure first, as above.
   A world started with one word is never reopened with another word, or without it.
 
-### (5) Operator AI residents and the six-nation recording (TEST-ONLY)
+### (5) A world that does not end, and that survives a stop and a reload (TEST-ONLY, NOT FOR PRODUCTION)
+Add one or both words to the natural command of (1). Both are refused with the capture demo (its compressed clock
+cannot be resumed) and off the natural preset:
+```bash
+--continuous local-continuous-v1 --persist local-persist-v1
+```
+- **`--continuous local-continuous-v1`:** the world's Season is the program's continuous preset `S1_LOCAL_CONTINUOUS`
+  (the same parameters as `S1_LOCAL_7D`, no end bell, joins always open, `EndSeason` refused by the program). The page
+  shows that the world does not end. The launcher's own limits (`--world-ttl-minutes`, output, disk) still stop the
+  world's processes.
+- **`--persist local-persist-v1`:** each player's world lives in `DATA/persist/<the page's public address>/`, a private
+  directory (0700):
+  - `run/`: the chain's ledger and its last two snapshots, `world.json`, and the world's two operator keys
+    (`keys/upgrade.seed`, `keys/payer.seed`: TEST keys of this disposable chain, files 0600 in 0700 directories);
+  - `herald/`: the herald's checkpoint and archive;
+  - `starts/<n>/`: the logs of each start.
+- **A stop keeps it:** Ctrl-C, the end of the world's time, or the page's end of a world stops the processes and keeps
+  the directory. The next start for the same address **resumes** the world: the runner re-opens its chain from the
+  ledger (every re-executed transaction must repeat its recorded outcome). It refuses another address, another artefact
+  (`--artifact-sha`), the other `--continuous` choice, a missing ledger, a symbolic link, and a key file or directory
+  that another user may read (mode looser than 0600/0700). The world's clock stands still while it is stopped.
+- **The page keeps its key:** the page is addressed with `persist=local`. Only then it keeps its test key in this
+  browser's IndexedDB as a **non-extractable** WebCrypto Ed25519 key (`extractable = false`: no script can read or
+  export it, but a script of the page can sign with it while the page is open), and its march book (the sealed
+  marches' reveal halves) encrypted with a non-extractable AES-GCM key. A reload, or closing and reopening the
+  browser, returns to the same address, world and village. The panel's 「このブラウザに保存した試験用の鍵を消す」
+  [Delete the test key kept in this browser] deletes it; the world's directory stays with the launcher until you
+  delete it yourself (the launcher never deletes anything).
+- **With `--operator-residents <n>`:** the residents' TEST keys are kept in `operator-keys/` (0700, one 0600 file each) of
+  the same directory, so a resumed world has the same residents and villages (without `--persist` they stay memory-only).
+- **What is private:** the wallet's directory, `run/`, `keys/`, `operator-keys/` and `starts/` are 0700, and the key files
+  are 0600. The herald's records, the ledger, the snapshots and the logs keep their default modes (0755/0644): they are no
+  keys, and they sit inside the 0700 wallet directory.
+- **Not for production:** a key a page script can use is acceptable only for a disposable local test chain. Never use
+  this with a key of any public cluster.
+- **Checked (2026-11-18, ws08-p1p2):** start, Join and PlaceHome, a reload (the same village), Ctrl-C of the launcher,
+  a new launcher, the same browser profile: the world resumed with the same village, and a build signed by the kept key
+  landed on the resumed chain. Disk: a continuous world's ledger grows with every turn; the launcher's 128 MiB output
+  limit counts the whole directory and stops the world when it is reached.
+
+### (6) Operator AI residents and the six-nation recording (TEST-ONLY)
 Natural preset only, and never set over HTTP. Add one of these:
 ```bash
 --operator-residents 3                 # 1-4 residents; their nations are fixed: 1, 4, 2, 5
---operator-nations 1,4,2,5,0,3         # one resident per named nation, up to six (6 relay ports per world)
+--operator-nations 1,4,2,5,0,3         # one resident per named nation, up to six (6 relay ports per world); not with --persist
 --operator-max-acts 400                # optional: each resident's send budget (default 60)
 ```
-Each resident is an ordinary participant. It has a memory-only TEST key, is funded like the player, and has its own
-relay. It joins, places a home and uses the economy commands by a fixed offline rule
+Each resident is an ordinary participant. It has a memory-only TEST key (kept on disk only in a `--persist` world,
+§3 (5)), is funded like the player, and has its own relay. It joins, places a home and uses the economy commands by a fixed offline rule
 (`permutation-gateway/src/frontier/local-play-operator-policy.mjs`). It never marches. The page is not told which
 residents are AI. `scripts/demo/sixnation/sixnation.sh` starts a world with all six nations and records it
 (see its README, EN and 日本語). With the capture demo, let the residents place their homes before the player does:
@@ -178,7 +248,8 @@ The page follows the browser's language; the top-right button switches Japanese 
 5. On the demo only: once the next ring is open, the guide offers 「届く砦を見る」 and the fort list 「届く砦」.
    A march onto a fort starts its hold count, 「…争奪中 N/72ターン」.
 6. To stop, press Ctrl-C in the launcher's terminal. It ends every world of that launcher.
-7. Then close that world's browser tab. Ctrl-C alone does not remove the page's memory-only key from the browser;
+7. (With `--persist`, §3 (5), the key is KEPT in this browser across tab and browser close until the panel's delete
+   key; the rest of this step is for the memory-only key.) Then close that world's browser tab. Ctrl-C alone does not remove the page's memory-only key from the browser;
    closing the tab discards it. Close only the tab you opened for this world and leave every other tab alone. A key
    in a tab left open is gone only when that tab closes, and that cannot be confirmed from outside it.
 

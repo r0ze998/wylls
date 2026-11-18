@@ -1,8 +1,20 @@
 # play2-land ops (fail-closed starter, guard, watchdog)
 
 **This is not permission to start a world.** Starting the play2-land launcher needs the owner's explicit go, each time.
-These files have **not been run against a real launcher or world**: only against dummy processes (tests below). The
-real arm → exec → launcher path is unverified.
+The real arm → exec → launcher path has been run: loop-play (e328c8ed, with the fix that became #35) reached a capture
+through this starter, and loop-play2 (de781916, 2026-11-18) through a copy of it (other ports, operator residents; see
+below). The guard's SIGINT (free disk under the floor, loop-play) and the launcher's close path were observed. Each
+run's report is outside this repository; this file does not record them.
+
+Two limits of the starter as written (seen in loop-play2):
+- **One launcher per machine.** The "no other launcher" check matches any real launcher, even one on other ports.
+  A second world on this machine needs a copy of the starter whose check names its own port.
+- **No operator AI residents.** The launcher itself has them (`--operator-residents <1-4>`), but this starter does not
+  pass the flag, and its fixed ports (`--port 41960 --world-port 41964`) cannot carry it: with residents the launcher
+  refuses any world span that contains port 41970 (`InvalidPorts`), and the span from 41964 (10 ports, 18 with the
+  residents' relays) contains it. The same holds for `--external-residents`. loop-play2 used a copy on 41000/41004
+  with `--operator-residents 2`. For a play-check with AI residents and no outer guard or watchdog, use
+  `scripts/play-local.sh --ai <0-4>` (default port 41920; no contest pair).
 
 What a run would be: a TEST-ONLY local world on a synthetic clock (×10) — the capture demo with the land preview and the
 contest pair, two ordinary memory-only test wallets. Not natural speed, not production. No NFT, transfer, session guard,

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { homeNation, ringProvinces, wedgeOf, PLACEMENT_DISPERSED } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { homeNation, ringProvinces, wedgeOf, PLACEMENT_DISPERSED, PLACEMENT_MIXED } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { homeSites, planHomes, seasonPlace } from '../../permutation-server/web/frontier/home.mjs';
 
 const seed = n => new Array(32).fill(n);
@@ -56,7 +56,7 @@ test('seasonPlace: legacy fields keep the wedge rule but dispersed evidence is r
 
 
 test('missing dispersed seed and unknown modes never offer wedge fallback homes', async () => {
-  for (const fields of [{placement: 1}, {placement: 1, genesisSeed: [1]}, {placement: 2, genesisSeed: seed(1)}]) {
+  for (const fields of [{placement: 1}, {placement: 1, genesisSeed: [1]}, {placement: 3, genesisSeed: seed(1)}]) {
     const place = seasonPlace({conquestParams: fields});
     assert.notEqual(place, undefined);
     assert.equal(homeNation(2, 0, place), null);
@@ -79,4 +79,20 @@ test('legacy ticket planning agrees inside dispersed heartland and preserves ext
   }
   const unavailable = await planTicket({place:{placement:1},read:async()=>{throw Error('must not read');}});
   assert.deepEqual(unavailable,{ok:false,why:'readfail',reads:0,full:[]});
+});
+
+// ⑧ wide land (i): placement 2 mixes the keeps of every ring with the dispersed formula (permutation-rules
+// home_nation_mixed_extends_the_dispersed_rule_to_every_ring); first villages are still placed by the dispersed rule.
+test('placement 2: the dispersed formula on every ring (no wedge past the heartland); first homes as placement 1', () => {
+  assert.equal(PLACEMENT_MIXED, 2);
+  const mixed = { placement: PLACEMENT_MIXED, heartlandMaxRing: 3, genesisSeed: seed(1) };
+  for (let d = 2; d <= 10; d++) {
+    const ring = ringProvinces(d), n = ring.map(x => homeNation(x.p, x.q, mixed));
+    ring.forEach((x, i) => assert.equal(n[i], homeNation(x.p, x.q, { ...place, heartlandMaxRing: d }), `ring ${d}`));
+    for (let f = 0; f < 6; f++) assert.equal(n.filter(x => x === f).length, d);
+    n.forEach((x, i) => assert.notEqual(x, n[(i + 1) % n.length]));
+  }
+  assert.equal(homeNation(0, 0, mixed), null);
+  for (const x of ringProvinces(1)) assert.equal(homeNation(x.p, x.q, mixed), wedgeOf(x.p, x.q));
+  assert.deepEqual(seasonPlace({ conquestParams: { placement: 2, heartlandMaxRing: 3 }, genesisSeed: seed(1) }), place, 'the first-home rule of placement 2 is the dispersed one');
 });

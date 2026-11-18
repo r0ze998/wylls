@@ -549,6 +549,18 @@ impl WideRulesConfig {
     }
 }
 
+/// Whether a keep-holder candidate may be configured for a Season of the
+/// given conquest-block `placement` (⑧ wide land (i), owner decision
+/// 2026-11-18): under `geometry::PLACEMENT_MIXED` every disk ring's keep
+/// already starts with `mixed_home_nation`'s nation, so the wide land must
+/// use the same function ([`KeepHolderRule::MixedInterleaved`]) and no rule
+/// switches at ring 128/129. Other placements keep every candidate (the
+/// configuration stays the experiment it was).
+pub const fn keep_holder_allowed(placement: u8, rule: KeepHolderRule) -> bool {
+    placement != permutation_rules::frontier::geometry::PLACEMENT_MIXED
+        || matches!(rule, KeepHolderRule::MixedInterleaved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1069,5 +1081,26 @@ mod tests {
             try_open(ProvinceCoord::new(7, 0), 0, 3, 5, &big, 9),
             Err(KeepError::TroopsAboveCap)
         );
+    }
+
+    /// ⑧ wide land (i): a placement-2 Season admits only the mixed keep
+    /// holder; placements 0 and 1 admit both candidates.
+    #[test]
+    fn a_mixed_placement_season_takes_only_the_mixed_keep_holder() {
+        use permutation_rules::frontier::geometry::{
+            PLACEMENT_DISPERSED, PLACEMENT_MIXED, PLACEMENT_WEDGE,
+        };
+        assert!(keep_holder_allowed(
+            PLACEMENT_MIXED,
+            KeepHolderRule::MixedInterleaved
+        ));
+        assert!(!keep_holder_allowed(
+            PLACEMENT_MIXED,
+            KeepHolderRule::OrbitBalanced
+        ));
+        for p in [PLACEMENT_WEDGE, PLACEMENT_DISPERSED] {
+            assert!(keep_holder_allowed(p, KeepHolderRule::MixedInterleaved));
+            assert!(keep_holder_allowed(p, KeepHolderRule::OrbitBalanced));
+        }
     }
 }

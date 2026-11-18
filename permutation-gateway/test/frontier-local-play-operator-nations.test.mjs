@@ -56,6 +56,11 @@ test('the launcher: --operator-nations and --operator-max-acts, TEST-only, natur
   await refused({ ...base, 'operator-nations': '1', 'operator-max-acts': '10000' }, 'InvalidOperatorResidents');
   const { 'world-preset': _p, 'natural-runner': _n, ...notNatural } = base;
   await refused({ ...notNatural, 'operator-nations': '0,1,2,3,4,5' }, 'OperatorResidentsNeedNatural');
+  // (⑧ P2's --persist keeps the residents' keys by index: a nation list is refused there; the fixed four are not)
+  await refused({ ...base, 'operator-nations': '0,1', persist: 'local-persist-v1' }, 'InvalidOperatorResidents');
+  assert.equal((await parseConfig(argv({ ...base, 'operator-residents': '2', persist: 'local-persist-v1' }))).operatorResidents, 2);
+  // (⑰ owner decision t353u: no AI residents in paid periods — the nation list is named by that refusal as the count is)
+  await refused({ ...base, 'operator-nations': '0,1', 'prize-epochs': 'on' }, 'AiResidentsInPaidWindow');
   // (two worlds × (5 + 6) = 22 ports from --world-port: 41980 would run past 41999; 41950 would cross 41970)
   await refused({ ...base, 'operator-nations': '0', 'world-port': '41980' }, 'InvalidPorts');
   await refused({ ...base, 'operator-nations': '0', 'world-port': '41950', port: '41940' }, 'InvalidPorts');

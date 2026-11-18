@@ -735,12 +735,12 @@ fn home_rule_of(
     coord: ProvinceCoord,
 ) -> Option<(u8, u8)> {
     use permutation_rules::frontier::geometry::{
-        home_nation, PLACEMENT_DISPERSED, PLACEMENT_WEDGE,
+        home_nation, PLACEMENT_DISPERSED, PLACEMENT_MIXED, PLACEMENT_WEDGE,
     };
     let cq = cq?;
     let nation = match (cq.placement, genesis_seed) {
         (PLACEMENT_WEDGE, _) => coord.wedge()?,
-        (PLACEMENT_DISPERSED, Some(seed)) => {
+        (PLACEMENT_DISPERSED | PLACEMENT_MIXED, Some(seed)) => {
             home_nation(coord, cq.placement, cq.heartland_max_ring, seed)?
         }
         _ => return None,
@@ -783,7 +783,7 @@ pub fn legacy_wedge_allowed(
 
 /// The program's FileTicket site rule from the season's evidence (its
 /// `ticket_nation_allowed` over `wedge_allowed`): inside a dispersed
-/// heartland (`placement` 1, rings `2..=heartland_max_ring`) the site's
+/// heartland (`placement` 1 or 2, rings `2..=heartland_max_ring`) the site's
 /// province must be the nation's (`home_nation`, the rule PlaceHome uses);
 /// everywhere else — the wedge placement, an M1 season, the rings outside
 /// the heartland — the legacy wedge rule with its adjacent-wedge overflow.
@@ -803,7 +803,7 @@ pub fn ticket_site_rule(
     rings_opened: u16,
 ) -> Option<bool> {
     use permutation_rules::frontier::geometry::{
-        home_nation, PLACEMENT_DISPERSED, PLACEMENT_WEDGE,
+        home_nation, PLACEMENT_DISPERSED, PLACEMENT_MIXED, PLACEMENT_WEDGE,
     };
     let Some(wedge) = coord.wedge() else {
         return Some(false);
@@ -821,13 +821,15 @@ pub fn ticket_site_rule(
     };
     match cq.placement {
         PLACEMENT_WEDGE => Some(legacy),
-        PLACEMENT_DISPERSED => {
+        // (placement 2, ⑧ wide land (i): the dispersed heartland rule; the outer
+        //  ticket rule stays the legacy wedge one, as in the program)
+        PLACEMENT_DISPERSED | PLACEMENT_MIXED => {
             let ring = coord.ring();
             if ring < 2 || ring > cq.heartland_max_ring as u32 {
                 return Some(legacy);
             }
             let seed = genesis_seed?;
-            Some(home_nation(coord, PLACEMENT_DISPERSED, cq.heartland_max_ring, seed)? == faction)
+            Some(home_nation(coord, cq.placement, cq.heartland_max_ring, seed)? == faction)
         }
         _ => None,
     }
@@ -1129,7 +1131,13 @@ mod tests {
             // no conquest block, a dispersed season without its seed, an unknown placement
             assert_eq!(home_rule_of(None, Some(&seed), *c), None);
             assert_eq!(home_rule_of(Some(&cq(1, 3)), None, *c), None);
-            assert_eq!(home_rule_of(Some(&cq(2, 3)), Some(&seed), *c), None);
+            assert_eq!(home_rule_of(Some(&cq(3, 3)), Some(&seed), *c), None);
+            // placement 2 (⑧ wide land (i)): the dispersed heartland rule
+            assert_eq!(
+                home_rule_of(Some(&cq(2, 3)), Some(&seed), *c),
+                home_rule_of(Some(&cq(1, 3)), Some(&seed), *c)
+            );
+            assert_eq!(home_rule_of(Some(&cq(2, 3)), None, *c), None);
         }
         // the Concord has no nation under either placement
         assert_eq!(
@@ -1217,8 +1225,13 @@ mod tests {
                     None
                 );
                 assert_eq!(
-                    ticket_site_rule(true, Some(&cq(2, 3)), Some(&seed), *c, f, open, occ, rings),
+                    ticket_site_rule(true, Some(&cq(3, 3)), Some(&seed), *c, f, open, occ, rings),
                     None
+                );
+                // placement 2 (⑧ wide land (i)): tickets exactly as placement 1
+                assert_eq!(
+                    ticket_site_rule(true, Some(&cq(2, 3)), Some(&seed), *c, f, open, occ, rings),
+                    ticket_site_rule(true, Some(&cq(1, 3)), Some(&seed), *c, f, open, occ, rings)
                 );
             }
         }
