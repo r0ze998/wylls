@@ -1,6 +1,6 @@
 // 依頼の画面。署名はゲームと同じウォレット（同じ入口の Dev Wallet）で行う。物を動かすのはゲームの隊商だけ。
 
-import { RESOURCE_JA, signRecord, ownerTagOf, RESOURCES } from './record.mjs';
+import { RESOURCE_JA, signRecord, ownerTagOf, RESOURCES, ctxKey } from './record.mjs';
 import { pendingSendOf } from './pending.mjs';
 import { deliveredText, FULFILMENT_JA } from './ws04.mjs';
 import { fulfilBoundsText, jointPrecisionText, lowerBoundText } from './fulfil-bounds.mjs';
@@ -15,6 +15,7 @@ import { planSend, sendPlanned } from './send.mjs';
 import { rpcReader, sendOutcome } from './chain.mjs';
 import { sourceCandidates, sourceToUse, placeKey, planBasisOf } from './sources.mjs';
 import { GAME_PAGE, compositionOf, compositionText } from './composition.mjs';
+import { arrivedCandidates, excludedCaravans, createArrivedPicks, renderArrived, arrivedClick } from './arrived.mjs';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -241,7 +242,7 @@ function renderRequests() {
           : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span>${blocking(q).sending.src ? `<span class="note" data-testid="pending-src">送り元 (${esc(blocking(q).sending.src.p)},${esc(blocking(q).sending.src.q)}) 村${esc(blocking(q).sending.src.site)}（送り元を選び直しても、この送信の確かめは続く）</span>` : ''}</div>`)
         : `${srcPickHtml(q)}<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button>${sendingNow.has(q.id) ? '<span class="note" data-testid="send-busy">送る手続きの途中（ウォレットの画面を確かめてください）</span>' : ''}</div>`) : ''}
       ${!mine && accepted && open && !badDst ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
-        <div class="row">${cands === null ? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない（${esc(feed?.why ?? '?')}）。読み直しを続けます</span>` : cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
+        <div class="row">${cands === null ? `<span class="warn" data-testid="caravans-unknown">隊商の一覧（ヘラルド）を読めないため、この届け先へ向かう自分の隊商があるかは分からない（${esc(feed?.why ?? '?')}）。読み直しを続けます</span>` : cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>${arrivedHtml(q)}` : ''}
       ${historyHtml(q, me)}
     </div>`;
   }).join('') : '<div class="note">依頼はまだない</div>';
@@ -277,9 +278,30 @@ document.addEventListener('toggle', e => {
   if (d.open) historyOpen.add(d.dataset.req); else historyOpen.delete(d.dataset.req);
 }, true);
 
+/**
+ * （2026-11-18、口座の閉じた隊商の結び付け）ゲームの「隊商を送る」から送った自分の隊商が、結び付ける前に口座が閉じて輸送中の一覧から
+ * 消えたとき、結び付けの候補をチェーンから探す（arrived.mjs。読むだけ）。「着いた」と言うのは確定の記録が届け先で成功したときだけ。押したときだけ読む（4 秒ごとの読み直しでは読まない）。
+ * 候補は既存の「結び付ける」（link の記録）で出し、確かめるのは板（元の送信・応答との前後・届け先・積荷）。
+ * 鍵は 送る人｜プログラム｜シーズン｜依頼。読み直した表示で結び付いた・送信の記録がある隊商は、出すときにもう一度除く。
+ */
+// 状態の持ち方は arrived.mjs createArrivedPicks（答えは始めた鍵にだけ当てる。同じ鍵の新しい読みが古い答えを捨てる）
+const arrivedPicks = createArrivedPicks({ scan: a => arrivedCandidates(rpcReader('/coop/rpc'), a.season, a.wallet, a.request, a.opts), changed: () => { if (view) renderRequests(); } });
+const arrivedPickKey = q => (signer && cfg ? [signer.address, cfg.season.programId, cfg.season.seasonId, q.id].join('|') : null);
+// 行の描き方は arrived.mjs renderArrived（試験と同じ関数）。着いたと言うのは delivered だけ・量は言わない
+const arrivedHtml = q => renderArrived({ ready: !!(signer && cfg?.chain && cfg?.rpcProxy), pick: arrivedPicks.get(arrivedPickKey(q)), request: q, ctx: q.ctx ?? cfg.season, view, ctxKey, names: RESOURCE_JA });
+function loadArrived(q) {
+  const p = arrivedPicks.press(arrivedPickKey(q), { season: cfg.season, wallet: signer?.address, request: q, opts: { resources: RESOURCES, ctxKey, exclude: excludedCaravans(view) } });
+  if (!p.started) return say(p.why === 'loading' ? 'この依頼の隊商を探している途中' : '先に署名する人を接続してください', 'warn');   // 連打：同じ鍵の読みを重ねない
+  return p.done;
+}
+
 function renderArrivals() {
   const a = view.arrivals;
-  const feedNote = view.heraldFeed ? (view.heraldFeed.ended === null ? '<div class="warn">このヘラルドは確定の記録（ended）を出していない。到着は未検証のまま（④のパッチ待ち）</div>' : '') : '<div class="bad">ヘラルドの隊商の一覧が読めない</div>';
+  // （2026-11-18）ヘラルドに確定の記録（ended）が無いことと、各行の確かめは別：チェーンを読む板（view.chain）は行ごとにチェーンの取引の
+  // 記録で確かめる（arrival.mjs arrivalOf）。どの行が確かめられたかは、その行の状態と数えた量だけが言う（ここでは量・成功を言わない）
+  const feedNote = view.heraldFeed ? (view.heraldFeed.ended === null ? (view.chain
+    ? '<div class="note" data-testid="feed-note" data-state="chain">このヘラルドは確定の記録（ended）を出していない。到着は行ごとにチェーンの取引の記録で確かめる（確かめられたかは各行の状態と数えた量を見る）</div>'
+    : '<div class="warn" data-testid="feed-note" data-state="none">このヘラルドは確定の記録（ended）を出さず、板もチェーンを読まない（--rpc なし）。到着は未検証のまま</div>') : '') : '<div class="bad">ヘラルドの隊商の一覧が読めない</div>';
   $('arrivals').querySelector('.body').innerHTML = `${feedNote}
     <table><thead><tr><th>依頼</th><th>隊商</th><th>状態</th><th>到着量（④の分類）</th><th>④の終わり（隊商ごと）</th><th>記録の cargo（上限）</th><th>到着時の受取人</th><th>今の持ち主</th><th>数えた量</th></tr></thead><tbody>
     ${a.map(x => `<tr data-testid="arrival"><td><code>${esc(x.requestId.slice(0, 8))}</code></td><td>${esc(x.caravanId.ownerTag.slice(0, 6))}…#${x.caravanId.seq}</td>
@@ -393,7 +415,12 @@ document.addEventListener('click', e => {
     case 'src-load': return loadSources(q);
     case 'src': return chooseSource(q, b.dataset.src || null);
     case 'src-preview': return previewSource(q);
-    case 'link': return post({ kind: 'link', request: id, caravan: { ownerTag: b.dataset.tag, seq: Number(b.dataset.seq) } }, '隊商を結び付けた。数えるのは確定した到着だけ');
+    // 探す・結び付けるの分け方は arrived.mjs arrivedClick（試験と同じ関数。link の形はこれまでと同じ）
+    case 'arrived-load':
+    case 'link': {
+      const r = arrivedClick(b.dataset);
+      return r.act === 'arrived-load' ? loadArrived(q) : post({ kind: 'link', request: id, caravan: r.caravan }, '隊商を結び付けた。数えるのは確定した到着だけ');
+    }
   }
 });
 
