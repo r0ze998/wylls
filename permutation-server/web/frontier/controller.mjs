@@ -1914,6 +1914,16 @@ export function wantHostReach(hostId) {
   return true;
 }
 
+/**
+ * How many provinces of a control snapshot have a keep the page cannot place yet: their ring's village list (overview)
+ * is not read and no keep of theirs is held from a province record. 0 once every ring named is read.
+ */
+export function keepsPending(provinces, keeps, ringRead) {
+  let n = 0;
+  for (const c of provinces ?? []) if (Number.isInteger(c?.p) && Number.isInteger(c?.q) && !keeps.has(`${c.p},${c.q}`) && !ringRead(ringOf(c.p, c.q))) n += 1;
+  return n;
+}
+
 /** Refresh conquest together; retain known state on transport failures. */
 /**
  * S1 (redesign stage 1): the caravans, structures and nations feeds into
@@ -2012,6 +2022,9 @@ export async function refreshConquest() {
   const standings = results[1].status === 'fulfilled' ? results[1].value : null;
   if (control?.ok) {
     cq.control = control.control; applyControl(FS.overviews, cq.control);
+    // (B9: a province of the control snapshot whose ring's village list the page has not read yet has a keep the page
+    //  cannot place: counted, so that an empty reach list says it is still being worked out — screens/conquest.mjs
+    //  reachLoading, hud/keephand.mjs — and not that no keep is within reach)
     for (const c of cq.control.provinces) {
       const ov = FS.overviews.get(ringOf(c.p,c.q))?.provinces.find(p => p.p === c.p && p.q === c.q);
       if (ov?.keepTile !== null && ov?.keepTile !== undefined) cq.keeps.set(`${c.p},${c.q}`, {
@@ -2026,6 +2039,7 @@ export async function refreshConquest() {
       // holder is the same its consolidation bell still stands, so the panel can say if the keep is open
       else if (c.consolidatedUntil === null && k.holder === c.holder) c.consolidatedUntil = k.consolidatedUntil;
     }
+    cq.keepsPending = keepsPending(cq.control.provinces, cq.keeps, d => FS.overviews.has(d));
     cq.status = 'ready'; cq.error = null;
   } else if (control?.code === 'NotFound' && nowBell() <= 1 + Math.ceil(Number(FS.season.revealWindow ?? 600) / Number(FS.season.bellSecs ?? 600)) && !cq.control) {
     // A fresh world has no completed control snapshot until its first bell settles.

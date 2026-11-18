@@ -119,10 +119,15 @@ Add one more word to the capture demo command above (it is refused without the d
   not set the contest up (then end it and start a new world).
   - The page shows this only for the second player of a pair, only for the world it started in, and only before that
     world's end. Any other answer is not shown.
-- **Defending:** the fort's own nation sees its fort in the fort list as 「守りに向かう」 while another nation is counting on
-  it. A host of the holding nation that stays on the fort's tile breaks the count (the program's own rule).
+- **Defending:** the fort's own nation sees its fort as 「守りに向かう」 while another nation is counting on it: in the
+  host's fort list (「砦へ進軍」 on the host's bar), and in 「国と領土」 under its own heading
+  「他国が占拠を進めている、あなたの国の砦」, apart from the other nations' forts. A host of the holding nation that stays
+  on the fort's tile breaks the count (the program's own rule).
 - **Ending:** one Ctrl-C (or the end of the world's time) ends the world for **both**. Each person then closes their own
-  tab, which discards that tab's key. Use `--world-ttl-minutes 45` for a short trial.
+  tab, which discards that tab's key. A page whose world the launcher has ended says so once its next read of the
+  world fails and the launcher (still running) answers that it no longer runs that world: the turn dial stands at the
+  last turn the world reported (「ターン N · 終了済み」) and the banner reads 「この世界は終了しました。…」. If the launcher
+  itself is gone (Ctrl-C), the page cannot confirm the end and says only that it cannot connect. Use `--world-ttl-minutes 45` for a short trial.
 - **What is not natural:** the clock is the demo's compressed clock and the other villages are test participants, as
   in (2). At ×30 a turn is 20 s, so the 72-turn hold takes 24 minutes: it fits a 45-minute world only when the hold
   starts early (a trial on 2026-11-14 completed the capture at turn 84 after a hold that began at turn 13).

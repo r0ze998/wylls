@@ -1,0 +1,306 @@
+// The loop-play report B5–B9 (2026-11-18), the parts that are drawn or asked through the page's larger modules:
+//   B5  the gate's question to the launcher (`checkWorld`): only a connected launcher world asks, the launcher's
+//       WorldNotFound is the end and is kept, everything else is unknown; the notice's key says the end too.
+//   B7  the nation tab's reach list gives the viewer's OWN contested keep its own list and 「守りに向かう」 / "Defend";
+//       it no longer stands under "keeps of other nations".
+//   B8  while the title stands, the plate behind it has no 「国を選ぶ」 key: the one in the document is the one on screen.
+//   B9  the reach answer follows the keeps the page holds (a ring's list that arrives within a turn), and an empty list
+//       says it is still being worked out while keeps of the control snapshot cannot be placed yet.
+// (B6 — the host bar's line names the refused orders — is in web-frontier-local-play-dissolve.test.mjs.)
+//
+// THIS FILE MAKES NO KEY: the gate's wallet is a stand-in with a public address; a stub document, herald and request.
+import { test, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import http from 'node:http';
+import { once } from 'node:events';
+import { WorldManager, createLauncherServer } from '../src/frontier/local-play-launcher.mjs';
+import * as LP from '../../permutation-server/web/frontier/flocalplay.mjs';
+import { WORLD_INSTANCE_PATH } from '../../permutation-server/web/frontier/flocalplay-instance.mjs';
+import { WORLD_EXPIRY_SCHEMA } from '../../permutation-server/web/frontier/flocalplay-expiry.mjs';
+import { decode as fromB58 } from '../../permutation-server/web/sdk/base58.mjs';
+import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
+import { worldStateOf, createWorldWatch } from '../../permutation-server/web/frontier/flocalplay-ended.mjs';
+import { baseProduction } from '../../permutation-server/web/frontier/fland.mjs';
+import { setLang } from '../../permutation-server/web/lang.mjs';
+import * as hud from '../../permutation-server/web/frontier/hud/hud.mjs';
+import { renderReach, reachLoading } from '../../permutation-server/web/frontier/screens/conquest.mjs';
+import { cachedReach, reachKey } from '../../permutation-server/web/frontier/fkeepreach.mjs';
+import { keepsPending } from '../../permutation-server/web/frontier/controller.mjs';
+import { ringOf } from '../../permutation-server/web/frontier/fgeo.mjs';
+
+afterEach(() => setLang('ja'));
+const plain = s => String(s).replace(/<[^>]*>/g, ' ').replace(/&#39;/g, '\'').replace(/\s+/g, ' ');
+const WEB = new URL('../../permutation-server/web/frontier/', import.meta.url);
+
+// ------------------------------------------------------------------ B5: the gate's question
+const SEASON_ID = '11', ADDRS = seasonAddresses(LP.LOCAL_PLAY_PROGRAM, SEASON_ID);
+const CFG = { origin: 'http://127.0.0.1:41920', herald: 'http://127.0.0.1:41920', relay: 'http://127.0.0.1:41920/gw', dev: true, mode: 'play' };
+const loc = href => { const u = new URL(href); return { href, hostname: u.hostname, origin: u.origin }; };
+const ME = 'BbPGAbHDvV5U43zQ5E8FmSnEzZ7r2vwWAZWTNAPTTSUT';
+const HERALD = 'http://localhost:41926', INSTANCE = 'ab'.repeat(32), T0 = 1_800_000_000_000, TTL = 7_200_000;
+const EXP = { schema: WORLD_EXPIRY_SCHEMA, startedAt: T0 - 60_000, ttlMs: TTL, expiresAt: T0 - 60_000 + TTL, instance: INSTANCE };
+function stubDocument() {
+  const all = [], doc = { focused: null };
+  const make = tag => {
+    const listeners = {};
+    const el = { tag, className: '', textContent: '', id: '', hidden: false, disabled: false, value: '', dataset: {}, attrs: {}, children: [], parent: null, listeners, ownerDocument: doc,
+      setAttribute(k, v) { el.attrs[k] = v; }, append(...xs) { for (const x of xs) { x.parent = el; el.children.push(x); } }, prepend(x) { x.parent = el; el.children.unshift(x); }, addEventListener(k, f) { (listeners[k] ??= []).push(f); },
+      focus() { doc.focused = el; }, click() { for (const f of listeners.click ?? []) f(); return true; } };
+    all.push(el); return el;
+  };
+  const body = make('body'), head = make('head');
+  return Object.assign(doc, { body, head, createElement: make, byClass: c => all.filter(e => e.className.split(' ').includes(c)), all });
+}
+const settle = async (n = 8) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
+const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+/** The gate in launcher mode; `keeper` is the launcher's answer to its keeper route (a stub that may be swapped). */
+function open({ launcher = true, keeper = () => reply(200, { keeper: null }) } = {}) {
+  const doc = stubDocument(), win = new EventTarget(), calls = [], answer = { keeper };
+  const makeHerald = () => ({ season: async () => ({ ok: true, record: { programId: LP.LOCAL_PLAY_PROGRAM, cluster: 'localnet', season: SEASON_ID, seasonAddress: ADDRS.season }, season: { programVersion: 0x4804, seasonId: 11n } }),
+    me: async address => ({ ok: true, citizen: { wallet: fromB58(address) }, holdings: [{}] }), pin() {} });
+  const wallet = { address: ME, destroyed: false, destroy() { wallet.destroyed = true; }, announce() {} };
+  const request = async (url, options) => {
+    calls.push([url, options]);
+    if (url.endsWith('/local-play/keeper')) return answer.keeper(url, options);
+    if (url.endsWith(WORLD_INSTANCE_PATH)) return reply(200, { wallet: ME, instance: INSTANCE });
+    return reply(200, { herald: HERALD, expiry: EXP });
+  };
+  const href = `http://127.0.0.1:41920/frontier/frontier/index.html?localPlay=1${launcher ? '&launcher=1' : ''}&devWallet=off`;
+  const gate = LP.openLocalPlayGate({ cfg: launcher ? CFG : { ...CFG, herald: HERALD }, loc: loc(href), doc, win, makeHerald, request, makeWallet: async () => wallet, now: () => T0 });
+  return { gate, doc, calls, answer, wallet };
+}
+async function connected(o) {
+  for (let i = 0; i < 500 && o.gate.state().phase === 'creating'; i++) await settle(1);
+  await o.gate.connect(); await o.gate.ready; await settle();
+  assert.equal(o.gate.state().phase, 'connected');
+  return o;
+}
+/** The page's question as app.mjs asks it: the gate's answer through `worldStateOf`. */
+const worldOf = async o => worldStateOf(await o.gate.checkWorld());
+const keeperAsks = o => o.calls.filter(([url]) => url.endsWith('/local-play/keeper'));
+
+test('B5 the gate\'s question: nothing is asked by itself; a world that runs is "running"; one bounded same-origin POST with the public address', async () => {
+  const o = await connected(open());
+  assert.equal(keeperAsks(o).length, 0, 'the launcher is not asked about the world until the page asks');
+  assert.equal(await worldOf(o), 'running');
+  const [[url, options]] = keeperAsks(o);
+  assert.equal(url, 'http://127.0.0.1:41920/local-play/keeper', 'the launcher\'s own origin');
+  assert.equal(options.method, 'POST'); assert.equal(options.credentials, 'omit'); assert.equal(options.redirect, 'error');
+  assert.deepEqual(JSON.parse(options.body), { wallet: ME }, 'the public address and nothing else');
+});
+
+test('B5 the gate\'s question: the launcher\'s 404 WorldNotFound is the end, and is kept; any other refusal or failure is unknown', async () => {
+  const o = await connected(open({ keeper: () => reply(503, { error: 'LauncherClosed' }) }));
+  assert.equal(await worldOf(o), 'unknown');
+  o.answer.keeper = () => { throw new Error('connection refused'); };
+  assert.equal(await worldOf(o), 'unknown', 'a launcher that cannot be reached proves nothing');
+  o.answer.keeper = () => reply(404, { error: 'NotFound' });
+  assert.equal(await worldOf(o), 'unknown', 'a 404 that is not the launcher\'s own code');
+  o.answer.keeper = () => reply(404, { error: 'WorldNotFound' });
+  assert.equal(await worldOf(o), 'ended');
+  // (that an ended world is not asked about again, and that the end is not taken back, is the watch's:
+  //  web-frontier-world-ended.test.mjs)
+});
+
+test('B5 the page reaches the question by the cfg the gate resolved, and only a launcher world has one', async () => {
+  const o = await connected(open());
+  const cfg = (await o.gate.ready).cfg;
+  const check = LP.localPlayWorldCheck(cfg);
+  assert.equal(typeof check, 'function');
+  assert.equal(worldStateOf(await check()), 'running');
+  assert.equal(keeperAsks(o).length, 1);
+  assert.deepEqual(Object.keys(cfg).filter(k => typeof cfg[k] === 'function'), [], 'nothing is put on the cfg itself');
+  for (const other of [null, undefined, {}, { ...cfg }, 'cfg', 7]) assert.equal(LP.localPlayWorldCheck(other), null, 'any other cfg (a copy too): no question');
+});
+
+test('B5 the gate\'s question: a page that is not a connected launcher world, or lost its key, asks nothing', async () => {
+  const waiting = open();
+  assert.equal(await waiting.gate.checkWorld(), null);
+  assert.equal(await worldOf(waiting), 'unknown', 'before the world is connected');
+  assert.equal(keeperAsks(waiting).length, 0);
+  const o = await connected(open());
+  o.wallet.destroyed = true;
+  assert.equal(await worldOf(o), 'unknown');
+  assert.equal(keeperAsks(o).length, 0);
+});
+
+test('B5 the notice\'s key: a world the launcher no longer runs is said to have ended (either language)', async () => {
+  for (const [lang, want] of [['en', /^This world has ended\./], ['ja', /^この世界は終了しました。/]]) {
+    setLang(lang);
+    const o = await connected(open({ keeper: () => reply(404, { error: 'WorldNotFound' }) }));
+    const key = o.doc.byClass('local-play-session-check')[0], said = o.doc.byClass('local-play-session-keeper')[0];
+    key.click(); await settle();
+    assert.match(said.textContent, want, lang);
+    assert.equal(said.hidden, false);
+    o.gate.notice().unmount();
+  }
+});
+
+test('B5 end to end, the real launcher (its server and manager, a stand-in world): started, the page\'s question says it runs; stopped by the launcher, the watch learns the end once', async t => {
+  // (the launcher's own server on an ephemeral port — it checks the Host it was configured with, so the gate's requests
+  //  are forwarded with that Host, as frontier-local-play-keeper-view.test.mjs asks it; the world is a stand-in: no
+  //  process, no chain, no key)
+  let stops = 0;
+  const manager = new WorldManager({}, async () => ({ herald: HERALD, expiry: EXP, stop: async () => { stops += 1; }, keeper: async () => null }));
+  const { server } = createLauncherServer({ port: 41920, web: '/nonexistent' }, manager);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => new Promise(r => server.close(r)));
+  const port = server.address().port;
+  const forward = (url, options) => new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.request({ host: '127.0.0.1', port, path: u.pathname, method: options.method, setHost: false, headers: { host: u.host, origin: u.origin, 'content-type': 'application/json' } }, res => {
+      const parts = []; res.on('data', c => parts.push(c));
+      res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: async () => JSON.parse(Buffer.concat(parts).toString('utf8')) }));
+    });
+    req.on('error', reject); req.end(options.body);
+  });
+  const doc = stubDocument(), wallet = { address: ME, destroyed: false, destroy() { wallet.destroyed = true; }, announce() {} };
+  const makeHerald = () => ({ season: async () => ({ ok: true, record: { programId: LP.LOCAL_PLAY_PROGRAM, cluster: 'localnet', season: SEASON_ID, seasonAddress: ADDRS.season }, season: { programVersion: 0x4804, seasonId: 11n } }),
+    me: async address => ({ ok: true, citizen: { wallet: fromB58(address) }, holdings: [{}] }), pin() {} });
+  const request = (url, options) => (url.endsWith(WORLD_INSTANCE_PATH) ? reply(200, { wallet: ME, instance: INSTANCE }) : forward(url, options));
+  const gate = LP.openLocalPlayGate({ cfg: CFG, loc: loc('http://127.0.0.1:41920/frontier/frontier/index.html?localPlay=1&launcher=1&devWallet=off'), doc, win: new EventTarget(), makeHerald, request, makeWallet: async () => wallet, now: () => T0 });
+  await connected({ gate });
+  assert.deepEqual(manager.list().map(w => [w.wallet, w.state]), [[ME, 'running']], 'the launcher runs this page\'s world');
+  // the page's side, as app.mjs wires it: the cfg's question through worldStateOf, asked by the watch on a failed read
+  const check = LP.localPlayWorldCheck((await gate.ready).cfg);
+  let now = 0, ended = 0;
+  const watch = createWorldWatch({ ask: () => check().then(worldStateOf), onEnded: () => { ended += 1; }, now: () => now });
+  assert.equal(await watch.readFailed(), 'unknown', 'a herald read failed, but the launcher still runs the world: nothing is concluded');
+  assert.equal(watch.isEnded(), false);
+  // the launcher ends the world (its own stop path: the owner's press, the world's life, its guard)
+  await manager.stop(ME);
+  assert.equal(stops, 1); assert.deepEqual(manager.list(), []);
+  now += 5000;
+  assert.equal(await watch.readFailed(), 'ended', 'the launcher\'s own 404 WorldNotFound');
+  assert.equal(watch.isEnded(), true); assert.equal(ended, 1);
+  now += 60000;
+  assert.equal(watch.readFailed(), null, 'and it is not asked again');
+  assert.equal(ended, 1);
+  gate.notice().unmount();
+});
+
+// ------------------------------------------------------------------ B7, B9: the nation tab's reach list
+const HOME = { p: 2, q: 0, site: 2, gen: 0, tile: 20, faction: 5, state: 2, order: 1, tier: 0, flags: 0, production: baseProduction(0), upkeep: Array(8).fill(0n), stores: [], reserve: Array(8).fill(0), queue: [],
+  transit: [{ state: 0 }], explore: { state: 0 }, lastOwnerAction: 1000n, finalTs: 1n, shieldUntil: 0n };
+const SEASON = { programVersion: 3, layoutVersion: 2, endBell: 96, bellSecs: 600, conquestParams: { keepBells: 72 } };
+const route = (hexes, n, secs) => ({ hexes, provinces: Array.from({ length: n }, (_, i) => ({ p: i, q: 0 })), secs });
+const reachRow = (p, q, holder, extra = {}) => ({ p, q, tile: 30, holder, troops: 0, origin: { p: 2, q: 0, tile: 20, unit: 0 }, route: route(12, 2, 1500), ...extra });
+const fs = (rows, conquest = {}) => ({ mode: 'play', season: SEASON, citizen: { faction: 5 }, holdings: [HOME], activeHolding: 0, nowBell: 10, chain: { now: () => 1000 }, land: { stage: 'final' }, inFlight: 0, provinces: new Map(),
+  conquest: { status: 'ready', keeps: new Map(), reach: { key: 'k', ok: true, home: false, rows, unreachable: [] }, ...conquest } });
+
+test('B7: the viewer\'s own contested keep has its own list and says "Defend" — it is not under "keeps of other nations"', () => {
+  // (world 2 of the report: the viewer is Fjordal (5); Aster holds the tile of Fjordal's fort at 4,-2)
+  const s = fs([reachRow(4, -2, 5, { defend: true }), reachRow(3, 1, 0, { troops: 100 })]);
+  setLang('en');
+  const out = String(renderReach(s)), text = plain(out);
+  assert.match(out, /<h4 class="kr-defend-title" id="conquest-defend-title">Keeps of your nation that another nation is taking<\/h4>/);
+  const defend = /<ul class="list kr-rows kr-rows-defend"[^>]*>(.*?)<\/ul>/s.exec(out)[1], others = /<ul class="list kr-rows" aria-labelledby="conquest-reach-title">(.*?)<\/ul>/s.exec(out)[1];
+  assert.match(defend, /data-keep-defend="4,-2"/);
+  assert.match(plain(defend), /Province 4,-2 · Held by your nation · 0 defenders · .* Defend · staying on the tile stops their hold/);
+  assert.match(defend, /data-act="goto" data-p="4" data-q="-2"/, 'the way there is kept');
+  assert.doesNotMatch(plain(defend), /Fjordal/, 'not named as if it were another nation\'s');
+  assert.doesNotMatch(others, /data-p="4" data-q="-2"|Defend/, 'the other nations\' list is theirs alone');
+  assert.ok(out.indexOf('conquest-defend-title') < out.indexOf('id="conquest-reach-title"'), 'the keeps to defend come first, each list under its own heading');
+  assert.match(others, /data-p="3" data-q="1"/);
+  assert.doesNotMatch(text, /[぀-ヿ一-鿿]/, 'English without Japanese');
+  setLang('ja');
+  const ja = plain(renderReach(s));
+  assert.match(ja, /他国が占拠を進めている、あなたの国の砦/);
+  assert.match(ja, /州 4,-2 · あなたの国が保持 · 守備兵 0 · .* 守りに向かう · マスに残れば占拠を止めます/);
+});
+
+test('B7: only a defend row — no "no keep of another nation" claim is lost, and no defend list without one', () => {
+  setLang('en');
+  const only = plain(renderReach(fs([reachRow(4, -2, 5, { defend: true })])));
+  assert.match(only, /Defend/);
+  assert.match(only, /No keep of another nation is within reach now\./, 'true of the other nations\' keeps, and still said');
+  const none = String(renderReach(fs([reachRow(3, 1, 0)])));
+  assert.doesNotMatch(none, /kr-rows-defend|conquest-defend-title|Defend/);
+  // the doc that describes it (LOCAL-PLAY-START.md §3(3) "Defending") and the list's source agree
+  const doc = readFileSync(new URL('../../docs/frontier/LOCAL-PLAY-START.md', import.meta.url), 'utf8');
+  assert.match(doc, /\*\*Defending:\*\* the fort's own nation sees its fort as 「守りに向かう」 while another nation is counting on it/);
+  assert.match(doc, /in 「国と領土」 under its own heading\n  「他国が占拠を進めている、あなたの国の砦」/);
+});
+
+test('B9: an empty reach list says it is still being worked out while keeps of the control snapshot cannot be placed', () => {
+  setLang('en');
+  const loading = fs([], { keepsPending: 3 });
+  assert.equal(reachLoading(loading), true);
+  const text = plain(renderReach(loading));
+  assert.match(text, /Finding the keeps you can reach…/);
+  assert.doesNotMatch(text, /No keep of another nation is within reach/);
+  // everything placed: the empty list is the answer
+  for (const keepsPending of [0, undefined]) {
+    const s = fs([], { keepsPending });
+    assert.equal(reachLoading(s), false);
+    assert.match(plain(renderReach(s)), /No keep of another nation is within reach now\./);
+  }
+  // rows found are shown whatever is still pending
+  assert.match(String(renderReach(fs([reachRow(3, 1, 0)], { keepsPending: 3 }))), /data-p="3" data-q="1"/);
+  // the host's forts card says the same
+  assert.match(readFileSync(new URL('hud/keephand.mjs', WEB), 'utf8'), /: Number\(FS\.conquest\?\.keepsPending \?\? 0\) > 0 \? html`<p class="pop-line kh-loading">\$\{L`届く砦を調べています…`\}<\/p>`/);
+});
+
+test('B9: keepsPending counts the control provinces whose ring is not read and whose keep is not held', () => {
+  const provinces = [{ p: 2, q: 0 }, { p: -2, q: 4 }, { p: 0, q: 4 }, { p: 1, q: 1 }];
+  const far = ringOf(-2, 4);
+  assert.equal(ringOf(0, 4), far); assert.notEqual(ringOf(2, 0), far);
+  const read = new Set([ringOf(2, 0), ringOf(1, 1)]);
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d)), 2, 'the far ring\'s two');
+  assert.equal(keepsPending(provinces, new Map([['-2,4', {}]]), d => read.has(d)), 1, 'a keep held from a province record is placed');
+  read.add(far);
+  assert.equal(keepsPending(provinces, new Map(), d => read.has(d)), 0, 'every ring read: nothing pending (a province without a keep is not one)');
+  assert.equal(keepsPending(null, new Map(), () => false), 0);
+  const ctl = readFileSync(new URL('controller.mjs', WEB), 'utf8');
+  assert.match(ctl, /cq\.keepsPending = keepsPending\(cq\.control\.provinces, cq\.keeps, d => FS\.overviews\.has\(d\)\);/);
+});
+
+test('B9: the reach answer follows the keeps held — a keep that arrives within the same turn is in the list at once', () => {
+  const kernel = { calls: 0, call(name) { kernel.calls += 1; return name === 'plan_path' ? { ok: true, value: { dirs: new Array(23).fill(0), pathLen: 23, path: [], secs: 3000, hexes: 23, provinces: [{ p: 0, q: 0 }, { p: 0, q: 1 }] } } : { ok: false }; } };
+  const keep = (p, q) => ({ p, q, tile: 30, holder: 1, troops: 100, heartland: false, consolidatedUntil: null, contender: null });
+  const keeps = new Map();
+  const ask = { kernel, keeps, origins: [{ p: 1, q: 1, tile: 38, unit: 0 }], seeds: [{ ring: 0, seed: '00' }], faction: 0, nowBell: 3, controlBell: 2 };
+  // turn 3, the far ring not read yet: no keep is held
+  const empty = cachedReach(null, ask);
+  assert.equal(empty.ok, true); assert.deepEqual(empty.rows, []);
+  assert.equal(cachedReach(empty, ask), empty, 'the same question: the same answer, no new search');
+  // the ring's list arrives in the SAME turn and control snapshot: the keep at -2,4 is held now
+  keeps.set('-2,4', keep(-2, 4));
+  const next = cachedReach(empty, ask);
+  assert.notEqual(next, empty, 'the answer of before the keep arrived is not kept');
+  assert.deepEqual(next.rows.map(x => [x.p, x.q, x.route.hexes]), [[-2, 4, 23]]);
+  assert.notEqual(next.key, empty.key);
+  assert.equal(cachedReach(next, ask), next);
+  // the key: as before when no keeps are named, and the count of them otherwise (a Map, a list or a plain object)
+  const base = { origins: ask.origins, nowBell: 3, controlBell: 2, faction: 0 };
+  assert.equal(reachKey(base), '0|3|2|1,1,38,0');
+  assert.equal(reachKey({ ...base, keeps }), '0|3|2|1,1,38,0|k1');
+  assert.equal(reachKey({ ...base, keeps: [1, 2] }), '0|3|2|1,1,38,0|k2');
+  assert.equal(reachKey({ ...base, keeps: { a: 1 } }), '0|3|2|1,1,38,0|k1');
+});
+
+// ------------------------------------------------------------------ B8: the title and the plate
+test('B8: while the title stands the plate has no 「国を選ぶ」 key; when it lifts the key is there', () => {
+  for (const lang of ['ja', 'en']) {
+    setLang(lang);
+    const name = lang === 'en' ? 'Choose a nation' : '国を選ぶ';
+    const base = { mode: 'play', citizen: null, holdings: [], playReady: true };
+    const under = String(hud.renderPlate({ ...base, titleUp: true }));
+    assert.doesNotMatch(under, /data-act="join-open"/, `${lang}: no hidden key of the title's name`);
+    assert.ok(!under.includes(name), `${lang}: the name is not in the hidden plate`);
+    assert.match(under, /class="plate plate-open"/, 'the plate itself stays (its words are hidden with the game)');
+    const shown = String(hud.renderPlate({ ...base, titleUp: false }));
+    assert.match(shown, new RegExp(`<button type="button" class="btn primary plate-go" data-act="join-open">${name}</button>`), `${lang}: the key is on the plate once the title is gone`);
+    assert.match(String(hud.renderPlate(base)), /data-act="join-open"/, 'a page without a title: as before');
+  }
+});
+
+test('B8: the title\'s own key is a real button, and the game behind it is hidden and inert (source)', () => {
+  const title = readFileSync(new URL('intro/title.mjs', WEB), 'utf8'), css = readFileSync(new URL('frontier.css', WEB), 'utf8'), app = readFileSync(new URL('app.mjs', WEB), 'utf8');
+  assert.match(title, /<button type="button" class="btn primary intro-go" data-act="intro-close">/);
+  assert.match(css, /body\[data-title="up"\] :is\(main, main \*, \.tabs, \.strip-l, \.dial, \.banner, \.mile-banner, \.res-pop\) \{ visibility: hidden !important; \}/);
+  assert.match(app, /for \(const el of \[\$\('frontier'\), \$\('tabs'\)\]\) if \(el\) el\.inert = up;/);
+  // the plate is drawn again when the title comes and goes
+  assert.match(app, /markTitle\(false\);[\s\S]{0,700}invalidate\('panel', 'tabs', 'rail'\);/);
+});
