@@ -77,7 +77,10 @@ test('a priced action is held before the send, settled when the transaction land
   sound(r);
 });
 
-test('20 concurrent priced requests over a balance for 10: one sends while relay finality is pending, and the books balance', async () => {
+// Since 839ae530 (one send lane per Citizen, workstream 04 AUTH-ROUTES B1) the 20 requests of one owner's agent do not
+// reach the relay together: each runs gate -> hold -> build -> send when its turn comes, in arrival order. So the relay's
+// "one write while finality is pending" refusal (RelayPending) is never met here, and the balance alone decides.
+test('20 concurrent priced requests over a balance for 10: the Citizen lane sends 10 in arrival order, refuses 10, and the books balance', async () => {
   const chain = fakeChain();
   chain.getAccountInfo = slow(chain.getAccountInfo);
   chain.getBalance = slow(chain.getBalance);
@@ -86,23 +89,26 @@ test('20 concurrent priced requests over a balance for 10: one sends while relay
   const results = await Promise.all(Array.from({ length: 20 }, (_, i) => a.act({ key: `c${i}` })));
   const sent = results.filter(x => x.status === 'sent');
   const refused = results.filter(x => x.status === 'refused');
-  assert.equal(sent.length, 1, JSON.stringify(results.map(x => [x.status, x.error?.code])));
-  assert.equal(refused.length, 19);
-  assert.equal(refused.filter(x => x.error.code === 'RelayPending').length, 9, 'the relay pauses concurrent writes until its first send is finalized');
-  assert.equal(refused.filter(x => x.error.code === ERR.INSUFFICIENT_BALANCE).length, 10, 'holds cannot overdraw the balance while requests prepare');
-  assert.equal(r.chain.sent.length, 1);
-  assert.deepEqual([r.gateway.view(a.agentId).balance.available, r.gateway.view(a.agentId).balance.reserved], ['9000', '1000']);
+  assert.equal(sent.length, 10, JSON.stringify(results.map(x => [x.status, x.error?.code])));
+  assert.equal(refused.length, 10);
+  assert.ok(results.slice(0, 10).every(x => x.status === 'sent'), 'the lane serves in arrival order: the first 10 asked are the 10 sent');
+  assert.equal(refused.filter(x => x.error.code === 'RelayPending').length, 0, 'the lane sends one at a time, so the relay never sees a concurrent write of this Citizen');
+  assert.equal(refused.filter(x => x.error.code === ERR.INSUFFICIENT_BALANCE).length, 10, 'holds cannot overdraw the balance: the 11th and later find nothing left');
+  assert.equal(r.gateway.lanes.waiting(`citizen-of:${a.owner}`), 0, 'the lane is empty again');
+  assert.equal(r.chain.sent.length, 10);
+  assert.equal(new Set(sent.map(x => x.signature)).size, 10, 'ten distinct transactions');
+  assert.deepEqual([r.gateway.view(a.agentId).balance.available, r.gateway.view(a.agentId).balance.reserved], ['0', '10000']);
   sound(r);
-  assert.equal((await r.gateway.reconcile()).settled, 1);
-  assert.equal(r.gateway.view(a.agentId).balance.spent.game, '1000');
+  assert.equal((await r.gateway.reconcile()).settled, 10);
+  assert.equal(r.gateway.view(a.agentId).balance.spent.game, '10000');
   // The same 20 keys again: every answer is the recorded one, nothing new is sent.
   const again = await Promise.all(Array.from({ length: 20 }, (_, i) => a.act({ key: `c${i}` })));
   assert.ok(again.every(x => x.replayed === true));
-  assert.equal(r.chain.sent.length, 1);
+  assert.equal(r.chain.sent.length, 10);
   // Concurrent repeats of one new key share one send.
   await deposit(r, a.o, a.agentId, 1_000n);
   const same = await Promise.all([0, 1, 2].map(() => a.act({ key: 'shared' })));
-  assert.equal(r.chain.sent.length, 2);
+  assert.equal(r.chain.sent.length, 11);
   assert.equal(same.filter(x => x.status === 'sent').length, 3);
   assert.equal(same.filter(x => x.replayed).length, 2);
   sound(r);
