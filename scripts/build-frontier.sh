@@ -34,7 +34,9 @@
 # L(kind) counts, §10.1).
 #
 # --twice builds twice into two fresh target directories and fails (exit 4)
-# unless both artefacts hash the same.
+# unless both artefacts hash the same. It puts a text placeholder where
+# cargo-build-sbf would otherwise write a new program keypair, so it creates
+# no key (exit 5 if the placeholder was replaced).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
@@ -143,8 +145,16 @@ so_name=permutation_frontier.so
 if [ "$twice" = 1 ]; then
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/build-frontier.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
+  # cargo-build-sbf writes a fresh <name>-keypair.json into an out dir that has none (agave v3.1.9
+  # cargo-build-sbf post_processing.rs). These two directories are temporary, so no key is wanted there:
+  # a text placeholder keeps the build key-free, and the build fails if it was replaced.
+  holder="PLACEHOLDER: not a key. Exists so cargo-build-sbf skips program-keypair generation (scripts/build-frontier.sh --twice)."
+  for o in "$tmp/out1" "$tmp/out2"; do mkdir -p "$o"; printf '%s\n' "$holder" > "$o/${so_name%.so}-keypair.json"; done
   build "$tmp/out1" "$tmp/t1"
   build "$tmp/out2" "$tmp/t2"
+  for o in "$tmp/out1" "$tmp/out2"; do
+    [ "$(cat "$o/${so_name%.so}-keypair.json")" = "$holder" ] || { echo "$o: the keypair placeholder was replaced (a key was generated)" >&2; exit 5; }
+  done
   h1="$(sha "$tmp/out1/$so_name")"; h2="$(sha "$tmp/out2/$so_name")"
   if [ "$h1" != "$h2" ]; then
     echo "not reproducible: $h1 vs $h2" >&2

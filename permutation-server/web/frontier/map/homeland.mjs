@@ -139,7 +139,7 @@ export function homeAnchor(faction, place = undefined, seeded = null) {
 /**
  * Where the region is looked at (world px): under the wedge rule its box's middle (`near`: the point `reach` of the
  * way from the bell to its ring-1 province, the look of the nation choice); under the dispersed rule the anchor
- * province's middle, near or far (the box's middle of a region spread round the ring would be the Concord, no
+ * province's middle, near or far (the box's middle of a region spread round the ring would be province (0, 0), no
  * nation's land). Null where there is no region.
  */
 export function homeLook(faction, ringsOpen, place = undefined, { near = false, reach = 1, seeded = null } = {}) {

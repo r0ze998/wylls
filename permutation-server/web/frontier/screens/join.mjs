@@ -59,7 +59,7 @@ function renderWallets(FS) {
  * heartland is not counted as a place for a village; with no season record yet the overviews alone bound it.
  */
 export function factionCards(FS) {
-  // (the rings a first village may be in are counted from the Concord without a gap — map/world.mjs contiguousRings —
+  // (the rings a first village may be in are counted from province (0, 0) without a gap — map/world.mjs contiguousRings —
   //  never by the record's length: a sparse world that seeds ring 128 alone has one entry and no ring 0)
   const open = FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : undefined;
   const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
@@ -93,8 +93,8 @@ const homeReread = (FS, busy) => (FS.mode === 'play' ? html`<div class="actions"
  * village), "nation" under the nation choice (a visitor: what beginning with this nation will do).
  * (The nation line wears `nc-early`, the confirm plate's own status line: readable on the dark plate, shown on a phone.)
  */
-const fallbackLine = () => html`<p class="muted" data-home-fallback="request">${L`すぐに村を置ける中心の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。`}</p>`;
-const fallbackNation = (FS, busy) => { const again = homeReread(FS, busy); return html`<p class="nc-early" role="status" data-home-fallback="nation">${L`この国は、すぐに村を置ける中心の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。中心に空きのある国なら、すぐに村を置けます。`}</p>${again}`; };
+const fallbackLine = () => html`<p class="muted" data-home-fallback="request">${L`すぐに村を置ける本国の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。`}</p>`;
+const fallbackNation = (FS, busy) => { const again = homeReread(FS, busy); return html`<p class="nc-early" role="status" data-home-fallback="nation">${L`この国は、すぐに村を置ける本国の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。本国に空きのある国なら、すぐに村を置けます。`}</p>${again}`; };
 /** Whether the nation choice says that line: a wallet that has not joined, in play (not local play: no FileTicket there), the chosen nation full. */
 const nationFull = FS => { const f = FS.joinDraft?.faction; return Number(FS.season?.programVersion ?? 1) >= 2 && FS.mode === 'play' && !FS.localPlay && !FS.citizen && !FS.resident && (noFreeHome(FS.homeChoice, f) || (Number.isInteger(f) && FS.homeChoice?.full === f)); };
 
@@ -140,7 +140,7 @@ export function renderNations(FS) {
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
-    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、大協約の地のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義、そしてあなたの姿です。`}</p></header>
+    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、果てのない辺境を分け合っています。国で決まるのは、村を置く土地と教義、そしてあなたの姿です。`}</p></header>
     <ul class="banners">${banners}</ul>
     ${confirm}
   </section>`;

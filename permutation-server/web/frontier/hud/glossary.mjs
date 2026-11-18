@@ -32,7 +32,7 @@ export const TERMS = Object.freeze({
   // device may open it as the arrival turn begins. The words say whichever rule this page carries)
   seal: { name: () => L`封`, text: () => `${sealLine()}${L`ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。`}${selfOpenLine()}` },
   dormant: { name: () => L`休眠`, text: () => L`領主が長く何もしないと村は休眠し、さらに放っておくと手放されます。何か操作すれば延びます。` },
-  ring: { name: () => L`輪`, text: () => L`大協約を中心にした州の輪です。ターンが進むと外側の輪がひらきます。` },
+  ring: { name: () => L`輪`, text: () => L`ひらいた土地をとりまく州の輪です。ターンが進むと、その外側に新しい輪がひらきます。` },
   garrison: { name: () => L`守備隊`, text: () => L`村に残る守り手です。ターンの始まりにいた分が数えられ、攻め手に反撃します。城壁があると強くなります。` },
   vigil: { name: () => L`夜番`, text: () => L`毎日決まった時間、あなたが眠っている間も守りを固める時間帯です。` },
   shield: { name: () => L`保護`, text: () => L`村ができてしばらくは攻められません。保護が切れるまでの時間です。` },

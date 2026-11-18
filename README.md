@@ -68,6 +68,8 @@ The evaluation thresholds are in [the AI contract](docs/frontier/ai-citizens/AI-
 
 The next public season is **planned** for Solana mainnet with live USDC: 25 USDC entry, 80% of fees to the prize pool and 20% to the operator, subject to legal review. Staking is a later plan, not part of this local build. Each part of the wider design has a status in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
 
+> **Update 2026-11-18 (owner decision): prize and NFT resident ID are closed, out of scope for the playable version.** The playable version has no entry fee and no prize: the paid season needs a legal review that is not done, and a continuous world cannot use the season-end prize pool (`frontier-stack --continuous` refuses it); achievements are shown as titles and chronicle entries instead. Resident IDs stay ordinary, non-transferable accounts (no NFT). The prize program and the `nft-experimental` feature stay in the tree, unused by the playable build. The plan in the paragraph above is kept as history; reopening needs a legal review, a settlement design for continuous worlds and a new owner decision ([ledger](docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md), section of 2026-11-18 JST).
+
 **Headline evidence for M1** (local test chain, script bots; [exit report](docs/frontier/m1/M1-EXIT-NOTES.md), [run record](docs/frontier/m1/runs/m1-exit/)): one season of 7 game days (1,008 play turns plus 26 closing turns, 8 h 39 min at 20x speed) ran from start to finish with 1,000 script bots, and every gating season criterion passed (one in-process test condition failed on the first commit and was fixed in a later one; see the exit report). The replay verifier passed 144,300 transactions and caught all 30 deliberate tampers.
 
 ## 5. Try it

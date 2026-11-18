@@ -258,8 +258,9 @@ test('the rule of the ground: a character does not stand in water, in a wood or 
 
 test('the map says which ground is open and cuts a character behind what stands in front of the hex its feet are on (map/sprites.mjs)', () => {
   const src = readFileSync(new URL('map/sprites.mjs', WEB), 'utf8');
-  // open ground: painted land the viewer has surveyed, with no water, wood or mountain, nothing built or camped on it, not the Concord
-  assert.match(src, /const openGround = \(hq, hr\) => \{ const u = byHex\.get\(keyOf\(hq, hr\)\); return !!u && !u\.cloud && u\.lv >= L2 && LOW_PROPS\.has\(u\.name\) && u\.name !== 'water' && u\.site === undefined && !u\.camp && !\(u\.centre && u\.ring <= 1\) && u\.ring !== 0; \};/);
+  // open ground: painted land the viewer has surveyed, with no water, wood or mountain, nothing built or camped on it,
+  // not under a Seat's camp (⑭ abolished, 2026-11-18: province (0, 0) is ground like any other; it was excluded as the Concord)
+  assert.match(src, /const openGround = \(hq, hr\) => \{ const u = byHex\.get\(keyOf\(hq, hr\)\); return !!u && !u\.cloud && u\.lv >= L2 && LOW_PROPS\.has\(u\.name\) && u\.name !== 'water' && u\.site === undefined && !u\.camp && !\(u\.centre && u\.ring === 1\); \};/);
   assert.match(src, /const LOW_PROPS = new Set\(\['grassland', 'plains', 'hills', 'water'\]\);/);
   // (and whose hosts are the viewer's own: a battle scene that shows the viewer's character with one of them has taken it)
   // (and where each character is by the records: UX design 14.3, the character leads the player's first standing host)

@@ -1,11 +1,11 @@
 // The names on the far view, laid out so that none covers another.
 //
-// The far view names the nations over the heart of their lands, the Concord
-// at the centre and the viewer's own village under its beacon. With six
+// The far view names the nations over the heart of their lands and the
+// viewer's own village under its beacon (no centre is named: ⑭ abolished). With six
 // nations around a small world their hearts lie close together and the names
 // ran into each other. `layoutLabels` places them one by one, the most
 // important first; a name that would cover one already placed moves along its
-// own direction (outward from the Concord for a nation) until it is clear,
+// own direction (outward from province (0, 0) for a nation) until it is clear,
 // and stays where it was when nowhere near is clear. Pure: sizes in screen px,
 // positions in world px, the text measured by the caller.
 

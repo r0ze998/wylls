@@ -7,7 +7,6 @@ import { readFileSync } from 'node:fs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import * as title from '../../permutation-server/web/frontier/intro/title.mjs';
 import * as scene from '../../permutation-server/web/frontier/intro/scene.mjs';
-import { TOWER } from '../../permutation-server/web/frontier/map/belltower.mjs';
 import * as tex from '../../permutation-server/web/frontier/hud/textures.mjs';
 import { noGoRects, NO_GO } from '../../permutation-server/web/frontier/hud/insets.mjs';
 import { drawerOf } from '../../permutation-server/web/frontier/hud/drawer.mjs';
@@ -23,9 +22,9 @@ const text = x => flat(x).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g
 const JP = /[぀-ヿ㐀-鿿]/;
 
 // Rewritten with the fix pass on the second review ("an emblem page, not a game title"): the scene's picture is drawn
-// into a canvas (intro/scene.mjs: the bell's tower on the chart at dusk, the six standards round it); the emblem and
+// into a canvas (intro/scene.mjs: the chart at dusk, the six standards on it; the bell's tower went with ⑭'s abolition, 2026-11-18); the emblem and
 // the SVG backdrop are gone; the three lines are one sentence; the tagline's ornaments are elements pinned to its box.
-test('the title: an opaque scene of its own (the bell\'s tower and the six standards as a picture, the six leaders, one line and one sentence); its button says where it leads; nothing of the game is in it', () => {
+test('the title: an opaque scene of its own (the six standards on the chart as a picture, no tower, the six leaders, one line and one sentence); its button says where it leads; nothing of the game is in it', () => {
   setLang('ja');
   // the call to action follows the stage (UX design 7.1)
   assert.equal(title.ctaText('play', null), '辺境へ入る', 'before the viewer is known');
@@ -53,11 +52,11 @@ test('the title: an opaque scene of its own (the bell\'s tower and the six stand
   assert.doesNotMatch(text(out), /誰にもわからない|秘密|第\d+鐘|知るのは送った者だけ/);
   assert.match(text(out), /10 分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。/);
   assert.deepEqual(title.sentences('Six nations. A bell every ten minutes. Every march sealed.'), ['Six nations. ', 'A bell every ten minutes. ', 'Every march sealed.']);
-  // the picture: the tower's foot in the upper half, the six standards round it inside the picture, far ones first
+  // the picture: the eye's point in the upper half, the six standards round it inside the picture, far ones first; no tower
   for (const [w, h] of [[1440, 900], [390, 844], [2560, 1300]]) {
     const view = scene.titleView(w, h);
-    assert.ok(view.footY > h * 0.3 && view.footY < h * 0.5, `${w}: the tower's foot at ${Math.round(view.footY)}`);
-    assert.ok(view.tower * TOWER.height < view.footY, `${w}: the tower is whole in the picture`);
+    assert.ok(view.footY > h * 0.3 && view.footY < h * 0.5, `${w}: the eye's point at ${Math.round(view.footY)}`);
+    assert.ok(!('tower' in view), `${w}: no tower in the picture`);
     const st = scene.titleStandards(view);
     assert.deepEqual(st.map(s => s.faction).sort(), [0, 1, 2, 3, 4, 5]);
     for (let i = 1; i < st.length; i++) assert.ok(st[i].z <= st[i - 1].z, 'the far ones first');

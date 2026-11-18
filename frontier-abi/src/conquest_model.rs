@@ -506,9 +506,8 @@ pub fn step(pd: &mut [u8], b: u32, rep: &BellReport, prm: &StepParams) -> R<Step
             continue;
         }
         match r.kind {
-            CR::KIND_SIEGE | CR::KIND_OCCUPATION => {
-                step_site(pd, s, r, b, rep.sites[s], prm, &mut out)?;
-            }
+            CR::KIND_SIEGE => step_siege(pd, s, r, b, rep.sites[s], prm, &mut out)?,
+            CR::KIND_OCCUPATION => step_occupation(pd, s, r, b, rep.sites[s], prm, &mut out)?,
             CR::KIND_CAPTURE_DUE => {}
             _ => return Err(kernel(sub::RECORD)),
         }
@@ -671,25 +670,6 @@ impl From<Record> for SiteRecordRules {
     }
 }
 
-impl SiteRecordRules {
-    fn record(self, actor: u64, src: u64) -> Record {
-        Record {
-            kind: self.kind,
-            faction: self.faction,
-            flags: self.flags,
-            progress: self.progress,
-            required: self.required,
-            target: self.target,
-            vigil_start: self.vigil_start,
-            vigil_next: self.vigil_next,
-            vigil_from_day: self.vigil_from_day,
-            bell: self.bell,
-            actor,
-            src,
-        }
-    }
-}
-
 /// Only the mirror fields read by the site rules.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SiteTransitionMirror {
@@ -723,7 +703,9 @@ pub struct SiteTransition {
     pub event: Option<(u8, u8, u8)>,
 }
 
-/// Pure rules shared by the legacy adapter and future full-reference adapters.
+/// Pure rules for full-reference (wide) adapters: the same rules as the
+/// legacy `step`'s in-place copy (`step_siege`, `step_occupation`), held
+/// equal by the `site_transition_matches_the_legacy_step` test.
 /// Consumes rule fields, mirror values and reports validated by the caller;
 /// this is not declaration authorization or escrow settlement.
 /// `None` means no change, including same/earlier-bell records. This does not
@@ -915,7 +897,16 @@ fn capture_transition(
     }
 }
 
-fn step_site(
+// The legacy adapter: the program's own copy of the site rules, writing the
+// Province bytes in place. It is deliberately not a call to
+// `site_transition` (fb00f3d8 routed it through that pure function; on SBF
+// that cost ~1,300-2,700 CU per ResolveFromInputs whose every site's siege
+// ends, over the G1 gate of 290,000 CU; B2 in the 2026-11 loop-play report).
+// The two copies are held equal by `site_transition_matches_the_legacy_step`
+// (tests/conquest_site_transition.rs), which applies `site_transition`'s
+// effects to the same Province bytes and compares every byte and event with
+// `step` over the whole rule grid. Change one, change both.
+fn step_siege(
     pd: &mut [u8],
     s: usize,
     r: Record,
@@ -924,33 +915,210 @@ fn step_site(
     prm: &StepParams,
     out: &mut StepOut,
 ) -> R<()> {
-    let mirror = SiteTransitionMirror {
-        state: mrd8(pd, s, SM::STATE)?,
-        gen: mrd8(pd, s, SM::GEN)?,
-        order: mrd8(pd, s, SM::ORDER)?,
-        held_since_hour: mrd16(pd, s, SM::HELD_SINCE_HOUR)?,
-        walls_committed: mrd32(pd, s, SM::WALLS_COMMITTED)?,
-    };
-    let Some(next) = site_transition(r.into(), mirror, b, sr, prm)? else {
-        return Ok(());
-    };
-    if let Some(capture) = next.capture {
-        apply_capture(pd, s, next.record.faction, capture)?;
-        out.quiet_inputs_changed = true;
+    let state = mrd8(pd, s, SM::STATE)?;
+    if state != SM::STATE_HOLDING && state != SM::STATE_FREE_CITY {
+        return Err(kernel(sub::RECORD));
     }
-    next.record
-        .record(
-            if next.retain_actor { r.actor } else { 0 },
-            if next.retain_source { r.src } else { 0 },
-        )
-        .write(pd, s)?;
-    out.changed = true;
-    if let Some((code, faction, progress)) = next.event {
-        out.push(s as u8, code, faction, progress);
+    let neutral = r.flags & CR::FLAG_NEUTRAL != 0;
+    let vigil = (!neutral)
+        .then(|| siege3::vigil_of_snapshot(r.vigil_start, r.vigil_next, r.vigil_from_day));
+    let mut sg = siege3::SiegeV3 {
+        attacker_faction: r.faction,
+        declared_bell: r.bell,
+        progress: r.progress,
+        required: r.required,
+        status: SiegeStatus::Active,
+    };
+    let br = KReport {
+        holders: sr.holders,
+        defender_present: sr.defender_present,
+    };
+    let start = prm.genesis_ts.saturating_add(b as i64 * 600);
+    let slot = CR::target_slot(r.target);
+    match sg.advance(b, start, br, vigil.as_ref()) {
+        SiegeStatus::Active => {
+            let p = sg.progress;
+            if p != r.progress {
+                let mut n = r;
+                n.progress = p;
+                n.write(pd, s)?;
+                out.changed = true;
+            }
+        }
+        SiegeStatus::Failed => {
+            let holding = CR::target_kind(r.target) != CR::TARGET_FREE_CITY;
+            let broken = siege3::broken_by_defender(br);
+            let mut n = Record {
+                faction: CR::BARRED_NONE,
+                ..Record::ZERO
+            };
+            if holding && broken {
+                n.faction = r.faction;
+                n.flags |= CR::FLAG_STAKE_TO_HOLDING;
+                n.progress = mrd8(pd, s, SM::GEN)?;
+                n.bell = b
+                    .saturating_add(1)
+                    .saturating_add(prm.cq.immunity_bells as u32);
+            }
+            if slot != 0 {
+                n.flags |= CR::FLAG_SLOT_OWED;
+                n.required = slot;
+                n.actor = r.actor;
+            }
+            n.write(pd, s)?;
+            out.changed = true;
+            let code = event::SIEGE_FAILED | if broken { event::DETAIL } else { 0 };
+            out.push(s as u8, code, r.faction, r.progress);
+        }
+        SiegeStatus::Completed => {
+            if CR::target_kind(r.target) == CR::TARGET_FIRST {
+                // §3.5: occupation; ownership never changes (D9). The
+                // stake is owed back to `src` from this bell (D-9 revised,
+                // integ-W1): SettleSiege may pay it while the occupation
+                // runs, and an occupation still running at `end_bell`
+                // keeps it owed, so it is never lost.
+                let n = Record {
+                    kind: CR::KIND_OCCUPATION,
+                    faction: r.faction,
+                    flags: CR::FLAG_STAKE_TO_SRC,
+                    target: r.target,
+                    bell: b,
+                    actor: r.actor,
+                    src: r.src,
+                    ..Record::ZERO
+                };
+                n.write(pd, s)?;
+                out.changed = true;
+                out.push(s as u8, event::OCCUPIED, r.faction, r.required);
+            } else {
+                let credited = capture_flip(pd, s, r.faction, slot, b, prm)?;
+                out.quiet_inputs_changed = true;
+                let n = Record {
+                    kind: CR::KIND_CAPTURE_DUE,
+                    faction: r.faction,
+                    flags: if credited { CR::FLAG_CREDITED } else { 0 },
+                    target: r.target,
+                    bell: b,
+                    actor: r.actor,
+                    src: r.src,
+                    ..Record::ZERO
+                };
+                n.write(pd, s)?;
+                out.changed = true;
+                let code = event::CAPTURE_DUE | if credited { event::DETAIL } else { 0 };
+                out.push(s as u8, code, r.faction, r.required);
+            }
+        }
     }
     Ok(())
 }
 
+/// The site mirror at a capture's completion bell (§3.6, K-23): the
+/// captor's from `b + 1`. Returns whether the capture is credited (K-26).
+fn capture_flip(
+    pd: &mut [u8],
+    s: usize,
+    captor: u8,
+    slot: u8,
+    b: u32,
+    prm: &StepParams,
+) -> R<bool> {
+    let o = P::site(s);
+    let was_free_city = mrd8(pd, s, SM::STATE)? == SM::STATE_FREE_CITY;
+    let held_since = mrd16(pd, s, SM::HELD_SINCE_HOUR)?;
+    let credited = siege3::capture_credited(
+        b,
+        held_since,
+        prm.cq.capture_credit_min_bells,
+        was_free_city,
+    );
+    let gen = mrd8(pd, s, SM::GEN)?.wrapping_add(1);
+    let walls = mrd32(pd, s, SM::WALLS_COMMITTED)?;
+    let keeps_walls = of_faction(captor).is_some_and(|d| d.keeps_walls_on_capture);
+    let order = if slot != 0 {
+        slot
+    } else {
+        mrd8(pd, s, SM::ORDER)?
+    };
+    let hour = permutation_rules::frontier::siege::held_since_hour_from(b.saturating_add(1));
+    put(wr_u8(pd, o + SM::STATE, SM::STATE_HOLDING)
+        & wr_u8(pd, o + SM::FACTION, captor)
+        & wr_u8(pd, o + SM::ORDER, order)
+        & wr_u8(pd, o + SM::GEN, gen)
+        & wr_u16(pd, o + SM::HELD_SINCE_HOUR, hour)
+        & wr_u32(pd, o + SM::GARRISON, 0)
+        & wr_u32(pd, o + SM::PEND0_BELL, SM::NO_BELL)
+        & wr_arr(pd, o + SM::PEND0_DELTA, &[0; 8])
+        & wr_u32(pd, o + SM::PEND1_BELL, SM::NO_BELL)
+        & wr_arr(pd, o + SM::PEND1_DELTA, &[0; 8])
+        & wr_u32(
+            pd,
+            o + SM::WALLS_COMMITTED,
+            if keeps_walls { walls } else { walls / 2 },
+        )
+        & wr_u32(pd, o + SM::SHIELD_UNTIL_BELL, 0))?;
+    if was_free_city {
+        put(wr_u8(pd, o + SM::TIER_NEXT, SM::NO_TIER_NEXT) & wr_u32(pd, o + SM::TIER_NEXT_BELL, 0))?;
+    }
+    if credited && (captor as usize) < P::FACTIONS {
+        let c = P::captures_by(captor as usize);
+        let v = rd_u16(pd, c).ok_or(BAD)?.saturating_add(1);
+        put(wr_u16(pd, c, v))?;
+    }
+    Ok(credited)
+}
+
+fn step_occupation(
+    pd: &mut [u8],
+    s: usize,
+    r: Record,
+    b: u32,
+    sr: SiteReport,
+    prm: &StepParams,
+    out: &mut StepOut,
+) -> R<()> {
+    if mrd8(pd, s, SM::STATE)? != SM::STATE_HOLDING {
+        return Err(kernel(sub::RECORD));
+    }
+    let occ = r.faction;
+    let holds = sr.holders & side_bit(occ) != 0;
+    let Some(end) = siege3::occupation_ends(
+        holds,
+        sr.defender_present,
+        b,
+        r.bell,
+        prm.cq.occupation_tenure_bells as u32,
+    ) else {
+        return Ok(());
+    };
+    // D-9 revised (integ-W1): the stake was owed to `src` from the
+    // completion bell; a stake SettleSiege has not paid yet stays owed.
+    let mut n = Record {
+        faction: CR::BARRED_NONE,
+        flags: r.flags & CR::FLAG_STAKE_TO_SRC,
+        src: r.src,
+        ..Record::ZERO
+    };
+    if end.respite {
+        // §3.5 as written: `immune_until_bell = end + respite_bells`
+        // (D-12 withdrawn, integ-W1; the simulator's rule).
+        n.faction = occ;
+        n.bell = b.saturating_add(prm.cq.respite_bells as u32);
+    }
+    n.write(pd, s)?;
+    out.changed = true;
+    let code = match end.kind {
+        siege3::OccupationEndKind::Liberated => {
+            event::LIBERATED | if end.respite { 0 } else { event::DETAIL }
+        }
+        siege3::OccupationEndKind::Expired => event::OCCUPATION_EXPIRED,
+    };
+    out.push(s as u8, code, occ, 0);
+    Ok(())
+}
+
+// The wide resolve's capture writes (`world_index::resolve`).
+#[cfg(feature = "world-index-experimental")]
 pub(crate) fn apply_capture(
     pd: &mut [u8],
     s: usize,

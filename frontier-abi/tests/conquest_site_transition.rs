@@ -555,3 +555,197 @@ fn vigil_progress_saturation_and_immunity_saturation() {
         },
     );
 }
+
+/// The program's `step` keeps its own in-place copy of the site rules (the
+/// G1 ResolveFromInputs budget; see the note above `step_siege` in
+/// conquest_model.rs). This holds the two copies equal: over a seeded grid of
+/// records, mirrors, reports, bells and parameters, `site_transition`'s
+/// effects, applied here to the same Province bytes, give exactly `step`'s
+/// bytes, events, flags and errors.
+#[test]
+fn site_transition_matches_the_legacy_step() {
+    fn pick<T: Copy>(x: &mut u64, v: &[T]) -> T {
+        // xorshift64: a fixed sequence, no RNG crate
+        *x ^= *x << 13;
+        *x ^= *x >> 7;
+        *x ^= *x << 17;
+        v[(*x % v.len() as u64) as usize]
+    }
+    let base = params();
+    let mut short = base;
+    short.cq.occupation_tenure_bells = 1;
+    short.cq.capture_credit_min_bells = 0;
+    short.genesis_ts = 1_700_000_000;
+    let targets: Vec<u8> = [CR::TARGET_FIRST, CR::TARGET_OTHER, CR::TARGET_FREE_CITY]
+        .into_iter()
+        .flat_map(|k| (0..4).map(move |s| CR::target(k, s)))
+        .collect();
+    let flags = [
+        0,
+        CR::FLAG_NEUTRAL,
+        CR::FLAG_STAKE_TO_SRC,
+        CR::FLAG_NEUTRAL | CR::FLAG_STAKE_TO_SRC,
+        CR::FLAG_HELD | CR::FLAG_NEUTRAL,
+        0xff,
+    ];
+    let mut seen = [0u32; 7];
+    let mut x = 0x9e37_79b9_7f4a_7c15u64;
+    for _ in 0..60_000 {
+        let r = Record {
+            kind: pick(&mut x, &[CR::KIND_SIEGE, CR::KIND_OCCUPATION]),
+            faction: pick(&mut x, &[0, 1, 5, 6, CR::BARRED_NONE]),
+            flags: pick(&mut x, &flags),
+            progress: pick(&mut x, &[0, 1, 2, 35, 254, 255]),
+            required: pick(&mut x, &[0, 1, 3, 36, 255]),
+            target: pick(&mut x, &targets),
+            vigil_start: pick(&mut x, &[0, 60, 1380]),
+            vigil_next: pick(&mut x, &[0, 120, 1439]),
+            vigil_from_day: pick(&mut x, &[0, 1, 9]),
+            bell: pick(&mut x, &[0, 1, 10, 11, 12, 190]),
+            actor: 0xfeed_0123_4567_89ab,
+            src: 0xffff_aabb_ccdd_0099,
+        };
+        let state = pick(&mut x, &[SM::STATE_HOLDING, SM::STATE_FREE_CITY, 99]);
+        let b = pick(&mut x, &[11, 13, 205, u32::MAX]);
+        let prm = pick(&mut x, &[base, short]);
+        let sr = SiteReport {
+            holders: pick(&mut x, &[0, 1, 2, 1 << 5, 1 << 6, 0x7f]),
+            defender_present: pick(&mut x, &[false, true]),
+        };
+        let mut pd = fixture(r, state);
+        let o = P::site(0);
+        pd[o + SM::GEN] = pick(&mut x, &[0, 7, 255]);
+        pd[o + SM::ORDER] = pick(&mut x, &[0, 1, 2, 3]);
+        assert!(wr_u16(
+            &mut pd,
+            o + SM::HELD_SINCE_HOUR,
+            pick(&mut x, &[0, 1, 3, u16::MAX])
+        ));
+        assert!(wr_u32(
+            &mut pd,
+            o + SM::WALLS_COMMITTED,
+            pick(&mut x, &[0, 101, u32::MAX])
+        ));
+        let count = pick(&mut x, &[0, 7, u16::MAX]);
+        for f in 0..P::FACTIONS {
+            assert!(wr_u16(&mut pd, P::captures_by(f), count));
+        }
+        let mirror = qm::SiteTransitionMirror {
+            state: pd[o + SM::STATE],
+            gen: pd[o + SM::GEN],
+            order: pd[o + SM::ORDER],
+            held_since_hour: u16::from_le_bytes([
+                pd[o + SM::HELD_SINCE_HOUR],
+                pd[o + SM::HELD_SINCE_HOUR + 1],
+            ]),
+            walls_committed: u32::from_le_bytes(
+                pd[o + SM::WALLS_COMMITTED..o + SM::WALLS_COMMITTED + 4]
+                    .try_into()
+                    .unwrap(),
+            ),
+        };
+        let rep = BellReport {
+            sites: {
+                let mut s = [SiteReport::default(); P::SITES_N];
+                s[0] = sr;
+                s
+            },
+            ..BellReport::default()
+        };
+        let pure = qm::site_transition(r.into(), mirror, b, sr, &prm);
+        let mut legacy = pd.clone();
+        let got = qm::step(&mut legacy, b, &rep, &prm);
+        let case = format!("{r:?} state {state} b {b} {sr:?} {mirror:?}");
+        let t = match pure {
+            Err(e) => {
+                seen[6] += 1;
+                assert_eq!(got.map(|_| ()), Err(e), "{case}");
+                continue;
+            }
+            Ok(t) => t,
+        };
+        let out = got.unwrap_or_else(|e| panic!("{case}: step {e:?}"));
+        let mut want = pd.clone();
+        let mut events = vec![];
+        let (mut changed, mut quiet) = (false, false);
+        if let Some(t) = t {
+            if let Some(c) = t.capture {
+                let captor = t.record.faction;
+                want[o + SM::STATE] = SM::STATE_HOLDING;
+                want[o + SM::FACTION] = captor;
+                want[o + SM::ORDER] = c.order;
+                want[o + SM::GEN] = c.gen;
+                assert!(wr_u16(
+                    &mut want,
+                    o + SM::HELD_SINCE_HOUR,
+                    c.held_since_hour
+                ));
+                assert!(wr_u32(&mut want, o + SM::GARRISON, 0));
+                assert!(wr_u32(&mut want, o + SM::PEND0_BELL, SM::NO_BELL));
+                assert!(wr_u32(&mut want, o + SM::PEND1_BELL, SM::NO_BELL));
+                want[o + SM::PEND0_DELTA..o + SM::PEND0_DELTA + 8].fill(0);
+                want[o + SM::PEND1_DELTA..o + SM::PEND1_DELTA + 8].fill(0);
+                assert!(wr_u32(
+                    &mut want,
+                    o + SM::WALLS_COMMITTED,
+                    c.walls_committed
+                ));
+                assert!(wr_u32(&mut want, o + SM::SHIELD_UNTIL_BELL, 0));
+                if c.clear_tier_next {
+                    want[o + SM::TIER_NEXT] = SM::NO_TIER_NEXT;
+                    assert!(wr_u32(&mut want, o + SM::TIER_NEXT_BELL, 0));
+                }
+                if c.credited && (captor as usize) < P::FACTIONS {
+                    assert!(wr_u16(
+                        &mut want,
+                        P::captures_by(captor as usize),
+                        count.saturating_add(1)
+                    ));
+                }
+                quiet = true;
+                seen[4] += 1;
+            }
+            let n = t.record;
+            Record {
+                kind: n.kind,
+                faction: n.faction,
+                flags: n.flags,
+                progress: n.progress,
+                required: n.required,
+                target: n.target,
+                vigil_start: n.vigil_start,
+                vigil_next: n.vigil_next,
+                vigil_from_day: n.vigil_from_day,
+                bell: n.bell,
+                actor: if t.retain_actor { r.actor } else { 0 },
+                src: if t.retain_source { r.src } else { 0 },
+            }
+            .write(&mut want, 0)
+            .unwrap();
+            changed = true;
+            match t.event {
+                None => seen[1] += 1,
+                Some((code, faction, progress)) => {
+                    events.push(ev(code, faction, progress));
+                    match code & !event::DETAIL {
+                        event::SIEGE_FAILED => seen[2] += 1,
+                        event::OCCUPIED => seen[3] += 1,
+                        event::CAPTURE_DUE => {}
+                        _ => seen[5] += 1,
+                    }
+                }
+            }
+        } else {
+            seen[0] += 1;
+        }
+        assert_eq!(legacy, want, "{case}: Province bytes");
+        assert_eq!(out.events(), &events[..], "{case}");
+        assert_eq!(out.changed, changed, "{case}");
+        assert_eq!(out.quiet_inputs_changed, quiet, "{case}");
+        assert_eq!(out.active, qm::active_count(&want).unwrap() > 0, "{case}");
+        assert!(!out.roster_changed && out.keep_taken.is_none() && out.snapshot.is_none());
+    }
+    // every outcome of the rules is reached: none, progress, failure,
+    // occupation, capture, occupation end, refusal
+    assert!(seen.iter().all(|&n| n >= 200), "outcome coverage {seen:?}");
+}
