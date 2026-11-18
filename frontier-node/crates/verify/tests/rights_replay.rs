@@ -17,6 +17,12 @@
 //! the findings **with** the injected Grant transactions to the findings of
 //! the same base **without** them, and judges only the difference.
 //!
+//! **Option A (owner decision ② = A, 2026-11-18):** the station is the
+//! grantee's Vault on tile `ST_TILE` of Province (1, 2), added to the base
+//! as a crafted account (in the base's last transaction's post-states and
+//! its final state, so it is in both archives compared); IssueGrant pays
+//! `GRANT_ISSUE_COST` from the facility with an owner touch.
+//!
 //! **Not shown here:** a recorded S1 season with the program's own logs
 //! (that needs the SBF build on a local chain, which signs); here the
 //! record bodies and post-states are built by this test with the shared
@@ -32,6 +38,8 @@ use fclient::{AccountMeta, Address, Instruction};
 use frontier_abi::layout::header as HD;
 use frontier_abi::layout::player::citizen as C;
 use frontier_abi::v2::layout::player::holding as H;
+use frontier_abi::v2::layout::s1::vault as VA;
+use frontier_abi::v2::layout::AccountKind as K2;
 use frontier_abi::v2::log::{self as l2, CqKind, EntityKind as E2};
 use frontier_abi::v2::rights::{self as rt, layout as G, record as rec};
 use permutation_rules::fixed::MILLI;
@@ -69,19 +77,22 @@ struct Base {
 }
 
 const ARMS_SLOT: usize = arms::ARMS as usize;
+/// The station Vault's tile (option A).
+const ST_TILE: u8 = 40;
 
 fn base() -> Base {
     let mut inp = land();
     inp.cfg.ruleset_hash = frontier_abi::v2::presets::RULESET_HASH_V3;
     as_rights_build(&mut inp, rt::PROGRAM_VERSION_RIGHTS_S1);
     let ctx = findex::addr_ctx(&inp.cfg.program, inp.cfg.season_id);
-    let (facility, station) = (ctx.holding(1, 2, 0), ctx.holding(1, 2, 1));
+    let (facility, grantee_home) = (ctx.holding(1, 2, 0), ctx.holding(1, 2, 1));
+    let station = frontier_abi::v2::addr::vault(&ctx, 1, 2, ST_TILE);
     let owner = |inp: &Input, k: &Key| -> Key {
         data_of(inp, k)[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32]
             .try_into()
             .unwrap()
     };
-    let (issuer_c, grantee_c) = (owner(&inp, &facility), owner(&inp, &station));
+    let (issuer_c, grantee_c) = (owner(&inp, &facility), owner(&inp, &grantee_home));
     assert_ne!(issuer_c, grantee_c, "two owners");
     let wallet = |inp: &Input, k: &Key| -> Key {
         data_of(inp, k)[C::WALLET..C::WALLET + 32]
@@ -107,6 +118,39 @@ fn base() -> Base {
     if let Some(Some(a)) = inp.finals.get_mut(&facility) {
         add(&mut a.data);
     }
+    // The grantee's Vault (option A's station): 500 ore, 500 wood.
+    let vault = {
+        let mut d = vec![0u8; K2::Vault.size()];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut d,
+            K2::Vault,
+            inp.cfg.season_id
+        ));
+        d[VA::P..VA::P + 2].copy_from_slice(&1i16.to_le_bytes());
+        d[VA::Q..VA::Q + 2].copy_from_slice(&2i16.to_le_bytes());
+        d[VA::TILE] = ST_TILE;
+        d[VA::STATE] = VA::STATE_LIVE;
+        d[VA::GEN] = 1;
+        d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(&grantee_c);
+        d[VA::OWNER_TAG..VA::OWNER_TAG + 8].copy_from_slice(&rec::tag8(&grantee_c).to_le_bytes());
+        d[VA::CAP..VA::CAP + 8]
+            .copy_from_slice(&permutation_rules::frontier::caravan::VAULT_CAP.to_le_bytes());
+        for r in [Resource::Ore as usize, Resource::Wood as usize] {
+            d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&(500 * MILLI).to_le_bytes());
+        }
+        fclient::ports::Account {
+            lamports: frontier_abi::layout::rent(d.len()),
+            data: d,
+            owner: inp.cfg.program,
+            executable: false,
+        }
+    };
+    inp.txs
+        .last_mut()
+        .unwrap()
+        .post
+        .push((Address::new_from_array(station), Some(vault.clone())));
+    inp.finals.insert(station, Some(vault));
     let w = verify_core::world::World::parse(
         &inp.cfg.program,
         &inp.txs,
@@ -281,7 +325,7 @@ fn grant_bytes(
     d[G::FACILITY_GEN] = fgen;
     d[G::STATION_GEN] = sgen;
     d[G::FACILITY_SITE] = 0;
-    d[G::STATION_SITE] = 1;
+    d[G::STATION_SITE] = ST_TILE;
     d[G::P..G::P + 2].copy_from_slice(&1i16.to_le_bytes());
     d[G::Q..G::Q + 2].copy_from_slice(&2i16.to_le_bytes());
     d[G::NONCE..G::NONCE + 4].copy_from_slice(&nonce.to_le_bytes());
@@ -318,7 +362,7 @@ fn honest(b: &Base) -> (Flow, Key) {
     let expires = t0 + 86_400;
     let (fgen, sgen) = (
         data_of(&b.inp, &b.facility)[H::GEN],
-        data_of(&b.inp, &b.station)[H::GEN],
+        data_of(&b.inp, &b.station)[VA::GEN],
     );
     let season = b.ctx.season;
     let system = [0u8; 32];
@@ -351,7 +395,7 @@ fn honest(b: &Base) -> (Flow, Key) {
         q: 2,
         facility_site: 0,
         facility_gen: fgen,
-        station_site: 1,
+        station_site: ST_TILE,
         station_gen: sgen,
         max_swaps: 3,
         max_units: 30,
@@ -359,12 +403,21 @@ fn honest(b: &Base) -> (Flow, Key) {
         rent,
     }
     .to_bytes();
+    // The facility pays the issue cost (an owner touch).
+    let fd = fl.data(&b.facility);
+    let paid = hr::touched_paid(&fd, t0, &rt::grant_issue_cost()).unwrap();
+    fl.state
+        .get_mut(&b.facility)
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .data = paid;
     let body = fl.record(
         rec::ISSUED,
         bell(t0),
         &key,
         &payload,
-        &[(E2::Citizen, b.issuer_c)],
+        &[(E2::Citizen, b.issuer_c), (E2::Holding, b.facility)],
     );
     fl.push(
         b.issuer_w,
@@ -375,7 +428,7 @@ fn honest(b: &Base) -> (Flow, Key) {
                 meta(b.issuer_w, true, true),
                 meta(season, false, false),
                 meta(b.issuer_c, false, true),
-                meta(b.facility, false, false),
+                meta(b.facility, false, true),
                 meta(b.province, false, false),
                 meta(b.grantee_c, false, false),
                 meta(b.station, false, false),
@@ -384,7 +437,7 @@ fn honest(b: &Base) -> (Flow, Key) {
             ],
         ),
         vec![body],
-        &[b.issuer_c, grant],
+        &[b.issuer_c, b.facility, grant],
         t0,
     );
     // The swap instructions' accounts.
@@ -419,6 +472,16 @@ fn honest(b: &Base) -> (Flow, Key) {
         hr::write(&mut nd, &h, t).unwrap();
         fl.state.get_mut(&k).unwrap().as_mut().unwrap().data = nd;
     };
+    // The station Vault's stores moved by `delta` (option A; no accrual).
+    let vmv = |fl: &mut Flow, k: Key, delta: [i64; RESOURCES]| {
+        let d = &mut fl.state.get_mut(&k).unwrap().as_mut().unwrap().data;
+        for (r, v) in delta.iter().enumerate() {
+            let o = VA::store(r);
+            let x = le(&d[o..o + 8]) as i64 + v;
+            d[o..o + 8].copy_from_slice(&x.to_le_bytes());
+        }
+    };
+    let neg = |c: [i64; RESOURCES]| c.map(|x| -x);
     let side = |o: i64, w: i64, a: i64| {
         let mut c = [0i64; RESOURCES];
         c[ore] = o;
@@ -431,7 +494,7 @@ fn honest(b: &Base) -> (Flow, Key) {
         p: 1,
         q: 2,
         facility_site: 0,
-        station_site: 1,
+        station_site: ST_TILE,
         seq,
         units,
         ore: units as i64 * 2 * MILLI,
@@ -444,7 +507,7 @@ fn honest(b: &Base) -> (Flow, Key) {
     // 2. ReserveSwap(10, seq 0).
     let t = t0 + 60;
     let s = swap(0, 10);
-    mv(&mut fl, b.station, t, true, side(s.ore, s.wood, 0));
+    vmv(&mut fl, b.station, neg(side(s.ore, s.wood, 0)));
     mv(&mut fl, b.facility, t, true, side(0, 0, s.arms));
     grant_set(&mut fl, &|d| {
         set_u(d, G::OPEN_UNITS, 4, 10);
@@ -460,8 +523,8 @@ fn honest(b: &Base) -> (Flow, Key) {
         &s.to_bytes(),
         &[
             (E2::Citizen, b.grantee_c),
-            (E2::Holding, b.station),
             (E2::Holding, b.facility),
+            (E2::Vault, b.station),
         ],
     );
     fl.push(
@@ -476,7 +539,7 @@ fn honest(b: &Base) -> (Flow, Key) {
     );
     // 3. ExecuteSwap(seq 0).
     let t = t + 60;
-    mv(&mut fl, b.station, t, false, side(0, 0, s.arms));
+    vmv(&mut fl, b.station, side(0, 0, s.arms));
     mv(&mut fl, b.facility, t, false, side(s.ore, s.wood, 0));
     grant_set(&mut fl, &|d| {
         set_u(d, G::SWAPS, 2, 1);
@@ -498,8 +561,8 @@ fn honest(b: &Base) -> (Flow, Key) {
         &s.to_bytes(),
         &[
             (E2::Citizen, b.grantee_c),
-            (E2::Holding, b.station),
             (E2::Holding, b.facility),
+            (E2::Vault, b.station),
         ],
     );
     fl.push(
@@ -515,7 +578,7 @@ fn honest(b: &Base) -> (Flow, Key) {
     // 4. ReserveSwap(4, seq 1).
     let t = t + 60;
     let s4 = swap(1, 4);
-    mv(&mut fl, b.station, t, true, side(s4.ore, s4.wood, 0));
+    vmv(&mut fl, b.station, neg(side(s4.ore, s4.wood, 0)));
     mv(&mut fl, b.facility, t, true, side(0, 0, s4.arms));
     grant_set(&mut fl, &|d| {
         set_u(d, G::OPEN_UNITS, 4, 4);
@@ -531,8 +594,8 @@ fn honest(b: &Base) -> (Flow, Key) {
         &s4.to_bytes(),
         &[
             (E2::Citizen, b.grantee_c),
-            (E2::Holding, b.station),
             (E2::Holding, b.facility),
+            (E2::Vault, b.station),
         ],
     );
     fl.push(
@@ -547,7 +610,7 @@ fn honest(b: &Base) -> (Flow, Key) {
     );
     // 5. ReleaseSwap by the grantee.
     let t = t + 60;
-    mv(&mut fl, b.station, t, false, side(s4.ore, s4.wood, 0));
+    vmv(&mut fl, b.station, side(s4.ore, s4.wood, 0));
     mv(&mut fl, b.facility, t, false, side(0, 0, s4.arms));
     grant_set(&mut fl, &|d| {
         for (o, n) in [
@@ -565,7 +628,7 @@ fn honest(b: &Base) -> (Flow, Key) {
         p: 1,
         q: 2,
         facility_site: 0,
-        station_site: 1,
+        station_site: ST_TILE,
         returned: [s4.ore, s4.wood, s4.arms],
         kept: [0; 3],
     };
@@ -574,7 +637,7 @@ fn honest(b: &Base) -> (Flow, Key) {
         bell(t),
         &key,
         &undo.to_bytes(),
-        &[(E2::Holding, b.station), (E2::Holding, b.facility)],
+        &[(E2::Holding, b.facility), (E2::Vault, b.station)],
     );
     fl.push(
         b.grantee_w,
@@ -605,7 +668,7 @@ fn honest(b: &Base) -> (Flow, Key) {
         p: 1,
         q: 2,
         facility_site: 0,
-        station_site: 1,
+        station_site: ST_TILE,
         returned: [0; 3],
         kept: [0; 3],
     };
@@ -755,13 +818,27 @@ fn a_missing_record_fails() {
 fn an_amount_the_holdings_did_not_move_fails() {
     let b = base();
     let (mut fl, _) = honest(&b);
-    // The execute's station gains one more arm than its record says.
+    // The execute's station Vault gains one more arm than its record says
+    // (option A: VR judges the Vault) …
     let t = fl.inp.txs.len() - 5;
     let station = Address::new_from_array(b.station);
     for (k, a) in fl.inp.txs[t].post.iter_mut() {
         if *k == station {
             let d = &mut a.as_mut().unwrap().data;
-            let o = H::store(ARMS_SLOT) + frontier_abi::layout::player::accrual::VALUE;
+            let o = VA::store(ARMS_SLOT);
+            let v = le(&d[o..o + 8]) as i64 + MILLI;
+            d[o..o + 8].copy_from_slice(&v.to_le_bytes());
+        }
+    }
+    let found = new_findings(&b.inp, &fl.inp);
+    assert!(has(&found, RIGHTS_STATE_MISMATCH), "{found:#?}");
+    // … and the facility one more ore (V7 rebuilds the facility).
+    let (mut fl, _) = honest(&b);
+    let facility = Address::new_from_array(b.facility);
+    for (k, a) in fl.inp.txs[t].post.iter_mut() {
+        if *k == facility {
+            let d = &mut a.as_mut().unwrap().data;
+            let o = H::store(Resource::Ore as usize) + frontier_abi::layout::player::accrual::VALUE;
             let v = le(&d[o..o + 8]) as i64 + MILLI;
             d[o..o + 8].copy_from_slice(&v.to_le_bytes());
         }
@@ -815,7 +892,8 @@ fn an_issue_without_its_record_is_not_invisible() {
     // The Citizen's chain does not move without the record.
     let ic = Address::new_from_array(b.issuer_c);
     tx.post.retain(|(k, _)| *k != ic);
-    let g = tx.post.iter().find(|(k, _)| *k != ic).cloned().unwrap();
+    let gk = Address::new_from_array(rt::grant(&b.ctx, rec::tag8(&b.issuer_c), 0));
+    let g = tx.post.iter().find(|(k, _)| *k == gk).cloned().unwrap();
     inp.txs.push(tx);
     inp.finals.insert(g.0.to_bytes(), g.1.clone());
     let found = new_findings(&b.inp, &inp);

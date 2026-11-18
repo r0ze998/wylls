@@ -39,7 +39,7 @@ pub enum Error {
     Frontier(FrontierError),
     /// An MC code (`frontier_abi::v2::CqError`, stable forever).
     Cq(CqError),
-    /// Proposal (02-rights): a facility-use Grant code (200–211,
+    /// Proposal (02-rights): a facility-use Grant code (200–214,
     /// unallocated).
     Rights(RightsError),
     Program(ProgramError),

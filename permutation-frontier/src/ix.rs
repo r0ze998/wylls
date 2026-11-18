@@ -243,6 +243,10 @@ mod tests {
             // Capacity (workstream 09, `capacity-preview`): a deposit's
             // debit, a claim's credit refused past `CAP − CUSTODY_QUOTA`.
             ("capacity.rs", "w.set_i64(VA::store(i), self.stores[i])?;"),
+            // Rights (workstream 02, option A, `rights-experimental`): a
+            // ReserveSwap's debit; ExecuteSwap's arms and an undo's return
+            // refused (kept in the Grant) past `CAP − CUSTODY_QUOTA`.
+            ("rights.rs", "w.set_i64(VA::store(i), self.stores[i])?;"),
         ];
         let want: Vec<(String, String)> = want
             .iter()

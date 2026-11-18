@@ -275,6 +275,35 @@ pub struct KeeperConfig {
     /// see whether the season has a prize pool, so it keeps the cap unless
     /// told otherwise). At most 128 (`R_MAX_HARD`).
     pub extend_max_ring: u16,
+    /// Where the transaction feed comes from (devnet-readiness B2):
+    /// `"localnet"` (default: `frontier_feed` of `frontier-localnet`) or
+    /// `"rpc"` (a public cluster: `findex::RpcPoll` over
+    /// `getSignaturesForAddress` + `getTransaction`, `crate::clusterfeed`).
+    pub feed: FeedSource,
+    /// `feed = "rpc"`: least time between two polls of the cluster
+    /// (default 2,000 ms, at least 200).
+    pub feed_poll_ms: u64,
+    /// `feed = "rpc"`: the longest wait after failed polls (doubling from
+    /// `feed_poll_ms`; default 60,000 ms).
+    pub feed_max_backoff_ms: u64,
+    /// `feed = "rpc"`: the program's first signature, so the first poll
+    /// must reach it (findex G1); optional.
+    pub feed_origin: Option<String>,
+    /// `feed = "rpc"`: a second RPC endpoint the poller cross-checks
+    /// (findex G3); optional.
+    pub feed_witness: Option<String>,
+    /// Least time between two JSON-RPC calls of this keeper to its `rpc`
+    /// (every client shares one pacer; an HTTP 429/503 backs all off).
+    /// Default 0 (unpaced) with `feed = "localnet"`, 150 ms with `"rpc"`
+    /// (≈ 66 calls per 10 s, under the public devnet RPC's per-IP limit).
+    pub rpc_min_gap_ms: Option<u64>,
+}
+
+/// `keeper.toml` `feed`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeedSource {
+    Localnet,
+    Rpc,
 }
 
 impl KeeperConfig {
@@ -324,7 +353,71 @@ impl KeeperConfig {
             rest: false,
             extend: false,
             extend_max_ring: EXTEND_MAX_RING_DEFAULT,
+            feed: FeedSource::Localnet,
+            feed_poll_ms: 2_000,
+            feed_max_backoff_ms: 60_000,
+            feed_origin: None,
+            feed_witness: None,
+            rpc_min_gap_ms: None,
         }
+    }
+
+    /// The pacing gap of this keeper's RPC calls ([`Self::rpc_min_gap_ms`]).
+    pub fn rpc_min_gap(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.rpc_min_gap_ms.unwrap_or(match self.feed {
+            FeedSource::Localnet => 0,
+            FeedSource::Rpc => 150,
+        }))
+    }
+
+    /// The `rpc`/`feed` combination is one the keeper can run: every
+    /// `rpc` (and `feed_witness`) URL is a loopback `http://` or a checked
+    /// `https://` one (`fclient::https::check_post_url`); `feed =
+    /// "localnet"` never names an `https://` RPC (no `frontier-localnet`
+    /// serves TLS: a public cluster needs `feed = "rpc"`); the `feed = "rpc"`
+    /// pacing is sane; `feed_origin`/`feed_witness` only with `"rpc"`.
+    pub fn check_feed(&self) -> Result<(), String> {
+        let url_ok = |u: &str, k: &str| -> Result<(), String> {
+            if u.starts_with("https://") {
+                fclient::https::check_post_url(u)
+                    .map_err(|e| format!("`{k}` URL {}: {e}", fclient::https::redact(u)))
+            } else if u.starts_with("http://") {
+                // Plain http stays as before (the local node, any host).
+                fclient::http::split_url(u)
+                    .map(|_| ())
+                    .map_err(|e| format!("`{k}` URL: {e}"))
+            } else {
+                Err(format!(
+                    "`{k}` URL {}: not http(s)",
+                    fclient::https::redact(u)
+                ))
+            }
+        };
+        for u in &self.rpc {
+            url_ok(u, "rpc")?;
+        }
+        match self.feed {
+            FeedSource::Localnet => {
+                if self.rpc.iter().any(|u| u.starts_with("https://")) {
+                    return Err("`rpc` is https:// but `feed` is \"localnet\": a public cluster has no `frontier_feed`; set feed = \"rpc\"".into());
+                }
+                if self.feed_origin.is_some() || self.feed_witness.is_some() {
+                    return Err("`feed_origin` / `feed_witness` need feed = \"rpc\"".into());
+                }
+            }
+            FeedSource::Rpc => {
+                if self.feed_poll_ms < 200 {
+                    return Err("`feed_poll_ms` must be at least 200".into());
+                }
+                if self.feed_max_backoff_ms < self.feed_poll_ms {
+                    return Err("`feed_max_backoff_ms` must be at least `feed_poll_ms`".into());
+                }
+                if let Some(w) = &self.feed_witness {
+                    url_ok(w, "feed_witness")?;
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn has_role(&self, r: &str) -> bool {
@@ -474,6 +567,28 @@ impl KeeperConfig {
                 *f = Some(PathBuf::from(s(v, k)?));
             }
         }
+        if let Some(v) = take("feed") {
+            c.feed = match s(v, "feed")?.as_str() {
+                "localnet" => FeedSource::Localnet,
+                "rpc" => FeedSource::Rpc,
+                x => return Err(format!("`feed` {x:?}: \"localnet\" or \"rpc\"")),
+            };
+        }
+        num!("feed_poll_ms", feed_poll_ms, u64);
+        num!("feed_max_backoff_ms", feed_max_backoff_ms, u64);
+        if let Some(v) = take("rpc_min_gap_ms") {
+            c.rpc_min_gap_ms = Some(int(v, "rpc_min_gap_ms")?);
+        }
+        if let Some(v) = take("feed_origin") {
+            let o = s(v, "feed_origin")?;
+            o.parse::<fclient::ports::Signature>()
+                .map_err(|_| "`feed_origin` must be a base58 signature".to_string())?;
+            c.feed_origin = Some(o);
+        }
+        if let Some(v) = take("feed_witness") {
+            c.feed_witness = Some(s(v, "feed_witness")?);
+        }
+        c.check_feed()?;
         if c.p_def_milli > crate::P_DEF_MILLI || c.p_delay_milli > c.p_def_milli {
             return Err("p_def_milli ≤ 2000 and p_delay_milli ≤ p_def_milli".into());
         }

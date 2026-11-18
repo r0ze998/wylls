@@ -17,9 +17,16 @@
 //!   executed swaps, the quota and the expiry), executed swaps, what an
 //!   undo returned and kept — and compared with the Grant account the
 //!   transaction left (`RightsRule` for a record the rules refuse,
-//!   `RightsStateMismatch` for an account that differs). The holdings'
+//!   `RightsStateMismatch` for an account that differs). The facility's
 //!   writes are V7's (holding continuity rebuilds them from the same
-//!   records).
+//!   records; GRANT_ISSUED is an owner touch paying `GRANT_ISSUE_COST`).
+//! - **Option A (owner decision ② = A, 2026-11-18).** The station is the
+//!   grantee's S1 Vault on tile `station_site` of the Grant's Province
+//!   (`v2::addr::vault`), not a holding. Its stores are judged here: the
+//!   state before, minus what a reserve took, plus what an execute or an
+//!   undo credited, every credit within `CAP − CUSTODY_QUOTA`
+//!   (`RightsStateMismatch` otherwise; `MissingData` when the state before
+//!   is unknown).
 //! - **Accounts.** A Grant account no GRANT_ISSUED explains, or written by
 //!   a transaction with no Grant instruction, is `RightsUnexplainedAccount`;
 //!   a program account of no known kind at all is `UnknownAccount`: a FAIL
@@ -441,6 +448,9 @@ pub fn run(cx: &mut Ctx) {
                 }
             }
             let named = |site: u8, p: i32, q: i32| f.ctx.holding(p, q, site);
+            // Option A: the station is a Vault, `station_site` its tile.
+            let named_vault =
+                |tile: u8, p: i32, q: i32| frontier_abi::v2::addr::vault(&f.ctx, p, q, tile);
             let rule = |cx: &mut Ctx, what: String| {
                 cx.fail(V, RIGHTS_RULE, ent("grant", &grant), r.bell, Some(t), what)
             };
@@ -462,7 +472,7 @@ pub fn run(cx: &mut Ctx) {
                         continue;
                     }
                     let fk = named(x.facility_site, x.p, x.q);
-                    let sk = named(x.station_site, x.p, x.q);
+                    let sk = named_vault(x.station_site, x.p, x.q);
                     if fi.map(|i| ix.accounts[i].0) != Some(fk)
                         || si.map(|i| ix.accounts[i].0) != Some(sk)
                     {
@@ -764,6 +774,50 @@ pub fn run(cx: &mut Ctx) {
                 );
             }
         }
+        // Option A: the station Vaults a Grant instruction of `t` writes.
+        if rights_ix && lost.is_none() && !inner {
+            for (k, a) in &tx.post {
+                let Some(a) = a else { continue };
+                if a.owner.to_bytes() != w.program
+                    || a.data.get(..8) != Some(&frontier_abi::v2::layout::s1::vault::MAGIC[..])
+                {
+                    continue;
+                }
+                let Some(before) = w.state_before(k, t) else {
+                    cx.missing(
+                        V,
+                        ent("vault", k),
+                        0,
+                        Some(t),
+                        "a station Vault a Grant instruction writes has no state before it in the archive",
+                    );
+                    continue;
+                };
+                match vault_write(w, f, t, k, before) {
+                    Some(Ok(want)) => {
+                        if let Some(why) = vault_differs(&want, &a.data) {
+                            cx.fail(
+                                V,
+                                RIGHTS_STATE_MISMATCH,
+                                ent("vault", k),
+                                0,
+                                Some(t),
+                                format!("the station Vault after the Grant instruction: {why}"),
+                            );
+                        }
+                    }
+                    Some(Err(e)) => cx.fail(
+                        V,
+                        RIGHTS_STATE_MISMATCH,
+                        ent("vault", k),
+                        0,
+                        Some(t),
+                        format!("the station Vault cannot be rebuilt from the records: {e}"),
+                    ),
+                    None => {}
+                }
+            }
+        }
         // A Grant written by a transaction with no Grant instruction.
         if !rights_ix {
             for (k, a) in &tx.post {
@@ -923,9 +977,25 @@ pub fn holding_write(
         .filter(|r| r.tx == t && rec::is_rights(r.kind))
         .collect();
     recs.sort_by_key(|r| r.pos);
+    // Option A: IssueGrant is the issuer's own action on the facility (an
+    // owner touch) paying `GRANT_ISSUE_COST`; one Grant instruction per
+    // transaction is what the program's clients send.
+    for r in &recs {
+        if r.kind == CqKind::GRANT_ISSUED {
+            if let Some(x) = rec::Issued::from_bytes(&r.payload) {
+                if f.ctx.holding(x.p, x.q, x.facility_site) == *k {
+                    return Some((
+                        "an IssueGrant's facility (an owner touch and the issue cost)",
+                        crate::holding::touched_paid(before, tx.time, &rt::grant_issue_cost()),
+                    ));
+                }
+            }
+        }
+    }
     for r in recs {
-        let side = |p: i32, q: i32, fs: u8, ss: u8| -> (bool, bool) {
-            (f.ctx.holding(p, q, ss) == *k, f.ctx.holding(p, q, fs) == *k)
+        // Option A: the station is a Vault (judged by VR), never a holding.
+        let side = |p: i32, q: i32, fs: u8, _ss: u8| -> (bool, bool) {
+            (false, f.ctx.holding(p, q, fs) == *k)
         };
         let mut c = [0i64; RESOURCES];
         let ore = Resource::Ore as usize;
@@ -995,4 +1065,114 @@ pub fn holding_write(
         Ok(d)
     })();
     Some((what, want))
+}
+
+/// Option A: the expected bytes of station Vault `k` after the Grant
+/// instructions of transaction `t`: its state `before` with every Grant
+/// record of `t` that names it (`vault(p, q, station_site)`) applied in log
+/// order — a reserve debits the ore and wood, an execute credits the arms,
+/// an undo credits the returned ore and wood — each credit within `CAP −
+/// CUSTODY_QUOTA` and no store below zero. `None` when no Grant
+/// instruction of `t` writes `k`.
+pub fn vault_write(
+    w: &crate::world::World,
+    f: &crate::facts::Facts,
+    t: usize,
+    k: &Key,
+    before: &[u8],
+) -> Option<Result<Vec<u8>, String>> {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    use permutation_rules::frontier::holding::{Resource, RESOURCES};
+    let tx = &w.txs[t];
+    let writes = tx.ixs.iter().any(|ix| {
+        ix.tag().and_then(kind_of).is_some() && ix.accounts.iter().any(|(a, wr)| a == k && *wr)
+    });
+    if !writes {
+        return None;
+    }
+    let rd = |d: &[u8], o: usize| -> Result<i64, String> {
+        d.get(o..o + 8)
+            .map(|b| i64::from_le_bytes(b.try_into().unwrap()))
+            .ok_or_else(|| "a short Vault".to_string())
+    };
+    Some((|| {
+        let cap = rd(before, VA::CAP)?;
+        let mut st = [0i64; RESOURCES];
+        let mut quota = [0i64; RESOURCES];
+        for i in 0..RESOURCES {
+            st[i] = rd(before, VA::store(i))?;
+            quota[i] = rd(before, VA::custody_quota(i))?;
+        }
+        let (ore, wood, am) = (
+            Resource::Ore as usize,
+            Resource::Wood as usize,
+            arms::ARMS as usize,
+        );
+        let mut recs: Vec<&crate::world::CqRec> = w
+            .cq_recs
+            .iter()
+            .filter(|r| r.tx == t && rec::is_rights(r.kind))
+            .collect();
+        recs.sort_by_key(|r| r.pos);
+        let credit = |st: &mut [i64; RESOURCES], i: usize, v: i64| -> Result<(), String> {
+            let n = st[i].checked_add(v).ok_or("overflow")?;
+            if n.saturating_add(quota[i]) > cap {
+                return Err(format!("resource {i} past CAP − CUSTODY_QUOTA"));
+            }
+            st[i] = n;
+            Ok(())
+        };
+        for r in recs {
+            let at =
+                |p: i32, q: i32, tile: u8| frontier_abi::v2::addr::vault(&f.ctx, p, q, tile) == *k;
+            match r.kind {
+                CqKind::SWAP_RESERVED | CqKind::SWAP_EXECUTED => {
+                    let x = rec::Swap::from_bytes(&r.payload)
+                        .ok_or("a Grant record does not decode")?;
+                    if !at(x.p, x.q, x.station_site) {
+                        continue;
+                    }
+                    if r.kind == CqKind::SWAP_RESERVED {
+                        st[ore] -= x.ore;
+                        st[wood] -= x.wood;
+                        if st[ore] < 0 || st[wood] < 0 {
+                            return Err("a reserve took more than the Vault held".into());
+                        }
+                    } else {
+                        credit(&mut st, am, x.arms)?;
+                    }
+                }
+                CqKind::SWAP_RELEASED | CqKind::GRANT_REVOKED => {
+                    let x = rec::Undo::from_bytes(&r.payload)
+                        .ok_or("a Grant record does not decode")?;
+                    if !at(x.p, x.q, x.station_site) {
+                        continue;
+                    }
+                    credit(&mut st, ore, x.returned[0])?;
+                    credit(&mut st, wood, x.returned[1])?;
+                }
+                _ => {}
+            }
+        }
+        let mut d = before.to_vec();
+        for (i, v) in st.iter().enumerate() {
+            d[VA::store(i)..VA::store(i) + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        Ok(d)
+    })())
+}
+
+/// Where `got` differs from `want`, the chain header (the records' links,
+/// CQ1's) aside.
+fn vault_differs(want: &[u8], got: &[u8]) -> Option<String> {
+    use frontier_abi::layout::header as HD;
+    if want.len() != got.len() {
+        return Some("its size".into());
+    }
+    let chain = HD::EVENT_SEQ..HD::EVENT_HEAD + 32;
+    let i = (0..want.len()).find(|i| !chain.contains(i) && want[*i] != got[*i])?;
+    Some(format!(
+        "byte {i} (stores at {})",
+        frontier_abi::v2::layout::s1::vault::STORES
+    ))
 }

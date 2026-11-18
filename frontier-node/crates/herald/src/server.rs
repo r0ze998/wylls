@@ -25,6 +25,20 @@
 //! in front — the last address in its `X-Forwarded-For`), which the relay
 //! trusts only from this loopback peer; only the relay's status, content
 //! type and body come back.
+//!
+//! **Host allow-list and WS Origin** (devnet-readiness B13, 2026-11-18; the
+//! pattern of PR #28's ③ MCP server). DNS rebinding: a page whose name was
+//! re-pointed at this machine reaches the herald with *its own* name in
+//! `Host`, and a same-origin request carries no `Origin`. Every request's
+//! `Host` must name an allowed host exactly (case-insensitive, port
+//! ignored, as the MCP SDK's host validation); a missing, malformed or other
+//! `Host` is `403 HostNotAllowed` before any route runs. The allowed hosts
+//! are loopback (`127.0.0.1`, `localhost`, `::1`) plus the herald's
+//! `--public-host` names ([`HostPolicy`]); on by default, no opt-out. `WS
+//! /h/ws` also checks `Origin` when a client sends one (browsers always
+//! do): its host must be allowed too, else `403 OriginNotAllowed`; a client
+//! without `Origin` (bots, the viewer load generator) is not a browser
+//! page and is let through.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -83,7 +97,108 @@ pub struct App {
     /// Opt-in local-play bootstrap provenance (`/h/status.localPlay`);
     /// `None` (and no such key) for every other herald.
     pub local_play: Option<Value>,
+    /// The hosts `Host` (and a WS `Origin`) may name (B13).
+    pub hosts: HostPolicy,
     cache: Mutex<LiveCache>,
+}
+
+/// The host names the herald answers to (B13): loopback and the operator's
+/// public names, lowercase, without ports.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostPolicy {
+    names: Vec<String>,
+}
+
+/// Loopback names, always allowed.
+pub const LOOPBACK_HOSTS: [&str; 3] = ["127.0.0.1", "localhost", "::1"];
+
+impl Default for HostPolicy {
+    fn default() -> Self {
+        HostPolicy {
+            names: LOOPBACK_HOSTS.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+}
+
+impl HostPolicy {
+    /// Loopback plus `public` (`--public-host a.example,b.example`): DNS
+    /// names (lowercase letters, digits, `-`, `.`; no leading/trailing
+    /// dot or dash, ≤ 253 bytes) or IPv4 literals; no ports, no wildcards.
+    pub fn with_public(public: &[&str]) -> Result<HostPolicy, String> {
+        let mut p = HostPolicy::default();
+        for raw in public {
+            let h = raw.trim().to_ascii_lowercase();
+            let ok = !h.is_empty()
+                && h.len() <= 253
+                && !h.starts_with(['.', '-'])
+                && !h.ends_with(['.', '-'])
+                && !h.contains("..")
+                && h.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-'
+                });
+            if !ok {
+                return Err(format!(
+                    "--public-host {raw:?}: a DNS name or IPv4 address, without port or wildcard"
+                ));
+            }
+            if !p.names.contains(&h) {
+                p.names.push(h);
+            }
+        }
+        Ok(p)
+    }
+
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// The host of a `Host` value (`name[:port]`, `[v6][:port]`), lowercase;
+    /// `None` when it is not one (userinfo, path, spaces, a bad port…).
+    pub fn host_of(authority: &str) -> Option<String> {
+        let a = authority.trim();
+        let (host, port) = match a.strip_prefix('[') {
+            Some(r) => {
+                let (h, tail) = r.split_once(']')?;
+                (h, tail.strip_prefix(':'))
+            }
+            None => match a.rsplit_once(':') {
+                Some((h, p)) if !h.contains(':') => (h, Some(p)),
+                Some(_) => return None,
+                None => (a, None),
+            },
+        };
+        if let Some(p) = port {
+            if p.is_empty() || p.len() > 5 || !p.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+        }
+        if host.is_empty()
+            || !host
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':'))
+        {
+            return None;
+        }
+        Some(host.to_ascii_lowercase())
+    }
+
+    /// Whether a `Host` header value names an allowed host.
+    pub fn allows_host(&self, host_header: Option<&str>) -> bool {
+        host_header
+            .and_then(Self::host_of)
+            .is_some_and(|h| self.names.contains(&h))
+    }
+
+    /// Whether an `Origin` (`http(s)://host[:port]`) names an allowed host;
+    /// `null` and other schemes never do.
+    pub fn allows_origin(&self, origin: &str) -> bool {
+        let rest = origin
+            .strip_prefix("https://")
+            .or_else(|| origin.strip_prefix("http://"));
+        rest.filter(|r| !r.contains(['/', '@', '?', '#']))
+            .and_then(Self::host_of)
+            .is_some_and(|h| self.names.contains(&h))
+    }
 }
 
 /// `(fold version, live clock)`: what a cached season answer depends on.
@@ -118,6 +233,7 @@ impl App {
             ws: WsCfg::default(),
             ws_stats: Arc::new(WsStats::default()),
             local_play: None,
+            hosts: HostPolicy::default(),
             cache: Mutex::new(LiveCache::default()),
         }
     }
@@ -127,6 +243,7 @@ pub type Shared = Arc<App>;
 
 /// The router (callers serve it with `into_make_service_with_connect_info`).
 pub fn router(app: Shared) -> Router {
+    let guard = app.clone();
     Router::new()
         .route("/h/season", get(season))
         .route("/h/status", get(status))
@@ -156,8 +273,26 @@ pub fn router(app: Shared) -> Router {
         .route("/gw", any(gw))
         .route("/gw/{*path}", any(gw))
         .fallback(|| async { err(StatusCode::NOT_FOUND, "NotFound") })
+        .layer(middleware::from_fn_with_state(guard, host_guard))
         .layer(middleware::from_fn(security_headers))
         .with_state(app)
+}
+
+/// B13: `403 HostNotAllowed` unless `Host` (and an absolute-form target's
+/// authority) names an allowed host. Runs before every route.
+async fn host_guard(State(app): State<Shared>, req: Request, next: Next) -> Response {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok());
+    let target_ok = req
+        .uri()
+        .authority()
+        .is_none_or(|a| app.hosts.allows_host(Some(a.as_str())));
+    if !target_ok || !app.hosts.allows_host(host) {
+        return err(StatusCode::FORBIDDEN, "HostNotAllowed");
+    }
+    next.run(req).await
 }
 
 /// Serves `router(app)` on `listener` until the future is dropped.
@@ -676,6 +811,14 @@ async fn ws_route(State(app): State<Shared>, req: Request) -> Response {
     };
     if !(upgrade && conn && version) {
         return err(StatusCode::BAD_REQUEST, "NotAWebSocket");
+    }
+    // B13: a browser page may open the socket only from an allowed origin
+    // (cross-site WebSocket hijacking; the Host check alone lets any page
+    // that knows the real name connect).
+    if let Some(o) = h.get(header::ORIGIN) {
+        if !o.to_str().is_ok_and(|o| app.hosts.allows_origin(o)) {
+            return err(StatusCode::FORBIDDEN, "OriginNotAllowed");
+        }
     }
     if app.ws_stats.open.load(std::sync::atomic::Ordering::SeqCst) >= app.ws.max_sockets {
         return err(StatusCode::SERVICE_UNAVAILABLE, "TooManySockets");
