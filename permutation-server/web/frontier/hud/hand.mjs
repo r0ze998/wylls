@@ -254,7 +254,7 @@ export function handModel(FS) {
   model.pop = popOf(FS, sub);
   // the owner's agent holds the key (fdelegation.mjs): nothing on this bar can be sent from this device; say so first
   // (Q16-3: or another key — ③'s courier, another app or device —, known on a device with no stored key too)
-  { const held = (!FS.session || FS.sessionProblem === 'SessionMismatch') ? delegationOf(FS) : null; if (held) { model.note = handNote(held); model.noteTone = 'agent'; } }
+  { const held = (!FS.session || FS.sessionProblem === 'SessionMismatch') ? delegationOf(FS) : null; if (held) { model.note = handNote(held, { review: FS.keyReview === held.agentKey, kept: !!held.foreign && FS.keyKept === held.agentKey }); model.noteTone = 'agent'; } }
   // (the prototype rule "banners": what to press while the guide's march is armed on the board with no card open)
   if (FS.proto && !model.note) { const n = proto.armedNote(FS, model); if (n) { model.note = n; model.noteTone = 'proto'; } }
   for (const b of model.buttons) if (b.act === 'hand-pop' && b.data.pop === model.pop) b.pressed = true;

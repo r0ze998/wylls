@@ -84,7 +84,8 @@ for (const lang of ['en', 'ja']) for (const view of VIEWS) test(`the key card ov
     assert.deepEqual(by.kept.buttons.map(b => b.act), ['session-keep'], 'kept: only "choose again"');
     assert.deepEqual(by['no-device-key-unknown'].buttons.map(b => b.act), ['session'], 'a key that may be this wallet\'s own: the recovery button…');
     assert.match(by['no-device-key-unknown'].lines.map(l => l.text).join(' '), lang === 'ja' ? /黙って置き換えることはありません/ : /never replaced silently/, '…with its promise');
-    assert.deepEqual(by.bar.buttons.map(b => b.act), ['session-replace']);
+    // (round 2, verify-pr61 F2: the bar opens the whole warning first — its keep and replace are in that view)
+    assert.deepEqual(by.bar.buttons.map(b => b.act), ['session-review']);
     assert.deepEqual(requests, [], 'the cards ask for nothing');
     if (process.env.REKEY_OUT) {
       await page.screenshot({ path: `${process.env.REKEY_OUT}/rekey-warning-all-${lang}-${view.w}.png`, fullPage: true });

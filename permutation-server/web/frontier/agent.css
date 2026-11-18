@@ -32,3 +32,6 @@ body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #0f1512; col
 .agent-driver { margin: 4px 0; padding: 6px 8px; border-left: 3px solid #2a3a32; }
 .agent-driver.tone-warn { border-left-color: #8a6d1f; }
 .agent-reason { font-size: 12px; color: #9fb3a8; }
+/* Q16-3: what handing the village's key over (or re-issuing the token) stops, before it is sent */
+.agent-warn { margin: 8px 0; padding: 8px 10px; border: 1px dashed #b08a2a; border-radius: 6px; background: rgba(176,138,42,.14); color: #f3e3b5; }
+.agent-card .btn.danger { border-color: #b0573f; color: #ffd9cc; background: #3a1f19; }

@@ -267,9 +267,32 @@ export class Auth {
     return link.relayRevoke;
   }
 
-  statementOf(pending, { owner, agentId, scopes, grant, expiresAt }) {
+  statementOf(pending, { owner, agentId, scopes, grant, expiresAt, replaces = null }) {
+    // (Q16-3: `replaces` only when a write connection would stop another one — the bytes of every other statement are
+    //  unchanged — so the owner's signature covers exactly which connections it stops)
     return { type: 'wylls-mcp-link/1', aud: this.resource, clientId: pending.clientId, redirectUri: pending.redirectUri, nonce: pending.nonce,
-      owner, agentId, scopes: [...scopes].sort(), grant: grant ?? null, expiresAt };
+      owner, agentId, scopes: [...scopes].sort(), grant: grant ?? null, expiresAt, ...(replaces ? { replaces } : {}) };
+  }
+
+  /**
+   * Q16-3 (③): what a write connection for `agentId` would stop. Getting this server its `mcp` capability rotates the
+   * agent's `mcp` token at the relay, so an earlier live write connection — on this server (`links`), or one the relay
+   * knows of and this server does not hold (`relayVersion`: an `mcp` token is out) — stops working. Null when none.
+   * The consent page shows it, the owner's signed statement names it, and the links named are revoked with that reason
+   * when the new one is made (never left to fail later as BadCapability).
+   */
+  replacesFor(owner, agentId, view) {
+    const now = this.now();
+    const links = Object.values(this.db.links).filter(l => l.owner === owner && l.agentId === agentId && !l.revokedAt && l.expiresAt > now && l.capability).map(l => l.linkId).sort();
+    const relayVersion = view?.senderCapabilities?.mcp?.version ?? view?.capabilities?.mcp?.version ?? null;
+    const outside = relayVersion !== null && links.length === 0;
+    return links.length || outside ? { links, relayVersion: outside ? relayVersion : null } : null;
+  }
+
+  /** The earlier connections a pending write consent would stop, for the consent page: `{links: [{linkId, client, createdAt}], relayVersion}`. */
+  replacesView(replaces) {
+    if (!replaces) return null;
+    return { links: replaces.links.map(id => ({ linkId: id, client: this.db.clients[this.db.links[id]?.clientId]?.client_name ?? 'MCP client', createdAt: this.db.links[id]?.createdAt ?? null })), relayVersion: replaces.relayVersion };
   }
 
   /**
@@ -292,13 +315,18 @@ export class Auth {
     if (scopes.includes(SCOPES.CARAVAN)) {
       try { grant = normaliseGrant(b.grant, { now, maxTtlMs: b.expiresAt - now }); } catch (e) { throw back('invalid_request', e.message); }
     }
-    const st = this.statementOf(pending, { owner: b.owner, agentId: b.agentId, scopes, grant, expiresAt: b.expiresAt });
+    // (Q16-3: `replaces` is what the statement shown to the owner named; checked against what holds now, below)
+    const signed = grant && b.replaces ? { links: [...(b.replaces.links ?? [])].map(String).sort(), relayVersion: b.replaces.relayVersion ?? null } : null;
+    const st = this.statementOf(pending, { owner: b.owner, agentId: b.agentId, scopes, grant, expiresAt: b.expiresAt, replaces: signed });
     if (typeof b.owner !== 'string' || !verifySig(linkStatement(st), b.signature, b.owner)) throw back('access_denied', 'the statement is not signed by the owner\'s wallet');
     // The agent must be the owner's, as the relay records it.
     const view = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(String(b.agentId))}`);
     if (view.transport || view.status >= 500) throw back('temporarily_unavailable', 'the relay did not answer');
     if (view.status !== 200) throw back('access_denied', `the relay knows no such agent (${view.json?.code ?? view.status})`);
     if (view.json.owner !== b.owner) throw back('access_denied', 'this agent belongs to another owner');
+    // Q16-3: the earlier connections this one stops, as they are NOW, must be exactly the ones the owner signed for
+    const replaces = grant ? this.replacesFor(b.owner, b.agentId, view.json) : null;
+    if (JSON.stringify(replaces) !== JSON.stringify(signed)) throw back('access_denied', replaces ? 'this connection would stop an earlier write connection of this agent that the signed statement does not name: nothing was changed; start the connection again to see what it stops' : 'the connection the signed statement would stop is no longer there: nothing was changed; start the connection again');
     let sealed = null;
     let capabilityMeta = null;
     if (grant) {
@@ -307,7 +335,10 @@ export class Auth {
     }
     const linkId = `lnk_${randomBytes(12).toString('base64url')}`;
     this.db.links[linkId] = { linkId, owner: b.owner, agentId: b.agentId, clientId: pending.clientId, scopes, grant, grantUse: { used: 0, reserved: {} },
-      expiresAt: b.expiresAt, createdAt: now, revokedAt: null, capability: sealed, ...(capabilityMeta ? { capabilityMeta } : {}), statementHash: sha(linkStatement(st)) };
+      expiresAt: b.expiresAt, createdAt: now, revokedAt: null, capability: sealed, ...(capabilityMeta ? { capabilityMeta } : {}), statementHash: sha(linkStatement(st)), ...(replaces ? { replaces } : {}) };
+    // The earlier write connections the owner agreed to stop: revoked now, with the reason (their token no longer works
+    // at the relay; an operation of theirs not yet sent is cancelled as for any revocation, not left to fail).
+    for (const old of replaces?.links ?? []) this.revokeLink(old, `superseded by ${linkId}: the owner connected again with the caravan scope (signed)`);
     const code = token();
     this.db.codes[sha(code)] = { linkId, clientId: pending.clientId, redirectUri: pending.redirectUri, codeChallenge: pending.codeChallenge, resource: pending.resource, scopes, expiresAt: now + TTL.code };
     this.store.save();

@@ -232,6 +232,8 @@ test('delegatedTo / the card / the bar / the refusal for a key held elsewhere, b
   // the action bar of a player who already has a village
   const bar = String(D.handNote(d));
   assert.match(bar, /別の鍵に操作を任せています/);
-  assert.match(bar, new RegExp(`data-act="session-replace" data-key="${key}"`));
+  // (round 2, verify-pr61 F2: the bar opens the whole warning first; its replacement is in that view — round2 test)
+  assert.match(bar, /data-act="session-review"/);
+  assert.doesNotMatch(bar, /data-act="session-replace"/);
   assert.doesNotMatch(bar, /data-agent-link/);
 });

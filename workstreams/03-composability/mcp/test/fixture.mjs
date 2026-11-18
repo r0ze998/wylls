@@ -147,7 +147,7 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
 }
 
 /** The MCP server over the world, on a loopback port; `clock` is the server's `now` (ms). */
-export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, archiveAfterMs, rateLimit = { burst: 10_000, everySecs: 2 }, redirectProfiles, acts = null } = {}) {
+export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, archiveAfterMs, rateLimit = { burst: 10_000, everySecs: 2 }, redirectProfiles, acts = null, port = 0 } = {}) {
   const now = () => clock.t;
   const store = new JsonStore(storeFile);
   const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch, contextTtlMs: 0 });
@@ -155,7 +155,7 @@ export async function server(w, { storeFile = null, clock = { t: Date.now() }, s
   const log = m => logs.push(m);
   const sealer = new Sealer(sealKey);
   let auth;
-  const srv = await listen(async (req, res) => handler(req, res));
+  const srv = await listen(async (req, res) => handler(req, res), { port });
   const issuer = `http://127.0.0.1:${srv.address().port}`;
   auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer, game, now, log, ...(redirectProfiles ? { redirectProfiles } : {}) });
   const mcp = createWyllsMcp({ auth, game, store, now, log, ...(uncertainWindowMs !== undefined ? { uncertainWindowMs } : {}), ...(archiveAfterMs !== undefined ? { archiveAfterMs } : {}), ...(acts ? { acts } : {}) });

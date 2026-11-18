@@ -3210,8 +3210,11 @@ async function setSession({ replace = null } = {}) {
   }
   // Replacing a key held elsewhere (the owner's agent, the courier, another device): say what this did and did not do.
   const handed = registered ? delegationOf(FS) : null;
-  return act('SetSession', { fields: { session: s.publicKeyBytes, expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
-    ...(handed ? { say: () => takenBackNote(handed), after: () => { FS.delegation = null; FS.keyKept = null; } } : {}) });
+  const expiry = BigInt(Math.floor(now()) + SESSION_DAYS - 600);
+  // (once it landed the page shows this device's key at once, not the old holder's card until the next poll — verify-pr61 F3)
+  const landed = () => { FS.delegation = null; FS.keyKept = null; FS.keyReview = null; if (FS.citizen) FS.citizen = { ...FS.citizen, session: s.publicKeyBytes, sessionExpiry: expiry }; FS.sessionProblem = null; invalidate('panel'); };
+  return act('SetSession', { fields: { session: s.publicKeyBytes, expiry },
+    ...(handed ? { say: () => takenBackNote(handed) } : {}), after: landed });
 }
 
 export const ACTIONS = {
@@ -3383,10 +3386,19 @@ export const ACTIONS = {
   // is `session-replace`, the owner's own choice for the key that was shown.
   session: () => setSession(),
   'session-replace': d => setSession({ replace: String(d?.key ?? '') }),
+  // the action bar's "look and choose" (a village owner never sees the drawer's key card): opens the whole warning on
+  // the bar, keep first; pressed again it closes. Nothing is signed or sent (verify-pr61 F2)
+  'session-review': () => {
+    const held = delegationOf(FS);
+    FS.keyReview = held?.foreign && FS.keyReview !== held.agentKey ? held.agentKey : null;
+    if (FS.keyReview) FS.keyKept = null;
+    invalidate('panel');
+  },
   // keeping the delegation, said explicitly (pressed again: the choice is reopened); nothing is signed or sent
   'session-keep': () => {
     const held = delegationOf(FS);
     FS.keyKept = held?.foreign && FS.keyKept !== held.agentKey ? held.agentKey : null;
+    FS.keyReview = null;
     if (FS.keyKept && FS.notice?.code === 'SessionHeldElsewhere') FS.notice = null;
     invalidate('panel');
   },

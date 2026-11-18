@@ -21,7 +21,7 @@
 import { html, setHtml } from '../util.mjs';
 import { L, fmtNum } from '../lang.mjs';
 import { toBase64, toHex } from '../sdk/bytes.mjs';
-import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
+import { compileMessage, isOnCurve, wireTransaction } from '../sdk/solana-tx.mjs';
 import { decode as fromBase58 } from '../sdk/base58.mjs';
 import * as io from './fchainio.mjs';
 import { tokenUnits, loadPrize, faucet } from './fprize.mjs';
@@ -126,21 +126,54 @@ export function historyRows(view) {
   return rows.reverse();
 }
 
+const ZERO_KEY = '11111111111111111111111111111111';
+const shortKey = k => `${String(k).slice(0, 4)}…${String(k).slice(-4)}`;
+const programHeld = k => { try { return !isOnCurve(k); } catch { return false; } };
+
+/**
+ * Q16-3 (the agent page): the Citizen's session key when it is neither the agent's nor one of `own` (this device's
+ * game key, the wallet itself) — ③'s courier (its session PDA, `program`), another app or device. Handing the key to
+ * the agent replaces it on chain, so the page warns and asks first. `{key, program, expired}`, or null.
+ */
+export function heldElsewhere(view, { own = [] } = {}) {
+  const d = view?.delegation;
+  if (!d?.citizen || d.delegated) return null;
+  const k = d.session;
+  if (!k || k === ZERO_KEY || k === view?.agentKey || own.filter(Boolean).includes(k)) return null;
+  return { key: k, program: programHeld(k), expired: Number.isFinite(d.expiry) && Number.isFinite(d.now) && d.expiry <= d.now };
+}
+
+/**
+ * Whether a hand-over may be sent, read against the delegation as the relay reads the chain NOW (`view`): over a key
+ * held elsewhere only with `key` naming exactly that key (the one the warning showed) — `{ok: true, held}` or
+ * `{ok: false, code: 'SessionHeldElsewhere', held}`. Taking the key back (`revoke`) needs the agent to hold it now.
+ */
+export function handOverCheck(view, { own = [], key = null, revoke = false } = {}) {
+  if (!view?.delegation) return { ok: false, code: 'DelegationUnread', held: null };
+  if (revoke) return view.delegation.session === view.agentKey ? { ok: true, held: null } : { ok: false, code: 'NotDelegatedNow', held: heldElsewhere(view, { own }) };
+  const held = heldElsewhere(view, { own });
+  if (held && key !== held.key) return { ok: false, code: 'SessionHeldElsewhere', held };
+  return { ok: true, held };
+}
+
 /**
  * What the two switches mean together. `mode` is the relay's; `delegation`
- * is the chain's (`{delegated, session, expiry}`); null while unknown.
+ * is the chain's (`{delegated, session, expiry}`); null while unknown. `own`: the keys that are the owner's own
+ * (this device's game key, the wallet); any other registered key is "held elsewhere" (Q16-3), never "yours".
  */
-export function delegationModel(view) {
+export function delegationModel(view, { own = [] } = {}) {
   const mode = view?.mode ?? 'manual';
   const d = view?.delegation ?? null;
   const onChain = d ? !!d.delegated : null;
+  const held = heldElsewhere(view, { own });
   let text;
   if (onChain === null) text = L`チェーン上の委任を確認しています`;
   else if (mode === 'auto' && onChain) text = L`自動で動いています。村の署名は代理人の鍵です。`;
+  else if (held) text = mode === 'auto' ? L`自動ですが、村の鍵は別の鍵が持っているので、代理人は何も送れません。` : L`止まっています。村の鍵は、代理人でもこの端末でもない別の鍵が持っています。`;
   else if (mode === 'auto' && !onChain) text = L`自動ですが、チェーン上の委任がないので何も送れません。先に鍵を渡してください。`;
   else if (mode === 'manual' && onChain) text = L`止まっています（サーバー側）。鍵はまだ代理人のものなので、あなたが手で動かすには鍵を取り戻してください。`;
   else text = L`止まっていて、鍵はあなたのものです。`;
-  return { mode, onChain, session: d?.session ?? null, expiry: d?.expiry ?? null, text, canRevoke: onChain === true, canDelegate: onChain === false };
+  return { mode, onChain, held, session: d?.session ?? null, expiry: d?.expiry ?? null, text, canRevoke: onChain === true, canDelegate: onChain === false };
 }
 
 /** The policy form's fields from a view, and back. */
@@ -289,8 +322,18 @@ export function renderMode(view) {
   </section>`;
 }
 
-export function renderDelegation(view) {
-  const d = delegationModel(view);
+export function renderDelegation(view, { own = [] } = {}) {
+  const d = delegationModel(view, { own });
+  // Q16-3: another key holds the village (③'s courier, another app or device): what handing it over replaces, and
+  // that doing nothing keeps it. The hand-over is a separate button bound to the key shown.
+  if (d.held) return html`<section class="agent-card tone-warn" aria-labelledby="del-title" data-key-held="${d.held.program ? 'program' : 'other'}"><h3 id="del-title">${L`チェーン上の委任（村の鍵）`}</h3>
+    <p>${d.text}</p>
+    <p class="muted">${L`いまの鍵 ${shortKey(d.held.key)}（別の鍵）`}${d.held.program ? html` ${L`この鍵は、プログラムが持つ鍵です（配送の委任など）。`}` : ''}${d.held.expired ? html` ${L`この鍵の期限は切れています。いまは、この鍵も操作できません。`}` : ''}</p>
+    <p class="agent-warn" role="alert">${L`鍵を代理人に渡すと、いま登録されている鍵は使えなくなります。その鍵に任せていた操作（配送の委任など）は止まります。このページから元には戻せません。もう一度任せるには、任せた先のアプリで委任し直してください。`}</p>
+    <p>${L`何もしなければ、その委任はそのまま続きます。代理人は、鍵を渡すまで何も送れません。`}</p>
+    <p><button type="button" class="btn danger" data-act="delegate-replace" data-key="${d.held.key}">${L`その委任を止めて代理人に渡す（登録鍵を変更・ウォレット署名）`}</button></p>
+    <p class="muted">${L`ウォレットで署名する取引です。送ったあと、チェーンで確定するまで待ってから表示を更新します。`}</p>
+  </section>`;
   return html`<section class="agent-card" aria-labelledby="del-title"><h3 id="del-title">${L`チェーン上の委任（村の鍵）`}</h3>
     <p>${d.text}</p>
     <p class="muted">${d.session ? L`いまの鍵 ${d.session.slice(0, 8)}… ${d.onChain ? L`（代理人）` : L`（あなた）`}` : ''}</p>
@@ -347,7 +390,16 @@ export function renderWallets(list, opts) {
     <p class="muted">${L`テスト用ウォレットはこのブラウザにだけある鍵です。拡張機能のウォレットは、ローカルのテスト用チェーン（solana:localnet）への署名に対応しているものだけが選べます。`}</p>`;
 }
 
-export function renderCapability(capability) {
+export function renderCapability(capability, { asking = false, view = null } = {}) {
+  // Q16-3 (③'s capability): what re-issuing the general token stops, before it is re-issued
+  if (asking) {
+    const senders = Object.keys(view?.senderCapabilities ?? {}).filter(s => s === 'ai' || s === 'mcp').sort();
+    return html`<section class="agent-card tone-warn" aria-labelledby="cap-title" data-rotate="ask"><h3 id="cap-title">${L`接続用トークンを再発行しますか`}</h3>
+    <p class="agent-warn" role="alert">${L`再発行すると、いまのトークンはすぐに使えなくなります。それを使って接続している外部の AI や MCP は止まります。続けるには、新しいトークンを渡し直してください（このページから元には戻せません）。`}</p>
+    ${senders.length ? html`<p class="muted">${L`送り手ごとのトークン（${senders.join(', ')}）は再発行しても変わりません。`}</p>` : ''}
+    <p><button type="button" class="btn" data-act="rotate-cancel">${L`再発行しない（いまのトークンを使い続ける）`}</button> <button type="button" class="btn danger" data-act="rotate">${L`再発行する（古いトークンは無効）`}</button></p>
+  </section>`;
+  }
   return html`<section class="agent-card tone-warn" aria-labelledby="cap-title"><h3 id="cap-title">${L`接続用トークン（この一度だけ表示）`}</h3>
     <p><code class="agent-token">${capability.token}</code></p>
     <p class="muted">${L`外部の AI や MCP にこのトークンを渡すと、許可した行動を予算の中で要求できます。作成・入金・停止・引き出しはできません。無くしたら再発行してください。`}</p>
@@ -368,8 +420,10 @@ export function restoreForm(root, name, typed) {
   }
 }
 
-export async function mountAgentPage({ root, wallet, fsession, herald, prize }) {
-  const S = { wallet: null, pin: null, terms: null, mine: [], view: null, capability: null, note: null, busy: false, walletBalance: null, session: null, fates: new Map(), viewRead: null };
+export async function mountAgentPage({ root, wallet, fsession, herald, prize, chain = { setSessionOnChain } }) {
+  const S = { wallet: null, pin: null, terms: null, mine: [], view: null, capability: null, note: null, busy: false, walletBalance: null, session: null, fates: new Map(), viewRead: null, rotateAsk: false };
+  // The keys that are the owner's own: this device's game key for the season, and the wallet itself (Q16-3).
+  const own = () => [S.session?.publicKey, S.wallet?.address];
   const say = (text, tone = '') => { S.note = { text, tone }; draw(); };
   const draw = () => setHtml(root, render());
   const render = () => {
@@ -385,8 +439,8 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
           <button type="submit" class="btn">${L`作成（署名）`}</button></form></section>`);
       return parts;
     }
-    if (S.capability) parts.push(renderCapability(S.capability));
-    parts.push(renderBalance(S.view), renderMode(S.view), renderDelegation(S.view), renderMoney(S.view, { walletBalance: S.walletBalance }), renderPolicy(S.view), renderHistory(S.view, { fates: S.fates, read: S.viewRead }));
+    if (S.capability || S.rotateAsk) parts.push(renderCapability(S.capability, { asking: S.rotateAsk, view: S.view }));
+    parts.push(renderBalance(S.view), renderMode(S.view), renderDelegation(S.view, { own: own() }), renderMoney(S.view, { walletBalance: S.walletBalance }), renderPolicy(S.view), renderHistory(S.view, { fates: S.fates, read: S.viewRead }));
     return parts;
   };
   const refresh = async () => {
@@ -434,14 +488,42 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
       say(L`代理人を読み込めませんでした（${String(v.code ?? v.error ?? '?')}）`, 'bad');
     },
     async mode(d) { const r = await command('mode', { mode: d.mode }); if (!r.ok) return say(r.error, 'bad'); S.view = { ...S.view, ...r.agent }; say(d.mode === 'auto' ? L`自動にしました` : L`止めました（サーバー側）`); await refresh(); },
-    async rotate() { const r = await command('rotate-capability'); if (!r.ok) return say(r.error, 'bad'); S.capability = r.capability; draw(); },
+    // Q16-3 (③'s capability): re-issuing the general token stops whoever holds the old one (an external AI or MCP
+    // connected with it) at once. The first press says so; the second, from the warning, re-issues (the new token is
+    // shown once, to hand to that connection again: the migration is the owner's). Per-sender tokens are not touched.
+    async rotate() {
+      if (!S.rotateAsk) { S.rotateAsk = true; return draw(); }
+      S.rotateAsk = false;
+      const r = await command('rotate-capability'); if (!r.ok) return say(r.error, 'bad'); S.capability = r.capability;
+      say(L`接続用トークンを再発行しました。古いトークンを使っていた接続は止まりました。続けるには、新しいトークンを渡し直してください。`);
+    },
+    'rotate-cancel'() { S.rotateAsk = false; say(L`再発行しませんでした。いまのトークンはそのまま使えます。`); },
     async faucet() { const r = await prize.faucet(S.wallet.address); say(r.ok ? L`テストUSDCを受け取りました` : r.error, r.ok ? '' : 'bad'); await refresh(); },
     async 'withdraw-all'() { const r = await command('withdraw', { all: true }); if (!r.ok) return say(r.error, 'bad'); say(L`引き出しを送りました（${usdc(r.withdrawal.amount)}）。代理人は手動に戻りました。`); await refresh(); },
-    async delegate() { await setSession(S.view.agentKey, L`鍵を代理人に渡しました`); },
-    async revoke() {
-      const own = S.session?.publicKey ?? S.wallet.address;
-      await setSession(own, L`鍵を取り戻しました。代理人はもう村に署名できません。`);
+    // Q16-3: the hand-over is read against the chain's delegation as it is NOW (the relay reads it fresh), not the
+    // view drawn earlier; over a key held elsewhere it is sent only from the warning, for the key that was shown.
+    async delegate(d) {
+      const v = await fresh();
+      if (!v) return say(L`チェーン上の委任を読めませんでした。何も送っていません。`, 'bad');
+      const c = handOverCheck(v, { own: own(), key: d?.key ?? null });
+      if (!c.ok && !c.held) return say(L`チェーン上の委任を読めませんでした。何も送っていません。`, 'bad');
+      if (!c.ok) return say(L`村の鍵は別の鍵（${shortKey(c.held.key)}）が持っています。鍵は変更していません。下の説明を読んで、その委任を止めるかどうか選んでください。`, 'bad');
+      await setSession(v.agentKey, c.held ? L`その委任を止めて、鍵を代理人に渡しました。これまでの鍵（${shortKey(c.held.key)}）は、もう村を操作できません` : L`鍵を代理人に渡しました`);
     },
+    'delegate-replace'(d) { return act.delegate(d); },
+    async revoke() {
+      const v = await fresh();
+      if (!v) return say(L`チェーン上の委任を読めませんでした。何も送っていません。`, 'bad');
+      if (!handOverCheck(v, { own: own(), revoke: true }).ok) return say(L`村の鍵は、いま代理人のものではありません。鍵は変更していません。`, 'bad');
+      await setSession(S.session?.publicKey ?? S.wallet.address, L`鍵を取り戻しました。代理人はもう村に署名できません。`);
+    },
+  };
+  const fresh = async () => {
+    const id = S.view?.agentId;
+    const v = await loadAgent(id).catch(() => null);
+    if (!v?.ok || S.view?.agentId !== id) return null;
+    S.view = v;
+    return v;
   };
   const setSession = async (sessionKey, done) => {
     say(L`ウォレットで署名して、チェーンの確定を待っています…`);
@@ -449,7 +531,7 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
     const now = await herald.season();
     if (!now.ok) return say(L`シーズンを読めませんでした`, 'bad');
     const expiry = Number(now.record.latestUnix) + 7 * 86_400;
-    const r = await setSessionOnChain({ addresses: S.pin.addresses, wallet: S.wallet, sessionKey, expiry });
+    const r = await chain.setSessionOnChain({ addresses: S.pin.addresses, wallet: S.wallet, sessionKey, expiry });
     if (!r.ok) return say(r.error ?? r.code, 'bad');
     const v = await loadAgent(S.view.agentId);
     if (v.ok) S.view = v;

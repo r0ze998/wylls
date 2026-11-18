@@ -2085,6 +2085,9 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
 .hand-note { margin: 0; padding: 0 6px; font-size: var(--t1); color: var(--amber); }
 .hand-note-agent .hand-agent { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .hand-note-agent .hand-agent > .ic { width: 14px; height: 14px; }
+/* Q16-3 (verify-pr61 F2): the bar's whole warning before the key is replaced */
+.hand-note-agent .hand-agent-review > span { flex: 1 1 100%; }
+.hand-note-agent .hand-agent-warn { padding: 5px 8px; border: 1px dashed rgba(122,82,6,.55); border-radius: 2px; background: rgba(246,226,170,.38); }
 .hand-note-agent .btn.small { min-height: 28px; padding: 3px 10px; }
 .hand-note-agent a.btn { color: var(--ivory); background: transparent; border: 1px solid rgba(240,212,138,.45); text-decoration: none; }
 .hand-note-agent a.btn:hover { background: rgba(240,212,138,.12); }

@@ -120,11 +120,19 @@ export function renderDelegated(d, opts = {}) {
  * sees the drawer's join card (it opens only before land is held), so the bar they act from says it, with the same
  * take-back (the page's `session` action) and the agent page link.
  */
-export function handNote(d) {
-  // (another key — the courier, another app or device: the bar says so and opens nothing by itself; the replacement is
-  //  the same consented action as the card's, named for what it does)
-  if (d.foreign) return html`<span class="hand-agent">${icon('lock')}<span>${L`別の鍵に操作を任せています（配送の委任など）。この端末の鍵では送れません。`}</span>
-    ${replaceButton(d, 'btn small', L`委任を止めて鍵を変更する`)}</span>`;
+export function handNote(d, { review = false, kept = false } = {}) {
+  // (another key — the courier, another app or device. A village owner never sees the drawer's key card, so the bar
+  //  carries the same choice: one line and "look and choose"; that opens the whole warning, with keep first and the
+  //  replacement bound to the key shown. Nothing on the bar replaces the key in one press — verify-pr61 F2)
+  if (d.foreign && kept) return html`<span class="hand-agent" data-key-held="kept">${icon('lock')}<span>${L`委任を続けています。登録されている鍵（${shortKey(d.agentKey)}）が引き続きこの住民を操作します。この端末では見るだけです。`}</span>
+    <button type="button" class="btn small" data-act="session-keep">${L`選び直す`}</button></span>`;
+  if (d.foreign && review) return html`<span class="hand-agent hand-agent-review" data-key-held="${d.program ? 'program' : 'other'}">${icon('lock')}<span><strong>${L`別の鍵に操作を任せています`}</strong> ${L`登録されている鍵：${shortKey(d.agentKey)}`}${d.program ? html` ${L`この鍵は、プログラムが持つ鍵です（配送の委任など）。`}` : ''}${d.expired ? html` ${L`この鍵の期限は切れています。いまは、この鍵も操作できません。`}` : ''}</span>
+    <span class="hand-agent-warn" role="alert">${L`自分で操作するために鍵を変更すると、現在登録されている鍵は使えなくなります。`}${L`その鍵に任せていた操作（配送の委任など）は止まります。この画面から元には戻せません。もう一度任せるには、任せた先のアプリで委任し直してください。`}</span>
+    <span>${L`何もしなければ、委任はそのまま続きます。この端末では見るだけになります。`}</span>
+    <button type="button" class="btn small primary" data-act="session-keep">${L`委任を続ける（鍵を変えない）`}</button>
+    ${replaceButton(d, 'btn small danger', L`委任を止めて自分で操作する（登録鍵を変更）`)}</span>`;
+  if (d.foreign) return html`<span class="hand-agent" data-key-held="${d.program ? 'program' : 'other'}">${icon('lock')}<span>${L`別の鍵に操作を任せています（配送の委任など）。この端末の鍵では送れません。`}</span>
+    <button type="button" class="btn small" data-act="session-review">${L`鍵について確かめて選ぶ`}</button></span>`;
   return html`<span class="hand-agent">${icon('lock')}<span>${d.mode === 'auto' ? L`代理人に任せています（自動）。この端末の鍵では送れません。` : L`鍵はまだ代理人が持っています（代理人は停止中）。この端末の鍵では送れません。`}</span>
     ${replaceButton(d, 'btn small primary', L`鍵を取り戻す`)}
     <a class="btn small" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページ`}</a></span>`;
