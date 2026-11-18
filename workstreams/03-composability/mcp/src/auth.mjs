@@ -94,7 +94,15 @@ export class Auth {
    * @param {string[]} [o.redirects] extra allowed redirect URI prefixes (exact strings)
    * @param {string[]} [o.redirectProfiles] names in REDIRECT_PROFILES (default: chatgpt and loopback)
    */
-  constructor({ issuer, resource, store, sealer, game, redirects = [], redirectProfiles = DEFAULT_REDIRECT_PROFILES, now = Date.now, log = () => {}, allowGlobalRotate = false }) {
+  constructor({ issuer, resource, store, sealer, game, redirects = [], redirectProfiles = DEFAULT_REDIRECT_PROFILES, now = Date.now, log = () => {}, allowGlobalRotate = false, readOnly = false }) {
+    /**
+     * (2026-11-18, ⑤ option B) A read-only server (the local-play observation server, bin/wylls-mcp-local-play.mjs):
+     * only `wylls.read` is offered and granted; a request for any write scope is refused at authorize, and no
+     * capability is ever asked of a relay. Off (the default): as before.
+     */
+    this.readOnly = readOnly === true;
+    if (this.readOnly && allowGlobalRotate === true) throw new Error('a read-only server takes no capability: allowGlobalRotate cannot be set');
+    if (this.readOnly) { const base = Auth.prototype.protectedResource.bind(this); this.protectedResource = () => ({ ...base(), scopes_supported: [SCOPES.READ] }); }
     /** Off (the default): a relay without per-sender capabilities gets no write connection (the rotation would stop ⑤). */
     this.allowGlobalRotate = allowGlobalRotate === true;
     const unknown = redirectProfiles.filter(n => !REDIRECT_PROFILES[n]);
@@ -134,7 +142,7 @@ export class Auth {
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
       revocation_endpoint_auth_methods_supported: ['none'],
-      scopes_supported: Object.values(SCOPES),
+      scopes_supported: this.readOnly ? [SCOPES.READ] : Object.values(SCOPES),
       authorization_response_iss_parameter_supported: true,
     };
   }
@@ -180,6 +188,7 @@ export class Auth {
     if (q.resource !== this.resource) throw back('invalid_target', `resource must be ${this.resource}`);
     const scopes = String(q.scope ?? SCOPES.READ).split(' ').filter(Boolean);
     if (!scopes.length || scopes.some(s => !Object.values(SCOPES).includes(s))) throw back('invalid_scope', `scopes: ${Object.values(SCOPES).join(', ')}`);
+    if (this.readOnly && scopes.some(s => s !== SCOPES.READ)) throw back('invalid_scope', `this server is read-only: ${SCOPES.READ} only`);
     if (!scopes.includes(SCOPES.READ)) scopes.unshift(SCOPES.READ);
     const pendingOf = Object.values(this.db.nonces).filter(n => n.clientId === client.client_id);
     if (pendingOf.length >= LIMITS.pendingPerClient) delete this.db.nonces[pendingOf.sort((a, b) => a.expiresAt - b.expiresAt)[0].reqId];
@@ -295,7 +304,9 @@ export class Auth {
     const st = this.statementOf(pending, { owner: b.owner, agentId: b.agentId, scopes, grant, expiresAt: b.expiresAt });
     if (typeof b.owner !== 'string' || !verifySig(linkStatement(st), b.signature, b.owner)) throw back('access_denied', 'the statement is not signed by the owner\'s wallet');
     // The agent must be the owner's, as the relay records it.
-    const view = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(String(b.agentId))}`);
+    // (a read-only local-play server has no agent wallet: its game answers for a self link, local-play-game.mjs agentView)
+    const view = typeof this.game.agentView === 'function' ? await this.game.agentView(String(b.agentId)) : await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(String(b.agentId))}`);
+    if (this.readOnly && (scopes.some(s => s !== SCOPES.READ) || b.agentId !== b.owner)) throw back('access_denied', 'this server is read-only and links a resident to itself only (agentId = owner)');
     if (view.transport || view.status >= 500) throw back('temporarily_unavailable', 'the relay did not answer');
     if (view.status !== 200) throw back('access_denied', `the relay knows no such agent (${view.json?.code ?? view.status})`);
     if (view.json.owner !== b.owner) throw back('access_denied', 'this agent belongs to another owner');
