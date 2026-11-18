@@ -3,7 +3,9 @@
 //
 //   WYLLS_MCP_RELAY=http://127.0.0.1:41933     the relay (agent wallet on: FRONTIER_AGENT_WALLET=1)
 //   WYLLS_MCP_HERALD=http://127.0.0.1:41940    the herald
-//   WYLLS_MCP_PORT=41960                        listen port (host 127.0.0.1; WYLLS_MCP_HOST to change)
+//   WYLLS_MCP_PORT=41960                        listen port (host 127.0.0.1; WYLLS_MCP_HOST to change, loopback only unless
+//                                              WYLLS_MCP_ALLOW_REMOTE_BIND=1; bin/mcp-settings.mjs)
+//   WYLLS_MCP_ALLOWED_HOSTS=a.example,b        Host header names accepted besides loopback and the issuer's (DNS rebinding)
 //   WYLLS_MCP_ISSUER=http://127.0.0.1:41960     the public origin (https behind a tunnel for ChatGPT)
 //   WYLLS_MCP_STORE=.local/wylls-mcp/store.json the JSON store (0600)
 //   WYLLS_MCP_SEAL_KEY=<32 bytes base64url>     seals the agent capability at rest (required with a store file)
@@ -41,7 +43,7 @@ if (ws04SettingsError) { console.error(ws04SettingsError); process.exit(2); }
 // be given is exactly <issuer>/mcp; a setting that cannot name one is refused here, not found at sign-in.
 const settings = mcpSettings(env);
 if (settings.error) { console.error(settings.error); process.exit(2); }
-const { port, host, issuer, resource } = settings;
+const { port, host, issuer, resource, remoteBind, allowedHosts } = settings;
 // The opt-in cooperation board read: checked here too, before anything is opened. Off unless all three are set.
 const coopSettings = coopReadSettings(env);
 if (coopSettings.error) { console.error(coopSettings.error); process.exit(2); }
@@ -76,7 +78,8 @@ log(coopRead ? `cooperation board read: on (${coopSettings.origin}, cluster ${co
 log(`receipt port: ${receipts.contract}${receipts.real ? '' : ' (MOCK: this server\'s own tracking, not ④\'s ledger)'}`);
 const seal = auth.sealCheck();
 if (seal.unopenable) log(`warning: ${seal.unopenable} of ${seal.sealed} connection capabilities cannot be opened with this WYLLS_MCP_SEAL_KEY; their sends are held (CapabilityUnavailable) until the key is restored or the owner revokes the connection`);
-await listen(createHandler({ auth, mcp, log }), { port, host });
+if (remoteBind) log(`warning: listening on ${host}, not loopback (WYLLS_MCP_ALLOW_REMOTE_BIND=1) with the local TEST authorization server${issuer.startsWith('http:') ? '; the issuer is http, so codes and tokens cross the network in plaintext' : ''}`);
+await listen(createHandler({ auth, mcp, log, allowedHosts }), { port, host });
 log(`listening on http://${host}:${port}/mcp (issuer ${issuer})`);
 // The one URL a client is given (the resource, exactly), and on loopback the Claude Code preflight for it.
 log(connectLine(resource));

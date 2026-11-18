@@ -10,6 +10,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { signTalk } from '../../../../permutation-gateway/client/src/talk-node.mjs';
 import { PATCHED, server, world } from './fixture.mjs';
+import { TOOLS } from '../src/tools.mjs';
 
 function provider({ s, w, scopes }) {
   let info, tokens, verifier, code = null;
@@ -57,7 +58,7 @@ test('the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list a
     await c2.connect(transport);
     assert.equal(c2.getServerVersion().name, 'wylls-mcp');
     const { tools } = await c2.listTools();
-    assert.equal(tools.length, 7);
+    assert.deepEqual(tools.map(t => t.name), TOOLS.map(t => t.name), 'the listed tools are src/tools.mjs TOOLS (cooperation off)');
     assert.equal(tools.find(t => t.name === 'send_caravan').annotations.destructiveHint, true);
     const status = await c2.callTool({ name: 'get_village_status', arguments: {} });
     assert.equal(status.isError, false);

@@ -65,7 +65,7 @@ import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProb
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
-import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
+import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
 import * as protoIo from './proto/orders.mjs';
 import * as pm from './proto/hand-model.mjs';
@@ -1733,7 +1733,8 @@ export async function refresh() {
   await refreshConquest();
   await refreshChronicle();
   invalidate('panel', 'tabs', 'chips', 'map');
-  if (needsHomeChoice()) await refreshHomes();
+  // (⑧ doc 31 §1-A: a reading that has just found the heartland full hands over to the village request at once)
+  if (needsHomeChoice()) { await refreshHomes(); if (heartlandFull(FS)) autoTicket().catch(e => console.error('frontier auto ticket:', e)); }
   else autoTicket().catch(e => console.error('frontier auto ticket:', e));
   } finally { pollsUnderWay -= 1; }
 }
@@ -2060,6 +2061,9 @@ export async function refreshConquest() {
 function needsHomeChoice() {
   if (!instantHomeEnabled(FS.season) || FS.holdings?.length || FS.meStatus === 'error') return false;
   if (!FS.citizen) return true;
+  // (2026-11-18, ⑧ doc 31 §1-A: the heartland has no free first home for this nation — the village request instead
+  //  (autoTicket; home.mjs heartlandFull). The reading stays as it is until the page is opened again.)
+  if (heartlandFull(FS)) return false;
   return FS.land?.stage === 'joined' && !(FS.citizen.flags & (HOME_GRANTED | 4 | 16));
 }
 
@@ -2197,7 +2201,15 @@ export async function confirmHome() {
   const faction = wantedHomeFaction();
   if (!FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction)) await refreshHomes({ force: true });
   if (contextSeq !== pressed) return;
-  if (!FS.homeChoice?.selected || FS.homeChoice.busy) return;
+  // (2026-11-18, ⑧ doc 31 §1-A: a visitor whose chosen nation has no free first home (the reading said NoFreeHome for
+  //  that nation) is not left at a button that does nothing: this press joins the nation — Join and the in-game key,
+  //  the same two steps as below, and no PlaceHome — and the village request (autoTicket) takes it from there. Only
+  //  for a wallet that has not joined, and never in local play, whose relay step serves no FileTicket.)
+  const requestInstead = !FS.homeChoice?.selected && !FS.citizen && !FS.resident && !localPlay && noFreeHome(FS.homeChoice, faction);
+  // (the "no free first home" reading that press is made on: it is what the page shows next, so it is kept)
+  const reading = requestInstead ? FS.homeChoice.error : null;
+  if (requestInstead) { if (FS.homeChoice.busy) return; }
+  else if (!FS.homeChoice?.selected || FS.homeChoice.busy) return;
   // (2026-11-17, ⑦: THIS confirm — the choice it was pressed on (the object), the context number of that moment
   //  (viewer, herald, world: nextContext), the world, and where that viewer's home record is kept.
   //   - what it shows (pending, error, the selection let go) is written on ITS choice, and only while that choice is
@@ -2208,6 +2220,7 @@ export async function confirmHome() {
   //   - at its end it lets go of its own busy mark only; a newer choice's is not its to take off.)
   const run = { choice: FS.homeChoice, ctx: pressed, note: homeNoteNow(), sent: new Set() };
   run.choice.busy = true; run.choice.error = null;
+  if (reading) run.choice.error = reading;
   const mine = () => FS.homeChoice === run.choice && contextSeq === run.ctx;
   const pending = p => { if (!mine()) return; run.choice.pending = p; invalidate('panel'); };
   const error = (code, text) => { if (!mine()) return; run.choice.error = { code, text }; invalidate('panel'); };
@@ -2272,17 +2285,21 @@ export async function confirmHome() {
     //  the note is not cleared otherwise, see saveHomePatch — and nothing further is done)
     if (!mine()) return;
     let site = run.choice.selected;
-    if (FS.citizen && FS.citizen.faction !== site.faction) {
-      run.choice.selected = null;
-      return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
+    // (⑧ doc 31 §1-A, request instead: there is no place, only the nation — nothing to check, nothing to remember)
+    if (requestInstead) site = { faction };
+    else {
+      if (FS.citizen && FS.citizen.faction !== site.faction) {
+        run.choice.selected = null;
+        return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
+      }
+      const env = await loadEnvelope(site.p, site.q);
+      if (!mine()) return;
+      if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
+        run.choice.selected = null; saveHomePatch({ selected: null });
+        return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
+      }
+      saveHomePatch({ selected: site });
     }
-    const env = await loadEnvelope(site.p, site.q);
-    if (!mine()) return;
-    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
-      run.choice.selected = null; saveHomePatch({ selected: null });
-      return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
-    }
-    saveHomePatch({ selected: site });
     if (!FS.citizen) {
       pending('joining');
       if (FS.resident) {
@@ -2309,6 +2326,13 @@ export async function confirmHome() {
     if (!localPlay && !FS.resident && (!FS.session || FS.sessionProblem)) {
       await ACTIONS.session(); await refresh();
       if (!mine() || !FS.session || FS.sessionProblem) return;
+    }
+    // (⑧ doc 31 §1-A, request instead: joined, with its key, and no PlaceHome — the heartland has no place. The reading
+    //  this press was made on still stands, so the request's wait view is shown, not the planner; the request itself is
+    //  filed by autoTicket, here and at every poll)
+    if (requestInstead) {
+      if (heartlandFull(FS)) { run.choice.busy = false; run.choice.pending = null; autoTicket().catch(e => console.error('frontier auto ticket:', e)); }
+      return;
     }
     pending('placing');
     const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },
