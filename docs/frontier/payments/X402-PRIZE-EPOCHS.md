@@ -113,8 +113,15 @@ change: four new instructions, and none of the shares, claim or operator code ch
   classifies this file as a key test, like `frontier-prize.test.mjs`, so push CI does not run it.
 - **Devnet dry run:** `node --test scripts/devnet/test/dry-run.test.mjs` (35, 6 of them new).
 
-Not run: a `frontier-stack up --prize-epochs` world end to end (no window was crossed on a live localnet), and anything
-on devnet.
+- **Live play-through (round 2, 2026-11-18, local only):** `frontier-stack up --conquest --continuous --prize-so <epochs
+  .so> --prize-epochs --prize-epoch-bells 20 --prize-claim-bells 4` opened window 0 on an in-process localnet. In a
+  Playwright browser, one player went Dev Wallet → "Get test USDC" → Join. The paid x402 join landed in the epoch pool:
+  1 entry, 25 collected, 20 to the prize, 5 to the operator (test USDC). The join screen named the window's end turn.
+  After bell 20, a second player's paid join was refused (`EpochClosed`), and the page said "This prize window no longer
+  takes entry fees". Evidence: `~/Projects/wylls-grok-state/evidence/ws17-prize/round2/`.
+
+Not run: EpochTally, EpochFinalize, SetShares, Claim and Sweep on a live localnet (no crank tool yet; LiteSVM covers
+them), and anything on devnet.
 
 ## 5. Open questions for the owner (the code uses the conservative default)
 

@@ -316,10 +316,18 @@ mod tests {
         assert_eq!(g(false, true, Some(10), gate, false), Ok(()));
         assert_eq!(g(true, true, None, None, false), Ok(()));
         assert_eq!(g(true, true, None, gate, true), Ok(()));
-        assert!(g(true, true, None, gate, false).unwrap_err().contains("legacy prize join gate"));
-        assert!(g(true, true, Some(10), None, false).unwrap_err().contains("season end"));
-        assert!(g(true, true, Some(10), gate, true).unwrap_err().contains("season end"));
-        assert!(g(true, false, None, None, false).unwrap_err().contains("conquest"));
+        assert!(g(true, true, None, gate, false)
+            .unwrap_err()
+            .contains("legacy prize join gate"));
+        assert!(g(true, true, Some(10), None, false)
+            .unwrap_err()
+            .contains("season end"));
+        assert!(g(true, true, Some(10), gate, true)
+            .unwrap_err()
+            .contains("season end"));
+        assert!(g(true, false, None, None, false)
+            .unwrap_err()
+            .contains("conquest"));
     }
 
     use super::*;
