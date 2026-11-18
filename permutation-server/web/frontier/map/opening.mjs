@@ -4,8 +4,9 @@
 //   a village (provisional or final)   the active village's tile at the hero zoom
 //   a ticket with candidate sites      every candidate site, in the part nothing covers
 //   joined, no land yet                the nation's home wedge
-//   not joined (the nation choice)     close on the bell at the Concord; a nation that is looked at:
-//                                      its home wedge with the bell at its point
+//   not joined (the nation choice)     the opened land as a whole; a nation that is looked at: its
+//                                      home region (⑭ abolished, 2026-11-18: the map has no centre and no
+//                                      tower to stand close on)
 //   watching, practising               the whole opened world, as before
 //
 // The page says who is looking with `openHint(FS)` in the map's source; the
@@ -18,10 +19,8 @@
 import { project } from '../../map.mjs';
 import { tileHex } from '../fgeo.mjs';
 import { provincePixel, FLATTEN } from './layers.mjs';
-import { dispersedPlace, homeBox, homeLook } from './homeland.mjs';
+import { homeBox, homeLook } from './homeland.mjs';
 import { FAR_CAP, centreOn, fitView, freeBox } from './camera.mjs';
-import { RADIUS } from '../../map.mjs';
-import { TOWER } from './belltower.mjs';
 import { candidatesBox } from './waitview.mjs';
 
 /**
@@ -40,19 +39,12 @@ export const OPEN_WAIT_MS = 15000;
 /** How much higher than its target the opening starts (zoom factor). Behind the title the camera waits there (the title is opaque: fmap.mjs open). */
 export const OPEN_FROM = 0.5;
 /**
- * The view of the bell before joining: its tower takes `share` of the height nothing covers, between the zooms `min`
- * (the tiles stay tiles and the board keeps its tilt) and `max`; the picture's middle is `middle` of the way up it.
+ * The point of a nation's home wedge its name stands on close up: `reach` of the way from the lattice's origin to the
+ * middle of the wedge's ring-1 province (the origin is a coordinate, not a place: ⑭ abolished the centre).
  */
-export const ENGINE_VIEW = Object.freeze({ share: 0.78, min: 0.62, max: 1.3, middle: 0.44, aside: 0.13 });
+export const LOOK = Object.freeze({ reach: 0.72 });
 /**
- * A nation that is looked at before joining: the camera comes no nearer than `max`, and looks `reach` of the way from
- * the bell to the middle of the first province of that nation's home wedge (the wedge begins half way there: the
- * picture holds the bell and the wedge's near edge with a few tiles of its lit land).
- */
-export const LOOK = Object.freeze({ max: 1.15, reach: 0.72 });
-/**
- * The point of nation `faction`'s home region the camera turns to from the bell (world px; the region's name stands
- * there), or null. `place`: the season's placement (home.mjs seasonPlace). The wedge: `reach` of the way to its
+ * The point of nation `faction`'s home region its name stands on close up (world px), or null. `place`: the season's placement (home.mjs seasonPlace). The wedge: `reach` of the way to its
  * ring-1 province; a dispersed region: its anchor province (map/homeland.mjs homeLook); no readable placement: null.
  */
 export function lookPoint(faction, ringsOpen, place = undefined, seeded = null) {
@@ -64,7 +56,7 @@ export function lookPoint(faction, ringsOpen, place = undefined, seeded = null) 
  * height; a phone's wait sheet leaves a third, and the sites are now fitted into what is really left (`room` below).
  */
 export const CANDIDATES_MIN = 0.21;
-/** The wait in the home wedge: the wedge takes `fill` of the free part of the picture (it was 0.92), and the camera looks `out` of that part's width beyond the wedge's middle, away from the Concord. */
+/** The wait in the home wedge: the wedge takes `fill` of the free part of the picture (it was 0.92), and the camera looks `out` of that part's width beyond the wedge's middle, away from the lattice's origin (outward). */
 export const WEDGE_VIEW = Object.freeze({ fill: 0.84, out: 0.05 });
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
 
@@ -142,35 +134,20 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   // (a player who has not joined: with the nation choice standing along the foot of the map, `frame`, or with it put away)
   const frame = h.frame ?? (h.mode === 'play' && h.stage === 'none' ? {} : null);
   if (frame) {
-    // before joining (UX brief §11.9): the camera is close on the bell at the Concord, the chart's one landmark, not
-    // on the world. Its tower takes most of the height nothing covers; the chart runs out of the picture around it.
-    // (the nation choice may leave less than the 40% of the height that `freeBox` never goes below: the bell is
-    // framed in what is really free, `room`, and `lift` is how far that part's middle lies above the box's)
+    // before joining (⑭ abolished, owner decision 2026-11-18: the map has no centre, and no bell tower for the camera
+    // to stand close on, as UX brief §11.9 had it). A nation that is looked at: its home region (the wedge, or a
+    // dispersed placement's provinces), framed in the height that is really free above the nation choice, as the
+    // wait frames it; no nation looked at: the opened land as a whole, as a watcher sees it.
+    // (`room`: the nation choice may leave less than the 40% of the height that `freeBox` never goes below; `lift`
+    // is how far that part's middle lies above the box's)
     const room = Math.max(120, Math.min(free.height, size.height - (inset?.top ?? 0) - (inset?.bottom ?? 0)));
     const lift = free.height > room ? (inset?.top ?? 0) + room / 2 - (size.height / 2 + free.y) : 0;
-    const tall = TOWER.height * RADIUS, mid = { x: 0, y: -tall * ENGINE_VIEW.middle };
-    const near = Math.max(ENGINE_VIEW.min, Math.min(ENGINE_VIEW.max, (ENGINE_VIEW.share * room) / tall, (0.9 * free.width) / (TOWER.plinth * 2 * RADIUS)));
-    // a nation that is looked at (UX brief §11.9; the second review: the camera pulled out to the whole world, sheet,
-    // cloud ring and table, and the bell became a toy): the camera stays close on the bell and turns toward that
-    // nation's home wedge, the only land that lights. In the picture: the tower, whole, and the near part of the
-    // wedge (`lookPoint`); the rest of the wedge runs out of the picture, as the chart does
-    // (a dispersed region has no near side: its provinces stand round the whole heartland ring. The camera does not
-    // turn from the bell toward one of them, it frames all of them, as the wait does, with the bell among them)
-    const scattered = Number.isInteger(frame.nation) && dispersedPlace(place) ? wedgeBox(frame.nation, rings, place, src?.seeded ?? null) : null;
-    if (scattered) {
-      const zoom = Math.max(0.16, Math.min(0.8, WEDGE_VIEW.fill * Math.min(free.width / scattered.width, room / scattered.height)));
-      return plan('frame', { x: scattered.x, y: scattered.y - lift / zoom }, zoom);
+    const box = Number.isInteger(frame.nation) ? wedgeBox(frame.nation, rings, place, src?.seeded ?? null) : null;
+    if (box) {
+      const zoom = Math.max(0.16, Math.min(0.8, WEDGE_VIEW.fill * Math.min(free.width / box.width, room / box.height)));
+      return plan('frame', { x: box.x, y: box.y - lift / zoom }, zoom);
     }
-    const P = Number.isInteger(frame.nation) ? lookPoint(frame.nation, rings, place, src?.seeded ?? null) : null;
-    if (P) {
-      const x0 = Math.min(P.x - RADIUS * 2.6, -TOWER.plinth * RADIUS), x1 = Math.max(P.x + RADIUS * 2.6, TOWER.plinth * RADIUS);
-      const y0 = Math.min(P.y - RADIUS * 1.9, -tall), y1 = Math.max(P.y + RADIUS * 1.9, RADIUS);
-      const zoom = Math.max(ENGINE_VIEW.min, Math.min(LOOK.max, near, 0.92 * Math.min(free.width / (x1 - x0), room / (y1 - y0))));
-      return plan('frame', { x: (x0 + x1) / 2, y: (y0 + y1) / 2 - lift / zoom }, zoom);
-    }
-    // (in a wide picture the tower stands a little left of the middle: the turn's dial hangs in the middle of the top edge)
-    const aside = free.width > room * 2.2 ? (ENGINE_VIEW.aside * free.width) / near : 0;
-    return plan('frame', { x: mid.x + aside, y: mid.y - lift / near }, near);
+    return { kind: 'frame', at: { x: 0, y: 0 }, rank: RANK.frame, view: fitView(rings, size, { inset, cap: FAR_CAP, floor: 0.02 }) };
   }
   return { kind: 'fit', at: { x: 0, y: 0 }, rank: RANK.fit, view: fitView(rings, size, { inset, cap: FAR_CAP, floor: 0.02 }) };
 }

@@ -31,10 +31,10 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 | ⑭ | central tower | pushed 11-08; stage value always 0 in production | 45da6d38 (11-08) | records in canonical | — |
 | ⑮ | coop outcomes (evaluator) | branch ws/15-coop-outcomes (10-30); long-run.json changed in the WIP | bcc63a24 (11-15, WIP) | records in canonical | — |
 | ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded |
-| ⑰ | settlement / prize (x402, USDC) | — | preserve/ws17-0c80381d | not determined | **restricted as a whole** (prize, funds) |
+| ⑰ | settlement / prize (x402, USDC) | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | preserve/ws17-0c80381d | not integrated; closed, not pursued | **restricted as a whole** (prize, funds) |
 | ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | origin/fix/ws18-clippy-hostile-20261103 @ 0bba3f31 (11-03; = preserve/ws18-4fbe0c77 + clippy fix) | **in main**: all 17 commits applied as one delta in 6b670edb (2026-11-03), patch-id identical per file (2026-11-18 check, see section below) | — |
 | ⑲ | MagicBlock and public RPC | local branch claude/ecstatic-cannon-d0jfc4, "not received"; read-only check 11-07 | preserve/ws19-a91b7a4f (+supp d793ebd4) | not determined | public network: nothing sent |
-| ⑳ | NFT resident ID and authorization | — | — | not determined | **restricted as a whole** (NFT) |
+| ⑳ | NFT resident ID and authorization | **Closed (out of scope for the playable version), owner decision 2026-11-18** — see the dated section at the end | — | not integrated; closed, not pursued | **restricted as a whole** (NFT) |
 
 ## The ordinary game lane (separate from ①–⑳): first playable vs full
 - **First playable (ordinary wallets, local test world)** critical path, from
@@ -591,6 +591,45 @@ only the allowed confirmation of already-submitted work remains within that boun
 - Evidence appended through `396292e91de94fe3a825e13541ca0d72915a0ffb`. HTTP, live world, sending and full resident operation remain unverified. Latest-source runtime preparation is a separate next step: the old pinned world export cannot be described as validating later integration changes.
 
 
+### 2026-11-18 JST — ⑰ prize and ⑳ NFT resident ID closed (out of scope for the playable version)
+
+Owner decision (r0ze, 2026-11-18 14:42 JST). This is a documentation-only status change: no code, feature flag or
+`preserve/*` branch was deleted or changed. Earlier sections above stay as historical records; where they say ⑰ and ⑳
+"cannot be completed under the current restrictions", read that as "closed, out of scope for the playable version".
+
+- **⑰ prize — Closed (out of scope for the playable version), owner decision 2026-11-18: no prize.**
+  - Why: (1) collecting an entry fee and paying winners needs a legal review that has not been done; (2) a continuous
+    world cannot use the season-end prize pool: the only exit for the money is the season's end, and the stack refuses
+    the pool for such a world (`frontier-node/crates/stack/src/config.rs:739-743`, "--continuous: the legacy
+    end-of-season prize pool is unavailable"; test `continuous_world_refuses_legacy_end_and_prize_settings`);
+    (3) achievements are shown through ⑮'s titles and chronicle instead (⑮ option B: no win or prize effect).
+  - What would reopen it: a completed legal review **and** a settlement design for continuous worlds (period-bounded
+    settlement), then a new owner decision.
+  - Where the work is: `permutation-prize/`, the relay's prize routes, the page's prize screens and
+    `scripts/build-prize.sh` on `main`; the ⑰ continuity notes exist only on `origin/preserve/ws17-0c80381d`
+    (`docs/frontier/payments/X402-PRIZE-CONTINUITY.ja.md`; there is no `docs/frontier/payments/` on `main`).
+- **⑳ NFT resident ID — Closed (out of scope for the playable version), owner decision 2026-11-18: no NFT.**
+  - Resident IDs stay ordinary, non-transferable accounts (the wallet's Citizen).
+  - Why: selling or transferring residents needs a legal review and U1–U34 of
+    `permutation-nft-resident-spike/docs/UNDECIDED.ja.md` are undecided.
+  - What would reopen it: a new owner decision. If revisited, start from option B (a local-only trial of transferable
+    residents: no money, no devnet) and decide U9 (whether a resident's private memory carries over on transfer) first.
+- **Both stay in the tree, unused by the playable build** (checked on `main` @ 3efdb659, by reading; nothing was built
+  or run):
+  - `nft-experimental` (`permutation-frontier/Cargo.toml:61`) is off by default. `scripts/build-frontier.sh` refuses
+    it as an unknown feature, and the playable lane's features (`localnet-land-sbf` → `localnet-conquest-sbf` →
+    `localnet-expedition-sbf` → `expedition-dispatch-experimental` → `wide-world-experimental`) do not include it.
+    The build commands of `docs/frontier/LOCAL-PLAY-START.md` §2 and `scripts/play2-land-ops/play2-start.sh` do not
+    name it. The page asks for resident NFTs only in a Season whose program version carries `0x8000`
+    (`permutation-server/web/frontier/controller.mjs:193-195`).
+  - The prize program is built only by `scripts/build-prize.sh` and deployed only by `frontier-stack up --prize-so`
+    (opt-in). The local-play launcher (`permutation-gateway/src/frontier/local-play-launcher.mjs`) passes no prize
+    program, mint or entry fee to the relay, so the prize routes answer `NoPrizePool`.
+  - CI (`.github/workflows/ci.yml`) still builds and tests the prize program (the prize-program job, workstream 04's
+    host E2E, the key-tests job's SBF build and LiteSVM tests): regression checks of code kept in the tree, not part
+    of the playable build. No CI job enables `nft-experimental`.
+
+
 ### 2026-11-18 JST — ⑱ integration check (ws18-integrate)
 
 - **Code wins: ⑱ is already in `main`.** The 17 commits of `origin/fix/ws18-clippy-hostile-20261103`
@@ -605,4 +644,3 @@ only the allowed confirmation of already-submitted work remains within that boun
 - Nothing was ported, because nothing was missing. The live quicknet test (`fclient/tests/live_drand.rs`) is
   `#[ignore]` and also needs `FRONTIER_LIVE_DRAND=1`. The TLS hostile test (`drand-replay/tests/hostile.rs`) is `#[ignore]`.
 - Report: `~/Projects/wylls-grok-state/reports/ws18-integrate.md` (tests and discrepancies).
-

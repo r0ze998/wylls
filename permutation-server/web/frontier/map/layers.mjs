@@ -160,7 +160,7 @@ export function paintTiles(ctx, { p, q, terrain, sites = [], names, rec = null, 
   }
 }
 
-/** A ring outline label at world LOD (the Concord is ring 0). */
+/** A ring outline label at world LOD (province (0, 0) is ring 0). */
 export function paintRingLabel(ctx, { d, x, y, scale, text }) {
   ctx.font = `${12 / scale}px system-ui, sans-serif`;
   ctx.fillStyle = 'rgba(33,63,52,.7)';

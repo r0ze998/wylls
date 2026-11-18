@@ -18,7 +18,7 @@ export const villageLine = (place, tier, faction) => (Number.isInteger(faction) 
 
 /**
  * What the selection `m` (inspectModel's) is called: a village by its name
- * and nation, a camp or a Free City by what it is, the Concord by its name,
+ * and nation, a camp or a Free City by what it is,
  * any other tile by its land, a province by its ring.
  */
 export function placeName(m) {
@@ -30,7 +30,7 @@ export function placeName(m) {
   // (an S1 vault or structure on the tile, as hud/inspect.mjs reads it: the thing, not the land under it)
   if (t?.s1?.length && S1_WORDS[t.s1[0].kind]) return S1_WORDS[t.s1[0].kind]();
   if (t?.terrain && TERRAIN_NAME[t.terrain]) return TERRAIN_NAME[t.terrain]();
-  if (!t && m.p === 0 && m.q === 0) return L`大協約`;
+  if (!t && m.p === 0 && m.q === 0) return L`州 ${m.p},${m.q}`;
   return t ? L`州 ${m.p},${m.q}` : m.opened === false ? L`第${m.ring}輪（まだひらいていません）` : L`第${m.ring}輪の州`;
 }
 

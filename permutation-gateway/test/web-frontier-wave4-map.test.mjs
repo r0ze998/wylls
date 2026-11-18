@@ -546,7 +546,7 @@ test('the wait is seen with room about the wedge, the camera a little to its out
     assert.equal(w.kind, 'wedge');
     const tl = fmap.worldToScreen(w.view, desk, box.x - box.width / 2, box.y - box.height / 2), br = fmap.worldToScreen(w.view, desk, box.x + box.width / 2, box.y + box.height / 2);
     assert.ok(tl.x >= 0 && tl.y >= 0 && br.x <= desk.width && br.y <= desk.height, `nation ${f}: the whole wedge is in the picture`);
-    // the picture's middle lies beyond the wedge's own middle, away from the Concord
+    // the picture's middle lies beyond the wedge's own middle, away from the lattice's origin
     assert.ok(Math.hypot(w.at.x, w.at.y) > Math.hypot(box.x, box.y), `nation ${f}: the camera looks to the outer side`);
   }
   assert.ok(opening.WEDGE_VIEW.fill > 0.7 && opening.WEDGE_VIEW.fill < 0.92 && opening.WEDGE_VIEW.out > 0 && opening.WEDGE_VIEW.out <= 0.08);

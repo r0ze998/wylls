@@ -811,7 +811,7 @@ export default {
   '捕捉された州だけを示します。載っていない場所は「不明」で、開いている証拠でも閉じている証拠でもありません。送信も署名もしません。': 'Only the captured provinces are shown. A place not listed is unknown: neither evidence that it is open nor that it is closed. Nothing is sent or signed.',
   'ページ数の上限で打ち切りました。これより先の記録は読んでいません。': 'Cut at the page limit: the records past this point were not read.',
   'ここを原点にする': 'Make this the origin',
-  '大協約を原点にする': 'Concord as origin',
+  '座標 0,0 を原点にする': 'Origin at 0,0',
   '読み直す': 'Reload',
   '不明（記録なし）': 'unknown (no record)',
   '記録された州': 'Recorded provinces',

@@ -3,9 +3,8 @@
 // The baked village art is one tile's sprite: a town is some ninety pixels at
 // its largest, so it could only be shown larger by stretching it, and a
 // stretched sprite is soft beside the crisp plates around it. Here every tier
-// is drawn at whatever size the screen asks for, in the manner of the bell's
-// tower (map/belltower.mjs): light from the upper left, a shadow to the lower
-// right, a thin ink line, roofs in the nation's colour. Each tier has a
+// is drawn at whatever size the screen asks for, in the map's painted manner:
+// light from the upper left, a shadow to the lower right, a thin ink line, roofs in the nation's colour. Each tier has a
 // silhouette of its own that reads from afar:
 //
 //   hamlet       a long hall with its banner, three cottages, a well, a low palisade, strips of field
