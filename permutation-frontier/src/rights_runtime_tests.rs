@@ -1602,6 +1602,54 @@ fn a_return_that_does_not_fit_the_vault_is_kept_in_the_grant() {
     assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
 }
 
+/// (verify-pr33) The Vault side of an undo is all or nothing: when the ore
+/// fits but the wood does not, neither goes back (no partial credit, no
+/// burn), and the grantee's holding is never the fallback.
+#[test]
+fn a_vault_return_is_all_or_nothing_and_never_falls_back_to_a_holding() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
+    let cap = permutation_rules::frontier::caravan::VAULT_CAP / MILLI;
+    sc.w.set_store(&sc.s, WOOD, NOW, cap - 5);
+    let (s0, sh0) = (sc.w.data(&sc.s), sc.w.data(&sc.sh));
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    assert_eq!(sc.w.data(&sc.s), s0, "ore fits, wood does not: neither");
+    assert_eq!(sc.w.data(&sc.sh), sh0, "B's holding is not a fallback");
+    assert_eq!(
+        (sc.g_i64(&g, G::OPEN_ORE), sc.g_i64(&g, G::OPEN_WOOD)),
+        (units(20), units(10))
+    );
+    assert_eq!(sc.g_i64(&g, G::OPEN_ARMS), 0);
+}
+
+/// (verify-pr33) The station's pin is (key, generation, owner): a Vault
+/// closed and rebuilt on the same tile by someone else (CloseVault needs
+/// an empty Vault; the rebuilt one starts at generation 1 again) is stale
+/// for the swap. An undo then credits the Vault as it stands now (contract
+/// §6's rule, as for a captured holding) — still a Vault on that tile, so
+/// nothing reaches a holding without a caravan.
+#[test]
+fn a_vault_rebuilt_by_another_on_the_tile_is_stale_for_the_swap() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 4).unwrap();
+    // B empties and closes S (simulated); C builds a Vault on the tile.
+    sc.w.close_account(&sc.s);
+    let c_c = sc.c_c;
+    let s2 = sc.w.vault(&c_c, (PQ.0, PQ.1, ST_TILE), [0, 0, 0]);
+    assert_eq!(s2, sc.s, "the same canonical address");
+    assert_eq!(sc.w.data(&s2)[VA::GEN], sc.w.data(&sc.s)[VA::GEN]);
+    assert_eq!(sc.execute(sc.b, sc.b_c, g), rerr(E::StaleHolding));
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+    let sh0 = sc.w.data(&sc.sh);
+    sc.release(sc.a, g).unwrap(); // anyone, once stale
+    let v = sc.w.stock(&s2, NOW);
+    assert_eq!((v[ORE], v[WOOD], v[ARMS]), (units(8), units(4), 0));
+    assert_eq!(sc.w.data(&sc.sh), sh0);
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
+}
+
 #[test]
 fn no_stock_means_no_reservation_and_no_waiting_state() {
     let mut sc = scene();
