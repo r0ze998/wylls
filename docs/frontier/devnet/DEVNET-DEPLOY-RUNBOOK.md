@@ -35,7 +35,7 @@ hash it prints. (An independent rebuild on 2026-11-18 from a fresh checkout gave
 | Step | Tool | Why |
 |---|---|---|
 | Build | `cargo-build-sbf` **3.1.9** (`scripts/build-frontier.sh` refuses any other) | The pinned, reproducible toolchain |
-| Deploy, show, dump | `solana` CLI **4.0.0 or newer** | `solana program deploy` first verifies the ELF locally with the CLI's own syscall table. agave v3.1.9 does not register `sol_curve_decompress` or `sol_curve_pairing_map` (`syscalls/src/lib.rs`), which the program calls for BLS12-381 (`permutation-frontier/src/crypto/sys.rs`), so the 3.1.9 CLI stops with `ELF error` before it sends anything. `--skip-feature-verify` does not help. v4.0.0 and later register both. [from source; not run] |
+| Deploy, show, dump | `solana` CLI **4.0.0 or newer** | `solana program deploy` first verifies the ELF locally with the CLI's own syscall table. agave v3.1.9 does not register `sol_curve_decompress` or `sol_curve_pairing_map` (`syscalls/src/lib.rs`), which the program calls for BLS12-381 (`permutation-frontier/src/crypto/sys.rs`), so the 3.1.9 CLI stops with `ELF error` before it sends anything. `--skip-feature-verify` does not help there. v4.0.0 to v4.4.1 register both, but only when the cluster's `enable_bls12_381_syscall` feature is active: the CLI reads the cluster's feature set before it checks the ELF (`cli/src/program.rs` `fetch_feature_set`; `syscalls/src/lib.rs` `register_feature_gated_function!`). See §3. [from source; not run] |
 
 The machine here has only 3.1.9. Installing a 4.x CLI is **[r0ze]**. Keep `active_release` on 3.1.9 (the build script
 puts it first on `PATH` itself) and unpack the 4.x release somewhere else, e.g. `~/solana-4x/bin`. Put that
@@ -96,9 +96,13 @@ Do **not** run `solana feature status b1sg…` with the 3.1.9 CLI: it looks the 
 one it does not know (agave v3.1.9 `cli/src/feature.rs:939`, `FEATURE_NAMES.get(feature_id).unwrap()`).
 
 If the BLS feature or the SBPF v2 feature is **not active**, stop. Without SBPF v2 the deploy is refused. Without
-the BLS feature the deploy may still go through, because agave 4.x registers the syscall names whether or not the
-feature is active (`syscalls/src/lib.rs`), but the beacon instructions cannot work, so the game cannot run [from
-source; not run].
+the BLS feature the 4.x CLI (v4.0.0 to v4.4.1) stops with `ELF error` before it sends anything, because it registers
+`sol_curve_decompress` and `sol_curve_pairing_map` only when `enable_bls12_381_syscall` is active on the cluster it
+reads. **Do not pass `--skip-feature-verify` to get past that.** It makes the CLI assume every feature is active,
+but validators on those versions apply the same gate when the deploy instruction verifies the ELF. The Writes would
+be paid for, the deploy would fail, and a funded buffer would be left to close (§5). agave master registers the two
+names unconditionally and checks the feature when the syscall runs; no release up to v4.4.1 does [from source; not
+run].
 
 ## 4. Cost and funding
 
