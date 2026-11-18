@@ -94,7 +94,7 @@ test('the map\'s first view: the open rings at world LOD for a watcher, the vill
   assert.equal(far.open({ ringsOpen: 3 }, size, { dpr: 1, now: 0 }), true);
   assert.ok(far.view.zoom > 0.06 && far.view.zoom < LOD_EDGES.provinceOut, `zoom ${far.view.zoom}`);
   assert.equal(far.lod, 'world');
-  assert.deepEqual([far.view.x, far.view.y], [0, 0], 'centred on the Concord');
+  assert.deepEqual([far.view.x, far.view.y], [0, 0], 'centred on the opened land');
   far.fit({ ringsOpen: 3 }, size);
   assert.equal(far.lod, 'world', 'fit(): the far view');
   far.setView({ zoom: 0.3 });

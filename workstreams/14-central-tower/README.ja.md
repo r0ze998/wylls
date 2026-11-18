@@ -1,5 +1,11 @@
 # ⑭ 中央の大きな塔：役割を遊べる形で比べる
 
+> **状態：廃止（2026-11-18）。** 所有者の決定（2026-11-18 14:41 JST）：中央の塔そのものを廃止し、地図に中心を置かない（果てのない地図）。
+> - 画面からは、鐘楼・Engine の段階（`?engine=N` の見本表示を含む）・大協約の石畳と広場・「大協約」という名前・小地図の印・参加前に塔へ寄るカメラ・題名の絵の塔を取り除いた（ブランチ `grok/ws14-abolish`）。`map/belltower.mjs`、`map/enginestage.mjs`、`specials/engine_*`・`concord_*` の絵は削除。試験は `permutation-gateway/test/web-frontier-no-centre.test.mjs`（PR #27 の `web-frontier-engine-stage.test.mjs` を置き換え）。
+> - 州 (0,0) は座標の原点としてだけ残る（輪＝原点からの距離という内部の数え方）。輪0の中立・輪1の Seat・本拠の輪などチェーン上の規則と ruleset hash は変えていない。それらを中心のない規則にする案（R1〜R6）は「r0ze の OK 待ち」：設計 `~/Projects/wylls-grok-state/reports/ws14-abolish-design.md` §5。
+> - 旧計画 T2（herald の `h/centre.json`）と T3（チェーン上の段階）は取りやめ。以下の本文と `proto/`・`game/`・`CONTRACT.ja.md` は**履歴**として残す（⑮の `ws14-centre` アダプタがまだ読むため。削除は r0ze の判断待ち）。下の表の行番号は廃止前のもの。
+
+
 これは**提案と検証の作業記録**であり、採用済みの仕様ではありません。勝利条件・塔の本番用途は採用していません。共有コア（`permutation-*`、`frontier-*`、`permutation-server/web`）には一行も手を入れていません。deploy はしていません。
 
 - 基点：`4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（統合候補 `integrate/claude-consolidation-20261029` の先頭。確認時の `main` は `921429322d5aecd1a3df0dd8d82c405c87dd985a` で、基点はその6 commit 先。差分は文書のみ）

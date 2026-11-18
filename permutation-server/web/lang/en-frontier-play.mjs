@@ -36,8 +36,8 @@ export default {
   "マス {0}": "Tile {0}",
   "命令の結果を確認しています。": "Checking the result of your order.",
   "最初の村を置いています": "Placing your first village",
-  "すぐに村を置ける中心の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。": "The central land, where a first village is placed at once, has no free site right now. A village request is sent to open land instead.",
-  "この国は、すぐに村を置ける中心の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。中心に空きのある国なら、すぐに村を置けます。": "This nation has no free site right now on the central land, where a first village is placed at once. If you begin with this nation, a village request is sent to open land instead (about 11 to 21 minutes until the village is decided). A nation with free sites on the central land places your village at once.",
+  "すぐに村を置ける本国の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。": "The heartland, where a first village is placed at once, has no free site right now. A village request is sent to open land instead.",
+  "この国は、すぐに村を置ける本国の土地がいま空いていません。この国で始めると、代わりに空いている土地へ村の申し込みを出します（村が決まるまで約11〜21分）。本国に空きのある国なら、すぐに村を置けます。": "This nation has no free site right now in its heartland, where a first village is placed at once. If you begin with this nation, a village request is sent to open land instead (about 11 to 21 minutes until the village is decided). A nation with free sites in its heartland places your village at once.",
   "村を築いて始める": "Found a village and begin",
   "領土を確保する": "Claim territory",
   "食料・鉱石・金の配分を見ながら、最初の兵を訓練しましょう。": "Balance food, ore and gold as you train your first troops.",
@@ -502,7 +502,6 @@ export default {
   '練習をはじめる': 'Start practising',
   '辺境へ入る': 'Enter the Frontier',
   'タイトルを見る': 'Show the title screen',
-  '大協約': 'The Concord',
 
   // ---- the march card (hud/marchcard.mjs), cycling, tracker links
   '撤退しない': 'Never retreat',
@@ -760,7 +759,7 @@ export default {
   'ターン {0}：村を失いました。': 'Turn {0}: you lost your village.',
   '上限': 'Cap',
   '候補地は自分の国の土地から自動で選びました。場所を得られなければ、自動でもう一度申し込みます。': 'The candidate sites were chosen for you on your nation\'s land. If none of them becomes yours, a new request is sent automatically.',
-  '六つの国が、大協約の地のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義、そしてあなたの姿です。': 'Six nations share the frontier around the Concord. Your nation decides which side your village stands on, your doctrine, and how you look.',
+  '六つの国が、果てのない辺境を分け合っています。国で決まるのは、村を置く土地と教義、そしてあなたの姿です。': 'Six nations share a frontier without end. Your nation decides the land your village stands on, your doctrine, and how you look.',
   '受け付けられませんでした': 'The request was not accepted',
   '同じターンの申し込みがすべて決まってから': 'Once every request from the same turn is decided',
   '同じターンの申し込みは、そのターンのくじでまとめて公平に決まります（申し込んでから約11〜21分）。': 'All requests from one turn are decided together in that turn\'s fair draw (about 11 to 21 minutes after the request).',
@@ -818,7 +817,7 @@ export default {
   '進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。': 'How a march fights. Assault beats Flank, Flank beats Brace and Brace beats Assault; Hold has no edge either way.',
   '撤退の倍率': 'Retreat ratio',
   '守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。': 'If the defenders outnumber your host by more than this ratio, it turns back without a fight (no loss).',
-  '大協約を中心にした州の輪です。ターンが進むと外側の輪がひらきます。': 'The rings of provinces around the Concord. Outer rings open as the season goes on.',
+  'ひらいた土地をとりまく州の輪です。ターンが進むと、その外側に新しい輪がひらきます。': 'The rings of provinces around the opened land. As the season goes on, a new ring opens beyond them.',
   '村に残る守り手です。ターンの始まりにいた分が数えられ、攻め手に反撃します。城壁があると強くなります。': 'The defenders who stay in a village. Those present when the turn began are counted, and they strike back at attackers; walls make them stronger.',
   '集落・町・都市・城塞の四つです。上がるほど生産と守りが増えます。': 'There are four: Hamlet, Town, City, Stronghold. Each step raises production and defence.',
   // ---- what is happening on a tile (people/activity.mjs): a march on the road names its owner; a sealed destination is never said

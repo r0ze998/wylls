@@ -54,7 +54,7 @@ function sparseRings(record) {
 /** Whether ring `d` has a seed in this world: every ring below `ringsOpen` of a contiguous world, only the named ones of a sparse one. */
 export const ringSeeded = (w, d) => int(d) && d >= 0 && d < w.ringsOpen && (!w.seeded || w.seeded.includes(d));
 /**
- * How many rings are seeded without a gap from the Concord outward: `ringsOpen` for a contiguous world, and for a
+ * How many rings are seeded without a gap from province (0, 0) outward: `ringsOpen` for a contiguous world, and for a
  * sparse one the length of its unbroken run 0, 1, 2 … (0 when ring 0 itself has no seed). What counts rings "from
  * the centre" (the rings a first village may be placed in) reads this, never `ringsOpen`, in a sparse world.
  */
