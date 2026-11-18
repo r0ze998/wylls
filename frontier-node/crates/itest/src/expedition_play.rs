@@ -498,6 +498,20 @@ impl Base {
         assert!(wr_arr(s, S::AUTHORITY, &authority.to_bytes()));
     }
 
+    /// SYNTHETIC (⑳'s NFT lane harness only): the Season carries `version`
+    /// instead of 0x4804, e.g. the NFT lane's 0xC804
+    /// (`expedition_dispatch_ix::RESIDENT_PROGRAM_VERSION`).
+    pub fn set_program_version(&mut self, version: u16) {
+        let season = self.season;
+        let s = &mut self
+            .accounts
+            .iter_mut()
+            .find(|(k, _, _)| *k == season)
+            .expect("the Season")
+            .1;
+        assert!(wr_u16(s, S::PROGRAM_VERSION, version));
+    }
+
     fn data(&self, key: &Address) -> &[u8] {
         &self
             .accounts

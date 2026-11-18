@@ -26,6 +26,8 @@ import { seasonAddresses } from './faddr.mjs';
 import { L, onLangChange, mountLangToggle } from '../lang.mjs';
 import { mountSessionNotice, pairGuideView } from './flocalplay-session.mjs';
 import { confirmWorldEnd, worldEndOf } from './flocalplay-instance.mjs';
+import { openKeyStore, walletScope, openSealedBook, forgetLocalPlayKeys, PERSIST_PAGE_WORD } from './flocalplay-keystore.mjs';
+import { useLocalMarchStorage } from './flocalplay-march.mjs';
 
 /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
 export const LOCAL_PLAY_PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
@@ -81,6 +83,20 @@ export function launcherCaptureDemo(v) {
  * `marchTrial: true` as well, or the start is refused (`LauncherWorldMismatch`). It is one of the two words the march's
  * test-only entry needs (flocalplay-march.mjs `localMarchOpen` `trialEntry`); the relay's capability is the other.
  */
+/**
+ * TEST-ONLY, NOT FOR PRODUCTION (⑧ P2 option B): whether the launcher that served this page keeps its worlds (its
+ * `--persist local-persist-v1`): it puts `persist=local` on every launcher page it serves. Only then is the page's test
+ * key kept in this browser (flocalplay-keystore.mjs: a non-extractable key in IndexedDB) and its march book kept
+ * encrypted, so a reload returns to the same world and village. The start answer must then carry `persisted:
+ * {resumed}` as well, or the start is refused (`LauncherWorldMismatch`).
+ */
+export function localPersistPage(cfg, loc = globalThis.location) {
+  try { return localLauncherRequested(cfg, loc) && new URL(loc.href).searchParams.get('persist') === PERSIST_PAGE_WORD; } catch { return false; }
+}
+/** The start answer's `persisted` → `{resumed}` (exactly that), or null. */
+export function launcherPersisted(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 1 && typeof v.resumed === 'boolean' ? { resumed: v.resumed } : null;
+}
 export function localMarchTrialPage(cfg, loc = globalThis.location) {
   try { return localNaturalWorld(cfg, loc) && new URL(loc.href).searchParams.get('march') === 'trial'; } catch { return false; }
 }
@@ -135,7 +151,9 @@ const LAUNCHER_CODES = Object.freeze({ WorldLimit: 'WorldLimit', WorldStopping: 
   RunnerNotReady: 'LauncherRunnerNotReady', HeraldNotReady: 'LauncherHeraldNotReady', LauncherClosed: 'LauncherClosed',
   // (the opt-in preparation of a new world: whichever step refused, the world was ended; the launcher's own code is shown beside the sentence)
   PrepareUnavailable: 'LauncherPrepareFailed', PrepareClock: 'LauncherPrepareFailed', PrepareTimeout: 'LauncherPrepareFailed', PrepareHalted: 'LauncherPrepareFailed', PrepareFailed: 'LauncherPrepareFailed',
-  PrepareClockNotRestored: 'LauncherPrepareFailed', PrepareNotSettled: 'LauncherPrepareFailed', RunnerRpcRefused: 'LauncherPrepareFailed' });
+  PrepareClockNotRestored: 'LauncherPrepareFailed', PrepareNotSettled: 'LauncherPrepareFailed', RunnerRpcRefused: 'LauncherPrepareFailed',
+  // (TEST-ONLY persisted worlds: the launcher's own refusal of a world directory that is not private, or another start's remains)
+  PersistNotPrivate: 'LauncherPersistRefused', PersistIncomplete: 'LauncherPersistRefused', PersistDirUnavailable: 'LauncherPersistRefused' });
 const isAddress = text => { try { return typeof text === 'string' && text.length <= 44 && fromBase58(text).length === 32 && toBase58(fromBase58(text)) === text; } catch { return false; } };
 /**
  * The worlds a refused start lists, believed in nothing: at most the launcher's two, each a PUBLIC address, since
@@ -253,6 +271,10 @@ const WHY = {
   LauncherListFailed: () => L`動いている世界を確認できませんでした。開始サービスを確認して、もう一度押してください。`,
   LauncherPrepareFailed: () => L`試験世界の準備（時間の早送り）を終えられませんでした。その世界は終了しました。もう一度押すと、新しい世界で準備し直します。`,
   BadHerald: () => L`herald の場所は、この端末（localhost / 127.0.0.1）の http(s) の URL にしてください。`,
+  LauncherPersistRefused: () => L`保存された試験用の世界のフォルダを使えません（ほかの人も読める権限か、途中で止まった世界の残りです）。開始サービスの記録を確認してください。`,
+  NoIndexedDB: () => L`このブラウザでは試験用の鍵を保存できません（プライベートモードでは保存できないことがあります）。`,
+  StoredKeyInvalid: () => L`このブラウザに保存された試験用の鍵が、このページの作ったものではありません。使わずに止めました。`,
+  StoredBookInvalid: () => L`このブラウザに保存された進軍の記録を開けません。使わずに止めました。`,
 };
 /** The sentence of a refusal code (the code itself when it has none). */
 export const localPlayWhy = code => (WHY[code]?.() ?? String(code));
@@ -271,8 +293,11 @@ export const localPlayWhy = code => (WHY[code]?.() ?? String(code));
  * `makeWallet` (the memory-only wallet's maker), `now` and the timeouts are the tests' to replace.
  */
 export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = globalThis.document, win = globalThis.window, makeHerald, subtle, request = globalThis.fetch, launcherTimeoutMs = undefined, retryDelayMs = 500,
-  stopTimeoutMs = 30000, makeWallet = createEphemeralWallet, now = () => Date.now() } = {}) {
+  stopTimeoutMs = 30000, makeWallet = createEphemeralWallet, now = () => Date.now(), openStore = openKeyStore, openBook = openSealedBook } = {}) {
   const launcher = localLauncherRequested(cfg, loc);
+  // (TEST-ONLY: a launcher that keeps its worlds; the page then keeps its key in this browser — never otherwise)
+  const persisted = localPersistPage(cfg, loc);
+  let keyStore = null;
   // (a launcher that prepares its worlds fast needs longer for a start: the wait is 150 s there, 70 s otherwise)
   const marchTrial = localMarchTrialPage(cfg, loc), demoPage = localCaptureDemoPage(cfg, loc);
   let claimedDemo = null;
@@ -328,6 +353,10 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
             claimedDemo = launcherCaptureDemo(body?.captureDemo);
             if ((claimedDemo !== null) !== demoPage || (body?.captureDemo !== undefined && claimedDemo === null)) return { ok: false, code: 'LauncherWorldMismatch' };
             claimedMarch = launcherMarchStatement(body, { launcher: true, trialPage: marchTrial });
+            // (TEST-ONLY persisted worlds: the page's `persist=local` and the answer's `persisted` agree)
+            const kept = launcherPersisted(body?.persisted);
+            if ((kept !== null) !== persisted || (body?.persisted !== undefined && kept === null)) return { ok: false, code: 'LauncherWorldMismatch' };
+            state.resumed = kept?.resumed ?? null;
             while (!abort.signal.aborted && !handle.destroyed) {
               const checked = await verifyLocalPlayHerald(makeHerald(base), handle.address, { natural });
               if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
@@ -360,9 +389,15 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     //  withdrawn at that moment and is never offered when the end is not known)
     const endAt = launcher && claimedDemo !== null ? worldEndOf(claimedEnd, claimedMarch?.instance ?? null) : null;
     const playedAs = launcher && claimedDemo !== null ? Object.freeze({ ...played, clockScale: claimedDemo, ...(endAt !== null ? { worldEndsAt: endAt } : {}) }) : played;
+    // (TEST-ONLY persisted world: the march book (the sealed marches' reveal halves) is kept encrypted for this wallet,
+    //  loaded before the game boots, and the game's march sender uses it instead of a memory-only one)
+    if (persisted && keyStore) {
+      try { const book = await openBook(keyStore, walletScope(loc), handle.address); useLocalMarchStorage(book.storage); }
+      catch (e) { state.phase = 'refused'; state.code = e?.code === 'StoredBookInvalid' ? 'StoredBookInvalid' : 'NoIndexedDB'; paint(); return state; }
+    }
     done = true; state.herald = base; state.phase = 'connected'; paint();
     // (the gate's panel is hidden now: what stays true for the session is said on screen, launcher worlds only)
-    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo, ...(state.pairRole === 'second' && claimedDemo !== null ? { onPair: () => checkPair(mine, { herald: base, expiry: claimedEnd }) } : {}) }); }
+    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo, ...(state.pairRole === 'second' && claimedDemo !== null ? { onPair: () => checkPair(mine, { herald: base, expiry: claimedEnd }) } : {}), ...(persisted ? { persisted: true } : {}) }); }
     // (then, without holding the boot: the world's end, shown only once this herald's relay confirms the runner's own
     //  instance for this wallet — one read, dropped if the page became another wallet or herald or lost its key meanwhile)
     if (launcher && session) {
@@ -457,11 +492,22 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     return state;
   };
   // The panel stands before the wallet is made: a page that cannot make one says so where the operator looks.
-  ui = doc ? mountPanel(doc, { onConnect: connect, onEnd: endWorld, onList: listWorlds, launcher, accelerated, natural, now }) : null;
+  // TEST-ONLY persisted worlds: this launcher's kept key is deleted from this browser, on the player's own press only
+  // (before a world is connected); the page is then reloaded by the player and makes a new key and a new world.
+  const forgetKey = async () => {
+    if (!persisted || done || checking || !keyStore) return state;
+    checking = true;
+    try { await forgetLocalPlayKeys(keyStore, walletScope(loc)); pendingLaunch?.abort(); handle?.destroy(); state.phase = 'forgotten'; state.code = null; }
+    catch { state.phase = 'refused'; state.code = 'NoIndexedDB'; }
+    checking = false; paint(); return state;
+  };
+  ui = doc ? mountPanel(doc, { onConnect: connect, onEnd: endWorld, onList: listWorlds, onForget: forgetKey, launcher, accelerated, natural, persisted, now }) : null;
   paint();
   (async () => {
     try {
-      handle = await makeWallet({ cluster: LOCAL_PLAY_CLUSTER, hostname: loc?.hostname, localPlay: true, ...(subtle ? { subtle } : {}) });
+      if (persisted) keyStore = await openStore();
+      const keep = persisted ? { store: keyStore, scope: walletScope(loc) } : null;
+      handle = await makeWallet({ cluster: LOCAL_PLAY_CLUSTER, hostname: loc?.hostname, localPlay: true, ...(subtle ? { subtle } : {}), ...(keep ? { keep } : {}) });
       handle.announce(win);
       // the page going away ends the wallet: its key is dropped, the page's connection with it
       win?.addEventListener?.('pagehide', () => { pendingLaunch?.abort(); handle.destroy(); state.phase = 'destroyed'; paint(); session?.destroyed(); }, { once: true });
@@ -472,7 +518,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
       rejectReady(Object.assign(new Error('local play is not available'), { code: state.code }));
     }
   })();
-  return { ready, connect, endWorld, listWorlds, checkWorld, state: () => ({ ...state }), wallet: () => handle, notice: () => session };
+  return { ready, connect, endWorld, listWorlds, checkWorld, forgetKey, state: () => ({ ...state }), wallet: () => handle, notice: () => session };
 }
 
 /** The gate's `checkWorld` of each launcher world's resolved cfg (by the object itself; nothing is put on the cfg). */
@@ -502,7 +548,7 @@ function worldLine(w, at) {
  * a language switch, the others by `paint`. The page's own language key is put on the panel too (the panel covers
  * the page's, which is not mounted until the boot), so either language can be chosen before a world is started.
  */
-function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launcher = false, accelerated = false, natural = false, now = () => Date.now() }) {
+function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onForget = () => {}, launcher = false, accelerated = false, natural = false, persisted = false, now = () => Date.now() }) {
   const el = (tag, cls, text) => { const x = doc.createElement(tag); if (cls) x.className = cls; if (text !== undefined) x.textContent = text; return x; };
   const sheet = el('link'); sheet.rel = 'stylesheet'; sheet.id = 'local-play-css'; sheet.href = new URL('./flocalplay.css', import.meta.url).href;
   (doc.head ?? doc.documentElement ?? doc.body)?.append(sheet);
@@ -529,6 +575,8 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launc
   let ticking = null, since = 0;
   const tick = () => { elapsed.textContent = L`${Math.max(0, Math.round((now() - since) / 1000))}秒経過`; };
   const list = el('button', 'btn local-play-list'); list.type = 'button'; list.id = 'local-play-list'; list.hidden = !launcher;
+  // (TEST-ONLY persisted worlds: the player's own key to delete this launcher's kept test key from this browser)
+  const forget = el('button', 'btn local-play-forget'); forget.type = 'button'; forget.id = 'local-play-forget'; forget.hidden = !persisted;
   const worldsLabel = el('p', 'local-play-label local-play-worlds-label'); worldsLabel.id = 'local-play-worlds-label'; worldsLabel.hidden = true;
   const worlds = el('div', 'local-play-worlds'); worlds.id = 'local-play-worlds'; worlds.hidden = true; worlds.setAttribute('role', 'group'); worlds.setAttribute('aria-labelledby', 'local-play-worlds-label');
   let last = null, shown = [], armed = null, before = null;
@@ -552,14 +600,17 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launc
     title.textContent = launcher ? L`新しい世界で遊ぶ` : L`ローカルプレイの準備`;
     if (!launcher) note.textContent = L`この端末だけの試験用ウォレットです。鍵はこのページのメモリにだけあり、保存されません。ページを閉じる・読み込み直すと失われます。`;
     const said = [L`この端末だけの試験用の世界です。開始ボタンで新しい世界を用意します。`,
-      L`鍵は保存されないため、再読み込み・ページを閉じると今の世界は続けられません。開き直したら、新しい世界から始めてください。`,
+      persisted ? L`試験用（本番用ではありません）：この世界の鍵は、取り出せない形でこのブラウザに保存されます。再読み込みしても、同じ世界の同じ村に戻れます。`
+        : L`鍵は保存されないため、再読み込み・ページを閉じると今の世界は続けられません。開き直したら、新しい世界から始めてください。`,
       L`通常速度では1ターン10分です。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`,
-      L`世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。`,
+      persisted ? L`世界は同時に2つまでです。開始サービスで決めた時間がたつと世界は止まりますが、進行は保存され、同じブラウザで開始を押すと続きから再開します。`
+        : L`世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。`,
       L`この試験用の世界は、準備のあいだだけ世界の時間を早送りします（出発先の州を開くため）。操作できるようになる前に通常速度へ戻し、そのあとは早送りしません。`];
     points.forEach((point, i) => { point.textContent = said[i]; });
     addressLabel.textContent = launcher ? L`この世界の公開アドレス` : L`公開アドレス（ランナーの起動に使います）`;
     heraldLabel.textContent = L`herald の場所`;
-    button.textContent = launcher ? L`新しい世界を開始` : L`接続`;
+    button.textContent = launcher && persisted ? L`世界を開始（保存された世界は続きから）` : launcher ? L`新しい世界を開始` : L`接続`;
+    forget.textContent = L`このブラウザに保存した試験用の鍵を消す`;
     list.textContent = L`動いている世界を確認`;
     worldsLabel.textContent = L`動いている世界（公開アドレス）`;
     for (const r of rows) {
@@ -571,9 +622,11 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launc
   label();
   // (a language switch while the panel stands: the fixed texts again, then the state's; no longer once the page has booted)
   const unlabel = onLangChange(() => { label(); again(); });
-  card.append(head, note, addressLabel, address, heraldLabel, herald, button, status, elapsed, list, worldsLabel, worlds);
+  card.append(head, note, addressLabel, address, heraldLabel, herald, button, status, elapsed, list, worldsLabel, worlds, forget);
   root.append(card);
+  root.dataset.persist = persisted ? 'local' : '';
   button.addEventListener('click', () => { onConnect(); });
+  forget.addEventListener('click', () => { if (!forget.disabled) onForget(); });
   list.addEventListener('click', () => { if (!list.disabled) onList(); });
   herald.addEventListener('keydown', e => { if (e?.key === 'Enter') onConnect(); });
   (doc.body ?? doc.documentElement)?.append(root);
@@ -585,7 +638,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launc
       address.textContent = s.address ?? '';
       if (!filled && s.herald) { herald.value = s.herald; filled = true; }
       const idle = s.phase === 'waiting' || s.phase === 'refused';
-      button.disabled = !idle; herald.disabled = !idle; list.disabled = !idle;
+      button.disabled = !idle; herald.disabled = !idle; list.disabled = !idle; forget.disabled = !idle; forget.hidden = !persisted || s.phase === 'forgotten';
       root.dataset.phase = s.phase;
       shown = launcher ? (s.worlds ?? []).slice(0, LAUNCHER_WORLDS) : [];
       if (!idle || !shown.some(w => w.wallet === armed)) armed = null;
@@ -615,6 +668,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launc
         : s.phase === 'waiting' && launcher && s.listed === 0 ? L`動いている世界はありません。`
         : s.phase === 'waiting' && launcher && s.listed > 0 ? L`動いている世界は${s.listed}個です。終了する世界があれば、下の一覧のその行で選べます。`
         : s.phase === 'waiting' && launcher && s.ended ? L`世界を終了しました。「新しい世界を開始」をもう一度押すと、新しい世界を用意します。`
+        : s.phase === 'waiting' && launcher && persisted ? L`「世界を開始」を押すと、保存された世界があれば続きから、なければ新しく準備します。送信や署名はゲーム中に自分で確認します。`
         : s.phase === 'waiting' && launcher ? L`「新しい世界を開始」を押すと準備します。送信や署名はゲーム中に自分で確認します。`
         // (the TEST-ONLY contest pair: the first player waits for the second, who presses start in another tab)
         : s.phase === 'starting' && s.pairWaiting ? L`もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。`
@@ -623,8 +677,10 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launc
         : s.phase === 'starting' ? L`世界を準備しています…（最大70秒）`
         : s.phase === 'waiting' ? L`準備中：このアドレスでランナーと herald を起動してから「接続」を押してください。`
         : s.phase === 'checking' ? L`herald の記録を確かめています…`
+        : s.phase === 'connected' && persisted && s.resumed === true ? L`保存された世界を続きから再開しました。このウォレットの市民と村を読み込みます。`
         : s.phase === 'connected' ? L`接続しました：このウォレットの市民と村を読み込みます（読み取りのみ。送信はしません）。`
         : s.phase === 'destroyed' ? L`ウォレットは破棄されました。ページを開き直してください。`
+        : s.phase === 'forgotten' ? L`保存した試験用の鍵を消しました。ページを開き直すと、新しい鍵で新しい世界を始めます（前の世界のフォルダは開始サービス側に残ります）。`
         : s.code ? `${localPlayWhy(s.code)} (${s.detail ? `${s.code}: ${s.detail}` : s.code})` : '';
       if (s.phase === 'connected') { root.hidden = true; unlabel(); }
     },

@@ -2,7 +2,7 @@
 # Reproducible SBPF v2 build of permutation-frontier (M1 contract §3.2),
 # ported from build-program.sh.
 #
-#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview|rights-test-beacon]
+#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview|rights-test-beacon|nft-experimental]
 #
 # Plain build (the deployable artefact):
 #   permutation-frontier/target/deploy/permutation_frontier.so
@@ -31,6 +31,12 @@
 # option A, for its LiteSVM tests only) builds the cargo features
 # rights-experimental,test-beacon into deploy-rights-test-beacon/ and
 # requires both PSF_RIGHTS_EXPERIMENTAL_BUILD and PSF_TEST_BEACON_BUILD.
+# --features nft-experimental (⑳ NFT resident ID; owner decision 2026-11-18
+# 18:26 JST: local and devnet only, no sale) builds the devnet candidate
+# into deploy-nft-experimental/ and requires PSF_NFT_EXPERIMENTAL_BUILD; it
+# prints "deployable no" (the devnet dry-run's --nft-resident reads it). The
+# playable localnet lane with NFT residents is built only by
+# scripts/build-frontier-localnet-nft-sbf.sh (four markers).
 #
 # Prints file_sha256 (the .so), program_hash (the .so with trailing zero
 # bytes stripped, comparable with on-chain program data), e_flags, the .so
@@ -59,21 +65,23 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$feature" in
-  ""|trace|oracle|test-beacon|custody-preview|rights-test-beacon) ;;
+  ""|trace|oracle|test-beacon|custody-preview|rights-test-beacon|nft-experimental) ;;
   # only via scripts/build-frontier-localnet-expedition-sbf.sh (it sets this)
   localnet-expedition-sbf) [ "${PSF_LOCALNET_EXPEDITION_SBF_LANE:-}" = 1 ] || { echo "localnet-expedition-sbf: use scripts/build-frontier-localnet-expedition-sbf.sh" >&2; exit 2; } ;;
   # only via scripts/build-frontier-localnet-conquest-sbf.sh (it sets this)
   localnet-conquest-sbf) [ "${PSF_LOCALNET_CONQUEST_SBF_LANE:-}" = 1 ] || { echo "localnet-conquest-sbf: use scripts/build-frontier-localnet-conquest-sbf.sh" >&2; exit 2; } ;;
+  # only via scripts/build-frontier-localnet-nft-sbf.sh (it sets this)
+  localnet-nft-sbf) [ "${PSF_LOCALNET_NFT_SBF_LANE:-}" = 1 ] || { echo "localnet-nft-sbf: use scripts/build-frontier-localnet-nft-sbf.sh" >&2; exit 2; } ;;
   # only via scripts/build-frontier-devnet-playable-sbf.sh (it sets this)
   devnet-playable-sbf) [ "${PSF_DEVNET_PLAYABLE_SBF_LANE:-}" = 1 ] || { echo "devnet-playable-sbf: use scripts/build-frontier-devnet-playable-sbf.sh" >&2; exit 2; } ;;
-  *) echo "unknown feature: $feature (trace, oracle, test-beacon, custody-preview or rights-test-beacon)" >&2; exit 2 ;;
+  *) echo "unknown feature: $feature (trace, oracle, test-beacon, custody-preview, rights-test-beacon or nft-experimental)" >&2; exit 2 ;;
 esac
 
 want="solana-cargo-build-sbf 3.1.9"
 have="$(cargo-build-sbf --version | head -1)"
 [ "$have" = "$want" ] || { echo "need $want (have $have)" >&2; exit 1; }
 
-if [ "$feature" = localnet-expedition-sbf ] || [ "$feature" = localnet-conquest-sbf ] || [ "$feature" = devnet-playable-sbf ]; then
+if [ "$feature" = localnet-expedition-sbf ] || [ "$feature" = localnet-conquest-sbf ] || [ "$feature" = localnet-nft-sbf ] || [ "$feature" = devnet-playable-sbf ]; then
   tools="$HOME/.cache/solana/v1.52/platform-tools"
   for t in "$tools/rust/bin/rustc" "$tools/llvm/bin/clang"; do
     [ -x "$t" ] || { echo "$feature: installed platform-tools missing $t; refusing (no install or download)" >&2; exit 1; }
@@ -94,7 +102,7 @@ build() { # build <sbf-out-dir> [<cargo target dir>]
   esac
   # The isolated localnet lane never downloads anything: installed
   # platform-tools only (checked before any build) and no network.
-  case "$feature" in localnet-expedition-sbf|localnet-conquest-sbf|devnet-playable-sbf) args+=(--offline --skip-tools-install) ;; esac
+  case "$feature" in localnet-expedition-sbf|localnet-conquest-sbf|localnet-nft-sbf|devnet-playable-sbf) args+=(--offline --skip-tools-install) ;; esac
   # The devnet playable build keeps the release profile (opt-level 3): every smaller profile measured
   # (opt-level s/z, s for frontier-abi alone) pushes S1 instructions past their CU rows, and those rows are the
   # cu_limit the clients request on chain (reports/devnet-playable-lane.md).
@@ -137,10 +145,10 @@ check() { # check <so>: the refusals; exit 3 on any
     bad=1
   fi
   local m want_m
-  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD PSF_RIGHTS_EXPERIMENTAL_BUILD PSF_DEVNET_PLAYABLE_BUILD; do
+  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD PSF_RIGHTS_EXPERIMENTAL_BUILD PSF_NFT_EXPERIMENTAL_BUILD PSF_LOCALNET_NFT_SBF_BUILD PSF_DEVNET_PLAYABLE_BUILD; do
     want_m=0
     case "$feature:$m" in
-      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD|rights-test-beacon:PSF_TEST_BEACON_BUILD|rights-test-beacon:PSF_RIGHTS_EXPERIMENTAL_BUILD|devnet-playable-sbf:PSF_DEVNET_PLAYABLE_BUILD) want_m=1 ;;
+      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD|rights-test-beacon:PSF_TEST_BEACON_BUILD|rights-test-beacon:PSF_RIGHTS_EXPERIMENTAL_BUILD|nft-experimental:PSF_NFT_EXPERIMENTAL_BUILD|localnet-nft-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-nft-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD|localnet-nft-sbf:PSF_LOCALNET_NFT_SBF_BUILD|localnet-nft-sbf:PSF_NFT_EXPERIMENTAL_BUILD|devnet-playable-sbf:PSF_DEVNET_PLAYABLE_BUILD) want_m=1 ;;
     esac
     local n; n="$(count "$m" "$so")"
     if [ "$want_m" = 1 ] && [ "$n" -eq 0 ]; then echo "$so: marker $m missing from a --features $feature build" >&2; bad=1; fi

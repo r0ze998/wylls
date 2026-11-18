@@ -124,7 +124,7 @@ test('nothing is stored, printed or exposed: no storage access, no console outpu
     })(w, 'wallet');
     assert.ok(!keys.some(k => /secret|private|seed|pkcs8|mnemonic/i.test(k)), keys.join(' '));
     assert.deepEqual(JSON.parse(JSON.stringify(w)), { name: EW.EPHEMERAL_WALLET_NAME, address: w.address }, 'what a runner may be handed: the name and the public address');
-    assert.deepEqual(Object.keys(EW).sort(), ['EPHEMERAL_CHAIN', 'EPHEMERAL_WALLET_NAME', 'createEphemeralWallet', 'currentEphemeralWallet', 'destroyEphemeralWallet', 'ephemeralWalletAllowed', 'isLoopbackHost']);
+    assert.deepEqual(Object.keys(EW).sort(), ['EPHEMERAL_CHAIN', 'EPHEMERAL_WALLET_NAME', 'KEPT_WALLET_NAME', 'LOCAL_PLAY_WALLET_NAMES', 'createEphemeralWallet', 'currentEphemeralWallet', 'destroyEphemeralWallet', 'ephemeralWalletAllowed', 'isLoopbackHost']);
     assert.ok(Object.isFrozen(w) && Object.isFrozen(w.wallet) && Object.isFrozen(w.wallet.features) && Object.isFrozen(account));
     w.destroy();
   } finally {
@@ -137,7 +137,10 @@ test('nothing is stored, printed or exposed: no storage access, no console outpu
   const code = src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
   assert.doesNotMatch(code, /localStorage|sessionStorage|indexedDB|document\.cookie|console\.|location\.(href|search|hash)|history\.|URLSearchParams|fetch\(|importKey|pkcs8|keyFromSeed|seedOf|randomBytes|getRandomValues|enableDevWallet|DEV_KEY|wrapKey|exportKey\('(?!raw')/);
   assert.match(code, /generateKey\(ED25519, false, \['sign', 'verify'\]\)/);
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../sdk/base58.mjs', '../sdk/solana-tx.mjs']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../sdk/base58.mjs', '../sdk/solana-tx.mjs', './flocalplay-keystore.mjs']);
+  // (⑧ P2, TEST-ONLY: the kept wallet's store is reached only through the explicit `keep` option, which the gate passes
+  //  only on a persist=local launcher page: web-frontier-local-play-keystore.test.mjs)
+  assert.match(code, /if \(keep\) pair = await loadWalletPair\(keep\.store, keep\.scope, \{ subtle, encode: toBase58 \}\);/);
 });
 
 /** The page's own wallet layer (web/wallet.mjs), started once on one event target for this file. */

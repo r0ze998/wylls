@@ -134,6 +134,10 @@ impl RunDir {
             std::fs::create_dir_all(self.path(d))
                 .map_err(|e| format!("{}: {e}", self.path(d).display()))?;
         }
+        // (the run dir and every directory that holds a server key are private: 0700)
+        for d in SECRET_DIRS {
+            private_dir(&self.path(d))?;
+        }
         Ok(())
     }
     pub fn load_state(&self) -> Result<Value, String> {
@@ -214,11 +218,83 @@ pub fn token(p: &Path) -> Result<String, String> {
     Ok(t)
 }
 
+/// The run dir and the directories in it that hold server keys (operator and prize keys, keeper seeds and
+/// tokens, the relay's master seed, invite secret, gate and faucet keys): mode 0700, checked on resume.
+pub const SECRET_DIRS: [&str; 5] = ["", "keys", "keeper-a", "keeper-b", "relay"];
+
+/// Makes an existing directory private (0700).
+pub fn private_dir(d: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    let _ = d;
+    Ok(())
+}
+
+/// Refuses a saved secret (or its directory) that another user may read, write or enter, or that is a link:
+/// files 0600, directories 0700 (TEST/local worlds only; "not for production").
+pub fn check_private_secret(p: &Path, label: &str) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let refuse = |what: &str, mode: u32| {
+            Err(format!(
+                "saved {label}: {what} has mode {mode:03o}; server keys must be private (files 0600, directories 0700); refusing resume"
+            ))
+        };
+        let m = std::fs::symlink_metadata(p)
+            .map_err(|_| format!("missing saved {label}; refusing resume"))?;
+        if m.file_type().is_symlink() {
+            return Err(format!("saved {label} is a symbolic link; refusing resume"));
+        }
+        let mode = m.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            return refuse("the file", mode);
+        }
+        if let Some(d) = p.parent() {
+            let dm = std::fs::symlink_metadata(d).map_err(|e| format!("{}: {e}", d.display()))?;
+            let mode = dm.permissions().mode() & 0o777;
+            if dm.file_type().is_symlink() || mode & 0o077 != 0 {
+                return refuse("its directory", mode);
+            }
+        }
+    }
+    let _ = (p, label);
+    Ok(())
+}
+
+/// [`write_atomic`] for a secret: the new file is created 0600 (never world-readable, not even briefly), its
+/// directory 0700.
+pub fn write_private_atomic(p: &Path, bytes: &[u8]) -> Result<(), String> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        private_dir(d)?;
+    }
+    let tmp = p.with_extension("tmp");
+    let _ = std::fs::remove_file(&tmp);
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    o.mode(0o600);
+    let mut f = o
+        .open(&tmp)
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    f.write_all(bytes).map_err(|e| e.to_string())?;
+    drop(f);
+    std::fs::rename(&tmp, p).map_err(|e| format!("{}: {e}", p.display()))
+}
+
 fn write_secret(p: &Path, text: &str) -> Result<(), String> {
     #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt;
     if let Some(d) = p.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        private_dir(d)?;
     }
     let mut o = std::fs::OpenOptions::new();
     o.write(true).create_new(true);
@@ -270,6 +346,39 @@ mod tests {
                 .permissions()
                 .mode();
             assert_eq!(m & 0o777, 0o600);
+            for dir in SECRET_DIRS {
+                let m = std::fs::metadata(r.path(dir)).unwrap().permissions().mode();
+                assert_eq!(m & 0o777, 0o700, "{dir}");
+            }
+            // the resume check: private passes; a looser file or directory is refused
+            check_private_secret(&r.path("keys/a.seed"), "a").unwrap();
+            std::fs::set_permissions(
+                r.path("keys/a.seed"),
+                std::fs::Permissions::from_mode(0o644),
+            )
+            .unwrap();
+            assert!(check_private_secret(&r.path("keys/a.seed"), "a")
+                .unwrap_err()
+                .contains("mode 644"));
+            std::fs::set_permissions(
+                r.path("keys/a.seed"),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+            std::fs::set_permissions(r.path("keys"), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+            assert!(check_private_secret(&r.path("keys/a.seed"), "a")
+                .unwrap_err()
+                .contains("directory has mode 755"));
+            std::fs::set_permissions(r.path("keys"), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            write_private_atomic(&r.path("relay/k.json"), b"[1]").unwrap();
+            let m = std::fs::metadata(r.path("relay/k.json"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(m & 0o777, 0o600);
+            check_private_secret(&r.path("relay/k.json"), "k").unwrap();
         }
         let _ = std::fs::remove_dir_all(&d);
     }
