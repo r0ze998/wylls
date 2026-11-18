@@ -6,7 +6,12 @@
 //!
 //!   localnet-natural-play --artifact <abs .so> --artifact-sha256 <hex> --player-wallet <base58 public key> \
 //!     --rpc-port <41000-41999> --ws-port <41000-41999> --keeper public-quicknet \
-//!     [--continuous local-continuous-v1] [--persist-dir <abs private dir>]
+//!     [--continuous local-continuous-v1] [--persist-dir <abs private dir>] [--map-origin <unix seconds>]
+//!
+//! `--map-origin` (TEST-ONLY, `itest::natural_persist`): a NEW world's chain clock origin, in the 365 days before the
+//! fixed one. Without it every world consumes the same genesis round and so has the same map; with it the Season
+//! fixes another round and the program derives another genesis seed by its unchanged rules. The first line then says
+//! `fresh_map: {mode, origin, genesis_round}`.
 use itest::expedition_play as play;
 use itest::natural_play as natural;
 
