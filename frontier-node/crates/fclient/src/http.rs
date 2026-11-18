@@ -2,20 +2,10 @@
 //! JSON-RPC, drand-replay, the keeper API). One request per connection
 //! (`Connection: close`); `Content-Length` and chunked bodies are read.
 //!
-//! **`https://` GETs** (live drand: `api.drand.sh` and its mirrors) go
-//! through the system `curl`, as drand-replay's prefetch already does
-//! (W2-C D7): the contract's dependency set has no TLS crate (W1-F R4 is
-//! still a request), and curl is on every machine that runs the stack. The
-//! call is hardened rather than trusted: `-q` first (no `.curlrc` can turn
-//! verification off), `--proto =https` and no redirect following, TLS ≥ 1.2,
-//! bounded time and size, the URL passed with `--url` after a strict check
-//! (no userinfo, escapes, whitespace or quotes), and the answer refused
-//! unless curl reports scheme HTTPS with `ssl_verify_result` 0. Peer
-//! certificates are checked against curl's trust store (`CURL_CA_BUNDLE` /
-//! `SSL_CERT_FILE` when the host sets them). TLS only protects the
-//! transport: a drand round is accepted because it verifies against the
-//! pinned key (`beacon::HttpDrand`), never because of the certificate.
-//! `https://` POSTs (a public RPC) stay `Unsupported`.
+//! **`https://`** GETs (live drand) and JSON POSTs (a public cluster's
+//! JSON-RPC, devnet-readiness B1) go through [`crate::https`], the one
+//! module that speaks TLS (the system `curl`, hardened; see its notes).
+//! Other `https://` methods and extra headers over https stay `Unsupported`.
 
 use std::time::Duration;
 
@@ -72,18 +62,46 @@ pub async fn post_json(url: &str, body: &serde_json::Value) -> Result<Response, 
     .await
 }
 
+/// JSON POST with explicit https options (trust anchor, limits). A plain
+/// `http://` URL ignores `https` and takes [`post_json_bounded`]'s path
+/// when `max_response_bytes` is set, [`post_json`]'s otherwise.
+pub async fn post_json_with(
+    url: &str,
+    body: &serde_json::Value,
+    max_response_bytes: Option<usize>,
+    https: &crate::https::PostOpts,
+) -> Result<Response, PortError> {
+    if url.starts_with("https://") {
+        let body = serde_json::to_vec(body).map_err(|e| PortError::Decode(e.to_string()))?;
+        let mut o = https.clone();
+        if let Some(m) = max_response_bytes {
+            o.max_response_bytes = m;
+        }
+        return crate::https::post(url, body, &o).await;
+    }
+    match max_response_bytes {
+        Some(m) => post_json_bounded(url, body, m).await,
+        None => post_json(url, body).await,
+    }
+}
+
 /// JSON POST with a cap on response wire bytes, including headers and
 /// chunk framing. One extra byte is read to detect overflow before parsing.
-/// Like [`post_json`], HTTPS POSTs are unsupported and the timeout is 20 s.
+/// Over `https://` the cap is on the body ([`crate::https::post`]). The
+/// timeout is 20 s.
 pub async fn post_json_bounded(
     url: &str,
     body: &serde_json::Value,
     max_response_bytes: usize,
 ) -> Result<Response, PortError> {
-    if url.starts_with("https://") {
-        return Err(PortError::Unsupported("https:// is GET only (live drand)"));
-    }
     let body = serde_json::to_vec(body).map_err(|e| PortError::Decode(e.to_string()))?;
+    if url.starts_with("https://") {
+        let o = crate::https::PostOpts {
+            max_response_bytes,
+            ..Default::default()
+        };
+        return crate::https::post(url, body, &o).await;
+    }
     tokio::time::timeout(
         TIMEOUT,
         request_inner("POST", url, Some(body), &[], Some(max_response_bytes)),
@@ -98,10 +116,15 @@ pub async fn request(
     body: Option<Vec<u8>>,
 ) -> Result<Response, PortError> {
     if url.starts_with("https://") {
-        if method != "GET" {
-            return Err(PortError::Unsupported("https:// is GET only (live drand)"));
-        }
-        return curl_get(url).await;
+        return match (method, body) {
+            ("GET", _) => curl_get(url).await,
+            ("POST", Some(body)) => {
+                crate::https::post(url, body, &crate::https::PostOpts::default()).await
+            }
+            _ => Err(PortError::Unsupported(
+                "https:// is GET or a JSON POST with a body only",
+            )),
+        };
     }
     tokio::time::timeout(TIMEOUT, request_inner(method, url, body, &[], None))
         .await
@@ -183,12 +206,6 @@ async fn read_response<R: AsyncRead + Unpin>(
     parse_response(&buf)
 }
 
-// ---------------------------------------------------------------- https (curl)
-
-/// Largest body an `https://` GET accepts (a drand round is ≈ 200 B, its
-/// info ≈ 500 B).
-pub const HTTPS_MAX_BODY: u64 = 64 * 1024;
-
 /// Whether a URL's host is loopback (`127.0.0.1`, `[::1]`, `localhost`).
 ///
 /// The authority (up to the first `/`, `?` or `#`) must be exactly
@@ -225,174 +242,11 @@ pub fn is_loopback(url: &str) -> bool {
     port_ok && matches!(host, "127.0.0.1" | "::1" | "localhost")
 }
 
-/// Checks a URL handed to curl: `https://` (or `http://` on loopback
-/// only), an authority of lowercase DNS letters, digits, `.`, `-` (or a
-/// bracketed loopback IPv6) with an optional numeric port, and a path of
-/// unreserved characters and `/` only. Nothing curl could read as an
-/// option, a second URL, a glob or userinfo gets through.
-pub fn check_curl_url(url: &str) -> Result<(), PortError> {
-    let bad = |why: &'static str| Err(PortError::Unsupported(why));
-    let (scheme, rest) = match url.split_once("://") {
-        Some(("https", r)) => ("https", r),
-        Some(("http", r)) if is_loopback(url) => ("http", r),
-        Some(("http", _)) => return bad("plain http:// only to loopback"),
-        _ => return bad("not an http(s) URL"),
-    };
-    let _ = scheme;
-    let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, ""),
-    };
-    let (host, port) = match authority.strip_prefix('[') {
-        Some(h) => match h.split_once(']') {
-            Some(("::1", tail)) => ("::1", tail),
-            _ => return bad("bracketed host other than [::1]"),
-        },
-        None => match authority.find(':') {
-            Some(i) => (&authority[..i], &authority[i..]),
-            None => (authority, ""),
-        },
-    };
-    let host_ok = host == "::1"
-        || (!host.is_empty()
-            && host.len() <= 253
-            && !host.starts_with(['-', '.'])
-            && !host.contains("..")
-            && host
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-'));
-    if !host_ok {
-        return bad("host must be lowercase letters, digits, '.' and '-'");
-    }
-    let port_ok = port.is_empty()
-        || port.strip_prefix(':').is_some_and(|p| {
-            !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit())
-        });
-    if !port_ok {
-        return bad("port must be numeric");
-    }
-    if !path
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.' | b'~'))
-    {
-        return bad("path must be unreserved characters and '/' only");
-    }
-    Ok(())
-}
-
-/// The curl argument vector for one GET (`-q` must stay first: it is the
-/// only way to keep a `.curlrc` out). `cacert` replaces the trust store
-/// (tests with their own CA).
-pub fn curl_args(url: &str, cacert: Option<&std::path::Path>) -> Vec<String> {
-    let proto = if url.starts_with("https://") {
-        "=https"
-    } else {
-        "=http"
-    };
-    let mut a: Vec<String> = [
-        "-q",
-        "--silent",
-        "--show-error",
-        "--proto",
-        proto,
-        "--proto-redir",
-        "=https",
-        "--max-redirs",
-        "0",
-        "--tlsv1.2",
-        "--connect-timeout",
-        "10",
-        "--max-time",
-        "15",
-        "--max-filesize",
-        &HTTPS_MAX_BODY.to_string(),
-        "--header",
-        "Accept: application/json",
-        "--write-out",
-        "\n%{http_code} %{ssl_verify_result} %{scheme}",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    if let Some(p) = cacert {
-        a.push("--cacert".into());
-        a.push(p.display().to_string());
-    }
-    a.push("--url".into());
-    a.push(url.into());
-    a
-}
-
-/// `GET` through curl (see the module notes). The status is curl's; no
-/// response headers are returned.
-pub async fn curl_get(url: &str) -> Result<Response, PortError> {
-    curl_get_with(url, None).await
-}
-
-/// [`curl_get`] with an explicit trust anchor file.
-pub async fn curl_get_with(
-    url: &str,
-    cacert: Option<std::path::PathBuf>,
-) -> Result<Response, PortError> {
-    check_curl_url(url)?;
-    let args = curl_args(url, cacert.as_deref());
-    let https = url.starts_with("https://");
-    let out = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("curl")
-            .args(&args)
-            .stdin(std::process::Stdio::null())
-            .output()
-    })
-    .await
-    .map_err(|e| PortError::Io(format!("curl: {e}")))?
-    .map_err(|e| PortError::Io(format!("curl: {e}")))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let err: String = err.trim().chars().take(300).collect();
-        return Err(PortError::Io(format!(
-            "curl exit {}: {err}",
-            out.status.code().unwrap_or(-1)
-        )));
-    }
-    parse_curl_output(&out.stdout, https)
-}
-
-/// Splits curl's stdout into the body and the `--write-out` trailer
-/// `\n<status> <ssl_verify_result> <scheme>`, refusing an answer that did
-/// not come over a verified TLS session when `https` is asked.
-pub fn parse_curl_output(stdout: &[u8], https: bool) -> Result<Response, PortError> {
-    let nl = stdout
-        .iter()
-        .rposition(|&c| c == b'\n')
-        .ok_or_else(|| PortError::Decode("curl: no trailer".into()))?;
-    let trailer = std::str::from_utf8(&stdout[nl + 1..])
-        .map_err(|_| PortError::Decode("curl: trailer utf8".into()))?;
-    let mut f = trailer.split_whitespace();
-    let (Some(code), Some(verify), Some(scheme), None) = (f.next(), f.next(), f.next(), f.next())
-    else {
-        return Err(PortError::Decode(format!("curl: trailer {trailer:?}")));
-    };
-    let status: u16 = code
-        .parse()
-        .map_err(|_| PortError::Decode(format!("curl: status {code:?}")))?;
-    if https && (verify != "0" || !scheme.eq_ignore_ascii_case("https")) {
-        return Err(PortError::Io(format!(
-            "curl: not a verified TLS answer (ssl_verify_result {verify}, scheme {scheme})"
-        )));
-    }
-    if status == 0 {
-        return Err(PortError::Io("curl: no HTTP status".into()));
-    }
-    let body = stdout[..nl].to_vec();
-    if body.len() as u64 > HTTPS_MAX_BODY {
-        return Err(PortError::Decode("curl: body too large".into()));
-    }
-    Ok(Response {
-        status,
-        headers: vec![],
-        body,
-    })
-}
+// The curl transport (GET and POST over https) lives in `crate::https`;
+// these re-exports keep the old paths working.
+pub use crate::https::{
+    check_curl_url, curl_args, curl_get, curl_get_with, parse_curl_output, HTTPS_MAX_BODY,
+};
 
 pub fn parse_response(buf: &[u8]) -> Result<Response, PortError> {
     let end = buf
@@ -646,15 +500,17 @@ mod tests {
     }
 
     #[test]
-    fn https_post_and_headers_are_unsupported() {
+    fn https_other_methods_and_headers_are_unsupported() {
         let rt = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
         rt.block_on(async {
-            assert!(matches!(
-                post_json("https://api.drand.sh/x", &serde_json::json!({})).await,
-                Err(PortError::Unsupported(_))
-            ));
+            for (m, b) in [("PUT", Some(vec![])), ("POST", None), ("DELETE", None)] {
+                assert!(matches!(
+                    request(m, "https://api.drand.sh/x", b).await,
+                    Err(PortError::Unsupported(_))
+                ));
+            }
             assert!(matches!(
                 get_with_headers("https://api.drand.sh/x", &[]).await,
                 Err(PortError::Unsupported(_))
