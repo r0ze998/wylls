@@ -7,12 +7,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { world, server, connect } from './fixture.mjs';
 
-// (the Grok run's port range, 41870–41899: one port per test, closed at its end)
-let PORT = 41873;
+// Listen ports: the system's (0) by default, so parallel runs and CI do not collide (verify-pr61 m1); a run held to a
+// port range sets REKEY_MCP_PORT to the first of three (one per test, each closed at its end).
+const BASE = Number(process.env.REKEY_MCP_PORT ?? 0);
+let n = 0;
+const nextPort = () => (BASE ? BASE + n++ : 0);
 
 test('a second caravan connection names, warns about and revokes the one it stops; a consent that does not name it is refused', async () => {
   const w = await world();
-  const s = await server(w, { port: PORT++ });
+  const s = await server(w, { port: nextPort() });
   try {
     const first = await connect(s, w);
     assert.ok(first.access_token, 'the first connection is made');
@@ -35,7 +38,7 @@ test('a second caravan connection names, warns about and revokes the one it stop
 
 test('the statement names the connection a write consent would stop, and the consent page warns in both languages', async () => {
   const w = await world();
-  const s = await server(w, { port: PORT++ });
+  const s = await server(w, { port: nextPort() });
   try {
     await connect(s, w);
     const [firstId] = Object.keys(s.auth.db.links);
@@ -64,7 +67,7 @@ test('the statement names the connection a write consent would stop, and the con
 
 test('a consent signed without naming the connection it stops is refused, and the earlier connection goes on', async () => {
   const w = await world();
-  const s = await server(w, { port: PORT++ });
+  const s = await server(w, { port: nextPort() });
   try {
     await connect(s, w);
     const [firstId] = Object.keys(s.auth.db.links);

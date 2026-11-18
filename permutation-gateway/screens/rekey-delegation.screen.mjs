@@ -14,8 +14,11 @@ import { handNote } from '../../permutation-server/web/frontier/fdelegation.mjs'
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { encode as toBase58 } from '../../permutation-server/web/sdk/base58.mjs';
 import { isOnCurve } from '../../permutation-server/web/sdk/solana-tx.mjs';
+import { CONTRAST } from './contrast.mjs';
 
-const css = ['base.css', 'frontier/frontier.css'].map(f => readFileSync(new URL(`../../permutation-server/web/${f}`, import.meta.url), 'utf8'));
+// (round 3: the play page's own stylesheets, as frontier/index.html links them — it does not load base.css, which this
+//  test once did, and which hid that the page had no `.btn.danger` of its own: verify-pr61 F4)
+const css = ['frontier/frontier.css', 'frontier/people/leaders.css', 'frontier/proto-hand.css', 'frontier/proto-board.css', 'frontier/conquest-hand.css', 'frontier/uplift.css'].map(f => readFileSync(new URL(`../../permutation-server/web/${f}`, import.meta.url), 'utf8'));
 const JP = /[぀-ヿ㐀-鿿]/;
 // A program-held key (off the curve: the courier's session PDA is one) and an ordinary key (another device's).
 // (no key is made here: the off-curve one is a well-known program id, the on-curve one is the curve's base point)
@@ -86,6 +89,12 @@ for (const lang of ['en', 'ja']) for (const view of VIEWS) test(`the key card ov
     assert.match(by['no-device-key-unknown'].lines.map(l => l.text).join(' '), lang === 'ja' ? /黙って置き換えることはありません/ : /never replaced silently/, '…with its promise');
     // (round 2, verify-pr61 F2: the bar opens the whole warning first — its keep and replace are in that view)
     assert.deepEqual(by.bar.buttons.map(b => b.act), ['session-review']);
+    // (round 3) every button and line of every card is readable on the drawer as the play page paints it
+    for (const c of [...CASES.map(k => k.id), 'bar']) {
+      if (c === 'bar') continue; // the bar is dark: tested on the real page (rekey-delegation-bar.screen.mjs)
+      const rows = await page.evaluate(CONTRAST, `[data-case="${c}"]`);
+      for (const r of rows) assert.ok(r.contrast >= 4.5, `${lang}@${view.w} ${c}: "${r.text}" (${r.act ?? r.tag}) contrast ${r.contrast} < 4.5 (${r.paint})`);
+    }
     assert.deepEqual(requests, [], 'the cards ask for nothing');
     if (process.env.REKEY_OUT) {
       await page.screenshot({ path: `${process.env.REKEY_OUT}/rekey-warning-all-${lang}-${view.w}.png`, fullPage: true });

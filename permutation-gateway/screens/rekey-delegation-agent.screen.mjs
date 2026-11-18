@@ -15,8 +15,9 @@ import { classify } from '../../permutation-server/web/sdk/frontier/shapes.mjs';
 import { encode as toBase58 } from '../../permutation-server/web/sdk/base58.mjs';
 import { fromBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
 import { keyFromSeed } from '../../permutation-server/web/session.mjs';
+import { CONTRAST } from './contrast.mjs';
 
-const PORT = Number(process.env.REKEY_PORT ?? 41872);
+const PORT = Number(process.env.REKEY_PORT ?? 0); // (0: the system's; a run held to a range sets it)
 const OUT = process.env.REKEY_OUT ?? null;
 const COURIER = 'BPFLoaderUpgradeab1e11111111111111111111111';
 const AGENT = toBase58(Uint8Array.from([0x58, ...new Array(31).fill(0x66)]));
@@ -77,6 +78,8 @@ for (const lang of ['en', 'ja']) for (const width of [1440, 390]) test(`the agen
     assert.doesNotMatch(text, /（あなた）|\(you\)/, text);
     assert.equal(await card.getAttribute('data-key-held'), 'program');
     assert.equal(await card.locator('[role="alert"]').count(), 1);
+    // (round 3) every button and line of the warning is readable as the agent page paints it
+    for (const r of await x.page.evaluate(CONTRAST, 'section.agent-card:has(#del-title)')) assert.ok(r.contrast >= 4.5, `${lang}@${width}: "${r.text}" (${r.act ?? r.tag}) contrast ${r.contrast} < 4.5 (${r.paint})`);
     assert.equal(await card.locator('[data-act="delegate"]').count(), 0, 'no plain hand-over');
     assert.equal(await card.locator(`[data-act="delegate-replace"][data-key="${COURIER}"]`).count(), 1);
     if (lang === 'en') { assert.match(text, /held by a program \(a delivery delegation, for example\)/); assert.match(text, /If you do nothing, that delegation stays/); assert.doesNotMatch(text, JP, text); }
