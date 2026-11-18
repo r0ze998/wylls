@@ -226,6 +226,8 @@ const CLIENT_TEXT = {
   WideWorldUnavailable: () => L`この配信元は記録された世界を出していません（WideWorldUnavailable）。`,
   WideIndexUnavailable: () => L`この配信元は世界の履歴の索引を出していません（WideIndexUnavailable）。`,
   BadConfig: () => L`協力の板の設定を読めませんでした（BadConfig）。`,
+  // (hud/coopboard.mjs readView: the board answered, but not a list of requests of the shape the board writes)
+  BadView: () => L`協力の板の内容を読めませんでした（BadView）。`,
   WrongSeason: () => L`別のシーズンの記録です`,
   WrongKey: () => L`頼んだものと違う記録が届きました`,
   NotQuicknet: () => L`このシーズンの公開乱数は quicknet ではありません`,
@@ -313,6 +315,17 @@ const CLIENT_TEXT = {
   // (workstream 07: no read of the transaction's state answered — not a failure, it may still land)
   TxUnqueryable: () => L`取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。`,
   TransactionFailed: () => L`取引は記録されましたが失敗しました`,
+  // ---- ⑦ (2026-11-17): what the controller answers when the world, the viewer or the village in hand changed while
+  // an order was prepared. Each stops BEFORE anything is built or sent (`sent: false`), and says so. They are answered
+  // without a notice today; the text is what a screen that shows the code says.
+  ScopeChanged: () => L`準備の間に、世界・ウォレット・住民のどれかが変わりました。この操作は送っていません。`,
+  ContextChanged: () => L`鍵を用意している間に、世界・ウォレット・住民のどれかが変わりました。鍵は保存しておらず、何も送っていません。`,
+  ExploreNone: () => L`この村には、受け取る探索の結果がありません。`,
+  ExploreChanged: () => L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。探索の結果は受け取っていません。もう一度確かめてから受け取ってください。`,
+  S1PrepChanged: () => L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。`,
+  // The code of a failure that named none (`e?.code ?? 'Error'`: a province read, a march reread, a thrown order).
+  // It can stand for an order that was on its way, so it never says "not sent" and never asks for a blind retry.
+  Error: () => L`原因を特定できない失敗が起きました。操作を送っていた場合は、記録されたかどうかを確かめてください。`,
   NotSaved: () => L`この端末に進軍の記録を保存できないため、送りませんでした`,
   BadName: () => L`名前は1〜24文字の文字・数字・空白・「-」「_」「.」で付けてください`,
   BadRoster: () => L`名簿のファイルが読めませんでした`,
