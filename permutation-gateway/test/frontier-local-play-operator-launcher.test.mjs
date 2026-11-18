@@ -73,6 +73,10 @@ test('the command line: 1-4 residents, natural worlds only, their ports inside t
   await refused({ ...base, 'operator-residents': '1', 'world-port': '41985' }, 'InvalidPorts');
   await refused({ ...base, 'operator-residents': '1', 'world-port': '41890' }, 'InvalidPorts');
   await refused({ ...base, 'operator-residents': '1', 'world-port': '41960', port: '41950' }, 'InvalidPorts');
+  // ⑰ (owner 2026-11-18 21:44): no AI residents in paid periods; and the launcher has no paid windows at all.
+  await refused({ ...base, 'operator-residents': '1', 'prize-epochs': 'on' }, 'AiResidentsInPaidWindow');
+  await refused({ ...base, 'prize-epochs': 'on' }, 'PrizeNotInLauncher');
+  await assert.rejects(parseConfig([...argv({ ...base, 'prize-epochs': 'on' }), '--external-residents', '11111111111111111111111111111112']), e => e.code === 'AiResidentsInPaidWindow');
 });
 
 test('a natural world with two residents: funded like the player, one relay each pinned to its wallet; the page is told nothing', { timeout: 60000 }, async t => {

@@ -1139,6 +1139,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             placement: st.cfg.placement,
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
+        st.prize.as_ref().is_some_and(|p| p.epoch.is_some()),
         st.cfg.season_end_bell(),
         st.cfg.preseason_scale,
         st.cfg.scale,
@@ -1206,7 +1207,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     if let Some(p) = &st.prize {
         let now = st.chain.status().await?.now;
         let limit = prize_start_wait_limit(now, genesis_ts, st.cfg.scale);
-        crate::prize::Prize::wait_until_running(&st.chain, &st.addrs, limit).await?;
+        p.wait_until_running(&st.chain, &st.addrs, limit).await?;
         let v = p
             .init_pool(&st.chain, &st.addrs, &st.keys.authority, &st.cfg)
             .await?;
