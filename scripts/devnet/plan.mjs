@@ -37,6 +37,8 @@ export const HARD_REFUSED_RPC_HOST_PATTERNS = ['mainnet', 'testnet'];
  * cluster's feature set first). The build still uses cargo-build-sbf 3.1.9.
  */
 export const MIN_SOLANA_CLI = [4, 0, 0];
+/** The largest account (so the largest ProgramData) the runtime allows: solana-system-interface MAX_PERMITTED_DATA_LENGTH. */
+export const MAX_PERMITTED_DATA_LENGTH = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------- numbers
 
@@ -142,6 +144,9 @@ export function profileProblems(profile) {
   const r = rpcProblem(profile.rpcUrl, profile);
   if (r) out.push(r);
   if (!profile.rent?.lamportsPerByteCandidates?.includes(profile.rent?.assume)) out.push('rent.assume must be one of rent.lamportsPerByteCandidates');
+  const refused = profile.program?.refusedMarkers ?? [];
+  for (const m of profile.program?.requiredMarkers ?? []) if (refused.includes(m)) out.push(`marker ${m} is both required and refused`);
+  if (!(Number.isSafeInteger(profile.program?.soLenCap) && profile.program.soLenCap > 0 && maxLenFor(profile.program.soLenCap) <= MAX_PERMITTED_DATA_LENGTH)) out.push(`program.soLenCap must be a positive length whose max_len fits ${MAX_PERMITTED_DATA_LENGTH} B`);
   return out;
 }
 
@@ -196,12 +201,17 @@ export function checkSo(buf, profile, { nftResident = false } = {}) {
   // ⑳ --nft-resident: the nft-experimental build carries its own marker (wanted), every other one is refused.
   const wanted = nftResident ? profile.nftResident.marker : null;
   const markers = profile.program.refusedMarkers.filter(m => m !== wanted && buf.includes(Buffer.from(m, 'latin1')));
-  for (const m of markers) problems.push(`carries ${m} (a test or localnet build; never deployable)`);
+  for (const m of markers) problems.push(`carries ${m} (a test, localnet or other-lane build; never deployable with this profile)`);
   if (wanted && !buf.includes(Buffer.from(wanted, 'latin1'))) problems.push(`--nft-resident: marker ${wanted} missing (not a build-frontier.sh --features nft-experimental artefact)`);
+  // A lane profile (scripts/devnet/devnet-playable-profile.json) names the marker its own build carries: an artefact
+  // without it is some other build, whatever its bytes look like.
+  for (const m of profile.program.requiredMarkers ?? []) if (!buf.includes(Buffer.from(m, 'latin1'))) problems.push(`marker ${m} missing (not this profile's build: ${profile.program.build})`);
   const relocs = dataRelocsWithAddend(buf);
   if (relocs) problems.push(`${relocs} data relocation(s) with a non-zero addend`);
   const soLen = buf.length;
-  if (soLen > profile.program.soLenCap) problems.push(`so_len ${soLen} > ${profile.program.soLenCap}: the S1 L(kind) loaded-data limits no longer cover the program (regenerate frontier-abi v2 budgets first)`);
+  if (soLen > profile.program.soLenCap) problems.push(profile.program.requiredMarkers?.length
+    ? `so_len ${soLen} > ${profile.program.soLenCap}: over this profile's cap (${profile.program.soLenCapSource ?? 'program.soLenCap'})`
+    : `so_len ${soLen} > ${profile.program.soLenCap}: the S1 L(kind) loaded-data limits no longer cover the program (regenerate frontier-abi v2 budgets first)`);
   let n = buf.length;
   while (n && buf[n - 1] === 0) n--;
   const maxLen = maxLenFor(soLen);
@@ -312,6 +322,8 @@ export function parseArgs(argv) {
 
 export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json] [--nft-resident]
   Dry run (default): checks the .so, computes the devnet cost and prints the plan. Sends nothing.
+  Profiles: scripts/devnet/devnet-profile.json (default, the S1 release) or scripts/devnet/devnet-playable-profile.json
+  (the playable lane, owner decision B7: scripts/build-frontier-devnet-playable-sbf.sh, marker PSF_DEVNET_PLAYABLE_BUILD).
   --nft-resident (⑳, devnet/local only, no sale): plan the nft-experimental build instead
   (build-frontier.sh --features nft-experimental, marker PSF_NFT_EXPERIMENTAL_BUILD); its send gate stays closed.
   Send (r0ze only): add ${APPROVAL_FLAG} --keypair FILE --program-keypair FILE --upgrade-authority FILE --approved-sha256 HEX
@@ -332,6 +344,7 @@ function planText({ profile, so, soPath, costs, season, rate, commands, blocked,
     for (const r of n.notPlanned) L.push(`    - ${r}`);
   }
   L.push(`cluster ${profile.cluster}  rpc ${profile.rpcUrl}`);
+  if (profile.lane) L.push(`lane ${profile.lane}  program_version ${profile.program.programVersion ?? '?'}  build ${profile.program.build}`);
   L.push(`program ${profile.programId}`);
   L.push(`upgrade authority ${profile.upgradeAuthority}`);
   L.push('');
@@ -404,7 +417,7 @@ export function run(argv, io) {
     const r = io.exec(`${io.repoRoot}/${script}`, [...(opts.twice ? ['--twice'] : []), ...extra], { cwd: io.repoRoot });
     if (r.status !== 0) { io.err(`build failed (${script}, exit ${r.status})`); return 3; }
   }
-  if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (scripts/build-frontier.sh)`); return 3; }
+  if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (${opts.nftResident ? profile.nftResident.build.join(' ') : profile.program.build})`); return 3; }
   const so = checkSo(io.readFile(soPath), profile, { nftResident: !!opts.nftResident });
   const costs = profile.rent.lamportsPerByteCandidates.map(r => deployCost({ soLen: so.soLen ?? 0, maxLen: so.maxLen ?? 0, rate: r, ...profile.fees }));
   const season = seasonCost(profile.season, rate);
@@ -413,7 +426,7 @@ export function run(argv, io) {
   const blocked = sendProblems(opts, { profile, so, stat: io.stat, repoRoot: io.repoRoot, uid: io.uid });
   if (opts.json) {
     const big = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
-    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId }, nftResident: opts.nftResident ? profile.nftResident : undefined, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked }, big, 2));
+    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId, lane: profile.lane ?? 's1' }, nftResident: opts.nftResident ? profile.nftResident : undefined, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked }, big, 2));
   } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked, nftResident: !!opts.nftResident }));
   if (so.problems.length) return 3;
   if (blocked.length) return 0;

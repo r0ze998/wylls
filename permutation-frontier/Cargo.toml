@@ -88,7 +88,8 @@ capacity-preview = [
 # provisional band 0xD6–0xDA (`proc::wide`), the wide terrain kernel and the
 # `world_index` identity models; the build carries the `0x4000` program
 # version bit so its Seasons never mix with production ones. Not deployable;
-# no stable ABI, no allocated numbers.
+# no stable ABI, no allocated numbers. (Exception, owner decision B7: the
+# devnet build of the playable lane, devnet-playable-sbf below.)
 # Workstream 02-rights, local development only (2026-11-08): the
 # workshop-stock swap Grant on the provisional tags 0xD0–0xD5
 # (`proc::rights`), its PS2 records (provisional kinds 114–119) and errors
@@ -139,11 +140,24 @@ localnet-nft-sbf = ["localnet-conquest-sbf", "nft-experimental"]
 # (`proc::land`; ABI-ALLOCATION rev 6 lists 0xCD-0xCF as free), dispatched
 # before the v2 tags; their own land record,
 # no existing account's layout changed. No version bit, no marker of its own.
-# Not deployable; the integrator allocates tags.
+# Not deployable (except inside devnet-playable-sbf, owner decision B7, still
+# on the provisional tags); the integrator allocates tags.
 land-preview = ["program", "frontier-abi/land-preview", "permutation-rules/land-preview"]
 # The localnet conquest lane plus the land preview (one feature value for
 # cargo-build-sbf), built only by scripts/build-frontier-localnet-land-sbf.sh.
 localnet-land-sbf = ["localnet-conquest-sbf", "land-preview"]
+# The DEVNET build of the playable lane (owner decision B7, 2026-11-18: ship
+# the playable build, expedition / wide land / conquest, to devnet). The same
+# code as localnet-land-sbf (version 0x4804, the expedition wrapper with
+# conquest kinds 12-18, wide land, the land preview) WITHOUT the [0x45; 32]
+# program-id check: id-agnostic, like the S1 release. Carries marker
+# PSF_DEVNET_PLAYABLE_BUILD and neither localnet marker; never combines with
+# a localnet lane or a test feature (lib.rs guards). Built only by
+# scripts/build-frontier-devnet-playable-sbf.sh; deployable to devnet only
+# through scripts/devnet/devnet-playable-profile.json. The raw gates
+# (EXPEDITION_ENABLED, CONQUEST_LIFECYCLE_ENABLED, the Depart debit) are
+# unchanged; tags and version stay provisional.
+devnet-playable-sbf = ["conquest-dispatch-experimental", "land-preview"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

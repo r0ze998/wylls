@@ -270,7 +270,8 @@ fn create_params_ok(x: &frontier_abi::v2::presets::SeasonParamsV2) -> bool {
 /// bit | expedition bit) has no entry in `validate`'s list of 3/4/5, so for EXACTLY that version the range check runs
 /// on a copy whose `program_version` is `PROGRAM_VERSION_S1`; every other field is checked as given, and the exact
 /// version equality in [`create_params_ok`] still runs on the real value. Any other version, and every other build,
-/// is checked unchanged (`validate` itself is not relaxed).
+/// is checked unchanged (`validate` itself is not relaxed). The devnet build of the same lane (`devnet-playable-sbf`,
+/// owner decision B7) uses the same view for the same version.
 ///
 /// Workstream 02-rights (`rights-experimental`, owner decision ② = A, never
 /// deployable): the same view for EXACTLY that build's own version
@@ -284,6 +285,7 @@ fn create_params_ok(x: &frontier_abi::v2::presets::SeasonParamsV2) -> bool {
 /// with the real CreateSeason (before, only hand-written Seasons ran it).
 #[cfg(any(
     feature = "localnet-expedition-sbf",
+    feature = "devnet-playable-sbf",
     feature = "rights-experimental",
     feature = "nft-experimental"
 ))]
@@ -298,6 +300,7 @@ fn range_view(
 }
 #[cfg(not(any(
     feature = "localnet-expedition-sbf",
+    feature = "devnet-playable-sbf",
     feature = "rights-experimental",
     feature = "nft-experimental"
 )))]
@@ -1231,7 +1234,7 @@ mod tests {
     /// The isolated localnet expedition SBF lane: its own version 0x4804 (not in `validate`'s 3/4/5) is accepted by
     /// CreateSeason, the generic `validate` is NOT relaxed (it still refuses the raw parameters), and the range
     /// view maps only that exact version.
-    #[cfg(feature = "localnet-expedition-sbf")]
+    #[cfg(any(feature = "localnet-expedition-sbf", feature = "devnet-playable-sbf"))]
     #[test]
     fn the_lane_accepts_exactly_its_own_version() {
         use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
@@ -1317,6 +1320,7 @@ mod tests {
     /// binary's own listed version is accepted.
     #[cfg(not(any(
         feature = "localnet-expedition-sbf",
+        feature = "devnet-playable-sbf",
         feature = "rights-experimental",
         feature = "nft-experimental"
     )))]
