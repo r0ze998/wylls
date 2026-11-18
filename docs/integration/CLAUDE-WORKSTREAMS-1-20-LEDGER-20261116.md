@@ -32,7 +32,7 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 | ⑮ | coop outcomes (evaluator) | branch ws/15-coop-outcomes (10-30); long-run.json changed in the WIP | bcc63a24 (11-15, WIP) | records in canonical | — |
 | ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded |
 | ⑰ | settlement / prize (x402, USDC) | — | preserve/ws17-0c80381d | not determined | **restricted as a whole** (prize, funds) |
-| ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | preserve/ws18-4fbe0c77 | not determined | — |
+| ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | origin/fix/ws18-clippy-hostile-20261103 @ 0bba3f31 (11-03; = preserve/ws18-4fbe0c77 + clippy fix) | **in main**: all 17 commits applied as one delta in 6b670edb (2026-11-03), patch-id identical per file (2026-11-18 check, see section below) | — |
 | ⑲ | MagicBlock and public RPC | local branch claude/ecstatic-cannon-d0jfc4, "not received"; read-only check 11-07 | preserve/ws19-a91b7a4f (+supp d793ebd4) | not determined | public network: nothing sent |
 | ⑳ | NFT resident ID and authorization | — | — | not determined | **restricted as a whole** (NFT) |
 
@@ -589,3 +589,20 @@ only the allowed confirmation of already-submitted work remains within that boun
 - Four sequential cases passed in 315 ms: Duplicate/landed receipt became failure without inheriting the earlier signature; ordinary pending retained its status/signature; retained failed-read threw Unqueryable from the receipt; real NoRecord exit 3 alone became null. This verifies actual native process/JSON/client/consumer linkage, not only independent fixtures at either end.
 - Store::open may touch schema/WAL. All three logical database dump hashes nevertheless matched before/after, integrity checks were all ok, no WAL remained, and no runexec process was observed after completion. Only newly generated test stores were used.
 - Evidence appended through `396292e91de94fe3a825e13541ca0d72915a0ffb`. HTTP, live world, sending and full resident operation remain unverified. Latest-source runtime preparation is a separate next step: the old pinned world export cannot be described as validating later integration changes.
+
+
+### 2026-11-18 JST — ⑱ integration check (ws18-integrate)
+
+- **Code wins: ⑱ is already in `main`.** The 17 commits of `origin/fix/ws18-clippy-hostile-20261103`
+  (3051286d … 0bba3f31, base 4cd901de) were applied to main as one delta in `6b670edb` ("integrate locally:
+  18 v3 fix and 19 A+D on 4.g", 2026-11-03; message names source 0bba3f31). For each of the 20 paths the branch touches,
+  `git diff 4cd901de 0bba3f31 -- <path>` and `git diff 6b670edb^ 6b670edb -- <path>` have the same
+  `git patch-id --stable`. `git cherry` shows `+` for every commit only because the delta was squashed.
+  `preserve/ws18-4fbe0c77` is the same work without the 0bba3f31 clippy fix.
+- Later main commits built on it: `f2c607ae` makes the keeper stop on lost or corrupt journalled Reveal
+  material (stricter than 983fbf88's skip-on-error load); V0's unmodelled list grew with ⑩ custody tags
+  (`verify/src/checks/v0_coverage.rs` test `every_abi_tag_has_a_coverage_answer`).
+- Nothing was ported, because nothing was missing. The live quicknet test (`fclient/tests/live_drand.rs`) is
+  `#[ignore]` and also needs `FRONTIER_LIVE_DRAND=1`. The TLS hostile test (`drand-replay/tests/hostile.rs`) is `#[ignore]`.
+- Report: `~/Projects/wylls-grok-state/reports/ws18-integrate.md` (tests and discrepancies).
+
