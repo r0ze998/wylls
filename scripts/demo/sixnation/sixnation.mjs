@@ -190,17 +190,17 @@ export async function main(argv = process.argv.slice(2)) {
         const filtered = await v.page.evaluate(f => { const b = document.querySelector(`[data-act=watch-faction][data-f="${f}"]`); b?.click(); return !!b; }, v.nation);
         if (!filtered) throw new Error('no nation filter on the page');
         await delay(800);
+        // (the camera is set ONCE, on the nation's own village; later passes only keep the panel and the filter. A later
+        //  "go to" would find the village's highlight scrolled away and pick another nation's place)
+        if (!first) return;
         const village = summarize(jsonLines(fs.readFileSync(path.join(worldDir, 'operators.out'), 'utf8'))).nations.find(x => x.nation === v.nation)?.village;
         const [p, q] = village ? village.split(',') : [];
-        // (an open province card stands in place of the highlights: put the selection away first, as its × does)
-        await v.page.evaluate(() => document.querySelector('[data-act=sel-clear]')?.click());
-        await delay(600);
-        const went = await v.page.evaluate(([p, q]) => {
+        const went = await v.page.evaluate(([p, q, name]) => {
           const all = [...document.querySelectorAll('#panel [data-act=goto]')];
-          const b = all.find(x => p !== undefined && x.dataset.p === p && x.dataset.q === q) ?? all[0];
+          const b = all.find(x => p !== undefined && x.dataset.p === p && x.dataset.q === q) ?? all.find(x => x.innerText.includes(` of ${name} `));
           b?.click(); return !!b;
-        }, [p, q]);
-        if (!went) throw new Error('no place to go to on the panel');
+        }, [p, q, NATIONS[v.nation]]);
+        if (!went) throw new Error("no place of this nation's village on the panel");
       } catch (e) { v.errors.push(`focus: ${String(e?.message ?? e).split('\n')[0].slice(0, 160)}`); }
     };
     await overview.page.keyboard.press('Escape').catch(() => {});

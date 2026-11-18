@@ -43,7 +43,7 @@ Nations: 0 Aster, 1 Borealis, 2 Cinder, 3 Dunmar, 4 Ember, 5 Fjordal.
 - `views/*.webm`, one per view:
   - `player`: the page that started the world and joined
   - `overview`: the spectator page over the whole world
-  - `nation-N-<name>` (×6): the spectator page with that nation's filter and its camera on that nation's village, refocused every 2 min. The spectator's camera-follows-battles switch is off in these views; the overview keeps it on.
+  - `nation-N-<name>` (×6): the spectator page with that nation's filter and its camera set once on that nation's village. Every 2 min the panel and filter are re-applied; the camera is not moved again. The spectator's camera-follows-battles switch is off in these views; the overview keeps it on.
   - `summary`: a live table of each nation's landed commands, built from `operators.out`
 - `grid.mp4`: the 3×3 grid (ffmpeg `xstack`, H.264). `grid.html` plays the webm files together, with no ffmpeg needed.
 - `snapshots/`: JPEGs of every view every 5 min.
