@@ -402,6 +402,16 @@ test('--with-prize refuses a default build (no epochs marker) and a missing .so 
   assert.equal(errs.length, 0);
 });
 
+test('prize.enabled true in a profile includes the prize like --with-prize (verify-pr54 D-3); still plan only', () => {
+  const prof = profile();
+  prof.prize.enabled = true;
+  const { io, calls, logs } = fakeIo({ prof, files: { [PRIZE_SO_PATH]: prizeSo() } });
+  assert.equal(run([], io), 0);
+  assert.match(logs.join('\n'), /DEVNET, TEST USDC ONLY/);
+  assert.match(logs.join('\n'), /NOT SENT/);
+  assert.deepEqual(calls, []);
+});
+
 test('--with-prize refuses mainnet USDC as the prize mint (exit 2)', () => {
   const prof = profile();
   prof.prize.testMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';

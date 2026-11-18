@@ -137,6 +137,34 @@ impl LandOverrides {
     }
 }
 
+/// A continuous world never has a season end, and never the legacy
+/// season-end prize pool's join gate. The one gate it may carry is the ⑰
+/// settlement windows' (`--prize-epochs`, test USDC): there the paid join
+/// goes into an epoch pool, which has an exit without a season end.
+pub fn continuous_world_guard(
+    continuous: bool,
+    conquest: bool,
+    end_bell: Option<u32>,
+    join_gate: Option<[u8; 32]>,
+    epoch_gate: bool,
+) -> Result<(), String> {
+    if !continuous {
+        return Ok(());
+    }
+    if !conquest {
+        return Err("continuous world requires conquest (S1) params".into());
+    }
+    if end_bell.is_some() {
+        return Err("continuous world cannot use a season end".into());
+    }
+    if join_gate.is_some() && !epoch_gate {
+        return Err(
+            "continuous world cannot use the legacy prize join gate (settlement windows: --prize-epochs)".into(),
+        );
+    }
+    Ok(())
+}
+
 /// Runs the operator steps; returns what the report needs.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
@@ -148,17 +176,19 @@ pub async fn run(
     keep_bells: Option<u16>,
     land_overrides: LandOverrides,
     join_gate: Option<[u8; 32]>,
+    epoch_gate: bool,
     end_bell: Option<u32>,
     preseason_scale: f64,
     scale: f64,
     log: &dyn Fn(&str, Value),
 ) -> Result<Value, String> {
-    if land_overrides.continuous && !conquest {
-        return Err("continuous world requires conquest (S1) params".into());
-    }
-    if land_overrides.continuous && (end_bell.is_some() || join_gate.is_some()) {
-        return Err("continuous world cannot use a season end or legacy prize join gate".into());
-    }
+    continuous_world_guard(
+        land_overrides.continuous,
+        conquest,
+        end_bell,
+        join_gate,
+        epoch_gate,
+    )?;
     let land = Duration::from_secs(60);
     let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
     let (sp, ph) = if conquest {
@@ -277,6 +307,21 @@ pub async fn run(
 
 #[cfg(test)]
 mod tests {
+    /// ⑰: the epoch pools' join gate is the only gate a continuous world
+    /// takes; the season end and the legacy pool's gate stay refused.
+    #[test]
+    fn a_continuous_world_takes_only_the_epoch_gate() {
+        use super::continuous_world_guard as g;
+        let gate = Some([7u8; 32]);
+        assert_eq!(g(false, true, Some(10), gate, false), Ok(()));
+        assert_eq!(g(true, true, None, None, false), Ok(()));
+        assert_eq!(g(true, true, None, gate, true), Ok(()));
+        assert!(g(true, true, None, gate, false).unwrap_err().contains("legacy prize join gate"));
+        assert!(g(true, true, Some(10), None, false).unwrap_err().contains("season end"));
+        assert!(g(true, true, Some(10), gate, true).unwrap_err().contains("season end"));
+        assert!(g(true, false, None, None, false).unwrap_err().contains("conquest"));
+    }
+
     use super::*;
 
     /// W6T-4: `--days 1 --season-end-at-play-end` creates a 144-bell

@@ -421,6 +421,9 @@ jobs:
           PRIZE_SO: ${{ github.workspace }}/permutation-prize/target/deploy/permutation_prize.so
       - name: Prize pool LiteSVM format, lints and tests
         working-directory: permutation-prize/svm-tests
+        env:
+          # Named explicitly, so a missing epochs build fails instead of skipping (verify-pr54 D-8).
+          PRIZE_EPOCH_SO: ${{ github.workspace }}/permutation-prize/target/deploy-epochs/permutation_prize.so
         run: |
           cargo fmt --all -- --check
           cargo clippy --locked --all-targets -- -D warnings

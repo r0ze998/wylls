@@ -794,6 +794,11 @@ fn the_default_build_has_no_epoch_instructions() {
     let Some(mut w) = world() else { return };
     w.svm.add_program(w.prize, &default_so).unwrap();
     fails(init_epoch(&mut w, 0, E0), E::BadData);
+    // EpochTally, EpochFinalize and Sweep are unknown there too.
+    for t in [tag::EPOCH_TALLY, tag::EPOCH_FINALIZE, tag::SWEEP] {
+        let pool = epool(&w, 0);
+        fails(crank(&mut w, t, pool, &[]), E::BadData);
+    }
 }
 
 fn permutation_prize_marker() -> &'static [u8] {

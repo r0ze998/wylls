@@ -294,7 +294,8 @@ export async function joinViaX402(relay, { wallet, sign, signTransaction, factio
   if (maxFee !== null && BigInt(req.maxAmountRequired) > BigInt(maxFee)) throw new X402Error('X402TooExpensive', `the entry fee ${req.maxAmountRequired} is above the limit ${maxFee}`);
   // Never sign for another pool, vault or season than the ones derived here.
   const addresses = new FrontierAddresses({ programId: x.programId, seasonId: BigInt(x.seasonId) });
-  const prize = prizeAddresses({ prizeProgram: x.prizeProgram, gameProgram: x.programId, seasonId: BigInt(x.seasonId), mint: req.asset });
+  // ⑰ settlement windows: the relay names its window (`extra.epoch`); the pool and vault are derived for it, never taken as given.
+  const prize = prizeAddresses({ prizeProgram: x.prizeProgram, gameProgram: x.programId, seasonId: BigInt(x.seasonId), mint: req.asset, epoch: x.epoch ?? null });
   if (addresses.season !== x.season || prize.pool !== x.pool || prize.vault !== req.payTo) throw new X402Error('X402Mismatch', 'the payment requirements do not match the season\'s addresses');
   const message = paidJoinMessage({ programId: x.programId, prize, wallet, feePayer: x.feePayer, recentBlockhash: x.recentBlockhash, profile: x.profile,
     joinAccounts: { wallet, season: addresses.season, frontier: addresses.frontier, citizen: addresses.citizen(wallet),

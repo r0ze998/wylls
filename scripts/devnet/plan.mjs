@@ -447,7 +447,8 @@ export function run(argv, io) {
   if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (scripts/build-frontier.sh)`); return 3; }
   const so = checkSo(io.readFile(soPath), profile);
   let prize = null;
-  if (opts.withPrize) {
+  // The profile's `prize.enabled` (false as committed) includes it as --with-prize does; either way it is plan only.
+  if (opts.withPrize || profile.prize?.enabled === true) {
     const pp2 = prizeProfileProblems(profile.prize);
     if (pp2.length) { io.err(`prize profile refused:\n${pp2.map(p => `  - ${p}`).join('\n')}`); return 2; }
     const prizeSoPath = opts.prizeSo ?? `${io.repoRoot}/${profile.prize.so}`;

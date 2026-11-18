@@ -64,13 +64,18 @@ the 7 keepless provinces of rings 0–1. A province opened later must be counted
 ### 2.2 Wiring (local build only, OFF by default)
 
 - **Program:** `scripts/build-prize.sh --features epochs` writes
-  `permutation-prize/target/deploy-epochs/permutation_prize.so`. The default build is unchanged. Both builds put a
+  `permutation-prize/target/deploy-epochs/permutation_prize.so`. The default build behaves as before (the legacy
+  LiteSVM suite passes unchanged against it), but it is not byte-identical: the shared pool-signer code and shifted
+  panic line numbers change its hash. Both builds put a
   text placeholder where `cargo-build-sbf` would write a program keypair, so the build is key-free.
 - **Stack:** `frontier-stack up --conquest --continuous --prize-so <epochs .so> --prize-epochs [--prize-epoch-bells N]
   [--prize-claim-bells N]`. The stack refuses `--prize-epochs` without `--continuous` and `--prize-so`. It also refuses
   a `.so` without the epochs marker, and a continuous world with `--prize-so` but without `--prize-epochs` (the legacy
-  refusal stays). The stack opens window 0 (bells 0 to N) and passes `--prize-epoch 0` to the relay.
-- **Relay:** `--prize-epoch N` makes `/f/prize` and `/f/x402/join` use the epoch pool. The relay refuses this flag on
+  refusal stays). The season setup (`setup::continuous_world_guard`) lets a continuous world carry a join gate only for
+  the epoch pools; a season end stays refused. The stack opens window 0 (bells 0 to N) and passes `--prize-epoch 0` to
+  the relay.
+- **Relay:** `--prize-epoch N` makes `/f/prize` (with a `window` field) and `/f/x402/join` (with `extra.epoch`) use the
+  epoch pool, and the SDK's `joinViaX402` derives that window's pool and vault from `extra.epoch` before signing. The relay refuses this flag on
   any cluster other than `localnet` or `devnet`, and with Circle's mainnet USDC mint
   (`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`).
 - **Devnet dry run:** `scripts/devnet/devnet-profile.json` has a `prize` section with `enabled: false`, a test-mint
@@ -97,8 +102,10 @@ change: four new instructions, and none of the shares, claim or operator code ch
 - **Program, host:** `cd permutation-prize && cargo test --features epochs` (9 tests, 3 of them new: the Pay close,
   the account tail, the continuous-season check) and `cargo test` (6, the default build).
 - **Program, LiteSVM** (`scripts/build-prize.sh --features epochs` first):
-  `cd permutation-prize/svm-tests && cargo test --release --test epoch` (6). These cover the full cycle across two
-  windows, the snapshot rule, a tie, refund mode, InitEpochPool's guards and Sweep's guards. `--test pool` (15, the
+  `cd permutation-prize/svm-tests && cargo test --release --test epoch` (7). These cover the full cycle across two
+  windows, the snapshot rule, a tie, refund mode, InitEpochPool's guards, Sweep's guards and the default build refusing
+  the epoch tags. A path given in `PRIZE_EPOCH_SO` must exist (CI's key-tests job names it); with the default path
+  missing the tests print SKIP and pass. `--test pool` (15, the
   legacy suite) passes against both the default and the epochs build.
 - **Stack:** `cd frontier-node && cargo test -p stack --lib` (102, new: `prize_epochs_need_a_continuous_world`,
   `epoch_pools_match_the_program`).

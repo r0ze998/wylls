@@ -1139,6 +1139,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             placement: st.cfg.placement,
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
+        st.prize.as_ref().is_some_and(|p| p.epoch.is_some()),
         st.cfg.season_end_bell(),
         st.cfg.preseason_scale,
         st.cfg.scale,

@@ -82,7 +82,7 @@
   },
   "prize": {
     "enabled": false,
-    "note": "Owner decision 17 reopened 2026-11-18 18:26 JST: implement the prize as settlement windows of the continuous world, devnet and test USDC only. A real-money prize on mainnet needs a legal review first. Off by default: `--with-prize` adds this program's .so checks and costs to the plan. This tool never sends it (no prize deploy step exists).",
+    "note": "Owner decision 17 reopened 2026-11-18 18:26 JST: implement the prize as settlement windows of the continuous world, devnet and test USDC only. A real-money prize on mainnet needs a legal review first. Off by default: `--with-prize` (or `enabled: true`) adds this program's .so checks and costs to the plan. This tool never sends it (no prize deploy step exists).",
     "crate": "permutation-prize",
     "build": "scripts/build-prize.sh --features epochs",
     "so": "permutation-prize/target/deploy-epochs/permutation_prize.so",

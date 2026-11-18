@@ -119,7 +119,9 @@ export function poolView(prize, pool) {
     testAssetsOnly: true, ...prize, decimals: pool.decimals, operator: pool.operator,
     fee: String(pool.fee), opsBps: pool.opsBps, prizeBps: 10_000 - pool.opsBps, paramsHash: toHex(pool.paramsHash),
     entries: pool.entries, collected: String(pool.collected), prize: String(pool.prize), ops: String(pool.ops), opsWithdrawn: String(pool.opsWithdrawn),
-    state: ['open', 'final', 'shares'][pool.state] ?? 'unknown', expectedKeeps: pool.expectedKeeps, counted: pool.counted,
+    state: ['open', 'final', 'shares', 'swept'][pool.state] ?? 'unknown', expectedKeeps: pool.expectedKeeps, counted: pool.counted,
+    // ⑰ settlement windows (test USDC): the window this pool settles; null for the legacy per-season pool.
+    window: pool.kind === 'epoch' ? { epoch: pool.epoch, endBell: pool.endBell, claimBells: pool.claimBells, deadlineTs: pool.deadlineTs || null, rolledOut: String(pool.rolledOut) } : null,
     area: pool.counted ? pool.area : null, territoryBells: pool.counted ? pool.bells.map(String) : null,
     winners: pool.state >= POOL_STATE.FINAL ? pool.winners : null,
     shares: pool.state === POOL_STATE.SHARES ? { mode: pool.mode === 2 ? 'refund' : 'shares', shareNations: pool.shareNations, totalPoints: pool.totalPoints.map(String),
