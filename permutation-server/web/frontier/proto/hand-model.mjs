@@ -32,6 +32,7 @@ import { troopsOf } from '../fmarch.mjs';
 import { ownHosts } from '../hud/subject.mjs';
 import { factionName, unitCount, clientText } from '../fi18n.mjs';
 import { placeName } from '../people/identity.mjs';
+import { worded, said, noticeText } from '../hud/words.mjs';
 
 const int = Number.isInteger;
 
@@ -637,7 +638,8 @@ export function freshNews(FS) {
   // (`premise`: what the world wrote when it began — the villages' land, the neighbours' first banners — is no news)
   const fresh = P.log.filter(r => num(r) > P.newsSeq && r.premise !== true);
   P.newsSeq = Math.max(P.newsSeq, last);
-  const records = fresh.map(r => ({ record: r, own: isOwnRecord(FS, r), did: isOwnDoing(FS, r), item: newsOf(FS, r) }));
+  // (B11: each line in every language now — hud/words.mjs worded; newsOf is pure — so that it follows a switch of language)
+  const records = fresh.map(r => ({ record: r, own: isOwnRecord(FS, r), did: isOwnDoing(FS, r), item: worded(() => newsOf(FS, r)) }));
   // (a walk that mended a frayed banner: the day's pay is a line of the list beside it and no notice of its own — a
   // phone shows one notice, and 「功績 +2」 stood in place of the sentence that says the land counts again)
   if (records.some(x => x.item && opOf(x.record) === 'TEND' && x.record.restored)) for (const x of records) if (x.item && opOf(x.record) === 'WALK') x.item = { ...x.item, quiet: true };
@@ -961,6 +963,20 @@ export function marchRank(FS, id) {
   if (!a) return 1;
   if (a.raise?.ok || a.raise?.code === 'StandLonger' || (a.tend ?? []).some(t => !t.ok && WAIT_CODES.includes(t.code))) return 2;
   return a.onPole && isOwnHolder(FS, a.onPole.holder) ? 0 : 1;
+}
+/**
+ * A standing threat's notice as it is now (app.mjs protoAlarmNow, as the notice is drawn): the count the records give,
+ * and whether the answer is on its way. `x`: the notice as it was told; `up`: the threat as threatsOf gives it now.
+ * (B11 round 2, verify-pr63 R1: this live text is made as it is drawn, in every language — hud/words.mjs said —, with
+ * the threat's own words in each — noticeText —: the words the notice was told with would otherwise stand over it.)
+ */
+export function alarmNow(FS, x, up) {
+  const at = marchingTo(FS, up);
+  // (in the turn it arrives in, and until that turn is settled: arrived, the fight not told yet — the notice said "on its way" for a turn that had passed)
+  if (at !== null) return { ...x, send: null, ...said(() => ((FS.nowBell ?? 0) < at ? L`${noticeText(up)}。あなたの軍勢が向かっています（ターン ${fmtNum(at)} に到着）` : L`${noticeText(up)}。あなたの軍勢が着きました。戦いの結果を待っています`)) };
+  // (outnumbered — a new hamlet against a host of 500 —: the notice carries the numbers, as the guide's step does)
+  const force = up.foe ? strengthOf(FS) : null;
+  return force && force.best < up.foe.troops ? { ...x, ...said(() => L`${noticeText(up)}。${threatNumbers(up, force)}数で下回っています`) } : { ...x, ...said(() => noticeText(up)) };
 }
 /** The numbers of a threat in one sentence: who stands there, and the largest host the viewer has or could form. */
 export function threatNumbers(t, force) {

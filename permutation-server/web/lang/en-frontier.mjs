@@ -1064,4 +1064,10 @@ export default {
   '進軍を開く': 'Open Marches',
   // (round 48: the map's tag once the host's arrival turn has passed: map/hostmarks.mjs awayText)
   '軍勢はターン {0} に到着 · 位置を読み込んでいます': 'Host arrived on turn {0} · loading its position',
+  // (B10, loop-play2: the hosts this list does not show because they are on the march: screens/host.mjs awayLines)
+  'ほかに {0} の軍勢が進軍に出ています。到着が読めるまで、この一覧には出ません。到着と結果は「進軍」で確かめられます。': n => plural(n, '{0} more host is away on a march. It is not in this list until its arrival is read. See Marches for its arrival and result.', '{0} more hosts are away on a march. They are not in this list until their arrival is read. See Marches for their arrival and result.'),
+  '{0}への進軍': 'March to {0}',
+  '進軍中の軍勢': 'A host on the march',
+  '到着しました（ターン {0}）。結果は「進軍」で確かめられます': 'Arrived (turn {0}). See Marches for the result',
+  'ターン {0} に到着の予定': 'Due to arrive on turn {0}',
 };
