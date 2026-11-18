@@ -58,8 +58,11 @@ pub fn take_villages_args(args: Vec<String>) -> Result<(Vec<String>, Option<Path
             }
             let v = it.next().ok_or("--operator-villages needs a value")?;
             let p = PathBuf::from(&v);
-            if !p.is_absolute() || p.file_name().and_then(|n| n.to_str()) != Some("operators.json") {
-                return Err("--operator-villages must be an absolute path to operators.json".into());
+            if !p.is_absolute() || p.file_name().and_then(|n| n.to_str()) != Some("operators.json")
+            {
+                return Err(
+                    "--operator-villages must be an absolute path to operators.json".into(),
+                );
             }
             path = Some(p);
         } else {
@@ -73,7 +76,8 @@ pub fn take_villages_args(args: Vec<String>) -> Result<(Vec<String>, Option<Path
 /// [`MAX_OPERATOR_VILLAGES`]; `None` while the file is not a whole, valid record yet.
 pub fn parse_wallets(text: &str) -> Option<Vec<Address>> {
     let v: Value = serde_json::from_str(text).ok()?;
-    if v.get("schema")?.as_str()? != OPERATORS_FILE_SCHEMA || v.get("test_only")?.as_bool()? != true {
+    if v.get("schema")?.as_str()? != OPERATORS_FILE_SCHEMA || v.get("test_only")?.as_bool()? != true
+    {
         return None;
     }
     let mut out: Vec<Address> = vec![];
@@ -92,7 +96,10 @@ pub fn parse_wallets(text: &str) -> Option<Vec<Address>> {
 pub fn home_of(state: &Shared, a: &Addresses, wallet: &Address) -> Option<(Address, (i16, i16))> {
     let cit = bytes(state, &a.citizen(wallet)).ok()?;
     let slot = C::holding_of_slot(1);
-    let at = |o: usize| cit.get(slot + o..slot + o + 2).map(|b| i16::from_le_bytes([b[0], b[1]]));
+    let at = |o: usize| {
+        cit.get(slot + o..slot + o + 2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+    };
     let (p, q, site) = (at(HR::P)?, at(HR::Q)?, *cit.get(slot + HR::SITE)?);
     let h = a.holding(p as i32, q as i32, site);
     let hd = bytes(state, &h).ok()?;
@@ -115,12 +122,19 @@ pub async fn watch(
         if *stop.borrow() {
             return;
         }
-        if let Some(w) = std::fs::read_to_string(&path).ok().as_deref().and_then(parse_wallets) {
+        if let Some(w) = std::fs::read_to_string(&path)
+            .ok()
+            .as_deref()
+            .and_then(parse_wallets)
+        {
             break w;
         }
         tokio::select! { _ = tokio::time::sleep(POLL) => {} _ = stop.changed() => {} }
     };
-    out(line("wallets", json!({"count": wallets.len(), "file": display(&path)})));
+    out(line(
+        "wallets",
+        json!({"count": wallets.len(), "file": display(&path)}),
+    ));
     let mut served = vec![false; wallets.len()];
     while served.iter().any(|s| !s) {
         if *stop.borrow() {
@@ -132,8 +146,13 @@ pub async fn watch(
             }
             if let Some((holding, home)) = home_of(&state, &a, w) {
                 served[i] = true;
-                let sent = more.send((crate::keeper_loop::public_quicknet(), holding, home)).is_ok();
-                out(line("village", json!({"resident": i, "wallet": w.to_string(), "holding": holding.to_string(), "p": home.0, "q": home.1, "keeper": sent})));
+                let sent = more
+                    .send((crate::keeper_loop::public_quicknet(), holding, home))
+                    .is_ok();
+                out(line(
+                    "village",
+                    json!({"resident": i, "wallet": w.to_string(), "holding": holding.to_string(), "p": home.0, "q": home.1, "keeper": sent}),
+                ));
             }
         }
         tokio::select! { _ = tokio::time::sleep(POLL) => {} _ = stop.changed() => {} }
@@ -142,7 +161,10 @@ pub async fn watch(
 }
 
 fn display(p: &Path) -> String {
-    p.file_name().and_then(|n| n.to_str()).unwrap_or("operators.json").to_string()
+    p.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("operators.json")
+        .to_string()
 }
 
 /// Every province of ring `d`, in the fixed order (p ascending, then q).
@@ -199,21 +221,37 @@ pub async fn open_rest(
         };
         match sim {
             Ok(r) if r.err.is_none() => {
-                send(&state, &opener, ix, &format!("OpenProvince {:?}", (p, q)), &mut stop).await?;
+                send(
+                    &state,
+                    &opener,
+                    ix,
+                    &format!("OpenProvince {:?}", (p, q)),
+                    &mut stop,
+                )
+                .await?;
                 opened += 1;
                 out(line("province_opened", json!({"p": p, "q": q, "ring": d})));
             }
             Ok(r) => {
                 refused += 1;
-                out(line("province_refused", json!({"p": p, "q": q, "ring": d, "why": format!("{:?} (code {:?})", r.err, r.code)})));
+                out(line(
+                    "province_refused",
+                    json!({"p": p, "q": q, "ring": d, "why": format!("{:?} (code {:?})", r.err, r.code)}),
+                ));
             }
             Err(e) => {
                 refused += 1;
-                out(line("province_refused", json!({"p": p, "q": q, "ring": d, "why": e})));
+                out(line(
+                    "province_refused",
+                    json!({"p": p, "q": q, "ring": d, "why": e}),
+                ));
             }
         }
     }
-    out(line("ring_open", json!({"ring": d, "opened": opened, "already": present, "refused": refused})));
+    out(line(
+        "ring_open",
+        json!({"ring": d, "opened": opened, "already": present, "refused": refused}),
+    ));
     Ok(())
 }
 
@@ -224,15 +262,30 @@ mod tests {
     #[test]
     fn the_option_is_exact_absolute_and_once() {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        let (rest, p) = take_villages_args(s(&["--a", "1", "--operator-villages", "/w/x/operators.json", "--b"])).unwrap();
+        let (rest, p) = take_villages_args(s(&[
+            "--a",
+            "1",
+            "--operator-villages",
+            "/w/x/operators.json",
+            "--b",
+        ]))
+        .unwrap();
         assert_eq!(rest, s(&["--a", "1", "--b"]));
         assert_eq!(p, Some(PathBuf::from("/w/x/operators.json")));
-        assert_eq!(take_villages_args(s(&["--a"])).unwrap(), (s(&["--a"]), None));
+        assert_eq!(
+            take_villages_args(s(&["--a"])).unwrap(),
+            (s(&["--a"]), None)
+        );
         for bad in [
             &["--operator-villages"][..],
             &["--operator-villages", "rel/operators.json"],
             &["--operator-villages", "/w/other.json"],
-            &["--operator-villages", "/a/operators.json", "--operator-villages", "/a/operators.json"],
+            &[
+                "--operator-villages",
+                "/a/operators.json",
+                "--operator-villages",
+                "/a/operators.json",
+            ],
         ] {
             assert!(take_villages_args(s(bad)).is_err(), "{bad:?}");
         }
@@ -242,12 +295,17 @@ mod tests {
     fn the_wallets_come_only_from_a_whole_test_only_record() {
         let w1 = Address::new_from_array([7; 32]).to_string();
         let w2 = Address::new_from_array([9; 32]).to_string();
-        let rec = |extra: &str, ws: &[&str]| format!("{{\"schema\":\"{OPERATORS_FILE_SCHEMA}\",\"test_only\":true{extra},\"wallets\":{}}}", serde_json::to_string(ws).unwrap());
+        let rec = |extra: &str, ws: &[&str]| {
+            format!("{{\"schema\":\"{OPERATORS_FILE_SCHEMA}\",\"test_only\":true{extra},\"wallets\":{}}}", serde_json::to_string(ws).unwrap())
+        };
         assert_eq!(parse_wallets(&rec("", &[&w1, &w2])).unwrap().len(), 2);
         assert!(parse_wallets(&rec("", &[&w1, &w1])).is_none(), "each once");
         assert!(parse_wallets(&rec("", &[])).is_none());
         assert!(parse_wallets(&rec("", &["not-base58!"])).is_none());
-        assert!(parse_wallets(&rec("", &[&w1])[..20]).is_none(), "a partly written file is not read");
+        assert!(
+            parse_wallets(&rec("", &[&w1])[..20]).is_none(),
+            "a partly written file is not read"
+        );
         assert!(parse_wallets(&rec("", &[&w1]).replace("true", "false")).is_none());
         assert!(parse_wallets(&rec("", &[&w1]).replace(OPERATORS_FILE_SCHEMA, "other")).is_none());
     }
@@ -276,6 +334,12 @@ mod tests {
             assert!(!body.contains(w), "nothing is written directly: {w}");
         }
         let open = body.find("let ix = ix::open_province(").unwrap();
-        assert!(body[open..].find("lk::simulate_ix(&c, &opener, &ix)").unwrap() < body[open..].find("send(&state, &opener, ix, ").unwrap(), "simulated before sent");
+        assert!(
+            body[open..]
+                .find("lk::simulate_ix(&c, &opener, &ix)")
+                .unwrap()
+                < body[open..].find("send(\n                    &state,\n                    &opener,\n                    ix,").unwrap(),
+            "simulated before sent"
+        );
     }
 }

@@ -54,10 +54,6 @@ pub mod natural_persist;
 // TEST-ONLY capture demo on a natural world: a synthetic clock and test participants, the program's own instructions
 #[cfg(feature = "localnet-expedition-play")]
 pub mod capture_demo;
-// TEST-ONLY operator AI war world (with the capture demo): the keeper also serves the operator residents' villages, and
-// the rest of the demo's new ring is opened by the program's own OpenProvince so every nation has keeps to contest
-#[cfg(feature = "localnet-expedition-play")]
-pub mod operator_villages;
 pub mod checks;
 #[cfg(feature = "localnet-conquest-play")]
 pub mod conquest_crank;
@@ -79,6 +75,10 @@ pub mod gate;
 #[cfg(feature = "localnet-land-play")]
 pub mod land_lane;
 pub mod native;
+// TEST-ONLY operator AI war world (with the capture demo): the keeper also serves the operator residents' villages, and
+// the rest of the demo's new ring is opened by the program's own OpenProvince so every nation has keeps to contest
+#[cfg(feature = "localnet-expedition-play")]
+pub mod operator_villages;
 pub mod program;
 pub mod relay;
 #[cfg(feature = "localnet-expedition-play")]
