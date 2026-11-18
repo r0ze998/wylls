@@ -13,6 +13,7 @@
 //
 //   http://127.0.0.1:41873/frontier/frontier/   … ゲーム（ヘラルドの画面を転送。Dev Wallet はこの入口のもの）
 //   http://127.0.0.1:41873/ws01/                 … 依頼の画面（同じ入口なので、同じ Dev Wallet で署名する）
+//   http://127.0.0.1:41873/coop/outcomes         … ⑮の称号と年代記（案 B。読むだけ。勝敗・得点・賞金には関わらない。ゲームの画面が「その他」に出す）
 //
 // 板がしないこと：資源を動かす・隊商を送る・誰かの代わりに署名する。板は記録を並べて確かめるだけ。
 // 板は記録を消せない（追記だけ）。ただし板が記録を出さない（隠す）ことは、署名では防げない（docs 17章）。
@@ -30,6 +31,14 @@ import { caravanKeyOf } from './arrival.mjs';
 import { pendingSendOf } from './pending.mjs';
 import { openStore, loadStore, readLines, DEFAULT_SEGMENT_BYTES } from './store.mjs';
 import { addressesOf } from './ids.mjs';
+import { boardForEvaluators } from './export.mjs';
+import { decodePage } from '../../../permutation-server/web/frontier/flog.mjs';
+import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
+
+// ⑮'s production wiring (ruleset B: titles and chronicle only; owner decision 2026-11-18). The only ⑮ module the board imports.
+import { evaluateLive } from '../../15-coop-outcomes/src/live.mjs';
+/** At most this many `/h/events` pages are read per `/coop/outcomes` answer (the rest is read on the next one). */
+export const OUTCOME_PAGES_PER_READ = 500;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
@@ -238,9 +247,41 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged, contexts, store: { segments: segments.length, problems: storeProblems } };
   }
 
+  // ⑮（2026-11-18 持ち主の決定：案 B）：共同の達成を判定し、称号と年代記の行としてだけ出す。勝敗・得点・賞金・シーズンの終わりには関わらない。
+  // 入力：ヘラルドの /h/events を最初から順に（追記だけなので、読んだ所から続ける）、/h/season の時計、この板の記録（ws01-board v1）。
+  // 同じ入力からは同じ答え（verdictHash）。
+  const ev = { rows: [], cursor: '0' };
+  let outcomeCache = null;
+  async function outcomes() {
+    let s;
+    try { s = await getHerald('/h/season'); } catch { s = null; }
+    if (!s || s.status !== 200 || !s.json || !Number.isFinite(Number(s.json.genesisTs)) || !(Number(s.json.bellSecs) > 0)) return { ok: false, code: 'NoSeason' };
+    const genesisTs = Number(s.json.genesisTs), bellSecs = Number(s.json.bellSecs);
+    let complete = false;
+    for (let i = 0; i < OUTCOME_PAGES_PER_READ; i++) {
+      let r;
+      try { r = await getHerald(`/h/events?after=${encodeURIComponent(ev.cursor)}`); } catch { r = null; }
+      if (!r || r.status !== 200 || !r.json || !Array.isArray(r.json.events)) return { ok: false, code: r ? `Events${r.status}` : 'EventsUnreachable' };
+      for (const row of r.json.events) {
+        const d = decodePage([row]);
+        ev.rows.push(d.bad ? { seq: String(row.seq), bad: true } : { seq: String(row.seq), bell: row.bell, sig: row.sig ?? null, record: d.records[0]?.record ?? null });
+      }
+      if (typeof r.json.next === 'string') ev.cursor = r.json.next;
+      if (!r.json.full) { complete = true; break; }
+    }
+    const nowBell = Math.max(0, Math.floor((now() - genesisTs) / bellSecs));
+    const key = `${ev.cursor}|${records.length}|${nowBell}`;
+    if (outcomeCache?.key === key) return outcomeCache.value;
+    const tagOf = w => { try { return ownerTagOf(season, typeof w === 'string' ? w : toBase58(w)); } catch { return null; } };
+    const out = evaluateLive({ rows: ev.rows, season: { genesisTs, bellSecs }, board: boardForEvaluators(state(), { contexts }), tagOf, nowBell });
+    const value = { ok: true, season, complete, nowBell, ...out };
+    outcomeCache = { key, value };
+    return value;
+  }
+
   // season：今の文脈 {programId, seasonId}（object。⑦の入口 hud/coopboard.mjs は season.seasonId を今のシーズンと比べる）。page：この板の画面の道（同じ origin）
   const config = () => ({ season, contexts, cluster, page: PAGE, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems } });
-  return { submit, view, config, records, caravans, season, contexts, rpc, state };
+  return { submit, view, outcomes, config, records, caravans, season, contexts, rpc, state };
 }
 
 // ------------------------------------------------------------------ HTTP
@@ -301,6 +342,12 @@ export async function answerCoop(board, req, url) {
   }
   if (url.pathname === '/coop/view') {
     return { status: 200, body: await board.view({ viewer: url.searchParams.get('viewer') || null, judgeId: url.searchParams.get('judge') || undefined }) };
+  }
+  if (url.pathname === '/coop/outcomes' && req.method === 'GET') {
+    // ⑮の称号と年代記（読むだけ）。勝敗・得点・賞金には関わらない
+    const o = board.outcomes ? await board.outcomes() : null;
+    if (!o) return { status: 404, body: { error: 'no co-op outcome evaluator in this tree' } };
+    return { status: o.ok ? 200 : 503, body: o };
   }
   return null;
 }
