@@ -16,10 +16,22 @@
 //   create again after destroy    a NEW key and a NEW address; the old one cannot be had again
 //   reload    the page's memory is gone, and the key with it
 // It signs real Ed25519 signatures for a disposable local chain. It is not for a public cluster or real funds.
+//
+// TEST-ONLY, NOT FOR PRODUCTION — the KEPT variant (⑧ P2 option B): only when the caller also passes `keep` (the gate
+// does so only for a page of a launcher started with `--persist local-persist-v1`), the same non-extractable key is kept
+// in this browser's IndexedDB (flocalplay-keystore.mjs) and reused after a reload, so the player's world and village are
+// the same. The key is still made with `extractable = false` and its bytes are never in JavaScript; IndexedDB holds the
+// CryptoKey object itself. Its name says that it is kept. `destroy` drops this page's reference only; the kept key
+// stays until `forgetLocalPlayKeys`.
 import { parseTransaction, wireTransaction } from '../sdk/solana-tx.mjs';
 import { encode as toBase58 } from '../sdk/base58.mjs';
+import { loadWalletPair, saveWalletPair } from './flocalplay-keystore.mjs';
 
 export const EPHEMERAL_WALLET_NAME = 'Local Play Wallet (memory only)';
+/** The kept TEST wallet's name (it is not memory-only). */
+export const KEPT_WALLET_NAME = 'Local Play TEST Wallet (kept in this browser)';
+/** Either local-play wallet name: what the page looks for among the offered wallets. */
+export const LOCAL_PLAY_WALLET_NAMES = Object.freeze([EPHEMERAL_WALLET_NAME, KEPT_WALLET_NAME]);
 export const EPHEMERAL_CHAIN = 'solana:localnet';
 const ED25519 = 'Ed25519';
 const ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzNjMGMwOCIvPjx0ZXh0IHg9IjE2IiB5PSIyMiIgZm9udC1zaXplPSIxMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI2YwZDQ4YSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSI+TUVNPC90ZXh0Pjwvc3ZnPg==';
@@ -60,13 +72,13 @@ export const currentEphemeralWallet = () => live;
  * error with a code) unless `ephemeralWalletAllowed`. A call while a wallet lives, or while one is being made,
  * returns that same wallet; it never makes a second key.
  */
-export function createEphemeralWallet({ cluster, hostname = globalThis.location?.hostname, localPlay, subtle = globalThis.crypto?.subtle } = {}) {
+export function createEphemeralWallet({ cluster, hostname = globalThis.location?.hostname, localPlay, subtle = globalThis.crypto?.subtle, keep = null } = {}) {
   const allowed = ephemeralWalletAllowed({ cluster, hostname, localPlay });
   if (!allowed.ok) return Promise.reject(Object.assign(new Error('a memory-only test wallet is for explicitly chosen local play on localnet, on this machine'), { code: allowed.code }));
   if (live) return Promise.resolve(live);
   if (!creating) {
     const mine = epoch;
-    const p = make(subtle).then(handle => {
+    const p = make(subtle, keep).then(handle => {
       // destroyed while it was being made: the new key is dropped at once and nobody gets it
       if (mine !== epoch) { handle.destroy(); fail('EphemeralWalletDestroyed', 'the memory-only wallet was destroyed while it was being made'); }
       live = handle; return handle;
@@ -77,14 +89,20 @@ export function createEphemeralWallet({ cluster, hostname = globalThis.location?
 }
 let epoch = 0;
 
-async function make(subtle) {
+async function make(subtle, keep) {
   if (!subtle?.generateKey) fail('NoEd25519', 'this page cannot make an Ed25519 key');
-  let pair;
+  let pair = null;
+  // (the kept TEST wallet: the pair this browser kept for this launcher, when there is one; a kept record that is not
+  //  exactly what this page writes is refused, never repaired)
+  if (keep) pair = await loadWalletPair(keep.store, keep.scope, { subtle, encode: toBase58 });
+  const kept = !!keep, reused = pair !== null;
   // extractable = false: the private key cannot be exported, wrapped or read; only `sign` may use it
-  try { pair = await subtle.generateKey(ED25519, false, ['sign', 'verify']); } catch { fail('NoEd25519', 'this page cannot make an Ed25519 key'); }
+  if (!pair) { try { pair = await subtle.generateKey(ED25519, false, ['sign', 'verify']); } catch { fail('NoEd25519', 'this page cannot make an Ed25519 key'); } }
   const publicKey = new Uint8Array(await subtle.exportKey('raw', pair.publicKey));
   if (publicKey.length !== 32) fail('NoEd25519', 'unexpected public key');
   const address = toBase58(publicKey);
+  if (kept && !reused) await saveWalletPair(keep.store, keep.scope, { privateKey: pair.privateKey, publicKey: pair.publicKey, address });
+  const NAME = kept ? KEPT_WALLET_NAME : EPHEMERAL_WALLET_NAME;
   // The only reference to the private key, in this closure. `destroy` drops it.
   let key = pair.privateKey;
   pair = null;
@@ -108,7 +126,7 @@ async function make(subtle) {
     if (input?.chain !== undefined && input.chain !== EPHEMERAL_CHAIN) fail('EphemeralWalletCluster', 'this wallet signs for localnet only');
   };
   const wallet = Object.freeze({
-    version: '1.0.0', name: EPHEMERAL_WALLET_NAME, icon: ICON, chains: Object.freeze([EPHEMERAL_CHAIN]),
+    version: '1.0.0', name: NAME, icon: ICON, chains: Object.freeze([EPHEMERAL_CHAIN]),
     // (no account once destroyed)
     get accounts() { return key === null ? Object.freeze([]) : Object.freeze([account]); },
     features: Object.freeze({
@@ -153,7 +171,7 @@ async function make(subtle) {
     }),
   });
   const handle = {
-    name: EPHEMERAL_WALLET_NAME, address, wallet,
+    name: NAME, address, wallet, kept, reused,
     get publicKey() { return Uint8Array.from(publicKey); },
     get destroyed() { return key === null; },
     /**
@@ -195,7 +213,7 @@ async function make(subtle) {
       if (live === handle) live = null;
     },
     /** What may be handed to a runner or logged: the name and the public address, nothing else. */
-    toJSON() { return { name: EPHEMERAL_WALLET_NAME, address }; },
+    toJSON() { return { name: NAME, address }; },
   };
   return Object.freeze(handle);
 }

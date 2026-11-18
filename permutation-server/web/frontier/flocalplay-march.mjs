@@ -159,6 +159,18 @@ const address = v => { try { const b = decode(v); return typeof v === 'string' &
 const uintText = v => typeof v === 'string' && /^(0|[1-9][0-9]{0,19})$/.test(v);
 const bytesOf = (v, n) => (v instanceof Uint8Array || Array.isArray(v)) && v.length === n ? Uint8Array.from(v) : null;
 
+/**
+ * TEST-ONLY, NOT FOR PRODUCTION (⑧ P2 option B): the store the next sender uses instead of a memory-only one — set
+ * only by the local-play gate, only for a page of a launcher that keeps its worlds (`persist=local`): the march book
+ * kept encrypted in this browser (flocalplay-keystore.mjs `openSealedBook`), so a reload keeps the sealed marches'
+ * reveal halves and the held state. Null (the default) keeps the memory-only book.
+ */
+let keptStorage = null;
+export function useLocalMarchStorage(storage) {
+  if (storage !== null && (typeof storage?.get !== 'function' || typeof storage?.set !== 'function')) fail('BadLocalMarchStorage');
+  keptStorage = storage;
+}
+
 /** A memory-only store with the marchbook's storage shape (`get`, `set`). Nothing reaches the browser's storage. */
 export function memoryStorage() {
   const m = new Map();
@@ -250,10 +262,13 @@ function statusOf(v, signature) {
  */
 export function createLocalMarchSender({ allowed, open, identity, rulesetHash, signer, post = postLocalMarch, sign = signWithMemoryWallet,
   wait = ms => new Promise(r => setTimeout(r, ms)), tries = 40, every = 1500 } = {}) {
-  const storage = memoryStorage(), bookKey = LOCAL_MARCH_BOOK_KEY;
+  const storage = keptStorage ?? memoryStorage(), bookKey = LOCAL_MARCH_BOOK_KEY;
   const read = () => { try { const v = JSON.parse(storage.get(bookKey) ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
   const patch = (signature, p) => storage.set(bookKey, JSON.stringify(read().map(e => (e.signature === signature ? { ...e, ...p } : e))));
   const origins = new Map();   // signature → the relay origin it was sent through (asked only there)
+  // (a march kept from before a reload — persisted worlds only — has no remembered origin: its status is read through
+  //  the gate's relay of NOW, the same world's; a read only, nothing is sent again)
+  const originOf = signature => origins.get(signature) ?? (keptStorage && storage === keptStorage ? (() => { try { const a = allowed(); return a?.ok ? a.relay : null; } catch { return null; } })() : null);
   /** The signatures of `host`'s marches that were sent and whose outcome is not known (state `sent`). */
   const held = host => read().filter(e => (host === null || host === undefined || String(e.host) === String(host)) && e.state === 'sent' && typeof e.signature === 'string').map(e => e.signature);
   const readStatus = async (origin, signature) => statusOf(await post(origin, LOCAL_MARCH_STATUS_PATH, { schema: LOCAL_MARCH_STATUS_SCHEMA, signature }), signature);
@@ -300,7 +315,7 @@ export function createLocalMarchSender({ allowed, open, identity, rulesetHash, s
           }
         },
         async track(signature) {
-          const origin = origins.get(signature);
+          const origin = originOf(signature);
           if (!origin) return { ok: false, state: 'unconfirmed', code: 'Unconfirmed' };
           for (let n = 0; n < tries; n++) {
             let s = null;
@@ -315,7 +330,7 @@ export function createLocalMarchSender({ allowed, open, identity, rulesetHash, s
     },
     /** ONE status read of a held march, through the relay it was sent through: `'landed'`, `'failed'` (the book lets it go) or `'unconfirmed'` (still held). Sends nothing. */
     async ask(signature) {
-      const origin = origins.get(signature);
+      const origin = originOf(signature);
       if (!origin || !read().some(e => e.signature === signature && e.state === 'sent')) return 'none';
       let s = null;
       try { s = await readStatus(origin, signature); } catch { s = null; }

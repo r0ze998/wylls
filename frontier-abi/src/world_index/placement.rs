@@ -28,11 +28,14 @@
 //!
 //! Ring and position arithmetic is `u128` (ring ≤ 2⁶³, position < ring).
 //!
-//! What this is **not**: not a Season parameter (no new `placement` value;
-//! `PLACEMENT_WEDGE` and `PLACEMENT_DISPERSED` keep their meaning), not
-//! wired into any legacy season, keep, heartland or ownership rule, and not
-//! a relabelling of existing ownership: outside the heartland the deployed
-//! rule stays the wedge, and this function is not called by it. The
+//! What this is **not**: not a relabelling of existing ownership
+//! (`PLACEMENT_WEDGE` and `PLACEMENT_DISPERSED` keep their meaning: outside
+//! the heartland their deployed rule stays the wedge). **Since ⑧ wide land
+//! (i) (owner decision 2026-11-18)** the Season parameter value
+//! `geometry::PLACEMENT_MIXED` (2) makes the deployed `home_nation` this
+//! same formula on every disk ring, and a placement-2 Season's wide rules
+//! configuration must choose this function as its keep holder
+//! (`rules::keep_holder_allowed`), so ring 128 and ring 129 follow one rule. The
 //! texture is **evenly interleaved individual provinces** (no two ring
 //! neighbours share a nation); clustered nation patches would be a
 //! different rule and another owner decision. The `genesis_seed` is the
@@ -404,5 +407,42 @@ mod tests {
             assert_eq!(orbit_balanced_outer_nation(wide_of(p), &seed), None);
         }
         assert_eq!(orbit_balanced_outer_nation(WideCoord::CONCORD, &seed), None);
+    }
+
+    /// ⑧ wide land (i): under `PLACEMENT_MIXED` the deployed disk rule is
+    /// this candidate on every ring 2..=128 (any heartland bound), and ring
+    /// 129 is decided by the same function with the same offset domain, so
+    /// nothing switches at the disk's rim.
+    #[test]
+    fn under_the_mixed_placement_the_disk_and_the_wide_land_are_one_rule() {
+        use permutation_rules::frontier::geometry::PLACEMENT_MIXED;
+        for s in [0u8, 1, 7, 200] {
+            let seed = [s; 32];
+            for hmr in [2u8, 3, 6] {
+                for d in (2..=R_MAX_HARD as u32).filter(|d| *d <= 12 || d % 29 == 0 || *d >= 126) {
+                    for p in ring_provinces(d) {
+                        assert_eq!(
+                            home_nation(p, PLACEMENT_MIXED, hmr, &seed),
+                            mixed_home_nation(wide_of(p), &seed),
+                            "ring {d}"
+                        );
+                    }
+                }
+            }
+            assert_eq!(ring_offset_domain(128), ring_offset_domain(129));
+            assert_eq!(ring_offset_domain(129), RingOffsetDomain::LegacyU16);
+            // ring 129, by the cyclic formula the disk uses: nation r of each
+            // nation's r provinces, neighbours differ
+            let n: Vec<u8> = (0..6u8)
+                .flat_map(|w| (0..129u64).map(move |pos| (w, pos)))
+                .map(|(w, pos)| mixed_home_nation(at(129, w, pos), &seed).unwrap())
+                .collect();
+            for f in 0..6u8 {
+                assert_eq!(n.iter().filter(|x| **x == f).count(), 129);
+            }
+            for i in 0..n.len() {
+                assert_ne!(n[i], n[(i + 1) % n.len()]);
+            }
+        }
     }
 }

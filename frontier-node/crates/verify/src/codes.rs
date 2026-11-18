@@ -42,6 +42,16 @@ pub const LAND_ACCOUNTS: &str = "LandAccounts";
 pub const LAND_TOO_EARLY: &str = "LandTooEarly";
 /// VL: a land preview instruction wrote an account that is not the re-run's.
 pub const LAND_REPLAY_MISMATCH: &str = "LandReplayMismatch";
+/// VWL (Q16-1, wide land): a wide land instruction names an account its
+/// program refuses (address, kind, season, world, state).
+pub const WIDE_ACCOUNTS: &str = "WideAccounts";
+/// VWL: a wide land instruction succeeded although a rule of its handler
+/// refuses it (authority, θ occupancy, fund cover, ring order, round,
+/// beacon signature, write-once).
+pub const WIDE_RULE: &str = "WideRule";
+/// VWL: a wide land instruction wrote an account that is not the re-run's
+/// (or wrote one its handler never writes).
+pub const WIDE_REPLAY_MISMATCH: &str = "WideReplayMismatch";
 /// A history no source showed to be complete (UNVERIFIABLE, V0; ⑲ `history`).
 pub const HISTORY_UNPROVEN: &str = "HistoryUnproven";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
