@@ -12,7 +12,8 @@ The script installs nothing. If something is missing, it prints its name and how
 |---|---|---|
 | Rust (rustup) | 1.89.0 and 1.95.0 | `rustup toolchain install 1.89.0 1.95.0 --profile minimal` |
 | cargo-build-sbf and platform-tools | 3.1.9 / v1.52 | `sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.9/install)"` |
-| Node.js | 20 or later | `brew install node@20` |
+| Node.js | 20 or later | `brew install node` (keep what you have if `node -v` is v20 or later) |
+| git, python3 | built into macOS | `xcode-select --install` if missing |
 | Free disk | 20 GiB or more the first time | |
 
 The first build fetches crates over the network. During play, the keeper reads public drand rounds over HTTPS.
@@ -48,10 +49,12 @@ scripts/play-local.sh
 5. **Muster**: the village panel's 兵 section → 「全部（500）」 → 「編成する」 [Form a host].
    While it says 「この州はまだ前のターンの決着が済んでいません」 [the province has not resolved the last turn yet], the button
    is disabled: wait a few seconds and press it once the line is gone. 「立っている 1」 [1 standing] means it can move.
-6. **March on a keep**: when the guide (top right) says 「届く砦を見る」 [See the keeps you can reach], press it, pick the keep's row
+6. **March on a keep**: when the guide (top right) says 「届く砦を見る」 [See the keeps you can reach], press it (if it stays on
+   「軍勢の準備を確かめる」, open the bar's 「国と領土」 [Realm] once and it switches), pick the keep's row
    and press 「確認した命令で出発」 [Depart with this order]. Press it while the red "not resolved yet" line is NOT shown.
    「最初の出陣」 [First sortie] means it left.
-7. **Verify the clash**: on arrival, 「… 衝突が決着しました」 [the clash was resolved] appears. Press 「報告」 [Report] →
+7. **Verify the clash**: on arrival, 「… 衝突が決着しました」 [the clash was resolved] appears (once the notice is gone, its
+   「報告」 button stays in the list under the bar's 「その他」 [More]). Press 「報告」 [Report] →
    「このブラウザで確かめる」 [Check in this browser]; 「一致：…」 [Match] means the browser recomputed the chain's record.
 8. **Capture**: hold the keep's tile for 72 turns (12 minutes or more at ×60). The map shows 「砦を保持中」 [Holding the keep]
    with a round counter over the keep, and the clash report says 「奪取まで N/72 ターン」 [N/72 turns to capture].
