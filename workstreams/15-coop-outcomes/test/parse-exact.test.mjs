@@ -24,6 +24,15 @@ const CASES = [
     { s: '12345678901234567890', t: 'a"18446744073709551557\\', u: '18446744073709551557' }],
   ['{"18446744073709551557":18446744073709551557}', { '18446744073709551557': '18446744073709551557' }],
   ['{"cargo":[0,4,0,0,0,0,0,0],"ok":true,"none":null}', { cargo: [0, 4, 0, 0, 0, 0, 0, 0], ok: true, none: null }],
+  // u64 max and both sides of 2^53 with a sign; a literal far beyond any double (Number() gives Infinity)
+  ['[18446744073709551615,-9007199254740991,-9007199254740992,-9007199254740993,-0]',
+    ['18446744073709551615', -9007199254740991, '-9007199254740992', '-9007199254740993', -0]],
+  [`[${'9'.repeat(400)}]`, ['9'.repeat(400)]],
+  // a string ending in an escaped backslash, a \u0022 quote and a \u005c backslash: the scan must not leave the string early or late
+  ['["\\\\",18446744073709551615,"\\u0022 18446744073709551615","\\u005c",{"\\"":18446744073709551615}]',
+    ['\\', '18446744073709551615', '" 18446744073709551615', '\\', { '"': '18446744073709551615' }]],
+  // JSON whitespace on every side, and a key's colon after whitespace with the number as the value
+  [' \t\r\n{ "a" \n:\r 18446744073709551615 \t}\n', { a: '18446744073709551615' }],
 ];
 
 test('unsafe integers become their decimal strings; safe integers, fractions, exponents and strings stay as they are', () => {
@@ -39,7 +48,11 @@ test('text with no unsafe integer is returned unchanged (same string), so the pl
 });
 
 test('what JSON.parse refuses is still refused: leading zeros, a lone minus, truncation, an unterminated string, a number as a key', () => {
-  for (const bad of ['{"a":012345678901234567890}', '[-]', '{"a":18446744073709551557', '{"a":"18446744073709551557}', '[1,]', '--18446744073709551557', '{18446744073709551557:1}', '{18446744073709551557 :1}']) {
+  for (const bad of ['{"a":012345678901234567890}', '[-]', '{"a":18446744073709551557', '{"a":"18446744073709551557}', '[1,]', '--18446744073709551557', '{18446744073709551557:1}', '{18446744073709551557 :1}',
+    // a quoted literal must never turn invalid text valid: a lone key, a sign or dot in front, a glued token, a trailing exponent or dot
+    '{18446744073709551615}', '{18446744073709551615\n:\t1}', '[+18446744073709551615]', '[.18446744073709551615]', '[- 18446744073709551615]',
+    '[18446744073709551615true]', '[18446744073709551615"x"]', '[18446744073709551615e]', '[18446744073709551615.]', '[-01]',
+    '[18446744073709551615\u00a0]']) {
     assert.throws(() => fallback(bad), SyntaxError, bad);
     assert.throws(() => parseExact(bad), SyntaxError, bad);
   }
