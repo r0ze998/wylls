@@ -464,7 +464,13 @@ pub fn verify(input: &Input) -> Report {
                 // and every program write is archived: a final that is no
                 // longer the program's while its last archived write still
                 // was is a missing write (D-verify-pr72-2, round 2 of #72).
-                if states.contains_key(key) {
+                // (Round 3: a real archive's posts and finals also hold
+                // wallets, so only a last archived state the PROGRAM owned
+                // counts.)
+                if states
+                    .get(key)
+                    .is_some_and(|s| s.owner == input.cfg.program)
+                {
                     finding(
                         &mut findings,
                         "CQ1",

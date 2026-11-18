@@ -171,8 +171,19 @@ impl Env<'_> {
             || self.snapshot.is_some_and(|s| s.contains_key(k))
     }
     fn before(&self, k: &Key, what: &str) -> Result<Account, Wrong> {
-        self.acct_before(k)
-            .ok_or_else(|| Missing(format!("{what}: the archive has no state before")))
+        let a = self
+            .acct_before(k)
+            .ok_or_else(|| Missing(format!("{what}: the archive has no state before")))?;
+        // A real archive also holds wallets: a state this check reads as
+        // the program's must be program-owned (`view` says so to the
+        // shared prologue).
+        if a.owner.to_bytes() != self.ctx.program {
+            return Err(fail(
+                WIDE_ACCOUNTS,
+                format!("{what} is not owned by the program"),
+            ));
+        }
+        Ok(a)
     }
     fn after(&self, k: &Key, what: &str) -> Result<Account, Wrong> {
         self.w.txs[self.tx]
@@ -467,6 +478,12 @@ fn request_ring_seed(e: &Env, ix: &Ix, x: &wix::RequestRingSeed) -> Result<Vec<(
                 Missing("the previous ring's seed: the archive has no state before".into())
             }
         })?;
+        if a.owner.to_bytes() != e.ctx.program {
+            return Err(fail(
+                WIDE_ACCOUNTS,
+                "the previous ring's seed is not owned by the program",
+            ));
+        }
         let rec = WideRingSeed::read(&a.data)
             .map_err(|er| fail(WIDE_ACCOUNTS, format!("the previous ring's seed: {er:?}")))?;
         if rec.season_id != e.sid || rec.ring != x.ring - 1 || rec.world != world {
@@ -696,6 +713,12 @@ fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<(Key, La
         ));
     }
     let cfg = match e.acct_before(&k(5)) {
+        Some(a) if a.owner.to_bytes() != e.ctx.program => {
+            return Err(fail(
+                WIDE_ACCOUNTS,
+                "the configuration is not owned by the program",
+            ));
+        }
         Some(a) => {
             let c = WideRulesConfig::read(&a.data)
                 .map_err(|er| fail(WIDE_ACCOUNTS, format!("the configuration: {er:?}")))?;
@@ -918,12 +941,24 @@ fn judge(e: &Env, ix: &Ix, sigs: &mut SigCache) -> Result<(), Wrong> {
         WideCommand::Finalize(_) => claims::finalize(e, ix)?,
         _ => return Ok(()),
     };
-    // The FULL post-state of every program account the transaction shows
-    // (round 2 of #72): listed by the instruction; never executable; the
+    // The FULL post-state of every account of the transaction that the
+    // program owns before or after it (round 2 of #72): listed by the instruction; never executable; the
     // handler's own accounts as the re-run wrote them (data and owner in
     // the handler, lamports by the rule it declared); every other one
     // unchanged in data, owner and lamports.
+    let prog = |a: &Option<Account>| {
+        a.as_ref()
+            .is_some_and(|a| a.owner.to_bytes() == e.ctx.program)
+    };
     for (k, a) in &e.w.txs[e.tx].post {
+        let before = e.acct_before(k);
+        // Round 3 of #72 (verify-pr72 B-2): a real archive's post-states
+        // hold every writable account, the fee payer's wallet included.
+        // An account the program owns neither before nor after is the
+        // runtime's (fees, rent, system transfers), not this check's.
+        if !prog(&before) && !prog(a) {
+            continue;
+        }
         if !ix.accounts.iter().any(|(x, _)| x == k) {
             return Err(fail(
                 WIDE_REPLAY_MISMATCH,
@@ -933,7 +968,6 @@ fn judge(e: &Env, ix: &Ix, sigs: &mut SigCache) -> Result<(), Wrong> {
                 ),
             ));
         }
-        let before = e.acct_before(k);
         if a.as_ref().is_some_and(|a| a.executable) || before.as_ref().is_some_and(|b| b.executable)
         {
             return Err(fail(

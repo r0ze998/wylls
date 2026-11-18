@@ -1081,3 +1081,46 @@ fn an_opening_that_drains_the_ring_seed_or_the_province_fails() {
         );
     }
 }
+
+// ---- round 3 (verify-pr72 B-2): a real archive also holds wallets
+
+/// As the real archive (the localnet feed, `input::written_keys`) does:
+/// every writable account's post and final, the fee payer's wallet
+/// included (the committed fixtures keep program-owned accounts only).
+fn with_wallet_posts(inp: &mut Input, snap: &mut BTreeMap<[u8; 32], Option<Account>>) {
+    let system = Address::new_from_array([0; 32]);
+    let wallet = |lamports: u64| Account {
+        lamports,
+        data: vec![],
+        owner: system,
+        executable: false,
+    };
+    let mut bal: BTreeMap<[u8; 32], u64> = BTreeMap::new();
+    for t in 0..inp.txs.len() {
+        let p = fclient::tx::from_wire(&inp.txs[t].tx)
+            .unwrap()
+            .message
+            .account_keys[0]
+            .to_bytes();
+        let b = *bal.entry(p).or_insert_with(|| {
+            snap.insert(p, Some(wallet(1_000_000_000_000)));
+            1_000_000_000_000
+        });
+        let after = b - 5_000 - 3_000_000; // the fee and some rent paid
+        bal.insert(p, after);
+        inp.txs[t]
+            .post
+            .push((Address::new_from_array(p), Some(wallet(after))));
+    }
+    for (k, l) in bal {
+        inp.finals.insert(k, Some(wallet(l)));
+    }
+}
+
+#[test]
+fn the_honest_land_with_wallet_posts_still_re_runs() {
+    let (mut seg, mut snap) = segment();
+    with_wallet_posts(&mut seg, &mut snap);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(found.is_empty(), "{:#?}", show(&found));
+}

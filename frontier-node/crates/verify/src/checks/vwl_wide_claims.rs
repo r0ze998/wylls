@@ -132,6 +132,10 @@ fn rate_of_record(lamports: u64, escrow: u64) -> Option<u64> {
 /// `MissingData` when nothing is known of it.
 fn wide_before(e: &Env, k: &Key, what: &str) -> Result<Option<Account>, Wrong> {
     match e.acct_before(k) {
+        Some(a) if !a.data.is_empty() && a.owner.to_bytes() != e.ctx.program => Err(fail(
+            WIDE_ACCOUNTS,
+            format!("{what} is not owned by the program (the program refuses BadAccount)"),
+        )),
         Some(a) if !a.data.is_empty() => Ok(Some(a)),
         _ if e.known_before(k) || (e.snapshot.is_none() && e.w.has_post) => Ok(None),
         _ => Err(Missing(format!("{what}: the archive has no state before"))),
@@ -812,7 +816,12 @@ fn seed_of_bell(
         return Err(fail(WIDE_ACCOUNTS, "the bell anchor is not at its address"));
     }
     let an = match e.acct_before(anchor_k) {
-        Some(a) if e.present(anchor_k, &a.data, AccountKind::BellAnchor) => a.data,
+        Some(a)
+            if a.owner.to_bytes() == e.ctx.program
+                && e.present(anchor_k, &a.data, AccountKind::BellAnchor) =>
+        {
+            a.data
+        }
         Some(_) => {
             return Err(fail(
                 WIDE_ACCOUNTS,
@@ -839,7 +848,12 @@ fn seed_of_bell(
     }
     let a_ts = rd_i64(&an, BA::A);
     let cache = match e.acct_before(seed_k) {
-        Some(a) if e.present(seed_k, &a.data, AccountKind::SeedCache) => a.data,
+        Some(a)
+            if a.owner.to_bytes() == e.ctx.program
+                && e.present(seed_k, &a.data, AccountKind::SeedCache) =>
+        {
+            a.data
+        }
         Some(_) => {
             return Err(fail(
                 WIDE_ACCOUNTS,
@@ -1193,7 +1207,9 @@ pub(super) fn settle_ticket(
                 // program never diverts to one (`pay_or_divert` diverts only
                 // for a non-program recipient), so it must have received
                 // exactly the wide rent.
-                let dp_program = e.w.txs[e.tx].post.get(&dp).is_some_and(|a| a.is_some());
+                let dp_program = e
+                    .acct_before(&dp)
+                    .is_some_and(|a| a.owner.to_bytes() == e.ctx.program);
                 let diverted = le(&got.data, H::POOL_OWED, 8) == owed0 + rent_w;
                 if dp_program {
                     if diverted {
