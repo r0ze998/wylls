@@ -127,7 +127,9 @@ workstreams/03-composability/mcp/test/attribution.test.mjs
 workstreams/03-composability/mcp/test/budget-port.test.mjs
 workstreams/03-composability/mcp/test/connect.test.mjs
 workstreams/03-composability/mcp/test/context.test.mjs
+workstreams/03-composability/mcp/test/external-resident.test.mjs
 workstreams/03-composability/mcp/test/fate.test.mjs
+workstreams/03-composability/mcp/test/local-play-readonly.test.mjs
 workstreams/03-composability/mcp/test/lost-answer.test.mjs
 workstreams/03-composability/mcp/test/owner.test.mjs
 workstreams/03-composability/mcp/test/play.test.mjs
@@ -174,12 +176,14 @@ permutation-gateway/test/frontier-expedition-prepare.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
 permutation-gateway/test/frontier-local-play-coop-board.test.mjs
+permutation-gateway/test/frontier-local-play-external-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-natural.test.mjs
 permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-preview.test.mjs
 permutation-gateway/test/frontier-local-play-runner-instance.test.mjs
 permutation-gateway/test/frontier-local-play-test-form-bounds.test.mjs
+permutation-gateway/test/frontier-playable-lane-profile.test.mjs
 permutation-gateway/test/frontier-relay-resume.test.mjs
 permutation-gateway/test/package.test.mjs
 permutation-gateway/test/server.test.mjs

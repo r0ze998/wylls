@@ -48,10 +48,14 @@
 // until complete lifecycle, ruleset and allocation have been reviewed.
 // The one exception is the isolated localnet lane below (dedicated id,
 // marker and build script); every other wide SBF build stays refused.
+// The devnet build of the playable lane (`devnet-playable-sbf`, owner
+// decision B7) is the second exception: the same code, its own marker and
+// build script, no dedicated id.
 #[cfg(all(
     target_os = "solana",
     feature = "wide-world-experimental",
-    not(feature = "localnet-expedition-sbf")
+    not(feature = "localnet-expedition-sbf"),
+    not(feature = "devnet-playable-sbf")
 ))]
 compile_error!("wide-world-experimental is a host-only draft, not deployable");
 // The localnet SBF lane uses the real SBF syscalls only: no host proof,
@@ -68,6 +72,24 @@ compile_error!("wide-world-experimental is a host-only draft, not deployable");
     )
 ))]
 compile_error!("localnet-expedition-sbf cannot combine with host proof, crypto, oracle, beacon or trace features");
+// The devnet playable build: real SBF syscalls only (the same refusals as the
+// localnet lane), and never a localnet lane (its id check and markers) too.
+#[cfg(all(
+    feature = "devnet-playable-sbf",
+    any(
+        feature = "public-proof-tests",
+        feature = "native-crypto-tests",
+        feature = "oracle",
+        feature = "test-beacon",
+        feature = "trace",
+        feature = "runtime-contract-tests"
+    )
+))]
+compile_error!(
+    "devnet-playable-sbf cannot combine with host proof, crypto, oracle, beacon or trace features"
+);
+#[cfg(all(feature = "devnet-playable-sbf", feature = "localnet-expedition-sbf"))]
+compile_error!("devnet-playable-sbf and the localnet lanes are separate artefacts");
 
 // The conquest kinds 12–17 never reach an SBF artefact except through the
 // dedicated conquest lane, so an expedition-lane (or any other) SBF build can
@@ -75,9 +97,10 @@ compile_error!("localnet-expedition-sbf cannot combine with host proof, crypto, 
 #[cfg(all(
     target_os = "solana",
     feature = "conquest-dispatch-experimental",
-    not(feature = "localnet-conquest-sbf")
+    not(feature = "localnet-conquest-sbf"),
+    not(feature = "devnet-playable-sbf")
 ))]
-compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest-sbf (its marker and build script)");
+compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest-sbf or devnet-playable-sbf (a marker and build script)");
 #[cfg(all(
     feature = "localnet-conquest-sbf",
     not(feature = "localnet-expedition-sbf")
