@@ -1288,13 +1288,13 @@ mod tests {
         }
     }
 
-    /// Every other build: the check is the original one (the view is the identity), so 0x4804 is refused and this
-    /// binary's own listed version is accepted.
     /// ⑳ The NFT build (`nft-experimental`, devnet candidate): CreateSeason accepts exactly its own version
     /// (`0x8004`), the generic `validate` still refuses it, S1's, the lanes' and the rights build's are refused.
+    /// Not the expedition revision with NFT residents (0xC804, host or the NFT lane): that build's own version
+    /// is not `0x8004`.
     #[cfg(all(
         feature = "nft-experimental",
-        not(feature = "localnet-expedition-sbf"),
+        not(feature = "expedition-dispatch-experimental"),
         not(feature = "rights-experimental")
     ))]
     #[test]
@@ -1313,6 +1313,8 @@ mod tests {
         }
     }
 
+    /// Every other build: the check is the original one (the view is the identity), so 0x4804 is refused and this
+    /// binary's own listed version is accepted.
     #[cfg(not(any(
         feature = "localnet-expedition-sbf",
         feature = "rights-experimental",
