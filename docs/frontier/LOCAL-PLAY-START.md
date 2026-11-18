@@ -148,6 +148,20 @@ command (refused without the demo):
   made the store about a sixth of its size. This has not been measured in a running world yet: measure first, as above.
   A world started with one word is never reopened with another word, or without it.
 
+### (5) Operator AI residents and the six-nation recording (TEST-ONLY)
+Natural preset only, and never set over HTTP. Add one of these:
+```bash
+--operator-residents 3                 # 1-4 residents; their nations are fixed: 1, 4, 2, 5
+--operator-nations 1,4,2,5,0,3         # one resident per named nation, up to six (6 relay ports per world)
+--operator-max-acts 400                # optional: each resident's send budget (default 60)
+```
+Each resident is an ordinary participant. It has a memory-only TEST key, is funded like the player, and has its own
+relay. It joins, places a home and uses the economy commands by a fixed offline rule
+(`permutation-gateway/src/frontier/local-play-operator-policy.mjs`). It never marches. The page is not told which
+residents are AI. `scripts/demo/sixnation/sixnation.sh` starts a world with all six nations and records it
+(see its README, EN and 日本語). With the capture demo, let the residents place their homes before the player does:
+afterwards a PlaceHome in the player's own nation was refused (`TicketState`, 45) in a trial on 2026-11-18.
+
 ### Then
 The page follows the browser's language; the top-right button switches Japanese ⇄ English. English labels in brackets
 (as the page showed them on 2026-11-15).
