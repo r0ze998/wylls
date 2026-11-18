@@ -48,7 +48,7 @@ pub const PAYOUT_VERSION: u16 = 2;
 
 use super::index::{citizen_faction_weight, laurel_faction_weight, FACTIONS};
 use super::pools::USDC;
-use super::pools::{civ_share_bps, EconError, Pools, STEWARD_BPS};
+use super::pools::{EconError, Pools, CIV_SHARE_BPS, STEWARD_BPS};
 use crate::fixed::{Bps, BPS_ONE};
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -437,7 +437,6 @@ pub fn settle(
     pools: &Pools,
     totals: &[FactionTotals; FACTIONS],
     index: &[u64; FACTIONS],
-    engine_stages: u8,
     p: &PayoutParams,
 ) -> Result<Settlement, EconError> {
     p.validate()?;
@@ -447,7 +446,7 @@ pub fn settle(
         .try_fold(0u128, |a, t| a.checked_add(t.builder_fee))
         .ok_or(EconError::Overflow)?;
     let civ_pot = if builder_fee > 0 {
-        bps_of(pools.citizen, civ_share_bps(engine_stages))
+        bps_of(pools.citizen, CIV_SHARE_BPS)
     } else {
         0
     };

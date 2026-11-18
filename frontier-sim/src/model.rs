@@ -255,10 +255,6 @@ pub const WORKS_MANDATE: u64 = 6;
 
 /// A wallet is an Engine builder after pledging this much (units).
 pub const BUILDER_THRESHOLD: u64 = 400;
-/// Engine stage k completes when Σ Engine pledges ≥ k(k+1)/2 × this ×
-/// settled holdings (design §5.5: thresholds scale with settled holdings;
-/// calibrated so the five stages spread over the season).
-pub const ENGINE_PER_HOLDING: u64 = 450;
 
 // ------------------------------------------------------------ doctrines [sim]
 

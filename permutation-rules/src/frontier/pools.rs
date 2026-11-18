@@ -335,11 +335,12 @@ impl Pools {
     }
 }
 
-/// Civilisation Share of the citizen pool: 5% plus 2% per completed Engine
-/// stage, 5–15% (§5.4).
-pub fn civ_share_bps(engine_stages: u8) -> Bps {
-    500 + 200 * engine_stages.min(5) as Bps
-}
+/// Civilisation Share of the citizen pool: 5% (§5.4). The design's "plus
+/// 2% per completed Engine stage" (5–15%) is retired with the central
+/// tower and its Engine (⑭ R6, owner decision t346u, 2026-11-18); the
+/// share is the zero-stage value every program-side caller already had
+/// (no program instruction ever counted an Engine stage).
+pub const CIV_SHARE_BPS: Bps = 500;
 
 /// Share of each faction's two pools that funds officer pay (§4.3).
 pub const STEWARD_BPS: Bps = 500;
