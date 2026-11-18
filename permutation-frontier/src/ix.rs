@@ -176,6 +176,16 @@ mod tests {
                 0x1000
             } else {
                 0
+            } | if cfg!(feature = "nft-experimental") {
+                // ⑳ NFT residents: the resident bit (lib.rs PROGRAM_VERSION)
+                0x8000
+            } else {
+                0
+            } | if cfg!(feature = "expedition-dispatch-experimental") {
+                // the expedition dispatch revision (0x4804 / 0xC804)
+                0x0800
+            } else {
+                0
             };
         assert_eq!(crate::PROGRAM_VERSION, want);
     }

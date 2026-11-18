@@ -45,7 +45,10 @@ test('local play: the Dissolve button says why and is not pressed; the card refu
     const say = L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`;
     // (round 27: said in full on the bar's own line, which wraps — not clipped inside the button; the button stays refused
     //  and keeps the sentence as its title)
-    assert.ok(out.includes(`<p class="hand-note hand-note-why">${say}</p>`), `${lang}: the reason is on the bar's line, in full`);
+    // (B6, 2026-11-18: the bar's line names the refused order — it stood under a host whose March was sent normally)
+    const named = lang === 'en' ? 'In local play, “Dissolve” cannot be sent yet (read only).' : 'ローカルプレイでは、「解散」はまだ送れません（読み取りのみ）。';
+    assert.ok(out.includes(`<p class="hand-note hand-note-why">${named}</p>`), `${lang}: the reason is on the bar's line, in full, naming the order`);
+    assert.ok(!out.includes(`<p class="hand-note hand-note-why">${say}</p>`), `${lang}: never the sentence that names no order`);
     assert.ok(b.includes(`title="${say}"`), `${lang}: and on the button's title`);
     // the card, however it is reached: its confirm refused, the same line said
     const p = state({ localPlay: LOCAL, marchOpen: true, pop: 'dissolve' }), pop = String(renderPop(p, handModel(p)));
@@ -84,7 +87,10 @@ test('round 26: a march (March, its return home, a march on a keep) is refused o
     for (const id of ['march', 'dissolve']) assert.match(button(out, id), /\boff\b[^>]*aria-disabled="true"|aria-disabled="true"/, `${id} refused (march open=${marchOpen})`);
     assert.equal(m.buttons.find(b => b.id === 'march').why, say);
     // (more than one button refused for one reason: the bar says it once, on its own line, as it does for any shared reason)
-    assert.ok(out.includes(`<p class="hand-note hand-note-why">${say}</p>`), 'said once on the bar');
+    // (B6: named by the refused buttons' own words, in the bar's order)
+    const off = m.buttons.filter(b => b.why === say).map(b => `“${b.word}”`);
+    assert.ok(off.length >= 2 && off.includes('“Dissolve”'), off.join());
+    assert.ok(out.includes(`<p class="hand-note hand-note-why">In local play, ${off.join(', ')} cannot be sent yet (read only).</p>`), 'said once on the bar, naming them');
   }
   // (the keeps button follows this host's own march answer, as March does: a march on a keep is now composed from the
   //  host's own village — round 28; it followed the page-wide answer in round 27)
@@ -132,7 +138,8 @@ test('round 27: no local-play reason is clipped inside a button; the bar says it
   for (const marchOpen of [true, false]) {
     const out = String(renderHand(handModel(state({ localPlay: LOCAL, marchOpen }))));
     assert.equal((out.match(/<span class="hand-why">In local play/g) ?? []).length, 0, `marchOpen=${marchOpen}: none in a button`);
-    assert.equal((out.match(/In local play, this order cannot be sent yet \(read only\)\.<\/p>/g) ?? []).length, 1, 'said once on the bar');
+    assert.equal((out.match(/<p class="hand-note hand-note-why">In local play, [^<]* cannot be sent yet \(read only\)\.<\/p>/g) ?? []).length, 1, 'said once on the bar');
+    assert.equal((out.match(/In local play, this order cannot be sent yet \(read only\)\.<\/p>/g) ?? []).length, 0, 'B6: the bar never says "this order" without naming it');
   }
   // the controller gives the bar the same computation the send reads (localMarchView is localMarchFor of the composed order)
   const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
