@@ -86,8 +86,10 @@ capacity-preview = [
 # (200–213). The build carries the provisional `0x2000` program version
 # bit (`frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT`) so its
 # Seasons never mix with production ones; the default build refuses the
-# tags as unknown. Not deployable: StockSwap is not adopted, its economic
-# terms are undecided, and workstream 4 fixes the numbers.
+# tags as unknown. Owner decision ② = A (2026-11-18): adopted with the
+# station as the grantee's Vault (hauled out by caravan) and a tunable
+# issue cost; still not deployable until workstream 4 fixes the numbers
+# (workstreams/02-rights/13-OPTION-A.ja.md).
 rights-experimental = ["program"]
 wide-world-experimental = [
     "program",
