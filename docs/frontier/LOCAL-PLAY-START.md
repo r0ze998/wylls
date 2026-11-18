@@ -69,7 +69,8 @@ scripts/build-frontier-localnet-conquest-sbf.sh
   `(cd frontier-node && cargo build --locked -p herald --features local-play-bootstrap,wide-world-experimental --bin frontier-herald)`.
 
 ## 3. Start
-Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret). Put each path in
+Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret, except with
+`--persist`, §3 (5), which also keeps each world's two TEST operator keys there, in private 0700/0600 directories and files). Put each path in
 a shell variable first, as absolute paths:
 - `ROOT`: the repository root;
 - `DATA`: the records directory;
