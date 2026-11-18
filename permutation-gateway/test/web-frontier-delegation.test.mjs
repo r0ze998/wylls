@@ -18,7 +18,8 @@ const agents = [{ agentId: 'a1', agentKey, mode: 'auto', village: [1, 2, 3] }, {
 
 test('delegatedTo: only a key mismatch whose session key is one of the owner\'s agents\' keys', () => {
   assert.deepEqual(delegatedTo({ sessionProblem: 'SessionMismatch', citizen, agents }), { agentId: 'a1', agentKey, mode: 'auto', village: [1, 2, 3] });
-  assert.equal(delegatedTo({ sessionProblem: 'SessionMismatch', citizen, agents: [agents[1]] }), null, 'another key (not this owner\'s agent): the usual card');
+  // (Q16-3: another key — ③'s courier, another app or device — is a key held elsewhere too, never "no key here")
+  assert.deepEqual(delegatedTo({ sessionProblem: 'SessionMismatch', citizen, agents: [agents[1]] }), { agentId: null, agentKey, mode: 'foreign', village: null, foreign: true, program: false, expired: false }, 'another key (not this owner\'s agent): the held-elsewhere warning, never the silent regenerate');
   assert.equal(delegatedTo({ sessionProblem: 'SessionExpired', citizen, agents }), null, 'an expired session is not a hand-over');
   assert.equal(delegatedTo({ sessionProblem: 'NoSession', citizen, agents }), null);
   assert.equal(delegatedTo({ sessionProblem: null, citizen, agents }), null);
@@ -45,7 +46,8 @@ test('the card: what holds the key, the take-back through the page\'s own sessio
     setLang(lang);
     const auto = String(renderDelegated({ mode: 'auto' }));
     const stopped = String(renderDelegated({ mode: 'manual' }));
-    assert.match(auto, /data-act="session"/, `${lang}: the take-back is the existing session action (wallet-signed SetSession)`);
+    assert.match(auto, /data-act="session-replace" data-key=""/, `${lang}: the take-back is the consented replacement (wallet-signed SetSession), not the plain "re-make the key"`);
+    assert.doesNotMatch(auto, /data-act="session"/);
     assert.match(auto, new RegExp(`href="${AGENT_PAGE}"`), `${lang}: the agent page is linked`);
     if (lang === 'ja') {
       assert.match(auto, /代理人に任せています/);
