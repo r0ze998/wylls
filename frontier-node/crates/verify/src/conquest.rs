@@ -462,9 +462,16 @@ pub fn verify(input: &Input) -> Report {
             if a.owner != input.cfg.program {
                 continue;
             }
+            // Lamports reach any account by a plain system transfer, which
+            // is no program transaction and so never in the archive: a
+            // final balance ABOVE the last archived write (same data, same
+            // owner) is that, not a missing write. Only the program can
+            // debit its accounts, so a balance below it still is (Q16-1
+            // continued, 2026-11-19: before, one gifted lamport FAILed an
+            // honest season).
             if states
                 .get(key)
-                .is_none_or(|s| s.data != a.data || s.lamports != a.lamports || s.owner != a.owner)
+                .is_none_or(|s| s.data != a.data || s.lamports > a.lamports || s.owner != a.owner)
             {
                 finding(
                     &mut findings,

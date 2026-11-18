@@ -829,11 +829,16 @@ fn an_undecodable_wide_instruction_is_never_a_pass() {
 
 #[test]
 fn an_unjudged_wide_command_stays_unverifiable() {
-    // WideFinalize (0xDF) is not modelled: V0 names it, never a PASS.
+    // WideClose (0xDE) is not modelled (WideFinalize is VWL's since the
+    // wide claims): V0 names it, never a PASS.
     let mut inp = natural();
     let t = txs_with(&inp, T_RULES)[0];
     verify_core::tamper::edit_ix_tag(&mut inp, t, T_RULES, |d| {
-        *d = wix::Finalize.to_bytes().to_vec()
+        *d = wix::Close {
+            what: wix::CLOSE_WHAT_TICKET,
+        }
+        .to_bytes()
+        .to_vec()
     });
     let rep = verify_core::verify(&inp);
     assert_ne!(rep.verdict, Verdict::Pass);

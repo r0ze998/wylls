@@ -59,7 +59,16 @@
 //! and anything common to the program and the shared kernels (as V7 and
 //! VL). A wide land instruction that shares its transaction with another
 //! program instruction is `MissingData` (no state between the two). The
-//! other wide commands stay V0's `WideUnmodelled`.
+//! wide claims (WideClaimSite, WideSettleTicket, WideFinalize) are VWL's
+//! too, in `vwl_wide_claims.rs` (2026-11-19). The other wide commands stay
+//! V0's `WideUnmodelled`.
+//!
+//! Lamports: the archive holds program transactions only, and anyone can
+//! send lamports to any account by a plain system transfer, so an archived
+//! balance before is a lower bound. A program account holding MORE than
+//! the re-run says is `MissingData`, fewer is a FAIL; the wedge fund's
+//! spend is read from its `spent_total` (data moves by program
+//! instructions only).
 //!
 //! Codes: `Undecodable`, `WideAccounts`, `WideRule`, `WideReplayMismatch`,
 //! `MissingData`.
@@ -121,9 +130,12 @@ pub fn judged(data: &[u8]) -> Option<&'static str> {
         WideCommand::RequestRingSeed(_) => Some("WideRequestRingSeed"),
         WideCommand::ConsumeRingSeed(_) => Some("WideConsumeRingSeed"),
         WideCommand::OpenProvince(_) => Some("WideOpenProvince"),
-        _ => None,
+        c => claims::judged(&c),
     }
 }
+
+#[path = "vwl_wide_claims.rs"]
+mod claims;
 
 /// The states one instruction is judged from.
 struct Env<'a> {
@@ -184,13 +196,17 @@ impl Env<'_> {
     /// the allowed effective status at `now`, the S1 ruleset; then
     /// `require_wide_season` (this build's version, with the wide bit).
     fn season(&self, ix: &Ix, allowed: &[u8]) -> Result<Vec<u8>, Wrong> {
+        self.season_at(ix, 1, allowed)
+    }
+    /// [`Env::season`] for a Season at account position `at`.
+    fn season_at(&self, ix: &Ix, at: usize, allowed: &[u8]) -> Result<Vec<u8>, Wrong> {
         let k = ix
-            .key(1)
+            .key(at)
             .ok_or_else(|| fail(UNDECODABLE, "no Season account"))?;
         if k != self.ctx.season {
             return Err(fail(
                 WIDE_ACCOUNTS,
-                "the second account is not this season's Season",
+                format!("account {at} is not this season's Season"),
             ));
         }
         let d = self.before(&k, "the Season")?.data;
@@ -755,12 +771,35 @@ fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<Key>, Wr
     let counted = seed
         .with_province_created()
         .map_err(|er| fail(WIDE_RULE, format!("the ring seed's count ({er:?})")))?;
-    // What the fund paid: its lamports before minus after.
+    // What the fund paid. Its data moves only by program instructions,
+    // so `spent_total`'s delta is the amount; its lamports may also have
+    // received system transfers the archive (program transactions only)
+    // never shows, so the archived balance before is a lower bound: a
+    // smaller drop than the amount is unknown (`MissingData`), a larger
+    // one is a FAIL.
     let fund_after = e.after(&k(3), "the wedge fund")?;
-    let spent = fund_before
-        .lamports
-        .checked_sub(fund_after.lamports)
-        .ok_or_else(|| fail(WIDE_REPLAY_MISMATCH, "the wedge fund gained lamports"))?;
+    let spent = le(&fund_after.data, PF::SPENT_TOTAL, 8)
+        .checked_sub(le(&fund_before.data, PF::SPENT_TOTAL, 8))
+        .ok_or_else(|| {
+            fail(
+                WIDE_REPLAY_MISMATCH,
+                "the wedge fund's spent_total went down",
+            )
+        })?;
+    match fund_before.lamports.checked_sub(fund_after.lamports) {
+        Some(drop) if drop == spent => {}
+        Some(drop) if drop > spent => {
+            return Err(fail(
+                WIDE_REPLAY_MISMATCH,
+                format!("the wedge fund lost {drop} lamports but recorded {spent} spent"),
+            ))
+        }
+        _ => {
+            return Err(Missing(format!(
+                "the wedge fund's lamports before: its balance moved by less than the {spent} lamports it recorded spent, so lamports reached it outside program transactions and its balance before is not in the archive"
+            )))
+        }
+    }
     let prov_after = e.after(&target, "the province")?;
     if spent > prov_after.lamports {
         return Err(fail(
@@ -857,6 +896,9 @@ fn judge(e: &Env, ix: &Ix, sigs: &mut SigCache) -> Result<(), Wrong> {
         WideCommand::RequestRingSeed(x) => request_ring_seed(e, ix, x)?,
         WideCommand::ConsumeRingSeed(x) => consume_ring_seed(e, ix, x, sigs)?,
         WideCommand::OpenProvince(x) => open_province(e, ix, x)?,
+        WideCommand::ClaimSite(x) => claims::claim_site(e, ix, x)?,
+        WideCommand::SettleTicket(x) => claims::settle_ticket(e, ix, x)?,
+        WideCommand::Finalize(_) => claims::finalize(e, ix)?,
         _ => return Ok(()),
     };
     for (k, a) in &e.w.txs[e.tx].post {
