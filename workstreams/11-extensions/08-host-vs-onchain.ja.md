@@ -16,6 +16,8 @@
 
 ## 2. 既存の再生検証器（共有コア、パッチは未適用）
 
+> **2026-11-18 の注記。** この節と §3 は r3 時点（基準 `4cd901de`）の記述。現在の main では 0003〜0017 が適用済みで、0001 は取り下げ（知らないタグは V0、CPI は V0E）。§3 の「ありえない archive」（最上位が別のプログラムなのにログは深さ 1）と、Holding 以外の post-state の欠落は塞がった（V0E の `UnexplainedInvocation`、どの形式の口座でも `MissingPostState`）。現状は [18](18-verifier-early-patches.ja.md)。
+
 | 入力 | 基準 commit の検証器 | パッチを当てた後（一時 worktree） | パッチ |
 |---|---|---|---|
 | 成功した取引に知らないタグの Frontier 命令 | **PASS** | UNVERIFIABLE（V2 `MissingData`） | 0001 |

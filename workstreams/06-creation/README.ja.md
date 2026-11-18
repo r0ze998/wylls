@@ -3,6 +3,8 @@
 **基準：** 共通基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（PR #22 の統合候補の祖先。main 統合済み・CI 全成功とは扱わない）。ブランチ `claude/wylls-creation-publishing-reuse-31aiyj`。成果物はこのフォルダだけにあり、共通コア・他担当の仕様・共有 UI・CI は変更していない。
 
 **状態（2026-11-05）：** ローカル試作まで完了。チェーンへの接続は未完了。
+
+> **2026-11-18 の確認（main `de781916`、コードが正）：** 成果物は main にある（下の「ローカルのみ・push していない」は古い）。遊べるゲーム（launcher・herald・ページ）からはどこからも呼ばれず、チェーンへの接続は未完了のまま。下の「テストの結果」（2026-10-31、106 件）も古い：今の `node --test test/*.test.mjs` は Node 20・23 とも **216 件中 208 通過・1 失敗・7 skip**。失敗は `test/journal-complete-write.test.mjs` の J8（`src/connect/dispatch.mjs` の `#save` に 5314e12e で `#remember` が入ったのに、試験の正規表現が旧形のまま）。⑥ の試験を走らせる CI の job は無い（27 ファイル中 21 が `scripts/ci/node-key-tests.txt`。鍵なしの 6 ファイルは 46 件中 39 通過・7 skip）。
 - 補遺 [ADDENDUM-20261030.ja.md](ADDENDUM-20261030.ja.md) を git に入れた。文書と食い違う所は補遺が優先する。
 - 継続する世界（シーズン制の廃止）への対応は、移行の候補（[docs/10](docs/10-continuous-world.ja.md)）。
 - ②③④の成果物を GitHub で読み、採用済みの荷車の命令について、採用済みの計画 → ④の RunSpec、④の Run の結果 → ⑥の結果、の変換を実装した（[docs/11](docs/11-connection.ja.md)、`src/connect/caravan.mjs`）。署名・送信・チェーンの読み取りはしない。工房・束・新しい世界効果は正式仕様にしない。
