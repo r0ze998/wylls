@@ -2,6 +2,8 @@
 
 作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（統合候補 `integrate/claude-consolidation-20261029` の中。`main` の `921429322d5aecd1a3df0dd8d82c405c87dd985a` を含む）。この担当の成果物はこのディレクトリと、コアへの差分案 [patches/](patches/) です。**このブランチ自体はコアを一行も変えていません。** push・merge・deploy はしていません。
 
+> **2026-11-18 の確認（main `de781916`、コードが正）：** custody のコア（`permutation-rules/src/frontier/custody.rs`、`permutation-frontier/src/proc/custody.rs`、検証器 `frontier-node/crates/verify/src/checks/v26_custody.rs`、LiteSVM `permutation-frontier/svm-tests/src/cover/custody.rs`）は main にある。`custody-preview` は `nft-experimental`・`rights-experimental`・`wide-world-experimental` と同時に build できない（`permutation-frontier/src/lib.rs:282-287`）。遊べる localnet の lane（0x4804）は wide-world を含むので、⑩ は遊べるゲームに入らない。CI はこの feature を build しない。手元の試験（Rust 1.89）：`custody/` 41、`permutation-frontier --features custody-preview` 119、すべて通過。SBF・LiteSVM は未実行。
+
 > **状態（2026-10-30、統合前の指摘への回答後）。** 所有者別の区画と、一般在庫から分離した保管・運搬の最小基盤（カーネル・モデル・ホストでの差分）はできている。**オンチェーンでの完成ではない**：SBF ビルド・LiteSVM・V26 本体がない。コア候補は `workstream/10-custody-core` @ `96fe6abff2004d05967854c4edc75c10ce2af7a4`（前回の `823bb71d`・`385b623f` を置き換える。差は [05](05-integration-review.ja.md) と [patches/](patches/)）。custody は別版のプログラム（`custody-preview`、`RULESET_HASH_V4`、版 5、配備用として拒否されるマーカー付き）だけで動く。
 
 > **2026-10-31 方針訂正（世界は終わらない）への対応**：[06-continuity.ja.md](06-continuity.ja.md)。custody 自身からシーズン終了の前提を除き（凍結の条件、カーネルの語彙、累計の桁あふれ）、期間の境界をまたぐ通し試験と長期運用の試験を足した。コアに残るシーズン依存（アドレス空間、`end_bell` での命令拒否、閉鎖、隊商 id など）は④・⑧へ。コア候補は `96fe6abff2004d05967854c4edc75c10ce2af7a4`。
