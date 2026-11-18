@@ -2921,12 +2921,8 @@ const OUTCOME_BEAT_MS = 1500;
 let outcomeTimer = null;
 /** A standing threat's notice as it is now: the count the records give, and whether the answer is on its way. */
 function protoAlarmNow(x, up) {
-  const at = pm.marchingTo(FS, up);
-  // (in the turn it arrives in, and until that turn is settled: arrived, the fight not told yet — the notice said "on its way" for a turn that had passed)
-  if (at !== null) return { ...x, send: null, text: (FS.nowBell ?? 0) < at ? L`${up.text}。あなたの軍勢が向かっています（ターン ${fmtNum(at)} に到着）` : L`${up.text}。あなたの軍勢が着きました。戦いの結果を待っています` };
-  // (outnumbered — a new hamlet against a host of 500 —: the notice carries the numbers, as the guide's step does)
-  const force = up.foe ? pm.strengthOf(FS) : null;
-  return force && force.best < up.foe.troops ? { ...x, text: L`${up.text}。${pm.threatNumbers(up, force)}数で下回っています` } : { ...x, text: up.text };
+  // (the live words are made by the hand's model as the notice is drawn, in every language: proto/hand-model.mjs alarmNow)
+  return pm.alarmNow(FS, x, up);
 }
 /**
  * "What happened this turn" (UX design 8.3): after the toll the effects layer plays this turn's own results on

@@ -185,3 +185,83 @@ test('B11: every producer of the notices keeps its words (the source says it)', 
   assert.match(app, /: reworded\(x\)\)\); \};/);
   assert.match(app, /onLangChange\(\(\) => \{ reword\(\); try \{ renderFeed\(\); \}/);
 });
+
+// ------------------------------------------------------------------ B11 round 2 (verify-pr63 R1)
+// A standing threat's notice in a banner-prototype world is drawn with live words (app.mjs protoAlarmNow →
+// proto/hand-model.mjs alarmNow): the count as it is now, "your host is on its way", "outnumbered". Round 1 kept the
+// words the notice was told with, and renderToast drew those over the live text.
+import * as pm from '../../permutation-server/web/frontier/proto/hand-model.mjs';
+import { CLAIM } from '../../permutation-server/web/frontier/proto/board-model.mjs';
+const HOME = { p: 2, q: 0, site: 3, gen: 1, tile: 30 }, ME_KEY = '2,0,3', POLE = 32;
+const PROTO_CLAIMS = { rule: 'standing-ground', version: 'design-2026-10-10-r2', label: { ja: '試作', en: 'Prototype' }, numbers: { FALL_LOOSE: 36, FALL_FIRM: 72, WALK_PAY: 2 }, clockLag: 1 };
+const CINDER_ON_POLE = { nation: 2, host: 'cinder-host', troops: 500, sinceTurn: 54, tolls: 36, canTakeAtTurn: 90, hasFloor: true, onlyPull: null };
+/** The land record of province (2,0) with the viewer's banner (slot 1, pole 32) under Cinder's host (as test/web-frontier-proto-loss.test.mjs builds it). */
+function protoLand(r) {
+  const MINE = [32, 41, 40, 31, 23, 33, 15], claim = new Array(61).fill(CLAIM.OPEN);
+  for (const t of MINE) claim[t] = CLAIM.BANNER0 + 1;
+  return { resolvedNext: r, claim, trails: [], counted: [0, 0, 0, 0, 0, 0], paid: [0, 0, 0, 0, 0, 0], holderNation: 0, rising: [], villages: [{ site: 3, tile: 30, nation: 0, holder: ME_KEY, tiles: 1 }],
+    banners: [{ slot: 1, pole: POLE, nation: 0, holder: ME_KEY, tiles: [...MINE], raisedTurn: 44, tendedTurn: 44, firm: true, border: [], frayed: false, walkDue: 476, strikeAt: 548, dressedToday: false, elbowLockedUntil: null, contested: CINDER_ON_POLE }] };
+}
+/** The page in a banner-prototype world at land turn r (the clock a turn ahead of it). */
+function protoPage(r, { marches = [], foeRoster = false } = {}) {
+  const FS = { nowBell: r + 1, chain: { rate: 30 }, sample: { world: 'sample', rate: 30 }, citizen: { faction: 0 }, holdings: [{ ...HOME }], provinces: new Map(), feed: [], orders: [], marches };
+  FS.proto = pm.emptyState(PROTO_CLAIMS); FS.proto.lands.set('2,0', protoLand(r));
+  FS.proto.me = { holder: ME_KEY, nation: 0, banners: [{ p: 2, q: 0, slot: 1 }], cap: 5, perProvince: 2, tiles: 20, villageTiles: 7, perTurn: 20, hosts: [] };
+  if (foeRoster) FS.provinces.set('2,0', { province: { p: 2, q: 0, entries: [{ tile: POLE, faction: 2, state: 1, unit: 0, troops: 500_000 }] } });
+  return FS;
+}
+/** The notice as app.mjs protoNews tells it the first time the threat is seen (worded threats, words carried). */
+const toldNotice = t => ({ id: t.id, kind: 'proto', proto: true, own: true, alarm: true, bell: 63, p: t.p, q: t.q, tile: t.tile, text: t.text, words: t.words, send: { p: t.p, q: t.q, tile: t.tile } });
+const toastOf = x => text(FEED.renderToast(x));
+
+test('B11 round 2: the alarm notice of a banner-prototype world shows its LIVE words (count now, host on its way, arrived, outnumbered) in the language in hand', () => {
+  // told in English at land turn 62: 28 turns left
+  const [t0] = inLang('en', () => W.worded(() => pm.threatsOf(protoPage(62))));
+  assert.match(t0.words.en, /28 turns/); assert.match(t0.words.ja, /あと28ターン/);
+  const x = toldNotice(t0);
+  // two turns later a host of the viewer's marches on the pole, arriving on turn 66; the count is 26 now
+  const onWay = protoPage(64, { marches: [{ dest: { p: 2, q: 0, tile: POLE }, entry: { host: '1', arriveBell: 66 } }] });
+  const [up] = inLang('en', () => W.worded(() => pm.threatsOf(onWay)));
+  for (const l of ['en', 'ja']) inLang(l, () => {
+    const shown = toastOf(pm.alarmNow(onWay, x, up));
+    if (l === 'en') {
+      assert.match(shown, /26 turns.*\. Your host is on its way \(arrives on turn 66\)/, 'the count now and the answer on its way');
+      assert.doesNotMatch(shown, /28 turns/, 'not the words it was told with (R1)');
+      assert.doesNotMatch(shown, JP);
+    } else {
+      assert.match(shown, /あと26ターン.*。あなたの軍勢が向かっています（ターン 66 に到着）/);
+      assert.doesNotMatch(shown, /28ターン|Your host/);
+    }
+    assert.equal(pm.alarmNow(onWay, x, up).send, null, 'no second 軍勢を送る');
+    const r = pm.alarmNow(onWay, x, up);
+    assert.equal(r.words[l], r.text, 'the words drawn are the live text, in each language');
+    // (round 1's shape — the live text over `text`, the told words kept — drew the told words: R1)
+    assert.match(toastOf({ ...x, text: r.text }), l === 'en' ? /28 turns/ : /あと28ターン/);
+  });
+  // the arrival turn has come: arrived, waiting for the fight to be told
+  onWay.nowBell = 66;
+  inLang('en', () => assert.match(toastOf(pm.alarmNow(onWay, x, up)), /\. Your host has arrived: the clash is being resolved/));
+  assert.match(toastOf(pm.alarmNow(onWay, x, up)), /。あなたの軍勢が着きました。戦いの結果を待っています/);
+  // outnumbered: Cinder's 500 on the pole, nothing the viewer can field
+  const outnumbered = protoPage(64, { foeRoster: true });
+  const [o] = W.worded(() => pm.threatsOf(outnumbered));
+  assert.match(toastOf(pm.alarmNow(outnumbered, x, o)), /あと26ターン.*。立っているのはシンダーの.*500.*数で下回っています/);
+  inLang('en', () => assert.match(toastOf(pm.alarmNow(outnumbered, x, o)), /26 turns.*You are outnumbered/));
+  // neither: the live count alone, in the language in hand
+  const plain = protoPage(64), [p0] = W.worded(() => pm.threatsOf(plain));
+  inLang('en', () => { const s = toastOf(pm.alarmNow(plain, x, p0)); assert.match(s, /26 turns/); assert.doesNotMatch(s, /28 turns/); assert.doesNotMatch(s, JP); });
+  assert.match(toastOf(pm.alarmNow(plain, x, p0)), /あと26ターン/);
+});
+
+test('B11 round 2: a march notice names its tile in the language of each run (snapshot destNames), not the snapshot\'s', () => {
+  const { FS } = { FS: world() };
+  FS.provinces.get('2,0').province.camp = { state: 1, tile: 31 };
+  const m = (pl, slot) => ({ entry: { host: '9', arriveBell: 41 }, dest: { p: 2, q: 0, tile: 31 }, facts: { pipeline: pl, slotPresent: slot } });
+  // both snapshots taken in English (the camp is named "Barbarian camp" there)
+  const [a, b] = inLang('en', () => { FS.marches = [m('open', false)]; const s0 = FEED.snapshot(FS); FS.marches = [m('open', true)]; return [s0, FEED.snapshot(FS, undefined, s0)]; });
+  assert.deepEqual(b.marches.get('9').destNames, { ja: '蛮族の野営地', en: 'Barbarian camp' });
+  const [seal] = inLang('en', () => FEED.diffFeed(a, b));
+  assert.equal(seal.id, 'rv:9');
+  assert.match(seal.words.ja, /^蛮族の野営地への進軍の封が開けられました$/, 'Japanese words with the Japanese name');
+  assert.match(seal.words.en, /^The seal of your march to the barbarian camp was opened$/);
+});

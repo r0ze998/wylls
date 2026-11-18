@@ -32,7 +32,7 @@ import { troopsOf } from '../fmarch.mjs';
 import { ownHosts } from '../hud/subject.mjs';
 import { factionName, unitCount, clientText } from '../fi18n.mjs';
 import { placeName } from '../people/identity.mjs';
-import { worded } from '../hud/words.mjs';
+import { worded, said, noticeText } from '../hud/words.mjs';
 
 const int = Number.isInteger;
 
@@ -963,6 +963,20 @@ export function marchRank(FS, id) {
   if (!a) return 1;
   if (a.raise?.ok || a.raise?.code === 'StandLonger' || (a.tend ?? []).some(t => !t.ok && WAIT_CODES.includes(t.code))) return 2;
   return a.onPole && isOwnHolder(FS, a.onPole.holder) ? 0 : 1;
+}
+/**
+ * A standing threat's notice as it is now (app.mjs protoAlarmNow, as the notice is drawn): the count the records give,
+ * and whether the answer is on its way. `x`: the notice as it was told; `up`: the threat as threatsOf gives it now.
+ * (B11 round 2, verify-pr63 R1: this live text is made as it is drawn, in every language — hud/words.mjs said —, with
+ * the threat's own words in each — noticeText —: the words the notice was told with would otherwise stand over it.)
+ */
+export function alarmNow(FS, x, up) {
+  const at = marchingTo(FS, up);
+  // (in the turn it arrives in, and until that turn is settled: arrived, the fight not told yet — the notice said "on its way" for a turn that had passed)
+  if (at !== null) return { ...x, send: null, ...said(() => ((FS.nowBell ?? 0) < at ? L`${noticeText(up)}。あなたの軍勢が向かっています（ターン ${fmtNum(at)} に到着）` : L`${noticeText(up)}。あなたの軍勢が着きました。戦いの結果を待っています`)) };
+  // (outnumbered — a new hamlet against a host of 500 —: the notice carries the numbers, as the guide's step does)
+  const force = up.foe ? strengthOf(FS) : null;
+  return force && force.best < up.foe.troops ? { ...x, ...said(() => L`${noticeText(up)}。${threatNumbers(up, force)}数で下回っています`) } : { ...x, ...said(() => noticeText(up)) };
 }
 /** The numbers of a threat in one sentence: who stands there, and the largest host the viewer has or could form. */
 export function threatNumbers(t, force) {
