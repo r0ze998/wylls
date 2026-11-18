@@ -41,6 +41,9 @@ required-features = ["expedition-dispatch-experimental"]
 
 [dependencies]
 fclient.workspace = true
+# devnet-readiness B2: the public-cluster feed reuses findex's RpcPoll
+# (`clusterfeed`); an in-workspace path crate, no new external dependency.
+findex.workspace = true
 frontier-abi.workspace = true
 permutation-rules.workspace = true
 solana-address.workspace = true

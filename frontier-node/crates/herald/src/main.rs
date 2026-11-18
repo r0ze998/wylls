@@ -6,9 +6,12 @@
 //!     [--listen 127.0.0.1:41040] [--source localnet|rpc] [--cluster localnet]
 //!     (--source rpc requires --cluster: the herald cannot tell which chain an RPC serves)
 //!     [--origin SIG] [--witness URL]   (rpc source: history coverage checks)
+//!     [--rpc-min-gap-ms 150]  (rpc source: least time between two calls to --rpc; 0 = unpaced)
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
 //!     [--wide-index PATH]  (feature wide-index-read-experimental, read-only)
+//!     [--public-host NAME[,NAME…]]  (B13: the names the TLS proxy serves;
+//!      every request's Host, and a WS Origin, must name loopback or one of them)
 //! --source read-only requires a matching herald.ckpt and --wide-index; no RPC/ingest/write.
 //! frontier-herald --fixture conquest --data DIR --listen 127.0.0.1:PORT [--web DIR]
 //! ```
@@ -33,6 +36,15 @@ use herald_fold::server::{self, App};
 use herald_fold::views::SeasonStatic;
 use solana_address::Address;
 use tokio::sync::{broadcast, watch};
+
+/// `--public-host a.example,b.example` → the herald's host policy (B13).
+fn hosts(a: &HashMap<String, String>) -> Result<herald_fold::server::HostPolicy, String> {
+    let names: Vec<&str> = a
+        .get("public-host")
+        .map(|v| v.split(',').collect())
+        .unwrap_or_default();
+    herald_fold::server::HostPolicy::with_public(&names)
+}
 
 fn args() -> Result<HashMap<String, String>, String> {
     let mut m = HashMap::new();
@@ -69,6 +81,7 @@ async fn fixture_conquest(a: &HashMap<String, String>) -> Result<(), String> {
             "--listen port {port}: services use 41000-41999 and never a reserved port"
         ));
     }
+    let host_policy = hosts(a)?;
     use herald_fold::cqfixture;
     let txs = cqfixture::mini_season();
     let cfg = IngestCfg::new(&data, cqfixture::program(), cqfixture::SEASON_ID);
@@ -94,6 +107,7 @@ async fn fixture_conquest(a: &HashMap<String, String>) -> Result<(), String> {
     );
     app.web = a.get("web").map(PathBuf::from);
     app.index = Some(cfg.index_path());
+    app.hosts = host_policy;
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .map_err(|e| format!("{listen}: {e}"))?;
@@ -173,6 +187,7 @@ async fn main_inner() -> Result<(), String> {
     } else {
         need("rpc")?
     };
+    let host_policy = hosts(&a)?;
     let listen = a.get("listen").cloned().unwrap_or("127.0.0.1:41040".into());
     let port: u16 = listen
         .rsplit(':')
@@ -295,6 +310,11 @@ async fn main_inner() -> Result<(), String> {
     };
     app.index = (!read_only).then(|| cfg.index_path());
     app.wide_index = a.get("wide-index").map(PathBuf::from);
+    eprintln!(
+        "frontier-herald: Host allow-list {}",
+        host_policy.names().join(", ")
+    );
+    app.hosts = host_policy;
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .map_err(|e| format!("{listen}: {e}"))?;
@@ -340,7 +360,25 @@ async fn main_inner() -> Result<(), String> {
         "rpc" => {
             // G1/G3 checks (findex `RpcPoll::coverage`): without them the
             // archived range is reported unverifiable, not complete.
+            // One pacer for every call to `--rpc` (the public devnet RPC is
+            // rate-limited per IP; HTTP 429/503 backs all off): 150 ms
+            // unless `--rpc-min-gap-ms` says otherwise (0: unpaced).
+            let gap: u64 = match a.get("rpc-min-gap-ms") {
+                Some(v) => v.parse().map_err(|_| "--rpc-min-gap-ms: a number")?,
+                None => 150,
+            };
+            let pacer = (gap > 0).then(|| {
+                fclient::rpc::Pacer::new(Duration::from_millis(gap), Duration::from_secs(30))
+            });
+            let paced = |url: &str| {
+                let c = fclient::rpc::RpcClient::new(url);
+                match &pacer {
+                    Some(p) => c.with_pacer(p.clone()),
+                    None => c,
+                }
+            };
             let mut rpc_poll = RpcPoll::new(rpc.clone(), program);
+            rpc_poll.rpc = paced(&rpc);
             if let Some(o) = a.get("origin") {
                 rpc_poll = rpc_poll.with_origin(
                     o.parse()
@@ -350,8 +388,11 @@ async fn main_inner() -> Result<(), String> {
             if let Some(w) = a.get("witness") {
                 rpc_poll = rpc_poll.with_witness(w.clone());
             }
-            let src = Enriched::new(rpc_poll, rpc.clone(), program);
-            runner::run(ing, src, Some(RpcPort::new(rpc, program)), poll, stop).await
+            let mut src = Enriched::new(rpc_poll, rpc.clone(), program);
+            src.rpc = paced(&rpc);
+            let mut port = RpcPort::new(rpc.clone(), program);
+            port.rpc = paced(&rpc);
+            runner::run(ing, src, Some(port), poll, stop).await
         }
         s => Err(format!("--source {s}: localnet or rpc")),
     };
