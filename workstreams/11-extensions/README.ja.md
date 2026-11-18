@@ -1,6 +1,6 @@
 # ⑪ 拡張方式: 利用者や AI が世界の機能を増やす方法
 
-作業日 2026-10-30〜11-08（r13 まで）。**r13: 公開統合候補 `cf517b55` で ABI と coverage の契約を照合した。V0 の偽造の判定は、知っている版のときだけにした（パッチ 0013）。****r11: V27 で JoinResident の policy、link、resident の正規アドレス（PDA。オーナーの許可の範囲）を照合する（パッチ 0011）。****r9: 正しい NFT 参加（JoinResident）を検証する V27（パッチ 0009、⑳の 45d95e31 の上）。****r7: ④の現在版 `8e96f24d` へ 1 つで当たる検証器パッチ 0006、②⑳の新しい命令・記録との照合、DIVERT の PASS の経路を塞いだ。****r6: 検証器パッチ 0005（0004 の上）、⑥の公開状態と⑪の実行状態の分離の契約試験。****r5: ⑥との接続準備（`creation-bridge/`）と検証器の残件（パッチ 0004）。****r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
+作業日 2026-10-30〜11-08（r13 まで）、2026-11-18（検証器の穴を main で確認・追加修正、[18](18-verifier-early-patches.ja.md)。⑪の決定 (b) により拡張そのものは最初の devnet の後）。**r13: 公開統合候補 `cf517b55` で ABI と coverage の契約を照合した。V0 の偽造の判定は、知っている版のときだけにした（パッチ 0013）。****r11: V27 で JoinResident の policy、link、resident の正規アドレス（PDA。オーナーの許可の範囲）を照合する（パッチ 0011）。****r9: 正しい NFT 参加（JoinResident）を検証する V27（パッチ 0009、⑳の 45d95e31 の上）。****r7: ④の現在版 `8e96f24d` へ 1 つで当たる検証器パッチ 0006、②⑳の新しい命令・記録との照合、DIVERT の PASS の経路を塞いだ。****r6: 検証器パッチ 0005（0004 の上）、⑥の公開状態と⑪の実行状態の分離の契約試験。****r5: ⑥との接続準備（`creation-bridge/`）と検証器の残件（パッチ 0004）。****r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない（r13 時点。その後、検証器のパッチ 0003〜0017 は main の `frontier-node/crates/verify` に適用され、2026-11-18 の PR は同じ crate を直接変える）。
 
 > **これは本番に任意コード実行を開く決定ではない。案 B、Burn、運営の停止権限はいずれも採用していない（2026-10-30）。** 以下の結果はホスト上の試験で、オンチェーンの保証ではない（[08](08-host-vs-onchain.ja.md)）。 比較と試作の許可の範囲で、案を比べ、推奨案をホスト上の隔離した crate で試作した。例の機能（「見張りの誓い」）は例であり、採用したゲームルールではない。
 
@@ -17,7 +17,7 @@
 | 返却（r3） | 出口は停止・Grant の終了・コアの版の変更で開き、一度だけ。5 手の全 16,807 通りで二重返却も取り出せない預かりもない | [05](05-results.ja.md) §5、[01](01-contract.ja.md) §3 |
 | 分割書込み（r3） | 未完成・欠落・順序逆転・重複・食い違いを扱い、hash の確認前は登録も実行もされない | [01](01-contract.ja.md) §3b |
 | 継続世界（r4） | 拡張の状態・Grant・預かり・返却義務が期間の境界・再起動・30 年の空白をまたいで続き、二重適用も消失もない。期間の終わりで返却を拒否する依存（パッチ 0002 の初版）を除いた | [09](09-continuing-world.ja.md) |
-| 既存の検証器の穴 | 知らないタグの命令、CPI で呼ばれた Frontier、Holding の post-state の欠落を PASS にする（実行で確認）。残る未確認の範囲は [08](08-host-vs-onchain.ja.md) §3 | [patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch)、[0003](patches/0003-verify-v7-missing-holding-state-is-unverifiable.patch) |
+| 既存の検証器の穴 | **main に適用済み（2026-11-18 の確認）。** 知らないタグは⑱の V0 が判定（知っている版の下で FAIL、それ以外は UNVERIFIABLE。0001 のこの部分は取り下げ）。CPI・ログの欠け・post-state の欠落は V0E（0004〜0008、0015）、Holding の post-state の欠落は V7（0003）。2026-11-18 の PR で残っていた 3 つを塞いだ: どの形式の口座でも post-state の欠落を UNVERIFIABLE に（従来は ABI v2 の 23 種だけ）、メッセージに無い最上位の呼出しを示すログ（`UnexplainedInvocation`）と呼出し 1 つ分まるごと失われたログ（`IncompleteLogs`）を UNVERIFIABLE に、VR の `UnknownAccount` を知っている版の下だけ FAIL に（NFT 版の resident policy・link は既知、知らない版では UNVERIFIABLE）。詳細は [18](18-verifier-early-patches.ja.md) | [patches/README](patches/README.ja.md)、[18](18-verifier-early-patches.ja.md) |
 | Solana 上で動くか | **未確認**。SBF ツールチェーンの導入が承認されず、チェーン上の試験と CU の測定はしていない | [00](00-context.ja.md) §4 |
 
 ## 文書
@@ -33,6 +33,7 @@
 | [06-adoption](06-adoption.ja.md) | 採用前に決めること（オーナーの判断・技術の確認・他担当との照合） |
 | [07-discrepancies](07-discrepancies.ja.md) | 文書とコードの食い違い |
 | [17-verifier-r13](17-verifier-r13.ja.md) | **r13**: 統合候補での ①〜⑳ の命令・記録の答え、合成 march の既知の 6 件と新しい退行の切り分け、鍵なしの coverage の試験 |
+| [18-verifier-early-patches](18-verifier-early-patches.ja.md) | **2026-11-18**: パッチ 0001〜0017 が main で塞がっているかの照合（変異で確認）、残っていた 3 つの穴の修正、文書とコードの食い違い |
 | [16-verifier-r11](16-verifier-r11.ja.md) | **r11**: JoinResident の証明口座の正規アドレス、禁止操作が無いことの呼び出し先までの確認、⑲の履歴判定との整合、実装・試験・未確認の区別 |
 | [15-verifier-r9](15-verifier-r9.ja.md) | **r9**: JoinResident の照合（命令・NFT・世代・国・shard・時刻・世界ごとの重複・post-state）、V0 の NFT 版と②の命令の区別、当てる順 |
 | [14-verifier-r7](14-verifier-r7.ja.md) | **r7**: ④の現在版へのパッチ 0006（0004＋0005＋r7）、②⑳⑪の新しいタグ・記録種別が PASS にならないこと、TRANSIT_SETTLED の外の DIVERT、未知の conquest 種別の仕掛け |
@@ -42,7 +43,7 @@
 | [09-continuing-world](09-continuing-world.ja.md) | 継続世界への対応: 残っていたシーズン依存、変えた挙動、境界・再起動・長期運用の試験、残る判断（r4） |
 | [08-host-vs-onchain](08-host-vs-onchain.ja.md) | ホスト試験で確かめた範囲とオンチェーンの保証の区別、CPI・V7 の未確認範囲（r3） |
 | [10-research](10-research.ja.md) | OSS の先例（BOLT、Metaplex Core、Transfer Hook、MUD、Dojo、Swig、Lighthouse）と Solana の一次資料（Agave v3.1.9） |
-| [patches/](patches/) | 共有コアへの変更案（**未適用**） |
+| [patches/](patches/) | 共有コアへの変更案（検証器の 0003〜0017 は main に適用済み、0001 は取り下げ。状態は [18](18-verifier-early-patches.ja.md) §1） |
 
 ## 実行
 
