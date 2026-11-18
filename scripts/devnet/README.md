@@ -9,7 +9,7 @@ its gate is open, and only r0ze opens it.
 | `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`), the `operator` block read by `frontier-operator` |
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
-| `test/dry-run.test.mjs` | 27 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
+| `test/dry-run.test.mjs` | 29 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 
 ```sh
 node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 6,960 lamports/byte)

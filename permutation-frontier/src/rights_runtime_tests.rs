@@ -12,9 +12,14 @@
 //! or derived and nothing is signed: `is_signer` is set by the test.
 //!
 //! **Fixture shortcuts (not program paths):** the Season, Citizens,
-//! Holdings and Province are written directly (no CreateSeason, Join or
-//! Build); a capture is simulated by editing the holding's generation and
-//! owner and the Province's site mirror (no siege or SettleCapture). Not
+//! Holdings, Vaults and Province are written directly (no CreateSeason,
+//! Join, Build or BuildVault); a capture is simulated by editing the
+//! holding's generation and owner and the Province's site mirror (no siege
+//! or SettleCapture), a seizure by editing the Vault's generation and owner
+//! as SeizeVault leaves them. Option A (owner decision ② = A): the station
+//! is the grantee's Vault in the facility's Province; the haul out by
+//! caravan and its raid are covered by the LiteSVM suite
+//! (`permutation-frontier/svm-tests/tests/rights.rs`). Not
 //! covered: SBF, compute units, the 1,232-byte transaction limit, the
 //! verifier, keeper and herald. A failed instruction is rolled back by
 //! the harness ([`World::run`]), as the runtime would.
@@ -32,6 +37,7 @@ use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::v2::layout::player::{citizen as CI, holding as HO};
 use frontier_abi::v2::layout::province::{province as PV, site as SM};
+use frontier_abi::v2::layout::s1::vault as VA;
 use frontier_abi::v2::layout::world::season as SE;
 use frontier_abi::v2::layout::{write_header, AccountKind as K2};
 use frontier_abi::v2::rights::{self as rt, layout as G, RightsError as E};
@@ -85,6 +91,10 @@ const ORE: usize = Resource::Ore as usize;
 const WOOD: usize = Resource::Wood as usize;
 const ARMS: usize = arms::ARMS as usize;
 const LAMPORTS: u64 = 10_000_000_000;
+/// Gold every fixture holding starts with (whole units), for the issue cost.
+const GOLD: i64 = 100;
+/// The station Vaults' tile.
+const ST_TILE: u8 = 30;
 
 struct World {
     program: Pubkey,
@@ -302,6 +312,8 @@ impl World {
             (Resource::Ore, stock[0]),
             (Resource::Wood, stock[1]),
             (arms::ARMS, stock[2]),
+            // Option A: IssueGrant costs gold (`GRANT_ISSUE_COST`).
+            (Resource::Gold, GOLD),
         ] {
             h.credit(T0, r, v * MILLI).unwrap();
         }
@@ -325,6 +337,49 @@ impl World {
         k
     }
 
+    /// A live Vault of `owner` on `tile` of Province (p, q) holding `stock`
+    /// (whole units) of ore, wood, arms, as BuildVault leaves it (cap
+    /// `VAULT_CAP`, generation 1).
+    fn vault(
+        &mut self,
+        owner: &[u8; 32],
+        (p, q, tile): (i16, i16, u8),
+        stock: [i64; 3],
+    ) -> [u8; 32] {
+        let k = frontier_abi::v2::addr::vault(&self.ctx(), p as i32, q as i32, tile);
+        self.province(p, q);
+        let mut d = std::vec![0u8; K2::Vault.size()];
+        assert!(write_header(&mut d, K2::Vault, self.sid));
+        d[VA::P..VA::P + 2].copy_from_slice(&p.to_le_bytes());
+        d[VA::Q..VA::Q + 2].copy_from_slice(&q.to_le_bytes());
+        d[VA::TILE] = tile;
+        d[VA::STATE] = VA::STATE_LIVE;
+        d[VA::GEN] = 1;
+        d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(owner);
+        d[VA::OWNER_TAG..VA::OWNER_TAG + 8]
+            .copy_from_slice(&addr::citizen_tag(owner).to_le_bytes());
+        d[VA::CAP..VA::CAP + 8]
+            .copy_from_slice(&permutation_rules::frontier::caravan::VAULT_CAP.to_le_bytes());
+        for (r, v) in [(ORE, stock[0]), (WOOD, stock[1]), (ARMS, stock[2])] {
+            d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&(v * MILLI).to_le_bytes());
+        }
+        self.put(k, self.program, LAMPORTS / 10, &d);
+        k
+    }
+
+    fn is_vault(&self, k: &[u8; 32]) -> bool {
+        self.data(k).get(..8) == Some(&VA::MAGIC[..])
+    }
+
+    /// SeizeVault's effect on the Vault (simulated): next generation, the
+    /// captor's; the contents stay (now the captor's).
+    fn seize(&self, k: &[u8; 32], captor: &[u8; 32]) {
+        self.edit(k, |d| {
+            d[VA::GEN] += 1;
+            d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(captor);
+        });
+    }
+
     /// The account closed as the runtime leaves it (System-owned, no
     /// data): CloseHolding after the season, or ReleaseDormant (simulated).
     fn close_account(&self, k: &[u8; 32]) {
@@ -336,6 +391,12 @@ impl World {
     /// Sets a store's settled value at `now` (simulates the owner's own
     /// spending or deliveries; whole units).
     fn set_store(&self, k: &[u8; 32], r: usize, now: i64, v: i64) {
+        if self.is_vault(k) {
+            self.edit(k, |d| {
+                d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&(v * MILLI).to_le_bytes())
+            });
+            return;
+        }
         self.edit(k, |d| {
             let mut h = hold::read_holding(d).unwrap();
             hold::settle_tiered(&mut h, now, hold::terrain_ore(d).unwrap()).unwrap();
@@ -347,6 +408,13 @@ impl World {
     /// The holding's stores at `now`, settled by the kernel (no write).
     fn stock(&self, k: &[u8; 32], now: i64) -> [i64; RESOURCES] {
         let d = self.data(k);
+        if self.is_vault(k) {
+            let mut v = [0i64; RESOURCES];
+            for (r, x) in v.iter_mut().enumerate() {
+                *x = i64::from_le_bytes(d[VA::store(r)..VA::store(r) + 8].try_into().unwrap());
+            }
+            return v;
+        }
         let mut h = hold::read_holding(&d).unwrap();
         hold::settle_tiered(&mut h, now, hold::terrain_ore(&d).unwrap()).unwrap();
         h.stock_at(now)
@@ -367,8 +435,10 @@ impl World {
 // ------------------------------------------------------------ scenario
 
 /// Issuer A (faction 1) owns a workshop holding F; grantee B (faction 2:
-/// another nation) has station S in the same Province; C (faction 1,
-/// A's own nation) has holding X there, and D a holding elsewhere.
+/// another nation) has station S — its **Vault** (option A) — in the same
+/// Province, and a holding SH there; C (faction 1, A's own nation) has
+/// holding X and Vault XV there; B has a Vault (FAR) and a holding (FARH)
+/// in another Province.
 struct Sc {
     w: World,
     a: [u8; 32],
@@ -380,8 +450,11 @@ struct Sc {
     f: [u8; 32],
     f2: [u8; 32],
     s: [u8; 32],
+    sh: [u8; 32],
     x: [u8; 32],
+    xv: [u8; 32],
     far: [u8; 32],
+    farh: [u8; 32],
     prov: [u8; 32],
     prov2: [u8; 32],
 }
@@ -396,9 +469,12 @@ fn scene() -> Sc {
     let c_c = w.citizen(c, 1);
     let f = w.holding(&a_c, (PQ.0, PQ.1, 0), 2, [100, 100, 100]);
     let f2 = w.holding(&a_c, (PQ.0, PQ.1, 3), 0, [100, 100, 100]);
-    let s = w.holding(&b_c, (PQ.0, PQ.1, 1), 0, [500, 500, 0]);
+    let s = w.vault(&b_c, (PQ.0, PQ.1, ST_TILE), [500, 500, 0]);
+    let sh = w.holding(&b_c, (PQ.0, PQ.1, 1), 0, [500, 500, 0]);
     let x = w.holding(&c_c, (PQ.0, PQ.1, 2), 0, [500, 500, 0]);
-    let far = w.holding(&b_c, (5, 5, 0), 0, [500, 500, 0]);
+    let xv = w.vault(&c_c, (PQ.0, PQ.1, ST_TILE + 1), [500, 500, 0]);
+    let far = w.vault(&b_c, (5, 5, ST_TILE), [500, 500, 0]);
+    let farh = w.holding(&b_c, (5, 5, 0), 0, [500, 500, 0]);
     let prov = w.ctx().province(PQ.0 as i32, PQ.1 as i32);
     let prov2 = w.ctx().province(5, 5);
     Sc {
@@ -412,8 +488,11 @@ fn scene() -> Sc {
         f,
         f2,
         s,
+        sh,
         x,
+        xv,
         far,
+        farh,
         prov,
         prov2,
     }
@@ -649,19 +728,22 @@ fn legitimate_use_moves_exactly_the_terms_and_no_key() {
     let mut sc = scene();
     let g = sc.issue(0);
     assert!(sc.w.exists(&g));
-    let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    // A minute later (so an owner touch would show).
+    let t = NOW + 60;
+    set_now(t);
+    let (f0, s0) = (sc.w.stock(&sc.f, t), sc.w.stock(&sc.s, t));
     // B reserves 10 arms' worth with its own wallet: 20 ore, 10 wood from
-    // S; 10 arms from F; all held by the Grant.
+    // its Vault S; 10 arms from F; all held by the Grant.
     sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
-    let (f1, s1) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    let (f1, s1) = (sc.w.stock(&sc.f, t), sc.w.stock(&sc.s, t));
     assert_eq!(s0[ORE] - s1[ORE], units(10 * arms::ORE_PER_ARM));
     assert_eq!(s0[WOOD] - s1[WOOD], units(10 * arms::WOOD_PER_ARM));
     assert_eq!(f0[ARMS] - f1[ARMS], units(10));
     assert_eq!((f0[ORE], f0[WOOD]), (f1[ORE], f1[WOOD]));
     assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 10);
-    // Consume: arms to S, inputs to F.
+    // Execute: arms into the Vault S, inputs to F.
     sc.execute(sc.b, sc.b_c, g).unwrap();
-    let (f2, s2) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    let (f2, s2) = (sc.w.stock(&sc.f, t), sc.w.stock(&sc.s, t));
     assert_eq!(s2[ARMS] - s0[ARMS], units(10));
     assert_eq!(f2[ORE] - f0[ORE], units(20));
     assert_eq!(f2[WOOD] - f0[WOOD], units(10));
@@ -673,8 +755,12 @@ fn legitimate_use_moves_exactly_the_terms_and_no_key() {
     assert_eq!(sc.g_u16(&g, G::SWAPS), 1);
     assert_eq!(sc.g_u32(&g, G::UNITS_SWAPPED), 10);
     assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
-    // A's citizen and keys were never used after IssueGrant; F's owner is
-    // still A and its owner activity is untouched.
+    // The arms are in B's Vault, not in any of B's holdings: B's holding
+    // SH in the same Province did not change.
+    assert_eq!(sc.w.stock(&sc.sh, t)[ARMS], 0);
+    // A's keys were never used after IssueGrant: F's owner is still A and
+    // its last owner action is the issue itself (it paid the cost), not
+    // the grantee's swaps.
     let fd = sc.w.data(&sc.f);
     assert_eq!(&fd[HO::OWNER_CITIZEN..HO::OWNER_CITIZEN + 32], &sc.a_c);
     let last = i64::from_le_bytes(
@@ -682,7 +768,7 @@ fn legitimate_use_moves_exactly_the_terms_and_no_key() {
             .try_into()
             .unwrap(),
     );
-    assert_eq!(last, T0);
+    assert_eq!(last, NOW);
 }
 
 #[test]
@@ -708,11 +794,105 @@ fn issuing_needs_the_issuers_wallet_not_its_session() {
     sc.set_session(sc.a, sc.a_c, sess, NOW + 3_600).unwrap();
     let g = sc.grant_key(0);
     let (a_c, f, b_c, s) = (sc.a_c, sc.f, sc.b_c, sc.s);
+    let f0 = sc.w.data(&f);
     assert_eq!(
         sc.issue_as(sess, a_c, f, b_c, s, g, Sc::terms(0)),
         cqerr(CqError::WalletRequired)
     );
     assert!(!sc.w.exists(&g));
+    // Nothing was paid: the refusal comes before the issue cost.
+    assert_eq!(sc.w.data(&f), f0);
+    // Any live session is refused before anything else is read (here
+    // the grantee's, for its own Citizen), and the issuer's wallet can.
+    let bsess = wallet(0xB5);
+    sc.set_session(sc.b, sc.b_c, bsess, NOW + 3_600).unwrap();
+    assert_eq!(
+        sc.issue_as(bsess, b_c, f, a_c, s, g, Sc::terms(0)),
+        cqerr(CqError::WalletRequired)
+    );
+    let a = sc.a;
+    sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)).unwrap();
+}
+
+/// Option A: issuing costs `GRANT_ISSUE_COST` from the facility; without it
+/// nothing is issued and nothing moves.
+#[test]
+fn issuing_without_the_cost_is_refused_whole() {
+    let mut sc = scene();
+    let g = sc.grant_key(0);
+    sc.w.set_store(&sc.f, Resource::Gold as usize, NOW, 24);
+    let f0 = sc.w.data(&sc.f);
+    let (a, a_c, f, b_c, s) = (sc.a, sc.a_c, sc.f, sc.b_c, sc.s);
+    assert_eq!(
+        sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)),
+        ferr(FrontierError::Insufficient)
+    );
+    assert!(!sc.w.exists(&g));
+    assert_eq!(sc.w.data(&f), f0);
+    sc.w.set_store(&sc.f, Resource::Gold as usize, NOW, 25);
+    sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)).unwrap();
+    assert_eq!(sc.w.stock(&f, NOW)[Resource::Gold as usize], 0);
+}
+
+/// 04-PROPOSALS §4: a player who issues to its own second account (A2)
+/// can no longer move goods raid-free. The swap moves arms only into A2's
+/// Vault in the facility's own Province and ore and wood only out of it;
+/// A2's holdings — here and elsewhere — are untouched, so every unit that
+/// leaves the Province (or reaches a holding) has to go by caravan (the
+/// LiteSVM suite runs that haul and its raid). The ratio is fixed (2 ore +
+/// 1 wood per arm), so no other resource can ride along, and each Grant
+/// costs the issuer 25 gold.
+#[test]
+fn self_issuance_to_an_alt_only_fills_the_alts_vault_in_the_same_province() {
+    let mut sc = scene();
+    let a2 = wallet(0xA2);
+    let a2_c = sc.w.citizen(a2, 1);
+    let a2_home = sc.w.holding(&a2_c, (PQ.0, PQ.1, 4), 0, [0, 0, 0]);
+    let a2_far = sc.w.holding(&a2_c, (5, 5, 1), 0, [0, 0, 0]);
+    let a2_vault = sc.w.vault(&a2_c, (PQ.0, PQ.1, ST_TILE + 2), [100, 100, 0]);
+    let a2_far_vault = sc.w.vault(&a2_c, (5, 5, ST_TILE + 2), [100, 100, 0]);
+    let g = sc.grant_key(7);
+    let (a, a_c, f) = (sc.a, sc.a_c, sc.f);
+    // A Vault elsewhere cannot be the station: the swap never crosses a
+    // Province border.
+    assert_eq!(
+        sc.issue_as(a, a_c, f, a2_c, a2_far_vault, g, Sc::terms(7)),
+        rerr(E::BadStation)
+    );
+    // Nor can A2's holding.
+    assert_eq!(
+        sc.issue_as(a, a_c, f, a2_c, a2_home, g, Sc::terms(7)),
+        rerr(E::BadStation)
+    );
+    let gold0 = sc.w.stock(&f, NOW)[Resource::Gold as usize];
+    sc.issue_as(a, a_c, f, a2_c, a2_vault, g, Sc::terms(7))
+        .unwrap();
+    assert_eq!(
+        gold0 - sc.w.stock(&f, NOW)[Resource::Gold as usize],
+        units(25)
+    );
+    let (h0, hf0) = (sc.w.data(&a2_home), sc.w.data(&a2_far));
+    let fv0 = sc.w.data(&a2_far_vault);
+    let m = sc.use_metas_with(a2, a2_c, g, f, a2_vault, sc.prov);
+    sc.w.run(&rt::ReserveSwap { units: 30, seq: 0 }.to_bytes(), &m)
+        .unwrap();
+    sc.w.run(&rt::ExecuteSwap { seq: 0 }.to_bytes(), &m)
+        .unwrap();
+    // 30 arms in A2's Vault, at the facility's Province …
+    let v = sc.w.stock(&a2_vault, NOW);
+    assert_eq!(
+        (v[ARMS], v[ORE], v[WOOD]),
+        (units(30), units(40), units(70))
+    );
+    // … and in none of A2's holdings or other Vaults.
+    assert_eq!(sc.w.data(&a2_home), h0);
+    assert_eq!(sc.w.data(&a2_far), hf0);
+    assert_eq!(sc.w.data(&a2_far_vault), fv0);
+    // The quota is spent; more needs another (paid) Grant.
+    assert_eq!(
+        sc.w.run(&rt::ReserveSwap { units: 1, seq: 1 }.to_bytes(), &m),
+        rerr(E::QuotaExceeded)
+    );
 }
 
 // ------------------------------------------------------------ required refusals
@@ -798,7 +978,7 @@ fn another_season_is_refused() {
     let a_c = w2.citizen(sc.a, 1);
     let b_c = w2.citizen(sc.b, 2);
     let f = w2.holding(&a_c, (PQ.0, PQ.1, 0), 2, [100, 100, 100]);
-    let s = w2.holding(&b_c, (PQ.0, PQ.1, 1), 0, [500, 500, 0]);
+    let s = w2.vault(&b_c, (PQ.0, PQ.1, ST_TILE), [500, 500, 0]);
     let prov = w2.ctx().province(PQ.0 as i32, PQ.1 as i32);
     let season2 = w2.season.to_bytes();
     let metas = |grant: [u8; 32]| {
@@ -992,11 +1172,20 @@ fn generation_and_owner_are_each_pinned() {
         d[HO::OWNER_CITIZEN..HO::OWNER_CITIZEN + 32].copy_from_slice(&c_c)
     });
     assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
-    // The station's pin as well.
+    // The station Vault's pin as well: same owner, next generation (B
+    // lost it and seized it back) …
     let mut sc = scene();
     let g = sc.issue(0);
-    let (s, prov, b_c) = (sc.s, sc.prov, sc.b_c);
-    sc.w.capture(&s, &prov, 1, &b_c);
+    let (s, b_c) = (sc.s, sc.b_c);
+    sc.w.seize(&s, &b_c);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+    // … and another owner at the same generation (defence in depth).
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let c_c = sc.c_c;
+    sc.w.edit(&sc.s, |d| {
+        d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(&c_c)
+    });
     assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
 }
 
@@ -1005,8 +1194,8 @@ fn a_station_that_is_gone_keeps_its_escrow_in_the_grant() {
     let mut sc = scene();
     let g = sc.issue(0);
     sc.reserve(sc.b, sc.b_c, g, 5).unwrap();
-    // S released (simulated): no live holding at its key any more.
-    sc.w.edit(&sc.s, |d| d[HO::STATE] = HO::STATE_RELEASED);
+    // S closed (simulated CloseVault): no live Vault at its key any more.
+    sc.w.close_account(&sc.s);
     let s_bytes = sc.w.data(&sc.s);
     let f_before = sc.w.stock(&sc.f, NOW);
     assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
@@ -1171,11 +1360,8 @@ fn shortfalls_move_nothing() {
         ferr(FrontierError::Insufficient)
     );
     assert_eq!((sc.w.data(&sc.f), sc.w.data(&sc.s)), (f0, s0));
-    // S short of ore.
-    sc.w.edit(&sc.s, |d| {
-        let o = HO::store(ORE) + crate::layout::player::accrual::VALUE;
-        d[o..o + 8].copy_from_slice(&units(1).to_le_bytes());
-    });
+    // S (the Vault) short of ore.
+    sc.w.set_store(&sc.s, ORE, NOW, 1);
     let (f0, s0) = (sc.w.data(&sc.f), sc.w.data(&sc.s));
     assert_eq!(
         sc.reserve(sc.b, sc.b_c, g, 10),
@@ -1190,21 +1376,31 @@ fn shortfalls_move_nothing() {
 fn issue_terms_and_places_are_checked() {
     let mut sc = scene();
     let (a, a_c, f, f2, b_c, s, x, far) = (sc.a, sc.a_c, sc.f, sc.f2, sc.b_c, sc.s, sc.x, sc.far);
+    let (sh, xv) = (sc.sh, sc.xv);
     let g = sc.grant_key(0);
     // No workshop in F2.
     assert_eq!(
         sc.issue_as(a, a_c, f2, b_c, s, g, Sc::terms(0)),
         rerr(E::NoWorkshop)
     );
-    // Station not the grantee's, or in another Province.
+    // Station not the grantee's (C's holding, C's Vault), or in another
+    // Province (B's far Vault), or not a Vault at all: option A refuses
+    // B's own holding SH in the facility's Province (a holding station
+    // would take the arms out of the caravan's reach).
+    for st in [x, xv, far, sh] {
+        assert_eq!(
+            sc.issue_as(a, a_c, f, b_c, st, g, Sc::terms(0)),
+            rerr(E::BadStation)
+        );
+    }
+    // A seized Vault (no longer B's) is not B's station.
+    let c_c = sc.c_c;
+    sc.w.seize(&s, &c_c);
     assert_eq!(
-        sc.issue_as(a, a_c, f, b_c, x, g, Sc::terms(0)),
+        sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)),
         rerr(E::BadStation)
     );
-    assert_eq!(
-        sc.issue_as(a, a_c, f, b_c, far, g, Sc::terms(0)),
-        rerr(E::BadStation)
-    );
+    sc.w.seize(&s, &b_c);
     // Self-grant, zero quota, past or too-far expiry, unknown kind.
     assert_eq!(
         sc.issue_as(a, a_c, f, a_c, f2, g, Sc::terms(0)),
@@ -1241,13 +1437,27 @@ fn issue_terms_and_places_are_checked() {
         ferr(FrontierError::BadAddress)
     );
     let f_at_issue = sc.w.stock(&f, NOW);
+    let s_at_issue = sc.w.data(&s);
     sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)).unwrap();
     assert_eq!(
         sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)),
         rerr(E::BadGrant)
     );
-    // Issuing reads F: nothing in it moves.
-    assert_eq!(sc.w.stock(&f, NOW), f_at_issue);
+    // Issuing costs F exactly `GRANT_ISSUE_COST` (25 gold) and nothing
+    // else; the station Vault is only read.
+    let f_now = sc.w.stock(&f, NOW);
+    for r in 0..RESOURCES {
+        assert_eq!(
+            f_at_issue[r] - f_now[r],
+            rt::grant_issue_cost()[r],
+            "resource {r}"
+        );
+    }
+    assert_eq!(
+        f_at_issue[Resource::Gold as usize] - f_now[Resource::Gold as usize],
+        units(25)
+    );
+    assert_eq!(sc.w.data(&s), s_at_issue);
 }
 
 #[test]
@@ -1273,19 +1483,19 @@ fn close_returns_rent_only_when_nothing_is_escrowed_or_usable() {
 #[test]
 fn parallel_reservations_cannot_take_the_same_stock_twice() {
     let mut sc = scene();
-    let (a, a_c, f, b_c, s, c_c, x) = (sc.a, sc.a_c, sc.f, sc.b_c, sc.s, sc.c_c, sc.x);
+    let (a, a_c, f, b_c, s, c_c, xv) = (sc.a, sc.a_c, sc.f, sc.b_c, sc.s, sc.c_c, sc.xv);
     let big = |nonce| rt::IssueGrant {
         max_units: 100,
         ..Sc::terms(nonce)
     };
     let (gb, gc) = (sc.grant_key(0), sc.grant_key(1));
     sc.issue_as(a, a_c, f, b_c, s, gb, big(0)).unwrap();
-    sc.issue_as(a, a_c, f, c_c, x, gc, big(1)).unwrap();
+    sc.issue_as(a, a_c, f, c_c, xv, gc, big(1)).unwrap();
     let f0 = sc.w.stock(&sc.f, NOW)[ARMS];
     assert_eq!(f0, units(108)); // 100 + 2 workshops × 4 an hour × 1 h
     sc.reserve(sc.b, sc.b_c, gb, 60).unwrap();
     // C's grant on the same F: only 48 arms are left in F's store.
-    let m = sc.use_metas_with(sc.c, sc.c_c, gc, sc.f, sc.x, sc.prov);
+    let m = sc.use_metas_with(sc.c, sc.c_c, gc, sc.f, sc.xv, sc.prov);
     assert_eq!(
         sc.w.run(&rt::ReserveSwap { units: 49, seq: 0 }.to_bytes(), &m),
         ferr(FrontierError::Insufficient)
@@ -1324,26 +1534,120 @@ fn escrow_is_outside_every_store_during_a_reservation() {
     assert_eq!(s2[ORE], s1[ORE]);
 }
 
+/// Option A: a Vault never goes past `CAP − CUSTODY_QUOTA` (workstream
+/// 10's invariant, kept by every Vault writer). An ExecuteSwap whose arms do
+/// not fit is refused whole; the grantee hauls out first (or releases).
 #[test]
-fn a_return_into_a_full_store_is_kept_above_the_cap() {
+fn execute_into_a_full_vault_is_refused_whole() {
     let mut sc = scene();
     let g = sc.issue(0);
     sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
-    let cap = Tier::Hamlet.storage_cap() / MILLI;
-    sc.w.set_store(&sc.s, ORE, NOW, cap);
-    sc.w.set_store(&sc.s, WOOD, NOW, cap);
+    let cap = permutation_rules::frontier::caravan::VAULT_CAP / MILLI;
+    sc.w.set_store(&sc.s, ARMS, NOW, cap - 9);
+    let (gd, f0, s0) = (sc.w.data(&g), sc.w.data(&sc.f), sc.w.data(&sc.s));
+    assert_eq!(sc.execute(sc.b, sc.b_c, g), rerr(E::VaultFull));
+    assert_eq!(
+        (sc.w.data(&g), sc.w.data(&sc.f), sc.w.data(&sc.s)),
+        (gd, f0, s0)
+    );
+    // Room committed to custody lots counts as full too.
+    sc.w.set_store(&sc.s, ARMS, NOW, cap - 10);
+    sc.w.edit(&sc.s, |d| {
+        let o = VA::custody_quota(ARMS);
+        d[o..o + 8].copy_from_slice(&MILLI.to_le_bytes());
+    });
+    assert_eq!(sc.execute(sc.b, sc.b_c, g), rerr(E::VaultFull));
+    // With room (a caravan took some out, simulated), it goes through, up
+    // to the cap exactly.
+    sc.w.edit(&sc.s, |d| {
+        let o = VA::custody_quota(ARMS);
+        d[o..o + 8].copy_from_slice(&0i64.to_le_bytes());
+    });
+    sc.execute(sc.b, sc.b_c, g).unwrap();
+    assert_eq!(sc.w.stock(&sc.s, NOW)[ARMS], units(cap));
+}
+
+/// An undo whose ore and wood no longer fit the Vault keeps them in the
+/// Grant (not burned, not credited past the cap); a later release, once
+/// there is room, returns them.
+#[test]
+fn a_return_that_does_not_fit_the_vault_is_kept_in_the_grant() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
+    let cap = permutation_rules::frontier::caravan::VAULT_CAP / MILLI;
+    sc.w.set_store(&sc.s, ORE, NOW, cap - 5);
+    let f0 = sc.w.stock(&sc.f, NOW);
     sc.release(sc.b, g).unwrap();
-    let s = sc.w.stock(&sc.s, NOW);
-    assert_eq!(s[ORE], units(cap + 20));
-    assert_eq!(s[WOOD], units(cap + 10));
-    // Hours later the store is not cut back to the cap (Accrual: a
-    // positive rate never lowers a value above it); only further
-    // production into that store stops.
-    let later = NOW + 4 * 3_600;
-    set_now(later);
-    let s = sc.w.stock(&sc.s, later);
-    assert_eq!(s[ORE], units(cap + 20));
-    assert_eq!(s[WOOD], units(cap + 10));
+    // The arms went back to F; the Vault side stayed in the Grant.
+    assert_eq!(sc.w.stock(&sc.f, NOW)[ARMS] - f0[ARMS], units(10));
+    assert_eq!(sc.w.stock(&sc.s, NOW)[ORE], units(cap - 5));
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 10);
+    assert_eq!(
+        (
+            sc.g_i64(&g, G::OPEN_ORE),
+            sc.g_i64(&g, G::OPEN_WOOD),
+            sc.g_i64(&g, G::OPEN_ARMS)
+        ),
+        (units(20), units(10), 0)
+    );
+    // Still no room: nothing can go back.
+    assert_eq!(sc.release(sc.b, g), rerr(E::ReturnBlocked));
+    assert_eq!(sc.close(sc.c, g, sc.a), rerr(E::StillLive));
+    // Room made (hauled out, simulated): the release returns them.
+    sc.w.set_store(&sc.s, ORE, NOW, 0);
+    sc.release(sc.b, g).unwrap();
+    let st = sc.w.stock(&sc.s, NOW);
+    assert_eq!((st[ORE], st[WOOD]), (units(20), units(500)));
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
+}
+
+/// (verify-pr33) The Vault side of an undo is all or nothing: when the ore
+/// fits but the wood does not, neither goes back (no partial credit, no
+/// burn), and the grantee's holding is never the fallback.
+#[test]
+fn a_vault_return_is_all_or_nothing_and_never_falls_back_to_a_holding() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
+    let cap = permutation_rules::frontier::caravan::VAULT_CAP / MILLI;
+    sc.w.set_store(&sc.s, WOOD, NOW, cap - 5);
+    let (s0, sh0) = (sc.w.data(&sc.s), sc.w.data(&sc.sh));
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    assert_eq!(sc.w.data(&sc.s), s0, "ore fits, wood does not: neither");
+    assert_eq!(sc.w.data(&sc.sh), sh0, "B's holding is not a fallback");
+    assert_eq!(
+        (sc.g_i64(&g, G::OPEN_ORE), sc.g_i64(&g, G::OPEN_WOOD)),
+        (units(20), units(10))
+    );
+    assert_eq!(sc.g_i64(&g, G::OPEN_ARMS), 0);
+}
+
+/// (verify-pr33) The station's pin is (key, generation, owner): a Vault
+/// closed and rebuilt on the same tile by someone else (CloseVault needs
+/// an empty Vault; the rebuilt one starts at generation 1 again) is stale
+/// for the swap. An undo then credits the Vault as it stands now (contract
+/// §6's rule, as for a captured holding) — still a Vault on that tile, so
+/// nothing reaches a holding without a caravan.
+#[test]
+fn a_vault_rebuilt_by_another_on_the_tile_is_stale_for_the_swap() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 4).unwrap();
+    // B empties and closes S (simulated); C builds a Vault on the tile.
+    sc.w.close_account(&sc.s);
+    let c_c = sc.c_c;
+    let s2 = sc.w.vault(&c_c, (PQ.0, PQ.1, ST_TILE), [0, 0, 0]);
+    assert_eq!(s2, sc.s, "the same canonical address");
+    assert_eq!(sc.w.data(&s2)[VA::GEN], sc.w.data(&sc.s)[VA::GEN]);
+    assert_eq!(sc.execute(sc.b, sc.b_c, g), rerr(E::StaleHolding));
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+    let sh0 = sc.w.data(&sc.sh);
+    sc.release(sc.a, g).unwrap(); // anyone, once stale
+    let v = sc.w.stock(&s2, NOW);
+    assert_eq!((v[ORE], v[WOOD], v[ARMS]), (units(8), units(4), 0));
+    assert_eq!(sc.w.data(&sc.sh), sh0);
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
 }
 
 #[test]
@@ -1415,19 +1719,19 @@ fn station_captured_while_reserved_returns_inputs_to_the_captor_and_arms_to_the_
     let mut sc = scene();
     let g = sc.issue(0);
     sc.reserve(sc.b, sc.b_c, g, 3).unwrap();
-    let (s, prov, c_c) = (sc.s, sc.prov, sc.c_c);
-    sc.w.capture(&s, &prov, 1, &c_c);
+    let (s, c_c) = (sc.s, sc.c_c);
+    sc.w.seize(&s, &c_c);
     assert_eq!(sc.execute(sc.b, sc.b_c, g), rerr(E::StaleHolding));
     let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
-    // B (still the grantee) releases: its ore and wood go into S as it
-    // stands, which is C's now; the arms back into A's F.
+    // B (still the grantee) releases: its ore and wood go into the Vault S
+    // as it stands, which is C's now (SeizeVault); the arms back into A's F.
     sc.release(sc.b, g).unwrap();
     let (f1, s1) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
     assert_eq!(s1[ORE] - s0[ORE], units(6));
     assert_eq!(s1[WOOD] - s0[WOOD], units(3));
     assert_eq!(f1[ARMS] - f0[ARMS], units(3));
     let sd = sc.w.data(&sc.s);
-    assert_eq!(&sd[HO::OWNER_CITIZEN..HO::OWNER_CITIZEN + 32], &sc.c_c);
+    assert_eq!(&sd[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32], &sc.c_c);
 }
 
 #[test]
@@ -1437,7 +1741,7 @@ fn both_sides_captured_while_reserved_each_return_goes_to_its_captor() {
     sc.reserve(sc.b, sc.b_c, g, 3).unwrap();
     let (f, s, prov, c_c, b_c) = (sc.f, sc.s, sc.prov, sc.c_c, sc.b_c);
     sc.w.capture(&f, &prov, 0, &b_c); // B takes F
-    sc.w.capture(&s, &prov, 1, &c_c); // C takes S
+    sc.w.seize(&s, &c_c); // C seizes the Vault S
     let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
     sc.release(sc.a, g).unwrap(); // anyone, once stale
     let (f1, s1) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
@@ -1452,9 +1756,9 @@ fn after_an_executed_swap_a_capture_changes_nothing_the_grant_holds() {
     sc.reserve(sc.b, sc.b_c, g, 3).unwrap();
     sc.execute(sc.b, sc.b_c, g).unwrap();
     let gd = sc.w.data(&g);
-    let (s, prov, c_c) = (sc.s, sc.prov, sc.c_c);
-    sc.w.capture(&s, &prov, 1, &c_c);
-    // The 3 arms are in S's store and pass with it under the capture rule;
+    let (s, c_c) = (sc.s, sc.c_c);
+    sc.w.seize(&s, &c_c);
+    // The 3 arms are in the Vault S and pass with it under SeizeVault;
     // the Grant holds nothing and cannot be used any more.
     assert_eq!(sc.release(sc.c, g), rerr(E::NoReservation));
     assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
@@ -1541,7 +1845,7 @@ fn a_grantee_session_also_acts_on_the_grantees_other_assets() {
     let sess = wallet(0xB5);
     sc.set_session(sc.b, sc.b_c, sess, NOW + 3_600).unwrap();
     let season = sc.w.season.to_bytes();
-    let (b_c, far, prov2) = (sc.b_c, sc.far, sc.prov2);
+    let (b_c, far, prov2) = (sc.b_c, sc.farh, sc.prov2);
     sc.w.run(
         &frontier_abi::ix::Harvest {}.to_bytes(),
         &[
@@ -1598,6 +1902,9 @@ fn the_record(sc: &Sc, kind: CqKind, nonce: u32, bell: u32) -> (Vec<u8>, Vec<[u8
                 .find(|c| addr::citizen_tag(c) == t)
                 .expect("a citizen of the scene"),
             EntityRefV2::Base(EntityRef::Holding { p, q, site }) => sc.w.ctx().holding(p, q, site),
+            EntityRefV2::Vault { p, q, tile } => {
+                frontier_abi::v2::addr::vault(&sc.w.ctx(), p, q, tile)
+            }
             ref w => panic!("unexpected entity {w:?}"),
         };
         let d = sc.w.data(&k);
@@ -1625,7 +1932,7 @@ fn every_grant_instruction_logs_its_record() {
     let x = rec::Issued::from_bytes(&pl).unwrap();
     assert_eq!(x.grantee_tag, addr::citizen_tag(&sc.b_c));
     assert_eq!((x.p, x.q), (PQ.0 as i32, PQ.1 as i32));
-    assert_eq!((x.facility_site, x.station_site), (0, 1));
+    assert_eq!((x.facility_site, x.station_site), (0, ST_TILE));
     assert_eq!((x.facility_gen, x.station_gen), (1, 1));
     assert_eq!((x.max_swaps, x.max_units), (3, 30));
     // The rent-exempt minimum the Grant needs, as the program reads it
@@ -1634,7 +1941,7 @@ fn every_grant_instruction_logs_its_record() {
     // account may hold more.
     assert_eq!(x.rent, crate::init::rent(G::SIZE).unwrap());
     assert!(sc.w.lamports(&g) >= x.rent);
-    assert_eq!(linked, vec![sc.a_c]);
+    assert_eq!(linked, vec![sc.a_c, sc.f]);
 
     let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
     sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
@@ -1647,7 +1954,7 @@ fn every_grant_instruction_logs_its_record() {
     assert_eq!(x.ore, s0[ORE] - s1[ORE]);
     assert_eq!(x.wood, s0[WOOD] - s1[WOOD]);
     assert_eq!(x.arms, f0[ARMS] - f1[ARMS]);
-    assert_eq!(linked, vec![sc.b_c, sc.s, sc.f]);
+    assert_eq!(linked, vec![sc.b_c, sc.f, sc.s]);
 
     sc.execute(sc.b, sc.b_c, g).unwrap();
     let (pl, linked) = the_record(&sc, rec::EXECUTED, 0, BELL);
@@ -1659,7 +1966,7 @@ fn every_grant_instruction_logs_its_record() {
     );
     assert_eq!(y.arms, s2[ARMS] - s1[ARMS]);
     assert_eq!((y.ore, y.wood), (f2[ORE] - f1[ORE], f2[WOOD] - f1[WOOD]));
-    assert_eq!(linked, vec![sc.b_c, sc.s, sc.f]);
+    assert_eq!(linked, vec![sc.b_c, sc.f, sc.s]);
 
     sc.reserve(sc.b, sc.b_c, g, 4).unwrap();
     let (pl, _) = the_record(&sc, rec::RESERVED, 0, BELL);
@@ -1670,7 +1977,7 @@ fn every_grant_instruction_logs_its_record() {
     assert_eq!(u.by, rec::by::GRANTEE);
     assert_eq!(u.returned, [units(8), units(4), units(4)]);
     assert_eq!(u.kept, [0; 3]);
-    assert_eq!(linked, vec![sc.s, sc.f]);
+    assert_eq!(linked, vec![sc.f, sc.s]);
 
     // A revoke with nothing escrowed chains the issuer alone.
     sc.revoke(sc.a, sc.a_c, g).unwrap();
@@ -1734,7 +2041,7 @@ fn releases_say_who_undid_them() {
     let (pl, linked) = the_record(&sc, rec::RELEASED, 0, BELL);
     let u = rec::Undo::from_bytes(&pl).unwrap();
     assert_eq!(u.by, rec::by::STALE_HOLDING);
-    assert_eq!(linked, vec![sc.s, sc.f]);
+    assert_eq!(linked, vec![sc.f, sc.s]);
 }
 
 #[test]

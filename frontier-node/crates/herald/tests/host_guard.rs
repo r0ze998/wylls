@@ -72,8 +72,16 @@ async fn serve(name: &str, port: u16, hosts: HostPolicy) {
     tokio::spawn(server::serve(l, Arc::new(app)));
 }
 
-/// Sends raw request head lines; returns (status, body text).
+/// Sends raw request head lines; returns (status, body text). Bounded: a
+/// server that never answers (or never closes) fails the test in 10 s
+/// instead of hanging it.
 async fn raw(port: u16, head: &str) -> (u16, String) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), raw_inner(port, head))
+        .await
+        .unwrap_or_else(|_| panic!("no complete answer within 10 s to {head:?}"))
+}
+
+async fn raw_inner(port: u16, head: &str) -> (u16, String) {
     let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
         .unwrap();

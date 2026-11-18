@@ -11,7 +11,8 @@
 //! | `crash_injection_every_journal_point` (ignored: 60 runs) | the keeper killed at the n-th journal write of each point × duty kind, restarted from its journal | outcome digests identical; ≤ 1 duplicate version per write in flight at the crash |
 //! | `duplicate_keepers_race` | three keepers on one chain | identical outcomes; duplicate versions bounded |
 //! | `reveals_stop_at_close_under_hold` | the slots of a group held above the keeper's cap through the close | no Reveal lands at or after `A + W`; the arrivals settle routed; liveness findings recorded |
-//! | `claim_after_late_reveal` | the slots held below the cap for a few slots | the Reveal lands late (≥ `lateness_slots`), ClaimDefence pays the formula's refund, the slot is kept for the grace and closed after |
+//! | `claim_after_late_reveal` | the slots held below the cap for a few slots, the every-slot Reveal ladder (`max_unknown_w_versions = 0`) | the Reveal lands late (≥ `lateness_slots`), ClaimDefence pays the formula's refund, the slot is kept for the grace and closed after |
+//! | `late_reveal_under_the_version_cap_has_nothing_to_claim` | the same hold, keeper.toml's default `max_unknown_w_versions = 2` (⑱) | the bid does not climb under the hold; the start-bid version lands late below the tip, refund 0, no claim |
 //! | `reveal_group_survives_an_unrevealable_top` (program only) | the top-ranked march's Reveal refused (`Path`) | the next four revealed and settled by their fates; the refused one routed; no `SlotMoved` storm |
 //!
 //! The program is the native model (`tests/model/play.rs`) unless
@@ -347,6 +348,10 @@ struct Opts {
     hold_slots: Option<(u64, u64)>,
     /// `--peace-start` of the keepers (W writes start at this × p_tip).
     peace_start: Option<f64>,
+    /// `max_unknown_w_versions` of the keepers (⑱, owner decision
+    /// 2026-11-05; `None` = keeper.toml's default 2, `Some(0)` = the
+    /// every-slot Reveal ladder).
+    w_versions: Option<u32>,
     /// The 900-troop march (the faction-0 group's top rank) names a
     /// destination tile its path does not end on: a valid seal whose Reveal
     /// the program refuses (`Path`).
@@ -412,6 +417,7 @@ fn new_keeper(
     jpath: Option<&PathBuf>,
     crash: Option<CrashAt>,
     peace: Option<f64>,
+    w_versions: Option<u32>,
 ) -> K {
     let ben = Keypair::new_from_array([0xB0 + i as u8; 32]);
     let mut journal = jpath.map(|p| Journal::open(p).unwrap());
@@ -420,6 +426,9 @@ fn new_keeper(
     }
     let mut cfg = keeper_cfg(w, ben.pubkey());
     cfg.peace_start = peace;
+    if let Some(n) = w_versions {
+        cfg.max_unknown_w_versions = n;
+    }
     let mut k = Keeper::new(
         cfg,
         Watch {
@@ -483,7 +492,7 @@ async fn tick(
                 .unwrap_or_default();
             assert!(msg.contains(INJECTED_CRASH), "unexpected panic: {msg}");
             *crashes += 1;
-            let mut k = new_keeper(w, i, jpath, None, None);
+            let mut k = new_keeper(w, i, jpath, None, None, None);
             *inflight += k.start().await.unwrap();
             k.tick().await.unwrap();
             k
@@ -562,7 +571,14 @@ async fn scenario(o: Opts) -> Option<Run> {
                 .then_some(o.crash)
                 .flatten()
                 .map(|(p, kinds, n)| CrashAt::new(p, kinds, n));
-            new_keeper(&w, i, (i == 0).then_some(&jpath), crash, o.peace_start)
+            new_keeper(
+                &w,
+                i,
+                (i == 0).then_some(&jpath),
+                crash,
+                o.peace_start,
+                o.w_versions,
+            )
         })
         .collect();
     for k in &ks {
@@ -983,7 +999,7 @@ async fn scenario(o: Opts) -> Option<Run> {
                 API_QUEUED.with(|q| q.set(ks[0].shared.lock().unwrap().reveals.len()));
                 if o.restart_after_202 {
                     // Restart before any tick takes the material from Shared.
-                    let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
+                    let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start, o.w_versions);
                     inflight += k.start().await.unwrap();
                     ks[0] = k;
                     restarted = true;
@@ -1031,7 +1047,7 @@ async fn scenario(o: Opts) -> Option<Run> {
                 && window_from > 0
                 && w.now() >= (window_from + t_arrive) / 2
             {
-                let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
+                let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start, o.w_versions);
                 inflight += k.start().await.unwrap();
                 ks[0] = k;
                 restarted = true;
@@ -1907,9 +1923,17 @@ async fn claim_after_late_reveal() {
     // the keeper starting at a quarter of the tip level (`--peace-start
     // 0.25`): the Reveals escalate past the hold and land ≥ 4 slots after
     // THE anchor, at a price above the tip level.
+    //
+    // The escalation needs the every-slot Reveal ladder
+    // (`max_unknown_w_versions = 0`). With keeper.toml's default (2, ⑱,
+    // owner decision 2026-11-05, 0147a885) the bid deliberately stops
+    // rising while two versions can still land, so the low first version
+    // lands when the hold ends and there is no refund to claim
+    // (`late_reveal_under_the_version_cap_has_nothing_to_claim`).
     let Some(r) = scenario(Opts {
         hold_slots: Some((1_900, 10)),
         peace_start: Some(0.25),
+        w_versions: Some(0),
         ..Default::default()
     })
     .await
@@ -1953,6 +1977,54 @@ async fn claim_after_late_reveal() {
     }
     assert!(claims.iter().all(|c| c.2 > 0));
     println!("claims: {claims:?}");
+}
+
+/// ⑱'s trade-off pinned (owner decision 2026-11-05, 0147a885): with the
+/// default `max_unknown_w_versions = 2`, a Reveal write sends no new
+/// version while two can still land, so under the same 10-slot hold its
+/// bid does not climb: the version at the start bid (a quarter of the tip
+/// level) lands when the hold ends, late but below the tip, and the
+/// formula's refund is 0, so the keeper claims nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_reveal_under_the_version_cap_has_nothing_to_claim() {
+    let Some(r) = scenario(Opts {
+        hold_slots: Some((1_900, 10)),
+        peace_start: Some(0.25),
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let k = &r.keepers[0];
+    let r_d = ix::region_of(r.dest.0 as i32, r.dest.1 as i32);
+    let an = k
+        .play
+        .anchors
+        .get(&(r.arrive, r_d))
+        .and_then(|a| a.slot)
+        .expect("THE anchor of the destination bell");
+    let mine: Vec<_> = k
+        .play
+        .index
+        .reveals
+        .iter()
+        .filter(|x| x.arrive == r.arrive && x.faction == 0)
+        .collect();
+    assert!(
+        !mine.is_empty(),
+        "the held Reveals landed: {}",
+        k.play.status()
+    );
+    assert!(
+        mine.iter().all(|x| x.slot >= an + 4),
+        "late (≥ lateness_slots after THE anchor): {mine:?} anchor {an}"
+    );
+    assert!(
+        k.play.index.claims.iter().all(|c| c.0 != k.cfg.beneficiary),
+        "no refund, no claim: {}",
+        k.play.status()
+    );
 }
 
 // ------------------------------------------------------------------ workstream 04: no plaintext before THE anchor

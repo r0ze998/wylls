@@ -70,8 +70,8 @@ fn mock(l: TcpListener, answer: impl Fn(&[u8]) -> (u16, Vec<u8>) + Send + 'stati
 async fn p1_p3_loopback_curl_post() {
     let l = bind(41460);
     let seen = mock(l, |b| {
-        let v: serde_json::Value = serde_json::from_slice(b).unwrap();
-        match v["method"].as_str().unwrap() {
+        let v: serde_json::Value = serde_json::from_slice(b).unwrap_or_default();
+        match v["method"].as_str().unwrap_or("") {
             "big" => (200, vec![b'x'; 10_000]),
             "limited" => (429, b"{}".to_vec()),
             _ => (200, br#"{"jsonrpc":"2.0","id":1,"result":7}"#.to_vec()),
@@ -93,6 +93,21 @@ async fn p1_p3_loopback_curl_post() {
         assert_eq!(s[0].0, "POST /tok3n/?api-key=k3y HTTP/1.1");
         assert_eq!(s[0].1, body);
     }
+    // P1: a body starting with `@` is sent as is, never read as a file
+    // name (curl's `data-binary = "@path"` would upload that local file).
+    let file = std::env::temp_dir().join(format!("fnode-at-body-{}", std::process::id()));
+    std::fs::write(&file, b"LOCAL FILE CONTENT").unwrap();
+    let at = format!("@{}", file.display()).into_bytes();
+    let r = post("http://127.0.0.1:41460/", at.clone(), &PostOpts::default())
+        .await
+        .unwrap();
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        seen.lock().unwrap()[1].1,
+        at,
+        "the @-body itself, not the file"
+    );
     // P2: a 429 is a status, not a transport error.
     let r = post(
         "http://127.0.0.1:41460/",

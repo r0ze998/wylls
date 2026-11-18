@@ -1919,7 +1919,11 @@ fn g09_clash_outcome_is_order_free() {
 fn check(c: &Chain, ix: Ix, ixs: &[Instruction], signers: &[&Keypair]) {
     use permutation_frontier_svm_tests::chain::{assert_loaded_exceeded, Profile, PAGE};
     let pd = c.programdata_len();
-    let l = frontier_abi::budgets::loaded_limit_for(ix, pd);
+    // The v2 L(kind): this world's accounts are the v2 layouts (its Province
+    // is 4,736 B). The v1 model counts a 4,096-B Province and fell 423 B
+    // short of the need once the programdata length lost its page slack
+    // (1,761,280 B; B2 follow-up).
+    let l = loaded_v2(c, ix);
     let p = Profile::ladder(ix, pd).with_loaded(l);
     let t = c.transaction(&p, ixs, signers);
     let need = c.loaded_size(&t.message);
