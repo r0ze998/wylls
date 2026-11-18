@@ -177,6 +177,11 @@ cannot be resumed) and off the natural preset:
   browser, returns to the same address, world and village. The panel's 「このブラウザに保存した試験用の鍵を消す」
   [Delete the test key kept in this browser] deletes it; the world's directory stays with the launcher until you
   delete it yourself (the launcher never deletes anything).
+- **With `--operator-residents <n>`:** the residents' TEST keys are kept in `operator-keys/` (0700, one 0600 file each) of
+  the same directory, so a resumed world has the same residents and villages (without `--persist` they stay memory-only).
+- **What is private:** the wallet's directory, `run/`, `keys/`, `operator-keys/` and `starts/` are 0700, and the key files
+  are 0600. The herald's records, the ledger, the snapshots and the logs keep their default modes (0755/0644): they are no
+  keys, and they sit inside the 0700 wallet directory.
 - **Not for production:** a key a page script can use is acceptable only for a disposable local test chain. Never use
   this with a key of any public cluster.
 - **Checked (2026-11-18, ws08-p1p2):** start, Join and PlaceHome, a reload (the same village), Ctrl-C of the launcher,
@@ -200,7 +205,8 @@ The page follows the browser's language; the top-right button switches Japanese 
 5. On the demo only: once the next ring is open, the guide offers 「届く砦を見る」 and the fort list 「届く砦」.
    A march onto a fort starts its hold count, 「…争奪中 N/72ターン」.
 6. To stop, press Ctrl-C in the launcher's terminal. It ends every world of that launcher.
-7. Then close that world's browser tab. Ctrl-C alone does not remove the page's memory-only key from the browser;
+7. (With `--persist`, §3 (5), the key is KEPT in this browser across tab and browser close until the panel's delete
+   key; the rest of this step is for the memory-only key.) Then close that world's browser tab. Ctrl-C alone does not remove the page's memory-only key from the browser;
    closing the tab discards it. Close only the tab you opened for this world and leave every other tab alone. A key
    in a tab left open is gone only when that tab closes, and that cannot be confirmed from outside it.
 
