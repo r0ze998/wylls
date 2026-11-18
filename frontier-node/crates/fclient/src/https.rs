@@ -21,7 +21,8 @@
 //! hardening, plus: **nothing request-specific is on the argument vector**.
 //! The URL (a provider's API key may sit in its path or query) and the body
 //! (signed transactions) reach curl as a config file on stdin (`--config
-//! -`), so `ps` shows only fixed flags. Globbing, `.netrc`, inherited
+//! -`; the body as `data-raw`, so a leading `@` is never a file name), so
+//! `ps` shows only fixed flags. Globbing, `.netrc`, inherited
 //! proxies, `--insecure` and redirects are off; `SSLKEYLOGFILE` is removed
 //! from curl's environment. The response is read through a bounded pipe
 //! (one byte over the cap kills curl), curl's own `--max-time` and a
@@ -367,11 +368,13 @@ fn config_quote(out: &mut Vec<u8>, s: &[u8]) -> Result<(), PortError> {
 }
 
 /// The config curl reads on stdin for one POST: the URL and the body.
+/// The body goes as `data-raw`, never `data-binary`/`data`: those read a
+/// value starting with `@` as a file name and would upload that local file.
 pub fn post_config(url: &str, body: &[u8]) -> Result<Vec<u8>, PortError> {
     let mut c = Vec::with_capacity(body.len() + url.len() + 32);
     c.extend_from_slice(b"url = ");
     config_quote(&mut c, url.as_bytes())?;
-    c.extend_from_slice(b"\ndata-binary = ");
+    c.extend_from_slice(b"\ndata-raw = ");
     config_quote(&mut c, body)?;
     c.push(b'\n');
     Ok(c)
@@ -627,7 +630,7 @@ mod tests {
         assert_eq!(
             c,
             format!(
-                "url = \"{url}\"\ndata-binary = \"{}\"\n",
+                "url = \"{url}\"\ndata-raw = \"{}\"\n",
                 String::from_utf8_lossy(body).replace('"', "\\\"")
             )
         );
@@ -637,6 +640,11 @@ mod tests {
             .unwrap()
             .contains(r#""{\"a\":\"q\\\"x\\\\y\"}""#));
         assert!(post_config("http://127.0.0.1:1/", b"{\n}").is_err());
+        // A body starting with `@` is data, never a file name (`data-raw`).
+        let c =
+            String::from_utf8(post_config("http://127.0.0.1:1/", b"@/etc/hosts").unwrap()).unwrap();
+        assert!(c.contains("\ndata-raw = \"@/etc/hosts\"\n"), "{c}");
+        assert!(!c.contains("data-binary") && !c.contains("\ndata ="), "{c}");
         let a = post_args(false, &PostOpts::default());
         let p = a.iter().position(|x| x == "--proto").unwrap();
         assert_eq!(a[p + 1], "=http");
