@@ -45,6 +45,22 @@ export const OPERATOR_DEFAULTS = Object.freeze({ cadenceMs: 6000, maxActs: 60, m
 /** The Join's session expiry: the page's own (controller.mjs: chain now + 30 days − 600 s). */
 export const SESSION_SECONDS = 30 * 86_400 - 600;
 
+/**
+ * `--operator-nations <csv>` (TEST-ONLY, opt-in; the six-nation recording, scripts/demo/sixnation): up to this many
+ * residents, one per named nation. Off unless given; `--operator-residents` and its fixed OPERATOR_FACTIONS are unchanged.
+ */
+export const OPERATOR_NATIONS_MAX = 6;
+
+/**
+ * `--operator-nations <csv>` → the nations residents 0..n-1 join, in order (distinct whole numbers 0-5, 1 to 6 of
+ * them, comma-separated, nothing else), or null. Who joins which nation is the operator's choice; the rule is not.
+ */
+export function parseOperatorNations(raw) {
+  if (typeof raw !== 'string' || !/^[0-5](,[0-5]){0,5}$/.test(raw)) return null;
+  const nations = raw.split(',').map(Number);
+  return new Set(nations).size === nations.length ? Object.freeze(nations) : null;
+}
+
 /** `--operator-residents <1-4>` → the count, or null when it is not exactly a whole number in range. */
 export function parseOperatorResidents(raw, { war = false } = {}) {
   if (typeof raw !== 'string' || !/^([1-9]|1[0-2])$/.test(raw)) return null;
@@ -57,10 +73,10 @@ export const operatorSlotPorts = n => Math.max(OPERATOR_RESIDENTS_MAX, Number.is
 
 /**
  * The loopback ports of a world's operator relays: after the launcher's two worlds (5 ports each) come
- * OPERATOR_RESIDENTS_MAX ports per world slot. `worldPort` + 10 + slot × 4 + i.
+ * OPERATOR_RESIDENTS_MAX ports per world slot. `worldPort` + 10 + slot × 4 + i (`width` 6 with `--operator-nations`).
  */
-export function operatorRelayPorts(worldPort, slot, n, worldLimit = 2) {
-  const base = worldPort + worldLimit * 5 + slot * operatorSlotPorts(n);
+export function operatorRelayPorts(worldPort, slot, n, worldLimit = 2, width = OPERATOR_RESIDENTS_MAX) {
+  const base = worldPort + worldLimit * 5 + slot * Math.max(width, operatorSlotPorts(n));   // (a war world's 5-12 residents keep that many ports per slot)
   return Array.from({ length: n }, (_, i) => base + i);
 }
 
@@ -112,9 +128,12 @@ export function residentView(me, decode) {
 }
 
 /** A resident's memory between decisions: what it tried and what was refused. Plain data; no key, no address of anyone else. */
-export function createResidentMemory(index, { war = false } = {}) {
-  if (!Number.isInteger(index) || index < 0 || index >= (war ? OPERATOR_WAR_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('resident index');
-  return { index, faction: OPERATOR_FACTIONS[index], step: 0, decisions: 0, triedHomes: [], cooldown: {}, ...(war ? { war: true, lastBell: null } : {}) };
+export function createResidentMemory(index, faction, { war = false } = {}) {
+  // (no nation named: the fixed OPERATOR_FACTIONS, residents 0-3; a named nation (`--operator-nations`): 0-5, residents 0-5)
+  const named = faction !== undefined;
+  if (!Number.isInteger(index) || index < 0 || index >= (war ? OPERATOR_WAR_MAX : named ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('resident index');
+  if (named && (!Number.isInteger(faction) || faction < 0 || faction > 5)) throw new Error('resident nation');
+  return { index, faction: named ? faction : OPERATOR_FACTIONS[index], step: 0, decisions: 0, triedHomes: [], cooldown: {}, ...(war ? { war: true, lastBell: null } : {}) };
 }
 
 /**

@@ -13,7 +13,7 @@ Two modes, never mixed:
 | | (1) Natural world | (2) Capture demo (TEST-ONLY) |
 |---|---|---|
 | Clock | real time: a turn is 600 s | after your home, compressed ×10–×60 (`--demo-scale`) |
-| Other villages | none; you are alone | test participants, each with its own in-memory key |
+| Other villages | none; you are alone (unless operator AI residents are added, §3 (6)) | test participants, each with its own in-memory key (and residents, §3 (6)) |
 | Rules | the program's rules | the same rules; nothing is changed |
 | On screen | always the session notice | also a fourth line: 「この世界は試験用の攻略デモです…」 |
 | What it can show | home, economy, army, an ordinary march | also the next ring opening, the fort list, a march onto a fort and its hold count |
@@ -218,7 +218,21 @@ cannot be resumed) and off the natural preset:
   landed on the resumed chain. Disk: a continuous world's ledger grows with every turn; the launcher's 128 MiB output
   limit counts the whole directory and stops the world when it is reached.
 
-### (6) Operator AI residents at war (TEST-ONLY, owner t359u 2026-11-19)
+### (6) Operator AI residents and the six-nation recording (TEST-ONLY)
+Natural preset only, and never set over HTTP. Add one of these:
+```bash
+--operator-residents 3                 # 1-4 residents; their nations are fixed: 1, 4, 2, 5
+--operator-nations 1,4,2,5,0,3         # one resident per named nation, up to six (6 relay ports per world); not with --persist
+--operator-max-acts 400                # optional: each resident's send budget (default 60)
+```
+Each resident is an ordinary participant. It has a memory-only TEST key (kept on disk only in a `--persist` world,
+§3 (5)), is funded like the player, and has its own relay. It joins, places a home and uses the economy commands by a fixed offline rule
+(`permutation-gateway/src/frontier/local-play-operator-policy.mjs`). It never marches (except in the war world of (7)). The page is not told which
+residents are AI. `scripts/demo/sixnation/sixnation.sh` starts a world with all six nations and records it
+(see its README, EN and 日本語). With the capture demo, let the residents place their homes before the player does:
+afterwards a PlaceHome in the player's own nation was refused (`TicketState`, 45) in a trial on 2026-11-18.
+
+### (7) Operator AI residents at war (TEST-ONLY, owner t359u 2026-11-19)
 Add to the capture demo command (both words are refused without `--operator-residents` and the capture demo):
 ```bash
 --operator-residents 12 --operator-war operator-war-v1 --demo-scale 15

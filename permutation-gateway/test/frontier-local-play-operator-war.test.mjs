@@ -59,7 +59,7 @@ test('the war step: march, else muster the reserve, else train; a settling turn 
   assert.equal(warStep({ march: null, reserve: MUSTER_MIN, hostCount: 0, settling: true }).wait, true);
   assert.deepEqual(warStep({ march: null, reserve: 0, hostCount: 0, settling: true }), { name: 'Train', n: TRAIN_BATCH }, 'nothing to hold for: train');
   assert.equal(warStep({ march: null, reserve: MUSTER_MIN * 2, hostCount: MAX_HOSTS, settling: true }), null);
-  const m = createResidentMemory(0, { war: true });
+  const m = createResidentMemory(0, undefined, { war: true });
   assert.equal(decideNext(m, { joined: true, faction: 1, holding: { p: 0, q: 3, site: 0, tile: 5 } }, { war: { nowBell: 9, march, reserve: 0, hostCount: 1, settling: true } }).wait, true);
   assert.deepEqual([...SETTLE_CODES], ['NotResident', 'NotFinal']);
   assert.equal(warStep(null), null);
@@ -87,8 +87,8 @@ test('a war world: up to 12 residents, every nation from six on, ports per world
   assert.deepEqual(operatorRelayPorts(41404, 1, 12).slice(0, 2), [41426, 41427]);
   assert.deepEqual(operatorRelayPorts(41404, 1, 12).at(-1), 41437, 'two slots of 12 end at world-port + 33');
   assert.throws(() => createResidentMemory(4));
-  assert.equal(createResidentMemory(11, { war: true }).faction, 3);
-  assert.equal(createResidentMemory(11, { war: true }).war, true);
+  assert.equal(createResidentMemory(11, undefined, { war: true }).faction, 3);
+  assert.equal(createResidentMemory(11, undefined, { war: true }).war, true);
 });
 
 test("a war resident's home: the outermost ring first; the second resident of a nation in another province", () => {
@@ -98,13 +98,13 @@ test("a war resident's home: the outermost ring first; the second resident of a 
   assert.deepEqual([second[0].p, second[0].q], [-2, -1]);
   assert.equal(first.length, 36);
   assert.deepEqual(warHomeOrder([{ p: 0, q: 1, site: 1 }, { p: 0, q: 3, site: 2 }, { p: 0, q: 3, site: 0 }]).map(h => `${h.q}:${h.site}`), ['3:0', '3:2', '1:1']);
-  const m = createResidentMemory(5, { war: true });
+  const m = createResidentMemory(5, undefined, { war: true });
   const d = decideNext(m, { joined: true, faction: 3, holding: null }, { homes });
   assert.deepEqual(d.fields, { p: -3, q: 0, site: 0 });
 });
 
 test('decideNext at war: the war step first, the economy otherwise; refusals cool down for turns', () => {
-  const m = createResidentMemory(0, { war: true });
+  const m = createResidentMemory(0, undefined, { war: true });
   const village = { joined: true, faction: 1, holding: { p: 0, q: 3, site: 0, tile: 5 } };
   const march = chooseMarch([row(1, 3, 100, 10)]);
   const dep = decideNext(m, village, { war: { nowBell: 20, march, reserve: 0, hostCount: 1 } });
@@ -160,7 +160,7 @@ test('the war options of the residents process: exact word, up to 12 only with i
 
 /** A war resident with a village; the reads, the act and the march are stubs. */
 function warResident({ bell = 30, snap }) {
-  const r = { index: 0, key: { address: 'W1' }, memory: createResidentMemory(0, { war: true }), budget: createOperatorBudget({ maxActs: 50, maxRefusals: 50, minGapMs: 0 }), marchOpen: true };
+  const r = { index: 0, key: { address: 'W1' }, memory: createResidentMemory(0, undefined, { war: true }), budget: createOperatorBudget({ maxActs: 50, maxRefusals: 50, minGapMs: 0 }), marchOpen: true };
   const sent = [];
   const me = { v: 1, citizen: { bytes_b64: 'x' }, holdings: [{ bytes_b64: 'y' }] };
   const deps = {

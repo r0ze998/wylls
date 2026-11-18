@@ -2,7 +2,8 @@
 //
 //   node permutation-gateway/src/frontier/local-play-operator-residents.mjs --count <1-4> \
 //     --relay-ports <p1,p2,…> --herald http://localhost:<world proxy port> --homes <runner ready-for-join JSON> \
-//     [--cadence-ms 6000] [--max-acts 60] [--max-refusals 12] [--min-gap-ms 4000] [--keys-dir <abs private dir>]
+//     [--cadence-ms 6000] [--max-acts 60] [--max-refusals 12] [--min-gap-ms 4000] [--nations <csv, one per resident>] \
+//     [--keys-dir <abs private dir>]
 //
 // Started by local-play-launcher.mjs for a world opened with `--operator-residents <n>` (never over HTTP). What it does:
 //   1. makes <count> TEST ed25519 keys IN MEMORY ONLY (node:crypto; never written, never printed, gone with the
@@ -36,7 +37,7 @@ import { parseTransaction, wireTransaction } from '../../../permutation-server/w
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
-import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_DEFAULTS, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView } from './local-play-operator-policy.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView } from './local-play-operator-policy.mjs';
 import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX, mayActThisTurn } from './local-play-operator-war.mjs';
 import { createWarEyes, openMarch, sendWarMarch } from './local-play-operator-march.mjs';
 
@@ -123,13 +124,16 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'keys-dir', 'war'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   if (o.war !== undefined && o.war !== OPERATOR_WAR_MODE) throw new Error(`--war must be exactly ${OPERATOR_WAR_MODE}`);
   const war = o.war === OPERATOR_WAR_MODE;
   const count = Number(o.count);
-  if (!/^([1-9]|1[0-2])$/.test(String(o.count)) || count < 1 || count > (war ? OPERATOR_WAR_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('--count');
+  // (`--nations`: one named nation per resident, up to six; without it the fixed nations of residents 0-3)
+  const nations = o.nations === undefined ? null : parseOperatorNations(o.nations);
+  if (o.nations !== undefined && (nations === null || nations.length !== count)) throw new Error('--nations');
+  if (!/^([1-9]|1[0-2])$/.test(String(o.count)) || count < 1 || count > (war ? OPERATOR_WAR_MAX : nations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('--count');
   const D = war ? WAR_DEFAULTS : OPERATOR_DEFAULTS;
   const ports = String(o['relay-ports'] ?? '').split(',').map(Number);
   if (ports.length !== count || ports.some(p => !Number.isInteger(p) || p < 41000 || p > 41999)) throw new Error('--relay-ports');
@@ -139,7 +143,7 @@ export function parseArgs(argv) {
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
   if (o['keys-dir'] !== undefined && !path.isAbsolute(o['keys-dir'])) throw new Error('--keys-dir (absolute path)');
   if (o['keys-dir'] !== undefined) privateOrThrow(o['keys-dir'], true);
-  return { count, ports, herald: o.herald, homes, war, ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
+  return { count, ports, herald: o.herald, homes, war, ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
 }
 
 /**
@@ -203,7 +207,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(s, () => stop.abort(s));
   let keys;
   try { keys = Array.from({ length: o.count }, (_, index) => (o.keysDir ? keptTestKey(o.keysDir, index) : memoryTestKey())); } catch (e) { process.stderr.write(`operator residents: ${e.message}\n`); return 64; }
-  const residents = Array.from({ length: o.count }, (_, index) => ({ index, key: keys[index], port: o.ports[index], memory: createResidentMemory(index, { war: o.war }),
+  const residents = Array.from({ length: o.count }, (_, index) => ({ index, key: keys[index], port: o.ports[index], memory: createResidentMemory(index, o.nations?.[index], { war: o.war }),
     budget: createOperatorBudget({ maxActs: o.maxActs, maxRefusals: o.maxRefusals, minGapMs: o.minGapMs }), identity: null, rulesetHash: null }));
   residents.forEach(r => { r.signer = pageShapedSigner(r.key); r.origin = `http://127.0.0.1:${r.port}`; });
   print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: o.keysDir ? 'TEST keys kept in the persisted world\'s private keys dir (0600 files, 0700 dir); never printed' : 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address), ...(o.war ? { war: OPERATOR_WAR_MODE } : {}) }));
