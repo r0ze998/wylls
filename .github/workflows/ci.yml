@@ -10,8 +10,13 @@ name: CI
 # the end, which runs only by hand (Actions → CI → Run workflow) with
 # key_tests set to "approved". Nothing in it runs until the owner allows it.
 # What runs and what does not: docs/ci/KEY-FREE-CI.ja.md.
+#
+# Triggers (owner decision Q-D6, 2026-11-18): pull requests and pushes to main
+# only. A push to any other branch starts nothing by itself; its pull request
+# does, once, and still runs every job. Manual runs are unchanged.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -21,6 +26,17 @@ on:
         default: 'no'
         type: choice
         options: ['no', 'approved']
+
+# A new push to a pull request cancels that pull request's older run: only the
+# newest commit's result matters. Pushes to main and manual runs are never
+# cancelled and never wait for each other: they fall back to run_id, a group
+# of their own, so every merge to main keeps a full result. (A shared
+# per-branch group would not do that even with cancel-in-progress false:
+# GitHub keeps one pending run per group and cancels the older pending one,
+# and a manual key-tests run on main would queue behind a main push.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -219,6 +235,24 @@ jobs:
       - name: Workstream 15 tests (key-free)
         run: scripts/ci/node-keyfree.sh workstreams/15-coop-outcomes 'test/*.test.mjs'
 
+  # Workstream 06 (creation): its node test files that the scan does not list (scripts/ci/node-key-tests.txt lists the
+  # other 21) through the same runner and guard. No npm install (06 has no dependencies). Node 20 and 22, as 06's
+  # tests run locally on both (the journal lock reads /proc on Linux, injectable in the tests). The ③/④ integration
+  # tests skip without WS03_ROOT, WS04_ROOT and RUNEXEC_BIN, as on a fresh checkout.
+  creation06:
+    name: Workstream 06 creation tests (key-free, Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Workstream 06 tests (key-free)
+        run: scripts/ci/node-keyfree.sh workstreams/06-creation 'test/*.test.mjs'
+
   # Devnet readiness (DRAFT, 2026-11-18): the dry-run planner's tests (cost model, artefact checks, send gate) with a
   # fake file system and a fake Solana CLI. Nothing builds, deploys or contacts a cluster; no npm install.
   devnet-dry-run:
@@ -284,6 +318,43 @@ jobs:
           cargo test --locked -p permutation-frontier --no-default-features
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
+
+  # Workstreams 09 (capacity-preview) and 10 (custody-preview): host only, key-free. No other job compiles these
+  # features (frontier-program builds default features and --no-default-features), so ~6.6k lines of feature-gated
+  # rules, ABI and program code would rot unseen. Lints and tests of only the three crates the features touch, with
+  # each feature alone and both together (the combinations lib.rs allows; with rights/nft/wide-world they are
+  # compile_error!). No SBF build and no LiteSVM here: those stay local / key-tests. One runner, cache seeded from
+  # frontier-program's (same lock files and toolchain), so a warm run is a few minutes.
+  frontier-previews:
+    name: Frontier previews 09 capacity / 10 custody (rules, ABI, program host tests, key-free)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain (rust-toolchain.toml pins 1.89.0)
+        run: rustup toolchain install 1.89.0 --profile minimal --component clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: frontier-previews-${{ hashFiles('Cargo.lock', '**/rust-toolchain.toml') }}
+          restore-keys: |
+            frontier-program-
+      - name: Lints with the preview features
+        run: |
+          cargo clippy --locked -p permutation-rules --features capacity-preview --all-targets -- -D warnings
+          cargo clippy --locked -p frontier-abi --features capacity-preview --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-frontier --features capacity-preview --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-frontier --features custody-preview --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-frontier --features capacity-preview,custody-preview --all-targets -- -D warnings
+      - name: Host tests with the preview features
+        run: |
+          cargo test --locked -p permutation-rules --features capacity-preview
+          cargo test --locked -p frontier-abi --features capacity-preview
+          cargo test --locked -p permutation-frontier --features capacity-preview
+          cargo test --locked -p permutation-frontier --features custody-preview
+          cargo test --locked -p permutation-frontier --features capacity-preview,custody-preview
 
   frontier-node:
     name: Frontier M1 off-chain workspace (keeper, herald, verifier, localnet)
