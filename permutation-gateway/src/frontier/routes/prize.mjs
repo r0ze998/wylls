@@ -96,13 +96,26 @@ async function sendOwn(ctx, ixs, signers = [], beforeSend = () => {}) {
  * every epoch pool of the season. Idempotent: an existing mark is kept. Throws (and the invite join is refused) if the
  * mark cannot be written.
  */
+/** Whether an account is the prize program's operator-member mark (owner and magic), not merely something at the address. */
+export function isMark(info, prizeProgram) {
+  const d = info?.data;
+  const owner = info?.owner?.toBase58?.() ?? (info?.owner ? String(info.owner) : null);
+  return !!d && owner === prizeProgram && d.length >= 8 && Buffer.from(d.subarray(0, 8)).toString('latin1') === 'WYPRNOPZ';
+}
+
 export async function markOperatorMember(ctx, wallet) {
   const prize = ctx.prize;
   if (!prize || prize.epoch === undefined) return null;
   const at = exclusionAddress(prize.program, prize.game, BigInt(prize.seasonId), wallet);
-  if (await account(ctx, at)) return { exclusion: at, already: true };
+  // A mark is present only when the program wrote it: owned by the prize program, starting with WYPRNOPZ. Anything
+  // else at the address (lamports a member sent there itself, verify-pr54 D-9) is no mark: write it (the program
+  // tops a pre-funded address up and takes it over).
+  if (isMark(await ctx.connection.getAccountInfo(new PublicKey(at), 'finalized'), prize.program)) return { exclusion: at, already: true };
   if (!ctx.gateKey) throw new RouteError(503, 'this relay does not hold the season\'s join-gate key', 'GateUnavailable');
   const signature = await sendOwn(ctx, payer => [excludeIx({ prize, gate: ctx.gateKey.publicKey.toBase58(), payer, season: ctx.addresses.season, wallet })], [ctx.gateKey]);
+  if (!isMark(await ctx.connection.getAccountInfo(new PublicKey(at), 'finalized'), prize.program)) {
+    throw new RouteError(503, 'the operator-member mark did not land; the invite join is refused', 'MarkFailed', { signature });
+  }
   ctx.log?.(`f/join operator member ${wallet} excluded from paid windows (${signature})`);
   return { exclusion: at, already: false, signature };
 }

@@ -17,6 +17,7 @@ import { shapeMessage } from '../client/src/frontier/shapes.mjs';
 import { compileMessage, parseTransaction, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk, verifyTalk } from '../client/src/talk-node.mjs';
 import { createFrontierApps } from '../src/frontier/app.mjs';
+import { isMark } from '../src/frontier/routes/prize.mjs';
 import { InviteBook } from '../src/frontier/invites.mjs';
 import { PayerPool } from '../src/frontier/payers.mjs';
 import { call } from './gateway-fixtures.mjs';
@@ -67,7 +68,7 @@ function clockAccount(unix) {
 function fakeChain({ debit = () => 0n, fail = () => null, onSent = () => {} } = {}) {
   const c = {
     accounts: new Map(), confirmedOnly: new Set(), sent: [], simulated: 0, statuses: new Map(), height: 100,
-    set(key, v) { c.accounts.set(String(key), { lamports: v.lamports ?? 1_000_000_000, data: Buffer.from(v.data ?? []) }); },
+    set(key, v) { c.accounts.set(String(key), { lamports: v.lamports ?? 1_000_000_000, data: Buffer.from(v.data ?? []), ...(v.owner ? { owner: v.owner } : {}) }); },
     getAccountInfo: async (key, commitment) => {
       const address = new PublicKey(key).toBase58();
       if (commitment === 'finalized' && c.confirmedOnly.has(address)) return null;
@@ -408,9 +409,54 @@ test('joinViaX402 into an epoch pool: the SDK derives the window\'s pool and vau
 // ⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. Operator AI residents and script bots
 // join by operator invite; in an epoch-pool world the relay marks each such wallet on chain (ExcludeWallet, the gate's
 // signature) BEFORE it co-signs the Join, and the paid join's Pay names the exclusion address the program checks.
+// The program's ExcludeWallet, as the fake chain applies it: the mark at keys[4], owned by the prize program.
+const markAccount = () => { const d = new Uint8Array(72); d.set(new TextEncoder().encode('WYPRNOPZ')); return { owner: new PublicKey(PRIZE_PROGRAM), lamports: 1_392_000, data: d }; };
+function programWritesMarks(tx, c) {
+  for (const ix of tx.instructions) if (ix.programId === PRIZE_PROGRAM && ix.data[0] === PRIZE_TAG.EXCLUDE_WALLET) c.set(ix.keys[4].pubkey, markAccount());
+}
+
+// verify-pr54 D-9 (regression): an invited member sends lamports to its own exclusion address before joining. Something
+// is then at the address — a system-owned account with no data — but it is no mark: the relay still marks (the program
+// takes a pre-funded address over), and refuses the join when the mark does not land.
+test('epoch world: a pre-funded exclusion address is no mark — the relay marks anyway, and refuses the join if the mark does not land', async () => {
+  const SYS = new PublicKey('11111111111111111111111111111111');
+  const prefund = w => ({ owner: SYS, lamports: 1_000_000, data: new Uint8Array(0) });
+  const join = async (r, kp, fp) => {
+    const plain = signedBy(shapeMessage({ programId: PROGRAM, name: 'Join', accounts: joinAccounts(kp.publicKey.toBase58()), fields: joinFields, feePayer: fp, recentBlockhash: BLOCKHASH }), kp);
+    const [invite] = r.invites.issue(1);
+    return call(r.public, 'POST', '/f/join', { body: { tx: toBase64(plain), invite }, ip: '203.0.113.9' });
+  };
+  // The program writes the mark over the pre-funded account: marked, then joined.
+  const chain = fakeChain({ debit: () => rent(384), onSent: programWritesMarks });
+  const r = relay({ chain, epoch: 0 });
+  const fp = (await requirements(r)).extra.feePayer;
+  const bypasser = Keypair.generate();
+  const at = exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, bypasser.publicKey.toBase58());
+  chain.set(at, prefund());
+  const ok = await join(r, bypasser, fp);
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal(chain.sent.length, 2, 'the mark was sent although something was at the address, then the Join');
+  assert.ok(chain.sent[0].instructions.some(x => x.programId === PRIZE_PROGRAM && x.data[0] === PRIZE_TAG.EXCLUDE_WALLET));
+  assert.equal(chain.accounts.get(at).owner.toBase58(), PRIZE_PROGRAM);
+  // A mark that does not land (the account stays the member's pre-funded one): the join is refused, no Join is sent.
+  const chain2 = fakeChain({ debit: () => rent(384) });
+  const r2 = relay({ chain: chain2, epoch: 0 });
+  const fp2 = (await requirements(r2)).extra.feePayer;
+  const b2 = Keypair.generate();
+  chain2.set(exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, b2.publicKey.toBase58()), prefund());
+  const refused = await join(r2, b2, fp2);
+  assert.deepEqual([refused.status, refused.json.code], [503, 'MarkFailed']);
+  assert.equal(chain2.sent.length, 1, 'only the mark attempt; the Join was never co-signed');
+  assert.ok(!chain2.sent.some(tx => tx.instructions.some(x => x.programId === PROGRAM)));
+  // Data at the address under another owner is no mark either.
+  assert.equal(isMark({ owner: SYS, data: markAccount().data }, PRIZE_PROGRAM), false);
+  assert.equal(isMark(markAccount(), PRIZE_PROGRAM), true);
+  assert.equal(isMark({ owner: new PublicKey(PRIZE_PROGRAM), data: new Uint8Array(72) }, PRIZE_PROGRAM), false);
+});
+
 test('epoch world: an invite join is marked an operator member on chain first; the paid join names the exclusion address', async () => {
   const EPOCH = prizeAddresses({ prizeProgram: PRIZE_PROGRAM, gameProgram: PROGRAM, seasonId: SEASON_ID, mint: MINT, epoch: 0 });
-  const chain = fakeChain({ debit: () => rent(384) });
+  const chain = fakeChain({ debit: () => rent(384), onSent: programWritesMarks });
   const r = relay({ chain, epoch: 0 });
   const ai = Keypair.generate();
   const wallet = ai.publicKey.toBase58();
@@ -427,10 +473,9 @@ test('epoch world: an invite join is marked an operator member on chain first; t
   assert.equal(ix.keys[4].pubkey, exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, wallet));
   assert.equal(ix.keys[5].pubkey, wallet);
   assert.ok(join.instructions.some(x => x.programId === PROGRAM));
-  // A wallet already marked is not marked again: its next invite join sends the Join only.
-  chain.set(exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, wallet), { data: new Uint8Array(72) });
+  // A wallet already marked (the program's account: owner and magic) is not marked again: its next invite join sends the Join only.
   const again = Keypair.generate();
-  chain.set(exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, again.publicKey.toBase58()), { data: new Uint8Array(72) });
+  chain.set(exclusionAddress(PRIZE_PROGRAM, PROGRAM, SEASON_ID, again.publicKey.toBase58()), markAccount());
   const plainAgain = signedBy(shapeMessage({ programId: PROGRAM, name: 'Join', accounts: joinAccounts(again.publicKey.toBase58()), fields: joinFields, feePayer: fp, recentBlockhash: BLOCKHASH }), again);
   const [inv3] = r.invites.issue(1);
   assert.equal((await call(r.public, 'POST', '/f/join', { body: { tx: toBase64(plainAgain), invite: inv3 }, ip: '203.0.113.9' })).status, 200);

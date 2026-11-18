@@ -987,3 +987,85 @@ fn epoch_pools_refuse_maps_past_ring_17() {
     game_account(&mut w, k, d);
     fails(init_epoch(&mut w, 1, E1), E::BadParams);
 }
+
+// ------------------------------------------------------------ verify-pr54 round 2 (D-9, D-10): pre-funded addresses
+
+/// A plain lamport transfer from `from` (pays) to `to`: what anyone can send to any address, a PDA included.
+fn send_lamports(w: &mut World, from: &Keypair, to: &Address, lamports: u64) {
+    let mut d = 2u32.to_le_bytes().to_vec(); // System Transfer
+    d.extend_from_slice(&lamports.to_le_bytes());
+    let ix = Instruction {
+        program_id: SYSTEM,
+        accounts: vec![
+            AccountMeta::new(from.pubkey(), true),
+            AccountMeta::new(*to, false),
+        ],
+        data: d,
+    };
+    send(&mut w.svm, &[ix], &[from]).unwrap();
+}
+
+/// D-9 regression: an invited member sends ≈0.001 SOL (or more than the rent) to its own exclusion address before it
+/// is marked. The gate still marks it (the program tops up and takes the address over), and the member's Pay is
+/// refused. Before the fix ExcludeWallet failed ("already in use") and the Pay landed.
+#[test]
+fn a_member_cannot_dodge_the_mark_by_pre_funding_its_exclusion_address() {
+    let Some(mut w) = world() else { return };
+    init_epoch(&mut w, 0, E0).unwrap();
+    let gate = w.gate.insecure_clone();
+    for prefund in [1_000_000u64, SOL / 2] {
+        let (ai, tai) = player(&mut w, FEE);
+        let at = exclusion(&w, &ai.pubkey());
+        send_lamports(&mut w, &ai, &at, prefund);
+        let pre = w.svm.get_account(&at).unwrap();
+        assert_eq!(
+            (pre.owner, pre.data.len()),
+            (SYSTEM, 0),
+            "a system account holding lamports"
+        );
+        exclude(&mut w, &gate, &ai.pubkey()).unwrap();
+        let mark = w.svm.get_account(&at).unwrap();
+        assert_eq!(mark.owner, w.prize);
+        assert_eq!(&mark.data[..8], b"WYPRNOPZ");
+        assert!(
+            mark.lamports >= prefund,
+            "the member's lamports stay with the mark"
+        );
+        fails(pay(&mut w, 0, &ai, &tai), E::OperatorMember);
+        assert_eq!(balance(&w, &tai), FEE);
+        exclude(&mut w, &gate, &ai.pubkey()).unwrap(); // still idempotent
+    }
+}
+
+/// A griefer's lamports at a human's exclusion address are no mark: the human still pays.
+#[test]
+fn lamports_at_a_humans_exclusion_address_do_not_block_the_human() {
+    let Some(mut w) = world() else { return };
+    init_epoch(&mut w, 0, E0).unwrap();
+    let (griefer, _) = player(&mut w, 0);
+    let (human, th) = player(&mut w, FEE);
+    let at = exclusion(&w, &human.pubkey());
+    send_lamports(&mut w, &griefer, &at, 1_000_000);
+    pay(&mut w, 0, &human, &th).unwrap();
+}
+
+/// D-10: pre-funding a PDA no longer blocks its creation — the next window's pool and vault, and a wallet's Entry.
+#[test]
+fn pre_funded_pdas_do_not_block_their_creation() {
+    let Some(mut w) = world() else { return };
+    let (griefer, _) = player(&mut w, 0);
+    let p1 = epool(&w, 1);
+    let v1 = vault(&w, &p1);
+    send_lamports(&mut w, &griefer, &p1, 1_000_000);
+    send_lamports(&mut w, &griefer, &v1, 1_000_000);
+    init_epoch(&mut w, 1, E1).unwrap();
+    let pool_acc = w.svm.get_account(&p1).unwrap();
+    assert_eq!((pool_acc.owner, pool_acc.data.len()), (w.prize, pool::SIZE));
+    assert_eq!(w.svm.get_account(&v1).unwrap().owner, TOKEN);
+    let (human, th) = player(&mut w, FEE);
+    let e = entry(&w, &p1, &human.pubkey());
+    send_lamports(&mut w, &griefer, &e, 1_000_000);
+    pay(&mut w, 1, &human, &th).unwrap();
+    assert_eq!(u64_at(&pool_data(&w, 1), pool::COLLECTED), FEE);
+    assert_eq!(balance(&w, &v1), FEE);
+}

@@ -148,8 +148,17 @@ them), and anything on devnet.
   must name that address, and refuse a wallet that has the mark (`OperatorMember`, 0x117). Leaving the account out is
   refused (`NotEnoughAccountKeys`), and so is naming another wallet's address (`BadAccount`). A wallet that paid
   before it was marked cannot claim.
+  **Pre-funding does not dodge the mark** (round 4, verify-pr54 D-9). Anyone can send lamports to any address, the mark's
+  included. The program's account creation now takes over a pre-funded address the standard way: it tops up the
+  rent, then calls Allocate and Assign under the PDA's signature. So the gate can always write the mark. Only an
+  account owned by the prize program with the `WYPRNOPZ` magic counts as a mark. Lamports a griefer sends to a
+  human's address are no mark and do not block the human. The same fix stops anyone from blocking the next window's
+  pool, its vault or a player's Entry by pre-funding them (D-10).
 - **Relay.** In an epoch-pool world, `POST /f/join` with an invite first sends ExcludeWallet for the joining wallet,
   signed by the gate key. It co-signs the Join only after that mark has landed. If the mark fails, the join is refused.
+  The relay counts a mark as present only when the account is owned by the prize program and carries the `WYPRNOPZ`
+  magic; anything else at the address is marked over. It re-reads the account after sending and refuses the join
+  with `MarkFailed` if no real mark is there.
   A human's paid x402 join is unaffected.
 - **Launcher.** `local-play-launcher.mjs` has no prize lane. It refuses `--prize-epochs` (`PrizeNotInLauncher`). Combined
   with `--operator-residents` (⑤A, PR #40) or `--external-residents` (⑤B, PR #57), it refuses with

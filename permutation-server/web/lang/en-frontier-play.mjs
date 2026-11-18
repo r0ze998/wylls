@@ -1293,6 +1293,7 @@ export default {
   'この賞金の区切りの参加費の受付は終わりました。次の区切りが開くまで、有料の参加はできません。': 'This prize window no longer takes entry fees. Paid joining is closed until the next window opens.',
   'この賞金の区切りはまだ終わっていないため、集計できません。': 'This prize window has not ended yet, so it cannot be counted.',
   '受け取りの期間がまだ終わっていないため、残りを次の区切りへ移せません。': 'The claim period has not ended yet, so the rest cannot move to the next window.',
+  '運営の住人の印を書けなかったため、招待による参加を止めました。': 'The operator-member mark could not be written, so the invite join was stopped.',
   '運営が動かす住人（AIやボット）は、賞金の区切りに参加費を払えず、賞金も受け取れません。': 'Residents the operator runs (AI or bots) cannot pay into a prize window or claim from it.',
   '終わりのある季節には、賞金の区切りのプールは開けません。': 'A season with an end cannot open a prize-window pool.',
   'この季節の地図は、賞金プールが数えられる広さ（輪17）を超えて広がることがあります。': 'This season\'s map may grow beyond what the prize pool can count (ring 17).',

@@ -424,24 +424,63 @@ fn create<'a>(
     if !target.data_is_empty() || *target.owner != SYSTEM_PROGRAM {
         return Err(E::BadAccount.into());
     }
-    let lamports = Rent::get()?
-        .minimum_balance(space)
-        .saturating_sub(target.lamports());
-    let mut d = Vec::with_capacity(52);
-    d.extend_from_slice(&0u32.to_le_bytes()); // System CreateAccount
-    d.extend_from_slice(&lamports.to_le_bytes());
+    let rent = Rent::get()?.minimum_balance(space);
+    let system = |data: Vec<u8>, accounts: Vec<AccountMeta>| Instruction {
+        program_id: SYSTEM_PROGRAM,
+        accounts,
+        data,
+    };
+    if target.lamports() == 0 {
+        // The usual case: one CreateAccount, as before.
+        let mut d = Vec::with_capacity(52);
+        d.extend_from_slice(&0u32.to_le_bytes()); // System CreateAccount
+        d.extend_from_slice(&rent.to_le_bytes());
+        d.extend_from_slice(&(space as u64).to_le_bytes());
+        d.extend_from_slice(owner.as_ref());
+        return invoke_signed(
+            &system(
+                d,
+                vec![
+                    AccountMeta::new(*payer.key, true),
+                    AccountMeta::new(*target.key, true),
+                ],
+            ),
+            &[payer.clone(), target.clone()],
+            &[seeds],
+        );
+    }
+    // A pre-funded address (anyone can send lamports to a PDA): CreateAccount
+    // would refuse it ("already in use"), which would let a griefer block any
+    // PDA, or an operator member keep its exclusion mark from being written
+    // (verify-pr54 D-9/D-10). The standard way: top the rent up, then
+    // Allocate and Assign under the PDA's own signature.
+    let short = rent.saturating_sub(target.lamports());
+    if short > 0 {
+        let mut d = 2u32.to_le_bytes().to_vec(); // System Transfer
+        d.extend_from_slice(&short.to_le_bytes());
+        invoke(
+            &system(
+                d,
+                vec![
+                    AccountMeta::new(*payer.key, true),
+                    AccountMeta::new(*target.key, false),
+                ],
+            ),
+            &[payer.clone(), target.clone()],
+        )?;
+    }
+    let mut d = 8u32.to_le_bytes().to_vec(); // System Allocate
     d.extend_from_slice(&(space as u64).to_le_bytes());
+    invoke_signed(
+        &system(d, vec![AccountMeta::new(*target.key, true)]),
+        std::slice::from_ref(target),
+        &[seeds],
+    )?;
+    let mut d = 1u32.to_le_bytes().to_vec(); // System Assign
     d.extend_from_slice(owner.as_ref());
     invoke_signed(
-        &Instruction {
-            program_id: SYSTEM_PROGRAM,
-            accounts: vec![
-                AccountMeta::new(*payer.key, true),
-                AccountMeta::new(*target.key, true),
-            ],
-            data: d,
-        },
-        &[payer.clone(), target.clone()],
+        &system(d, vec![AccountMeta::new(*target.key, true)]),
+        std::slice::from_ref(target),
         &[seeds],
     )
 }
