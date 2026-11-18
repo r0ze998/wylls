@@ -11,6 +11,10 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 - **Integration** = only what was checked in this pass: the folder is in canonical (records integrated). Whether a
   workstream's code or patches are in the canonical program/page was NOT determined here unless stated.
 - ⑯–⑳ have no folder in canonical; their names and states come from references in canonical docs and preserve branches.
+  (2026-11-18 note: ⑯ does have a folder on its own branch: `claude/dreamy-ramanujan-ijj8qj` @ `e9e56300`,
+  `verification/16-independent/` plus 21 `v16_*`/`v16-*` test files, 119 commits not in main, based on `92142932`.
+  Several of its fixes reached main by other routes (herald `holderTag`, verifier V0). See the Grok report
+  `plan-6-9-10-12-16` for the per-patch state.)
 
 ## Ledger
 | # | name | self-claim (date) | last commit | integration | restricted parts |
