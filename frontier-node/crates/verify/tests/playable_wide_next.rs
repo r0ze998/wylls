@@ -1252,8 +1252,23 @@ fn record_playable_wide_next() {
     for l in &r.log {
         println!("{l}");
     }
+    // The whole archive from genesis (the patches showing as state no
+    // instruction wrote), for the season-mode wiring test.
+    let (all_txs, all_finals) = r.archive(0, &program);
+    let whole = input_of(
+        program,
+        so_hash,
+        all_txs,
+        all_finals,
+        r.c.slot(),
+        format!("the whole archive from AnnounceSeason on, the three declared patches showing as state the archive never saw an instruction write; {prov}"),
+        "playable-next-whole",
+    );
     if let Ok(dir) = std::env::var("PLAYABLE_WIDE_DUMP") {
         let d = std::path::Path::new(&dir);
+        whole
+            .save(&d.join("playable-next-whole.json.gz"))
+            .expect("save");
         natural
             .save(&d.join("playable-next-setrules.json.gz"))
             .expect("save");
@@ -1705,5 +1720,543 @@ fn a_drained_claim_in_the_unfiltered_feed_fails() {
         has_at(&found, "WideReplayMismatch", t, "lost"),
         "{:#?}",
         show(&found)
+    );
+}
+
+// ---- 2. the season-end WideClose (ticket, holding, province)
+
+type Snap = BTreeMap<[u8; 32], Option<Account>>;
+
+fn segment() -> (Input, Snap) {
+    (
+        common::fixture("playable-next-segment.json.gz"),
+        common::fixture("playable-next-snapshot.json.gz").finals,
+    )
+}
+
+fn close_head(what: u8) -> [u8; 2] {
+    wix::Close { what }.to_bytes()
+}
+
+/// The successful closes of the recording: tickets `[pending, Settled
+/// with its escrow, Settled without]`, holdings, provinces.
+fn closes(inp: &Input) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
+    (
+        txs_like(inp, &close_head(wix::CLOSE_WHAT_TICKET), true),
+        txs_like(inp, &close_head(wix::CLOSE_WHAT_HOLDING), true),
+        txs_like(inp, &close_head(wix::CLOSE_WHAT_PROVINCE), true),
+    )
+}
+
+/// Edits the state of `k` that transaction `t` runs from: its latest
+/// post-state before `t`, else the witness.
+fn edit_before(
+    inp: &mut Input,
+    snap: &mut Snap,
+    t: usize,
+    k: &[u8; 32],
+    f: impl FnOnce(&mut Account),
+) {
+    for u in (0..t).rev() {
+        if inp.txs[u].err.is_some() {
+            continue;
+        }
+        if let Some((_, a)) = inp.txs[u].post.iter_mut().find(|(x, _)| x.to_bytes() == *k) {
+            return f(a.as_mut().expect("present before"));
+        }
+    }
+    f(snap
+        .get_mut(k)
+        .expect("in the witness")
+        .as_mut()
+        .expect("present before"))
+}
+
+fn state_before(inp: &Input, snap: &Snap, t: usize, k: &[u8; 32]) -> Account {
+    for u in (0..t).rev() {
+        if inp.txs[u].err.is_some() {
+            continue;
+        }
+        if let Some((_, a)) = inp.txs[u].post.iter().find(|(x, _)| x.to_bytes() == *k) {
+            return a.clone().expect("present before");
+        }
+    }
+    snap.get(k).cloned().flatten().expect("in the witness")
+}
+
+/// Puts the closed account `k` back into `t`'s post-states as `a`.
+fn unclose(inp: &mut Input, t: usize, k: &[u8; 32], a: Account) {
+    let slot = inp.txs[t]
+        .post
+        .iter_mut()
+        .find(|(x, _)| x.to_bytes() == *k)
+        .expect("a post-state");
+    assert!(slot.1.is_none(), "the recording closed it");
+    slot.1 = Some(a);
+}
+
+fn only_missing(found: &[verify_core::Finding], t: usize) -> bool {
+    let at: Vec<_> = found
+        .iter()
+        .filter(|f| f.entity == format!("tx#{t}"))
+        .collect();
+    !at.is_empty() && at.iter().all(|f| f.code == "MissingData")
+}
+
+#[test]
+fn the_honest_season_end_closes_re_run() {
+    let (seg, snap) = segment();
+    assert!(has_wallets(&seg), "the unfiltered feed");
+    let (tickets, holdings, provinces) = closes(&seg);
+    assert_eq!((tickets.len(), holdings.len(), provinces.len()), (3, 2, 2));
+    // The three ticket shapes: pending with its funder, Settled with its
+    // escrow and funder, Settled without an escrow or a funder.
+    let n = |t: usize| first_ix(&seg, t).unwrap().1.len();
+    assert_eq!((n(tickets[0]), n(tickets[1]), n(tickets[2])), (6, 6, 5));
+    let status = |t: usize| {
+        let k = ix_key(&seg, t, 3);
+        frontier_abi::world_index::ticket::WideTicket::read(&state_before(&seg, &snap, t, &k).data)
+            .unwrap()
+            .status
+    };
+    use frontier_abi::world_index::ticket::TicketStatus;
+    assert_eq!(status(tickets[0]), TicketStatus::Open);
+    assert_eq!(status(tickets[1]), TicketStatus::Settled);
+    assert_eq!(status(tickets[2]), TicketStatus::Settled);
+    // Every closed account is absent after its close.
+    for (t, at) in tickets
+        .iter()
+        .map(|t| (*t, 3))
+        .chain(holdings.iter().map(|t| (*t, 2)))
+        .chain(provinces.iter().map(|t| (*t, 2)))
+    {
+        let k = ix_key(&seg, t, at);
+        let post = seg.txs[t].post.iter().find(|(x, _)| x.to_bytes() == k);
+        assert!(matches!(post, Some((_, None))), "tx {t}");
+    }
+    // The refusals the program itself made are archived, not judged: a
+    // close while Running, before end + 72 h, with a funder but no escrow,
+    // of a record already closed.
+    assert_eq!(txs_like(&seg, &[wix::TAG_CLOSE], false).len(), 4);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(found.is_empty(), "{:#?}", show(&found));
+}
+
+#[test]
+fn the_march_record_closes_stay_unmodelled() {
+    for what in 0..=wix::CLOSE_WHAT_MAX {
+        let judged = vwl::judged(&close_head(what)).is_some();
+        assert_eq!(
+            judged,
+            matches!(
+                what,
+                wix::CLOSE_WHAT_TICKET | wix::CLOSE_WHAT_HOLDING | wix::CLOSE_WHAT_PROVINCE
+            ),
+            "what {what}"
+        );
+    }
+}
+
+#[test]
+fn a_ticket_record_that_was_not_closed_fails() {
+    let (mut seg, snap) = segment();
+    let t = closes(&seg).0[1];
+    let k = ix_key(&seg, t, 3);
+    let mut left = state_before(&seg, &snap, t, &k);
+    left.lamports = 1;
+    unclose(&mut seg, t, &k, left);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "was not closed"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_pending_close_that_keeps_the_citizens_marker_fails() {
+    let (mut seg, snap) = segment();
+    let t = closes(&seg).0[0];
+    let citizen = ix_key(&seg, t, 2);
+    let before = state_before(&seg, &snap, t, &citizen);
+    edit_post(&mut seg, t, &citizen, |a| a.data = before.data.clone());
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "the Citizen"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_settled_close_that_writes_the_citizen_fails() {
+    let (mut seg, snap) = segment();
+    let t = closes(&seg).0[1];
+    let citizen = ix_key(&seg, t, 2);
+    edit_post(&mut seg, t, &citizen, |a| {
+        a.data[frontier_abi::layout::player::citizen::FLAGS] ^= 0x40
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "never writes"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_close_before_the_seasons_end_plus_72_hours_fails() {
+    let (seg0, snap) = segment();
+    let (tickets, holdings, provinces) = closes(&seg0);
+    let end =
+        seg0.txs[txs_like(&seg0, &[frontier_abi::tags::Ix::EndSeason.tag()], true)[0]].block_time;
+    for t in [tickets[0], holdings[0], provinces[0]] {
+        let mut seg = seg0.clone();
+        // A bell after EndSeason: Ended, and far from end + 72 h.
+        seg.txs[t].block_time = end + 600;
+        let found = vwl::judge_segment(&seg, &snap);
+        assert!(
+            has_at(&found, "WideRule", t, "TooEarly"),
+            "{:#?}",
+            show(&found)
+        );
+    }
+}
+
+#[test]
+fn a_close_in_a_season_that_never_ended_fails() {
+    let (mut seg, snap) = segment();
+    let (tickets, holdings, provinces) = closes(&seg);
+    let end = txs_like(&seg, &[frontier_abi::tags::Ix::EndSeason.tag()], true)[0];
+    let season = ix_key(&seg, end, 1);
+    edit_post(&mut seg, end, &season, |a| {
+        a.data[S::STATUS] = S::STATUS_RUNNING
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    for t in [tickets[0], holdings[0], provinces[0]] {
+        assert!(
+            has_at(&found, "WideAccounts", t, "Season"),
+            "{:#?}",
+            show(&found)
+        );
+    }
+}
+
+#[test]
+fn a_close_to_a_rent_payer_that_is_not_the_records_fails() {
+    let (seg0, snap0) = segment();
+    let (tickets, holdings, _) = closes(&seg0);
+    // The ticket's immutable rent payer; the holding's.
+    use frontier_abi::world_index::ticket::wide_ticket as WTL;
+    for (t, at, off) in [
+        (tickets[1], 3, WTL::RENT_PAYER),
+        (holdings[0], 2, H::RENT_PAYER),
+    ] {
+        let (mut seg, mut snap) = (seg0.clone(), snap0.clone());
+        let k = ix_key(&seg, t, at);
+        edit_before(&mut seg, &mut snap, t, &k, |a| a.data[off] ^= 1);
+        let found = vwl::judge_segment(&seg, &snap);
+        assert!(
+            has_at(&found, "WideAccounts", t, "rent payer"),
+            "tx {t}: {:#?}",
+            show(&found)
+        );
+    }
+}
+
+#[test]
+fn a_ticket_close_whose_funder_is_not_the_records_fails() {
+    let (mut seg, mut snap) = segment();
+    let t = closes(&seg).0[1];
+    let k = ix_key(&seg, t, 3);
+    use frontier_abi::world_index::ticket::wide_ticket as WTL;
+    edit_before(&mut seg, &mut snap, t, &k, |a| a.data[WTL::FUNDER] ^= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideAccounts", t, "funder"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_ticket_close_without_the_funder_of_its_escrow_fails() {
+    // The Settled record without an escrow, given one: the funder must
+    // then be listed, and the recorded close lists none.
+    let (mut seg, mut snap) = segment();
+    let t = closes(&seg).0[2];
+    let k = ix_key(&seg, t, 3);
+    use frontier_abi::world_index::ticket::wide_ticket as WTL;
+    let rent_w = {
+        let u = closes(&seg).0[1];
+        let ku = ix_key(&seg, u, 3);
+        frontier_abi::world_index::ticket::WideTicket::read(&state_before(&seg, &snap, u, &ku).data)
+            .unwrap()
+            .escrow
+    };
+    edit_before(&mut seg, &mut snap, t, &k, |a| {
+        a.data[WTL::ESCROW..WTL::ESCROW + 8].copy_from_slice(&rent_w.to_le_bytes());
+        a.lamports += rent_w;
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "Undecodable", t, "funder"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn an_open_record_closed_beside_a_citizen_without_its_marker_fails() {
+    let (mut seg, mut snap) = segment();
+    let t = closes(&seg).0[0];
+    let citizen = ix_key(&seg, t, 2);
+    let cleared = seg.txs[t]
+        .post
+        .iter()
+        .find(|(x, _)| x.to_bytes() == citizen)
+        .unwrap()
+        .1
+        .clone()
+        .unwrap();
+    edit_before(&mut seg, &mut snap, t, &citizen, |a| {
+        a.data = cleared.data.clone()
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideAccounts", t, "do not pair"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_holding_close_that_skips_the_pool_owed_sweep_fails() {
+    let (mut seg, mut snap) = segment();
+    let t = closes(&seg).1[0];
+    let k = ix_key(&seg, t, 2);
+    edit_before(&mut seg, &mut snap, t, &k, |a| {
+        a.data[H::POOL_OWED..H::POOL_OWED + 8].copy_from_slice(&7_000u64.to_le_bytes());
+        a.lamports += 7_000;
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "DefencePool"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_holding_close_that_drains_or_rewrites_the_defence_pool_fails() {
+    let (seg0, snap) = segment();
+    let t = closes(&seg0).1[1];
+    let dpool = ix_key(&seg0, t, 4);
+    let mut seg = seg0.clone();
+    edit_post(&mut seg, t, &dpool, |a| a.lamports -= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "DefencePool"),
+        "{:#?}",
+        show(&found)
+    );
+    let mut seg = seg0.clone();
+    edit_post(&mut seg, t, &dpool, |a| a.data[40] ^= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "DefencePool"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_holding_that_was_not_closed_fails() {
+    let (mut seg, snap) = segment();
+    let t = closes(&seg).1[0];
+    let k = ix_key(&seg, t, 2);
+    let left = state_before(&seg, &snap, t, &k);
+    unclose(&mut seg, t, &k, left);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "was not closed"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_holding_close_at_another_address_fails() {
+    let (mut seg, mut snap) = segment();
+    let t = closes(&seg).1[0];
+    let k = ix_key(&seg, t, 2);
+    // The identity trailer's site: the record is then another site's.
+    edit_before(&mut seg, &mut snap, t, &k, |a| a.data[H::SITE] ^= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        found
+            .iter()
+            .any(|f| f.entity == format!("tx#{t}") && f.severity == verify_core::Severity::Fail),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_province_close_that_shorts_or_miscounts_the_fund_fails() {
+    let (seg0, snap) = segment();
+    let t = closes(&seg0).2[0];
+    let fund = ix_key(&seg0, t, 3);
+    use frontier_abi::layout::world::province_fund as PF;
+    // The province's lamports did not all reach the fund.
+    let mut seg = seg0.clone();
+    edit_post(&mut seg, t, &fund, |a| a.lamports -= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "wedge fund"),
+        "{:#?}",
+        show(&found)
+    );
+    // provinces_opened did not step.
+    let before = state_before(&seg0, &snap, t, &fund);
+    let mut seg = seg0.clone();
+    edit_post(&mut seg, t, &fund, |a| {
+        a.data[PF::PROVINCES_OPENED..PF::PROVINCES_OPENED + 4]
+            .copy_from_slice(&before.data[PF::PROVINCES_OPENED..PF::PROVINCES_OPENED + 4])
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "wedge fund"),
+        "{:#?}",
+        show(&found)
+    );
+    // A lifetime counter moved.
+    let mut seg = seg0.clone();
+    edit_post(&mut seg, t, &fund, |a| a.data[PF::SPENT_TOTAL] ^= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "wedge fund"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_province_that_was_not_closed_fails() {
+    let (mut seg, snap) = segment();
+    let t = closes(&seg).2[1];
+    let k = ix_key(&seg, t, 2);
+    let left = state_before(&seg, &snap, t, &k);
+    unclose(&mut seg, t, &k, left);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "was not closed"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_gift_into_a_closing_fund_or_pool_is_unverifiable_not_a_pass() {
+    let (seg0, snap) = segment();
+    let (_, holdings, provinces) = closes(&seg0);
+    for (t, at) in [(holdings[0], 4), (provinces[0], 3)] {
+        let mut seg = seg0.clone();
+        let k = ix_key(&seg, t, at);
+        edit_post(&mut seg, t, &k, |a| a.lamports += 1);
+        let found = vwl::judge_segment(&seg, &snap);
+        assert!(only_missing(&found, t), "tx {t}: {:#?}", show(&found));
+    }
+}
+
+#[test]
+fn a_close_over_the_tombstone_is_unverifiable_and_a_province_close_fails() {
+    let (mut seg, snap) = segment();
+    let (tickets, holdings, provinces) = closes(&seg);
+    let end = txs_like(&seg, &[frontier_abi::tags::Ix::EndSeason.tag()], true)[0];
+    let season = ix_key(&seg, end, 1);
+    edit_post(&mut seg, end, &season, |a| {
+        a.data.truncate(S::TOMBSTONE_SIZE)
+    });
+    let found = vwl::judge_segment(&seg, &snap);
+    for t in [tickets[0], holdings[0]] {
+        assert!(only_missing(&found, t), "tx {t}: {:#?}", show(&found));
+    }
+    assert!(
+        has_at(&found, "WideAccounts", provinces[0], "Season"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_close_of_an_account_the_witness_does_not_show_is_unverifiable() {
+    let (seg, mut snap) = segment();
+    let t = closes(&seg).0[1];
+    let k = ix_key(&seg, t, 3);
+    snap.remove(&k);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(only_missing(&found, t), "{:#?}", show(&found));
+}
+
+#[test]
+fn a_close_that_also_writes_another_program_account_fails() {
+    let (mut seg, snap) = segment();
+    let t = closes(&seg).0[2];
+    // A Settled close beside a present Citizen writes nothing of it; here
+    // an unlisted program account changes too.
+    let other = ix_key(&seg, closes(&seg).2[0], 3);
+    let mut a = state_before(&seg, &snap, t, &other);
+    a.data[40] ^= 1;
+    seg.txs[t]
+        .post
+        .push((Address::new_from_array(other), Some(a)));
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        has_at(&found, "WideReplayMismatch", t, "does not list"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+/// The whole archive in season mode: V0 leaves the closes to VWL, and no
+/// check FAILs an honest close (the declared patches break the season
+/// elsewhere, as in `playable_wide_claims.rs`).
+#[test]
+fn season_mode_judges_the_closes() {
+    let inp = common::fixture("playable-next-whole.json.gz");
+    let (tickets, holdings, provinces) = closes(&inp);
+    assert_eq!((tickets.len(), holdings.len(), provinces.len()), (3, 2, 2));
+    let rep = verify_core::verify(&inp);
+    assert_ne!(rep.verdict, verify_core::Verdict::Pass, "the patches");
+    let sigs: Vec<String> = tickets
+        .iter()
+        .chain(&holdings)
+        .chain(&provinces)
+        .map(|&t| inp.txs[t].signature.to_string())
+        .collect();
+    let at_close: Vec<_> = rep
+        .findings
+        .iter()
+        .filter(|f| sigs.contains(&f.signature))
+        .collect();
+    assert!(
+        at_close.is_empty(),
+        "{:#?}",
+        at_close
+            .iter()
+            .map(|f| (f.check, &f.code, &f.entity, &f.detail))
+            .collect::<Vec<_>>()
+    );
+    // And a tampered close FAILs in season mode too.
+    let mut bad = inp.clone();
+    let t = provinces[0];
+    let fund = ix_key(&bad, t, 3);
+    edit_post(&mut bad, t, &fund, |a| a.lamports -= 1);
+    let rep = verify_core::verify(&bad);
+    assert!(
+        has_at(&rep.findings, "WideReplayMismatch", t, "wedge fund"),
+        "{:#?}",
+        show(&rep.findings)
     );
 }

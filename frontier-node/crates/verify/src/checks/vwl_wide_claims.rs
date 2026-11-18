@@ -87,23 +87,24 @@ pub(super) fn judged(cmd: &WideCommand) -> Option<&'static str> {
         WideCommand::ClaimSite(_) => Some("WideClaimSite"),
         WideCommand::SettleTicket(_) => Some("WideSettleTicket"),
         WideCommand::Finalize(_) => Some("WideFinalize"),
+        WideCommand::Close(x) => super::close::judged(x.what),
         _ => None,
     }
 }
 
 // ------------------------------------------------------------ helpers
 
-fn rd_i64(d: &[u8], o: usize) -> i64 {
+pub(super) fn rd_i64(d: &[u8], o: usize) -> i64 {
     le(d, o, 8) as i64
 }
 
-fn arr32(d: &[u8], o: usize) -> [u8; 32] {
+pub(super) fn arr32(d: &[u8], o: usize) -> [u8; 32] {
     d.get(o..o + 32)
         .and_then(|s| s.try_into().ok())
         .unwrap_or([0; 32])
 }
 
-fn wr_i64(d: &mut [u8], o: usize, v: i64) {
+pub(super) fn wr_i64(d: &mut [u8], o: usize, v: i64) {
     d[o..o + 8].copy_from_slice(&v.to_le_bytes());
 }
 
@@ -115,7 +116,7 @@ fn wr_u16(d: &mut [u8], o: usize, v: u16) {
 /// exactly: a ticket record holds `rent(record) + escrow`; with an escrow
 /// of one wide rent that is `(256 + 192 + 1344) × rate`, with none
 /// `(128 + 192) × rate`.
-fn rate_of_record(lamports: u64, escrow: u64) -> Option<u64> {
+pub(super) fn rate_of_record(lamports: u64, escrow: u64) -> Option<u64> {
     // `lamports = (128 + 192) × rate + escrow`, the escrow 0 or one wide
     // rent `(128 + 1344) × rate`.
     let own = 128 + T_SIZE;
@@ -130,7 +131,7 @@ fn rate_of_record(lamports: u64, escrow: u64) -> Option<u64> {
 /// A wide record of this season before the transaction (the program's
 /// `*_at`): `Ok(None)` absent (archive or witness shows it absent);
 /// `MissingData` when nothing is known of it.
-fn wide_before(e: &Env, k: &Key, what: &str) -> Result<Option<Account>, Wrong> {
+pub(super) fn wide_before(e: &Env, k: &Key, what: &str) -> Result<Option<Account>, Wrong> {
     match e.acct_before(k) {
         Some(a) if !a.data.is_empty() && a.owner.to_bytes() != e.ctx.program => Err(fail(
             WIDE_ACCOUNTS,
@@ -142,7 +143,7 @@ fn wide_before(e: &Env, k: &Key, what: &str) -> Result<Option<Account>, Wrong> {
     }
 }
 
-fn province_of(
+pub(super) fn province_of(
     e: &Env,
     k: &Key,
     coord: WideCoord,
@@ -171,7 +172,7 @@ fn province_of(
     Ok((p, a.data))
 }
 
-fn holding_rec(e: &Env, d: &[u8]) -> Result<WideHolding, Wrong> {
+pub(super) fn holding_rec(e: &Env, d: &[u8]) -> Result<WideHolding, Wrong> {
     let h = WideHolding::read(d)
         .map_err(|er| fail(WIDE_ACCOUNTS, format!("the wide holding: {er:?}")))?;
     if h.season_id != e.sid {
@@ -292,7 +293,7 @@ fn pqs_key(p: i16, q: i16, site: u8) -> [u8; 9] {
 
 /// The state (and due flip) of a wide holding over its province
 /// (`wide_finality_due`).
-fn finality_due(hd: &[u8], pd: &[u8], now: i64, now_bell: u32) -> (u8, bool) {
+pub(super) fn finality_due(hd: &[u8], pd: &[u8], now: i64, now_bell: u32) -> (u8, bool) {
     let hh = frontier_abi::prologue::HoldingHdr {
         p: 0,
         q: 0,
@@ -705,7 +706,7 @@ fn rec_before_lamports(e: &Env, k: &Key) -> u64 {
 /// A view of an account of the player prologue. Signatures are the
 /// runtime's (a transaction that landed carried them), so every position
 /// reads as signed; writability is the message's.
-fn signed<'b>(e: &'b Env, key: &'b Key, data: &'b [u8], w: bool) -> AccountView<'b> {
+pub(super) fn signed<'b>(e: &'b Env, key: &'b Key, data: &'b [u8], w: bool) -> AccountView<'b> {
     AccountView {
         key,
         owner: &e.ctx.program,
@@ -907,7 +908,7 @@ fn seed_of_bell(
 /// archived balance before. Lamports can reach any account by a system
 /// transfer the archive (program transactions only) never shows, so more
 /// than `want` is unknown (`MissingData`); fewer is a FAIL.
-fn lamports_are(got: u64, want: u64, what: &str) -> Result<(), Wrong> {
+pub(super) fn lamports_are(got: u64, want: u64, what: &str) -> Result<(), Wrong> {
     match got.cmp(&want) {
         std::cmp::Ordering::Equal => Ok(()),
         std::cmp::Ordering::Less => Err(fail(

@@ -24,6 +24,9 @@
 //! And always, while any wide record exists: UNVERIFIABLE
 //! [`WIDE_UNMODELLED`] — the wide instructions themselves are not replayed
 //! yet, so a wide season is never PASS (V0 says the same per instruction).
+//! The one exception (`run`, Q16-1): a playable-lane season in which every
+//! wide record was printed by an instruction VWL re-ran in full (the wide
+//! economy, the garrison, a province close).
 //! Pure bytes; no key, no signature, no network.
 
 use std::collections::BTreeMap;
@@ -481,7 +484,7 @@ pub fn run(cx: &mut Ctx) {
         .enumerate()
         .map(|(i, t)| (i, t.err.is_none(), t.logs.as_slice()))
         .collect();
-    let finals: Vec<&[u8]> = cx
+    let mut finals: Vec<&[u8]> = cx
         .input
         .finals
         .values()
@@ -491,8 +494,56 @@ pub fn run(cx: &mut Ctx) {
                 .map(|a| a.data.as_slice())
         })
         .collect();
+    // Q16-1 (playable lane): VWL re-runs some wide instructions in full
+    // (every post-state byte, the chained headers included).
+    let pv = cx.f.params.as_ref().map(|p| p.program_version);
+    let playable = super::v0_coverage::playable(pv);
+    let vwl_owns = |i: usize| {
+        cx.w.txs.get(i).is_some_and(|t| {
+            t.ixs.len() == 1
+                && t.ixs[0].tag().is_some_and(super::v0_coverage::is_wide_tag)
+                && super::v0_coverage::vwl_judged(&t.ixs[0].data)
+        })
+    };
+    // A wide holding a VWL-judged WideClose closed has no final bytes: its
+    // chain ends at its last archived state, the one the close ran from.
+    if playable {
+        for (i, t) in cx.w.txs.iter().enumerate() {
+            if !t.ok || !vwl_owns(i) {
+                continue;
+            }
+            for (k, a) in &t.post {
+                if a.is_some() || cx.input.finals.get(k).is_some_and(|f| f.is_some()) {
+                    continue;
+                }
+                let last = cx.w.posts.get(k).and_then(|v| {
+                    v.iter()
+                        .rev()
+                        .filter(|&&u| u < i)
+                        .find_map(|&u| cx.w.txs[u].post.get(k).and_then(|a| a.as_ref()))
+                });
+                if let Some(a) =
+                    last.filter(|a| a.owner == cx.cfg.program && WideHolding::read(&a.data).is_ok())
+                {
+                    finals.push(a.data.as_slice());
+                }
+            }
+        }
+    }
+    // Every wide record of the season printed by an instruction VWL
+    // re-ran: nothing of them is left unmodelled.
+    let all_judged = playable
+        && txs.iter().all(|(i, ok, logs)| {
+            !ok || vwl_owns(*i) || matches!(psw1_bodies(logs, &program), Ok(b) if b.is_empty())
+        });
     let whole = !cx.input.history.unproven();
     for j in judge(&program, &txs, &finals, whole) {
+        if all_judged
+            && matches!(&j, Judgement::Unverifiable { code, tx: None, entity, .. }
+                if *code == WIDE_UNMODELLED && entity == "season")
+        {
+            continue;
+        }
         match j {
             Judgement::Fail {
                 code,

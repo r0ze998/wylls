@@ -62,8 +62,10 @@
 //! VL). A wide land instruction that shares its transaction with another
 //! program instruction is `MissingData` (no state between the two). The
 //! wide claims (WideClaimSite, WideSettleTicket, WideFinalize) are VWL's
-//! too, in `vwl_wide_claims.rs` (2026-11-19). The other wide commands stay
-//! V0's `WideUnmodelled`.
+//! too, in `vwl_wide_claims.rs` (2026-11-19), and so are the season-end
+//! WideCloses of a ticket record, a holding and a province
+//! (`vwl_wide_close.rs`). The other wide commands stay V0's
+//! `WideUnmodelled`.
 //!
 //! Lamports: the archive holds program transactions only, and anyone can
 //! send lamports to any account by a plain system transfer, so an archived
@@ -138,6 +140,8 @@ pub fn judged(data: &[u8]) -> Option<&'static str> {
 
 #[path = "vwl_wide_claims.rs"]
 mod claims;
+#[path = "vwl_wide_close.rs"]
+mod close;
 
 /// The states one instruction is judged from.
 struct Env<'a> {
@@ -962,6 +966,7 @@ fn judge(e: &Env, ix: &Ix, sigs: &mut SigCache) -> Result<(), Wrong> {
         WideCommand::ClaimSite(x) => claims::claim_site(e, ix, x)?,
         WideCommand::SettleTicket(x) => claims::settle_ticket(e, ix, x)?,
         WideCommand::Finalize(_) => claims::finalize(e, ix)?,
+        WideCommand::Close(x) => close::close(e, ix, x)?,
         _ => return Ok(()),
     };
     // The FULL post-state of every account of the transaction that the
@@ -1047,6 +1052,9 @@ pub(super) enum Lam {
     /// makes it rent-exempt, and more is a pre-funding nobody can rule
     /// out; nothing to compare.
     Created,
+    /// Closed by the instruction: the handler checked that nothing of it
+    /// remains (`close::expect_closed`).
+    Closed,
 }
 
 /// An account whose balance the handler never moves. Only the owning
