@@ -4,7 +4,8 @@ This page says how to build and start the local-play launcher from a clone of th
 the two modes shows on screen, and what is not done yet. Every step here comes from the sources in this repository.
 A start from a fresh clone on a new machine has **not** been run end to end yet.
 
-**Shortcut:** `scripts/play-local.sh` does §1's checks, §2's builds (land-preview lane) and §3's capture-demo start in one
+**Shortcut:** `scripts/play-local.sh` does §1's checks and §2's builds (land-preview lane), then starts a kept world
+(§3 (1) with (5): `--continuous` + `--persist`; `--resume` reopens it) or, with `--demo`, §3 (2)'s capture demo, in one
 command; see [PLAY-LOCAL.md](PLAY-LOCAL.md) / [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md).
 
 Two modes, never mixed:
@@ -12,7 +13,7 @@ Two modes, never mixed:
 | | (1) Natural world | (2) Capture demo (TEST-ONLY) |
 |---|---|---|
 | Clock | real time: a turn is 600 s | after your home, compressed ×10–×60 (`--demo-scale`) |
-| Other villages | none; you are alone | test participants, each with its own in-memory key |
+| Other villages | none; you are alone (unless operator AI residents are added, §3 (6)) | test participants, each with its own in-memory key (and residents, §3 (6)) |
 | Rules | the program's rules | the same rules; nothing is changed |
 | On screen | always the session notice | also a fourth line: 「この世界は試験用の攻略デモです…」 |
 | What it can show | home, economy, army, an ordinary march | also the next ring opening, the fort list, a march onto a fort and its hold count |
@@ -217,23 +218,30 @@ cannot be resumed) and off the natural preset:
   landed on the resumed chain. Disk: a continuous world's ledger grows with every turn; the launcher's 128 MiB output
   limit counts the whole directory and stops the world when it is reached.
 
-### (6) Operator AI residents and the co-op board (TEST-ONLY)
-Two more options of the natural world's launcher (both TEST-ONLY):
+### (6) Operator AI residents, the six-nation recording and the co-op board (TEST-ONLY)
+Natural preset only, and never set over HTTP. Add one of these (and, separately, the co-op board below):
 ```bash
---operator-residents 2                             # ⑤ option A: AI residents (natural preset only)
+--operator-residents 3                 # 1-4 residents; their nations are fixed: 1, 4, 2, 5
+--operator-nations 1,4,2,5,0,3         # one resident per named nation, up to six (6 relay ports per world); not with --persist
+--operator-max-acts 400                # optional: a cap on each resident's sends for the whole world (default: none)
+```
+Each resident is an ordinary participant. It has a memory-only TEST key (kept on disk only in a `--persist` world,
+§3 (5)), is funded like the player, and has its own relay. It joins, places a home and uses the economy commands by a fixed offline rule
+(`permutation-gateway/src/frontier/local-play-operator-policy.mjs`). It never marches. The page is not told which
+residents are AI. `scripts/demo/sixnation/sixnation.sh` starts a world with all six nations and records it
+(see its README, EN and 日本語). With the capture demo, let the residents place their homes before the player does:
+afterwards a PlaceHome in the player's own nation was refused (`TicketState`, 45) in a trial on 2026-11-18.
+So with these options the world is **not** "no automatic opponent, nothing here is an AI" (contrast §3 (3)). Their
+roster is `operators.json` and their log `operators.out` in the world's directory.
+- **Pace:** each resident takes at most **one action per bell** (owner decision Q16-2: one action per resident per
+  turn; the bell is the program's own, counted from the Season's genesis on the chain's clock), with no cap for the
+  whole world, so residents keep playing until the world ends. On a ×10 two-hour test world (about 120 bells) that is
+  at most about 120 actions per resident; on 1× (12 bells) at most 12. A resident stops for good only after 12 refusals
+  in a row. Its log says a wait once, not every round. (Before 2026-11-18 the budget was 60 actions per world, spent in
+  about 20 turns: loop-play2 B12.)
+```bash
 --coop-board ws01-board-v1                         # ① the co-op board of each world
 ```
-- **Operator residents** (`--operator-residents <1-4>`): each new world also gets that many AI residents. Each has its own
-  memory-only TEST wallet (kept in `operator-keys/` with `--persist`, see (5)) and relay, and Joins, places a home and uses the economy commands by a fixed offline rule,
-  through the same checks as a page. The page does not say which villages they are. So with this option the world is
-  **not** "no automatic opponent, nothing here is an AI" (contrast §3 (3)). Their roster is `operators.json` and their
-  log `operators.out` in the world's directory.
-  - **Pace:** each resident takes at most **one action per bell** (owner decision Q16-2: one action per resident per
-    turn; the bell is the program's own, counted from the Season's genesis on the chain's clock), with no cap for the
-    whole world, so residents keep playing until the world ends. On a ×10 two-hour test world (about 120 bells) that is
-    at most about 120 actions per resident; on 1× (12 bells) at most 12. A resident stops for good only after 12 refusals
-    in a row. Its log says a wait once, not every round. (Before 2026-11-18 the budget was 60 actions per world, spent in
-    about 20 turns: loop-play2 B12.)
 - **Co-op board** (`--coop-board ws01-board-v1`): workstream 01's board of requests between nations, for each world. The
   launcher keeps it in its own process (records in the world's directory, `coop/`) and serves it on its own origin under
   `/coop-world/<the world's proxy port>/`. The village card's co-op slot then opens 「国をまたぐ依頼を開く」 in a new
