@@ -9,6 +9,7 @@
 import { html } from '../util.mjs';
 import { L } from '../lang.mjs';
 import { encode as toBase58 } from '../sdk/base58.mjs';
+import { isOnCurve } from '../sdk/solana-tx.mjs';
 import * as io from './fchainio.mjs';
 import { cardHead } from './screens/parts.mjs';
 import { icon } from './hud/icons.mjs';
@@ -23,17 +24,43 @@ const sessionOf = citizen => {
   if (!reg || (reg.every && reg.every(x => x === 0))) return null;
   return typeof reg === 'string' ? reg : toBase58(reg);
 };
+/** The key the Citizen registered (base58), or null when none is. */
+export const registeredKey = sessionOf;
+const programHeld = key => { try { return !isOnCurve(key); } catch { return false; } };
+const shortKey = k => `${String(k).slice(0, 4)}…${String(k).slice(-4)}`;
 
 /**
- * `{agentId, agentKey, mode, village}` when the key mismatch is the owner's own agent holding the village's key,
- * otherwise null (another key, or no agent wallet on this relay: the page's usual "game key" card stays).
+ * Who holds the Citizen's one session slot when it is not this device's key (Q16-3: never "no key here"):
+ *  - the owner's own agent: `{agentId, agentKey, mode: 'auto' | 'manual', village}`;
+ *  - any other key — ③'s courier (its session PDA, set by the owner's SetSession), another app or device:
+ *    `{agentId: null, agentKey, mode: 'foreign', village: null, foreign: true, program, expired}` (`program`: the key
+ *    is off the curve, so a program holds it; `expired`: the registration has run out at chain time `now`);
+ *  - null when nothing is known to be held elsewhere.
+ * With a device key (`hasLocalKey`, the default) that is the page's `SessionMismatch`. Without one, only what is
+ * certain before the wallet signs is claimed: an agent's key, or a program's key (this wallet's own game key is
+ * always on the curve); any other registered key may be this wallet's own, and the `session` action finds out.
  */
-export function delegatedTo({ sessionProblem, citizen, agents }) {
-  if (sessionProblem !== 'SessionMismatch') return null;
+export function delegatedTo({ sessionProblem, citizen, agents, hasLocalKey = true, now }) {
+  const mismatch = sessionProblem === 'SessionMismatch';
+  if (!mismatch && hasLocalKey) return null;
   const session = sessionOf(citizen);
   if (!session || !Array.isArray(agents)) return null;
   const a = agents.find(x => x?.agentKey === session);
-  return a ? { agentId: a.agentId, agentKey: a.agentKey, mode: a.mode === 'auto' ? 'auto' : 'manual', village: a.village ?? null } : null;
+  if (a) return { agentId: a.agentId, agentKey: a.agentKey, mode: a.mode === 'auto' ? 'auto' : 'manual', village: a.village ?? null };
+  const program = programHeld(session);
+  if (!mismatch && !program) return null;
+  const expired = now !== undefined && now !== null && citizen.sessionExpiry !== undefined && BigInt(Math.floor(now)) >= BigInt(citizen.sessionExpiry);
+  return { agentId: null, agentKey: session, mode: 'foreign', village: null, foreign: true, program, expired };
+}
+
+/**
+ * The page's answer to "is the key held elsewhere?" at this moment: the controller's reading (with the owner's
+ * agents), else what the Citizen's record alone says — so the warning never waits for the agents to be read.
+ */
+export function delegationOf(FS) {
+  if (!FS || FS.resident) return null;
+  if (FS.delegation && (FS.sessionProblem === 'SessionMismatch' || !FS.session)) return FS.delegation;
+  return delegatedTo({ sessionProblem: FS.sessionProblem, citizen: FS.citizen, agents: [], hasLocalKey: !!FS.session, now: FS.chain?.now?.() ?? undefined });
 }
 
 /**
@@ -46,14 +73,44 @@ export async function loadAgents(owner, opts) {
   return r.ok && Array.isArray(r.agents) ? { enabled: true, agents: r.agents } : { enabled: false, agents: [] };
 }
 
-/** The card shown instead of "regenerate the game key" while the agent holds the village's key. */
-export function renderDelegated(d) {
+/** The consented replacement of the registered key `d.agentKey` (the controller's `session-replace`), as a button. */
+const replaceButton = (d, cls, label) => html`<button type="button" class="${cls}" data-act="session-replace" data-key="${d.agentKey ?? ''}">${label}</button>`;
+
+/**
+ * The warning shown instead of "regenerate the game key" while another key — ③'s courier, another app or device —
+ * holds the Citizen's session (Q16-3). Nothing is replaced from here without the owner's own choice: keeping the
+ * delegation is the first button; replacing it says what stops and that this page cannot hand it back.
+ */
+function renderForeign(d, { kept = false } = {}) {
+  const key = shortKey(d.agentKey);
+  if (kept) return html`<section class="vcard" aria-labelledby="join-agent" data-key-held="kept">${cardHead({ id: 'join-agent', ic: 'lock', title: L`別の鍵に操作を任せています` })}
+    <p>${L`委任を続けています。登録されている鍵（${key}）が引き続きこの住民を操作します。この端末では見るだけです。`}</p>
+    <div class="actions"><button type="button" class="btn" data-act="session-keep">${L`選び直す`}</button></div></section>`;
+  return html`<section class="vcard" aria-labelledby="join-agent" data-key-held="${d.program ? 'program' : 'other'}">${cardHead({ id: 'join-agent', ic: 'lock', title: L`別の鍵に操作を任せています` })}
+    <p>${L`登録されている鍵は、この端末のゲーム内の鍵と異なります。別のアプリや端末に操作を任せている可能性があります。`}</p>
+    <p>${L`登録されている鍵：${key}`}${d.program ? html` ${L`この鍵は、プログラムが持つ鍵です（配送の委任など）。`}` : ''}${d.expired ? html` ${L`この鍵の期限は切れています。いまは、この鍵も操作できません。`}` : ''}</p>
+    <p class="callout" role="alert">${L`自分で操作するために鍵を変更すると、現在登録されている鍵は使えなくなります。`}${L`その鍵に任せていた操作（配送の委任など）は止まります。この画面から元には戻せません。もう一度任せるには、任せた先のアプリで委任し直してください。`}</p>
+    <p>${L`何もしなければ、委任はそのまま続きます。この端末では見るだけになります。`}</p>
+    <div class="actions">
+      <button type="button" class="btn primary" data-act="session-keep">${L`委任を続ける（鍵を変えない）`}</button>
+      ${replaceButton(d, 'btn danger', L`委任を止めて自分で操作する（登録鍵を変更）`)}
+    </div></section>`;
+}
+
+/** The line under "re-make the key" while a key is registered that may or may not be this wallet's own (Q16-3). */
+export function keyHint() {
+  return html`<p class="muted" data-key-hint="1">${L`登録されている鍵がこのウォレットのゲーム内の鍵でなければ（別のアプリや端末、配送の委任など）、置き換える前に確認します。黙って置き換えることはありません。`}</p>`;
+}
+
+/** The card shown instead of "regenerate the game key" while the agent (or another key) holds the village's key. */
+export function renderDelegated(d, opts = {}) {
+  if (d.foreign) return renderForeign(d, opts);
   const auto = d.mode === 'auto';
   return html`<section class="vcard" aria-labelledby="join-agent">${cardHead({ id: 'join-agent', ic: 'lock', title: L`代理人に任せています` })}
     <p>${auto ? L`この村の操作は、いま代理人（自動）が行っています。この端末のゲーム内の鍵では送れません。` : L`この村の鍵は、まだ代理人が持っています（代理人は停止中）。この端末のゲーム内の鍵では送れません。`}</p>
     <p>${L`自分で操作するには、鍵を取り戻します（ウォレットで署名）。`}${auto ? L`代理人はサーバー上では自動のままなので、止めるには代理人のページで「手動に戻す」を押してください。` : ''}</p>
     <div class="actions">
-      <button type="button" class="btn primary" data-act="session">${L`鍵を取り戻して自分で操作する`}</button>
+      ${replaceButton(d, 'btn primary', L`鍵を取り戻して自分で操作する`)}
       <a class="btn" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページを開く`}</a>
     </div></section>`;
 }
@@ -64,18 +121,24 @@ export function renderDelegated(d) {
  * take-back (the page's `session` action) and the agent page link.
  */
 export function handNote(d) {
+  // (another key — the courier, another app or device: the bar says so and opens nothing by itself; the replacement is
+  //  the same consented action as the card's, named for what it does)
+  if (d.foreign) return html`<span class="hand-agent">${icon('lock')}<span>${L`別の鍵に操作を任せています（配送の委任など）。この端末の鍵では送れません。`}</span>
+    ${replaceButton(d, 'btn small', L`委任を止めて鍵を変更する`)}</span>`;
   return html`<span class="hand-agent">${icon('lock')}<span>${d.mode === 'auto' ? L`代理人に任せています（自動）。この端末の鍵では送れません。` : L`鍵はまだ代理人が持っています（代理人は停止中）。この端末の鍵では送れません。`}</span>
-    <button type="button" class="btn small primary" data-act="session">${L`鍵を取り戻す`}</button>
+    ${replaceButton(d, 'btn small primary', L`鍵を取り戻す`)}
     <a class="btn small" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページ`}</a></span>`;
 }
 
 /** A sentence added to a refusal while the agent holds the key (the relay answers Auth: this device's key is not the session). */
 export function refusalNote(delegation, code) {
   if (!delegation || (code !== 'Auth' && code !== 'SessionMismatch')) return null;
+  if (delegation.foreign) return L`この住民の鍵は別の鍵（別のアプリや端末、配送の委任など）が持っているため、この端末の鍵では送れません。委任を続けるか、鍵を変更して自分で操作するかを選んでください。`;
   return L`この村は代理人に任せているため、この端末の鍵では送れません。代理人のページ（「その他」）で止めるか、鍵を取り戻してから操作してください。`;
 }
 
 /** What to say after the key was taken back here while the agent is still in auto on the server. */
 export function takenBackNote(delegation) {
+  if (delegation?.foreign) return L`鍵を置き換えました。これまで登録されていた鍵（${shortKey(delegation.agentKey)}）は、この住民を操作できなくなりました。もう一度任せるには、任せた先のアプリで委任し直してください。`;
   return delegation?.mode === 'auto' ? L`鍵を取り戻しました。代理人はサーバー上ではまだ自動です（鍵がないので何も送れず、判断料もかかりません）。止めるには代理人のページで「手動に戻す」を押してください。` : L`鍵を取り戻しました。`;
 }

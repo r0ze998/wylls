@@ -172,7 +172,7 @@ test('a village played by hand, handed to its agent, taken back and played by ha
   await play.locator('[data-act="intro-close"]').first().click().catch(() => {});
   await waitText(play, '代理人に任せています', 90_000);
   const note = play.locator('.hand-note-agent');
-  for (const sel of ['[data-act="session"]', 'a[data-agent-link]']) await readableOnDark(note.locator(sel).first(), `the action bar's ${sel}`);
+  for (const sel of ['[data-act="session-replace"]', 'a[data-agent-link]']) await readableOnDark(note.locator(sel).first(), `the action bar's ${sel}`);
   let whileDelegated = null;
   if (await play.locator('[data-act="harvest"]').count()) {
     const h = await harvestByHand(play, playSends).catch(e => ({ error: String(e.message) }));
@@ -184,7 +184,7 @@ test('a village played by hand, handed to its agent, taken back and played by ha
 
   // ---- take the key back from the play page (its card: the wallet-signed SetSession); the page says the agent stays
   // in auto on the server; then the owner stops it on the agent page and plays by hand again
-  await play.locator('[data-act="session"]').first().click();
+  await play.locator('[data-act="session-replace"]').first().click();
   await waitText(play, 'サーバー上ではまだ自動です', 120_000);
   const back = await until('the chain no longer names the agent key', async () => { const v = await json(`${HERALD}/gw/f/agent?id=${agentId}`); return v.delegation?.delegated === false ? v : null; }, 60_000);
   assert.equal(back.mode, 'auto', 'taking the key back on the play page does not stop the agent on the server (and the page says so)');

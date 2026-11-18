@@ -98,6 +98,7 @@ permutation-gateway/test/web-frontier-local-play-world-instance.test.mjs
 permutation-gateway/test/web-frontier-local-play.test.mjs
 permutation-gateway/test/web-frontier-people.test.mjs
 permutation-gateway/test/web-frontier-prize.test.mjs
+permutation-gateway/test/web-frontier-rekey-delegation.test.mjs
 permutation-gateway/test/web-frontier-relay.test.mjs
 permutation-gateway/test/web-frontier-resident-home.test.mjs
 permutation-gateway/test/web-frontier-return-card.test.mjs

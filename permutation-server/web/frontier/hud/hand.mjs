@@ -39,7 +39,7 @@ import { tileName, provinceName } from './place.mjs';
 import { grownSince, trainCost, maxTrain, shortOf, HOST_TROOPS, WORKED_RADIUS, UNIT_STATS } from './rulebook.mjs';
 import { costChips, costWords, shortWords, took, unitGood, unitStrength, whyText, exploreResultTurn, exploreResultLine } from './orderparts.mjs';
 import * as proto from './proto.mjs';
-import { handNote } from '../fdelegation.mjs';
+import { delegationOf, handNote } from '../fdelegation.mjs';
 import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
@@ -253,7 +253,8 @@ export function handModel(FS) {
   model.subject = sub;
   model.pop = popOf(FS, sub);
   // the owner's agent holds the key (fdelegation.mjs): nothing on this bar can be sent from this device; say so first
-  if (FS.delegation && FS.sessionProblem === 'SessionMismatch') { model.note = handNote(FS.delegation); model.noteTone = 'agent'; }
+  // (Q16-3: or another key — ③'s courier, another app or device —, known on a device with no stored key too)
+  { const held = (!FS.session || FS.sessionProblem === 'SessionMismatch') ? delegationOf(FS) : null; if (held) { model.note = handNote(held); model.noteTone = 'agent'; } }
   // (the prototype rule "banners": what to press while the guide's march is armed on the board with no card open)
   if (FS.proto && !model.note) { const n = proto.armedNote(FS, model); if (n) { model.note = n; model.noteTone = 'proto'; } }
   for (const b of model.buttons) if (b.act === 'hand-pop' && b.data.pop === model.pop) b.pressed = true;

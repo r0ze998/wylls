@@ -19,7 +19,7 @@ import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
 import * as fresident from './fresident.mjs';
-import { AGENTS_REFRESH_MS, delegatedTo, loadAgents, refusalNote, takenBackNote } from './fdelegation.mjs';
+import { AGENTS_REFRESH_MS, delegatedTo, delegationOf, loadAgents, refusalNote, registeredKey, takenBackNote } from './fdelegation.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
@@ -120,8 +120,9 @@ const done = text => setNotice({ ok: true, text });
 const failed = r => {
   if (r?.code === 'InviteRequired') FS.inviteRequired = true;
   // The village is handed to the owner's agent (its key is the session): say so, not only "a signature is missing".
-  const note = refusalNote(FS.delegation, r?.code);
-  if (note && !r?.text) return setNotice({ ok: false, ...r, agentLink: true, text: () => `${failureText(r)} ${note}` });
+  // (Q16-3: or to another key — ③'s courier, another app or device; no agent page to link then)
+  const held = delegationOf(FS), note = refusalNote(held, r?.code);
+  if (note && !r?.text) return setNotice({ ok: false, ...r, agentLink: !held.foreign, text: () => `${failureText(r)} ${note}` });
   // (a refusal of the prototype rule "banners" on one of the basic game's own routes — the day's limit of explorations,
   // which the sample world answers to an Explore — is said in the rule's sentence, only while the prototype is on)
   if (FS.proto && r && !r.text && pm.REFUSALS.includes(r.code)) return setNotice({ ok: false, ...r, text: () => pm.refusalText(r.code, { need: r.need }) });
@@ -137,7 +138,11 @@ let agentsReadAt = -Infinity;
 async function refreshDelegation() {
   if (!FS.wallet?.address) { FS.delegation = null; return; }
   const address = FS.wallet.address;
-  const mismatch = FS.sessionProblem === 'SessionMismatch';
+  // (Q16-3: a device with no stored key cannot have a mismatch yet, but the registered key may be an agent's or a
+  //  program's all the same: it is read then too, so "re-make the key" is not offered over a delegation)
+  //  (on a relay known to have no agent wallet nothing more is read for it: a program's key is told from the record)
+  const keyless = FS.sessionProblem !== 'SessionMismatch' && !FS.session && !FS.resident && !!registeredKey(FS.citizen) && FS.agentWallet !== false;
+  const mismatch = FS.sessionProblem === 'SessionMismatch' || keyless;
   if (!mismatch) { if (FS.delegation) { FS.delegation = null; invalidate('panel'); } if (FS.agentWallet !== undefined) return; }
   const t = Date.now();
   if (FS.agentWallet !== undefined && t - agentsReadAt < AGENTS_REFRESH_MS) return;
@@ -146,7 +151,9 @@ async function refreshDelegation() {
   if (FS.wallet?.address !== address) return;
   const was = FS.delegation?.mode ?? null;
   FS.agentWallet = enabled;
-  FS.delegation = delegatedTo({ sessionProblem: FS.sessionProblem, citizen: FS.citizen, agents });
+  FS.delegation = delegatedTo({ sessionProblem: FS.sessionProblem, citizen: FS.citizen, agents, hasLocalKey: !!FS.session, now: now() });
+  // (the owner's choice to keep a delegation is about that key only: another key registered since is asked about again)
+  if (FS.keyKept && FS.keyKept !== registeredKey(FS.citizen)) FS.keyKept = null;
   if ((FS.delegation?.mode ?? null) !== was) invalidate('panel');
 }
 
@@ -3180,6 +3187,33 @@ function s1CaravanFromForm(f) {
   return s1Caravan(srcIndex, dstIndex, Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => s1PlanDone(at, r));
 }
 
+/**
+ * Derive this device's game key (the wallet signs a message; nothing on chain) and make it the Citizen's session —
+ * unless another key is registered (Q16-3). Then nothing is sent without `replace` naming exactly the key registered
+ * now (the one the warning showed): the answer is `SessionHeldElsewhere`, and the page shows who holds the key.
+ */
+async function setSession({ replace = null } = {}) {
+  const pin = io.pinned();
+  let s;
+  try { s = await fsession.derive({ wallet: wallet.connected(), cluster: pin.cluster, programId: pin.programId, seasonId: pin.seasonId }); } catch (e) { return failed({ code: e.code ?? 'SignFailed' }); }
+  fsession.remember(s);
+  FS.session = s;
+  const m = fsession.matchesCitizen(s, FS.citizen, now());
+  if (m.ok) { FS.sessionProblem = null; FS.keyKept = null; return invalidate('panel'); }
+  const registered = m.code === 'SessionMismatch' ? registeredKey(FS.citizen) : null;
+  if (registered) FS.sessionProblem = 'SessionMismatch';
+  if (registered && replace !== registered) {
+    agentsReadAt = -Infinity;
+    refreshDelegation().catch(e => console.error('frontier delegation:', e));
+    setNotice({ ok: false, code: 'SessionHeldElsewhere', text: () => failureText({ code: 'SessionHeldElsewhere' }) });
+    return { ok: false, code: 'SessionHeldElsewhere', sent: false };
+  }
+  // Replacing a key held elsewhere (the owner's agent, the courier, another device): say what this did and did not do.
+  const handed = registered ? delegationOf(FS) : null;
+  return act('SetSession', { fields: { session: s.publicKeyBytes, expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
+    ...(handed ? { say: () => takenBackNote(handed), after: () => { FS.delegation = null; FS.keyKept = null; } } : {}) });
+}
+
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
   // (the stale banner on local play: a read of the latest state — never a reload, never a send)
@@ -3343,18 +3377,18 @@ export const ACTIONS = {
       fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
       onSent: lifecycle.onSent, onLost: lifecycle.onLost });
   },
-  session: async () => {
-    const pin = io.pinned();
-    let s;
-    try { s = await fsession.derive({ wallet: wallet.connected(), cluster: pin.cluster, programId: pin.programId, seasonId: pin.seasonId }); } catch (e) { return failed({ code: e.code ?? 'SignFailed' }); }
-    fsession.remember(s);
-    FS.session = s;
-    const m = fsession.matchesCitizen(s, FS.citizen, now());
-    if (m.ok) { FS.sessionProblem = null; return invalidate('panel'); }
-    // Taking the key back from the owner's agent: say what this does (the key) and what it does not (the server's auto).
-    const handed = FS.delegation;
-    return act('SetSession', { fields: { session: s.publicKeyBytes, expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
-      ...(handed ? { say: () => takenBackNote(handed), after: () => { FS.delegation = null; } } : {}) });
+  // Q16-3: "re-make the key" restores this device's key and registers it only where nobody else's key is replaced
+  // (none registered, or this wallet's own, expired). A key registered to another holder — ③'s courier, the owner's
+  // agent, another app or device — is never replaced from here: the page then shows the warning, and the replacement
+  // is `session-replace`, the owner's own choice for the key that was shown.
+  session: () => setSession(),
+  'session-replace': d => setSession({ replace: String(d?.key ?? '') }),
+  // keeping the delegation, said explicitly (pressed again: the choice is reopened); nothing is signed or sent
+  'session-keep': () => {
+    const held = delegationOf(FS);
+    FS.keyKept = held?.foreign && FS.keyKept !== held.agentKey ? held.agentKey : null;
+    if (FS.keyKept && FS.notice?.code === 'SessionHeldElsewhere') FS.notice = null;
+    invalidate('panel');
   },
   // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
   'auto-ticket': () => autoTicket({ force: true }),
@@ -3493,7 +3527,7 @@ fwide.guardLegacy(ACTIONS, fwide.GUARDED_ACTS, { FS, refuse: failed });
 //  in-game key is derived or registered, the home choice's record stays in the page's memory — and they do something
 //  only where the relay serves those routes; elsewhere they answer "reads only" as every order does. A Season with a
 //  prize pool or a join gate is refused inside `join`. The session, NFT, faucet, nudge and forget actions stay refused.)
-export const LOCAL_PLAY_REFUSED = Object.freeze(['session', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']);
+export const LOCAL_PLAY_REFUSED = Object.freeze(['session', 'session-replace', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']);
 for (const name of LOCAL_PLAY_REFUSED) {
   const run = ACTIONS[name];
   if (run) ACTIONS[name] = (...a) => (localPlay ? failed(localPlayReadOnly()) : run(...a));
