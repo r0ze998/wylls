@@ -70,6 +70,11 @@ pub struct World {
 pub fn params_for(c: &Chain) -> SeasonParams {
     let mut p = frontier_abi::v2::presets::S1_LOCAL_7D.base;
     p.quicknet_pk_hash = Beacons::for_build(c.build).pk_hash();
+    // Workstream 02-rights (option A): the rights build creates Seasons of
+    // its own version only (`0x2000 | 4`).
+    if c.build == crate::chain::Build::Rights {
+        p.program_version = frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1;
+    }
     p
 }
 

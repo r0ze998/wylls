@@ -29,6 +29,7 @@ below and runs `cargo test --locked` with its arguments.
 | `PSF_SO` | release binary (`permutation-frontier/target/deploy/permutation_frontier.so`) |
 | `PSF_SO_TEST_BEACON` | `test-beacon` build (I-53): verifies rounds of the local test key |
 | `PSF_SO_TRACE`, `PSF_SO_ORACLE` | `trace` (heap peaks for G1) and `oracle` (ResolveClash) builds |
+| `PSF_SO_RIGHTS` | `rights-test-beacon` build (workstream 02-rights option A: `rights-experimental` + `test-beacon`; `tests/rights.rs` only) |
 | `PSF_PROBE_SO` | the probe (`target/deploy-probe/psf_probe.so`) |
 | `PSF_PROGRAM_ID` | the id to deploy at (default: a fixed test key) |
 | `RELEASE_CHECK=1` | G13: no `Pending` coverage, every program code asserted |
