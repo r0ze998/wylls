@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import * as shell from '../../permutation-server/web/frontier/screens/shell.mjs';
 import * as join from '../../permutation-server/web/frontier/screens/join.mjs';
-import { createTerrain, TERRAIN_CACHE } from '../../permutation-server/web/frontier/map/terrain.mjs';
+import { createTerrain, TERRAIN_CACHE, TERRAIN_CACHE_MAX } from '../../permutation-server/web/frontier/map/terrain.mjs';
 import { FrontierMap, MAP_TOOLS, TILE_FOGS, coveredBelow, LOD_EDGES } from '../../permutation-server/web/frontier/map/fmap.mjs';
 import { heroZoom, openHint } from '../../permutation-server/web/frontier/map/opening.mjs';
 import { SIGILS, paintSigil, paintVeil, FOG, BOUNDARY_INK, BOUNDARY_HALO, NEUTRAL_FILL, EMPTY_FILL, UNOPENED_FILL } from '../../permutation-server/web/frontier/map/layers.mjs';
@@ -73,7 +73,10 @@ test('terrain for the tile LOD: lazy module, one onReady, cached (LRU), null wit
   t(1, 0); t(0, 1); t(1, -1);
   t(2, 0);
   assert.equal(calls, 5, 'the oldest entry was evicted past the limit, so (2,0) is generated again');
-  assert.equal(TERRAIN_CACHE, 256);
+  // 18823ad2: 256 -> 1,024, so the widest ring's far view (ring 128: 6·128 = 768 provinces) fits without churn
+  assert.equal(TERRAIN_CACHE, 1024);
+  assert.ok(TERRAIN_CACHE >= 6 * 128, 'holds all of the widest ring');
+  assert.equal(TERRAIN_CACHE_MAX, 8192);
   const failed = createTerrain({ load: async () => { throw new Error('no wasm'); } });
   assert.equal(failed(0, 0), null);
   await new Promise(r => setTimeout(r, 0));

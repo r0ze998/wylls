@@ -15,6 +15,9 @@ import {
   EXPEDITION_MAX_REQUEST_BYTES, EXPEDITION_MAX_OUTPUT_BYTES, EXPEDITION_TIMEOUT_MS, EXPEDITION_MAX_CONCURRENT,
 } from '../src/frontier/expedition-preview.mjs';
 import { expeditionPreviewRoutes } from '../src/frontier/routes/expedition-preview.mjs';
+// 18823ad2: the same handler now also bounds the two prepare routes; the extracted functions name their constants.
+import { EXPEDITION_PREPARE_ROUTE, PREPARE_MAX_REQUEST_BYTES, PREPARE_TIMEOUT_MS } from '../src/frontier/expedition-prepare.mjs';
+import { EXPEDITION_DEPART_PREPARE_ROUTE, DEPART_PREPARE_MAX_REQUEST_BYTES, DEPART_PREPARE_TIMEOUT_MS } from '../src/frontier/expedition-depart-prepare.mjs';
 
 const address = n => base58(new Uint8Array(32).fill(n));
 const request = () => ({ schema: EXPEDITION_REQUEST_SCHEMA, operation: 'inspect', cluster: 'localnet',
@@ -263,6 +266,8 @@ function extractedHandler() {
   class RouteError extends Error { constructor(status, message, code) { super(message); this.status = status; this.code = code; } }
   const env = { Buffer, BigInt, URL, AbortController, setTimeout, clearTimeout, RouteError,
     EXPEDITION_PREVIEW_ROUTE, EXPEDITION_MAX_REQUEST_BYTES, EXPEDITION_TIMEOUT_MS,
+    EXPEDITION_PREPARE_ROUTE, PREPARE_MAX_REQUEST_BYTES, PREPARE_TIMEOUT_MS,
+    EXPEDITION_DEPART_PREPARE_ROUTE, DEPART_PREPARE_MAX_REQUEST_BYTES, DEPART_PREPARE_TIMEOUT_MS,
     FRONTIER_MAX_BODY_BYTES: 64 * 1024, FRONTIER_ROUTES: expeditionPreviewRoutes,
     FRONTIER_PUBLIC_ROUTES: [EXPEDITION_PREVIEW_ROUTE], FRONTIER_FUNDED_ROUTES: [], FRONTIER_IP_LIMITS: {},
     isIP: () => true, toJson: JSON.stringify, errorResponse: e => ({ status: e.status ?? 500, body: { error: e.message, code: e.code } }),
@@ -288,7 +293,11 @@ test('source binding: actual route is public, rate limited, never funded, defaul
   assert.match(appSource, /createExpeditionPreview\(\{ cfg, season: addresses\.season \}\)/);
   const cfg = readFileSync(new URL('../src/frontier/config.mjs', import.meta.url), 'utf8');
   for (const name of ['BIN', 'RPC', 'PROGRAM_VERSION', 'RULESET_HASH']) assert.ok(cfg.includes(`FRONTIER_EXPEDITION_PREVIEW_${name}`));
-  assert.match(cfg, /const out = expeditionPreviewConfigProblems\(cfg\)/);
+  // the preview's own problems still open the relay's list (18823ad2 appended the two prepare routes' after them)
+  assert.match(cfg, /const out = \[\.\.\.expeditionPreviewConfigProblems\(cfg\), /);
+  // and the preview keeps its own, smaller cap: the handler picks it only for the preview route
+  assert.match(appSource, /preview \? EXPEDITION_MAX_REQUEST_BYTES : FRONTIER_MAX_BODY_BYTES/);
+  assert.ok(EXPEDITION_MAX_REQUEST_BYTES < PREPARE_MAX_REQUEST_BYTES && EXPEDITION_MAX_REQUEST_BYTES < DEPART_PREPARE_MAX_REQUEST_BYTES);
   assert.match(readFileSync(new URL('../src/frontier/server.mjs', import.meta.url), 'utf8'), /apps\.ctx\.expeditionPreview\?\.close\(\)/);
 });
 
