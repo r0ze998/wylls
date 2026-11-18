@@ -4523,6 +4523,8 @@ async function loadSeason(herald) {
  *    read place (`waiting`) — controller's FS.provinceReads, this world's only, and only while no record is held;
  *  - a ring whose overview was asked for and did not come (`ring`) — FS.overviewMisses, kept by loadOverviews for the
  *    world it asked in: without it the ring's villages are not known, which is not "no villages".
+ *    Said only while the person looks at that ring, and never for a ring the herald refused (map/overviews.mjs
+ *    ringMissMarks).
  * Nothing is marked that was not asked: no province out of the viewer's sight is asked by the map, and a read still
  * under way is not marked (every province would flicker as the map moves). Selecting the province opens its card,
  * whose button reads again (hud/inspect.mjs readState → province-reread). Marks only: nothing of the land is drawn.
