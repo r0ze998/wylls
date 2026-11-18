@@ -136,7 +136,7 @@ fn check_addresses(
     .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
-
+#[cfg(not(feature = "nft-resident-no-transfer"))]
 fn check_actor(
     policy: &resident_auth::Policy,
     asset: &AccountInfo<'_>,
@@ -285,4 +285,55 @@ pub(crate) fn join_accounts<'a>(
             _ => Err(crate::error::BAD_ACCOUNT),
         }
     }
+}
+
+/// ⑳ U7 switch, the soulbound build only (`nft-resident-no-transfer`,
+/// `frontier_abi::resident_terms::ACTIVE.transfer == Refused`): the same
+/// check as above, then only the first holder (generation 0) acts.
+/// `authorize` has just checked that `generation` is the current one. Every
+/// other build (transfers allowed: `holder_may_act` is always true) compiles
+/// the function above unchanged, so the plain localnet and devnet playable
+/// artefacts stay byte-identical.
+#[cfg(feature = "nft-resident-no-transfer")]
+fn check_actor(
+    policy: &resident_auth::Policy,
+    asset: &AccountInfo<'_>,
+    resident: &AccountInfo<'_>,
+    actor: &AccountInfo<'_>,
+    generation: u32,
+    now: i64,
+    session_allowed: bool,
+) -> Result<(), ProgramError> {
+    let a = asset.try_borrow_data()?;
+    let r = resident.try_borrow_data()?;
+    let binding = resident_auth::Binding {
+        asset: asset.key.to_bytes(),
+        resident: resident.key.to_bytes(),
+    };
+    resident_auth::authorize(
+        &binding,
+        policy,
+        &resident_auth::Account {
+            key: asset.key.to_bytes(),
+            owner: asset.owner.to_bytes(),
+            data: &a,
+        },
+        &resident_auth::Account {
+            key: resident.key.to_bytes(),
+            owner: resident.owner.to_bytes(),
+            data: &r,
+        },
+        actor.key.as_array(),
+        actor.is_signer,
+        generation,
+        now,
+        session_allowed,
+    )
+    .map_err(|e| ProgramError::Custom(e.error().code()))?;
+    if !frontier_abi::resident_terms::ACTIVE.holder_may_act(generation) {
+        return Err(ProgramError::Custom(
+            resident_auth::Refusal::NotCurrentAuthority.error().code(),
+        ));
+    }
+    Ok(())
 }
