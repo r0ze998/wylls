@@ -9,7 +9,7 @@ Two modes, never mixed:
 | | (1) Natural world | (2) Capture demo (TEST-ONLY) |
 |---|---|---|
 | Clock | real time: a turn is 600 s | after your home, compressed ×10–×60 (`--demo-scale`) |
-| Other villages | none; you are alone | test participants, each with its own in-memory key |
+| Other villages | none; you are alone (unless operator AI residents are added, §3 (5)) | test participants, each with its own in-memory key (and residents, §3 (5)) |
 | Rules | the program's rules | the same rules; nothing is changed |
 | On screen | always the session notice | also a fourth line: 「この世界は試験用の攻略デモです…」 |
 | What it can show | home, economy, army, an ordinary march | also the next ring opening, the fort list, a march onto a fort and its hold count |
