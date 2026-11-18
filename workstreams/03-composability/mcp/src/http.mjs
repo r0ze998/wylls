@@ -67,10 +67,11 @@ ${write ? `<fieldset><legend>隊商を送る上限（このサーバーが守る
 <label>1回あたりの各資源の上限 <input name="maxEach" type="number" min="0" max="1000000" value="500"></label>
 <label>有効期限（時間） <input name="hours" type="number" min="1" max="720" value="24"></label>
 <p class="warn">隊商を許すと、代理人の capability（relay に行動を頼むための権限。代理人の session 鍵ではありません）が作り直され、このサーバーだけが封印して持ちます。以前の capability を使う接続は止まります。</p></fieldset>` : ''}
-<button type="submit">ウォレットで署名して接続</button><button type="button" id="deny">拒否</button></form>
+<p class="warn" id="replaces" role="alert" hidden>この代理人には、隊商を送れる接続がすでに <b data-n>1</b> つあります。この接続を許すと、その接続は止まります（このサーバーが取り消します。元には戻せません）。止めたくなければ「拒否」を押してください。何もしなければ、前の接続はそのまま続きます。<br>This agent already has <b>a write connection</b> that can send caravans. Allowing this one stops it (this server revokes it; it cannot be undone). To keep it, press "拒否" (Deny); if you do nothing, the earlier connection goes on.</p>
+<button type="submit" id="go">ウォレットで署名して接続</button><button type="button" id="deny">拒否</button></form>
 <p id="msg"></p>
 <script nonce="${nonce}">
-const reqId=${JSON.stringify(p.reqId)}, scopes=${JSON.stringify(p.scopes)};
+const reqId=${JSON.stringify(p.reqId)}, scopes=${JSON.stringify(p.scopes)};let asked=false;
 const b64=u=>btoa(String.fromCharCode(...u)), unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 const wallet=()=>window.solana??window.phantom?.solana??null;
 async function sign(bytes){const w=wallet();if(!w)throw new Error('ブラウザのウォレットが見つかりません');await w.connect?.();const r=await w.signMessage(bytes,'utf8');return b64(r.signature??r);}
@@ -80,6 +81,7 @@ try{const hours=Number(f.get('hours')??24),each=Number(f.get('maxEach')??0);
 const req={reqId,owner:f.get('owner'),agentId:f.get('agentId'),scopes,expiresAt:Date.now()+hours*3600e3,
 grant:scopes.includes('wylls.caravan')?{actions:['SendCaravan'],maxSends:Number(f.get('maxSends')),maxCargo:Array(8).fill(each),expiresAt:Date.now()+hours*3600e3}:undefined};
 const st=await post('/oauth/statement',req);
+if(st.replaces&&!asked){asked=true;const w=document.getElementById('replaces');w.hidden=false;w.querySelector('[data-n]').textContent=String(st.replaces.links.length||1);document.getElementById('go').textContent='止めて接続する（署名） / Stop it and connect (sign)';return;}
 const signature=await sign(unb64(st.statementB64));
 const rotate=st.rotate?{command:st.rotate.command,signature:await sign(unb64(st.rotate.bytesB64))}:undefined;
 const done=await post('/oauth/consent',{...st.request,signature,rotate});location.href=done.redirect;}catch(err){m.textContent=err.message;}};
@@ -174,8 +176,16 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
           const request = { reqId: b.reqId, owner: String(b.owner ?? ''), agentId: String(b.agentId ?? ''), scopes, expiresAt, grant: grant ?? undefined };
           // The statement holds the grant as the server will store it (normaliseGrant's shape).
           const stGrant = grant ? { contract: grant.contract, actions: [...new Set(grant.actions)], maxSends: grant.maxSends, maxCargo: grant.maxCargo, expiresAt: grant.expiresAt } : null;
-          const st = auth.statementOf(pending, { owner: request.owner, agentId: request.agentId, scopes, grant: stGrant, expiresAt });
-          const out = { request, statementB64: toBase64(linkStatement(st)) };
+          // Q16-3: a write connection that would stop an earlier one says so here (the page warns; the statement names it)
+          let replaces = null;
+          if (stGrant) {
+            const v = await auth.game.json('GET', `${auth.game.relay}/f/agent?id=${encodeURIComponent(request.agentId)}`);
+            if (v.transport || v.status >= 500) throw new OAuthError(503, 'temporarily_unavailable', 'the relay did not answer');
+            replaces = v.status === 200 ? auth.replacesFor(request.owner, request.agentId, v.json) : null;
+          }
+          const st = auth.statementOf(pending, { owner: request.owner, agentId: request.agentId, scopes, grant: stGrant, expiresAt, replaces });
+          if (replaces) request.replaces = replaces;
+          const out = { request, statementB64: toBase64(linkStatement(st)), ...(replaces ? { replaces: auth.replacesView(replaces) } : {}) };
           if (grant) {
             const command = await auth.capabilityCommandFor(request.owner, request.agentId, randomBytes(12).toString('base64url'), auth.now() + 5 * 60_000);
             out.rotate = { command, bytesB64: toBase64(commandBytes(command)) };

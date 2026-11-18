@@ -186,8 +186,8 @@ test('the hooks: the page boots once, after the gate, only for local play; the c
   const refused = /export const LOCAL_PLAY_REFUSED = Object\.freeze\(\[([^\]]*)\]\);/.exec(ctrl)[1].split(',').map(x => x.trim().replace(/'/g, ''));
   // (2026-11-12, the economy path: `join` and `home-confirm` left this list. They still make no key and pay nothing in
   //  local play — pinned just below — and what they send is only the page-signed Join / PlaceHome of flocalplay-act.mjs.)
-  for (const name of ['session', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']) assert.ok(refused.includes(name), `${name} does not run in local play`);
-  assert.deepEqual(refused.sort(), ['forget', 'nft-login', 'nft-logout', 'nudge', 'prize-faucet', 'session'], 'and nothing else was taken off or put on');
+  for (const name of ['session', 'session-replace', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']) assert.ok(refused.includes(name), `${name} does not run in local play`);
+  assert.deepEqual(refused.sort(), ['forget', 'nft-login', 'nft-logout', 'nudge', 'prize-faucet', 'session', 'session-replace'], 'and nothing else was taken off or put on');
   { const from = ctrl.indexOf('  join: async () => {'), local = ctrl.slice(from, ctrl.indexOf('    const pin = io.pinned();', from));
     assert.match(local, /if \(localPlay\) \{\n\s+if \(FS\.prize \|\| FS\.season\?\.joinGate\?\.some\?\.\(x => x !== 0\)\) return failed\(localPlayReadOnly\(\)\);/, 'join in local play: a pool or a gate is refused');
     assert.doesNotMatch(local, /fsession|FS\.session =|remember\(|publicKeyBytes|faucet|payAndJoin/, 'join in local play derives, stores and pays nothing'); }

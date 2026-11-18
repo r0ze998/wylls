@@ -99,7 +99,8 @@ test('invites: HMAC tokens of this season, one use each, one Join in flight at a
   const [a, b] = book.issue(2);
   assert.notEqual(a, b);
   assert.ok(book.verify(a));
-  assert.equal(book.verify(`${a.slice(0, -2)}AA`), null, 'a changed MAC');
+  // (a changed MAC really changed: a token that already ends in "AA" — about 1 in 4096 — gets "BB"; verify-pr61 D-5)
+  assert.equal(book.verify(`${a.slice(0, -2)}${a.endsWith('AA') ? 'BB' : 'AA'}`), null, 'a changed MAC');
   assert.equal(book.verify('!!'), null);
   assert.equal(book.verify(null), null);
   assert.equal(new InviteBook({ secret: Buffer.alloc(32, 1), seasonId: 6n }).verify(a), null, 'another season\'s');

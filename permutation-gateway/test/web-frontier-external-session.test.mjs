@@ -16,7 +16,10 @@ test('an unknown registered session warns that taking control replaces its key',
   const card = screen({ sessionProblem: 'SessionMismatch' });
   assert.match(card, /別のアプリや端末に操作を任せている可能性/);
   assert.match(card, /現在登録されている鍵は使えなくなります/);
-  assert.match(card, /data-act="session"/);
+  // (Q16-3: the replacement is the consented action for the key shown, never the plain `session`; keeping is offered)
+  assert.match(card, /data-act="session-replace" data-key="CouRiEr11111111111111111111111111111111111"/);
+  assert.match(card, /data-act="session-keep"/);
+  assert.doesNotMatch(card, /data-act="session"/);
   assert.doesNotMatch(card, /鍵を作り直す|この端末には.*鍵がありません/);
 
   setLang('en');
