@@ -29,7 +29,7 @@ import { createAtaIdempotentIx } from '../../../client/src/player.mjs';
 import { baseFee, rent } from '../../../client/src/frontier/fees.mjs';
 import { profileForSeason } from '../../../client/src/frontier/profile.mjs';
 import { decodeAccount } from '../../../client/src/frontier/codec.mjs';
-import { ata, claimIx, classifyPaidJoin, decodeEntry, decodePool, decodeTokenAccount, ENTRY_SIZE, entryAddress, paidJoinBudget, POOL_STATE, PRIZE_ERRORS,
+import { ata, claimIx, classifyPaidJoin, decodeEntry, decodePool, decodeTokenAccount, ENTRY_SIZE, entryAddress, excludeIx, exclusionAddress, paidJoinBudget, POOL_STATE, PRIZE_ERRORS,
   TOKEN_PROGRAM, x402Encode, x402Network } from '../../../client/src/frontier/prize.mjs';
 import { classify, JOIN_TAG } from '../../../client/src/frontier/shapes.mjs';
 import { compileMessage, parseTransaction, wireTransaction } from '../../../client/src/solana-tx.mjs';
@@ -89,6 +89,37 @@ async function sendOwn(ctx, ixs, signers = [], beforeSend = () => {}) {
   return signature;
 }
 
+/**
+ * ⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. In a world whose pool is an epoch pool,
+ * every wallet the relay admits by operator invite (operator AI residents, script bots) is first marked on chain as an
+ * operator member (ExcludeWallet, signed by the season's join gate); the program then refuses its Pay and Claim in
+ * every epoch pool of the season. Idempotent: an existing mark is kept. Throws (and the invite join is refused) if the
+ * mark cannot be written.
+ */
+/** Whether an account is the prize program's operator-member mark (owner and magic), not merely something at the address. */
+export function isMark(info, prizeProgram) {
+  const d = info?.data;
+  const owner = info?.owner?.toBase58?.() ?? (info?.owner ? String(info.owner) : null);
+  return !!d && owner === prizeProgram && d.length >= 8 && Buffer.from(d.subarray(0, 8)).toString('latin1') === 'WYPRNOPZ';
+}
+
+export async function markOperatorMember(ctx, wallet) {
+  const prize = ctx.prize;
+  if (!prize || prize.epoch === undefined) return null;
+  const at = exclusionAddress(prize.program, prize.game, BigInt(prize.seasonId), wallet);
+  // A mark is present only when the program wrote it: owned by the prize program, starting with WYPRNOPZ. Anything
+  // else at the address (lamports a member sent there itself, verify-pr54 D-9) is no mark: write it (the program
+  // tops a pre-funded address up and takes it over).
+  if (isMark(await ctx.connection.getAccountInfo(new PublicKey(at), 'finalized'), prize.program)) return { exclusion: at, already: true };
+  if (!ctx.gateKey) throw new RouteError(503, 'this relay does not hold the season\'s join-gate key', 'GateUnavailable');
+  const signature = await sendOwn(ctx, payer => [excludeIx({ prize, gate: ctx.gateKey.publicKey.toBase58(), payer, season: ctx.addresses.season, wallet })], [ctx.gateKey]);
+  if (!isMark(await ctx.connection.getAccountInfo(new PublicKey(at), 'finalized'), prize.program)) {
+    throw new RouteError(503, 'the operator-member mark did not land; the invite join is refused', 'MarkFailed', { signature });
+  }
+  ctx.log?.(`f/join operator member ${wallet} excluded from paid windows (${signature})`);
+  return { exclusion: at, already: false, signature };
+}
+
 /** Waits for a finalized result; confirmed transactions can still roll back. */
 export async function landed(ctx, signature, { tries = 60, every = 250 } = {}) {
   for (let i = 0; i < tries; i++) {
@@ -119,7 +150,9 @@ export function poolView(prize, pool) {
     testAssetsOnly: true, ...prize, decimals: pool.decimals, operator: pool.operator,
     fee: String(pool.fee), opsBps: pool.opsBps, prizeBps: 10_000 - pool.opsBps, paramsHash: toHex(pool.paramsHash),
     entries: pool.entries, collected: String(pool.collected), prize: String(pool.prize), ops: String(pool.ops), opsWithdrawn: String(pool.opsWithdrawn),
-    state: ['open', 'final', 'shares'][pool.state] ?? 'unknown', expectedKeeps: pool.expectedKeeps, counted: pool.counted,
+    state: ['open', 'final', 'shares', 'swept'][pool.state] ?? 'unknown', expectedKeeps: pool.expectedKeeps, counted: pool.counted,
+    // ⑰ settlement windows (test USDC): the window this pool settles; null for the legacy per-season pool.
+    window: pool.kind === 'epoch' ? { epoch: pool.epoch, endBell: pool.endBell, claimBells: pool.claimBells, deadlineTs: pool.deadlineTs || null, rolledOut: String(pool.rolledOut) } : null,
     area: pool.counted ? pool.area : null, territoryBells: pool.counted ? pool.bells.map(String) : null,
     winners: pool.state >= POOL_STATE.FINAL ? pool.winners : null,
     shares: pool.state === POOL_STATE.SHARES ? { mode: pool.mode === 2 ? 'refund' : 'shares', shareNations: pool.shareNations, totalPoints: pool.totalPoints.map(String),
@@ -216,11 +249,14 @@ export const prizeRoutes = {
     const network = x402Network(ctx.cfg.cluster);
     const requirements = {
       scheme: 'exact', network, maxAmountRequired: String(pool.fee), resource: '/f/x402/join',
-      description: `Entry to Wylls season ${ctx.addresses.seasonId} (test tokens on the local test chain; ${10_000 - pool.opsBps} of 10,000 parts go to the prize pool)`,
+      description: prize.epoch === undefined
+        ? `Entry to Wylls season ${ctx.addresses.seasonId} (test tokens on the local test chain; ${10_000 - pool.opsBps} of 10,000 parts go to the prize pool)`
+        : `Entry to Wylls settlement window ${prize.epoch} of world ${ctx.addresses.seasonId} (test tokens only; ${10_000 - pool.opsBps} of 10,000 parts go to the window's prize pool, until bell ${pool.endBell})`,
       mimeType: 'application/json', payTo: prize.vault, maxTimeoutSeconds: 60, asset: prize.mint,
       extra: {
         testAssetsOnly: true, feePayer: ctx.pool.draw().publicKey.toBase58(), recentBlockhash: blockhash, lastValidBlockHeight,
         programId: ctx.programId, seasonId: ctx.addresses.seasonId.toString(), season: ctx.addresses.season, profile, joinGate: gate,
+        ...(prize.epoch === undefined ? {} : { epoch: prize.epoch, endBell: pool.endBell }),
         prizeProgram: prize.program, pool: prize.pool, decimals: pool.decimals, opsBps: pool.opsBps, instruction: 'Pay+Join', budget: paidJoinBudget(profile),
         entries: pool.entries, prize: String(pool.prize),
       },
