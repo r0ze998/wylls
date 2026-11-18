@@ -130,6 +130,7 @@ test('land claimed in other provinces the map has loaded is said apart, and the 
   const ja = String(renderLandChip(null, far));
   assert.match(ja, /ほかの州 3 マス/);
   assert.match(ja, /data-land-far="3"/);
+  assert.match(ja, /title="地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。"/);
   assert.doesNotMatch(ja, /この州で獲得/, 'no home line without a home record');
   assert.equal(renderLandChip(null, { tiles: 0, provinces: 0 }), '', 'nothing anywhere: no chip');
   // village land out there is not "claimed"; the home province never counts as elsewhere
@@ -143,7 +144,8 @@ test('land claimed in other provinces the map has loaded is said apart, and the 
     const en = String(renderLandChip(landSummary(FS, h, 0), far));
     assert.match(en, /Claimed in this province: 1 tile · production \+2%/);
     assert.match(en, /Other provinces: 3 tiles/);
-    assert.match(en, /title="Land claimed in the other provinces the map has loaded only \(test world\)\. It can change as you move the map\."/);
+    // eb6cebe9 reworded the tooltip to say what the chip counts (only the provinces the map has loaded)
+    assert.match(en, /title="Counts only the other provinces the map has loaded \(test world\)\. It can change as you move the map\."/);
     assert.match(String(renderLandChip(null, { tiles: 1, provinces: 1 })), /Other provinces: 1 tile\b/);
     assert.doesNotMatch(en, /[\u3040-\u30ff\u4e00-\u9fff]/);
     assert.doesNotMatch(en, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
@@ -153,7 +155,7 @@ test('land claimed in other provinces the map has loaded is said apart, and the 
 test('the chip says what the land bonus pays in an hour, by the program\'s own yield_for', () => {
   // the Rust formula, read as text: each entry × bonus_bps × bells / (10 000 × 6), rounded down
   const rust = readFileSync(new URL('../../frontier-abi/src/land_preview.rs', import.meta.url), 'utf8');
-  assert.match(rust, /\(v\.max\(0\) as i128 \* bonus_bps as i128 \* bells as i128 \/ \(10_000 \* BELLS_PER_HOUR as i128\)\) as i64/);
+  assert.match(rust, /\(v\.max\(0\) as i128 \* bonus_bps as i128 \* bells as i128 \/ \(10_000 \* BELLS_PER_HOUR as i128\)\)\s+as i64/);
   assert.match(rust, /pub const BELLS_PER_HOUR: i64 = 6;/);
   const yieldFor = (prod, bps, bells) => prod.map(v => (BigInt(Math.max(0, v)) * BigInt(bps) * BigInt(bells)) / (10_000n * 6n));
   const town = [60_000, 45_000, 30_000, 22_000, 22_000, 7_000, 0, 0];   // milli per hour (a Town, M1)

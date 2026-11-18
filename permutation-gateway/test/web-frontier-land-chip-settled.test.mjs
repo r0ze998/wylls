@@ -25,7 +25,7 @@ const BPS = 1000;
 test('the program: the yield reads the production after settle_tiered (pinned as text)', () => {
   const src = read('permutation-frontier/src/proc/land.rs');
   assert.match(src, /settle_tiered\(&mut k, now, ore\)\?;\s*let y = fl::yield_for\(k\.production, bonus, bells\);/);
-  assert.match(read('frontier-abi/src/land_preview.rs'), /\(v\.max\(0\) as i128 \* bonus_bps as i128 \* bells as i128 \/ \(10_000 \* BELLS_PER_HOUR as i128\)\) as i64/);
+  assert.match(read('frontier-abi/src/land_preview.rs'), /\(v\.max\(0\) as i128 \* bonus_bps as i128 \* bells as i128 \/ \(10_000 \* BELLS_PER_HOUR as i128\)\)\s+as i64/);
 });
 
 test('a production building done before now: the chip counts it, as the strip and the program do', () => {
