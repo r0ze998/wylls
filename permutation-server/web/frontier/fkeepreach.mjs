@@ -64,8 +64,12 @@ export function reachableKeeps({ kernel, keeps, origins = [], seeds = [], factio
 }
 
 /** The cache key: every origin's tile and unit, the turn, and the control snapshot the keeps came from. */
-export function reachKey({ origins = [], nowBell = 0, controlBell = null, faction = null, blocked = [] }) {
-  return `${faction}|${nowBell}|${controlBell}|${origins.map(o => `${o.p},${o.q},${o.tile},${o.unit}`).join(';')}${blocked.length ? `|x${blocked.map(h => `${h.q},${h.r}`).join(';')}` : ''}`;
+export function reachKey({ origins = [], nowBell = 0, controlBell = null, faction = null, blocked = [], keeps = null }) {
+  // (the loop-play report B9: the keeps the page holds grow WITHIN a turn — a ring's village list arrives after the
+  //  control snapshot — and the answer computed before that stood until the turn changed: "no keep within reach" for one
+  //  turn beside a keep 23 steps away. How many keeps the question was asked over is part of the question)
+  const n = keeps instanceof Map ? keeps.size : Array.isArray(keeps) ? keeps.length : keeps && typeof keeps === 'object' ? Object.keys(keeps).length : null;
+  return `${faction}|${nowBell}|${controlBell}|${origins.map(o => `${o.p},${o.q},${o.tile},${o.unit}`).join(';')}${blocked.length ? `|x${blocked.map(h => `${h.q},${h.r}`).join(';')}` : ''}${n === null ? '' : `|k${n}`}`;
 }
 
 /**
@@ -74,7 +78,7 @@ export function reachKey({ origins = [], nowBell = 0, controlBell = null, factio
  * kernel again. A missing kernel is not cached (it may load later).
  */
 export function cachedReach(cache, args) {
-  const key = reachKey({ origins: args.origins, nowBell: args.nowBell, controlBell: args.controlBell, faction: args.faction, blocked: args.blocked });
+  const key = reachKey({ origins: args.origins, nowBell: args.nowBell, controlBell: args.controlBell, faction: args.faction, blocked: args.blocked, keeps: args.keeps });
   if (cache?.key === key && cache.ok) return cache;
   return { key, home: !!args.home, ...reachableKeeps(args) };
 }

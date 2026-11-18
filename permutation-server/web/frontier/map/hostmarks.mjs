@@ -47,6 +47,8 @@ export const marchTagText = bell => (Number.isInteger(bell) ? L`ターン ${fmtN
 // (round 48, seen in the land2 world: the tag still said "arrives on turn 10" at turn 12, while the province the page
 // held was older than the host's arrival. Once the turn has passed the arrival turn it no longer promises a past
 // arrival: it says the host arrived and that where it stands is being read)
+// (the loop-play report B5: `nowBell` here is the turn of the herald's own latest sample — app.mjs `seenBell` — never the
+// local clock's extrapolation: in a world that had stopped on turn 8 the tag said "arrived on turn 10")
 export const awayText = (bell, nowBell = null) => (Number.isInteger(bell)
   ? (Number.isInteger(nowBell) && nowBell > bell ? L`軍勢はターン ${fmtNum(bell)} に到着 · 位置を読み込んでいます` : L`軍勢は進軍中 · ターン ${fmtNum(bell)} に到着`)
   : L`軍勢は進軍中`);
