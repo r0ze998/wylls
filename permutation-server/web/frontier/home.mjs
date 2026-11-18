@@ -7,6 +7,20 @@ import { hash32 } from './fjoin.mjs';
 export const HOME_GRANTED = 32;
 export const INTRO_BUILD_AVAILABLE = 2;
 export const instantHomeEnabled = season => ((Number(season?.layoutVersion ?? 1) === 1 && Number(season?.programVersion) === 2) || (Number(season?.layoutVersion) === 2 && Number(season?.programVersion) >= 3));
+/**
+ * (2026-11-18, ⑧ doc 31 §1 option A — a change of the page only; no program, ABI or rule change.)
+ * `noFreeHome(choice, faction)`: the candidates reading for THAT nation ended with no place a first village can be put
+ * at once (`planHomes` → `NoFreeHome`: every heartland site of the nation is held, or held back by an unsettled
+ * request). A reading that failed (`Unavailable`), one still under way, or one for another nation is not this.
+ * `heartlandFull(FS)`: that, for a viewer who has joined and has no village, in an instant-home Season. PlaceHome
+ * places only in rings 2 .. heartland_max_ring (ReservedSite beyond), so from there the program's village request
+ * (FileTicket / SettleTicket — unchanged, and dispatched in these Seasons) is the only way to a first village. While
+ * this holds the page files requests (controller autoTicket) and shows the request's wait view instead of the
+ * planner's "no land found yet". Not in local play: its relay step serves no FileTicket (flocalplay-act.mjs
+ * LOCAL_ACT_NAMES), so nothing could be filed there and the planner's own sentence stays.
+ */
+export const noFreeHome = (choice, faction) => Number.isInteger(faction) && choice?.error?.code === 'NoFreeHome' && choice.faction === faction;
+export const heartlandFull = FS => instantHomeEnabled(FS?.season) && !FS?.localPlay && !!FS?.citizen && !FS?.holdings?.length && noFreeHome(FS.homeChoice, FS.citizen.faction);
 export const sameHome = (a, b) => !!a && !!b && a.p === b.p && a.q === b.q && a.site === b.site;
 export const homeKey = (scope, wallet = 'visitor') => `wylls-home:v1:${scope.cluster}:${scope.programId}:${scope.seasonId}:${wallet}`;
 const validSite = s => !!s && Number.isInteger(s.p) && Number.isInteger(s.q) && Number.isInteger(s.site) && s.site >= 0 && s.site < 12 && ringOf(s.p, s.q) >= 2;
