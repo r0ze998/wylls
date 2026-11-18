@@ -62,7 +62,7 @@ test('invalid world flags, end bells and reserved bytes fail before the page see
   const cases = [rawSeason(2, NO_END), rawSeason(1, 96)];
   for (const off of [77, 81]) {
     const raw = rawSeason(1, NO_END);
-    raw[896 + off] = off === 77 ? 2 : 1;
+    raw[896 + off] = off === 77 ? 3 : 1; // (placement 2 is PLACEMENT_MIXED since ⑧ wide land (i))
     cases.push(raw);
   }
   for (const raw of cases) {

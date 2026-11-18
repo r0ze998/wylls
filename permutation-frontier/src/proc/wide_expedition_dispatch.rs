@@ -2,7 +2,15 @@
 //! The old outbound gate and raw private codecs remain closed. No caller may
 //! supply a proof verdict, receipt or prepared state instead of runtime inputs.
 use super::*;
-use frontier_abi::world_index::expedition_dispatch_ix::{Command, Kind, PROGRAM_VERSION};
+use frontier_abi::world_index::expedition_dispatch_ix::{Command, Kind};
+// The lane's own dispatch revision. Every build without ⑳'s NFT residents
+// keeps the plain lane's 0x4804, the exact expression main had (so the
+// plain localnet and devnet playable artefacts stay byte-identical); the NFT
+// lane uses 0xC804. Each lane runs only its own Seasons.
+#[cfg(not(feature = "nft-experimental"))]
+use frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION as LANE_VERSION;
+#[cfg(feature = "nft-experimental")]
+use frontier_abi::world_index::expedition_dispatch_ix::RESIDENT_PROGRAM_VERSION as LANE_VERSION;
 
 pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
     let command = Command::decode(data)?;
@@ -19,9 +27,7 @@ pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
     if sd.len() != frontier_abi::v2::layout::AccountKind::Season.size() {
         return Err(BAD_ACCOUNT);
     }
-    if Ro(&sd).u16(S::PROGRAM_VERSION)? != PROGRAM_VERSION
-        || crate::PROGRAM_VERSION != PROGRAM_VERSION
-    {
+    if Ro(&sd).u16(S::PROGRAM_VERSION)? != LANE_VERSION || crate::PROGRAM_VERSION != LANE_VERSION {
         return Err(FrontierError::RulesetMismatch.into());
     }
     let season_id = Ro(&sd).u64(S::SEASON_ID)?;

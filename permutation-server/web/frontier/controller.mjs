@@ -44,7 +44,7 @@ import { readOverviews, overviewRefused } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
-import { EPHEMERAL_WALLET_NAME, currentEphemeralWallet } from './fephemeral-wallet.mjs';
+import { LOCAL_PLAY_WALLET_NAMES, currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import * as localDepart from './flocalplay-depart.mjs';
 import * as localReveal from './flocalplay-reveal.mjs';
 import * as localReturn from './flocalplay-return.mjs';
@@ -3696,7 +3696,8 @@ export async function startPlay({ herald: h, cfg }) {
     FS.error = { code: 'LocalPlayIdentityChanged', text: L`ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。` };
     invalidate('status');
   } else if (localPlay) {
-    const mine = (FS.walletList ?? []).find(w => w.name === EPHEMERAL_WALLET_NAME && !w.why);
+    // (the memory-only wallet, or — TEST-ONLY, a launcher with --persist — the kept one; the address is checked below)
+    const mine = (FS.walletList ?? []).find(w => LOCAL_PLAY_WALLET_NAMES.includes(w.name) && !w.why);
     const c = mine ? await wallet.connect(mine, { chain: wallet.chainOf('localnet') }).catch(() => null) : null;
     if (c && c.address === localPlay.address) adoptConnectedWallet(c);
     // (the march's capability: ONE read, bound to this herald's relay, this wallet and the launcher's stated instance)

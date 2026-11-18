@@ -41,6 +41,10 @@ capacity-preview = []
 # reading of a v2 Province. Off by default: no vector, hash or default-build
 # change; no existing account written; no new dependency.
 land-preview = ["permutation-rules/land-preview"]
+# ⑳ NFT resident ID (owner decision 2026-11-18 18:26 JST: local and devnet
+# only): `resident_terms::ACTIVE.transfer` becomes `Refused` (soulbound: only
+# the first holder acts). Off by default (transfers allowed, option B).
+resident-transfer-refused = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

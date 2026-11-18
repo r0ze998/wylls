@@ -736,7 +736,7 @@ test('the source: five launcher routes and no other, no storage, no markup from 
   assert.deepEqual([...new Set([...code.matchAll(/'(\/local-play\/[^']*)'/g)].map(m => m[1]))].sort(), ['/local-play/keeper', '/local-play/pair', '/local-play/start', '/local-play/stop', '/local-play/worlds'], 'the only launcher routes the page knows (pair: TEST-ONLY contest pair, frontier-local-play-pair-guide.test.mjs)');
   // (that it names no signing call either is the hooks test of web-frontier-local-play.test.mjs, which runs under the guard too)
   assert.doesNotMatch(code, /localStorage|sessionStorage|indexedDB|document\.cookie|console\.|innerHTML|outerHTML|insertAdjacentHTML|\.style\b|keyFromSeed|fsession|sendTransaction|fetch\(|sendBeacon|XMLHttpRequest|WebSocket|eval\(|Function\(/);
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-keystore.mjs', './flocalplay-march.mjs', './flocalplay-session.mjs']);
   assert.match(code, /import \{ mountSessionNotice, pairGuideView \} from '\.\/flocalplay-session\.mjs';/, 'the standing notice (a display only) and the pair answer\'s check (frontier-local-play-pair-guide.test.mjs)');
   assert.match(code, /import \{ confirmWorldEnd, worldEndOf \} from '\.\/flocalplay-instance\.mjs';/, 'and the one read that confirms its end (web-frontier-local-play-world-instance.test.mjs); worldEndOf only reads the start answer\'s expiry (no request)');
   assert.equal(code.split('confirmWorldEnd(').length - 1, 1, 'called once, after the world was verified');
@@ -763,7 +763,7 @@ test('the source: five launcher routes and no other, no storage, no markup from 
   assert.match(read('app.mjs'), /if \(!r\.ok && r\.code === 'network'\) worldWatch\?\.readFailed\(\);/, 'the page asks only after a herald read failed by the network');
   assert.equal(read('app.mjs').split('readFailed(').length - 1, 1);
   // the keeper's view: asked only from the standing notice's key, for this page's own address, never polled
-  assert.match(code, /if \(launcher\) \{ const mine = handle\.address; session = mountSessionNotice\(\{ doc, win, onCheck: \(\) => checkKeeper\(mine\), demo: claimedDemo, \.\.\.\(state\.pairRole === 'second' && claimedDemo !== null \? \{ onPair: \(\) => checkPair\(mine, \{ herald: base, expiry: claimedEnd \}\) \} : \{\}\) \}\); \}/, 'the pair key only for the second player of a capture-demo pair');
+  assert.match(code, /if \(launcher\) \{ const mine = handle\.address; session = mountSessionNotice\(\{ doc, win, onCheck: \(\) => checkKeeper\(mine\), demo: claimedDemo, \.\.\.\(state\.pairRole === 'second' && claimedDemo !== null \? \{ onPair: \(\) => checkPair\(mine, \{ herald: base, expiry: claimedEnd \}\) \} : \{\}\), \.\.\.\(persisted \? \{ persisted: true \} : \{\}\) \}\); \}/, 'the pair key only for the second player of a capture-demo pair');
   assert.equal(code.split('checkKeeper(').length - 1, 1, 'only the notice\'s key calls it');
   // the preparation is the launcher's alone: the page reads its word from the page address and its answer, and names no clock call, scale or option
   assert.doesNotMatch(code, /setScale|frontier_|prepare-scale|prepareScale/); assert.equal(code.split("searchParams.get('prepare')").length - 1, 1);

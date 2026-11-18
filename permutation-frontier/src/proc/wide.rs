@@ -679,6 +679,14 @@ pub fn set_rules(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if x.config_version != wr::WIDE_RULES_CONFIG_VERSION {
         return Err(FrontierError::BadData.into());
     }
+    // ⑧ wide land (i): a Season whose disk keeps are mixed on every ring
+    // (`placement` 2) takes the same function past ring 128 (`BadData`
+    // otherwise), so the rule does not switch at the disk's rim.
+    let placement = season_cq(&season_ai.try_borrow_data()?)?.placement;
+    let holder = wr::KeepHolderRule::from_byte(x.keep_holder).map_err(rules_err)?;
+    if !wr::keep_holder_allowed(placement, holder) {
+        return Err(FrontierError::BadData.into());
+    }
     let rec = WideRulesConfig::new(
         hdr.id,
         world,

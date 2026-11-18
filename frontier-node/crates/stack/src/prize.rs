@@ -126,7 +126,8 @@ pub fn write_invites(
 /// A web3.js keypair file (the JSON array of the 64 secret-key bytes).
 fn write_keypair_json(p: &Path, k: &Keypair) -> Result<(), String> {
     let bytes: Vec<u8> = k.to_bytes().to_vec();
-    run::write_atomic(p, json!(bytes).to_string().as_bytes())
+    // (a secret key: created 0600 in a 0700 directory, never world-readable)
+    run::write_private_atomic(p, json!(bytes).to_string().as_bytes())
 }
 
 impl Prize {
