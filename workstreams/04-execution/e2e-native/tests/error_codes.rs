@@ -125,7 +125,13 @@ fn prize_error_numbers_are_unique_and_every_copy_agrees() {
         P::NothingToPay,
         P::Overflow,
         P::WrongExpectedCount,
+        P::CeilingPastTally,
         P::ContinuousSeason,
+        P::FiniteSeason,
+        P::EpochClosed,
+        P::ClaimWindowOpen,
+        P::WindowOpen,
+        P::OperatorMember,
     ]
     .iter()
     .map(|e| (*e as u32, format!("{e:?}")))

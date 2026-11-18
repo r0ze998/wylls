@@ -42,6 +42,59 @@ pub struct Prize {
     pub gate_file: PathBuf,
     pub faucet_file: PathBuf,
     pub params_hash: [u8; 32],
+    /// ⑰ settlement windows (`--prize-epochs`): the epoch of `pool` (0, the
+    /// window ending at `--prize-epoch-bells`). `None`: the legacy pool.
+    pub epoch: Option<u32>,
+}
+
+/// permutation-prize's InitEpochPool tag (feature `epochs`).
+const INIT_EPOCH_POOL: u8 = 8;
+
+/// The pool of settlement window `epoch` (permutation-prize
+/// `epoch_pool_address`): `["epool", game, le64(season), le32(epoch)]`.
+pub fn epoch_pool_address(
+    program: &Address,
+    game: &Address,
+    season_id: u64,
+    epoch: u32,
+) -> Address {
+    Address::find_program_address(
+        &[
+            b"epool",
+            game.as_ref(),
+            &season_id.to_le_bytes(),
+            &epoch.to_le_bytes(),
+        ],
+        program,
+    )
+    .0
+}
+
+/// InitEpochPool's data: `epoch, end_bell, claim_bells, fee, ops_bps, params_hash`.
+pub fn init_epoch_data(
+    epoch: u32,
+    end_bell: u32,
+    claim_bells: u32,
+    fee: u64,
+    ops_bps: u16,
+    params_hash: &[u8; 32],
+) -> Vec<u8> {
+    let mut d = vec![INIT_EPOCH_POOL];
+    d.extend_from_slice(&epoch.to_le_bytes());
+    d.extend_from_slice(&end_bell.to_le_bytes());
+    d.extend_from_slice(&claim_bells.to_le_bytes());
+    d.extend_from_slice(&fee.to_le_bytes());
+    d.extend_from_slice(&ops_bps.to_le_bytes());
+    d.extend_from_slice(params_hash);
+    d
+}
+
+/// The marker a `--features epochs` build carries (permutation-prize
+/// `epoch::MARKER`); `--prize-epochs` refuses a build without it.
+pub const EPOCHS_MARKER: &[u8] = b"PRZ_EPOCHS_TEST_USDC_BUILD";
+
+fn has_marker(so: &[u8]) -> bool {
+    so.windows(EPOCHS_MARKER.len()).any(|w| w == EPOCHS_MARKER)
 }
 
 /// Invites the operator mints for its own members of a gated season (the
@@ -149,6 +202,12 @@ impl Prize {
                 so.display()
             )
         })?;
+        if cfg.prize_epochs && !has_marker(&bytes) {
+            return Err(format!(
+                "{}: --prize-epochs needs a `scripts/build-prize.sh --features epochs` build",
+                so.display()
+            ));
+        }
         let pinned = rd.path("prize.so");
         run::write_atomic(&pinned, &bytes)?;
         let kp = |p: &str| run::secret(&rd.path(p)).map(Keypair::new_from_array);
@@ -185,10 +244,17 @@ impl Prize {
         )?;
         let params =
             std::fs::read(repo.join(PARAMS_FILE)).map_err(|e| format!("{PARAMS_FILE}: {e}"))?;
-        let (pool, _) = Address::find_program_address(
-            &[b"pool", game.as_ref(), &cfg.season_id.to_le_bytes()],
-            &program,
-        );
+        let epoch = cfg.prize_epochs.then_some(0u32);
+        let pool = match epoch {
+            Some(e) => epoch_pool_address(&program, game, cfg.season_id, e),
+            None => {
+                Address::find_program_address(
+                    &[b"pool", game.as_ref(), &cfg.season_id.to_le_bytes()],
+                    &program,
+                )
+                .0
+            }
+        };
         let (vault, _) = Address::find_program_address(&[b"vault", pool.as_ref()], &program);
         Ok(Some(Prize {
             so: pinned,
@@ -203,6 +269,7 @@ impl Prize {
             gate_file,
             faucet_file,
             params_hash: Sha256::digest(&params).into(),
+            epoch,
         }))
     }
 
@@ -228,6 +295,13 @@ impl Prize {
             "--faucet-key-file".into(),
             self.faucet_file.display().to_string(),
         ]
+        .into_iter()
+        .chain(
+            self.epoch
+                .map(|e| vec!["--prize-epoch".into(), e.to_string()])
+                .unwrap_or_default(),
+        )
+        .collect()
     }
 
     /// Create the test mint at the original post-CreateSeason point. Pool
@@ -276,13 +350,15 @@ impl Prize {
     /// payable pool. The stored status remains Seeded while time advances
     /// into Running. Never loop forever if the keeper cannot seed it.
     pub async fn wait_until_running(
+        &self,
         chain: &Chain,
         addrs: &Addresses,
         limit: Duration,
     ) -> Result<(), String> {
+        let epochs = self.epoch.is_some();
         tokio::time::timeout(limit, async {
             loop {
-                if pool_ready_now(chain, addrs).await? {
+                if pool_ready_now(chain, addrs, epochs).await? {
                     return Ok(());
                 }
                 tokio::time::sleep(Duration::from_millis(250)).await;
@@ -301,17 +377,31 @@ impl Prize {
         authority: &Keypair,
         cfg: &StackConfig,
     ) -> Result<Value, String> {
-        if !pool_ready_now(chain, addrs).await? {
+        if !pool_ready_now(chain, addrs, self.epoch.is_some()).await? {
             return Err("season is not Running before InitPool".into());
         }
         let land = Duration::from_secs(60);
         let token: Address = TOKEN_PROGRAM.parse().map_err(|_| "token program id")?;
         let auth = authority.pubkey();
-        let mut d = vec![0u8]; // permutation-prize InitPool
-        d.extend_from_slice(&cfg.entry_fee.to_le_bytes());
-        d.extend_from_slice(&cfg.prize_ops_bps.to_le_bytes());
-        d.extend_from_slice(&cfg.prize_keeps.to_le_bytes());
-        d.extend_from_slice(&self.params_hash);
+        let d = match self.epoch {
+            // ⑰ window 0 of a continuous world: bells [0, prize_epoch_bells).
+            Some(e) => init_epoch_data(
+                e,
+                cfg.prize_epoch_bells.saturating_mul(e + 1),
+                cfg.prize_claim_bells,
+                cfg.entry_fee,
+                cfg.prize_ops_bps,
+                &self.params_hash,
+            ),
+            None => {
+                let mut d = vec![0u8]; // permutation-prize InitPool
+                d.extend_from_slice(&cfg.entry_fee.to_le_bytes());
+                d.extend_from_slice(&cfg.prize_ops_bps.to_le_bytes());
+                d.extend_from_slice(&cfg.prize_keeps.to_le_bytes());
+                d.extend_from_slice(&self.params_hash);
+                d
+            }
+        };
         chain
             .send_op(
                 &[Instruction {
@@ -336,6 +426,17 @@ impl Prize {
     }
 
     pub fn to_json(&self, cfg: &StackConfig) -> Value {
+        let mut v = self.legacy_json(cfg);
+        if let Some(e) = self.epoch {
+            v["epoch"] = json!({"epoch": e, "end_bell": cfg.prize_epoch_bells.saturating_mul(e + 1),
+                "epoch_bells": cfg.prize_epoch_bells, "claim_bells": cfg.prize_claim_bells,
+                "decided": ["entry per window", "rollover to a later window", "tie shared equally", "ring 17 maps only", "no operator AI in paid windows (invite joins excluded on chain)"],
+                "provisional": ["void after close", "window length (default 2,016 bells)", "paid joining closed between windows"]});
+        }
+        v
+    }
+
+    fn legacy_json(&self, cfg: &StackConfig) -> Value {
         json!({
             "test_assets_only": true,
             "so_sha256": hex::encode(self.so_sha256),
@@ -375,12 +476,26 @@ fn pool_ready(
     }
 }
 
-async fn pool_ready_now(chain: &Chain, addrs: &Addresses) -> Result<bool, String> {
+/// An epoch pool's season (⑰): continuous, Seeded or Running, past genesis.
+fn epoch_pool_ready(stored_status: u8, genesis_ts: i64, now: i64) -> Result<bool, String> {
+    match stored_status {
+        status::CREATED => Ok(false),
+        status::SEEDED | status::RUNNING => Ok(now >= genesis_ts),
+        other => Err(format!(
+            "season status {other} cannot initialize an epoch pool"
+        )),
+    }
+}
+
+async fn pool_ready_now(chain: &Chain, addrs: &Addresses, epochs: bool) -> Result<bool, String> {
     let season = chain
         .season(addrs)
         .await?
         .ok_or("season missing before InitPool")?;
     let now = chain.status().await?.now;
+    if epochs {
+        return epoch_pool_ready(season.status, season.genesis_ts, now);
+    }
     pool_ready(
         season.status,
         season.genesis_ts,
@@ -405,6 +520,29 @@ mod tests {
         assert!(ready(status::ABORTED, 101).is_err());
         assert!(ready(status::SEEDED, 6_100).is_err());
         assert!(pool_ready(status::SEEDED, 100, u32::MAX, 600, 100).is_err());
+    }
+
+    #[test]
+    fn epoch_pools_match_the_program() {
+        assert_eq!(epoch_pool_ready(status::CREATED, 100, 200), Ok(false));
+        assert_eq!(epoch_pool_ready(status::SEEDED, 100, 99), Ok(false));
+        assert_eq!(epoch_pool_ready(status::RUNNING, 100, 100), Ok(true));
+        assert!(epoch_pool_ready(status::ENDED, 100, 100).is_err());
+        let d = init_epoch_data(0, 2_016, 1_008, 25_000_000, 2_000, &[7; 32]);
+        assert_eq!(d.len(), 1 + 54);
+        assert_eq!(d[0], 8);
+        assert_eq!(&d[5..9], &2_016u32.to_le_bytes());
+        assert_eq!(&d[13..21], &25_000_000u64.to_le_bytes());
+        let (p, g) = (
+            Address::new_from_array([1; 32]),
+            Address::new_from_array([2; 32]),
+        );
+        assert_ne!(
+            epoch_pool_address(&p, &g, 5, 0),
+            epoch_pool_address(&p, &g, 5, 1)
+        );
+        assert!(has_marker(b"..PRZ_EPOCHS_TEST_USDC_BUILD.."));
+        assert!(!has_marker(b"PRZ_EPOCHS"));
     }
 
     /// The relay's own token for the same secret, season and nonce

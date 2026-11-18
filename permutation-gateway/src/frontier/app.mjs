@@ -163,7 +163,7 @@ export function createFrontierContext({ cfg, connection, pool, keeper = null, in
     expeditionPrepare: expeditionPrepare === undefined ? createExpeditionPrepare({ cfg, season: addresses.season }) : expeditionPrepare,
     expeditionDepartPrepare: expeditionDepartPrepare === undefined ? createExpeditionDepartPrepare({ cfg, season: addresses.season }) : expeditionDepartPrepare,
     /** The season's prize pool `{program, pool, vault, mint}`, or null (no pool configured). */
-    prize: cfg.prizeProgram ? prizeAddresses({ prizeProgram: cfg.prizeProgram, gameProgram: addresses.programId, seasonId: BigInt(cfg.seasonId), mint: cfg.prizeMint }) : null,
+    prize: cfg.prizeProgram ? prizeAddresses({ prizeProgram: cfg.prizeProgram, gameProgram: addresses.programId, seasonId: BigInt(cfg.seasonId), mint: cfg.prizeMint, epoch: cfg.prizeEpoch ?? null }) : null,
     programId: addresses.programId,
     chain: new ChainView({ connection, addresses, now }),
     quota: new QuotaBook({ store }),
