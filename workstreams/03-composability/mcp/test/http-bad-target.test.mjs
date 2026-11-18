@@ -27,7 +27,8 @@ test('U2 the handler parses the target inside its own try and answers 400 withou
 });
 
 test('U3 unchanged: the main try, Origin and rate-limit checks and the outer catch', () => {
-  assert.match(http, /const route = `\$\{req\.method\} \$\{url\.pathname\}`;\n\s+try \{\n\s+if \(!originOk\(req\)\) return send\(res, 403/);
+  // (2026-11-18) the Host check (DNS rebinding, test/exposure.test.mjs) comes first inside the same try, then Origin
+  assert.match(http, /const route = `\$\{req\.method\} \$\{url\.pathname\}`;\n\s+try \{\n\s+if \(!hostOk\(req\)\) return send\(res, 403[^\n]*\n\s+if \(!originOk\(req\)\) return send\(res, 403/);
   assert.match(http, /if \(e instanceof OAuthError\) return oauthFail\(res, e\);/);
   assert.equal((http.match(/new URL\(req\.url/g) ?? []).length, 1, 'one parse of the target');
 });

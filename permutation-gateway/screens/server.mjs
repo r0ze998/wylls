@@ -58,6 +58,10 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
   //  test/fixtures/frontier/growth-route.mjs withGrowth). A ring's overview and roster answer when the season record
   //  lists its seed, as a herald's do once the ring is seeded. Neither set (the default): rings 0–2, exactly as before)
   let ringsOpen = null, seasonWith = null;
+  // (workstream 08, doc 31 §1-A: `heraldWith(f)` — set only by a test that asks for it, e.g. ws08/full-heartland.mjs —
+  //  answers a herald file in the fixture's place: `f(path, stage)` → `{json}` | `{bytes}` | null (null: the fixture's
+  //  own answer). Unset (the default), every answer is exactly what it was)
+  let heraldWith = null;
   const seasonNow = () => {
     let r = W.seasonRecord();
     if (ringsOpen !== null) r = { ...r, rings: Array.from({ length: ringsOpen }, (_, d) => r.rings.find(x => x.d === d) ?? { d, seed: (d + 1).toString(16).padStart(2, '0').repeat(32) }) };
@@ -71,6 +75,9 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
 
   async function herald(path, res, url = null) {
     let m;
+    const own = heraldWith ? heraldWith(path, stage) : null;
+    if (own?.json) return json(res, 200, own.json);
+    if (own?.bytes) { res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' }); res.end(own.bytes); return 200; }
     if (path === '/h/season') return json(res, 200, seasonNow());
     if ((m = /^\/h\/overview\/(\d+)\/(?:latest|\d+)\.bin$/.exec(path))) {
       const d = Number(m[1]);
@@ -175,6 +182,8 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
     // record through `f`, or null)
     openRings: n => { ringsOpen = Number.isInteger(n) && n > 3 ? n : null; },
     seasonWith: f => { seasonWith = typeof f === 'function' ? f : null; },
+    // (workstream 08: a test's own answer to a herald file, `(path, stage) → {json} | {bytes} | null`; null removes it)
+    heraldWith: f => { heraldWith = typeof f === 'function' ? f : null; },
     pause: (on = true) => live?.pause(on) ?? null,
     world: () => live,
     requests,

@@ -366,9 +366,11 @@ workstreams/01-national-strategy/test/coop.request-history.test.mjs
 workstreams/01-national-strategy/test/coop.send.test.mjs
 workstreams/01-national-strategy/test/coop.test.mjs
 workstreams/01-national-strategy/test/coop.ws15.test.mjs
+workstreams/03-composability/mcp/test/capability-command-message.test.mjs
 workstreams/03-composability/mcp/test/context-atomic.test.mjs
 workstreams/03-composability/mcp/test/coop-read-adapter.test.mjs
 workstreams/03-composability/mcp/test/coop-read-integration.test.mjs
+workstreams/03-composability/mcp/test/exposure.test.mjs
 workstreams/03-composability/mcp/test/keyfree/capability.test.mjs
 workstreams/03-composability/mcp/test/keyfree/cold-open.test.mjs
 workstreams/03-composability/mcp/test/keyfree/duplicate-lost-answer.test.mjs

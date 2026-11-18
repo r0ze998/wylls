@@ -93,8 +93,19 @@ document.getElementById('deny').onclick=async()=>{const j=await post('/oauth/con
  * @param {object} o.mcp            createWyllsMcp(...)
  * @param {string[]} [o.origins]    Origins allowed on /mcp and the consent posts (besides the issuer's own)
  */
-export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLimit = { burst: 20, everySecs: 2 } }) {
+export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLimit = { burst: 20, everySecs: 2 }, allowedHosts = null }) {
   const allowed = new Set([new URL(auth.issuer).origin, 'https://chatgpt.com', ...origins]);
+  // (2026-11-18) DNS rebinding: a page whose name was re-pointed at this machine reaches the server with its own name in
+  // Host, and a same-origin GET carries no Origin. With `allowedHosts` (host names, port-agnostic, as the MCP SDK's
+  // hostHeaderValidation; bin/mcp-settings.mjs gives loopback + the issuer's), any other or missing Host is 403 before
+  // anything is read. Null (the default for a caller that builds its own handler, e.g. the tests): not checked, as before.
+  const hostSet = allowedHosts ? new Set(allowedHosts.map(h => String(h).toLowerCase())) : null;
+  const hostOk = req => {
+    if (!hostSet) return true;
+    const h = req.headers.host;
+    if (!h) return false;
+    try { return hostSet.has(new URL(`http://${h}`).hostname.toLowerCase()); } catch { return false; }
+  };
   const send = (res, status, obj, headers = {}) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
     res.end(obj === null ? '' : JSON.stringify(obj));
@@ -129,6 +140,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
     try { url = new URL(req.url, auth.issuer); } catch { return send(res, 400, { error: 'invalid_request', error_description: 'the request target could not be parsed' }); }
     const route = `${req.method} ${url.pathname}`;
     try {
+      if (!hostOk(req)) return send(res, 403, { error: 'forbidden', error_description: 'host not allowed' });
       if (!originOk(req)) return send(res, 403, { error: 'forbidden', error_description: 'origin not allowed' });
       if (KEEPING.has(route) && limited(req)) return send(res, 429, { error: 'slow_down', error_description: 'too many requests from this address' }, { 'retry-after': '2' });
       switch (route) {

@@ -434,8 +434,10 @@ test('the owner\'s controls on the agent hold: stopped (manual), the delegation 
   {
     const { w, s, m } = await setup();
     try {
-      // The owner rotates the capability on the agent page: this connection's sealed copy no longer works.
-      await fx.call(w.r.public, 'POST', '/f/agent/command', { body: fx.ownerCommand(w.owner, 'rotate-capability', { agentId: w.agent.agentId }) });
+      // (2026-11-18) ⑤'s relay keeps one capability per sender: the owner's general rotation leaves this connection's
+      // `mcp` token alone (⑤'s design: one sender's change does not stop the others), so the owner rotates the mcp
+      // sender's capability: this connection's sealed copy no longer works.
+      await fx.call(w.r.public, 'POST', '/f/agent/command', { body: fx.ownerCommand(w.owner, 'rotate-capability', { agentId: w.agent.agentId, params: { source: 'mcp' } }) });
       const { plan } = await planned(m);
       assert.equal((await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-rot-00001' })).structuredContent.error.code, 'BadCapability');
       assert.equal(w.r.chain.sent.length, 0);

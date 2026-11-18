@@ -118,7 +118,10 @@ test('a line recorded with the full port\'s origin matches the status port\'s or
   assert.equal(bindingMismatchOf(rec, { ...rec, execution: status.origin }, 'action'), null);
   assert.deepEqual(registryOrigin('asa', 'r1'), { kind: REGISTRY_KIND, registry: 'r1', agentId: 'asa' });
   const acts = readFileSync(new URL('../resident/ports/ws04-acts.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(acts, /ws04-acts-status/, 'the full port does not import the status port');
+  // (2026-11-18) import statements only: the full port's doc comment names ws04-acts-status.mjs as the other user of
+  // registryOrigin, which is not an import
+  assert.doesNotMatch(acts, /^\s*(import|export)\b[^;]*ws04-acts-status/m, 'the full port does not import the status port');
+  assert.doesNotMatch(acts, /import\(\s*['"][^'"]*ws04-acts-status/, 'nor dynamically');
   const res = readFileSync(new URL('../resident/resident.mjs', import.meta.url), 'utf8');
   assert.match(res, /o = this\.ports\?\.execution\?\.origin;/, 'the resident records the port\'s stated origin');
 });
