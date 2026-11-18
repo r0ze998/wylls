@@ -71,14 +71,28 @@ fn land_claim_writes(cx: &Ctx, tx: &crate::world::Tx, k: &crate::world::Key) -> 
         let pv = cx.f.params.as_ref().map(|p| p.program_version);
         super::v0_coverage::playable(pv)
             && tx.ixs.len() == 1
-            && tx.ixs[0].tag() == Some(frontier_abi::land_preview::TAG_CLAIM_LAND_YIELD)
-            && tx.ixs[0].key(4) == Some(*k)
+            && ((tx.ixs[0].tag() == Some(frontier_abi::land_preview::TAG_CLAIM_LAND_YIELD)
+                && tx.ixs[0].key(4) == Some(*k))
+                || (vwl_owns(cx, tx) && tx.ixs[0].writes(k)))
     }
     #[cfg(not(feature = "playable-lane"))]
     {
         let _ = (cx, tx, k);
         false
     }
+}
+
+/// Q16-1 continued: a transaction that is one wide instruction VWL
+/// re-judges (the wide claims write a legacy anchor Holding: WideClaimSite
+/// touches it, pays the settler cost and logs its HARVEST). VWL re-runs the
+/// whole transaction and compares every program account it lists, so the
+/// Holding and its record are VWL's, not this check's.
+fn vwl_owns(cx: &Ctx, tx: &crate::world::Tx) -> bool {
+    let pv = cx.f.params.as_ref().map(|p| p.program_version);
+    super::v0_coverage::playable(pv)
+        && tx.ixs.len() == 1
+        && tx.ixs[0].tag().is_some_and(super::v0_coverage::is_wide_tag)
+        && super::v0_coverage::vwl_judged(&tx.ixs[0].data)
 }
 
 /// The instruction of `tx` outside ABI v2 that may write `k` and that V0
@@ -1328,7 +1342,7 @@ fn owner_actions(cx: &mut Ctx) {
     let outpost = frontier_abi::v2::tags::Ix::FileOutpost.tag();
     let tags = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag(), outpost];
     for (t, tx) in w.txs.iter().enumerate() {
-        if !tx.ok {
+        if !tx.ok || vwl_owns(cx, tx) {
             continue;
         }
         let recs: Vec<usize> = tx
