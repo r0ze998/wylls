@@ -7,8 +7,9 @@
 //   K2 a province waiting for a free read place: one mark — "waiting to load"
 //   K3 a read still under way, a record held, a province never asked for (out of sight, or simply not asked): no mark
 //      — nothing flickers as the map moves, and no sight is widened
-//   K4 a ring whose overview was asked for and did not come: one mark on a province of it; it goes when the overview is
-//      held; a ring never asked for, or not one of the world's rings, is not marked
+//   K4 a ring whose overview was asked for and did not come: one mark, only while the person looks at that ring (the
+//      selected province, or the view's centre zoomed in), on that place; it goes when the overview is held; a ring
+//      never asked for, refused by the herald (NoSuchRing), or not one of the world's open rings, is not marked
 //   K5 another world's states: FS.provinceReads is emptied at a re-pin (controller), and the ring misses name their
 //      world — not read for another
 //   K6 the map draws words only, from the page's readMarks, with its existing tag painter; a tap selects as before
@@ -32,8 +33,12 @@ test('K1 K2 K3 province marks: not read or waiting, nothing held, nothing else',
 });
 
 test('K4 K5 ring marks: asked, did not come, this world', () => {
-  order(marks, 'const miss = FS.overviewMisses;', 'if (miss && miss.world === momentWorld() && FS.world) {', 'for (const [d, at] of miss.rings) {', 'if (FS.overviews.has(d) || !at) continue;',
-    "state: 'ring', ring: d, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });");
+  // (fix-stale-tooltip 2026-11-19: which ring misses are said is map/overviews.mjs ringMissMarks — refused, unopened and
+  //  held rings never, and only the ring looked at; run in web-frontier-ring-miss-marks.test.mjs)
+  order(marks, 'for (const m of ringMissMarks(FS, { key: momentWorld(), looking: lookingAt() }))',
+    "state: 'ring', ring: m.ring, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });");
+  const look = fnOf(app, 'function lookingAt() {');
+  order(look, 'FS.selected?.p', "if (view && mapRef?.lod && mapRef.lod !== 'world') {", 'hexAtPixel(view.x, view.y)', 'locate(h.q, h.r)');
   order(lo, 'const world = momentWorld(), asked = [...new Set(rings)];', 'const read = readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season), source: momentWorld,',
     'const note = () => {', 'if (momentWorld() !== world || !FS.world) return;', 'const rings0 = FS.overviewMisses?.world === world ? FS.overviewMisses.rings : new Map();',
     'if (seeded.includes(d) && !FS.overviews.has(d)) { if (!rings0.has(d)) rings0.set(d, ringProvinces(d)[0] ?? null); } else rings0.delete(d);',

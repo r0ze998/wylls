@@ -9,13 +9,14 @@ import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { unitCount, errorText } from '../fi18n.mjs';
-import { hostsIn, UNIT_ORDER, SCOUT, actionBlocks, ticketTimes } from '../fland.mjs';
+import { hostsIn, hostOfHolding, UNIT_ORDER, SCOUT, actionBlocks, ticketTimes } from '../fland.mjs';
+import { hostParts } from '../faddr.mjs';
 import { countdown } from '../clock.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { icon } from '../hud/icons.mjs';
-import { provinceName } from '../hud/place.mjs';
+import { provinceName, tileWhat } from '../hud/place.mjs';
 import { cardHead, stamp, bar } from './parts.mjs';
 
 /** Every host of the viewer's first holding in the provinces the page holds (home and destinations). */
@@ -117,6 +118,35 @@ function hostsAround(FS, h) {
   return html`${of}${unknown}${unread}${other}`;
 }
 
+/**
+ * (B10, loop-play2 2026-11-18) The viewer's marches whose host this list does not show: `[{id, dest, arrive}]`, one per
+ * host. A host on the march stands in no province record the page holds until its arrival is read (round 43), and
+ * from its arrival turn until the seal is opened it was simply missing from a list that showed the other hosts. Only
+ * the marches of the village this list is for (a host id that names another village is left out; one that cannot be
+ * read is kept: the page's march list is the village's own).
+ */
+export function awayHosts(FS, rows = hostRows(FS)) {
+  const h = activeHolding(FS), shown = new Set(rows.map(r => String(r.id))), out = [];
+  for (const m of FS.marches ?? []) {
+    const id = String(m?.entry?.host ?? m?.transit?.hostId ?? '');
+    if (!id || shown.has(id) || out.some(x => x.id === id)) continue;
+    if (h && hostParts(id) && !hostOfHolding(id, h)) continue;
+    const arrive = m.entry?.arriveBell ?? m.transit?.arriveBell;
+    out.push({ id, dest: m.dest ?? null, arrive: Number.isInteger(arrive) ? arrive : null });
+  }
+  return out;
+}
+/** The lines under the list for the hosts it does not show because they are on the march (B10). */
+function awayLines(FS, away) {
+  if (!away.length) return '';
+  const bell = FS.nowBell ?? 0;
+  const where = d => (d && Number.isInteger(d.p) && Number.isInteger(d.q) ? (Number.isInteger(d.tile) ? tileWhat(FS, d.p, d.q, d.tile).name : null) ?? provinceName(FS, d.p, d.q) : null);
+  return html`<div class="vcard hosts-away" role="status" data-hosts-away="${away.length}">
+    <p>${L`ほかに ${fmtNum(away.length)} の軍勢が進軍に出ています。到着が読めるまで、この一覧には出ません。到着と結果は「進軍」で確かめられます。`}</p>
+    <ul class="list">${away.map(x => { const w = where(x.dest); return html`<li data-away-host="${x.id}">${w ? L`${w}への進軍` : L`進軍中の軍勢`} <span class="muted">${x.arrive === null ? L`進軍中` : bell >= x.arrive ? L`到着しました（ターン ${fmtNum(x.arrive)}）。結果は「進軍」で確かめられます` : L`ターン ${fmtNum(x.arrive)} に到着の予定`}</span></li>`; })}</ul>
+    <div class="actions"><button type="button" class="btn small" data-act="tab" data-tab="marches">${L`進軍を開く`}</button></div></div>`;
+}
+
 /** The locked host's line (I-44). */
 export const lockedText = () => L`進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。`;
 
@@ -205,6 +235,6 @@ export function render(FS) {
       ${ways}${draft}
       ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
     </li>`;
-  })}</ul>
+  })}</ul>${awayLines(FS, awayHosts(FS, rows))}
   <p class="foot-note">${L`出発には行き先にかかわらず体力 ${DEPART_STAMINA} を使います（道のりは封の中にあるため）。`}</p></section>${around}`;
 }
