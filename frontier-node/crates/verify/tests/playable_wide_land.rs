@@ -829,11 +829,16 @@ fn an_undecodable_wide_instruction_is_never_a_pass() {
 
 #[test]
 fn an_unjudged_wide_command_stays_unverifiable() {
-    // WideFinalize (0xDF) is not modelled: V0 names it, never a PASS.
+    // WideClose (0xDE) is not modelled (WideFinalize is VWL's since the
+    // wide claims): V0 names it, never a PASS.
     let mut inp = natural();
     let t = txs_with(&inp, T_RULES)[0];
     verify_core::tamper::edit_ix_tag(&mut inp, t, T_RULES, |d| {
-        *d = wix::Finalize.to_bytes().to_vec()
+        *d = wix::Close {
+            what: wix::CLOSE_WHAT_TICKET,
+        }
+        .to_bytes()
+        .to_vec()
     });
     let rep = verify_core::verify(&inp);
     assert_ne!(rep.verdict, Verdict::Pass);
@@ -1043,4 +1048,79 @@ fn the_openings_exercise_the_keep_camp_and_free_city_paths() {
         keeps > 0 && camps > 0 && cities > 0,
         "a keep, a camp and a Free City were opened"
     );
+}
+
+// ---- round 2 of #72 (verify-pr72 B-1): lamports of the #67 handlers
+
+#[test]
+fn a_consume_that_drains_the_ring_seed_fails() {
+    let (mut seg, snap) = segment();
+    let t = txs_with(&seg, T_CONSUME)[0];
+    let k = ix_key(&seg, t, 2);
+    edit_post(&mut seg, t, &k, |a| a.lamports -= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(has(&found, "WideReplayMismatch"), "{:#?}", show(&found));
+}
+
+#[test]
+fn an_opening_that_drains_the_ring_seed_or_the_province_fails() {
+    let (mut seg, snap) = segment();
+    let opens = txs_with(&seg, T_OPEN);
+    let k = ix_key(&seg, opens[0], 2);
+    edit_post(&mut seg, opens[0], &k, |a| a.lamports -= 1);
+    let p = ix_key(&seg, opens[1], 4);
+    edit_post(&mut seg, opens[1], &p, |a| a.lamports -= 1);
+    let found = vwl::judge_segment(&seg, &snap);
+    for t in [opens[0], opens[1]] {
+        assert!(
+            found
+                .iter()
+                .any(|f| f.code == "WideReplayMismatch" && f.entity == format!("tx#{t}")),
+            "{:#?}",
+            show(&found)
+        );
+    }
+}
+
+// ---- round 3 (verify-pr72 B-2): a real archive also holds wallets
+
+/// As the real archive (the localnet feed, `input::written_keys`) does:
+/// every writable account's post and final, the fee payer's wallet
+/// included (the committed fixtures keep program-owned accounts only).
+fn with_wallet_posts(inp: &mut Input, snap: &mut BTreeMap<[u8; 32], Option<Account>>) {
+    let system = Address::new_from_array([0; 32]);
+    let wallet = |lamports: u64| Account {
+        lamports,
+        data: vec![],
+        owner: system,
+        executable: false,
+    };
+    let mut bal: BTreeMap<[u8; 32], u64> = BTreeMap::new();
+    for t in 0..inp.txs.len() {
+        let p = fclient::tx::from_wire(&inp.txs[t].tx)
+            .unwrap()
+            .message
+            .account_keys[0]
+            .to_bytes();
+        let b = *bal.entry(p).or_insert_with(|| {
+            snap.insert(p, Some(wallet(1_000_000_000_000)));
+            1_000_000_000_000
+        });
+        let after = b - 5_000 - 3_000_000; // the fee and some rent paid
+        bal.insert(p, after);
+        inp.txs[t]
+            .post
+            .push((Address::new_from_array(p), Some(wallet(after))));
+    }
+    for (k, l) in bal {
+        inp.finals.insert(k, Some(wallet(l)));
+    }
+}
+
+#[test]
+fn the_honest_land_with_wallet_posts_still_re_runs() {
+    let (mut seg, mut snap) = segment();
+    with_wallet_posts(&mut seg, &mut snap);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(found.is_empty(), "{:#?}", show(&found));
 }
