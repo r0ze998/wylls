@@ -11,8 +11,11 @@
 #               and relay tools, with exactly the features of the local playable lane. Skipped when the sources are
 #               unchanged since the last good build (a stamp under .local/play-local/), unless --rebuild.
 #   3. start  — the local-play launcher (permutation-gateway/src/frontier/local-play-launcher.mjs) with a TEST-only
-#               capture-demo world: in-memory local chain, compressed clock, memory-only page key, optional operator
-#               AI residents (TEST keys in memory). Nothing here touches devnet, mainnet, a wallet or a real key.
+#               world. By default a KEPT world (launcher --continuous + --persist, PR #38): the natural 1x clock, a
+#               world that does not end by the rules, its chain kept on disk under .local/play-local/kept/, the page's
+#               test key kept in this browser (non-extractable), so --resume reopens the same village after a stop.
+#               With --demo instead: the capture demo (compressed clock, memory-only, not resumable). Optional
+#               operator AI residents (TEST keys). Nothing here touches devnet, mainnet, a wallet or a real key.
 #   4. open   — prints the page address and opens it in the default browser (unless --no-open).
 #   5. stop   — Ctrl-C ends every world of the launcher (the launcher's own close path), then prints where the logs are.
 #               (Started as a background job from a script, SIGINT is ignored by bash itself: stop it with kill -TERM.)
@@ -39,15 +42,18 @@ usage() {
   cat <<'EOF'
 scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory chain, test keys only)
 
-  --ai N          operator AI residents in the world, 0-4 (default 2)
-  --speed N       compressed clock of the capture demo, 10-60 (default 60: a turn is 10 s; at 60 the land preview's
+  --ai N          operator AI residents in the world, 0-4 (default 2; --resume keeps the kept world's number)
+  --demo          the 15-minute capture demo instead of a kept world: compressed clock, land preview, memory-only
+                  (a stop ends it for good; not resumable)
+  --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; at 60 the land preview's
                   FoldLand often runs out of compute units, see the report; use 30 or less to check land yield)
   --minutes N     the world's life in minutes, 15-240 (default 90)
-  --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999)
+  --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999).
+                  The browser keeps a kept world's key per address, so --resume uses the kept world's port.
   --lang ja|en    language of this script's messages (default: from $LANG). The page itself follows the
                   browser's language; its top-right button switches 日本語 ⇄ English.
-  --fresh         start a brand-new world (the default; every start is a new world on this checkout)
-  --resume        reopen the kept world (needs the launcher's persistence, PR #38; refused while it is absent)
+  --fresh         start a brand-new kept world (the default without --resume)
+  --resume        reopen the last kept world: the same chain, village and AI residents (same browser, same port)
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
@@ -59,7 +65,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 SPEED=60 MINUTES=90 PORT=41920 FRESH=0 RESUME=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
+AI=2 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -75,10 +81,11 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
 done
 while [ $# -gt 0 ]; do
   case "$1" in
-    --ai) need_val "$@"; AI="$2"; shift 2 ;;
-    --speed) need_val "$@"; SPEED="$2"; shift 2 ;;
+    --ai) need_val "$@"; AI="$2"; AI_SET=1; shift 2 ;;
+    --speed) need_val "$@"; SPEED="$2"; SPEED_SET=1; shift 2 ;;
+    --demo) DEMO=1; shift ;;
     --minutes) need_val "$@"; MINUTES="$2"; shift 2 ;;
-    --port) need_val "$@"; PORT="$2"; shift 2 ;;
+    --port) need_val "$@"; PORT="$2"; PORT_SET=1; shift 2 ;;
     --lang) need_val "$@"; shift 2 ;;
     --cluster) need_val "$@"; CLUSTER="$2"; shift 2 ;;
     --fresh) FRESH=1; shift ;;
@@ -107,11 +114,51 @@ for v in SOLANA_URL SOLANA_RPC_URL ANCHOR_PROVIDER_URL; do
   fi
 done
 if [ "$FRESH" = 1 ] && [ "$RESUME" = 1 ]; then err "--fresh と --resume は同時に使えません" "--fresh and --resume cannot be combined"; exit 2; fi
+if [ "$DEMO" = 1 ] && [ "$RESUME" = 1 ]; then err "--demo の世界は保存されないので --resume できません" "--demo worlds are not kept, so they cannot be resumed (--resume)"; exit 2; fi
+if [ "$DEMO" = 0 ] && [ "$SPEED_SET" = 1 ]; then err "--speed は --demo と一緒にだけ使えます (保存する世界は通常の速さです)" "--speed works only with --demo (a kept world runs at the natural speed)"; exit 2; fi
 if [ "$REBUILD" = 1 ] && [ "$NOBUILD" = 1 ]; then err "--rebuild と --no-build は同時に使えません" "--rebuild and --no-build cannot be combined"; exit 2; fi
 is_int "$AI" && [ "$AI" -le 4 ] || { err "--ai は 0〜4 です" "--ai must be 0-4"; exit 2; }
 is_int "$SPEED" && [ "$SPEED" -ge 10 ] && [ "$SPEED" -le 60 ] || { err "--speed は 10〜60 です" "--speed must be 10-60"; exit 2; }
 is_int "$MINUTES" && [ "$MINUTES" -ge 15 ] && [ "$MINUTES" -le 240 ] || { err "--minutes は 15〜240 です" "--minutes must be 15-240"; exit 2; }
 AI=$((10#$AI)); SPEED=$((10#$SPEED)); MINUTES=$((10#$MINUTES))
+
+# (persistence: only when the launcher on this checkout knows it — PR #38; refused, never faked, otherwise)
+HAS_PERSIST=0
+if grep -q "'persist'" "$LAUNCHER" 2>/dev/null && grep -q "'continuous'" "$LAUNCHER" 2>/dev/null; then HAS_PERSIST=1; fi
+if [ "$RESUME" = 1 ] && [ "$HAS_PERSIST" = 0 ]; then
+  err "--resume はこのチェックアウトでは使えません: ランチャーに世界の保存 (PR #38 continuous + persist) がまだありません。毎回新しい世界で始めてください。" \
+      "--resume is not available on this checkout: the launcher has no kept worlds yet (PR #38, continuous + persist). Every start is a new world."
+  exit 5
+fi
+# (an old checkout without persistence: the capture demo is the only world there is)
+if [ "$HAS_PERSIST" = 0 ]; then DEMO=1; fi
+
+# The kept world: one directory per kept world under $STATE/kept/, the last one named in $STATE/last-kept. Its
+# play-local.conf records what a resume must repeat: the port (the browser keeps the page's key per address), the
+# operator residents (their kept keys) and the program's sha256 (the runner refuses another artefact).
+RUN_ID="$(date +%Y%m%d-%H%M%S)"
+KEPT_CONF=""
+conf_get() { sed -n "s/^$1=\(.*\)$/\1/p" "$KEPT_CONF" | head -1; }
+if [ "$RESUME" = 1 ]; then
+  LASTK="$(cat "$STATE/last-kept" 2>/dev/null || true)"
+  if [ -z "$LASTK" ] || [ ! -f "$LASTK/play-local.conf" ]; then
+    err "--resume: 続きから遊べる世界がありません ($STATE/last-kept)。まず --resume なしで始めてください。" \
+        "--resume: there is no kept world to resume ($STATE/last-kept). Start one first, without --resume."
+    exit 5
+  fi
+  KEPT_CONF="$LASTK/play-local.conf"
+  K_PORT="$(conf_get port)"; K_AI="$(conf_get ai)"
+  if [ "$PORT_SET" = 1 ] && [ "$((10#$PORT))" != "$K_PORT" ]; then
+    err "--resume: 保存した世界はポート $K_PORT です。ブラウザは鍵をアドレスごとに覚えるので、--port は変えられません。" \
+        "--resume: the kept world uses port $K_PORT. The browser keeps the key per address, so --port cannot change."
+    exit 5
+  fi
+  if [ "$AI_SET" = 1 ] && [ "$((10#$AI))" != "$K_AI" ]; then
+    err "--resume: 保存した世界の AI 住民は $K_AI 人です。--ai は変えられません。" "--resume: the kept world has $K_AI AI resident(s); --ai cannot change."
+    exit 5
+  fi
+  PORT="$K_PORT"; AI="$K_AI"
+fi
 
 # Ports, as the launcher counts them: the page on BASE, the worlds from BASE+4: two worlds × 5, plus 2 × 4 for the
 # operator residents' relays when there are any. All within 41000-41999, none of 41904-41907 (reserved), never 41970
@@ -131,30 +178,20 @@ if [ "$port_ok" = 0 ]; then
   exit 2
 fi
 
-# (persistence: only when the launcher on this checkout knows it — PR #38; refused, never faked, otherwise)
-HAS_PERSIST=0
-if grep -q "'persist'" "$LAUNCHER" 2>/dev/null && grep -q "'continuous'" "$LAUNCHER" 2>/dev/null; then HAS_PERSIST=1; fi
-if [ "$RESUME" = 1 ] && [ "$HAS_PERSIST" = 0 ]; then
-  err "--resume はこのチェックアウトでは使えません: ランチャーに世界の保存 (PR #38 continuous + persist) がまだありません。毎回新しい世界で始めてください。" \
-      "--resume is not available on this checkout: the launcher has no kept worlds yet (PR #38, continuous + persist). Every start is a new world."
-  exit 5
-fi
-
 # ------------------------------------------------------------------ the plan
 T="$ROOT/frontier-node/target/debug"
 SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-land-sbf"
 SO="$SO_DIR/permutation_frontier.so"
 BINS=(localnet-natural-play localnet-expedition-play frontier-herald frontier-experimental-expedition-depart-prepare frontier-original-expedition-preview frontier-experimental-expedition-prepare)
 STAMP="$STATE/build.stamp"
-RUN_ID="$(date +%Y%m%d-%H%M%S)"
-if [ "$RESUME" = 1 ]; then DATA="$STATE/kept-world"; else DATA="$STATE/worlds/$RUN_ID"; fi
+if [ "$RESUME" = 1 ]; then DATA="$LASTK"; elif [ "$DEMO" = 0 ]; then DATA="$STATE/kept/$RUN_ID"; else DATA="$STATE/worlds/$RUN_ID"; fi
 
 launcher_args() {  # the launcher command line (artifact hash filled in at start)
   local sha="$1"
   printf '%s\n' "$LAUNCHER" --root "$ROOT" --data "$DATA" \
     --runner "$T/localnet-expedition-play" --natural-runner "$T/localnet-natural-play" \
     --world-preset local-natural-v1 --economy page-signed-v1 --march-trial local-march-trial-v1
-  if [ "$RESUME" = 1 ]; then
+  if [ "$DEMO" = 0 ]; then
     local cm pm
     cm="$(sed -n "s/.*CONTINUOUS_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" | head -1)"
     pm="$(sed -n "s/.*PERSIST_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" | head -1)"
@@ -173,11 +210,12 @@ if [ "$PLAN" = 1 ]; then
   echo "test_only=yes"
   echo "lang=$LANG_UI"
   echo "ai=$AI"
-  echo "speed=$SPEED"
+  echo "speed=$([ "$DEMO" = 1 ] && echo "$SPEED" || echo natural)"
   echo "minutes=$MINUTES"
   echo "port=$PORT"
   echo "world_port=$WORLD_PORT"
   echo "ports=$PORT-$LAST"
+  echo "world=$([ "$DEMO" = 1 ] && echo demo || echo kept)"
   echo "mode=$([ "$RESUME" = 1 ] && echo resume || echo fresh)"
   echo "persist_available=$HAS_PERSIST"
   echo "build=$([ "$NOBUILD" = 1 ] && echo never || { [ "$REBUILD" = 1 ] && echo always || echo when-changed; })"
@@ -299,15 +337,29 @@ else
 fi
 SHA="$(shasum -a 256 "$SO" | cut -d' ' -f1)"
 say "   プログラム (.so) sha256 $SHA" "   program (.so) sha256 $SHA"
+# (a kept world resumes only on the same program: the runner refuses another artefact; say so before it starts)
+if [ "$RESUME" = 1 ] && [ "$(conf_get sha256)" != "$SHA" ]; then
+  err "--resume: 保存した世界のプログラム ($(conf_get sha256 | cut -c1-12)…) と、いまビルドしたもの (${SHA:0:12}…) が違います (ソースが変わりました)。この世界は続けられません。--fresh で新しい世界を始めてください。" \
+      "--resume: the kept world's program ($(conf_get sha256 | cut -c1-12)…) differs from the one built now (${SHA:0:12}…): the sources changed. This world cannot continue; start a new one with --fresh."
+  exit 5
+fi
 phase_end build
 
 # ------------------------------------------------------------------ 3. start
 phase_start "3/4 TEST 用のローカル世界を起動" "3/4 starting the TEST-only local world"
 mkdir -p "$DATA"
-LOG="$DATA/launcher.log"
+chmod 700 "$DATA" 2>/dev/null || true
+LOG="$DATA/launcher-$RUN_ID.log"
+if [ "$DEMO" = 0 ] && [ "$RESUME" = 0 ]; then
+  # (a new kept world: what a resume must repeat, and the pointer --resume follows)
+  { echo "# play-local kept world (TEST-ONLY, not for production): what --resume repeats"
+    echo "created=$RUN_ID"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD)"
+    echo "port=$PORT"; echo "ai=$AI"; echo "sha256=$SHA"; } > "$DATA/play-local.conf"
+  echo "$DATA" > "$STATE/last-kept"
+fi
 ARGV=()
 while IFS= read -r a; do ARGV+=("$a"); done < <(launcher_args "$SHA")
-{ echo "# play-local $RUN_ID (TEST-ONLY local world; commit $(git -C "$ROOT" rev-parse --short HEAD))"; printf 'node'; printf ' %q' "${ARGV[@]}"; echo; } > "$DATA/command.txt"
+{ echo "# play-local $RUN_ID (TEST-ONLY local world; commit $(git -C "$ROOT" rev-parse --short HEAD))"; printf 'node'; printf ' %q' "${ARGV[@]}"; echo; } >> "$DATA/command.txt"
 node "${ARGV[@]}" >"$LOG" 2>&1 &
 LPID=$!
 echo "$LPID" > "$DATA/launcher.pid"
@@ -325,11 +377,23 @@ finish() {
   wait "$LPID" 2>/dev/null || true
   say "== 止めました。" "== stopped."
   say "   ログ:          $LOG" "   logs:          $LOG"
-  say "   世界の記録:    $DATA/ (世界ごとのフォルダに runner / herald / relay / operators のログ、stopped.json)" \
-      "   world records: $DATA/ (one folder per world: runner / herald / relay / operators logs, stopped.json)"
+  if [ "$DEMO" = 0 ]; then
+    say "   世界の記録:    $DATA/persist/<ページの公開アドレス>/ (run/ はチェーン、starts/<回>/ に runner / herald / relay / operators のログ)" \
+        "   world records: $DATA/persist/<the page's address>/ (run/ is the chain; starts/<n>/ has the runner / herald / relay / operators logs)"
+  else
+    say "   世界の記録:    $DATA/ (世界ごとのフォルダに runner / herald / relay / operators のログ、stopped.json)" \
+        "   world records: $DATA/ (one folder per world: runner / herald / relay / operators logs, stopped.json)"
+  fi
   say "   起動コマンド:  $DATA/command.txt" "   command:       $DATA/command.txt"
-  say "   ブラウザのタブは閉じてください (タブを閉じるとページのメモリ上のテスト鍵が消えます)。" \
-      "   Close the browser tab now (closing it discards the page's memory-only test key)."
+  if [ "$DEMO" = 0 ]; then
+    say "   この世界は保存されています。続きは同じブラウザで:  scripts/play-local.sh --resume" \
+        "   This world is kept. To continue it later, in the same browser:  scripts/play-local.sh --resume"
+    say "   (ページのテスト鍵はこのブラウザに保存されています。消すのはページのパネルの「このブラウザに保存した試験用の鍵を消す」です。)" \
+        "   (The page's test key is kept in this browser; the page panel's 「このブラウザに保存した試験用の鍵を消す」 deletes it.)"
+  else
+    say "   ブラウザのタブは閉じてください (タブを閉じるとページのメモリ上のテスト鍵が消えます)。" \
+        "   Close the browser tab now (closing it discards the page's memory-only test key)."
+  fi
   say "   時間: ${PHASES[*]}" "   timing: ${PHASES[*]}"
   exit "$code"
 }
@@ -351,8 +415,14 @@ phase_end start
 phase_start "4/4 ページ" "4/4 the page"
 say "" ""
 say "   ▶ ブラウザで開いてください:  $URL" "   ▶ Open in your browser:  $URL"
-say "   TEST 専用: ローカルのメモリ上のチェーン、×$SPEED の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。" \
-    "   TEST ONLY: in-memory local chain, ×$SPEED clock, test keys only. No real key, SOL or devnet."
+if [ "$DEMO" = 1 ]; then
+  say "   TEST 専用: ローカルのメモリ上のチェーン、×${SPEED} の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
+      "   TEST ONLY: in-memory local chain, ×$SPEED clock, test keys only. No real key, SOL or devnet. A stop ends this world."
+else
+  say "   TEST 専用: ローカルのチェーン (保存先 $DATA)、通常の速さ (1 ターン 10 分)、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。" \
+      "   TEST ONLY: a local chain kept in $DATA, the natural clock (a turn is 10 min), test keys only. No real key, SOL or devnet."
+  if [ "$RESUME" = 1 ]; then say "   前回の世界を続けます (同じ村)。止めているあいだ、世界の時計は止まっていました。" "   Resuming the last world (the same village). Its clock stood still while it was stopped."; fi
+fi
 [ "$AI" -gt 0 ] && say "   AI 住民 $AI 人 (運営側のテスト住民) が同じ世界で動きます。" "   $AI operator AI resident(s) play in the same world."
 say "   言語はページ右上のボタンで 日本語 ⇄ English を切り替えます。" "   The page's top-right button switches 日本語 ⇄ English."
 say "   止めるには Ctrl-C を押してください。" "   Press Ctrl-C to stop."
