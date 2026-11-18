@@ -53,7 +53,8 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
 15 minutes.
 
 1. **Join**: 「世界を開始（保存された世界は続きから）」 [Start the world (a kept world continues)] (with `--demo`:
-   「新しい世界を開始」 [Start a new world]) → 「国を選ぶ」 [Choose a nation] → pick a banner → 「国を選んで始める」.
+   「新しい世界を開始」 [Start a new world]) → 「国を選ぶ」 [Choose a nation] → pick a banner → the button below becomes
+   「(the nation's name)で始める」 [Begin as …]: press it.
    The first village is placed for you. The AI residents join Borealis and Ember; pick another nation to stay clear of them.
 2. **Home**: 「ここが、あなたの村です。」 [This is your village] means it worked. Look for "ore +2" marks on the map.
    A village with 「地形の鉱石なし」 [no ore on the terrain] can grow to only about 600 troops.
@@ -89,6 +90,9 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
   because the browser keeps the test key per address.
 - If the program changes (after a `git pull`, for example), the old world cannot continue. The script says so and stops;
   start a new world with `--fresh`.
+- `--resume` opens only the kept world that was started last. After a `--fresh`, the earlier world's folder stays, but
+  `--resume` opens the newer one. To go back to the earlier world, write its folder's path
+  (`…/.local/play-local/kept/<date-time>`) into `.local/play-local/last-kept`.
 - A world's processes stop after 90 minutes by default (`--minutes`). A kept world can still be resumed after that.
 - To delete the test key, press the page panel's 「このブラウザに保存した試験用の鍵を消す」 [Delete the test key kept in this
   browser]. The world's folder (`.local/play-local/kept/<date-time>/`) stays until you delete it yourself.
