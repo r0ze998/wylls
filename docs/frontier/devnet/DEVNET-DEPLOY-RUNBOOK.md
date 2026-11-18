@@ -2,8 +2,8 @@
 
 > **Status: not run. Nothing has been deployed, funded, airdropped or read on devnet.** Every step marked
 > **[r0ze]** needs r0ze's confirmation at the time it runs (owner rule, 2026-11-18 14:42 JST). This runbook only
-> covers getting the program onto devnet and the services that would follow. Season creation is blocked on
-> missing code (§6). It builds on [`../m1/PLAYTEST-RUNBOOK.md`](../m1/PLAYTEST-RUNBOOK.md) and
+> covers getting the program onto devnet, the season setup (§6, `frontier-operator`, tested on a local chain
+> only) and the services that would follow (§7, blocked on missing code). It builds on [`../m1/PLAYTEST-RUNBOOK.md`](../m1/PLAYTEST-RUNBOOK.md) and
 > [`PUBLIC-TEST-DEVNET.ja.md`](PUBLIC-TEST-DEVNET.ja.md). Where they differ, this page follows the code as of
 > `origin/main` 50050623.
 
@@ -61,8 +61,8 @@ there is permanent. For devnet, the file route is enough.
 
 **Never deploy with `--final`.** An immutable program has no upgrade authority, so `AnnounceSeason` could never be
 signed and no season could ever start. A multisig (e.g. Squads) as the authority is possible later. Every
-`AnnounceSeason` would then be a multisig transaction, and the operator tool (G4) does not exist yet. For devnet, one
-offline key is enough.
+`AnnounceSeason` would then be a multisig transaction, and the operator tool (`frontier-operator`, §6) signs from a
+key file only. For devnet, one offline key is enough.
 
 ```sh
 # [r0ze] on r0ze's own machine, outside the repository
@@ -174,7 +174,55 @@ beyond its arguments]. The L(kind) loaded-data table is computed for a `.so` of 
 --bypass-warning --url devnet` returns the ProgramData rent. Without `--bypass-warning` the CLI only prints its
 warning and closes nothing. The program id can then never be used again.
 
-## 6. Season and services (blocked)
+## 6. Season setup with `frontier-operator` **[r0ze, only after r0ze has confirmed the deploy in §5]**
+
+`frontier-operator` (bin of `frontier-node/crates/stack`) sends the operator's part of the start order: AnnounceSeason,
+then after the 24-hour lead CreateSeason, InitBeaconLogs and InitShards × 6. These are the same steps, built by the
+same code (`stack/src/setup.rs` `announce_step` / `after_announce_steps`), that `frontier-stack up` sends to a local
+node. It has only been run against an in-process `frontier-localnet` on loopback, with the release `.so` and test keys
+(`frontier-node/crates/stack/tests/operator.rs`). **It has never been run against devnet.**
+
+It reads `scripts/devnet/devnet-profile.json`: `rpcUrl`, `allowedRpcHosts`, `refusedRpcHostPatterns`, `programId`,
+`upgradeAuthority`, `rent.assume`, `season.preset` and the `operator` block (`seasonId`, `beacon`). Fill in
+`programId` and `upgradeAuthority` after the deploy. The tool refuses:
+
+- a URL that is not loopback and not `https` on an `allowedRpcHosts` host. Hosts containing `mainnet` or `testnet` are
+  refused whatever the profile says. `--cluster-url` overrides `rpcUrl` under the same rule;
+- a cluster whose `getGenesisHash` (the first call it makes) is mainnet-beta's or testnet's, or for a public URL is not
+  devnet's (`EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG`);
+- a key file that is a symlink, not owned by you, or readable by group/other (anything but mode 600 or stricter). It
+  never prints the key;
+- a key whose address is not the profile's `upgradeAuthority`, or not the program's upgrade authority on chain (I-51);
+- an announced season with another `params_hash` or authority, a season past setup, or a missed 7-day CreateSeason
+  window (the season id is then used up: pick a new `seasonId`);
+- sending without `--yes-send`, and sending when the authority's balance is below the plan's total.
+
+```sh
+cd frontier-node && cargo build --locked --release -p stack --bin frontier-operator
+B=frontier-node/target/release/frontier-operator; P=scripts/devnet/devnet-profile.json; K=~/wylls-devnet-keys/authority.json
+
+$B --profile $P --offline                 # the plan at rent.assume, no RPC (works before the deploy too, once the
+                                          # profile has programId and upgradeAuthority)
+$B --profile $P --authority $K            # dry run: reads devnet, prints what is missing, the cluster's rent, balance
+$B --profile $P --authority $K --yes-send # sends AnnounceSeason, then exits 3: "CreateSeason opens at chain clock T"
+# ... 24 h 5 min later (or add --wait to the line above and leave it running):
+$B --profile $P --authority $K --yes-send # sends CreateSeason, InitBeaconLogs, InitShards(0..5); exit 0
+```
+
+Every run reads the chain first and plans only what is missing, so it can be run again at any time: after the lead,
+after a failure half-way (a transaction that did not land is simply planned again), or to check (`setup complete:
+nothing to send`). `--max-txs N` stops after N transactions. Exit codes: 0 done (or plan printed), 1 failed, 2
+refused, 3 waiting for `t_create_min`.
+
+**What it costs** at the preset `S1_LOCAL_7D`, 6,960 lamports per byte (the plan prints the cluster's own rate when
+online): 9 transactions, rent 0.1385 SOL, floats 42 SOL (bond 1, ProvinceFunds 6 × 3.5, DefencePool 20), fees
+0.000045 SOL: **42.1385 SOL** from the authority. The bond comes back after a normal season; the floats are the
+season's funds (the same lines as the dry run's season cost). The local test checks that the lamports spent equal the dry run's
+total.
+
+Then keeper A's `beacon` role sends ConsumeGenesisSeed (PLAYTEST-RUNBOOK §3 step 9), which needs §7.
+
+## 7. Services (blocked)
 
 These cannot run against devnet with today's code (re-checked 2026-11-18):
 
@@ -182,7 +230,7 @@ These cannot run against devnet with today's code (re-checked 2026-11-18):
 |---|---|---|
 | G1 | The Rust services cannot POST JSON-RPC over `https`. `https://` GETs (live drand) now go through a hardened `curl` | `frontier-node/crates/fclient/src/http.rs:5-18, 83-84` |
 | G2 | The keeper reads the program feed through `frontier_feed`, a localnet-only call | `frontier-node/crates/keeper/src/main.rs:213` `RpcPort::localnet`; `fclient/src/rpc.rs:624` |
-| G4 | No operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs and InitShards against a public RPC | only `frontier-node/crates/stack/src/setup.rs` |
+| G4 | **Addressed (§6, `frontier-operator`; local tests only).** Was: no operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs and InitShards against a public RPC | `frontier-node/crates/stack/src/operator.rs` |
 | G5 | No address listing for keeper and relay payers | no `--print-addresses` in the keeper |
 
 Once they are closed, the order and flags are PLAYTEST-RUNBOOK §3 (steps 7–10) and §4, with `--cluster devnet` for

@@ -37,7 +37,7 @@
 | G1 | `frontier-node` に TLS のクライアントがない。keeper と herald が、`https` の devnet RPC と drand に届かない | **未解決** | `fclient/src/http.rs` の冒頭：「Plain `http://` only」。`Cargo.lock` に rustls がない |
 | G2 | keeper が、ローカルチェーン専用の `frontier_feed` で取引を読む | **未解決** | `keeper/src/main.rs:164` が `RpcPort::localnet` |
 | G3 | keeper が、live の drand に届かない | **未解決**（G1 と同じ原因） | `drand-replay` は保存済みの記録と、テスト用の鍵だけを扱う |
-| G4 | 公開チェーンに向けて季を作る運営の道具がない（AnnounceSeason、CreateSeason など） | **未解決** | `stack/src/setup.rs` の中だけにある |
+| G4 | 公開チェーンに向けて季を作る運営の道具がない（AnnounceSeason、CreateSeason など） | **コードあり**（2026-11-18、`frontier-operator`。ローカルチェーンでだけ試した） | `stack/src/operator.rs`、DEVNET-DEPLOY-RUNBOOK §6 |
 | G5 | keeper の払い手の住所を一覧する機能がない | 未確認 | — |
 | G6 | devnet で BLS12-381 の syscall が使えるか | 未確認（devnet への読み取りに承認が要る） | — |
 | G7 | devnet の賃料（1 バイトあたり） | 未確認（同上） | — |

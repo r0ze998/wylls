@@ -6,7 +6,7 @@ its gate is open, and only r0ze opens it.
 
 | File | What it is |
 |---|---|
-| `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`) |
+| `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`), the `operator` block read by `frontier-operator` |
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
 | `test/dry-run.test.mjs` | 27 tests with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
@@ -56,6 +56,10 @@ byte for today's `.so`), not twice that: the CLI funds the buffer with the Progr
 before the ProgramData is paid. A later upgrade holds a returned buffer float (`upgrade(temp)` in the plan).
 
 There is no airdrop, no `--final` (the upgrade authority is the only `AnnounceSeason` signer, I-51, so an immutable
-program could never start a season) and no season step: the operator tool for those does not exist yet (G4).
+program could never start a season) and no season step. The season setup (AnnounceSeason, CreateSeason,
+InitBeaconLogs, InitShards) is a separate tool, `frontier-operator` (`frontier-node/crates/stack`), run **after** r0ze
+has confirmed the deploy. It reads this profile (`rpcUrl`, the host lists, `programId`, `upgradeAuthority`,
+`rent.assume`, `season.preset` and the `operator` block) and is a dry run unless given `--yes-send`. See the
+runbook §6.
 
 The full runbook: [`docs/frontier/devnet/DEVNET-DEPLOY-RUNBOOK.md`](../../docs/frontier/devnet/DEVNET-DEPLOY-RUNBOOK.md).
