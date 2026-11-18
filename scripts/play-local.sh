@@ -15,6 +15,7 @@
 #               AI residents (TEST keys in memory). Nothing here touches devnet, mainnet, a wallet or a real key.
 #   4. open   — prints the page address and opens it in the default browser (unless --no-open).
 #   5. stop   — Ctrl-C ends every world of the launcher (the launcher's own close path), then prints where the logs are.
+#               (Started as a background job from a script, SIGINT is ignored by bash itself: stop it with kill -TERM.)
 #
 # Exit codes: 0 ok / stopped by Ctrl-C, 2 bad arguments, 3 a tool is missing, 4 refused (not a TEST cluster),
 #             5 not available on this checkout (e.g. --resume before persistence is merged), 6 ports busy / disk low,
@@ -39,7 +40,8 @@ usage() {
 scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory chain, test keys only)
 
   --ai N          operator AI residents in the world, 0-4 (default 2)
-  --speed N       compressed clock of the capture demo, 10-60 (default 60: a turn is 10 s)
+  --speed N       compressed clock of the capture demo, 10-60 (default 60: a turn is 10 s; at 60 the land preview's
+                  FoldLand often runs out of compute units, see the report; use 30 or less to check land yield)
   --minutes N     the world's life in minutes, 15-240 (default 90)
   --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999)
   --lang ja|en    language of this script's messages (default: from $LANG). The page itself follows the
