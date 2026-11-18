@@ -59,7 +59,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 SPEED=60 MINUTES=90 PORT=41920 FRESH=1 RESUME=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
+AI=2 SPEED=60 MINUTES=90 PORT=41920 FRESH=0 RESUME=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -82,7 +82,7 @@ while [ $# -gt 0 ]; do
     --lang) need_val "$@"; shift 2 ;;
     --cluster) need_val "$@"; CLUSTER="$2"; shift 2 ;;
     --fresh) FRESH=1; shift ;;
-    --resume) RESUME=1; FRESH=0; shift ;;
+    --resume) RESUME=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --no-build) NOBUILD=1; shift ;;
     --no-open) NOOPEN=1; shift ;;
@@ -205,9 +205,9 @@ command -v lsof >/dev/null || miss "lsof"
 command -v python3 >/dev/null || miss "python3  →  macOS: xcode-select --install"
 if command -v node >/dev/null; then
   NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-  [ "$NODE_MAJOR" -ge 20 ] || miss "Node.js >= 20 (have $(node -v))  →  brew install node@20  (or https://nodejs.org/)"
+  [ "$NODE_MAJOR" -ge 20 ] || miss "Node.js >= 20 (have $(node -v))  →  brew install node  (or https://nodejs.org/)"
 else
-  miss "Node.js >= 20  →  brew install node@20  (or https://nodejs.org/)"
+  miss "Node.js >= 20  →  brew install node  (or https://nodejs.org/)"
 fi
 if command -v rustup >/dev/null; then
   TCS="$(rustup toolchain list 2>/dev/null || true)"
@@ -362,6 +362,14 @@ fi
 phase_end open
 say "   時間: ${PHASES[*]}" "   timing: ${PHASES[*]}"
 
-# (wait for the launcher; Ctrl-C lands in the trap above)
+# (wait for the launcher. A terminal's Ctrl-C reaches the launcher too (same process group): it closes every world and
+#  exits 0, and bash then skips its own INT trap because the child handled the signal itself. The launcher exits only
+#  on a signal (a world's time running out ends that world, not the launcher), so 0 here means it was stopped.)
+LCODE=0
+wait "$LPID" 2>/dev/null || LCODE=$?
 while kill -0 "$LPID" 2>/dev/null; do wait "$LPID" 2>/dev/null || true; done
-[ "$STOPPING" = 1 ] || { say "== ランチャーが自分で終わりました (世界の時間切れなど)。" "== the launcher ended by itself (e.g. the world's time ran out)."; finish 0; }
+if [ "$STOPPING" = 0 ]; then
+  if [ "$LCODE" = 0 ]; then finish 0; fi
+  err "ランチャーが予期せず終わりました (終了コード $LCODE)。ログ: $LOG" "the launcher ended unexpectedly (exit $LCODE). Log: $LOG"
+  tail -n 20 "$LOG" >&2; finish 8
+fi

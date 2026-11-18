@@ -141,7 +141,8 @@ class Refusals(unittest.TestCase):
         else:
             self.assertEqual(code, 5, err)
             self.assertIn('#38', err)
-        self.assertEqual(run('--print-plan', '--fresh', '--resume')[0], 2 if has else 5)
+        self.assertEqual(run('--print-plan', '--fresh', '--resume')[0], 2)
+        self.assertEqual(run('--print-plan', '--resume', '--fresh')[0], 2)
 
     def test_refusals_happen_before_any_write(self):
         before = set(os.listdir(TMP))
