@@ -394,7 +394,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     }
     done = true; state.herald = base; state.phase = 'connected'; paint();
     // (the gate's panel is hidden now: what stays true for the session is said on screen, launcher worlds only)
-    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo, ...(state.pairRole === 'second' && claimedDemo !== null ? { onPair: () => checkPair(mine, { herald: base, expiry: claimedEnd }) } : {}) }); }
+    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo, ...(state.pairRole === 'second' && claimedDemo !== null ? { onPair: () => checkPair(mine, { herald: base, expiry: claimedEnd }) } : {}), ...(persisted ? { persisted: true } : {}) }); }
     // (then, without holding the boot: the world's end, shown only once this herald's relay confirms the runner's own
     //  instance for this wallet — one read, dropped if the page became another wallet or herald or lost its key meanwhile)
     if (launcher && session) {
@@ -640,6 +640,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
         : s.phase === 'waiting' && launcher && s.listed === 0 ? L`動いている世界はありません。`
         : s.phase === 'waiting' && launcher && s.listed > 0 ? L`動いている世界は${s.listed}個です。終了する世界があれば、下の一覧のその行で選べます。`
         : s.phase === 'waiting' && launcher && s.ended ? L`世界を終了しました。「新しい世界を開始」をもう一度押すと、新しい世界を用意します。`
+        : s.phase === 'waiting' && launcher && persisted ? L`「世界を開始」を押すと、保存された世界があれば続きから、なければ新しく準備します。送信や署名はゲーム中に自分で確認します。`
         : s.phase === 'waiting' && launcher ? L`「新しい世界を開始」を押すと準備します。送信や署名はゲーム中に自分で確認します。`
         // (the TEST-ONLY contest pair: the first player waits for the second, who presses start in another tab)
         : s.phase === 'starting' && s.pairWaiting ? L`もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。`

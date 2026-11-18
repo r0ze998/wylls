@@ -1491,7 +1491,7 @@ mod tests {
         apply_flags(&mut c, &f).unwrap();
         assert_eq!(c.to_json()["placement"], json!(1));
         let f = split_flags(&["--placement", "2"].map(String::from)).unwrap();
-        let mut mixed = StackConfig::default();
+        let mut mixed = c.clone();
         apply_flags(&mut mixed, &f).unwrap();
         assert_eq!(mixed.to_json()["placement"], json!(2));
         let f = split_flags(&["--placement", "3"].map(String::from)).unwrap();
