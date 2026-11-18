@@ -129,12 +129,12 @@ test('the command line: --resident-turns takes an absolute directory and reaches
   const dir = tmp(); const launched = [];
   fs.writeFileSync(path.join(dir, 'runner.out'), JSON.stringify({ natural_step: 'ready-for-join', home_provinces: [{ p: 0, q: 1, nation: 1 }] }) + '\n');
   fs.writeFileSync(path.join(dir, 'operators.out'), JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, wallets: [W.address] }) + '\n');
-  const out = await startOperatorResidents({ n: 1, dir, ports: [41866], rpc: 41867, herald: 41868, players: ['11111111111111111111111111111112'], root: '/r', stopping: () => false,
+  const out = await startOperatorResidents({ n: 1, dir, ports: [41851], rpc: 41852, herald: 41853, players: ['11111111111111111111111111111112'], root: '/r', stopping: () => false,
     launch: (name, cmd, args) => launched.push({ name, args }), launchSide: () => {}, relayArgsFor: (w, p) => ['--wallet', w, '--listen-port', String(p)],
     limit: { operatorHomesMs: 1000, operatorWalletsMs: 1000, operatorFund: async () => {} }, pace: {} });
   assert.deepEqual([...out.wallets], [W.address]);
   const op = launched.find(l => l.name === 'relay-op-0');
-  assert.deepEqual(op.args.slice(-4), ['--listen-port', '41866', '--resident-turns', path.resolve(dir, 'resident-turns')]);
+  assert.deepEqual(op.args.slice(-4), ['--listen-port', '41851', '--resident-turns', path.resolve(dir, 'resident-turns')]);
 });
 
 test('an operator resident told ResidentAlreadyActed waits for the next bell: nothing marked tried, nothing spent', async () => {
