@@ -1218,8 +1218,8 @@ mod tests {
             "bad conquest block (continuous)"
         );
         assert!(
-            refused(|p| p.cq.placement = 2),
-            "bad conquest block (placement)"
+            refused(|p| p.cq.placement = 3),
+            "bad conquest block (placement; 2 is PLACEMENT_MIXED)"
         );
         assert!(
             refused(|p| p.cq.dormant_after_secs += 1),
