@@ -309,6 +309,11 @@ const CLIENT_TEXT = {
   WalletError: () => L`ウォレットのエラーです`,
   NoWallet: () => L`ウォレットが接続されていません`,
   NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください。`,
+  // Q16-3: the registered key is another holder's (③'s courier, an agent, another device): nothing was replaced
+  // (round 2, the agent page's hand-over check: fagent.mjs handOverCheck)
+  DelegationUnread: () => L`チェーン上の委任を読めませんでした。何も送っていません。`,
+  NotDelegatedNow: () => L`村の鍵は、いま代理人のものではありません。鍵は変更していません。`,
+  SessionHeldElsewhere: () => L`登録されている鍵は、この端末の鍵ではありません（別のアプリや端末、配送の委任など）。鍵は変更していません。委任を続けるか、鍵を変更するかを選んでください。`,
   // ⑳ (provisional): NFT residents
   NftNoSession: () => L`NFTの住民には、ゲーム内の鍵はまだ使えません。操作はウォレットが署名します。`,
   NftNotHeld: () => L`この住民NFTは、いまこのウォレットにありません。`,

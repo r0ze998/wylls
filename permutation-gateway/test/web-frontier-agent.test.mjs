@@ -48,7 +48,8 @@ test('history: newest first, by category; fees are the operator\'s record, unres
 
 test('the server\'s mode and the chain\'s delegation are explained together, in all four states', () => {
   setLang('en');
-  const say = (mode, delegated) => A.delegationModel(view({ mode, delegation: { citizen: true, delegated, session: 'k', expiry: 1 } }));
+  // (Q16-3 round 2: "yours" only when the registered key is one of the owner's own — this device's game key or the wallet)
+  const say = (mode, delegated) => A.delegationModel(view({ mode, delegation: { citizen: true, delegated, session: 'k', expiry: 1 } }), { own: ['k'] });
   assert.match(say('auto', true).text, /Running on its own/);
   assert.match(say('auto', false).text, /Hand over the key first/);
   assert.match(say('manual', true).text, /Stopped \(on the server\)\. The key is still the agent/);
