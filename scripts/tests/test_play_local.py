@@ -27,6 +27,18 @@ def run(*args, env_extra=None):
     return p.returncode, p.stdout, p.stderr
 
 
+def kept_state(port=41920, ai=2, sha='ab' * 32):
+    """A state dir holding one kept world as play-local writes it (play-local.conf + last-kept), and nothing else."""
+    st = tempfile.mkdtemp(prefix='play-local-state-')
+    world = os.path.join(st, 'kept', '20261119-000000')
+    os.makedirs(world)
+    with open(os.path.join(world, 'play-local.conf'), 'w') as f:
+        f.write(f'# test\ncreated=20261119-000000\ncommit=0000000\nport={port}\nai={ai}\nsha256={sha}\n')
+    with open(os.path.join(st, 'last-kept'), 'w') as f:
+        f.write(world + '\n')
+    return st, world
+
+
 def plan(*args, **kw):
     code, out, err = run('--print-plan', *args, **kw)
     assert code == 0, (code, out, err)
@@ -38,14 +50,29 @@ class Defaults(unittest.TestCase):
         p = plan()
         self.assertEqual(p['cluster'], 'localnet')
         self.assertEqual(p['test_only'], 'yes')
-        self.assertEqual((p['ai'], p['speed'], p['minutes'], p['port'], p['world_port']), ('2', '60', '90', '41920', '41924'))
+        self.assertEqual((p['ai'], p['speed'], p['minutes'], p['port'], p['world_port']), ('2', 'natural', '90', '41920', '41924'))
         self.assertEqual(p['ports'], '41920-41941')  # 2 worlds x 5 + 2 x 4 operator relays from 41924
-        self.assertEqual(p['mode'], 'fresh')
+        self.assertEqual((p['world'], p['mode']), ('kept', 'fresh'))
         self.assertEqual(p['build'], 'when-changed')
-        self.assertTrue(p['data'].startswith(TMP + '/worlds/'))
+        self.assertTrue(p['data'].startswith(TMP + '/kept/'))
+
+    def test_default_is_a_kept_world(self):
+        line = plan()['launcher']
+        for w in ['--world-preset local-natural-v1', '--economy page-signed-v1', '--march-trial local-march-trial-v1',
+                  '--continuous local-continuous-v1', '--persist local-persist-v1', '--operator-residents 2',
+                  '--port 41920', '--world-port 41924', '--world-ttl-minutes 90']:
+            self.assertIn(w, line)
+        # (the launcher refuses persistence with the capture demo: none of the demo's words)
+        for bad in ['--capture-demo', '--demo-scale', '--world-option', '--herald-output', 'devnet', 'mainnet', 'keypair']:
+            self.assertNotIn(bad, line)
 
     def test_launcher_line_is_test_only_capture_demo(self):
-        line = plan()['launcher']
+        p = plan('--demo')
+        self.assertEqual((p['world'], p['speed']), ('demo', '60'))
+        self.assertTrue(p['data'].startswith(TMP + '/worlds/'))
+        line = p['launcher']
+        self.assertNotIn('--persist', line)
+        self.assertNotIn('--continuous', line)
         for w in ['--world-preset local-natural-v1', '--economy page-signed-v1', '--march-trial local-march-trial-v1',
                   '--capture-demo capture-demo-v1', '--demo-scale 60', '--world-option land-preview-v1',
                   '--herald-output compact-v2', '--operator-residents 2', '--port 41920', '--world-port 41924',
@@ -67,10 +94,11 @@ class Flags(unittest.TestCase):
             self.assertEqual(code, 2, (bad, err))
 
     def test_speed_and_minutes(self):
-        self.assertIn('--demo-scale 10', plan('--speed', '10')['launcher'])
+        self.assertIn('--demo-scale 10', plan('--demo', '--speed', '10')['launcher'])
+        self.assertEqual(run('--print-plan', '--speed', '30')[0], 2)  # a kept world has no compressed clock
         self.assertIn('--world-ttl-minutes 45', plan('--minutes', '45')['launcher'])
         for bad in ['9', '61', '0', 'x']:
-            self.assertEqual(run('--print-plan', '--speed', bad)[0], 2, bad)
+            self.assertEqual(run('--print-plan', '--demo', '--speed', bad)[0], 2, bad)
         for bad in ['14', '241', 'x']:
             self.assertEqual(run('--print-plan', '--minutes', bad)[0], 2, bad)
 
@@ -130,19 +158,47 @@ class Refusals(unittest.TestCase):
                 self.assertEqual(code, 4, (v, u, err))
             self.assertEqual(run('--print-plan', env_extra={v: 'http://127.0.0.1:8899'})[0], 0)
 
-    def test_resume_refused_without_persistence(self):
+    def test_resume_without_a_kept_world_is_refused(self):
         launcher = read(os.path.join(ROOT, 'permutation-gateway/src/frontier/local-play-launcher.mjs'))
-        has = "'persist'" in launcher and "'continuous'" in launcher
-        code, out, err = run('--print-plan', '--resume')
-        if has:
-            self.assertEqual(code, 0)
-            self.assertIn('--persist', out)
-            self.assertNotIn('--capture-demo', out)
-        else:
-            self.assertEqual(code, 5, err)
-            self.assertIn('#38', err)
+        self.assertTrue("'persist'" in launcher and "'continuous'" in launcher)  # PR #38 is on this main
+        st = tempfile.mkdtemp(prefix='play-local-empty-')
+        code, out, err = run('--print-plan', '--resume', env_extra={'PLAY_LOCAL_STATE': st})
+        self.assertEqual(code, 5, err)
+        self.assertIn('no kept world', err)
+        self.assertEqual(out, '')
         self.assertEqual(run('--print-plan', '--fresh', '--resume')[0], 2)
         self.assertEqual(run('--print-plan', '--resume', '--fresh')[0], 2)
+        self.assertEqual(run('--print-plan', '--resume', '--demo')[0], 2)  # a demo world is never kept
+
+    def test_resume_reopens_the_last_kept_world(self):
+        st, world = kept_state(port=41930, ai=1)
+        p = plan('--resume', env_extra={'PLAY_LOCAL_STATE': st})
+        self.assertEqual((p['world'], p['mode'], p['data']), ('kept', 'resume', world))
+        self.assertEqual((p['port'], p['ai'], p['world_port']), ('41930', '1', '41934'))  # the kept world's, not the defaults
+        self.assertIn('--persist local-persist-v1', p['launcher'])
+        self.assertIn('--continuous local-continuous-v1', p['launcher'])
+        self.assertIn('--operator-residents 1', p['launcher'])
+        self.assertIn(f'--data {world}', p['launcher'])
+        # (the same values given explicitly are fine)
+        self.assertEqual(plan('--resume', '--port', '41930', '--ai', '1', env_extra={'PLAY_LOCAL_STATE': st})['port'], '41930')
+
+    def test_resume_refuses_another_port_or_ai(self):
+        st, _ = kept_state(port=41960, ai=2)
+        code, _, err = run('--print-plan', '--resume', '--port', '41920', env_extra={'PLAY_LOCAL_STATE': st})
+        self.assertEqual(code, 5, err)
+        self.assertIn('41960', err)
+        code, _, err = run('--print-plan', '--resume', '--ai', '0', env_extra={'PLAY_LOCAL_STATE': st})
+        self.assertEqual(code, 5, err)
+
+    def test_resume_with_a_dangling_pointer_is_refused(self):
+        st, world = kept_state()
+        os.remove(os.path.join(world, 'play-local.conf'))
+        self.assertEqual(run('--print-plan', '--resume', env_extra={'PLAY_LOCAL_STATE': st})[0], 5)
+
+    def test_print_plan_writes_no_kept_world(self):
+        st = tempfile.mkdtemp(prefix='play-local-plan-')
+        plan(env_extra={'PLAY_LOCAL_STATE': st})
+        self.assertEqual(os.listdir(st), [])
 
     def test_refusals_happen_before_any_write(self):
         before = set(os.listdir(TMP))
