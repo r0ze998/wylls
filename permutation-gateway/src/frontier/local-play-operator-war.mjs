@@ -95,8 +95,13 @@ export function chooseMarch(rows, { taken = () => false } = {}) {
 export function warStep(war) {
   if (!war) return null;
   // (the village's province has not settled this turn: a march or a muster would be refused NotResident — the page
-  //  waits for the settle too; meanwhile the turn may train)
-  if (war.settling) return !war.refused?.Train && (war.reserve ?? 0) < MUSTER_MIN * 2 ? Object.freeze({ name: 'Train', n: TRAIN_BATCH }) : null;
+  //  waits for the settle too. A resident that would march or muster holds its one action of the turn for that (it
+  //  is not spent on the economy meanwhile); otherwise the turn may train)
+  if (war.settling) {
+    const wantsMuster = (war.hostCount ?? 0) < MAX_HOSTS && Math.max(0, (war.reserve ?? 0) - KEEP_BACK) >= MUSTER_MIN && !war.refused?.Muster;
+    if (war.march || wantsMuster) return Object.freeze({ wait: true, why: 'the village\'s province has not settled this turn: holding the turn for the ' + (war.march ? 'march' : 'muster') });
+    return !war.refused?.Train && (war.reserve ?? 0) < MUSTER_MIN * 2 ? Object.freeze({ name: 'Train', n: TRAIN_BATCH }) : null;
+  }
   if (war.march) return Object.freeze({ name: 'Depart', kind: war.march.kind, row: war.march.row });
   const room = (war.hostCount ?? 0) < MAX_HOSTS;
   const musterable = Math.max(0, (war.reserve ?? 0) - KEEP_BACK);

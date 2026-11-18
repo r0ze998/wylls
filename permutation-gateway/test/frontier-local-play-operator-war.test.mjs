@@ -54,8 +54,13 @@ test('the war step: march, else muster the reserve, else train; a settling turn 
   assert.equal(warStep({ march: null, reserve: MUSTER_MIN * 2, hostCount: MAX_HOSTS }), null, 'enough troops waiting: the economy');
   assert.equal(warStep({ march: null, reserve: 0, hostCount: 0, refused: { Train: true } }), null);
   assert.equal(warStep({ march: null, reserve: 900, hostCount: 0, refused: { Muster: true } }), null);
-  assert.deepEqual(warStep({ march, reserve: 0, hostCount: 0, settling: true }), { name: 'Train', n: TRAIN_BATCH }, 'NotResident would refuse the march: wait, train');
-  assert.equal(warStep({ march, reserve: 900, hostCount: 0, settling: true }), null);
+  // (NotResident would refuse a march or a muster now: the turn is held for it, never spent on the economy)
+  assert.equal(warStep({ march, reserve: 0, hostCount: 0, settling: true }).wait, true);
+  assert.equal(warStep({ march: null, reserve: MUSTER_MIN, hostCount: 0, settling: true }).wait, true);
+  assert.deepEqual(warStep({ march: null, reserve: 0, hostCount: 0, settling: true }), { name: 'Train', n: TRAIN_BATCH }, 'nothing to hold for: train');
+  assert.equal(warStep({ march: null, reserve: MUSTER_MIN * 2, hostCount: MAX_HOSTS, settling: true }), null);
+  const m = createResidentMemory(0, { war: true });
+  assert.equal(decideNext(m, { joined: true, faction: 1, holding: { p: 0, q: 3, site: 0, tile: 5 } }, { war: { nowBell: 9, march, reserve: 0, hostCount: 1, settling: true } }).wait, true);
   assert.deepEqual([...SETTLE_CODES], ['NotResident', 'NotFinal']);
   assert.equal(warStep(null), null);
 });
@@ -127,6 +132,9 @@ test("the keeps are built as the page builds them (control + ring overviews), an
   assert.deepEqual([...keeps.keys()], ['1,3', '1,1']);
   assert.deepEqual(keeps.get('1,3'), { p: 1, q: 3, tile: 12, holder: 0, troops: 100, heartland: false, consolidatedUntil: null, contender: 255, progress: 0, requiredBells: 72, asOfBell: 40 });
   assert.deepEqual(contestableKeeps(keeps, { faction: 1 }).map(k => `${k.p},${k.q}`), ['1,3'], 'the heartland keep is never a target');
+  const fresh = keepsOf({ bell: 40, provinces: [{ ...control.provinces[0], consolidating: true }] }, overviews);
+  assert.equal(fresh.get('1,3').consolidatedUntil, 41);
+  assert.deepEqual(contestableKeeps(fresh, { faction: 1, nowBell: 40 }), [], 'a keep just taken (consolidating) is not a target');
   assert.equal(provinceDistance({ p: 0, q: 3 }, { p: 1, q: 3 }), 1);
   assert.equal(provinceDistance({ p: -3, q: 0 }, { p: 3, q: 0 }), 6);
 });

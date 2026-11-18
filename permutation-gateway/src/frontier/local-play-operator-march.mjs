@@ -55,7 +55,9 @@ export function keepsOf(control, overviews) {
   for (const c of control?.provinces ?? []) {
     const ov = overviews.get(ring(c.p, c.q))?.provinces?.find(p => p.p === c.p && p.q === c.q);
     if (ov?.keepTile !== null && ov?.keepTile !== undefined) keeps.set(`${c.p},${c.q}`, Object.freeze({ p: c.p, q: c.q, tile: ov.keepTile, holder: c.control, troops: ov.keepTroops,
-      heartland: c.heartland, consolidatedUntil: null, contender: c.contender, progress: c.progress, requiredBells: c.required, asOfBell: control.bell }));
+      // (the page leaves the consolidation bell unknown here; the snapshot's own `consolidating` flag says a keep is
+      //  inside its protection after a capture — no contest counts there — so it is kept out, as fkeepreach would)
+      heartland: c.heartland, consolidatedUntil: c.consolidating ? control.bell + 1 : null, contender: c.contender, progress: c.progress, requiredBells: c.required, asOfBell: control.bell }));
   }
   return keeps;
 }

@@ -148,6 +148,36 @@ command (refused without the demo):
   made the store about a sixth of its size. This has not been measured in a running world yet: measure first, as above.
   A world started with one word is never reopened with another word, or without it.
 
+### (5) Operator AI residents at war (TEST-ONLY, owner t359u 2026-11-19)
+Add to the capture demo command (both words are refused without `--operator-residents` and the capture demo):
+```bash
+--operator-residents 12 --operator-war operator-war-v1 --demo-scale 30
+```
+- **Who:** up to 12 operator AI residents (⑤ A): two per nation, every nation from six on (residents 0–3 join Borealis,
+  Ember, Cinder and Fjordal as before; 4 and 5 add Aster and Dunmar). 5–12 residents are accepted only with this word.
+  Each one has its own memory-only TEST key, its own relay and the player's funding, as in ⑤ A.
+- **What they do:** the war rule (`permutation-gateway/src/frontier/local-play-operator-war.mjs`), ONE action per
+  resident per turn (Q16-2). In order: defend an own keep another nation is counting on; attack a reachable keep of
+  another nation with at least 1.5× its garrison; muster the reserve once it holds 300 troops; train; otherwise the
+  economy (Harvest, Build). The home is placed on the outermost heartland ring. No randomness: a run depends only on
+  the world.
+- **Same path as a person:** the page's own reads (herald client), keeps (control snapshot + ring overviews), target
+  finder (`fkeepreach.mjs`), route planner, timelock seal and local march sender (`fmarch.mjs` + `flocalplay-march.mjs`)
+  to the resident's own relay. The march opens only when that relay answers the page's capability read with the
+  TEST-ONLY trial. While the village's province has not settled the turn, the resident holds its turn, as the page's
+  muster card waits.
+- **What the world adds (runner `--operator-villages`):** the keeper reveals and settles marches only for the villages
+  it serves, so it also serves each resident's village once that village's PlaceHome has landed (as for the pair's
+  second player). The demo's new ring is opened whole, by the program's own OpenProvince (simulated first), so every
+  nation has border keeps to contest. No rule, parameter, turn length or keep timer changes.
+- **Siege and capture here** are the keep contest of the rules: a host of one hostile nation on a keep's tile counts one
+  turn per resolved turn, a defender on the tile breaks the count, and at 72 the keep is taken (then 288 turns of
+  protection). A village siege (DeclareSiege) has no local-play route; the residents never ask for one.
+- **Pace:** use ×30. At ×60 a turn is 10 s, and the keeper (13 villages) missed reveal windows and the herald fell
+  behind in a 12-resident world (2026-11-19).
+- **Ports:** with 12 residents each world slot keeps 12 relay ports, so the launcher spans `--world-port` + 33
+  (for example 41404–41437).
+
 ### Then
 The page follows the browser's language; the top-right button switches Japanese ⇄ English. English labels in brackets
 (as the page showed them on 2026-11-15).
