@@ -69,7 +69,8 @@ scripts/build-frontier-localnet-conquest-sbf.sh
   `(cd frontier-node && cargo build --locked -p herald --features local-play-bootstrap,wide-world-experimental --bin frontier-herald)`.
 
 ## 3. Start
-Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret). Put each path in
+Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret, except with
+`--persist`, §3 (5), which also keeps each world's two TEST operator keys there, in private 0700/0600 directories and files). Put each path in
 a shell variable first, as absolute paths:
 - `ROOT`: the repository root;
 - `DATA`: the records directory;
@@ -148,6 +149,46 @@ command (refused without the demo):
   made the store about a sixth of its size. This has not been measured in a running world yet: measure first, as above.
   A world started with one word is never reopened with another word, or without it.
 
+### (5) A world that does not end, and that survives a stop and a reload (TEST-ONLY, NOT FOR PRODUCTION)
+Add one or both words to the natural command of (1). Both are refused with the capture demo (its compressed clock
+cannot be resumed) and off the natural preset:
+```bash
+--continuous local-continuous-v1 --persist local-persist-v1
+```
+- **`--continuous local-continuous-v1`:** the world's Season is the program's continuous preset `S1_LOCAL_CONTINUOUS`
+  (the same parameters as `S1_LOCAL_7D`, no end bell, joins always open, `EndSeason` refused by the program). The page
+  shows that the world does not end. The launcher's own limits (`--world-ttl-minutes`, output, disk) still stop the
+  world's processes.
+- **`--persist local-persist-v1`:** each player's world lives in `DATA/persist/<the page's public address>/`, a private
+  directory (0700):
+  - `run/`: the chain's ledger and its last two snapshots, `world.json`, and the world's two operator keys
+    (`keys/upgrade.seed`, `keys/payer.seed`: TEST keys of this disposable chain, files 0600 in 0700 directories);
+  - `herald/`: the herald's checkpoint and archive;
+  - `starts/<n>/`: the logs of each start.
+- **A stop keeps it:** Ctrl-C, the end of the world's time, or the page's end of a world stops the processes and keeps
+  the directory. The next start for the same address **resumes** the world: the runner re-opens its chain from the
+  ledger (every re-executed transaction must repeat its recorded outcome). It refuses another address, another artefact
+  (`--artifact-sha`), the other `--continuous` choice, a missing ledger, a symbolic link, and a key file or directory
+  that another user may read (mode looser than 0600/0700). The world's clock stands still while it is stopped.
+- **The page keeps its key:** the page is addressed with `persist=local`. Only then it keeps its test key in this
+  browser's IndexedDB as a **non-extractable** WebCrypto Ed25519 key (`extractable = false`: no script can read or
+  export it, but a script of the page can sign with it while the page is open), and its march book (the sealed
+  marches' reveal halves) encrypted with a non-extractable AES-GCM key. A reload, or closing and reopening the
+  browser, returns to the same address, world and village. The panel's 「このブラウザに保存した試験用の鍵を消す」
+  [Delete the test key kept in this browser] deletes it; the world's directory stays with the launcher until you
+  delete it yourself (the launcher never deletes anything).
+- **With `--operator-residents <n>`:** the residents' TEST keys are kept in `operator-keys/` (0700, one 0600 file each) of
+  the same directory, so a resumed world has the same residents and villages (without `--persist` they stay memory-only).
+- **What is private:** the wallet's directory, `run/`, `keys/`, `operator-keys/` and `starts/` are 0700, and the key files
+  are 0600. The herald's records, the ledger, the snapshots and the logs keep their default modes (0755/0644): they are no
+  keys, and they sit inside the 0700 wallet directory.
+- **Not for production:** a key a page script can use is acceptable only for a disposable local test chain. Never use
+  this with a key of any public cluster.
+- **Checked (2026-11-18, ws08-p1p2):** start, Join and PlaceHome, a reload (the same village), Ctrl-C of the launcher,
+  a new launcher, the same browser profile: the world resumed with the same village, and a build signed by the kept key
+  landed on the resumed chain. Disk: a continuous world's ledger grows with every turn; the launcher's 128 MiB output
+  limit counts the whole directory and stops the world when it is reached.
+
 ### Then
 The page follows the browser's language; the top-right button switches Japanese ⇄ English. English labels in brackets
 (as the page showed them on 2026-11-15).
@@ -164,7 +205,8 @@ The page follows the browser's language; the top-right button switches Japanese 
 5. On the demo only: once the next ring is open, the guide offers 「届く砦を見る」 and the fort list 「届く砦」.
    A march onto a fort starts its hold count, 「…争奪中 N/72ターン」.
 6. To stop, press Ctrl-C in the launcher's terminal. It ends every world of that launcher.
-7. Then close that world's browser tab. Ctrl-C alone does not remove the page's memory-only key from the browser;
+7. (With `--persist`, §3 (5), the key is KEPT in this browser across tab and browser close until the panel's delete
+   key; the rest of this step is for the memory-only key.) Then close that world's browser tab. Ctrl-C alone does not remove the page's memory-only key from the browser;
    closing the tab discards it. Close only the tab you opened for this world and leave every other tab alone. A key
    in a tab left open is gone only when that tab closes, and that cannot be confirmed from outside it.
 
