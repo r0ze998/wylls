@@ -10,8 +10,13 @@ name: CI
 # the end, which runs only by hand (Actions → CI → Run workflow) with
 # key_tests set to "approved". Nothing in it runs until the owner allows it.
 # What runs and what does not: docs/ci/KEY-FREE-CI.ja.md.
+#
+# Triggers (owner decision Q-D6, 2026-11-18): pull requests and pushes to main
+# only. A push to any other branch starts nothing by itself; its pull request
+# does, once, and still runs every job. Manual runs are unchanged.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -21,6 +26,17 @@ on:
         default: 'no'
         type: choice
         options: ['no', 'approved']
+
+# A new push to a pull request cancels that pull request's older run: only the
+# newest commit's result matters. Pushes to main and manual runs are never
+# cancelled and never wait for each other: they fall back to run_id, a group
+# of their own, so every merge to main keeps a full result. (A shared
+# per-branch group would not do that even with cancel-in-progress false:
+# GitHub keeps one pending run per group and cancels the older pending one,
+# and a manual key-tests run on main would queue behind a main push.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
