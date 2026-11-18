@@ -68,6 +68,9 @@ function checkWorldMode(bytes, season) {
   if (mode !== 0 && mode !== 1) throw new CodecError('BadWorldMode', 'unknown continuous-world flag');
   const placement = season.conquestParams?.placement;
   if (placement !== 0 && placement !== 1 && placement !== 2) throw new CodecError('BadWorldMode', 'unknown placement mode');
+  // (⑭ R2: byte 81 `centre`, 0 the Concord and the Seats, 1 no centre; absent in a layout before it)
+  const centre = season.conquestParams?.centre ?? 0;
+  if (centre !== 0 && centre !== 1) throw new CodecError('BadWorldMode', 'unknown centre mode');
   const base = SEASON_CQ_V2?.[1];
   if (base === undefined || !CQ_V2) throw new CodecError('BadLayout', 'missing conquest block');
   for (const [, off, len, ty] of CQ_V2.fields) {

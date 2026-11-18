@@ -29,7 +29,7 @@ import { createExpeditionDepartPrepare, ExpeditionDepartPrepareError, DEPART_PRE
 
 export const LOCAL_PLAY_PROGRAM = encode(new Uint8Array(32).fill(0x45));
 export const LOCAL_PLAY_SEASON_ID = 11;
-export const LOCAL_PLAY_RULESET_HASH = '1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2';
+export const LOCAL_PLAY_RULESET_HASH = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
 export const LOCAL_PLAY_REFUSED_PORT = 41970;
 export const LOCAL_PLAY_CLUSTER = 'localnet';
 export const SUBMIT_SCHEMA = 'frontier-local-play-depart-submit-v1';

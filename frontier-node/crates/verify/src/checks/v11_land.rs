@@ -60,7 +60,12 @@ use frontier_abi::log::{settle_outcome, Kind, NO_BELL};
 use permutation_rules::fixed::BPS_ONE;
 use permutation_rules::frontier::camp;
 use permutation_rules::frontier::geometry::{region_of, ProvinceCoord, PROVINCE_TILES};
-use permutation_rules::frontier::terrain::{generate_province, ProvinceTerrain};
+use permutation_rules::frontier::terrain::{generate_province_in, ProvinceTerrain};
+
+/// ⑭ R2: the season's conquest block says it has no centre (byte 81).
+pub fn centre_free(cq: Option<&frontier_abi::v2::presets::ConquestParams>) -> bool {
+    cq.is_some_and(|q| q.centre == frontier_abi::v2::presets::CENTRE_FREE)
+}
 use permutation_rules::hash::sha256;
 
 use super::Ctx;
@@ -153,7 +158,9 @@ pub fn run(cx: &mut Ctx) {
             );
             continue;
         };
-        let t = generate_province(seed, c);
+        // (⑭ R2: a centre-free season's (0,0) is ordinary land)
+        let centre_free = centre_free(cx.f.cq.as_ref());
+        let t = generate_province_in(seed, c, centre_free);
         if r.p32("terrain_digest") != terrain_digest(&t)
             || r.pu8("site_count") != t.site_count
             || r.pu16("ring") != ring
@@ -174,12 +181,19 @@ pub fn run(cx: &mut Ctx) {
         // `camp::place_v2` with the symmetric keep tile of rings ≥ 2).
         let cmp = if cx.f.cq.is_some() {
             use frontier_abi::v2::kernel::keep as kkeep;
-            let keep_tile = match c.wedge() {
-                Some(wd) if c.ring() >= 2 => kkeep::keep_tile(&t, &t.sites, t.site_count, wd)
-                    .filter(|&x| (x as usize) < PROVINCE_TILES),
+            let keep_wedge = if centre_free {
+                Some(c.wedge().unwrap_or(0))
+            } else {
+                c.wedge()
+            };
+            let keep_tile = match keep_wedge {
+                Some(wd) if centre_free || c.ring() >= 2 => {
+                    kkeep::keep_tile(&t, &t.sites, t.site_count, wd)
+                        .filter(|&x| (x as usize) < PROVINCE_TILES)
+                }
                 _ => None,
             };
-            camp::place_v2(seed, c, &t, day, false, true, keep_tile)
+            camp::place_v2_in(seed, c, &t, day, false, true, keep_tile, centre_free)
         } else {
             camp::place(seed, c, &t, day, false, true)
         };
@@ -807,7 +821,14 @@ pub fn ticket_site_rule(
     use permutation_rules::frontier::geometry::{
         home_nation, PLACEMENT_DISPERSED, PLACEMENT_MIXED, PLACEMENT_WEDGE,
     };
-    let Some(wedge) = coord.wedge() else {
+    // ⑭ R2: a centre-free season (placement 2 only) has ordinary land on
+    // rings 0-1; (0,0) counts in wedge 0 as the program's `holding_wedge`.
+    let cf = centre_free(cq);
+    let Some(wedge) = (if cf {
+        Some(coord.wedge().unwrap_or(0))
+    } else {
+        coord.wedge()
+    }) else {
         return Some(false);
     };
     let legacy = legacy_wedge_allowed(
@@ -836,6 +857,17 @@ pub fn ticket_site_rule(
         //  the program's `ticket_nation_allowed`)
         PLACEMENT_MIXED => {
             let ring = coord.ring();
+            if ring < 2 && cf {
+                let seed = genesis_seed?;
+                let mixed = permutation_rules::frontier::geometry::home_nation_in(
+                    coord,
+                    cq.placement,
+                    cq.heartland_max_ring,
+                    seed,
+                    true,
+                )? == faction;
+                return Some(mixed || (legacy && wedge != faction));
+            }
             if ring < 2 {
                 return Some(legacy);
             }
@@ -934,7 +966,8 @@ pub fn judge_ticket(e: &TicketEvidence) -> Judgement {
             return Fail(format!("{what} lies beyond the effective r_max {r_max}"));
         };
         let ring = coord.ring();
-        if ring < 2 {
+        // (⑭ R2: rings 0-1 are ordinary land in a centre-free season)
+        if ring < 2 && !centre_free(e.cq) {
             return Fail(format!("{what} lies in a reserved ring"));
         }
         if ring >= rings_opened as u32 {

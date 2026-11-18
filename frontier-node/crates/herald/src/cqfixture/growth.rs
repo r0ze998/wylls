@@ -86,6 +86,7 @@ pub fn params() -> ConquestParams {
         r_max_ceiling: CEILING,
         placement: 0,
         continuous: 0,
+        centre: 0,
         ..MC_LOCAL_7D.cq
     }
 }

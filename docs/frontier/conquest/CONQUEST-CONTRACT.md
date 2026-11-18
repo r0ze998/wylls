@@ -776,7 +776,11 @@ FoldOccupancy adds `extra_holdings` to occupied sites, so Join's reserve and the
 | 74 | `retire_hosts u8` |
 | 75 | `relations u8` (0 = Rivalry everywhere) |
 | 76 | `flags u8` (bit 0 war, bit 1 truce, bit 2 hostility) |
-| 77 | rsv 51 |
+| 77 | `placement u8` (0 wedge, 1 dispersed, 2 mixed on every ring — S1 only, ⑧ wide land (i); `frontier-abi/src/v2/presets.rs`) |
+| 78 | `r_max_ceiling u16` (map growth; 0 = no extension) |
+| 80 | `continuous u8` (⑧ P1) |
+| 81 | `centre u8` (0 the Concord and the Seats; 1 no centre, ⑭ R2, 2026-11-19 — needs placement 2 and S1) |
+| 82 | rsv 46 |
 
 - **CreateSeason validation:**
   - `relations == 0` and `flags == 0` (M3 values refused, `BadParams`);

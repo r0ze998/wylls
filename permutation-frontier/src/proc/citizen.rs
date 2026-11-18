@@ -841,7 +841,8 @@ pub(crate) fn file_outpost_as(
     for (i, s) in x.sites.iter().take(n).enumerate() {
         let c = ProvinceCoord::checked(s.p as i32, s.q as i32, r_max)
             .map_err(|_| FrontierError::BadData)?;
-        if c.ring() < 2 {
+        // (⑭ R2: rings 0-1 are ordinary land in a centre-free season)
+        if c.ring() < 2 && cq.centre != frontier_abi::v2::presets::CENTRE_FREE {
             return Err(FrontierError::ReservedSite.into());
         }
         if c.ring() >= rings_opened as u32 || s.site as usize >= PV::SITES_N {
@@ -1037,7 +1038,7 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
             r.u32(FR::WEDGE_OCCUPIED + 4 * faction as usize)?,
         )
     };
-    let (r_max, placement, heartland_max_ring, genesis_seed) = {
+    let (r_max, placement, heartland_max_ring, genesis_seed, centre_free) = {
         let sd = season_ai.try_borrow_data()?;
         let cq = season_cq(&sd)?;
         (
@@ -1045,6 +1046,7 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
             cq.placement,
             cq.heartland_max_ring,
             Ro(&sd).arr::<32>(S::GENESIS_SEED)?,
+            cq.centre == frontier_abi::v2::presets::CENTRE_FREE,
         )
     };
     let n = x.n as usize;
@@ -1053,20 +1055,27 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
         let (pi, qi) = (s.p as i32, s.q as i32);
         let c = ProvinceCoord::checked(pi, qi, r_max).map_err(|_| FrontierError::BadData)?;
         let ring = c.ring();
-        if ring < 2 {
+        // (⑭ R2: rings 0-1 are ordinary land in a centre-free season; (0,0)
+        //  counts in wedge 0 as its fund does)
+        if ring < 2 && !centre_free {
             return Err(FrontierError::ReservedSite.into());
         }
         if ring >= rings_opened as u32 || s.site as usize >= PV::SITES_N {
             return Err(FrontierError::BadData.into());
         }
-        let w = c.wedge().ok_or(FrontierError::BadData)?;
-        if !ticket_nation_allowed(
+        let w = if centre_free {
+            holding_wedge(c)
+        } else {
+            c.wedge().ok_or(FrontierError::BadData)?
+        };
+        if !ticket_nation_allowed_in(
             c,
             faction,
             placement,
             heartland_max_ring,
             &genesis_seed,
             wedge_allowed(faction, w, ring, own_open, own_occ, rings_opened),
+            centre_free,
         ) {
             return Err(FrontierError::BadData.into());
         }
@@ -2668,6 +2677,7 @@ pub(crate) fn holding_wedge(coord: ProvinceCoord) -> u8 {
 /// full on the folded Frontier, an adjacent wedge's outermost open ring),
 /// so a crowded nation is never left with no site before θ opens a ring.
 /// (`legacy_allowed` is `wedge_allowed(…)`, `site_wedge` the province's.)
+#[cfg_attr(not(test), allow(dead_code))]
 fn ticket_nation_allowed(
     coord: ProvinceCoord,
     faction: u8,
@@ -2676,7 +2686,36 @@ fn ticket_nation_allowed(
     seed: &[u8; 32],
     legacy_allowed: bool,
 ) -> bool {
+    ticket_nation_allowed_in(
+        coord,
+        faction,
+        placement,
+        heartland_max_ring,
+        seed,
+        legacy_allowed,
+        false,
+    )
+}
+
+/// [`ticket_nation_allowed`] in a season with or without the centre. ⑭ R2:
+/// in a centre-free season (placement 2 only) rings 0 and 1 follow the
+/// mixed nation as every outer ring does (`home_nation_in`), with the same
+/// overflow (the province's counter wedge, wedge 0 for (0,0)).
+fn ticket_nation_allowed_in(
+    coord: ProvinceCoord,
+    faction: u8,
+    placement: u8,
+    heartland_max_ring: u8,
+    seed: &[u8; 32],
+    legacy_allowed: bool,
+    centre_free: bool,
+) -> bool {
     let ring = coord.ring();
+    if centre_free && placement == geometry::PLACEMENT_MIXED && ring < 2 {
+        return geometry::home_nation_in(coord, placement, heartland_max_ring, seed, true)
+            == Some(faction)
+            || (legacy_allowed && holding_wedge(coord) != faction);
+    }
     if (placement == geometry::PLACEMENT_DISPERSED || placement == geometry::PLACEMENT_MIXED)
         && ring >= 2
         && ring <= u32::from(heartland_max_ring)

@@ -6,7 +6,7 @@ program_version_s1 = 4
 rules_version_v2 = 11
 rules_version_s1 = 12
 ruleset_hash_v2 = 5fbaf678bcc9f66c7499c2d26ce195c9ca3f78b32a9f67f11089789b82c01a8b
-ruleset_hash_v3 = 1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2
+ruleset_hash_v3 = e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70
 
 [world]
 world_account = Season PDA ["season", le64(id)] under the game program; every game account = sha256(world_account || seed || program)

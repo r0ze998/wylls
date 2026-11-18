@@ -96,3 +96,27 @@ test('placement 2: the dispersed formula on every ring (no wedge past the heartl
   for (const x of ringProvinces(1)) assert.equal(homeNation(x.p, x.q, mixed), wedgeOf(x.p, x.q));
   assert.deepEqual(seasonPlace({ conquestParams: { placement: 2, heartlandMaxRing: 3 }, genesisSeed: seed(1) }), place, 'the first-home rule of placement 2 is the dispersed one');
 });
+
+test('⑭ R2: a centre-free mixed season gives rings 0 and 1 a nation (each nation one of ring 1); otherwise unchanged', () => {
+  const genesisSeed = seed(5);
+  const free = { placement: PLACEMENT_MIXED, heartlandMaxRing: 3, genesisSeed, centreFree: true };
+  const old = { placement: PLACEMENT_MIXED, heartlandMaxRing: 3, genesisSeed };
+  assert.equal(homeNation(0, 0, old), null);
+  const n0 = homeNation(0, 0, free);
+  assert.ok(Number.isInteger(n0) && n0 >= 0 && n0 < 6);
+  const per = [0, 0, 0, 0, 0, 0];
+  for (const c of ringProvinces(1)) {
+    per[homeNation(c.p, c.q, free)]++;
+    assert.equal(homeNation(c.p, c.q, old), wedgeOf(c.p, c.q));
+  }
+  assert.deepEqual(per, [1, 1, 1, 1, 1, 1]);
+  for (const c of ringProvinces(4)) assert.equal(homeNation(c.p, c.q, free), homeNation(c.p, c.q, old));
+  // only the mixed placement frees the centre
+  assert.equal(homeNation(0, 0, { ...free, placement: PLACEMENT_DISPERSED }), null);
+});
+
+test('⑭ R2: the centre-free vector equals the program rule (permutation-rules centre_free_home_nation_pinned_vector)', () => {
+  const o = { placement: PLACEMENT_MIXED, heartlandMaxRing: 3, genesisSeed: seed(5), centreFree: true };
+  const got = [{ p: 0, q: 0 }, ...ringProvinces(1), ...ringProvinces(2)].map(c => homeNation(c.p, c.q, o));
+  assert.deepEqual(got, [3, 0, 1, 2, 3, 4, 5, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1]);
+});

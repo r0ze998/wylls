@@ -471,7 +471,7 @@ test('a world of stand-in processes: ready through its proxy; an explicit stop e
   assert.deepEqual(heraldArgs, ['--data', path.join(dir, 'herald'), '--program', '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', '--season', '11', '--rpc', `http://127.0.0.1:${ports.rpc}`, '--listen', `127.0.0.1:${ports.internalHerald}`, '--source', 'localnet', '--cluster', 'localnet', '--local-play-metadata', path.join(dir, 'metadata.json'), '--relay', `127.0.0.1:${ports.relay}`]);
   assert.ok(!heraldArgs.includes('--web'));
   const relayArgs = JSON.parse((await fsp.readFile(path.join(dir, 'relay.out'), 'utf8')).split('\n')[0]).args;
-  assert.deepEqual(relayArgs, ['--local-play', '--rpc', `http://127.0.0.1:${ports.rpc}`, '--program', '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', '--season', SEASON, '--wallet', wallet, '--ruleset-hash', '1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2', '--prepare-bin', '/abs/depart', '--preview-bin', '/abs/preview', '--resident-bin', '/abs/resident', '--cu-limit', '1000000', '--loaded-limit', '67108864', '--listen-port', String(ports.relay)]);
+  assert.deepEqual(relayArgs, ['--local-play', '--rpc', `http://127.0.0.1:${ports.rpc}`, '--program', '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', '--season', SEASON, '--wallet', wallet, '--ruleset-hash', 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70', '--prepare-bin', '/abs/depart', '--preview-bin', '/abs/preview', '--resident-bin', '/abs/resident', '--cu-limit', '1000000', '--loaded-limit', '67108864', '--listen-port', String(ports.relay)]);
   assert.ok(!relayArgs.includes('--conquest-bin'), 'no conquest CLI unless the launcher\'s own command line names one');
   // the explicit stop
   const stopping = w.stop('requested'); assert.equal(w.stop('again'), stopping, 'one stop, however often asked');
@@ -756,7 +756,7 @@ test('the proof itself: only the runner\'s own statement counts, every reason is
   // of the dedicated program's own Season on a relay-acceptable port; nothing is started, nothing is sent):
   // its parser, its bounded reader, its constructor. Today the constructor refuses, and for the conditions alone.
   const pins = await import('../src/frontier/local-play-relay.mjs');
-  assert.equal(pins.LOCAL_PLAY_RULESET_HASH, '1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2', 'the ruleset hash the launcher gives every relay is the relay\'s own');
+  assert.equal(pins.LOCAL_PLAY_RULESET_HASH, 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70', 'the ruleset hash the launcher gives every relay is the relay\'s own');
   assert.equal(pins.LOCAL_PLAY_PROGRAM, PLAY_PROGRAM);
   const season11 = seasonAddresses(PLAY_PROGRAM, String(pins.LOCAL_PLAY_SEASON_ID)).season, synthetic = { ...good.capability, season: season11, rpc: 'http://127.0.0.1:41944' };
   const capabilityFile = path.join(tmp, 'synthetic-capability.json'); await fsp.writeFile(capabilityFile, JSON.stringify(synthetic));

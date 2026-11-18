@@ -87,13 +87,13 @@ fn actual_native_bres_receipts_preserve_exact_scoped_bytes() {
         (
             include_bytes!("../../verify/tests/fixtures/wide_expedition_resident/dissolve_v1.bin")
                 .as_slice(),
-            "174fea8fa31dd6530f1ee221d5792c74f64c1657d8b0c0613e2d7d40a8bc19e0",
+            "bd2f482c4c36e58d99753445f4a4d21a933b1c0ce73ece9ddafd15ffa91aa5bf",
             Action::Dissolve,
         ),
         (
             include_bytes!("../../verify/tests/fixtures/wide_expedition_resident/return_v1.bin")
                 .as_slice(),
-            "11ffcbd5015593c7a2d330a488a81eb95b9de5ba3910b7d66167f18484452894",
+            "41881c1496904a5cd03fc38c835fdb4fe5c5e23f9b37fbad73893bd850ddab75",
             Action::Return,
         ),
     ] {

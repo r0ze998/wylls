@@ -18,7 +18,7 @@ const SEEDS = [
   { ring: 3, seed: '1b5637bdfaf6cd844e591ba2725478a5e2fc80b08788b7b43fc9cc7cd1a127a0' },
   { ring: 4, seed: 'b833395921cfd79eef3feda514a1f1e5ee852da56e16580189d3f776bd4d08f3' },
 ];
-const RULESET = '1511ae143c1a29fe89e3f697ccb6053136e0f1a405adb97484278d4c8a003ea2';
+const RULESET = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
 const FROM = { p: 1, q: 1, tile: 38 }, KEEP = { p: -2, q: 4, tile: 18 };
 let k;
 before(async () => {
