@@ -1,7 +1,7 @@
 //! VWL — the wide land opening of the PLAYABLE lane (0x4804) under the
 //! verifier's `playable-lane` feature (Q16-1 = A continued, 2026-11-18).
 //!
-//! Two recordings of the deployed devnet-playable `.so` (sha256 45f012f2…)
+//! Two recordings of the devnet-playable `.so` built from `origin/main` `faf1a520` (sha256 ec511123…; not deployed)
 //! in the in-process LiteSVM chain (`localnet::Chain`), made by
 //! `record_playable_wide_land` (ignored; needs the artefact):
 //!
@@ -61,12 +61,14 @@ use verify_core::Verdict;
 
 const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
-const PLAYABLE_SHA256: &str = "45f012f21b179ca07808ebb3174fa50d4f30ecd68c39f840c78c98a9ad622dcd";
+const PLAYABLE_SHA256: &str = "ec511123493c23e9ab1f83295e4bf666bc48c8e3f8dcfee2298d9371cc483ca3";
 /// One candidate per rule, the Free City and the camp drawn (so the
 /// opening exercises every kernel the configuration can name).
 const RULES: wr::RuleBytes = wr::RuleBytes {
     keep_holder: KeepHolderRule::MixedInterleaved as u8,
-    free_city: FreeCityRule::CanonicalHashV1 as u8,
+    // (⑧ (d), #69: a placement-2 Season — `S1_LOCAL_7D` since #69 — takes
+    //  the deployed formula; `CanonicalHashV1` is refused `BadData`)
+    free_city: FreeCityRule::DeployedLe32V1 as u8,
     camp: CampRule::SortKeyDrawV1 as u8,
     region: RegionRule::SortKeyHashV1 as u8,
 };
@@ -350,7 +352,7 @@ fn input_of(
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 45f012f2…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 ec511123…), run with --ignored"]
 fn record_playable_wide_land() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
