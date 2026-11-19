@@ -45,7 +45,8 @@ import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mj
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
-import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf } from './local-play-operator-policy.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf, wideMarchDue } from './local-play-operator-policy.mjs';
+import { createWideMarch } from './local-play-operator-wide-march.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
@@ -243,6 +244,19 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
       } catch { /* no answer: every site, as before (a refused site is not asked again) */ }
     }
   }
+  // (TEST-ONLY wide march: a rim village with a ready host and a judged path into the bordering wide land)
+  if (wide && view?.holding && deps.wideMarch && wideMarchDue(r.memory, bell)) {
+    try {
+      const m = await deps.wideMarch.plan(r, wideTargets);
+      if (m.ok) wide.march = m.plan;
+      else {
+        r.wideMarchWhy = m.why;
+        // (no host at all and none away: form one — the reserve from the village record the policy reads)
+        const transits = (view.holding.decoded?.transit ?? []).filter(t => t && t.state !== 0).length;
+        if (m.hosts === 0 && transits === 0 && (r.memory.wideMarches ?? 0) === 0) wide.needHost = { reserve: Number(view.holding.decoded?.reserve?.[0] ?? 0) };
+      }
+    } catch (e) { r.wideMarchWhy = String(e?.message ?? e).slice(0, 120); }
+  }
   const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
     war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
@@ -275,6 +289,22 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
       to: { p: d.row.p, q: d.row.q, tile: d.row.tile, holder: d.row.holder, guard: d.row.troops }, host: { id: String(snap.march.host.id), troops: snap.march.host.troops, from: [d.row.origin.p, d.row.origin.q] },
       ...(m.arriveBell ? { arrive_bell: m.arriveBell } : {}), ...(m.route ? { route: m.route } : {}), ...(m.code ? { code: m.code } : {}), ...(m.programCode !== undefined ? { program_code: m.programCode } : {}), ...(m.problems ? { problems: m.problems } : {}),
       ...(m.signature ? { signature: m.signature } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 500) } : {}), seen, budget: r.budget.state() };
+  }
+  if (d.name === 'WideMarch') {
+    const p = d.plan;
+    const m = await deps.wideMarch.send(r, p, { transitSlot: (r.memory.wideMarches ?? 0) % 4 });
+    // (the home province has not settled this turn yet — at ×60 it is caught up only for part of each turn: the page's
+    //  muster wait. Nothing was sent; not a refusal: the bell is used up ('held') and it looks again next turn)
+    if (!m.ok && m.step === 'preparing' && ['NotResident', 'NotFinal'].includes(m.code)) {
+      r.budget.spent('held', deps.now(), turnBell);
+      return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', outcome: 'wait', code: m.code, why: 'the home province has not settled this turn: the next turn', test_only: true, seen, budget: r.budget.state() };
+    }
+    const outcome = m.ok ? 'landed' : m.unknown ? 'unknown' : m.step === 'failed' ? 'failed' : 'refused';
+    noteOutcome(r.memory, d, outcome);
+    r.budget.spent(outcome, deps.now(), turnBell);
+    return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', why: d.why, outcome, test_only: true,
+      to: { p: p.dest.p, q: p.dest.q, tile: p.destTile }, from: { p: p.holding.p, q: p.holding.q, tile: p.host.tile }, host: { id: String(p.host.id), troops: p.host.troops },
+      arrive_bell: p.arriveBell, directions: p.directions, ...(m.code ? { code: m.code, at: m.step } : {}), ...(m.signature ? { signature: m.signature } : {}), seen, budget: r.budget.state() };
   }
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
@@ -360,6 +390,8 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     submit: (order, r) => submitLocalAct(order, { allowed: () => ({ ok: true, relay: r.origin }), identity: () => r.identity, rulesetHash: () => r.rulesetHash, signer: () => r.signer, post: postFor(r) }),
     follow: (signature, r) => followLocalAct(signature, { origin: r.origin, still: () => !stop.signal.aborted, post: postFor(r), tries: 20, every: 1000 }),
   };
+  // (TEST-ONLY wide march: the residents of a wide world march into the wide land through their own relays' depart routes)
+  if (o.wide) deps.wideMarch = createWideMarch({ herald: o.herald });
   // (TEST-ONLY war world: the world's eyes, read once per loop; the march opened per resident by its own relay)
   const eyes = o.war ? createWarEyes({ herald: o.herald }) : null;
   if (eyes) {

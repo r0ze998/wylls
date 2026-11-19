@@ -74,6 +74,26 @@ use crate::local_keeper as lk;
 pub const SETTLE_AFTER_CLOSE_SECS: i64 = 600;
 /// The most destination bells the catch-up resolves before an arrival.
 pub const MAX_CATCH_UP_BELLS: u32 = 144;
+/// TEST-ONLY wide local world (`localnet-natural-play --wide-land`, wide-march-local): the catch-up bound in force.
+/// [`MAX_CATCH_UP_BELLS`] everywhere else; the wide world sets [`WIDE_CATCH_UP_BELLS`] once at its start, because its
+/// wide provinces are opened in the setup and nothing resolves them before the first march into one arrives.
+pub static CATCH_UP_BELLS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(MAX_CATCH_UP_BELLS);
+/// The wide world's bound: a whole 7-day Season of 10-minute turns.
+pub const WIDE_CATCH_UP_BELLS: u32 = 1008;
+/// TEST-ONLY wide local world: whether this runner reveals its villages' expeditions itself (off everywhere else,
+/// where the player's page reveals). Any fee payer may send an ExpeditionReveal (`wide_ix::REVEAL`: only the fee
+/// payer signs); the plaintext and salt come from the seal opened with the PUBLIC round `T(arrive)` (the salt is
+/// `sha256("PS-SALT" ‖ k)` of the key the round opens), exactly what the program's settlement opens later.
+pub static SELF_REVEAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Turns the wide world's two switches on ([`CATCH_UP_BELLS`], [`SELF_REVEAL`]).
+pub fn enable_wide_expeditions() {
+    CATCH_UP_BELLS.store(WIDE_CATCH_UP_BELLS, std::sync::atomic::Ordering::SeqCst);
+    SELF_REVEAL.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+fn catch_up_bells() -> u32 {
+    CATCH_UP_BELLS.load(std::sync::atomic::Ordering::SeqCst)
+}
 /// The positions of a wide ClashInputs (6 factions × 4 slots).
 pub const POSITIONS: u8 = wix::GATHER_POSITIONS;
 
@@ -658,8 +678,9 @@ pub fn bell_view(
             missing_anchor: None,
         });
     }
-    if arr.arrive - rn > MAX_CATCH_UP_BELLS {
-        return Err(format!("the destination is {} bells behind the arrival (resolved_next {rn}); a catch-up beyond {MAX_CATCH_UP_BELLS} bells is not driven", arr.arrive - rn));
+    let max = catch_up_bells();
+    if arr.arrive - rn > max {
+        return Err(format!("the destination is {} bells behind the arrival (resolved_next {rn}); a catch-up beyond {max} bells is not driven", arr.arrive - rn));
     }
     let mut missing_anchor = None;
     for b in rn..=arr.arrive.min(now_bell.saturating_sub(1)) {
@@ -922,6 +943,10 @@ pub struct DestinationDriver {
     terminal: Option<Step>,
     last: Option<Step>,
     pub log: Vec<String>,
+    /// [`SELF_REVEAL`]: transits (slot, seal root) found not revealable (never tried again).
+    unrevealable: Vec<(u8, [u8; 32])>,
+    /// [`SELF_REVEAL`]: verified public signatures by round.
+    rounds: std::collections::BTreeMap<u64, [u8; 48]>,
 }
 
 impl DestinationDriver {
@@ -942,6 +967,8 @@ impl DestinationDriver {
             terminal: None,
             last: None,
             log: vec![],
+            unrevealable: vec![],
+            rounds: Default::default(),
         }
     }
 
@@ -1003,6 +1030,11 @@ impl DestinationDriver {
     }
 
     async fn step_inner(&mut self, state: &Shared) -> Step {
+        if SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Some(s) = self.self_reveal(state).await {
+                return s;
+            }
+        }
         let me = self.payer.pubkey();
         let read = {
             let c = lock(state);
@@ -1194,6 +1226,325 @@ impl DestinationDriver {
     }
 }
 
+/// A sealed expedition of the watched holding opened from public data only (TEST-ONLY wide world, [`SELF_REVEAL`]).
+#[derive(Clone, Debug)]
+pub struct Opened {
+    pub slot: u8,
+    pub plain: [u8; WIDE_PLAIN_LEN],
+    pub salt: [u8; 32],
+    pub ct_hash: [u8; 32],
+    pub dest: ProvinceKey,
+    pub faction: u8,
+    pub arrive: u32,
+    /// The provinces the walk enters other than the destination, in first-entered order.
+    pub path: Vec<ProvinceKey>,
+}
+
+/// Opens a landed Depart's wide seal with the public signature of `T(arrive)` (pure): the stock IBE opener, the
+/// ABI's body and commitment check, `unpack` and `validate` against the transit. The salt is the ABI's
+/// `salt_of(k)`. Then walks the committed path from the transit's origin: the provinces it enters other than the
+/// destination, in first-entered order (as a reveal lists them).
+pub fn open_departed(
+    t: &WideTransit,
+    d: &wix::ExpeditionDepart,
+    slot: u8,
+    sig48: &[u8; 48],
+) -> Result<Opened, String> {
+    open_sealed(t.origin, &t.host, t.faction, t.arrive_bell, d, slot, sig48)
+}
+
+/// [`open_departed`] over the transit's fields: where the host stood, its identity, nation and arrival bell.
+pub fn open_sealed(
+    origin: frontier_abi::world_index::TileAddress,
+    host: &WideHostRef,
+    faction: u8,
+    arrive_bell: u32,
+    d: &wix::ExpeditionDepart,
+    slot: u8,
+    sig48: &[u8; 48],
+) -> Result<Opened, String> {
+    use frontier_abi::world_index::tiles::WideTile;
+    use permutation_rules::frontier::seal as ks;
+    let mut k = fclient::seal::open_ibe(&wseal::ibe_block(&d.seal), sig48)
+        .map_err(|e| format!("the seal does not open: {e:?}"))?;
+    let plain = wseal::open_body(&k, &d.seal, &d.commit);
+    let salt = ks::salt_of(&k);
+    k.fill(0);
+    let plain = plain.ok_or("the opened body does not match the Depart's commitment")?;
+    let pt = wseal::unpack(&plain).map_err(|e| format!("plaintext: {e:?}"))?;
+    wseal::validate(&pt, host, arrive_bell).map_err(|e| format!("plaintext: {e:?}"))?;
+    let mut at = WideTile::of(origin);
+    let mut path: Vec<ProvinceKey> = vec![];
+    for i in 0..pt.path_len as usize {
+        let dir = ks::path_step(&pt.path, i) as usize;
+        at = at.neighbors()[dir].ok_or("the committed path leaves the map")?;
+        let key = at.province();
+        if key != pt.dest && !path.contains(&key) {
+            path.push(key);
+        }
+    }
+    if at.province() != pt.dest || at.local() != pt.dest_tile {
+        return Err("the committed path does not end at the sealed destination tile".into());
+    }
+    if path.len() + 1 > permutation_rules::frontier::travel::MAX_PATH_PROVINCES {
+        return Err("the committed path enters too many provinces".into());
+    }
+    Ok(Opened {
+        slot,
+        plain,
+        salt,
+        ct_hash: wseal::ct_hash(&d.seal),
+        dest: pt.dest,
+        faction,
+        arrive: arrive_bell,
+        path,
+    })
+}
+
+/// The ExpeditionReveal (version-2 dispatch, `Kind::Reveal`) of `holding`'s transit into ArrivalSlot position
+/// `target`, paid by `payer` (also the beneficiary): the sixteen accounts of `wide_ix::REVEAL` in order, then the
+/// path provinces at their family's canonical address (read-only). Writable: the payer, the day, the target slot.
+pub fn self_reveal_ix(
+    ctx: &AddrCtx,
+    payer: &Address,
+    holding: &Address,
+    o: &Opened,
+    region: u8,
+    target: u8,
+) -> Result<Instruction, String> {
+    use frontier_abi::addr::archive_part_of;
+    let inner = wix::ExpeditionReveal {
+        transit_slot: o.slot,
+        target_i: target,
+        plain: o.plain,
+        salt: o.salt,
+        ct_hash: o.ct_hash,
+        beneficiary: payer.to_bytes(),
+    };
+    let data =
+        dx::encode(Kind::Reveal, &inner.to_bytes()).map_err(|e| format!("Reveal wire: {e:?}"))?;
+    let a = |k: [u8; 32]| Address::new_from_array(k);
+    let (dest, arrive) = (o.dest, o.arrive);
+    let mut m = vec![
+        AccountMeta::new(*payer, true),
+        AccountMeta::new_readonly(a(ctx.season), false),
+        AccountMeta::new_readonly(*holding, false),
+        AccountMeta::new_readonly(a(transit_address(ctx, &holding.to_bytes(), o.slot)), false),
+        AccountMeta::new_readonly(a(ctx.bell_anchor(arrive, region)), false),
+        AccountMeta::new_readonly(
+            a(ctx.anchor_archive(region, archive_part_of(arrive))),
+            false,
+        ),
+        AccountMeta::new_readonly(a(ctx.beacon_log(region)), false),
+        AccountMeta::new_readonly(a(clash_inputs_address(ctx, dest, arrive)), false),
+        AccountMeta::new_readonly(a(province_address(ctx, dest.coord())), false),
+        AccountMeta::new(a(arrival_day_address(ctx, dest, day_of(arrive))), false),
+    ];
+    for i in 0..4u8 {
+        let k = a(arrival_slot_address(ctx, dest, arrive, o.faction, i));
+        m.push(if i == target {
+            AccountMeta::new(k, false)
+        } else {
+            AccountMeta::new_readonly(k, false)
+        });
+    }
+    m.push(AccountMeta::new_readonly(
+        fclient::addr::instructions_sysvar(),
+        false,
+    ));
+    m.push(AccountMeta::new_readonly(
+        fclient::addr::system_program(),
+        false,
+    ));
+    if m.len() != wix::REVEAL_FIXED {
+        return Err("the reveal's fixed accounts".into());
+    }
+    let resolver = AccountResolver::for_season(ctx).map_err(|e| format!("{e:?}"))?;
+    for k in &o.path {
+        m.push(AccountMeta::new_readonly(
+            a(resolver
+                .province_address(*k)
+                .map_err(|e| format!("{e:?}"))?),
+            false,
+        ));
+    }
+    Ok(Instruction {
+        program_id: a(ctx.program),
+        accounts: m,
+        data,
+    })
+}
+
+impl DestinationDriver {
+    /// TEST-ONLY wide world ([`SELF_REVEAL`]): the reveal of a departed, origin-settled expedition of the watched
+    /// holding that has no landed Reveal yet, once THE anchor of `(arrive, destination region)` exists and while its
+    /// window is open. `None` = nothing of ours to reveal (the ordinary steps follow). A window that closed
+    /// unrevealed is reported, never forced (the program's settlement then decides the march's fate).
+    async fn self_reveal(&mut self, state: &Shared) -> Option<Step> {
+        let ctx = ctx_of(&self.a);
+        let due = {
+            let c = lock(state);
+            let clock = match lk::season_clock(&c, &self.a) {
+                Ok(x) => x,
+                Err(e) => return Some(Step::Stopped(e)),
+            };
+            let now = c.unix_timestamp();
+            let now_bell = clock.bell_at(now)?;
+            let mut found = None;
+            for slot in 0..4u8 {
+                let external =
+                    Address::new_from_array(transit_address(&ctx, &self.holding.to_bytes(), slot));
+                let Some(acc) = c.account(&external).filter(|x| x.owner == self.a.program) else {
+                    continue;
+                };
+                let Ok(b) = OwnedBridgeTransit::from_bytes(&ctx, &acc.data) else {
+                    continue;
+                };
+                let t = b.transit();
+                if t.state != MarchState::Settled
+                    || t.arrive_bell >= now_bell
+                    || self.unrevealable.contains(&(slot, t.seal_root))
+                {
+                    continue;
+                }
+                let e = match evidence(
+                    &c,
+                    &self.a.program,
+                    &self.a.season,
+                    &self.holding,
+                    &external,
+                    &t,
+                    slot,
+                ) {
+                    Ok(e) => e,
+                    Err(e) => return Some(Step::Stopped(e)),
+                };
+                if let (Some(d), None) = (e.depart, e.reveal) {
+                    found = Some((slot, t, d, clock));
+                    break;
+                }
+            }
+            found
+        };
+        let (slot, t, d, clock) = due?;
+        let round = clock.tlock_round(t.arrive_bell);
+        let sig48 = match self.rounds.get(&round) {
+            Some(s) => *s,
+            None => {
+                let fetched = tokio::select! {
+                    r = lk::fetch_round_at(round) => r,
+                    _ = crate::keeper_loop::stopped(&mut self.stop) => return Some(Step::Stopped("stopped by request".into())),
+                };
+                match fetched {
+                    Ok(s) => {
+                        self.rounds.insert(round, s);
+                        s
+                    }
+                    Err(e) => {
+                        return Some(Step::Wait(format!(
+                            "round {round} of the arrival bell: {e}"
+                        )))
+                    }
+                }
+            }
+        };
+        let o = match open_departed(&t, &d, slot, &sig48) {
+            Ok(o) => o,
+            Err(e) => {
+                // (a seal that does not open validly is the settlement's to judge: not revealed, never retried)
+                self.unrevealable.push((slot, t.seal_root));
+                self.log
+                    .push(format!("transit {slot}: not revealable: {e}"));
+                return Some(Step::Wait(format!("transit {slot}: not revealable: {e}")));
+            }
+        };
+        let (ix, what) = {
+            let c = lock(state);
+            let dest_key = Address::new_from_array(province_address(&ctx, o.dest.coord()));
+            let Some(pacc) = c.account(&dest_key).filter(|x| x.owner == self.a.program) else {
+                self.unrevealable.push((slot, t.seal_root));
+                return Some(Step::Wait(format!(
+                    "transit {slot}: its destination province is not open"
+                )));
+            };
+            let prov = match WideProvince::read(&pacc.data) {
+                Ok(p) => p,
+                Err(e) => return Some(Step::Stopped(format!("destination Province: {e:?}"))),
+            };
+            let anchor = match lk::anchor_landed(&c, &self.a, o.arrive, prov.region) {
+                Ok(x) => x,
+                Err(e) => return Some(Step::Stopped(e)),
+            };
+            let Some(a_ts) = anchor else {
+                return Some(Step::Wait(format!(
+                    "the anchor of bell {} in region {} (the keeper's)",
+                    o.arrive, prov.region
+                )));
+            };
+            if c.unix_timestamp() >= clock.reveal_close(o.arrive, a_ts) {
+                self.unrevealable.push((slot, t.seal_root));
+                self.log.push(format!(
+                    "transit {slot}: the reveal window of bell {} closed unrevealed",
+                    o.arrive
+                ));
+                return Some(Step::Wait(format!(
+                    "transit {slot}: the reveal window of bell {} closed unrevealed",
+                    o.arrive
+                )));
+            }
+            let target = (0..4u8).find(|i| {
+                c.account(&Address::new_from_array(arrival_slot_address(
+                    &ctx, o.dest, o.arrive, o.faction, *i,
+                )))
+                .is_none()
+            });
+            let Some(target) = target else {
+                self.unrevealable.push((slot, t.seal_root));
+                return Some(Step::Wait(format!(
+                    "transit {slot}: the nation's four arrival slots of bell {} are taken",
+                    o.arrive
+                )));
+            };
+            match self_reveal_ix(
+                &ctx,
+                &self.payer.pubkey(),
+                &self.holding,
+                &o,
+                prov.region,
+                target,
+            ) {
+                Ok(ix) => (
+                    ix,
+                    format!(
+                        "ExpeditionReveal(transit {slot} → ({}, {}) bell {} slot {target})",
+                        o.dest.coord().p(),
+                        o.dest.coord().q(),
+                        o.arrive
+                    ),
+                ),
+                Err(e) => return Some(Step::Stopped(e)),
+            }
+        };
+        // (a refusal of the reveal — a path the program does not accept, an arrival too early for the route — is the
+        //  settlement's to judge: simulated first, never sent, never tried again, and the driver goes on)
+        let sim = lk::simulate_ix(&lock(state), &self.payer, &ix);
+        match sim {
+            Ok(x) if x.err.is_none() => {}
+            Ok(x) => {
+                self.unrevealable.push((slot, t.seal_root));
+                let why = format!(
+                    "{what} refused in simulation: {:?} (code {:?}); left to the settlement",
+                    x.err, x.code
+                );
+                self.log.push(why.clone());
+                return Some(Step::Wait(why));
+            }
+            Err(e) => return Some(Step::Wait(format!("{what} simulation: {e}"))),
+        }
+        Some(self.send(state, ix, what).await)
+    }
+}
+
 /// TEST ONLY helper: the 24-position mask with positions `..k` scanned.
 #[cfg(test)]
 pub(crate) fn mask_through(k: u8) -> u32 {
@@ -1207,6 +1558,105 @@ pub(crate) fn mask_through(k: u8) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PURE (a past, PUBLISHED Quicknet round and its real signature, `fclient/fixtures/tlock/q4-vector.json`: cryptographic
+    /// consistency only): a sealed wide march from a rim tile into ring 129 opens from the public signature alone to
+    /// exactly the plaintext and salt the sealer kept, its commitment is the Depart's, and the walk lists the provinces
+    /// entered other than the destination; a wrong signature, a tampered seal or another host is refused.
+    #[test]
+    fn a_sealed_wide_march_opens_from_the_public_round_alone() {
+        use frontier_abi::world_index::{seal::WidePlain, TileAddress, WideCoord, WorldId};
+        let v: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(fclient::seal::fixture_dir().join("q4-vector.json")).unwrap(),
+        )
+        .unwrap();
+        let round = v["round"].as_u64().unwrap();
+        let sig: [u8; 48] = hex::decode(v["sig"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let world = WorldId::new([0x77; 32]).unwrap();
+        let home = ProvinceKey::new(world, WideCoord::checked(128, 0).unwrap());
+        let host = WideHostRef::new(home, 3, 0, 7).unwrap();
+        // (from tile 0 of (128, 0) the walk eastward leaves the rim; find the first step count that enters ring 129)
+        let origin = TileAddress::new(home, 0).unwrap();
+        let mut dirs = vec![];
+        let mut at = frontier_abi::world_index::tiles::WideTile::of(origin);
+        while at.province().coord().ring() < 129 {
+            dirs.push(0u8);
+            at = at.neighbors()[0].unwrap();
+        }
+        let (path_len, path) = permutation_rules::frontier::seal::encode_path(&dirs).unwrap();
+        let arrive = 40;
+        let plain = WidePlain {
+            version: frontier_abi::world_index::seal::WIDE_PLAIN_VERSION,
+            host,
+            arrive_bell: arrive,
+            dest: at.province(),
+            dest_tile: at.local(),
+            stance: 0,
+            retreat_bps: 0,
+            path_len,
+            path,
+            reserved: [0; frontier_abi::world_index::seal::WIDE_RESERVED_BYTES],
+        };
+        let sealed = fclient::wide_seal::seal_wide(
+            &plain,
+            &host,
+            arrive,
+            &fclient::beacon::quicknet_info().public_key,
+            round,
+        )
+        .unwrap();
+        let d = wix::ExpeditionDepart {
+            host: host.to_bytes(),
+            transit_slot: 1,
+            arrive_bell: arrive,
+            tip: 0,
+            commit: sealed.commit,
+            seal: sealed.seal,
+        };
+        let o = open_sealed(origin, &host, 2, arrive, &d, 1, &sig).unwrap();
+        assert_eq!(&o.plain, sealed.reveal.plain());
+        assert_eq!(&o.salt, sealed.reveal.salt());
+        assert_eq!(wseal::commit(&o.plain, &o.salt), d.commit);
+        assert_eq!(o.ct_hash, sealed.ct_hash);
+        assert_eq!(
+            (o.dest, o.faction, o.arrive, o.slot),
+            (at.province(), 2, arrive, 1)
+        );
+        assert!(
+            o.path.iter().all(|k| *k != o.dest),
+            "the destination is not a path province"
+        );
+        assert!(
+            o.path.len() <= 1,
+            "only the origin province can be entered before the destination: {:?}",
+            o.path
+        );
+        // refusals
+        let mut bad = sig;
+        bad[5] ^= 1;
+        assert!(
+            open_sealed(origin, &host, 2, arrive, &d, 1, &bad).is_err(),
+            "another signature"
+        );
+        let mut t = d;
+        t.seal[200] ^= 1;
+        assert!(
+            open_sealed(origin, &host, 2, arrive, &t, 1, &sig).is_err(),
+            "a tampered body"
+        );
+        let other = WideHostRef::new(home, 4, 0, 7).unwrap();
+        assert!(
+            open_sealed(origin, &other, 2, arrive, &d, 1, &sig).is_err(),
+            "another host"
+        );
+        assert!(
+            open_sealed(origin, &host, 2, arrive + 1, &d, 1, &sig).is_err(),
+            "another arrival bell"
+        );
+    }
 
     /// PURE: the destination driver's resolve (catch-up bells and the arrival
     /// bell, after its Gather) follows the destination's conquest state exactly

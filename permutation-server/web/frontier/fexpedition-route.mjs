@@ -119,7 +119,9 @@ export function evaluateOutboundRoute({ source, directions, lands, season, depar
     const seasonId = sourcePin(source);
     uint(source.unit, 7, 'Unit'); uint(source.faction, 5, 'Faction'); uint(source.holdingFlags, 255, 'HoldingFlagsMissing');
     check(String(season?.seasonId) === seasonId, 'SeasonPinMismatch');
-    check(season.status === 3, 'SeasonNotRunning');
+    // (Running is never stored: Seeded at or after genesis_ts is Running — fcodec.effectiveStatus, the program's
+    //  effective_status. A natural local world's Season stays stored Seeded; wide-march-local 2026-11-19)
+    check(season.status === 3 || (season.status === 2 && season.genesisTs !== undefined && BigInt(Math.floor(Number(departTs))) >= BigInt(season.genesisTs)), 'SeasonNotRunning');
     uint(season.minLead, 255, 'LeadWindow'); uint(season.maxLead, 255, 'LeadWindow');
     check(season.minLead <= season.maxLead, 'LeadWindow'); uint(season.endBell, U32, 'EndBell');
     check((Array.isArray(season.stances) || season.stances instanceof Uint8Array) && season.stances.length === 36

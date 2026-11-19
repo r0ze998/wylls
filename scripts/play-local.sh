@@ -366,7 +366,7 @@ src_key() {  # the sources the binaries come from: tree hashes at HEAD + any unc
   { git -C "$ROOT" rev-parse "${dirs[@]/#/HEAD:}" 2>/dev/null
     git -C "$ROOT" status --porcelain --untracked-files=normal -- "${dirs[@]}" 2>/dev/null | grep -v ' frontier-node/target/\| permutation-frontier/target/' || true
     git -C "$ROOT" diff HEAD -- "${dirs[@]}" 2>/dev/null || true
-    echo "features: land-sbf / itest localnet-land-play / herald land-preview,wide-world-experimental / keeper expedition-dispatch-experimental"
+    echo "features: land-sbf / itest localnet-land-play / herald land-preview,wide-world-experimental,expedition-records-experimental / keeper expedition-dispatch-experimental"
   } | shasum -a 256 | cut -d' ' -f1
 }
 all_built() { [ -f "$SO" ] || return 1; for b in "${BINS[@]}"; do [ -x "$T/$b" ] || return 1; done; }
@@ -396,7 +396,7 @@ else
   build_step fetch-program bash -c "cd '$ROOT' && { CARGO_NET_OFFLINE=true cargo fetch --locked --manifest-path permutation-frontier/Cargo.toml || cargo fetch --locked --manifest-path permutation-frontier/Cargo.toml; }"
   build_step program "$ROOT/scripts/build-frontier-localnet-land-sbf.sh"
   build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-land-play --bin localnet-natural-play --bin localnet-expedition-play"
-  build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview,wide-world-experimental --bin frontier-herald"
+  build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental --bin frontier-herald"
   build_step tools bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p keeper --features expedition-dispatch-experimental --bin frontier-experimental-expedition-depart-prepare --bin frontier-original-expedition-preview --bin frontier-experimental-expedition-prepare"
   all_built || { err "ビルドは終わりましたが、できていないファイルがあります" "the build finished but a binary is missing"; exit 7; }
   src_key > "$STAMP"
