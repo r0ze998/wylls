@@ -53,6 +53,7 @@ pub mod views;
 /// `503 WideWorldUnavailable`.
 #[cfg(feature = "wide-world-experimental")]
 pub mod wide;
+pub mod wide_keeps;
 pub mod world;
 pub mod ws;
 
