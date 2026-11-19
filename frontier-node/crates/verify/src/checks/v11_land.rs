@@ -589,7 +589,11 @@ fn cohorts_match(cx: &mut Ctx, tx: usize, tally: &BTreeMap<(i32, i32, u32), (u32
 }
 
 /// Independently validate the deterministic grant; it is not a ticket win
-/// and must never be accepted by the random-score verifier as one.
+/// and must never be accepted by the random-score verifier as one. Its ring
+/// follows the season's `spawn_reach` (⑭ R3, `presets::spawn_allows`): 0 is
+/// the heartland only (9 accounts); otherwise also a settled province or one
+/// within reach of a settled witness Province (the 10th account, judged on
+/// its pre-state and its PDA).
 fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
     use fclient::decode::{Citizen, Frontier, Holding, JoinShard, Province, Season};
     use frontier_abi::layout::player::{citizen as C, holding as H};
@@ -655,6 +659,35 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
         let (home_nation, home_max_ring) =
             home_rule_of(f.cq.as_ref(), f.genesis_seed.as_ref(), coord)
                 .ok_or("missing or unsupported placement evidence")?;
+        // ⑭ R3: the ring rule, or the heartland / a settled province / a
+        // settled witness Province within `spawn_reach` (its pre-state, at
+        // the season's Province PDA of its own stored P, Q).
+        let spawn_reach = f.cq.as_ref().map_or(0, |cq| cq.spawn_reach);
+        let witness = match ix.accounts.len() {
+            9 => None,
+            10 => {
+                let wk = ix.key(9).ok_or("no witness account")?;
+                let wd = w
+                    .state_before(&wk, r.tx)
+                    .ok_or("no witness province pre-state")?;
+                let wp = Province::decode(wd).map_err(decode_err)?;
+                if f.ctx.province(wp.p as i32, wp.q as i32) != wk {
+                    return Ok(false);
+                }
+                Some((
+                    coord.distance(ProvinceCoord::new(wp.p as i32, wp.q as i32)),
+                    wp.n_sites_used,
+                ))
+            }
+            _ => return Ok(false),
+        };
+        let spawn_ok = frontier_abi::v2::presets::spawn_allows(
+            spawn_reach,
+            home_max_ring,
+            coord.ring(),
+            pb.n_sites_used,
+            witness,
+        );
         // The program counts the home under the province's wedge (its
         // `holding_wedge`, the index SettleTicket and the release use), which
         // is the nation only under placement 0.
@@ -665,7 +698,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             .zip(sb.holdings_by_wedge.iter())
             .enumerate()
             .all(|(i, (a, b))| if i == wedge { *a == b + 1 } else { a == b });
-        Ok(ix.accounts.len() == 9
+        Ok(spawn_ok
             && (arg.p as i32, arg.q as i32, arg.site) == (p, q, site)
             && ix.key(2) == Some(f.ctx.season)
             && ix.key(4) == Some(f.ctx.frontier())
@@ -673,8 +706,6 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && ix.key(6) == Some(hk)
             && ix.key(7) == Some(sk)
             && season.program_version >= 2
-            && coord.ring() >= 2
-            && coord.ring() <= home_max_ring as u32
             && coord.ring() < frontier.rings_opened as u32
             && home_nation == cb.faction
             && cb.flags

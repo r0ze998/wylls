@@ -34,7 +34,7 @@ const rawSeason = (continuous, endBell) => {
 test('generated ABI keeps placement, growth and continuity in disjoint bytes', () => {
   const cq = LAYOUTS.records.find(r => r.name === 'ConquestParams');
   assert.deepEqual(cq.fields.filter(f => f.off >= 77).map(f => [f.name, f.off, f.len]), [
-    ['PLACEMENT', 77, 1], ['R_MAX_CEILING', 78, 2], ['CONTINUOUS', 80, 1], ['CENTRE', 81, 1], ['RSV', 82, 46],
+    ['PLACEMENT', 77, 1], ['R_MAX_CEILING', 78, 2], ['CONTINUOUS', 80, 1], ['CENTRE', 81, 1], ['SPAWN_REACH', 82, 1], ['RSV', 83, 45],
   ]);
 });
 
@@ -60,8 +60,9 @@ test('raw chain Season bytes reach the page only with flag 1 and matching end be
 
 test('invalid world flags, end bells and reserved bytes fail before the page sees a Season', async () => {
   const cases = [rawSeason(2, NO_END), rawSeason(1, 96)];
-  // (placement 2 is PLACEMENT_MIXED since ⑧ wide land (i); byte 81 is `centre` since ⑭ R2: 2 is unknown, 82 reserved)
-  for (const [off, v] of [[77, 3], [81, 2], [82, 1]]) {
+  // (placement 2 is PLACEMENT_MIXED since ⑧ wide land (i); byte 81 is `centre` since ⑭ R2: 2 is unknown;
+  //  byte 82 is `spawn_reach` since ⑭ R3: 9 is unknown; 83 reserved)
+  for (const [off, v] of [[77, 3], [81, 2], [82, 9], [83, 1]]) {
     const raw = rawSeason(1, NO_END);
     raw[896 + off] = v;
     cases.push(raw);

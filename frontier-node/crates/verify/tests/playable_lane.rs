@@ -755,3 +755,72 @@ fn a_holding_written_by_a_wide_command_is_unverifiable_not_a_fail() {
         show(&rep)
     );
 }
+
+// ------------------------------------------------------------ ⑭ R3 spawn
+
+/// The recording's PlaceHome with a 10th account (the instruction's own
+/// account at position `from`, a key the archive already holds).
+fn place_home_with_witness(inp: &mut Input, from: usize) -> usize {
+    let t = txs_with(inp, 0x38)[0];
+    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
+    let keys = tx.message.account_keys.clone();
+    let ci = tx
+        .message
+        .instructions
+        .iter_mut()
+        .find(|c| {
+            keys[c.program_id_index as usize] == inp.cfg.program && c.data.first() == Some(&0x38)
+        })
+        .unwrap();
+    let k = ci.accounts[from];
+    ci.accounts.push(k);
+    inp.txs[t].tx = fclient::tx::wire(&tx);
+    t
+}
+
+/// The recording's season with `spawn_reach` set in its CreateSeason.
+fn with_spawn_reach(inp: &mut Input, reach: u8) {
+    use frontier_abi::presets::SEASON_PARAMS_LEN;
+    use frontier_abi::v2::presets::cq_layout;
+    let t = txs_with(inp, 0x01)[0];
+    verify_core::tamper::edit_ix_tag(inp, t, 0x01, |d| {
+        d[1 + SEASON_PARAMS_LEN + cq_layout::SPAWN_REACH] = reach;
+    });
+}
+
+fn home_mismatch(rep: &verify_core::Report) -> bool {
+    has(rep, "V11", "HomePlacementMismatch")
+        || rep
+            .findings
+            .iter()
+            .any(|f| f.check == "V11" && f.detail.contains("first-home"))
+}
+
+/// ⑭ R3, ring rule (the recording's season, `spawn_reach` 0): a PlaceHome
+/// naming a witness is one the program refuses, so a recorded success with
+/// one is a FAIL.
+#[test]
+fn a_witness_under_the_ring_rule_fails() {
+    let mut inp = recorded();
+    place_home_with_witness(&mut inp, 5); // its own Province
+    let rep = verify_core::verify(&inp);
+    assert_ne!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+    assert!(home_mismatch(&rep), "{:#?}", show(&rep));
+}
+
+/// ⑭ R3, hull rule (`spawn_reach` 2): the same witness (a Province of the
+/// season at its own PDA) is accepted by V11; a witness that is not the
+/// Province PDA of its stored (P, Q) is not.
+#[test]
+fn a_witness_under_the_hull_rule_is_judged_by_its_pda() {
+    let mut inp = recorded();
+    with_spawn_reach(&mut inp, 2);
+    place_home_with_witness(&mut inp, 5);
+    let rep = verify_core::verify(&inp);
+    assert!(!home_mismatch(&rep), "{:#?}", show(&rep));
+    let mut inp = recorded();
+    with_spawn_reach(&mut inp, 2);
+    place_home_with_witness(&mut inp, 4); // the Frontier: not a Province
+    let rep = verify_core::verify(&inp);
+    assert_ne!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+}
