@@ -84,7 +84,8 @@ export function inspectModel(FS, terrainOf) {
   const here = out.level;
   const j = t ? t.sites.indexOf(s.idx) : prov ? Array.from(prov.sites ?? []).indexOf(s.idx) : -1;
   const tile = { idx: s.idx, terrain: t ? t.names[t.terrain[s.idx]] : null, site: null, hosts: [], camp: null };
-  if (j >= 0 && here >= 2) {
+  // (B14: a centre place without a Province has no site: its seed's site list is not land — no 「村を置ける場所」 there)
+  if (j >= 0 && here >= 2 && place !== PLACE.centre) {
     const m = here === 3 ? prov?.siteMirror?.[j] : null;
     // (the v2 mirror: 3 is a released site, free again; 5 a genesis Free City, `site::STATE_FREE_CITY`)
     const state = m ? (m.state === 5 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : rec?.siteKinds?.[j] === 2 ? 'freeCity' : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
@@ -202,7 +203,8 @@ export function inspectActions(FS, m) {
   const out = [];
   const t = m.tile;
   if (t?.site?.mine) out.push({ act: 'holding-pick', data: { i: t.site.holdingIndex }, text: L`この村を開く`, primary: true });
-  if (FS.compose && t && !FS.compose.sending) out.push({ act: 'dest-from-map', data: {}, text: L`ここを進軍の行き先にする`, primary: true });
+  // (B14: never a centre place without a Province — the march would be sealed for land the program cannot reveal it on)
+  if (FS.compose && t && !FS.compose.sending && m.place !== PLACE.centre) out.push({ act: 'dest-from-map', data: {}, text: L`ここを進軍の行き先にする`, primary: true });
   // the viewer's own ready hosts on this tile can be sent from here (the march card then opens on the map)
   // (a host of another of the viewer's villages says so: pressing it opens the march from that village)
   if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: h.other ? L`${unitCount(h.unit, h.troops)} を進軍させる（別の村の軍勢：その村から出します）` : L`${unitCount(h.unit, h.troops)} を進軍させる`, primary: true });

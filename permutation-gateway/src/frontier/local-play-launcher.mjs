@@ -317,6 +317,34 @@ export function runnerLandAgrees(meta, land) {
  */
 export const CONTEST_PAIR_MODE = 'contest-pair-v1';
 /**
+ * B16 (loop-play3): a KEPT world (`--persist`) for two people. Its second player is recorded once, at the world's first
+ * start, in `<data>/persist/<first wallet>/pair.json` (0600; public addresses only, never a key). With the pair option a
+ * later press of EITHER of the two resumes that world for both at once (no waiting); a recorded pair is never changed.
+ */
+export const PAIR_FILE = 'pair.json', PAIR_FILE_SCHEMA = 'frontier-local-play-kept-pair-v1';
+/** A kept world's recorded second player: its address, null when there is no record, false when the record is not one. */
+export async function readPersistedPair(home, io = fs) {
+  let raw;
+  try { raw = await io.readFile(path.join(home, PAIR_FILE), 'utf8'); } catch (e) { return e?.code === 'ENOENT' ? null : false; }
+  if (!(await privateMode(path.join(home, PAIR_FILE), false, io)).ok) return false;
+  let d; try { d = JSON.parse(raw); } catch { return false; }
+  const ok = d !== null && typeof d === 'object' && Object.keys(d).sort().join() === 'first,mode,schema,second,test_only' && d.schema === PAIR_FILE_SCHEMA
+    && d.mode === CONTEST_PAIR_MODE && d.test_only === true && validWallet(d.first) && validWallet(d.second) && d.first !== d.second && d.first === path.basename(home);
+  return ok ? d.second : false;
+}
+/** Every kept pair under `<data>/persist/`: Map first → second (an unreadable or invalid record is left out). */
+export async function persistedPairs(data, io = fs) {
+  const out = new Map();
+  let names = [];
+  try { names = await io.readdir(path.join(data, 'persist')); } catch { return out; }
+  for (const n of names) {
+    if (!validWallet(n)) continue;
+    const second = await readPersistedPair(path.join(data, 'persist', n), io);
+    if (typeof second === 'string') out.set(n, second);
+  }
+  return out;
+}
+/**
  * `--continuous local-continuous-v1` (TEST-ONLY, optional; off unless given in exactly these words; natural preset only,
  * never with the capture demo): the natural runner makes its Season with the program's continuous preset
  * (`S1_LOCAL_CONTINUOUS`: no end bell, joins always open, EndSeason refused by the program), so the world does not end
@@ -590,6 +618,26 @@ export class WorldManager {
       return record.promise.then(view => ({ ...view, herald: record.pairHerald, pair: { role: 'second', mode: CONTEST_PAIR_MODE } }));
     }
     if (this.worlds.has(wallet)) return this.#start(wallet);
+    // (B16: a kept pair's either player resumes its world for both, at once)
+    if (this.config.persist) return this.#keptPair(wallet).then(r => r ?? this.#pairWait(wallet));
+    return this.#pairWait(wallet);
+  }
+  /** A kept pair (`persistedPairs`) that has `wallet`: its world started for both (or the one running), then answered as for any pair press; null when `wallet` is in no kept pair. */
+  async #keptPair(wallet) {
+    const pairs = await (this.config.guard?.persistedPairs ?? persistedPairs)(this.config.data);
+    let a = null, b = null;
+    if (pairs.has(wallet)) { a = wallet; b = pairs.get(wallet); } else for (const [f, s] of pairs) if (s === wallet) { a = f; b = s; }
+    if (a === null) return null;
+    if (this.closed) throw fault('LauncherClosed', 503);
+    if (this.pairWaiting === a || this.pairWaiting === b) this.pairWaiting = null;
+    if (!this.worlds.has(a)) {
+      if (this.worlds.size > 0) throw Object.assign(fault('WorldLimit', 409), { worlds: this.list() });
+      this.pairOf.set(b, a);
+      await this.#start(a, { second: b }).catch(e => { this.pairOf.delete(b); throw e; });
+    } else if (this.worlds.get(a) && !this.pairOf.has(b)) this.pairOf.set(b, a);
+    return this.#pairStart(wallet);
+  }
+  #pairWait(wallet) {
     if (this.worlds.size > 0) return Promise.reject(Object.assign(fault('WorldLimit', 409), { worlds: this.list() }));
     if (this.pairWaiting === null || this.pairWaiting === wallet) { this.pairWaiting = wallet; return Promise.resolve({ pairWaiting: true, pair: { mode: CONTEST_PAIR_MODE } }); }
     const a = this.pairWaiting; this.pairWaiting = null; this.pairOf.set(wallet, a);
@@ -897,7 +945,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   // (the TEST-ONLY contest pair: a second wallet only with the pair option on a capture-demo world; its relay and proxy
   //  take the NEXT slot's relay and herald ports, which no other world may then use)
   const second = opts.second ?? null;
-  if (second !== null && (!c.contestPair || demo === null || !validWallet(second) || second === wallet || slot + 1 >= WORLD_LIMIT)) throw fault('InvalidContestPair', 503);
+  if (second !== null && (!c.contestPair || (demo === null && !natural) || !validWallet(second) || second === wallet || slot + 1 >= WORLD_LIMIT)) throw fault('InvalidContestPair', 503);
   const { rpc, ws, herald, relay, internalHerald } = worldPorts(c.worldPort, slot);
   const pairPorts = second !== null ? worldPorts(c.worldPort, slot + 1) : null;
   const limit = { ttlMs: c.worldTtlMs ?? WORLD_TTL_MS, outputMax: WORLD_OUTPUT_MAX, diskFloor: DISK_FLOOR, everyMs: 1000, ...c.guard };
@@ -911,6 +959,16 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (a herald's records without the runner's world are another start's remains: never adopted)
     const has = async rel => !!(await fs.lstat(path.join(home, rel)).catch(() => null));
     if (await has('herald') && !(await has('run/world.json'))) throw fault('PersistIncomplete', 503);
+    // (B16: a kept world for two people records its second player once, in `pair.json` (0600); it resumes only as the
+    //  same pair, and a kept world of one person never becomes a pair, nor a pair's world a world of one)
+    const pair = await readPersistedPair(home);
+    if (pair === false) throw fault('PersistPairInvalid', 503);
+    if (second !== null && pair !== null && pair !== second) throw fault('PersistPairMismatch', 503);
+    if (second === null && pair !== null) throw fault('PersistPairMismatch', 503);
+    if (second !== null && pair === null) {
+      if (await has('run/world.json')) throw fault('PersistNotAPair', 503);
+      await fs.writeFile(path.join(home, PAIR_FILE), JSON.stringify({ schema: PAIR_FILE_SCHEMA, mode: CONTEST_PAIR_MODE, first: wallet, second, test_only: true }), { flag: 'wx', mode: 0o600 });
+    }
     await ensurePrivateDir(path.join(home, 'starts'));
   }
   const dir = persist ? path.join(home, 'starts', `${Date.now()}-${randomUUID().slice(0, 8)}`) : path.join(c.data, randomUUID()); await fs.mkdir(dir, persist ? { mode: 0o700 } : undefined);
@@ -1258,7 +1316,8 @@ export async function parseConfig(args) {
   if ((out['capture-demo'] === undefined) !== (out['demo-scale'] === undefined)) throw fault('InvalidCaptureDemo');
   if (out['capture-demo'] !== undefined && (out['capture-demo'] !== CAPTURE_DEMO_MODE || parseDemoScale(out['demo-scale']) === null)) throw fault('InvalidCaptureDemo');
   if (out['capture-demo'] !== undefined && (!natural || out['march-trial'] === undefined)) throw fault('CaptureDemoNeedsNaturalTrial');
-  if (out['contest-pair'] !== undefined && (out['contest-pair'] !== CONTEST_PAIR_MODE || out['capture-demo'] === undefined)) throw fault('InvalidContestPair');
+  // (B16, loop-play3: the pair is no longer the capture demo's only — any natural world, kept or not, may be for two people)
+  if (out['contest-pair'] !== undefined && (out['contest-pair'] !== CONTEST_PAIR_MODE || (out['capture-demo'] === undefined && !natural))) throw fault('InvalidContestPair');
   // (the test-only compact herald output: exactly its one word, and only for capture-demo test worlds)
   if (out['herald-output'] !== undefined && !HERALD_OUTPUT_MODES.includes(out['herald-output'])) throw fault('InvalidHeraldOutput');
   if (out['herald-output'] !== undefined && out['capture-demo'] === undefined) throw fault('HeraldOutputNeedsCaptureDemo');

@@ -14,6 +14,7 @@ import { RETREAT_CHOICES, tipOptions, arrivalWindow, earliestBell, DEPART_MARGIN
 import { UNIT_ORDER, holdingByRef, ticketTimes } from '../fland.mjs';
 import { bellStart, bellAt } from '../clock.mjs';
 import { icon } from '../hud/icons.mjs';
+import { PLACE, placeNow } from '../map/world.mjs';
 
 /** The planner's answers that mean "no legal route" (fmarch.planRoute): the order card then offers the reach list (hud/marchcard.mjs). */
 export const NO_ROUTE = Object.freeze(['NoPath', 'Path', 'PlannerBudget']);
@@ -70,6 +71,17 @@ export function composerArrival(FS) {
   return { ...w, value: Math.min(w.max, Math.max(w.min, c.arriveBell ?? w.min)), earliest, nowBell, now };
 }
 
+/**
+ * B14 (loop-play3): whether the destination is open land (map/world.mjs placeNow): true / false, or undefined while the
+ * page cannot tell (no destination, no season record). A march sealed for a place without a Province was accepted and
+ * never revealed (the program's Reveal needs it); checkMarch refuses `false` as DestinationNotOpen.
+ */
+export function destOpenOf(FS, dest) {
+  if (!dest || !Number.isInteger(dest.p) || !Number.isInteger(dest.q)) return undefined;
+  const where = placeNow(FS, dest.p, dest.q);
+  return where === null ? undefined : where === PLACE.open;
+}
+
 /** The march under composition as checkMarch reads it. */
 export function composerMarch(FS, arrival = composerArrival(FS)) {
   const c = FS.compose ?? {};
@@ -79,7 +91,7 @@ export function composerMarch(FS, arrival = composerArrival(FS)) {
   const host = c.host ?? null;
   return {
     season: FS.season, nowBell: arrival?.nowBell ?? FS.nowBell ?? 0, resolvedNext: env?.province.resolvedNext ?? null, province: env?.province ?? null, now: arrival?.now ?? FS.chain?.now() ?? 0, holding: h ?? null, host,
-    dest: c.dest ?? null, route: c.route ?? null, earliest: arrival?.earliest ?? c.earliest ?? null, arriveBell: arrival?.value ?? c.arriveBell ?? null,
+    dest: c.dest ?? null, destOpen: destOpenOf(FS, c.dest), route: c.route ?? null, earliest: arrival?.earliest ?? c.earliest ?? null, arriveBell: arrival?.value ?? c.arriveBell ?? null,
     stance: c.stance ?? 0, retreat: { choice: c.retreat ?? 'never', ratio: c.ratio ?? null }, tip: c.tip ?? null,
   };
 }

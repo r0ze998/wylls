@@ -1095,7 +1095,8 @@ const buildSecsOf = q => (Number(q.secs) > 0 ? Number(q.secs) : 3_600);
 
 // ------------------------------------------------------------------ what the selection can do on the map (map/actions.mjs, UX brief §5.2)
 /** The lit tiles of the host that acts for the selection (or for the march being composed), kept between frames. */
-const actionsOf = createActions({ passableOf: (p, q) => terrainRef?.(p, q)?.passable ?? null });
+// (B14: a centre place without a Province is not lit: an unknown province stops the walk, map/actions.mjs litTiles)
+const actionsOf = createActions({ passableOf: (p, q) => (placeNow(FS, p, q) === PLACE.centre ? null : terrainRef?.(p, q)?.passable ?? null) });
 function actionsNow() {
   if (FS.mode !== 'play') return null;
   if (FS.hand?.pop === EXPEDITION_POP) return null;

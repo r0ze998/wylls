@@ -671,6 +671,9 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
         : s.phase === 'waiting' && launcher && persisted ? L`「世界を開始」を押すと、保存された世界があれば続きから、なければ新しく準備します。送信や署名はゲーム中に自分で確認します。`
         : s.phase === 'waiting' && launcher ? L`「新しい世界を開始」を押すと準備します。送信や署名はゲーム中に自分で確認します。`
         // (the TEST-ONLY contest pair: the first player waits for the second, who presses start in another tab)
+        // (B16, fix-b14-b16: a kept world's key is the browser's per address, so another TAB is the same player there:
+        //  the second person needs another browser, or the other address of this launcher)
+        : s.phase === 'starting' && s.pairWaiting && persisted ? L`もう一人のプレイヤーを待っています。もう一人が別のブラウザ（同じブラウザなら localhost と 127.0.0.1 の別のアドレス）で「世界を開始」を押すと、二人で一つの世界が始まります。同じブラウザの別のタブは同じプレイヤーです。待っている間、このタブは何も送信しません。`
         : s.phase === 'starting' && s.pairWaiting ? L`もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。`
         : s.phase === 'starting' && natural ? L`新しいシーズンを最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）`
         : s.phase === 'starting' && accelerated ? L`世界を準備しています…（試験世界の準備として、世界の時間を早送りします。最大150秒）`
