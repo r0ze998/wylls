@@ -55,7 +55,9 @@
 //! success that leaves every account it writes as it was, a pair that
 //! cancels out), nor does a swap of two transactions of one slot (or with
 //! their slots swapped too) whose effects commute (verify-pr91 mutations).
-//! ⑲'s history rule keeps an unproven history from a PASS; LiteSVM's runtime behaves as the cluster's for this
+//! ⑲'s history rule keeps an unproven history from a PASS (lifted only
+//! when VG has no finding AND every witness RPC agrees: VS, `witness.rs`,
+//! ⑰ Q-P1 = (a)+(b)); LiteSVM's runtime behaves as the cluster's for this
 //! program (rent 5,080 lamports per byte; fees re-based on the fee payer
 //! only); the program reads no account of another program (none in the
 //! playable lane; such a state is not in this archive). A program-owned

@@ -325,6 +325,11 @@ pub struct Chain {
     landed: Vec<Landed>,
     by_sig: HashMap<Signature, usize>,
     block_times: BTreeMap<u64, i64>,
+    /// Each slot a transaction landed in: its blockhash, its parent slot and
+    /// the parent's blockhash (`getBlock`, a verifier's second source:
+    /// verifier-witness). Memory only, like `block_times`; a ledger replay
+    /// rebuilds it, history loaded from a snapshot has none.
+    blocks: BTreeMap<u64, (Hash, u64, Hash)>,
     /// Signatures refused at execution without a charge (e.g. an
     /// `InsufficientFundsForFee` at block time) or expired; reported absent.
     dropped: HashSet<Signature>,
@@ -485,6 +490,7 @@ impl Chain {
             landed: vec![],
             by_sig: HashMap::new(),
             block_times: BTreeMap::new(),
+            blocks: BTreeMap::new(),
             dropped: HashSet::new(),
             holds: vec![],
             next_hold: 1,
@@ -915,6 +921,20 @@ impl Chain {
     }
 
     fn push_landed(&mut self, l: Landed) {
+        // Its block's identity, while the slot's blockhash is the newest
+        // (not for history loaded from a snapshot: its hashes are not kept).
+        if let (false, Some(&(h, s))) = (self.blocks.contains_key(&l.slot), self.blockhashes.back())
+        {
+            if s == l.slot {
+                let n = self.blockhashes.len();
+                let (ph, ps) = if n >= 2 {
+                    self.blockhashes[n - 2]
+                } else {
+                    (h, s)
+                };
+                self.blocks.insert(l.slot, (h, ps, ph));
+            }
+        }
         self.by_sig.insert(l.signature, self.landed.len());
         self.landed.push(l);
     }
@@ -1534,6 +1554,7 @@ impl Chain {
             .map(|(i, l)| (l.signature, i))
             .collect();
         self.block_times.retain(|sl, _| *sl <= s.slot);
+        self.blocks.retain(|sl, _| *sl <= s.slot);
         self.mempool.clear();
         self.dropped.clear();
         self.holds.clear();
@@ -1650,6 +1671,21 @@ impl Chain {
             err: l.err.clone(),
             code: l.code,
         })
+    }
+
+    /// The block of `slot` as `getBlock` serves it: its blockhash, parent
+    /// slot, the parent's blockhash and its transactions' signatures in
+    /// ledger order. Only slots a transaction landed in (an empty slot has
+    /// no block here), and not history loaded from a snapshot.
+    pub fn block(&self, slot: u64) -> Option<(Hash, u64, Hash, Vec<Signature>)> {
+        let &(h, ps, ph) = self.blocks.get(&slot)?;
+        let sigs = self
+            .landed
+            .iter()
+            .filter(|l| l.slot == slot)
+            .map(|l| l.signature)
+            .collect();
+        Some((h, ps, ph, sigs))
     }
 
     pub fn transaction(&self, sig: &Signature) -> Option<&Landed> {

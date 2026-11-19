@@ -16,7 +16,12 @@
 //!          --out DIR                        report directory (default: verify-report)
 //!          --json                           print the JSON report instead of the Markdown
 //!          --save FILE                      also write the input read as a fixture (.gz: gzip)
-//!          --origin SIG | --witness URL     public RPC: findex's history checks (G1, G3);
+//!          --origin SIG                     public RPC: findex's origin anchor (G1)
+//!          --witness URL                    public RPC, repeatable: a second, independent RPC; its
+//!                                           signature list feeds findex's G3, and VS compares every
+//!                                           transaction, block, account and final with it. Only VG's
+//!                                           exact end state AND every witness agreeing lift ⑲'s
+//!                                           `unproven` (⑰ Q-P1 = (a)+(b), witness.rs)
 //!          --resident-program ID            the NFT resident program, for V28: its feed from
 //!                                           --resident-archive DIR (its findex archive) or
 //!                                           from --rpc URL --localnet (same node, one ledger order);
@@ -47,7 +52,7 @@ fn usage(msg: &str) -> ! {
         include_str!("main.rs")
             .lines()
             .skip(4)
-            .take(17)
+            .take_while(|l| !l.starts_with("//! ```"))
             .map(|l| {
                 l.strip_prefix("//! ")
                     .or_else(|| l.strip_prefix("//!"))
@@ -88,7 +93,7 @@ fn main() {
     let mut rpc: Option<String> = None;
     let mut localnet = false;
     let mut origin: Option<fclient::ports::Signature> = None;
-    let mut witness: Option<String> = None;
+    let mut witnesses: Vec<String> = vec![];
     let mut resident_program: Option<String> = None;
     let mut resident_archive: Option<PathBuf> = None;
     let mut program: Option<String> = None;
@@ -114,7 +119,7 @@ fn main() {
             "--rpc" => rpc = Some(val()),
             "--localnet" => localnet = true,
             "--origin" => origin = Some(val().parse().unwrap_or_else(|_| usage("bad --origin"))),
-            "--witness" => witness = Some(val()),
+            "--witness" => witnesses.push(val()),
             "--resident-program" => resident_program = Some(val()),
             "--resident-archive" => resident_archive = Some(val().into()),
             "--program" => program = Some(val()),
@@ -169,7 +174,7 @@ fn main() {
                     &program,
                     localnet,
                     origin,
-                    witness.as_deref(),
+                    witnesses.first().map(String::as_str),
                 ))
                 .unwrap_or_else(|e| usage(&e)),
             (None, None) => usage("--archive or --rpc is required"),
@@ -280,6 +285,38 @@ fn main() {
             (None, true) => usage("--balances needs --rpc"),
             _ => Default::default(),
         };
+        // ⑰ Q-P1 (b): the second source(s), read after everything else
+        // (VS, witness.rs). Not for a local node's ledger feed (its history
+        // has its own rule).
+        let mut chain = chain;
+        match (&rpc, witnesses.is_empty(), localnet) {
+            (_, true, _) => {}
+            (Some(u), false, false) => {
+                let keys: Vec<solana_address::Address> = finals
+                    .keys()
+                    .map(|k| solana_address::Address::new_from_array(*k))
+                    .collect();
+                let c = rt.block_on(verify_core::witness::cross_check(
+                    u, &witnesses, &program, season_id, &txs, &keys, final_slot,
+                ));
+                for w in &c.witnesses {
+                    eprintln!(
+                        "frontier-verify: witness {}: {} signatures listed, {} transactions served, {} blocks, {} final states, {} read errors",
+                        w.url,
+                        w.signatures.as_ref().map_or(0, |s| s.len()),
+                        w.txs.values().filter(|t| t.is_some()).count(),
+                        w.blocks.values().filter(|b| b.is_some()).count(),
+                        w.finals.len(),
+                        w.errors.len()
+                    );
+                }
+                chain.cross = Some(c);
+            }
+            (None, false, _) => usage("--witness needs --rpc (the primary)"),
+            (Some(_), false, true) => {
+                usage("--witness is for a public-RPC history, not --localnet's ledger feed")
+            }
+        }
         Input {
             cfg: Config {
                 program,

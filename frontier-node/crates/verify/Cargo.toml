@@ -40,6 +40,8 @@ mutate-vwl = []
 mutate-vx = []
 # The playable lane's genesis replay of an archive without post-states (with `playable-lane`).
 mutate-vg = []
+# ⑰ Q-P1 (b): the second-source cross-check (VS) trusts every witness blindly.
+mutate-vs = []
 # The wide world's event chains (VW1, workstream 04; experimental, opt-in).
 wide-world-experimental = ["frontier-abi/world-index-experimental"]
 # Experimental, opt-in, off by default: the independent state-transition
@@ -116,3 +118,6 @@ solana-rent = { workspace = true, optional = true }
 [dev-dependencies]
 keeper = { path = "../keeper" }
 localnet.workspace = true
+# The ignored live VS tests' lying RPC proxy (`tests/playable_lane.rs`): the
+# workspace's axum, already in Cargo.lock through localnet; no new crate.
+axum.workspace = true

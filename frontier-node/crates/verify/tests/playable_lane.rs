@@ -448,6 +448,7 @@ fn record_playable_lane_natural() {
             })
             .collect(),
         upgrade_authority: Some(upgrade.pubkey()),
+        cross: None,
     };
     let mut owned = std::collections::BTreeSet::new();
     for t in txs.iter_mut() {
@@ -974,4 +975,478 @@ fn a_live_local_node_read_as_public_rpc_is_re_executed_from_genesis() {
     input.history = Default::default();
     let rep = verify_core::verify(&input);
     assert_eq!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+}
+
+// ------------------------------------------- VS over two live local nodes
+
+/// What a lying RPC proxy changes in the honest node's answers
+/// (verifier-witness: the primary that serves a consistent false season).
+#[derive(Clone, Default)]
+struct Lie {
+    /// Hidden everywhere: the signature list, `getTransaction`, `getBlock`.
+    drop: Option<String>,
+    /// A signed transaction that never landed, served as landed at `slot`
+    /// (listed, served by `getTransaction`, in its slot's block).
+    inject: Option<(String, u64, serde_json::Value)>,
+    /// Its `meta.computeUnitsConsumed` served one higher.
+    units_of: Option<String>,
+    /// This account's data served with one byte flipped.
+    flip_final: Option<String>,
+}
+
+impl Lie {
+    fn apply(&self, method: &str, params: &serde_json::Value, v: &mut serde_json::Value) {
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD;
+        match method {
+            "getSignaturesForAddress" => {
+                let Some(a) = v.as_array_mut() else { return };
+                if let Some(d) = &self.drop {
+                    a.retain(|x| x["signature"].as_str() != Some(d));
+                }
+                if let Some((s, slot, _)) = &self.inject {
+                    if params
+                        .get(1)
+                        .and_then(|c| c.get("before"))
+                        .is_none_or(|b| b.is_null())
+                    {
+                        let at = a
+                            .iter()
+                            .position(|x| x["slot"].as_u64().unwrap_or(0) < *slot)
+                            .unwrap_or(a.len());
+                        a.insert(
+                            at,
+                            serde_json::json!({"signature": s, "slot": slot,
+                            "err": {"InstructionError": [0, {"Custom": 1}]}, "memo": null,
+                            "blockTime": null, "confirmationStatus": "finalized"}),
+                        );
+                    }
+                }
+            }
+            "getTransaction" => {
+                let s = params[0].as_str().unwrap_or("");
+                if self.drop.as_deref() == Some(s) {
+                    *v = serde_json::Value::Null;
+                }
+                if let Some((i, _, t)) = &self.inject {
+                    if i == s {
+                        *v = t.clone();
+                    }
+                }
+                if self.units_of.as_deref() == Some(s) {
+                    let u = v["meta"]["computeUnitsConsumed"].as_u64().unwrap_or(0);
+                    v["meta"]["computeUnitsConsumed"] = serde_json::json!(u + 1);
+                }
+            }
+            "getBlock" => {
+                let Some(sigs) = v.get_mut("signatures").and_then(|x| x.as_array_mut()) else {
+                    return;
+                };
+                if let Some(d) = &self.drop {
+                    sigs.retain(|x| x.as_str() != Some(d));
+                }
+                if let Some((s, slot, _)) = &self.inject {
+                    if params[0].as_u64() == Some(*slot) {
+                        sigs.push(serde_json::json!(s));
+                    }
+                }
+            }
+            "getMultipleAccounts" => {
+                let Some(k) = &self.flip_final else { return };
+                let Some(i) = params[0]
+                    .as_array()
+                    .and_then(|a| a.iter().position(|x| x.as_str() == Some(k)))
+                else {
+                    return;
+                };
+                let d = &mut v["value"][i]["data"][0];
+                if let Some(mut bytes) = d.as_str().and_then(|x| b64.decode(x).ok()) {
+                    if let Some(b) = bytes.get_mut(150) {
+                        *b ^= 1;
+                    }
+                    *d = serde_json::json!(b64.encode(&bytes));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A JSON-RPC proxy on `port` that forwards to `upstream` and lies by `lie`.
+async fn lying_proxy(
+    upstream: String,
+    lie: Lie,
+    port: u16,
+) -> (String, tokio::task::JoinHandle<()>) {
+    use axum::{extract::State, routing::post, Json, Router};
+    type S = std::sync::Arc<(fclient::rpc::RpcClient, Lie)>;
+    async fn handle(
+        State(s): State<S>,
+        Json(req): Json<serde_json::Value>,
+    ) -> Json<serde_json::Value> {
+        let id = req["id"].clone();
+        let method = req["method"].as_str().unwrap_or("").to_string();
+        let params = req.get("params").cloned().unwrap_or(serde_json::json!([]));
+        Json(match s.0.call(&method, params.clone()).await {
+            Ok(mut v) => {
+                s.1.apply(&method, &params, &mut v);
+                serde_json::json!({"jsonrpc": "2.0", "id": id, "result": v})
+            }
+            Err(fclient::ports::PortError::Rpc { code, message }) => {
+                serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+            }
+            Err(e) => {
+                serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": e.to_string()}})
+            }
+        })
+    }
+    let state: S = std::sync::Arc::new((fclient::rpc::RpcClient::new(upstream), lie));
+    let app = Router::new().route("/", post(handle)).with_state(state);
+    let l = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .expect("the proxy port free");
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(l, app).await;
+    });
+    (format!("http://127.0.0.1:{port}"), h)
+}
+
+/// The season read from `primary` the way `frontier-verify --rpc P
+/// --balances --witness W…` reads it (no G3 witness for the pull when
+/// `g3` is false, so that VS itself, not findex, meets a dropped range).
+async fn read_witnessed(
+    primary: &str,
+    witnesses: &[String],
+    program: &Address,
+    so: &verify_core::reexec::Program,
+    g3: bool,
+) -> Result<Input, String> {
+    use verify_core::input as vi;
+    let (txs, history) = vi::fetch_txs(
+        primary,
+        program,
+        false,
+        None,
+        if g3 {
+            witnesses.first().map(String::as_str)
+        } else {
+            None
+        },
+    )
+    .await?;
+    let mut keys = vi::written_keys(&txs);
+    for k in vi::program_accounts(primary, program, SEASON_ID).await? {
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+    let (finals, final_slot) = vi::fetch_finals(primary, &keys).await?;
+    let mut chain = vi::fetch_chain(primary, program, &txs).await?;
+    let (_, h) = vi::program_hash(primary, program).await?;
+    chain.cross = Some(
+        verify_core::witness::cross_check(
+            primary, witnesses, program, SEASON_ID, &txs, &keys, final_slot,
+        )
+        .await,
+    );
+    Ok(Input {
+        cfg: Config {
+            program: *program,
+            season_id: SEASON_ID,
+            quicknet_pk: fb::quicknet_info().public_key,
+            ruleset_hash: frontier_abi::v2::presets::RULESET_HASH_V3,
+            program_hash: Some(so.sha256()),
+        },
+        txs,
+        finals,
+        final_slot,
+        program_hashes: vec![(0, h)],
+        provenance: format!(
+            "live local node {primary}, read as public RPC, witnesses {witnesses:?}"
+        ),
+        scenarios: vec![],
+        history,
+        resident_feed: None,
+        program_so: Some(std::sync::Arc::new(so.so.as_ref().clone())),
+        declared: vec![],
+        chain,
+    })
+}
+
+/// ⑰ Q-P1 = (a)+(b) over HTTP: the natural season on one in-process chain,
+/// served by two JSON-RPC servers (the primary and an independent-looking
+/// witness), and by lying proxies in front of the primary. Ports
+/// 41520–41527 (`VS_LIVE_PORT` moves the base); 41549 is the witness that
+/// does not answer. Ignored: it signs with the recorder's fixed test
+/// keypairs and binds local ports (CI's key-free rule); run with
+/// `--ignored`. Each case prints its verdict and VS's findings.
+#[test]
+#[ignore = "binds 127.0.0.1:41520-41527 (VS_LIVE_PORT) and signs the recorder's test transactions; run with --ignored"]
+fn a_live_two_node_season_is_judged_with_a_witness() {
+    use verify_core::codes as c;
+    let so = verify_core::reexec::Program::load(
+        &common::fixtures_dir().join("devnet-playable-da3dc1aa.so.gz"),
+    )
+    .expect("the committed .so");
+    let (r, program, upgrade, _) = build_natural(&so.so);
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let base: u16 = std::env::var("VS_LIVE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(41_520);
+    let state = std::sync::Arc::new(std::sync::Mutex::new(r.c));
+    let primary = rt
+        .block_on(localnet::server::start(state.clone(), base))
+        .expect("the port free");
+    let witness = rt
+        .block_on(localnet::server::start(state.clone(), base + 2))
+        .expect("the port free");
+    let (p, w) = (primary.url(), witness.url());
+    let show = |rep: &verify_core::Report| {
+        rep.findings
+            .iter()
+            .filter(|f| f.severity != verify_core::Severity::Warn)
+            .map(|f| {
+                format!(
+                    "{:?} {} {} {} {}",
+                    f.severity,
+                    f.check,
+                    f.code,
+                    f.entity,
+                    f.detail.chars().take(240).collect::<String>()
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let judge = |name: &str, inp: &Input| -> verify_core::Report {
+        let rep = verify_core::verify(inp);
+        println!(
+            "== {name}: verdict {:?}, basis {}",
+            rep.verdict,
+            rep.history
+                .as_ref()
+                .map_or("-".into(), |h| h["basis"].to_string())
+        );
+        for l in show(&rep) {
+            println!("   {l}");
+        }
+        rep
+    };
+    let has = |rep: &verify_core::Report, code: &str| rep.findings.iter().any(|f| f.code == code);
+
+    // 1. honest primary, honest witness: PASS, basis witnessed.
+    let inp = rt
+        .block_on(read_witnessed(
+            &p,
+            std::slice::from_ref(&w),
+            &program,
+            &so,
+            true,
+        ))
+        .expect("read");
+    assert_eq!(inp.chain.upgrade_authority, Some(upgrade.pubkey()));
+    let cross = inp.chain.cross.as_ref().unwrap();
+    assert!(
+        cross.witnesses[0].errors.is_empty(),
+        "{:?}",
+        cross.witnesses[0].errors
+    );
+    assert!(
+        cross.witnesses[0].blocks.values().all(|b| b.is_some()),
+        "getBlock served"
+    );
+    let rep = judge("honest primary + honest witness", &inp);
+    assert_eq!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+    assert_eq!(rep.history.as_ref().unwrap()["basis"], "witnessed");
+    // the same without a witness: ⑲'s unproven
+    let mut alone = inp.clone();
+    alone.chain.cross = None;
+    let rep = judge("honest primary, no witness", &alone);
+    assert_eq!(rep.verdict, Verdict::Unverifiable);
+
+    let failed: Vec<(String, u64)> = inp
+        .txs
+        .iter()
+        .filter(|t| t.err.is_some())
+        .map(|t| (t.signature.to_string(), t.slot))
+        .collect();
+    let (drop_sig, drop_slot) = failed.last().cloned().expect("a failed transaction");
+    let program_account = inp
+        .finals
+        .iter()
+        .find(|(_, a)| {
+            a.as_ref()
+                .is_some_and(|a| a.owner == program && a.data.len() > 200)
+        })
+        .map(|(k, _)| Address::new_from_array(*k).to_string())
+        .unwrap();
+    // A signed transaction that never landed: the season's payer key over
+    // an instruction the program refuses, served as a failure at the slot
+    // of a real one (a consistent liar: listed, served, in the block).
+    let payer = Keypair::new_from_array([0xA2; 32]);
+    let fake = tx::build(
+        &[Instruction::new_with_bytes(
+            program,
+            &[0xff, 0xee],
+            vec![AccountMeta::new(payer.pubkey(), true)],
+        )],
+        &budget(),
+        &[&payer],
+        &fclient::Hash::new_from_array([9; 32]),
+    )
+    .unwrap();
+    let fake_sig = tx::signature(&fake).to_string();
+    let template = rt
+        .block_on(fclient::rpc::RpcClient::new(p.clone()).call(
+            "getTransaction",
+            serde_json::json!([drop_sig, {"encoding": "base64", "commitment": "finalized"}]),
+        ))
+        .unwrap();
+    let mut injected = template.clone();
+    {
+        use base64::Engine as _;
+        injected["transaction"] = serde_json::json!([
+            base64::engine::general_purpose::STANDARD.encode(tx::wire(&fake)),
+            "base64"
+        ]);
+        let n = fake.message.account_keys.len();
+        let pre = template["meta"]["preBalances"][0]
+            .as_u64()
+            .unwrap_or(10_000_000);
+        let fee = template["meta"]["fee"].as_u64().unwrap_or(5_000);
+        let mut pre_v = vec![1u64; n];
+        pre_v[0] = pre;
+        let mut post_v = pre_v.clone();
+        post_v[0] = pre - fee;
+        injected["meta"]["preBalances"] = serde_json::json!(pre_v);
+        injected["meta"]["postBalances"] = serde_json::json!(post_v);
+        injected["meta"]["logMessages"] = serde_json::json!([
+            format!("Program {program} invoke [1]"),
+            format!("Program {program} failed: custom program error: 0x1")
+        ]);
+    }
+
+    let cases: Vec<(&str, Lie, bool, &[&str])> = vec![
+        (
+            "lying primary drops a failed tx (findex G3 off)",
+            Lie {
+                drop: Some(drop_sig.clone()),
+                ..Lie::default()
+            },
+            false,
+            &[c::WITNESS_MISSING_TX],
+        ),
+        (
+            "lying primary injects a never-landed signed tx",
+            Lie {
+                inject: Some((fake_sig.clone(), drop_slot, injected.clone())),
+                ..Lie::default()
+            },
+            true,
+            &[c::WITNESS_UNKNOWN_TX, c::WITNESS_MISMATCH],
+        ),
+        (
+            "lying primary alters a tx's meta (units)",
+            Lie {
+                units_of: Some(drop_sig.clone()),
+                ..Lie::default()
+            },
+            true,
+            &[c::WITNESS_MISMATCH],
+        ),
+        (
+            "lying primary alters a program account's final",
+            Lie {
+                flip_final: Some(program_account.clone()),
+                ..Lie::default()
+            },
+            true,
+            &[c::WITNESS_MISMATCH],
+        ),
+    ];
+    for (k, (name, lie, g3, want)) in cases.into_iter().enumerate() {
+        let (lp, h) = rt.block_on(lying_proxy(p.clone(), lie, base + 4 + k as u16));
+        let inp = rt
+            .block_on(read_witnessed(
+                &lp,
+                std::slice::from_ref(&w),
+                &program,
+                &so,
+                g3,
+            ))
+            .expect("read");
+        let rep = judge(name, &inp);
+        h.abort();
+        assert_ne!(rep.verdict, Verdict::Pass, "{name}");
+        for code in want {
+            assert!(has(&rep, code), "{name}: want {code}: {:#?}", show(&rep));
+        }
+        assert_eq!(rep.history.as_ref().unwrap()["basis"], "unproven", "{name}");
+    }
+    // The dropped tx with findex's G3 witness on: the pull itself stops at
+    // the gap (frontier-verify exits 2, nothing verified).
+    let (lp, h) = rt.block_on(lying_proxy(
+        p.clone(),
+        Lie {
+            drop: Some(drop_sig.clone()),
+            ..Lie::default()
+        },
+        base + 4,
+    ));
+    let got = rt.block_on(read_witnessed(
+        &lp,
+        std::slice::from_ref(&w),
+        &program,
+        &so,
+        true,
+    ));
+    h.abort();
+    println!(
+        "== lying primary drops a failed tx (G3 on): {:?}",
+        got.as_ref().err()
+    );
+    assert!(
+        got.as_ref().is_err_and(|e| e.contains("history gap")),
+        "{:?}",
+        got.err()
+    );
+
+    // 3. the witness missing: nothing listens on 41549.
+    let inp = rt
+        .block_on(read_witnessed(
+            &p,
+            &["http://127.0.0.1:41549".to_string()],
+            &program,
+            &so,
+            false,
+        ))
+        .expect("read");
+    let rep = judge("honest primary, witness unreachable", &inp);
+    assert_eq!(rep.verdict, Verdict::Unverifiable);
+    assert!(has(&rep, c::WITNESS_UNAVAILABLE));
+
+    // 4. both lying identically (two proxies, one lie): the stated residual.
+    let lie = Lie {
+        drop: Some(drop_sig.clone()),
+        ..Lie::default()
+    };
+    let (lp, h1) = rt.block_on(lying_proxy(p.clone(), lie.clone(), base + 4));
+    let (lw, h2) = rt.block_on(lying_proxy(w.clone(), lie, base + 5));
+    let inp = rt
+        .block_on(read_witnessed(&lp, &[lw], &program, &so, true))
+        .expect("read");
+    let rep = judge("primary and witness lying identically (the residual)", &inp);
+    h1.abort();
+    h2.abort();
+    primary.stop();
+    witness.stop();
+    assert_eq!(
+        rep.verdict,
+        Verdict::Pass,
+        "the residual: {:#?}",
+        show(&rep)
+    );
 }
