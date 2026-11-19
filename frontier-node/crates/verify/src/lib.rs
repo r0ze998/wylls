@@ -40,6 +40,10 @@ pub mod conquest;
 pub mod cqrec;
 pub mod facts;
 pub mod fixture;
+/// An archive without post-states, re-executed from the Season's creation
+/// by the pinned program (VG).
+#[cfg(feature = "playable-lane")]
+pub mod genesis;
 pub mod history;
 pub mod holding;
 pub mod input;
@@ -96,7 +100,8 @@ pub fn mutated() -> Option<&'static str> {
         "mutate-v11",
         "mutate-v12",
         "mutate-v13",
-        "mutate-vx"
+        "mutate-vx",
+        "mutate-vg"
     )
 }
 
@@ -247,14 +252,42 @@ pub fn exit_code(v: Verdict) -> i32 {
 /// V2–V13 with the v2 rules where they differ, and the conquest audit
 /// (CQ1 walks every chain in V1's place).
 pub fn verify(input: &Input) -> Report {
+    // VG (playable lane): an archive without post-states, with the chain's
+    // balances and the pinned binary, is re-executed from the Season's
+    // creation; every check then judges the derived post-states.
+    #[cfg(feature = "playable-lane")]
+    if !cfg!(feature = "mutate-vg") && genesis::applies(input) {
+        let d = genesis::derive(input);
+        let mut r = verify_one(d.input.as_ref().unwrap_or(input));
+        if d.ran {
+            r.checks_run.insert(0, "VG:genesis-replay");
+        }
+        r.findings.extend(d.findings);
+        r.findings.sort_by_key(|x| std::cmp::Reverse(x.severity));
+        if r.findings.iter().any(|f| f.fail()) {
+            r.verdict = Verdict::Fail;
+        } else if r.verdict == Verdict::Pass
+            && r.findings
+                .iter()
+                .any(|f| f.severity == Severity::Unverifiable)
+        {
+            r.verdict = Verdict::Unverifiable;
+        }
+        return history::apply(&input.history, r);
+    }
+    history::apply(&input.history, verify_one(input))
+}
+
+fn verify_one(input: &Input) -> Report {
     let base = checks::run(input);
     let r = if conquest::applies(input) {
         merge(base, conquest::verify(input))
     } else {
         base
     };
-    // An unproven history is never PASS; only self-contained failures remain FAIL.
-    history::apply(&input.history, r)
+    // An unproven history is never PASS; only self-contained failures remain
+    // FAIL (`verify` applies it).
+    r
 }
 
 /// One report of two suites over the same input: the worse verdict, every

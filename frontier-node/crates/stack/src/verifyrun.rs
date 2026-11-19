@@ -136,6 +136,7 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         resident_feed,
         program_so: None,
         declared: vec![],
+        chain: Default::default(),
     })
 }
 

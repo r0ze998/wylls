@@ -711,6 +711,7 @@ mod tests {
             resident_feed: None,
             program_so: None,
             declared: vec![],
+            chain: Default::default(),
         };
         let mut cx = Ctx {
             w,

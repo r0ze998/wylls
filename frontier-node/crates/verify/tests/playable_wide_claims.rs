@@ -554,6 +554,7 @@ fn input_of(
         resident_feed: None,
         program_so: None,
         declared: vec![],
+        chain: Default::default(),
     }
 }
 

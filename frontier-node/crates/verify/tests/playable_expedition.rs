@@ -456,6 +456,7 @@ fn input_of(
         resident_feed: None,
         program_so: None,
         declared: vec![],
+        chain: Default::default(),
     }
 }
 
@@ -1358,6 +1359,161 @@ fn record_playable_expedition() {
         }
     }
 
+    // ---- 10b. (verifier-archive-next) The host leaves the destination and
+    // goes home: **Dissolve** (kind 4, the player's) once the province's
+    // bells caught up, the destination resolved past the leave bell, then
+    // the permissionless **Return** (kind 5). Then the Season's end
+    // (EndSeason, 72 h grace) and the Free City's closes:
+    // **CloseCaptureEscrow** (17) and **CloseConquest** (16).
+    let bell_now = |r: &Rec| -> u32 {
+        let sd = r.data(&r.a.season).unwrap();
+        let (_, _, _, g) = clock_of(&sd);
+        ((r.c.unix_timestamp() - g) / 600) as u32
+    };
+    let rwc_once = |r: &mut Rec| {
+        let b = resolved_next_of(r, dest_coord);
+        if r.c.account(&adr(ctx.bell_anchor(b, region))).is_none() {
+            stage_seed(r, b, region, seed_of(b));
+        }
+        let close = window_close(r, b);
+        if r.c.unix_timestamp() < close + 1 {
+            r.advance_to(close + 1);
+        }
+        r.send(
+            &[&keeper],
+            &[rwc_ix(
+                &r.a.clone(),
+                &keeper.pubkey(),
+                dest,
+                dest_key,
+                region,
+                b,
+            )],
+            &format!("ResolveWithConquest bell {b}"),
+        );
+    };
+    use fclient::wide_resident_draft::Draft as ResidentDraft;
+    let mut dissolved = None;
+    for _ in 0..40 {
+        if resolved_next_of(&r, dest_coord) + 1 >= bell_now(&r) {
+            break;
+        }
+        rwc_once(&mut r);
+    }
+    if let Ok(d) = ResidentDraft::for_wallet(&ctx, host0, dest, w0, w0) {
+        let ix = Instruction {
+            program_id: program,
+            accounts: d
+                .roles()
+                .iter()
+                .map(|ro| meta(ro.address, ro.signer, ro.writable))
+                .collect(),
+            data: dx::encode(dx::Kind::Dissolve, &d.proposed_bytes()).unwrap(),
+        };
+        if r.try_send(&[&wallet0], &[ix], "Dissolve") {
+            dissolved = Some(bell_now(&r));
+        } else {
+            let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+            r.log.push(format!("Dissolve tail: {tail:?}"));
+        }
+    }
+    if let Some(pend) = dissolved {
+        for _ in 0..10 {
+            if resolved_next_of(&r, dest_coord) > pend {
+                break;
+            }
+            rwc_once(&mut r);
+        }
+        let rt =
+            ResidentDraft::return_home(&ctx, host0, dest, keeper.pubkey()).expect("a Return draft");
+        let ix = Instruction {
+            program_id: program,
+            accounts: rt
+                .roles()
+                .iter()
+                .map(|ro| meta(ro.address, ro.signer, ro.writable))
+                .collect(),
+            data: dx::encode(dx::Kind::Return, &rt.proposed_bytes()).unwrap(),
+        };
+        if !r.try_send(&[&keeper], &[ix], "Return") {
+            let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+            r.log.push(format!("Return tail: {tail:?}"));
+        }
+    }
+    // The Season's end: EndSeason once its end bell began, the closes
+    // after the 72 h grace.
+    let sd = r.data(&a.season).unwrap();
+    let (_, _, _, genesis_ts) = clock_of(&sd);
+    let end_bell = u32::from_le_bytes(sd[S::END_BELL..S::END_BELL + 4].try_into().unwrap());
+    let end = genesis_ts + 600 * end_bell as i64;
+    r.advance_to(end + 1);
+    if r.try_send(
+        &[&keeper],
+        &[ix::end_season(&a, keeper.pubkey())],
+        "EndSeason",
+    ) {
+        r.advance_to(end + frontier_abi::presets::END_GRACE_SECS + 1);
+        let escrow_k = adr(capture_escrow_address(&ctx, &m0.citizen));
+        if let Some(e) = r
+            .data(&escrow_k)
+            .and_then(|d| WideCaptureEscrow::read(&d, SEASON_ID, world, m0.citizen).ok())
+        {
+            let mut acc = vec![
+                AccountMeta::new_readonly(keeper.pubkey(), true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(m0.citizen), false),
+                AccountMeta::new(escrow_k, false),
+                AccountMeta::new(adr(e.rent_payer()), false),
+            ];
+            if e.escrow() != 0 {
+                acc.push(AccountMeta::new(adr(e.funder()), false));
+            }
+            let ix = Instruction {
+                program_id: program,
+                accounts: acc,
+                data: dx::encode(
+                    dx::Kind::CloseCaptureEscrow,
+                    &wix::CloseCaptureEscrow.to_bytes(),
+                )
+                .unwrap(),
+            };
+            if !r.try_send(&[&keeper], &[ix], "CloseCaptureEscrow") {
+                let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+                r.log.push(format!("CloseCaptureEscrow tail: {tail:?}"));
+            }
+        }
+        if let Some(t) = r
+            .data(&conquest_k)
+            .and_then(|d| WideConquest::read(&d, SEASON_ID, dest).ok())
+        {
+            let ix = Instruction {
+                program_id: program,
+                data: dx::encode(
+                    dx::Kind::CloseConquest,
+                    &wix::CloseConquest {
+                        p: dest_coord.p(),
+                        q: dest_coord.q(),
+                    }
+                    .to_bytes(),
+                )
+                .unwrap(),
+                accounts: vec![
+                    AccountMeta::new_readonly(keeper.pubkey(), true),
+                    AccountMeta::new_readonly(a.season, false),
+                    AccountMeta::new(conquest_k, false),
+                    AccountMeta::new(adr(t.rent_payer()), false),
+                ],
+            };
+            if !r.try_send(&[&keeper], &[ix], "CloseConquest") {
+                let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+                r.log.push(format!("CloseConquest tail: {tail:?}"));
+            }
+        }
+    } else {
+        let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+        r.log.push(format!("EndSeason tail: {tail:?}"));
+    }
+
     // ---- 11. The archive: the whole season from AnnounceSeason on, the
     // UNFILTERED feed, the declared patches with it.
     let (txs, finals) = r.archive(0, &program);
@@ -1374,6 +1530,24 @@ fn record_playable_expedition() {
         "playable-expedition-whole",
     );
     whole.declared = r.declared.clone();
+    // What getTransaction serves beside each transaction (VG's input).
+    whole.chain = verify_core::input::ChainWitness {
+        balances: r
+            .c
+            .feed(0, usize::MAX, Some(&program))
+            .into_iter()
+            .map(|l| {
+                (
+                    l.signature.to_string(),
+                    verify_core::input::Balances {
+                        pre: l.pre_balances.clone(),
+                        post: l.post_balances.clone(),
+                    },
+                )
+            })
+            .collect(),
+        upgrade_authority: Some(upgrade.pubkey()),
+    };
     for l in &r.log {
         println!("STEP {l}");
     }
@@ -2025,9 +2199,27 @@ fn the_committed_program_is_the_pinned_one_and_the_recording_has_the_whole_path(
     ];
     let at: Vec<usize> = order.iter().map(|k| one(&inp, *k)).collect();
     assert!(at.windows(2).all(|w| w[0] < w[1]), "{at:?}");
+    // (the siege's resolves between the declaration and the capture; the
+    //  ones after it resolve the leave bell for Dissolve → Return)
+    let capture = one(&inp, SettleCapture);
     assert!(of_kind(&inp, ResolveWithConquest)
         .iter()
-        .all(|&t| t > at[5] && t < one(&inp, SettleCapture)));
+        .all(|&t| t > at[5]));
+    assert!(
+        of_kind(&inp, ResolveWithConquest)
+            .iter()
+            .filter(|&&t| t < capture)
+            .count()
+            >= 36
+    );
+    // verifier-archive-next: after the capture, the host leaves and goes
+    // home, the Season ends and the Free City's accounts close
+    let after = [Dissolve, Return, CloseCaptureEscrow, CloseConquest];
+    let at2: Vec<usize> = after.iter().map(|k| one(&inp, *k)).collect();
+    assert!(
+        capture < at2[0] && at2.windows(2).all(|w| w[0] < w[1]),
+        "{at2:?}"
+    );
     // the arrival bell's THE anchor is a REAL PostAnchor (0x10) on q4's previous round
     let posts: Vec<usize> = (0..inp.txs.len())
         .filter(|&t| {
@@ -2103,6 +2295,11 @@ fn vx_re_executes_the_expedition_and_the_conquest_exactly() {
         SettleMember,
         DeclareSiege,
         SettleCapture,
+        // verifier-archive-next
+        Dissolve,
+        Return,
+        CloseCaptureEscrow,
+        CloseConquest,
     ] {
         let t = one(&inp, k);
         assert!(
@@ -2324,8 +2521,9 @@ fn a_capture_before_the_siege_completed_fails() {
     // the last held bell's ResolveWithConquest is not in the archive: the
     // program refuses the capture from the states the archive shows
     let mut inp = recorded();
+    let capture = one(&inp, dx::Kind::SettleCapture);
     let rs = of_kind(&inp, dx::Kind::ResolveWithConquest);
-    let gone = *rs.last().unwrap();
+    let gone = *rs.iter().rfind(|&&t| t < capture).unwrap();
     inp.txs.remove(gone);
     for d in &mut inp.declared {
         if d.at > gone {
@@ -2454,4 +2652,170 @@ fn a_state_forged_into_an_earlier_writers_post_fails() {
         "{:#?}",
         vx_at(&rep, d)
     );
+}
+
+// ------------------------------------------- verifier-archive-next: the new kinds
+
+/// A program-owned post-state of transaction `t` with data.
+fn program_post(inp: &Input, t: usize) -> Address {
+    inp.txs[t]
+        .post
+        .iter()
+        .find(|(_, a)| {
+            a.as_ref()
+                .is_some_and(|a| a.owner == inp.cfg.program && !a.data.is_empty())
+        })
+        .map(|(k, _)| *k)
+        .expect("a program post-state")
+}
+
+#[test]
+fn a_forged_post_state_at_each_new_kind_fails() {
+    use dx::Kind::*;
+    for k in [Dissolve, Return] {
+        let mut inp = recorded();
+        let t = one(&inp, k);
+        let key = program_post(&inp, t);
+        edit_post(&mut inp, t, &key, |a| {
+            let n = a.data.len() - 1;
+            a.data[n] ^= 1;
+        });
+        let rep = verify_core::verify(&inp);
+        assert_eq!(rep.verdict, Verdict::Fail, "{k:?}: {:#?}", show(&rep));
+        assert!(
+            fails_vx(&rep, t, "ReExecMismatch"),
+            "{k:?}: {:#?}",
+            vx_at(&rep, t)
+        );
+    }
+}
+
+#[test]
+fn a_close_the_archive_says_left_an_account_open_fails() {
+    // CloseCaptureEscrow / CloseConquest close their account: an archive
+    // that keeps it (the re-run closes it) fails.
+    use dx::Kind::*;
+    for k in [CloseCaptureEscrow, CloseConquest] {
+        let mut inp = recorded();
+        let t = one(&inp, k);
+        let prior = inp.txs[..t]
+            .iter()
+            .rev()
+            .find_map(|x| {
+                x.post
+                    .iter()
+                    .find(|(key, a)| {
+                        inp.txs[t]
+                            .post
+                            .iter()
+                            .any(|(k2, b)| k2 == key && b.is_none())
+                            && a.as_ref().is_some_and(|a| a.owner == inp.cfg.program)
+                    })
+                    .cloned()
+            })
+            .expect("the account it closes, as an earlier post showed it");
+        let slot = inp.txs[t]
+            .post
+            .iter_mut()
+            .find(|(key, _)| *key == prior.0)
+            .unwrap();
+        slot.1 = prior.1.clone();
+        let rep = verify_core::verify(&inp);
+        assert_eq!(rep.verdict, Verdict::Fail, "{k:?}: {:#?}", show(&rep));
+        assert!(
+            fails_vx(&rep, t, "ReExecMismatch"),
+            "{k:?}: {:#?}",
+            vx_at(&rep, t)
+        );
+    }
+}
+
+#[test]
+fn a_return_before_its_leave_bell_resolved_fails() {
+    // Without the ResolveWithConquest of the leave bell, the program refuses
+    // the Return (TooEarly) from the states the archive shows.
+    use dx::Kind::*;
+    let mut inp = recorded();
+    let (d, rt) = (one(&inp, Dissolve), one(&inp, Return));
+    let gone = *of_kind(&inp, ResolveWithConquest)
+        .iter()
+        .find(|&&t| t > d && t < rt)
+        .expect("the leave bell's resolve");
+    inp.txs.remove(gone);
+    for x in &mut inp.declared {
+        if x.at > gone {
+            x.at -= 1;
+        }
+    }
+    let t = one(&inp, Return);
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
+    assert!(fails_vx(&rep, t, "ReExecRefused"), "{:#?}", vx_at(&rep, t));
+}
+
+// ------------------------------------------- verifier-archive-next: VG
+
+#[test]
+fn without_post_states_the_expedition_is_re_executed_from_genesis_with_the_same_findings() {
+    // The recording as a public RPC serves it (no post-states), with the
+    // chain's balances: VG re-derives every post-state, and the season's
+    // judgement is the same: no FAIL, and only the recorder's declared
+    // patches keep it from a PASS.
+    let rec = recorded();
+    assert_eq!(rec.chain.balances.len(), rec.txs.len());
+    let mut inp = rec.clone();
+    for t in inp.txs.iter_mut() {
+        t.post.clear();
+    }
+    let rep = verify_core::verify(&inp);
+    assert!(
+        rep.checks_run.contains(&"VG:genesis-replay"),
+        "{:?}",
+        rep.checks_run
+    );
+    assert_eq!(rep.verdict, Verdict::Unverifiable, "{:#?}", show(&rep));
+    for f in &rep.findings {
+        assert_ne!(f.severity, Severity::Fail, "{:#?}", show(&rep));
+    }
+    // The derived program post-states are the recorded ones.
+    let d = verify_core::genesis::derive(&inp);
+    assert!(d.findings.iter().all(|f| !f.fail()), "{:?}", d.findings);
+    let derived = d.input.unwrap();
+    let mut n = 0;
+    for (i, (a, b)) in rec.txs.iter().zip(derived.txs.iter()).enumerate() {
+        if a.err.is_some() {
+            continue;
+        }
+        for (k, acc) in &a.post {
+            if acc.as_ref().is_some_and(|x| x.owner == rec.cfg.program) {
+                let got = b.post.iter().find(|(x, _)| x == k).map(|(_, s)| s);
+                assert_eq!(got, Some(acc), "tx#{i} {k}");
+                n += 1;
+            }
+        }
+    }
+    assert!(n > 200, "{n}");
+}
+
+#[test]
+fn without_post_states_a_forged_gather_log_fails() {
+    let mut inp = recorded();
+    for t in inp.txs.iter_mut() {
+        t.post.clear();
+    }
+    let t = one(&inp, dx::Kind::Gather);
+    let l = inp.txs[t]
+        .logs
+        .iter_mut()
+        .find(|l| l.starts_with("Program data: "))
+        .unwrap();
+    let n = l.len() - 6;
+    let c = if l.as_bytes()[n] == b'A' { "B" } else { "A" };
+    l.replace_range(n..n + 1, c);
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
+    assert!(rep
+        .findings
+        .iter()
+        .any(|f| f.fail() && f.check == "VG" && f.entity == format!("tx#{t}")));
 }

@@ -9,7 +9,9 @@
 //! Dissolve, Return, SettleMember, SettleCamp, SettleFailure,
 //! SettleForfeit, CloseTerminal, SettleRetainedFailure, and the conquest
 //! kinds DeclareSiege, ResolveWithConquest, SettleCapture, SettleSiege,
-//! CloseConquest, CloseCaptureEscrow, SettleReservation) is executed again
+//! CloseConquest, CloseCaptureEscrow, SettleReservation), and every legacy
+//! **OpenProvince** (tag 0x22, whose Province no independent check of the
+//! playable lane compares byte for byte: D-verify-pr89-3), is executed again
 //! by the pinned `.so` ([`crate::reexec`]) from the states the archive
 //! shows before it, and judged:
 //!
@@ -71,6 +73,7 @@ use solana_address::Address;
 
 use super::Ctx;
 use crate::codes::*;
+use crate::input::ChainWitness;
 use crate::input::Input;
 use crate::reexec::{judged_logs, Pre, Program, Replayed, Svm};
 use crate::world::{b58, Key, Tx, World};
@@ -97,13 +100,25 @@ pub fn judged(data: &[u8]) -> bool {
     kind_of(data).is_some()
 }
 
+/// The legacy OpenProvince (ABI v2 tag 0x22): in the playable lane no
+/// independent check compares the Province it writes byte for byte
+/// (D-verify-pr89-3), so VX re-executes it too.
+pub const OPEN_PROVINCE: u8 = 0x22;
+
 /// The transactions VX judges: successful, with a dispatch-envelope
-/// instruction of the program.
+/// instruction of the program, or a legacy OpenProvince.
 fn selected(t: &Tx) -> Option<String> {
     if !t.ok {
         return None;
     }
-    let kinds: Vec<String> = t.ixs.iter().filter_map(|ix| kind_of(&ix.data)).collect();
+    let kinds: Vec<String> = t
+        .ixs
+        .iter()
+        .filter_map(|ix| {
+            kind_of(&ix.data)
+                .or_else(|| (ix.tag() == Some(OPEN_PROVINCE)).then(|| "OpenProvince".into()))
+        })
+        .collect();
     (!kinds.is_empty()).then(|| kinds.join("+"))
 }
 
@@ -215,7 +230,12 @@ fn compare(
     rec: &fclient::ports::TxRecord,
     tx: usize,
     r: &Replayed,
+    chain: &ChainWitness,
 ) -> Result<(), Wrong> {
+    // With the chain's balances every named account started from its exact
+    // lamports (`reexec::replay_known`): the receipts' balance digests are
+    // then the chain's, and a records-only difference is not a credit's.
+    let exact = chain.of(rec).is_some();
     let t = &w.txs[tx];
     let program = w.program;
     let writable = |k: &Key| t.keys.iter().any(|(x, wr)| x == k && *wr);
@@ -223,7 +243,7 @@ fn compare(
     // in this program's archive, so the state may be stale.
     let mut doubt: Vec<String> = vec![];
     let mut declared: Vec<String> = vec![];
-    if r.names_programdata {
+    if r.names_programdata && chain.upgrade_authority.is_none() {
         doubt
             .push("the program's ProgramData (its upgrade authority is not in the archive)".into());
     }
@@ -405,7 +425,7 @@ fn compare(
                 "{d}; the archive's accounts {} hold more lamports than the re-run leaves: a credit outside the archive (e.g. a pre-funded address) explains a different allocation path",
                 credited.join(", ")
             ))
-        } else if !unseen.is_empty() && !heads.is_empty() {
+        } else if !exact && !unseen.is_empty() && !heads.is_empty() {
             Missing(format!(
                 "{d}, with every program-owned post-state's game bytes equal: the receipts digest the balances of the read-only accounts it names ({}), which this archive does not show before it",
                 unseen.join(", ")
@@ -439,6 +459,7 @@ fn judge_all(
     program: &Address,
     program_hash: Option<[u8; 32]>,
     so: Option<&Program>,
+    chain: &ChainWitness,
     pick: impl Fn(&Tx) -> Option<String>,
 ) -> Vec<(usize, String, Wrong)> {
     let picked: Vec<(usize, String)> = w
@@ -476,7 +497,7 @@ fn judge_all(
             "the archive has no post-states (a public RPC's): nothing to re-execute from".into(),
         );
     }
-    let mut svm = match Svm::new(so, program) {
+    let mut svm = match Svm::with_authority(so, program, chain.upgrade_authority) {
         Ok(s) => s,
         Err(e) => return all(format!("the program binary does not load: {e}")),
     };
@@ -506,7 +527,19 @@ fn judge_all(
             }
             continue;
         };
-        let r = crate::reexec::replay_exact(
+        let known = chain.of(rec);
+        if let Some(b) = known {
+            let pd = svm.programdata();
+            if let Some(j) = fclient::tx::from_wire(&rec.tx)
+                .ok()
+                .and_then(|m| m.message.account_keys.iter().position(|k| *k == pd))
+            {
+                if let Some(&l) = b.pre.get(j) {
+                    let _ = svm.set_programdata_lamports(l);
+                }
+            }
+        }
+        let r = crate::reexec::replay_known(
             &mut svm,
             &rec.tx,
             t.slot,
@@ -514,6 +547,7 @@ fn judge_all(
             |k| before(w, declared, k, i),
             |k| t.post.get(k).cloned(),
             &w.program,
+            known.map(|b| (b.pre.as_slice(), b.post.as_slice(), rec.fee)),
         );
         let mut root = None;
         let judged = match &r {
@@ -523,7 +557,7 @@ fn judge_all(
                     root = Some(from);
                     Err(Fail(REEXEC_MISMATCH, d))
                 }
-                None => compare(w, rec, i, r),
+                None => compare(w, rec, i, r, chain),
             },
         };
         prov[i] =
@@ -563,6 +597,7 @@ pub fn run(cx: &mut Ctx) {
         &cx.cfg.program,
         cx.cfg.program_hash,
         so.as_ref(),
+        &cx.input.chain,
         selected,
     );
     for (i, name, er) in found {
@@ -590,9 +625,9 @@ pub fn replay_one(input: &Input, i: usize) -> Result<Replayed, String> {
         input.final_slot,
     );
     let so = program_of(input).ok_or("no program binary")?;
-    let mut svm = Svm::new(&so, &input.cfg.program)?;
+    let mut svm = Svm::with_authority(&so, &input.cfg.program, input.chain.upgrade_authority)?;
     let t = w.txs.get(i).ok_or("no such transaction")?;
-    crate::reexec::replay_exact(
+    crate::reexec::replay_known(
         &mut svm,
         &input.txs[i].tx,
         t.slot,
@@ -600,5 +635,9 @@ pub fn replay_one(input: &Input, i: usize) -> Result<Replayed, String> {
         |k| before(&w, &input.declared, k, i),
         |k| t.post.get(k).cloned(),
         &w.program,
+        input
+            .chain
+            .of(&input.txs[i])
+            .map(|b| (b.pre.as_slice(), b.post.as_slice(), input.txs[i].fee)),
     )
 }

@@ -524,6 +524,7 @@ fn input_of(
         resident_feed: None,
         program_so: None,
         declared: vec![],
+        chain: Default::default(),
     }
 }
 
@@ -1567,9 +1568,16 @@ fn the_placement_2_season_with_wide_set_rules_passes() {
         .expect("the Season before the rules");
     assert_eq!(sd.data[placement_offset()], PLACEMENT_MIXED);
     let rep = verify_core::verify(&inp);
+    // (D-verify-pr89-3: its legacy OpenProvinces are VX's, and the ec511123…
+    //  binary is not committed: no FAIL, and only those are open)
     assert_eq!(
         rep.verdict,
-        verify_core::Verdict::Pass,
+        verify_core::Verdict::Unverifiable,
+        "{:#?}",
+        show(&rep.findings)
+    );
+    assert!(
+        common::only_open_province_unexecuted(&rep),
         "{:#?}",
         show(&rep.findings)
     );
