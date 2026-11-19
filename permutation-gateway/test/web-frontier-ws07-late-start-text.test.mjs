@@ -55,7 +55,7 @@ test('B1 each step once; a throw is tried again', () => {
     "loadOverviews(herald).catch(e => console.error('frontier overviews:', e));", '    try {',
     "if (FS.mode === 'practice' && !started.practice) {", 'started.practice = true; }',
     "if (FS.mode === 'spectate' && !started.spectate) { startSpectate(herald); started.spectate = true; }",
-    "if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }",
+    "if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel'), ...(coopOptions ?? {}) }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }",
     'if (!started.play) {', 'started.play = true;', 'startPlay({ herald, cfg })', "FS.tab = 'map';",
     "seasonStarted = FS.mode !== 'play' || started.coop;", "} catch (e) { console.error('frontier start:', e); }");
   assert.doesNotMatch(sw, /seasonStarted = true;/, 'never marked done before its steps ran');

@@ -300,17 +300,57 @@ function readBody(req, limit = 16384) {
   });
 }
 
-function serveStatic(res, rel) {
+/** 画面のファイル（repo の並びのまま、SERVE の中だけ）：`{status, body, type}`。 */
+export function staticFile(rel) {
   let p;
-  try { p = path.resolve(repo, decodeURIComponent(rel)); } catch { return send(res, 400, { error: 'bad path' }); }
-  if (!SERVE.some(d => p === d || p.startsWith(d + path.sep))) return send(res, 404, { error: 'not here' });
+  try { p = path.resolve(repo, decodeURIComponent(rel)); } catch { return { status: 400, body: { error: 'bad path' } }; }
+  if (!SERVE.some(d => p === d || p.startsWith(d + path.sep))) return { status: 404, body: { error: 'not here' } };
   if (fs.existsSync(p) && fs.statSync(p).isDirectory()) p = path.join(p, 'index.html');
-  if (!fs.existsSync(p)) return send(res, 404, { error: 'not found' });
-  send(res, 200, fs.readFileSync(p), TYPES[path.extname(p)] ?? 'application/octet-stream');
+  if (!fs.existsSync(p) || !fs.statSync(p).isFile()) return { status: 404, body: { error: 'not found' } };
+  return { status: 200, body: fs.readFileSync(p), type: TYPES[path.extname(p)] ?? 'application/octet-stream' };
+}
+
+function serveStatic(res, rel) {
+  const f = staticFile(rel);
+  send(res, f.status, f.body, f.type);
 }
 
 /** 画面から読ませる RPC（読むだけ）。 */
 export const READ_METHODS = Object.freeze(['getAccountInfo', 'getSignaturesForAddress', 'getTransaction', 'isBlockhashValid']);
+
+/**
+ * 板の `/coop/*` の答え：`{status, body}`、板の道でなければ null。`url.pathname` は入口の根から（mount を除いた道）。
+ * createServer と、世界ごとの板を自分の入口の下に置くローカルプレイの起動役（local-play-launcher.mjs）が同じものを使う。
+ */
+export async function answerCoop(board, req, url) {
+  if (url.pathname === '/coop/config') return { status: 200, body: board.config() };
+  if (url.pathname === '/coop/records' && req.method === 'GET') return { status: 200, body: board.records };
+  if (url.pathname === '/coop/records' && req.method === 'POST') {
+    let rec;
+    try { rec = JSON.parse((await readBody(req)).toString('utf8')); } catch { return { status: 400, body: { ok: false, why: '記録が読めない' } }; }
+    const r = await board.submit(rec);
+    return { status: r.ok ? 200 : 400, body: r };
+  }
+  if (url.pathname === '/coop/rpc' && req.method === 'POST') {
+    // 画面がチェーンを読むための入口（読むだけ）。送る取引は /gw（ヘラルド → 中継）で、ここは通らない。
+    if (!board.rpc) return { status: 404, body: { error: 'この板は --rpc なし' } };
+    let body;
+    try { body = JSON.parse((await readBody(req)).toString('utf8')); } catch { return { status: 400, body: { error: 'bad json' } }; }
+    if (!READ_METHODS.includes(body?.method)) return { status: 403, body: { error: `読むだけ：${READ_METHODS.join('・')}` } };
+    const r = await fetch(board.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: body.id ?? 1, method: body.method, params: body.params }) });
+    return { status: r.status, body: await r.text() };
+  }
+  if (url.pathname === '/coop/view') {
+    return { status: 200, body: await board.view({ viewer: url.searchParams.get('viewer') || null, judgeId: url.searchParams.get('judge') || undefined }) };
+  }
+  if (url.pathname === '/coop/outcomes' && req.method === 'GET') {
+    // ⑮の称号と年代記（読むだけ）。勝敗・得点・賞金には関わらない
+    const o = board.outcomes ? await board.outcomes() : null;
+    if (!o) return { status: 404, body: { error: 'no co-op outcome evaluator in this tree' } };
+    return { status: o.ok ? 200 : 503, body: o };
+  }
+  return null;
+}
 
 /** 板の HTTP サーバー。`/coop/*` は板、`/ws01/*` は画面、それ以外はヘラルドへ転送。 */
 export function createServer(board, { herald }) {
@@ -319,32 +359,8 @@ export function createServer(board, { herald }) {
     let url;
     try { url = new URL(req.url, 'http://127.0.0.1'); } catch { return send(res, 400, { error: 'bad url' }); }
     try {
-      if (url.pathname === '/coop/config') return send(res, 200, board.config());
-      if (url.pathname === '/coop/records' && req.method === 'GET') return send(res, 200, board.records);
-      if (url.pathname === '/coop/records' && req.method === 'POST') {
-        let rec;
-        try { rec = JSON.parse((await readBody(req)).toString('utf8')); } catch { return send(res, 400, { ok: false, why: '記録が読めない' }); }
-        const r = await board.submit(rec);
-        return send(res, r.ok ? 200 : 400, r);
-      }
-      if (url.pathname === '/coop/rpc' && req.method === 'POST') {
-        // 画面がチェーンを読むための入口（読むだけ）。送る取引は /gw（ヘラルド → 中継）で、ここは通らない。
-        if (!board.rpc) return send(res, 404, { error: 'この板は --rpc なし' });
-        let body;
-        try { body = JSON.parse((await readBody(req)).toString('utf8')); } catch { return send(res, 400, { error: 'bad json' }); }
-        if (!READ_METHODS.includes(body?.method)) return send(res, 403, { error: `読むだけ：${READ_METHODS.join('・')}` });
-        const r = await fetch(board.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: body.id ?? 1, method: body.method, params: body.params }) });
-        return send(res, r.status, await r.text());
-      }
-      if (url.pathname === '/coop/view') {
-        return send(res, 200, await board.view({ viewer: url.searchParams.get('viewer') || null, judgeId: url.searchParams.get('judge') || undefined }));
-      }
-      if (url.pathname === '/coop/outcomes' && req.method === 'GET') {
-        // ⑮の称号と年代記（読むだけ）。勝敗・得点・賞金には関わらない
-        const o = board.outcomes ? await board.outcomes() : null;
-        if (!o) return send(res, 404, { error: 'no co-op outcome evaluator in this tree' });
-        return send(res, o.ok ? 200 : 503, o);
-      }
+      const coop = await answerCoop(board, req, url);
+      if (coop) return send(res, coop.status, coop.body);
       if (url.pathname === '/ws01' || url.pathname === '/ws01/') { res.writeHead(302, { location: PAGE }); return res.end(); }
       if (url.pathname.startsWith('/ws01/repo/')) return serveStatic(res, url.pathname.slice('/ws01/repo/'.length));
       if (!up) return send(res, 404, { error: 'no herald' });

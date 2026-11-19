@@ -66,6 +66,8 @@ test('the command line: 1-4 residents, natural worlds only, their ports inside t
   const refused = (o, code) => assert.rejects(parseConfig(argv(o)), e => e.code === code, code);
   await refused({ ...base, 'operator-residents': '5' }, 'InvalidOperatorResidents');
   await refused({ ...base, 'operator-residents': '0' }, 'InvalidOperatorResidents');
+  // (Q16-2: one action per resident per bell is not a setting: the former --operator-per-turn is refused)
+  await assert.rejects(parseConfig(argv({ ...base, 'operator-residents': '2', 'operator-per-turn': '1' })), e => e.code === 'InvalidArguments');
   const { 'world-preset': _p, 'natural-runner': _n, ...plain } = base;
   await refused({ ...plain, 'operator-residents': '1' }, 'OperatorResidentsNeedNatural');
   // (the 18 ports of two worlds and their residents must fit below 42000 and miss 41904-41907 and 41970)
@@ -100,6 +102,7 @@ test('a natural world with two residents: funded like the player, one relay each
   const ops = await read('operators-args.json');
   assert.equal(arg(ops, '--count'), '2'); assert.equal(arg(ops, '--relay-ports'), '41440,41441'); assert.equal(arg(ops, '--herald'), 'http://127.0.0.1:41432');
   assert.deepEqual(JSON.parse(arg(ops, '--homes')), [{ p: -1, q: 2, nation: 1 }, { p: 0, q: -2, nation: 4 }]);
+  assert.equal(ops.includes('--per-turn'), false, 'no pace per turn is passed: one action per bell');
   const dir = await worldDir();
   const roster = JSON.parse(await fsp.readFile(path.join(dir, 'operators.json'), 'utf8'));
   assert.deepEqual([roster.count, roster.wallets, roster.ports, roster.lamports_each, roster.test_only], [2, AI, [41440, 41441], OPERATOR_LAMPORTS, true]);

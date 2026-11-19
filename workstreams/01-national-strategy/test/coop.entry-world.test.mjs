@@ -31,8 +31,10 @@ test('reads: GET fails on anything but a 2xx JSON; the config too', () => {
   assert.match(ui, /cfg = await apiRead\('\/coop\/config'\);/);
   assert.match(ui, /apiRead\(`\/coop\/view\?\$\{v\}`\)/);
   // the POST of a record reads the status itself (post()); api() stays for the other callers (sendOnce/followSend)
-  assert.match(ui, /const res = await fetch\('\/coop\/records', \{ method: 'POST',/);
-  assert.match(ui, /async function api\(path, body\) \{\n\s+const r = await fetch\(path, body \? \{ method: 'POST'/);
+  // (2026-11-18, B13) every path of the board's origin is read under the page's mount (mount.mjs; '' at the root)
+  assert.match(ui, /const res = await fetch\(at\('\/coop\/records'\), \{ method: 'POST',/);
+  assert.match(ui, /async function api\(path, body\) \{\n\s+const r = await fetch\(at\(path\), body \? \{ method: 'POST'/);
+  assert.match(a, /try \{ r = await fetch\(at\(path\)\); \}/);
 });
 
 test('a view is applied whole: shape checked, five renders or none, the old view and DOM restored on a failure, said as old', () => {

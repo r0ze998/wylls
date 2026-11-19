@@ -45,7 +45,7 @@ pub(super) fn judged(cmd: &WideCommand) -> Option<&'static str> {
     match cmd {
         WideCommand::Economy(_) => Some("WideEconomy"),
         WideCommand::Garrison(_) => Some("WideGarrison"),
-        _ => None,
+        c => super::march::judged(c),
     }
 }
 

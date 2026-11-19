@@ -252,6 +252,18 @@ total.
 
 Then keeper A's `beacon` role sends ConsumeGenesisSeed (PLAYTEST-RUNBOOK §3 step 9), which needs §7.
 
+**The playable lane's season (owner decision B7) is `S1_DEVNET_WIDE_7D`, not `S1_LOCAL_7D`** (devnet-preset-wide).
+The wide land starts at ring 129 and needs the legacy ring 128 seeded; `S1_LOCAL_7D`'s map ends at ring 16 (`r_max`
+16, no `r_max_ceiling`), so in such a season no wide instruction but WideSetRules could ever land. `S1_DEVNET_WIDE_7D`
+is `S1_LOCAL_7D` with three changes: `r_max_ceiling` 128 (ExtendFrontier grows the map one ring per bell, about 21 h
+from the genesis ring 3 to the rim), θ 1 bp early and late (a ring needs one settler in some wedge, not 55–65 % of
+its sites), and `pfund_initial` 36 SOL (every wedge fund must hold `128 × rent(4,736)` at the rim and
+`129 × rent(4,864)` for ring 129 above its own rent: 3.16 / 3.27 SOL at 5,080 lamports per byte, 4.33 / 4.48 SOL at
+6,960). Keeper A's rings duty runs with `extend = true`, `extend_max_ring = 128` and `lazy_provinces = true`: the
+genesis rings are opened whole and every later ring without its provinces, which open on demand (opening all 49,537
+provinces to ring 128 would cost 1,224 SOL). One 50-player season of this preset is **98.22 SOL** at 5,080 (106.24
+at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator` does not create a 0x4804 season yet (B3).
+
 ## 7. Services (blocked)
 
 These cannot run against devnet with today's code (re-checked 2026-11-18):

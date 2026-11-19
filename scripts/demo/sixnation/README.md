@@ -33,7 +33,7 @@ These are the same files `scripts/play2-land-ops/play2-start.sh` uses. The tool 
 | `--turns <n>` | 0 (off) | also stop once the herald has advanced this many turns |
 | `--demo-scale <10-60>` | 20 | TEST demo clock: game seconds per real second (20 → one turn every 30 s) |
 | `--port-base <41000-41999>` | 41300 | 32 loopback ports from here: launcher, 2 worlds × 5, 2 × 6 resident relays |
-| `--max-acts <1-9999>` | 400 | each resident's send budget (the launcher's `--operator-max-acts`; the residents' own default is 60) |
+| `--max-acts <1-9999>` | 400 | a cap on each resident's sends for the whole world (the launcher's `--operator-max-acts`; the residents' own default is none, and each acts at most once per bell, Q16-2) |
 | `--tile WxH` | 800x500 | viewport and video size of each view |
 | `--player-nation <0-5>` | from the seed | the nation the player page joins |
 | `--no-grid` | — | skip the ffmpeg grid (the HTML player is always written) |
