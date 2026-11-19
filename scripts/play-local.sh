@@ -64,8 +64,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
                   nation gets real homes on the rim: the page offers a rim village first, and from it the village
                   screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
-                  ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. The page's
-                  「記録」 (recorded world) view shows the wide land. Memory-only: a stop ends it (not with
+                  ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. The ordinary map,
+                  「全体図」 and the 「記録」 (recorded world) view show the wide land. Memory-only: a stop ends it (not with
                   --demo/--resume)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
@@ -486,7 +486,7 @@ if [ "$WIDE" = 1 ]; then
       "   TEST-ONLY wide version: the map is grown to ring 128 and the wide land (rings 129-131) is open. The clock runs at ×$SPEED (a turn is $((600 / SPEED)) s). Test keys only. No real key, SOL or devnet. A stop ends this world."
   say "   最初の村は辺境 (リング 128、広い土地のとなり) に置けます。村の画面の「広い土地に村を出す」で広い土地に 2 つめの村を出せます (費用が貯まったら)。" \
       "   Your first village can stand on the rim (ring 128, beside the wide land). The village screen's 「広い土地に村を出す」 claims a second village on the wide land (once the cost is saved)."
-  say "   広い土地は地図の道具の「記録」ボタン (記録された世界・読み取り専用) で見られます。" "   The wide land is shown by the map tools' 「記録」 button (the recorded world, read-only)."
+  say "   広い土地は普通の地図と「全体図」の六つの角の外側に描かれます。地図の道具の「記録」ボタン (記録された世界・読み取り専用) でも見られます。" "   The wide land is drawn on the ordinary map and 「全体図」 outside its six corners; the map tools' 「記録」 button (the recorded world, read-only) lists it too."
 elif [ "$DEMO" = 1 ]; then
   say "   TEST 専用: ローカルのメモリ上のチェーン、×${SPEED} の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
       "   TEST ONLY: in-memory local chain, ×$SPEED clock, test keys only. No real key, SOL or devnet. A stop ends this world."

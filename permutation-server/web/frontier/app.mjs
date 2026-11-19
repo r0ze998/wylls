@@ -79,6 +79,8 @@ import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
 // the recorded wide world, read-only (map/widemode.mjs): a button beside the map tools and a sheet over the map;
 // the ordinary map is not changed by it
 import { mountWideMode } from './map/widemode.mjs';
+// the same recorded wide world drawn on the ordinary map and its chart 「全体図」 (map/wideland.mjs: rendering only)
+import { mountWideLand } from './map/wideland.mjs';
 import { provinceName as placeProvinceName } from './hud/place.mjs';
 // the prototype rule "banners" (a design tried in the sample world: hud/proto.mjs, proto/hand-model.mjs)
 import * as protoHud from './hud/proto.mjs';
@@ -787,6 +789,7 @@ function renderMode() {
 // ------------------------------------------------------------------ the HUD (hud/hud.mjs)
 let mapRef = null;
 let wideModeRef = null;
+let wideLandRef = null;
 let terrainRef = null;
 /** Who holds each site (people/roster.mjs): names and faces for tags, the rail, the inspector, reports. */
 let rosterRef = null;
@@ -4659,6 +4662,8 @@ export async function boot() {
         // from inside this draw. The path cache keeps the planner work bounded.
         hoverPlan(hoverHit, { redraw: false });
         return { overviews: FS.overviews, ringsOpen: ringsOpenNow(), seeded: worldNow().seeded ?? null, own, selected: FS.selected, terrainOf,
+          // the recorded wide land (rings 129+), read in the background: map/wideland.mjs (null while the herald serves none)
+          wideLand: wideLandRef?.land() ?? null,
           // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
           rMax: FS.world?.rMax ?? null,
           rMaxCeiling: FS.world?.rMaxCeiling ?? null,
@@ -4810,6 +4815,8 @@ export async function boot() {
     // none; it reads the season record's pins (season, Season address, program) so a manifest of another season or
     // namespace is never shown
     try { wideModeRef = mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
+    // the same record on this map and its chart (rings 129+ in their terrain and keep nations' colours): read in the background
+    try { wideLandRef = mountWideLand({ herald, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier wide land:', e); }
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)

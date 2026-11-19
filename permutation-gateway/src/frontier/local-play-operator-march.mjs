@@ -1,0 +1,194 @@
+// LOCAL PLAY, TEST-ONLY — operator AI residents at war: the EYES and the MARCH, with the page's own code only.
+//
+// What a war resident reads is what the page reads, through the page's own herald client (herald.mjs createHerald:
+// season, me, province, control, overview2 — public reads of the world proxy), decoded by the page's own decoders. The
+// rules kernel is the page's own WASM file (fconquest.mjs kernelFile), checked by the page's own loader (wasm.mjs:
+// published sha256, ABI version, ruleset hash) — only read from this checkout's disk instead of over HTTP. Targets come
+// from the page's own finder (fkeepreach.mjs reachableKeeps, over keeps built exactly as controller.mjs builds them
+// from the control snapshot and the ring overviews), the route from the composer's own planner (fmarch.mjs planRoute),
+// and the march is sealed and sent by the page's own flow: fmarch.mjs sendMarch (checkMarch, plaintext, drand timelock
+// seal of seal.mjs, the book) through flocalplay-march.mjs createLocalMarchSender (the relay's own bytes, the wallet's
+// one signature, ONE submit, an unknown outcome held and only asked about) to the resident's OWN relay — the same
+// relay routes a person's page posts to, only without the world proxy's `/gw` prefix. The march is opened only when
+// the resident's own relay answers the page's own capability read for THIS wallet and THIS runner instance with the
+// TEST-ONLY trial (flocalplay-march.mjs localMarchReady), as the page's gate requires.
+// No other route; no operator read; no reveal (the world's keeper reveals, as for every march); no clock control.
+import fs from 'node:fs/promises';
+import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
+import { loadKernel } from '../../../permutation-server/web/frontier/wasm.mjs';
+import { conquestEnabled, kernelFile } from '../../../permutation-server/web/frontier/fconquest.mjs';
+import { reachableKeeps } from '../../../permutation-server/web/frontier/fkeepreach.mjs';
+import { planRoute, sendMarch, earliestBell, arrivalWindow, tipOptions, departMargin, DEPART_STAMINA, freeTransitSlot } from '../../../permutation-server/web/frontier/fmarch.mjs';
+import { sealMarch, checkBeacon } from '../../../permutation-server/web/frontier/seal.mjs';
+import { seasonClock, bellAt } from '../../../permutation-server/web/frontier/clock.mjs';
+import { hostsIn, actionBlocks } from '../../../permutation-server/web/frontier/fland.mjs';
+import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { createLocalMarchSender, readLocalMarchCapability, localMarchReady, LOCAL_MARCH_READY } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
+import { orderableHosts, chooseMarch, MAX_HOSTS } from './local-play-operator-war.mjs';
+
+const WASM_DIR = new URL('../../../permutation-server/web/frontier/wasm/', import.meta.url);
+/** The blocks that only mean "this turn of the province has not settled yet" (the page's muster wait). */
+export const SETTLE_CODES = Object.freeze(['NotResident', 'NotFinal']);
+/** Keeps farther than this many provinces from a host are not asked about (a march crosses at most 4 provinces). */
+export const REACH_PROVINCES = 3;
+const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
+/** Province distance (axial). */
+export const provinceDistance = (a, b) => ring(a.p - b.p, a.q - b.q);
+
+/** A `fetch` over this checkout's files (`file:` URLs only), for the page's kernel loader. */
+export async function fileFetch(url) {
+  const u = new URL(String(url));
+  if (u.protocol !== 'file:') throw new Error('file: only');
+  try {
+    const b = await fs.readFile(u);
+    return { ok: true, status: 200, text: async () => b.toString('utf8'), arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) };
+  } catch { return { ok: false, status: 404 }; }
+}
+
+/**
+ * The keeps the page knows, as controller.mjs builds them (refreshConquest): for each province of the control
+ * snapshot with a keep in its ring overview, `{p, q, tile, holder, troops, heartland, consolidatedUntil, contender,
+ * progress, requiredBells, asOfBell}`. `overviews`: Map ring → decodeOverviewV2 result.
+ */
+export function keepsOf(control, overviews) {
+  const keeps = new Map();
+  for (const c of control?.provinces ?? []) {
+    const ov = overviews.get(ring(c.p, c.q))?.provinces?.find(p => p.p === c.p && p.q === c.q);
+    if (ov?.keepTile !== null && ov?.keepTile !== undefined) keeps.set(`${c.p},${c.q}`, Object.freeze({ p: c.p, q: c.q, tile: ov.keepTile, holder: c.control, troops: ov.keepTroops,
+      // (the page leaves the consolidation bell unknown here; the snapshot's own `consolidating` flag says a keep is
+      //  inside its protection after a capture — no contest counts there — so it is kept out, as fkeepreach would)
+      heartland: c.heartland, consolidatedUntil: c.consolidating ? control.bell + 1 : null, contender: c.contender, progress: c.progress, requiredBells: c.required, asOfBell: control.bell }));
+  }
+  return keeps;
+}
+
+/**
+ * The world's eyes for war residents (shared by all residents of the process): `{refresh(), world, view(wallet)}`.
+ * `refresh()` reads the season, the chain clock, the control snapshot and the ring overviews once per turn.
+ */
+export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fetch(...a) }) {
+  const herald = createHerald({ base, fetch: f });
+  let kernel = null, kernelFor = null;
+  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), seeds: [], controlBell: null, bellRead: null };
+  async function refresh() {
+    const st = await (await f(`${base}/h/status`, { signal: AbortSignal.timeout(4000) })).json();
+    const now = Array.isArray(st?.live) ? Number(st.live[1]) : NaN;
+    if (!Number.isSafeInteger(now)) throw new Error('no chain clock');
+    if (!world.season || world.bellRead === null || bellAt(world.clock.genesisTs, now) !== world.bellRead) {
+      const s = await herald.season();
+      if (!s.ok) throw new Error(`season: ${s.code}`);
+      world.season = s.season; world.record = s.record; world.clock = seasonClock(s.season);
+      world.beacon = checkBeacon({ drand: s.record.drand, seasonPkHash: s.season.quicknetPkHash, cluster: s.record.cluster, seasonNetwork: s.season.network });
+      world.seeds = (s.record.rings ?? []).filter(r => r && r.seed).map(r => ({ ring: r.d, seed: r.seed }));
+      if (conquestEnabled(s.season)) {
+        const c = await herald.control();
+        if (c.ok) {
+          const rings = [...new Set(c.control.provinces.map(p => ring(p.p, p.q)))].filter(r => r >= 2).sort((a, b) => a - b);
+          const overviews = new Map();
+          for (const r of rings) { const o = await herald.overview2(r); if (o.ok) overviews.set(r, o); }
+          world.keeps = keepsOf(c.control, overviews); world.controlBell = c.control.bell;
+        }
+      }
+      world.bellRead = bellAt(world.clock.genesisTs, now);
+    }
+    // (the chain clock's rate: chain seconds per wall second, from two samples; a synthetic demo clock runs × its scale)
+    const at = Date.now();
+    if (world.sampledAt && at - world.sampledAt > 500 && now > world.now) world.rate = Math.max(1, Math.round(((now - world.now) * 1000) / (at - world.sampledAt)));
+    world.now = now; world.sampledAt = at; world.nowBell = bellAt(world.clock.genesisTs, now);
+    const file = kernelFile(world.season);
+    if (kernelFor !== file) {
+      kernel = await loadKernel({ url: new URL(file, WASM_DIR), fetch: fileFetch, ruleset: Buffer.from(world.season.rulesetHash).toString('hex') });
+      kernelFor = file;
+    }
+    return world;
+  }
+  /**
+   * One resident's war snapshot: `{holding, hosts, reserve, hostCount, march, faction}` or null. `memory.targets`
+   * (keep key → bell until which it counts as taken by this resident's own march) is read, never written here.
+   */
+  async function view(wallet, memory) {
+    const me = await herald.me(wallet);
+    if (!me.ok || !me.citizen || !me.holdings.length) return null;
+    const holding = me.holdings[0], faction = Number(me.citizen.faction), nowBell = world.nowBell;
+    const where = new Map();
+    for (const h of me.record.hosts ?? []) if (Array.isArray(h?.province)) where.set(`${h.province[0]},${h.province[1]}`, { p: Number(h.province[0]), q: Number(h.province[1]) });
+    where.set(`${holding.p},${holding.q}`, { p: holding.p, q: holding.q });
+    const hosts = [], provinces = new Map();
+    for (const [k, pq] of where) {
+      const pv = await herald.province(pq.p, pq.q);
+      if (!pv.ok) continue;
+      provinces.set(k, pv.province);
+      for (const h of hostsIn(pv.province, holding, nowBell)) hosts.push({ ...h, p: pq.p, q: pq.q });
+    }
+    const keeps = world.keeps;
+    const onKeep = h => { const k = keeps.get(`${h.p},${h.q}`); return !!k && k.tile === h.tile && k.holder !== faction && k.contender === faction; };
+    const ready = orderableHosts(hosts, { nowBell, departStamina: DEPART_STAMINA, holdingKey: onKeep });
+    const transits = (holding.transit ?? []).filter(t => t.state !== 0).length;
+    const free = freeTransitSlot(holding) !== null;
+    let march = null;
+    if (ready.length && free && kernel) {
+      const near = new Map([...keeps].filter(([, k]) => ready.some(h => provinceDistance(h, k) <= REACH_PROVINCES)));
+      const origins = ready.map(h => ({ p: h.p, q: h.q, tile: h.tile, unit: h.unit, host: String(h.id), troops: h.troops }));
+      const r = reachableKeeps({ kernel, keeps: near, origins, seeds: world.seeds, faction, nowBell, blocked: [] });
+      const taken = row => (memory?.targets?.[`${row.p},${row.q}`] ?? -1) >= nowBell;
+      if (r.ok) march = chooseMarch(r.rows, { taken });
+      if (march) march = { ...march, host: ready.find(h => String(h.id) === march.row.origin.host) ?? null, province: provinces.get(`${march.row.origin.p},${march.row.origin.q}`) ?? null };
+    }
+    // (the page's own check of a resident action on the village's province, at this turn: while only the turn's
+    //  settling blocks it, the page waits for the province's turn to settle — flocalplay-muster-wait.mjs — and so does this)
+    const home = provinces.get(`${holding.p},${holding.q}`) ?? null;
+    const blocks = actionBlocks('Muster', { holding, province: home, nowBell, now: world.now });
+    const settling = blocks.length > 0 && blocks.every(b => SETTLE_CODES.includes(b));
+    return { faction, holding, hosts, settling, blocks, reserve: Number(holding.reserve?.[0] ?? 0), hostCount: hosts.length + transits, march: march?.host ? march : null, nowBell, ready: ready.length, roomForHosts: hosts.length < MAX_HOSTS };
+  }
+  /**
+   * The bell the chain is in NOW, as the page's chain clock extrapolates it from the last sample at the measured rate
+   * (the same reading sendWarMarch uses for the departure time); null before the first refresh.
+   */
+  function liveBell() {
+    if (!world.clock || !Number.isSafeInteger(world.now) || !world.sampledAt) return null;
+    return bellAt(world.clock.genesisTs, Math.floor(world.now + Math.max(0, (Date.now() - world.sampledAt) / 1000) * (world.rate ?? 1)));
+  }
+  return Object.freeze({ refresh, view, world, herald, kernel: () => kernel, liveBell });
+}
+
+/**
+ * The resident's own relay, opened for the march as the page opens it: the instance from its own relay, then the
+ * page's capability read for THIS wallet and instance; open only with the TEST-ONLY trial. → `{open, instance, trial}`.
+ */
+export async function openMarch(origin, wallet, { fetch: f = (...a) => globalThis.fetch(...a) } = {}) {
+  const r = await f(`${origin}/f/local-play/act/context`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schema: 'frontier-local-play-act-instance-v1' }), signal: AbortSignal.timeout(4000) });
+  const j = r.ok ? await r.json() : null;
+  if (!j || j.wallet !== wallet || typeof j.instance !== 'string') return { open: false, why: 'no instance from its own relay' };
+  const cap = await readLocalMarchCapability({ origin: new URL(origin).origin, wallet, expectedInstance: j.instance,
+    request: (url, init) => f(String(url).replace(`${new URL(origin).origin}/gw/`, `${new URL(origin).origin}/`), init) });
+  if (!cap) return { open: false, why: 'its relay gave no march capability for this wallet and instance' };
+  return { open: localMarchReady(LOCAL_MARCH_READY, { trial: cap.trial === true }), instance: j.instance, trial: cap.trial };
+}
+
+/**
+ * ONE march for a war resident, with the page's own send flow. `r`: the resident (`origin`, `identity`, `rulesetHash`,
+ * `signer`, `marchOpen`); `snap`: its `view()` with a chosen `march`; `eyes`. → sendMarch's answer, plus `arriveBell`.
+ */
+export async function sendWarMarch(r, snap, eyes, { post } = {}) {
+  const w = eyes.world, k = eyes.kernel();
+  const { row, host, province } = snap.march;
+  const route = planRoute(k, { from: { p: row.origin.p, q: row.origin.q, tile: row.origin.tile }, to: { p: row.p, q: row.q, tile: row.tile }, unit: host.unit, seeds: w.seeds, blocked: [] });
+  if (!route.ok) return { ok: false, step: 'route', code: route.code };
+  // (the chain's time now, as the page's chain clock extrapolates it from its last sample at the measured rate)
+  const nowSecs = () => w.now + Math.max(0, (Date.now() - w.sampledAt) / 1000) * (w.rate ?? 1);
+  const margin = departMargin(w.rate ?? 1);
+  const earliest = earliestBell(k, { genesisTs: w.clock.genesisTs, departTs: nowSecs() + margin, secs: route.route.secs });
+  const win = arrivalWindow(w.season, w.nowBell, earliest);
+  const tip = tipOptions(w.season)[0].lamports;
+  const A = seasonAddresses(r.identity.programId, String(w.season.seasonId));
+  const m = { season: w.season, nowBell: w.nowBell, resolvedNext: province?.resolvedNext ?? null, province, now: w.now, holding: snap.holding, host: host.entry,
+    dest: { p: row.p, q: row.q, tile: row.tile }, route: route.route, earliest, arriveBell: win.min, stance: 0, retreat: { choice: 'never', ratio: null }, tip,
+    holdingAddress: A.of('Holding', { p: snap.holding.p, q: snap.holding.q, site: snap.holding.site }) };
+  const sender = r.marchSender ??= createLocalMarchSender({ allowed: () => ({ ok: true, relay: r.origin }), open: () => r.marchOpen === true, identity: () => r.identity,
+    rulesetHash: () => r.rulesetHash, signer: () => r.signer, ...(post ? { post } : {}), tries: 20, every: 1000 });
+  const out = await sendMarch(m, { seal: req => sealMarch(req, { inline: true }), clock: w.clock, publicKey: w.beacon?.publicKey, accounts: null, session: null,
+    ...sender.depsFor({ holding: { p: snap.holding.p, q: snap.holding.q, site: snap.holding.site }, province: { p: row.origin.p, q: row.origin.q } }),
+    earliestAtSend: () => earliestBell(k, { genesisTs: w.clock.genesisTs, departTs: nowSecs() + margin, secs: route.route.secs }) });
+  return { ...out, arriveBell: m.arriveBell, route: { steps: route.route.dirs?.length ?? null, provinces: route.route.provinces?.length ?? null, secs: route.route.secs } };
+}

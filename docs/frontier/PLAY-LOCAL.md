@@ -189,11 +189,15 @@ scripts/play-local.sh --wide
     WideOpenProvince): 6 provinces in the middle of each wedge, 108 in all, plus the 42 ring-128 provinces just inside.
   - Provinces on rings 5–127 are not opened (as the devnet keeper's `lazy_provinces`); the map shows their terrain only.
 - To see the wide land:
+  - The ordinary map and 「全体図」 [World chart]: the recorded provinces of rings 129–131 are drawn outside the
+    heartland in their terrain and their keep nation's colour (a 「広い土地／第129–131輪・記録」 [Wide land / Rings
+    129–131 · recorded] tag in each of the six directions). From far a mosaic of the nations' colours, nearer the
+    terrain under the nation's colour, closest the 61 tiles and their sites. A place the record does not list stays
+    cloud (read-only: nothing here lets a village be placed there).
   - 「記録」 [Records] at the map's bottom right → 「記録された世界（読み取り専用・実験中）」 [The recorded world]. Pick a
     「第129輪」 [ring 129] province in the list, press 「ここを原点にする」 [Make this the origin] and zoom in: ring 128
     (gold) and rings 129–131 (the six nations' colours) side by side.
-  - 「全体図」 [World chart] shows your village in the middle of the map grown to ring 128.
-  - On the ordinary map everything past ring 128 is cloud (the ordinary map never draws rings 129 and out).
+  - 「全体図」 [World chart] shows your village in the middle and the wide land just outside the six corners.
 - Playing on the wide land (TEST-only rules, 2026-11-19; the devnet settings and the program are unchanged):
   - **This world's own Season bytes**: the centre free (⑭ R2, `centre` = 1: rings 0–1 are ordinary land; ring 1's six
     provinces are opened; (0,0) is not, because the page's terrain kernel still draws the Concord there) and
