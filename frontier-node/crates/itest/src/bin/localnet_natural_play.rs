@@ -55,8 +55,18 @@ fn main() {
         }
         // the TEST-ONLY operator AI war world's option likewise (only with the capture demo)
         let (rest, operators) = itest::operator_villages::take_villages_args(rest)?;
-        if operators.is_some() && demo.is_none() {
-            return Err("--operator-villages is accepted only together with --capture-demo".into());
+        // (TEST-ONLY wide-march-local: also with the wide land, where the AI residents march into the wide land and
+        //  only the keeper loop that serves their villages reveals and settles those marches)
+        if operators.is_some() && demo.is_none() && !wide {
+            return Err(
+                "--operator-villages is accepted only together with --capture-demo or --wide-land"
+                    .into(),
+            );
+        }
+        if wide {
+            // (TEST-ONLY wide world: rim villages march into the wide land by the expedition wrapper; this runner reveals
+            //  them from the public round and catches the wide destination up from its opening turn)
+            itest::destination_driver::enable_wide_expeditions();
         }
         let o = play::parse_args(rest)?;
         if second == Some(o.player_wallet) {
@@ -135,11 +145,12 @@ fn main() {
                     let (st, a, rx, tx) = (world.state.clone(), world.a.clone(), stop_rx.clone(), more_tx.clone());
                     tokio::spawn(async move { itest::operator_villages::watch(st, a, path, tx, rx, |v| println!("{v}")).await });
                     let (st, a, rx, ready) = (world.state.clone(), world.a.clone(), stop_rx.clone(), ready_rx.clone());
-                    tokio::spawn(async move {
+                    // (the demo's ring opening only: the wide world has no demo `ready` and opened its land in the setup)
+                    if demo.is_some() { tokio::spawn(async move {
                         if let Err(e) = itest::operator_villages::open_rest(st, a, ready, rx, |v| println!("{v}")).await {
                             println!("{}", serde_json::json!({"schema": itest::operator_villages::VILLAGES_SCHEMA, "operator_step": "stopped", "test_only": true, "why": e}));
                         }
-                    });
+                    }); }
                 }
                 if let Some(b) = second {
                     let (w2, mut rx2, slot2) = (world.clone(), stop_rx.clone(), pair_slot.clone());

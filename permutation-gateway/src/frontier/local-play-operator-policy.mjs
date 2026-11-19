@@ -164,6 +164,12 @@ export function residentView(me, decode) {
 
 /** At most this many wide claims per resident (slots 2 and 3). */
 export const OPERATOR_WIDE_CLAIMS = 2;
+/** (TEST-ONLY wide march) Marches into the wide land per resident, and the turns between two of them. */
+export const OPERATOR_WIDE_MARCHES = 2;
+export const WIDE_MARCH_GAP_BELLS = 40;
+/** Whether a resident may look for a wide march now (pure; `nowBell` the chain's turn). */
+export const wideMarchDue = (memory, nowBell) => (memory.wideMarches ?? 0) < OPERATOR_WIDE_MARCHES && (memory.wideMarchUntil ?? -1) < (nowBell ?? -1)
+  && (memory.cooldown?.WideMarch ?? 0) <= memory.decisions;
 /** Decisions to wait after a claim landed, for the world's runner to settle its ticket (one ticket at a time). */
 export const OPERATOR_CLAIM_SETTLE_WAIT = 4;
 
@@ -227,6 +233,15 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
     if (s?.name === 'Train') return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
   }
+  // (TEST-ONLY wide march, wide-march-local: a ready host of a rim village marches INTO the bordering wide land — the
+  //  page's own judged route, local-play-operator-wide-march.mjs; at most OPERATOR_WIDE_MARCHES, one at a time)
+  // (no host at all yet: form one first — Train to the minimum host, then Muster the reserve, each cooled after a refusal)
+  if (wide?.needHost && view.holding.tile !== undefined) {
+    const reserve = Number(wide.needHost.reserve ?? 0);
+    if (reserve >= 100 && (memory.cooldown.WideMuster ?? 0) <= memory.decisions) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: Math.min(reserve, 300), tile: view.holding.tile }, wideHost: true, why: `a host of the reserve's ${Math.min(reserve, 300)} troops, to march into the wide land` };
+    if (reserve < 100 && (memory.cooldown.WideTrain ?? 0) <= memory.decisions) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: 110 - reserve }, wideHost: true, why: 'troops for a host that marches into the wide land' };
+  }
+  if (wide?.march) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell})` };
   // (TEST-ONLY wide play: save, then claim the nearest wide land within reach — header)
   if (wide && Array.isArray(wide.targets) && wide.targets.length && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS) {
     const tried = new Set(memory.triedClaims ?? []);
@@ -273,6 +288,12 @@ export function noteOutcome(memory, decision, outcome) {
     if (outcome === 'landed') { memory.claims = (memory.claims ?? 0) + 1; memory.claimWaitUntil = memory.decisions + OPERATOR_CLAIM_SETTLE_WAIT; }
     // (a refused site is not asked again; the claim itself cools down — a site taken, a ticket still open, stores short)
     if (bad || outcome === 'unknown') { (memory.triedClaims ??= []).push(`${decision.v.target.p},${decision.v.target.q},${decision.fields.site}`); memory.cooldown.WideClaim = memory.decisions + OPERATOR_COOLDOWN; }
+  }
+  if (decision.wideHost && bad) memory.cooldown[decision.name === 'Muster' ? 'WideMuster' : 'WideTrain'] = memory.decisions + OPERATOR_COOLDOWN;
+  if (decision.name === 'WideMarch') {
+    // (landed or not known: counted and spaced — never sent twice for one plan; refused: cooled down)
+    if (outcome === 'landed' || outcome === 'unknown') { memory.wideMarches = (memory.wideMarches ?? 0) + 1; memory.wideMarchUntil = (decision.plan?.nowBell ?? 0) + WIDE_MARCH_GAP_BELLS; }
+    if (bad) memory.cooldown.WideMarch = memory.decisions + OPERATOR_COOLDOWN;
   }
   if (decision.war && (bad || (decision.name === 'Depart' && outcome === 'unknown'))) memory.cooldown[`war:${decision.name}`] = (Number.isSafeInteger(decision.bell) ? decision.bell : 0) + WAR_COOLDOWN_BELLS;
   if (Number.isInteger(decision.rotationStep)) {

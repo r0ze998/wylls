@@ -1082,7 +1082,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       ...(mapOrigin !== null ? ['--map-origin', String(mapOrigin)] : []),
       ...(wide ? ['--wide-land', WIDE_LAND_MODE, ...(c.wideScale ? ['--wide-scale', String(c.wideScale)] : [])] : []),
       // (TEST-ONLY war world: the keeper also serves the operator residents' villages, read from operators.json)
-      ...(c.operatorWar ? ['--operator-villages', path.join(dir, 'operators.json')] : [])]);
+      // (TEST-ONLY wide world, wide-march-local: likewise, so the AI residents' marches into the wide land are revealed
+      //  and settled)
+      ...(c.operatorWar || (wide && c.operatorResidents) ? ['--operator-villages', path.join(dir, 'operators.json')] : [])]);
     else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
