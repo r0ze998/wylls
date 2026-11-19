@@ -849,6 +849,7 @@ fn record_playable_march() {
         resident_feed: None,
         program_so: None,
         declared: vec![],
+        chain: Default::default(),
     };
     for l in &r.log {
         println!("{l}");
@@ -871,7 +872,10 @@ fn record_playable_march() {
 
 /// The committed recording (`PLAYABLE_DUMP` of [`record_playable_march`]).
 fn recorded() -> Input {
-    common::fixture("playable-sealed-march-whole.json.gz")
+    let mut inp = common::fixture("playable-sealed-march-whole.json.gz");
+    // (its OpenProvinces are VX's: the committed binary is its own)
+    inp.program_so = Some(common::pinned_so());
+    inp
 }
 
 /// The successful transactions whose program instruction has tag `tag`.

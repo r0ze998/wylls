@@ -135,6 +135,16 @@ fn sysvar_owner() -> Address {
 
 impl Svm {
     pub fn new(p: &Program, program: &Address) -> Result<Svm, String> {
+        Svm::with_authority(p, program, None)
+    }
+
+    /// [`Svm::new`] with the ProgramData's upgrade authority as the chain
+    /// shows it (`Input::chain`; AnnounceSeason reads it). `None`: none.
+    pub fn with_authority(
+        p: &Program,
+        program: &Address,
+        authority: Option<Address>,
+    ) -> Result<Svm, String> {
         let mut svm = LiteSVM::new()
             .with_sigverify(true)
             .with_blockhash_check(false)
@@ -149,9 +159,13 @@ impl Svm {
         svm.set_sysvar(&rent);
         let loader = loader_v3();
         let (programdata, _) = Address::find_program_address(&[program.as_ref()], &loader);
-        // UpgradeableLoaderState::ProgramData { slot 0, no authority }, then the ELF.
+        // UpgradeableLoaderState::ProgramData { slot 0, authority }, then the ELF.
         let mut data = vec![0u8; 45 + p.so.len()];
         data[..4].copy_from_slice(&3u32.to_le_bytes());
+        if let Some(a) = authority {
+            data[12] = 1;
+            data[13..45].copy_from_slice(a.as_ref());
+        }
         data[45..].copy_from_slice(&p.so);
         let lamports = svm.minimum_balance_for_rent_exemption(data.len());
         svm.set_account(
@@ -188,13 +202,38 @@ impl Svm {
     }
 
     /// Whether the runtime supplies `k` (never set from the archive).
-    fn runtime(&self, k: &Address) -> bool {
+    pub fn runtime(&self, k: &Address) -> bool {
         if *k == self.program || *k == self.programdata || k.to_string().starts_with("Sysvar") {
             return true;
         }
         self.svm
             .get_account(k)
             .is_some_and(|a| a.executable || a.owner == sysvar_owner())
+    }
+
+    /// The program's ProgramData (synthetic here: slot 0, the ELF unpadded).
+    pub fn programdata(&self) -> Address {
+        self.programdata
+    }
+
+    /// Gives the ProgramData the chain's lamports (a real deploy pads it to
+    /// `max_len`, so it holds more rent than this one).
+    pub fn set_programdata_lamports(&mut self, l: u64) -> Result<(), String> {
+        let mut a = self
+            .svm
+            .get_account(&self.programdata)
+            .ok_or("no ProgramData")?;
+        a.lamports = l;
+        self.svm
+            .set_account(self.programdata, a)
+            .map_err(|e| format!("programdata: {e:?}"))
+    }
+
+    /// The lamports the runtime gives `k` when it supplies it (the program,
+    /// its ProgramData, sysvars, builtins); `None`: not the runtime's.
+    pub fn runtime_lamports(&self, k: &Address) -> Option<u64> {
+        self.runtime(k)
+            .then(|| self.svm.get_account(k).map_or(0, |a| a.lamports))
     }
 
     fn get(&self, k: &Address) -> Option<Account> {
@@ -351,8 +390,65 @@ pub fn replay_exact(
     posted: impl Fn(&Key) -> Option<Option<Account>>,
     program: &Key,
 ) -> Result<Replayed, String> {
-    let first = svm.replay(wire, slot, time, &pre)?;
+    replay_known(svm, wire, slot, time, pre, posted, program, None)
+}
+
+/// [`replay_exact`] with every named account's lamports known before the
+/// transaction (`known`: the chain's `meta.preBalances`, message key
+/// order): each account starts from exactly them, and only the fee payer
+/// is re-based when the runtime's fee differs from the chain's (`fee`:
+/// the archived one), so that the program sees the balance the chain's
+/// program saw. `None`: as [`replay_exact`].
+#[allow(clippy::too_many_arguments)]
+pub fn replay_known(
+    svm: &mut Svm,
+    wire: &[u8],
+    slot: u64,
+    time: i64,
+    pre: impl Fn(&Key) -> Option<(Pre, Option<Account>)>,
+    posted: impl Fn(&Key) -> Option<Option<Account>>,
+    program: &Key,
+    known: Option<(&[u64], &[u64], u64)>,
+) -> Result<Replayed, String> {
     let t = fclient::tx::from_wire(wire)?;
+    if let Some((pre_b, post_b, fee)) = known {
+        let keys = &t.message.account_keys;
+        if pre_b.len() != keys.len() || post_b.len() != keys.len() {
+            return Err(format!(
+                "the archived balances name {} / {} accounts, the message {}",
+                pre_b.len(),
+                post_b.len(),
+                keys.len()
+            ));
+        }
+        let mut exact: BTreeMap<Key, u64> = keys
+            .iter()
+            .zip(pre_b)
+            .filter(|(k, _)| !svm.runtime(k))
+            .map(|(k, &l)| (k.to_bytes(), l))
+            .collect();
+        let first = svm.replay_with(wire, slot, time, &pre, &exact)?;
+        // The fee payer: the runtime's fee (LiteSVM's) against the chain's.
+        if let (Some((k, Pre::Archive | Pre::Assumed | Pre::Declared, b, a)), Some(&p0)) =
+            (first.accounts.first(), pre_b.first())
+        {
+            // Chain: p0 − post = its fee + what the instructions moved.
+            // Replay from p0: LiteSVM's fee + what they moved. A difference
+            // d is the fees' (same program, same movement): start the payer
+            // at p0 + d, so that it holds p0 − the chain's fee while the
+            // program runs, as on the chain.
+            let moved = b.as_ref().map_or(0, |x| x.lamports) as i128
+                - a.as_ref().map_or(0, |x| x.lamports) as i128;
+            let d = moved - (p0 as i128 - post_b[0] as i128);
+            let svm_fee = d + fee as i128;
+            if d != 0 && first.err.is_none() && svm_fee >= 0 && p0 as i128 + d >= 0 {
+                exact.insert(*k, (p0 as i128 + d) as u64);
+                return svm.replay_with(wire, slot, time, &pre, &exact);
+            }
+        }
+        return Ok(first);
+    }
+    let first = svm.replay(wire, slot, time, &pre)?;
     let mut exact = BTreeMap::new();
     for (i, (k, how, before, after)) in first.accounts.iter().enumerate() {
         if *how == Pre::Runtime || !fclient::tx::is_writable_index(&t.message, i) {

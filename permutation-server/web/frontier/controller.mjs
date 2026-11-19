@@ -7,6 +7,7 @@
 // one action: build → check → sign → relay → track (fplay.mjs), the march
 // through fmarch.sendMarch. Nothing here decides a rule; the program does.
 import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
+import { mergeDonorReturns } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
 import { createPollLoop } from './poll-loop.mjs';
 import * as fwide from './fwide.mjs';
@@ -25,6 +26,7 @@ import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs'
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
 import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, UNIT_ORDER } from './fland.mjs';
 import { BUILDINGS, TIERS, unitCount, failureText } from './fi18n.mjs';
+import { villageInUse } from './hud/rulebook.mjs';
 import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS, HOST_TROOPS } from './hud/rulebook.mjs';
 import { exploreResultTurn, exploreResultWords } from './hud/orderparts.mjs';
 import { planTicket } from './fjoin.mjs';
@@ -1900,6 +1902,8 @@ async function refreshKeepEvents(cq, current) {
     if (!current()) return;
     if (!r?.ok) continue;
     cq.events = mergeKeepEvents(cq.events, r.day.events);
+    // B18: the capture donor's return home (K-19), told as a notice by hud/feed.mjs
+    cq.returns = mergeDonorReturns(cq.returns, r.day.events);
     if (d < today - 1) read.add(d);
   }
   cq.events ??= [];
@@ -2180,6 +2184,9 @@ function updateHomeGrant() {
   if (!h) { FS.homeGrant = null; return; }
   const rec = readHome();
   if (rec.pending || rec.selected) saveHomePatch({ pending: null, selected: null });
+  // B19: a village already in use is not welcomed again (local play keeps `seen` in the page's memory only, so a
+  // reload or --resume forgot it); the note is written back so the rest of this page's life agrees
+  if (rec.seen !== grantId(h) && !FS.homeGrant && villageInUse(h)) { saveHomePatch({ seen: grantId(h) }); FS.homeGrant = null; return; }
   if (rec.seen !== grantId(h)) {
     if (!sameHome(FS.homeGrant, h)) FS.homeFocus = h;
     FS.homeGrant = h; FS.tab = 'map';
@@ -2738,7 +2745,9 @@ const pendingDriver = createPendingDriver({
   look: card => {
     const same = FS.compose === card, now = same ? marchNow(card) : { problems: null, intent: null };
     return { ...now, nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0 || marchNearEnd(), sameCard: same,
-      keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN };
+      keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN,
+      // B20: the arrival turn the card's own clock moved to (composeTick), never a turn the player picked
+      follow: same && Number.isInteger(card.moved?.to) ? card.moved.to : null };
   },
   // (the read is applied only while this page still reads the same herald for the same world with the same live key and the
   //  same armed card; otherwise its answer is dropped before it touches anything. A page's world never changes — startPlay
@@ -2750,6 +2759,9 @@ const pendingDriver = createPendingDriver({
   },
   send: card => { card.pending = null; return sendTheMarch(); },
   withdrawn: (card, why) => { card.pending = null; if (PENDING_WITHDRAWN[why]) setNotice({ busy: false, text: PENDING_WITHDRAWN[why](), unsent: 'march-send', retry: false }); else invalidate('panel'); },
+  // B20 (loop-play3): the turn passed before the province settled and the arrival turn moved on with it. The waiting
+  // send is kept for the same order at the new arrival turn, and the player is told (nothing is changed silently)
+  followed: (card, p, moved) => { card.pending = p; setNotice({ busy: false, waiting: true, text: L`時間が進んだため、到着はターン ${fmtNum(moved.to)} になりました（さきほどまではターン ${fmtNum(moved.from)}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` }); },
   onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
 });
 // TEST-ONLY local play, the march's test entry: while an order is composed, or the village's muster or forts card is open,

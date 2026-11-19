@@ -329,6 +329,11 @@ pub fn judge_with(
                 for (sidecar, body) in bs {
                     if sidecar {
                         match SidecarClose::decode(&body) {
+                            // VX re-executes this transaction: the sidecar's
+                            // bytes are compared with the pinned program's,
+                            // from proven starting states (verifier-archive-next;
+                            // CloseCaptureEscrow emits one).
+                            Ok(_) if vx.contains(i) => {}
                             Ok(receipt) => out.push(Judgement::Unverifiable {
                                 code: WIDE_UNMODELLED,
                                 tx: Some(*i),

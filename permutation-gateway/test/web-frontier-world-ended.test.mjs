@@ -144,7 +144,10 @@ test('the page: the dial, the season poll, the gate and the map are wired to the
   assert.match(app, /dialMarkup\(FS\.clock \? stoppedChip\(bellChip\(FS\.clock, now\), FS\.worldEnded\) : null\)/);
   // the season poll asks only on a network failure, and says no "could not connect" once the end is known
   assert.match(app, /\n  if \(!r\.ok && r\.code === 'network'\) worldWatch\?\.readFailed\(\);\n  if \(!r\.ok && FS\.worldEnded\) \{ clearInspection\(FS\); clearOutbound\(FS\); return false; \}\n  if \(!r\.ok\) \{ clearInspection\(FS\); clearOutbound\(FS\); seasonError\(/);
-  assert.match(app, /\{ const check = localPlayWorldCheck\(cfg\); if \(check\) worldWatch = createWorldWatch\(\{ ask: \(\) => check\(\)\.then\(worldStateOf\), onEnded: worldEnded \}\); \}/);
+  // (B21, fix-ui-b17-b21: the same one answer is also handed to launcherWatch — a launcher that gives no answer at all is
+  //  said in a plain line. Still one question, asked only after a failed read; what "ended" means is unchanged.)
+  assert.match(app, /worldWatch = createWorldWatch\(\{ ask: \(\) => check\(\)\.then\(r => \{ launcherWatch\?\.heard\(r\); return worldStateOf\(r\); \}\), onEnded: worldEnded \}\);/);
+  assert.equal(app.split('localPlayWorldCheck(cfg)').length - 1, 1, 'one question, one place');
   // the end: the clock halted, the season's own error cleared, the panels' turn the halted clock's
   assert.match(app, /export function worldEnded\(\) \{\n  FS\.worldEnded = \{ at: Date\.now\(\) \};\n  FS\.chain\?\.halt\?\.\(\);\n  if \(FS\.error\?\.source === 'season'\) FS\.error = null;/);
   assert.match(app, /const v = FS\.worldEnded \? endedBannerView\(\) : staleBannerView\(\{ stale: FS\.stale, localPlay: !!FS\.localPlay \}\);/);

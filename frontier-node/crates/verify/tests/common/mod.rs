@@ -195,6 +195,7 @@ impl World {
             resident_feed: None,
             program_so: None,
             declared: vec![],
+            chain: Default::default(),
         }
     }
 }
@@ -335,4 +336,42 @@ pub fn assert_only_the_impossible_tickets(r: &verify_core::Report) {
         );
     }
     assert_eq!(r.verdict, Verdict::Fail, "{}", show(r));
+}
+
+/// Whether a playable-lane report's only open findings are VX's legacy
+/// OpenProvince transactions not re-executed for want of the pinned binary
+/// (D-verify-pr89-3: the recordings of the ec511123… build, whose `.so` is
+/// not committed, are judged by every other check; their OpenProvince
+/// Province bytes only by the pinned program). No FAIL.
+#[allow(dead_code)]
+pub fn only_open_province_unexecuted(rep: &verify_core::Report) -> bool {
+    !rep.findings.iter().any(|f| f.fail())
+        && rep
+            .findings
+            .iter()
+            .any(|f| f.check == "VX" && f.detail.starts_with("OpenProvince"))
+        && rep
+            .findings
+            .iter()
+            .filter(|f| f.severity == verify_core::Severity::Unverifiable)
+            .all(|f| {
+                f.check == "VX"
+                    && f.detail.starts_with("OpenProvince")
+                    && f.detail.contains("no program binary")
+            })
+}
+
+/// The committed pinned devnet-playable `.so` (sha256 da3dc1aa…), for VX
+/// and VG.
+#[cfg(feature = "playable-lane")]
+#[allow(dead_code)]
+pub fn pinned_so() -> std::sync::Arc<Vec<u8>> {
+    let p =
+        verify_core::reexec::Program::load(&fixtures_dir().join("devnet-playable-da3dc1aa.so.gz"))
+            .expect("the committed .so");
+    assert_eq!(
+        hex::encode(p.sha256()),
+        "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741"
+    );
+    std::sync::Arc::new(p.so.as_ref().clone())
 }
