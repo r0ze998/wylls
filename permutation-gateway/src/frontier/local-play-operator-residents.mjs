@@ -30,6 +30,7 @@ import { encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { parseTransaction, wireTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
+import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView } from './local-play-operator-policy.mjs';
 
 const SPKI_ED25519_PREFIX = 12;   // (an ed25519 SPKI DER is 12 bytes of header, then the 32-byte public key)
@@ -146,6 +147,10 @@ export async function residentTurn(r, { homes, deps }) {
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
   const detail = r.lastRefusal ?? null; r.lastRefusal = null;
+  // One action per resident per bell (Q16-2): its relay says this bell's action was already taken — by this resident or
+  // by another writer for it. Not a refusal of the command: nothing was sent, nothing is marked tried or spent; it waits
+  // for the next bell and decides again.
+  if (!sent.ok && sent.code === RESIDENT_ALREADY_ACTED) return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), seen, budget: r.budget.state() };
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
   if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
   else {

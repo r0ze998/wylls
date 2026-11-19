@@ -68,7 +68,8 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// WideConsumeRingSeed, WideOpenProvince) and the wide claims
 /// (WideClaimSite in its wallet form, WideSettleTicket, WideFinalize), the
 /// season-end WideClose of a ticket record, a holding and a province, and
-/// the wide economy and garrison (wallet forms) by VWL, and every other
+/// the wide economy and garrison (wallet forms), WideMuster (wallet form)
+/// and WideResolve (the bell, the wide keep capture) by VWL, and every other
 /// wide instruction stays UNVERIFIABLE (`WideUnmodelled`, naming the command):
 /// see [`judge_outside_v2`].
 pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
