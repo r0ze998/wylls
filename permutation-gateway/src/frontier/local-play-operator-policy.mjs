@@ -27,13 +27,17 @@
 // keeps playing until the world ends — on a ×10 two-hour TEST world (≈120 bells) at most ≈120 actions per resident, on
 // 1× (12 bells) at most 12.
 // Never: a march, a conquest step, a caravan, a reveal, a vote, an invite, a privileged route, an operator read.
+// EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
+// also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
+import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, warStep, warHomeOrder } from './local-play-operator-war.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
 export const OPERATOR_RESIDENTS_SCHEMA = 'frontier-local-play-operator-residents-v1';
 /** At most this many operator residents per world (each takes one relay and one loopback port). */
 export const OPERATOR_RESIDENTS_MAX = 4;
-/** The nations residents 0..3 join: spread over the six, fixed (no randomness to explain). */
-export const OPERATOR_FACTIONS = Object.freeze([1, 4, 2, 5]);
+/** The nations residents 0..3 join: spread over the six, fixed (no randomness to explain). A war world (up to 12
+ *  residents) continues with the two nations left, then the same six again: every nation has a resident from six on. */
+export const OPERATOR_FACTIONS = Object.freeze([1, 4, 2, 5, 0, 3, 1, 4, 2, 5, 0, 3]);
 /** What a resident with a village asks for, in this order, round and round. */
 export const OPERATOR_ROTATION = Object.freeze([
   Object.freeze({ name: 'Harvest' }),
@@ -83,18 +87,21 @@ export function parseOperatorNations(raw) {
 }
 
 /** `--operator-residents <1-4>` → the count, or null when it is not exactly a whole number in range. */
-export function parseOperatorResidents(raw) {
-  if (typeof raw !== 'string' || !/^[1-9]$/.test(raw)) return null;
+export function parseOperatorResidents(raw, { war = false } = {}) {
+  if (typeof raw !== 'string' || !/^([1-9]|1[0-2])$/.test(raw)) return null;
   const n = Number(raw);
-  return n >= 1 && n <= OPERATOR_RESIDENTS_MAX ? n : null;
+  return n >= 1 && n <= (war ? OPERATOR_WAR_MAX : OPERATOR_RESIDENTS_MAX) ? n : null;
 }
+
+/** The ports a world slot keeps for operator relays: OPERATOR_RESIDENTS_MAX, or the count when a war world has more. */
+export const operatorSlotPorts = n => Math.max(OPERATOR_RESIDENTS_MAX, Number.isInteger(n) ? n : 0);
 
 /**
  * The loopback ports of a world's operator relays: after the launcher's two worlds (5 ports each) come
  * OPERATOR_RESIDENTS_MAX ports per world slot. `worldPort` + 10 + slot × 4 + i (`width` 6 with `--operator-nations`).
  */
 export function operatorRelayPorts(worldPort, slot, n, worldLimit = 2, width = OPERATOR_RESIDENTS_MAX) {
-  const base = worldPort + worldLimit * 5 + slot * width;
+  const base = worldPort + worldLimit * 5 + slot * Math.max(width, operatorSlotPorts(n));   // (a war world's 5-12 residents keep that many ports per slot)
   return Array.from({ length: n }, (_, i) => base + i);
 }
 
@@ -146,12 +153,25 @@ export function residentView(me, decode) {
 }
 
 /** A resident's memory between decisions: what it tried and what was refused. Plain data; no key, no address of anyone else. */
-export function createResidentMemory(index, faction) {
+export function createResidentMemory(index, faction, { war = false } = {}) {
   // (no nation named: the fixed OPERATOR_FACTIONS, residents 0-3; a named nation (`--operator-nations`): 0-5, residents 0-5)
   const named = faction !== undefined;
-  if (!Number.isInteger(index) || index < 0 || index >= (named ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('resident index');
+  if (!Number.isInteger(index) || index < 0 || index >= (war ? OPERATOR_WAR_MAX : named ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('resident index');
   if (named && (!Number.isInteger(faction) || faction < 0 || faction > 5)) throw new Error('resident nation');
-  return { index, faction: named ? faction : OPERATOR_FACTIONS[index], step: 0, decisions: 0, triedHomes: [], cooldown: {} };
+  return { index, faction: named ? faction : OPERATOR_FACTIONS[index], step: 0, decisions: 0, triedHomes: [], cooldown: {}, ...(war ? { war: true, lastBell: null } : {}) };
+}
+
+/**
+ * A war resident's heartland sites: its nation's sites, the OUTERMOST ring first (warHomeOrder), and the n-th resident
+ * of a nation (index ÷ 6) starting at the n-th province of that order — two residents of one nation in two provinces.
+ */
+export function warHomeCandidates(homes, faction, index) {
+  const all = warHomeOrder(homeCandidates(homes, faction));
+  const provinces = [...new Set(all.map(h => `${h.p},${h.q}`))];
+  if (!provinces.length) return [];
+  const k = Math.floor(index / 6) % provinces.length;
+  const first = provinces.slice(k).concat(provinces.slice(0, k));
+  return first.flatMap(key => all.filter(h => `${h.p},${h.q}` === key));
 }
 
 // (a rotation entry carries `item`; a decision carries it in `fields`)
@@ -162,7 +182,7 @@ const key = a => (a.name === 'Build' ? `Build:${a.item ?? a.fields?.item}` : a.n
  * `submitLocalAct`), or `{wait: true, why}`. `view` from `residentView`; `homes` from `homesOf`; `nowSecs` the clock
  * the Join's expiry is counted from. Pure: the memory is changed only by `noteOutcome`.
  */
-export function decideNext(memory, view, { homes, nowSecs }) {
+export function decideNext(memory, view, { homes, nowSecs, war = null }) {
   if (view === null || view === undefined) return { wait: true, why: 'the herald did not give a readable answer' };
   if (!view.joined) {
     if (!Number.isSafeInteger(nowSecs) || nowSecs <= 0) return { wait: true, why: 'no clock for the Join expiry' };
@@ -171,13 +191,26 @@ export function decideNext(memory, view, { homes, nowSecs }) {
   }
   if (!view.holding) {
     const tried = new Set(memory.triedHomes);
-    const next = homeCandidates(homes, view.faction).find(h => !tried.has(`${h.p},${h.q},${h.site}`));
+    const next = (memory.war ? warHomeCandidates(homes, view.faction, memory.index) : homeCandidates(homes, view.faction)).find(h => !tried.has(`${h.p},${h.q},${h.site}`));
     if (!next) return { wait: true, why: 'no untried heartland site of this nation' };
     return { name: 'PlaceHome', v: { holding: next, faction: view.faction }, fields: { p: next.p, q: next.q, site: next.site }, why: 'a citizen with no village: the next heartland site of its nation' };
   }
   const h = { p: view.holding.p, q: view.holding.q, site: view.holding.site };
+  // (a war resident: the war step first — defend, attack, muster, train — then the base rotation for the economy)
+  if (memory.war && war) {
+    // (a war resident's refusals cool down for WAR_COOLDOWN_BELLS turns: it may act once per turn, but looks every few seconds)
+    const cool = name => (memory.cooldown[`war:${name}`] ?? -1) >= (war.nowBell ?? Infinity);
+    const s = warStep({ ...war, refused: { Train: cool('Train'), Muster: cool('Muster') }, march: cool('Depart') ? null : war.march });
+    const bell = war.nowBell ?? null;
+    if (s?.wait) return { wait: true, why: s.why };
+    if (s?.name === 'Depart') return { name: 'Depart', kind: s.kind, row: s.row, war: true, bell, why: `${s.kind}: the keep at ${s.row.p},${s.row.q} (garrison ${s.row.troops ?? '?'}, host ${s.row.origin?.troops ?? '?'})` };
+    if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
+    if (s?.name === 'Train') return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
+  }
   for (let k = 0; k < OPERATOR_ROTATION.length; k++) {
     const a = OPERATOR_ROTATION[(memory.step + k) % OPERATOR_ROTATION.length];
+    // (a war resident's troops and hosts are the war step's: its rotation is the economy only — Harvest and Build)
+    if (memory.war && (a.name === 'Train' || a.name === 'Muster')) continue;
     if ((memory.cooldown[key(a)] ?? 0) > memory.decisions) continue;
     if (a.name === 'Muster' && view.holding.tile === undefined) continue;   // (no tile known: never guessed)
     const fields = a.name === 'Harvest' ? {} : a.name === 'Build' ? { item: a.item } : a.name === 'Train' ? { unit: a.unit, n: a.n } : { unit: a.unit, troops: a.troops, tile: view.holding.tile };
@@ -195,6 +228,7 @@ export function noteOutcome(memory, decision, outcome) {
   if (decision?.wait) return memory;
   const bad = outcome === 'refused' || outcome === 'failed';
   if (decision.name === 'PlaceHome' && (bad || outcome === 'unknown')) memory.triedHomes.push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
+  if (decision.war && (bad || (decision.name === 'Depart' && outcome === 'unknown'))) memory.cooldown[`war:${decision.name}`] = (Number.isSafeInteger(decision.bell) ? decision.bell : 0) + WAR_COOLDOWN_BELLS;
   if (Number.isInteger(decision.rotationStep)) {
     memory.step = decision.rotationStep + 1;
     if (bad) memory.cooldown[key(decision)] = memory.decisions + OPERATOR_COOLDOWN;
