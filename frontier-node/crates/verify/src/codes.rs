@@ -318,3 +318,18 @@ pub const RIGHTS_STATE_MISMATCH: &str = "RightsStateMismatch";
 pub const RIGHTS_UNEXPLAINED_ACCOUNT: &str = "RightsUnexplainedAccount";
 /// A program account of no kind the verifier knows.
 pub const UNKNOWN_ACCOUNT: &str = "UnknownAccount";
+
+// VS — a second source for a public-RPC season (⑰ Q-P1 (b), `witness.rs`).
+// All UNVERIFIABLE: two sources that disagree show that one lies, not which.
+/// A witness could not serve an item the cross-check needs (unreachable,
+/// behind the season read, a block not available, the primary itself).
+pub const WITNESS_UNAVAILABLE: &str = "WitnessUnavailable";
+/// The witness lists a finalized program transaction the primary's history
+/// does not hold.
+pub const WITNESS_MISSING_TX: &str = "WitnessMissingTx";
+/// The primary's history holds a transaction the witness does not list
+/// among the program's finalized transactions (never landed, or not final).
+pub const WITNESS_UNKNOWN_TX: &str = "WitnessUnknownTx";
+/// The two sources serve an item differently (a transaction's bytes or
+/// meta, a block, the account set, a final state, the binary, the cluster).
+pub const WITNESS_MISMATCH: &str = "WitnessMismatch";

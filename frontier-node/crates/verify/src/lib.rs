@@ -72,6 +72,7 @@ pub mod wide_expedition_resident;
 /// One-transition kind-17 replay only; never a whole-season verdict.
 #[cfg(feature = "wide-economy-experimental")]
 pub mod wide_garrison;
+pub mod witness;
 pub mod world;
 
 use serde_json::Value;
@@ -101,7 +102,8 @@ pub fn mutated() -> Option<&'static str> {
         "mutate-v12",
         "mutate-v13",
         "mutate-vx",
-        "mutate-vg"
+        "mutate-vg",
+        "mutate-vs"
     )
 }
 
@@ -252,30 +254,59 @@ pub fn exit_code(v: Verdict) -> i32 {
 /// V2–V13 with the v2 rules where they differ, and the conquest audit
 /// (CQ1 walks every chain in V1's place).
 pub fn verify(input: &Input) -> Report {
-    // VG (playable lane): an archive without post-states, with the chain's
-    // balances and the pinned binary, is re-executed from the Season's
-    // creation; every check then judges the derived post-states.
+    // ⑰ Q-P1 (a): VG re-executed the whole archive from the Season's
+    // creation with no finding (every program-owned final state exact).
+    #[allow(unused_mut)]
+    let mut vg_exact = false;
     #[cfg(feature = "playable-lane")]
-    if !cfg!(feature = "mutate-vg") && genesis::applies(input) {
+    let r = if !cfg!(feature = "mutate-vg") && genesis::applies(input) {
         let d = genesis::derive(input);
+        vg_exact = d.ran && d.findings.is_empty();
         let mut r = verify_one(d.input.as_ref().unwrap_or(input));
         if d.ran {
             r.checks_run.insert(0, "VG:genesis-replay");
         }
         r.findings.extend(d.findings);
-        r.findings.sort_by_key(|x| std::cmp::Reverse(x.severity));
-        if r.findings.iter().any(|f| f.fail()) {
-            r.verdict = Verdict::Fail;
-        } else if r.verdict == Verdict::Pass
-            && r.findings
-                .iter()
-                .any(|f| f.severity == Severity::Unverifiable)
-        {
-            r.verdict = Verdict::Unverifiable;
-        }
-        return history::apply(&input.history, r);
+        settle(&mut r);
+        r
+    } else {
+        verify_one(input)
+    };
+    #[cfg(not(feature = "playable-lane"))]
+    let r = verify_one(input);
+    // ⑰ Q-P1 (b): the second source (VS).
+    let mut r = r;
+    let (wf, outcome) = witness::judge(input);
+    if outcome.is_some() {
+        r.checks_run.push("VS:witness");
     }
-    history::apply(&input.history, verify_one(input))
+    if outcome.is_some() {
+        r.findings.extend(wf);
+        settle(&mut r);
+    }
+    history::apply_with(
+        &input.history,
+        r,
+        &history::Lift {
+            vg_exact,
+            witness: outcome,
+        },
+    )
+}
+
+/// The verdict from the findings: FAIL on any FAIL, else never better
+/// than UNVERIFIABLE when one is UNVERIFIABLE.
+fn settle(r: &mut Report) {
+    r.findings.sort_by_key(|x| std::cmp::Reverse(x.severity));
+    if r.findings.iter().any(|f| f.fail()) {
+        r.verdict = Verdict::Fail;
+    } else if r.verdict == Verdict::Pass
+        && r.findings
+            .iter()
+            .any(|f| f.severity == Severity::Unverifiable)
+    {
+        r.verdict = Verdict::Unverifiable;
+    }
 }
 
 fn verify_one(input: &Input) -> Report {

@@ -407,7 +407,9 @@ jobs:
       # wallet_finals, the S1 lane with wallets in the finals; playable_march,
       # the ordinary sealed march judged by the S1 checks; playable_expedition,
       # the expedition wrapper and Free City conquest re-executed by VX with
-      # the committed pinned .so in LiteSVM, signatures verified, none made). These tests
+      # the committed pinned .so in LiteSVM, signatures verified, none made;
+      # playable_witness, VS's second-source cross-check and ⑰ Q-P1's lift of
+      # an RPC history, over the genesis recording). These tests
       # read recorded archives only: no key is generated, derived or signed
       # (every recorder in these files is #[ignore] and is not run here).
       - name: Verifier playable lane (lints, recorded-fixture tests; key-free)
@@ -415,7 +417,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_expedition --test playable_genesis --test wallet_finals
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_expedition --test playable_genesis --test playable_witness --test wallet_finals
 
   frontier-wasm:
     name: Frontier M1 web kernels (WASM build and hash)

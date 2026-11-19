@@ -143,21 +143,29 @@ pub struct ChainWitness {
     /// The program's upgrade authority as its ProgramData shows it
     /// (AnnounceSeason reads it). `None`: not read.
     pub upgrade_authority: Option<Address>,
+    /// VS: the primary's extra reads and one or more witness RPCs' answers
+    /// for the same season (`--witness`, [`crate::witness`]). `None`: no
+    /// second source was asked.
+    pub cross: Option<crate::witness::CrossCheck>,
 }
 
 impl ChainWitness {
     pub fn is_empty(&self) -> bool {
-        self.balances.is_empty() && self.upgrade_authority.is_none()
+        self.balances.is_empty() && self.upgrade_authority.is_none() && self.cross.is_none()
     }
     /// The balances of the transaction `t`, if archived.
     pub fn of(&self, t: &TxRecord) -> Option<&Balances> {
         self.balances.get(&t.signature.to_string())
     }
     pub fn to_json(&self) -> Value {
-        json!({
+        let mut v = json!({
             "upgrade_authority": self.upgrade_authority.map(|a| a.to_string()),
             "balances": self.balances.iter().map(|(s, b)| json!([s, b.pre, b.post])).collect::<Vec<_>>(),
-        })
+        });
+        if let Some(c) = &self.cross {
+            v["cross"] = c.to_json();
+        }
+        v
     }
     pub fn from_json(v: &Value) -> Result<ChainWitness, String> {
         let nums = |x: Option<&Value>, what: &str| -> Result<Vec<u64>, String> {
@@ -197,6 +205,10 @@ impl ChainWitness {
         Ok(ChainWitness {
             balances,
             upgrade_authority,
+            cross: match v.get("cross") {
+                None | Some(Value::Null) => None,
+                Some(c) => Some(crate::witness::CrossCheck::from_json(c)?),
+            },
         })
     }
 }
@@ -731,6 +743,7 @@ pub async fn fetch_chain(
     Ok(ChainWitness {
         balances,
         upgrade_authority: upgrade_authority(url, program).await?,
+        cross: None,
     })
 }
 
