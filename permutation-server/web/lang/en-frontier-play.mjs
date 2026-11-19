@@ -1945,4 +1945,5 @@ export default {
   "広い土地の州 {0} に軍勢が留まっています": "A host stands in wide-land province {0}",
   "広い土地の州 {0} へ遠征中の軍勢がいます": "A host is on an expedition to wide-land province {0}",
   "広い土地への遠征は終わりました。結果は「進軍」で確かめられます。": "The expedition into the wide land is over. See its result in Marches.",
+  "道のりに、まだ州が開かれていない土地があります。そこを通る進軍は封を開けられないので、別の行き先を選んでください": "The route crosses land whose province is not open yet. A march through it cannot have its seal opened, so choose another destination",
 };

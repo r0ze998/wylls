@@ -210,6 +210,14 @@ pub fn entry_of(t: &Transit, owner_citizen: &Address) -> SlotEntry {
     }
 }
 
+/// The first province a march's route crosses (besides its destination) that has no Province account on this chain,
+/// or `None` (fix-wide-breaks BREAK-4: such a march can never be revealed — the program refuses an absent path province).
+pub fn path_not_open(c: &Chain, a: &Addresses, t: &Transit, plain: &fclient::seal::Plain) -> Option<(i32, i32)> {
+    let path = play::path_provinces((t.origin_p as i32, t.origin_q as i32, t.origin_tile), plain)?;
+    path.into_iter()
+        .find(|&(p, q)| c.account(&a.province(p, q)).is_none())
+}
+
 /// The Reveal of an opened march (pure): the target index from the slots as read, the path provinces, and whether
 /// the ArrivalDay must be written. `Err` names why it cannot be revealed (the program would refuse it for good).
 #[allow(clippy::too_many_arguments)]
@@ -611,6 +619,8 @@ pub struct LegacyMarchDriver {
     stop: tokio::sync::watch::Receiver<bool>,
     pub land_timeout: Duration,
     known: std::collections::BTreeMap<(u64, u32), Known>,
+    /// Marches already reported as never revealable by their route (fix-wide-breaks BREAK-4): said once each.
+    noted_closed: Vec<(u64, u32)>,
     terminal: Option<Step>,
     pub log: Vec<String>,
     /// The provinces where a settled march's host STANDS (`(dest, host_id)`, never the home: that is the origin
@@ -657,6 +667,7 @@ impl LegacyMarchDriver {
             stop,
             land_timeout: crate::keeper_loop::LAND_TIMEOUT,
             known: Default::default(),
+            noted_closed: vec![],
             terminal: None,
             log: vec![],
             stands: vec![],
@@ -1399,7 +1410,26 @@ impl LegacyMarchDriver {
             if mine {
                 self.known.get_mut(&key).expect("known").revealed = true;
             }
-            if !mine && inputs.is_none() && dv.resolved_next <= arrive {
+            // (fix-wide-breaks BREAK-4: a march whose route crosses a province with no Province on this chain — grown land
+            //  that was never opened — can never be revealed: the program reads every path province and refuses an
+            //  absent one (BadAccount, Custom(2)). It is not revealed and the driver goes on with the destination's
+            //  bells; its SettleTransit then settles it as the program settles an unrevealed march (routed home), so the
+            //  host is not held and the village's driver is not stopped.)
+            let closed_path = if !mine {
+                path_not_open(&lock(state), &self.a, &t, &plain)
+            } else {
+                None
+            };
+            if let Some(pc) = closed_path {
+                if self.known.get(&key).is_some_and(|k| !k.revealed) && !self.noted_closed.contains(&key) {
+                    self.noted_closed.push(key.clone());
+                    eprintln!(
+                        "{}",
+                        serde_json::json!({"legacy_march": "unrevealable", "slot": slot, "arrive": arrive, "why": format!("its route crosses ({}, {}), which has no Province: settled unrevealed (routed home)", pc.0, pc.1)})
+                    );
+                }
+            }
+            if !mine && closed_path.is_none() && inputs.is_none() && dv.resolved_next <= arrive {
                 // (fix-wide-breaks BREAK-2, as the wide destination driver: the reveal is not held for THE anchor — the
                 //  program admits it before the anchor exists, and the window closes only at A + W; at ×60 that window
                 //  is ten wall seconds, shorter than a keeper pass over many villages)
