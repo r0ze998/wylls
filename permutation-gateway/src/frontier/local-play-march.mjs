@@ -20,7 +20,7 @@ import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import { decode, encode } from '../../client/src/base58.mjs';
 import { parseTransaction } from '../../client/src/solana-tx.mjs';
 import { localPlayRelayConfigProblems, fetchRpc, LOCAL_PLAY_SEASON_ID } from './local-play-relay.mjs';
-import { localActAccountsCheck, LOCAL_ACT_LOADED_LIMIT } from './local-play-act.mjs';
+import { localActAccountsCheck, LOCAL_ACT_LOADED_LIMIT, runnerRejection, sendRefusalDetail } from './local-play-act.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { accountsFor, buildShape } from '../../../permutation-server/web/frontier/fplay.mjs';
 import { seasonAddresses, hostParts } from '../../../permutation-server/web/frontier/faddr.mjs';
@@ -52,15 +52,20 @@ const ERRORS = Object.freeze({
   LocalMarchRpcUnavailable: [503, 'the runner did not answer usably'],
   LocalMarchClosed: [503, 'the relay is stopping'],
   LocalMarchSendRefused: [502, 'the runner refused the send'],
+  // (2026-11-19, fix-march-held) the runner did NOT take the Depart (preflight failed, e.g. NotResident 26 / ArrivalBell
+  //  31 when a turn rolled over under the send; unknown blockhash; bad signature): never queued, never run — not sent
+  LocalMarchRejected: [422, 'the runner rejected the march before running it: it was not sent'],
   LocalMarchUnknownSignature: [404, 'not a march sent through this relay'],
   LocalMarchNoInstance: [404, 'this relay has no pinned runner instance: no march capability'],
 });
 export class LocalMarchError extends Error {
   constructor(code, detail = undefined) { super(ERRORS[code]?.[1] ?? code); this.code = code; this.status = ERRORS[code]?.[0] ?? 400; if (detail !== undefined) this.detail = detail; }
 }
-/** Refusals made BEFORE the send: the page may say "not sent" for these only. */
+/** Refusals made BEFORE the send: the page may say "not sent" for these (and for `LOCAL_MARCH_REJECTED`) only. */
 export const LOCAL_MARCH_PRESEND_REFUSALS = Object.freeze(['LocalMarchInvalid', 'LocalMarchNotAllowed', 'LocalMarchWideHolding', 'LocalMarchNotYourHost', 'LocalMarchSeal',
   'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed']);
+/** (2026-11-19) The runner's definite "not taken" answer to the one send (local-play-act.mjs `runnerRejection`): also "not sent". */
+export const LOCAL_MARCH_REJECTED = Object.freeze(['LocalMarchRejected']);
 const fail = (code, detail) => { throw new LocalMarchError(code, detail); };
 const check = (ok, code = 'LocalMarchInvalid') => { if (!ok) fail(code); };
 const exact = (v, keys) => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
@@ -140,7 +145,7 @@ export function localMarchSubmit(body, pins) {
   check(Buffer.from(tx.message).equals(Buffer.from(expected)), 'LocalMarchMessageMismatch');
   const key = createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(decode(pins.wallet))]), format: 'der', type: 'spki' });
   check(edVerify(null, tx.message, key, tx.signatures[0]), 'LocalMarchSigner');
-  return Object.freeze({ intent, message: Uint8Array.from(tx.message), signature: encode(tx.signatures[0]) });
+  return Object.freeze({ intent, message: Uint8Array.from(tx.message), signature: encode(tx.signatures[0]), blockhash: tx.recentBlockhash });
 }
 
 function accountOf(row) {
@@ -214,24 +219,36 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
       }
       check(!seen.has(digest), 'LocalMarchMessageUsed'); check(seen.size < LOCAL_MARCH_MAX_HISTORY, 'LocalMarchBusy');
       open();   // the last thing before the send
-      seen.set(digest, Object.freeze({ signature: ok.signature }));   // before sending: at most once
+      seen.set(digest, Object.freeze({ signature: ok.signature, blockhash: ok.blockhash }));   // before sending: at most once
       const binding = sealBinding(ok.intent);
       let sent;
       try { sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]); }
       catch { return { status: 'unknown', name: 'Depart', signature: ok.signature, ...binding, status_route: LOCAL_MARCH_ROUTES.status }; }
-      if (sent?.error) throw new LocalMarchError('LocalMarchSendRefused', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: ok.signature });
+      // (2026-11-19) the runner's definite rejection is "not sent" (LocalMarchRejected, with the program's code): the page
+      //  returns the order to its draft instead of holding the host on a signature that can never land
+      if (sent?.error) throw new LocalMarchError(runnerRejection(sent.error) ? 'LocalMarchRejected' : 'LocalMarchSendRefused', sendRefusalDetail(sent.error, ok.signature));
       return { status: sent?.result === ok.signature ? 'submitted' : 'unknown', name: 'Depart', signature: ok.signature, ...binding, status_route: LOCAL_MARCH_ROUTES.status };
     },
     async status(body) {
       open();
       check(exact(body, ['schema', 'signature']) && body.schema === LOCAL_MARCH_STATUS_SCHEMA && typeof body.signature === 'string');
-      check([...seen.values()].some(e => e.signature === body.signature), 'LocalMarchUnknownSignature');
+      const entry = [...seen.values()].find(e => e.signature === body.signature);
+      check(!!entry, 'LocalMarchUnknownSignature');
+      // (2026-11-19) the blockhash's validity is read FIRST, then the signature: a blockhash that was already past its
+      // validity and a signature still unknown after it mean the transaction can never land (the runner drops queued
+      // transactions whose blockhash expired; Solana's block-height expiry) — `expired`, a definite outcome
+      let expired = false;
+      if (typeof entry.blockhash === 'string') {
+        const v = await ask('isBlockhashValid', [entry.blockhash, { commitment: 'processed' }]);
+        if (runnerInstance !== null && v.result?.context?.instance !== undefined && v.result.context.instance !== runnerInstance) fail('LocalMarchRpcUnavailable');
+        expired = v.result?.value === false;
+      }
       const r = await ask('getSignatureStatuses', [[body.signature], { searchTransactionHistory: true }]);
       const ctx = r.result?.context, value = r.result?.value, slot = ctx?.slot;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(value) || value.length !== 1) fail('LocalMarchRpcUnavailable');
       if (runnerInstance !== null && ctx.instance !== runnerInstance) fail('LocalMarchRpcUnavailable');
       const s = value[0];
-      if (s === null) return { signature: body.signature, status: 'pending', context_slot: slot };
+      if (s === null) return { signature: body.signature, status: expired ? 'expired' : 'pending', context_slot: slot };
       if (typeof s !== 'object' || Array.isArray(s) || !Object.hasOwn(s, 'err') || !Number.isSafeInteger(s.slot) || s.slot < 0 || s.slot > slot
           || !['processed', 'confirmed', 'finalized'].includes(s.confirmationStatus) || !(s.err === null || typeof s.err === 'string' || (typeof s.err === 'object' && !Array.isArray(s.err)))) fail('LocalMarchRpcUnavailable');
       return { signature: body.signature, status: s.err !== null ? 'failed' : s.confirmationStatus, err: s.err, slot: s.slot, context_slot: slot };
