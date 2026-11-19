@@ -68,7 +68,7 @@
 | gateway と web の鍵なしの試験ファイル 168 件（guard 付き） | gateway と web の 94 件 |
 | check-v9-frozen、fmt、Rules の clippy、ABI の clippy・試験・vector、Frontier の host の試験（既定と no-default） | Frontier の LiteSVM の G1–G13（CU の上限を含む） |
 | frontier-node の fmt・clippy、findex と herald の lib の試験 | frontier-node の workspace の試験（debug、release） |
-| frontier-wasm の 2 つの build と hash | Prize の LiteSVM（fmt、clippy、試験） |
+| frontier-wasm の 3 つの build と hash（Linux の runner。2026-11-19 から征服の `--cq` も）と、基準ホスト（Apple silicon の runner）での 3 つの byte 一致（`--check --reference`） | Prize の LiteSVM（fmt、clippy、試験） |
 | prize の fmt・clippy・host の試験、exec-native | — |
 
 **失う安全性**：SBF の build が本番と同じ形か（e_flags、overflow の検査、2 回の build の hash の一致）、CU の上限、LiteSVM での実際の取引。これらは、承認のうえで手動で動かすまで確かめられません。
