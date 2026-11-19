@@ -561,22 +561,63 @@ test("journal lock, the earlier format (a bare pid): a running holder is refused
 });
 
 test("journal lock, real processes: eight that race for one stale lock (every other round with a dead taker's mutex too), five rounds: exactly one wins each round", async () => {
+  // (2026-11-19, discrepancy 85) Barriers, not sleeps. Before, the winner held the lock for a fixed 300 ms and exited
+  // without close(); a child that a loaded runner spawned more than 300 ms late found the lock of a holder that had
+  // exited, and took it over (as it must: that lock is stale), so the round counted two winners. Now every child
+  // reports "ready" once loaded, all are released by a "go" (together, or a few ms apart), and each stays alive (the winner holding the
+  // lock) until the parent has every child's answer: no attempt can meet a holder that is gone.
   const { spawn } = await import("node:child_process");
-  const { fileURLToPath } = await import("node:url");
   const mod = new URL("../src/connect/dispatch.mjs", import.meta.url).href;
   const child = `const { fileJournal } = await import(${JSON.stringify(mod)}); const fs = await import("node:fs");
-    try { fileJournal(process.argv[1], fs); process.stdout.write("won"); setTimeout(() => {}, 300); } catch (e) { process.stdout.write(e.code); }`;
+    let buf = "", j = null;
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (x) => {
+      buf += x;
+      if (buf.includes("go\\n") && j === null) {
+        j = false;
+        try { j = fileJournal(process.argv[1], fs); process.stdout.write("won\\n"); } catch (e) { process.stdout.write(e.code + "\\n"); }
+      }
+    });
+    process.stdin.on("end", () => { if (j) { j.save({ by: process.pid }); process.stdout.write("saved\\n"); } });
+    process.stdout.write("ready\\n");`;
   for (let round = 0; round < 5; round++) {
     const path = lockDir();
     fs.writeFileSync(`${path}.lock`, JSON.stringify({ pid: 2147483646, start: "gone", token: "dead" }));
     if (round % 2) fs.writeFileSync(`${path}.lock.takeover`, JSON.stringify({ pid: 2147483645, start: "gone", token: "dead-taker" }));
-    const outs = await Promise.all(Array.from({ length: 8 }, () => new Promise((ok) => {
-      const c = spawn(process.execPath, ["--input-type=module", "-e", child, path], { stdio: ["ignore", "pipe", "inherit"] });
-      let o = ""; c.stdout.on("data", (x) => { o += x; }); c.on("close", () => ok(o));
-    })));
-    assert.equal(outs.filter((o) => o === "won").length, 1, `round ${round}: ${outs.join(",")}`);
-    assert.ok(outs.every((o) => o === "won" || o === "JournalLocked"), outs.join(","));
-    void fileURLToPath;
+    const kids = Array.from({ length: 8 }, () => {
+      const c = spawn(process.execPath, ["--input-type=module", "-e", child, path], { stdio: ["pipe", "pipe", "inherit"] });
+      const k = { c, lines: [], waiters: [] };
+      let o = "";
+      c.stdout.on("data", (x) => {
+        o += x;
+        for (let i; (i = o.indexOf("\n")) >= 0; o = o.slice(i + 1)) k.lines.push(o.slice(0, i));
+        k.waiters = k.waiters.filter((w) => !w());
+      });
+      k.closed = new Promise((ok) => c.on("close", (code) => { k.waiters.forEach((w) => w()); ok(code); }));
+      k.line = (n) => new Promise((ok, no) => {
+        const w = () => { if (k.lines.length > n) { ok(k.lines[n]); return true; } if (c.exitCode !== null) { no(new Error(`child ${c.pid} exited (${c.exitCode}) after ${JSON.stringify(k.lines)}`)); return true; } return false; };
+        if (!w()) k.waiters.push(w);
+      });
+      return k;
+    });
+    try {
+      assert.deepEqual(await Promise.all(kids.map((k) => k.line(0))), Array(8).fill("ready"), `round ${round}: every child loaded`);
+      // released together (round 0) or a few ms apart, so the openers meet at every step of a takeover; a late one
+      // still finds the winner alive, since no child exits before every answer is in
+      const gap = [0, 1, 2, 3, 5][round];
+      for (const [i, k] of kids.entries()) { if (gap && i) await new Promise((ok) => setTimeout(ok, gap)); k.c.stdin.write("go\n"); }
+      const outs = await Promise.all(kids.map((k) => k.line(1))); // every answer is in while every child still runs
+      assert.equal(outs.filter((o) => o === "won").length, 1, `round ${round}: ${outs.join(",")}`);
+      assert.ok(outs.every((o) => o === "won" || o === "JournalLocked"), `round ${round}: ${outs.join(",")}`);
+      const winner = kids[outs.indexOf("won")].c.pid;
+      assert.equal(JSON.parse(readFileSync(`${path}.lock`, "utf8")).pid, winner, `round ${round}: the lock names the one that won`);
+      for (const k of kids) k.c.stdin.end();
+      assert.deepEqual(await Promise.all(kids.map((k) => k.closed)), Array(8).fill(0), `round ${round}: every child exits cleanly`);
+      assert.deepEqual(kids.map((k) => k.lines.slice(2)), outs.map((o) => (o === "won" ? ["saved"] : [])), `round ${round}: only the winner saved`);
+      assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { by: winner }, `round ${round}: the journal holds the winner's save`);
+    } finally {
+      for (const k of kids) if (k.c.exitCode === null) k.c.kill();
+    }
   }
 });
 
