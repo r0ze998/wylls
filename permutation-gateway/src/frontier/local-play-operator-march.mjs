@@ -141,7 +141,15 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     const settling = blocks.length > 0 && blocks.every(b => SETTLE_CODES.includes(b));
     return { faction, holding, hosts, settling, blocks, reserve: Number(holding.reserve?.[0] ?? 0), hostCount: hosts.length + transits, march: march?.host ? march : null, nowBell, ready: ready.length, roomForHosts: hosts.length < MAX_HOSTS };
   }
-  return Object.freeze({ refresh, view, world, herald, kernel: () => kernel });
+  /**
+   * The bell the chain is in NOW, as the page's chain clock extrapolates it from the last sample at the measured rate
+   * (the same reading sendWarMarch uses for the departure time); null before the first refresh.
+   */
+  function liveBell() {
+    if (!world.clock || !Number.isSafeInteger(world.now) || !world.sampledAt) return null;
+    return bellAt(world.clock.genesisTs, Math.floor(world.now + Math.max(0, (Date.now() - world.sampledAt) / 1000) * (world.rate ?? 1)));
+  }
+  return Object.freeze({ refresh, view, world, herald, kernel: () => kernel, liveBell });
 }
 
 /**

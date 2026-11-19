@@ -7,7 +7,7 @@ import { strengthScore, strongEnough, orderableHosts, chooseMarch, warStep, mayA
 import { parseOperatorResidents, operatorRelayPorts, operatorSlotPorts, createResidentMemory, decideNext, noteOutcome, warHomeCandidates,
   OPERATOR_FACTIONS, OPERATOR_RESIDENTS_MAX } from '../src/frontier/local-play-operator-policy.mjs';
 import { keepsOf, provinceDistance, fileFetch, SETTLE_CODES } from '../src/frontier/local-play-operator-march.mjs';
-import { residentTurn, parseArgs, WAR_DEFAULTS, TARGET_HOLD_BELLS } from '../src/frontier/local-play-operator-residents.mjs';
+import { residentTurn, parseArgs, WAR_DEFAULTS, TARGET_HOLD_BELLS, spentBell } from '../src/frontier/local-play-operator-residents.mjs';
 import { createOperatorBudget } from '../src/frontier/local-play-operator-policy.mjs';
 import { contestableKeeps } from '../../permutation-server/web/frontier/fkeepreach.mjs';
 
@@ -205,6 +205,22 @@ test("a war resident's turn: the march by the page's own flow, ONE action per tu
   assert.deepEqual([e.outcome, e.code], ['refused', 'NotResident']);
   assert.equal(y.r.memory.lastBell, null);
   assert.equal(y.r.memory.cooldown['war:Depart'], 30 + WAR_COOLDOWN_BELLS);
+  // a send that ran over the turn's end is booked on the bell the chain is in when it is over (Q16-2 on the chain's
+  // own turn): a Depart decided at 30 that failed on the chain in 31 leaves nothing more to do in 31
+  const v = warResident({ snap: { reserve: 0, hostCount: 1, march, settling: false, ready: 1 } });
+  v.deps.view = w.deps.view; v.deps.liveBell = () => 31; v.deps.march = async () => ({ ok: false, step: 'sent', code: 'TransactionFailed', programCode: 26 });
+  const f = await residentTurn(v.r, { homes: [], deps: v.deps });
+  assert.deepEqual([f.act, f.outcome, f.program_code], ['Depart', 'failed', 26]);
+  assert.equal(v.r.memory.lastBell, 31);
+  v.setBell(31); v.deps.warView = async () => ({ reserve: 0, hostCount: 1, march: null, settling: false, ready: 0 });
+  assert.deepEqual([(await residentTurn(v.r, { homes: [], deps: v.deps })).why, v.sent.length], ['already acted this turn', 0]);
+  v.setBell(32);
+  assert.deepEqual([(await residentTurn(v.r, { homes: [], deps: v.deps })).act, v.sent], ['Train', ['Train']]);
+  // (the economy act likewise; a live bell that is unknown or behind changes nothing)
+  assert.equal(spentBell(30, { liveBell: () => 31 }), 31);
+  assert.equal(spentBell(30, { liveBell: () => 29 }), 30);
+  assert.equal(spentBell(30, { liveBell: () => null }), 30);
+  assert.equal(spentBell(30, {}), 30);
   // a read that fails is a no-answer line, nothing else
   const z = warResident({ snap: null }); z.deps.read = async () => { throw new Error('down'); };
   assert.deepEqual(Object.values(await residentTurn(z.r, { homes: [], deps: z.deps })).slice(2, 4), ['read', 'no-answer']);

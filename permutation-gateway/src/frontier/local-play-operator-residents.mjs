@@ -147,6 +147,18 @@ export function parseArgs(argv) {
 }
 
 /**
+ * The turn a war resident's sent action is booked on (owner Q16-2): the later of the bell it was decided at and the
+ * bell the chain is in when the send and its follow are over (`deps.liveBell`). A send started at the very end of a
+ * turn runs on the chain in the NEXT one (seen 2026-11-19, verify-pr68: a Depart decided at bell 26 ran — and was
+ * refused NotResident — in bell 27, and a Build of bell 27 followed it): booked on the later bell, the resident does
+ * nothing more in the turn its transaction ran in.
+ */
+export function spentBell(nowBell, deps) {
+  const live = typeof deps?.liveBell === 'function' ? deps.liveBell() : null;
+  return Number.isSafeInteger(live) && Number.isSafeInteger(nowBell) ? Math.max(nowBell, live) : nowBell;
+}
+
+/**
  * One resident's one turn: read, decide, maybe send and follow. → the line to print. `deps` (tests): `read(wallet)`,
  * `submit(order, ctx)`, `follow(signature)`, `now()` (ms), `nowSecs()`.
  */
@@ -175,7 +187,7 @@ export async function residentTurn(r, { homes, deps }) {
     const m = await deps.march(r, snap);
     const detail = r.lastRefusal; r.lastRefusal = null;
     const outcome = m.ok ? 'landed' : m.step === 'check' || m.step === 'route' || m.step === 'sealing' ? 'refused' : m.code === 'TransactionFailed' ? 'failed' : m.step === 'sent' && m.code !== 'network' ? 'refused' : 'unknown';
-    if (outcome !== 'refused') r.memory.lastBell = nowBell;
+    if (outcome !== 'refused') r.memory.lastBell = spentBell(nowBell, deps);
     if (outcome === 'landed' || outcome === 'unknown') (r.memory.targets ??= {})[`${d.row.p},${d.row.q}`] = (m.arriveBell ?? nowBell) + TARGET_HOLD_BELLS;
     noteOutcome(r.memory, d, outcome);
     r.budget.spent(outcome, deps.now());
@@ -195,7 +207,7 @@ export async function residentTurn(r, { homes, deps }) {
     outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown';
     code = f.code ?? sent.relayCode ?? null;
   }
-  if (r.memory.war && outcome !== 'refused' && d.name !== 'Join') r.memory.lastBell = nowBell;
+  if (r.memory.war && outcome !== 'refused' && d.name !== 'Join') r.memory.lastBell = spentBell(nowBell, deps);
   noteOutcome(r.memory, d, outcome);
   r.budget.spent(outcome, deps.now());
   return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, fields: JSON.parse(JSON.stringify(d.fields, (_, v) => (typeof v === 'bigint' ? v.toString() : v))), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), ...(signature ? { signature } : {}), seen, budget: r.budget.state() };
@@ -242,6 +254,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   if (eyes) {
     deps.warView = r => eyes.view(r.key.address, r.memory);
     deps.nowBell = () => eyes.world.nowBell;
+    deps.liveBell = () => eyes.liveBell();
     deps.march = (r, snap) => sendWarMarch(r, snap, eyes, { post: marchPostFor(r) });
   }
   const marchPosts = new Map();
