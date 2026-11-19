@@ -47,6 +47,7 @@ import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalp
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf, wideMarchDue } from './local-play-operator-policy.mjs';
 import { createWideMarch } from './local-play-operator-wide-march.mjs';
+import { createWideHost } from './local-play-operator-wide-host.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
@@ -257,6 +258,36 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
       }
     } catch (e) { r.wideMarchWhy = String(e?.message ?? e).slice(0, 120); }
   }
+  // (TEST-ONLY wide -> wide, Q-W2 owner t385u: a wide village's own host — train, muster, then march onto a
+  //  neighbouring province's keep. Local-play-operator-wide-host.mjs; the program opens the march only in the local lane)
+  if (wide && deps.wideHost && (r.memory.wideVillages ?? []).length && !war) {
+    let w;
+    try { w = await deps.wideHost.decide(r, { wideTargets, villages: r.memory.wideVillages }); } catch (e) { w = { why: String(e?.message ?? e).slice(0, 160) }; }
+    r.wideHostWhy = w?.why ?? null;
+    if (w?.decision) {
+      const wd = w.decision;
+      const sent = await deps.submit({ name: wd.name, v: wd.v, fields: wd.fields }, r);
+      const detail = r.lastRefusal ?? null; r.lastRefusal = null;
+      let outcome, signature = null, code = null;
+      if (!sent.ok && sent.code === RESIDENT_ALREADY_ACTED) {
+        r.budget.spent('held', deps.now(), turnBell);
+        return { resident: r.index, wallet: r.key.address, step: 'act', act: wd.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', test_only: true };
+      }
+      if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
+      else {
+        signature = sent.signature;
+        const fl = await deps.follow(signature, r);
+        outcome = fl.state === 'landed' ? 'landed' : fl.state === 'failed' ? 'failed' : 'unknown';
+        code = fl.code ?? sent.relayCode ?? null;
+      }
+      deps.wideHost.note(r, wd, outcome);
+      noteOutcome(r.memory, wd, outcome);
+      r.budget.spent(outcome, deps.now(), turnBell);
+      return { resident: r.index, wallet: r.key.address, step: 'act', act: wd.name, why: wd.why, outcome, test_only: true, wide_host: true,
+        ...(wd.to ? { to: wd.to, from: wd.from, troops: wd.troops, arrive_bell: wd.fields.arrive_bell, now_bell: wd.nowBell } : {}),
+        ...(code ? { code } : {}), ...(signature ? { signature } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), budget: r.budget.state() };
+    }
+  }
   const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
     war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
@@ -392,6 +423,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   };
   // (TEST-ONLY wide march: the residents of a wide world march into the wide land through their own relays' depart routes)
   if (o.wide) deps.wideMarch = createWideMarch({ herald: o.herald });
+  if (o.wide) deps.wideHost = createWideHost({ herald: o.herald });
   // (TEST-ONLY war world: the world's eyes, read once per loop; the march opened per resident by its own relay)
   const eyes = o.war ? createWarEyes({ herald: o.herald }) : null;
   if (eyes) {

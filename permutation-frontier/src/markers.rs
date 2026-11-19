@@ -32,6 +32,7 @@ pub const RIGHTS_EXPERIMENTAL: &[u8] = b"PSF_RIGHTS_EXPERIMENTAL_BUILD";
 pub const NFT_EXPERIMENTAL: &[u8] = b"PSF_NFT_EXPERIMENTAL_BUILD";
 pub const LOCALNET_NFT_SBF: &[u8] = b"PSF_LOCALNET_NFT_SBF_BUILD";
 pub const DEVNET_PLAYABLE: &[u8] = b"PSF_DEVNET_PLAYABLE_BUILD";
+pub const LOCALNET_WIDE_DEPART: &[u8] = b"PSF_LOCALNET_WIDE_DEPART_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -60,6 +61,8 @@ pub fn touch_localnet_expedition_sbf() {
     core::hint::black_box(LOCALNET_CONQUEST_SBF.as_ptr());
     #[cfg(feature = "localnet-nft-sbf")]
     core::hint::black_box(LOCALNET_NFT_SBF.as_ptr());
+    #[cfg(feature = "localnet-wide-depart")]
+    core::hint::black_box(LOCALNET_WIDE_DEPART.as_ptr());
 }
 
 /// Keeps the `test-beacon` marker alive (called by every beacon

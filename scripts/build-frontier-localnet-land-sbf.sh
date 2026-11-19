@@ -42,6 +42,14 @@ ovf="$(count 'attempt to (add|subtract|multiply) with overflow' "$so")"
 for m in PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD; do
   [ "$(count "$m" "$so")" -gt 0 ] || { echo "$so: marker $m missing" >&2; bad=1; }
 done
+# The TEST-only wide->wide switch (Cargo.toml `localnet-wide-depart` inside `localnet-land-sbf`): the marker must
+# follow that one line, so removing the line (the documented OFF switch) builds and checks the closed-gate .so.
+if grep -qE '^localnet-land-sbf = \[.*"localnet-wide-depart"' "$root/permutation-frontier/Cargo.toml"; then wide_depart=1; else wide_depart=0; fi
+if [ "$wide_depart" = 1 ]; then
+  [ "$(count PSF_LOCALNET_WIDE_DEPART_BUILD "$so")" -gt 0 ] || { echo "$so: marker PSF_LOCALNET_WIDE_DEPART_BUILD missing" >&2; bad=1; }
+else
+  [ "$(count PSF_LOCALNET_WIDE_DEPART_BUILD "$so")" -eq 0 ] || { echo "$so: carries PSF_LOCALNET_WIDE_DEPART_BUILD but the switch is off" >&2; bad=1; }
+fi
 for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_DEVNET_PLAYABLE_BUILD; do
   [ "$(count "$m" "$so")" -eq 0 ] || { echo "$so: carries $m (a test build); refused" >&2; bad=1; }
 done
@@ -50,7 +58,11 @@ echo "artefact       $so"
 echo "file_sha256    $(shasum -a 256 "$so" | cut -d' ' -f1)"
 echo "so_len         $(wc -c < "$so" | tr -d ' ')"
 echo "overflow_panic $ovf"
-echo "features       localnet-land-sbf (localnet-conquest-sbf + land-preview)"
+if [ "$wide_depart" = 1 ]; then
+  echo "features       localnet-land-sbf (localnet-conquest-sbf + land-preview + localnet-wide-depart: TEST-only WideDepart debit gate OPEN)"
+else
+  echo "features       localnet-land-sbf (localnet-conquest-sbf + land-preview; localnet-wide-depart switch OFF: WideDepart refused)"
+fi
 echo "program_id     [0x45; 32]"
 echo "land_tags      0xCD FoldLand, 0xCE ClaimLandYield (PROVISIONAL, unallocated)"
 echo "deployable     no"

@@ -112,7 +112,9 @@ function timestamp(value, fractional = false) {
  * to its observed clock). It is floored just as fmarch.earliestBell does.
  * A successful observation is still NOT an executable/admitted route.
  */
-export function evaluateOutboundRoute({ source, directions, lands, season, departTs, arriveBell }) {
+// (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: `wideOrigin` true judges a WIDE host's march from a wide province
+//  — ring 129+ at both ends — with the same terrain, palisade and timing rules; the default is the original outbound)
+export function evaluateOutboundRoute({ source, directions, lands, season, departTs, arriveBell, wideOrigin = false }) {
   const out = { ok: false, code: null, stepIndex: null, rawSecs: null, travelSecs: null, watchedSecs: null,
     wearBps: null, earliest: null, min: null, max: null, arrivalValid: false, ...closed };
   try {
@@ -128,7 +130,7 @@ export function evaluateOutboundRoute({ source, directions, lands, season, depar
       && Array.from(season.stances).every(x => Number.isInteger(x) && x >= 0 && x <= 255), 'SeasonStancesMissing');
     const route = traceWideDirections({ world: source.world, origin: source.origin, directions });
     check(route.pathComplete, 'EmptyPath');
-    check(BigInt(route.origin.ring) <= 128n, 'OriginalOriginRequired');
+    check(wideOrigin ? BigInt(route.origin.ring) > 128n : BigInt(route.origin.ring) <= 128n, wideOrigin ? 'WideOriginRequired' : 'OriginalOriginRequired');
     check(BigInt(route.endpoint.ring) > 128n, 'WideDestinationRequired');
     check(lands instanceof Map, 'RouteLandMissing');
     out.route = route;

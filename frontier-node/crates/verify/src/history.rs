@@ -15,11 +15,15 @@
 //! | the local node's live `frontier_feed` | separate status and feed reads are not an atomic snapshot: `ledger_feed` with named [`Gap`]s, unproven (never PASS) until every read was scanned from a ledger that cannot rewind under its runId and the node is still at the read's point after the final states (`input::seal_point_in_time`, ⑲ 2026-11-08) | unchanged only then |
 //! | per-program local-feed archives | numbers restored when consistent, but same-run rollback freshness remains unproven | never PASS |
 //! | public RPC (findex `RpcPoll`, live or as a findex archive), in **any** coverage state, `cross_checked` included | `unproven` | never PASS: `UNVERIFIABLE` with [`HISTORY_UNPROVEN`], or FAIL only on a [self-contained](self_contained) FAIL |
+//! | public RPC, coverage neither `gap` nor `not_fetched`, when (a) VG re-executed it from the Season's creation with no finding AND (b) every witness RPC agreed item by item (VS, `crate::witness`, no finding) — ⑰ Q-P1 = (a)+(b), 2026-11-19 | `witnessed` | judged as a whole history: PASS, or FAIL on any FAIL; `complete` stays `null` (the witnesses' independence is assumed: [`crate::witness::RESIDUAL`]) |
 //! | an archive or fixture whose source is not recorded or not readable | `unproven` | the same |
 //!
-//! `cross_checked` records that the node and a witness agreed; it is not
-//! proof of completeness or of finality (findex `COVERAGE_LIMIT`), so it
-//! does not lift the verdict either. Every FAIL finding stays in the report
+//! `cross_checked` records that the node and a witness agreed on the
+//! signature list while it was pulled; it is not proof of completeness or
+//! of finality (findex `COVERAGE_LIMIT`), so it does not lift the verdict
+//! by itself. Only the whole cross-check of `witness.rs` (every finalized
+//! transaction with its meta, its block, the account set and the finals)
+//! together with VG's exact end state does ([`Lift`]). Every FAIL finding stays in the report
 //! (what the checks saw), but only a [self-contained](self_contained) one,
 //! decided inside transactions that were fetched whatever else is missing,
 //! makes the verdict FAIL; any other (a chain that does not reach its head,
@@ -249,6 +253,12 @@ impl History {
         ))
     }
 
+    /// Whether the ⑰ Q-P1 rule lifts this history (see [`Lift`]): a public
+    /// RPC history whose pull detected no gap and archived something.
+    pub fn liftable(&self) -> bool {
+        self.source == Source::Rpc && !matches!(self.state(), Some("gap") | Some("not_fetched"))
+    }
+
     /// `as_given`, `ledger_feed` or `unproven` (see the module table).
     pub fn basis(&self) -> &'static str {
         match self.source {
@@ -452,14 +462,74 @@ impl History {
     }
 }
 
+/// What may lift a public-RPC history from `unproven` (⑰, owner Q-P1 =
+/// (a)+(b), 2026-11-19 22:32): both must hold.
+#[derive(Clone, Debug, Default)]
+pub struct Lift {
+    /// (a) VG re-executed the whole archive from the Season's creation and
+    /// had no finding: every program-owned final state reproduced exactly.
+    pub vg_exact: bool,
+    /// (b) VS's outcome (`None`: no witness was asked).
+    pub witness: Option<crate::witness::Outcome>,
+}
+
+impl Lift {
+    fn holds(&self) -> bool {
+        self.vg_exact && self.witness.as_ref().is_some_and(|w| w.agrees)
+    }
+    /// Why it does not hold (report text).
+    fn why_not(&self) -> Vec<String> {
+        let mut v = vec![];
+        if !self.vg_exact {
+            v.push("(a) VG did not reproduce every program-owned final state from the Season's creation (not run, or it has findings)".to_string());
+        }
+        match &self.witness {
+            None => v.push("(b) no witness RPC was read (`--witness URL`)".into()),
+            Some(w) if !w.agrees => v.push(format!(
+                "(b) the witness cross-check has {} finding(s) (VS)",
+                w.findings
+            )),
+            Some(_) => {}
+        }
+        v
+    }
+}
+
+/// [`apply_with`] without a lift.
+pub fn apply(history: &History, r: Report) -> Report {
+    apply_with(history, r, &Lift::default())
+}
+
 /// Records the history in the report and, when it is unproven, adds
 /// [`HISTORY_UNPROVEN`] and sets the verdict: FAIL when a
 /// [self-contained](self_contained) FAIL finding exists, else UNVERIFIABLE
 /// (never PASS; every finding stays). `history.selfContainedFails` and
 /// `history.otherFails` count what the verdict rests on.
-pub fn apply(history: &History, mut r: Report) -> Report {
+///
+/// A [liftable](History::liftable) history whose [`Lift`] holds is
+/// `witnessed` instead: no [`HISTORY_UNPROVEN`], the verdict the findings
+/// give (PASS, or FAIL on any FAIL). `history.witness` reports VS's outcome
+/// whenever a witness was asked.
+pub fn apply_with(history: &History, mut r: Report, lift: &Lift) -> Report {
     let mut h = history.report();
-    if let Some(f) = history.finding() {
+    if let Some(w) = &lift.witness {
+        h["witness"] = w.json();
+        h["witness"]["vgExact"] = json!(lift.vg_exact);
+    }
+    if history.unproven() && history.liftable() && lift.holds() {
+        h["basis"] = json!("witnessed");
+        h["scope"] = json!("dataset_only");
+        h["complete"] = Value::Null;
+        r.history = Some(h);
+        return r;
+    }
+    if let Some(mut f) = history.finding() {
+        if history.liftable() {
+            f.detail.push_str(&format!(
+                ". Not lifted (⑰ Q-P1 needs (a) and (b)): {}",
+                lift.why_not().join("; ")
+            ));
+        }
         let own = r.findings.iter().filter(|x| self_contained(x)).count();
         let other = r.findings.iter().filter(|x| x.fail()).count() - own;
         h["selfContainedFails"] = json!(own);

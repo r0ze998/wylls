@@ -17,6 +17,8 @@
 import { accountsFor, buildShape } from './fplay.mjs';
 import { localDepartSigned } from './flocalplay-depart.mjs';
 import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from './flocalplay-wide.mjs';
+import { WIDE_HOST_ACTS, wideHostIntent, wideHostMessage } from './flocalplay-wide-host.mjs';
+import { worldIdOf } from './map/wide.mjs';
 import { seasonAddresses } from './faddr.mjs';
 import { ringPosition } from './map/wide.mjs';
 import { profileForHash } from '../sdk/frontier/profile.mjs';
@@ -28,7 +30,8 @@ import { sha256 } from '../sdk/sha256.mjs';
 
 // (TEST-ONLY wide play, local wide-land worlds: FileTicket — a one-site first village on the rim, which PlaceHome cannot
 //  name — and the wide claim, flocalplay-wide.mjs. The relay takes both only as these exact shapes.)
-export const LOCAL_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM]);
+// (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: a wide village's Train, Muster and Depart, flocalplay-wide-host.mjs)
+export const LOCAL_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, ...WIDE_HOST_ACTS]);
 export const LOCAL_ACT_CONTEXT_PATH = '/gw/f/local-play/act/context';
 export const LOCAL_ACT_SUBMIT_PATH = '/gw/f/local-play/act/submit';
 export const LOCAL_ACT_STATUS_PATH = '/gw/f/local-play/act/status';
@@ -247,6 +250,7 @@ export function localActIntentOf(name, v, fields, wallet) {
   }
   // (TEST-ONLY wide play: the wide claim, flocalplay-wide.mjs — its anchor the legacy first home, its target a wide province)
   if (name === WIDE_CLAIM) return wideClaimIntent({ holding: v.holding, target: v.target }, f);
+  if (WIDE_HOST_ACTS.includes(name)) return wideHostIntent(name, v.standing ? { wide: v.wide, standing: v.standing } : { wide: v.wide }, f);
   if (name === 'FileTicket') {
     check(Array.isArray(v.sites) && v.sites.length === 1 && exact(f, ['sites']) && Array.isArray(f.sites) && f.sites.length === 1, 'LocalActShape');
     const s0 = village(v.sites[0]), f0 = village(f.sites[0]);
@@ -280,6 +284,7 @@ export function localActMessage(intent, identity, rulesetHash, blockhash) {
   const A = seasonAddresses(identity.programId, LOCAL_ACT_SEASON_ID);
   check(A.season === identity.seasonAddress, 'LocalActIdentity');
   if (intent.name === WIDE_CLAIM) return wideClaimMessage(intent, { programId: identity.programId, seasonId: LOCAL_ACT_SEASON_ID, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
+  if (WIDE_HOST_ACTS.includes(intent.name)) return wideHostMessage(intent, { programId: identity.programId, seasonId: LOCAL_ACT_SEASON_ID, wallet: identity.address, world: worldIdOf(A.season, identity.programId), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   const profile = profileForHash(rulesetHash), wallet = identity.address;
   const v = { addresses: A, wallet, actor: wallet, profile, ...intent.subject };
   const fields = intent.name === 'Join' ? { faction: intent.fields.faction, session: Uint8Array.from(decode(wallet)), session_expiry: BigInt(intent.fields.session_expiry) } : { ...intent.fields };

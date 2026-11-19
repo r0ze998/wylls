@@ -60,6 +60,8 @@ fn devnet_playable_artefact_carries_only_its_own_marker() {
     for m in [
         &b"PSF_LOCALNET_EXPEDITION_SBF_BUILD"[..],
         b"PSF_LOCALNET_CONQUEST_SBF_BUILD",
+        // (TEST-only localnet wide -> wide march gate, `localnet-wide-depart`: never in the devnet build)
+        b"PSF_LOCALNET_WIDE_DEPART_BUILD",
         b"PSF_TEST_BEACON_BUILD",
         b"PSF_ORACLE_BUILD",
         b"PSF_TRACE_BUILD",
