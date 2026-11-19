@@ -29,10 +29,11 @@
 # hashes and sizes are in web/frontier/wasm/<artefact>.hosts, not here. The
 # cause is not established; it is not the checkout path (remapped) and not
 # floating point (the sources use none). Measured on the modules of CI run
-# 44468171843 (both hosts upload theirs): types, exports, globals and memory
-# are equal; the data section holds the same bytes in another order; the code
-# section holds the functions in another order and the Mac build has one
-# function more (frontier.wasm: 612 against 611). That is what differing
+# 44468171843 (both hosts upload theirs), for frontier.wasm: types, exports,
+# globals and memory are equal; the data section holds the same bytes in
+# another order; the code section holds the functions in another order and
+# the Mac build has one function more (612 against 611; frontier-v3.wasm 629
+# against 628, and its data differs by 8 B too). That is what differing
 # symbol hashes followed by LTO would give (unproven guess: cargo mixes the
 # host triple into the metadata of crates that depend on a proc-macro, here
 # borsh through borsh-derive). So the committed module stays the one
