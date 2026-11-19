@@ -355,6 +355,7 @@ permutation-gateway/test/web-frontier-wave4-integ.test.mjs
 permutation-gateway/test/web-frontier-wave4-map.test.mjs
 permutation-gateway/test/web-frontier-wave4.test.mjs
 permutation-gateway/test/web-frontier-wide-holding-ui.test.mjs
+permutation-gateway/test/web-frontier-wide-land-map.test.mjs
 permutation-gateway/test/web-frontier-words.test.mjs
 permutation-gateway/test/web-frontier-world-growth.test.mjs
 permutation-gateway/test/web-frontier-world-sparse.test.mjs

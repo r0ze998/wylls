@@ -61,8 +61,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --wide          the WIDE version (TEST-ONLY launcher option --wide-land): the world's Season is the devnet wide
                   preset S1_DEVNET_WIDE_7D, and during its setup the program's own instructions grow the map one ring
                   per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131, with
-                  one test participant per nation. Then the natural clock (a turn is 10 min). The page's 「記録」
-                  (recorded world) view shows the wide land. Memory-only: a stop ends it (not with --demo/--resume)
+                  one test participant per nation. Then the natural clock (a turn is 10 min). The ordinary map,
+                  「全体図」 and the 「記録」 (recorded world) view show the wide land. Memory-only: a stop ends it (not with --demo/--resume)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
                   draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the
@@ -470,7 +470,7 @@ say "   ▶ ブラウザで開いてください:  $URL" "   ▶ Open in your br
 if [ "$WIDE" = 1 ]; then
   say "   TEST 専用の広い版: 地図はリング 128 まで広がり、広い土地 (リング 129〜131) が開いています。準備のあいだだけ時計を進め、その後は通常の速さ (1 ターン 10 分)。テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
       "   TEST-ONLY wide version: the map is grown to ring 128 and the wide land (rings 129-131) is open. The clock was moved only during the setup; now the natural clock (a turn is 10 min). Test keys only. No real key, SOL or devnet. A stop ends this world."
-  say "   広い土地は地図の道具の「記録」ボタン (記録された世界・読み取り専用) で見られます。" "   The wide land is shown by the map tools' 「記録」 button (the recorded world, read-only)."
+  say "   広い土地は普通の地図と「全体図」の六つの角の外側に描かれます。地図の道具の「記録」ボタン (記録された世界・読み取り専用) でも見られます。" "   The wide land is drawn on the ordinary map and 「全体図」 outside its six corners; the map tools' 「記録」 button (the recorded world, read-only) lists it too."
 elif [ "$DEMO" = 1 ]; then
   say "   TEST 専用: ローカルのメモリ上のチェーン、×${SPEED} の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
       "   TEST ONLY: in-memory local chain, ×$SPEED clock, test keys only. No real key, SOL or devnet. A stop ends this world."

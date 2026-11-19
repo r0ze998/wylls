@@ -199,7 +199,7 @@ test('the title is written seldom and says the outer two levels; every level and
 test('the map\'s scene says its steps only when the trace is on: every mark is an optional call, and names a step of paintScene', () => {
   const fmap = readFileSync(new URL('../../permutation-server/web/frontier/map/fmap.mjs', import.meta.url), 'utf8');
   const marks = [...fmap.matchAll(/globalThis\.__frontierTrace\?\.\((['`])scene: ([a-z ]+)/g)].map(x => x[2].trim());
-  assert.deepEqual(marks, ['painter', 'provinces', 'provinces listed', 'chart cells', 'edge', 'ceiling edge', 'keeps', 'tiles', 'layered', 'wedge', 'site marks', 'focused wedge', 'keeps top', 'guide', 'threats', 'wait standard']);
+  assert.deepEqual(marks, ['painter', 'provinces', 'provinces listed', 'chart cells', 'edge', 'ceiling edge', 'keeps', 'tiles', 'layered', 'wide land', 'wedge', 'site marks', 'focused wedge', 'keeps top', 'guide', 'threats', 'wait standard']);
   assert.equal(fmap.split('__frontierTrace').length - 1, marks.length, 'no other use: never read, never assigned, never called without ?.');
   // and with no trace installed the hook is not there at all
   assert.equal(globalThis.__frontierTrace, undefined);
