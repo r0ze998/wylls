@@ -1265,6 +1265,12 @@ fn wide_rules_text() -> &'static str {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProgramInfo {
     pub sha256: Option<String>,
+    /// `solana-verify get-program-hash`'s hash: the ProgramData after its
+    /// header with trailing zero bytes stripped (Ellipsis-Labs/
+    /// solana-verifiable-build `get_binary_hash`). It differs from
+    /// [`ProgramInfo::sha256`] when the ELF itself ends in zeros (the
+    /// playable lane's does: `786ef80f…` vs `da3dc1aa…`).
+    pub verify_hash: Option<String>,
     pub elf_len: usize,
     pub found_markers: Vec<String>,
     /// Required markers missing and refused markers present.
@@ -1294,10 +1300,16 @@ pub fn program_info(programdata: &[u8], p: &Profile) -> ProgramInfo {
             ..ProgramInfo::default()
         };
     };
+    let stripped = {
+        let all = programdata.get(PROGRAMDATA_HEADER..).unwrap_or(&[]);
+        let end = all.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+        hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&all[..end]))
+    };
     let elf = &elf[..len];
     let has = |m: &str| elf.windows(m.len()).any(|w| w == m.as_bytes());
     let mut info = ProgramInfo {
         sha256: Some(hex::encode(<sha2::Sha256 as sha2::Digest>::digest(elf))),
+        verify_hash: Some(stripped),
         elf_len: len,
         ..ProgramInfo::default()
     };
@@ -1880,8 +1892,9 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
     }
     if let Some(h) = &info.sha256 {
         out(&format!(
-            "program    sha256 {h} ({} B ELF){}",
+            "program    sha256 {h} ({} B ELF; solana-verify program hash {}){}",
             grouped(info.elf_len as u64),
+            info.verify_hash.as_deref().unwrap_or("?"),
             if info.found_markers.is_empty() {
                 String::new()
             } else {
@@ -2362,6 +2375,10 @@ mod tests {
         let want = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&elf));
         assert_eq!(info.sha256.as_deref(), Some(want.as_str()));
         assert_eq!(info.elf_len, 4_096);
+        // solana-verify's hash strips the trailing zeros (here the fake ELF's own and the padding).
+        let end = elf.iter().rposition(|b| *b != 0).unwrap() + 1;
+        let v = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&elf[..end]));
+        assert_eq!(info.verify_hash.as_deref(), Some(v.as_str()));
         assert_eq!(info.found_markers, ["PSF_DEVNET_PLAYABLE_BUILD"]);
         assert!(info.marker_problems.is_empty());
         let bad = program_info(
@@ -2398,6 +2415,7 @@ mod tests {
         assert!(gate_flags(&o(true, true, Some(&h)), Endpoint::Public).is_empty());
         let info = ProgramInfo {
             sha256: Some(h.clone()),
+            verify_hash: None,
             elf_len: 1,
             found_markers: vec![],
             marker_problems: vec!["required marker X is not in the deployed program".into()],

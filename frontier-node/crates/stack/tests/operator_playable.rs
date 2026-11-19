@@ -39,6 +39,9 @@ const HERALD_PORT: u16 = 41_455;
 const SOL: u64 = 1_000_000_000;
 /// sha256 of the devnet build of the playable lane (reports/devnet-refresh.md, the committed verifier fixture).
 const DEVNET_SO_SHA256: &str = "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741";
+/// The same program's `program_hash` (trailing zeros stripped; reports/devnet-refresh.md, `solana-verify`'s form).
+const DEVNET_PROGRAM_HASH: &str =
+    "786ef80f132a9d2d18afc5708336a396afba32ff3d4c37ebf6c94425a51352df";
 /// The first of the 32 committed real quicknet rounds (`fclient/fixtures/quicknet`): the genesis round.
 const GENESIS_ROUND: u64 = 32_551_361;
 
@@ -495,7 +498,7 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
     .await;
     assert_eq!(r.code, 0, "{}\n{}", r.stdout, r.stderr);
     assert_eq!(r.stdout.matches("\ntx ").count(), 10, "{}", r.stdout);
-    assert!(r.stdout.contains(&format!("program    sha256 {DEVNET_SO_SHA256} (3,657,488 B ELF); markers PSF_DEVNET_PLAYABLE_BUILD")), "{}", r.stdout);
+    assert!(r.stdout.contains(&format!("program    sha256 {DEVNET_SO_SHA256} (3,657,488 B ELF; solana-verify program hash {DEVNET_PROGRAM_HASH}); markers PSF_DEVNET_PLAYABLE_BUILD")), "{}", r.stdout);
     assert!(
         r.stdout
             .contains(&format!("genesis    round {GENESIS_ROUND} ")),
