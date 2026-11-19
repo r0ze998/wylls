@@ -137,6 +137,10 @@ pub struct Status {
     /// of the destination a settled resident of the watched Holding stands in;
     /// a Stopped/Unknown here ends that driver only (never resent).
     pub resident_step: Option<String>,
+    /// TEST-ONLY wide world (fix-wide-breaks, BREAK-2): the wide destination driver's last step for a rim village that
+    /// also has a legacy march driver (both used to write `destination_step`, the legacy one last, so this one never
+    /// showed). Only in the line when set: every other world's line is unchanged.
+    pub expedition_step: Option<String>,
     /// A second village of the same loop (TEST-ONLY contest pair): its number; `None` for the first (its line is unchanged).
     pub village: Option<u8>,
 }
@@ -145,7 +149,7 @@ impl Status {
         json!({"schema": SCHEMA, "running": self.running, "resolved_next": self.resolved_next, "bell": self.bell, "resident": self.resident,
             "anchors_posted": self.anchors_posted, "dest_anchors_posted": self.dest_anchors_posted, "fast_forwards": self.fast_forwards, "rounds_cached": self.rounds_cached,
             "last_action": self.last_action, "last_error": self.last_error, "stopped": self.stopped, "unknown_signature": self.unknown_signature, "blocked": self.blocked, "origin_step": self.origin_step, "destination_step": self.destination_step, "resident_step": self.resident_step})
-        .as_object().cloned().map(|mut m| { if let Some(n) = self.village { m.insert("village".into(), json!(n)); } Value::Object(m) }).unwrap_or(Value::Null)
+        .as_object().cloned().map(|mut m| { if let Some(n) = self.village { m.insert("village".into(), json!(n)); } if let Some(e) = &self.expedition_step { m.insert("expedition_step".into(), json!(e)); } Value::Object(m) }).unwrap_or(Value::Null)
     }
 }
 
@@ -751,6 +755,8 @@ pub enum Field {
     Destination,
     Resident,
     Origin,
+    /// The wide destination driver beside a legacy march driver (TEST-ONLY wide world): its own status field.
+    Expedition,
 }
 /// One step's outcome, as the sequencer needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -876,19 +882,39 @@ driver_step!(
     Field::Destination,
     origin_out
 );
-driver_step!(
-    crate::destination_driver::DestinationDriver,
-    Field::Destination,
-    |st: crate::destination_driver::Step| {
-        use crate::destination_driver::Step as S;
-        match st {
-            S::Landed(..) => Out::Landed,
-            S::Unknown { signature, why } => Out::Unknown { signature, why },
-            S::Stopped(e) => Out::Stopped(e),
-            _ => Out::Quiet,
-        }
+fn destination_out(st: crate::destination_driver::Step) -> Out {
+    use crate::destination_driver::Step as S;
+    match st {
+        S::Landed(..) => Out::Landed,
+        S::Unknown { signature, why } => Out::Unknown { signature, why },
+        S::Stopped(e) => Out::Stopped(e),
+        _ => Out::Quiet,
     }
-);
+}
+impl TickStep for crate::destination_driver::DestinationDriver {
+    fn run<'a>(
+        &'a mut self,
+        state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Report> + Send + 'a>> {
+        Box::pin(async move {
+            let st = self.step(state).await;
+            let text = format!("{st:?}");
+            Report {
+                // (beside a legacy march driver its line is its own: fix-wide-breaks BREAK-2)
+                field: if self.beside_legacy {
+                    Field::Expedition
+                } else {
+                    Field::Destination
+                },
+                out: destination_out(st),
+                text,
+            }
+        })
+    }
+    fn done(&self) -> bool {
+        self.terminal().is_some()
+    }
+}
 driver_step!(
     crate::resident_bells::ResidentBells,
     Field::Resident,
@@ -956,6 +982,7 @@ fn apply(keeper: &mut Keeper, r: &RunOut) {
             Field::Destination => keeper.status.destination_step = Some(rep.text.clone()),
             Field::Resident => keeper.status.resident_step = Some(rep.text.clone()),
             Field::Origin => keeper.status.origin_step = Some(rep.text.clone()),
+            Field::Expedition => keeper.status.expedition_step = Some(rep.text.clone()),
         }
         if rep.field != Field::Keeper {
             if let Out::Unknown { signature, .. } = &rep.out {
@@ -1219,11 +1246,10 @@ async fn village_drivers(
                     == 128;
             let expedition = if wide {
                 let payer = fund_fresh(state, stop).await?;
-                Some(crate::destination_driver::DestinationDriver::new(
-                    h,
-                    payer,
-                    stop.clone(),
-                ))
+                let mut d =
+                    crate::destination_driver::DestinationDriver::new(h, payer, stop.clone());
+                d.beside_legacy = true;
+                Some(d)
             } else {
                 None
             };
@@ -2794,6 +2820,68 @@ mod pair_tests {
         assert_eq!(st.unknown_signature.as_deref(), Some("sig"));
         let src = include_str!("keeper_loop.rs");
         assert!(src.contains("if rep.field != Field::Keeper {\n            if let Out::Unknown { signature, .. } = &rep.out { keeper.status.unknown_signature = Some(signature.clone()); }"));
+    }
+    #[test]
+    fn the_wide_destination_driver_beside_a_legacy_one_has_its_own_status_field() {
+        // (fix-wide-breaks BREAK-2: both drivers wrote `destination_step`, the legacy one last, so the expedition
+        //  driver's step never showed; beside a legacy driver it reports as Field::Expedition)
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let d = crate::destination_driver::DestinationDriver::new(
+            Address::new_unique(),
+            Keypair::new(),
+            rx,
+        );
+        assert!(
+            !d.beside_legacy,
+            "a wide holding's own driver keeps its field"
+        );
+        let mut st = Status::default();
+        assert!(
+            st.json().get("expedition_step").is_none(),
+            "no new key in any other world's line"
+        );
+        let r = RunOut {
+            reports: vec![
+                Report {
+                    field: Field::Expedition,
+                    out: Out::Quiet,
+                    text: "Wait(\"e\")".into(),
+                },
+                Report {
+                    field: Field::Destination,
+                    out: Out::Quiet,
+                    text: "Wait(\"legacy\")".into(),
+                },
+            ],
+            landed: false,
+            stopped: None,
+        };
+        for rep in &r.reports {
+            match rep.field {
+                Field::Destination => st.destination_step = Some(rep.text.clone()),
+                Field::Expedition => st.expedition_step = Some(rep.text.clone()),
+                _ => {}
+            }
+        }
+        assert_eq!(st.json()["expedition_step"], "Wait(\"e\")");
+        assert_eq!(st.json()["destination_step"], "Wait(\"legacy\")");
+        let src = include_str!("keeper_loop.rs");
+        assert!(src.contains(
+            "Field::Expedition => keeper.status.expedition_step = Some(rep.text.clone()),"
+        ));
+        assert!(src.contains("d.beside_legacy = true;"));
+    }
+    #[test]
+    fn a_reveal_is_not_held_for_the_anchor() {
+        // (fix-wide-breaks BREAK-2: the program admits a reveal before THE anchor exists; both drivers reveal as soon as
+        //  T(arrive) is public and stop only once an anchor's window has closed)
+        let dd = include_str!("destination_driver.rs");
+        assert!(dd.contains(
+            "anchor.filter(|a_ts| c.unix_timestamp() >= clock.reveal_close(o.arrive, *a_ts))"
+        ));
+        assert!(!dd.contains("\"the anchor of bell {} in region {} (the keeper's)\""));
+        let lm = include_str!("legacy_march.rs");
+        assert!(lm.contains("anchor_a.filter(|a_ts| now >= clock.reveal_close(arrive, *a_ts))"));
     }
     #[test]
     fn a_second_villages_status_line_says_which_village_and_the_first_is_unchanged() {

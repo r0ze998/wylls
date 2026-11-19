@@ -163,6 +163,14 @@ export function hostState(r, nowBell) {
   return { id: 'ready', text: L`出陣できる`, tone: 'ok' };
 }
 
+/** The viewer's expeditions into the wide land (TEST-ONLY wide local play, fix-wide-breaks BREAK-1): away, or standing there. */
+function wideLines(FS) {
+  const xs = (FS.marches ?? []).filter(m => m.expedition && (m.expedition.stage !== 'settled' || m.expedition.fate === 'stays'));
+  if (!xs.length) return '';
+  return html`<ul class="list wide-hosts">${xs.map(m => { const x = m.expedition, at = `${x.dest.p},${x.dest.q}`;
+    return html`<li data-host-wide="${at}">${x.stage === 'settled' ? L`広い土地の州 ${at} に軍勢が留まっています` : L`広い土地の州 ${at} へ遠征中の軍勢がいます`}${Number.isInteger(x.troopsAfter) && x.stage === 'settled' ? L`（兵 ${Math.floor(x.troopsAfter / 1000)}）` : ''}</li>`; })}</ul>`;
+}
+
 export function render(FS) {
   const rows = hostRows(FS);
   const h = activeHolding(FS);
@@ -177,6 +185,16 @@ export function render(FS) {
   }
   // (round 43, seen in live33: a host on the march is in no province record the page holds until its arrival is read;
   // "no host, train some" was said then. The viewer's own marches say otherwise: the host is away, see Marches)
+  // (TEST-ONLY wide local play, fix-wide-breaks BREAK-1: a host that went on an expedition into the wide land stands
+  //  in a wide province the legacy reads do not hold; its own expedition record says where. Only settled expeditions
+  //  and nothing else in the list: the host is not "on the march" — it stands there, or it was lost)
+  const wideDone = (FS.marches ?? []).length > 0 && (FS.marches ?? []).every(m => m.expedition?.stage === 'settled');
+  if (!rows.length && wideDone) {
+    const standing = FS.marches.filter(m => m.expedition.fate === 'stays');
+    return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
+      ${standing.length ? wideLines(FS) : html`<p>${L`広い土地への遠征は終わりました。結果は「進軍」で確かめられます。`}</p>`}
+      <div class="actions"><button type="button" class="btn" data-act="tab" data-tab="marches">${L`進軍を開く`}</button></div></section>${around}`;
+  }
   if (!rows.length && (FS.marches ?? []).length) {
     return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
       <p role="status">${L`あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。`}</p>
@@ -235,6 +253,6 @@ export function render(FS) {
       ${ways}${draft}
       ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
     </li>`;
-  })}</ul>${awayLines(FS, awayHosts(FS, rows))}
+  })}</ul>${awayLines(FS, awayHosts(FS, rows))}${wideLines(FS)}
   <p class="foot-note">${L`出発には行き先にかかわらず体力 ${DEPART_STAMINA} を使います（道のりは封の中にあるため）。`}</p></section>${around}`;
 }

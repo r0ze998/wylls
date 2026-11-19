@@ -706,10 +706,70 @@ impl LegacyMarchDriver {
         };
         match sim {
             Ok(sim) if sim.err.is_none() => self.send(state, ix, what).await,
-            Ok(sim) => Step::Stopped(format!(
-                "{what} simulation: {:?} (code {:?})",
-                sim.err, sim.code
-            )),
+            Ok(sim) => {
+                // DIAG (fix-wide-breaks BREAK-4): every account of the refused instruction, as the chain holds it
+                let c = lock(state);
+                let metas: Vec<String> = ix
+                    .accounts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| {
+                        let acc = c.account(&m.pubkey);
+                        format!(
+                            "{i}:{}:{}{}:{}",
+                            m.pubkey,
+                            if m.is_signer { "s" } else { "" },
+                            if m.is_writable { "w" } else { "r" },
+                            acc.map(|a| format!(
+                                "own={} len={} head={:02x?}",
+                                if a.owner == self.a.program {
+                                    "P".to_string()
+                                } else {
+                                    a.owner.to_string()
+                                },
+                                a.data.len(),
+                                &a.data[..a.data.len().min(12)]
+                            ))
+                            .unwrap_or_else(|| "absent".into())
+                        )
+                    })
+                    .collect();
+                // (and, for a Reveal, the same instruction with one thing changed at a time, simulated at once — the
+                //  window is ten wall seconds at ×60 — so the refusing check can be told by what moves its code or CU)
+                let mut variants = vec![];
+                if what.starts_with("Reveal(") && ix.accounts.len() >= 16 {
+                    let mut tries: Vec<(&str, Instruction)> = vec![];
+                    let mut v = ix.clone();
+                    v.accounts[8].is_writable = !v.accounts[8].is_writable;
+                    tries.push(("day-writable-flipped", v));
+                    for t in 1..4u8 {
+                        let mut v = ix.clone();
+                        v.data[2] = t;
+                        for i in 0..4usize {
+                            v.accounts[9 + i].is_writable = i == t as usize;
+                        }
+                        tries.push(("target", v));
+                    }
+                    let mut v = ix.clone();
+                    v.data[3..40].iter_mut().for_each(|b| *b = 0);
+                    tries.push(("zero-plain", v));
+                    for (name, v) in tries {
+                        let r = lk::simulate_ix(&c, &self.payer, &v);
+                        variants.push(match r {
+                            Ok(r) => serde_json::json!({"v": name, "target": v.data[2], "err": r.err, "code": r.code, "units": r.units}),
+                            Err(e) => serde_json::json!({"v": name, "error": e}),
+                        });
+                    }
+                }
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"diag": "refused-simulation", "what": what, "err": sim.err, "code": sim.code, "units": sim.units, "logs": sim.logs, "accounts": metas, "data_len": ix.data.len(), "data": ix.data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "variants": variants})
+                );
+                Step::Stopped(format!(
+                    "{what} simulation: {:?} (code {:?}, {} CU)",
+                    sim.err, sim.code, sim.units
+                ))
+            }
             Err(e) => Step::Stopped(e),
         }
     }
@@ -1340,15 +1400,13 @@ impl LegacyMarchDriver {
                 self.known.get_mut(&key).expect("known").revealed = true;
             }
             if !mine && inputs.is_none() && dv.resolved_next <= arrive {
-                let Some(a_ts) = anchor_a else {
-                    return Step::Wait(format!(
-                        "THE anchor of bell {arrive} in region {} is not posted yet",
-                        dv.region
-                    ));
-                };
+                // (fix-wide-breaks BREAK-2, as the wide destination driver: the reveal is not held for THE anchor — the
+                //  program admits it before the anchor exists, and the window closes only at A + W; at ×60 that window
+                //  is ten wall seconds, shorter than a keeper pass over many villages)
                 let now = lock(state).unix_timestamp();
-                if now >= clock.reveal_close(arrive, a_ts) {
-                    return Step::Stopped(format!("the reveal window of bell {arrive} closed with transit slot {slot} unrevealed: not forced"));
+                if let Some(a_ts) = anchor_a.filter(|a_ts| now >= clock.reveal_close(arrive, *a_ts))
+                {
+                    return Step::Stopped(format!("the reveal window of bell {arrive} closed with transit slot {slot} unrevealed (anchor at {a_ts}): not forced"));
                 }
                 let entries: [Option<SlotEntry>; 4] = core::array::from_fn(|i| {
                     slots4[i].as_ref().map(|s| SlotEntry {

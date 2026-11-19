@@ -290,6 +290,7 @@ permutation-gateway/test/web-frontier-local-muster-wait-controller.test.mjs
 permutation-gateway/test/web-frontier-local-play-act.test.mjs
 permutation-gateway/test/web-frontier-local-play-capture-demo.test.mjs
 permutation-gateway/test/web-frontier-local-play-dissolve.test.mjs
+permutation-gateway/test/web-frontier-local-play-expedition.test.mjs
 permutation-gateway/test/web-frontier-local-play-hoststep.test.mjs
 permutation-gateway/test/web-frontier-local-play-launcher.test.mjs
 permutation-gateway/test/web-frontier-local-play-march-open.test.mjs

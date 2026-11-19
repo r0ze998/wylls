@@ -188,6 +188,18 @@ const OPEN_STATES = new Set(['revealed', 'settled']);
 export function ownMarches(fs) {
   const nowBell = fs?.nowBell ?? 0, out = [];
   for (const m of fs?.marches ?? []) {
+    // (TEST-ONLY wide local play, fix-wide-breaks BREAK-1: an expedition into the wide land, drawn by this same path while
+    //  it is under way — a straight line from the tile it left to its destination tile; the route stays in its seal)
+    if (m?.expedition) {
+      const x = m.expedition;
+      if (x.stage === 'settled' || !x.dest) continue;
+      const a = x.origin && int(x.origin.tile) ? tileHex(Number(x.origin.p), Number(x.origin.q), x.origin.tile) : null, b = tileHex(x.dest.p, x.dest.q, x.dest.tile);
+      if (!a || !b) continue;
+      const depart = m.transit?.departBell;
+      out.push({ host: String(m.transit?.hostId ?? x.host), departBell: int(depart) ? depart : null, arriveBell: x.arriveBell, route: null, hexes: [{ q: a.q, r: a.r }, { q: b.q, r: b.r }],
+        dest: x.dest, known: true, arrived: nowBell >= x.arriveBell, open: false, expedition: true });
+      continue;
+    }
     const e = m?.entry ?? null, t = m?.transit ?? null;
     const host = e?.host ?? (t ? String(t.hostId) : null);
     if (host === null || host === undefined) continue;

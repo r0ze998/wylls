@@ -550,7 +550,9 @@ function outboundLocalDepart(FS, ready) {
 export function localRevealStrip(FS) {
   if (!FS.localPlay) return '';
   const r = localRevealOf(FS), seal = localRevealCandidate(FS);
-  if (r.status === 'idle' && !seal) return '';
+  // (fix-wide-breaks BREAK-3: with no seal left to open — the chain showed it opened, flocalplay-expedition.mjs — a
+  //  finished check's line goes too; an outcome not yet known, or a run in flight, still stands)
+  if (!seal && !r.busy && !['unknown', 'submitted', 'revealed', 'failed'].includes(r.status)) return '';
   const sig = r.signature ? `${r.signature.slice(0, 8)}…${r.signature.slice(-6)}` : '';
   const turn = r.arriveBell ?? seal?.arriveBell ?? '?';
   const why = {
