@@ -4318,9 +4318,15 @@
           "ty": "u8"
         },
         {
-          "name": "RSV",
+          "name": "SPAWN_REACH",
           "off": 82,
-          "len": 46,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV",
+          "off": 83,
+          "len": 45,
           "ty": "rsv"
         }
       ]

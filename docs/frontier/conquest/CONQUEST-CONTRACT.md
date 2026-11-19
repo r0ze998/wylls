@@ -780,7 +780,8 @@ FoldOccupancy adds `extra_holdings` to occupied sites, so Join's reserve and the
 | 78 | `r_max_ceiling u16` (map growth; 0 = no extension) |
 | 80 | `continuous u8` (⑧ P1) |
 | 81 | `centre u8` (0 the Concord and the Seats; 1 no centre, ⑭ R2, 2026-11-19 — needs placement 2 and S1) |
-| 82 | rsv 46 |
+| 82 | `spawn_reach u8` (0 PlaceHome in the heartland rings only; 1–8: also a settled province, or one within this many provinces of a settled witness Province named as PlaceHome's optional 10th account — ⑭ R3, 2026-11-19, needs placement 2 and S1; `presets::spawn_allows`) |
+| 83 | rsv 45 |
 
 - **CreateSeason validation:**
   - `relations == 0` and `flags == 0` (M3 values refused, `BadParams`);

@@ -87,7 +87,8 @@ fn cq_offsets_match_the_contract_text() {
         ("r_max_ceiling", L::R_MAX_CEILING, 78),
         ("continuous", L::CONTINUOUS, 80),
         ("centre", L::CENTRE, 81),
-        ("rsv_tail", L::RSV, 82),
+        ("spawn_reach", L::SPAWN_REACH, 82),
+        ("rsv_tail", L::RSV, 83),
     ];
     for (name, got, want) in cq {
         assert_eq!(got, want, "conquest block {name}");

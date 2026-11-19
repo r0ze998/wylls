@@ -1180,6 +1180,32 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
 
 // ------------------------------------------------------------ PlaceHome
 
+/// ⑭ R3: PlaceHome's optional witness, `(distance to the target, its
+/// N_SITES_USED)`. The account must be this season's Province at the PDA of
+/// its own stored (P, Q) (`BadAccount` otherwise); it is only read.
+fn spawn_witness(
+    witness: &[AccountInfo],
+    ctx: &addr::AddrCtx,
+    p: &Pubkey,
+    season_id: u64,
+    target: ProvinceCoord,
+) -> R<Option<(u32, u8)>> {
+    let [w] = witness else {
+        return Ok(None);
+    };
+    let (wp, wq) = {
+        let wd = w.try_borrow_data()?;
+        let r = Ro(&wd);
+        (r.i16(PV::P)?, r.i16(PV::Q)?)
+    };
+    present_province(w, &ctx.province(wp as i32, wq as i32), p, season_id)?;
+    let used = Ro(&w.try_borrow_data()?).u8(PV::N_SITES_USED)?;
+    Ok(Some((
+        target.distance(ProvinceCoord::new(wp as i32, wq as i32)),
+        used,
+    )))
+}
+
 /// Validate the first-home entitlement before spending the sponsor's rent.
 /// HOME_GRANTED is deliberately never cleared by release/displacement.
 pub fn home_entitlement(citizen: &[u8]) -> R<()> {
@@ -1232,7 +1258,10 @@ pub fn home_site(province: &[u8], site: u8, now_bell: u32) -> R<(u8, u8)> {
 }
 
 /// 0x38 PlaceHome(P, Q, site): P + [frontier r, province w, holding w,
-/// joinshard w, system]. Program-version 3 seasons only. A sponsor funds
+/// joinshard w, system] + optional [witness Province r] (⑭ R3). The ring:
+/// `2..=heartland_max_ring`, or under the season's `spawn_reach` also a
+/// settled province or one within reach of the settled witness
+/// (`presets::spawn_allows`; `ReservedSite` otherwise). Program-version 3 seasons only. A sponsor funds
 /// the real Holding account; an unexpired session can place for its citizen.
 /// Legacy FileTicket/SettleTicket remains available and unchanged. The
 /// JoinShard counts the home under the province's wedge ([`holding_wedge`],
@@ -1248,7 +1277,9 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
     let x = aix::PlaceHome::decode(d)?;
     let now = prologue::now()?;
     let pc = player_as(p, a, now.ts, true, auth)?;
-    let [_, payer, season_ai, citizen, frontier, province, holding, shard, _system] = a else {
+    let [_, payer, season_ai, citizen, frontier, province, holding, shard, _system, witness @ ..] =
+        a
+    else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let hdr = pc.season;
@@ -1263,7 +1294,7 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
             r.u64(C::CITIZEN_TAG)?,
         )
     };
-    let (r_max, home_max_ring, placement, genesis_seed) = {
+    let (r_max, home_max_ring, placement, genesis_seed, spawn_reach) = {
         let sd = season_ai.try_borrow_data()?;
         let r = Ro(&sd);
         if r.u16(S::PROGRAM_VERSION)? != crate::PROGRAM_VERSION {
@@ -1275,11 +1306,30 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
             cq.heartland_max_ring,
             cq.placement,
             r.arr::<32>(S::GENESIS_SEED)?,
+            cq.spawn_reach,
         )
     };
     let coord = ProvinceCoord::checked(x.p as i32, x.q as i32, r_max)
         .map_err(|_| FrontierError::BadData)?;
-    if coord.ring() < 2 || coord.ring() > home_max_ring as u32 {
+    // ⑭ R3: the heartland rings, or (a season with `spawn_reach`) a settled
+    // province or one within reach of a settled witness Province
+    // ([`spawn_witness`], `presets::spawn_allows`).
+    let target_used = if spawn_reach == frontier_abi::v2::presets::SPAWN_RING
+        || coord.ring() <= home_max_ring as u32
+    {
+        0
+    } else {
+        present_province(province, &ctx.province(x.p as i32, x.q as i32), p, hdr.id)?;
+        Ro(&province.try_borrow_data()?).u8(PV::N_SITES_USED)?
+    };
+    let seen = spawn_witness(witness, &ctx, p, hdr.id, coord)?;
+    if !frontier_abi::v2::presets::spawn_allows(
+        spawn_reach,
+        home_max_ring,
+        coord.ring(),
+        target_used,
+        seen,
+    ) {
         return Err(FrontierError::ReservedSite.into());
     }
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
