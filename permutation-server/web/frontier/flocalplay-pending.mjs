@@ -9,6 +9,9 @@
 // The order is frozen when armed (`intentOf`): world, wallet, holding, host, troops, origin, destination, route, arrival
 // turn, stance, retreat, tip. If any of it is different at the moment it could be sent — the arrival turn included, which
 // moves when a turn passes — the pending send is withdrawn and the player is told; nothing is changed silently.
+// (B20, fix-ui-b17-b21: with ONE exception — when only the arrival turn differs and it is the turn the card's own clock
+//  moved to, the pending send is kept and re-aimed at that turn, and the player is told: `arrivalFollowed`. At ×60 a
+//  keep march took three presses otherwise. A turn the player picked, or any other difference, withdraws it as before.)
 // It is withdrawn too when the march's own gate closes (world ended or expired, gate, a march held by its signature), when
 // an earlier send's outcome is unknown, after its turn limit, on any problem that is not a settling one, or on cancel.
 // It lives in the page's memory only (on FS.compose): a reload never revives it.
@@ -56,20 +59,49 @@ export function armPending({ intent, nowBell }) {
  * (FS.localMarch.open: capability, readiness, gate, village, no held march); `held`: an earlier send of this host whose
  * outcome is unknown; `busy`: a send in flight. The caller withdraws the pending send BEFORE it sends (never twice).
  */
-export function pendingStep(p, { intent, problems, nowBell, open, held, busy, sameCard }) {
+export function pendingStep(p, { intent, problems, nowBell, open, held, busy, sameCard, follow = null }) {
   if (!p) return { act: 'withdraw', why: 'none' };
   // (an unknown earlier outcome first: the march's gate is closed then too (LocalMarchHeld), and the player is told the
   //  same as the page's guide says — nothing is sent again)
   if (held) return { act: 'withdraw', why: 'unknown' };
   if (open !== true) return { act: 'withdraw', why: 'closed' };
   if (sameCard !== true) return { act: 'withdraw', why: 'changed' };
-  if (intent !== p.intent) return { act: 'withdraw', why: 'changed' };
+  if (intent !== p.intent) {
+    // B20: only the arrival turn moved, and the clock moved it (`follow`): keep waiting for the same order at that turn
+    const moved = (p.follows ?? 0) < PENDING_MAX_FOLLOWS ? arrivalFollowed(p.intent, intent, follow) : null;
+    const next = moved ? followPending(p, { intent, nowBell }) : null;
+    return next ? { act: 'follow', pending: next, moved } : { act: 'withdraw', why: 'changed' };
+  }
   if (!Number.isInteger(nowBell) || nowBell > p.untilBell) return { act: 'withdraw', why: 'expired' };
   if (busy) return { act: 'wait' };
   if (!Array.isArray(problems)) return { act: 'withdraw', why: 'problem' };
   if (problems.length === 0) return { act: 'send' };
   if (pendable(problems)) return { act: 'wait' };
   return { act: 'withdraw', why: 'problem' };
+}
+
+/** B20: a waiting send follows the clock's own move of the arrival turn at most this many times; then it is withdrawn as before. */
+export const PENDING_MAX_FOLLOWS = 6;
+
+/**
+ * B20 (loop-play3; at ×60 a keep march took three presses because the arrival turn moved twice before the province
+ * settled): whether `now` is the armed order with ONLY its arrival turn moved on, to exactly `follow` — the turn the
+ * card's own clock moved it to (controller.mjs composeTick `moved.to`; never a turn the player picked). Then the
+ * waiting send is kept and re-aimed at that turn (`followPending`), and the player is told; every other difference
+ * withdraws it as before. Returns `{from, to}` or null.
+ */
+export function arrivalFollowed(armedIntent, nowIntent, follow) {
+  if (!Number.isInteger(follow) || typeof armedIntent !== 'string' || typeof nowIntent !== 'string') return null;
+  let a, b;
+  try { a = JSON.parse(armedIntent); b = JSON.parse(nowIntent); } catch { return null; }
+  if (!a || !b || !Number.isInteger(a.arriveBell) || b.arriveBell !== follow || follow <= a.arriveBell) return null;
+  return JSON.stringify({ ...a, arriveBell: follow }) === nowIntent ? { from: a.arriveBell, to: follow } : null;
+}
+
+/** The pending send re-aimed at the moved arrival turn: the same arming, a fresh turn limit, one more follow counted. */
+export function followPending(p, { intent, nowBell }) {
+  if (!p || typeof intent !== 'string' || !intent || !Number.isInteger(nowBell)) return null;
+  return Object.freeze({ intent, armedBell: p.armedBell, untilBell: nowBell + PENDING_MAX_TURNS, follows: (p.follows ?? 0) + 1 });
 }
 
 /** While a send is pending: the origin province is read again (read only) at most this often, one read at a time. */
@@ -83,10 +115,11 @@ export const PENDING_REFRESH_MS = 400;
  * - `refresh(card)`: ONE read-only read of the origin province (never a write, never a send);
  * - `send(card)`: the ordinary single send, called at most once per arming;
  * - `withdrawn(card, why)`: told once per arming when it ends without a send;
+ * - `followed(card, pending, {from, to})` (optional, B20): the arming was kept and re-aimed at the arrival turn the clock moved to;
  * - `onPageHide(f)` → an undo: the page being hidden for good (pagehide) withdraws at once.
  * A refresh that resolves after the send was withdrawn, sent, or armed again never sends (its generation is old).
  */
-export function createPendingDriver({ look, refresh, send, withdrawn, now = () => Date.now(), setTimer = (f, ms) => setInterval(f, ms), clearTimer = id => clearInterval(id), onPageHide = null, tickMs = PENDING_TICK_MS, refreshMs = PENDING_REFRESH_MS }) {
+export function createPendingDriver({ look, refresh, send, withdrawn, followed = null, now = () => Date.now(), setTimer = (f, ms) => setInterval(f, ms), clearTimer = id => clearInterval(id), onPageHide = null, tickMs = PENDING_TICK_MS, refreshMs = PENDING_REFRESH_MS }) {
   let armed = null, gen = 0, timer = null, refreshing = false, lastRefresh = -Infinity, hideOff = null;
   const stop = () => { if (timer !== null) { clearTimer(timer); timer = null; } if (hideOff) { const off = hideOff; hideOff = null; off(); } };
   const end = () => { const a = armed; armed = null; gen += 1; stop(); return a; };
@@ -98,6 +131,8 @@ export function createPendingDriver({ look, refresh, send, withdrawn, now = () =
     if (!Number.isFinite(s.endsAt) || now() >= s.endsAt) return withdraw('closed');
     const step = pendingStep(a.pending, s);
     if (step.act === 'withdraw') return withdraw(step.why);
+    // B20: the same arming goes on at the moved arrival turn (told once per move); looked at again on the next tick
+    if (step.act === 'follow') { armed = { card: a.card, pending: step.pending }; followed?.(a.card, step.pending, step.moved); return; }
     if (step.act === 'send') { end(); send(a.card); return; }
     // waiting: one read-only read at a time, not more often than refreshMs; its answer counts only for this arming
     if (!refreshing && now() - lastRefresh >= refreshMs) {

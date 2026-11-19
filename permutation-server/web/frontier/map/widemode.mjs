@@ -44,7 +44,8 @@ const TEXT = {
   close: () => L`記録された世界を閉じる`,
   loading: () => L`記録を読み込んでいます…`,
   sample: () => L`見本の世界には記録された世界はありません。`,
-  unavailable: () => L`この配信元は記録された世界を出していません（WideWorldUnavailable）。`,
+  // B17 (loop-play3): plain words, no raw code — a local world's source serves no recorded world at all
+  unavailable: () => L`この世界には「記録された世界」の表示（実験中）はありません。遊ぶうえで困ることはありません。この画面は閉じてかまいません。`,
   facts: () => L`捕捉された州だけを示します。載っていない場所は「不明」で、開いている証拠でも閉じている証拠でもありません。送信も署名もしません。`,
   truncated: () => L`ページ数の上限で打ち切りました。これより先の記録は読んでいません。`,
   recentre: () => L`ここを原点にする`,
@@ -109,7 +110,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     <div class="wide-head"><h2 id="wide-title"></h2><span class="wide-flag" id="wide-flag"></span><button type="button" class="hud-btn wide-close" id="wide-close"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#close"/></svg></button></div>
     <p class="wide-status" id="wide-status" role="status"></p>
     <p class="wide-facts" id="wide-facts"></p>
-    <div class="wide-body">
+    <div class="wide-body" id="wide-body">
       <div class="wide-stage"><canvas id="wide-canvas" tabindex="0"></canvas>
         <div class="wide-tools">
           <button type="button" class="map-btn" id="wide-in">+</button>
@@ -152,6 +153,8 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     $('wide-prev').setAttribute('aria-label', L`前の記録`); $('wide-next').setAttribute('aria-label', L`次の記録`);
     wc.setAttribute('aria-label', L`記録された世界の地図：ドラッグで移動、ホイールと＋－で拡大縮小、矢印キーで移動、クリックで州を選択`);
     renderText();
+    // B17: the canvas caption is painted text; repaint it when the language changes
+    invalidate();
   };
 
   // ---- text of the state
@@ -171,6 +174,10 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   }
   function renderText() {
     $('wide-status').textContent = statusText();
+    const bare = S.phase === 'error' && S.code === 'WideWorldUnavailable';
+    sheet.classList?.toggle?.('wide-unserved', bare);
+    $('wide-facts').hidden = bare; $('wide-body').hidden = bare;
+    button.hidden = !!S.unserved && !S.open;
     $('wide-origin').textContent = formatCoord(S.origin.p, S.origin.q);
     $('wide-pointer').textContent = S.pointer ? `${formatCoord(S.pointer.p, S.pointer.q)}${S.pointer.entry ? '' : ` ${TEXT.unknown()}`}` : TEXT.none();
     $('wide-selected').textContent = S.selected ? `${formatCoord(S.selected.p, S.selected.q)} ${entryLine(S.selected)}` : S.focus ? `${formatCoord(S.focus.p, S.focus.q)} ${S.phase === 'ready' ? TEXT.unknown() : L`州の記録は未確認`} / ${L`未検証・読み取り専用`}` : TEXT.none();
@@ -386,7 +393,11 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   // ---- state changes
   function setPhase(phase, code = null) {
     if (phase === 'error' || phase === 'sample') { controller?.abort(); controller = null; S.walk = null; S.selected = null; S.pointer = null; S.focus = null; S.origin = ORIGIN_ZERO; S.pan = { x: 0, y: 0 }; S.history = {phase:'error',code:code ?? 'WideIndexUnavailable'}; }
-    S.phase = phase; S.code = code; renderText(); invalidate();
+    S.phase = phase; S.code = code;
+    // B17: a source that serves no recorded world is remembered; the sheet then shows the plain note alone
+    // (no empty map), and the button is taken away once the sheet closes
+    if (phase === 'error' && code === 'WideWorldUnavailable') S.unserved = true; else if (phase === 'ready') S.unserved = false;
+    renderText(); invalidate();
   }
   async function load() {
     const selectedKey = S.selected?.key;

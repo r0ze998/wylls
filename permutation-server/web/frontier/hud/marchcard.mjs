@@ -291,7 +291,7 @@ export function render(FS) {
   //  only while every problem is the province settling its previous turn; one press arms ONE send of this exact order)
   const localWait = !!FS.localPlay && FS.localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(FS.localPlay.worldEndsAt);
   const waiting = localWait && !!c.pending;
-  const waitLine = waiting ? html`<p class="order-pending" role="status">${icon('hourglass')}<span>${L`送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(c.pending.untilBell)} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。`}</span></p>` : '';
+  const waitLine = waiting ? html`<p class="order-pending" role="status">${icon('hourglass')}<span>${L`送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(c.pending.untilBell)} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。`}</span> <span class="order-pending-follow">${L`ただし、時間が進んで到着ターンだけが先へ動いたときは、取り消さずに新しい到着ターンに合わせて待ち続けます。`}</span></p>` : '';
   // (round 12, 2026-11-14: on the local test march the footer never changes shape. A ×30 two-person world showed a press
   //  aimed at 「決着を待って送る」 landing on the warning line when the turn finished (the two swapped places), and a press on
   //  the seal finding it disabled a moment later. Now ONE main button stays in one place, 「確認した命令で出発」, on the same
@@ -303,7 +303,7 @@ export function render(FS) {
   const localActs = html`<button type="button" class="btn primary seal-btn" data-act="march-send-wait" ${raw(mainOk ? '' : 'disabled')}>${icon('seal')}${waiting ? L`送信待ち` : L`確認した命令で出発`}</button>
       <button type="button" class="btn quiet" data-act="march-wait-cancel" ${raw(waiting ? '' : 'disabled')}>${L`送信待ちを取り消す`}</button>
       <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`;
-  const localRule = html`<p class="order-irrev order-local-rule">${icon('lock')}<span>${L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（到着ターンなどが変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`}</span></p>`;
+  const localRule = html`<p class="order-irrev order-local-rule">${icon('lock')}<span>${L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（時間が進んで到着ターンが先へ動いたときは、その到着ターンで送ります。ほかの内容が変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`}</span></p>`;
   const ch = composerChoices(FS);
   const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
   const faction = FS.citizen?.faction;

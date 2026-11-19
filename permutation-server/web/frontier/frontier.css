@@ -370,6 +370,9 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 /* the recorded wide world (map/widemode.mjs): a sheet over the map, opaque bell metal, nothing of the map reads through */
 .wide-world { position: absolute; inset: calc(var(--strip, 48px) + 8px) var(--edge) var(--edge) var(--edge); z-index: 42; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--brass-lo); background: var(--metal); color: var(--ivory); box-shadow: var(--shadow); }
 .wide-world[hidden] { display: none; }
+/* B17: a source with no recorded world shows the plain note alone, not an empty map */
+.wide-body[hidden] { display: none; }
+.wide-world.wide-unserved { bottom: auto; }
 .wide-head { display: flex; flex: none; align-items: center; gap: 10px; }
 .wide-head h2 { margin: 0; font-size: var(--t3); }
 .wide-flag { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--brass-lo); color: var(--brass-hi); font-size: var(--t1); font-weight: 600; }
