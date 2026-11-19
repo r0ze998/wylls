@@ -35,7 +35,20 @@
 //! (`Input::declared`, a recorder's patch); and a FAIL is softened to
 //! `MissingData` when the transaction reads another program's account or
 //! the program's ProgramData (their states are not in this program's
-//! archive). An account no archived transaction wrote is taken as absent:
+//! archive).
+//!
+//! **Provenance of the starting states** (verify-pr89): every earlier
+//! successful transaction that left a program-owned post-state is
+//! re-executed too, in order, with the same rules. A VX transaction FAILs
+//! (`ReExecMismatch`) when a program-owned state it starts from is the
+//! archived post-state of a transaction that does not hold that account
+//! writable (the chain writes only the writable accounts a message names),
+//! or of one whose own re-execution FAILs, directly or through the states
+//! it started from. A writer the re-execution cannot decide (UNVERIFIABLE
+//! causes) stays with the checks that judge it. Without this, a state forged
+//! into the post-states of a writer no check compares byte for byte (an
+//! OpenProvince, or a transaction that does not even name the account) was
+//! a starting state VX re-executed "exactly" from. An account no archived transaction wrote is taken as absent:
 //! in a history from the Season's creation every program account is
 //! created by an archived transaction of the program. A successful
 //! transaction whose signatures do not verify is a FAIL.
@@ -114,6 +127,74 @@ fn before(
         (None, Some(d)) => Some((Pre::Declared, d.account.clone())),
         (None, None) => None,
     }
+}
+
+/// The archived transaction whose post-state [`before`] takes for `k`
+/// before transaction `tx` (`None`: a declared state, or none).
+fn writer(w: &World, declared: &[crate::input::Declared], k: &Key, tx: usize) -> Option<usize> {
+    let posted = w.posts.get(k).and_then(|v| {
+        let i = v.partition_point(|&t| t < tx);
+        i.checked_sub(1).and_then(|i| v.get(i)).copied()
+    })?;
+    match declared.iter().rfind(|d| d.key == *k && d.at <= tx) {
+        Some(d) if d.at > posted => None,
+        _ => Some(posted),
+    }
+}
+
+/// What the re-execution of an earlier transaction says of the post-states
+/// a later one starts from (verify-pr89: the provenance of VX's pre-states).
+#[derive(Clone, Debug)]
+enum Prov {
+    /// Not re-executed, or not decided (UNVERIFIABLE causes: a declared
+    /// start, a credit outside the archive, a runtime stop, …): left to the
+    /// checks that judge that transaction, as before.
+    Unknown,
+    /// Re-executed exactly, from proven or unknown states.
+    Exact,
+    /// The pinned program cannot have written these post-states (a forged
+    /// writer, or one that started from a forged state): the root cause.
+    Forged(String),
+}
+
+/// The provenance of the pre-states `r` read before transaction `tx`:
+/// a FAIL detail when one of its program-owned pre-states was written by a
+/// transaction that does not hold the account writable (the chain writes
+/// only the writable accounts a message names) or whose own re-execution
+/// shows it forged. Returns the detail and the root cause (the first
+/// forged write of the chain), which the transaction's own [`Prov`] carries.
+fn provenance(
+    w: &World,
+    declared: &[crate::input::Declared],
+    tx: usize,
+    r: &Replayed,
+    prov: &[Prov],
+) -> Option<(String, String)> {
+    for (k, how, pre, _) in &r.accounts {
+        if *how != Pre::Archive || !owned(pre, &w.program) {
+            continue;
+        }
+        let Some(t) = writer(w, declared, k, tx) else {
+            continue;
+        };
+        if !w.txs[t].keys.iter().any(|(x, wr)| x == k && *wr) {
+            let d = format!(
+                "it starts from the archive's post-state of {} at tx#{t}, a transaction that does not hold that account writable (the chain cannot have written it there)",
+                b58(k)
+            );
+            return Some((d.clone(), format!("tx#{tx}: {d}")));
+        }
+        if let Some(Prov::Forged(root)) = prov.get(t) {
+            return Some((
+                format!(
+                    "it starts from the archive's post-state of {} at tx#{t}, which the pinned program does not reproduce (first at {root})",
+                    b58(k)
+                ),
+                root.clone(),
+            ));
+        }
+    }
+    None
 }
 
 fn owned(a: &Option<Account>, program: &Key) -> bool {
@@ -399,15 +480,30 @@ fn judge_all(
         Ok(s) => s,
         Err(e) => return all(format!("the program binary does not load: {e}")),
     };
+    // verify-pr89: every earlier successful transaction that left a
+    // program-owned post-state is re-executed too, in order, so that a
+    // pre-state VX starts from is one the pinned program reproduces (or
+    // stays with the checks that judge its writer when it cannot decide),
+    // never a post-state forged into a writer no check compares byte for
+    // byte. Findings are only VX's own transactions'.
+    let picked_at: std::collections::BTreeMap<usize, String> = picked.into_iter().collect();
+    let last = *picked_at.keys().next_back().expect("picked is not empty");
+    let mut prov: Vec<Prov> = vec![Prov::Unknown; w.txs.len()];
     let mut out = vec![];
-    for (i, name) in picked {
+    for i in 0..=last {
         let t = &w.txs[i];
+        let name = picked_at.get(&i);
+        if name.is_none() && !(t.ok && t.post.values().any(|a| owned(a, &w.program))) {
+            continue;
+        }
         let Some(rec) = recs.get(i) else {
-            out.push((
-                i,
-                name,
-                Missing("the transaction's record is not in the archive".into()),
-            ));
+            if let Some(name) = name {
+                out.push((
+                    i,
+                    name.clone(),
+                    Missing("the transaction's record is not in the archive".into()),
+                ));
+            }
             continue;
         };
         let r = crate::reexec::replay_exact(
@@ -419,17 +515,29 @@ fn judge_all(
             |k| t.post.get(k).cloned(),
             &w.program,
         );
-        match r {
-            Err(e) => out.push((
-                i,
-                name,
-                Missing(format!("the transaction does not re-execute: {e}")),
-            )),
-            Ok(r) => {
-                if let Err(e) = compare(w, rec, i, &r) {
-                    out.push((i, name, e));
+        let mut root = None;
+        let judged = match &r {
+            Err(e) => Err(Missing(format!("the transaction does not re-execute: {e}"))),
+            Ok(r) => match provenance(w, declared, i, r, &prov) {
+                Some((d, from)) => {
+                    root = Some(from);
+                    Err(Fail(REEXEC_MISMATCH, d))
                 }
-            }
+                None => compare(w, rec, i, r),
+            },
+        };
+        prov[i] =
+            match &judged {
+                Ok(()) => Prov::Exact,
+                // exact from a declared start: V0E keeps the season from a PASS
+                Err(Missing(d)) if d.starts_with("re-executed exactly") => Prov::Exact,
+                Err(Missing(_)) => Prov::Unknown,
+                Err(Fail(_, d)) => Prov::Forged(root.unwrap_or_else(|| {
+                    format!("tx#{i}: {}", d.chars().take(300).collect::<String>())
+                })),
+            };
+        if let (Some(name), Err(e)) = (name, judged) {
+            out.push((i, name.clone(), e));
         }
     }
     out

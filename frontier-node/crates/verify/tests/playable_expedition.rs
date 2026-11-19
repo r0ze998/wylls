@@ -2362,3 +2362,96 @@ fn a_mutate_vx_build_judges_nothing() {
     let rep = verify_core::verify(&inp);
     assert!(vx_at(&rep, t).is_empty());
 }
+
+// ---- verify-pr89: the provenance of the states VX starts from
+
+/// The Depart's declared patches as one final state per key (each key's
+/// patches removed from `declared`), for laundering into an archived post.
+fn take_depart_patches(inp: &mut Input, d: usize) -> Vec<Declared> {
+    let keys: Vec<[u8; 32]> = fclient::tx::from_wire(&inp.txs[d].tx)
+        .unwrap()
+        .message
+        .account_keys
+        .iter()
+        .map(|k| k.to_bytes())
+        .collect();
+    let mut out = vec![];
+    for k in &keys {
+        if let Some(p) = inp.declared.iter().rposition(|x| x.key == *k && x.at <= d) {
+            out.push(inp.declared.remove(p));
+            inp.declared.retain(|x| !(x.key == *k && x.at <= d));
+        }
+    }
+    assert!(!out.is_empty());
+    out
+}
+
+fn launder(inp: &mut Input, host: usize, p: &Declared) {
+    let k = Address::new_from_array(p.key);
+    inp.txs[host].post.retain(|(x, _)| *x != k);
+    inp.txs[host].post.push((k, p.account.clone()));
+}
+
+#[test]
+fn a_state_laundered_into_a_transaction_that_does_not_write_it_fails() {
+    // the recorder's host and rim-home patches shown as the post-states of
+    // the transaction before the Depart, which does not name them: without
+    // the provenance rule VX re-executed the Depart "exactly" from them
+    let mut inp = recorded();
+    let d = one(&inp, dx::Kind::Depart);
+    let host = d - 1;
+    let names = fclient::tx::from_wire(&inp.txs[host].tx)
+        .unwrap()
+        .message
+        .account_keys;
+    let patches = take_depart_patches(&mut inp, d);
+    assert!(patches
+        .iter()
+        .any(|p| !names.contains(&Address::new_from_array(p.key))));
+    for p in &patches {
+        launder(&mut inp, host, p);
+    }
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail);
+    assert!(
+        vx_at(&rep, d).iter().any(|f| f.severity == Severity::Fail
+            && f.detail.contains("does not hold that account writable")),
+        "{:#?}",
+        vx_at(&rep, d)
+    );
+    // and every wrapper transaction that builds on it
+    let o = one(&inp, dx::Kind::SettleOrigin);
+    assert!(fails_vx(&rep, o, "ReExecMismatch"), "{:#?}", vx_at(&rep, o));
+}
+
+#[test]
+fn a_state_forged_into_an_earlier_writers_post_fails() {
+    // only the patched rim province, shown as the post-state of the
+    // OpenProvince before the Depart (which does write it): the pinned
+    // program does not reproduce that post-state
+    let mut inp = recorded();
+    let d = one(&inp, dx::Kind::Depart);
+    let host = d - 1;
+    let m = fclient::tx::from_wire(&inp.txs[host].tx).unwrap().message;
+    let patches = take_depart_patches(&mut inp, d);
+    let (written, rest): (Vec<Declared>, Vec<Declared>) = patches.into_iter().partition(|p| {
+        m.account_keys
+            .iter()
+            .position(|x| x.to_bytes() == p.key)
+            .is_some_and(|i| tx::is_writable_index(&m, i))
+    });
+    assert_eq!(written.len(), 1, "the province");
+    launder(&mut inp, host, &written[0]);
+    // the others stay declared, from before the Depart
+    inp.declared.extend(rest);
+    inp.declared.sort_by_key(|x| x.at);
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail);
+    assert!(
+        vx_at(&rep, d)
+            .iter()
+            .any(|f| f.severity == Severity::Fail && f.detail.contains("does not reproduce")),
+        "{:#?}",
+        vx_at(&rep, d)
+    );
+}
