@@ -54,7 +54,7 @@
      - 限界：この guard は、知っている API を拒否するだけです。試験が自前で持ち込んだ別の実装は拒否できません。
 - **新しい job `exec-native`**：④ の `e2e-native`（本物の prize と game の program を host で動かす。鍵なし）。
 - **frontier-node**：fmt と clippy（全 target を compile するが、実行はしない）、それに `findex` と `herald` の lib の試験だけを動かします。
-  - 2026-11-19 追加（Q16-1、賞金の関門）：検証器の `playable-lane` feature の clippy と、記録済み fixture だけを読む試験 5 ファイル（`playable_lane`、`playable_wide_land`、`playable_wide_claims`、`playable_wide_next`、`wallet_finals`）。鍵の生成・導出・署名はありません（記録を作る試験はすべて `#[ignore]` で、CI では動きません）。
+  - 2026-11-19 追加（Q16-1、賞金の関門）：検証器の `playable-lane` feature の clippy と、記録済み fixture だけを読む試験 5 ファイル（`playable_lane`、`playable_wide_land`、`playable_wide_claims`、`playable_wide_next`、`wallet_finals`）。同日、`playable_wide_march`（集結・鐘の解決・広域の砦奪取）を追加して 6 ファイル。鍵の生成・導出・署名はありません（記録を作る試験はすべて `#[ignore]` で、CI では動きません）。
   - `keeper` の lib の試験は、`Payers::new(&[9; 32])` で導出するので、外しました。
 
 ### 実行する検査と、実行しなくなる検査

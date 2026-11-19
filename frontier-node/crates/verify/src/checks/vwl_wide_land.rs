@@ -64,8 +64,9 @@
 //! wide claims (WideClaimSite, WideSettleTicket, WideFinalize) are VWL's
 //! too, in `vwl_wide_claims.rs` (2026-11-19), and so are the season-end
 //! WideCloses of a ticket record, a holding and a province
-//! (`vwl_wide_close.rs`) and the wide economy and garrison
-//! (`vwl_wide_economy.rs`). The other wide commands stay V0's
+//! (`vwl_wide_close.rs`), the wide economy and garrison
+//! (`vwl_wide_economy.rs`), and WideMuster and WideResolve, the bell with
+//! the wide keep capture (`vwl_wide_march.rs`). The other wide commands stay V0's
 //! `WideUnmodelled`.
 //!
 //! Lamports: the archive holds program transactions only, and anyone can
@@ -145,6 +146,8 @@ mod claims;
 mod close;
 #[path = "vwl_wide_economy.rs"]
 mod economy;
+#[path = "vwl_wide_march.rs"]
+mod march;
 
 /// The states one instruction is judged from.
 struct Env<'a> {
@@ -975,6 +978,8 @@ fn judge(e: &Env, ix: &Ix, sigs: &mut SigCache) -> Result<(), Wrong> {
         WideCommand::Close(x) => close::close(e, ix, x)?,
         WideCommand::Economy(x) => economy::economy(e, ix, x)?,
         WideCommand::Garrison(x) => economy::garrison(e, ix, x)?,
+        WideCommand::Muster(x) => march::muster(e, ix, x)?,
+        WideCommand::Resolve(x) => march::resolve(e, ix, x)?,
         _ => return Ok(()),
     };
     // The FULL post-state of every account of the transaction that the
