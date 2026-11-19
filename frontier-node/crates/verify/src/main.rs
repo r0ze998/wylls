@@ -9,7 +9,10 @@
 //! options: --test-key | --quicknet-pk HEX   the pinned drand key (default: quicknet)
 //!          --ruleset HEX                    expected ruleset hash (default: this build's)
 //!          --program-hash HEX               expected .so sha256 (V2)
-//!          --program-so FILE                the pinned .so (or .so.gz), for VX (playable lane)
+//!          --program-so FILE                the pinned .so (or .so.gz), for VX and VG (playable lane)
+//!          --balances                       with --rpc: also read each transaction's pre/post
+//!                                           balances and the upgrade authority (VG: an archive
+//!                                           without post-states re-executed from genesis)
 //!          --out DIR                        report directory (default: verify-report)
 //!          --json                           print the JSON report instead of the Markdown
 //!          --save FILE                      also write the input read as a fixture (.gz: gzip)
@@ -98,6 +101,7 @@ fn main() {
     let mut json = false;
     let mut fallback: Option<PathBuf> = None;
     let mut strict = false;
+    let mut balances = false;
     while let Some(x) = a.next() {
         let mut val = || {
             a.next()
@@ -120,6 +124,7 @@ fn main() {
             "--ruleset" => ruleset = Some(hex_arr(&val()).unwrap_or_else(|e| usage(&e))),
             "--program-hash" => program_hash = Some(hex_arr(&val()).unwrap_or_else(|e| usage(&e))),
             "--program-so" => program_so = Some(val().into()),
+            "--balances" => balances = true,
             "--out" => out = val().into(),
             "--json" => json = true,
             "--save" => save = Some(val().into()),
@@ -266,6 +271,15 @@ fn main() {
                 rt.block_on(input::seal_point_in_time(u, &mut f.history));
             }
         }
+        // VG's witness: each transaction's pre/post balances and the
+        // upgrade authority, read from the same RPC (`--balances`).
+        let chain = match (&rpc, balances) {
+            (Some(u), true) => rt
+                .block_on(input::fetch_chain(u, &program, &txs))
+                .unwrap_or_else(|e| usage(&e)),
+            (None, true) => usage("--balances needs --rpc"),
+            _ => Default::default(),
+        };
         Input {
             cfg: Config {
                 program,
@@ -286,6 +300,7 @@ fn main() {
             resident_feed,
             program_so: None,
             declared: vec![],
+            chain,
         }
     };
     // A fixture carries its own trust roots; say so when the operator did

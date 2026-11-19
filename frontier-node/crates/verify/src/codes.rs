@@ -29,6 +29,10 @@ pub const UNEXPLAINED_INVOCATION: &str = "UnexplainedInvocation";
 pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
 /// A written program account with no post-state in the archive (UNVERIFIABLE, V0E).
 pub const MISSING_POST_STATE: &str = "MissingPostState";
+/// A post-state of an account the transaction does not hold writable, or
+/// does not name at all: the chain writes only the writable accounts a
+/// message names, so the archive is forged (FAIL, V0E; D-verify-pr89-3).
+pub const UNWRITABLE_POST: &str = "UnwritablePost";
 /// A record no check judges where it stands (UNVERIFIABLE, V0E).
 pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
 /// A wide-world instruction (experimental band) that no check models yet:
