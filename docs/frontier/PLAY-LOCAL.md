@@ -48,7 +48,10 @@ scripts/play-local.sh
     centre-free rules of PR #69) each nation's homes in its own wedge. Not with `--resume`: a kept world keeps its map.
   - `--demo`: the 15-minute capture demo (`--speed 30` makes it ×30)
   - `--wide`: the wide version (§6)
-  - `--ai 0`: no AI residents (default 2)
+  - `--ai 0`: no AI residents (default 2). The AI residents are **at war by default** (fix-loop4): besides building and
+    training they muster hosts and march on other nations' reachable keeps (siege, capture), one action per turn, in
+    every world (kept, `--random-map`, `--wide`, `--demo`)
+  - `--ai-peaceful`: the AI residents do not go to war (build, harvest, train and muster only)
   - `--two`: two people in one world (§3.1; a kept world or `--demo`)
   - `--port 41930`: other ports
   - `--lang ja`: the script's messages in Japanese
@@ -216,7 +219,11 @@ scripts/play-local.sh --wide
     province within range 3 as the 2nd or 3rd village (0xD9 WideClaimSite; the cost comes from the village's stores,
     1,200 wood etc.; the runner settles it with WideSettleTicket / WideFinalize).
   - The clock runs at `--speed` (default 60, 10–60). A Hamlet saves the cost in about 30 game hours: ~30 min at ×60.
-  - AI residents (`--ai N`) request rim villages too, save (harvest only) and claim wide land; one action per turn.
+  - AI residents (`--ai N`) request rim villages too, save, claim wide land and send expeditions into it; by default
+    they also go to war (marches on reachable keeps of other nations). One action per turn.
+  - For a while after the start the rim provinces are tens of turns behind (the world's keeper catches up after the
+    setup). Meanwhile a muster or a departure becomes a waiting send: the page says "This province's turns are N behind:
+    this machine is under heavy load …" and sends it once as soon as it catches up (no need to press again).
 - Not possible yet (2026-11-19):
   - a march into the wide land: the program's WideDepart is still closed in SBF (`NotImplemented`);
   - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.

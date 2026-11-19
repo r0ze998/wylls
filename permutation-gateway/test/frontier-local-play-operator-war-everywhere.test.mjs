@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs';
 import { chooseMarch, MUSTER_MIN } from '../src/frontier/local-play-operator-war.mjs';
 import { createResidentMemory, decideNext, noteOutcome, createOperatorBudget } from '../src/frontier/local-play-operator-policy.mjs';
 import { warRings, REACH_PROVINCES } from '../src/frontier/local-play-operator-march.mjs';
-import { residentTurn, WAR_DEFAULTS, parseArgs } from '../src/frontier/local-play-operator-residents.mjs';
+import { residentTurn, WAR_DEFAULTS, parseArgs, WAR_WIDE_RETRY_BELLS } from '../src/frontier/local-play-operator-residents.mjs';
+import { wideMarchDue } from '../src/frontier/local-play-operator-policy.mjs';
 
 const SRC = new URL('../src/frontier/', import.meta.url);
 const ROOT = new URL('../../', import.meta.url);
@@ -88,4 +89,25 @@ test('the launcher and the runner take the war on any natural world; play-local.
   assert.match(sh, /--ai-peaceful\) PEACEFUL=1; shift ;;/);
   assert.match(sh, /WAR=1; if \[ "\$PEACEFUL" = 1 \]; then WAR=0; fi/);
   assert.match(sh, /if \[ "\$AI" -gt 0 \] && \[ "\$WAR" = 1 \]; then printf '%s\\n' --operator-war operator-war-v1; fi/);
+});
+
+test('a war resident whose expedition is held (province settling) leaves the next turns to the war step; a peaceful one retries as before', async () => {
+  const mk = war => {
+    const r = { index: 0, key: { address: 'W1' }, memory: createResidentMemory(0, undefined, { war }), budget: createOperatorBudget({ maxActs: null, maxRefusals: 50, minGapMs: 0 }), marchOpen: true };
+    const plan = { host: { id: '1', troops: 300, tile: 54 }, dest: { p: 62, q: -129 }, arriveBell: 60, nowBell: 50, holding: { p: 62, q: -128, site: 10 }, destTile: 60, directions: [2] };
+    const deps = { now: () => 0, nowSecs: async () => 1, nowBell: () => 50, liveBell: () => 50, read: async () => ({ v: 1 }),
+      view: () => ({ joined: true, faction: 4, holding: { p: 62, q: -128, site: 10, tile: 54 }, wide: 0 }),
+      warView: async () => ({ reserve: 0, hostCount: 1, march: null, settling: false, ready: 1 }),
+      submit: async () => ({ ok: true, signature: 's' }), follow: async () => ({ state: 'landed' }),
+      wideMarch: { plan: async () => ({ ok: true, plan }), send: async () => ({ ok: false, step: 'preparing', code: 'NotResident' }) } };
+    return { r, deps };
+  };
+  const w = mk(true);
+  const x = await residentTurn(w.r, { homes: [], deps: w.deps, bell: 50, wideTargets: [] });
+  assert.deepEqual([x.act, x.outcome, x.code], ['WideMarch', 'wait', 'NotResident']);
+  assert.equal(w.r.memory.wideMarchUntil, 50 + WAR_WIDE_RETRY_BELLS);
+  assert.equal(wideMarchDue(w.r.memory, 51), false); assert.equal(wideMarchDue(w.r.memory, 52), false); assert.equal(wideMarchDue(w.r.memory, 53), true);
+  const p = mk(false);
+  await residentTurn(p.r, { homes: [], deps: p.deps, bell: 50, wideTargets: [] });
+  assert.equal(p.r.memory.wideMarchUntil, undefined, 'peaceful: as before (#92)');
 });

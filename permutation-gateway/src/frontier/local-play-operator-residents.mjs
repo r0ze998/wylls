@@ -69,6 +69,8 @@ import { createWarEyes, openMarch, sendWarMarch } from './local-play-operator-ma
 /** A war world's pace: residents look every 2 s (one action per turn still), and no send cap (owner t364u: no caps; one
  *  action per turn is the only limit — loop-play4 B-6 puts war in every play-local world, kept ones of hours too). */
 export const WAR_DEFAULTS = Object.freeze({ cadenceMs: 2000, maxActs: null, maxRefusals: 400, minGapMs: 1000 });
+/** (fix-loop4) A war resident whose expedition into the wide land was held (its province settling) retries after this many turns. */
+export const WAR_WIDE_RETRY_BELLS = 2;
 /** Bells after its arrival a keep a resident marched on counts as taken by it (its contest runs 72 turns). */
 export const TARGET_HOLD_BELLS = 80;
 
@@ -331,6 +333,9 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     // (the home province has not settled this turn yet — at ×60 it is caught up only for part of each turn: the page's
     //  muster wait. Nothing was sent; not a refusal: the bell is used up ('held') and it looks again next turn)
     if (!m.ok && m.step === 'preparing' && ['NotResident', 'NotFinal'].includes(m.code)) {
+      // (a war resident leaves the next WAR_WIDE_RETRY_BELLS turns to the war step: in a ×60 wide world this prepare was
+      //  held NotResident for 70 turns in a row, and the war never got a turn — fix-loop4 play-through)
+      if (war && Number.isSafeInteger(turnBell)) r.memory.wideMarchUntil = turnBell + WAR_WIDE_RETRY_BELLS;
       r.budget.spent('held', deps.now(), turnBell);
       return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', outcome: 'wait', code: m.code, why: 'the home province has not settled this turn: the next turn', test_only: true, seen, budget: r.budget.state() };
     }

@@ -59,3 +59,11 @@ test('B-12: the title says a faster TEST clock\'s real turn length; the launcher
   for (const s of [L`この試験世界は時計を早めて動きます（通常の1ターン10分が、実時間では数十秒です）。開始後は、画面の時計が実際の長さを示します。進軍やその結果の受け取りは、ターンの進行を待ちます。`,
     L`通常速度では1ターン10分です（時計を早めた試験世界では、開始後の画面の時計が実際の長さを示します）。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`]) { assert.doesNotMatch(s, CJK, s); assert.doesNotMatch(s, BANNED_EN, s); }
 });
+
+test('B-7\'s neighbour: local play\'s nation choice says the page\'s test wallet signs by itself (no wallet prompts, no in-game key)', () => {
+  const join = src('screens/join.mjs');
+  assert.match(join, /: FS\.localPlay \? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS\.wallet \?/);
+  setLang('en');
+  const en = L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。`;
+  assert.doesNotMatch(en, CJK); assert.match(en, /signs by itself/);
+});
