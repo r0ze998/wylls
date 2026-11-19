@@ -865,7 +865,7 @@ fn a_witness_under_the_hull_rule_is_judged_by_its_pda() {
 // ------------------------------------------- VG over a live local node
 
 /// The natural season served by the local node's JSON-RPC
-/// (`localnet::server`, 127.0.0.1:41500, the run's port range) and read
+/// (`localnet::server`, 127.0.0.1:41510 by default, `VG_LIVE_PORT`) and read
 /// the way a PUBLIC RPC is read: `getSignaturesForAddress` +
 /// `getTransaction` (findex `RpcPoll`, no post-states), the finals by
 /// `getMultipleAccounts`, and `--balances`' witness (`input::fetch_chain`).
@@ -875,7 +875,7 @@ fn a_witness_under_the_hull_rule_is_judged_by_its_pda() {
 /// Ignored: it signs with the recorder's fixed test keypairs and binds a
 /// local port (CI's key-free rule); run with `--ignored`.
 #[test]
-#[ignore = "binds 127.0.0.1:41500-41501 and signs the recorder's test transactions; run with --ignored"]
+#[ignore = "binds 127.0.0.1:41510-41511 (VG_LIVE_PORT) and signs the recorder's test transactions; run with --ignored"]
 fn a_live_local_node_read_as_public_rpc_is_re_executed_from_genesis() {
     let so = verify_core::reexec::Program::load(
         &common::fixtures_dir().join("devnet-playable-da3dc1aa.so.gz"),
@@ -887,9 +887,14 @@ fn a_live_local_node_read_as_public_rpc_is_re_executed_from_genesis() {
         .build()
         .unwrap();
     let state = std::sync::Arc::new(std::sync::Mutex::new(r.c));
+    // (the run's port range 41500–41549; `VG_LIVE_PORT` to move it)
+    let port: u16 = std::env::var("VG_LIVE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(41_510);
     let node = rt
-        .block_on(localnet::server::start(state, 41_500))
-        .expect("port 41500 free");
+        .block_on(localnet::server::start(state, port))
+        .expect("the port free");
     let url = node.url();
     let (txs, history) = rt
         .block_on(verify_core::input::fetch_txs(

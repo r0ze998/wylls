@@ -228,7 +228,10 @@ fn an_omitted_transaction_fails() {
     // a successful Harvest / Build in the middle of the season
     let (i, _) = program_write(&recorded(), 22);
     inp.txs.remove(i);
-    assert_fail(&inp, "omitted transaction");
+    let r = assert_fail(&inp, "omitted transaction");
+    // VG's own finding (an archive without post-states FAILs other
+    // checks too: D-verifier-archive-next-1)
+    assert!(fails_vg(&r), "{:#?}", show(&r));
 }
 
 #[test]
@@ -237,7 +240,10 @@ fn a_transaction_archived_twice_fails() {
     let (i, _) = program_write(&recorded(), 22);
     let t = inp.txs[i].clone();
     inp.txs.push(t);
-    assert_fail(&inp, "duplicated transaction");
+    let r = assert_fail(&inp, "duplicated transaction");
+    // VG's own finding (an archive without post-states FAILs other
+    // checks too: D-verifier-archive-next-1)
+    assert!(fails_vg(&r), "{:#?}", show(&r));
 }
 
 #[test]
@@ -259,7 +265,10 @@ fn a_success_archived_as_a_program_failure_fails() {
     let (i, _) = program_write(&recorded(), 22);
     inp.txs[i].err = Some("InstructionError(0, Custom(22))".into());
     inp.txs[i].code = Some(22);
-    assert_fail(&inp, "success as failure");
+    let r = assert_fail(&inp, "success as failure");
+    // VG's own finding (an archive without post-states FAILs other
+    // checks too: D-verifier-archive-next-1)
+    assert!(fails_vg(&r), "{:#?}", show(&r));
 }
 
 #[test]
