@@ -64,7 +64,9 @@ test('a different world stops planning and sending from this page, re-read befor
 });
 
 test('the board is the one origin (board.mjs, unchanged here): /coop/*, its page under /ws01/, everything else to its herald, on loopback', () => {
-  assert.match(board, /if \(url\.pathname === '\/coop\/config'\) return send\(res, 200, board\.config\(\)\);/);
+  // (2026-11-18, B13) the /coop/* answers moved into answerCoop, which createServer asks first (the launcher mounts the same)
+  assert.match(board, /if \(url\.pathname === '\/coop\/config'\) return \{ status: 200, body: board\.config\(\) \};/);
+  assert.match(board, /const coop = await answerCoop\(board, req, url\);\n\s+if \(coop\) return send\(res, coop\.status, coop\.body\);/);
   assert.match(board, /if \(url\.pathname\.startsWith\('\/ws01\/repo\/'\)\) return serveStatic\(res, url\.pathname\.slice\('\/ws01\/repo\/'\.length\)\);/);
   assert.match(board, /\/\/ ヘラルドへ転送（ゲームの画面と h\/\*\.json）/);
   assert.match(board, /\.listen\(port, '127\.0\.0\.1'/);

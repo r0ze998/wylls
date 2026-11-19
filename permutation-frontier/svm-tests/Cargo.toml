@@ -31,7 +31,7 @@ solana-rent = "=4.3.0"
 solana-signature = "=3.4.1"
 solana-signer = "=3.0.1"
 solana-transaction = { version = "=4.1.6", features = ["serde", "wincode", "verify"] }
-frontier-abi = { path = "../../frontier-abi" }
+frontier-abi = { path = "../../frontier-abi", features = ["world-index-experimental"] }
 fclient = { path = "../../frontier-node/crates/fclient" }
 permutation-rules = { path = "../../permutation-rules", features = ["std"] }
 sha2 = "=0.10.9"
