@@ -618,11 +618,13 @@ function controlProvince(b, o, index) {
   const at = `province ${index}`;
   check((r.flags & 128) === 0, 'BadReserved', `${at}: flags bit 128`);
   check(r.control <= CONTROL_NONE, 'BadValue', `${at}: control ${r.control}`);
-  check((r.control === CONTROL_NEUTRAL) === (index === 0), 'BadValue', `${at}: control 6 is province (0,0)'s alone`);
+  // (⑭ R2: in a centre-free season (0,0) holds a keep code and no province is neutral: the rule is one-way)
+  check(r.control !== CONTROL_NEUTRAL || index === 0, 'BadValue', `${at}: control 6 is province (0,0)'s alone`);
   const pc = provinceFromIndex(index);
   check(pc !== null, 'BadValue', `${at}: index beyond ring 128`);
   const ring = ringOf(pc.p, pc.q);
-  check(((r.flags & 8) !== 0) === (ring <= 1), 'BadValue', `${at}: the seat flag marks rings 0–1 exactly`);
+  // (⑭ R2: a centre-free season has no Seats, so rings 0–1 may lack the flag; it never marks a ring ≥ 2)
+  check((r.flags & 8) === 0 || ring <= 1, 'BadValue', `${at}: the seat flag marks rings 0–1 only`);
   check((r.flags & 4) === 0 || ring >= 2, 'BadValue', `${at}: heartland in rings 0–1`);
   check(r.contender <= 5 || r.contender === CONTROL_NONE, 'BadValue', `${at}: contender ${r.contender}`);
   check(r.progress <= r.required, 'BadValue', `${at}: progress ${r.progress} > required ${r.required}`);

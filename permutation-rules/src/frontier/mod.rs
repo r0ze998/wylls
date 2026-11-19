@@ -362,7 +362,10 @@ pub const RULESET_DOMAIN_V3: &[u8] = b"PSF-RULESET-v3";
 /// The S1 rules' kernel versions (pinned order, append only): the MC
 /// list with the S1 bumps (frontier 12, catalog 3, doctrine 3, holding 4),
 /// then `arms` (1a), `caravan` (1b), `structure` (1d, 1e) and `nation`
-/// (1e).
+/// (1e). ⑧ (a) (2026-11-18): `geometry` 2 → 3 (placement 2,
+/// `geometry::GEOMETRY_VERSION_V3`). ⑭ R2 (2026-11-19): the centre-free
+/// variants — `geometry` 4, `terrain` 3, `camp` 3, `siege` 4, `keep` 3,
+/// `control` 2 (`*_CENTRE_FREE`).
 pub const KERNEL_VERSIONS_V3: [(&str, u16); 29] = [
     ("frontier", RULES_VERSION_FRONTIER_V3),
     ("beacon", beacon::BEACON_VERSION),
@@ -370,25 +373,25 @@ pub const KERNEL_VERSIONS_V3: [(&str, u16); 29] = [
     ("seal", seal::SEAL_VERSION),
     ("fees", fees::FEES_VERSION),
     ("office", office::OFFICE_VERSION),
-    ("camp", camp::CAMP_VERSION_V2),
+    ("camp", camp::CAMP_VERSION_CENTRE_FREE),
     ("explore", explore::EXPLORE_VERSION),
     ("catalog", catalog::CATALOG_VERSION_V3),
     ("clash", clash::CLASH_VERSION_V4),
-    ("siege", siege::SIEGE_VERSION_V3),
+    ("siege", siege::SIEGE_VERSION_CENTRE_FREE),
     ("doctrine", doctrine::DOCTRINE_VERSION_V3),
-    ("terrain", terrain::TERRAIN_VERSION_V2),
+    ("terrain", terrain::TERRAIN_VERSION_CENTRE_FREE),
     ("travel", travel::TRAVEL_VERSION),
     ("holding", holding::HOLDING_VERSION_V4),
     ("host", host::HOST_VERSION),
-    ("geometry", geometry::GEOMETRY_VERSION_V2),
+    ("geometry", geometry::GEOMETRY_VERSION_CENTRE_FREE),
     ("stance", stance::STANCE_VERSION),
     ("index", index::INDEX_VERSION),
     ("laurel", laurel::LAUREL_VERSION),
     ("mandate", mandate::MANDATE_VERSION),
     ("payout", payout::PAYOUT_VERSION),
     ("pools", pools::POOLS_VERSION),
-    ("keep", keep::KEEP_VERSION),
-    ("control", control::CONTROL_VERSION),
+    ("keep", keep::KEEP_VERSION_CENTRE_FREE),
+    ("control", control::CONTROL_VERSION_CENTRE_FREE),
     ("arms", arms::ARMS_VERSION),
     ("caravan", caravan::CARAVAN_VERSION),
     ("structure", structure::STRUCTURE_VERSION),

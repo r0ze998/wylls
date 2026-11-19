@@ -63,9 +63,10 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// and only a wide instruction writes one), its land preview instructions
 /// by VL, the wide land opening (WideSetRules, WideRequestRingSeed,
 /// WideConsumeRingSeed, WideOpenProvince) and the wide claims
-/// (WideClaimSite in its wallet form, WideSettleTicket, WideFinalize) by
-/// VWL, and every other wide
-/// instruction stays UNVERIFIABLE (`WideUnmodelled`, naming the command):
+/// (WideClaimSite in its wallet form, WideSettleTicket, WideFinalize), the
+/// season-end WideClose of a ticket record, a holding and a province, and
+/// the wide economy and garrison (wallet forms) by VWL, and every other
+/// wide instruction stays UNVERIFIABLE (`WideUnmodelled`, naming the command):
 /// see [`judge_outside_v2`].
 pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
 
@@ -230,8 +231,8 @@ pub fn judge_outside_v2(
     // The wide build's own tags, in its own seasons: left to VW (r16), which
     // judges the wide event chains and nothing of the wide rules, so they
     // stay UNVERIFIABLE (`WideUnmodelled`), never a PASS.
-    // Q16-1 continued: the wide land opening is VWL's (it re-runs the four
-    // commands from the states before them).
+    // Q16-1 continued: what `vwl_wide_land::judged` names is VWL's (it
+    // re-runs those commands from the states before them).
     #[cfg(feature = "playable-lane")]
     if is_wide_tag(tag) && playable(pv) && vwl_judged(data) {
         return None;

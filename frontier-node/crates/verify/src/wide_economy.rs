@@ -387,8 +387,13 @@ pub fn read_season(season: &[u8], now_ts: i64) -> Result<SeasonFacts, Refusal> {
         ));
     }
     let program_version = rd_u16(season, S::PROGRAM_VERSION).ok_or_else(short)?;
+    // Q16-1: the playable lane's build (0x4804: the wide S1 build with the
+    // expedition dispatch revision) runs the same handlers; known only to
+    // a `playable-lane` verifier.
+    let playable = cfg!(feature = "playable-lane") && program_version == 0x4804;
     if program_version != WIDE_S1_PROGRAM_VERSION
         && program_version != (WIDE_S1_PROGRAM_VERSION | NFT_VERSION_BIT)
+        && !playable
     {
         return Err(Refusal::Season(format!(
             "program version {program_version:#06x} is not the wide S1 build {WIDE_S1_PROGRAM_VERSION:#06x} (NFT bit allowed)"
@@ -913,6 +918,7 @@ pub fn verify_transition(
 /// parity check against the program: that is the fixture test
 /// (`tests/wide_economy.rs`) over records the real handler dispatched.
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     use super::*;
 

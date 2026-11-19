@@ -58,7 +58,8 @@ pub mod cq_layout {
         PLACEMENT @ 77 : "u8" = 1;
         R_MAX_CEILING @ 78 : "u16" = 2;
         CONTINUOUS @ 80 : "u8" = 1;
-        RSV @ 81 : "rsv" = 47;
+        CENTRE @ 81 : "u8" = 1;
+        RSV @ 82 : "rsv" = 46;
     );
 }
 
@@ -129,10 +130,12 @@ pub const RULESET_HASH_V2: [u8; 32] = [
 /// writes in an S1 season, pinned by `ruleset_hash_v3_is_the_kernels`
 /// against `permutation_rules::frontier::ruleset_hash_v3` (and by the rules
 /// crate's `s1_ruleset_hash_pinned_and_older_hashes_unchanged`). The M1 and
-/// MC hashes are unchanged.
+/// MC hashes are unchanged. Re-pinned 2026-11-18 (⑧ (a): `geometry` 3 for
+/// placement 2): `234c0dc2…422d` → `1511ae14…3ea2`; re-pinned 2026-11-19 (⑭
+/// R2: the centre-free kernel versions): → `e9059c93…de70`.
 pub const RULESET_HASH_V3: [u8; 32] = [
-    0x23, 0x4c, 0x0d, 0xc2, 0x25, 0xe5, 0xce, 0x32, 0x36, 0x87, 0x75, 0x6b, 0x91, 0x3f, 0x78, 0xe3,
-    0x30, 0x75, 0x7a, 0xbb, 0x96, 0x9d, 0xf2, 0x90, 0x74, 0x5e, 0xae, 0x1e, 0x9a, 0xae, 0x42, 0x2d,
+    0xe9, 0x05, 0x9c, 0x93, 0x07, 0x18, 0x9f, 0x33, 0x7b, 0x00, 0xa4, 0xb2, 0x16, 0x6b, 0x72, 0xa4,
+    0x6e, 0x1c, 0xbb, 0xf8, 0x88, 0x06, 0x8e, 0xd1, 0x05, 0x70, 0x67, 0x54, 0x6d, 0x89, 0xde, 0x70,
 ];
 
 /// `RULESET_HASH_V4` (workstream 10, a preview): the hash the
@@ -142,8 +145,8 @@ pub const RULESET_HASH_V3: [u8; 32] = [
 /// `RULESET_HASH_V3`: a custody program refuses every S1 season, and the S1
 /// program (which has no custody instructions) refuses every custody one.
 pub const RULESET_HASH_V4: [u8; 32] = [
-    0x2f, 0x43, 0x0c, 0x06, 0x2f, 0xbc, 0x2f, 0x12, 0xf5, 0x87, 0xec, 0xfd, 0x46, 0xc3, 0x8e, 0x57,
-    0x2f, 0x30, 0x3a, 0xa4, 0xcb, 0x6a, 0xbc, 0x6b, 0x3d, 0x78, 0x15, 0x47, 0xfd, 0xf4, 0x86, 0x35,
+    0xa1, 0xdd, 0xb3, 0x59, 0x0f, 0x7a, 0x15, 0xc1, 0x66, 0xa7, 0x7d, 0x10, 0x36, 0x2d, 0xd2, 0xa4,
+    0x99, 0xc9, 0x71, 0x11, 0xa6, 0x02, 0x1d, 0x1e, 0xb2, 0xba, 0xad, 0x0e, 0xd3, 0x6c, 0x8b, 0x62,
 ];
 
 /// The conquest block (§5.2.5).
@@ -193,7 +196,18 @@ pub struct ConquestParams {
     /// Byte 80 of the conquest block. A new continuous world keeps both its
     /// end and join deadline absent.
     pub continuous: u8,
+    /// Byte 81 (⑭ R2, owner decision t346u, 2026-11-18): [`CENTRE_CONCORD`]
+    /// (ring 0 the Concord, ring 1 the six Seats: every season before the
+    /// byte) or [`CENTRE_FREE`] (rings 0 and 1 are ordinary land: sites,
+    /// keeps, camps, tickets, sieges; their keeps follow the mixed nation).
+    /// `CENTRE_FREE` needs placement 2 and an S1 season.
+    pub centre: u8,
 }
+
+/// `centre` 0: the Concord (ring 0) and the Seats (ring 1).
+pub const CENTRE_CONCORD: u8 = 0;
+/// `centre` 1 (⑭ R2): no centre; rings 0 and 1 are ordinary land.
+pub const CENTRE_FREE: u8 = 1;
 
 /// `placement` 0: the wedge rule (every season before the field existed).
 pub const PLACEMENT_WEDGE: u8 = permutation_rules::frontier::geometry::PLACEMENT_WEDGE;
@@ -262,7 +276,8 @@ impl ConquestParams {
             & wr_u8(&mut d, L::FLAGS, self.flags)
             & wr_u8(&mut d, L::PLACEMENT, self.placement)
             & wr_u16(&mut d, L::R_MAX_CEILING, self.r_max_ceiling)
-            & wr_u8(&mut d, L::CONTINUOUS, self.continuous);
+            & wr_u8(&mut d, L::CONTINUOUS, self.continuous)
+            & wr_u8(&mut d, L::CENTRE, self.centre);
         d
     }
 
@@ -272,6 +287,7 @@ impl ConquestParams {
         if d.len() < CONQUEST_PARAMS_LEN
             || d[L::PLACEMENT] > PLACEMENT_MIXED
             || d[L::CONTINUOUS] > 1
+            || d[L::CENTRE] > CENTRE_FREE
             || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0)
         {
             return None;
@@ -311,6 +327,7 @@ impl ConquestParams {
             placement: rd_u8(d, L::PLACEMENT)?,
             r_max_ceiling: rd_u16(d, L::R_MAX_CEILING)?,
             continuous: rd_u8(d, L::CONTINUOUS)?,
+            centre: rd_u8(d, L::CENTRE)?,
         })
     }
 
@@ -451,6 +468,22 @@ impl SeasonParamsV2 {
         {
             return Err("program_version");
         }
+        // ⑧ (a): placement 2 is an S1 rule (`geometry` 3, bound into
+        // RULESET_HASH_V3/V4 only); an MC season, whose RULESET_HASH_V2 does
+        // not commit to it, refuses it.
+        if self.cq.placement == PLACEMENT_MIXED && self.base.program_version < PROGRAM_VERSION_S1 {
+            return Err("placement");
+        }
+        // ⑭ R2: a centre-free season is an S1 season of placement 2 (its
+        // rings 0-1 keeps follow the mixed nation; RULESET_HASH_V2 does not
+        // commit to the rule).
+        if self.cq.centre > CENTRE_FREE
+            || (self.cq.centre == CENTRE_FREE
+                && (self.cq.placement != PLACEMENT_MIXED
+                    || self.base.program_version < PROGRAM_VERSION_S1))
+        {
+            return Err("centre");
+        }
         if self.base.dormant_after_secs != self.cq.dormant_after_secs
             || self.base.release_after_secs != self.cq.release_after_secs
         {
@@ -529,6 +562,7 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     placement: PLACEMENT_WEDGE,
     r_max_ceiling: 0,
     continuous: 0,
+    centre: CENTRE_CONCORD,
 };
 
 /// Frontier-28's conquest block (§3.12).
@@ -645,11 +679,40 @@ pub const fn s1(p: SeasonParamsV2) -> SeasonParamsV2 {
 /// `reveal_profile_matches_v2_budgets`).
 pub const REVEAL_LOADED_LIMIT_S1: u32 = 1_867_776;
 
+/// The placement a new playable/devnet season starts with (owner decision
+/// t346u, 2026-11-18): ⑭ R1 (no wedge pointing at (0,0)) together with ⑧ (c)
+/// — [`PLACEMENT_MIXED`], the dispersed heartland with the same mixing on
+/// every outer ring and on into the wide land. Only these presets: every
+/// MC preset and `S1_TEST` keep the wedge.
+pub const PLACEMENT_PLAYABLE: u8 = PLACEMENT_MIXED;
+
+/// A season with no centre: the playable/devnet presets' first homes are not
+/// laid out as six wedges about (0,0) but by [`PLACEMENT_PLAYABLE`] (⑭ R1,
+/// ⑧ (c)); its `centre` is [`CENTRE_PLAYABLE`] (⑭ R2). Every other byte is
+/// unchanged.
+pub const fn centreless(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = p;
+    q.cq.placement = PLACEMENT_PLAYABLE;
+    q.cq.centre = CENTRE_PLAYABLE;
+    q
+}
+
+/// The `centre` a new playable/devnet season starts with. ⑭ R2 is
+/// implemented and validated on chain, in the verifier and in the herald,
+/// but stays [`CENTRE_CONCORD`] here until the page's own kernels take the
+/// flag (frontier-wasm `generate_province` / the path planner regenerate
+/// (0,0)'s land from its seed; with [`CENTRE_FREE`] they would draw and
+/// route the old six-fold Concord). Flipping this constant is the switch.
+pub const CENTRE_PLAYABLE: u8 = CENTRE_CONCORD;
+
 /// `S1_LOCAL_7D`, `S1_LOCAL_14D` and `S1_TEST`: the MC presets of the same
 /// names for the S1 program (redesign 30, J5: stage 1 runs in a new
-/// season).
-pub const S1_LOCAL_7D: SeasonParamsV2 = s1(MC_LOCAL_7D);
-pub const S1_LOCAL_14D: SeasonParamsV2 = s1(MC_LOCAL_14D);
+/// season). `S1_LOCAL_7D` and `S1_LOCAL_14D` are the playable/devnet
+/// presets (the devnet profiles, frontier-operator and the local natural
+/// world use them) and are [`centreless`] (⑭ R1); `S1_TEST` (itests and
+/// smokes only) keeps the wedge, as every MC preset does.
+pub const S1_LOCAL_7D: SeasonParamsV2 = centreless(s1(MC_LOCAL_7D));
+pub const S1_LOCAL_14D: SeasonParamsV2 = centreless(s1(MC_LOCAL_14D));
 pub const S1_TEST: SeasonParamsV2 = s1(MC_TEST);
 
 /// A season as a CONTINUOUS world (conquest byte 80 `continuous = 1`, the
@@ -730,8 +793,53 @@ mod tests {
                 .find(|(n, _)| n[3..] == name[3..])
                 .map(|(_, q)| *q)
                 .unwrap();
-            assert_eq!(s1(mc), p);
+            if name == "S1_TEST" {
+                assert_eq!(s1(mc), p);
+            } else {
+                assert_eq!(centreless(s1(mc)), p, "{name}");
+            }
         }
+    }
+
+    /// ⑭ R1: the playable/devnet presets start centre-free; the MC presets
+    /// and `S1_TEST` keep the wedge; only `placement` differs from the MC
+    /// preset of the same name.
+    #[test]
+    fn playable_presets_are_centreless_r1() {
+        for p in [S1_LOCAL_7D, S1_LOCAL_14D, S1_LOCAL_CONTINUOUS] {
+            assert_eq!(p.cq.placement, PLACEMENT_PLAYABLE);
+            assert_ne!(p.cq.placement, PLACEMENT_WEDGE);
+            assert_eq!(p.validate(), Ok(()));
+        }
+        assert_eq!(S1_TEST.cq.placement, PLACEMENT_WEDGE);
+        for (_, p) in PRESETS {
+            assert_eq!(p.cq.placement, PLACEMENT_WEDGE);
+        }
+        for p in [S1_LOCAL_7D, S1_LOCAL_14D, S1_LOCAL_CONTINUOUS] {
+            assert_eq!(p.cq.centre, CENTRE_PLAYABLE);
+        }
+        assert_eq!(S1_TEST.cq.centre, CENTRE_CONCORD);
+        let mut back = S1_LOCAL_7D;
+        back.cq.placement = PLACEMENT_WEDGE;
+        back.cq.centre = CENTRE_CONCORD;
+        assert_eq!(back, s1(MC_LOCAL_7D), "nothing else changed");
+        // ⑭ R2: centre 1 needs placement 2 and S1; 2 is refused; it round-trips
+        let mut free = S1_LOCAL_7D;
+        free.cq.centre = CENTRE_FREE;
+        assert_eq!(free.validate(), Ok(()));
+        let raw = free.to_bytes();
+        assert_eq!(raw[SEASON_PARAMS_LEN + cq_layout::CENTRE], 1);
+        assert_eq!(SeasonParamsV2::from_bytes(&raw), Some(free));
+        let mut bad = free.cq.to_bytes();
+        bad[cq_layout::CENTRE] = 2;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        let mut p = free;
+        p.cq.placement = PLACEMENT_DISPERSED;
+        assert_eq!(p.validate(), Err("centre"));
+        let mut p = MC_LOCAL_7D;
+        p.cq.centre = CENTRE_FREE;
+        p.cq.placement = PLACEMENT_MIXED;
+        assert!(p.validate().is_err());
     }
 
     /// ⑧ P1: the local continuous preset is `S1_LOCAL_7D` with exactly the
@@ -820,7 +928,12 @@ mod tests {
         assert_eq!(bad(|p| p.cq.relations = 1), Err("relations"));
         assert_eq!(bad(|p| p.cq.flags = 1), Err("flags"));
         assert_eq!(bad(|p| p.cq.placement = 3), Err("placement"));
-        assert_eq!(bad(|p| p.cq.placement = PLACEMENT_MIXED), Ok(()));
+        // ⑧ (a): placement 2 is S1's (RULESET_HASH_V2 does not commit to it)
+        assert_eq!(bad(|p| p.cq.placement = PLACEMENT_MIXED), Err("placement"));
+        assert_eq!(bad(|p| p.cq.placement = PLACEMENT_DISPERSED), Ok(()));
+        let mut s = s1(base);
+        s.cq.placement = PLACEMENT_MIXED;
+        assert_eq!(s.validate(), Ok(()));
         // Map growth: 0 (no extension), or above r_max (16) and ≤ 128.
         assert_eq!(bad(|p| p.cq.r_max_ceiling = 16), Err("r_max_ceiling"));
         assert_eq!(bad(|p| p.cq.r_max_ceiling = 129), Err("r_max_ceiling"));
@@ -956,8 +1069,12 @@ mod tests {
         bad = raw;
         bad[77] = 3; // (2 is PLACEMENT_MIXED since ⑧ wide land (i))
         assert!(ConquestParams::from_bytes(&bad).is_none());
+        // byte 81 is `centre` since ⑭ R2 (1 decodes, 2 is refused); 82 stays reserved
         bad = raw;
-        bad[81] = 1;
+        bad[81] = 2;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        bad = raw;
+        bad[82] = 1;
         assert!(ConquestParams::from_bytes(&bad).is_none());
     }
 

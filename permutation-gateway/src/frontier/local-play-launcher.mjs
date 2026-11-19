@@ -39,7 +39,7 @@ import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_
 import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX } from './local-play-operator-war.mjs';
 import { EXTERNAL_RESIDENTS_MODE, EXTERNAL_RESIDENTS_SCHEMA, EXTERNAL_RESIDENTS_MAX, parseExternalResidents, externalPorts, externalSpan } from './local-play-external-residents.mjs';
 const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
-const RULESET = '234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d';
+const RULESET = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
 /** Worlds at once; a world's life (the default; `--world-ttl-minutes` may choose another); its output; the disk's floor (bytes). */
 export const WORLD_LIMIT = 2, WORLD_TTL_MS = 7200000, WORLD_OUTPUT_MAX = 128 * 1024 ** 2, DISK_FLOOR = 5.25 * 1024 ** 3;
 /** The page's statement of a world's automatic end (`expiryOf`). */
@@ -434,8 +434,8 @@ export const CONQUEST_ARTIFACT_MARKERS = Object.freeze(['PSF_LOCALNET_EXPEDITION
 export const CONQUEST_CAPABILITY_SCHEMA = 'frontier-local-play-conquest-capability-v1', CONQUEST_WORLD_SCHEMA = 'frontier-local-play-conquest-world-v1';
 /** How long, once the destination is open and the clock is back at 1x, the runner's own statement is waited for. */
 export const CONQUEST_STATEMENT_MS = 10000;
-/** frontier-abi `FreeCityRule::CanonicalHashV1` (1 is NoFreeCity): the rule byte the runner's "opened" line shows for a world with a Free City. */
-const FREE_CITY_CANONICAL = 2;
+/** frontier-abi `FreeCityRule::DeployedLe32V1` (⑧ (d): the deployed formula; 1 is NoFreeCity, 2 the older wide formula a placement-2 Season refuses): the rule byte the runner's "opened" line shows for a world with a Free City. */
+const FREE_CITY_CANONICAL = 3;
 /** The runner's statements of a conquest world among its public lines: the top-level key `conquest_world` of a line, each distinct one once. */
 const conquestStatements = lines => [...new Map(lines.filter(v => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.hasOwn(v, 'conquest_world')).map(v => [JSON.stringify(v.conquest_world), v.conquest_world])).values()];
 /**
