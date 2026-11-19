@@ -126,6 +126,27 @@ pub fn s1_applies(input: &Input) -> bool {
     }) || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V3
 }
 
+/// Whether VX re-executes this successful transaction: a playable-lane
+/// season (`playable-lane` build) and an expedition dispatch envelope
+/// instruction of the program.
+fn vx_tx(input: &Input, t: &fclient::Transaction) -> bool {
+    let pv = input
+        .finals
+        .get(&findex::addr_ctx(&input.cfg.program, input.cfg.season_id).season)
+        .and_then(|a| a.as_ref())
+        .and_then(|a| Season::decode(&a.data).ok())
+        .map(|s| s.program_version);
+    crate::checks::v0_coverage::playable(pv)
+        && t.message.instructions.iter().any(|ix| {
+            t.message.account_keys.get(ix.program_id_index as usize) == Some(&input.cfg.program)
+                && ix
+                    .data
+                    .first()
+                    .is_some_and(|&g| crate::checks::v0_coverage::is_wide_tag(g))
+                && crate::checks::v0_coverage::vx_judged(&ix.data)
+        })
+}
+
 pub fn verify(input: &Input) -> Report {
     let ctx = findex::addr_ctx(&input.cfg.program, input.cfg.season_id);
     let mut states = State::new();
@@ -138,7 +159,27 @@ pub fn verify(input: &Input) -> Report {
         tx: input.txs.len() as u64,
         ..Counts::default()
     };
-    for tx in &input.txs {
+    for (ti, tx) in input.txs.iter().enumerate() {
+        // States the archive declares in force from before this transaction
+        // (a recorder's patches, `Input::declared`: never a PASS, V0E says
+        // so) are where the chains continue from.
+        for d in input.declared.iter().filter(|d| d.at == ti) {
+            match &d.account {
+                Some(a) => {
+                    if let Some(h) =
+                        chained_header(&a.data).filter(|_| entity_of(&a.data).is_some())
+                    {
+                        if heads.contains_key(&d.key) || h.event_seq != 0 {
+                            heads.insert(d.key, (h.event_seq, h.event_head));
+                        }
+                    }
+                    states.insert(d.key, a.clone());
+                }
+                None => {
+                    states.remove(&d.key);
+                }
+            }
+        }
         let sig = tx.signature.to_string();
         if !seen.insert(sig.clone()) {
             finding(
@@ -216,6 +257,35 @@ pub fn verify(input: &Input) -> Report {
                     "version, ruleset or season differs from the expected v3 world",
                 );
             }
+        }
+        // Q16-1 = A: a transaction VX re-executes (the playable lane's
+        // expedition wrapper and Free City conquest) prints records of the
+        // wrapper's own kinds (145–148), which VX compares byte for byte;
+        // the chains continue from the post-states it proved.
+        if vx_tx(input, &parsed) {
+            for (k, a) in &tx.post {
+                let key = k.to_bytes();
+                match a {
+                    Some(a) if a.owner == input.cfg.program => {
+                        if let Some(h) =
+                            chained_header(&a.data).filter(|_| entity_of(&a.data).is_some())
+                        {
+                            if heads.contains_key(&key) || h.event_seq != 0 {
+                                heads.insert(key, (h.event_seq, h.event_head));
+                            }
+                        }
+                        states.insert(key, a.clone());
+                    }
+                    Some(a) => {
+                        states.insert(key, a.clone());
+                    }
+                    None => {
+                        heads.remove(&key);
+                        states.remove(&key);
+                    }
+                }
+            }
+            continue;
         }
         let bodies = match crate::world::ps2_bodies(&tx.logs, &input.cfg.program) {
             Ok(x) => x,
@@ -440,6 +510,12 @@ pub fn verify(input: &Input) -> Report {
         }
     }
     for (key, (seq, head)) in &heads {
+        // A declared state's account no archived transaction wrote has no
+        // final read (finals are the written keys): not a mismatch (V0E
+        // reports the declared states).
+        if !input.finals.contains_key(key) && input.declared.iter().any(|d| d.key == *key) {
+            continue;
+        }
         let actual = input
             .finals
             .get(key)

@@ -319,6 +319,8 @@ fn a_saved_fixture_cannot_launder_an_rpc_history() {
         scenarios: vec![],
         history: History::rpc(cov.clone(), "rpc x"),
         resident_feed: None,
+        program_so: None,
+        declared: vec![],
     };
     let back = Input::from_json(&inp.to_json()).unwrap();
     assert_eq!(back.history.source, Source::Rpc);

@@ -36,7 +36,8 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID, randomInt, createHash } from 'node:crypto';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { COOP_BOARD_MODE, openWorldBoard, answerWorldBoard, coopRouteOf, coopTarget } from './local-play-coop-board.mjs';
-import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, parseOperatorResidents, parseOperatorNations, operatorRelayPorts, homesOf } from './local-play-operator-policy.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, parseOperatorResidents, parseOperatorNations, operatorRelayPorts, operatorSlotPorts, homesOf } from './local-play-operator-policy.mjs';
+import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX } from './local-play-operator-war.mjs';
 import { EXTERNAL_RESIDENTS_MODE, EXTERNAL_RESIDENTS_SCHEMA, EXTERNAL_RESIDENTS_MAX, parseExternalResidents, externalPorts, externalSpan } from './local-play-external-residents.mjs';
 const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
 const RULESET = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
@@ -318,6 +319,34 @@ export function runnerLandAgrees(meta, land) {
  */
 export const CONTEST_PAIR_MODE = 'contest-pair-v1';
 /**
+ * B16 (loop-play3): a KEPT world (`--persist`) for two people. Its second player is recorded once, at the world's first
+ * start, in `<data>/persist/<first wallet>/pair.json` (0600; public addresses only, never a key). With the pair option a
+ * later press of EITHER of the two resumes that world for both at once (no waiting); a recorded pair is never changed.
+ */
+export const PAIR_FILE = 'pair.json', PAIR_FILE_SCHEMA = 'frontier-local-play-kept-pair-v1';
+/** A kept world's recorded second player: its address, null when there is no record, false when the record is not one. */
+export async function readPersistedPair(home, io = fs) {
+  let raw;
+  try { raw = await io.readFile(path.join(home, PAIR_FILE), 'utf8'); } catch (e) { return e?.code === 'ENOENT' ? null : false; }
+  if (!(await privateMode(path.join(home, PAIR_FILE), false, io)).ok) return false;
+  let d; try { d = JSON.parse(raw); } catch { return false; }
+  const ok = d !== null && typeof d === 'object' && Object.keys(d).sort().join() === 'first,mode,schema,second,test_only' && d.schema === PAIR_FILE_SCHEMA
+    && d.mode === CONTEST_PAIR_MODE && d.test_only === true && validWallet(d.first) && validWallet(d.second) && d.first !== d.second && d.first === path.basename(home);
+  return ok ? d.second : false;
+}
+/** Every kept pair under `<data>/persist/`: Map first → second (an unreadable or invalid record is left out). */
+export async function persistedPairs(data, io = fs) {
+  const out = new Map();
+  let names = [];
+  try { names = await io.readdir(path.join(data, 'persist')); } catch { return out; }
+  for (const n of names) {
+    if (!validWallet(n)) continue;
+    const second = await readPersistedPair(path.join(data, 'persist', n), io);
+    if (typeof second === 'string') out.set(n, second);
+  }
+  return out;
+}
+/**
  * `--continuous local-continuous-v1` (TEST-ONLY, optional; off unless given in exactly these words; natural preset only,
  * never with the capture demo): the natural runner makes its Season with the program's continuous preset
  * (`S1_LOCAL_CONTINUOUS`: no end bell, joins always open, EndSeason refused by the program), so the world does not end
@@ -375,6 +404,25 @@ export function runnerPersistAgrees(meta, { continuous = false, persist = false 
  * started with; this start's `fresh-map.json` records it. A resumed kept world keeps the map it was made with.
  */
 export const FRESH_MAP_MODE = 'local-fresh-map-v1';
+/**
+ * `--wide-land local-wide-land-v1` (TEST-ONLY, optional; off unless given in exactly these words; natural preset only,
+ * never with the capture demo, the contest pair, the land preview, `--continuous` or `--persist`): the owner's wide
+ * version, locally. The runner (itest `wide_land`) creates the world's Season from the devnet playable preset
+ * `S1_DEVNET_WIDE_7D` (#70) and, still on its synthetic setup clock, grows the map by the program's own instructions
+ * one ring per bell to the rim (ring 128), then opens wide rings 129+ (WideRequestRingSeed / WideConsumeRingSeed with
+ * verified public rounds, WideSetRules, WideOpenProvince), with one test participant per nation for the occupancy
+ * rule. From `ready-for-join` on the clock is the natural world's. The runner's first line must state `wide_land`, or
+ * the world is not started with; a memory-only world (a stop ends it). The herald must be built with
+ * `wide-world-experimental` to serve the page's recorded-world view.
+ */
+export const WIDE_LAND_MODE = 'local-wide-land-v1';
+/** The runner's first line and this start agree on the wide land: its statement with the option, none without. */
+export function runnerWideAgrees(meta, wide) {
+  const d = meta?.wide_land;
+  if (!wide) return d === undefined;
+  return d !== null && typeof d === 'object' && d.mode === WIDE_LAND_MODE && d.test_only === true && d.preset === 'S1_DEVNET_WIDE_7D'
+    && Number.isSafeInteger(d.summary?.legacy_rings_opened) && d.summary.legacy_rings_opened === 129 && Array.isArray(d.summary?.wide_rings) && d.summary.wide_rings.length > 0;
+}
 /** The local chain's fixed clock origin (2026-08-01T00:00:00Z) and how far before it a fresh map's origin may be. */
 export const MAP_ORIGIN_DEFAULT = 1_785_542_400, MAP_ORIGIN_SPAN_SECS = 365 * 86_400;
 /** Whether `g0` is an origin the runner's `--map-origin` accepts: a whole second in the 365 days before the fixed origin. */
@@ -591,6 +639,26 @@ export class WorldManager {
       return record.promise.then(view => ({ ...view, herald: record.pairHerald, pair: { role: 'second', mode: CONTEST_PAIR_MODE } }));
     }
     if (this.worlds.has(wallet)) return this.#start(wallet);
+    // (B16: a kept pair's either player resumes its world for both, at once)
+    if (this.config.persist) return this.#keptPair(wallet).then(r => r ?? this.#pairWait(wallet));
+    return this.#pairWait(wallet);
+  }
+  /** A kept pair (`persistedPairs`) that has `wallet`: its world started for both (or the one running), then answered as for any pair press; null when `wallet` is in no kept pair. */
+  async #keptPair(wallet) {
+    const pairs = await (this.config.guard?.persistedPairs ?? persistedPairs)(this.config.data);
+    let a = null, b = null;
+    if (pairs.has(wallet)) { a = wallet; b = pairs.get(wallet); } else for (const [f, s] of pairs) if (s === wallet) { a = f; b = s; }
+    if (a === null) return null;
+    if (this.closed) throw fault('LauncherClosed', 503);
+    if (this.pairWaiting === a || this.pairWaiting === b) this.pairWaiting = null;
+    if (!this.worlds.has(a)) {
+      if (this.worlds.size > 0) throw Object.assign(fault('WorldLimit', 409), { worlds: this.list() });
+      this.pairOf.set(b, a);
+      await this.#start(a, { second: b }).catch(e => { this.pairOf.delete(b); throw e; });
+    } else if (this.worlds.get(a) && !this.pairOf.has(b)) this.pairOf.set(b, a);
+    return this.#pairStart(wallet);
+  }
+  #pairWait(wallet) {
     if (this.worlds.size > 0) return Promise.reject(Object.assign(fault('WorldLimit', 409), { worlds: this.list() }));
     if (this.pairWaiting === null || this.pairWaiting === wallet) { this.pairWaiting = wallet; return Promise.resolve({ pairWaiting: true, pair: { mode: CONTEST_PAIR_MODE } }); }
     const a = this.pairWaiting; this.pairWaiting = null; this.pairOf.set(wallet, a);
@@ -792,9 +860,9 @@ export const OPERATOR_HOMES_MS = 30000, OPERATOR_WALLETS_MS = 10000;
  * arguments, on the residents' ports. → `{count, wallets, ports}` (also written to `operators.json`: the operator's
  * own roster of who is an AI, kept beside the world, never sent to a page). Any refusal ends the world's start.
  */
-export async function startOperatorResidents({ n, nations = null, dir, ports, rpc, herald, players, launch, launchSide, relayArgsFor, root, stopping, limit = {}, pace = {}, keysDir = null }) {
+export async function startOperatorResidents({ n, nations = null, dir, ports, rpc, herald, players, launch, launchSide, relayArgsFor, root, stopping, limit = {}, pace = {}, war = false, keysDir = null }) {
   // (`nations`: the TEST-ONLY `--operator-nations` list, one nation per resident, up to six; otherwise the fixed four)
-  if (!Number.isInteger(n) || n < 1 || n > (nations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX) || ports.length !== n || (nations && (nations.length !== n || parseOperatorNations(nations.join(',')) === null))) throw fault('InvalidOperatorResidents', 503);
+  if (!Number.isInteger(n) || n < 1 || n > (war ? OPERATOR_WAR_MAX : nations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX) || ports.length !== n || (nations && (nations.length !== n || parseOperatorNations(nations.join(',')) === null))) throw fault('InvalidOperatorResidents', 503);
   for (const p of ports) await freePort(p);
   let homes = null;
   for (const until = Date.now() + (limit.operatorHomesMs ?? OPERATOR_HOMES_MS); !homes && Date.now() < until && !stopping();) {
@@ -805,7 +873,7 @@ export async function startOperatorResidents({ n, nations = null, dir, ports, rp
   if (!homes) throw fault('OperatorHomesUnknown', 503);
   const paceArgs = Object.entries({ 'cadence-ms': pace.cadenceMs, 'max-acts': pace.maxActs, 'max-refusals': pace.maxRefusals, 'min-gap-ms': pace.minGapMs }).filter(([, v]) => Number.isSafeInteger(v) && v >= 0).flatMap(([k, v]) => [`--${k}`, String(v)]);
   launchSide('operators', process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-operator-residents.mjs'), '--count', String(n), '--relay-ports', ports.join(','),
-    '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...(nations ? ['--nations', nations.join(',')] : []), ...paceArgs,
+    '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...(nations ? ['--nations', nations.join(',')] : []), ...paceArgs, ...(war ? ['--war', OPERATOR_WAR_MODE] : []),
     // (⑧ P2, TEST-ONLY: a persisted world keeps its residents' keys in its own private dir, so a resume has the same residents)
     ...(keysDir ? ['--keys-dir', keysDir] : [])]);
   let first = null;
@@ -900,6 +968,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   if (c.freshMap !== undefined && (!freshMap || !natural)) throw fault('InvalidWorldPreset', 503);
   const mapOrigin = freshMap ? (typeof c.guard?.mapOrigin === 'function' ? c.guard.mapOrigin() : freshMapOrigin()) : null;
   if (mapOrigin !== null && !mapOriginOk(mapOrigin)) throw fault('InvalidWorldPreset', 503);
+  // (the TEST-ONLY wide land: a memory-only, finite natural world without the demo, the pair or the land preview)
+  const wide = c.wideLand === true;
+  if (c.wideLand !== undefined && (!wide || !natural || demo !== null || land || continuous || persist || c.contestPair)) throw fault('InvalidWorldPreset', 503);
   // (`preset`: the conquest lane only; a natural world takes none of its steps)
   const preset = natural ? null : c.worldPreset ?? null;
   if (preset !== null && preset !== CONQUEST_WORLD_PRESET) throw fault('InvalidWorldPreset', 503);
@@ -907,7 +978,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   // (the TEST-ONLY contest pair: a second wallet only with the pair option on a capture-demo world; its relay and proxy
   //  take the NEXT slot's relay and herald ports, which no other world may then use)
   const second = opts.second ?? null;
-  if (second !== null && (!c.contestPair || demo === null || !validWallet(second) || second === wallet || slot + 1 >= WORLD_LIMIT)) throw fault('InvalidContestPair', 503);
+  if (second !== null && (!c.contestPair || (demo === null && !natural) || !validWallet(second) || second === wallet || slot + 1 >= WORLD_LIMIT)) throw fault('InvalidContestPair', 503);
   const { rpc, ws, herald, relay, internalHerald } = worldPorts(c.worldPort, slot);
   const pairPorts = second !== null ? worldPorts(c.worldPort, slot + 1) : null;
   const limit = { ttlMs: c.worldTtlMs ?? WORLD_TTL_MS, outputMax: WORLD_OUTPUT_MAX, diskFloor: DISK_FLOOR, everyMs: 1000, ...c.guard };
@@ -921,6 +992,16 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (a herald's records without the runner's world are another start's remains: never adopted)
     const has = async rel => !!(await fs.lstat(path.join(home, rel)).catch(() => null));
     if (await has('herald') && !(await has('run/world.json'))) throw fault('PersistIncomplete', 503);
+    // (B16: a kept world for two people records its second player once, in `pair.json` (0600); it resumes only as the
+    //  same pair, and a kept world of one person never becomes a pair, nor a pair's world a world of one)
+    const pair = await readPersistedPair(home);
+    if (pair === false) throw fault('PersistPairInvalid', 503);
+    if (second !== null && pair !== null && pair !== second) throw fault('PersistPairMismatch', 503);
+    if (second === null && pair !== null) throw fault('PersistPairMismatch', 503);
+    if (second !== null && pair === null) {
+      if (await has('run/world.json')) throw fault('PersistNotAPair', 503);
+      await fs.writeFile(path.join(home, PAIR_FILE), JSON.stringify({ schema: PAIR_FILE_SCHEMA, mode: CONTEST_PAIR_MODE, first: wallet, second, test_only: true }), { flag: 'wx', mode: 0o600 });
+    }
     await ensurePrivateDir(path.join(home, 'starts'));
   }
   const dir = persist ? path.join(home, 'starts', `${Date.now()}-${randomUUID().slice(0, 8)}`) : path.join(c.data, randomUUID()); await fs.mkdir(dir, persist ? { mode: 0o700 } : undefined);
@@ -977,7 +1058,10 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       ...(land ? ['--land-preview', LAND_PREVIEW_OPTION] : []),
       ...(continuous ? ['--continuous', CONTINUOUS_MODE] : []),
       ...(persist ? ['--persist-dir', path.join(home, 'run')] : []),
-      ...(mapOrigin !== null ? ['--map-origin', String(mapOrigin)] : [])]);
+      ...(mapOrigin !== null ? ['--map-origin', String(mapOrigin)] : []),
+      ...(wide ? ['--wide-land', WIDE_LAND_MODE] : []),
+      // (TEST-ONLY war world: the keeper also serves the operator residents' villages, read from operators.json)
+      ...(c.operatorWar ? ['--operator-villages', path.join(dir, 'operators.json')] : [])]);
     else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
@@ -1002,6 +1086,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (the fresh map likewise: a new world states exactly this start's origin, or none when none was asked for; a
     //  resumed kept world keeps its own. What this world's map is made from is recorded with this start's logs)
     if (!runnerMapAgrees(meta, mapOrigin)) throw fault('RunnerNotReady', 503);
+    // (the wide land likewise: stated exactly as asked, or not at all; what was grown is recorded with this start's logs)
+    if (!runnerWideAgrees(meta, wide)) throw fault('RunnerNotReady', 503);
+    if (wide) await fs.writeFile(path.join(dir, 'wide-land.json'), JSON.stringify({ mode: WIDE_LAND_MODE, world: meta.wide_land, test_only: true }));
     if (freshMap) await fs.writeFile(path.join(dir, 'fresh-map.json'), JSON.stringify({ mode: FRESH_MAP_MODE, asked_origin: mapOrigin, world: runnerFreshMap(meta), resumed: meta.persist?.resumed === true, fixed_origin: MAP_ORIGIN_DEFAULT, test_only: true }));
     // (the runner's own instance id, when it states one on that line: handed to the relay so that the relay can tell
     //  THIS runner's answers from any other's. A runner that states none starts as before; one that states a
@@ -1048,12 +1135,12 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     const operatorKeys = persist && natural && c.operatorResidents ? path.join(home, 'operator-keys') : null;
     if (operatorKeys) await ensurePrivateDir(operatorKeys);
     const operators = natural && c.operatorResidents ? await startOperatorResidents({ keysDir: operatorKeys, n: c.operatorResidents, dir, ports: operatorRelayPorts(c.worldPort, slot, c.operatorResidents, WORLD_LIMIT, c.operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX), nations: c.operatorNations ?? null, rpc, herald,
-      players: [wallet, ...(second !== null ? [second] : [])], launch, launchSide, relayArgsFor, root: c.root, stopping: () => stopping !== null, limit, pace: c.operatorPace ?? {} }) : null;
+      players: [wallet, ...(second !== null ? [second] : [])], launch, launchSide, relayArgsFor, root: c.root, stopping: () => stopping !== null, limit, pace: c.operatorPace ?? {}, war: !!c.operatorWar }) : null;
     if (operators) await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...operators.ports] }));
     // (TEST-ONLY external residents, ⑤ option B: only on a natural world whose launcher admitted their public addresses;
     //  each gets the newcomer's set-up and nothing else — the player's funding, a relay pinned to its own wallet, a
     //  public proxy of its own — and the page is told nothing about them)
-    const external = natural && (opts.external ?? []).length ? await startExternalResidents({ wallets: opts.external, dir, ports: externalPorts(c.worldPort, slot, opts.external.length, { worldLimit: WORLD_LIMIT, operatorMax: c.operatorResidents ? (c.operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX) : 0 }),
+    const external = natural && (opts.external ?? []).length ? await startExternalResidents({ wallets: opts.external, dir, ports: externalPorts(c.worldPort, slot, opts.external.length, { worldLimit: WORLD_LIMIT, operatorMax: c.operatorResidents ? Math.max(c.operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX, operatorSlotPorts(c.operatorResidents)) : 0 }),
       rpc, internalHerald, launcherPort: c.port, players: [wallet, ...(second !== null ? [second] : []), ...(operators?.wallets ?? [])], launchSide, relayArgsFor, root: c.root, proxies: externalProxies, stopping: () => stopping !== null, limit }) : null;
     if (external) await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...(operators?.ports ?? []), ...external.ports] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
@@ -1207,6 +1294,11 @@ export const USAGE = `local-play launcher (this machine only)
        With it the launcher picks a clock origin in the 365 days before the fixed one for each new world; the
        Season fixes another real quicknet round and the program derives another seed by its unchanged rules. A
        resumed kept world keeps its map. Recorded in the start's fresh-map.json]
+    [--wide-land local-wide-land-v1: TEST-ONLY, natural preset only, not with --capture-demo, --contest-pair,
+       --world-option, --continuous or --persist: each new world's Season is the devnet wide preset S1_DEVNET_WIDE_7D,
+       grown during its setup by the program's own instructions one ring per bell to the rim (128) and into the wide
+       land (rings 129+), one test participant per nation; then the natural clock. Memory-only. Recorded in the
+       start's wide-land.json; the herald needs wide-world-experimental for the page's recorded-world view]
     [--operator-residents <1-4>: TEST-ONLY, natural preset only: each new world also gets that many operator AI
        residents (⑤ option A): memory-only TEST wallets made by their own process, funded like the player, each with
        its own relay; they Join, PlaceHome and use the economy commands by a fixed offline rule, through the same
@@ -1219,6 +1311,12 @@ export const USAGE = `local-play launcher (this machine only)
        Not with --persist]
     [--operator-max-acts <1-9999>: TEST-ONLY, only with --operator-residents or --operator-nations: each resident's
        send cap for the whole world (without it: none; still one action per bell, Q16-2); the cadence and the refusal limit stay the residents' own]
+    [--operator-war operator-war-v1: TEST-ONLY, only with --operator-residents and --capture-demo: the operator residents
+       also march (the page's own Depart through their own relays), aimed at reachable keeps of other nations and at
+       their own nation's contested keeps, one action per resident per turn; up to 12 residents (two per nation, every
+       nation from six on; 5-12 only with this option, their relays then take that many ports per world). The world's
+       keeper also serves their villages, and the capture demo's new ring is opened whole (OpenProvince), so every
+       nation has keeps to contest. No rule, parameter, turn length or keep timer changes]
     [--external-residents <address>[,<address>]: TEST-ONLY, natural preset only, not with --contest-pair: PUBLIC
        addresses of external AI residents (⑤ option B), programs someone else runs with their OWN wallet. Each new
        world admits the listed addresses no other world has: each is funded like the player (nothing more), gets a
@@ -1233,7 +1331,7 @@ export const USAGE = `local-play launcher (this machine only)
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-nations', 'operator-max-acts', 'external-residents', 'continuous', 'persist', 'fresh-map', 'prize-epochs', 'coop-board']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-nations', 'operator-max-acts', 'external-residents', 'continuous', 'persist', 'fresh-map', 'prize-epochs', 'coop-board', 'operator-war', 'wide-land']);
   // (⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. This launcher has no prize lane —
   //  paid windows run only under `frontier-stack up --continuous --prize-epochs` — so `--prize-epochs` is always
   //  refused here, and by name when operator AI residents (⑤A) or external AI residents (⑤B) are asked for with it)
@@ -1247,17 +1345,20 @@ export async function parseConfig(args) {
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
   if (out['natural-runner'] !== undefined && !path.isAbsolute(out['natural-runner'])) throw fault('AbsolutePathRequired');
   // (TEST-ONLY operator residents: their relays take OPERATOR_RESIDENTS_MAX ports per world after the worlds' own)
+  // (TEST-ONLY war world: exactly its one word, only with operator residents and the capture demo)
+  if (out['operator-war'] !== undefined && out['operator-war'] !== OPERATOR_WAR_MODE) throw fault('InvalidOperatorWar');
+  if (out['operator-war'] !== undefined && (out['operator-residents'] === undefined || out['capture-demo'] === undefined)) throw fault('OperatorWarNeedsResidentsDemo');
   // (`--operator-nations <csv>`, TEST-ONLY: one resident per named nation, up to six, OPERATOR_NATIONS_MAX ports per world;
   //  never with `--operator-residents`: one of the two says who the residents are)
   const operatorNations = out['operator-nations'] === undefined ? undefined : parseOperatorNations(out['operator-nations']);
   if (operatorNations === null || (operatorNations !== undefined && out['operator-residents'] !== undefined)) throw fault('InvalidOperatorResidents');
-  const operatorResidents = operatorNations ? operatorNations.length : out['operator-residents'] === undefined ? undefined : parseOperatorResidents(out['operator-residents']);
+  const operatorResidents = operatorNations ? operatorNations.length : out['operator-residents'] === undefined ? undefined : parseOperatorResidents(out['operator-residents'], { war: out['operator-war'] !== undefined });
   if (operatorResidents === null) throw fault('InvalidOperatorResidents');
   const opWidth = operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX;
   // (TEST-ONLY external residents: public addresses only; their proxies and relays take ports after the operators')
   const externalResidents = out['external-residents'] === undefined ? undefined : parseExternalResidents(out['external-residents']);
   if (externalResidents === null) throw fault('InvalidExternalResidents');
-  const port = Number(out.port ?? 41920), worldPort = Number(out['world-port'] ?? 41924), span = WORLD_LIMIT * 5 + (operatorResidents ? WORLD_LIMIT * opWidth : 0) + (externalResidents ? externalSpan(WORLD_LIMIT) : 0);
+  const port = Number(out.port ?? 41920), worldPort = Number(out['world-port'] ?? 41924), span = WORLD_LIMIT * 5 + (operatorResidents ? WORLD_LIMIT * Math.max(opWidth, operatorSlotPorts(operatorResidents)) : 0) + (externalResidents ? externalSpan(WORLD_LIMIT) : 0);
   if (!Number.isInteger(port) || !Number.isInteger(worldPort) || port < 41000 || port > 41999 || worldPort < 41000 || worldPort + span - 1 > 41999 || (port >= worldPort && port <= worldPort + span - 1) || [port, ...Array.from({ length: span }, (_, i) => worldPort + i)].some(p => p >= 41904 && p <= 41907)) throw fault('InvalidPorts');
   if (!/^[a-f0-9]{64}$/.test(out['artifact-sha'] ?? '')) throw fault('ArtifactHashRequired');
   const prepareScale = out['prepare-scale'] === undefined ? undefined : Number(out['prepare-scale']);
@@ -1282,7 +1383,8 @@ export async function parseConfig(args) {
   if ((out['capture-demo'] === undefined) !== (out['demo-scale'] === undefined)) throw fault('InvalidCaptureDemo');
   if (out['capture-demo'] !== undefined && (out['capture-demo'] !== CAPTURE_DEMO_MODE || parseDemoScale(out['demo-scale']) === null)) throw fault('InvalidCaptureDemo');
   if (out['capture-demo'] !== undefined && (!natural || out['march-trial'] === undefined)) throw fault('CaptureDemoNeedsNaturalTrial');
-  if (out['contest-pair'] !== undefined && (out['contest-pair'] !== CONTEST_PAIR_MODE || out['capture-demo'] === undefined)) throw fault('InvalidContestPair');
+  // (B16, loop-play3: the pair is no longer the capture demo's only — any natural world, kept or not, may be for two people)
+  if (out['contest-pair'] !== undefined && (out['contest-pair'] !== CONTEST_PAIR_MODE || (out['capture-demo'] === undefined && !natural))) throw fault('InvalidContestPair');
   // (the test-only compact herald output: exactly its one word, and only for capture-demo test worlds)
   if (out['herald-output'] !== undefined && !HERALD_OUTPUT_MODES.includes(out['herald-output'])) throw fault('InvalidHeraldOutput');
   if (out['herald-output'] !== undefined && out['capture-demo'] === undefined) throw fault('HeraldOutputNeedsCaptureDemo');
@@ -1296,6 +1398,9 @@ export async function parseConfig(args) {
   // (the test-only fresh map: exactly its one word, natural worlds only)
   if (out['fresh-map'] !== undefined && out['fresh-map'] !== FRESH_MAP_MODE) throw fault('InvalidFreshMap');
   if (out['fresh-map'] !== undefined && !natural) throw fault('FreshMapNeedsNaturalWorld');
+  // (the test-only wide land: exactly its one word; natural worlds without the demo, the pair, the land preview or a kept world)
+  if (out['wide-land'] !== undefined && out['wide-land'] !== WIDE_LAND_MODE) throw fault('InvalidWideLand');
+  if (out['wide-land'] !== undefined && (!natural || out['capture-demo'] !== undefined || out['world-option'] !== undefined || out.continuous !== undefined || out.persist !== undefined || out['contest-pair'] !== undefined)) throw fault('WideLandNeedsNaturalWorld');
   if (operatorResidents !== undefined && !natural) throw fault('OperatorResidentsNeedNatural');
   // (`--operator-nations` is not for a persisted world: `--persist` keeps the residents' keys by resident index, and a
   //  resumed world given another nation order would name a nation its kept Citizen is not of)
@@ -1311,7 +1416,7 @@ export async function parseConfig(args) {
   if (out['coop-board'] !== undefined && out['coop-board'] !== COOP_BOARD_MODE) throw fault('InvalidCoopBoard');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['fresh-map'] !== undefined ? { freshMap: true } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(operatorNations ? { operatorNations } : {}), ...(operatorPace ? { operatorPace } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['fresh-map'] !== undefined ? { freshMap: true } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), ...(out['operator-war'] !== undefined ? { operatorWar: true } : {}), ...(out['wide-land'] !== undefined ? { wideLand: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(operatorNations ? { operatorNations } : {}), ...(operatorPace ? { operatorPace } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true });
   // (persisted worlds: their parent is private, made so here, and a looser one refuses the launcher's start)
@@ -1325,7 +1430,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.once('error', e => { console.error(`local-play launcher: ${e?.code === 'EADDRINUSE' ? `port ${config.port} is in use` : 'cannot listen'}`); process.exit(2); });
   server.listen(config.port, '127.0.0.1', () => console.log(JSON.stringify({ origin: `http://localhost:${config.port}`, open: `http://localhost:${config.port}/`, mode: 'new-world-per-wallet', worlds: WORLD_LIMIT, ttl_seconds: (config.worldTtlMs ?? WORLD_TTL_MS) / 1000, ttl_source: config['world-ttl-minutes'] === undefined ? 'default' : '--world-ttl-minutes',
     prepare: config.prepareScale ? { clock_scale: config.prepareScale, chain_seconds_max: PREPARE_CHAIN_MAX, then: '1x, read back, before the world is handed over' } : 'natural 1x',
-    world_preset: config.worldPreset ?? null, continuous: config.continuous === true, fresh_map: config.freshMap === true ? FRESH_MAP_MODE : null, persist: config.persist ? { mode: PERSIST_MODE, dir: path.join(config.data, 'persist'), test_only: true, not_for_production: true } : null, herald_output: config.heraldOutput ?? 'default', conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
+    world_preset: config.worldPreset ?? null, continuous: config.continuous === true, fresh_map: config.freshMap === true ? FRESH_MAP_MODE : null, wide_land: config.wideLand === true ? WIDE_LAND_MODE : null, persist: config.persist ? { mode: PERSIST_MODE, dir: path.join(config.data, 'persist'), test_only: true, not_for_production: true } : null, herald_output: config.heraldOutput ?? 'default', conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
     ports: { launcher: config.port, worlds: Array.from({ length: WORLD_LIMIT }, (_, slot) => worldPorts(config.worldPort, slot)) } })));
   // Ctrl-C (or a closed terminal): every world of this launcher is ended first, then the launcher.
   let ending = false;

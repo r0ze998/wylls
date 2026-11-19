@@ -21,16 +21,24 @@ fn main() {
         // the TEST-ONLY continuous preset and run dir (natural_persist) first: never with the demo's compressed clock
         let (rest, world_opts) =
             itest::natural_persist::take_world_args(std::env::args().skip(1).collect())?;
+        // (the TEST-ONLY wide land: a memory-only natural world of its own, on the natural clock after its setup)
+        let (rest, wide) = itest::wide_land::take_wide_args(rest)?;
+        let mut world_opts = world_opts;
+        world_opts.wide = wide;
         let (rest, demo) = itest::capture_demo::take_demo_args(rest)?;
+        if wide && demo.is_some() {
+            return Err("--wide-land is not accepted with --capture-demo".into());
+        }
         if demo.is_some() && (world_opts.continuous || world_opts.persist.is_some()) {
             return Err(
                 "--continuous and --persist-dir are not accepted with --capture-demo".into(),
             );
         }
-        // the TEST-ONLY contest pair's two options likewise (both or neither), and only on a capture-demo world
+        // the TEST-ONLY contest pair's two options likewise (both or neither): two people in one world, on a capture-demo
+        // world or (B16, loop-play3) a natural one, kept (--continuous/--persist-dir) or not
         let (rest, second) = itest::contest_pair::take_pair_args(rest)?;
-        if second.is_some() && demo.is_none() {
-            return Err("--contest-pair is accepted only together with --capture-demo".into());
+        if second.is_some() && wide {
+            return Err("--contest-pair is not accepted with --wide-land".into());
         }
         // the TEST-ONLY land lane's option likewise (only with the capture demo's synthetic clock; feature localnet-land-play)
         #[cfg(feature = "localnet-land-play")]
@@ -39,6 +47,11 @@ fn main() {
         let land = false;
         if land && demo.is_none() {
             return Err("--land-preview is accepted only together with --capture-demo".into());
+        }
+        // the TEST-ONLY operator AI war world's option likewise (only with the capture demo)
+        let (rest, operators) = itest::operator_villages::take_villages_args(rest)?;
+        if operators.is_some() && demo.is_none() {
+            return Err("--operator-villages is accepted only together with --capture-demo".into());
         }
         let o = play::parse_args(rest)?;
         if second == Some(o.player_wallet) {
@@ -61,12 +74,14 @@ fn main() {
             if let Some(scale) = demo {
                 itest::capture_demo::demo_metadata(&mut world.metadata, scale);
             }
-            // (the second player of the TEST-ONLY pair: funded like the first, fees and rent only)
+            // (the second player of the TEST-ONLY pair: funded like the first, fees and rent only — once: a resumed kept
+            //  world funded it at its first start, and nothing is funded at a resume)
             if let Some(b) = second {
-                let mut c = localnet::server::lock(&world.state);
-                c.airdrop(&b, play::PLAYER_LAMPORTS)?;
-                c.produce_block();
-                drop(c);
+                if !world.resumed {
+                    let mut c = localnet::server::lock(&world.state);
+                    c.airdrop(&b, play::PLAYER_LAMPORTS)?;
+                    c.produce_block();
+                }
                 itest::contest_pair::pair_metadata(&mut world.metadata, &b);
             }
             #[cfg(feature = "localnet-land-play")]
@@ -93,6 +108,19 @@ fn main() {
                 // (the second player's village joins the same keeper loop once its own PlaceHome lands)
                 let (more_tx, more_rx) = tokio::sync::mpsc::unbounded_channel::<itest::keeper_loop::MoreVillage>();
                 let pair_slot: itest::capture_demo::PairSlot = std::sync::Arc::new(std::sync::Mutex::new(None));
+                // (TEST-ONLY operator AI war world: each operator resident's village joins the same keeper loop once its
+                //  own PlaceHome lands, as the pair's second does; the demo's `ready` then opens the rest of its new ring)
+                let (ready_tx, ready_rx) = tokio::sync::watch::channel(false);
+                if let Some(path) = operators.clone() {
+                    let (st, a, rx, tx) = (world.state.clone(), world.a.clone(), stop_rx.clone(), more_tx.clone());
+                    tokio::spawn(async move { itest::operator_villages::watch(st, a, path, tx, rx, |v| println!("{v}")).await });
+                    let (st, a, rx, ready) = (world.state.clone(), world.a.clone(), stop_rx.clone(), ready_rx.clone());
+                    tokio::spawn(async move {
+                        if let Err(e) = itest::operator_villages::open_rest(st, a, ready, rx, |v| println!("{v}")).await {
+                            println!("{}", serde_json::json!({"schema": itest::operator_villages::VILLAGES_SCHEMA, "operator_step": "stopped", "test_only": true, "why": e}));
+                        }
+                    });
+                }
                 if let Some(b) = second {
                     let (w2, mut rx2, slot2) = (world.clone(), stop_rx.clone(), pair_slot.clone());
                     tokio::spawn(async move {
@@ -117,7 +145,7 @@ fn main() {
                             Err(e) => println!("{}", itest::contest_pair::line("stopped", serde_json::json!({"why": e}))),
                         }
                     });
-                } else {
+                } else if operators.is_none() {
                     drop(more_tx);
                 }
                 match natural::await_home(&world, &wallet, &mut stop_rx).await {
@@ -126,14 +154,14 @@ fn main() {
                             let (st, a, homes, h, rx, player) = (state.clone(), world.a.clone(), world.homes.clone(), home.home, keeper_rx.clone(), wallet);
                             let pair = second.map(|b| (b, pair_slot.clone()));
                             tokio::spawn(async move {
-                                if let Err(e) = itest::capture_demo::run(st, a, homes, h, player, pair, scale, rx, |v| println!("{v}")).await {
+                                if let Err(e) = itest::capture_demo::run(st, a, homes, h, player, pair, scale, rx, |v| { if v["demo_step"] == "ready" { let _ = ready_tx.send(true); } println!("{v}") }).await {
                                     println!("{}", serde_json::json!({"schema": itest::capture_demo::DEMO_SCHEMA, "demo_step": "stopped", "test_only": true, "why": e}));
                                 }
                             });
                         }
                         // (the TEST-ONLY demo's pace: short ticks only while work lands; a natural world ticks as always)
                         let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };
-                        let more = if second.is_some() { Some(more_rx) } else { None };
+                        let more = if second.is_some() || operators.is_some() { Some(more_rx) } else { None };
                         itest::keeper_loop::run_paced_with(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, pace, keeper_rx, |s| println!("{}", s.json()), more).await;
                     }
                     Err(e) => println!("{}", serde_json::json!({"schema": natural::NATURAL_SCHEMA, "natural_step": "stopped", "why": e, "keeper_started": false})),

@@ -14,7 +14,7 @@ const WALLET = 'BbPGAbHDvV5U43zQ5E8FmSnEzZ7r2vwWAZWTNAPTTSUT';
 const AI = ['5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', 'C676sUVBzYBPsrUhf931tBwdM4XczCaG4jpChGnmMSwJ'];
 const SEASON = seasonAddresses(LP.LOCAL_PLAY_PROGRAM, '11').season;
 
-async function tree(t, { wallets = AI, residentsExit = false } = {}) {
+async function tree(t, { wallets = AI, residentsExit = false, war = false } = {}) {
   const tmp = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'wylls-operator-test-')));
   t.after(() => fsp.rm(tmp, { recursive: true, force: true }));
   const script = async (rel, source) => { const f = path.join(tmp, rel); await fsp.mkdir(path.dirname(f), { recursive: true }); await fsp.writeFile(f, `#!${process.execPath}\n${source}`, { mode: 0o755 }); return f; };
@@ -22,6 +22,7 @@ async function tree(t, { wallets = AI, residentsExit = false } = {}) {
   const runner = await script('bin/natural-runner', head + `
 const meta = { program: ${JSON.stringify(LP.LOCAL_PLAY_PROGRAM)}, rpc_url: 'http://127.0.0.1:' + arg('--rpc-port'), season: ${JSON.stringify(SEASON)}, season_id: 11,
   player_wallet: arg('--player-wallet'), artifact: { sha256: arg('--artifact-sha256') }, world: 'natural', world_preset: 'local-natural-v1' };
+fs.writeFileSync(path.join(${JSON.stringify(tmp)}, 'runner-args.json'), JSON.stringify(process.argv.slice(2)));
 console.log(JSON.stringify(meta));
 console.log(JSON.stringify({ schema: 'x', natural_step: 'ready-for-join', home_provinces: [{ nation: 1, p: '-1', q: '2' }, { nation: 4, p: '0', q: '-2' }] }));
 setInterval(() => {}, 1000);
@@ -46,7 +47,7 @@ ${residentsExit ? 'setTimeout(() => process.exit(3), 300);' : 'setInterval(() =>
   const so = path.join(tmp, 'bin/program.so'); await fsp.writeFile(so, 'x');
   const funded = [];
   const c = { root: tmp, data: path.join(tmp, 'data'), runner, naturalRunner: runner, herald, depart: runner, preview: runner, resident: runner, artifact: so, artifactSha: 'cd'.repeat(32),
-    port: 41429, worldPort: 41430, economy: 'page-signed-v1', worldPreset: NATURAL_WORLD_PRESET, operatorResidents: wallets.length,
+    port: 41429, worldPort: 41430, economy: 'page-signed-v1', worldPreset: NATURAL_WORLD_PRESET, operatorResidents: wallets.length, ...(war ? { operatorWar: true } : {}),
     guard: { naturalFirstLineMs: 8000, operatorFund: async w => { funded.push(w); } } };
   await fsp.mkdir(c.data, { recursive: true });
   // (a stand-in writes its file just after it starts: waited for, briefly)
@@ -123,4 +124,42 @@ test("the residents' own end never ends the people's world; a resident wallet th
   const b = await tree(t, { wallets: [AI[0], WALLET] });
   await assert.rejects(startWorld(b.c, WALLET, 0, () => {}), e => e.code === 'OperatorResidentsNotReady');
   assert.deepEqual(b.funded, [], 'nothing funded for a refused roster');
+});
+
+test('the war option (owner t359u): exact word, only with residents and the capture demo; 5-12 residents only with it', { timeout: 30000 }, async t => {
+  const { tmp, c, so } = await tree(t);
+  const base = { root: tmp, data: path.join(tmp, 'data3'), runner: c.runner, herald: c.herald, depart: c.runner, preview: c.runner, resident: c.runner, artifact: so, 'artifact-sha': 'cd'.repeat(32),
+    'world-preset': 'local-natural-v1', 'natural-runner': c.naturalRunner, economy: 'page-signed-v1', 'march-trial': 'local-march-trial-v1', 'capture-demo': 'capture-demo-v1', 'demo-scale': '30', port: '41400', 'world-port': '41404' };
+  const argv = o => Object.entries(o).flatMap(([k, v]) => [`--${k}`, String(v)]);
+  const ok = await parseConfig(argv({ ...base, 'operator-residents': '12', 'operator-war': 'operator-war-v1' }));
+  assert.deepEqual([ok.operatorResidents, ok.operatorWar], [12, true]);
+  assert.equal((await parseConfig(argv({ ...base, 'operator-residents': '2' }))).operatorWar, undefined);
+  const refused = (o, code) => assert.rejects(parseConfig(argv(o)), e => e.code === code, code);
+  await refused({ ...base, 'operator-residents': '12' }, 'InvalidOperatorResidents');
+  await refused({ ...base, 'operator-residents': '13', 'operator-war': 'operator-war-v1' }, 'InvalidOperatorResidents');
+  await refused({ ...base, 'operator-residents': '6', 'operator-war': 'yes' }, 'InvalidOperatorWar');
+  await refused({ ...base, 'operator-war': 'operator-war-v1' }, 'OperatorWarNeedsResidentsDemo');
+  const { 'capture-demo': _c, 'demo-scale': _s, ...noDemo } = base;
+  await refused({ ...noDemo, 'operator-residents': '6', 'operator-war': 'operator-war-v1' }, 'OperatorWarNeedsResidentsDemo');
+  // (12 residents: two worlds of five ports and two slots of twelve relays = 34 ports from the world port)
+  await refused({ ...base, 'operator-residents': '12', 'operator-war': 'operator-war-v1', 'world-port': '41940', port: '41920' }, 'InvalidPorts');
+  assert.equal((await parseConfig(argv({ ...base, 'operator-residents': '12', 'operator-war': 'operator-war-v1', 'world-port': '41936', port: '41920' }))).worldPort, 41936);
+});
+
+test('a war world: the runner serves the residents\' villages from operators.json; the residents are told to war', { timeout: 60000 }, async t => {
+  const { c, read, worldDir } = await tree(t, { war: true });
+  const w = await startWorld(c, WALLET, 0, () => {});
+  t.after(() => w.stop());
+  const runner = await read('runner-args.json'), ops = await read('operators-args.json');
+  const arg = (a, k) => a[a.indexOf(k) + 1];
+  assert.equal(arg(runner, '--operator-villages'), path.join(await worldDir(), 'operators.json'));
+  assert.equal(arg(ops, '--war'), 'operator-war-v1');
+  await w.stop();
+  // (an ordinary world: neither)
+  const p = await tree(t);
+  const w2 = await startWorld(p.c, WALLET, 0, () => {});
+  t.after(() => w2.stop());
+  assert.equal((await p.read('runner-args.json')).includes('--operator-villages'), false);
+  assert.equal((await p.read('operators-args.json')).includes('--war'), false);
+  await w2.stop();
 });

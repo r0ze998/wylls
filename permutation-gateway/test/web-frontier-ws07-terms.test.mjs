@@ -48,3 +48,19 @@ test('the deadlines are the season\'s; after the join deadline the join is off a
   assert.match(late, /data-act="home-confirm"[^>]*disabled/);
   assert.equal(T.deadlineLine({}), '', 'no season: nothing said');
 });
+
+test('loop-play3: a continuous season (no-end turn + continuous flag) names neither its join close nor its end turn', () => {
+  setLang('ja');
+  const NO_END = 4294967295;
+  const kept = { genesisTs: 0, endBell: NO_END, joinCloseBell: NO_END, conquestParams: { continuous: 1 } };
+  const at = (s, bell) => ({ season: s, clock: { genesisTs: 0 }, chain: { now: () => bell * 600 + 30 } });
+  assert.equal(T.deadlineLine(at(kept, 3)), '', 'no 「第4,294,967,295ターンまで（あと約 29,826,162 日）」');
+  assert.equal(T.wrongStatusWhy(at(kept, 3), 'build'), null);
+  // a continuous world with a real join close still says that close, and never its (absent) end
+  assert.equal(T.deadlineLine(at({ ...kept, joinCloseBell: 1512 }, 100)), '参加の受付は第1,512ターンまで（あと約 10 日）。');
+  // the no-end turn alone is not continuity (clock.mjs): an inconsistent record still says its end turn
+  assert.match(T.deadlineLine(at({ ...kept, conquestParams: { continuous: 0 } }, 3)), /旧方式のシーズン/);
+  setLang('en');
+  assert.equal(T.deadlineLine(at(kept, 3)), '');
+  setLang('ja');
+});

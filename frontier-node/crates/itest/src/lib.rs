@@ -75,6 +75,10 @@ pub mod gate;
 #[cfg(feature = "localnet-land-play")]
 pub mod land_lane;
 pub mod native;
+// TEST-ONLY operator AI war world (with the capture demo): the keeper also serves the operator residents' villages, and
+// the rest of the demo's new ring is opened by the program's own OpenProvince so every nation has keeps to contest
+#[cfg(feature = "localnet-expedition-play")]
+pub mod operator_villages;
 pub mod program;
 pub mod relay;
 #[cfg(feature = "localnet-expedition-play")]
@@ -82,4 +86,7 @@ pub mod resident_bells;
 pub mod standin;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_destination;
+// TEST-ONLY wide land on a natural world: the devnet wide preset, the map grown to the rim, wide rings 129+
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_land;
 pub mod world;

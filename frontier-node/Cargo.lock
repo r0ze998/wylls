@@ -4835,10 +4835,14 @@ dependencies = [
  "frontier-abi",
  "hex",
  "keeper",
+ "litesvm",
  "localnet",
  "permutation-rules",
  "serde_json",
+ "solana-account",
  "solana-address 2.6.1",
+ "solana-clock",
+ "solana-rent",
  "tokio",
 ]
 

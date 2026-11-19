@@ -348,6 +348,8 @@ const CLIENT_TEXT = {
   PlannerRefused: () => L`道を探せませんでした`,
   NoPath: () => L`そこまでの道が見つかりません`,
   NoDestination: () => L`行き先を選んでください`,
+  // (B14, loop-play3: a destination whose Province is not on chain — the centre of a season with the centre, land not open)
+  DestinationNotOpen: () => L`そこには州がないので、進軍の行き先にできません`,
   // the S1 fort form's own reasons (screens/s1.mjs fortGarrisonProblem; FortFull says the room there)
   NoFort: () => L`要塞を選んでください`,
   BadTroops: () => L`入れる人数が範囲の外です`,

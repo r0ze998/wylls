@@ -840,6 +840,10 @@ export default {
   // ---- the recorded wide world, read-only (map/widemode.mjs): what the herald's fold captured, as wide coordinates.
   // Never a proof of completeness: an unlisted place is unknown, not open. Nothing is sent or signed.
   '記録された世界（読み取り専用・実験中）': 'Recorded world (read-only, experimental)',
+  // ---- the same recorded wide land on the ordinary map and its chart (map/wideland.mjs): its name, and which rings are recorded
+  '広い土地': 'Wide land',
+  '第{0}輪・記録': 'Ring {0} · recorded',
+  '第{0}–{1}輪・記録': 'Rings {0}–{1} · recorded',
   '記録': 'Records',
   '記録された世界を開く（読み取り専用）': 'Open the recorded world (read-only)',
   '記録された世界を閉じる': 'Close the recorded world',

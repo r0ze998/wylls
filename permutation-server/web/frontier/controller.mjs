@@ -31,7 +31,7 @@ import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_U
 import { exploreResultTurn, exploreResultWords } from './hud/orderparts.mjs';
 import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
-import { composerArrival, composerMarch } from './screens/march.mjs';
+import { composerArrival, composerMarch, destOpenOf } from './screens/march.mjs';
 import { intentOf as pendingIntentOf, pendable, armPending, createPendingDriver, SETTLE_CODES } from './flocalplay-pending.mjs';
 import { musterIntentOf, nearTurnEnd, musterPress, sameWorld as sameMusterIdentity, sameHolding, stillSame as musterStill } from './flocalplay-muster-wait.mjs';
 import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
@@ -2635,6 +2635,9 @@ async function setDestination(dest) {
   const c = FS.compose;
   if (!c) return;
   c.dest = dest; c.route = null; c.routeError = null; c.routeUnread = false; c.earliest = null; c.moved = null;
+  // (B14, loop-play3: a place that is not open land — the centre of a season with the centre, land not open yet — is no
+  //  destination: the program's Reveal needs its Province. Said at once, no route is asked for and nothing is sealed)
+  if (destOpenOf(FS, dest) === false) { c.routeError = 'DestinationNotOpen'; invalidate('panel'); return; }
   invalidate('panel');
   const k = await kernelOrNull();
   // (2026-11-17, ⑦: the rules module may come after the person put the draft away, started another, or chose another

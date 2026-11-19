@@ -24,6 +24,12 @@
 //!   amount actually paid consumes the day allowance; a partial claim pays
 //!   less, never more. Ambiguous receipt/instruction attribution is missing
 //!   evidence, not a reason to reuse the transaction's first instruction.
+//!   The Holding's own balance (with both of its post-states in the
+//!   archive) must be its balance before, less the pairs not kept as
+//!   `pool_owed`, plus the transaction's System transfers into it
+//!   (verifier-wide-expedition, 2026-11-19: a drain the logs hide FAILs;
+//!   verify-pr81: not gated on wallet post-states, third-party credits
+//!   counted, a balance another instruction shares is `MissingData`).
 //! - SETTLE's escrow refunds and global lamport conservation are not
 //!   judged in M1 (the contract makes conservation informational).
 //!
@@ -204,6 +210,70 @@ fn transits(cx: &mut Ctx) {
                     got.get(&POOL).copied().unwrap_or(0)
                 ),
             );
+        }
+        // verifier-wide-expedition (2026-11-19): the Holding pays the
+        // escrow out of its own lamports (`transit.rs` `pay`): what leaves
+        // it is every pair not kept as `pool_owed`. With both of the
+        // Holding's post-states in the archive, its balance must be
+        // `before − leaves + credits`, the credits being the transaction's
+        // System Program transfers into it (anyone may send lamports to any
+        // account; verify-pr81). Only this program can debit the Holding,
+        // so a drain the logs do not show is a FAIL, whatever else the
+        // archive leaves out (verify-pr81: the check no longer depends on
+        // the wallets' post-states, which a forger can drop). A balance
+        // another instruction of the transaction may have moved (this
+        // program's, or another program's by CPI) is `MissingData`. A
+        // Holding whose balance never moves while no wallet post-state is
+        // in the transaction is an archive that does not model lamports
+        // (the synthetic march season): not judged; it hides no drain.
+        if let Some(hk) = ix.key(2).filter(|k| tx.post.contains_key(k)) {
+            let paid: u64 = ["tip", "fee", "bond", "reward"]
+                .iter()
+                .map(|a| r.pu64(a))
+                .fold(0u64, |s, x| s.saturating_add(x));
+            let leaves = paid.saturating_sub(r.pu64("pool_owed_delta"));
+            let credits = w.sys_credits.get(&(r.tx, hk)).copied().unwrap_or(0);
+            let wallets_recorded = tx
+                .post
+                .values()
+                .any(|a| a.as_ref().is_some_and(|a| a.owner.to_bytes() != w.program));
+            if let (Some(before), Some(after)) = (
+                w.lamports_before(&hk, r.tx),
+                w.lamports_before(&hk, r.tx + 1),
+            ) {
+                let want = before
+                    .checked_sub(leaves)
+                    .and_then(|b| b.checked_add(credits));
+                let unmodelled = after == before && credits == 0 && !wallets_recorded;
+                let shared = tx
+                    .ixs
+                    .iter()
+                    .any(|x| x.index != ix.index && x.accounts.iter().any(|(k, _)| *k == hk))
+                    || w.foreign_keys.get(&r.tx).is_some_and(|s| s.contains(&hk));
+                if want != Some(after) && !unmodelled {
+                    let detail = format!(
+                        "the Holding's lamports went {before} → {after}; the logged payments take out {leaves} and System transfers put in {credits}"
+                    );
+                    if shared {
+                        cx.missing(
+                            V,
+                            what.clone(),
+                            r.bell,
+                            Some(r.tx),
+                            format!("{detail}; another instruction of the transaction names the Holding"),
+                        );
+                    } else {
+                        cx.fail(
+                            V,
+                            PAYMENT_MISMATCH,
+                            what.clone(),
+                            r.bell,
+                            Some(r.tx),
+                            detail,
+                        );
+                    }
+                }
+            }
         }
         let named_ok = chain_slot_ben
             .is_none_or(|b| b == slot_ben || outcome != transit_outcome::STAYS)
@@ -639,6 +709,8 @@ mod tests {
             scenarios: vec![],
             history: Default::default(),
             resident_feed: None,
+            program_so: None,
+            declared: vec![],
         };
         let mut cx = Ctx {
             w,

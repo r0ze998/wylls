@@ -1,6 +1,7 @@
 # Play-check locally (TEST only, one command)
 
 How to try the playable lane (expedition, wide land, taking a keep) on your own Mac before anything goes to devnet.
+Only the `--wide` world shows the wide land (rings 129 and out, §6); every other local world's map ends at ring 16.
 It uses a local chain on this Mac and test keys only. No real key, SOL, devnet or paid API is used.
 Japanese version: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md). The longer reference is [LOCAL-PLAY-START.md](LOCAL-PLAY-START.md).
 
@@ -29,12 +30,14 @@ scripts/play-local.sh
 - It checks the tools, builds (skipped when nothing changed since the last build), starts a world and opens
   `http://localhost:41920/` in the browser.
 - The first build took about 3 minutes (2026-11-18, a Mac with the crates already cached). Later starts take seconds.
-- There are two kinds of world:
+- There are three kinds of world:
   - **A kept world (the default):** the natural clock (a turn is 10 minutes), and the world never ends by the rules.
     Stop it any time and continue later with `--resume`, from the same village. The chain is kept in
     `.local/play-local/kept/`, and the page's test key is kept in this browser.
   - **The 15-minute capture demo (`--demo`):** a ×60 clock (a turn is 10 s), so you can try up to taking a keep in about
     15 minutes. It is not kept: a stop ends that world.
+  - **The wide version (`--wide`):** during its setup the map is grown to ring 128 and the wide land beyond it (rings
+    129–131) is opened. It is not kept. See §6.
 - Useful options:
   - `--resume`: continue the last kept world
   - `--fresh`: start a new kept world (the same as leaving out `--resume`)
@@ -44,7 +47,9 @@ scripts/play-local.sh
     seed by its unchanged rules. What stays the same by rule: the six-fold symmetry of the terrain, and (until the
     centre-free rules of PR #69) each nation's homes in its own wedge. Not with `--resume`: a kept world keeps its map.
   - `--demo`: the 15-minute capture demo (`--speed 30` makes it ×30)
+  - `--wide`: the wide version (§6)
   - `--ai 0`: no AI residents (default 2)
+  - `--two`: two people in one world (§3.1; a kept world or `--demo`)
   - `--port 41930`: other ports
   - `--lang ja`: the script's messages in Japanese
   - `--check-only`: only the checks
@@ -56,6 +61,25 @@ scripts/play-local.sh
 In a kept world, try 1–5 (join, home, build, train, muster), then stop and come back as in §4. A new host can move only
 once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (keep, clash, capture) with `--demo`, in about
 15 minutes.
+
+**In a kept world (1×) no keep of another nation is in reach of a first village.** This is the rules and the clock, not a bug:
+- At the start only rings 2–3 have provinces, and every one of them is some nation's heartland. A heartland keep is never
+  contested (`fkeepreach.mjs` `contestableKeeps`, the rules' `heartland_safe`), so the page says 「この軍勢がいま届く他国の砦は
+  ありません」 [No keep of another nation is within this host's reach now].
+- Contestable keeps come with ring 4, which opens once 65% of a wedge's open village sites are settled (OpenRing's crowding
+  rule). Two AI residents and one or two people will not get there.
+- Even then, at 1× a march to a keep takes several turns (a turn is 10 minutes: an hour or more), longer than the
+  15-minute checklist.
+- `--demo` opens ring 4 with test participants and runs a ×60 clock, so a keep can be tried in about 15 minutes.
+- A tuning of the TEST preset cannot change this (heartland protection is the same rule as on devnet). In a kept world,
+  check 1–5 and §4; check keeps with `--demo`.
+
+**The centre (rings 0–1)**: the seven provinces at the map's centre have no province in this world, because the season's
+rules do not make the centre ordinary land yet (the ⑭ R2 switch `CENTRE_PLAYABLE` stays off until the page's terrain and
+route modules support it). The inspector says 「第1輪（中央・州なし）」 [Ring 1 (centre, no province)]; no village can be
+placed there, and no march can end there or pass through (fixed 2026-11-19, fix-b14-b16: it said 「生まれるところです」 [being
+made], a march there could be sent, and the host never came back). If such a march reaches the chain anyway, once its
+arrival turn's window has closed the host comes home routed (half its troops).
 
 1. **Join**: 「世界を開始（保存された世界は続きから）」 [Start the world (a kept world continues)] (with `--demo`:
    「新しい世界を開始」 [Start a new world]) → 「国を選ぶ」 [Choose a nation] → pick a banner → the button below becomes
@@ -77,6 +101,29 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
    「このブラウザで確かめる」 [Check in this browser]; 「一致：…」 [Match] means the browser recomputed the chain's record.
 8. **Capture**: hold the keep's tile for 72 turns (12 minutes or more at ×60). The map shows 「砦を保持中」 [Holding the keep]
    with a round counter over the keep, and the clash report says 「奪取まで N/72 ターン」 [N/72 turns to capture].
+
+### 3.1 Two people in one world (`--two`)
+
+Normally every browser gets its own world (the launcher runs one world per browser and address, two at most). To put two
+people in the same world, add `--two`:
+
+```bash
+scripts/play-local.sh --two            # a kept world for two
+scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
+```
+
+1. The first person opens `http://localhost:41920/` as usual and presses the start button. It says 「もう一人のプレイヤーを
+   待っています」 [Waiting for the other player] and waits (about 4 minutes; after that, press again).
+2. The second person opens the same address in **another browser** (or another profile), or **`http://127.0.0.1:41920/`**
+   in the same browser, and presses the same button. A kept world's test key is one per browser and address, so another
+   tab of the same browser would be the same player.
+3. Once both have pressed, one world starts; each chooses a nation and gets a village. Marches and clashes happen in the
+   same world.
+- `--resume` reopens the same two-person world (with or without `--two`). Whoever presses first, the world opens for both
+  without waiting. Each person uses the same browser and address as before.
+- A kept world started for one person cannot become a two-person world later (start a new one with `--fresh --two`).
+- Either person's 「世界を終了」 [End this world] stops it for both (a kept world can be resumed with `--resume`). A third person cannot join.
+
 
 ## 4. Stop, and come back tomorrow
 
@@ -108,9 +155,13 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
 - Logs:
   - a kept world: `.local/play-local/kept/<date-time>/` (`launcher-<date-time>.log`; runner, herald, relay and operators
     logs in `persist/<address>/starts/<n>/`);
-  - `--demo`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world).
+  - `--demo` and `--wide`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world;
+    with `--wide` the world folder's `wide-land.json` lists the rings grown and the provinces opened).
 - Report on GitHub Issues (r0ze998/wylls) with a screenshot and the folder's path.
 - Known problems (2026-11-18):
+  - (Fixed 2026-11-19, fix-b14-b16) A march to a ring-1 tile could be sent, and the host stayed 「封を開ける鍵を待って
+    います」 [Waiting for the key that opens the seal] for good. The page no longer uses the centre (rings 0–1) as a
+    destination or road, and the runner brings such a march home routed.
   - (Fixed 2026-11-19, fix-march-held) A march the chain's node did not take (sent as the turn changed, for example) now
     says 「進軍は送られていません」 [The march was not sent] with the reason, and its order card stays: the host can move;
     check the card and press again. A march sent whose outcome is not known yet is checked again by the page for about
@@ -119,3 +170,36 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
     (at ×60 a turn is 10 s; the world lasts 90 minutes).
   - (Fixed 2026-11-19, fix-march-held) At ×60 the land preview's FoldLand no longer runs out of compute units: it
     folds as many turns as fit (a `fold_fit` line in runner.out is a fold that asked for fewer turns).
+
+## 6. The wide version (`--wide`, TEST only)
+
+```bash
+scripts/play-local.sh --wide
+```
+
+- The Season uses the devnet playable preset `S1_DEVNET_WIDE_7D` (PR #70: centre-free nation placement, map ceiling
+  ring 128, θ 1 bp, a 36 SOL province fund).
+- During the world's setup (before 「国を選ぶ」 [Choose a nation]) the program's own instructions grow the map **one ring
+  per turn** to ring 128; only during that setup the local chain's clock is moved a turn at a time (the setup took about
+  11 s on 2026-11-19). Then the clock is the natural one (a turn is 10 minutes) and the game starts at about turn 130.
+  - One test resident per nation places a village near the centre (the growth rule needs "a settler in some wedge").
+    One centre province is opened first and the rest after the growth, so every province is resolved up to the turn
+    the game starts at.
+  - The wide land on rings 129–131 is opened (WideRequestRingSeed / WideConsumeRingSeed / WideSetRules /
+    WideOpenProvince): 6 provinces in the middle of each wedge, 108 in all, plus the 42 ring-128 provinces just inside.
+  - Provinces on rings 5–127 are not opened (as the devnet keeper's `lazy_provinces`); the map shows their terrain only.
+- To see the wide land:
+  - The ordinary map and 「全体図」 [World chart]: the recorded provinces of rings 129–131 are drawn outside the
+    heartland in their terrain and their keep nation's colour (a 「広い土地／第129–131輪・記録」 [Wide land / Rings
+    129–131 · recorded] tag in each of the six directions). From far a mosaic of the nations' colours, nearer the
+    terrain under the nation's colour, closest the 61 tiles and their sites. A place the record does not list stays
+    cloud (read-only: nothing here lets a village be placed there).
+  - 「記録」 [Records] at the map's bottom right → 「記録された世界（読み取り専用・実験中）」 [The recorded world]. Pick a
+    「第129輪」 [ring 129] province in the list, press 「ここを原点にする」 [Make this the origin] and zoom in: ring 128
+    (gold) and rings 129–131 (the six nations' colours) side by side.
+  - 「全体図」 [World chart] shows your village in the middle and the wide land just outside the six corners.
+- Not possible yet (2026-11-19):
+  - a village on the wide land, or a march into it: a wide village needs a first village that is a Town on rings
+    126–128, and the page places first villages near the centre only, so nobody in this world qualifies;
+  - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.
+- Not with `--demo`, `--resume`, `--fresh`, `--speed` or `--two` (the wide version is for one player). A stop ends the world.

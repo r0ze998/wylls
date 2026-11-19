@@ -410,6 +410,9 @@ export default {
   '第{0}輪（プログラムの上限・第128輪の外）': 'Ring {0} (beyond the program’s limit, ring 128)',
   'ここはいまの地図の外です': 'This is outside the map as it is now',
   'この土地は生まれるところです（しばらくお待ちください）': 'This land is being made (a moment, please)',
+  '第{0}輪（中央・州なし）': 'Ring {0} (centre, no province)',
+  'ここは中央です。この世界では州がないので、村も置けず、進軍の行き先にもできません': 'This is the centre. This world has no province here, so no village can be placed here and no march can go here',
+  'そこには州がないので、進軍の行き先にできません': 'There is no province there, so a march cannot go there',
   '地形': 'Terrain',
   '村を持つ国': 'Nations with villages here',
   'あなたの村': 'Your village',
@@ -1603,6 +1606,7 @@ export default {
   // (the end, once confirmed against the runner's own instance: flocalplay-session.mjs showEnd)
   'この世界は {0} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。': 'This world ends on its own at about {0} (the time set by the start service, shown in this device\'s clock).',
   // (the natural world: a new Season, then the player's own Join and PlaceHome; flocalplay.mjs)
+  'もう一人のプレイヤーを待っています。もう一人が別のブラウザ（同じブラウザなら localhost と 127.0.0.1 の別のアドレス）で「世界を開始」を押すと、二人で一つの世界が始まります。同じブラウザの別のタブは同じプレイヤーです。待っている間、このタブは何も送信しません。': 'Waiting for the other player. When the other person presses "Start the world" in another browser (in this browser: at the other address, localhost or 127.0.0.1), one world starts for the two of you. Another tab of this browser is the same player. While it waits, this tab sends nothing.',
   'もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。': 'Waiting for the other player. When the other person presses "Start a new world" in another tab, one world starts for the two of you. While it waits, this tab sends nothing.',
   '新しいシーズンを最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）': 'Making a new season from the start… (up to 4 minutes; then choose a nation on the game\'s screen, join it and place your village)',
   '開始サービスの答えが、このページの世界の種類（最初から始める世界かどうか）と合いません。この世界には接続しません。': 'The start service\'s answer does not match this page\'s kind of world (whether it starts from the beginning). This page does not connect to that world.',

@@ -43,6 +43,10 @@ usage() {
 scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory chain, test keys only)
 
   --ai N          operator AI residents in the world, 0-4 (default 2; --resume keeps the kept world's number)
+  --two           TWO people in ONE world (TEST-ONLY launcher option --contest-pair): the second person opens the
+                  same page in another browser (or this browser at http://127.0.0.1:<port>/ instead of localhost)
+                  and presses the same start button; the first start waits for the second (about 4 minutes, then
+                  press again). Kept worlds and --demo alike; --resume brings the same two back (either may press)
   --demo          the 15-minute capture demo instead of a kept world: compressed clock, land preview, memory-only
                   (a stop ends it for good; not resumable)
   --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; the land preview's
@@ -54,6 +58,11 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   browser's language; its top-right button switches 日本語 ⇄ English.
   --fresh         start a brand-new kept world (the default without --resume)
   --resume        reopen the last kept world: the same chain, village and AI residents (same browser, same port)
+  --wide          the WIDE version (TEST-ONLY launcher option --wide-land): the world's Season is the devnet wide
+                  preset S1_DEVNET_WIDE_7D, and during its setup the program's own instructions grow the map one ring
+                  per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131, with
+                  one test participant per nation. Then the natural clock (a turn is 10 min). The ordinary map,
+                  「全体図」 and the 「記録」 (recorded world) view show the wide land. Memory-only: a stop ends it (not with --demo/--resume)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
                   draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the
@@ -69,7 +78,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
+AI=2 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -88,6 +97,8 @@ while [ $# -gt 0 ]; do
     --ai) need_val "$@"; AI="$2"; AI_SET=1; shift 2 ;;
     --speed) need_val "$@"; SPEED="$2"; SPEED_SET=1; shift 2 ;;
     --demo) DEMO=1; shift ;;
+    --wide) WIDE=1; shift ;;
+    --two) TWO=1; TWO_SET=1; shift ;;
     --minutes) need_val "$@"; MINUTES="$2"; shift 2 ;;
     --port) need_val "$@"; PORT="$2"; PORT_SET=1; shift 2 ;;
     --lang) need_val "$@"; shift 2 ;;
@@ -127,8 +138,24 @@ if [ "$RANDOM_MAP" = 1 ] && [ -z "$FRESH_MAP_WORD" ]; then
       "--random-map: the launcher on this checkout has no per-world fresh map (--fresh-map) yet; every local world has the same map."
   exit 5
 fi
+if [ "$WIDE" = 1 ] && { [ "$DEMO" = 1 ] || [ "$RESUME" = 1 ] || [ "$FRESH" = 1 ] || [ "$SPEED_SET" = 1 ] || [ "$TWO" = 1 ]; }; then
+  err "--wide は --demo / --resume / --fresh / --speed / --two と一緒には使えません (広い版はメモリだけの一人用の世界です)" "--wide cannot be combined with --demo, --resume, --fresh, --speed or --two (the wide version is a memory-only world for one player)"; exit 2
+fi
+# (the wide land: only when the launcher on this checkout knows it; refused, never faked, otherwise)
+WIDE_WORD="$(sed -n "s/.*WIDE_LAND_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" 2>/dev/null | head -1)"
+if [ "$WIDE" = 1 ] && [ -z "$WIDE_WORD" ]; then
+  err "--wide: このチェックアウトのランチャーには広い版 (--wide-land) がまだありません。" "--wide: the launcher on this checkout has no wide land (--wide-land) yet."
+  exit 5
+fi
 if [ "$DEMO" = 1 ] && [ "$RESUME" = 1 ]; then err "--demo の世界は保存されないので --resume できません" "--demo worlds are not kept, so they cannot be resumed (--resume)"; exit 2; fi
 if [ "$DEMO" = 0 ] && [ "$SPEED_SET" = 1 ]; then err "--speed は --demo と一緒にだけ使えます (保存する世界は通常の速さです)" "--speed works only with --demo (a kept world runs at the natural speed)"; exit 2; fi
+# (two people in one world: only when the launcher on this checkout takes the pair on a natural world — B16, fix-b14-b16)
+PAIR_WORD="$(sed -n "s/.*CONTEST_PAIR_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" 2>/dev/null | head -1)"
+if [ "$TWO" = 1 ] && { [ -z "$PAIR_WORD" ] || ! grep -q "out\['capture-demo'\] === undefined && !natural" "$LAUNCHER" 2>/dev/null; }; then
+  err "--two: このチェックアウトのランチャーは、二人で一つの世界 (--contest-pair を普通の世界で) にまだ対応していません。" \
+      "--two: the launcher on this checkout cannot yet put two people in one world (--contest-pair on a natural world)."
+  exit 5
+fi
 if [ "$REBUILD" = 1 ] && [ "$NOBUILD" = 1 ]; then err "--rebuild と --no-build は同時に使えません" "--rebuild and --no-build cannot be combined"; exit 2; fi
 is_int "$AI" && [ "$AI" -le 4 ] || { err "--ai は 0〜4 です" "--ai must be 0-4"; exit 2; }
 is_int "$SPEED" && [ "$SPEED" -ge 10 ] && [ "$SPEED" -le 60 ] || { err "--speed は 10〜60 です" "--speed must be 10-60"; exit 2; }
@@ -160,7 +187,12 @@ if [ "$RESUME" = 1 ]; then
     exit 5
   fi
   KEPT_CONF="$LASTK/play-local.conf"
-  K_PORT="$(conf_get port)"; K_AI="$(conf_get ai)"
+  K_PORT="$(conf_get port)"; K_AI="$(conf_get ai)"; K_TWO="$(conf_get two)"; K_TWO="${K_TWO:-0}"
+  if [ "$TWO_SET" = 1 ] && [ "$K_TWO" != 1 ]; then
+    err "--resume: 保存した世界は一人用です。--two は付けられません (二人で遊ぶなら --fresh --two で新しく始めてください)。" \
+        "--resume: the kept world is for one person; --two cannot be added (start a new one with --fresh --two)."
+    exit 5
+  fi
   if [ "$PORT_SET" = 1 ] && [ "$((10#$PORT))" != "$K_PORT" ]; then
     err "--resume: 保存した世界はポート $K_PORT です。ブラウザは鍵をアドレスごとに覚えるので、--port は変えられません。" \
         "--resume: the kept world uses port $K_PORT. The browser keeps the key per address, so --port cannot change."
@@ -170,7 +202,7 @@ if [ "$RESUME" = 1 ]; then
     err "--resume: 保存した世界の AI 住民は $K_AI 人です。--ai は変えられません。" "--resume: the kept world has $K_AI AI resident(s); --ai cannot change."
     exit 5
   fi
-  PORT="$K_PORT"; AI="$K_AI"
+  PORT="$K_PORT"; AI="$K_AI"; TWO="$K_TWO"
 fi
 
 # Ports, as the launcher counts them: the page on BASE, the worlds from BASE+4: two worlds × 5, plus 2 × 4 for the
@@ -197,14 +229,17 @@ SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-land-sbf"
 SO="$SO_DIR/permutation_frontier.so"
 BINS=(localnet-natural-play localnet-expedition-play frontier-herald frontier-experimental-expedition-depart-prepare frontier-original-expedition-preview frontier-experimental-expedition-prepare)
 STAMP="$STATE/build.stamp"
-if [ "$RESUME" = 1 ]; then DATA="$LASTK"; elif [ "$DEMO" = 0 ]; then DATA="$STATE/kept/$RUN_ID"; else DATA="$STATE/worlds/$RUN_ID"; fi
+KEPT=0; if [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ]; then KEPT=1; fi
+if [ "$RESUME" = 1 ]; then DATA="$LASTK"; elif [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ]; then DATA="$STATE/kept/$RUN_ID"; else DATA="$STATE/worlds/$RUN_ID"; fi
 
 launcher_args() {  # the launcher command line (artifact hash filled in at start)
   local sha="$1"
   printf '%s\n' "$LAUNCHER" --root "$ROOT" --data "$DATA" \
     --runner "$T/localnet-expedition-play" --natural-runner "$T/localnet-natural-play" \
     --world-preset local-natural-v1 --economy page-signed-v1 --march-trial local-march-trial-v1
-  if [ "$DEMO" = 0 ]; then
+  if [ "$WIDE" = 1 ]; then
+    printf '%s\n' --wide-land "$WIDE_WORD"
+  elif [ "$DEMO" = 0 ]; then
     local cm pm
     cm="$(sed -n "s/.*CONTINUOUS_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" | head -1)"
     pm="$(sed -n "s/.*PERSIST_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" | head -1)"
@@ -217,6 +252,7 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
     --artifact "$SO" --artifact-sha "$sha" --world-ttl-minutes "$MINUTES" --port "$PORT" --world-port "$WORLD_PORT"
   if [ "$AI" -gt 0 ]; then printf '%s\n' --operator-residents "$AI"; fi
   if [ "$RANDOM_MAP" = 1 ]; then printf '%s\n' --fresh-map "$FRESH_MAP_WORD"; fi
+  if [ "$TWO" = 1 ]; then printf '%s\n' --contest-pair "$PAIR_WORD"; fi
 }
 
 if [ "$PLAN" = 1 ]; then
@@ -229,10 +265,11 @@ if [ "$PLAN" = 1 ]; then
   echo "port=$PORT"
   echo "world_port=$WORLD_PORT"
   echo "ports=$PORT-$LAST"
-  echo "world=$([ "$DEMO" = 1 ] && echo demo || echo kept)"
+  echo "world=$([ "$WIDE" = 1 ] && echo wide || { [ "$DEMO" = 1 ] && echo demo || echo kept; })"
   echo "mode=$([ "$RESUME" = 1 ] && echo resume || echo fresh)"
   echo "persist_available=$HAS_PERSIST"
   echo "map=$([ "$RANDOM_MAP" = 1 ] && echo fresh || echo fixed)"
+  echo "players=$([ "$TWO" = 1 ] && echo two || echo one)"
   echo "build=$([ "$NOBUILD" = 1 ] && echo never || { [ "$REBUILD" = 1 ] && echo always || echo when-changed; })"
   echo "open=$([ "$NOOPEN" = 1 ] && echo no || echo yes)"
   echo "data=$DATA"
@@ -315,7 +352,7 @@ src_key() {  # the sources the binaries come from: tree hashes at HEAD + any unc
   { git -C "$ROOT" rev-parse "${dirs[@]/#/HEAD:}" 2>/dev/null
     git -C "$ROOT" status --porcelain --untracked-files=normal -- "${dirs[@]}" 2>/dev/null | grep -v ' frontier-node/target/\| permutation-frontier/target/' || true
     git -C "$ROOT" diff HEAD -- "${dirs[@]}" 2>/dev/null || true
-    echo "features: land-sbf / itest localnet-land-play / herald land-preview / keeper expedition-dispatch-experimental"
+    echo "features: land-sbf / itest localnet-land-play / herald land-preview,wide-world-experimental / keeper expedition-dispatch-experimental"
   } | shasum -a 256 | cut -d' ' -f1
 }
 all_built() { [ -f "$SO" ] || return 1; for b in "${BINS[@]}"; do [ -x "$T/$b" ] || return 1; done; }
@@ -345,7 +382,7 @@ else
   build_step fetch-program bash -c "cd '$ROOT' && { CARGO_NET_OFFLINE=true cargo fetch --locked --manifest-path permutation-frontier/Cargo.toml || cargo fetch --locked --manifest-path permutation-frontier/Cargo.toml; }"
   build_step program "$ROOT/scripts/build-frontier-localnet-land-sbf.sh"
   build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-land-play --bin localnet-natural-play --bin localnet-expedition-play"
-  build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview --bin frontier-herald"
+  build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview,wide-world-experimental --bin frontier-herald"
   build_step tools bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p keeper --features expedition-dispatch-experimental --bin frontier-experimental-expedition-depart-prepare --bin frontier-original-expedition-preview --bin frontier-experimental-expedition-prepare"
   all_built || { err "ビルドは終わりましたが、できていないファイルがあります" "the build finished but a binary is missing"; exit 7; }
   src_key > "$STAMP"
@@ -365,11 +402,11 @@ phase_start "3/4 TEST 用のローカル世界を起動" "3/4 starting the TEST-
 mkdir -p "$DATA"
 chmod 700 "$DATA" 2>/dev/null || true
 LOG="$DATA/launcher-$RUN_ID.log"
-if [ "$DEMO" = 0 ] && [ "$RESUME" = 0 ]; then
+if [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ] && [ "$RESUME" = 0 ]; then
   # (a new kept world: what a resume must repeat, and the pointer --resume follows)
   { echo "# play-local kept world (TEST-ONLY, not for production): what --resume repeats"
     echo "created=$RUN_ID"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD)"
-    echo "port=$PORT"; echo "ai=$AI"; echo "sha256=$SHA"; } > "$DATA/play-local.conf"
+    echo "port=$PORT"; echo "ai=$AI"; echo "two=$TWO"; echo "sha256=$SHA"; } > "$DATA/play-local.conf"
   echo "$DATA" > "$STATE/last-kept"
 fi
 ARGV=()
@@ -392,7 +429,7 @@ finish() {
   wait "$LPID" 2>/dev/null || true
   say "== 止めました。" "== stopped."
   say "   ログ:          $LOG" "   logs:          $LOG"
-  if [ "$DEMO" = 0 ]; then
+  if [ "$KEPT" = 1 ]; then
     say "   世界の記録:    $DATA/persist/<ページの公開アドレス>/ (run/ はチェーン、starts/<回>/ に runner / herald / relay / operators のログ)" \
         "   world records: $DATA/persist/<the page's address>/ (run/ is the chain; starts/<n>/ has the runner / herald / relay / operators logs)"
   else
@@ -400,7 +437,7 @@ finish() {
         "   world records: $DATA/ (one folder per world: runner / herald / relay / operators logs, stopped.json)"
   fi
   say "   起動コマンド:  $DATA/command.txt" "   command:       $DATA/command.txt"
-  if [ "$DEMO" = 0 ]; then
+  if [ "$KEPT" = 1 ]; then
     say "   この世界は保存されています。続きは同じブラウザで:  scripts/play-local.sh --resume" \
         "   This world is kept. To continue it later, in the same browser:  scripts/play-local.sh --resume"
     say "   (ページのテスト鍵はこのブラウザに保存されています。消すのはページのパネルの「このブラウザに保存した試験用の鍵を消す」です。)" \
@@ -430,7 +467,11 @@ phase_end start
 phase_start "4/4 ページ" "4/4 the page"
 say "" ""
 say "   ▶ ブラウザで開いてください:  $URL" "   ▶ Open in your browser:  $URL"
-if [ "$DEMO" = 1 ]; then
+if [ "$WIDE" = 1 ]; then
+  say "   TEST 専用の広い版: 地図はリング 128 まで広がり、広い土地 (リング 129〜131) が開いています。準備のあいだだけ時計を進め、その後は通常の速さ (1 ターン 10 分)。テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
+      "   TEST-ONLY wide version: the map is grown to ring 128 and the wide land (rings 129-131) is open. The clock was moved only during the setup; now the natural clock (a turn is 10 min). Test keys only. No real key, SOL or devnet. A stop ends this world."
+  say "   広い土地は普通の地図と「全体図」の六つの角の外側に描かれます。地図の道具の「記録」ボタン (記録された世界・読み取り専用) でも見られます。" "   The wide land is drawn on the ordinary map and 「全体図」 outside its six corners; the map tools' 「記録」 button (the recorded world, read-only) lists it too."
+elif [ "$DEMO" = 1 ]; then
   say "   TEST 専用: ローカルのメモリ上のチェーン、×${SPEED} の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
       "   TEST ONLY: in-memory local chain, ×$SPEED clock, test keys only. No real key, SOL or devnet. A stop ends this world."
 else
@@ -439,6 +480,13 @@ else
   if [ "$RESUME" = 1 ]; then say "   前回の世界を続けます (同じ村)。止めているあいだ、世界の時計は止まっていました。" "   Resuming the last world (the same village). Its clock stood still while it was stopped."; fi
 fi
 [ "$AI" -gt 0 ] && say "   AI 住民 $AI 人 (運営側のテスト住民) が同じ世界で動きます。" "   $AI operator AI resident(s) play in the same world."
+if [ "$TWO" = 1 ]; then
+  ALT_URL="$(printf '%s' "$URL" | sed 's#//localhost:#//127.0.0.1:#')"
+  say "   二人で一つの世界です。2 人目は別のブラウザで $URL を開くか、同じブラウザなら $ALT_URL を開いて、同じボタンを押してください。" \
+      "   Two people, one world. The second person opens $URL in another browser, or $ALT_URL in this browser, and presses the same button."
+  say "   1 人目の開始は 2 人目が押すまで待ちます (約 4 分。過ぎたらもう一度押します)。テスト鍵はブラウザとアドレスごとに別なので、続きも同じブラウザ・同じアドレスで開きます。" \
+      "   The first start waits for the second press (about 4 minutes; after that, press again). Each browser and address keeps its own test key, so continue later in the same browser at the same address."
+fi
 say "   言語はページ右上のボタンで 日本語 ⇄ English を切り替えます。" "   The page's top-right button switches 日本語 ⇄ English."
 say "   止めるには Ctrl-C を押してください。" "   Press Ctrl-C to stop."
 if [ "$NOOPEN" = 0 ]; then

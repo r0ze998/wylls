@@ -65,7 +65,8 @@ test('M4 the route is of the place the open draft names now', () => {
 test('M5 put away and choose again, as before', () => {
   assert.ok(ctl.includes("'compose-close': () => { pendingDriver.cancel('cancel'); FS.compose = null; invalidate('panel'); },"));
   assert.ok(ctl.includes("'dest-from-map': () => { const s = FS.selected; if (s?.idx !== undefined) return setDestination({ p: s.p, q: s.q, tile: s.idx }); return undefined; },"));
-  assert.ok(insp.includes("if (FS.compose && t && !FS.compose.sending) out.push({ act: 'dest-from-map', data: {}, text: L`ここを進軍の行き先にする`, primary: true });"));
+  // (fix-b14-b16 B14: never on a centre place without a Province — web-frontier-centre-no-province.test.mjs)
+  assert.ok(insp.includes("if (FS.compose && t && !FS.compose.sending && m.place !== PLACE.centre) out.push({ act: 'dest-from-map', data: {}, text: L`ここを進軍の行き先にする`, primary: true });"));
 });
 
 test('M6 another world\'s draft and host in hand are not this world\'s', () => {

@@ -12,8 +12,15 @@
 // an old-style season's — and never as the world ending; when the owners register that the world goes on
 // (hud/worldclock.mjs), the end turn is not said at all.
 import { L, fmtNum } from '../lang.mjs';
-import { BELL_SECS, bellStart } from './clock.mjs';
-import { worldContinues } from './hud/worldclock.mjs';
+import { BELL_SECS, NO_END_BELL, bellStart, worldContinues as seasonContinues } from './clock.mjs';
+import { worldContinues as ownersSayContinues } from './hud/worldclock.mjs';
+
+// NO_END_BELL (clock.mjs) is the program's "no end" turn (u32::MAX): a continuous season's end, and its join close
+// when joining never closes.
+/** Whether this world goes on: the owners' registration (hud/worldclock.mjs) or the season record itself (clock.mjs:
+ *  a continuous flag AND the no-end turn). loop-play3: no source registers `continuity` on the page, so a kept
+ *  (continuous) local world said "the old-style season takes orders until turn 4,294,967,295 (about 29,826,162 days)". */
+const worldContinues = FS => ownersSayContinues(FS) || seasonContinues(FS?.season);
 
 let pace = () => 1;
 /** The chain's pace as the page knows it (app.mjs: the accelerated local clock's rate, else 1). */
@@ -45,7 +52,8 @@ export function deadlines(FS) {
 export function deadlineLine(FS) {
   const d = deadlines(FS);
   if (!d) return '';
-  const join = d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
+  // (a join close at the no-end turn is no deadline: nothing is said of it)
+  const join = d.join.bell >= NO_END_BELL ? '' : d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
   const end = worldContinues(FS) ? '' : d.end.ended ? L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました。`
     : L`このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}）。`;
   return `${join}${end}`;

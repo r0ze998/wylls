@@ -17,6 +17,7 @@
 import { DIRECTIONS, TILE_OFFSETS, locate, tileHex } from './fgeo.mjs';
 import { FLAT_HEX_SECS, ROUGH_HEX_SECS, ROAD_BPS, BPS_ONE, MAX_PATH_STEPS } from './fcaravan.mjs';
 import { s1On } from './fs1.mjs';
+import { closedCentreHexes } from './map/world.mjs';
 
 export const KIND_TOWER = 1, KIND_PALISADE = 2, KIND_FORT = 3;
 export const NATIONS = 6;
@@ -171,8 +172,13 @@ export function walkerOf(fs) {
   try { expelled = !!fs.citizen.expelledSince && BigInt(fs.citizen.expelledSince) !== 0n; } catch { expelled = false; }
   return { structures: fs.s1?.structures?.structures ?? [], stances: fs.s1?.nations?.stances ?? null, faction: fs.citizen.faction, expelled };
 }
-/** The hexes a march of the viewer must not be planned through (fmarch.mjs planRoute `blocked`). */
-export const palisadeHexesOf = fs => { const w = walkerOf(fs); return w ? blockedHexes(w.structures, w.stances, w.faction, w.expelled) : []; };
+/**
+ * The hexes a march of the viewer must not be planned through (fmarch.mjs planRoute `blocked`): the palisades that stop
+ * it, and (B14, loop-play3) the centre's places without a Province (map/world.mjs closedCentreHexes: rings 0–1 of a
+ * season with the centre — the program's Reveal needs every Province of the road, so a road through them was sealed,
+ * accepted and never revealed).
+ */
+export const palisadeHexesOf = fs => { const w = walkerOf(fs); return [...(w ? blockedHexes(w.structures, w.stances, w.faction, w.expelled) : []), ...closedCentreHexes(fs)]; };
 /**
  * The tower wear of a planned march (`route` the planner's: `{dirs,
  * provinces}`) from `origin` (`{p, q, tile}`), by the Provinces the page

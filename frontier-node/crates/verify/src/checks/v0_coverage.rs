@@ -58,7 +58,10 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// which the devnet build `devnet-playable-sbf` (conquest-dispatch +
 /// land-preview) and the localnet expedition / conquest / land lanes run.
 /// A known version only in the `playable-lane` build: there its ABI v2
-/// instructions are judged by the S1 checks (the program runs S1's
+/// instructions are judged by the S1 checks (since 2026-11-19 on a recorded
+/// sealed march too: Muster, Depart, Reveal, GatherClash,
+/// ResolveFromInputs, SkipQuiet, SettleDeparture, SettleTransit,
+/// `tests/playable_march.rs`; the program runs S1's
 /// handlers, which differ only where a wide marker or bridge is present,
 /// and only a wide instruction writes one), its land preview instructions
 /// by VL, the wide land opening (WideSetRules, WideRequestRingSeed,
@@ -66,9 +69,12 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// (WideClaimSite in its wallet form, WideSettleTicket, WideFinalize), the
 /// season-end WideClose of a ticket record, a holding and a province, and
 /// the wide economy and garrison (wallet forms), WideMuster (wallet form)
-/// and WideResolve (the bell, the wide keep capture) by VWL, and every other
-/// wide instruction stays UNVERIFIABLE (`WideUnmodelled`, naming the command):
-/// see [`judge_outside_v2`].
+/// and WideResolve (the bell, the wide keep capture) by VWL, the expedition
+/// dispatch envelope (`[tag, 0xff, 2, kind]`, kinds 0–18: the expedition
+/// wrapper and the Free City conquest, 2026-11-19) by VX (re-executed by the
+/// pinned program, `vx_reexec`), and every other wide instruction stays
+/// UNVERIFIABLE (`WideUnmodelled`, naming the command): see
+/// [`judge_outside_v2`].
 pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
 
 #[cfg(feature = "playable-lane")]
@@ -92,7 +98,36 @@ pub fn wide_ran(w: &crate::world::World) -> bool {
         .iter()
         .filter(|t| t.ok)
         .flat_map(|t| t.ixs.iter())
-        .any(|ix| ix.tag().is_some_and(is_wide_tag) && !vwl_judged(&ix.data))
+        .any(|ix| {
+            ix.tag().is_some_and(is_wide_tag) && !vwl_judged(&ix.data) && !vx_judged(&ix.data)
+        })
+}
+
+/// Whether VX re-executes this wide instruction's transaction (the
+/// expedition dispatch envelope, kinds 0–18; playable-lane build only).
+/// The accounts such a transaction writes are VX's to judge, byte for
+/// byte, so they do not count for [`wide_ran`] either (VR leaves them to
+/// VX: `vr_rights::unknown_account`).
+pub fn vx_judged(data: &[u8]) -> bool {
+    #[cfg(feature = "playable-lane")]
+    {
+        super::vx_reexec::judged(data)
+    }
+    #[cfg(not(feature = "playable-lane"))]
+    {
+        let _ = data;
+        false
+    }
+}
+
+/// Whether VX re-executes transaction `t` (a successful one with an
+/// expedition dispatch envelope instruction) in a playable-lane season.
+pub fn vx_tx(t: &crate::world::Tx, pv: Option<u16>) -> bool {
+    playable(pv)
+        && t.ok
+        && t.ixs
+            .iter()
+            .any(|ix| ix.tag().is_some_and(is_wide_tag) && vx_judged(&ix.data))
 }
 
 /// Whether VWL re-judges this wide instruction (playable-lane build only).
@@ -236,6 +271,13 @@ pub fn judge_outside_v2(
     // re-runs those commands from the states before them).
     #[cfg(feature = "playable-lane")]
     if is_wide_tag(tag) && playable(pv) && vwl_judged(data) {
+        return None;
+    }
+    // Q16-1 = A (prize gate): the expedition dispatch envelope (the
+    // expedition wrapper and the Free City conquest kinds) is VX's: its
+    // whole transaction is re-executed by the pinned program.
+    #[cfg(feature = "playable-lane")]
+    if is_wide_tag(tag) && playable(pv) && vx_judged(data) {
         return None;
     }
     #[cfg(feature = "playable-lane")]

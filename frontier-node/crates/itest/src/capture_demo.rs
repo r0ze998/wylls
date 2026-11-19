@@ -393,7 +393,7 @@ pub fn settlers_needed(occupied: u32, open: u32, theta_bps: u64) -> u32 {
     want.saturating_sub(occupied)
 }
 
-async fn send(
+pub(crate) async fn send(
     state: &Shared,
     k: &Keypair,
     ix: fclient::Instruction,
@@ -406,7 +406,7 @@ async fn send(
     }
 }
 
-async fn funded(
+pub(crate) async fn funded(
     state: &Shared,
     lamports: u64,
     stop: &tokio::sync::watch::Receiver<bool>,
@@ -425,7 +425,7 @@ async fn funded(
     Err("the faucet's airdrop did not land".into())
 }
 
-fn bytes(state: &Shared, k: &Address) -> Result<Vec<u8>, String> {
+pub(crate) fn bytes(state: &Shared, k: &Address) -> Result<Vec<u8>, String> {
     lock(state)
         .account(k)
         .map(|a| a.data)
