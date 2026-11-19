@@ -32,6 +32,10 @@ mutate-v12 = []
 mutate-v13 = []
 # 02-rights (candidate): the Grant check.
 mutate-vr = []
+# Q16-1: the playable lane's land check (with `playable-lane`).
+mutate-vl = []
+# Q16-1 continued: the playable lane's wide land check (with `playable-lane`).
+mutate-vwl = []
 # The wide world's event chains (VW1, workstream 04; experimental, opt-in).
 wide-world-experimental = ["frontier-abi/world-index-experimental"]
 # Experimental, opt-in, off by default: the independent state-transition
@@ -41,6 +45,31 @@ wide-world-experimental = ["frontier-abi/world-index-experimental"]
 # added, no check of the default verifier changes, no season verdict is
 # produced by it.
 wide-economy-experimental = ["frontier-abi/world-index-experimental"]
+# Q16-1 = A (2026-11-18): the PLAYABLE lane, program version 0x4804 (S1 |
+# wide 0x4000 | dispatch revision 0x0800), as the devnet build
+# `devnet-playable-sbf` (conquest-dispatch-experimental + land-preview) runs
+# it. With this feature 0x4804 is a known version: its ABI v2 instructions
+# are judged by the S1 checks, the land preview's FoldLand / ClaimLandYield
+# by VL, the wide land opening (WideSetRules / WideRequestRingSeed /
+# WideConsumeRingSeed / WideOpenProvince), the wide claims (WideClaimSite
+# wallet form / WideSettleTicket / WideFinalize), the season-end WideClose
+# of a ticket record, a holding and a province, and the wide economy and
+# garrison (wallet forms) by VWL, and every other wide instruction stays
+# UNVERIFIABLE with its command named (V0 `WideUnmodelled`). Without it (the default build) 0x4804 stays
+# `UnknownProgramVersion`. Opt-in so the land/conquest ABI features never
+# unify into the keeper's or herald's default build.
+playable-lane = [
+    "wide-world-experimental",
+    # VWL judges WideEconomy / WideGarrison with the independent replays of
+    # `wide_economy` / `wide_garrison` (over the archive's states).
+    "wide-economy-experimental",
+    "frontier-abi/conquest-dispatch-experimental",
+    "frontier-abi/land-preview",
+    "permutation-rules/land-preview",
+    # VWL re-runs WideOpenProvince's terrain (`terrain::wide`), as the
+    # program's wide build does.
+    "permutation-rules/wide-terrain-experimental",
+]
 
 # Dependency sections belong to the integrator (contract §3.4, I-55); every
 # crate below is already a workspace dependency (W4-D notes, request R1).

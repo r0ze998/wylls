@@ -845,6 +845,10 @@ pub(crate) fn file_outpost_as(
         if c.ring() < 2 && cq.centre != frontier_abi::v2::presets::CENTRE_FREE {
             return Err(FrontierError::ReservedSite.into());
         }
+        // ((0,0,0) is the "no site" sentinel; (0,0)'s site 0 stays reserved)
+        if (s.p, s.q, s.site) == (0, 0, 0) {
+            return Err(FrontierError::ReservedSite.into());
+        }
         if c.ring() >= rings_opened as u32 || s.site as usize >= PV::SITES_N {
             return Err(FrontierError::BadData.into());
         }
@@ -1058,6 +1062,12 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
         // (⑭ R2: rings 0-1 are ordinary land in a centre-free season; (0,0)
         //  counts in wedge 0 as its fund does)
         if ring < 2 && !centre_free {
+            return Err(FrontierError::ReservedSite.into());
+        }
+        // (⑭ R2: (0,0)'s site 0 stays reserved in a centre-free season: the
+        //  entry (0,0,0) is the ticket's "no site" sentinel, so naming it would
+        //  store a ticket that reads back short or empty)
+        if (s.p, s.q, s.site) == (0, 0, 0) {
             return Err(FrontierError::ReservedSite.into());
         }
         if ring >= rings_opened as u32 || s.site as usize >= PV::SITES_N {

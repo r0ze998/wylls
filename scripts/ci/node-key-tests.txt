@@ -63,6 +63,7 @@ permutation-gateway/test/frontier-local-play-operator-residents.test.mjs
 permutation-gateway/test/frontier-local-play-relay.test.mjs
 permutation-gateway/test/frontier-local-play-resident.test.mjs
 permutation-gateway/test/frontier-local-play-reveal.test.mjs
+permutation-gateway/test/frontier-local-play-runner-rejection.test.mjs
 permutation-gateway/test/frontier-prize.test.mjs
 permutation-gateway/test/frontier-process.test.mjs
 permutation-gateway/test/frontier-relay-parts.test.mjs
@@ -100,6 +101,8 @@ permutation-gateway/test/web-frontier-local-play-world-instance.test.mjs
 permutation-gateway/test/web-frontier-local-play.test.mjs
 permutation-gateway/test/web-frontier-people.test.mjs
 permutation-gateway/test/web-frontier-prize.test.mjs
+permutation-gateway/test/web-frontier-rekey-delegation-round2.test.mjs
+permutation-gateway/test/web-frontier-rekey-delegation.test.mjs
 permutation-gateway/test/web-frontier-relay.test.mjs
 permutation-gateway/test/web-frontier-resident-home.test.mjs
 permutation-gateway/test/web-frontier-return-card.test.mjs
@@ -136,6 +139,7 @@ workstreams/03-composability/mcp/test/owner.test.mjs
 workstreams/03-composability/mcp/test/play.test.mjs
 workstreams/03-composability/mcp/test/protocol-auth.test.mjs
 workstreams/03-composability/mcp/test/receipt-port.test.mjs
+workstreams/03-composability/mcp/test/rekey-delegation-replace.test.mjs
 workstreams/03-composability/mcp/test/sdk-client.test.mjs
 workstreams/03-composability/mcp/test/ws04-acts.test.mjs
 workstreams/03-composability/mcp/test/ws05-shared-registry.test.mjs
@@ -177,6 +181,7 @@ permutation-gateway/test/frontier-expedition-prepare.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
 permutation-gateway/test/frontier-local-play-external-launcher.test.mjs
+permutation-gateway/test/frontier-local-play-fresh-map.test.mjs
 permutation-gateway/test/frontier-local-play-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-natural.test.mjs
 permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs
@@ -184,6 +189,7 @@ permutation-gateway/test/frontier-local-play-preview.test.mjs
 permutation-gateway/test/frontier-local-play-runner-instance.test.mjs
 permutation-gateway/test/frontier-local-play-test-form-bounds.test.mjs
 permutation-gateway/test/frontier-playable-lane-profile.test.mjs
+permutation-gateway/test/frontier-prize-epochs.test.mjs
 permutation-gateway/test/frontier-relay-resume.test.mjs
 permutation-gateway/test/package.test.mjs
 permutation-gateway/test/server.test.mjs
@@ -233,6 +239,8 @@ permutation-gateway/test/web-frontier-first-battle.test.mjs
 permutation-gateway/test/web-frontier-first-village-ui.test.mjs
 permutation-gateway/test/web-frontier-firstminute.test.mjs
 permutation-gateway/test/web-frontier-firststeps.test.mjs
+permutation-gateway/test/web-frontier-fix-b10-b11.test.mjs
+permutation-gateway/test/web-frontier-fix-b6-b9.test.mjs
 permutation-gateway/test/web-frontier-fix2.test.mjs
 permutation-gateway/test/web-frontier-fx3.test.mjs
 permutation-gateway/test/web-frontier-garrison-checks.test.mjs
@@ -280,6 +288,7 @@ permutation-gateway/test/web-frontier-local-play-nudge-more.test.mjs
 permutation-gateway/test/web-frontier-local-play-nudge.test.mjs
 permutation-gateway/test/web-frontier-local-wait-notice.test.mjs
 permutation-gateway/test/web-frontier-map.test.mjs
+permutation-gateway/test/web-frontier-march-held.test.mjs
 permutation-gateway/test/web-frontier-march.test.mjs
 permutation-gateway/test/web-frontier-marches.test.mjs
 permutation-gateway/test/web-frontier-minimap-cache.test.mjs
@@ -502,6 +511,7 @@ permutation-gateway/test/frontier-local-play-conquest-orders.test.mjs
 permutation-gateway/test/frontier-local-play-contest-pair.test.mjs
 permutation-gateway/test/frontier-local-play-herald-output.test.mjs
 permutation-gateway/test/frontier-local-play-keeper-view.test.mjs
+permutation-gateway/test/frontier-local-play-operator-nations.test.mjs
 permutation-gateway/test/frontier-local-play-pair-guide.test.mjs
 permutation-gateway/test/frontier-local-play-persist.test.mjs
 permutation-gateway/test/frontier-local-play-world-guard.test.mjs
@@ -510,6 +520,7 @@ permutation-gateway/test/web-frontier-conquest-identity.test.mjs
 permutation-gateway/test/web-frontier-land-freshness.test.mjs
 permutation-gateway/test/web-frontier-local-play-world-expiry.test.mjs
 permutation-gateway/test/web-sdk.test.mjs
+scripts/demo/sixnation/test/cli.test.mjs
 workstreams/01-national-strategy/test/coop.entry-focus-world.test.mjs
 workstreams/03-composability/mcp/test/initialize-params.test.mjs
 workstreams/03-composability/mcp/test/request-id-type.test.mjs

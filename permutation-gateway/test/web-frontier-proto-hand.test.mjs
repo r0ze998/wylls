@@ -1152,7 +1152,11 @@ test('a phone: the banner\'s own card is low too, and is one button while a tile
   assert.match(css, /\.hand-pop\[data-pick="dress"\] :is\(\.proto-brief, \.proto-full, \.proto-note, \[data-act="proto-tend"\], \[data-act="proto-strike-ask"\], \[data-act="proto-widen"\]\) \{ display: none; \}/);
   // the notice of a threat that a host of the viewer's is marching against: no second 軍勢を送る, and the turn it arrives
   const app = read('frontier/app.mjs');
-  assert.match(app, /if \(at !== null\) return \{ \.\.\.x, send: null, text: \(FS\.nowBell \?\? 0\) < at \? L`\$\{up\.text\}。あなたの軍勢が向かっています（ターン \$\{fmtNum\(at\)\} に到着）` : L`\$\{up\.text\}。あなたの軍勢が着きました。戦いの結果を待っています` \};/, 'on its way until its turn; arrived, and waiting to be told, from then');
+  // (B11 round 2: the live words are made by the hand's model as the notice is drawn, in every language — alarmNow;
+  //  behaviour: test/web-frontier-fix-b10-b11.test.mjs "the alarm notice of a banner-prototype world")
+  assert.match(app, /function protoAlarmNow\(x, up\) \{\n[^\n]*\n  return pm\.alarmNow\(FS, x, up\);\n\}/);
+  const hm = read('frontier/proto/hand-model.mjs');
+  assert.match(hm, /if \(at !== null\) return \{ \.\.\.x, send: null, \.\.\.said\(\(\) => \(\(FS\.nowBell \?\? 0\) < at \? L`\$\{noticeText\(up\)\}。あなたの軍勢が向かっています（ターン \$\{fmtNum\(at\)\} に到着）` : L`\$\{noticeText\(up\)\}。あなたの軍勢が着きました。戦いの結果を待っています`\)\) \};/, 'on its way until its turn; arrived, and waiting to be told, from then');
   const toast = x => text(feed.renderToast({ id: 'th:1', kind: 'proto', proto: true, alarm: true, bell: 50, p: 2, q: 0, tile: OPEN, text: 'T', ...x }));
   assert.match(toast({ send: { p: 2, q: 0, tile: OPEN } }), /軍勢を送る/);
   assert.doesNotMatch(toast({ send: null }), /軍勢を送る/);
@@ -1183,7 +1187,7 @@ test('a new village to the end of its guide: the place for the walk is banner la
   assert.match(app, /news\.push\(\{ \.\.\.line, own: true, lead: true \}\);/);
   assert.match(app, /alarm: \(!!x\.alarm && !!standing\?\.has\(x\.id\)\) \|\| !!x\.lead,/);
   // the standing notice of a threat the viewer is outnumbered by carries the numbers
-  assert.match(app, /return force && force\.best < up\.foe\.troops \? \{ \.\.\.x, text: L`\$\{up\.text\}。\$\{pm\.threatNumbers\(up, force\)\}数で下回っています` \} : \{ \.\.\.x, text: up\.text \};/);
+  assert.match(read('frontier/proto/hand-model.mjs'), /return force && force\.best < up\.foe\.troops \? \{ \.\.\.x, \.\.\.said\(\(\) => L`\$\{noticeText\(up\)\}。\$\{threatNumbers\(up, force\)\}数で下回っています`\) \} : \{ \.\.\.x, \.\.\.said\(\(\) => noticeText\(up\)\) \};/);
   setLang('en');
   assert.equal(pm.threatGone(Object.assign(H, { marches: [{ dest: { p: 2, q: 0, tile: OPEN }, entry: { host: '1', arriveBell: 59 } }] }), was).text, 'Your host did not take the tile. All the same, Cinder’s host is down to 474. A banner here needs 500, so its count is gone');
 });

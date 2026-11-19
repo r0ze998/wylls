@@ -19,7 +19,7 @@ import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
 import * as fresident from './fresident.mjs';
-import { AGENTS_REFRESH_MS, delegatedTo, loadAgents, refusalNote, takenBackNote } from './fdelegation.mjs';
+import { AGENTS_REFRESH_MS, delegatedTo, delegationOf, loadAgents, refusalNote, registeredKey, takenBackNote } from './fdelegation.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
@@ -39,8 +39,8 @@ import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
-import { applySeasonRecord, contiguousRings, worldOf } from './map/world.mjs';
-import { readOverviews } from './map/overviews.mjs';
+import { applySeasonRecord, contiguousRings, worldOf, ringSeeded } from './map/world.mjs';
+import { readOverviews, overviewRefused } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
@@ -63,7 +63,7 @@ import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_S
 import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
 import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
-import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
+import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
@@ -120,8 +120,9 @@ const done = text => setNotice({ ok: true, text });
 const failed = r => {
   if (r?.code === 'InviteRequired') FS.inviteRequired = true;
   // The village is handed to the owner's agent (its key is the session): say so, not only "a signature is missing".
-  const note = refusalNote(FS.delegation, r?.code);
-  if (note && !r?.text) return setNotice({ ok: false, ...r, agentLink: true, text: () => `${failureText(r)} ${note}` });
+  // (Q16-3: or to another key — ③'s courier, another app or device; no agent page to link then)
+  const held = delegationOf(FS), note = refusalNote(held, r?.code);
+  if (note && !r?.text) return setNotice({ ok: false, ...r, agentLink: !held.foreign, text: () => `${failureText(r)} ${note}` });
   // (a refusal of the prototype rule "banners" on one of the basic game's own routes — the day's limit of explorations,
   // which the sample world answers to an Explore — is said in the rule's sentence, only while the prototype is on)
   if (FS.proto && r && !r.text && pm.REFUSALS.includes(r.code)) return setNotice({ ok: false, ...r, text: () => pm.refusalText(r.code, { need: r.need }) });
@@ -137,7 +138,11 @@ let agentsReadAt = -Infinity;
 async function refreshDelegation() {
   if (!FS.wallet?.address) { FS.delegation = null; return; }
   const address = FS.wallet.address;
-  const mismatch = FS.sessionProblem === 'SessionMismatch';
+  // (Q16-3: a device with no stored key cannot have a mismatch yet, but the registered key may be an agent's or a
+  //  program's all the same: it is read then too, so "re-make the key" is not offered over a delegation)
+  //  (on a relay known to have no agent wallet nothing more is read for it: a program's key is told from the record)
+  const keyless = FS.sessionProblem !== 'SessionMismatch' && !FS.session && !FS.resident && !!registeredKey(FS.citizen) && FS.agentWallet !== false;
+  const mismatch = FS.sessionProblem === 'SessionMismatch' || keyless;
   if (!mismatch) { if (FS.delegation) { FS.delegation = null; invalidate('panel'); } if (FS.agentWallet !== undefined) return; }
   const t = Date.now();
   if (FS.agentWallet !== undefined && t - agentsReadAt < AGENTS_REFRESH_MS) return;
@@ -146,7 +151,9 @@ async function refreshDelegation() {
   if (FS.wallet?.address !== address) return;
   const was = FS.delegation?.mode ?? null;
   FS.agentWallet = enabled;
-  FS.delegation = delegatedTo({ sessionProblem: FS.sessionProblem, citizen: FS.citizen, agents });
+  FS.delegation = delegatedTo({ sessionProblem: FS.sessionProblem, citizen: FS.citizen, agents, hasLocalKey: !!FS.session, now: now() });
+  // (the owner's choice to keep a delegation is about that key only: another key registered since is asked about again)
+  if (FS.keyKept && FS.keyKept !== registeredKey(FS.citizen)) FS.keyKept = null;
   if ((FS.delegation?.mode ?? null) !== was) invalidate('panel');
 }
 
@@ -395,6 +402,56 @@ function orderUnconfirmed(o, signature, code = 'LocalActUnconfirmed') {
   fxEmit('order:unconfirmed', payload);
 }
 const localActUnconfirmedText = signature => () => L`この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 ${signature}`;
+const localMarchUnconfirmedText = signature => () => L`進軍は送信済みですが、まだ確認できていません。同じ進軍は送り直しません。しばらく自動で確かめます（「もう一度」でも確認できます）。署名 ${signature}`;
+/** (2026-11-19) The reason a march the runner rejected was not taken: the program's own words for its code (NotResident: the turn changed under the send), else the relay's. */
+const localMarchRejectedText = r => (r.programCode === 26 ? L`送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。`
+  : r.programCode === 31 ? L`送るあいだにターンが変わり、この到着ターンには着けなくなりました。`
+  : failureText(r.programCode !== undefined ? r : { code: 'LocalMarchRejected' }));
+/**
+ * (2026-11-19) A held march (sent, outcome unknown) is asked about again on its own, a bounded number of times: every
+ * HELD_RECHECK_MS, at most HELD_RECHECK_TRIES times (about 2 minutes, longer than a blockhash lives). Each ask is ONE
+ * read through the relay it was sent through; nothing is sent again. Landed, failed on chain or expired (the relay read
+ * its blockhash as past its life and the signature as unknown) — the host is free again and the player is told.
+ */
+export const HELD_RECHECK_MS = 5000, HELD_RECHECK_TRIES = 24;
+const heldRechecks = new Set();
+const HELD_TOLD = {
+  landed: () => L`送信済みだった進軍は記録されました。軍勢は進軍中です。`,
+  failed: () => L`送信済みだった進軍はチェーンで断られました。軍勢は村にいます。もう一度命令できます。`,
+  expired: () => L`送信済みだった進軍は期限までに記録されませんでした（これから記録されることはありません）。軍勢は村にいます。もう一度命令できます。`,
+};
+function heldTold(x) {
+  if (!HELD_TOLD[x]) return false;
+  if (x === 'landed') done(HELD_TOLD.landed); else setNotice({ ok: false, busy: false, text: HELD_TOLD[x], unsent: 'march-held', retry: false });
+  refresh().catch(e => console.error('frontier refresh:', e));
+  return true;
+}
+function recheckHeldMarch(signature, { tries = HELD_RECHECK_TRIES, every = HELD_RECHECK_MS } = {}) {
+  if (!localMarchSender || heldRechecks.has(signature)) return;
+  heldRechecks.add(signature);
+  const sender = localMarchSender;
+  let n = 0;
+  const tick = async () => {
+    if (sender !== localMarchSender) { heldRechecks.delete(signature); return; }
+    let x = 'unconfirmed';
+    try { x = await sender.ask(signature); } catch { x = 'unconfirmed'; }
+    if (x !== 'unconfirmed') { heldRechecks.delete(signature); invalidate('panel'); heldTold(x); return; }
+    if (++n >= tries) { heldRechecks.delete(signature); return; }
+    setTimeout(tick, every);
+  };
+  setTimeout(tick, every);
+}
+/** The press on a host held by an earlier march: ONE read of each of its held signatures; told when one is settled. */
+async function askHeldMarches(hostId, { told = false } = {}) {
+  if (!localMarchSender) return;
+  busy(() => L`送信済みの進軍の結果を確認しています…`);
+  let last = 'unconfirmed';
+  for (const sig of localMarchSender.held(hostId)) { try { last = await localMarchSender.ask(sig); } catch { last = 'unconfirmed'; } if (last !== 'unconfirmed') break; }
+  invalidate('panel');
+  if (heldTold(last)) return;
+  const sig = localMarchSender.held(hostId)[0];
+  if (told && sig) setNotice({ busy: false, text: localMarchUnconfirmedText(sig), code: 'LocalActUnconfirmed', unsent: 'march-send' });
+}
 /** A press on an order that is held as sent-and-unconfirmed: ONE question about its signature; nothing is built or sent. */
 async function localActAsk(name, lo, { order, say, after }) {
   busy(() => L`送信済みの命令の結果を確認しています…`);
@@ -1914,6 +1971,47 @@ export function wantHostReach(hostId) {
   return true;
 }
 
+/**
+ * How many provinces of a control snapshot have a keep the page cannot place YET and that could matter to the reach
+ * list: no keep of theirs is held from a province record, and their ring's village list (overview) is not read but
+ * WILL be — the ring is one this world seeds (`ringSeeded`) — and the province is within a march's reach of an origin
+ * (`origins`: the reach list's own, `[{p, q}]`; at most MAX_ROUTE_PROVINCES provinces away. No origin: not narrowed).
+ * 0 once every such ring is read.
+ * (PR #46 verification R1, 2026-11-18: the first version counted every unread ring. A sparse world never reads the
+ *  rings it does not seed — map/overviews.mjs validRing; rings 0 and 1 of the natural world — so the count stood at 7
+ *  for good and an empty list said "finding the keeps…" for ever, in place of "no keep within reach". A ring the world
+ *  does not seed has nothing to wait for: it is not pending. Fail-safe: without `ringSeeded` no ring counts.)
+ */
+export function keepsPending(provinces, keeps, ringRead, ringSeeded = () => false, origins = [], faction = null, overviews = null) {
+  const from = (origins ?? []).filter(o => Number.isInteger(o?.p) && Number.isInteger(o?.q));
+  const near = c => from.length === 0 || from.some(o => hexDistance(o.p, o.q, c.p, c.q) <= MAX_ROUTE_PROVINCES);
+  const nation = v => Number.isInteger(v) && v >= 0 && v <= 5;
+  // (round 3: only a province whose keep could be a ROW of the list — fkeepreach.mjs contestableKeeps / defendableKeeps:
+  //  held by another nation and not a heartland, or held by the viewer's nation and contested. The centre (control 6),
+  //  an unheld province and a heartland can never be one, so nothing is waited for there. Without the viewer's nation
+  //  the holder is not narrowed)
+  const could = c => !nation(faction) || (nation(c.control) && (c.control !== faction ? !c.heartland : nation(c.contender) && c.contender !== faction));
+  let n = 0;
+  for (const c of provinces ?? []) {
+    if (!Number.isInteger(c?.p) || !Number.isInteger(c?.q) || keeps.has(`${c.p},${c.q}`) || !could(c)) continue;
+    const d = ringOf(c.p, c.q);
+    if (ringSeeded(d) && !ringRead(d) && near(c)) n += 1;
+  }
+  // (round 3, seen live: the herald's latest control snapshot lags the turn by about three — control bell 6 at turn 9 —
+  //  so a ring opened since (ring 4 of the natural world) has a keep in its overview, −2,4 with keep tile 18, before the
+  //  snapshot covers its province: the keep is not in `keeps` (no holder known yet) and the list said "no keep within
+  //  reach" for three turns although the runner had already named it reachable. A keep the page's overviews show in a
+  //  province the snapshot does not cover yet is waited for, within reach; once the snapshot covers it, it is a row or
+  //  it is not. Its holder is not known, so the holder rule cannot drop it.)
+  const covered = new Set((provinces ?? []).map(c => `${c?.p},${c?.q}`));
+  for (const ov of overviews?.values?.() ?? []) for (const o of ov?.provinces ?? []) {
+    if (!Number.isInteger(o?.p) || !Number.isInteger(o?.q) || o.keepTile === null || o.keepTile === undefined) continue;
+    const key = `${o.p},${o.q}`;
+    if (!covered.has(key) && !keeps.has(key) && near(o)) n += 1;
+  }
+  return n;
+}
+
 /** Refresh conquest together; retain known state on transport failures. */
 /**
  * S1 (redesign stage 1): the caravans, structures and nations feeds into
@@ -2012,6 +2110,9 @@ export async function refreshConquest() {
   const standings = results[1].status === 'fulfilled' ? results[1].value : null;
   if (control?.ok) {
     cq.control = control.control; applyControl(FS.overviews, cq.control);
+    // (B9: a province of the control snapshot whose ring's village list the page has not read yet has a keep the page
+    //  cannot place: counted, so that an empty reach list says it is still being worked out — screens/conquest.mjs
+    //  reachLoading, hud/keephand.mjs — and not that no keep is within reach)
     for (const c of cq.control.provinces) {
       const ov = FS.overviews.get(ringOf(c.p,c.q))?.provinces.find(p => p.p === c.p && p.q === c.q);
       if (ov?.keepTile !== null && ov?.keepTile !== undefined) cq.keeps.set(`${c.p},${c.q}`, {
@@ -2026,6 +2127,8 @@ export async function refreshConquest() {
       // holder is the same its consolidation bell still stands, so the panel can say if the keep is open
       else if (c.consolidatedUntil === null && k.holder === c.holder) c.consolidatedUntil = k.consolidatedUntil;
     }
+    { const w = FS.world ?? (FS.record ? worldOf(FS.record) : null);
+      cq.keepsPending = keepsPending(cq.control.provinces, cq.keeps, d => FS.overviews.has(d) || overviewRefused(FS, d), d => !!w && ringSeeded(w, d), reachOrigins(FS).origins, FS.citizen?.faction ?? null, FS.overviews); }
     cq.status = 'ready'; cq.error = null;
   } else if (control?.code === 'NotFound' && nowBell() <= 1 + Math.ceil(Number(FS.season.revealWindow ?? 600) / Number(FS.season.bellSecs ?? 600)) && !cq.control) {
     // A fresh world has no completed control snapshot until its first bell settles.
@@ -2615,7 +2718,7 @@ const heldNow = card => (localMarchSender ? localMarchSender.held(card.host?.id 
 const pendingDriver = createPendingDriver({
   look: card => {
     const same = FS.compose === card, now = same ? marchNow(card) : { problems: null, intent: null };
-    return { ...now, nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0, sameCard: same,
+    return { ...now, nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0 || marchNearEnd(), sameCard: same,
       keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN };
   },
   // (the read is applied only while this page still reads the same herald for the same world with the same live key and the
@@ -2653,13 +2756,22 @@ export function localSyncTick(t = Date.now()) {
   loadEnvelope(target.p, target.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } }, () => null).then(() => { localSyncBusy = false; });
   return true;
 }
+// (2026-11-19, fix-march-held) The march's press, like the muster's (round 21): not in the last moments of a turn. A Depart
+// that lands after the turn changed is refused by the program (NotResident 26: the origin province must be resolved
+// through the landing turn − 2; ArrivalBell 31) — seen live at ×60, sent 0.6 s before the turn ended. In those moments the
+// press arms the waiting send instead (sent once when every check passes in the next turn, or withdrawn and told — e.g.
+// when the arrival turn moved with the turn). It lowers the chance of a refusal; the program's check still decides.
+const marchNearEnd = () => nearTurnEnd({ genesisTs: FS.clock?.genesisTs, nowTs: now(), bellSecs: BELL_SECS, rate: FS.chain?.accelerated ? Number(FS.chain.rate) : 1 });
 function armMarchWait() {
   const c = FS.compose;
+  // (a march of this host sent earlier whose outcome is not known — the march's gate is closed then (LocalMarchHeld) —:
+  //  the press asks about it, one read; nothing is sent)
+  if (c && !c.sending && !c.pending && !pendingDriver.armed && localPlay && heldNow(c)) return askHeldMarches(c.host?.id ?? null, { told: true });
   if (!c || c.sending || c.pending || pendingDriver.armed || !localMarchTrial()) return;
   const { problems, intent } = marchNow(c);
-  // ready now: this press is an ordinary press
-  if (problems.length === 0) return sendTheMarch();
-  if (heldNow(c) || !pendable(problems)) return;
+  // ready now, and not at the turn's very end: this press is an ordinary press
+  if (problems.length === 0 && !marchNearEnd()) return sendTheMarch();
+  if (problems.length > 0 && !pendable(problems)) return;
   const p = armPending({ intent, nowBell: nowBell() });
   if (!p || !pendingDriver.arm(c, p)) return;
   c.pending = p;
@@ -2826,7 +2938,12 @@ async function sendTheMarch() {
         if (to > c.arriveBell) c.moved = { from: c.moved?.from ?? c.arriveBell, to };
         c.earliest = r.earliest; c.arriveBell = to;
       }
-      if (localSent && r.code !== 'TransactionFailed') setNotice({ busy: false, text: localActUnconfirmedText(r.signature) }); else failed(r);
+      // (2026-11-19) sent, outcome not known: said as that (the code makes it the "unconfirmed" state, not a refusal titled
+      // with another action's words — it read 「編成はまだ命じられていません」), and asked again a bounded number of times;
+      // a march the runner rejected, or one refused before the send, goes back to its card: "not sent", with the reason
+      if (localSent && r.code !== 'TransactionFailed') { setNotice({ busy: false, text: localMarchUnconfirmedText(r.signature), code: 'LocalActUnconfirmed', unsent: 'march-send' }); recheckHeldMarch(r.signature); }
+      else if (localPlay && r.code === 'LocalMarchRejected') failed({ ...r, unsent: 'march-send', text: () => `${localMarchRejectedText(r)} ${L`命令は送られていません。カードはそのままです。確かめてから、もう一度押してください。`}` });
+      else failed(localPlay ? { ...r, unsent: 'march-send' } : r);
     }
   } finally {
     c.sending = false; delete c.sendingArrival;
@@ -3180,6 +3297,36 @@ function s1CaravanFromForm(f) {
   return s1Caravan(srcIndex, dstIndex, Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => s1PlanDone(at, r));
 }
 
+/**
+ * Derive this device's game key (the wallet signs a message; nothing on chain) and make it the Citizen's session —
+ * unless another key is registered (Q16-3). Then nothing is sent without `replace` naming exactly the key registered
+ * now (the one the warning showed): the answer is `SessionHeldElsewhere`, and the page shows who holds the key.
+ */
+async function setSession({ replace = null } = {}) {
+  const pin = io.pinned();
+  let s;
+  try { s = await fsession.derive({ wallet: wallet.connected(), cluster: pin.cluster, programId: pin.programId, seasonId: pin.seasonId }); } catch (e) { return failed({ code: e.code ?? 'SignFailed' }); }
+  fsession.remember(s);
+  FS.session = s;
+  const m = fsession.matchesCitizen(s, FS.citizen, now());
+  if (m.ok) { FS.sessionProblem = null; FS.keyKept = null; return invalidate('panel'); }
+  const registered = m.code === 'SessionMismatch' ? registeredKey(FS.citizen) : null;
+  if (registered) FS.sessionProblem = 'SessionMismatch';
+  if (registered && replace !== registered) {
+    agentsReadAt = -Infinity;
+    refreshDelegation().catch(e => console.error('frontier delegation:', e));
+    setNotice({ ok: false, code: 'SessionHeldElsewhere', text: () => failureText({ code: 'SessionHeldElsewhere' }) });
+    return { ok: false, code: 'SessionHeldElsewhere', sent: false };
+  }
+  // Replacing a key held elsewhere (the owner's agent, the courier, another device): say what this did and did not do.
+  const handed = registered ? delegationOf(FS) : null;
+  const expiry = BigInt(Math.floor(now()) + SESSION_DAYS - 600);
+  // (once it landed the page shows this device's key at once, not the old holder's card until the next poll — verify-pr61 F3)
+  const landed = () => { FS.delegation = null; FS.keyKept = null; FS.keyReview = null; if (FS.citizen) FS.citizen = { ...FS.citizen, session: s.publicKeyBytes, sessionExpiry: expiry }; FS.sessionProblem = null; invalidate('panel'); };
+  return act('SetSession', { fields: { session: s.publicKeyBytes, expiry },
+    ...(handed ? { say: () => takenBackNote(handed) } : {}), after: landed });
+}
+
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
   // (the stale banner on local play: a read of the latest state — never a reload, never a send)
@@ -3343,18 +3490,27 @@ export const ACTIONS = {
       fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
       onSent: lifecycle.onSent, onLost: lifecycle.onLost });
   },
-  session: async () => {
-    const pin = io.pinned();
-    let s;
-    try { s = await fsession.derive({ wallet: wallet.connected(), cluster: pin.cluster, programId: pin.programId, seasonId: pin.seasonId }); } catch (e) { return failed({ code: e.code ?? 'SignFailed' }); }
-    fsession.remember(s);
-    FS.session = s;
-    const m = fsession.matchesCitizen(s, FS.citizen, now());
-    if (m.ok) { FS.sessionProblem = null; return invalidate('panel'); }
-    // Taking the key back from the owner's agent: say what this does (the key) and what it does not (the server's auto).
-    const handed = FS.delegation;
-    return act('SetSession', { fields: { session: s.publicKeyBytes, expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
-      ...(handed ? { say: () => takenBackNote(handed), after: () => { FS.delegation = null; } } : {}) });
+  // Q16-3: "re-make the key" restores this device's key and registers it only where nobody else's key is replaced
+  // (none registered, or this wallet's own, expired). A key registered to another holder — ③'s courier, the owner's
+  // agent, another app or device — is never replaced from here: the page then shows the warning, and the replacement
+  // is `session-replace`, the owner's own choice for the key that was shown.
+  session: () => setSession(),
+  'session-replace': d => setSession({ replace: String(d?.key ?? '') }),
+  // the action bar's "look and choose" (a village owner never sees the drawer's key card): opens the whole warning on
+  // the bar, keep first; pressed again it closes. Nothing is signed or sent (verify-pr61 F2)
+  'session-review': () => {
+    const held = delegationOf(FS);
+    FS.keyReview = held?.foreign && FS.keyReview !== held.agentKey ? held.agentKey : null;
+    if (FS.keyReview) FS.keyKept = null;
+    invalidate('panel');
+  },
+  // keeping the delegation, said explicitly (pressed again: the choice is reopened); nothing is signed or sent
+  'session-keep': () => {
+    const held = delegationOf(FS);
+    FS.keyKept = held?.foreign && FS.keyKept !== held.agentKey ? held.agentKey : null;
+    FS.keyReview = null;
+    if (FS.keyKept && FS.notice?.code === 'SessionHeldElsewhere') FS.notice = null;
+    invalidate('panel');
   },
   // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
   'auto-ticket': () => autoTicket({ force: true }),
@@ -3493,7 +3649,7 @@ fwide.guardLegacy(ACTIONS, fwide.GUARDED_ACTS, { FS, refuse: failed });
 //  in-game key is derived or registered, the home choice's record stays in the page's memory — and they do something
 //  only where the relay serves those routes; elsewhere they answer "reads only" as every order does. A Season with a
 //  prize pool or a join gate is refused inside `join`. The session, NFT, faucet, nudge and forget actions stay refused.)
-export const LOCAL_PLAY_REFUSED = Object.freeze(['session', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']);
+export const LOCAL_PLAY_REFUSED = Object.freeze(['session', 'session-replace', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']);
 for (const name of LOCAL_PLAY_REFUSED) {
   const run = ACTIONS[name];
   if (run) ACTIONS[name] = (...a) => (localPlay ? failed(localPlayReadOnly()) : run(...a));

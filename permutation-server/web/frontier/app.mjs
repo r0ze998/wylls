@@ -18,8 +18,9 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // page; their logic is in screens/{report,practice,onboarding,spectate}.mjs
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
-import { localPlayRequested, openLocalPlayGate } from './flocalplay.mjs';
-import { staleBannerView, rereadLabel } from './stale-banner.mjs';
+import { localPlayRequested, openLocalPlayGate, localPlayWorldCheck } from './flocalplay.mjs';
+import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
+import { createWorldWatch, worldStateOf, worldEndedWord } from './flocalplay-ended.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
@@ -29,7 +30,7 @@ import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
-import { ChainClock, bellChip, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
+import { ChainClock, bellChip, bellAt, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
@@ -46,12 +47,13 @@ import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeN
 const worldNow = () => FS.world ?? worldOf(FS.record);
 const ringsOpenNow = () => Math.max(1, worldNow().ringsOpen);
 const seededNow = () => seededRings(worldNow());
-import { readOverviews } from './map/overviews.mjs';
+import { readOverviews, forgetOverviewRefusals, ringMissMarks } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
+import * as coopTitles from './hud/coopoutcomes.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -161,6 +163,7 @@ import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
+import { said, worded, reworded } from './hud/words.mjs';
 import * as status from './hud/status.mjs';
 import * as title from './intro/title.mjs';
 import { mountTitleScene } from './intro/scene.mjs';
@@ -204,6 +207,8 @@ export function chipText(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
   // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
+  // (a local-play world its launcher has ended: the last turn it reached, and that it is over — B5)
+  if (chip.stopped) return L`ターン ${fmtNum(chip.bell)} · 終了済み`;
   if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
   return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
 }
@@ -212,7 +217,7 @@ export function chipText(chip) {
 export function dialParts(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
   if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
-  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.stopped ? worldEndedWord() : chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
 }
 
 /**
@@ -245,16 +250,21 @@ export function dialMarkup(chip) {
   return out;
 }
 
+/** The dial's chip of a world confirmed ended (`FS.worldEnded`): its last turn, marked `stopped`; any other chip as it is. */
+export const stoppedChip = (chip, ended) => (ended && chip && chip.bell !== null && !chip.beforeGenesis ? { ...chip, stopped: true } : chip);
+
 function renderChip() {
   const now = FS.chain?.now() ?? null;
   const chip = $('bell-chip');
-  if (chip) setHtmlIfChanged(chip, dialMarkup(FS.clock ? bellChip(FS.clock, now) : null));
+  if (chip) setHtmlIfChanged(chip, dialMarkup(FS.clock ? stoppedChip(bellChip(FS.clock, now), FS.worldEnded) : null));
   renderHudTick(now);
   FS.stale = staleness({ latestUnix: FS.record?.latestUnix, chainNow: now, behind: FS.chain?.behind() ?? null });
   const banner = $('stale-banner');
   if (banner) {
-    const v = staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
+    // (B5: a world confirmed ended is not "behind" — the banner says that it ended)
+    const v = FS.worldEnded ? endedBannerView() : staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
     banner.hidden = v.hidden;
+    if (banner.dataset && (banner.dataset.ended === '1') !== !!v.ended) { if (v.ended) banner.dataset.ended = '1'; else delete banner.dataset.ended; }
     if (!v.hidden) {
       // (local play: the words and one re-read button, made once and kept, so a press is never lost to the redraw)
       let text = banner.querySelector('.stale-text'), btn = banner.querySelector('[data-act="state-reread"]');
@@ -439,7 +449,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
     const warned = (FS.incoming ?? []).length > 0;
     parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
     settingsMarkup(FS), ...surveyHelpWithProto(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
@@ -1939,20 +1949,21 @@ function protoNews() {
   if (small && records.some(x => x.own || x.did)) P.toastHold = Date.now() + PROTO_TOAST_HOLD_MS;
   if (records.some(x => x.did && ['TEND', 'WALK'].includes(String(x.record.op ?? '').toUpperCase()))) P.guide.walked = true;
   const seen = (P.threatSeen ??= new Set()), news = [...items], standing = (P.threatsUp ??= new Map());
-  const now = pm.threatsOf(FS);
+  // (B11: the threats' words in every language now — hud/words.mjs worded; threatsOf and threatGone are pure)
+  const now = worded(() => pm.threatsOf(FS));
   P.threatsNow = new Set(now.map(t => t.id));
   for (const t of now) {
     standing.set(t.id, t);
     if (seen.has(t.id)) continue;
     seen.add(t.id); P.guide.threat = true;
     // (`own`: a notice of its own on the board even while a sheet is open or the turn's notices are gathered into one line)
-    news.push({ id: t.id, kind: 'proto', proto: true, own: true, alarm: true, bell: FS.nowBell ?? null, p: t.p, q: t.q, tile: t.tile, text: t.text, ...(Number.isInteger(t.slot) ? { banner: { p: t.p, q: t.q, slot: t.slot } } : {}), send: { p: t.p, q: t.q, tile: t.tile } });
+    news.push({ id: t.id, kind: 'proto', proto: true, own: true, alarm: true, bell: FS.nowBell ?? null, p: t.p, q: t.q, tile: t.tile, text: t.text, ...(t.words ? { words: t.words } : {}), ...(Number.isInteger(t.slot) ? { banner: { p: t.p, q: t.q, slot: t.slot } } : {}), send: { p: t.p, q: t.q, tile: t.tile } });
   }
   // (a threat that was told of and stands no longer: what the records say became of it — the other nation's count is
   // gone, the banner was defended — said once; a tile a host of the viewer's now holds is the guide's next step)
   for (const [id, was] of standing) {
     if (now.some(t => t.id === id)) continue;
-    const line = pm.threatGone(FS, was);
+    const line = worded(() => pm.threatGone(FS, was));
     // (what became of it, for the guide's list: stopped, ended, kept — or the banner rose, or was taken)
     { const out = pm.threatOutcome(FS, was); if (out) P.guide.answer = out; }
     if (!line) { if ((FS.nowBell ?? 0) > (was.goneAt ??= FS.nowBell ?? 0) + 2) standing.delete(id); continue; }
@@ -2490,6 +2501,11 @@ function landRevision() {
   }
   return s;
 }
+/** The turn of the chain time the herald last reported (ChainClock.seen), or null: never the local clock's extrapolation. */
+function seenBell() {
+  const t = FS.chain?.seen?.() ?? null;
+  return FS.clock && t !== null ? bellAt(FS.clock.genesisTs, t) : null;
+}
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
   tickTurn();
@@ -2775,7 +2791,8 @@ function awayTake() {
 /** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
 const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
 /** The away notices in the page's language (they are kept as words; the language may change after they were told). */
-const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : x)); };
+// (B11, loop-play2: and every other notice, by the words it keeps in every language — hud/words.mjs)
+const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away || x.words)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : reworded(x))); };
 onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
 let feedBell = null;
 /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */
@@ -2826,15 +2843,17 @@ async function clashTold(x) {
     const tile = scene ? scene.tiles.find(t => sides(t).some(s0 => mine(s0.id))) ?? null : null;
     if (tile) {
       const me = sides(tile).find(s0 => mine(s0.id)), foe = sides(tile).find(s0 => !mine(s0.id) && Number.isInteger(s0.faction) && s0.faction !== (FS.citizen?.faction ?? -1)) ?? null;
-      const where = tileNameOf({ p, q, tile: tile.idx });
-      const who = foe && foe.faction >= 0 && foe.faction < 6 ? factionName(foe.faction) : null;
       const lost = Number.isFinite(me.before) && Number.isFinite(me.after) ? Math.max(0, me.before - me.after) : null;
-      item = { ...item, tile: tile.idx, text: who
+      // (B11: the words in every language now — hud/words.mjs said — so that a switch of language shows the same line)
+      item = { ...item, tile: tile.idx, ...said(() => {
+        const where = tileNameOf({ p, q, tile: tile.idx }), who = foe && foe.faction >= 0 && foe.faction < 6 ? factionName(foe.faction) : null;
+        return who
         ? (lost !== null ? L`${where}で、あなたの軍勢が${who}の軍勢と戦いました（ターン ${fmtNum(bell)}・${fmtNum(lost)} 兵を失いました）` : L`${where}で、あなたの軍勢が${who}の軍勢と戦いました（ターン ${fmtNum(bell)}）`)
-        : L`${where}で、あなたの軍勢が戦いました（ターン ${fmtNum(bell)}）` };
+        : L`${where}で、あなたの軍勢が戦いました（ターン ${fmtNum(bell)}）`;
+      }) };
     } else if (scene) {
       // (nobody of the viewer's fought: a public fact of the province, in the list with its report)
-      item = { ...item, quiet: true, tile: scene.tiles[0]?.idx ?? null, text: L`${placeProvinceName(FS, p, q)}で、ほかの国どうしの戦いがありました（ターン ${fmtNum(bell)}）` };
+      item = { ...item, quiet: true, tile: scene.tiles[0]?.idx ?? null, ...said(() => L`${placeProvinceName(FS, p, q)}で、ほかの国どうしの戦いがありました（ターン ${fmtNum(bell)}）`) };
     }
   } catch (e) { console.error('frontier feed:', e); }
   const speed = BATTLE_SPEEDS[FS.ui?.battleFx ?? 'normal'] || 0;
@@ -2916,12 +2935,8 @@ const OUTCOME_BEAT_MS = 1500;
 let outcomeTimer = null;
 /** A standing threat's notice as it is now: the count the records give, and whether the answer is on its way. */
 function protoAlarmNow(x, up) {
-  const at = pm.marchingTo(FS, up);
-  // (in the turn it arrives in, and until that turn is settled: arrived, the fight not told yet — the notice said "on its way" for a turn that had passed)
-  if (at !== null) return { ...x, send: null, text: (FS.nowBell ?? 0) < at ? L`${up.text}。あなたの軍勢が向かっています（ターン ${fmtNum(at)} に到着）` : L`${up.text}。あなたの軍勢が着きました。戦いの結果を待っています` };
-  // (outnumbered — a new hamlet against a host of 500 —: the notice carries the numbers, as the guide's step does)
-  const force = up.foe ? pm.strengthOf(FS) : null;
-  return force && force.best < up.foe.troops ? { ...x, text: L`${up.text}。${pm.threatNumbers(up, force)}数で下回っています` } : { ...x, text: up.text };
+  // (the live words are made by the hand's model as the notice is drawn, in every language: proto/hand-model.mjs alarmNow)
+  return pm.alarmNow(FS, x, up);
 }
 /**
  * "What happened this turn" (UX design 8.3): after the toll the effects layer plays this turn's own results on
@@ -3991,7 +4006,7 @@ export const HUD_ACTIONS = {
   },
   'replay-dismiss': () => { if (FS.replayAsk?.state === 'loading') playAskSeq += 1; FS.replayAsk = null; renderFeed(); },
   'forecast-retry': () => { const c = FS.compose; if (!c || c.sending || !c.forecast?.unread) return; updateForecast({ again: true }); invalidate('panel'); },
-  'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
+  'province-reread': d => { const p = num(d.p), q = num(d.q); if (!Number.isInteger(p) || !Number.isInteger(q) || FS.mode === 'practice') return; if (heraldRef && FS.world) { forgetOverviewRefusals(FS); loadOverviews(heraldRef).then(() => invalidate('map', 'panel'), () => {}); } retryProvince(p, q, () => { mapRef?.invalidate(); invalidate('panel'); }); invalidate('panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
   // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
@@ -4053,6 +4068,21 @@ function renderChips() {
 
 // ------------------------------------------------------------------ wave 4: report, practice, onboarding (W4-E)
 let heraldRef = null;
+/** Local play, launcher worlds: the watch that asks the launcher about this world after a failed herald read (flocalplay-ended.mjs). */
+let worldWatch = null;
+/**
+ * This page's world was confirmed ended (B5): the clock stands at the herald's last sample from now on (ChainClock.halt:
+ * what the local clock added after it never happened), the turn the panels use is that sample's, the season poll's own
+ * "could not connect" gives way to the banner that says the world ended, and everything is drawn again. Never undone.
+ */
+export function worldEnded() {
+  FS.worldEnded = { at: Date.now() };
+  FS.chain?.halt?.();
+  if (FS.error?.source === 'season') FS.error = null;
+  const m = FS.clock ? hud.bellModel(FS.clock, FS.chain?.now() ?? null) : null;
+  if (m && Number.isInteger(m.bell)) FS.nowBell = m.bell;
+  invalidate('chip', 'status', 'map', 'panel', 'tabs', 'rail');
+}
 const num = x => Number.parseInt(x, 10);
 
 /** Save the onboarding flags (ps-fui `dismissed`) of the pinned season; in memory only before a season is pinned. */
@@ -4186,7 +4216,7 @@ export function w4Bind(name, value) {
 }
 
 /** The play actions that send something to the chain: a refusal of one offers "try again" (hud/status.mjs). */
-export const SENDS = Object.freeze(new Set(['harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
+export const SENDS = Object.freeze(new Set(['harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'session-replace', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
   // S1 (screens/s1.mjs)
   's1-vault', 's1-structure', 's1-raid', 's1-vote', 's1-seize', 's1-siege', 's1-expel', 's1-readmit',
   // (orders of the prototype rule "banners": to the sample world only)
@@ -4413,6 +4443,12 @@ async function loadSeason(herald) {
   const seq = askSeason();
   const r = await herald.season();
   if (seasonStale(seq)) return true;
+  // (the loop-play report B5, launcher worlds only: a read that failed by the network is the one reason to ask the
+  //  launcher whether it still runs this world — flocalplay-ended.mjs; a herald that answers is never doubted. Once the
+  //  world is confirmed ended, a read that fails says nothing new: the banner says the world ended, and the season
+  //  poll's "could not connect" is not raised beside it)
+  if (!r.ok && r.code === 'network') worldWatch?.readFailed();
+  if (!r.ok && FS.worldEnded) { clearInspection(FS); clearOutbound(FS); return false; }
   if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) }); invalidate('status'); return false; }
   const { record, season } = r;
   const reportWas = reportWorld();
@@ -4488,6 +4524,8 @@ async function loadSeason(herald) {
  *    read place (`waiting`) — controller's FS.provinceReads, this world's only, and only while no record is held;
  *  - a ring whose overview was asked for and did not come (`ring`) — FS.overviewMisses, kept by loadOverviews for the
  *    world it asked in: without it the ring's villages are not known, which is not "no villages".
+ *    Said only while the person looks at that ring, and never for a ring the herald refused (map/overviews.mjs
+ *    ringMissMarks).
  * Nothing is marked that was not asked: no province out of the viewer's sight is asked by the map, and a read still
  * under way is not marked (every province would flicker as the map moves). Selecting the province opens its card,
  * whose button reads again (hud/inspect.mjs readState → province-reread). Marks only: nothing of the land is drawn.
@@ -4500,14 +4538,20 @@ function readMarksNow() {
     if (!Number.isInteger(p) || !Number.isInteger(q)) continue;
     out.push({ p, q, state: st.state, text: st.state === 'failed' ? L`読めていません（選ぶと読み直せます）` : L`読み込みの順番待ち` });
   }
-  const miss = FS.overviewMisses;
-  if (miss && miss.world === momentWorld() && FS.world) {
-    // (`rings`: ring → a province of it where the words stand, worked out once when the miss was noted)
-    for (const [d, at] of miss.rings) {
-      if (FS.overviews.has(d) || !at) continue;
-      out.push({ p: at.p, q: at.q, state: 'ring', ring: d, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
-    }
-  }
+  // (fix-stale-tooltip, 2026-11-19: a ring miss is said only on the ring the person is looking at — the selected
+  //  province, or the province at the view's centre once the map is zoomed in past the World chart — and never for a
+  //  ring the herald refused (NoSuchRing) or one outside the open land: map/overviews.mjs ringMissMarks. Before, every
+  //  miss stood on its ring's first province for ever, refused rings 0 and 1 included)
+  for (const m of ringMissMarks(FS, { key: momentWorld(), looking: lookingAt() }))
+    out.push({ p: m.p, q: m.q, state: 'ring', ring: m.ring, text: L`この輪の村の一覧を読めていません（州を選ぶと読み直せます）` });
+  return out;
+}
+/** The places the person is looking at, for the ring marks: the selected province; the view's centre when zoomed in. */
+function lookingAt() {
+  const out = [];
+  if (Number.isInteger(FS.selected?.p) && Number.isInteger(FS.selected?.q)) out.push({ p: FS.selected.p, q: FS.selected.q });
+  const view = mapRef?.view;
+  if (view && mapRef?.lod && mapRef.lod !== 'world') { const h = hexAtPixel(view.x, view.y), c = locate(h.q, h.r); if (c) out.push({ p: c.p, q: c.q }); }
   return out;
 }
 function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
@@ -4548,6 +4592,9 @@ export async function boot() {
   // takes none of this path.
   if (localPlayRequested(cfg)) cfg = (await openLocalPlayGate({ cfg, makeHerald: base => createHerald({ base }) }).ready).cfg;
   FS.mode = cfg.mode;
+  // (the loop-play report B5: a launcher world that its launcher has ended is said to have ended, and its clock stands
+  //  at the herald's last sample — worldEnded; the launcher is asked only after a herald read failed by the network)
+  { const check = localPlayWorldCheck(cfg); if (check) worldWatch = createWorldWatch({ ask: () => check().then(worldStateOf), onEnded: worldEnded }); }
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
   // the materials drawn by code (paper grain, the sheet's uneven edge, cloth, brushed metal): hud/textures.mjs
@@ -4634,6 +4681,8 @@ export async function boot() {
           threatLabel: w => L`来襲 ターン ${fmtNum(w.bell)}`,
           // the bell now (an overview older than the last bell no longer says "a clash this bell")
           bell: FS.nowBell ?? null,
+          // (the turn of the herald's own latest sample, never extrapolated: what "has arrived" is judged by — B5)
+          seenBell: seenBell(),
           // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap
           actions: actionsNow(),
           hoverRoute,
@@ -4857,6 +4906,9 @@ export async function boot() {
         // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
         // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
         if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        // (workstream 15, ruleset B: the titles and chronicle of cooperation 01's board judges — read only, a record that
+        //  changes no standing; nothing drawn on a server without them. Installs once — hud/coopoutcomes.mjs)
+        try { coopTitles.installCoopOutcomes({ changed: () => invalidate('panel') }); } catch (e) { console.error('frontier coop titles:', e); }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });

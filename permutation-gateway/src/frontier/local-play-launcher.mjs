@@ -33,9 +33,9 @@ import { spawn } from 'node:child_process';
 import { promises as fs, createReadStream, openSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, randomInt, createHash } from 'node:crypto';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
-import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, parseOperatorResidents, operatorRelayPorts, homesOf } from './local-play-operator-policy.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, parseOperatorResidents, parseOperatorNations, operatorRelayPorts, homesOf } from './local-play-operator-policy.mjs';
 import { EXTERNAL_RESIDENTS_MODE, EXTERNAL_RESIDENTS_SCHEMA, EXTERNAL_RESIDENTS_MAX, parseExternalResidents, externalPorts, externalSpan } from './local-play-external-residents.mjs';
 const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
 const RULESET = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
@@ -361,6 +361,42 @@ export function runnerPersistAgrees(meta, { continuous = false, persist = false 
   if (!persist) return d === undefined && meta?.memory_only !== false;
   return d !== null && typeof d === 'object' && Object.keys(d).sort().join() === 'mode,not_for_production,resumed,test_only'
     && d.mode === PERSIST_MODE && d.test_only === true && d.not_for_production === true && typeof d.resumed === 'boolean' && meta.memory_only === false;
+}
+/**
+ * `--fresh-map local-fresh-map-v1` (TEST-ONLY, optional; off unless given in exactly these words; natural preset only):
+ * each NEW world gets its own map. Without it every natural world has the SAME map: the runner's chain starts at one
+ * fixed clock origin, so every Season fixes the same genesis round (30943232) and the program derives the same genesis
+ * seed — the same terrain, sites, Free City and dispersed home offsets. With it the launcher picks, per new world, a
+ * clock origin in the 365 days before the fixed one (`freshMapOrigin`) and hands it to the runner (`--map-origin`): the
+ * Season then fixes another real quicknet round, and the program derives another genesis seed from that round's
+ * verified signature BY ITS UNCHANGED RULES (no game rule, account layout or program byte changes; only the local TEST
+ * chain's clock starts elsewhere). The runner's first line must state that origin (`fresh_map`), or the world is not
+ * started with; this start's `fresh-map.json` records it. A resumed kept world keeps the map it was made with.
+ */
+export const FRESH_MAP_MODE = 'local-fresh-map-v1';
+/** The local chain's fixed clock origin (2026-08-01T00:00:00Z) and how far before it a fresh map's origin may be. */
+export const MAP_ORIGIN_DEFAULT = 1_785_542_400, MAP_ORIGIN_SPAN_SECS = 365 * 86_400;
+/** Whether `g0` is an origin the runner's `--map-origin` accepts: a whole second in the 365 days before the fixed origin. */
+export const mapOriginOk = g0 => Number.isSafeInteger(g0) && g0 >= MAP_ORIGIN_DEFAULT - MAP_ORIGIN_SPAN_SECS && g0 < MAP_ORIGIN_DEFAULT;
+/** A new world's clock origin: uniform over the 31,536,000 whole seconds before the fixed origin (`pick(lo, hi)`: lo ≤ n < hi). */
+export function freshMapOrigin(pick = randomInt) { return MAP_ORIGIN_DEFAULT - pick(1, MAP_ORIGIN_SPAN_SECS + 1); }
+/** The runner's first line's `fresh_map`, when it is exactly `{mode, origin, genesis_round, test_only}` of a valid origin; else null. */
+export function runnerFreshMap(meta) {
+  const d = meta?.fresh_map;
+  return d !== null && typeof d === 'object' && Object.keys(d).sort().join() === 'genesis_round,mode,origin,test_only' && d.mode === FRESH_MAP_MODE && d.test_only === true
+    && mapOriginOk(d.origin) && Number.isSafeInteger(d.genesis_round) && d.genesis_round > 0 ? { origin: d.origin, genesis_round: d.genesis_round } : null;
+}
+/**
+ * The runner's first line and this start agree on the map (fail closed). `origin`: the one this start asked for, or
+ * null. A NEW world states exactly the origin asked for, and none when none was asked for. A RESUMED kept world
+ * (`persist.resumed`) keeps the map it was made with, whatever this start asked for: it states its own valid origin, or
+ * none (a world of the fixed map).
+ */
+export function runnerMapAgrees(meta, origin = null) {
+  const stated = meta?.fresh_map === undefined ? undefined : runnerFreshMap(meta);
+  if (stated === null) return false;
+  if (meta?.persist?.resumed === true) return true;
+  return origin === null ? stated === undefined : stated !== undefined && stated.origin === origin;
 }
 /**
  * `--herald-output compact-v1` (TEST-ONLY, optional; only with the capture demo): each NEW world's herald keeps only the
@@ -746,8 +782,9 @@ export const OPERATOR_HOMES_MS = 30000, OPERATOR_WALLETS_MS = 10000;
  * arguments, on the residents' ports. → `{count, wallets, ports}` (also written to `operators.json`: the operator's
  * own roster of who is an AI, kept beside the world, never sent to a page). Any refusal ends the world's start.
  */
-export async function startOperatorResidents({ n, dir, ports, rpc, herald, players, launch, launchSide, relayArgsFor, root, stopping, limit = {}, pace = {}, keysDir = null }) {
-  if (!Number.isInteger(n) || n < 1 || n > OPERATOR_RESIDENTS_MAX || ports.length !== n) throw fault('InvalidOperatorResidents', 503);
+export async function startOperatorResidents({ n, nations = null, dir, ports, rpc, herald, players, launch, launchSide, relayArgsFor, root, stopping, limit = {}, pace = {}, keysDir = null }) {
+  // (`nations`: the TEST-ONLY `--operator-nations` list, one nation per resident, up to six; otherwise the fixed four)
+  if (!Number.isInteger(n) || n < 1 || n > (nations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX) || ports.length !== n || (nations && (nations.length !== n || parseOperatorNations(nations.join(',')) === null))) throw fault('InvalidOperatorResidents', 503);
   for (const p of ports) await freePort(p);
   let homes = null;
   for (const until = Date.now() + (limit.operatorHomesMs ?? OPERATOR_HOMES_MS); !homes && Date.now() < until && !stopping();) {
@@ -758,7 +795,7 @@ export async function startOperatorResidents({ n, dir, ports, rpc, herald, playe
   if (!homes) throw fault('OperatorHomesUnknown', 503);
   const paceArgs = Object.entries({ 'cadence-ms': pace.cadenceMs, 'max-acts': pace.maxActs, 'max-refusals': pace.maxRefusals, 'min-gap-ms': pace.minGapMs }).filter(([, v]) => Number.isSafeInteger(v) && v >= 0).flatMap(([k, v]) => [`--${k}`, String(v)]);
   launchSide('operators', process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-operator-residents.mjs'), '--count', String(n), '--relay-ports', ports.join(','),
-    '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...paceArgs,
+    '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...(nations ? ['--nations', nations.join(',')] : []), ...paceArgs,
     // (⑧ P2, TEST-ONLY: a persisted world keeps its residents' keys in its own private dir, so a resume has the same residents)
     ...(keysDir ? ['--keys-dir', keysDir] : [])]);
   let first = null;
@@ -772,7 +809,7 @@ export async function startOperatorResidents({ n, dir, ports, rpc, herald, playe
     || !wallets.every(validWallet) || new Set([...wallets, ...players]).size !== n + players.length) throw fault('OperatorResidentsNotReady', 503);
   for (const w of wallets) await (limit.operatorFund ?? (a => runnerRpc(rpc, 'requestAirdrop', [a, OPERATOR_LAMPORTS])))(w);
   wallets.forEach((w, i) => launch(`relay-op-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i])]));
-  await fs.writeFile(path.join(dir, 'operators.json'), JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, count: n, wallets, ports, lamports_each: OPERATOR_LAMPORTS, homes: homes.length }), { flag: 'wx' });
+  await fs.writeFile(path.join(dir, 'operators.json'), JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, count: n, ...(nations ? { nations: [...nations] } : {}), wallets, ports, lamports_each: OPERATOR_LAMPORTS, homes: homes.length }), { flag: 'wx' });
   return Object.freeze({ count: n, wallets: Object.freeze([...wallets]), ports: Object.freeze([...ports]) });
 }
 /**
@@ -842,6 +879,11 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   // (the TEST-ONLY continuous preset and persistence: natural worlds only, never with the demo's compressed clock)
   const continuous = c.continuous === true, persist = c.persist === true;
   if ((c.continuous !== undefined && !continuous) || (c.persist !== undefined && !persist) || ((continuous || persist) && (!natural || demo !== null))) throw fault('InvalidWorldPreset', 503);
+  // (the TEST-ONLY fresh map: natural worlds only; this world's own clock origin, picked here (`c.guard.mapOrigin`: tests only))
+  const freshMap = c.freshMap === true;
+  if (c.freshMap !== undefined && (!freshMap || !natural)) throw fault('InvalidWorldPreset', 503);
+  const mapOrigin = freshMap ? (typeof c.guard?.mapOrigin === 'function' ? c.guard.mapOrigin() : freshMapOrigin()) : null;
+  if (mapOrigin !== null && !mapOriginOk(mapOrigin)) throw fault('InvalidWorldPreset', 503);
   // (`preset`: the conquest lane only; a natural world takes none of its steps)
   const preset = natural ? null : c.worldPreset ?? null;
   if (preset !== null && preset !== CONQUEST_WORLD_PRESET) throw fault('InvalidWorldPreset', 503);
@@ -918,7 +960,8 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       ...(second !== null ? ['--contest-pair', CONTEST_PAIR_MODE, '--second-wallet', second] : []),
       ...(land ? ['--land-preview', LAND_PREVIEW_OPTION] : []),
       ...(continuous ? ['--continuous', CONTINUOUS_MODE] : []),
-      ...(persist ? ['--persist-dir', path.join(home, 'run')] : [])]);
+      ...(persist ? ['--persist-dir', path.join(home, 'run')] : []),
+      ...(mapOrigin !== null ? ['--map-origin', String(mapOrigin)] : [])]);
     else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
@@ -940,6 +983,10 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     if (!runnerPairAgrees(meta, second)) throw fault('RunnerNotReady', 503);
     // (the continuous preset and the persistence likewise: stated exactly as asked, or not at all)
     if (!runnerPersistAgrees(meta, { continuous, persist })) throw fault('RunnerNotReady', 503);
+    // (the fresh map likewise: a new world states exactly this start's origin, or none when none was asked for; a
+    //  resumed kept world keeps its own. What this world's map is made from is recorded with this start's logs)
+    if (!runnerMapAgrees(meta, mapOrigin)) throw fault('RunnerNotReady', 503);
+    if (freshMap) await fs.writeFile(path.join(dir, 'fresh-map.json'), JSON.stringify({ mode: FRESH_MAP_MODE, asked_origin: mapOrigin, world: runnerFreshMap(meta), resumed: meta.persist?.resumed === true, fixed_origin: MAP_ORIGIN_DEFAULT, test_only: true }));
     // (the runner's own instance id, when it states one on that line: handed to the relay so that the relay can tell
     //  THIS runner's answers from any other's. A runner that states none starts as before; one that states a
     //  malformed id is not started with — a wrong id is never passed on and never ignored)
@@ -981,13 +1028,13 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (⑧ P2: in a persisted world the residents' TEST keys are kept in `<home>/operator-keys/` (0700, 0600 files))
     const operatorKeys = persist && natural && c.operatorResidents ? path.join(home, 'operator-keys') : null;
     if (operatorKeys) await ensurePrivateDir(operatorKeys);
-    const operators = natural && c.operatorResidents ? await startOperatorResidents({ keysDir: operatorKeys, n: c.operatorResidents, dir, ports: operatorRelayPorts(c.worldPort, slot, c.operatorResidents, WORLD_LIMIT), rpc, herald,
+    const operators = natural && c.operatorResidents ? await startOperatorResidents({ keysDir: operatorKeys, n: c.operatorResidents, dir, ports: operatorRelayPorts(c.worldPort, slot, c.operatorResidents, WORLD_LIMIT, c.operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX), nations: c.operatorNations ?? null, rpc, herald,
       players: [wallet, ...(second !== null ? [second] : [])], launch, launchSide, relayArgsFor, root: c.root, stopping: () => stopping !== null, limit, pace: c.operatorPace ?? {} }) : null;
     if (operators) await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...operators.ports] }));
     // (TEST-ONLY external residents, ⑤ option B: only on a natural world whose launcher admitted their public addresses;
     //  each gets the newcomer's set-up and nothing else — the player's funding, a relay pinned to its own wallet, a
     //  public proxy of its own — and the page is told nothing about them)
-    const external = natural && (opts.external ?? []).length ? await startExternalResidents({ wallets: opts.external, dir, ports: externalPorts(c.worldPort, slot, opts.external.length, { worldLimit: WORLD_LIMIT, operatorMax: c.operatorResidents ? OPERATOR_RESIDENTS_MAX : 0 }),
+    const external = natural && (opts.external ?? []).length ? await startExternalResidents({ wallets: opts.external, dir, ports: externalPorts(c.worldPort, slot, opts.external.length, { worldLimit: WORLD_LIMIT, operatorMax: c.operatorResidents ? (c.operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX) : 0 }),
       rpc, internalHerald, launcherPort: c.port, players: [wallet, ...(second !== null ? [second] : []), ...(operators?.wallets ?? [])], launchSide, relayArgsFor, root: c.root, proxies: externalProxies, stopping: () => stopping !== null, limit }) : null;
     if (external) await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...(operators?.ports ?? []), ...external.ports] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
@@ -1130,11 +1177,22 @@ export const USAGE = `local-play launcher (this machine only)
        looser); a stop keeps it and the next start for that wallet resumes it; the page keeps its key in IndexedDB]
     [--world-ttl-minutes <whole minutes, decimal>: each world's automatic end, counted from its own start; without it
        two hours. Set here only (never over HTTP); fixed once per world and told to its page as its expiry]
+    [--fresh-map local-fresh-map-v1: TEST-ONLY, natural preset only: each NEW world gets its own map. Without it
+       every natural world has the same map (one fixed clock origin, so one genesis round and one genesis seed).
+       With it the launcher picks a clock origin in the 365 days before the fixed one for each new world; the
+       Season fixes another real quicknet round and the program derives another seed by its unchanged rules. A
+       resumed kept world keeps its map. Recorded in the start's fresh-map.json]
     [--operator-residents <1-4>: TEST-ONLY, natural preset only: each new world also gets that many operator AI
        residents (⑤ option A): memory-only TEST wallets made by their own process, funded like the player, each with
        its own relay; they Join, PlaceHome and use the economy commands by a fixed offline rule, through the same
        routes and checks as a page. The page is not told which residents they are. Their relays take 4 more ports per
        world after the worlds' ten]
+    [--operator-nations <csv of distinct nations 0-5, e.g. 1,4,2,5,0,3>: TEST-ONLY, natural preset only, never with
+       --operator-residents: the same residents, one per named nation, in that order (up to six; the six-nation
+       recording, scripts/demo/sixnation). Their relays take 6 more ports per world after the worlds' ten.
+       Not with --persist]
+    [--operator-max-acts <1-9999>: TEST-ONLY, only with --operator-residents or --operator-nations: each resident's
+       send budget (without it: 60). For a long recording; the cadence and the refusal limit stay the residents' own]
     [--external-residents <address>[,<address>]: TEST-ONLY, natural preset only, not with --contest-pair: PUBLIC
        addresses of external AI residents (⑤ option B), programs someone else runs with their OWN wallet. Each new
        world admits the listed addresses no other world has: each is funded like the player (nothing more), gets a
@@ -1145,18 +1203,31 @@ export const USAGE = `local-play launcher (this machine only)
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'external-residents', 'continuous', 'persist']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-nations', 'operator-max-acts', 'external-residents', 'continuous', 'persist', 'fresh-map', 'prize-epochs']);
+  // (⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. This launcher has no prize lane —
+  //  paid windows run only under `frontier-stack up --continuous --prize-epochs` — so `--prize-epochs` is always
+  //  refused here, and by name when operator AI residents (⑤A) or external AI residents (⑤B) are asked for with it)
+  //  (checked before the strict flag loop, so a ⑤B `--external-residents` is named even where this launcher lacks it)
+  if (args.includes('--prize-epochs')) {
+    if (args.includes('--operator-residents') || args.includes('--operator-nations') || args.includes('--external-residents')) throw fault('AiResidentsInPaidWindow');
+    throw fault('PrizeNotInLauncher');
+  }
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
   if (out['natural-runner'] !== undefined && !path.isAbsolute(out['natural-runner'])) throw fault('AbsolutePathRequired');
   // (TEST-ONLY operator residents: their relays take OPERATOR_RESIDENTS_MAX ports per world after the worlds' own)
-  const operatorResidents = out['operator-residents'] === undefined ? undefined : parseOperatorResidents(out['operator-residents']);
+  // (`--operator-nations <csv>`, TEST-ONLY: one resident per named nation, up to six, OPERATOR_NATIONS_MAX ports per world;
+  //  never with `--operator-residents`: one of the two says who the residents are)
+  const operatorNations = out['operator-nations'] === undefined ? undefined : parseOperatorNations(out['operator-nations']);
+  if (operatorNations === null || (operatorNations !== undefined && out['operator-residents'] !== undefined)) throw fault('InvalidOperatorResidents');
+  const operatorResidents = operatorNations ? operatorNations.length : out['operator-residents'] === undefined ? undefined : parseOperatorResidents(out['operator-residents']);
   if (operatorResidents === null) throw fault('InvalidOperatorResidents');
+  const opWidth = operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX;
   // (TEST-ONLY external residents: public addresses only; their proxies and relays take ports after the operators')
   const externalResidents = out['external-residents'] === undefined ? undefined : parseExternalResidents(out['external-residents']);
   if (externalResidents === null) throw fault('InvalidExternalResidents');
-  const port = Number(out.port ?? 41920), worldPort = Number(out['world-port'] ?? 41924), span = WORLD_LIMIT * 5 + (operatorResidents ? WORLD_LIMIT * OPERATOR_RESIDENTS_MAX : 0) + (externalResidents ? externalSpan(WORLD_LIMIT) : 0);
+  const port = Number(out.port ?? 41920), worldPort = Number(out['world-port'] ?? 41924), span = WORLD_LIMIT * 5 + (operatorResidents ? WORLD_LIMIT * opWidth : 0) + (externalResidents ? externalSpan(WORLD_LIMIT) : 0);
   if (!Number.isInteger(port) || !Number.isInteger(worldPort) || port < 41000 || port > 41999 || worldPort < 41000 || worldPort + span - 1 > 41999 || (port >= worldPort && port <= worldPort + span - 1) || [port, ...Array.from({ length: span }, (_, i) => worldPort + i)].some(p => p >= 41904 && p <= 41907)) throw fault('InvalidPorts');
   if (!/^[a-f0-9]{64}$/.test(out['artifact-sha'] ?? '')) throw fault('ArtifactHashRequired');
   const prepareScale = out['prepare-scale'] === undefined ? undefined : Number(out['prepare-scale']);
@@ -1192,13 +1263,23 @@ export async function parseConfig(args) {
   if (out.continuous !== undefined && out.continuous !== CONTINUOUS_MODE) throw fault('InvalidContinuous');
   if (out.persist !== undefined && out.persist !== PERSIST_MODE) throw fault('InvalidPersist');
   if ((out.continuous !== undefined || out.persist !== undefined) && (!natural || out['capture-demo'] !== undefined)) throw fault('PersistNeedsNaturalWorld');
+  // (the test-only fresh map: exactly its one word, natural worlds only)
+  if (out['fresh-map'] !== undefined && out['fresh-map'] !== FRESH_MAP_MODE) throw fault('InvalidFreshMap');
+  if (out['fresh-map'] !== undefined && !natural) throw fault('FreshMapNeedsNaturalWorld');
   if (operatorResidents !== undefined && !natural) throw fault('OperatorResidentsNeedNatural');
+  // (`--operator-nations` is not for a persisted world: `--persist` keeps the residents' keys by resident index, and a
+  //  resumed world given another nation order would name a nation its kept Citizen is not of)
+  if (operatorNations !== undefined && out.persist !== undefined) throw fault('InvalidOperatorResidents');
+  // (`--operator-max-acts <1-9999>`, TEST-ONLY, only with residents: each resident's send budget for a long recording;
+  //  without it the residents' own default, OPERATOR_DEFAULTS.maxActs. The cadence, gap and refusal limit are unchanged)
+  if (out['operator-max-acts'] !== undefined && (operatorResidents === undefined || !/^[1-9][0-9]{0,3}$/.test(out['operator-max-acts']))) throw fault('InvalidOperatorResidents');
+  const operatorPace = out['operator-max-acts'] === undefined ? undefined : { maxActs: Number(out['operator-max-acts']) };
   if (operatorResidents !== undefined && Array.from({ length: span }, (_, i) => worldPort + i).includes(41970)) throw fault('InvalidPorts');
   if (externalResidents !== undefined && (!natural || out['contest-pair'] !== undefined)) throw fault('ExternalResidentsNeedNatural');
   if (externalResidents !== undefined && Array.from({ length: span }, (_, i) => worldPort + i).includes(41970)) throw fault('InvalidPorts');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['fresh-map'] !== undefined ? { freshMap: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(operatorNations ? { operatorNations } : {}), ...(operatorPace ? { operatorPace } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true });
   // (persisted worlds: their parent is private, made so here, and a looser one refuses the launcher's start)
@@ -1212,7 +1293,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.once('error', e => { console.error(`local-play launcher: ${e?.code === 'EADDRINUSE' ? `port ${config.port} is in use` : 'cannot listen'}`); process.exit(2); });
   server.listen(config.port, '127.0.0.1', () => console.log(JSON.stringify({ origin: `http://localhost:${config.port}`, open: `http://localhost:${config.port}/`, mode: 'new-world-per-wallet', worlds: WORLD_LIMIT, ttl_seconds: (config.worldTtlMs ?? WORLD_TTL_MS) / 1000, ttl_source: config['world-ttl-minutes'] === undefined ? 'default' : '--world-ttl-minutes',
     prepare: config.prepareScale ? { clock_scale: config.prepareScale, chain_seconds_max: PREPARE_CHAIN_MAX, then: '1x, read back, before the world is handed over' } : 'natural 1x',
-    world_preset: config.worldPreset ?? null, continuous: config.continuous === true, persist: config.persist ? { mode: PERSIST_MODE, dir: path.join(config.data, 'persist'), test_only: true, not_for_production: true } : null, herald_output: config.heraldOutput ?? 'default', conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
+    world_preset: config.worldPreset ?? null, continuous: config.continuous === true, fresh_map: config.freshMap === true ? FRESH_MAP_MODE : null, persist: config.persist ? { mode: PERSIST_MODE, dir: path.join(config.data, 'persist'), test_only: true, not_for_production: true } : null, herald_output: config.heraldOutput ?? 'default', conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
     ports: { launcher: config.port, worlds: Array.from({ length: WORLD_LIMIT }, (_, slot) => worldPorts(config.worldPort, slot)) } })));
   // Ctrl-C (or a closed terminal): every world of this launcher is ended first, then the launcher.
   let ending = false;

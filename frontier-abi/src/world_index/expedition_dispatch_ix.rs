@@ -25,6 +25,19 @@ pub const VERSION: u8 = 2;
 pub const VERSION_BIT: u16 = 0x0800;
 pub const PROGRAM_VERSION: u16 =
     crate::v2::presets::PROGRAM_VERSION_S1 | wide::WIDE_EXPERIMENTAL_VERSION_BIT | VERSION_BIT;
+/// ⑳ (owner decision 2026-11-18 18:26 JST, local and devnet only): the
+/// isolated localnet lane WITH the NFT resident instructions
+/// (`permutation-frontier` feature `localnet-nft-sbf`) carries the resident
+/// bit 0x8000 on top of this revision (0xC804), so its Seasons never mix with
+/// the plain lane's (0x4804). Provisional, workstream 4 allocates.
+pub const RESIDENT_PROGRAM_VERSION: u16 = PROGRAM_VERSION | 0x8000;
+/// Whether `v` is a Season version of this dispatch revision: the plain lane
+/// (0x4804) or the lane with NFT residents (0xC804). Readers that only need
+/// "an expedition-dispatch Season" use this; a program compares with its
+/// own exact version.
+pub const fn is_dispatch_version(v: u16) -> bool {
+    v == PROGRAM_VERSION || v == RESIDENT_PROGRAM_VERSION
+}
 pub const HEADER_LEN: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -293,6 +306,18 @@ mod conquest_kind_tests {
         let mut d = vec![inner[0], wide::ENVELOPE_ESCAPE, VERSION, kind];
         d.extend_from_slice(inner);
         d
+    }
+
+    /// ⑳: the NFT lane's version is the plain lane's plus the resident bit
+    /// only; both are dispatch versions, nothing else is.
+    #[test]
+    fn the_nft_lane_version_is_the_plain_one_with_the_resident_bit() {
+        assert_eq!(PROGRAM_VERSION, 0x4804);
+        assert_eq!(RESIDENT_PROGRAM_VERSION, 0xC804);
+        assert!(is_dispatch_version(0x4804) && is_dispatch_version(0xC804));
+        for v in [4u16, 0x8004, 0x4004, 0x4805, 0xC004, 0x2004, 0xD804] {
+            assert!(!is_dispatch_version(v), "{v:#x}");
+        }
     }
 
     /// Collision check: no wrapper of kinds 12–17 is itself a valid legacy or

@@ -13,7 +13,7 @@
 |---|---|---|
 | `permutation-frontier`, plain release build (`scripts/build-frontier.sh`, S1 rules, `program_version` 4) | **yes** | The only artefact the build calls `deployable yes` |
 | `permutation-frontier --features localnet-conquest-sbf` (what local play runs) | no | Carries the `PSF_LOCALNET_*` markers and runs only under program id `[0x45; 32]`. The dry run refuses it (exit 3) |
-| `permutation-prize` | no | Owner decision ⑰ = A (no prize) |
+| `permutation-prize` | no (default); plan only with `--with-prize` | ⑰ reopened 2026-11-18 by the owner, devnet/test-USDC only; a mainnet real-money prize needs a legal review first. `dry-run.mjs --with-prize` checks the `--features epochs` build (`permutation-prize/target/deploy-epochs/permutation_prize.so`, marker `PRZ_EPOCHS_TEST_USDC_BUILD`) and adds its cost; it is never sent (no prize deploy step) |
 | `wylls_resident_program` (NFT spike) | no | Owner decision ⑳ = A (no NFT resident) |
 | `permutation-chain` (v9) | no | Superseded by `permutation-frontier` |
 

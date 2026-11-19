@@ -80,6 +80,8 @@ jobs:
         run: |
           python3 -c 'import yaml' 2>/dev/null || pip install --user pyyaml==6.0.2
           python3 scripts/ci/check-ci-keyfree.py .github/workflows/ci.yml
+      - name: Local play kit (scripts/play-local.sh) arguments and refusals (no build, no world)
+        run: python3 -I scripts/tests/test_play_local.py
 
   receipt-tests:
     name: Solana receipt scaffold tests
@@ -202,6 +204,16 @@ jobs:
       - name: Workstream 01 closed caravan link tests (key-free)
         working-directory: .
         run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy test/coop.arrived.test.mjs
+      # The six-nation recording tool (scripts/demo/sixnation): its pure part — argument parsing, the refusal of any
+      # non-TEST cluster, the seed's choices, the launcher's command line, the summary and the grid. No world is started.
+      - name: Six-nation recording tool tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh scripts/demo/sixnation test/lib.test.mjs
+      # The six-nation map timelapse (scripts/demo/sixnation/map): argument parsing, the refusal of any chain/RPC/key
+      # flag, the simulator's command line, the video clock and the ffmpeg lines. No browser, no simulator run.
+      - name: Six-nation map timelapse tool tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh scripts/demo/sixnation/map test/lib.test.mjs
 
   # Workstream 12 (memory): its audited key-free test files (workstreams/12-memory/tools/keyfree-tests.txt) through
   # the same runner and guard as the gateway job. No npm install (12 has no dependencies). Node 22: node:sqlite
@@ -387,6 +399,19 @@ jobs:
           # reader never sees a healthy ingest as blocked (loop-play B4-D).
           cargo test --locked -p findex --test reader_during_ingest
           cargo test --locked -p herald --lib
+      # Q16-1 = A (prize gate): the verifier's PLAYABLE lane (program version
+      # 0x4804) is behind the `playable-lane` feature, which no other step
+      # builds. Lint it, and run its checks over the committed recordings
+      # (VL, VWL: wide land, claims, closes, economy, garrison; and
+      # wallet_finals, the S1 lane with wallets in the finals). These tests
+      # read recorded archives only: no key is generated, derived or signed
+      # (every recorder in these files is #[ignore] and is not run here).
+      - name: Verifier playable lane (lints, recorded-fixture tests; key-free)
+        if: hashFiles('frontier-node/Cargo.toml') != ''
+        working-directory: frontier-node
+        run: |
+          cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test wallet_finals
 
   frontier-wasm:
     name: Frontier M1 web kernels (WASM build and hash)
@@ -430,6 +455,9 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
+          # ⑰ settlement windows (feature `epochs`; test USDC, local/devnet only)
+          cargo clippy --locked --all-targets --features epochs -- -D warnings
+          cargo test --locked --features epochs
       # Moved to key-tests: the Prize SBF v2 build and the LiteSVM tests.
 
   # Workstream 04's host runs of the real prize and game programs (no keys:
@@ -478,6 +506,8 @@ jobs:
         run: scripts/build-frontier.sh --twice
       - name: Prize SBF v2 build
         run: scripts/build-prize.sh
+      - name: Prize SBF v2 build with settlement windows (⑰, --features epochs)
+        run: scripts/build-prize.sh --features epochs
       - name: Frontier LiteSVM suite (G1-G13 against the SBF build)
         if: hashFiles('permutation-frontier/svm-tests/run.sh') != ''
         working-directory: permutation-frontier/svm-tests
@@ -487,10 +517,15 @@ jobs:
           PRIZE_SO: ${{ github.workspace }}/permutation-prize/target/deploy/permutation_prize.so
       - name: Prize pool LiteSVM format, lints and tests
         working-directory: permutation-prize/svm-tests
+        env:
+          # Named explicitly, so a missing epochs build fails instead of skipping (verify-pr54 D-8).
+          PRIZE_EPOCH_SO: ${{ github.workspace }}/permutation-prize/target/deploy-epochs/permutation_prize.so
         run: |
           cargo fmt --all -- --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --release
+          # The legacy suite against the epochs build too: the feature changes no legacy behaviour.
+          PRIZE_SO="$GITHUB_WORKSPACE/permutation-prize/target/deploy-epochs/permutation_prize.so" cargo test --locked --release --test pool
       - name: frontier-node workspace tests
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node

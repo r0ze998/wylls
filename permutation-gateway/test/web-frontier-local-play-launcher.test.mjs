@@ -752,7 +752,16 @@ test('the source: five launcher routes and no other, no storage, no markup from 
   assert.match(code, /while \(body\?\.pairWaiting === true && body\?\.herald === undefined\) \{/);
   assert.equal(code.split(`await request(new URL(route, loc.href).href, ${shape.replace('BODY', 'body')})`).length - 1, 1);
   assert.equal(code.split('request(').length - 1, 2, 'and no other request');
-  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/pair', { wallet }, 'LauncherPairFailed'", "'/local-play/stop', { wallet: address }, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
+  // (2026-11-18, the loop-play report B5: the keeper route is asked from a second place, `checkWorld` — the page's
+  //  question "does the launcher still run this world?", asked by the page only after a read of the world's herald
+  //  failed by the network (app.mjs loadSeason → flocalplay-ended.mjs createWorldWatch: one at a time, spaced, never
+  //  again once the end is known). The same route, the same body — this page's own public address —, the same bounded
+  //  request; the gate itself never calls it. web-frontier-world-ended.test.mjs, web-frontier-fix-b6-b9.test.mjs)
+  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/pair', { wallet }, 'LauncherPairFailed'", "'/local-play/stop', { wallet: address }, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
+  assert.match(code, /const checkWorld = async \(\) => \{\n    if \(!launcher \|\| !done \|\| !handle \|\| handle\.destroyed\) return null;\n    const wallet = handle\.address;\n    const result = await askLauncher\('\/local-play\/keeper', \{ wallet \}, 'LauncherKeeperFailed'\);\n    return !handle \|\| handle\.destroyed \|\| handle\.address !== wallet \? null : result;\n  \};/);
+  assert.equal(code.split('checkWorld(').length - 1, 0, 'the gate never asks it by itself: it is handed to the page (worldChecks, the gate\'s own handle)');
+  assert.match(read('app.mjs'), /if \(!r\.ok && r\.code === 'network'\) worldWatch\?\.readFailed\(\);/, 'the page asks only after a herald read failed by the network');
+  assert.equal(read('app.mjs').split('readFailed(').length - 1, 1);
   // the keeper's view: asked only from the standing notice's key, for this page's own address, never polled
   assert.match(code, /if \(launcher\) \{ const mine = handle\.address; session = mountSessionNotice\(\{ doc, win, onCheck: \(\) => checkKeeper\(mine\), demo: claimedDemo, \.\.\.\(state\.pairRole === 'second' && claimedDemo !== null \? \{ onPair: \(\) => checkPair\(mine, \{ herald: base, expiry: claimedEnd \}\) \} : \{\}\), \.\.\.\(persisted \? \{ persisted: true \} : \{\}\) \}\); \}/, 'the pair key only for the second player of a capture-demo pair');
   assert.equal(code.split('checkKeeper(').length - 1, 1, 'only the notice\'s key calls it');

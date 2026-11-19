@@ -217,7 +217,7 @@ pub fn verify(input: &Input) -> Report {
                 );
             }
         }
-        let bodies = match fclient::log::bodies_from_logs(&tx.logs, &input.cfg.program) {
+        let bodies = match crate::world::ps2_bodies(&tx.logs, &input.cfg.program) {
             Ok(x) => x,
             Err(e) => {
                 finding(
@@ -460,11 +460,39 @@ pub fn verify(input: &Input) -> Report {
     for (key, a) in &input.finals {
         if let Some(a) = a {
             if a.owner != input.cfg.program {
+                // Only the program can hand its account to another owner,
+                // and every program write is archived: a final that is no
+                // longer the program's while its last archived write still
+                // was is a missing write (D-verify-pr72-2, round 2 of #72).
+                // (Round 3: a real archive's posts and finals also hold
+                // wallets, so only a last archived state the PROGRAM owned
+                // counts.)
+                if states
+                    .get(key)
+                    .is_some_and(|s| s.owner == input.cfg.program)
+                {
+                    finding(
+                        &mut findings,
+                        "CQ1",
+                        "FinalStateMismatch",
+                        fclient::Address::new_from_array(*key).to_string(),
+                        0,
+                        "",
+                        "pinned final account is no longer owned by the program, though its last archived write was",
+                    );
+                }
                 continue;
             }
+            // Lamports reach any account by a plain system transfer, which
+            // is no program transaction and so never in the archive: a
+            // final balance ABOVE the last archived write (same data, same
+            // owner) is that, not a missing write. Only the program can
+            // debit its accounts, so a balance below it still is (Q16-1
+            // continued, 2026-11-19: before, one gifted lamport FAILed an
+            // honest season).
             if states
                 .get(key)
-                .is_none_or(|s| s.data != a.data || s.lamports != a.lamports || s.owner != a.owner)
+                .is_none_or(|s| s.data != a.data || s.lamports > a.lamports || s.owner != a.owner)
             {
                 finding(
                     &mut findings,

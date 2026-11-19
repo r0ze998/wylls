@@ -51,6 +51,7 @@
 //! | 5 | Claim(nation u8, points u64, n u8, proof 32×n) | `[wallet s] [pool w] [entry w] [citizen] [vault w] [wallet token w] [mint] [token]` |
 //! | 6 | WithdrawOps | `[operator s] [pool w] [vault w] [operator token w] [mint] [token]` |
 //! | 7 | RecordNation (candidate, workstream 04) | `[pool] [entry w] [citizen]` |
+//! | 8–11 | InitEpochPool, EpochTally, EpochFinalize, Sweep (feature `epochs` only: ⑰ settlement windows of a continuous world, test USDC; see [`epoch`]) | |
 //!
 //! **RecordNation** (candidate, 2026-11-06; changes no rule and no amount).
 //! A shares claim needs the wallet's nation, which the game keeps in its
@@ -89,6 +90,8 @@ pub const SYSTEM_PROGRAM: Pubkey = Pubkey::new_from_array([0u8; 32]);
 pub const POOL_SEED: &[u8] = b"pool";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const ENTRY_SEED: &[u8] = b"entry";
+/// Epoch pools (feature `epochs`): `["epool", game, le64(season), le32(epoch)]`.
+pub const EPOCH_POOL_SEED: &[u8] = b"epool";
 pub const FACTIONS: usize = 6;
 /// Most basis points of a fee the operator may keep.
 pub const MAX_OPS_BPS: u16 = 10_000;
@@ -111,6 +114,13 @@ pub mod tag {
     pub const WITHDRAW_OPS: u8 = 6;
     /// Candidate (workstream 04): copy the Citizen's nation into the Entry.
     pub const RECORD_NATION: u8 = 7;
+    /// Continuous-world settlement windows (feature `epochs`, [`crate::epoch`]).
+    pub const INIT_EPOCH_POOL: u8 = 8;
+    pub const EPOCH_TALLY: u8 = 9;
+    pub const EPOCH_FINALIZE: u8 = 10;
+    pub const SWEEP: u8 = 11;
+    /// ⑰ (owner 2026-11-18 21:44): mark a wallet as an operator member, never in a paid window.
+    pub const EXCLUDE_WALLET: u8 = 12;
 }
 
 /// Pool account (640 B, PDA `["pool", game program, le64(season id)]`).
@@ -151,6 +161,25 @@ pub mod pool {
     pub const END_BELL: usize = 456;
     pub const BITMAP: usize = 472;
     pub const BITMAP_LEN: usize = 128;
+    // Bytes 600..640: zero in a legacy (per-season) pool; an epoch pool's
+    // settlement window (feature `epochs`, [`crate::epoch`]).
+    /// The epoch number (part of the epoch pool's PDA).
+    pub const EPOCH: usize = 600;
+    /// The season's seconds per bell, copied at InitEpochPool.
+    pub const EPOCH_BELL_SECS: usize = 604;
+    /// The season's genesis timestamp, copied at InitEpochPool.
+    pub const EPOCH_GENESIS_TS: usize = 608;
+    /// Claim window after EpochFinalize, in bells.
+    pub const CLAIM_BELLS: usize = 616;
+    /// [`KIND_LEGACY`] or [`KIND_EPOCH`].
+    pub const KIND: usize = 620;
+    /// EpochFinalize's time + the claim window: Sweep is open from here.
+    pub const DEADLINE_TS: usize = 624;
+    /// What Sweep moved to a later epoch's pool.
+    pub const ROLLED_OUT: usize = 632;
+
+    pub const KIND_LEGACY: u8 = 0;
+    pub const KIND_EPOCH: u8 = 1;
 
     /// `state`: fees are taken until the first Tally.
     pub const STATE_OPEN: u8 = 0;
@@ -158,6 +187,9 @@ pub mod pool {
     pub const STATE_FINAL: u8 = 1;
     /// The shares (or the refund) are set; claims are open.
     pub const STATE_SHARES: u8 = 2;
+    /// Epoch pools only: the claim window is over and the rest of the
+    /// prize went to a later epoch's pool (Sweep); claims are closed.
+    pub const STATE_SWEPT: u8 = 3;
 
     /// `mode` of SetShares: points against the merkle root.
     pub const MODE_SHARES: u8 = 1;
@@ -211,6 +243,18 @@ pub enum PrizeError {
     /// InitPool: the season's `r_max_ceiling` lets ExtendFrontier grow the
     /// map past [`MAX_RING`] (the tally bitmap's rings 0–17).
     CeilingPastTally = 0x111,
+    /// InitEpochPool: the season is not a continuous world (use InitPool).
+    FiniteSeason = 0x113,
+    /// Pay into an epoch pool at or after its end bell.
+    EpochClosed = 0x114,
+    /// Sweep before the claim deadline.
+    ClaimWindowOpen = 0x115,
+    /// EpochTally or EpochFinalize before the window's end bell's time.
+    WindowOpen = 0x116,
+    /// Pay or Claim in an epoch pool by a wallet the season's join gate marked as an
+    /// operator member (operator AI residents and script bots join by invite; owner
+    /// decision 2026-11-18 21:44: no AI residents in paid periods).
+    OperatorMember = 0x117,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -253,6 +297,24 @@ fn add(a: u64, b: u64) -> R<u64> {
 pub fn pool_address(program: &Pubkey, game: &Pubkey, season_id: u64) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[POOL_SEED, game.as_ref(), &season_id.to_le_bytes()],
+        program,
+    )
+}
+/// The pool of settlement window `epoch` of a continuous season (feature
+/// `epochs`; the address is the same with or without the feature).
+pub fn epoch_pool_address(
+    program: &Pubkey,
+    game: &Pubkey,
+    season_id: u64,
+    epoch: u32,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            EPOCH_POOL_SEED,
+            game.as_ref(),
+            &season_id.to_le_bytes(),
+            &epoch.to_le_bytes(),
+        ],
         program,
     )
 }
@@ -362,24 +424,63 @@ fn create<'a>(
     if !target.data_is_empty() || *target.owner != SYSTEM_PROGRAM {
         return Err(E::BadAccount.into());
     }
-    let lamports = Rent::get()?
-        .minimum_balance(space)
-        .saturating_sub(target.lamports());
-    let mut d = Vec::with_capacity(52);
-    d.extend_from_slice(&0u32.to_le_bytes()); // System CreateAccount
-    d.extend_from_slice(&lamports.to_le_bytes());
+    let rent = Rent::get()?.minimum_balance(space);
+    let system = |data: Vec<u8>, accounts: Vec<AccountMeta>| Instruction {
+        program_id: SYSTEM_PROGRAM,
+        accounts,
+        data,
+    };
+    if target.lamports() == 0 {
+        // The usual case: one CreateAccount, as before.
+        let mut d = Vec::with_capacity(52);
+        d.extend_from_slice(&0u32.to_le_bytes()); // System CreateAccount
+        d.extend_from_slice(&rent.to_le_bytes());
+        d.extend_from_slice(&(space as u64).to_le_bytes());
+        d.extend_from_slice(owner.as_ref());
+        return invoke_signed(
+            &system(
+                d,
+                vec![
+                    AccountMeta::new(*payer.key, true),
+                    AccountMeta::new(*target.key, true),
+                ],
+            ),
+            &[payer.clone(), target.clone()],
+            &[seeds],
+        );
+    }
+    // A pre-funded address (anyone can send lamports to a PDA): CreateAccount
+    // would refuse it ("already in use"), which would let a griefer block any
+    // PDA, or an operator member keep its exclusion mark from being written
+    // (verify-pr54 D-9/D-10). The standard way: top the rent up, then
+    // Allocate and Assign under the PDA's own signature.
+    let short = rent.saturating_sub(target.lamports());
+    if short > 0 {
+        let mut d = 2u32.to_le_bytes().to_vec(); // System Transfer
+        d.extend_from_slice(&short.to_le_bytes());
+        invoke(
+            &system(
+                d,
+                vec![
+                    AccountMeta::new(*payer.key, true),
+                    AccountMeta::new(*target.key, false),
+                ],
+            ),
+            &[payer.clone(), target.clone()],
+        )?;
+    }
+    let mut d = 8u32.to_le_bytes().to_vec(); // System Allocate
     d.extend_from_slice(&(space as u64).to_le_bytes());
+    invoke_signed(
+        &system(d, vec![AccountMeta::new(*target.key, true)]),
+        std::slice::from_ref(target),
+        &[seeds],
+    )?;
+    let mut d = 1u32.to_le_bytes().to_vec(); // System Assign
     d.extend_from_slice(owner.as_ref());
     invoke_signed(
-        &Instruction {
-            program_id: SYSTEM_PROGRAM,
-            accounts: vec![
-                AccountMeta::new(*payer.key, true),
-                AccountMeta::new(*target.key, true),
-            ],
-            data: d,
-        },
-        &[payer.clone(), target.clone()],
+        &system(d, vec![AccountMeta::new(*target.key, true)]),
+        std::slice::from_ref(target),
         &[seeds],
     )
 }
@@ -422,6 +523,79 @@ fn pool_of(program: &Pubkey, ai: &AccountInfo) -> R<()> {
         return Err(E::BadAccount.into());
     }
     Ok(())
+}
+
+/// The seeds a pool signs with: `["pool", game, le64(season)]` for a
+/// legacy pool, `["epool", game, le64(season), le32(epoch)]` for an epoch
+/// pool (feature `epochs`), each with its bump.
+pub(crate) struct PoolSigner {
+    epoch_pool: bool,
+    game: [u8; 32],
+    sid: [u8; 8],
+    epoch: [u8; 4],
+    bump: [u8; 1],
+}
+
+impl PoolSigner {
+    pub(crate) fn of(pd: &[u8]) -> R<Self> {
+        Ok(Self {
+            epoch_pool: is_epoch_pool(pd),
+            game: rd(pd, pool::GAME_PROGRAM)?,
+            sid: rd(pd, pool::SEASON_ID)?,
+            epoch: rd(pd, pool::EPOCH)?,
+            bump: [pd[pool::BUMP]],
+        })
+    }
+    pub(crate) fn seeds(&self) -> Vec<&[u8]> {
+        if self.epoch_pool {
+            vec![
+                EPOCH_POOL_SEED,
+                &self.game,
+                &self.sid,
+                &self.epoch,
+                &self.bump,
+            ]
+        } else {
+            vec![POOL_SEED, &self.game, &self.sid, &self.bump]
+        }
+    }
+}
+
+/// The accounts after Pay's or Claim's fixed list: none for a legacy pool;
+/// for an epoch pool exactly one, the wallet's exclusion address, which must
+/// be empty (feature `epochs`, [`epoch::not_excluded`]).
+fn member_check(
+    program: &Pubkey,
+    pool_ai: &AccountInfo,
+    wallet: &Pubkey,
+    rest: &[AccountInfo],
+) -> R<()> {
+    let pd = pool_ai.try_borrow_data()?;
+    if !is_epoch_pool(&pd) {
+        return if rest.is_empty() {
+            Ok(())
+        } else {
+            Err(ProgramError::NotEnoughAccountKeys)
+        };
+    }
+    #[cfg(feature = "epochs")]
+    {
+        let [exclusion] = rest else {
+            return Err(ProgramError::NotEnoughAccountKeys);
+        };
+        epoch::not_excluded(program, &pd, wallet, exclusion)
+    }
+    #[cfg(not(feature = "epochs"))]
+    {
+        let _ = (program, wallet);
+        Err(E::WrongState.into())
+    }
+}
+
+/// Whether a pool is an epoch pool. Always false without feature `epochs`
+/// (no such pool can then exist: only InitEpochPool writes the kind).
+pub(crate) fn is_epoch_pool(pd: &[u8]) -> bool {
+    cfg!(feature = "epochs") && pd.get(pool::KIND) == Some(&pool::KIND_EPOCH)
 }
 
 /// An account of the game program with the chained header's magic and
@@ -544,10 +718,14 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 }
 
 fn pay(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    // An epoch pool's Pay takes one more account: the wallet's exclusion
+    // address (it must be empty). A legacy pool's takes exactly nine.
+    let (a, rest) = a.split_at(a.len().min(9));
     let [wallet, payer, pool_ai, entry_ai, from, vault, mint, token, system] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     pool_of(program, pool_ai)?;
+    member_check(program, pool_ai, wallet.key, rest)?;
     if !wallet.is_signer
         || !payer.is_signer
         || *token.key != TOKEN_PROGRAM
@@ -562,6 +740,10 @@ fn pay(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         }
         if key_at(&pd, pool::VAULT)? != *vault.key || key_at(&pd, pool::MINT)? != *mint.key {
             return Err(E::BadAccount.into());
+        }
+        #[cfg(feature = "epochs")]
+        if is_epoch_pool(&pd) {
+            epoch::pay_open(&pd, solana_program::clock::Clock::get()?.unix_timestamp)?;
         }
         (
             u64_at(&pd, pool::FEE)?,
@@ -627,7 +809,7 @@ fn tally(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
     };
     pool_of(program, pool_ai)?;
     let mut pd = pool_ai.try_borrow_mut_data()?;
-    if pd[pool::STATE] != pool::STATE_OPEN {
+    if pd[pool::STATE] != pool::STATE_OPEN || is_epoch_pool(&pd) {
         return Err(E::WrongState.into());
     }
     let game = key_at(&pd, pool::GAME_PROGRAM)?;
@@ -709,7 +891,7 @@ fn finalize(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
     }
     pool_of(program, pool_ai)?;
     let mut pd = pool_ai.try_borrow_mut_data()?;
-    if pd[pool::STATE] != pool::STATE_OPEN {
+    if pd[pool::STATE] != pool::STATE_OPEN || is_epoch_pool(&pd) {
         return Err(E::WrongState.into());
     }
     let game = key_at(&pd, pool::GAME_PROGRAM)?;
@@ -801,10 +983,12 @@ fn set_shares(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 }
 
 fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let (a, rest) = a.split_at(a.len().min(8));
     let [wallet, pool_ai, entry_ai, citizen, vault, to, mint, token] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     pool_of(program, pool_ai)?;
+    member_check(program, pool_ai, wallet.key, rest)?;
     if !wallet.is_signer || *token.key != TOKEN_PROGRAM {
         return Err(E::BadAccount.into());
     }
@@ -897,9 +1081,8 @@ fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     put(&mut pd, pool::CLAIMS, &n.to_le_bytes())?;
     ed[entry::CLAIMED] = 1;
     put(&mut ed, entry::CLAIM_AMOUNT, &amount.to_le_bytes())?;
-    let game = key_at(&pd, pool::GAME_PROGRAM)?;
-    let sid = u64_at(&pd, pool::SEASON_ID)?.to_le_bytes();
-    let (bump, decimals) = (pd[pool::BUMP], pd[pool::DECIMALS]);
+    let signer = PoolSigner::of(&pd)?;
+    let decimals = pd[pool::DECIMALS];
     drop(pd);
     drop(ed);
     if amount > 0 {
@@ -910,7 +1093,7 @@ fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             pool_ai,
             amount,
             decimals,
-            Some(&[POOL_SEED, game.as_ref(), &sid, &[bump]]),
+            Some(&signer.seeds()),
         )?;
     }
     msg!(
@@ -1008,9 +1191,8 @@ fn withdraw_ops(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         return Err(E::NothingToPay.into());
     }
     put(&mut pd, pool::OPS_WITHDRAWN, &ops.to_le_bytes())?;
-    let game = key_at(&pd, pool::GAME_PROGRAM)?;
-    let sid = u64_at(&pd, pool::SEASON_ID)?.to_le_bytes();
-    let (bump, decimals) = (pd[pool::BUMP], pd[pool::DECIMALS]);
+    let signer = PoolSigner::of(&pd)?;
+    let decimals = pd[pool::DECIMALS];
     drop(pd);
     token_transfer(
         vault,
@@ -1019,7 +1201,7 @@ fn withdraw_ops(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         pool_ai,
         amount,
         decimals,
-        Some(&[POOL_SEED, game.as_ref(), &sid, &[bump]]),
+        Some(&signer.seeds()),
     )?;
     msg!("PRIZE ops amount={}", amount);
     Ok(())
@@ -1027,6 +1209,8 @@ fn withdraw_ops(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
 
 pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let (t, d) = data.split_first().ok_or(E::BadData)?;
+    #[cfg(feature = "epochs")]
+    core::hint::black_box(epoch::MARKER.as_ptr());
     match *t {
         tag::INIT_POOL => init_pool(program, a, d),
         tag::PAY if d.is_empty() => pay(program, a),
@@ -1036,6 +1220,16 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
         tag::CLAIM => claim(program, a, d),
         tag::WITHDRAW_OPS if d.is_empty() => withdraw_ops(program, a),
         tag::RECORD_NATION if d.is_empty() => record_nation(program, a),
+        #[cfg(feature = "epochs")]
+        tag::INIT_EPOCH_POOL => epoch::init_epoch_pool(program, a, d),
+        #[cfg(feature = "epochs")]
+        tag::EPOCH_TALLY if d.is_empty() => epoch::epoch_tally(program, a),
+        #[cfg(feature = "epochs")]
+        tag::EPOCH_FINALIZE if d.is_empty() => epoch::epoch_finalize(program, a),
+        #[cfg(feature = "epochs")]
+        tag::SWEEP if d.is_empty() => epoch::sweep(program, a),
+        #[cfg(feature = "epochs")]
+        tag::EXCLUDE_WALLET if d.is_empty() => epoch::exclude_wallet(program, a),
         _ => Err(E::BadData.into()),
     }
 }
@@ -1090,6 +1284,9 @@ fn season_rings_fit(sd: &[u8]) -> R<()> {
     }
     Ok(())
 }
+
+#[cfg(feature = "epochs")]
+pub mod epoch;
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);

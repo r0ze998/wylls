@@ -20,6 +20,47 @@ function sameExtent(a,b) {
   return true;
 }
 const snapshot=world=>({...world,ringProvinces:world.ringProvinces?.slice()??null});
+// (PR #46 round 3, 2026-11-18: a ring the herald REFUSED — 404, `NoSuchRing` from the herald, `NotFound` from the client —
+//  under this extent. Seen live in the natural world: the season record opens rings 0..4 and the page's world model says
+//  every one is seeded, but the herald serves no overview of rings 0 and 1; the page asked again on every refresh, 125
+//  times each in 15 min, and the reach list waited for them for ever. A refused ring is remembered with the extent it was
+//  refused under: it is not asked again while that extent stands — a changed extent (a ring opened, a province count
+//  changed) asks again, and so do another herald client and an explicit re-read (`forgetOverviewRefusals`, the map's
+//  'province-reread') — and `overviewRefused` tells the reach list that nothing is coming for it.)
+const refusals=new WeakMap();
+const refusedOf=FS=>{let m=refusals.get(FS);if(!m) {m=new Map();refusals.set(FS,m);}return m;};
+const refusedNow=(FS,world,ring)=>{const w=refusals.get(FS)?.get(ring);return !!w&&!!world&&sameExtent(world,w);};
+/** Whether the herald refused ring `ring`'s overview (404) under the current world's extent, and no overview of it is held. */
+export function overviewRefused(FS,ring) {
+  return !FS.overviews?.has?.(ring)&&refusedNow(FS,FS.world,ring);
+}
+/**
+ * The rings whose overview did not come that the map says so of NOW (app.mjs readMarksNow, ⑦; fix-stale-tooltip
+ * 2026-11-19): `[{p, q, ring}]`. Seen live in the six-nation real-client video: the two rings the herald refused
+ * (404 NoSuchRing, PR #46) stayed in FS.overviewMisses, and the words "the list of villages in this ring is not loaded"
+ * stood over the World chart for the whole 85 s. Now a miss is said only
+ *  - for this world's misses (`key`, the pinned world the miss was noted in), on an open, seeded ring of FS.world;
+ *  - never for a ring the herald refused under this extent (`overviewRefused`): nothing is coming, and asking again is
+ *    the province card's explicit re-read, not a map label;
+ *  - never once its overview is held (it goes the moment the read comes);
+ *  - and only for the ring the person is looking at: a place of `looking` (the selected province, the province at the
+ *    view's centre when the map is zoomed in) that lies in it — the words stand on that place. A ring merely missed
+ *    while the person looks elsewhere is retried quietly by the season poll (loadOverviews) and not marked.
+ * Pure: reads FS, asks nothing.
+ */
+export function ringMissMarks(FS,{key,looking=[]}={}) {
+  const miss=FS.overviewMisses,out=[];
+  if(!miss||miss.world!==key||!FS.world||!miss.rings?.has) return out;
+  for(const at of looking) {
+    if(!Number.isInteger(at?.p)||!Number.isInteger(at?.q)) continue;
+    const d=ringOf(at.p,at.q);
+    if(out.some(m=>m.ring===d)||!miss.rings.has(d)||FS.overviews?.has?.(d)||!ringSeeded(FS.world,d)||overviewRefused(FS,d)) continue;
+    out.push({p:at.p,q:at.q,ring:d});
+  }
+  return out;
+}
+/** Forget every refusal: the next read asks those rings again (an explicit re-read by the player). */
+export function forgetOverviewRefusals(FS) {refusals.delete(FS);}
 // (2026-11-17, ⑦: the pinned world a caller names with `source` — a function giving the world now, with its generation —
 //  and a job is for the one it was made under. The herald object can stay the same when the world is pinned again, and
 //  two worlds can have the same extent, so neither the client nor the extent sees that change. A job whose world is no
@@ -72,7 +113,9 @@ function start(FS,Q) {
     let stored=false,consumed=false;
     Promise.resolve().then(()=>job.herald[job.method](job.ring)).then(answer=>{
       rebase(FS,Q);
+      if(!job.done&&!keyGone(Q,job)&&sameExtent(job.world,requestedWorld)&&answer?.ok===false&&answer.code==='NotFound') refusedOf(FS).set(job.ring,requestedWorld);
       if(job.done||keyGone(Q,job)||!sameExtent(job.world,requestedWorld)||!answer?.ok) return;
+      refusals.get(FS)?.delete(job.ring);
       // This response is now spent. Close the job to new callers before any
       // caller code runs: a request made from a redraw callback, or between
       // this step and settlement, wants a read of its own. Joining here would
@@ -143,12 +186,15 @@ export function readOverviews(FS,{herald,rings=overviewRings(FS.world,FS.overvie
     // against the bound and are discarded on return; old callers settle now.
     for(const job of Q.jobs.values()) settle(Q,job,false);
     Q.pending=[];Q.herald=herald;Q.method=method;
+    refusals.delete(FS);
     if(key!==undefined) Q.key=key;
   }
   rebase(FS,Q);
   const promises=[];
   for(const ring of new Set(rings)) {
     if(!validRing(world,ring)) continue;
+    // (a ring the herald refused under this extent is not asked again: its caller is answered false, as for a failure)
+    if(refusedNow(FS,world,ring)) {promises.push(Promise.resolve(false));continue;}
     let job=Q.jobs.get(ring);
     if(!job||job.world!==world||job.herald!==herald||job.method!==method||job.key!==Q.key) {
       let resolve;

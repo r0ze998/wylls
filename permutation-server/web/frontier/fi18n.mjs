@@ -272,6 +272,14 @@ const CLIENT_TEXT = {
   ClaimInFlight: () => L`賞金の受け取りを送信中です。結果を確認するまで再請求しないでください。`,
   ClaimOutcomeUnknown: () => L`賞金の受け取り結果がまだ確認できません。署名の結果を確認するまで再請求しないでください。`,
   EntriesClosed: () => L`この季節の参加費の受付は終わりました。`,
+  // ⑰ settlement windows (permutation-prize feature `epochs`, test USDC)
+  EpochClosed: () => L`この賞金の区切りの参加費の受付は終わりました。次の区切りが開くまで、有料の参加はできません。`,
+  WindowOpen: () => L`この賞金の区切りはまだ終わっていないため、集計できません。`,
+  ClaimWindowOpen: () => L`受け取りの期間がまだ終わっていないため、残りを次の区切りへ移せません。`,
+  MarkFailed: () => L`運営の住人の印を書けなかったため、招待による参加を止めました。`,
+  OperatorMember: () => L`運営が動かす住人（AIやボット）は、賞金の区切りに参加費を払えず、賞金も受け取れません。`,
+  FiniteSeason: () => L`終わりのある季節には、賞金の区切りのプールは開けません。`,
+  CeilingPastTally: () => L`この季節の地図は、賞金プールが数えられる広さ（輪17）を超えて広がることがあります。`,
   InvalidPayment: () => L`支払いの取引がこの季節の参加費の形と一致しません`,
   PaymentRequired: () => L`参加には参加費（テストUSDC）の支払いが必要です`,
   InsufficientFunds: () => L`テストUSDCが足りません。「テストUSDCを受け取る」を押してからもう一度お試しください。`,
@@ -301,6 +309,11 @@ const CLIENT_TEXT = {
   WalletError: () => L`ウォレットのエラーです`,
   NoWallet: () => L`ウォレットが接続されていません`,
   NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください。`,
+  // Q16-3: the registered key is another holder's (③'s courier, an agent, another device): nothing was replaced
+  // (round 2, the agent page's hand-over check: fagent.mjs handOverCheck)
+  DelegationUnread: () => L`チェーン上の委任を読めませんでした。何も送っていません。`,
+  NotDelegatedNow: () => L`村の鍵は、いま代理人のものではありません。鍵は変更していません。`,
+  SessionHeldElsewhere: () => L`登録されている鍵は、この端末の鍵ではありません（別のアプリや端末、配送の委任など）。鍵は変更していません。委任を続けるか、鍵を変更するかを選んでください。`,
   // ⑳ (provisional): NFT residents
   NftNoSession: () => L`NFTの住民には、ゲーム内の鍵はまだ使えません。操作はウォレットが署名します。`,
   NftNotHeld: () => L`この住民NFTは、いまこのウォレットにありません。`,
@@ -387,6 +400,10 @@ const CLIENT_TEXT = {
   LocalActNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchClosed: () => L`この軍勢の進軍は、いまローカルプレイでは送れません。`,
+  // (2026-11-19, fix-march-held) the runner's definite rejection (not sent), and a sent march whose blockhash expired
+  LocalActRejected: () => L`チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。`,
+  LocalMarchRejected: () => L`チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。`,
+  LocalMarchExpired: () => L`進軍は期限までに記録されませんでした。これから記録されることはありません。`,
   HostStepUnknown: () => L`この軍勢には、その手順がありません。`,
   HostStepInFlight: () => L`この軍勢の別の手順が進んでいます。その結果を待ってください。`,
   RevealAlreadyIn: () => L`この封はすでに開けられています。`,

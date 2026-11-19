@@ -383,8 +383,13 @@ export function renderPlate(FS) {
       <span class="plate-acts"><button type="button" class="btn plate-go" data-act="reload">${icon('return')}${L`読み込み直す`}</button></span></div>`;
   }
   if (!joined) {
+    // (the loop-play report B8: while the title stands, the game behind it is hidden and inert (frontier.css
+    //  `body[data-title="up"]`, app.mjs markTitle), and the title's own key says 「国を選ぶ」 too. This plate's key of the
+    //  same name then stood in the document unseen: a script — or anything that finds a key by its name or its
+    //  `data-act` — found the hidden one first ("element is not visible"). While the title stands the plate has no key:
+    //  the one 「国を選ぶ」 in the document is the one on screen. The plate is drawn again when the title lifts.)
     return html`<div class="plate plate-open"><span class="plate-text"><strong class="plate-name">${L`まだ国に加わっていません`}</strong><span class="plate-sub">${L`選ぶのは国だけです。村の場所は自動で決まります。`}</span></span>
-      <span class="plate-acts"><button type="button" class="btn primary plate-go" data-act="join-open">${L`国を選ぶ`}</button></span></div>`;
+      ${FS.titleUp ? '' : html`<span class="plate-acts"><button type="button" class="btn primary plate-go" data-act="join-open">${L`国を選ぶ`}</button></span>`}</div>`;
   }
   const me = ownTag(FS) !== null ? ownIdentity(FS) : null;
   // the viewer's face: their nation's character, in the gold ring that says "yours" (people/faces.mjs)

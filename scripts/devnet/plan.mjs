@@ -190,7 +190,7 @@ export function dataRelocsWithAddend(d) {
 }
 
 /** Checks the deployable .so the way scripts/build-frontier.sh does, plus the L(kind) size cap. */
-export function checkSo(buf, profile) {
+export function checkSo(buf, profile, { nftResident = false } = {}) {
   const problems = [];
   const isElf = buf.length >= 64 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
   if (!isElf) return { problems: ['not an ELF file'] };
@@ -198,8 +198,11 @@ export function checkSo(buf, profile) {
   if (eFlags !== 2) problems.push(`e_flags ${eFlags}, not 2 (SBPF v2)`);
   const overflowPanics = count(buf, /attempt to (add|subtract|multiply) with overflow/g);
   if (!overflowPanics) problems.push('built without overflow checks (no overflow panic message)');
-  const markers = profile.program.refusedMarkers.filter(m => buf.includes(Buffer.from(m, 'latin1')));
+  // ⑳ --nft-resident: the nft-experimental build carries its own marker (wanted), every other one is refused.
+  const wanted = nftResident ? profile.nftResident.marker : null;
+  const markers = profile.program.refusedMarkers.filter(m => m !== wanted && buf.includes(Buffer.from(m, 'latin1')));
   for (const m of markers) problems.push(`carries ${m} (a test, localnet or other-lane build; never deployable with this profile)`);
+  if (wanted && !buf.includes(Buffer.from(wanted, 'latin1'))) problems.push(`--nft-resident: marker ${wanted} missing (not a build-frontier.sh --features nft-experimental artefact)`);
   // A lane profile (scripts/devnet/devnet-playable-profile.json) names the marker its own build carries: an artefact
   // without it is some other build, whatever its bytes look like.
   for (const m of profile.program.requiredMarkers ?? []) if (!buf.includes(Buffer.from(m, 'latin1'))) problems.push(`marker ${m} missing (not this profile's build: ${profile.program.build})`);
@@ -218,6 +221,45 @@ export function checkSo(buf, profile) {
     sha256: createHash('sha256').update(buf).digest('hex'),
     programHash: createHash('sha256').update(buf.subarray(0, n)).digest('hex'),
   };
+}
+
+// ---------------------------------------------------------------- the prize (17, test USDC)
+
+export const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+/** The profile's prize section: devnet test USDC only (refused outright otherwise). */
+export function prizeProfileProblems(prize) {
+  if (!prize) return ['the profile has no `prize` section'];
+  const out = [];
+  const refused = new Set([MAINNET_USDC_MINT, ...(prize.refusedMints ?? [])]);
+  if (refused.has(prize.testMint)) out.push(`prize.testMint ${prize.testMint} is a refused (mainnet) mint: test USDC only`);
+  if (!isPlaceholder(prize.testMint) && !isAddress(prize.testMint)) out.push(`prize.testMint ${prize.testMint} is not a 32-byte base58 address`);
+  if (!prize.requiredMarker) out.push('prize.requiredMarker is missing');
+  if (!(prize.entryFee > 0) || !(prize.opsBps >= 0 && prize.opsBps <= 10_000)) out.push('prize.entryFee > 0 and 0 <= prize.opsBps <= 10000');
+  if (!(prize.epochBells > 0) || !(prize.claimBells > 0)) out.push('prize.epochBells and prize.claimBells must be > 0');
+  return out;
+}
+
+/** The prize .so: SBPF v2, overflow checks, the epochs marker, no game test marker. */
+export function checkPrizeSo(buf, profile) {
+  const isElf = buf.length >= 64 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
+  if (!isElf) return { problems: ['not an ELF file'] };
+  const problems = [];
+  const eFlags = buf.readUInt32LE(48);
+  if (eFlags !== 2) problems.push(`e_flags ${eFlags}, not 2 (SBPF v2)`);
+  if (!count(buf, /attempt to (add|subtract|multiply) with overflow/g)) problems.push('built without overflow checks (no overflow panic message)');
+  if (!buf.includes(Buffer.from(profile.prize.requiredMarker, 'latin1'))) problems.push(`no ${profile.prize.requiredMarker}: not a --features epochs build (the default build has no settlement windows)`);
+  for (const m of profile.program.refusedMarkers) if (buf.includes(Buffer.from(m, 'latin1'))) problems.push(`carries ${m}`);
+  const soLen = buf.length;
+  const maxLen = maxLenFor(soLen);
+  return { problems, eFlags, soLen, maxLen, sha256: createHash('sha256').update(buf).digest('hex') };
+}
+
+/** Rent held per settlement window (pool + vault) and per paying wallet (Entry), lamports. */
+export function prizeWindowCost(prize, players, rate) {
+  const fixed = prize.accounts.reduce((s, a) => s + BigInt(a.count) * rentExempt(a.bytes, rate), 0n);
+  const per = prize.perPlayerAccounts.reduce((s, a) => s + rentExempt(a.bytes, rate), 0n);
+  return { fixed, perPlayer: per, total: fixed + per * BigInt(players) };
 }
 
 // ---------------------------------------------------------------- the send gate
@@ -244,6 +286,8 @@ export function keyFileProblems(label, file, { stat, repoRoot, uid }) {
 
 export function sendProblems(opts, { profile, so, stat, repoRoot, uid }) {
   const out = [];
+  // ⑳ (owner decision 2026-11-18 18:26 JST: devnet-ready, but no deploy, keys or SOL without r0ze's confirmation).
+  if (opts.nftResident) out.push(...profile.nftResident.sendBlocked);
   if (!opts.approval) out.push(`${APPROVAL_FLAG} not given: dry run only`);
   out.push(...keyFileProblems('--keypair', opts.keypair, { stat, repoRoot, uid }));
   out.push(...keyFileProblems('--program-keypair', opts.programKeypair, { stat, repoRoot, uid }));
@@ -298,8 +342,11 @@ export function parseArgs(argv) {
       case '--build': o.build = true; break;
       case '--twice': o.twice = true; break;
       case '--json': o.json = true; break;
+      case '--with-prize': o.withPrize = true; break;
+      case '--nft-resident': o.nftResident = true; break;
       case '--profile': o.profile = val(i, a); i++; break;
       case '--so': o.so = val(i, a); i++; break;
+      case '--prize-so': o.prizeSo = val(i, a); i++; break;
       case '--rpc': o.rpcUrl = val(i, a); i++; break;
       case '--rate': o.rate = Number(val(i, a)); i++; break;
       case '--players': o.players = Number(val(i, a)); i++; break;
@@ -314,19 +361,45 @@ export function parseArgs(argv) {
   return o;
 }
 
-export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json]
+export const USAGE = `scripts/devnet/dry-run.mjs [--build [--twice]] [--so FILE] [--profile FILE] [--rate LAMPORTS_PER_BYTE] [--players N] [--json] [--nft-resident] [--with-prize [--prize-so FILE]]
   Dry run (default): checks the .so, computes the devnet cost and prints the plan. Sends nothing.
+  --with-prize: also checks the test-USDC prize program (17, settlement windows; devnet only, mainnet needs a legal review)
+  and adds its deploy and per-window costs. Plan only: the prize program is never sent by this tool.
   Profiles: scripts/devnet/devnet-profile.json (default, the S1 release) or scripts/devnet/devnet-playable-profile.json
   (the playable lane, owner decision B7: scripts/build-frontier-devnet-playable-sbf.sh, marker PSF_DEVNET_PLAYABLE_BUILD).
+  --nft-resident (⑳, devnet/local only, no sale): plan the nft-experimental build instead
+  (build-frontier.sh --features nft-experimental, marker PSF_NFT_EXPERIMENTAL_BUILD); its send gate stays closed.
   Send (r0ze only): add ${APPROVAL_FLAG} --keypair FILE --program-keypair FILE --upgrade-authority FILE --approved-sha256 HEX
   (key files: absolute paths, mode 600, outside the repository; never read by this script;
    Solana CLI ${MIN_SOLANA_CLI.join('.')} or newer: 3.1.x cannot verify this program's BLS12-381 syscalls).`;
 
 // ---------------------------------------------------------------- the run
 
-function planText({ profile, so, soPath, costs, season, rate, commands, blocked }) {
+function prizeText(prize, profile, rate) {
+  const L = [''];
+  L.push('Prize program (17, settlement windows): DEVNET, TEST USDC ONLY. A real-money prize on mainnet needs a legal review first.');
+  L.push(`  artefact ${prize.soPath}`);
+  if (prize.so.soLen !== undefined) L.push(`  so_len ${prize.so.soLen}  max_len ${prize.so.maxLen}  file_sha256 ${prize.so.sha256}`);
+  L.push(`  checks ${prize.so.problems.length ? 'FAIL: ' + prize.so.problems.join('; ') : 'pass'}`);
+  L.push(`  test mint ${profile.prize.testMint}`);
+  L.push(`  entry ${profile.prize.entryFee} base units, operator ${profile.prize.opsBps} bps, window ${profile.prize.epochBells} bells, claim window ${profile.prize.claimBells} bells`);
+  if (prize.deploy) L.push(`  deploy at ${rate}: peak ${sol(prize.deploy.peak)} SOL (programdata ${sol(prize.deploy.programdata)} + program ${sol(prize.deploy.program)} + fees ${sol(prize.deploy.fees)})`);
+  L.push(`  per window: ${sol(prize.window.fixed)} SOL (pool + vault) + ${sol(prize.window.perPlayer)} SOL per paying wallet = ${sol(prize.window.total)} SOL for ${profile.season.players}`);
+  L.push('  NOT SENT: this tool has no prize deploy step; the gate below is the game program\'s only.');
+  return L;
+}
+
+function planText({ profile, so, soPath, costs, season, rate, commands, blocked, prize, nftResident }) {
   const L = [];
   L.push('WYLLS devnet deploy plan (DRY RUN unless the gate below says OPEN)');
+  if (nftResident) {
+    const n = profile.nftResident;
+    L.push(`with ⑳ NFT resident ID (${n.status})`);
+    L.push(`  build ${n.build.join(' ')}  marker ${n.marker}  version ${n.programVersion}`);
+    L.push(`  terms (defaults, not owner decisions): ${Object.entries(n.terms).map(([k, v]) => `${k}=${v}`).join(', ')}`);
+    L.push('  also needed on devnet, NOT planned here:');
+    for (const r of n.notPlanned) L.push(`    - ${r}`);
+  }
   L.push(`cluster ${profile.cluster}  rpc ${profile.rpcUrl}`);
   if (profile.lane) L.push(`lane ${profile.lane}  program_version ${profile.program.programVersion ?? '?'}  build ${profile.program.build}`);
   L.push(`program ${profile.programId}`);
@@ -354,6 +427,7 @@ function planText({ profile, so, soPath, costs, season, rate, commands, blocked 
   const dc = costs.find(c => c.rate === rate);
   L.push('');
   L.push(`TOTAL to hold (deploy peak + one season) at ${rate}: ${sol(dc.peak + season.total)} SOL`);
+  if (prize) L.push(...prizeText(prize, profile, rate));
   L.push('');
   L.push('Commands (argv; run only with the gate open):');
   for (const [c, a] of commands) L.push(`  ${c} ${a.join(' ')}`);
@@ -386,7 +460,8 @@ export function run(argv, io) {
   const rate = opts.rate ?? profile.rent.assume;
   if (!profile.rent.lamportsPerByteCandidates.includes(rate)) { io.err(`--rate ${rate}: one of ${profile.rent.lamportsPerByteCandidates.join(', ')}`); return 2; }
 
-  const soPath = opts.so ?? `${io.repoRoot}/${profile.program.so}`;
+  if (opts.nftResident && !profile.nftResident) { io.err('--nft-resident: the profile has no nftResident section'); return 2; }
+  const soPath = opts.so ?? `${io.repoRoot}/${opts.nftResident ? profile.nftResident.so : profile.program.so}`;
   if (opts.build) {
     // cargo-build-sbf writes <name>-keypair.json next to the .so when the file is missing
     // (agave v3.1.9 platform-tools-sdk/cargo-build-sbf/src/post_processing.rs: `if !program_keypair.exists()`),
@@ -396,11 +471,23 @@ export function run(argv, io) {
     try {
       if (!io.exists(holder)) { io.mkdir(path.posix.dirname(holder)); io.writeFile(holder, 'PLACEHOLDER: not a key. Exists so cargo-build-sbf skips program-keypair generation (scripts/devnet/dry-run.mjs).\n'); }
     } catch (e) { io.err(`cannot write the keypair placeholder ${holder}: ${e.message}`); return 3; }
-    const r = io.exec(`${io.repoRoot}/${profile.program.build}`, opts.twice ? ['--twice'] : [], { cwd: io.repoRoot });
-    if (r.status !== 0) { io.err(`build failed (${profile.program.build}, exit ${r.status})`); return 3; }
+    const [script, ...extra] = opts.nftResident ? profile.nftResident.build : [profile.program.build];
+    const r = io.exec(`${io.repoRoot}/${script}`, [...(opts.twice ? ['--twice'] : []), ...extra], { cwd: io.repoRoot });
+    if (r.status !== 0) { io.err(`build failed (${script}, exit ${r.status})`); return 3; }
   }
-  if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (${profile.program.build})`); return 3; }
-  const so = checkSo(io.readFile(soPath), profile);
+  if (!io.exists(soPath)) { io.err(`${soPath} not found: run with --build (${opts.nftResident ? profile.nftResident.build.join(' ') : profile.program.build})`); return 3; }
+  const so = checkSo(io.readFile(soPath), profile, { nftResident: !!opts.nftResident });
+  let prize = null;
+  // The profile's `prize.enabled` (false as committed) includes it as --with-prize does; either way it is plan only.
+  if (opts.withPrize || profile.prize?.enabled === true) {
+    const pp2 = prizeProfileProblems(profile.prize);
+    if (pp2.length) { io.err(`prize profile refused:\n${pp2.map(p => `  - ${p}`).join('\n')}`); return 2; }
+    const prizeSoPath = opts.prizeSo ?? `${io.repoRoot}/${profile.prize.so}`;
+    if (!io.exists(prizeSoPath)) { io.err(`${prizeSoPath} not found: build it with ${profile.prize.build}`); return 3; }
+    const pso = checkPrizeSo(io.readFile(prizeSoPath), profile);
+    const deploy = pso.soLen ? deployCost({ soLen: pso.soLen, maxLen: pso.maxLen, rate, ...profile.fees }) : null;
+    prize = { soPath: prizeSoPath, so: pso, deploy, window: prizeWindowCost(profile.prize, profile.season.players, rate), sent: false, testAssetsOnly: true };
+  }
   const costs = profile.rent.lamportsPerByteCandidates.map(r => deployCost({ soLen: so.soLen ?? 0, maxLen: so.maxLen ?? 0, rate: r, ...profile.fees }));
   const season = seasonCost(profile.season, rate);
   const dumpPath = `${io.tmpDir}/wylls-devnet-dump.so`;
@@ -408,9 +495,9 @@ export function run(argv, io) {
   const blocked = sendProblems(opts, { profile, so, stat: io.stat, repoRoot: io.repoRoot, uid: io.uid });
   if (opts.json) {
     const big = (_, v) => (typeof v === 'bigint' ? v.toString() : v);
-    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId, lane: profile.lane ?? 's1' }, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked }, big, 2));
-  } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked }));
-  if (so.problems.length) return 3;
+    io.log(JSON.stringify({ profile: { cluster: profile.cluster, rpcUrl: profile.rpcUrl, programId: profile.programId, lane: profile.lane ?? 's1' }, nftResident: opts.nftResident ? profile.nftResident : undefined, so, rate, costs, season, commands, gate: blocked.length ? 'closed' : 'open', blocked, ...(prize ? { prize } : {}) }, big, 2));
+  } else io.log(planText({ profile, so, soPath, costs, season, rate, commands, blocked, prize, nftResident: !!opts.nftResident }));
+  if (so.problems.length || prize?.so.problems.length) return 3;
   if (blocked.length) return 0;
 
   // ---- the gate is open: r0ze's run. Each step must succeed before the next.

@@ -348,3 +348,121 @@ test('--json gives machine-readable numbers', () => {
   assert.equal(j.rate, 5080);
   assert.equal(j.costs.length, 6);
 });
+
+// ---------------------------------------------------------------- 17 prize (reopened 2026-11-18; devnet / test USDC only)
+
+const PRIZE_SO_PATH = `${REPO}/permutation-prize/target/deploy-epochs/permutation_prize.so`;
+const prizeSo = (marker = 'PRZ_EPOCHS_TEST_USDC_BUILD') => fakeSo({ marker, len: 8192 });
+
+test('the committed profile keeps the prize off, on test USDC, at the owner\'s 25 / 80 / 20, and names the legal review', () => {
+  const p = profile();
+  assert.equal(p.prize.enabled, false);
+  assert.match(p.prize.testMint, /SET-BY-R0ZE/);
+  assert.ok(p.prize.refusedMints.includes('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'));
+  assert.deepEqual([p.prize.entryFee, p.prize.opsBps], [25_000_000, 2_000]);
+  assert.match(p.prize.note, /legal review/);
+  // Drift guard: the marker the program and the build script use.
+  const epoch = readFileSync(path.join(REPO, 'permutation-prize/src/epoch.rs'), 'utf8');
+  const build = readFileSync(path.join(REPO, 'scripts/build-prize.sh'), 'utf8');
+  assert.ok(epoch.includes(`b"${p.prize.requiredMarker}"`));
+  assert.ok(build.includes(p.prize.requiredMarker));
+  assert.ok(build.includes('deploy-epochs') && p.prize.so.includes('deploy-epochs'));
+});
+
+test('without --with-prize the plan has no prize section', () => {
+  const { io, logs } = fakeIo({ prof: profile() });
+  assert.equal(run([], io), 0);
+  assert.doesNotMatch(logs.join('\n'), /Prize program/);
+});
+
+test('--with-prize: checks the epochs build and adds its cost; plan only, nothing started', () => {
+  const { io, calls, logs } = fakeIo({ prof: profile(), files: { [PRIZE_SO_PATH]: prizeSo() } });
+  assert.equal(run(['--with-prize'], io), 0);
+  const text = logs.join('\n');
+  assert.match(text, /DEVNET, TEST USDC ONLY/);
+  assert.match(text, /legal review/);
+  assert.match(text, /NOT SENT/);
+  assert.match(text, /checks pass/);
+  assert.deepEqual(calls, []);
+  const j = fakeIo({ prof: profile(), files: { [PRIZE_SO_PATH]: prizeSo() } });
+  assert.equal(run(['--with-prize', '--json'], j.io), 0);
+  const out = JSON.parse(j.logs.join('\n'));
+  assert.equal(out.prize.sent, false);
+  assert.equal(out.prize.testAssetsOnly, true);
+  assert.ok(BigInt(out.prize.window.fixed) > 0n && BigInt(out.prize.deploy.peak) > 0n);
+});
+
+test('--with-prize refuses a default build (no epochs marker) and a missing .so (exit 3)', () => {
+  const { io, errs, logs } = fakeIo({ prof: profile(), files: { [PRIZE_SO_PATH]: prizeSo(null) } });
+  assert.equal(run(['--with-prize'], io), 3);
+  assert.match(logs.join('\n'), /not a --features epochs build/);
+  const m = fakeIo({ prof: profile() });
+  assert.equal(run(['--with-prize'], m.io), 3);
+  assert.match(m.errs.join('\n'), /build-prize\.sh --features epochs/);
+  assert.equal(errs.length, 0);
+});
+
+test('prize.enabled true in a profile includes the prize like --with-prize (verify-pr54 D-3); still plan only', () => {
+  const prof = profile();
+  prof.prize.enabled = true;
+  const { io, calls, logs } = fakeIo({ prof, files: { [PRIZE_SO_PATH]: prizeSo() } });
+  assert.equal(run([], io), 0);
+  assert.match(logs.join('\n'), /DEVNET, TEST USDC ONLY/);
+  assert.match(logs.join('\n'), /NOT SENT/);
+  assert.deepEqual(calls, []);
+});
+
+test('--with-prize refuses mainnet USDC as the prize mint (exit 2)', () => {
+  const prof = profile();
+  prof.prize.testMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const { io, errs } = fakeIo({ prof, files: { [PRIZE_SO_PATH]: prizeSo() } });
+  assert.equal(run(['--with-prize'], io), 2);
+  assert.match(errs.join('\n'), /refused \(mainnet\) mint/);
+});
+
+test('--with-prize with the gate open sends exactly the game program steps (no prize deploy step exists)', () => {
+  const { io, calls } = fakeIo({ addresses: goodAddresses, files: { [PRIZE_SO_PATH]: prizeSo() } });
+  assert.equal(run([...openArgs(), '--with-prize'], io), 0);
+  assert.equal(calls.filter(([, a]) => a[0] === 'program' && a[1] === 'deploy').length, 1);
+  for (const [, a] of calls) assert.ok(!a.some(x => String(x).includes('permutation_prize')), a.join(' '));
+});
+
+// ⑳ NFT resident ID (owner decision 2026-11-18 18:26 JST: devnet/local only, no sale).
+const NFT_SO = `${REPO}/permutation-frontier/target/deploy-nft-experimental/permutation_frontier.so`;
+
+test('--nft-resident plans the nft-experimental build, wants its marker and keeps the gate closed', () => {
+  const { io, logs } = fakeIo({ files: { [NFT_SO]: fakeSo({ marker: 'PSF_NFT_EXPERIMENTAL_BUILD' }) } });
+  assert.equal(run(['--nft-resident'], io), 0);
+  const out = logs.join('\n');
+  assert.match(out, /with ⑳ NFT resident ID \(Reopened 2026-11-18 by owner; devnet\/local only/);
+  assert.match(out, /build scripts\/build-frontier\.sh --features nft-experimental/);
+  assert.match(out, /checks pass/);
+  assert.match(out, /SEND GATE: CLOSED[\s\S]*--nft-resident: ⑳ is devnet-ready only/);
+});
+
+test('--nft-resident refuses an artefact without the NFT marker or with a localnet marker', () => {
+  for (const [marker, want] of [[null, /marker PSF_NFT_EXPERIMENTAL_BUILD missing/], ['PSF_LOCALNET_NFT_SBF_BUILD', /carries PSF_LOCALNET_NFT_SBF_BUILD/]]) {
+    const { io, logs } = fakeIo({ files: { [NFT_SO]: fakeSo({ marker }) } });
+    assert.equal(run(['--nft-resident'], io), 3);
+    assert.match(logs.join('\n'), want);
+  }
+});
+
+test('the default plan refuses the NFT builds', () => {
+  for (const marker of ['PSF_NFT_EXPERIMENTAL_BUILD', 'PSF_LOCALNET_NFT_SBF_BUILD']) {
+    const { io, logs } = fakeIo({ files: { [SO_PATH]: fakeSo({ marker }) } });
+    assert.equal(run([], io), 3);
+    assert.match(logs.join('\n'), new RegExp(`carries ${marker}`));
+  }
+});
+
+test('--nft-resident --build runs build-frontier.sh with the nft-experimental feature, and the gate stays closed even when everything else is given', () => {
+  const { io, calls, logs } = fakeIo({ files: { [NFT_SO]: fakeSo({ marker: 'PSF_NFT_EXPERIMENTAL_BUILD' }) }, addresses: { [KEYS.program]: PROGRAM, [KEYS.auth]: AUTHORITY } });
+  const so = checkSo(io.readFile(NFT_SO), filled(), { nftResident: true });
+  assert.deepEqual(so.problems, []);
+  const argv = ['--nft-resident', '--build', APPROVAL_FLAG, '--keypair', KEYS.payer, '--program-keypair', KEYS.program, '--upgrade-authority', KEYS.auth, '--approved-sha256', so.sha256];
+  assert.equal(run(argv, io), 0);
+  assert.deepEqual(calls[0], [`${REPO}/scripts/build-frontier.sh`, ['--features', 'nft-experimental']]);
+  assert.ok(!calls.some(([c]) => c === 'solana'), 'nothing is sent');
+  assert.match(logs.join('\n'), /SEND GATE: CLOSED/);
+});

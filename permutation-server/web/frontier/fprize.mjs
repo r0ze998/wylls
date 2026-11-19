@@ -66,6 +66,8 @@ export function prizeModel(pool) {
     counted: pool.counted, keepsToCount: pool.keepsToCount ?? pool.expectedKeeps,
     area: pool.area ? pool.area.map((provinces, faction) => ({ faction, provinces, winner: !!pool.winners?.includes(faction) })) : null,
     winners: pool.winners ?? null,
+    // ⑰ a settlement window of a continuous world (null: the legacy season pool).
+    window: pool.window ? { epoch: pool.window.epoch, endBell: pool.window.endBell } : null,
     // Shares posted on chain (the deferred step): how many claims were paid, and how much.
     posted: pool.shares ? { mode: pool.shares.mode, claims: pool.shares.claims, claimed: u(pool.shares.claimed) } : null,
     wallet: pool.wallet ? { address: pool.wallet.address, balance: u(pool.wallet.balance), paid: !!pool.wallet.entry, canPay: BigInt(pool.wallet.balance) >= BigInt(pool.fee),

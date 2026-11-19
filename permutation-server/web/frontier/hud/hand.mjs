@@ -39,7 +39,7 @@ import { tileName, provinceName } from './place.mjs';
 import { grownSince, trainCost, maxTrain, shortOf, HOST_TROOPS, WORKED_RADIUS, UNIT_STATS } from './rulebook.mjs';
 import { costChips, costWords, shortWords, took, unitGood, unitStrength, whyText, exploreResultTurn, exploreResultLine } from './orderparts.mjs';
 import * as proto from './proto.mjs';
-import { handNote } from '../fdelegation.mjs';
+import { delegationOf, handNote } from '../fdelegation.mjs';
 import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
@@ -82,6 +82,8 @@ import { returnCard } from './returncard.mjs';
 //  after it is pressed. Nothing local play can send changes; an ordinary session is as before.)
 const localRefuses = (FS, name) => !!FS?.localPlay && localOrderRoute({ localPlay: FS.localPlay, name, v: {}, signer: undefined, requester: null }) === 'refuse';
 const localReadOnlyText = () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`;
+/** The bar's line for the orders local play refuses, named by their buttons' words (B6): 「進軍」・「解散」 / March, Dissolve. */
+export const localReadOnlyNamed = words => L`ローカルプレイでは、${words.map(w => L`「${w}」`).join(L`・`)}はまだ送れません（読み取りのみ）。`;
 // (round 26: a march — the bar's March, its return home, a march on a keep — is sent in local play only while the march's
 //  own answer is open (controller.mjs sendTheMarch: FS.localMarch.open), and refused with the same sentence otherwise)
 const localMarchClosed = (FS, r = null) => {
@@ -232,9 +234,13 @@ function hostModel(FS, sub) {
   const note0 = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
   // (round 27: local play's refusal is said in full on the bar's own line, which wraps — inside a button it was clipped to
   //  two short lines, "In local play, this order cannot be sent yet (rea…" in a live world; the refused buttons stay refused)
-  const lro = localReadOnlyText(), localSaid = buttons.some(b => b.why === lro);
-  if (localSaid) for (const b of buttons) if (b.why === lro) b.said = true;
-  const note = localSaid && note0 !== lro ? (note0 ? `${note0} ${lro}` : lro) : note0;
+  // (the loop-play report B6: the bar's line said "this order cannot be sent yet" with nothing saying WHICH — it stood
+  //  under a host whose March and March on a keep were sent normally, raised by Dissolve alone. The line names the
+  //  refused orders by their buttons' own words; each refused button keeps the plain sentence as its title)
+  const lro = localReadOnlyText(), localOff = buttons.filter(b => b.why === lro), localSaid = localOff.length > 0;
+  for (const b of localOff) b.said = true;
+  const lroNamed = localSaid ? localReadOnlyNamed(localOff.map(b => b.word)) : null;
+  const note = localSaid ? (note0 && note0 !== lro ? `${note0} ${lroNamed}` : lroNamed) : note0;
   return { kind: 'host', key: `h:${r.id}`, name, label: L`${name}の行動`, unit: r.unit, faction, sub: st.text, tone: st.tone, where, note, noteTone: note ? 'why' : null,
     chips: sub.hosts.length > 1 ? sub.hosts.filter(x => x.id !== r.id).map(x => hostChip(FS, x)) : [], villageHere: r.home ? holdingName(h) : null,
     buttons, host: r, march: mc, explore: ex, dissolve: dLocal ? { ok: false, text: localReadOnlyText() } : dc, armed, away, stamina: r.stamina };
@@ -253,7 +259,8 @@ export function handModel(FS) {
   model.subject = sub;
   model.pop = popOf(FS, sub);
   // the owner's agent holds the key (fdelegation.mjs): nothing on this bar can be sent from this device; say so first
-  if (FS.delegation && FS.sessionProblem === 'SessionMismatch') { model.note = handNote(FS.delegation); model.noteTone = 'agent'; }
+  // (Q16-3: or another key — ③'s courier, another app or device —, known on a device with no stored key too)
+  { const held = (!FS.session || FS.sessionProblem === 'SessionMismatch') ? delegationOf(FS) : null; if (held) { model.note = handNote(held, { review: FS.keyReview === held.agentKey, kept: !!held.foreign && FS.keyKept === held.agentKey }); model.noteTone = 'agent'; } }
   // (the prototype rule "banners": what to press while the guide's march is armed on the board with no card open)
   if (FS.proto && !model.note) { const n = proto.armedNote(FS, model); if (n) { model.note = n; model.noteTone = 'proto'; } }
   for (const b of model.buttons) if (b.act === 'hand-pop' && b.data.pop === model.pop) b.pressed = true;

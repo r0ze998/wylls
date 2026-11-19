@@ -260,6 +260,28 @@ fn known_magic(d: &[u8], pv: Option<u16>) -> bool {
         || (pv == Some(super::v0_coverage::PROGRAM_VERSION_NFT_S1)
             && (m == frontier_abi::resident_policy::MAGIC
                 || m == frontier_abi::resident_binding::MAGIC))
+        // Q16-1: the playable lane's land records (VL judges them).
+        || (land_magic(&m) && super::v0_coverage::playable(pv))
+}
+
+#[cfg(feature = "playable-lane")]
+fn land_magic(m: &[u8; 8]) -> bool {
+    use frontier_abi::world_index::{land as wl, rules as wr};
+    *m == frontier_abi::land_preview::land::MAGIC
+        // Q16-1 continued: the wide land opening's records (VWL judges
+        // their writes): the ring seed, the rules configuration and the
+        // wide province.
+        || *m == wl::ring_seed::MAGIC
+        || *m == wr::rules_config::MAGIC
+        || *m == wl::province::MAGIC
+        // Q16-1 continued (2026-11-19): the wide claims' records (VWL
+        // judges their writes): the wide ticket and the wide holding.
+        || *m == frontier_abi::world_index::ticket::wide_ticket::MAGIC
+        || *m == frontier_abi::world_index::holding::wide_holding::MAGIC
+}
+#[cfg(not(feature = "playable-lane"))]
+fn land_magic(_: &[u8; 8]) -> bool {
+    false
 }
 
 /// A program account of no layout `known_magic` names: a FAIL only under a
@@ -269,7 +291,20 @@ fn known_magic(d: &[u8], pv: Option<u16>) -> bool {
 /// 2026-11-18), never a PASS.
 fn unknown_account(cx: &mut Ctx, pv: Option<u16>, k: &Key, tx: Option<usize>) {
     let d = "a program account of no kind this verifier knows";
-    if pv.is_some_and(super::v0_coverage::known_version) {
+    // Q16-1: in a playable-lane season where a wide instruction succeeded,
+    // the account may be one of the wide build's own records, which no
+    // check models: UNVERIFIABLE. Without one, the program ran S1's
+    // handlers and the land preview only, which cannot write it: FAIL.
+    if super::v0_coverage::playable(pv) && super::v0_coverage::wide_ran(cx.w) {
+        cx.unverifiable(
+            V,
+            UNKNOWN_ACCOUNT,
+            ent("account", k),
+            0,
+            tx,
+            format!("{d}; a wide instruction ran in this playable-lane season, and the wide build's own records are not modelled"),
+        );
+    } else if pv.is_some_and(super::v0_coverage::known_version) {
         cx.fail(V, UNKNOWN_ACCOUNT, ent("account", k), 0, tx, d);
     } else {
         cx.unverifiable(

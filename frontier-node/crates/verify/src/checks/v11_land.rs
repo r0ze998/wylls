@@ -970,6 +970,10 @@ pub fn judge_ticket(e: &TicketEvidence) -> Judgement {
         if ring < 2 && !centre_free(e.cq) {
             return Fail(format!("{what} lies in a reserved ring"));
         }
+        // ((0,0)'s site 0 stays reserved under ⑭ R2: the ticket's "no site" sentinel)
+        if (s.p, s.q, s.site) == (0, 0, 0) {
+            return Fail(format!("{what} is the reserved site 0 of (0,0)"));
+        }
         if ring >= rings_opened as u32 {
             return Fail(format!(
                 "{what} lies in ring {ring}, not opened ({rings_opened} rings)"
@@ -1471,6 +1475,40 @@ mod tests {
             n: sites.len() as u8,
             sites: payload,
         }
+    }
+
+    /// ⑭ R2: in a centre-free season (0,0) is ordinary land for a ticket,
+    /// except its site 0 — the entry (0,0,0) is the ticket's "no site"
+    /// sentinel, which the program refuses (`ReservedSite`).
+    #[test]
+    fn centre_free_ticket_refuses_the_no_site_sentinel() {
+        use frontier_abi::v2::presets::{CENTRE_FREE, PLACEMENT_MIXED};
+        use permutation_rules::frontier::geometry::home_nation_in;
+        let seed = [1u8; 32];
+        let origin = ProvinceCoord::new(0, 0);
+        let nation = home_nation_in(origin, PLACEMENT_MIXED, 3, &seed, true).unwrap();
+        let mut free = cq(PLACEMENT_MIXED, 3);
+        free.centre = CENTRE_FREE;
+        let quiet = frontier_bytes(5, 0, [10; 6], [0; 6]);
+        assert_eq!(
+            case(nation, &[(0, 0, 1)], Some(free), Some(seed), quiet.clone()).judge(),
+            Judgement::Pass
+        );
+        let bad = case(nation, &[(0, 0, 0)], Some(free), Some(seed), quiet.clone());
+        assert!(
+            matches!(bad.judge(), Judgement::Fail(ref m) if m.contains("reserved site 0 of (0,0)")),
+            "{:?}",
+            bad.judge()
+        );
+        // with the centre, (0,0) stays a reserved ring
+        assert!(case(
+            nation,
+            &[(0, 0, 1)],
+            Some(cq(PLACEMENT_MIXED, 3)),
+            Some(seed),
+            quiet
+        )
+        .fails());
     }
 
     /// Valid, invalid and incomplete FileTicket evidence: the dispersed

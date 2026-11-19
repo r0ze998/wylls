@@ -30,9 +30,13 @@ pub mod v6_quotas;
 pub mod v7_replay;
 pub mod v8_lag;
 pub mod v9_addresses;
+#[cfg(feature = "playable-lane")]
+pub mod vl_land;
 pub mod vr_rights;
 #[cfg(feature = "wide-world-experimental")]
 pub mod vw_chains;
+#[cfg(feature = "playable-lane")]
+pub mod vwl_wide_land;
 
 use crate::facts::{Facts, SigCache};
 use crate::input::{Config, Input};
@@ -312,6 +316,21 @@ pub fn run(input: &Input) -> Report {
         ran.push("V26:custody-state");
         ran.push("V26:custody-history");
         ran.push("V26:custody-replay");
+    }
+    // Q16-1: the land preview's FoldLand / ClaimLandYield in a playable-lane
+    // season (0x4804), re-run from the states before them.
+    #[cfg(feature = "playable-lane")]
+    if !cfg!(feature = "mutate-vl") {
+        vl_land::run(&mut cx);
+        ran.push("VL:land");
+    }
+    // Q16-1 continued: the wide land opening, the wide claims, the
+    // season-end closes and the wide economy / garrison of a playable-lane
+    // season, re-run from the states before them.
+    #[cfg(feature = "playable-lane")]
+    if !cfg!(feature = "mutate-vwl") {
+        vwl_wide_land::run(&mut cx);
+        ran.push("VWL:wide-land");
     }
     // 02-rights (candidate): the Grant's instructions, records and
     // accounts; on every season (outside S1 the program refuses them, so
