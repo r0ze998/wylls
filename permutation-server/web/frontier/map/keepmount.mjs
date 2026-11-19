@@ -30,6 +30,7 @@ import { subjectOf, marchCheck } from '../hud/subject.mjs';
 import { reachWhy } from './keeps.mjs';
 import { mountOwnClash } from './ownclash.mjs';
 import { autoPanDefault } from './autopan.mjs';
+import { viewKeeps } from './fog.mjs';
 
 const int = Number.isInteger;
 
@@ -58,7 +59,8 @@ export function keepReachOf(fs, h) {
   const cq = fs?.conquest, me = fs?.citizen?.faction;
   if (!h || !cq?.keeps?.size || !fs.kernel || !int(me)) return null;
   const nowBell = fs.nowBell ?? 0;
-  const r = reachableKeeps({ kernel: fs.kernel, keeps: cq.keeps, origins: [{ p: h.p, q: h.q, tile: h.tile, unit: h.unit }], seeds: (fs.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), faction: me, nowBell, blocked: palisadeHexesOf(fs) });
+  const keeps = viewKeeps(cq.keeps);   // (the fog of war of a local test world: map/fog.mjs)
+  const r = reachableKeeps({ kernel: fs.kernel, keeps, origins: [{ p: h.p, q: h.q, tile: h.tile, unit: h.unit }], seeds: (fs.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), faction: me, nowBell, blocked: palisadeHexesOf(fs) });
   if (!r.ok) return null;
   const secsPerTurn = Number(fs.season?.bellSecs ?? 600) || 600, departTs = (fs.chain?.now?.() ?? 0) + departMargin(fs.chain?.rate);
   const turnOf = secs => {
@@ -68,7 +70,7 @@ export function keepReachOf(fs, h) {
   };
   const out = [], lit = new Set();
   for (const k of r.rows) { lit.add(`${k.p},${k.q}`); out.push({ p: k.p, q: k.q, tile: k.tile, arriveTurn: turnOf(k.route.secs), holder: k.holder, defenders: k.troops ?? null, reachable: true, why: null }); }
-  for (const k of cq.keeps.values()) {
+  for (const k of keeps.values()) {
     const key = `${k.p},${k.q}`;
     if (lit.has(key) || !int(k.holder) || k.holder > 5 || k.holder === me) continue;
     const why = k.heartland ? reachWhy.heartland() : int(k.consolidatedUntil) && k.consolidatedUntil > nowBell ? reachWhy.guarded(k.consolidatedUntil) : reachWhy.far();

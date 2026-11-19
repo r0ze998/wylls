@@ -14,6 +14,7 @@
 // nudge takes a wide village (fwide.mjs wideRefusal), and the only wide
 // instructions are not enabled.
 import { html } from '../../util.mjs';
+import { fogNow } from '../map/fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { RESOURCES, UNITS, TIERS, BUILDINGS, HOLDING_STATES } from '../fi18n.mjs';
 import { UNIT_ORDER, HOLDING_STATE, queueBuildingItem, BUILD_ITEMS } from '../fland.mjs';
@@ -91,7 +92,7 @@ export function render(FS) {
       <li>${chip(L`現在性：未確認`, 'warn', 'hourglass')}</li>
       <li>${chip(L`経過時間：不明`, '', 'moon')}</li>
     </ul>
-    ${noExecutionNote()}<div class="actions"><button type="button" class="btn" data-act="wide-map">${L`記録の地図で場所を見る（未検証・読み取り専用）`}</button></div>${back}</section>`;
+    ${noExecutionNote()}${fogNow().on ? '' : html`<div class="actions"><button type="button" class="btn" data-act="wide-map">${L`記録の地図で場所を見る（未検証・読み取り専用）`}</button></div>`}${back}</section>`;
 
   const provenance = html`<section class="vcard wide-village" aria-labelledby="wide-v-prov">
     ${cardHead({ id: 'wide-v-prov', ic: 'scroll', title: L`出どころ` })}

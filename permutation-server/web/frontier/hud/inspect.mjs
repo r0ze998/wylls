@@ -20,6 +20,7 @@ import { s1Marks, S1_WORDS } from '../map/s1marks.mjs';
 import { leaderHex } from '../people/leaders.mjs';
 import { identityOf, displayName } from '../people/identity.mjs';
 import { hostParts } from '../faddr.mjs';
+import { viewOverviews } from '../map/fog.mjs';
 import { activityText } from '../people/activity.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
@@ -40,7 +41,8 @@ import { renderS1Tile, raidOffers } from '../screens/s1.mjs';
 const SITE_TEXT = { free: () => L`村を置ける場所`, holding: () => L`村`, camp: () => L`蛮族の野営地`, reserved: () => L`予約済みの場所`, freeCity: () => L`自由都市` };
 
 const overviewRec = (FS, p, q) => {
-  for (const o of FS.overviews?.values?.() ?? []) {
+  // (the overviews as the viewer may see them: the fogged ones in a local test world, map/fog.mjs)
+  for (const o of viewOverviews(FS)?.values?.() ?? []) {
     const r = o.provinces?.find(x => x.p === p && x.q === q);
     // (the clash flag speaks of the overview's own bell: an overview older than the last bell says nothing about now)
     if (r) return r.clash && Number.isInteger(o.bell) && Number.isInteger(FS.nowBell) && o.bell < FS.nowBell - 1 ? { ...r, clash: false } : r;
