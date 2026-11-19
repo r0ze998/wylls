@@ -384,6 +384,7 @@ async fn verify_dump(w: &World, path: &Path, cfg: &DayCfg) -> Result<(), String>
             resident_feed: None,
             program_so: None,
             declared: vec![],
+            chain: Default::default(),
         }
     };
     inp.save(path)

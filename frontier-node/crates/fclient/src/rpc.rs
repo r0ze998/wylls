@@ -374,6 +374,41 @@ impl RpcClient {
     }
 }
 
+/// The balances a `getTransaction` result shows (`meta.preBalances`,
+/// `meta.postBalances`: lamports per message key, in message key order),
+/// which a public RPC serves although it serves no post-state. `None` when
+/// either is absent or not a list of integers of the same length.
+pub fn parse_balances(v: &Value) -> Option<(Vec<u64>, Vec<u64>)> {
+    let meta = v.get("meta")?;
+    let list = |k: &str| -> Option<Vec<u64>> {
+        meta.get(k)?
+            .as_array()?
+            .iter()
+            .map(|x| x.as_u64())
+            .collect()
+    };
+    let (pre, post) = (list("preBalances")?, list("postBalances")?);
+    (pre.len() == post.len()).then_some((pre, post))
+}
+
+impl RpcClient {
+    /// `getTransaction(sig)` at `commitment` as its balances only
+    /// ([`parse_balances`]); `Ok(None)`: not served, or served without them.
+    pub async fn get_transaction_balances(
+        &self,
+        sig: &Signature,
+        commitment: &str,
+    ) -> PortResult<Option<(Vec<u64>, Vec<u64>)>> {
+        let v = self
+            .call(
+                "getTransaction",
+                json!([sig.to_string(), {"encoding": "base64", "commitment": commitment, "maxSupportedTransactionVersion": 0}]),
+            )
+            .await?;
+        Ok(parse_balances(&v))
+    }
+}
+
 /// Parses a `getTransaction` result (base64 encoding).
 pub fn parse_transaction(sig: &Signature, v: &Value) -> PortResult<TxRecord> {
     let d = |m: &str| PortError::Decode(format!("transaction {m}"));
@@ -926,6 +961,25 @@ mod bounded_response_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn get_transaction_balances_parse() {
+        let v = json!({"slot": 3, "meta": {"err": null, "preBalances": [10, 0, 1], "postBalances": [5, 4, 1]}});
+        assert_eq!(
+            super::parse_balances(&v),
+            Some((vec![10, 0, 1], vec![5, 4, 1]))
+        );
+        // absent, mismatched or not integers: none
+        assert_eq!(super::parse_balances(&json!({"meta": {}})), None);
+        assert_eq!(
+            super::parse_balances(&json!({"meta": {"preBalances": [1], "postBalances": []}})),
+            None
+        );
+        assert_eq!(
+            super::parse_balances(&json!({"meta": {"preBalances": [-1], "postBalances": [1]}})),
+            None
+        );
+    }
+
     use super::*;
 
     #[test]

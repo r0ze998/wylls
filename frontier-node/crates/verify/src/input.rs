@@ -117,6 +117,88 @@ pub struct Input {
     /// starting state (never better than UNVERIFIABLE); every other check
     /// sees the archive as before. A real chain archive has none.
     pub declared: Vec<Declared>,
+    /// What the chain shows about each transaction beyond its bytes and
+    /// logs: `getTransaction`'s `meta.preBalances` / `meta.postBalances`
+    /// (which public RPC serves) and the ProgramData's upgrade authority.
+    /// With the pinned `.so`, an archive WITHOUT post-states is re-executed
+    /// from the Season's creation (`crate::genesis`, VG) instead of being
+    /// UNVERIFIABLE for want of them.
+    pub chain: ChainWitness,
+}
+
+/// Each transaction's lamports before and after it, per message key
+/// (`meta.preBalances` / `meta.postBalances`, in message key order).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Balances {
+    pub pre: Vec<u64>,
+    pub post: Vec<u64>,
+}
+
+/// See [`Input::chain`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChainWitness {
+    /// By transaction signature (base58): a reordered or re-signed
+    /// transaction keeps or loses its own.
+    pub balances: BTreeMap<String, Balances>,
+    /// The program's upgrade authority as its ProgramData shows it
+    /// (AnnounceSeason reads it). `None`: not read.
+    pub upgrade_authority: Option<Address>,
+}
+
+impl ChainWitness {
+    pub fn is_empty(&self) -> bool {
+        self.balances.is_empty() && self.upgrade_authority.is_none()
+    }
+    /// The balances of the transaction `t`, if archived.
+    pub fn of(&self, t: &TxRecord) -> Option<&Balances> {
+        self.balances.get(&t.signature.to_string())
+    }
+    pub fn to_json(&self) -> Value {
+        json!({
+            "upgrade_authority": self.upgrade_authority.map(|a| a.to_string()),
+            "balances": self.balances.iter().map(|(s, b)| json!([s, b.pre, b.post])).collect::<Vec<_>>(),
+        })
+    }
+    pub fn from_json(v: &Value) -> Result<ChainWitness, String> {
+        let nums = |x: Option<&Value>, what: &str| -> Result<Vec<u64>, String> {
+            x.and_then(|a| a.as_array())
+                .ok_or(format!("chain.balances {what}"))?
+                .iter()
+                .map(|n| n.as_u64().ok_or(format!("chain.balances {what}")))
+                .collect()
+        };
+        let mut balances = BTreeMap::new();
+        for e in v
+            .get("balances")
+            .and_then(|x| x.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or_default()
+        {
+            let sig = e
+                .get(0)
+                .and_then(|x| x.as_str())
+                .ok_or("chain.balances signature")?;
+            balances.insert(
+                sig.to_string(),
+                Balances {
+                    pre: nums(e.get(1), "pre")?,
+                    post: nums(e.get(2), "post")?,
+                },
+            );
+        }
+        let upgrade_authority = match v.get("upgrade_authority") {
+            None | Some(Value::Null) => None,
+            Some(x) => Some(
+                x.as_str()
+                    .and_then(|s| s.parse().ok())
+                    .ok_or("chain.upgrade_authority")?,
+            ),
+        };
+        Ok(ChainWitness {
+            balances,
+            upgrade_authority,
+        })
+    }
 }
 
 /// One declared state (see [`Input::declared`]).
@@ -149,6 +231,9 @@ impl Input {
         }
         if let Some(f) = &self.resident_feed {
             v["resident_feed"] = f.to_json();
+        }
+        if !self.chain.is_empty() {
+            v["chain"] = self.chain.to_json();
         }
         if !self.declared.is_empty() {
             v["declared"] = Value::Array(
@@ -220,6 +305,10 @@ impl Input {
             declared: match v.get("declared") {
                 None => vec![],
                 Some(d) => declared_from_json(d)?,
+            },
+            chain: match v.get("chain") {
+                None => ChainWitness::default(),
+                Some(c) => ChainWitness::from_json(c)?,
             },
         })
     }
@@ -615,6 +704,63 @@ pub async fn program_hash(url: &str, program: &Address) -> Result<(u64, [u8; 32]
     let elf = pd.data.get(45..).ok_or("ProgramData: no ELF")?;
     let n = elf_len(elf).ok_or("ProgramData: not an ELF64")?;
     Ok((slot, permutation_rules::hash::sha256(&[&elf[..n]])))
+}
+
+/// VG's chain witness over RPC (`--balances`): every archived transaction's
+/// `meta.preBalances` / `postBalances` (finalized `getTransaction`; a public
+/// RPC serves them) and the program's upgrade authority from its
+/// ProgramData. A transaction whose balances are not served is left out
+/// (VG then says UNVERIFIABLE for it). One extra `getTransaction` per
+/// transaction: on devnet this is a read the owner approves per run (B5).
+pub async fn fetch_chain(
+    url: &str,
+    program: &Address,
+    txs: &[TxRecord],
+) -> Result<ChainWitness, String> {
+    let rpc = fclient::rpc::RpcClient::new(url);
+    let mut balances = BTreeMap::new();
+    for t in txs {
+        if let Some((pre, post)) = rpc
+            .get_transaction_balances(&t.signature, "finalized")
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            balances.insert(t.signature.to_string(), Balances { pre, post });
+        }
+    }
+    Ok(ChainWitness {
+        balances,
+        upgrade_authority: upgrade_authority(url, program).await?,
+    })
+}
+
+/// The upgrade authority the program's ProgramData names (`None`: none, or
+/// not an upgradeable program).
+pub async fn upgrade_authority(url: &str, program: &Address) -> Result<Option<Address>, String> {
+    let loader: Address = "BPFLoaderUpgradeab1e11111111111111111111111"
+        .parse()
+        .map_err(|_| "the LoaderV3 id")?;
+    let (pd, _) = Address::find_program_address(&[program.as_ref()], &loader);
+    let port = fclient::rpc::RpcPort::new(url, *program);
+    let got = port
+        .rpc
+        .get_multiple_accounts(&[pd], 0)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(got
+        .into_iter()
+        .next()
+        .flatten()
+        .and_then(|a| programdata_authority(&a.data)))
+}
+
+/// UpgradeableLoaderState::ProgramData `{ slot: u64, upgrade_authority:
+/// Option<Pubkey> }` after its u32 tag 3: the authority, if set.
+pub fn programdata_authority(d: &[u8]) -> Option<Address> {
+    if d.get(..4)? != 3u32.to_le_bytes() || *d.get(12)? != 1 {
+        return None;
+    }
+    Some(Address::new_from_array(d.get(13..45)?.try_into().ok()?))
 }
 
 /// The length of an ELF64 file from its header: the end of its section

@@ -41,6 +41,13 @@
 //!   archives keep no post-state for a transaction that only closes
 //!   accounts (CloseArrivalDay and CloseArrivalSlot in `march-program`), and
 //!   V1 judges a closed chain by its tombstone;
+//! - **FAIL** `UnwritablePost` (D-verify-pr89-3, 2026-11-19): any
+//!   transaction, failed ones included, with a post-state of an account its
+//!   message does not hold writable, or does not name at all. The runtime
+//!   writes back only the writable accounts a message names, so no chain
+//!   produced it: a state laundered into such a post was read by the
+//!   replays (VX's starting states, VWL's states before) as if a
+//!   transaction had written it;
 //! - `UnverifiedRecord` (r7): it carries a record no check judges where it
 //!   stands: a conquest kind outside [`MODELLED_CQ_KINDS`] (a kind a later
 //!   ABI adds, such as workstream 20's RESIDENT_JOINED, is not a PASS
@@ -172,6 +179,33 @@ pub fn run(cx: &mut Ctx) {
                     c.kind as u8
                 ),
             );
+        }
+    }
+    // D-verify-pr89-3: a post-state the chain cannot have written.
+    for (i, t) in w.txs.iter().enumerate() {
+        if t.keys.is_empty() {
+            continue; // undecodable: V0's
+        }
+        for k in t.post.keys() {
+            let held = t.keys.iter().find(|(x, _)| x == k).map(|(_, wr)| *wr);
+            if held != Some(true) {
+                cx.fail(
+                    V,
+                    UNWRITABLE_POST,
+                    format!("tx#{i}"),
+                    0,
+                    Some(i),
+                    format!(
+                        "the archive has a post-state of {}, which the transaction {}: the chain writes only the writable accounts a message names",
+                        crate::world::b58(k),
+                        if held.is_some() {
+                            "holds read-only"
+                        } else {
+                            "does not name"
+                        }
+                    ),
+                );
+            }
         }
     }
     for (i, t) in w.txs.iter().enumerate() {

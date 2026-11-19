@@ -415,7 +415,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_expedition --test wallet_finals
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_expedition --test playable_genesis --test wallet_finals
 
   frontier-wasm:
     name: Frontier M1 web kernels (WASM build and hash)

@@ -40,6 +40,9 @@ use verify_core::Verdict;
 const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
 const PLAYABLE_SHA256: &str = "ec511123493c23e9ab1f83295e4bf666bc48c8e3f8dcfee2298d9371cc483ca3";
+/// The devnet-playable `.so` of main c889f6cf (committed gzipped for VX/VG):
+/// the recorder also runs it (`playable-lane-genesis.json.gz`).
+const MAIN_SHA256: &str = "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741";
 
 fn params() -> SeasonParamsV2 {
     let mut p = S1_LOCAL_7D;
@@ -145,17 +148,9 @@ fn claim_ix(a: &Addresses, payer: &Address, p: i16, q: i16, site: u8) -> Instruc
     }
 }
 
-#[test]
-#[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 ec511123…), run with --ignored"]
-fn record_playable_lane_natural() {
-    let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
-    let so = std::fs::read(&so_path).expect("the artefact");
-    let so_hash = common::sha2_256(&so);
-    assert_eq!(
-        hex::encode(so_hash),
-        PLAYABLE_SHA256,
-        "not the devnet-playable build"
-    );
+/// The natural season of `so` in the in-process chain (the recorder's
+/// steps): the chain, the program id and the upgrade authority.
+fn build_natural(so: &[u8]) -> (Rec, Address, Keypair, u64) {
     assert_eq!(localnet::bls_and_sbpf_v2_active(), (true, true));
 
     // The genesis round: a REAL quicknet round the workspace ships.
@@ -190,7 +185,7 @@ fn record_playable_lane_natural() {
     let session = Keypair::new_from_array([0xB2; 32]);
     c.deploy(
         program,
-        &so,
+        so,
         fclient::fees::deploy_max_len(so.len() as u64) as usize,
         Some(upgrade.pubkey()),
     )
@@ -417,13 +412,43 @@ fn record_playable_lane_natural() {
         "Harvest after the claim",
     );
 
+    (r, program, upgrade, round)
+}
+
+#[test]
+#[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 ec511123… or da3dc1aa…), run with --ignored"]
+fn record_playable_lane_natural() {
+    let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
+    let so = std::fs::read(&so_path).expect("the artefact");
+    let so_hash = common::sha2_256(&so);
+    assert!(
+        [PLAYABLE_SHA256, MAIN_SHA256].contains(&hex::encode(so_hash).as_str()),
+        "not the devnet-playable build"
+    );
+    let (r, program, upgrade, round) = build_natural(&so);
+    let a = r.a.clone();
+    let _ = &a;
     // The archive: every program transaction, the post-states of program
     // accounts, and the final states of every account the program owned.
-    let mut txs: Vec<fclient::ports::TxRecord> =
-        r.c.feed(0, usize::MAX, Some(&program))
-            .into_iter()
-            .map(|l| l.record())
-            .collect();
+    let landed = r.c.feed(0, usize::MAX, Some(&program));
+    let mut txs: Vec<fclient::ports::TxRecord> = landed.iter().map(|l| l.record()).collect();
+    // What getTransaction serves beside them (`meta.preBalances` /
+    // `postBalances`) and the ProgramData's upgrade authority: VG's input.
+    let chain = verify_core::input::ChainWitness {
+        balances: landed
+            .iter()
+            .map(|l| {
+                (
+                    l.signature.to_string(),
+                    verify_core::input::Balances {
+                        pre: l.pre_balances.clone(),
+                        post: l.post_balances.clone(),
+                    },
+                )
+            })
+            .collect(),
+        upgrade_authority: Some(upgrade.pubkey()),
+    };
     let mut owned = std::collections::BTreeSet::new();
     for t in txs.iter_mut() {
         t.post
@@ -455,7 +480,8 @@ fn record_playable_lane_natural() {
         final_slot: r.c.slot(),
         program_hashes: vec![(0, so_hash)],
         provenance: format!(
-            "verify/tests/playable_lane.rs record_playable_lane_natural: the devnet-playable .so (sha256 {PLAYABLE_SHA256}) in localnet::Chain (LiteSVM, in process), a real season by its own instructions at program version 0x4804, genesis on the shipped real quicknet round {round}; steps: {}",
+            "verify/tests/playable_lane.rs record_playable_lane_natural: the devnet-playable .so (sha256 {}) in localnet::Chain (LiteSVM, in process), a real season by its own instructions at program version 0x4804, genesis on the shipped real quicknet round {round}; steps: {}",
+            hex::encode(so_hash),
             r.log.join("; ")
         ),
         scenarios: vec!["playable-lane-natural".into()],
@@ -463,6 +489,7 @@ fn record_playable_lane_natural() {
         resident_feed: None,
         program_so: None,
         declared: vec![],
+        chain,
     };
     for l in &r.log {
         println!("{l}");
@@ -488,11 +515,15 @@ fn recorded() -> Input {
 
 #[test]
 fn the_honest_playable_lane_recording_passes() {
+    // (D-verify-pr89-3) Its OpenProvince transactions are VX's now, and
+    // this build's `.so` (ec511123…) is not committed: every other check
+    // passes it, VX leaves exactly those UNVERIFIABLE. The same season of
+    // the committed binary PASSes outright (`playable_genesis.rs`).
     let input = recorded();
     let rep = verify_core::verify(&input);
-    assert_eq!(
-        rep.verdict,
-        Verdict::Pass,
+    assert_eq!(rep.verdict, Verdict::Unverifiable);
+    assert!(
+        common::only_open_province_unexecuted(&rep),
         "{:#?}",
         rep.findings
             .iter()
@@ -732,7 +763,11 @@ fn an_unknown_program_account_fails_unless_a_wide_instruction_ran() {
     verify_core::tamper::edit_ix_tag(&mut inp, t, fl::TAG_FOLD_LAND, |d| *d = vec![0xD8]);
     assert!(!rep.findings.iter().any(|f| f.code == "FinalStateMismatch"));
     let rep = verify_core::verify(&inp);
-    assert_eq!(rep.verdict, Verdict::Unverifiable, "{:#?}", show(&rep));
+    // VR leaves the unknown account to the wide instruction (UNVERIFIABLE);
+    // the forged post-state, on an account the transaction does not name,
+    // is V0E's FAIL (D-verify-pr89-3).
+    assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
+    assert!(has(&rep, "V0E", "UnwritablePost"), "{:#?}", show(&rep));
     let f = rep
         .findings
         .iter()
@@ -825,4 +860,113 @@ fn a_witness_under_the_hull_rule_is_judged_by_its_pda() {
     place_home_with_witness(&mut inp, 4); // the Frontier: not a Province
     let rep = verify_core::verify(&inp);
     assert_ne!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+}
+
+// ------------------------------------------- VG over a live local node
+
+/// The natural season served by the local node's JSON-RPC
+/// (`localnet::server`, 127.0.0.1:41500, the run's port range) and read
+/// the way a PUBLIC RPC is read: `getSignaturesForAddress` +
+/// `getTransaction` (findex `RpcPoll`, no post-states), the finals by
+/// `getMultipleAccounts`, and `--balances`' witness (`input::fetch_chain`).
+/// With the committed pinned `.so`, VG re-executes it from the Season's
+/// creation: no FAIL, every check judged, and the only thing that keeps it
+/// from a PASS is ⑲'s rule that a public-RPC history is unproven.
+/// Ignored: it signs with the recorder's fixed test keypairs and binds a
+/// local port (CI's key-free rule); run with `--ignored`.
+#[test]
+#[ignore = "binds 127.0.0.1:41500-41501 and signs the recorder's test transactions; run with --ignored"]
+fn a_live_local_node_read_as_public_rpc_is_re_executed_from_genesis() {
+    let so = verify_core::reexec::Program::load(
+        &common::fixtures_dir().join("devnet-playable-da3dc1aa.so.gz"),
+    )
+    .expect("the committed .so");
+    let (r, program, upgrade, _) = build_natural(&so.so);
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let state = std::sync::Arc::new(std::sync::Mutex::new(r.c));
+    let node = rt
+        .block_on(localnet::server::start(state, 41_500))
+        .expect("port 41500 free");
+    let url = node.url();
+    let (txs, history) = rt
+        .block_on(verify_core::input::fetch_txs(
+            &url, &program, false, None, None,
+        ))
+        .expect("the program's history");
+    assert!(
+        txs.iter().all(|t| t.post.is_empty()),
+        "an RPC read has no post-states"
+    );
+    let keys = verify_core::input::written_keys(&txs);
+    let (finals, final_slot) = rt
+        .block_on(verify_core::input::fetch_finals(&url, &keys))
+        .expect("finals");
+    let chain = rt
+        .block_on(verify_core::input::fetch_chain(&url, &program, &txs))
+        .expect("balances");
+    assert_eq!(chain.upgrade_authority, Some(upgrade.pubkey()));
+    assert_eq!(chain.balances.len(), txs.len());
+    let (_, h) = rt
+        .block_on(verify_core::input::program_hash(&url, &program))
+        .expect("the deployed hash");
+    node.stop();
+    let mut input = Input {
+        cfg: Config {
+            program,
+            season_id: SEASON_ID,
+            quicknet_pk: fb::quicknet_info().public_key,
+            ruleset_hash: frontier_abi::v2::presets::RULESET_HASH_V3,
+            program_hash: Some(so.sha256()),
+        },
+        txs,
+        finals,
+        final_slot,
+        program_hashes: vec![(0, h)],
+        provenance: format!("live local node {url}, read as public RPC"),
+        scenarios: vec![],
+        history,
+        resident_feed: None,
+        program_so: None,
+        declared: vec![],
+        chain,
+    };
+    let show = |rep: &verify_core::Report| {
+        rep.findings
+            .iter()
+            .map(|f| format!("{:?} {} {} {}", f.severity, f.check, f.code, f.detail))
+            .collect::<Vec<_>>()
+    };
+    // Without the pinned binary: never PASS (the old state of such a read).
+    let before = verify_core::verify(&input);
+    assert_ne!(before.verdict, Verdict::Pass);
+    input.program_so = Some(std::sync::Arc::new(so.so.as_ref().clone()));
+    let rep = verify_core::verify(&input);
+    for l in show(&rep) {
+        println!("{l}");
+    }
+    println!(
+        "verdict {:?} (without the .so: {:?})",
+        rep.verdict, before.verdict
+    );
+    assert!(rep.checks_run.contains(&"VG:genesis-replay"));
+    assert!(!rep.findings.iter().any(|f| f.fail()), "{:#?}", show(&rep));
+    let open: Vec<_> = rep
+        .findings
+        .iter()
+        .filter(|f| f.severity == verify_core::Severity::Unverifiable)
+        .collect();
+    assert!(
+        open.iter()
+            .all(|f| f.code == verify_core::codes::HISTORY_UNPROVEN),
+        "{:#?}",
+        show(&rep)
+    );
+    assert_eq!(rep.verdict, Verdict::Unverifiable);
+    // The same archive as a fixture whose history the recorder vouches for: PASS.
+    input.history = Default::default();
+    let rep = verify_core::verify(&input);
+    assert_eq!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
 }
