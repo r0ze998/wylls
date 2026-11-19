@@ -869,7 +869,7 @@ fn record_playable_march() {
 
 /// The committed recording (`PLAYABLE_DUMP` of [`record_playable_march`]).
 fn recorded() -> Input {
-    common::fixture("playable-march-whole.json.gz")
+    common::fixture("playable-sealed-march-whole.json.gz")
 }
 
 /// The successful transactions whose program instruction has tag `tag`.
@@ -1202,4 +1202,366 @@ fn a_drained_holding_at_the_settlement_fails() {
     }
     let rep = verify_core::verify(&inp);
     assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", bad(&rep));
+}
+
+// ------------------------------------------------------------ verify-pr81
+
+/// Independent tamper cases (verify-pr81): the V4 latch boundary, a
+/// consistent forger moving THE anchor's `A`, forged reveal bytes, and V13's
+/// Holding balance with the wallet post-states dropped, a third party's
+/// System transfer into the Holding, and a shared Holding.
+mod verify_pr81 {
+    use super::common;
+    use verify_core::input::Input;
+    use verify_core::tamper as tc;
+    use verify_core::{Severity, Verdict};
+
+    fn recorded() -> Input {
+        common::fixture("playable-sealed-march-whole.json.gz")
+    }
+
+    fn txs_with(inp: &Input, tag: u8) -> Vec<usize> {
+        (0..inp.txs.len())
+            .filter(|&t| {
+                inp.txs[t].err.is_none()
+                    && fclient::tx::from_wire(&inp.txs[t].tx).is_ok_and(|tx| {
+                        let keys = &tx.message.account_keys;
+                        tx.message.instructions.iter().any(|c| {
+                            keys[c.program_id_index as usize] == inp.cfg.program
+                                && c.data.first() == Some(&tag)
+                        })
+                    })
+            })
+            .collect()
+    }
+
+    fn prog_ix(tx: &fclient::Transaction, inp: &Input) -> usize {
+        tx.message
+            .instructions
+            .iter()
+            .position(|c| tx.message.account_keys[c.program_id_index as usize] == inp.cfg.program)
+            .unwrap()
+    }
+
+    fn edit_data(inp: &mut Input, t: usize, f: impl FnOnce(&mut Vec<u8>)) {
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
+        let i = prog_ix(&tx, inp);
+        f(&mut tx.message.instructions[i].data);
+        inp.txs[t].tx = fclient::tx::wire(&tx);
+    }
+
+    /// Findings that are not the honest archive's declared ones.
+    fn new_bad(rep: &verify_core::Report, base: &verify_core::Report) -> Vec<String> {
+        let key = |f: &verify_core::Finding| {
+            format!(
+                "{:?}|{}|{}|{}|{}",
+                f.severity, f.check, f.code, f.entity, f.bell
+            )
+        };
+        let old: std::collections::HashSet<String> = base.findings.iter().map(key).collect();
+        rep.findings
+            .iter()
+            .filter(|f| f.severity != Severity::Warn && !old.contains(&key(f)))
+            .map(|f| {
+                format!(
+                    "{:?} {}:{} {} | {}",
+                    f.severity, f.check, f.code, f.entity, f.detail
+                )
+            })
+            .collect()
+    }
+
+    fn show(name: &str, rep: &verify_core::Report, base: &verify_core::Report) {
+        println!(
+            "CASE {name}: verdict {:?}; new findings {:#?}",
+            rep.verdict,
+            new_bad(rep, base)
+        );
+    }
+
+    fn holding_of_settle(inp: &Input) -> (usize, fclient::Address) {
+        let t = txs_with(inp, 0x54)[0];
+        let tx = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
+        let ci = &tx.message.instructions[prog_ix(&tx, inp)];
+        (t, tx.message.account_keys[ci.accounts[2] as usize])
+    }
+
+    fn shift_lamports(inp: &mut Input, from_tx: usize, k: fclient::Address, d: i64) {
+        for u in from_tx..inp.txs.len() {
+            for (kk, a) in inp.txs[u].post.iter_mut() {
+                if *kk == k {
+                    if let Some(a) = a {
+                        a.lamports = (a.lamports as i64 + d) as u64;
+                    }
+                }
+            }
+        }
+        if let Some(Some(a)) = inp.finals.get_mut(&k.to_bytes()) {
+            a.lamports = (a.lamports as i64 + d) as u64;
+        }
+    }
+
+    // ---------------------------------------------------------------- V4
+
+    /// The close from a LatchBeforeClose detail.
+    fn close_of_gather(inp: &Input) -> i64 {
+        let mut x = inp.clone();
+        let reveal = txs_with(&x, 0x51)[0];
+        let g = txs_with(&x, 0x60)[0];
+        x.txs[g].block_time = x.txs[reveal].block_time + 1;
+        let rep = verify_core::verify(&x);
+        let f = rep
+            .findings
+            .iter()
+            .find(|f| f.code == "LatchBeforeClose")
+            .expect("latch finding");
+        f.detail.rsplit(' ').next().unwrap().parse().unwrap()
+    }
+
+    #[test]
+    fn v4_boundary() {
+        let base = verify_core::verify(&recorded());
+        let inp = recorded();
+        let close = close_of_gather(&inp);
+        let g = txs_with(&inp, 0x60)[0];
+        println!("honest gather at {}, close {close}", inp.txs[g].block_time);
+        assert!(inp.txs[g].block_time >= close);
+        let mut a = inp.clone();
+        a.txs[g].block_time = close - 1;
+        let ra = verify_core::verify(&a);
+        show("gather at close-1", &ra, &base);
+        assert_eq!(ra.verdict, Verdict::Fail);
+        assert!(ra.fails_with("LatchBeforeClose"));
+        let mut b = inp.clone();
+        b.txs[g].block_time = close;
+        let rb = verify_core::verify(&b);
+        show("gather at close", &rb, &base);
+        assert!(!rb.fails_with("LatchBeforeClose"));
+        assert!(new_bad(&rb, &base).is_empty());
+    }
+
+    /// An early gather hidden by an ANCHOR record whose `a` is moved earlier
+    /// by the same amount (consistent forger, rechained).
+    #[test]
+    fn v4_early_gather_with_forged_anchor_time() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let close = close_of_gather(&inp);
+        let g = txs_with(&inp, 0x60)[0];
+        let reveal = txs_with(&inp, 0x51)[0];
+        let new_t = inp.txs[reveal].block_time + 1;
+        let shift = close - new_t;
+        inp.txs[g].block_time = new_t;
+        let (at, i) = tc::find(&inp, frontier_abi::log::Kind::ANCHOR)[0];
+        let (o, n) = tc::field(frontier_abi::log::Kind::ANCHOR, "a");
+        tc::edit_payload(&mut inp, at, i, |pl| {
+            let a = i64::from_le_bytes(pl[o..o + 8].try_into().unwrap());
+            pl[o..o + n].copy_from_slice(&(a - shift).to_le_bytes()[..n]);
+        });
+        tc::rechain(&mut inp);
+        let r = verify_core::verify(&inp);
+        show("early gather + anchor a moved", &r, &base);
+        assert_eq!(r.verdict, Verdict::Fail);
+    }
+
+    /// The ANCHOR record re-keyed to another bell: bell 21's anchor is absent.
+    #[test]
+    fn v4_gather_without_its_anchor() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (at, i) = tc::find(&inp, frontier_abi::log::Kind::ANCHOR)[0];
+        tc::edit_key(&mut inp, at, i, |k| {
+            let b = u32::from_le_bytes(k[0..4].try_into().unwrap());
+            k[0..4].copy_from_slice(&(b + 1).to_le_bytes());
+        });
+        tc::rechain(&mut inp);
+        let r = verify_core::verify(&inp);
+        show("anchor rekeyed", &r, &base);
+        assert_ne!(r.verdict, Verdict::Pass);
+        assert!(!new_bad(&r, &base).is_empty());
+    }
+
+    /// A SKIP moved before its bells even started.
+    #[test]
+    fn v4_skip_moved_early() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let skips = txs_with(&inp, 0x63);
+        let s = *skips.last().unwrap();
+        let prev = s - 1;
+        inp.txs[s].block_time = inp.txs[prev].block_time;
+        let r = verify_core::verify(&inp);
+        show("skip moved early", &r, &base);
+        assert_ne!(r.verdict, Verdict::Pass);
+    }
+
+    // ---------------------------------------------------------------- V5
+
+    #[test]
+    fn v5_forged_reveals() {
+        let base = verify_core::verify(&recorded());
+        for (name, off) in [
+            ("plaintext[0]", 3usize),
+            ("plaintext[36]", 3 + 36),
+            ("target_i", 2),
+            ("plaintext[5]", 3 + 5),
+        ] {
+            let mut inp = recorded();
+            let t = txs_with(&inp, 0x51)[0];
+            edit_data(&mut inp, t, |d| d[off] ^= 1);
+            let r = verify_core::verify(&inp);
+            show(&format!("forged reveal {name}"), &r, &base);
+            assert_eq!(r.verdict, Verdict::Fail, "{name}");
+        }
+    }
+
+    // ---------------------------------------------------------------- V13
+
+    #[test]
+    fn v13_drain_one_lamport() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (t, h) = holding_of_settle(&inp);
+        shift_lamports(&mut inp, t, h, -1);
+        let r = verify_core::verify(&inp);
+        show("drain 1", &r, &base);
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert!(r.fails_with("PaymentMismatch"));
+    }
+
+    #[test]
+    fn v13_forged_credit() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (t, h) = holding_of_settle(&inp);
+        shift_lamports(&mut inp, t, h, 10_000);
+        let r = verify_core::verify(&inp);
+        show("credit +10000 (no ix)", &r, &base);
+        assert_eq!(r.verdict, Verdict::Fail);
+    }
+
+    /// The abuse the brief asks about: the drain, and the SettleTransit's
+    /// wallet post-states dropped from that one transaction.
+    #[test]
+    fn v13_drain_with_wallet_posts_stripped() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (t, h) = holding_of_settle(&inp);
+        let prog = inp.cfg.program;
+        let before = inp.txs[t].post.len();
+        inp.txs[t]
+            .post
+            .retain(|(_, a)| a.as_ref().is_none_or(|a| a.owner == prog));
+        println!("stripped {} wallet posts", before - inp.txs[t].post.len());
+        shift_lamports(&mut inp, t, h, -10_000);
+        let r = verify_core::verify(&inp);
+        show("drain + wallets stripped", &r, &base);
+        assert_eq!(
+            r.verdict,
+            Verdict::Fail,
+            "a drain hidden by stripping the wallets"
+        );
+    }
+
+    /// The control: wallets stripped, nothing drained (no new finding).
+    #[test]
+    fn v13_wallets_stripped_only() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (t, _) = holding_of_settle(&inp);
+        let prog = inp.cfg.program;
+        inp.txs[t]
+            .post
+            .retain(|(_, a)| a.as_ref().is_none_or(|a| a.owner == prog));
+        let r = verify_core::verify(&inp);
+        show("wallets stripped only", &r, &base);
+        assert!(new_bad(&r, &base).is_empty());
+    }
+
+    /// An honest program run: a third party bundles a system transfer of
+    /// 10,000 lamports to the Holding into the SettleTransit transaction.
+    /// The program did nothing wrong; the verdict must not be FAIL.
+    #[test]
+    fn v13_third_party_credit_in_the_same_tx_is_not_a_fail() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (t, h) = holding_of_settle(&inp);
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
+        let sys = fclient::addr::system_program();
+        let keys = &mut tx.message.account_keys;
+        let si = match keys.iter().position(|k| *k == sys) {
+            Some(i) => i,
+            None => {
+                keys.push(sys);
+                tx.message.header.num_readonly_unsigned_accounts += 1;
+                keys.len() - 1
+            }
+        };
+        let hi = keys.iter().position(|k| *k == h).unwrap();
+        let payer = keys[0];
+        let mut d = vec![2, 0, 0, 0];
+        d.extend_from_slice(&10_000u64.to_le_bytes());
+        let mut ci = tx.message.instructions[0].clone();
+        ci.program_id_index = si as u8;
+        ci.accounts = vec![0, hi as u8];
+        ci.data = d;
+        tx.message.instructions.push(ci);
+        inp.txs[t].tx = fclient::tx::wire(&tx);
+        shift_lamports(&mut inp, t, h, 10_000);
+        shift_lamports(&mut inp, t, payer, -10_000);
+        let r = verify_core::verify(&inp);
+        show("third-party credit in the same tx", &r, &base);
+        assert_ne!(r.verdict, Verdict::Fail, "{:#?}", new_bad(&r, &base));
+    }
+
+    /// The drain, and the Holding's own post-state dropped at the settlement
+    /// (the drained balance first shows at a later transaction).
+    #[test]
+    fn v13_drain_with_the_holdings_post_stripped() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (t, h) = holding_of_settle(&inp);
+        shift_lamports(&mut inp, t, h, -10_000);
+        inp.txs[t].post.retain(|(k, _)| *k != h);
+        let r = verify_core::verify(&inp);
+        show("drain + holding post stripped", &r, &base);
+        assert_ne!(r.verdict, Verdict::Pass);
+        assert!(
+            !new_bad(&r, &base).is_empty(),
+            "the drain must leave a finding"
+        );
+    }
+
+    /// The drain, with another program's instruction naming the Holding in
+    /// the same transaction: the balance cannot be attributed, never a PASS.
+    #[test]
+    fn v13_drain_shared_with_a_foreign_instruction_is_never_a_pass() {
+        let base = verify_core::verify(&recorded());
+        let mut inp = recorded();
+        let (t, h) = holding_of_settle(&inp);
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
+        let memo = fclient::Address::new_from_array([7; 32]);
+        tx.message.account_keys.push(memo);
+        tx.message.header.num_readonly_unsigned_accounts += 1;
+        let mi = tx.message.account_keys.len() - 1;
+        let hi = tx
+            .message
+            .account_keys
+            .iter()
+            .position(|k| *k == h)
+            .unwrap();
+        let mut ci = tx.message.instructions[0].clone();
+        ci.program_id_index = mi as u8;
+        ci.accounts = vec![hi as u8];
+        ci.data = vec![1];
+        tx.message.instructions.push(ci);
+        inp.txs[t].tx = fclient::tx::wire(&tx);
+        shift_lamports(&mut inp, t, h, -10_000);
+        let r = verify_core::verify(&inp);
+        show("drain + foreign ix names the Holding", &r, &base);
+        assert_ne!(r.verdict, Verdict::Pass);
+        assert!(new_bad(&r, &base)
+            .iter()
+            .any(|f| f.contains("V13:MissingData")));
+    }
 }

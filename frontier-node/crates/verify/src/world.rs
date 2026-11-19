@@ -273,6 +273,15 @@ pub struct World {
     /// V1–V13 suite reads only [`World::recs`]; the conquest audit and the
     /// conquest rule checks read these.
     pub cq_recs: Vec<CqRec>,
+    /// Per `(transaction, account)`, the lamports top-level System Program
+    /// transfers (`Transfer`, `TransferWithSeed`) move into the account:
+    /// anyone may credit any account, a program-owned one included
+    /// (verify-pr81: V13's Holding balance counts them).
+    pub sys_credits: std::collections::HashMap<(usize, Key), u64>,
+    /// Per transaction, the accounts a top-level instruction names that is
+    /// neither this program's, a System Program transfer, nor a
+    /// compute-budget one (another program could credit them by CPI).
+    pub foreign_keys: std::collections::HashMap<usize, std::collections::BTreeSet<Key>>,
 }
 
 /// A conquest record (ABI v2 kinds 80–88), owned.
@@ -373,9 +382,45 @@ impl World {
                     tx.cu_price = b.cu_price.unwrap_or(0);
                     tx.cu_limit = b.cu_limit.unwrap_or(0);
                     tx.loaded_limit = b.loaded_limit.unwrap_or(0);
+                    let system = fclient::addr::system_program();
+                    let budget = fclient::addr::compute_budget_program();
                     for (n, ci) in msg.instructions.iter().enumerate() {
                         let pid = msg.account_keys.get(ci.program_id_index as usize);
                         if pid.map(|p| p.to_bytes()) != Some(w.program) {
+                            let key_at = |j: usize| {
+                                ci.accounts
+                                    .get(j)
+                                    .and_then(|&a| msg.account_keys.get(a as usize))
+                                    .map(|k| k.to_bytes())
+                            };
+                            // System `Transfer` (2: [from, to]) and
+                            // `TransferWithSeed` (11: [from, base, to]).
+                            let tag = ci
+                                .data
+                                .get(..4)
+                                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+                            let amount = ci
+                                .data
+                                .get(4..12)
+                                .map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
+                            let to = match tag {
+                                Some(2) => key_at(1),
+                                Some(11) => key_at(2),
+                                _ => None,
+                            };
+                            match (pid == Some(&system), to, amount) {
+                                (true, Some(to), Some(amount)) => {
+                                    let c = w.sys_credits.entry((i, to)).or_default();
+                                    *c = c.saturating_add(amount);
+                                }
+                                _ if pid == Some(&budget) => {}
+                                _ => w.foreign_keys.entry(i).or_default().extend(
+                                    ci.accounts
+                                        .iter()
+                                        .filter_map(|&a| msg.account_keys.get(a as usize))
+                                        .map(|k| k.to_bytes()),
+                                ),
+                            }
                             continue;
                         }
                         let ix = Ix {
