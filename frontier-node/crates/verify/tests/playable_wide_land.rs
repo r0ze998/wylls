@@ -829,13 +829,14 @@ fn an_undecodable_wide_instruction_is_never_a_pass() {
 
 #[test]
 fn an_unjudged_wide_command_stays_unverifiable() {
-    // WideClose (0xDE) is not modelled (WideFinalize is VWL's since the
-    // wide claims): V0 names it, never a PASS.
+    // The march-record closes (WideClose what 2..=5) are not modelled (the
+    // ticket, holding and province closes are VWL's since
+    // `vwl_wide_close.rs`): V0 names the command, never a PASS.
     let mut inp = natural();
     let t = txs_with(&inp, T_RULES)[0];
     verify_core::tamper::edit_ix_tag(&mut inp, t, T_RULES, |d| {
         *d = wix::Close {
-            what: wix::CLOSE_WHAT_TICKET,
+            what: wix::CLOSE_WHAT_SLOT,
         }
         .to_bytes()
         .to_vec()
