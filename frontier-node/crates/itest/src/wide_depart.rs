@@ -270,6 +270,33 @@ pub fn province_act(
     }
 }
 
+/// The most ended bells past a province's cursor whose anchor and seed are posted ahead (their windows then close in
+/// parallel and the catch-up resolves about one bell per round).
+pub const LEAD_BELLS: u32 = 8;
+
+/// The anchors and seeds of the ended bells `rn + 1 ..= rn + LEAD_BELLS` (below `now.bell` and the end) that are
+/// missing: an anchor first, a seed once the bell's window closed (never for a bell with arrivals, whose gather comes
+/// first). Pure over the chain.
+pub fn lead_acts(c: &Chain, a: &Addresses, clock: &fclient::clock::SeasonClock, p: &Prov, now: Now) -> Result<Vec<Act>, String> {
+    let mut out = vec![];
+    let last = now.bell.saturating_sub(1).min(now.end_bell.saturating_sub(1)).min(p.rn.saturating_add(LEAD_BELLS));
+    for b in p.rn.saturating_add(1)..=last {
+        match lk::anchor_landed(c, a, b, p.region)? {
+            None => out.push(Act::Anchor { bell: b, region: p.region }),
+            Some(a_ts) => {
+                if now.ts >= clock.reveal_close(b, a_ts)
+                    && c.account(&a.seed_cache(b, p.region, 0)).is_none()
+                    && clash_header(c, a, p.pk, b)?.is_none()
+                    && !arrival_bit(c, a, p.pk, b)
+                {
+                    out.push(Act::Seed { bell: b, region: p.region, anchor_ts: a_ts });
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The landed raw WideDepart (0xDA) of this march, matched by its seal root, host, arrival and slot.
 pub fn landed_depart(c: &Chain, a: &Addresses, m: &March) -> Result<Option<wix::Depart>, String> {
     let mut found: Option<wix::Depart> = None;
@@ -749,6 +776,9 @@ impl Crank {
                     Ok(Some(a)) => acts.push(a),
                     Ok(None) => {}
                     Err(e) => out_errs.push(e),
+                }
+                if let Ok(more) = lead_acts(&c, &self.a, &clock, &s.provs[k], now) {
+                    acts.extend(more);
                 }
             }
             (s, clock, now, acts)
