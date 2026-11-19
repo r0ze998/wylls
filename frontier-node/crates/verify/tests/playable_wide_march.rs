@@ -5,8 +5,9 @@
 //! (`keep_bells` of the Season) is complete and the keep changes hands.
 //!
 //! One recording of the devnet-playable `.so` built from `origin/main`
-//! `1c55036b` (sha256 70b41975…, the program #76 recorded; the program is
-//! unchanged on this branch) in the in-process LiteSVM chain
+//! `faf1a520` (sha256 ec511123…, the program #80 re-recorded the other
+//! playable fixtures from, #69's ruleset; the program is unchanged on this
+//! branch) in the in-process LiteSVM chain
 //! (`localnet::Chain`), made by `record_playable_wide_march` (ignored;
 //! needs the artefact), the UNFILTERED feed (wallet post-states and
 //! finals included):
@@ -72,11 +73,13 @@ use verify_core::input::{Config, Input};
 
 const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
-/// The devnet-playable `.so` built from `origin/main` `1c55036b`.
-const MAIN_SHA256: &str = "70b41975750e2d369ecae0eed89395e6235896e56e009c0bfb554f2b9c42ebfc";
+/// The devnet-playable `.so` built from `origin/main` `faf1a520`.
+const MAIN_SHA256: &str = "ec511123493c23e9ab1f83295e4bf666bc48c8e3f8dcfee2298d9371cc483ca3";
 const RULES: wr::RuleBytes = wr::RuleBytes {
     keep_holder: KeepHolderRule::MixedInterleaved as u8,
-    free_city: FreeCityRule::CanonicalHashV1 as u8,
+    // (⑧ (d), #69: a placement-2 Season — `S1_LOCAL_7D` since #69 — takes
+    //  the deployed formula; `CanonicalHashV1` is refused `BadData`)
+    free_city: FreeCityRule::DeployedLe32V1 as u8,
     camp: CampRule::SortKeyDrawV1 as u8,
     region: RegionRule::SortKeyHashV1 as u8,
 };
@@ -696,7 +699,7 @@ fn seed_of(bell: u32) -> [u8; 32] {
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 70b41975…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 ec511123…), run with --ignored"]
 fn record_playable_wide_march() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
@@ -704,7 +707,7 @@ fn record_playable_wide_march() {
     assert_eq!(
         hex::encode(so_hash),
         MAIN_SHA256,
-        "not the devnet-playable build of main 1c55036b"
+        "not the devnet-playable build of main faf1a520"
     );
     assert_eq!(localnet::bls_and_sbpf_v2_active(), (true, true));
 
@@ -915,7 +918,7 @@ fn record_playable_wide_march() {
         nat_finals,
         r.c.slot(),
         format!(
-            "verify/tests/playable_wide_next.rs record_playable_wide_next: the devnet-playable .so built from origin/main 1c55036b (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process), a real season by its own instructions at program version 0x4804 with conquest placement 2 (genesis on the shipped quicknet round {round}), three players' Join + PlaceHome, a refused WideSetRules(OrbitBalanced) and the authority's WideSetRules(MixedInterleaved); the UNFILTERED feed (wallet post-states and finals included); steps: {}",
+            "verify/tests/playable_wide_next.rs record_playable_wide_next: the devnet-playable .so built from origin/main faf1a520 (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process), a real season by its own instructions at program version 0x4804 with conquest placement 2 (genesis on the shipped quicknet round {round}), three players' Join + PlaceHome, a refused WideSetRules(OrbitBalanced) and the authority's WideSetRules(MixedInterleaved); the UNFILTERED feed (wallet post-states and finals included); steps: {}",
             r.log.join("; ")
         ),
         "playable-next-setrules",
@@ -1201,7 +1204,7 @@ fn record_playable_wide_march() {
     let snapshot = r.snapshot.take().unwrap();
     let (seg_txs, seg_finals) = r.archive(seg_b_from, &program);
     let prov = format!(
-        "verify/tests/playable_wide_march.rs record_playable_wide_march: the devnet-playable .so built from origin/main 1c55036b (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process); a real placement-2 season by its own instructions, the declared wide land patch (RingSeed(128), Frontier wedge counters) and the real ring-129 opening, the declared rim-homes patch (three players' PlaceHome holdings copied to the rim (128,0) as final Towns with stores, a v2 Province there, the Citizens' slot 1 re-pointed); witnessed: a hostile player's slot-2 claim, settle and WideFinalize, a real WideResolve of every bell from the province's opening, THE anchor and SeedCache of each resolved or ticket bell patched with a literal seed (no live drand), the declared reserve patch ({TROOPS} Spearmen), a real WideMuster onto the keep's tile, the keep taken at bell {taken_at} after its 72-bell hold; the UNFILTERED feed (wallet post-states, witness states and finals included); steps: {}",
+        "verify/tests/playable_wide_march.rs record_playable_wide_march: the devnet-playable .so built from origin/main faf1a520 (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process); a real placement-2 season by its own instructions, the declared wide land patch (RingSeed(128), Frontier wedge counters) and the real ring-129 opening, the declared rim-homes patch (three players' PlaceHome holdings copied to the rim (128,0) as final Towns with stores, a v2 Province there, the Citizens' slot 1 re-pointed); witnessed: a hostile player's slot-2 claim, settle and WideFinalize, a real WideResolve of every bell from the province's opening, THE anchor and SeedCache of each resolved or ticket bell patched with a literal seed (no live drand), the declared reserve patch ({TROOPS} Spearmen), a real WideMuster onto the keep's tile, the keep taken at bell {taken_at} after its 72-bell hold; the UNFILTERED feed (wallet post-states, witness states and finals included); steps: {}",
         r.log.join("; ")
     );
     let seg_a = input_of(
