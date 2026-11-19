@@ -36,6 +36,8 @@ mutate-vr = []
 mutate-vl = []
 # Q16-1 continued: the playable lane's wide land check (with `playable-lane`).
 mutate-vwl = []
+# Q16-1 = A (prize gate): the playable lane's re-execution check (with `playable-lane`).
+mutate-vx = []
 # The wide world's event chains (VW1, workstream 04; experimental, opt-in).
 wide-world-experimental = ["frontier-abi/world-index-experimental"]
 # Experimental, opt-in, off by default: the independent state-transition
@@ -55,7 +57,9 @@ wide-economy-experimental = ["frontier-abi/world-index-experimental"]
 # wallet form / WideSettleTicket / WideFinalize), the season-end WideClose
 # of a ticket record, a holding and a province, the wide economy and
 # garrison (wallet forms), WideMuster (wallet form) and WideResolve (the
-# bell, with the wide keep capture) by VWL, and every other wide instruction stays
+# bell, with the wide keep capture) by VWL, the expedition dispatch envelope (the expedition wrapper
+# and the Free City conquest, kinds 0-18) by VX, re-executed by the pinned `.so` in LiteSVM
+# (`--program-so`), and every other wide instruction stays
 # UNVERIFIABLE with its command named (V0 `WideUnmodelled`). Without it (the default build) 0x4804 stays
 # `UnknownProgramVersion`. Opt-in so the land/conquest ABI features never
 # unify into the keeper's or herald's default build.
@@ -70,6 +74,15 @@ playable-lane = [
     # VWL re-runs WideOpenProvince's terrain (`terrain::wide`), as the
     # program's wide build does.
     "permutation-rules/wide-terrain-experimental",
+    # VX re-executes the expedition wrapper and Free City conquest with the
+    # pinned `.so` in LiteSVM (workspace crates the local node already uses).
+    # The playable lane's wrapper message builders (unsigned drafts; the
+    # recorder of `tests/playable_expedition.rs` and VX's diagnostics).
+    "fclient/conquest-dispatch-experimental",
+    "dep:litesvm",
+    "dep:solana-account",
+    "dep:solana-clock",
+    "dep:solana-rent",
 ]
 
 # Dependency sections belong to the integrator (contract §3.4, I-55); every
@@ -88,6 +101,13 @@ tokio.workspace = true
 flate2.workspace = true
 # integ-W4 review: getProgramAccounts' base64 data (a workspace dependency).
 base64.workspace = true
+# Q16-1 = A (prize gate), `playable-lane` only: VX's re-execution of the
+# expedition wrapper by the pinned program (`src/reexec.rs`). Workspace
+# dependencies already in Cargo.lock (the local node's); no new crate.
+litesvm = { workspace = true, optional = true }
+solana-account = { workspace = true, optional = true }
+solana-clock = { workspace = true, optional = true }
+solana-rent = { workspace = true, optional = true }
 
 [dev-dependencies]
 keeper = { path = "../keeper" }

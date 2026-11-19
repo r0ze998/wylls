@@ -29,7 +29,7 @@
 //! economy, the garrison, a province close).
 //! Pure bytes; no key, no signature, no network.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::Engine;
 use frontier_abi::layout::header;
@@ -301,7 +301,24 @@ pub fn judge(
     finals: &[&[u8]],
     whole: bool,
 ) -> Vec<Judgement> {
+    judge_with(program, txs, finals, whole, &BTreeSet::new())
+}
+
+/// [`judge`], with `vx` the transactions VX re-executes (Q16-1 = A: the
+/// playable lane's expedition wrapper and Free City conquest). Their logs,
+/// records of the wrapper's own kinds included, are compared byte for byte
+/// with the pinned program's there, so a body of theirs this ABI decoder
+/// does not read is not a FAIL, and a chain whose records skip over such a
+/// transaction continues from the post-states VX proved.
+pub fn judge_with(
+    program: &str,
+    txs: &[(usize, bool, &[String])],
+    finals: &[&[u8]],
+    whole: bool,
+    vx: &BTreeSet<usize>,
+) -> Vec<Judgement> {
     let mut out = vec![];
+    let mut vx_skipped: BTreeSet<usize> = BTreeSet::new();
     let mut bodies: Vec<(usize, Vec<u8>)> = vec![];
     for (i, ok, logs) in txs {
         if !ok {
@@ -350,6 +367,9 @@ pub fn judge(
     for (i, b) in &bodies {
         match WideRecord::decode(b) {
             Ok(r) => records.push((*i, r)),
+            Err(_) if vx.contains(i) => {
+                vx_skipped.insert(*i);
+            }
             Err(e) => out.push(Judgement::Fail {
                 code: WIDE_RECORD_UNDECODABLE,
                 tx: Some(*i),
@@ -416,7 +436,11 @@ pub fn judge(
             }
             Ok(w) => w,
         };
+        let first_tx = s.first().map_or(0, |x| x.tx);
         for &(tx, from, to) in &walked.gaps {
+            if vx_skipped.range(first_tx..=tx).next().is_some() {
+                continue;
+            }
             let detail =
                 format!("the records between seq {from} and seq {to} are not in the input");
             if whole {
@@ -445,6 +469,7 @@ pub fn judge(
                     detail: "the account's final bytes are not in the input (closed, or not read)".into(),
                 }),
                 Some(&(seq, head)) if (seq, head) == (last.seq, last.head) => {}
+                Some(_) if s.last().is_some_and(|x| vx_skipped.range(x.tx..).next().is_some()) => {}
                 Some(&(seq, _)) if whole => out.push(Judgement::Fail {
                     code: WIDE_CHAIN_FINAL_MISMATCH,
                     tx: None,
@@ -557,12 +582,21 @@ pub fn run(cx: &mut Ctx) {
     finals.extend(ended.iter().map(Vec::as_slice));
     // Every wide record of the season printed by an instruction VWL
     // re-ran: nothing of them is left unmodelled.
+    let vx: BTreeSet<usize> =
+        cx.w.txs
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| super::v0_coverage::vx_tx(t, pv))
+            .map(|(i, _)| i)
+            .collect();
     let all_judged = playable
         && txs.iter().all(|(i, ok, logs)| {
-            !ok || vwl_owns(*i) || matches!(psw1_bodies(logs, &program), Ok(b) if b.is_empty())
+            !ok || vwl_owns(*i)
+                || vx.contains(i)
+                || matches!(psw1_bodies(logs, &program), Ok(b) if b.is_empty())
         });
     let whole = !cx.input.history.unproven();
-    for j in judge(&program, &txs, &finals, whole) {
+    for j in judge_with(&program, &txs, &finals, whole, &vx) {
         if all_judged
             && matches!(&j, Judgement::Unverifiable { code, tx: None, entity, .. }
                 if *code == WIDE_UNMODELLED && entity == "season")
