@@ -5,7 +5,7 @@
 // relay. The world's runner settles the march from public data (itest wide_depart.rs). No key leaves the process.
 import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
 import { createWideHostPlanner } from '../../../permutation-server/web/frontier/flocalplay-wide-plan.mjs';
-import { WIDE_TRAIN, WIDE_DEPART } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
+import { WIDE_DEPART } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
 export { neighbourTargets, passablePath, WIDE_DEPARTS_MAX } from '../../../permutation-server/web/frontier/flocalplay-wide-plan.mjs';
 
 /**
@@ -38,7 +38,6 @@ export function createWideHost({ herald: base, fetch: f = (...a) => globalThis.f
   function note(r, d, outcome) {
     const m = r.memory, bad = outcome === 'refused' || outcome === 'failed';
     m.wideHostUntil = (m.decisions ?? 0) + (bad ? 6 : 2);
-    if (d.name === WIDE_TRAIN && bad) m.wideTrainN = Math.max(10, Math.floor((m.wideTrainN ?? 100) / 2));
     if (d.name === WIDE_DEPART && (outcome === 'landed' || outcome === 'unknown')) m.wideDeparts = (m.wideDeparts ?? 0) + 1;
   }
   return Object.freeze({ decide, note, herald });

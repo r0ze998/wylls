@@ -102,7 +102,8 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
           return { decision: { name: WIDE_MUSTER, v: { wide: village }, fields: { unit: 0, troops: Math.min(holding.reserve[0], WIDE_HOST_TROOPS), tile: holding.tile }, wideHostAct: true,
             why: `a host of ${Math.min(holding.reserve[0], WIDE_HOST_TROOPS)} Spearmen at the wide village ${village.p},${village.q}` } };
         }
-        const n = memory.wideTrainN ?? 100;
+        // (the cost is per started batch of 100 — fland trainingCost — so a smaller batch saves nothing: 100)
+        const n = 100;
         return { decision: { name: WIDE_TRAIN, v: { wide: village }, fields: { unit: 0, n }, wideHostAct: true, why: `train ${n} Spearmen at the wide village ${village.p},${village.q} (reserve ${holding.reserve[0]})` } };
       }
       const host = hosts.find(h => h.entry.state === 1 && h.entry.pendOp === 0 && h.entry.readyBell <= nowBell && h.entry.troops >= 100_000);
@@ -142,8 +143,13 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
           seasonPkHash: season.quicknetPkHash, seasonNetwork: season.network, cluster: record.cluster });
         if (!sealed.ok) return { why: `seal: ${sealed.code}` };
         const tip = String(tipOptions(season)[0].lamports);
+        // (TEST PROBE, local evidence only: a caller that sets `memory.badSealProbe` gets ONE byte of the seal's masked
+        //  body flipped — its IBE point stays valid, so the Depart's syntax check passes and the program's settlement
+        //  judges it a bad seal (judge_wide's FO check: seal code 1 or 2). The AI residents never set it.)
+        let sealHex = toHex(sealed.seal);
+        if (memory.badSealProbe === true) { const b = fromHex(sealHex); b[110] ^= 0x01; sealHex = toHex(b); memory.badSealProbe = 'sent'; }
         return { decision: { name: WIDE_DEPART, v: { wide: village, standing: { p: village.p, q: village.q } },
-          fields: { host: host.ref, transit_slot: slot, arrive_bell: arriveBell, tip, commit: toHex(sealed.commit), seal: toHex(sealed.seal) }, wideHostAct: true,
+          fields: { host: host.ref, transit_slot: slot, arrive_bell: arriveBell, tip, commit: toHex(sealed.commit), seal: sealHex }, wideHostAct: true, badSealProbe: memory.badSealProbe === 'sent' && sealHex !== toHex(sealed.seal),
           to: { p: t.p, q: t.q, tile: pv.keep.tile, holder: pv.keep.holder, keepTroops: pv.keep.troops }, from: origin, troops: Math.floor(host.entry.troops / 1000), nowBell,
           why: `the host (${Math.floor(host.entry.troops / 1000)} troops) marches wide -> wide from ${village.p},${village.q} onto the keep of ${t.p},${t.q} (tile ${pv.keep.tile}, held by nation ${pv.keep.holder}), arriving turn ${arriveBell}` } };
       }

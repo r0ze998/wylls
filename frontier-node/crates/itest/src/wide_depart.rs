@@ -113,6 +113,7 @@ pub fn scan(c: &Chain, a: &Addresses) -> Scan {
     let mut days = vec![];
     let mut exp_slots = vec![];
     let mut transits = vec![];
+    let mut holdings = vec![];
     for (k, acc) in &accounts {
         let d = &acc.data;
         if let Ok(p) = WideProvince::read(d) {
@@ -130,12 +131,19 @@ pub fn scan(c: &Chain, a: &Addresses) -> Scan {
             if day.season_id == a.season_id {
                 days.push(day);
             }
+        } else if let Ok(slot) = ArrivalSlot::read(&ctx, d) {
+            // (an ArrivalSlot is as long as a wide transit record: read it first, by its own family version)
+            if let ArrivalSlot::Expedition(e) = slot {
+                exp_slots.push(*e.common());
+            }
         } else if d.len() == WIDE_TRANSIT_LEN {
             if let Ok(t) = WideTransit::from_bytes(d) {
                 transits.push((*k, t));
             }
-        } else if let Ok(ArrivalSlot::Expedition(e)) = ArrivalSlot::read(&ctx, d) {
-            exp_slots.push(*e.common());
+        } else if let Ok(h) = WideHolding::read(d) {
+            if h.season_id == a.season_id {
+                holdings.push(ProvinceKey::new(h.world, h.coord));
+            }
         }
     }
     for (k, t) in transits {
@@ -156,7 +164,8 @@ pub fn scan(c: &Chain, a: &Addresses) -> Scan {
             s.expedition.insert(e.dest);
         }
     }
-    let mut want: BTreeSet<ProvinceKey> = rosters.into_iter().collect();
+    // (a wide village's own province: its first muster needs the province resolved to the turn before)
+    let mut want: BTreeSet<ProvinceKey> = rosters.into_iter().chain(holdings).collect();
     for d in days {
         if let Some(p) = s.provs.get(&d.dest) {
             let first = d.day.saturating_mul(144);
@@ -256,6 +265,15 @@ pub fn province_act(
     }
     let header = clash_header(c, a, p.pk, b)?;
     if header.is_some() || arrival_bit(c, a, p.pk, b) {
+        // (an expedition's arrival in this bell: the expedition's destination driver gathers and resolves it)
+        let ctx = ctx_of(a);
+        for k in 0..wix::GATHER_POSITIONS {
+            if let Some(x) = c.account(&addr(arrival_slot_address(&ctx, p.pk, b, k / 4, k % 4))) {
+                if matches!(ArrivalSlot::read(&ctx, &x.data), Ok(ArrivalSlot::Expedition(_))) {
+                    return Ok(None);
+                }
+            }
+        }
         let mask = header.map_or(0, |h| h.arrivals_mask);
         if let Some(start) = (0..wix::GATHER_POSITIONS).find(|k| mask & (1 << k) == 0) {
             return Ok(Some(Act::Gather { dest: p.pk, bell: b, start }));
