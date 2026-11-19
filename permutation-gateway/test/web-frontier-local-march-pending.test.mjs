@@ -88,7 +88,7 @@ test('the controller: armed only on local play\'s test march with a known world 
   const app = src('app.mjs');
   assert.deepEqual([...app.matchAll(/\buseHerald\(/g)].length, 1, 'the only other caller is spectate mode, which has no local march');
   assert.match(app, /function startSpectate\(herald\) \{\n  useHerald\(herald\);/);
-  assert.match(c, /send: card => \{ card\.pending = null; return sendTheMarch\(\); \},/, 'the send is the ordinary single send');
+  assert.match(c, /send: card => \{ card\.pending = null; FS\.lastAct = \{ kind: 'act', name: 'march-send', data: \{\} \}; return sendTheMarch\(\); \},/, 'the send is the ordinary single send');
   assert.match(c, /keyAlive: !!FS\.wallet\?\.address && FS\.wallet\.destroyed !== true, endsAt: localPlay\?\.worldEndsAt \?\? NaN/);
   assert.match(c, /onPageHide: f => \{ globalThis\.addEventListener\?\.\('pagehide', f\);/);
   assert.match(c, /const m = composerMarch\(FS, composerArrival\(FS\)\);\n  const problems = checkMarch\(m\)\.filter\(p => p !== 'NoDestination'\);/);
@@ -285,4 +285,32 @@ test('B-2: the page says the load (JA/EN) on the waiting notices and on the Form
     L`この州の決着が ${3} ターン遅れています。このマシンの負荷が高く、世界の進行が追いついていないためです。`, L`決着が追いつくまで、送信待ちは自動で延ばします。`];
   for (const s of en) { assert.doesNotMatch(s, CJK, s); assert.doesNotMatch(s, BANNED_EN, s); }
   assert.match(en[0], /20 behind: this machine is under heavy load.*this order to form a host is sent once/);
+});
+
+test('verify-pr98 BREAK-1: the settling is judged at the chain\'s turn now, so a turn change never sends into a refusal', () => {
+  // the program's rule (fland.mjs actionBlocks): NotResident while resolvedNext + 1 < nowBell
+  assert.deepEqual(P.settleNow([], { resolvedNext: 218 }, 220), ['NotResident'], 'the page\'s model still on turn 219: the province has not settled 219');
+  assert.deepEqual(P.settleNow([], { resolvedNext: 219 }, 220), [], 'settled through the previous turn: nothing added');
+  assert.deepEqual(P.settleNow(['NotFinal'], { resolvedNext: 200 }, 220), ['NotFinal', 'NotResident']);
+  assert.deepEqual(P.settleNow(['NotResident'], { resolvedNext: 200 }, 220), ['NotResident'], 'never twice');
+  assert.deepEqual(P.settleNow(['Cooldown'], { resolvedNext: 200 }, 220), ['Cooldown', 'NotResident'], 'another problem stays: still withdrawn');
+  for (const [pr, b] of [[null, 220], [{}, 220], [{ resolvedNext: 1.5 }, 220], [{ resolvedNext: 3 }, null]]) assert.deepEqual(P.settleNow([], pr, b), [], 'unknown: unchanged');
+  assert.equal(P.settleNow(null, { resolvedNext: 1 }, 220), null);
+  // so the step waits (and extends at its limit) instead of sending
+  const intent = P.intentOf(base()), p = P.armPending({ intent, nowBell: 219 });
+  const look = { intent, nowBell: 220, open: true, held: false, busy: false, sameCard: true };
+  assert.deepEqual(P.pendingStep(p, { ...look, problems: [] }), { act: 'send' }, 'the model\'s stale view alone would send');
+  assert.equal(P.pendingStep(p, { ...look, problems: P.settleNow([], { resolvedNext: 218 }, 220) }).act, 'wait');
+  assert.deepEqual(P.pendingStep(p, { ...look, problems: P.settleNow([], { resolvedNext: 219 }, 220) }), { act: 'send' });
+});
+
+test('verify-pr98 BREAK-1: both drivers look with settleNow, and their send names its own order for a refusal and its "try again"', () => {
+  const c = src('controller.mjs');
+  assert.match(c, /return \{ \.\.\.now, problems: settleNow\(now\.problems, origin, nowBell\(\)\), nowBell: nowBell\(\),/);
+  assert.match(c, /return \{ intent: n\.intent, problems: settleNow\(n\.problems, province, nowBell\(\)\), nowBell: nowBell\(\),/);
+  assert.match(c, /send: card => \{ card\.pending = null; FS\.lastAct = \{ kind: 'act', name: 'march-send', data: \{\} \}; return sendTheMarch\(\); \},/);
+  assert.match(c, /FS\.lastAct = \{ kind: 'act', name: 'muster', data: \{ unit: String\(card\.draft\.unit\), troops: String\(card\.draft\.troops\), tile: String\(card\.draft\.tile\) \} \};\n    invalidate\('panel'\);\n    return musterOrder\(/);
+  // (the retry runs ACTIONS[FS.lastAct.name](data): both names are the page's own direct sends)
+  assert.match(c, /  muster: d => musterOrder\(num\(d\.unit\), num\(d\.troops\), d\.tile === undefined \|\| d\.tile === '' \? null : num\(d\.tile\)\),/);
+  assert.match(c, /  'march-send': \(\) => sendTheMarch\(\),/);
 });
