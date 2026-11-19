@@ -220,7 +220,7 @@ class Refusals(unittest.TestCase):
         # (the word is the launcher's own, read from its source; the help names the flag; the herald serves the wide view)
         self.assertIn("WIDE_LAND_MODE = 'local-wide-land-v1'", read(os.path.join(ROOT, 'permutation-gateway/src/frontier/local-play-launcher.mjs')))
         self.assertIn('--wide ', run('--help')[1])
-        self.assertIn('-p herald --features land-preview,wide-world-experimental', read(SCRIPT))
+        self.assertIn('-p herald --features land-preview,wide-world-experimental,expedition-records-experimental', read(SCRIPT))
 
     def test_resume_reopens_the_last_kept_world(self):
         st, world = kept_state(port=41930, ai=1)
