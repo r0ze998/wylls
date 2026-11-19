@@ -17,7 +17,7 @@ import { CLOCK_SYSVAR } from '../src/frontier/local-play-turns.mjs';
 import { createResidentTurns, RESIDENT_ALREADY_ACTED } from '../src/frontier/resident-turns.mjs';
 import { residentTurn } from '../src/frontier/local-play-operator-residents.mjs';
 import { createResidentMemory, createOperatorBudget } from '../src/frontier/local-play-operator-policy.mjs';
-import { startOperatorResidents } from '../src/frontier/local-play-launcher.mjs';
+import { startOperatorResidents, startExternalResidents } from '../src/frontier/local-play-launcher.mjs';
 import { seasonAddresses, seasonPda } from '../../permutation-server/web/frontier/faddr.mjs';
 import { LAYOUTS as V2 } from '../../permutation-server/web/sdk/frontier/abi-v2-layouts.mjs';
 import { LOCAL_ACT_PRESEND_REFUSALS as PAGE_PRESEND } from '../../permutation-server/web/frontier/flocalplay-act.mjs';
@@ -135,6 +135,19 @@ test('the command line: --resident-turns takes an absolute directory and reaches
   assert.deepEqual([...out.wallets], [W.address]);
   const op = launched.find(l => l.name === 'relay-op-0');
   assert.deepEqual(op.args.slice(-4), ['--listen-port', '41851', '--resident-turns', path.resolve(dir, 'resident-turns')]);
+  // ⑤B: an external AI resident's relay is a resident's relay too — the same world lease directory (a stand-in launch;
+  //  only its proxy listens, on loopback 41854, and is closed here)
+  const EXT_W = 'Vote111111111111111111111111111111111111111';   // (any public address; an external resident signs with its own wallet)
+  const side = [], proxies = [];
+  try {
+    const ext = await startExternalResidents({ wallets: [EXT_W], dir, ports: [{ herald: 41854, relay: 41855 }], rpc: 41852, internalHerald: 41853, launcherPort: 41850,
+      players: [W.address], root: '/r', proxies, stopping: () => false, relayArgsFor: (w, p) => ['--wallet', w, '--listen-port', String(p)],
+      launchSide: (name, cmd, args) => { side.push({ name, args }); fs.writeFileSync(path.join(dir, `${name}.out`), JSON.stringify({ listen: '127.0.0.1:41855' }) + '\n'); },
+      limit: { externalFund: async () => {}, externalListenTries: 5 } });
+    assert.deepEqual([...ext.wallets], [EXT_W]);
+    const er = side.find(l => l.name === 'relay-ext-0');
+    assert.deepEqual(er.args.slice(-4), ['--listen-port', '41855', '--resident-turns', path.resolve(dir, 'resident-turns')]);
+  } finally { await Promise.all(proxies.map(x => new Promise(r => x.close(() => r())))); }
 });
 
 test('an operator resident told ResidentAlreadyActed waits for the next bell: nothing marked tried, nothing spent', async () => {

@@ -829,8 +829,11 @@ export async function startExternalResidents({ wallets, dir, ports, rpc, interna
   for (const p of ports) { await freePort(p.herald); await freePort(p.relay); }
   for (const w of wallets) { if (stopping()) throw fault('WorldStopped', 503); await (limit.externalFund ?? (a => runnerRpc(rpc, 'requestAirdrop', [a, OPERATOR_LAMPORTS])))(w); }
   const heralds = {};
+  // (each is a RESIDENT's relay too — ⑤B, an external AI resident: one action per bell for its wallet's Citizen, Q16-2,
+  //  on the world's one lease directory, the same as the operator residents' relays)
+  const turnsDir = path.resolve(dir, 'resident-turns');
   for (const [i, w] of wallets.entries()) {
-    launchSide(`relay-ext-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i].relay)]);
+    launchSide(`relay-ext-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i].relay), '--resident-turns', turnsDir]);
     const x = createWorldProxy({ port: ports[i].herald, targetPort: internalHerald, launcherPort, relayPort: ports[i].relay });
     proxies.push(x);
     await new Promise((resolve, reject) => { x.once('error', reject); x.listen(ports[i].herald, '127.0.0.1', resolve); });
