@@ -10,7 +10,9 @@
 //! - **ConsumeRingSeed(d)** once the RingSeed's round
 //!   (`ring_seed_round(t_open)`) is published.
 //! - **OpenProvince** for every province of every seeded ring not yet on
-//!   chain (6d per ring; the Concord is ring 0).
+//!   chain (6d per ring; the Concord is ring 0). With `lazy_provinces`
+//!   (devnet-preset-wide) only the genesis rings' provinces: a seeded ring
+//!   past them is complete at once ([`ring_complete_lazily`]).
 //!
 //! A program that answers `NotImplemented` (99) for a land instruction
 //! ends this duty with an alert (the W2 program); the beacon duties keep
@@ -86,6 +88,14 @@ pub fn crowding_ring_allowed(
     d <= genesis || complete_bell.is_some_and(|cb| fold_bell > cb && fold_part == 0)
 }
 
+/// `lazy_provinces`: a ring past the genesis rings is complete as soon as it
+/// is seeded (its provinces open on demand), so the next crowding ring and
+/// ExtendFrontier wait for no fold of its sites; the genesis rings are
+/// opened whole as before.
+pub fn ring_complete_lazily(lazy: bool, d: u16, genesis: u16) -> bool {
+    lazy && d > genesis
+}
+
 /// Why this keeper does not send ExtendFrontier now: the program's rule
 /// ([`fclient::land::frontier_extend_check`]) or one of the keeper's own
 /// waits.
@@ -119,12 +129,16 @@ pub fn extend_due(
     now: i64,
     outer_complete_bell: Option<u32>,
     cap: u16,
+    lazy: bool,
 ) -> Result<u16, ExtendWait2> {
     let d = frontier_extend_check(s, fr, now).map_err(ExtendWait2::Rule)?;
     if d > cap {
         return Err(ExtendWait2::PastCap { d, cap });
     }
-    if !crowding_ring_allowed(d, 0, outer_complete_bell, fr.fold_bell, fr.fold_part) {
+    let outer = d - 1;
+    let lazy_done =
+        ring_complete_lazily(lazy, outer, s.genesis_ring as u16) && outer_complete_bell.is_some();
+    if !lazy_done && !crowding_ring_allowed(d, 0, outer_complete_bell, fr.fold_bell, fr.fold_part) {
         return Err(ExtendWait2::RingIncomplete);
     }
     Ok(d)
@@ -167,6 +181,8 @@ impl RingDuty {
             self.waiting = None;
             true
         } else if d <= r_max
+            && !(ring_complete_lazily(t.cfg.lazy_provinces, d - 1, g)
+                && self.complete_bell.contains_key(&(d - 1)))
             && !crowding_ring_allowed(
                 d,
                 g,
@@ -203,6 +219,7 @@ impl RingDuty {
                     t.now,
                     self.complete_bell.get(&r_max).copied(),
                     t.cfg.extend_max_ring,
+                    t.cfg.lazy_provinces,
                 ) {
                     Ok(e) => {
                         self.extend_waiting = None;
@@ -297,6 +314,11 @@ impl RingDuty {
                         self.seeded_at.push((d, t.slot));
                     }
                     engine.cancel(&ring_seed_key(d), CancelReason::ChainStateObserved);
+                    if ring_complete_lazily(t.cfg.lazy_provinces, d, g) {
+                        self.complete.insert(d);
+                        self.complete_bell.entry(d).or_insert(now_bell);
+                        continue;
+                    }
                     want.extend(
                         ring_provinces(d as u32)
                             .into_iter()
@@ -446,47 +468,83 @@ mod tests {
                                 // A season without a ceiling: never.
         let s0 = season(g, 0);
         assert_eq!(
-            extend_due(&s0, &frontier(17, 0, 9), now, Some(5), 17),
+            extend_due(&s0, &frontier(17, 0, 9), now, Some(5), 17, false),
             Err(ExtendWait2::Rule(ExtendWait::NoCeiling))
         );
         let s = season(g, 24);
         // All rules met: ring 16 complete at bell 5, folded at bell 9.
         assert_eq!(
-            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 24),
+            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 24, false),
             Ok(17)
         );
         // Ring 16 not opened yet; not complete; not folded after completing.
         assert_eq!(
-            extend_due(&s, &frontier(16, 0, 9), now, Some(5), 24),
+            extend_due(&s, &frontier(16, 0, 9), now, Some(5), 24, false),
             Err(ExtendWait2::Rule(ExtendWait::RingsNotOpened))
         );
         assert_eq!(
-            extend_due(&s, &frontier(17, 0, 9), now, None, 24),
+            extend_due(&s, &frontier(17, 0, 9), now, None, 24, false),
             Err(ExtendWait2::RingIncomplete)
         );
         assert_eq!(
-            extend_due(&s, &frontier(17, 0, 5), now, Some(5), 24),
+            extend_due(&s, &frontier(17, 0, 5), now, Some(5), 24, false),
             Err(ExtendWait2::RingIncomplete)
         );
         // The keeper's cap (the prize program's ring 17 by default).
         assert_eq!(
-            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 17),
+            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 17, false),
             Ok(17)
         );
         assert_eq!(
-            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 17),
+            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 17, false),
             Err(ExtendWait2::PastCap { d: 18, cap: 17 })
         );
         // After it landed (r_max_ext 17): nothing until ring 17 is opened,
         // then d is 18, recomputed from the chain.
         assert_eq!(
-            extend_due(&s, &frontier(17, 17, 9), now, Some(5), 24),
+            extend_due(&s, &frontier(17, 17, 9), now, Some(5), 24, false),
             Err(ExtendWait2::Rule(ExtendWait::RingsNotOpened))
         );
         assert_eq!(
-            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 24),
+            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 24, false),
             Ok(18)
         );
         assert_eq!(crate::config::EXTEND_MAX_RING_DEFAULT, 17);
+    }
+
+    /// devnet-preset-wide: with `lazy_provinces` a seeded ring past the
+    /// genesis rings is complete at once; ExtendFrontier then waits for no
+    /// fold of it (none of its provinces exist), but still for it to be
+    /// seeded (complete) and for the program's own rule.
+    #[test]
+    fn lazy_provinces_skip_the_fold_wait_past_the_genesis_rings() {
+        assert!(
+            !ring_complete_lazily(true, 3, 3),
+            "a genesis ring opens whole"
+        );
+        assert!(ring_complete_lazily(true, 4, 3));
+        assert!(!ring_complete_lazily(false, 4, 3), "off by default");
+        let g = 1_000_000;
+        let now = g + 10 * 600;
+        let s = season(g, 128);
+        // ring 16 seeded at bell 5, no fold since: eager waits, lazy goes on
+        assert_eq!(
+            extend_due(&s, &frontier(17, 0, 5), now, Some(5), 128, false),
+            Err(ExtendWait2::RingIncomplete)
+        );
+        assert_eq!(
+            extend_due(&s, &frontier(17, 0, 5), now, Some(5), 128, true),
+            Ok(17)
+        );
+        // not seeded yet: lazy waits too
+        assert_eq!(
+            extend_due(&s, &frontier(17, 0, 5), now, None, 128, true),
+            Err(ExtendWait2::RingIncomplete)
+        );
+        // the program's rule still binds (ceiling 128)
+        assert_eq!(
+            extend_due(&s, &frontier(129, 128, 9), now, Some(5), 128, true),
+            Err(ExtendWait2::Rule(ExtendWait::AtCeiling))
+        );
     }
 }

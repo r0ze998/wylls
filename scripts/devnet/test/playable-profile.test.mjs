@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPROVAL_FLAG, checkSo, deployCost, MAX_PERMITTED_DATA_LENGTH, maxLenFor, profileProblems, run, sol } from '../plan.mjs';
+import { APPROVAL_FLAG, checkSo, deployCost, MAX_PERMITTED_DATA_LENGTH, maxLenFor, profileProblems, rentExempt, run, seasonCost, sol } from '../plan.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = f => readFileSync(path.join(REPO, f), 'utf8');
@@ -146,4 +146,47 @@ test('deploy cost of a playable-sized .so follows the formula (numbers in the re
   const c = deployCost({ soLen, maxLen, rate: 6960, lamportsPerSignature: 5000, writeChunkBytes: 850, signaturesPerWrite: 2 });
   assert.equal(c.programdata, (128n + 45n + BigInt(maxLen)) * 6960n);
   assert.equal(sol(c.kept), '31.7889');
+});
+
+// D-1 (verifier-wide-instrs) / devnet-preset-wide: the playable season must be able to reach the wide land
+// (ring 129, which needs the legacy ring 128 seeded). The profile's season block follows the preset frontier-abi
+// generates (vectors/v2/presets.json), and its province fund covers the rim's and ring 129's balance checks.
+test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and its funds reach ring 129', () => {
+  const season = playable().season;
+  assert.equal(season.preset, 'S1_DEVNET_WIDE_7D');
+  const v = JSON.parse(read('frontier-abi/vectors/v2/presets.json'));
+  const p = v.presets_s1.find(x => x.name === season.preset);
+  assert.ok(p && p.valid, 'the preset is generated and valid');
+  const { base, conquest } = p.fields;
+  assert.equal(season.rMax, base.r_max);
+  assert.equal(season.rMaxCeiling, conquest.r_max_ceiling);
+  assert.equal(season.rMaxCeiling, 128, 'the legacy rim');
+  assert.equal(season.wideFirstRing, season.rMaxCeiling + 1);
+  assert.equal(season.regions, base.regions);
+  assert.equal(String(season.lamports.pfundInitial), base.pfund_initial);
+  assert.equal(String(season.lamports.dpoolInitial), base.dpool_initial);
+  assert.equal(base.theta_early_bps, 1);
+  assert.equal(base.theta_late_bps, 1);
+  // the localnet presets are unchanged
+  const local = v.presets_s1.find(x => x.name === 'S1_LOCAL_7D').fields;
+  assert.equal(local.conquest.r_max_ceiling, 0);
+  assert.equal(local.base.pfund_initial, '21000000000');
+  assert.equal(s1().season.preset, 'S1_LOCAL_7D', 'the S1 profile keeps its preset');
+  // every legacy ring 0..=128 gets a RingSeed
+  assert.equal(season.accounts.find(a => a.name.startsWith('RingSeed')).count, season.rMaxCeiling + 1);
+  // balance checks per wedge fund (OpenRing d = 128: d x rent(4,736); WideRequestRingSeed 129: 129 x rent(4,864))
+  const share = BigInt(base.pfund_initial) / 6n;
+  for (const rate of [5080, 6960]) {
+    const free = share - rentExempt(128, rate);
+    const rim = 128n * rentExempt(4736, rate), wide = 129n * rentExempt(4864, rate);
+    assert.ok(free > wide && wide > rim, `rate ${rate}`);
+  }
+  assert.equal(sol(128n * rentExempt(4736, 5080)), '3.1627');
+  assert.equal(sol(129n * rentExempt(4864, 5080)), '3.2713');
+  assert.equal(sol(seasonCost(season, 5080).total), '98.2163');
+  // the rings keeper grows the map to the rim, without opening every province
+  assert.deepEqual(
+    (({ extend, extend_max_ring, lazy_provinces }) => ({ extend, extend_max_ring, lazy_provinces }))(playable().services.keeperA.ringsDuty),
+    { extend: true, extend_max_ring: season.rMaxCeiling, lazy_provinces: true });
+  assert.equal(sol(seasonCost(season, 6960).total), '106.2438');
 });

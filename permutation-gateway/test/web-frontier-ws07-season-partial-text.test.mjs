@@ -58,7 +58,7 @@ test('S3 the body is the former boot block, unchanged', () => {
   const body = boot.slice(boot.indexOf('const startWithSeason = () => {'), boot.indexOf('let bootRead = false;'));
   order(body, "loadOverviews(herald).catch(e => console.error('frontier overviews:', e));",
     "FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel');",
-    'startSpectate(herald);', "if (FS.mode === 'play') {", "installCoopBoard({ changed: () => invalidate('panel') });",
+    'startSpectate(herald);', "if (FS.mode === 'play') {", "installCoopBoard({ changed: () => invalidate('panel'), ...(coopOptions ?? {}) });",
     "startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land;",
     "FS.tab = 'map';");
   assert.doesNotMatch(body, /prize|faucet|payAndJoin|paidJoin|claim/i);

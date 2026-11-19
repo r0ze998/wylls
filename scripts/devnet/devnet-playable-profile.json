@@ -58,13 +58,15 @@
     "writeChunkNote": "bytes per loader-v3 Write transaction. With a fee payer and a separate upgrade (= buffer) authority the CLI's calculate_max_chunk_size leaves about 876 B [derived from agave v3.1.9 cli/src/program.rs, not run]; 850 is the conservative figure (fewer bytes = more transactions = a higher estimate). Each Write carries two signatures: the fee payer's and the authority's."
   },
   "season": {
-    "preset": "S1_LOCAL_7D",
+    "preset": "S1_DEVNET_WIDE_7D",
     "regions": 16,
     "rMax": 16,
+    "rMaxCeiling": 128,
+    "wideFirstRing": 129,
     "players": 50,
     "lamports": {
       "creationBond": 1000000000,
-      "pfundInitial": 21000000000,
+      "pfundInitial": 36000000000,
       "dpoolInitial": 20000000000,
       "keeperRevealPools": 4800000000,
       "keeperDelayPools": 6400000000,
@@ -74,7 +76,7 @@
     },
     "lamportsNotes": {
       "creationBond": "frontier_abi::presets::MIN_CREATION_BOND, returned after a normal season (burned on a post-round pre-join abort, I-09)",
-      "pfundInitial": "S1_LOCAL_7D = MC_LOCAL_7D.pfund_initial (21 SOL; frontier-abi/src/v2/presets.rs). Float.",
+      "pfundInitial": "S1_DEVNET_WIDE_7D = frontier_abi::v2::presets::PFUND_DEVNET_WIDE (36 SOL, 6 SOL per wedge fund). OpenRing / WideRequestRingSeed check that every wedge fund holds d x rent(province) above its own rent (a balance check, not a spend): ring 128 needs 128 x rent(4,736) = 3.163 SOL and wide ring 129 needs 129 x rent(4,864) = 3.271 SOL per fund at 5,080 lamports/byte (4.333 / 4.482 SOL at 6,960). The rest pays for the provinces actually opened (24,709,120 lamports each legacy, 25,359,360 wide, at 5,080). Float.",
       "dpoolInitial": "M1_LOCAL_7D.dpool_initial (20 SOL), inherited by MC_LOCAL_7D/S1_LOCAL_7D. Returned if unspent.",
       "keeperRevealPools": "2 keepers x 150 payers x up to 2 x F_r (F_r = 0.0080 SOL at r99_reveals 150; RUN-A-KEEPER 4.3)",
       "keeperDelayPools": "2 keepers x 32 payers x up to 2 x delay_floor 0.05 SOL (PLAYTEST-RUNBOOK 4)",
@@ -114,9 +116,14 @@
         "count": 1
       },
       {
-        "name": "RingSeed",
+        "name": "RingSeed (legacy rings 0..128: genesis 0..3, then one per bell via ExtendFrontier + OpenRing)",
         "bytes": 128,
-        "count": 17
+        "count": 129
+      },
+      {
+        "name": "Wide ring seed (rings 129..132 [model]: the first four wide rings)",
+        "bytes": 192,
+        "count": 4
       },
       {
         "name": "AnchorArchive (16 regions x 16 half-days)",
@@ -151,7 +158,7 @@
         "count": 32
       }
     ],
-    "note": "The natural local world (itest natural_play.rs) creates its Season from S1_LOCAL_7D with program_version 0x4804, so the season lines are the S1 profile's. No operator tool creates a 0x4804 season on a public RPC yet (B3), and the verifier cannot PASS a 0x4804 season (Q16-1)."
+    "note": "S1_DEVNET_WIDE_7D (frontier-abi/src/v2/presets.rs; devnet-preset-wide, D-1 of verifier-wide-instrs): S1_LOCAL_7D with r_max_ceiling 128, theta 1 bp early/late and pfund_initial 36 SOL, so the legacy map can grow one ring per bell to ring 128 (~21 h from genesis ring 3) and the wide land (ring 129+) can be requested; S1_LOCAL_7D's map ends at ring 16 and no wide instruction but WideSetRules could ever land there. Provinces past the genesis rings are opened on demand only (keeper lazy_provinces = true): opening every province to ring 128 would cost 49,537 x 24,709,120 lamports = 1,224 SOL. The natural local world (itest natural_play.rs) still creates its Season from S1_LOCAL_7D with program_version 0x4804. No operator tool creates a 0x4804 season on a public RPC yet (B3), and the verifier cannot PASS a 0x4804 season's wide instructions (Q16-1)."
   },
   "services": {
     "herald": {
@@ -164,7 +171,13 @@
       "public": "never directly; the herald proxies /gw/*"
     },
     "keeperA": {
-      "api": "127.0.0.1:41050"
+      "api": "127.0.0.1:41050",
+      "ringsDuty": {
+        "extend": true,
+        "extend_max_ring": 128,
+        "lazy_provinces": true,
+        "why": "S1_DEVNET_WIDE_7D grows the map one ring per bell to the legacy rim (r_max_ceiling 128) so the wide land (ring 129+) can be requested; lazy_provinces opens the genesis rings whole and every later ring without its provinces (they open on demand). Only the rings keeper (A) needs it."
+      }
     },
     "keeperB": {
       "api": "127.0.0.1:41051"
