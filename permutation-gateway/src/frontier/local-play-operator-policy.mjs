@@ -285,7 +285,9 @@ export function noteOutcome(memory, decision, outcome) {
     memory.triedHomes.push(k);
   }
   if (decision.name === 'WideClaim') {
-    if (outcome === 'landed') { memory.claims = (memory.claims ?? 0) + 1; memory.claimWaitUntil = memory.decisions + OPERATOR_CLAIM_SETTLE_WAIT; }
+    if (outcome === 'landed') { memory.claims = (memory.claims ?? 0) + 1; memory.claimWaitUntil = memory.decisions + OPERATOR_CLAIM_SETTLE_WAIT;
+      // (TEST-ONLY wide -> wide: the village the claim may found, read later by local-play-operator-wide-host.mjs)
+      (memory.wideVillages ??= []).push({ p: String(decision.v.target.p), q: String(decision.v.target.q), site: decision.fields.site }); }
     // (a refused site is not asked again; the claim itself cools down — a site taken, a ticket still open, stores short)
     if (bad || outcome === 'unknown') { (memory.triedClaims ??= []).push(`${decision.v.target.p},${decision.v.target.q},${decision.fields.site}`); memory.cooldown.WideClaim = memory.decisions + OPERATOR_COOLDOWN; }
   }
