@@ -133,6 +133,16 @@ fn main() {
                     }
                 });
             }
+            // (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: the wide bells and marches' class-D crank; the local
+            //  land .so's `localnet-wide-depart` gate decides whether a WideDepart can land at all)
+            if wide {
+                let (st, a, rx) = (world.state.clone(), world.a.clone(), stop_rx.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = itest::wide_depart::run(st, a, rx, |v| println!("{v}")).await {
+                        println!("{}", serde_json::json!({"schema": itest::wide_depart::WIDE_DEPART_SCHEMA, "wide_depart_step": "stopped", "test_only": true, "why": e}));
+                    }
+                });
+            }
             let task = tokio::spawn(async move {
                 let world = std::sync::Arc::new(world);
                 // (the second player's village joins the same keeper loop once its own PlaceHome lands)

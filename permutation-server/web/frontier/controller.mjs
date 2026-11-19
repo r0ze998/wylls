@@ -3563,6 +3563,36 @@ export const ACTIONS = {
     if (r && r.ok === false && r.sent !== true) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
     return r;
   },
+  // (TEST-ONLY wide -> wide marches, local wide-land worlds only, Q-W2 owner t385u: the selected WIDE village's own host —
+  //  one press = the planner's one act: train Spearmen, muster a host, or march it onto a neighbouring province's keep;
+  //  flocalplay-wide-plan.mjs, the same planner the AI residents use; the act is page-signed, flocalplay-wide-host.mjs)
+  'wide-host-step': async () => {
+    const e = fwide.selectedWide(FS);
+    if (!e?.holding || !localPlay?.wideLand) return;
+    const g = localDepartGate();
+    if (!g?.ok) return failed({ code: g?.code ?? 'LocalActNotAllowed' });
+    const village = { p: String(e.holding.p), q: String(e.holding.q), site: Number(e.holding.site) };
+    FS.ui = { ...(FS.ui ?? {}) };
+    const mem = (FS.ui.wideHost ??= { decisions: 0 });
+    const { createWideHostPlanner } = await import('./flocalplay-wide-plan.mjs');
+    const { fromBase64 } = await import('../sdk/bytes.mjs');
+    const read = async addresses => {
+      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
+      return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
+    };
+    const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
+    let w;
+    try { w = await planner.decide(localPlay, mem, { wideTargets: localPlay.wideLand.targets, villages: [village] }); } catch (x) { w = { why: String(x?.message ?? x).slice(0, 200) }; }
+    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
+    invalidate('panel');
+    if (!w.decision) return { ok: false, code: 'WideHostWait', why: w.why };
+    const d = w.decision;
+    const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
+    mem.decisions = (mem.decisions ?? 0) + 1;
+    if (r?.ok !== false && d.name === 'WideDepart') mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
+    mem.wideHostUntil = mem.decisions;
+    return r;
+  },
   harvest: () => { const h = activeHolding(FS); return act('Harvest', { v: { holding: h }, order: orderOf('harvest', 'Harvest', { grown: h ? grownSince(h, now()) : [], say: () => L`収穫を蔵に納めました` }) }); },
   // Build(item): a building (0–5), the walls (6) or the promotion to the next tier (7: the program's ITEM_TIER_UP)
   build: d => homeAction(() => {
