@@ -1921,6 +1921,18 @@
               "writable": "r"
             }
           ]
+        },
+        {
+          "min": 0,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "witness",
+              "kind": "Province",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
         }
       ]
     },
