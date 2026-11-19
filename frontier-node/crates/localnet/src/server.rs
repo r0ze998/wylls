@@ -9,7 +9,8 @@
 //! getTransaction (json and base64), getSignaturesForAddress (before,
 //! until, limit), getSlot, getBlockHeight, getBlockTime, getBalance,
 //! getMinimumBalanceForRentExemption, getProgramAccounts (memcmp, dataSize,
-//! dataSlice, withContext), requestAirdrop, getEpochInfo, getVersion,
+//! dataSlice, withContext), getBlock (transactionDetails `signatures` or
+//! `none`, slots a transaction landed in), requestAirdrop, getEpochInfo, getVersion,
 //! getHealth, getGenesisHash`. Account encodings `base64` (what web3.js
 //! asks for) and `base58`; `dataSlice` on every account read.
 //!
@@ -283,6 +284,32 @@ fn handle(state: &Shared, method: &str, p: &Value) -> Result<Value, RpcErr> {
                 .block_time(s)
                 .map(|t| json!(t))
                 .ok_or_else(|| err(-32004, format!("Block not available for slot {s}")))
+        }
+        "getBlock" => {
+            let s = p
+                .get(0)
+                .and_then(|x| x.as_u64())
+                .ok_or_else(|| invalid("slot"))?;
+            let details = p
+                .get(1)
+                .and_then(|c| c.get("transactionDetails"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("full");
+            if !matches!(details, "signatures" | "none") {
+                return Err(invalid(
+                    "transactionDetails: only `signatures` and `none` are served",
+                ));
+            }
+            let c = lock(state);
+            let (h, ps, ph, sigs) = c
+                .block(s)
+                .ok_or_else(|| err(-32004, format!("Block not available for slot {s}")))?;
+            let mut b = json!({"blockhash": h.to_string(), "previousBlockhash": ph.to_string(),
+                "parentSlot": ps, "blockHeight": s, "blockTime": c.block_time(s)});
+            if details == "signatures" {
+                b["signatures"] = json!(sigs.iter().map(|x| x.to_string()).collect::<Vec<_>>());
+            }
+            Ok(b)
         }
         "getEpochInfo" => {
             let c = lock(state);

@@ -1547,6 +1547,7 @@ fn record_playable_expedition() {
             })
             .collect(),
         upgrade_authority: Some(upgrade.pubkey()),
+        cross: None,
     };
     for l in &r.log {
         println!("STEP {l}");

@@ -87,6 +87,28 @@ pub fn markdown(r: &Report) -> String {
             }
         ));
     }
+    if let Some(w) = r.history.as_ref().and_then(|h| h.get("witness")) {
+        s.push_str(&format!(
+            "- Witness (VS, ⑰ Q-P1 (b)): {} source(s) {}; {}: {} transactions, {} blocks, {} program accounts compared; (a) VG exact end state: {}\n",
+            w["sources"].as_array().map_or(0, |a| a.len()),
+            w["sources"],
+            if w["agrees"] == serde_json::json!(true) {
+                "every item agrees".to_string()
+            } else {
+                format!("{} disagreement(s) or unread item(s)", w["findings"])
+            },
+            w["transactions"],
+            w["blocks"],
+            w["programAccounts"],
+            w["vgExact"]
+        ));
+        if r.history.as_ref().and_then(|h| h["basis"].as_str()) == Some("witnessed") {
+            s.push_str(&format!(
+                "- Trust that remains: {}\n",
+                w["residual"].as_str().unwrap_or("")
+            ));
+        }
+    }
     s.push_str(&format!("- Checks run: {}\n", r.checks_run.join(", ")));
     let c = &r.counts;
     s.push_str(&format!(
