@@ -729,6 +729,8 @@ function renderDrawer(markupOf) {
   if (drawerPress.hold(() => renderDrawer(markupOf))) return drawerOf(FS);
   const d = drawerOf(FS);
   applyDrawer(d);
+  // (fix-wide-breaks BREAK-3: the free-standing reveal strip follows the drawer — it moves out of its header's way)
+  if (localRevealEl) { const css = localRevealCss(!!d); if (localRevealEl.dataset.at !== css) { localRevealEl.style.cssText = css; localRevealEl.dataset.at = css; } }
   const body = $('panel-body');
   const view = `${d?.kind ?? ''}|${FS.mode}`;
   const same = view === lastPanelView;
@@ -1422,7 +1424,7 @@ function renderLocalRevealStrip() {
   // (fix-wide-breaks BREAK-3: at the top right it stood over the open drawer's header — the march order's among them;
   //  while a drawer is open it stands at the top left, below the provinces bar, instead)
   const css = localRevealCss(!!drawerOf(FS));
-  if (localRevealEl.style.cssText !== css) localRevealEl.style.cssText = css;
+  if (localRevealEl.dataset.at !== css) { localRevealEl.style.cssText = css; localRevealEl.dataset.at = css; }
   if (localRevealEl.hidden !== !markup) localRevealEl.hidden = !markup;
   setHtmlIfChanged(localRevealEl, strip);
 }

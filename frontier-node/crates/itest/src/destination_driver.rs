@@ -1392,9 +1392,11 @@ pub fn self_reveal_ix(
 
 impl DestinationDriver {
     /// TEST-ONLY wide world ([`SELF_REVEAL`]): the reveal of a departed, origin-settled expedition of the watched
-    /// holding that has no landed Reveal yet, once THE anchor of `(arrive, destination region)` exists and while its
-    /// window is open. `None` = nothing of ours to reveal (the ordinary steps follow). A window that closed
-    /// unrevealed is reported, never forced (the program's settlement then decides the march's fate).
+    /// holding that has no landed Reveal yet, as soon as its arrival turn ended and `T(arrive)` is public — BEFORE THE
+    /// anchor of `(arrive, destination region)` exists too (the program admits that; fix-wide-breaks BREAK-2), and
+    /// while that anchor's window is open once it exists. `None` = nothing of ours to reveal (the ordinary steps
+    /// follow). A window that closed unrevealed is reported, never forced; the program has no settlement of a
+    /// never-revealed bridge transit, so its host stays held (`never_revealed` says why in every later step).
     async fn self_reveal(&mut self, state: &Shared) -> Option<Step> {
         let ctx = ctx_of(&self.a);
         let due = {

@@ -119,13 +119,22 @@ test('the phases of an expedition', () => {
 test('wiring: readMarches adds the rows, Hosts and the strip read them (source pins)', () => {
   const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(c, /marches\.push\(\.\.\.localExpedition\.expeditionRows\(FS\)\)/);
+  // (BREAK-4: a planned route through a province the herald has no record of — no Province on the chain — is refused unsealed)
+  assert.ok(c.includes("if (pr && !pr.ok && pr.code === 'NotFound') { c.route = null; c.routeError = 'RouteNotOpen'; invalidate('panel'); return; }"));
+  assert.ok(c.includes('    c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;\n    checkRouteOpen(c, dest, r.route);'));
+  const t = readFileSync(new URL('../../permutation-server/web/frontier/fi18n.mjs', import.meta.url), 'utf8');
+  assert.match(t, /RouteNotOpen: \(\) => L`/);
   const h = readFileSync(new URL('../../permutation-server/web/frontier/screens/host.mjs', import.meta.url), 'utf8');
   assert.match(h, /\$\{wideLines\(FS\)\}/);
   const a = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
   assert.match(a, /const css = localRevealCss\(!!drawerOf\(FS\)\);/);
+  assert.ok(a.includes('const css = localRevealCss(!!d); if (localRevealEl.dataset.at !== css)'), 'the drawer render moves the strip too');
+  assert.match(a, /const css = localRevealCss\(!!d\); if \(localRevealEl\.dataset\.at !== css\)/);
 });
 
-test('the reveal strip lets a seal go that the chain opened', () => {
-  const fs = {};
-  assert.equal(localRevealCandidate(fs), null);
+test('the reveal strip: a seal the chain opened is no candidate; the strip stands clear of an open drawer', async () => {
+  assert.equal(localRevealCandidate({}), null);
+  // (app.mjs needs a browser to load; its placement is pinned through the source)
+  const a = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.ok(a.includes("(drawerOpen ? 'position:fixed;top:124px;left:12px;right:auto;"), 'top left below the provinces bar while a drawer is open');
 });

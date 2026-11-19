@@ -212,7 +212,12 @@ pub fn entry_of(t: &Transit, owner_citizen: &Address) -> SlotEntry {
 
 /// The first province a march's route crosses (besides its destination) that has no Province account on this chain,
 /// or `None` (fix-wide-breaks BREAK-4: such a march can never be revealed — the program refuses an absent path province).
-pub fn path_not_open(c: &Chain, a: &Addresses, t: &Transit, plain: &fclient::seal::Plain) -> Option<(i32, i32)> {
+pub fn path_not_open(
+    c: &Chain,
+    a: &Addresses,
+    t: &Transit,
+    plain: &fclient::seal::Plain,
+) -> Option<(i32, i32)> {
     let path = play::path_provinces((t.origin_p as i32, t.origin_q as i32, t.origin_tile), plain)?;
     path.into_iter()
         .find(|&(p, q)| c.account(&a.province(p, q)).is_none())
@@ -1421,7 +1426,9 @@ impl LegacyMarchDriver {
                 None
             };
             if let Some(pc) = closed_path {
-                if self.known.get(&key).is_some_and(|k| !k.revealed) && !self.noted_closed.contains(&key) {
+                if self.known.get(&key).is_some_and(|k| !k.revealed)
+                    && !self.noted_closed.contains(&key)
+                {
                     self.noted_closed.push(key.clone());
                     eprintln!(
                         "{}",
@@ -1855,6 +1862,64 @@ mod tests {
         t.origin_p = 2;
         t.dep_mass = 100;
         t
+    }
+
+    /// fix-wide-breaks BREAK-4, the exact route refused in run2 (verify-pr92's "Reveal … Custom(2)"): from tile 58 of
+    /// (-68, -60) twelve steps to tile 11 of (-67, -61), entering (-67, -60) first. On a chain where (-67, -60) has no
+    /// Province the march can never be revealed (the program's Reveal reads every path province: BadAccount), and
+    /// `path_not_open` names that province; with it present the route is revealable.
+    #[test]
+    fn a_route_through_a_province_with_no_account_is_found_before_any_reveal() {
+        let mut c = Chain::new(localnet::Config::default());
+        c.produce_block();
+        let a = Addresses::new(Address::new_from_array([0x45; 32]), 11);
+        let mut t = transit(T_SETTLED);
+        (t.origin_p, t.origin_q, t.origin_tile) = (-68, -60, 58);
+        let (path_len, path) =
+            permutation_rules::frontier::seal::encode_path(&[1, 2, 1, 2, 3, 2, 2, 2, 2, 3, 3, 2])
+                .unwrap();
+        let plain = fclient::seal::Plain {
+            version: 1,
+            host_id: 77,
+            arrive_bell: 9,
+            dest_p: -67,
+            dest_q: -61,
+            dest_tile: 11,
+            path_len,
+            path,
+            ..Default::default()
+        };
+        assert_eq!(
+            play::path_provinces((-68, -60, 58), &plain),
+            Some(vec![(-67, -60)])
+        );
+        let put = |c: &mut Chain, p: i32, q: i32| {
+            c.set_account(
+                a.province(p, q),
+                fclient::ports::Account {
+                    lamports: 1,
+                    data: vec![0; 8],
+                    owner: a.program,
+                    executable: false,
+                },
+            )
+            .unwrap()
+        };
+        put(&mut c, -68, -60);
+        put(&mut c, -67, -61);
+        assert_eq!(
+            path_not_open(&c, &a, &t, &plain),
+            Some((-67, -60)),
+            "the unopened province is named"
+        );
+        put(&mut c, -67, -60);
+        assert_eq!(
+            path_not_open(&c, &a, &t, &plain),
+            None,
+            "every path province is there: revealable"
+        );
+        let src = include_str!("legacy_march.rs");
+        assert!(src.contains("if !mine && closed_path.is_none() && inputs.is_none() && dv.resolved_next <= arrive {"), "such a march is never revealed; its destination's bells and SettleTransit follow");
     }
 
     #[test]

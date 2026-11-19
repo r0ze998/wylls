@@ -1230,6 +1230,20 @@ function ownMarchDest(t, scope) {
   return { p: o.dest.p, q: o.dest.q, tile: o.dest.tile };
 }
 const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
+/**
+ * fix-wide-breaks BREAK-4: a route through a province the chain holds no Province for — grown land the herald has no
+ * record of (NotFound) — is sealed and departs, but its Reveal is refused for good (the program reads every path
+ * province: BadAccount, Custom(2), for an absent one) and the host comes home unrevealed. Asked once the route is
+ * planned (not awaited by setDestination): such a route is taken back with RouteNotOpen, so nothing is sealed for it.
+ */
+async function checkRouteOpen(c, dest, route) {
+  const crossed = routeProvincesOf(route).filter(x => !(x.p === c.origin.p && x.q === c.origin.q) && !(x.p === dest.p && x.q === dest.q) && !FS.provinces?.has?.(`${x.p},${x.q}`));
+  for (const x of crossed) {
+    const pr = await herald.province(x.p, x.q, 'latest').catch(() => null);
+    if (FS.compose !== c || c.dest !== dest || c.route !== route) return;
+    if (pr && !pr.ok && pr.code === 'NotFound') { c.route = null; c.routeError = 'RouteNotOpen'; invalidate('panel'); return; }
+  }
+}
 /** The provinces a planned route crosses, as `{p, q}` integers (the planner's ProvinceCoord list). */
 export const routeProvincesOf = route => (route?.provinces ?? []).map(x => (Array.isArray(x) ? { p: Number(x[0]), q: Number(x[1]) } : { p: Number(x?.p), q: Number(x?.q) }))
   .filter(x => Number.isInteger(x.p) && Number.isInteger(x.q));
@@ -2678,16 +2692,8 @@ async function setDestination(dest) {
     //  no longer leaves a route beside an arrival turn that was not made from it)
     const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
     const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;
-    // (fix-wide-breaks BREAK-4: a route through a province the chain holds no Province for — grown land the herald has no
-    //  record of, NotFound — is sealed and departs, but its Reveal is refused for good (the program reads every path
-    //  province: BadAccount for an absent one) and the host comes home routed. Said at once; nothing is sealed.)
-    const crossed = routeProvincesOf(r.route).filter(x => !(x.p === c.origin.p && x.q === c.origin.q) && !(x.p === dest.p && x.q === dest.q) && !FS.provinces?.has?.(`${x.p},${x.q}`));
-    for (const x of crossed) {
-      const pr = await herald.province(x.p, x.q, 'latest').catch(() => null);
-      if (FS.compose !== c || c.dest !== dest) return;
-      if (pr && !pr.ok && pr.code === 'NotFound') { c.routeError = 'RouteNotOpen'; invalidate('panel'); return; }
-    }
     c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;
+    checkRouteOpen(c, dest, r.route);
   } catch (e) {
     console.error('frontier route:', e);
     c.route = null; c.routeError = e?.code ?? 'Error'; c.routeUnread = true;
