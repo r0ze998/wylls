@@ -225,7 +225,9 @@ scripts/play-local.sh --wide
     setup). Meanwhile a muster or a departure becomes a waiting send: the page says "This province's turns are N behind:
     this machine is under heavy load …" and sends it once as soon as it catches up (no need to press again).
 - Not possible yet (2026-11-19):
-  - a march into the wide land: the program's WideDepart is still closed in SBF (`NotImplemented`);
+  - a march into the wide land works only as the rim village's expedition (「境界への道を準備」, the 0x4804 wrapper,
+    #92), and wide → wide only in the TEST-only local build (`localnet-wide-depart`, #94); devnet's SBF WideDepart is
+    still closed;
   - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.
 - Not with `--demo`, `--resume`, `--fresh` or `--two` (the wide version is for one player). A stop ends the world.
 
