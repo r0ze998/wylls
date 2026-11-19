@@ -41,9 +41,14 @@
 //! wallets are the runtime's (the transaction balanced, or it would not
 //! have landed).
 //!
-//! **Not modelled** (still V0's `WideUnmodelled`): `what = 2..=5`, the
-//! march records (arrival slot, arrival day, clash inputs, transit). They
-//! exist only after a wide march, which this verifier does not judge.
+//! **Not here**: `what = 2..=5`, the march records (arrival slot, arrival
+//! day, clash inputs, transit), are VX's since verifier-coverage-2
+//! (re-executed by the pinned program, `vx_reexec::native_of`). The
+//! expedition leaves an ArrivalDay and a ClashInputs at its destination
+//! (the shared wide layouts: what 3 and 4 run, recorded in `Sc::Closes`);
+//! what 2 and 5 read only the v1 arrival slot and the v1 transit record,
+//! which no command of the devnet-playable binary creates (V0
+//! `GateClosed`, `v0_coverage::gate_closed`).
 
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::layout::world::defence_pool as DP;
