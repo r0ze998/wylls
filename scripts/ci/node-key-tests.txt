@@ -251,6 +251,7 @@ permutation-gateway/test/web-frontier-firststeps.test.mjs
 permutation-gateway/test/web-frontier-fix-b10-b11.test.mjs
 permutation-gateway/test/web-frontier-fix-b6-b9.test.mjs
 permutation-gateway/test/web-frontier-fix2.test.mjs
+permutation-gateway/test/web-frontier-fog-local-leak.test.mjs
 permutation-gateway/test/web-frontier-fx3.test.mjs
 permutation-gateway/test/web-frontier-garrison-checks.test.mjs
 permutation-gateway/test/web-frontier-hand-press.test.mjs

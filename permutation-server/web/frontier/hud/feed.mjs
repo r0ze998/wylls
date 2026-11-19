@@ -26,6 +26,7 @@ import { worded, noticeText } from './words.mjs';
 import { tileWhat, provinceName } from './place.mjs';
 import { cardHead, chip, fold } from '../screens/parts.mjs';
 import { territoryEnabled, territoryOf } from '../territory.mjs';
+import { viewRecord } from '../map/fog.mjs';
 
 export const FEED_MAX = 60;
 export const TOAST_MAX = 3;
@@ -104,7 +105,9 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
     }
   }
   // keep events (controller refreshKeepEvents): null until the season's days are read, so the past is not news
-  const keeps = Array.isArray(FS.conquest?.events) ? new Map(FS.conquest.events.map(e => [`${e.kind}:${e.seq}`, { ...e, side: keepEventSide(e, FS.citizen?.faction) }])) : null;
+  // (the fog of war of a local test world, map/fog.mjs: a keep event out of sight is not news unless the viewer's nation is in it)
+  const keeps = Array.isArray(FS.conquest?.events) ? new Map(FS.conquest.events.map(e => [`${e.kind}:${e.seq}`, { ...e, side: keepEventSide(e, FS.citizen?.faction) }])
+    .filter(([, e]) => !Number.isInteger(e.p) || !Number.isInteger(e.q) || viewRecord({ p: e.p, q: e.q }, () => !!e.side))) : null;
   return { bell: FS.nowBell ?? null, now, keeps, territory, territoryKnown, territorySeen, marches, builds, pendingBuilds, holdings, clashes, fights, explored, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
 }
 

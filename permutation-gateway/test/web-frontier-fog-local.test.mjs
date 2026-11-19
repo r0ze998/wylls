@@ -4,22 +4,14 @@
 // never-seen land is blank. Presentation only: the chain's records stay public and untouched, and a page that is not a
 // local test world never applies any of it (fogActive; LOCAL_FOG is the one switch).
 //
-// The leak tests at the end build one world with another nation's village, keep, march and wide village OUT of the
-// viewer's sight, run every surface the play page shows them through (the map's records, the wide land, the keep
-// lists, the incoming warnings, the inspector, the chronicle, the legend) and assert that none of those places or
-// nations reaches what the renderers read.
+// The leak tests over the page's surfaces (inspector, keep panel, chronicle, legend) are in
+// web-frontier-fog-local-leak.test.mjs; this file holds the pure model (vision, memory, masks), keyfree.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as F from '../../permutation-server/web/frontier/map/fog.mjs';
 import * as S from '../../permutation-server/web/frontier/map/survey.mjs';
-import * as chart from '../../permutation-server/web/frontier/map/chart.mjs';
 import { landOfCells, wideLandOf } from '../../permutation-server/web/frontier/map/wideland.mjs';
 import { tileHex, provinceCentre, hexDistance } from '../../permutation-server/web/frontier/fgeo.mjs';
-import * as inspect from '../../permutation-server/web/frontier/hud/inspect.mjs';
-import { chronicleRows } from '../../permutation-server/web/frontier/screens/chronicle.mjs';
-import { keepFor } from '../../permutation-server/web/frontier/screens/conquest.mjs';
-import { renderSurveyHelp, fogLegendText } from '../../permutation-server/web/frontier/map/legend.mjs';
-import { setLang, L } from '../../permutation-server/web/lang.mjs';
 
 // ------------------------------------------------------------------ a small world
 const VIEWER = 3, ENEMY = 0, ALLY = 1;
@@ -264,97 +256,3 @@ test('the page\'s fogger: off unless active; rings fogged again only when their 
   F.resetFogNow();
 });
 
-test('never-seen land is plain paper under the fog (chart.mjs setBlankChart); the chart is unchanged when it is off', () => {
-  const calls = [];
-  const g = new Proxy({}, { get: (_, k) => (k === 'getTransform' ? undefined : (...a) => { calls.push(k); return k === 'createPattern' ? {} : undefined; }), set: () => true });
-  const tiles = [{ q: 0, r: 0, x: 0, y: 0, name: 'mountain' }, { q: 1, r: 0, x: 26, y: 0, name: 'water' }];
-  chart.setBlankChart(true);
-  try {
-    assert.equal(chart.chartIsBlank(), true);
-    chart.paintChart(g, tiles, { res: 1 });
-    assert.equal(calls.filter(c => c === 'stroke').length, 0, 'no lattice, coast or glyph');
-  } finally { chart.setBlankChart(false); }
-  calls.length = 0;
-  chart.paintChart(g, tiles, { res: 1 });
-  assert.ok(calls.filter(c => c === 'stroke').length > 0, 'off: the chart draws its ink as before');
-});
-
-// ------------------------------------------------------------------ the leak tests
-/**
- * One world, as the play page holds it, with the viewer's village at HOME and, OUT of sight: an enemy village at
- * (-2, 0) site 4 with a keep at tile 30 and a clash, an enemy keep (0, -2) under contest, an enemy march leaving
- * (-2, 0), an enemy wide village at (3, 0). What every surface reads is checked for those places and nations.
- */
-function leakWorld() {
-  const ov = overviews();
-  const sv = surveyOf(S.anchorsOf({ villages: [{ ...HOME, tier: 0 }] }));
-  sv.ownHosts = new Set(); sv.villages = [{ ...HOME, tier: 0 }]; sv.faction = VIEWER;
-  const fogger = F.createFogger({ storage: memStore() });
-  const fog = fogger({ active: true, survey: sv, overviews: ov, viewer: VIEWER, terrainOf, memKey: 'leak' });
-  const FS = { mode: 'play', localPlay: { address: 'W' }, citizen: { faction: VIEWER }, holdings: [{ ...HOME, site: 0, tier: 0 }], nowBell: 41, land: { stage: 'final' }, survey: sv, fog,
-    overviews: ov, provinces: new Map(), roster: { ownerOf: () => null, tierOf: () => 0 }, conquest: { keeps: keepMap(), events: [{ kind: 'keep_contest', seq: 1, bell: 40, p: 0, q: -2, from: ENEMY, to: ALLY }] }, season: { programVersion: 3 },
-    chronicle: [{ seq: 1, record: { name: 'CLASH', bell: 40, p: -2, q: 0 } }, { seq: 2, record: { name: 'DEPART', bell: 40, host_id: 'h', origin_p: -2, origin_q: 0, origin_tile: SITES[4], depart_bell: 40, arrive_bell: 46 } }] };
-  return { FS, fog, sv };
-}
-const ENEMY_PLACES = ['-2,0', '0,-2'];
-const recsOf = ovs => [...ovs.values()].flatMap(o => o.provinces);
-
-test('LEAK: the map\'s records (map source overviews) hold no other nation\'s village, keep, host or clash out of sight', () => {
-  const { fog } = leakWorld();
-  for (const r of recsOf(fog.overviews)) {
-    if (!ENEMY_PLACES.includes(`${r.p},${r.q}`) && !(r.p === -1 && r.q === 2)) continue;
-    assert.deepEqual(r.owners, Array(12).fill(7), `${r.p},${r.q} owners`);
-    assert.deepEqual(r.sites, Array(12).fill(0), `${r.p},${r.q} sites`);
-    assert.deepEqual(r.hosts, Array(7).fill(0), `${r.p},${r.q} hosts`);
-    assert.deepEqual([r.clash, r.keepTile, r.keepTroops, r.control, r.contender], [false, null, 0, undefined, undefined], `${r.p},${r.q} keep/clash`);
-    assert.equal('v1' in r, false);
-  }
-  // the viewer's own province stays whole
-  const home = recsOf(fog.overviews).find(r => r.p === 2 && r.q === 0);
-  assert.deepEqual([home.owners[0], home.control, home.keepTile], [VIEWER, VIEWER, 40]);
-  // nothing of an enemy nation is left anywhere in what the painters read
-  const text = JSON.stringify(recsOf(fog.overviews).filter(r => !(r.p === 2 && r.q === 0)), (_, v) => (typeof v === 'bigint' ? String(v) : v));
-  assert.doesNotMatch(text, /"control":0|"owners":\[[^\]]*\b0\b/, 'no enemy (nation 0) holder or owner in the records');
-});
-
-test('LEAK: the keep lists, the keep panel and the reach input never name an unseen keep', () => {
-  const { FS } = leakWorld();
-  const shown = F.viewKeeps(FS.conquest.keeps);
-  assert.deepEqual([...shown.keys()], ['2,0'], 'only the viewer\'s own keep (in sight)');
-  assert.equal(keepFor(FS, 0, -2), null);
-  assert.equal(keepFor(FS, -2, 0), null);
-  setLang('ja');
-  assert.ok(keepFor(FS, 2, 0));
-  F.resetFogNow();
-  assert.equal(F.viewKeeps(FS.conquest.keeps).size, 3, 'without the fog: as before');
-});
-
-test('LEAK: the inspector says nothing of an unseen enemy village, its keep or its hosts', () => {
-  const { FS } = leakWorld();
-  FS.selected = { p: -2, q: 0, idx: SITES[4] };
-  const m = inspect.inspectModel(FS, terrainOf);
-  assert.deepEqual(m.owners, []);
-  assert.equal(m.clash, false);
-  assert.equal(m.tile.site, null);
-  assert.deepEqual(m.tile.hosts, []);
-  F.resetFogNow();
-});
-
-test('LEAK: the chronicle tells no clash, march or keep event out of sight; the legend offers no full-map view', () => {
-  setLang('ja');
-  const { FS } = leakWorld();
-  const rows = chronicleRows(FS.chronicle, () => false, 60, FS);
-  assert.deepEqual(rows, [], 'the clash and the departure at -2,0 and the contest at 0,-2 are all out of sight');
-  const help = String(renderSurveyHelp(FS));
-  assert.doesNotMatch(help, /spectate\.html/, 'no way to the whole world from a fogged page');
-  assert.ok(help.includes(fogLegendText()));
-  setLang('en');
-  assert.match(fogLegendText(), /^Fog of war: you see only around your own villages/);
-  assert.match(L`この州の砦は、まだ見ていません。`, /not seen this province's keep/);
-  assert.match(L`最後に見たときのようすです（いまは見えていません）。`, /As you last saw it/);
-  setLang('ja');
-  F.resetFogNow();
-  // without the fog the chronicle lists them as before
-  assert.equal(chronicleRows(FS.chronicle, () => false, 60, FS).length > 0, true);
-  assert.match(String(renderSurveyHelp(FS)), /spectate\.html/);
-});

@@ -2276,6 +2276,14 @@ function s1MarksNow() {
     // (the provinces' caravan slots say which caravans an open raid holds; they are read again at the next bell)
     s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell, provinces: FS.provinces }) };
   }
+  // (the fog of war of a local test world, map/fog.mjs: another's vault, structure or caravan only where the viewer sees now)
+  if (FS.fog?.on) {
+    const fog = FS.fog, seen = x => !!x && fog.seen({ p: x.p, q: x.q, tile: x.tile });
+    if (s1Memo.fog !== fog) s1Memo.fogged = { ...s1Memo.marks, vaults: s1Memo.marks.vaults.filter(v => v.own || seen(v)), structures: s1Memo.marks.structures.filter(x => x.own || seen(x)),
+      caravans: s1Memo.marks.caravans.filter(c => c.own || (seen(c.from) && seen(c.to))) };
+    s1Memo.fog = fog;
+    return s1Memo.fogged;
+  }
   return s1Memo.marks;
 }
 
