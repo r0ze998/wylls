@@ -146,7 +146,8 @@ export const LOCAL_MARCH_SUBMIT_SCHEMA = 'frontier-local-play-march-submit-v1';
 export const LOCAL_MARCH_STATUS_SCHEMA = 'frontier-local-play-march-status-v1';
 /** The relay's refusals made BEFORE its send (local-play-march.mjs `LOCAL_MARCH_PRESEND_REFUSALS`): only these say "not sent". */
 export const LOCAL_MARCH_PRESEND_REFUSALS = Object.freeze(['LocalMarchInvalid', 'LocalMarchNotAllowed', 'LocalMarchWideHolding', 'LocalMarchNotYourHost', 'LocalMarchSeal',
-  'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed']);
+  'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed',
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
 /**
  * (2026-11-19, fix-march-held) The relay's answer that the RUNNER did not take the Depart (gateway local-play-march.mjs
  * `LOCAL_MARCH_REJECTED`; local-play-act.mjs `runnerRejection`): its preflight failed — e.g. NotResident (26) or

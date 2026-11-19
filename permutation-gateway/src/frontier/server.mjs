@@ -21,6 +21,8 @@
 //                                               the agent wallet (docs/agent-wallet/DESIGN.md): operator-held test
 //                                               custody of the prize mint's test USDC, off by default, localnet only
 //        [--agent-runner --agent-tick-ms N --agent-llm URL]   the in-process runner for agents in auto mode
+//        [--resident-turns-dir D]               one action per resident per bell (resident-turns.mjs): the lease
+//                                               directory; default `resident-turns/` next to --state-file. Always on.
 //   Every flag also as FRONTIER_* (config.mjs); the operator token from
 //   FRONTIER_OPERATOR_TOKEN or .local/frontier/operator-token.
 //
@@ -34,6 +36,7 @@ import { pathToFileURL } from 'node:url';
 import { Connection } from '@solana/web3.js';
 import { loadOrCreateKeypairSync } from '../../client/src/keys.mjs';
 import { createStateStore, operatorToken } from '../config.mjs';
+import { createResidentTurns } from './resident-turns.mjs';
 import { Custody } from './agent/custody.mjs';
 import { lockStateFile } from './agent/lock.mjs';
 import { attachAgentWallet } from './agent/gateway.mjs';
@@ -85,6 +88,8 @@ export async function startFrontierRelay(cfg, { connection = new Connection(cfg.
   const invites = new InviteBook({ secret: inviteSecret, seasonId: cfg.seasonId, store });
   const keeper = cfg.keeperUrl ? new KeeperLink({ url: cfg.keeperUrl, tokenFile: cfg.keeperTokenFile }) : null;
   const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log });
+  // One action per resident per bell (Q16-2): the lease every sponsored resident write takes (routes/relay.mjs).
+  apps.ctx.residentTurns = createResidentTurns({ dir: path.resolve(cfg.residentTurnsDir ?? path.join(path.dirname(cfg.stateFile), 'resident-turns')) });
   // Persist an empty first-run ledger before listening, so a later resume can
   // distinguish a never-used quota/invite/faucet book from a lost file. Do
   // this before an agent wallet can begin any background reconciliation.

@@ -278,6 +278,9 @@ fn land_magic(m: &[u8; 8]) -> bool {
         // judges their writes): the wide ticket and the wide holding.
         || *m == frontier_abi::world_index::ticket::wide_ticket::MAGIC
         || *m == frontier_abi::world_index::holding::wide_holding::MAGIC
+        // Q16-1 continued (2026-11-19): the wide roster side table (VWL
+        // judges its writes by WideMuster and WideResolve).
+        || *m == frontier_abi::world_index::roster::wide_roster::MAGIC
 }
 #[cfg(not(feature = "playable-lane"))]
 fn land_magic(_: &[u8; 8]) -> bool {

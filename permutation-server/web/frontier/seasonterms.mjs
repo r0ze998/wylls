@@ -12,12 +12,11 @@
 // an old-style season's — and never as the world ending; when the owners register that the world goes on
 // (hud/worldclock.mjs), the end turn is not said at all.
 import { L, fmtNum } from '../lang.mjs';
-import { BELL_SECS, bellStart } from './clock.mjs';
+import { BELL_SECS, NO_END_BELL, bellStart, worldContinues as seasonContinues } from './clock.mjs';
 import { worldContinues as ownersSayContinues } from './hud/worldclock.mjs';
-import { worldContinues as seasonContinues } from './clock.mjs';
 
-// The program's "no end" turn (u32::MAX): a continuous season's end, and its join close when joining never closes.
-const NO_END_BELL = 4294967295;
+// NO_END_BELL (clock.mjs) is the program's "no end" turn (u32::MAX): a continuous season's end, and its join close
+// when joining never closes.
 /** Whether this world goes on: the owners' registration (hud/worldclock.mjs) or the season record itself (clock.mjs:
  *  a continuous flag AND the no-end turn). loop-play3: no source registers `continuity` on the page, so a kept
  *  (continuous) local world said "the old-style season takes orders until turn 4,294,967,295 (about 29,826,162 days)". */

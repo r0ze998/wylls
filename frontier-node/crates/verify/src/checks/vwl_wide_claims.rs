@@ -244,7 +244,7 @@ fn earlier_cohort_open(pd: &[u8], ticket_bell: u32, now_bell: u32) -> bool {
 }
 
 /// The capture lock of a live Holding over its own province's mirror.
-fn capture_locked(pd: &[u8], hd: &[u8]) -> Result<(), Wrong> {
+pub(super) fn capture_locked(pd: &[u8], hd: &[u8]) -> Result<(), Wrong> {
     if matches!(hd[H::STATE], H::STATE_PROVISIONAL | H::STATE_FINAL) {
         match frontier_abi::v2::prologue::capture_locked(pd, hd[H::SITE], hd[H::GEN]) {
             Some(false) => {}
@@ -798,7 +798,7 @@ fn previous_final(
 
 /// THE anchor's seed of `(bell, region)` and its round (`seed_of_bell`,
 /// the SeedCache form; an archived seed is `MissingData`).
-fn seed_of_bell(
+pub(super) fn seed_of_bell(
     e: &Env,
     sd: &[u8],
     seed_k: &Key,
