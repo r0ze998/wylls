@@ -39,7 +39,7 @@ export { ExpeditionPrepareError };
  * → `{prepare(body, {signal}), submit(body), status(body), stats(), close()}`.
  */
 // (`runnerInstance`: handed on to the relay machinery unchanged — see createLocalPlayRelay. No start gives one today.)
-export function createLocalPlayResident({ cfg, residentBin, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now(), spawn, setTimer, clearTimer, runnerInstance = null }) {
+export function createLocalPlayResident({ cfg, residentBin, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now(), spawn, setTimer, clearTimer, runnerInstance = null, turns = null }) {
   const problems = localPlayRelayConfigProblems(cfg);
   if (problems.length) throw new Error('local-play resident: ' + problems.join('; '));
   let adapter = prepare;
@@ -52,7 +52,7 @@ export function createLocalPlayResident({ cfg, residentBin, prepare = null, rpc 
     if (!adapter) throw new Error('local-play resident: residentBin must be an absolute executable path');
   }
   // (the pinned scope of a resident request is its inspection request: cluster, program, Season, deployment, wallet, payer)
-  const relay = createLocalPlayRelay({ cfg, prepare: adapter, rpc, now, runnerInstance,
+  const relay = createLocalPlayRelay({ cfg, prepare: adapter, rpc, now, runnerInstance, turns,
     flow: { routes: RESIDENT_ROUTES, submitSchema: RESIDENT_SUBMIT_SCHEMA, statusSchema: RESIDENT_STATUS_SCHEMA, scopeOf: body => body.source_request } });
   return Object.freeze({
     routes: RESIDENT_ROUTES,

@@ -221,6 +221,12 @@ test("a war resident's turn: the march by the page's own flow, ONE action per tu
   assert.equal(spentBell(30, { liveBell: () => 29 }), 30);
   assert.equal(spentBell(30, { liveBell: () => null }), 30);
   assert.equal(spentBell(30, {}), 30);
+  // its relay's own rule (#62) says the bell's action is taken: a wait, no cooldown, nothing spent, the bell booked
+  const u = warResident({ snap: { reserve: 0, hostCount: 1, march, settling: false, ready: 1 } });
+  u.deps.view = w.deps.view; u.deps.march = async () => ({ ok: false, step: 'sent', code: 'ResidentAlreadyActed' });
+  const g = await residentTurn(u.r, { homes: [], deps: u.deps });
+  assert.deepEqual([g.act, g.outcome, g.code], ['Depart', 'wait', 'ResidentAlreadyActed']);
+  assert.deepEqual([u.r.memory.lastBell, u.r.memory.cooldown['war:Depart'], u.r.budget.state().sent], [30, undefined, 0]);
   // a read that fails is a no-answer line, nothing else
   const z = warResident({ snap: null }); z.deps.read = async () => { throw new Error('down'); };
   assert.deepEqual(Object.values(await residentTurn(z.r, { homes: [], deps: z.deps })).slice(2, 4), ['read', 'no-answer']);

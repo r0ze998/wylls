@@ -91,8 +91,12 @@ test('a natural world with two residents: funded like the player, one relay each
   assert.equal(arg(r0, '--wallet'), AI[0]); assert.equal(arg(r1, '--wallet'), AI[1]);
   // the player's relay arguments, with only the wallet and the port changed
   const player = await read('relay-41433.json');
-  const strip = a => a.filter((x, i) => !['--wallet', '--listen-port'].includes(x) && !['--wallet', '--listen-port'].includes(a[i - 1]));
+  const strip = a => a.filter((x, i) => !['--wallet', '--listen-port', '--resident-turns'].includes(x) && !['--wallet', '--listen-port', '--resident-turns'].includes(a[i - 1]));
   assert.deepEqual(strip(r0), strip(player));
+  // (and one thing more, Q16-2: a resident's relay holds it to one action per bell; the player's relay does not)
+  const dirOfWorld = await worldDir();
+  assert.equal(arg(r0, '--resident-turns'), path.resolve(dirOfWorld, 'resident-turns')); assert.equal(arg(r1, '--resident-turns'), path.resolve(dirOfWorld, 'resident-turns'));
+  assert.equal(player.includes('--resident-turns'), false);
   const ops = await read('operators-args.json');
   assert.equal(arg(ops, '--count'), '2'); assert.equal(arg(ops, '--relay-ports'), '41440,41441'); assert.equal(arg(ops, '--herald'), 'http://127.0.0.1:41432');
   assert.deepEqual(JSON.parse(arg(ops, '--homes')), [{ p: -1, q: 2, nation: 1 }, { p: 0, q: -2, nation: 4 }]);

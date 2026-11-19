@@ -37,6 +37,7 @@ import { parseTransaction, wireTransaction } from '../../../permutation-server/w
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
+import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView } from './local-play-operator-policy.mjs';
 import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX, mayActThisTurn } from './local-play-operator-war.mjs';
 import { createWarEyes, openMarch, sendWarMarch } from './local-play-operator-march.mjs';
@@ -186,6 +187,12 @@ export async function residentTurn(r, { homes, deps }) {
     r.lastRefusal = null;
     const m = await deps.march(r, snap);
     const detail = r.lastRefusal; r.lastRefusal = null;
+    // (its relay's own one-action-per-bell rule, #62: this bell's action is taken — nothing was sent; not a refusal of
+    //  the march: no cooldown, nothing spent; the bell is booked, and it decides again in the next one)
+    if (!m.ok && m.code === RESIDENT_ALREADY_ACTED) {
+      r.memory.lastBell = spentBell(nowBell, deps);
+      return { resident: r.index, wallet: r.key.address, step: 'act', act: 'Depart', kind: d.kind, outcome: 'wait', code: m.code, why: 'this resident already acted in this bell: the next bell', seen, budget: r.budget.state() };
+    }
     const outcome = m.ok ? 'landed' : m.step === 'check' || m.step === 'route' || m.step === 'sealing' ? 'refused' : m.code === 'TransactionFailed' ? 'failed' : m.step === 'sent' && m.code !== 'network' ? 'refused' : 'unknown';
     if (outcome !== 'refused') r.memory.lastBell = spentBell(nowBell, deps);
     if (outcome === 'landed' || outcome === 'unknown') (r.memory.targets ??= {})[`${d.row.p},${d.row.q}`] = (m.arriveBell ?? nowBell) + TARGET_HOLD_BELLS;
@@ -199,6 +206,12 @@ export async function residentTurn(r, { homes, deps }) {
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
   const detail = r.lastRefusal ?? null; r.lastRefusal = null;
+  // One action per resident per bell (Q16-2): its relay says this bell's action was already taken — by this resident or
+  // by another writer for it. Not a refusal of the command: nothing was sent, nothing is marked tried or spent; it waits
+  // for the next bell and decides again.
+  // (a war resident books the bell its relay says is taken, so it does not ask again every few seconds of it)
+  if (!sent.ok && sent.code === RESIDENT_ALREADY_ACTED && r.memory.war) r.memory.lastBell = spentBell(nowBell, deps);
+  if (!sent.ok && sent.code === RESIDENT_ALREADY_ACTED) return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), seen, budget: r.budget.state() };
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
   if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
   else {
