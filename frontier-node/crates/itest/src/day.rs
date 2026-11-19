@@ -382,6 +382,8 @@ async fn verify_dump(w: &World, path: &Path, cfg: &DayCfg) -> Result<(), String>
             scenarios: vec![],
             history: verify_core::history::History::ledger_feed("in-process localnet"),
             resident_feed: None,
+            program_so: None,
+            declared: vec![],
         }
     };
     inp.save(path)

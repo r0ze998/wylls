@@ -52,6 +52,13 @@ pub const WIDE_RULE: &str = "WideRule";
 /// VWL: a wide land instruction wrote an account that is not the re-run's
 /// (or wrote one its handler never writes).
 pub const WIDE_REPLAY_MISMATCH: &str = "WideReplayMismatch";
+/// VX (Q16-1, the expedition wrapper and Free City conquest): the pinned
+/// program, re-executing the transaction from the archive's states, refuses
+/// it although the archive says it succeeded.
+pub const REEXEC_REFUSED: &str = "ReExecRefused";
+/// VX: the re-execution's log lines or program-owned post-states are not
+/// the archive's.
+pub const REEXEC_MISMATCH: &str = "ReExecMismatch";
 /// A history no source showed to be complete (UNVERIFIABLE, V0; ⑲ `history`).
 pub const HISTORY_UNPROVEN: &str = "HistoryUnproven";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
