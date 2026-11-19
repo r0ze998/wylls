@@ -108,7 +108,12 @@ export function renderMarch(m, FS = null) {
   const stepDone = id => t.steps.find(s => s.id === id)?.state === 'done';
   const resolved = stepDone('resolved');
   const now = t.steps.find(s => s.state === 'now') ?? null;
-  const hint = t.route === 'self' ? L`到着のターンが始まると、この端末が封を開けます（ウォレットの操作は要りません）。` : HINT_TEXT[t.hint]?.() ?? '';
+  // (loop-play4 B-11: a local world's runner reveals every march of its villages — no copy on this device is needed, and
+  //  once the seal is open nothing is said about a copy at all; "no copy on this device" alarmed after a browser restart)
+  const hint = t.route === 'self' ? L`到着のターンが始まると、この端末が封を開けます（ウォレットの操作は要りません）。`
+    : t.hint === 'keepersWillReveal' && stepDone('revealed') ? ''
+    : t.hint === 'keepersWillReveal' && FS?.localPlay ? L`このローカルの世界では、到着のターンが終わると世界の進行役が封を開けます（この端末に封の控えがなくても進みます）。`
+    : HINT_TEXT[t.hint]?.() ?? '';
   // the march by where it goes when this browser knows it (its own seal, or the record once the seal is open); else by the host
   const title = own ? L`${tileName(FS, own.destP, own.destQ, own.destTile)}へ` : m.dest ? L`${provinceName(FS, m.dest.p, m.dest.q)}へ` : who ? L`進軍：${who}` : L`進軍`;
   // what only this browser knows: the host and its stance, and who can see the destination now

@@ -1519,8 +1519,9 @@ export default {
   'ローカルプレイの準備': 'Local play setup',
   'この端末だけの試験用の世界です。開始ボタンで新しい世界を用意します。': 'A test world on this machine only. The start button prepares a new world.',
   '鍵は保存されないため、再読み込み・ページを閉じると今の世界は続けられません。開き直したら、新しい世界から始めてください。': 'The key is never stored, so after a reload or closing the page this world cannot be continued. When you reopen the page, start from a new world.',
-  '通常速度では1ターン10分です。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。': 'At normal speed a turn takes 10 minutes. After the world starts, marches and receiving their results still wait for the turns to pass.',
-  '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。': 'At most two worlds at once. Each ends on its own once the time set by the start service has passed (two hours from its start by default), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
+  'この試験世界は時計を早めて動きます（通常の1ターン10分が、実時間では数十秒です）。開始後は、画面の時計が実際の長さを示します。進軍やその結果の受け取りは、ターンの進行を待ちます。': 'This test world runs on a faster clock (a turn of 10 minutes takes some tens of seconds of real time). Once it starts, the clock on screen shows the real length. Marches and receiving their results still wait for the turns to pass.',
+  '通常速度では1ターン10分です（時計を早めた試験世界では、開始後の画面の時計が実際の長さを示します）。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。': 'At normal speed a turn takes 10 minutes (in a test world on a faster clock, the clock on screen shows the real length once it starts). After the world starts, marches and receiving their results still wait for the turns to pass.',
+  '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（開始後に終了時刻を表示します）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。': 'At most two worlds at once. Each ends on its own once the time set by the start service has passed (its end time is shown once it starts), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
   'この試験用の世界は、準備のあいだだけ世界の時間を早送りします（出発先の州を開くため）。操作できるようになる前に通常速度へ戻し、そのあとは早送りしません。': 'During its preparation only, this test world\'s clock is run faster (to open the destination province). It is set back to normal speed before you can act, and is not run faster after that.',
   'この端末だけの試験用ウォレットです。鍵はこのページのメモリにだけあり、保存されません。ページを閉じる・読み込み直すと失われます。': 'A test wallet for this machine only. Its key is kept only in this page\'s memory and is never stored. Closing or reloading the page loses it.',
   'この世界の公開アドレス': 'This world\'s public address',
@@ -1599,7 +1600,7 @@ export default {
   // (the launcher world's standing notice after the gate, flocalplay-session.mjs: what stays true for the session)
   'この試験世界について': 'About this test world',
   '鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。': 'The key is kept only in this page\'s memory. Reloading or closing the tab loses it, and this world cannot be continued.',
-  '自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。': 'This page cannot confirm when the world ends on its own. It ends after the time set by the start service (two hours from its start by default).',
+  '自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります。': 'This page cannot confirm when the world ends on its own. It ends after the time set by the start service.',
   '世界が終わると、その世界の進行は保存されません。': 'When the world ends, its progress is not saved.',
   'この世界は試験用の攻略デモです。時計は {0} 倍の合成時計で、ほかの村は試験参加者です（自然な世界の時間ではありません）。': 'This world is a test capture demo: its clock is a synthetic one running {0} times faster, and the other villages are test participants (not a natural world\'s time).',
   'このページの試験用の鍵は破棄されました。このページからこの世界は続けられません。新しい鍵や新しい世界は自動では作りません。': 'This page\'s test key was discarded. This world cannot be continued from this page. No new key or new world is made for you.',
@@ -1950,4 +1951,6 @@ export default {
   '送信待ちを続けています。州のターンの決着がまだつかないため、待つ期限をターン {0} まで延ばしました。決着がつき次第{1}を1回だけ送ります（取り消せます）。': "Still waiting to send: the province has not finished its turn yet, so the wait now runs until turn {0}. As soon as it has, {1} is sent once (you can cancel).",
   'この州の決着が {0} ターン遅れています。このマシンの負荷が高く、世界の進行が追いついていないためです。': "This province's turns are {0} behind: this machine is under heavy load and the world's progress has not caught up.",
   '決着が追いつくまで、送信待ちは自動で延ばします。': 'Until it catches up, the waiting send is extended on its own.',
+  // loop-play4 B-11: a local world's march with no seal copy on this device: the world's runner reveals it
+  'このローカルの世界では、到着のターンが終わると世界の進行役が封を開けます（この端末に封の控えがなくても進みます）。': "In this local world the world's automatic services open the seal once the arrival turn is over (it goes ahead even without a copy of the seal on this device).",
 };

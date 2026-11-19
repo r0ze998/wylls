@@ -608,7 +608,12 @@ export function keepState(el, render, scroller = el) {
   const top = scroller?.scrollTop ?? 0;
   // a part that scrolls by itself (the order's body above its seal: `data-scroll`) keeps its place too
   const inner = scroller ? new Map([...el.querySelectorAll('[data-scroll]')].map(x => [x.dataset.scroll, x.scrollTop])) : new Map();
+  // loop-play4 B-8: a node marked `data-stable` whose markup did not change is the SAME node after the re-render (the ×60
+  // picker's confirm button was replaced at every 10 s turn, and a press between hover and release missed it)
+  const stable = new Map();
+  for (const x of el.querySelectorAll('[data-stable]')) if (x.dataset?.stable) stable.set(x.dataset.stable, [x, x.outerHTML]);
   render();
+  for (const x of stable.size ? el.querySelectorAll('[data-stable]') : []) { const was = stable.get(x.dataset?.stable); if (was && was[0] !== x && was[1] === x.outerHTML) x.replaceWith(was[0]); }
   // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
   // typing in the Muster form opened from its fold lost the focus at the first key's redraw
   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }

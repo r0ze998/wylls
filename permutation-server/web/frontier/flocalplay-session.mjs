@@ -135,7 +135,7 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
       : L`鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。`;
     items[1].textContent = persisted && end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろにいったん止まります（開始サービスが決めた時刻。この端末の時計で表示）。`
       : end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。`
-      : L`自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。`;
+      : L`自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります。`;
     if (world === 'ended') items[1].textContent = L`この世界は終了しました。ターンはもう進みません。`;
     else if (world === 'lost') items[1].textContent = L`この世界はいま止まっているようです（開始サービスに届きません）。`;
     items[2].textContent = persisted ? L`止まっても進行は保存されています。同じブラウザで開始を押すと、続きから再開します。`

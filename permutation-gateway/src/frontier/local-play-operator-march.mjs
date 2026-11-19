@@ -63,6 +63,17 @@ export function keepsOf(control, overviews) {
 }
 
 /**
+ * The rings whose overviews the war eyes read (loop-play4 B-6): every ring of the control snapshot from ring 1 out (a
+ * natural world's ring 1 is contestable land), within REACH_PROVINCES + 1 rings of a resident's village ring; none before
+ * any village is known. Ascending.
+ */
+export function warRings(control, homeRings) {
+  const homes = [...(homeRings ?? [])];
+  const near = r => homes.some(h => Math.abs(h - r) <= REACH_PROVINCES + 1);
+  return [...new Set((control?.provinces ?? []).map(p => ring(p.p, p.q)))].filter(r => r >= 1 && near(r)).sort((a, b) => a - b);
+}
+
+/**
  * The world's eyes for war residents (shared by all residents of the process): `{refresh(), world, view(wallet)}`.
  * `refresh()` reads the season, the chain clock, the control snapshot and the ring overviews once per turn.
  */
@@ -87,9 +98,7 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
           //  loop-play4 B-6 found its keeps were the only ones in reach of a kept world's villages — but only the rings
           //  within reach of a resident's village (none before the first village; a wide world has 131 rings and a turn
           //  is 10 s at x60))
-          const homes = [...world.homeRings];
-          const near = r => homes.some(h => Math.abs(h - r) <= REACH_PROVINCES + 1);
-          const rings = [...new Set(c.control.provinces.map(p => ring(p.p, p.q)))].filter(r => r >= 1 && near(r)).sort((a, b) => a - b);
+          const rings = warRings(c.control, world.homeRings);
           const overviews = new Map();
           for (const r of rings) { const o = await herald.overview2(r); if (o.ok) overviews.set(r, o); }
           world.keeps = keepsOf(c.control, overviews); world.controlBell = c.control.bell;

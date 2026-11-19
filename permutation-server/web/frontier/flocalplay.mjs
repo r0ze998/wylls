@@ -518,7 +518,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     catch { state.phase = 'refused'; state.code = 'NoIndexedDB'; }
     checking = false; paint(); return state;
   };
-  ui = doc ? mountPanel(doc, { onConnect: connect, onEnd: endWorld, onList: listWorlds, onForget: forgetKey, launcher, accelerated, natural, persisted, now }) : null;
+  ui = doc ? mountPanel(doc, { onConnect: connect, onEnd: endWorld, onList: listWorlds, onForget: forgetKey, launcher, accelerated, natural, persisted, demoPage, now }) : null;
   paint();
   (async () => {
     try {
@@ -565,7 +565,7 @@ function worldLine(w, at) {
  * a language switch, the others by `paint`. The page's own language key is put on the panel too (the panel covers
  * the page's, which is not mounted until the boot), so either language can be chosen before a world is started.
  */
-function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onForget = () => {}, launcher = false, accelerated = false, natural = false, persisted = false, now = () => Date.now() }) {
+function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onForget = () => {}, launcher = false, accelerated = false, natural = false, persisted = false, demoPage = false, now = () => Date.now() }) {
   const el = (tag, cls, text) => { const x = doc.createElement(tag); if (cls) x.className = cls; if (text !== undefined) x.textContent = text; return x; };
   const sheet = el('link'); sheet.rel = 'stylesheet'; sheet.id = 'local-play-css'; sheet.href = new URL('./flocalplay.css', import.meta.url).href;
   (doc.head ?? doc.documentElement ?? doc.body)?.append(sheet);
@@ -619,9 +619,11 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
     const said = [L`この端末だけの試験用の世界です。開始ボタンで新しい世界を用意します。`,
       persisted ? L`試験用（本番用ではありません）：この世界の鍵は、取り出せない形でこのブラウザに保存されます。再読み込みしても、同じ世界の同じ村に戻れます。`
         : L`鍵は保存されないため、再読み込み・ページを閉じると今の世界は続けられません。開き直したら、新しい世界から始めてください。`,
-      L`通常速度では1ターン10分です。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`,
+      // (loop-play4 B-12: a capture demo's page says its faster clock; any world's own length is on its clock once started)
+      demoPage ? L`この試験世界は時計を早めて動きます（通常の1ターン10分が、実時間では数十秒です）。開始後は、画面の時計が実際の長さを示します。進軍やその結果の受け取りは、ターンの進行を待ちます。`
+        : L`通常速度では1ターン10分です（時計を早めた試験世界では、開始後の画面の時計が実際の長さを示します）。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`,
       persisted ? L`世界は同時に2つまでです。開始サービスで決めた時間がたつと世界は止まりますが、進行は保存され、同じブラウザで開始を押すと続きから再開します。`
-        : L`世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。`,
+        : L`世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（開始後に終了時刻を表示します）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。`,
       L`この試験用の世界は、準備のあいだだけ世界の時間を早送りします（出発先の州を開くため）。操作できるようになる前に通常速度へ戻し、そのあとは早送りしません。`];
     points.forEach((point, i) => { point.textContent = said[i]; });
     addressLabel.textContent = launcher ? L`この世界の公開アドレス` : L`公開アドレス（ランナーの起動に使います）`;

@@ -268,6 +268,21 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
   assert.equal(cur.fold.open, false, 'a different view starts from its own markup');
 });
 
+// loop-play4 B-8: the ×60 picker's confirm was a new node at every 10 s turn (Playwright: "element was detached"; a person's
+// press between hover and release missed it). A `data-stable` node whose markup is unchanged is the same node afterwards.
+test('keepState: a data-stable node with unchanged markup survives the re-render as the SAME node; a changed one is the new', () => {
+  const mk = (key, html) => { const n = { tagName: 'BUTTON', dataset: { stable: key }, outerHTML: html, closest: () => null, matches: () => false, swapped: null }; n.replaceWith = o => { n.swapped = o; }; return n; };
+  let nodes = [mk('join-go', '<button data-stable="join-go">Start as Cinder</button>')];
+  const el = { scrollTop: 0, contains: () => false, querySelectorAll: sel => (sel === '[data-stable]' ? nodes : []) };
+  const old = nodes[0];
+  keepState(el, () => { nodes = [mk('join-go', '<button data-stable="join-go">Start as Cinder</button>')]; }, el);
+  assert.equal(nodes[0].swapped, old, 'unchanged: the old node is put back in place of the new');
+  const old2 = nodes[0];
+  keepState(el, () => { nodes = [mk('join-go', '<button data-stable="join-go">Start as Ember</button>')]; }, el);
+  assert.equal(nodes[0].swapped, null, 'changed markup: the new node stays');
+  assert.notEqual(nodes[0], old2);
+});
+
 // round 43 (seen in live33, turn 27): the only host on the march is in no province record the page holds until its
 // arrival is read; the Hosts tab said "No hosts yet. Train troops and form a host" then. Now it says the host is away
 // and opens Marches; with no march either, the old line stands.
