@@ -1018,6 +1018,32 @@ pub trait PassVillage: Send {
     fn halt(&mut self, why: String);
     fn ended(&self) -> bool;
     fn end(&mut self);
+    /// TEST-ONLY wide world (verify-pr96 BREAK-1): only its expedition's due self-reveal, at the start of a pass
+    /// ([`orchestrate`]); `None` = nothing due (every other world, and every mock: the default).
+    fn reveal_first<'a>(
+        &'a mut self,
+        _state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        Box::pin(async { None })
+    }
+}
+
+/// [`PassVillage::reveal_first`] of a village's wide destination driver, as its report.
+async fn reveal_report(
+    d: &mut Option<crate::destination_driver::DestinationDriver>,
+    state: &Shared,
+) -> Option<Report> {
+    let d = d.as_mut()?;
+    let st = d.reveal_only(state).await?;
+    Some(Report {
+        field: if d.beside_legacy {
+            Field::Expedition
+        } else {
+            Field::Destination
+        },
+        text: format!("{st:?}"),
+        out: destination_out(st),
+    })
 }
 
 /// The keeper loop's outer order, shared by the real [`Pilot`] and the tests: `(alive, landed)`. One village: its pass and
@@ -1048,13 +1074,48 @@ pub async fn orchestrate(
             v.end();
         }
     }
+    // (TEST-ONLY wide world, verify-pr96 BREAK-1: every village's due expedition reveal FIRST, before any keeper of this
+    //  pass posts THE anchor of the bell that just ended. The program admits a reveal before the anchor, and its window
+    //  closes at A + W — about 25 slots at ×60 — while one pass of a many-village wide world (the first keeper's anchors
+    //  and seeds, other keepers, catch-ups) is longer than that: left to its village's turn, a reveal still found the
+    //  window closed and the host was held for good. Nothing is due in any other world: every village returns None.)
     if pair && must(first, others) {
         halt_all(first, others);
         return (false, false);
     }
+    let mut landed = false;
+    if let Some(rep) = first.reveal_first(state).await {
+        landed |= rep.out == Out::Landed;
+        first.record(&RunOut {
+            reports: vec![rep],
+            landed: false,
+            stopped: None,
+        });
+    }
+    for i in 0..others.len() {
+        // (a pair: an unknown outcome of a reveal ends the sweep at once, and the check below halts every village)
+        if pair && must(first, others) {
+            break;
+        }
+        if others[i].ended() {
+            continue;
+        }
+        if let Some(rep) = others[i].reveal_first(state).await {
+            landed |= rep.out == Out::Landed;
+            others[i].record(&RunOut {
+                reports: vec![rep],
+                landed: false,
+                stopped: None,
+            });
+        }
+    }
+    if pair && must(first, others) {
+        halt_all(first, others);
+        return (false, landed);
+    }
     let r = first.pass(state, pair).await;
     first.record(&r);
-    let mut landed = r.landed;
+    landed |= r.landed;
     if let Some(stop) = &r.stopped {
         if pair {
             halt_all(first, others);
@@ -1147,6 +1208,12 @@ impl PassVillage for FirstVillage<'_> {
         false
     }
     fn end(&mut self) {}
+    fn reveal_first<'a>(
+        &'a mut self,
+        state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        Box::pin(reveal_report(self.destination, state))
+    }
 }
 impl PassVillage for Village {
     fn pass<'a>(
@@ -1183,6 +1250,12 @@ impl PassVillage for Village {
     }
     fn end(&mut self) {
         self.ended = true;
+    }
+    fn reveal_first<'a>(
+        &'a mut self,
+        state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        Box::pin(reveal_report(&mut self.destination, state))
     }
 }
 
@@ -2665,6 +2738,118 @@ mod pair_tests {
             .iter()
             .filter(|n| n.starts_with(who))
             .count()
+    }
+    // ---- verify-pr96 BREAK-1: the reveal sweep at the start of a pass
+    struct SweepVillage {
+        tag: &'static str,
+        reveal: Option<Out>,
+        status: Status,
+        ended: bool,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+    impl PassVillage for SweepVillage {
+        fn pass<'a>(
+            &'a mut self,
+            _state: &'a Shared,
+            _pair: bool,
+        ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
+            self.log.lock().unwrap().push(format!("{} pass", self.tag));
+            Box::pin(async { RunOut::default() })
+        }
+        fn record(&mut self, r: &RunOut) {
+            for rep in &r.reports {
+                if let Out::Unknown { signature, .. } = &rep.out {
+                    self.status.unknown_signature = Some(signature.clone());
+                }
+            }
+        }
+        fn status(&self) -> &Status {
+            &self.status
+        }
+        fn halt(&mut self, why: String) {
+            self.status.stopped = Some(why);
+        }
+        fn ended(&self) -> bool {
+            self.ended
+        }
+        fn end(&mut self) {
+            self.ended = true;
+        }
+        fn reveal_first<'a>(
+            &'a mut self,
+            _state: &'a Shared,
+        ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{} reveal", self.tag));
+            let out = self.reveal.clone();
+            Box::pin(async move {
+                out.map(|out| Report {
+                    field: Field::Expedition,
+                    out,
+                    text: "Landed(\"ExpeditionReveal\")".into(),
+                })
+            })
+        }
+    }
+    fn sv(tag: &'static str, reveal: Option<Out>, log: &Arc<Mutex<Vec<String>>>) -> SweepVillage {
+        SweepVillage {
+            tag,
+            reveal,
+            status: Status::default(),
+            ended: false,
+            log: log.clone(),
+        }
+    }
+    #[tokio::test]
+    async fn every_villages_due_reveal_runs_before_any_villages_pass() {
+        // (verify-pr96 BREAK-1: a reveal left to its village's turn in a long pass found its window — about 25 slots at
+        //  ×60 — closed; the sweep runs every village's due reveal before the first keeper posts the bell's anchors)
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        let mut b = sv("B", Some(Out::Landed), &log);
+        let mut c = sv("C", None, &log);
+        c.ended = true;
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b, &mut c];
+        let (alive, landed) = orchestrate(&st, &mut a, &mut rest).await;
+        assert!(alive);
+        assert!(landed, "a landed reveal counts as the pass's landing");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal", "B reveal", "A pass", "B pass"],
+            "every live village's reveal first, then the passes in their order; an ended village is never called"
+        );
+    }
+    #[tokio::test]
+    async fn a_pairs_unknown_reveal_stops_the_sweep_and_every_pass() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", Some(unk()), &log);
+        let mut b = sv("B", Some(Out::Landed), &log);
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
+        let (alive, _) = orchestrate(&st, &mut a, &mut rest).await;
+        assert!(!alive, "the pair loop stops");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal"],
+            "nothing runs after the unknown outcome"
+        );
+        assert!(b.ended && b.status.stopped.is_some());
+    }
+    #[test]
+    fn the_reveal_sweep_is_wired_for_both_kinds_of_village() {
+        let src = include_str!("keeper_loop.rs");
+        assert!(
+            src.contains("Box::pin(reveal_report(self.destination, state))"),
+            "the first village"
+        );
+        assert!(
+            src.contains("Box::pin(reveal_report(&mut self.destination, state))"),
+            "every other village"
+        );
+        let dd = include_str!("destination_driver.rs");
+        assert!(dd.contains("if self.terminal.is_some() || !SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {\n            return None;"),
+            "off in every world without the wide switch, and after the driver ended");
     }
     #[tokio::test]
     async fn full_loop_a_unknown_means_b_is_never_called() {

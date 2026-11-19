@@ -1035,6 +1035,24 @@ impl DestinationDriver {
         step
     }
 
+    /// TEST-ONLY wide world ([`SELF_REVEAL`], verify-pr96 BREAK-1): ONLY the due self-reveal of the watched holding's
+    /// expedition, or `None` (nothing due, the switch off, or the driver already ended). The keeper loop calls it for
+    /// every village at the START of each pass, before any keeper posts THE anchor of the bell that just ended: a pass
+    /// of a many-village wide world is longer than a reveal window (A + W, 600 chain seconds — about 25 slots), so a
+    /// reveal left to the village's own turn in the pass could still find the window closed. Ends the driver as `step`
+    /// does on an Unknown or a Stop.
+    pub async fn reveal_only(&mut self, state: &Shared) -> Option<Step> {
+        if self.terminal.is_some() || !SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {
+            return None;
+        }
+        let s = self.self_reveal(state).await?;
+        if matches!(s, Step::Unknown { .. } | Step::Stopped(_)) {
+            self.terminal = Some(s.clone());
+        }
+        self.last = Some(s.clone());
+        Some(s)
+    }
+
     async fn step_inner(&mut self, state: &Shared) -> Step {
         if SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {
             if let Some(s) = self.self_reveal(state).await {
