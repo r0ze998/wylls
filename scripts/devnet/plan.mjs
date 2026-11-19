@@ -432,7 +432,7 @@ function planText({ profile, so, soPath, costs, season, rate, commands, blocked,
   L.push('Commands (argv; run only with the gate open):');
   for (const [c, a] of commands) L.push(`  ${c} ${a.join(' ')}`);
   L.push('');
-  L.push('Not covered here (no tool exists yet, see reports/devnet-readiness.md): AnnounceSeason, CreateSeason, InitBeaconLogs, InitShards (G4).');
+  L.push('Not covered here: the season setup (AnnounceSeason, CreateSeason, InitBeaconLogs, InitShards; WideSetRules for the playable lane) is frontier-operator\'s (frontier-node/crates/stack; DEVNET-DEPLOY-RUNBOOK sections 6 and 6b; G4).');
   L.push('');
   L.push(blocked.length ? `SEND GATE: CLOSED\n${blocked.map(b => `  - ${b}`).join('\n')}` : 'SEND GATE: OPEN');
   return L.join('\n');

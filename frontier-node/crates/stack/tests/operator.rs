@@ -30,8 +30,19 @@ use frontier_stack::operator;
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-const E2E_PORT: u16 = 41_600;
-const MOCK_PORT: u16 = 41_610;
+/// `OPERATOR_TEST_PORT_BASE` moves both (a run confined to another range); default 41600.
+fn port_base() -> u16 {
+    std::env::var("OPERATOR_TEST_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(41_600)
+}
+fn e2e_port() -> u16 {
+    port_base()
+}
+fn mock_port() -> u16 {
+    port_base() + 10
+}
 const SOL: u64 = 1_000_000_000;
 
 fn repo_root() -> PathBuf {
@@ -238,7 +249,7 @@ async fn o2_sets_up_a_season_on_a_local_chain_idempotently() {
         .unwrap();
     chain.airdrop(&authority.pubkey(), 100 * SOL).unwrap();
     let state = Arc::new(Mutex::new(chain));
-    let node = localnet::server::start_with(state.clone(), E2E_PORT, E2E_PORT + 1)
+    let node = localnet::server::start_with(state.clone(), e2e_port(), e2e_port() + 1)
         .await
         .expect("bind 41600/41601");
     let url = node.url();
@@ -468,7 +479,7 @@ async fn o3_refusals() {
     let authority = Keypair::new(); // TEST key, never funded
     let key = write_key(&dir, "authority.json", &authority);
     let program = Address::new_from_array([0x33; 32]).to_string();
-    let url = format!("http://127.0.0.1:{MOCK_PORT}");
+    let url = format!("http://127.0.0.1:{}", mock_port());
     let prof = write_profile(
         &dir,
         &url,
@@ -482,7 +493,7 @@ async fn o3_refusals() {
     let mut all = String::new();
 
     // A mainnet-beta genesis behind a loopback URL: refused after the one call.
-    let (seen, h) = mock_rpc(MOCK_PORT, operator::MAINNET_GENESIS).await;
+    let (seen, h) = mock_rpc(mock_port(), operator::MAINNET_GENESIS).await;
     let r = op(args(&["--profile", p, "--authority", k, "--yes-send"])).await;
     all.push_str(&r.stdout);
     all.push_str(&r.stderr);
@@ -497,8 +508,8 @@ async fn o3_refusals() {
     h.abort();
 
     // Loose mode: refused before the key is read or the RPC called.
-    let (seen, h) = mock_rpc(MOCK_PORT + 1, operator::MAINNET_GENESIS).await;
-    let url2 = format!("http://127.0.0.1:{}", MOCK_PORT + 1);
+    let (seen, h) = mock_rpc(mock_port() + 1, operator::MAINNET_GENESIS).await;
+    let url2 = format!("http://127.0.0.1:{}", mock_port() + 1);
     std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
     let r = op(args(&[
         "--profile",

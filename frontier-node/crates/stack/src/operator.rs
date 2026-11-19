@@ -19,6 +19,18 @@
 //!   public URL must give devnet's.
 //! - **Key file guard.** A regular file (no symlink) of this user, mode
 //!   600 or stricter, in the Solana CLI format. Its bytes are never printed.
+//! - **The playable lane** (owner decision B7, devnet blocker B3): preset
+//!   `S1_DEVNET_WIDE_7D` creates a program-version 0x4804 season (the
+//!   `devnet-playable-sbf` build) and adds the authority's one wide-land
+//!   transaction, WideSetRules (write-once; it needs the season Seeded, so
+//!   it follows keeper A's ConsumeGenesisSeed). Built with the
+//!   `playable-lane` feature (the wide-land ABI tables).
+//! - **Send gate.** On a public URL a send also needs
+//!   `--i-have-r0ze-approval` and `--approved-sha256 HEX`, which must be the
+//!   sha256 of the program the cluster runs (read from its ProgramData), and
+//!   the program's markers must match the profile's `program.requiredMarkers`
+//!   / `refusedMarkers`. Each landed transaction is reported with its
+//!   compute units, fee and the lamports it took from the authority.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -53,6 +65,19 @@ pub const FEE_PER_SIGNATURE: u64 = 5_000;
 pub const LAND_LIMIT: Duration = Duration::from_secs(120);
 /// The key file is at most this long (a CLI key file is ~ 230 B).
 const MAX_KEY_FILE: u64 = 4_096;
+/// The S1 program's version (`frontier_abi::v2::presets::PROGRAM_VERSION_S1`).
+pub const S1_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+/// The playable lane's program version (`devnet-playable-sbf`, B7): the S1
+/// rules with the wide land, expedition and conquest dispatch.
+pub const PLAYABLE_VERSION: u16 = 0x4804;
+/// The flag a send to a public cluster needs (as `scripts/devnet/plan.mjs`).
+pub const APPROVAL_FLAG: &str = "--i-have-r0ze-approval";
+/// ProgramData's header before the ELF (loader v3: enum tag 4, slot 8,
+/// `Option<Pubkey>` 33).
+pub const PROGRAMDATA_HEADER: usize = 45;
+/// The chain clock may be at most this far past `--t-create-min` minus the
+/// program's lead when AnnounceSeason is sent.
+pub const T_CREATE_MIN_SLACK_SECS: i64 = 60;
 
 pub const EXIT_OK: i32 = 0;
 pub const EXIT_FAILED: i32 = 1;
@@ -86,6 +111,12 @@ pub struct Profile {
     pub preset: String,
     pub season_id: u64,
     pub beacon: BeaconChoice,
+    /// `program.programVersion` (`"0x4804"`); `None`: the preset's own.
+    pub program_version: Option<u16>,
+    /// `program.requiredMarkers` / `program.refusedMarkers`: build markers
+    /// the deployed program must (not) carry.
+    pub required_markers: Vec<String>,
+    pub refused_markers: Vec<String>,
 }
 
 pub fn is_placeholder(s: &str) -> bool {
@@ -101,6 +132,26 @@ fn opt_address(v: &Value, k: &str) -> Result<Option<Address>, String> {
             .map(Some)
             .map_err(|_| format!("profile: {k} {s} is not a base58 address")),
     }
+}
+
+fn raw_strings(v: &Value, k: &str) -> Vec<String> {
+    v.get(k)
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `"0x4804"` or `"18436"`.
+pub fn parse_version(s: &str) -> Result<u16, String> {
+    let r = match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        Some(h) => u16::from_str_radix(h, 16),
+        None => s.parse(),
+    };
+    r.map_err(|_| format!("program version {s:?}: a u16 (0x4804)"))
 }
 
 fn strings(v: &Value, k: &str) -> Vec<String> {
@@ -160,31 +211,197 @@ pub fn parse_profile(text: &str) -> Result<Profile, String> {
             .ok_or("profile: operator.seasonId missing")?,
         beacon,
         cluster,
+        program_version: match v["program"]["programVersion"].as_str() {
+            Some(x) => Some(parse_version(x).map_err(|e| format!("profile: {e}"))?),
+            None => None,
+        },
+        required_markers: raw_strings(&v["program"], "requiredMarkers"),
+        refused_markers: raw_strings(&v["program"], "refusedMarkers"),
     })
 }
 
-/// The presets the operator may create, by the profile's `season.preset`.
-pub const PRESETS: [&str; 2] = ["S1_LOCAL_7D", "S1_LOCAL_14D"];
+/// The presets the operator may create, by the profile's `season.preset`
+/// (or `--preset`).
+pub const PRESETS: [&str; 3] = ["S1_LOCAL_7D", "S1_LOCAL_14D", "S1_DEVNET_WIDE_7D"];
 
-/// The season's CreateSeason bytes from the profile (the same
-/// [`setup::conquest_bytes`] the local stack uses; S1 seasons only: the
-/// program refuses any other version).
-pub fn season_bytes(p: &Profile) -> Result<SeasonBytes, String> {
+/// The presets of the playable lane: program version [`PLAYABLE_VERSION`]
+/// and the wide land's WideSetRules after the season is Seeded.
+pub fn is_wide_preset(name: &str) -> bool {
+    name == "S1_DEVNET_WIDE_7D"
+}
+
+/// The preset's parameters as the season is created: the beacon key and
+/// the program version applied. Pure.
+pub fn season_params(p: &Profile) -> Result<frontier_abi::v2::presets::SeasonParamsV2, String> {
     use frontier_abi::v2::presets as v2;
     let mut sp = match p.preset.as_str() {
         "S1_LOCAL_7D" => v2::S1_LOCAL_7D,
         "S1_LOCAL_14D" => v2::S1_LOCAL_14D,
-        x => {
-            return Err(format!(
-                "profile: season.preset {x}: one of {}",
-                PRESETS.join(", ")
-            ))
-        }
+        "S1_DEVNET_WIDE_7D" => v2::S1_DEVNET_WIDE_7D,
+        x => return Err(format!("season.preset {x}: one of {}", PRESETS.join(", "))),
     };
+    let version = p.program_version.unwrap_or(if is_wide_preset(&p.preset) {
+        PLAYABLE_VERSION
+    } else {
+        S1_VERSION
+    });
+    if is_wide_preset(&p.preset) && version != PLAYABLE_VERSION {
+        return Err(format!(
+            "season.preset {}: the wide land runs on program version 0x{PLAYABLE_VERSION:04x} only (profile program.programVersion is 0x{version:04x})",
+            p.preset
+        ));
+    }
+    if version != S1_VERSION && version != PLAYABLE_VERSION {
+        return Err(format!(
+            "program version 0x{version:04x}: 0x{S1_VERSION:04x} (S1 release) or 0x{PLAYABLE_VERSION:04x} (playable lane) only"
+        ));
+    }
+    if is_wide_preset(&p.preset) && !cfg!(feature = "playable-lane") {
+        return Err(format!(
+            "season.preset {}: this frontier-operator was built without the playable lane; build it with `cargo build -p stack --features playable-lane --bin frontier-operator`",
+            p.preset
+        ));
+    }
+    sp.base.program_version = version;
     if p.beacon == BeaconChoice::TestKey {
         sp.base.quicknet_pk_hash = fclient::beacon::pk_hash(&fclient::beacon::TestKey::new().pk96);
     }
-    setup::conquest_bytes(&sp).map_err(|e| format!("season params ({}): {e}", p.preset))
+    Ok(sp)
+}
+
+/// The season's CreateSeason bytes from the profile (the same
+/// [`setup::conquest_bytes`] the local stack uses; S1 seasons, version 4
+/// or the playable lane's 0x4804).
+pub fn season_bytes(p: &Profile) -> Result<SeasonBytes, String> {
+    let sp = season_params(p).map_err(|e| format!("profile: {e}"))?;
+    lane_bytes(&sp).map_err(|e| format!("season params ({}): {e}", p.preset))
+}
+
+/// [`setup::conquest_bytes`] for version 4, and for the playable lane's
+/// 0x4804 the program's own rule (`proc/season.rs` `range_view`): the
+/// ranges are checked on a copy whose `program_version` is 4, and the bytes
+/// keep 0x4804 (`SeasonParamsV2::validate` knows 3, 4 and 5 only).
+pub fn lane_bytes(
+    sp: &frontier_abi::v2::presets::SeasonParamsV2,
+) -> Result<SeasonBytes, &'static str> {
+    if sp.base.program_version != PLAYABLE_VERSION {
+        return setup::conquest_bytes(sp);
+    }
+    let mut view = *sp;
+    view.base.program_version = S1_VERSION;
+    view.validate()?;
+    let payout = setup::payout_rev3();
+    let b = sp.to_bytes();
+    Ok(SeasonBytes {
+        params_hash: frontier_abi::v2::presets::params_hash_v2(&b, &payout),
+        params: b.to_vec(),
+        payout,
+        pfund_initial: sp.base.pfund_initial,
+        dpool_initial: sp.base.dpool_initial,
+    })
+}
+
+/// The genesis round and `genesis_ts` a `t_create_min` fixes (CreateSeason:
+/// `genesis_round = first_round_from(t_create_min + 600 + seed_margin)`,
+/// `genesis_ts = round_time(genesis_round) + 600`). Pure.
+pub fn genesis_of(sp: &frontier_abi::v2::presets::SeasonParamsV2, t_create_min: i64) -> (u64, i64) {
+    use permutation_rules::frontier::beacon as kb;
+    let clock = permutation_rules::frontier::clash::BeaconClock {
+        genesis: sp.base.drand_genesis,
+        period: sp.base.drand_period as i64,
+    };
+    let r = kb::genesis_seed_round(&clock, t_create_min, sp.base.seed_margin);
+    (r, kb::genesis_ts(&clock, r))
+}
+
+// ------------------------------------------------------------------ the wide land (playable lane)
+
+/// The playable lane's one authority transaction beyond the S1 setup:
+/// WideSetRules (0xDB) with the playable conquest world's rule bytes.
+#[cfg(feature = "playable-lane")]
+pub mod wide {
+    use fclient::addr::Addresses;
+    use fclient::{AccountMeta, Address, Instruction};
+    use frontier_abi::world_index::rules as wr;
+    use frontier_abi::world_index::wide_ix as wix;
+
+    use crate::setup::{NewAccount, Step};
+
+    /// The rule bytes every playable-lane world and test uses (svm-tests
+    /// `devnet_preset_wide.rs`, itest `wide_land.rs`): interleaved keeps
+    /// (the only holder rule placement 2 allows), the deployed Free City
+    /// site (the only Free City rule placement 2 allows), no camp, the
+    /// sort-key-hash region. Write-once on chain.
+    pub const RULES: wr::RuleBytes = wr::RuleBytes {
+        keep_holder: wr::KeepHolderRule::MixedInterleaved as u8,
+        free_city: wr::FreeCityRule::DeployedLe32V1 as u8,
+        camp: wr::CampRule::NoCamp as u8,
+        region: wr::RegionRule::SortKeyHashV1 as u8,
+    };
+
+    pub const RULES_TEXT: &str = "keep_holder MixedInterleaved(1), free_city DeployedLe32V1(3), camp NoCamp(1), region SortKeyHashV1(1)";
+
+    fn ctx(a: &Addresses) -> frontier_abi::addr::AddrCtx {
+        frontier_abi::addr::AddrCtx {
+            program: a.program.to_bytes(),
+            season: a.season.to_bytes(),
+        }
+    }
+
+    /// The season's wide RulesConfig address.
+    pub fn rules_config(a: &Addresses) -> Address {
+        Address::new_from_array(wr::rules_config_address(&ctx(a)))
+    }
+
+    /// `[authority s,w] [season r] [rules_config w] [system]`.
+    pub fn set_rules_step(a: &Addresses, authority: Address) -> Step {
+        let data = wix::SetRules {
+            config_version: wr::WIDE_RULES_CONFIG_VERSION,
+            keep_holder: RULES.keep_holder,
+            free_city: RULES.free_city,
+            camp: RULES.camp,
+            region: RULES.region,
+        }
+        .to_bytes()
+        .to_vec();
+        Step {
+            name: "WideSetRules".into(),
+            ixs: vec![Instruction {
+                program_id: a.program,
+                accounts: vec![
+                    AccountMeta::new(authority, true),
+                    AccountMeta::new_readonly(a.season, false),
+                    AccountMeta::new(rules_config(a), false),
+                    AccountMeta::new_readonly(fclient::addr::system_program(), false),
+                ],
+                data,
+            }],
+            creates: vec![NewAccount {
+                label: "WideRulesConfig".into(),
+                address: rules_config(a),
+                size: wr::rules_config::SIZE,
+                extra: 0,
+            }],
+        }
+    }
+
+    /// The rule bytes of a RulesConfig account (`None`: not one).
+    pub fn rules_of(d: &[u8]) -> Option<[u8; 4]> {
+        use wr::rules_config as rc;
+        if d.len() < rc::SIZE || d[..8] != rc::MAGIC {
+            return None;
+        }
+        Some([
+            d[rc::KEEP_HOLDER],
+            d[rc::FREE_CITY],
+            d[rc::CAMP],
+            d[rc::REGION],
+        ])
+    }
+
+    pub fn ours() -> [u8; 4] {
+        [RULES.keep_holder, RULES.free_city, RULES.camp, RULES.region]
+    }
 }
 
 // ------------------------------------------------------------------ cluster guard
@@ -397,6 +614,9 @@ pub struct Observed {
     pub season: Option<SeasonView>,
     pub logs: Vec<bool>,
     pub shards: Vec<Vec<bool>>,
+    /// The wide RulesConfig's rule bytes (playable lane; `None`: absent or
+    /// not read).
+    pub rules: Option<[u8; 4]>,
 }
 
 impl Observed {
@@ -408,6 +628,7 @@ impl Observed {
             season: None,
             logs: vec![false; REGIONS as usize],
             shards: vec![vec![false; SHARDS_PER_FACTION as usize]; FACTIONS as usize],
+            rules: None,
         }
     }
 }
@@ -443,8 +664,9 @@ pub fn season_view(d: &[u8]) -> Result<SeasonView, String> {
     })
 }
 
-/// Reads the Clock, the Season, the BeaconLogs and the JoinShards.
-pub async fn observe(chain: &Chain, a: &Addresses) -> Result<Observed, String> {
+/// Reads the Clock, the Season, the BeaconLogs and the JoinShards (and,
+/// with `wide`, the wide RulesConfig).
+pub async fn observe(chain: &Chain, a: &Addresses, wide: bool) -> Result<Observed, String> {
     use fclient::abi::{FACTIONS, REGIONS, SHARDS_PER_FACTION};
     let clock = timed(chain.port.clock())
         .await?
@@ -453,6 +675,10 @@ pub async fn observe(chain: &Chain, a: &Addresses) -> Result<Observed, String> {
     keys.extend((0..REGIONS).map(|r| a.beacon_log(r)));
     for f in 0..FACTIONS {
         keys.extend((0..SHARDS_PER_FACTION).map(|s| a.join_shard(f, s)));
+    }
+    let rules_at = keys.len();
+    if wide {
+        keys.push(rules_config_address(a)?);
     }
     let got = chain.accounts(&keys).await?;
     let present = |i: usize| -> Result<bool, String> {
@@ -483,7 +709,47 @@ pub async fn observe(chain: &Chain, a: &Addresses) -> Result<Observed, String> {
             o.shards[f][s] = present(1 + REGIONS as usize + f * SHARDS_PER_FACTION as usize + s)?;
         }
     }
+    if wide && present(rules_at)? {
+        let d = &got[rules_at].as_ref().expect("present").data;
+        o.rules = Some(
+            rules_of(d)
+                .ok_or_else(|| format!("{} is not a wide RulesConfig: refused", keys[rules_at]))?,
+        );
+    }
     Ok(o)
+}
+
+#[cfg(feature = "playable-lane")]
+fn rules_config_address(a: &Addresses) -> Result<Address, String> {
+    Ok(wide::rules_config(a))
+}
+#[cfg(not(feature = "playable-lane"))]
+fn rules_config_address(_: &Addresses) -> Result<Address, String> {
+    Err("the playable lane needs the playable-lane build".into())
+}
+#[cfg(feature = "playable-lane")]
+fn rules_of(d: &[u8]) -> Option<[u8; 4]> {
+    wide::rules_of(d)
+}
+#[cfg(not(feature = "playable-lane"))]
+fn rules_of(_: &[u8]) -> Option<[u8; 4]> {
+    None
+}
+#[cfg(feature = "playable-lane")]
+fn set_rules_step(a: &Addresses, authority: Address) -> Result<Step, String> {
+    Ok(wide::set_rules_step(a, authority))
+}
+#[cfg(not(feature = "playable-lane"))]
+fn set_rules_step(_: &Addresses, _: Address) -> Result<Step, String> {
+    Err("the playable lane needs the playable-lane build".into())
+}
+#[cfg(feature = "playable-lane")]
+fn our_rules() -> [u8; 4] {
+    wide::ours()
+}
+#[cfg(not(feature = "playable-lane"))]
+fn our_rules() -> [u8; 4] {
+    [0; 4]
 }
 
 /// One planned transaction: a setup step and the chain time it waits for.
@@ -493,6 +759,19 @@ pub struct Planned {
     /// CreateSeason (and what follows it) waits for `t_create_min`;
     /// `None` with [`Plan::t_create_min`] `None`: after the announce lead.
     pub not_before: Option<i64>,
+    /// WideSetRules: only once the season is Seeded (keeper A's
+    /// ConsumeGenesisSeed), whatever the clock.
+    pub after_seeded: bool,
+}
+
+/// What the plan covers beyond the S1 setup.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlanOpts {
+    /// The playable lane: WideSetRules after the season is Seeded.
+    pub wide: bool,
+    /// `--t-create-min`: the announced `t_create_min` (else the chain
+    /// clock + lead + [`ANNOUNCE_MARGIN_SECS`]).
+    pub t_create_min: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -533,26 +812,82 @@ fn group(name: &str, have: &[bool]) -> Result<bool, String> {
     }
 }
 
-/// What is left to do, from what the chain holds. Pure.
+/// What is left to do, from what the chain holds (the S1 setup). Pure.
 pub fn plan(
     obs: &Observed,
     a: &Addresses,
     authority: Address,
     sb: &SeasonBytes,
 ) -> Result<Plan, String> {
+    plan_with(obs, a, authority, sb, PlanOpts::default())
+}
+
+/// [`plan`] with the playable lane's WideSetRules and a chosen
+/// `t_create_min`. Pure.
+pub fn plan_with(
+    obs: &Observed,
+    a: &Addresses,
+    authority: Address,
+    sb: &SeasonBytes,
+    o: PlanOpts,
+) -> Result<Plan, String> {
+    use fclient::abi::status as st;
+    let mut p = plan_s1(obs, a, authority, sb, o.t_create_min)?;
+    if !o.wide {
+        return Ok(p);
+    }
+    let seeded = matches!(p.status, Some(x) if x == st::SEEDED || x == st::RUNNING);
+    match obs.rules {
+        Some(r) if r == our_rules() => p.done.push("WideSetRules".into()),
+        Some(r) => p.done.push(format!(
+            "WideSetRules (other rule bytes on chain: {r:?}; write-once)"
+        )),
+        None => {
+            let not_before = p.todo.last().and_then(|t| t.not_before);
+            p.todo.push(Planned {
+                step: set_rules_step(a, authority)?,
+                not_before: if seeded { None } else { not_before },
+                after_seeded: !seeded,
+            })
+        }
+    }
+    Ok(p)
+}
+
+fn plan_s1(
+    obs: &Observed,
+    a: &Addresses,
+    authority: Address,
+    sb: &SeasonBytes,
+    chosen: Option<i64>,
+) -> Result<Plan, String> {
     use fclient::abi::status as st;
     let after = setup::after_announce_steps(a, authority, sb);
     let Some(s) = &obs.season else {
-        let t = obs
-            .now
-            .map(|n| n + frontier_abi::presets::MIN_ANNOUNCE_LEAD_SECS + ANNOUNCE_MARGIN_SECS);
+        let t = match (chosen, obs.now) {
+            (Some(t), Some(now))
+                if t < now + frontier_abi::presets::MIN_ANNOUNCE_LEAD_SECS + T_CREATE_MIN_SLACK_SECS =>
+            {
+                return Err(format!(
+                    "--t-create-min {t}: the program needs at least {} s of lead and the chain clock is {now}; pick >= {}",
+                    frontier_abi::presets::MIN_ANNOUNCE_LEAD_SECS,
+                    now + frontier_abi::presets::MIN_ANNOUNCE_LEAD_SECS + T_CREATE_MIN_SLACK_SECS
+                ))
+            }
+            (Some(t), _) => Some(t),
+            (None, now) => {
+                now.map(|n| n + frontier_abi::presets::MIN_ANNOUNCE_LEAD_SECS + ANNOUNCE_MARGIN_SECS)
+            }
+        };
         let mut todo = vec![Planned {
             step: setup::announce_step(a, authority, sb.params_hash, t.unwrap_or(0)),
             not_before: None,
+            after_seeded: false,
         }];
         todo.extend(after.into_iter().map(|step| Planned {
             step,
             not_before: t,
+            after_seeded: false,
         }));
         return Ok(Plan {
             done: vec![],
@@ -602,6 +937,7 @@ pub fn plan(
             todo.extend(after.into_iter().map(|step| Planned {
                 step,
                 not_before: t,
+                after_seeded: false,
             }));
         }
         st::CREATED | st::SEEDED | st::RUNNING => {
@@ -614,6 +950,7 @@ pub fn plan(
                 todo.push(Planned {
                     step: logs,
                     not_before: None,
+                    after_seeded: false,
                 });
             }
             for (f, step) in it.enumerate() {
@@ -623,6 +960,7 @@ pub fn plan(
                     todo.push(Planned {
                         step,
                         not_before: None,
+                        after_seeded: false,
                     });
                 }
             }
@@ -729,6 +1067,11 @@ pub struct Header<'a> {
     pub profile: &'a Profile,
     pub authority: Address,
     pub rent_source: String,
+    /// The playable lane's line (`None` for an S1 season: its plan text is
+    /// unchanged).
+    pub lane: Option<String>,
+    /// The genesis round and `genesis_ts` the plan's `t_create_min` fixes.
+    pub genesis: Option<(u64, i64)>,
 }
 
 /// The plan as text: the dry run's output (snapshot-tested).
@@ -768,6 +1111,9 @@ pub fn render(h: &Header, a: &Addresses, sb: &SeasonBytes, p: &Plan, rent: &Rent
         sb.params.len(),
         sb.payout.len()
     );
+    if let Some(l) = &h.lane {
+        let _ = writeln!(o, "lane       {l}");
+    }
     let _ = writeln!(o, "rent       {}", h.rent_source);
     match p.t_create_min {
         Some(t) => {
@@ -787,6 +1133,12 @@ pub fn render(h: &Header, a: &Addresses, sb: &SeasonBytes, p: &Plan, rent: &Rent
             );
         }
     }
+    if let Some((r, g)) = h.genesis {
+        let _ = writeln!(
+            o,
+            "genesis    round {r} (quicknet; keeper A consumes it), genesis_ts {g}"
+        );
+    }
     if let Some(s) = p.status {
         let _ = writeln!(o, "status     {}", status_name(s));
     }
@@ -802,6 +1154,9 @@ pub fn render(h: &Header, a: &Addresses, sb: &SeasonBytes, p: &Plan, rent: &Rent
     for (i, t) in p.todo.iter().enumerate() {
         let c = step_cost(&t.step, rent);
         let when = match t.not_before {
+            _ if t.after_seeded => {
+                "after keeper A's ConsumeGenesisSeed: the season Seeded".to_string()
+            }
             _ if t.step.name == "AnnounceSeason"
                 || p.status.is_some() && t.not_before.is_none() =>
             {
@@ -826,6 +1181,15 @@ pub fn render(h: &Header, a: &Addresses, sb: &SeasonBytes, p: &Plan, rent: &Rent
                     a.season_id,
                     hex::encode(sb.params_hash),
                     grouped(setup::BOND)
+                );
+            } else if t.step.name == "WideSetRules" {
+                let _ = writeln!(
+                    o,
+                    "      data   {} B: tag 0x{:02x}, config_version {}, {}",
+                    ix.data.len(),
+                    ix.data[0],
+                    u16::from_le_bytes([ix.data[1], ix.data[2]]),
+                    wide_rules_text()
                 );
             } else {
                 let _ = writeln!(
@@ -884,12 +1248,143 @@ pub fn render(h: &Header, a: &Addresses, sb: &SeasonBytes, p: &Plan, rent: &Rent
     o
 }
 
+#[cfg(feature = "playable-lane")]
+fn wide_rules_text() -> &'static str {
+    wide::RULES_TEXT
+}
+#[cfg(not(feature = "playable-lane"))]
+fn wide_rules_text() -> &'static str {
+    ""
+}
+
 // ------------------------------------------------------------------ checks and sending
 
+/// What the cluster's program is: its ELF's sha256 (the `.so` file's, as
+/// `sha256sum` gives it: the ProgramData holds the ELF padded to `max_len`),
+/// and which of the profile's markers it carries.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProgramInfo {
+    pub sha256: Option<String>,
+    pub elf_len: usize,
+    pub found_markers: Vec<String>,
+    /// Required markers missing and refused markers present.
+    pub marker_problems: Vec<String>,
+}
+
+/// The ELF's length from its header (`e_shoff + e_shnum × e_shentsize`:
+/// cargo-build-sbf writes the section headers last), if `d` is a 64-bit
+/// little-endian ELF that fits.
+pub fn elf_len(d: &[u8]) -> Option<usize> {
+    if d.len() < 64 || d[..4] != *b"\x7fELF" || d[4] != 2 || d[5] != 1 {
+        return None;
+    }
+    let shoff = u64::from_le_bytes(d[0x28..0x30].try_into().ok()?) as usize;
+    let size = u16::from_le_bytes(d[0x3A..0x3C].try_into().ok()?) as usize;
+    let n = u16::from_le_bytes(d[0x3C..0x3E].try_into().ok()?) as usize;
+    let len = shoff.checked_add(size.checked_mul(n)?)?;
+    (len <= d.len() && len >= 64).then_some(len)
+}
+
+/// [`ProgramInfo`] of a ProgramData account's data. Pure.
+pub fn program_info(programdata: &[u8], p: &Profile) -> ProgramInfo {
+    let elf = programdata.get(PROGRAMDATA_HEADER..).unwrap_or(&[]);
+    let Some(len) = elf_len(elf) else {
+        return ProgramInfo {
+            marker_problems: vec!["the ProgramData holds no ELF".into()],
+            ..ProgramInfo::default()
+        };
+    };
+    let elf = &elf[..len];
+    let has = |m: &str| elf.windows(m.len()).any(|w| w == m.as_bytes());
+    let mut info = ProgramInfo {
+        sha256: Some(hex::encode(<sha2::Sha256 as sha2::Digest>::digest(elf))),
+        elf_len: len,
+        ..ProgramInfo::default()
+    };
+    for m in &p.required_markers {
+        if has(m) {
+            info.found_markers.push(m.clone());
+        } else {
+            info.marker_problems.push(format!(
+                "required marker {m} is not in the deployed program"
+            ));
+        }
+    }
+    for m in &p.refused_markers {
+        if has(m) {
+            info.found_markers.push(m.clone());
+            info.marker_problems
+                .push(format!("refused marker {m} is in the deployed program"));
+        }
+    }
+    info
+}
+
+/// Why a send would be refused before anything is read (the flags only).
+/// Loopback chains need `--yes-send` alone; a public cluster also
+/// [`APPROVAL_FLAG`] and `--approved-sha256`.
+pub fn gate_flags(o: &Opts, ep: Endpoint) -> Vec<String> {
+    let mut out = vec![];
+    if !o.yes_send {
+        out.push("--yes-send is not given (dry run)".into());
+    }
+    if ep == Endpoint::Public {
+        if !o.approval {
+            out.push(format!(
+                "{APPROVAL_FLAG} is not given (a public cluster: r0ze's go-ahead)"
+            ));
+        }
+        if o.approved_sha256.is_none() {
+            out.push("--approved-sha256 <sha256 of the .so r0ze approved> is not given".into());
+        }
+    }
+    out
+}
+
+/// The gate after the program is read: the approved hash is the deployed
+/// program's, and its markers are the profile's.
+pub fn gate_program(o: &Opts, ep: Endpoint, info: &ProgramInfo) -> Vec<String> {
+    let mut out = vec![];
+    if let Some(want) = &o.approved_sha256 {
+        match &info.sha256 {
+            Some(h) if h == want => {}
+            Some(h) => out.push(format!(
+                "--approved-sha256 {want} is not the deployed program's sha256 {h}"
+            )),
+            None => out.push("the deployed program's sha256 could not be read".into()),
+        }
+    }
+    if ep == Endpoint::Public || o.approved_sha256.is_some() {
+        out.extend(info.marker_problems.iter().cloned());
+    }
+    out
+}
+
 /// The program at `a.program` exists and `authority` is its upgrade
-/// authority (I-51: AnnounceSeason reads it from the ProgramData).
-pub async fn check_program(chain: &Chain, a: &Addresses, authority: Address) -> Result<(), String> {
-    let got = chain.accounts(&[a.program, a.programdata()]).await?;
+/// authority (I-51: AnnounceSeason reads it from the ProgramData); with
+/// what the program is ([`ProgramInfo`], default when it is absent).
+pub async fn check_program(
+    chain: &Chain,
+    a: &Addresses,
+    authority: Address,
+    p: &Profile,
+) -> (Result<(), String>, ProgramInfo) {
+    let got = match chain.accounts(&[a.program, a.programdata()]).await {
+        Ok(g) => g,
+        Err(e) => return (Err(e), ProgramInfo::default()),
+    };
+    let info = got[1]
+        .as_ref()
+        .map(|pd| program_info(&pd.data, p))
+        .unwrap_or_default();
+    (program_authority(&got, a, authority), info)
+}
+
+fn program_authority(
+    got: &[Option<fclient::ports::Account>],
+    a: &Addresses,
+    authority: Address,
+) -> Result<(), String> {
     let loader: Address = fclient::abi::LOADER_V3.parse().map_err(|_| "loader id")?;
     match &got[0] {
         Some(p) if p.executable && p.owner == loader => {}
@@ -918,10 +1413,15 @@ pub async fn check_program(chain: &Chain, a: &Addresses, authority: Address) -> 
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SendOpts {
-    /// Sleep through the lead instead of exiting with [`EXIT_WAITING`].
+    /// Sleep through the lead (and, for WideSetRules, until the season is
+    /// Seeded) instead of exiting with [`EXIT_WAITING`].
     pub wait: bool,
     /// Stop after this many transactions (a staged run; the next run resumes).
     pub max_txs: Option<usize>,
+    /// The plan's options (playable lane, chosen `t_create_min`).
+    pub plan: PlanOpts,
+    /// The loaded-accounts-data limit each transaction requests.
+    pub loaded_limit: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -934,12 +1434,79 @@ pub enum Outcome {
         t_create_min: i64,
         now: i64,
     },
+    /// WideSetRules waits for keeper A's ConsumeGenesisSeed.
+    WaitingSeeded { sent: usize, status: u8 },
     /// `--max-txs` reached.
     Stopped { sent: usize },
 }
 
+/// One landed transaction: what the cluster says it cost.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Landed {
+    pub name: String,
+    pub signature: String,
+    pub slot: u64,
+    /// `meta.computeUnitsConsumed` (`None`: the cluster did not say).
+    pub cu: Option<u64>,
+    pub fee: Option<u64>,
+    /// The authority's (fee payer's) balance before minus after.
+    pub lamports: Option<u64>,
+}
+
+impl Landed {
+    pub fn line(&self) -> String {
+        let n = |x: Option<u64>| x.map_or("?".to_string(), grouped);
+        format!(
+            "landed     {:<16} cu {:>9}  fee {:>7}  lamports {:>15}  slot {}  sig {}",
+            self.name,
+            n(self.cu),
+            n(self.fee),
+            n(self.lamports),
+            self.slot,
+            self.signature
+        )
+    }
+
+    pub fn json(&self) -> Value {
+        json!({"tx": self.name, "signature": self.signature, "slot": self.slot,
+            "compute_units": self.cu, "fee": self.fee, "lamports_from_authority": self.lamports})
+    }
+}
+
+/// `getTransaction` of a landed signature (a few tries: a public node may
+/// answer a status before the transaction).
+pub async fn landed(chain: &Chain, name: &str, sig: &str) -> Landed {
+    let mut v = Value::Null;
+    for _ in 0..10 {
+        v = chain
+            .call(
+                "getTransaction",
+                json!([sig, {"encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}]),
+            )
+            .await
+            .unwrap_or(Value::Null);
+        if !v.is_null() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let m = &v["meta"];
+    let pre = m["preBalances"][0].as_u64();
+    let post = m["postBalances"][0].as_u64();
+    Landed {
+        name: name.to_string(),
+        signature: sig.to_string(),
+        slot: v["slot"].as_u64().unwrap_or(0),
+        cu: m["computeUnitsConsumed"].as_u64(),
+        fee: m["fee"].as_u64(),
+        lamports: pre.zip(post).map(|(a, b)| a.saturating_sub(b)),
+    }
+}
+
 /// Sends what is missing, one transaction at a time, re-reading the chain
-/// before each (so a concurrent or earlier run is never repeated).
+/// before each (so a concurrent or earlier run is never repeated). Every
+/// landed transaction goes to `record`.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
     chain: &Chain,
     a: &Addresses,
@@ -947,14 +1514,16 @@ pub async fn execute(
     sb: &SeasonBytes,
     opts: SendOpts,
     log: &mut dyn FnMut(&str),
+    record: &mut dyn FnMut(&Landed),
 ) -> Result<Outcome, String> {
+    use fclient::abi::status as st;
     let auth = authority.pubkey();
     let mut sent = 0usize;
     let started = Instant::now();
     let mut wait_limit: Option<Duration> = None;
     loop {
-        let obs = observe(chain, a).await?;
-        let p = plan(&obs, a, auth, sb)?;
+        let obs = observe(chain, a, opts.plan.wide).await?;
+        let p = plan_with(&obs, a, auth, sb, opts.plan)?;
         let Some(next) = p.todo.first() else {
             return Ok(Outcome::Complete { sent });
         };
@@ -987,16 +1556,39 @@ pub async fn execute(
             tokio::time::sleep(Duration::from_secs(secs)).await;
             continue;
         }
+        let status = p.status.unwrap_or(st::ANNOUNCED);
+        if next.after_seeded && status != st::SEEDED && status != st::RUNNING {
+            if !opts.wait {
+                return Ok(Outcome::WaitingSeeded { sent, status });
+            }
+            // Genesis is 600 s after the genesis round; keeper A consumes it then. Allow two hours.
+            let limit = *wait_limit.get_or_insert(Duration::from_secs(7_200));
+            if started.elapsed() > limit {
+                return Err(format!(
+                    "waited {:?} and the season is still {} (keeper A's ConsumeGenesisSeed has not landed)",
+                    started.elapsed(),
+                    status_name(status)
+                ));
+            }
+            log(&format!(
+                "waiting for the season to be Seeded (keeper A's ConsumeGenesisSeed; now {})",
+                status_name(status)
+            ));
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            continue;
+        }
         let name = next.step.name.clone();
         log(&format!("sending {name}"));
-        chain
-            .send_op(&next.step.ixs, &[authority], LAND_LIMIT)
+        let sig = chain
+            .send_op_with(&next.step.ixs, &[authority], LAND_LIMIT, opts.loaded_limit)
             .await
             .map_err(|e| {
                 format!("{name}: {e}\n(re-run to resume: the tool re-reads the chain and sends only what is missing)")
             })?;
         sent += 1;
+        let l = landed(chain, &name, &sig.to_string()).await;
         log(&format!("{name}: finalized"));
+        record(&l);
     }
 }
 
@@ -1011,16 +1603,33 @@ pub struct Opts {
     pub yes_send: bool,
     pub wait: bool,
     pub max_txs: Option<usize>,
+    /// `--preset`: overrides the profile's `season.preset`.
+    pub preset: Option<String>,
+    /// `--t-create-min`: the announced `t_create_min` (unix seconds).
+    pub t_create_min: Option<i64>,
+    /// [`APPROVAL_FLAG`].
+    pub approval: bool,
+    /// `--approved-sha256`: the deployed program's sha256 r0ze approved.
+    pub approved_sha256: Option<String>,
+    /// `--record FILE`: one JSON line per landed transaction (appended).
+    pub record: Option<String>,
 }
 
-pub const USAGE: &str =
-    "usage: frontier-operator --profile FILE [--authority KEYFILE] [--cluster-url URL]
-                         [--offline] [--yes-send] [--wait] [--max-txs N]
+pub const USAGE: &str = "usage: frontier-operator --profile FILE [--preset NAME] [--rpc URL]
+                         [--authority KEYFILE] [--offline] [--t-create-min UNIX]
+                         [--yes-send [--i-have-r0ze-approval --approved-sha256 HEX]]
+                         [--wait] [--max-txs N] [--record FILE]
 
   Dry run by default: reads the cluster (unless --offline) and prints the
-  season setup plan. --yes-send sends what is missing, signed by the
-  --authority key file (mode 600, the program's upgrade authority).
-  Exit: 0 done/plan printed, 1 failed, 2 refused, 3 waiting for t_create_min.";
+  season setup plan, every transaction with its accounts, data and cost.
+  --yes-send sends what is missing, signed by the --authority key file
+  (mode 600, the program's upgrade authority). On a public cluster (devnet)
+  a send also needs --i-have-r0ze-approval and --approved-sha256 (the
+  deployed program's sha256). --preset S1_DEVNET_WIDE_7D: the playable lane
+  (program version 0x4804; WideSetRules after keeper A seeds the season).
+  --rpc is --cluster-url. Presets: S1_LOCAL_7D, S1_LOCAL_14D, S1_DEVNET_WIDE_7D.
+  Exit: 0 done/plan printed, 1 failed, 2 refused, 3 waiting (t_create_min,
+  or the season to be Seeded); run the same command again to resume.";
 
 pub fn parse_args(args: &[String]) -> Result<Opts, String> {
     let mut o = Opts::default();
@@ -1034,10 +1643,32 @@ pub fn parse_args(args: &[String]) -> Result<Opts, String> {
         match a.as_str() {
             "--profile" => o.profile = val("--profile")?,
             "--authority" => o.authority = Some(val("--authority")?),
-            "--cluster-url" => o.cluster_url = Some(val("--cluster-url")?),
+            "--cluster-url" | "--rpc" => {
+                if o.cluster_url.is_some() {
+                    return Err("--rpc / --cluster-url given twice".into());
+                }
+                o.cluster_url = Some(val("--rpc")?)
+            }
+            "--preset" => o.preset = Some(val("--preset")?),
             "--offline" => o.offline = true,
             "--yes-send" => o.yes_send = true,
             "--wait" => o.wait = true,
+            x if x == APPROVAL_FLAG => o.approval = true,
+            "--approved-sha256" => {
+                let h = val("--approved-sha256")?.to_ascii_lowercase();
+                if h.len() != 64 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err("--approved-sha256 HEX (64 hex digits)".into());
+                }
+                o.approved_sha256 = Some(h)
+            }
+            "--t-create-min" => {
+                o.t_create_min = Some(
+                    val("--t-create-min")?
+                        .parse()
+                        .map_err(|_| "--t-create-min UNIX (seconds)")?,
+                )
+            }
+            "--record" => o.record = Some(val("--record")?),
             "--max-txs" => {
                 o.max_txs = Some(
                     val("--max-txs")?
@@ -1057,6 +1688,11 @@ pub fn parse_args(args: &[String]) -> Result<Opts, String> {
     }
     if o.yes_send && o.authority.is_none() {
         return Err("--yes-send needs --authority KEYFILE".into());
+    }
+    if (o.approval || o.approved_sha256.is_some()) && !o.yes_send {
+        return Err(format!(
+            "{APPROVAL_FLAG} / --approved-sha256 belong to a send: add --yes-send (or drop them for a dry run)"
+        ));
     }
     Ok(o)
 }
@@ -1090,10 +1726,28 @@ fn refused(e: impl Into<String>) -> Fail {
     (EXIT_REFUSED, e.into())
 }
 
+/// The plan header's lane line (`None` for a version-4 S1 season).
+fn lane_line(version: u16, wide: bool, loaded_limit: u32) -> Option<String> {
+    (version != S1_VERSION).then(|| {
+        format!(
+            "playable (program_version 0x{version:04x}{}); each tx requests cu_limit 1,400,000, loaded data {} MiB",
+            if wide {
+                "; + WideSetRules, the wide land's rules, once keeper A has seeded the season"
+            } else {
+                ""
+            },
+            loaded_limit / (1024 * 1024)
+        )
+    })
+}
+
 async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> Result<i32, Fail> {
     let text =
         std::fs::read_to_string(&o.profile).map_err(|e| refused(format!("{}: {e}", o.profile)))?;
-    let profile = parse_profile(&text).map_err(refused)?;
+    let mut profile = parse_profile(&text).map_err(refused)?;
+    if let Some(p) = &o.preset {
+        profile.preset = p.clone();
+    }
     let url = o
         .cluster_url
         .clone()
@@ -1103,6 +1757,16 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
         return Err(refused(
             "operator.beacon test-key is for loopback test chains only (I-53)",
         ));
+    }
+    // The send gate's flags, before any key is read or the cluster contacted.
+    if o.yes_send {
+        let closed = gate_flags(o, ep);
+        if !closed.is_empty() {
+            return Err(refused(format!(
+                "SEND GATE: CLOSED\n  - {}\n(nothing was read or sent; without --yes-send this is a dry run)",
+                closed.join("\n  - ")
+            )));
+        }
     }
     let key = match &o.authority {
         Some(p) => Some(load_authority(Path::new(p)).map_err(refused)?),
@@ -1125,11 +1789,23 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
     let program = profile.program.ok_or_else(|| {
         refused("programId is still a placeholder: fill it in after r0ze's deploy")
     })?;
+    let sp = season_params(&profile).map_err(|e| refused(format!("profile: {e}")))?;
     let sb = season_bytes(&profile).map_err(refused)?;
     let a = Addresses::new(program, profile.season_id);
+    let wide = is_wide_preset(&profile.preset);
+    let version = sp.base.program_version;
+    let loaded_limit = if version == S1_VERSION {
+        crate::chain::OP_LOADED_LIMIT
+    } else {
+        crate::chain::MAX_LOADED_LIMIT
+    };
+    let popts = PlanOpts {
+        wide,
+        t_create_min: o.t_create_min,
+    };
 
     if o.offline {
-        let p = plan(&Observed::fresh(), &a, authority, &sb).map_err(refused)?;
+        let p = plan_with(&Observed::fresh(), &a, authority, &sb, popts).map_err(refused)?;
         let rent = Rent::Rate(profile.rent_per_byte);
         let h = Header {
             mode: "DRY RUN, offline: nothing read, nothing sent",
@@ -1140,6 +1816,8 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
                 "{} lamports/byte (profile rent.assume; the cluster's own rate is read online)",
                 profile.rent_per_byte
             ),
+            lane: lane_line(version, wide, loaded_limit),
+            genesis: p.t_create_min.map(|t| genesis_of(&sp, t)),
         };
         out(&render(&h, &a, &sb, &p, &rent));
         return Ok(EXIT_OK);
@@ -1153,9 +1831,11 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
         .map_err(|e| (EXIT_FAILED, format!("{}: {e}", redact(&url))))?;
     let genesis = genesis.as_str().unwrap_or("").to_string();
     check_genesis(&genesis, ep).map_err(refused)?;
-    let prog_check = check_program(&chain, &a, authority).await;
-    let obs = observe(&chain, &a).await.map_err(|e| (EXIT_FAILED, e))?;
-    let p = plan(&obs, &a, authority, &sb).map_err(refused)?;
+    let (prog_check, info) = check_program(&chain, &a, authority, &profile).await;
+    let obs = observe(&chain, &a, wide)
+        .await
+        .map_err(|e| (EXIT_FAILED, e))?;
+    let p = plan_with(&obs, &a, authority, &sb, popts).map_err(refused)?;
     let rent = Rent::from_cluster(&chain, &p)
         .await
         .map_err(|e| (EXIT_FAILED, e))?;
@@ -1179,6 +1859,8 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
         profile: &profile,
         authority,
         rent_source: "from the cluster (getMinimumBalanceForRentExemption)".into(),
+        lane: lane_line(version, wide, loaded_limit),
+        genesis: p.t_create_min.map(|t| genesis_of(&sp, t)),
     };
     out(&render(&h, &a, &sb, &p, &rent));
     out(&format!(
@@ -1196,24 +1878,58 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
     } else {
         out("check      program deployed; this key is its upgrade authority");
     }
+    if let Some(h) = &info.sha256 {
+        out(&format!(
+            "program    sha256 {h} ({} B ELF){}",
+            grouped(info.elf_len as u64),
+            if info.found_markers.is_empty() {
+                String::new()
+            } else {
+                format!("; markers {}", info.found_markers.join(", "))
+            }
+        ));
+    }
+    for m in &info.marker_problems {
+        out(&format!("check      FAILED: {m}"));
+    }
+    let mut closed = gate_flags(o, ep);
+    closed.extend(gate_program(o, ep, &info));
+    if let Err(e) = &prog_check {
+        closed.push(e.clone());
+    }
+    if balance < cost.total() {
+        closed.push(format!(
+            "the authority holds {} lamports, the plan needs {}: fund it first",
+            grouped(balance),
+            grouped(cost.total())
+        ));
+    }
     if p.todo.is_empty() {
         out("setup      complete: nothing to send");
         return Ok(EXIT_OK);
     }
+    if closed.is_empty() {
+        out("SEND GATE: OPEN");
+    } else {
+        out(&format!("SEND GATE: CLOSED\n  - {}", closed.join("\n  - ")));
+    }
     if !o.yes_send {
-        out("DRY RUN: nothing sent. Add --yes-send (with --authority) to send.");
+        out(&format!(
+            "DRY RUN: nothing sent. Add --yes-send (with --authority{}) to send.",
+            if ep == Endpoint::Public {
+                format!(", {APPROVAL_FLAG} and --approved-sha256")
+            } else {
+                String::new()
+            }
+        ));
         return Ok(EXIT_OK);
     }
-    prog_check.map_err(refused)?;
-    if balance < cost.total() {
-        return Err(refused(format!(
-            "the authority holds {} lamports, the plan needs {}: fund it first",
-            grouped(balance),
-            grouped(cost.total())
-        )));
+    if !closed.is_empty() {
+        return Err(refused(format!("SEND GATE: CLOSED: {}", closed.join("; "))));
     }
     let key = key.expect("--yes-send has --authority");
     let mut log = |l: &str| err(l);
+    let mut rec_lines: Vec<Landed> = vec![];
     let r = execute(
         &chain,
         &a,
@@ -1222,16 +1938,41 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
         SendOpts {
             wait: o.wait,
             max_txs: o.max_txs,
+            plan: popts,
+            loaded_limit,
         },
         &mut log,
+        &mut |l: &Landed| rec_lines.push(l.clone()),
     )
-    .await
-    .map_err(|e| (EXIT_FAILED, e))?;
+    .await;
+    for l in &rec_lines {
+        out(&l.line());
+    }
+    if let Some(path) = &o.record {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| (EXIT_FAILED, format!("--record {path}: {e}")))?;
+        for l in &rec_lines {
+            let mut v = l.json();
+            v["season_id"] = json!(a.season_id);
+            v["preset"] = json!(profile.preset);
+            writeln!(f, "{v}").map_err(|e| (EXIT_FAILED, format!("--record {path}: {e}")))?;
+        }
+    }
+    let r = r.map_err(|e| (EXIT_FAILED, e))?;
     Ok(match r {
         Outcome::Complete { sent } => {
             out(&format!(
-                "setup      complete: {sent} transaction(s) sent; season {} is ready for keeper A's ConsumeGenesisSeed",
-                a.season_id
+                "setup      complete: {sent} transaction(s) sent; season {} is {}",
+                a.season_id,
+                if wide {
+                    "set up for the playable lane (keeper A: rings duty extend to 128 with lazy_provinces; the wide rings are not a keeper duty yet)"
+                } else {
+                    "ready for keeper A's ConsumeGenesisSeed"
+                }
             ));
             EXIT_OK
         }
@@ -1243,6 +1984,13 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
             out(&format!(
                 "waiting    {sent} transaction(s) sent; CreateSeason opens at chain clock {t_create_min} (now {now}, {} s left). Run the same command again then (or add --wait).",
                 t_create_min - now
+            ));
+            EXIT_WAITING
+        }
+        Outcome::WaitingSeeded { sent, status } => {
+            out(&format!(
+                "waiting    {sent} transaction(s) sent; WideSetRules needs the season Seeded (now {}): start keeper A (its beacon duty sends ConsumeGenesisSeed at genesis), then run the same command again (or add --wait).",
+                status_name(status)
             ));
             EXIT_WAITING
         }
@@ -1418,6 +2166,289 @@ mod tests {
             .contains("window closed"));
         o.season = Some(view(st::ENDED, &sb, auth));
         assert!(plan(&o, &a, auth, &sb).unwrap_err().contains("past setup"));
+    }
+
+    fn wide_profile() -> Profile {
+        let mut p = profile("devnet");
+        p.preset = "S1_DEVNET_WIDE_7D".into();
+        p
+    }
+
+    #[test]
+    fn presets_and_versions() {
+        assert_eq!(parse_version("0x4804"), Ok(0x4804));
+        assert_eq!(parse_version("4"), Ok(4));
+        assert!(parse_version("0xZZ").is_err());
+        // S1 presets: version 4 unless the profile names the lane's.
+        let mut p = profile("devnet");
+        assert_eq!(season_params(&p).unwrap().base.program_version, S1_VERSION);
+        p.program_version = Some(PLAYABLE_VERSION);
+        assert_eq!(
+            season_params(&p).unwrap().base.program_version,
+            PLAYABLE_VERSION
+        );
+        p.program_version = Some(0x4004);
+        assert!(season_params(&p).unwrap_err().contains("0x4004"));
+        // The wide preset: 0x4804 only, and only in a playable-lane build.
+        let mut w = wide_profile();
+        let r = season_params(&w);
+        if cfg!(feature = "playable-lane") {
+            let sp = r.unwrap();
+            assert_eq!(sp.base.program_version, PLAYABLE_VERSION);
+            assert_eq!(sp.cq.r_max_ceiling, 128);
+            let sb = season_bytes(&w).unwrap();
+            assert_eq!(sb.pfund_initial, 36_000_000_000);
+            // The program's range view: version 4 validates, the bytes keep 0x4804.
+            let o = params_version_offset();
+            assert_eq!(
+                u16::from_le_bytes([sb.params[o], sb.params[o + 1]]),
+                PLAYABLE_VERSION
+            );
+        } else {
+            assert!(r.unwrap_err().contains("--features playable-lane"));
+        }
+        w.program_version = Some(S1_VERSION);
+        assert!(season_params(&w).is_err());
+        assert!(is_wide_preset("S1_DEVNET_WIDE_7D") && !is_wide_preset("S1_LOCAL_7D"));
+    }
+
+    /// The offset of `program_version` in CreateSeason's params bytes.
+    fn params_version_offset() -> usize {
+        let mut a = frontier_abi::v2::presets::S1_LOCAL_7D;
+        let mut b = a;
+        a.base.program_version = 0;
+        b.base.program_version = 0xFFFF;
+        let (x, y) = (a.to_bytes(), b.to_bytes());
+        (0..x.len())
+            .find(|i| x[*i] != y[*i])
+            .expect("the version bytes")
+    }
+
+    #[test]
+    fn genesis_follows_t_create_min() {
+        let sp = frontier_abi::v2::presets::S1_DEVNET_WIDE_7D;
+        let (r, g) = genesis_of(&sp, 1_790_456_787);
+        assert_eq!(r, 32_551_361);
+        assert_eq!(
+            g,
+            permutation_rules::frontier::beacon::round_time(
+                sp.base.drand_genesis,
+                sp.base.drand_period,
+                r
+            ) + 600
+        );
+    }
+
+    #[test]
+    fn a_chosen_t_create_min_needs_the_lead() {
+        let p = profile("devnet");
+        let sb = season_bytes(&p).unwrap();
+        let a = Addresses::new(Address::new_from_array([7; 32]), 1);
+        let auth = Address::new_from_array([9; 32]);
+        let mut o = Observed::fresh();
+        o.now = Some(1_000);
+        let opts = |t| PlanOpts {
+            wide: false,
+            t_create_min: Some(t),
+        };
+        let lead = frontier_abi::presets::MIN_ANNOUNCE_LEAD_SECS;
+        assert!(plan_with(&o, &a, auth, &sb, opts(1_000 + lead))
+            .unwrap_err()
+            .contains("--t-create-min"));
+        let pl = plan_with(&o, &a, auth, &sb, opts(1_000 + lead + 60)).unwrap();
+        assert_eq!(pl.t_create_min, Some(1_000 + lead + 60));
+        // Offline (no clock): taken as given.
+        assert_eq!(
+            plan_with(&Observed::fresh(), &a, auth, &sb, opts(5))
+                .unwrap()
+                .t_create_min,
+            Some(5)
+        );
+    }
+
+    #[cfg(feature = "playable-lane")]
+    #[test]
+    fn the_wide_step_follows_the_seeded_season() {
+        use fclient::abi::status as st;
+        let p = wide_profile();
+        let sb = season_bytes(&p).unwrap();
+        let a = Addresses::new(Address::new_from_array([7; 32]), 1);
+        let auth = Address::new_from_array([9; 32]);
+        let wide = PlanOpts {
+            wide: true,
+            t_create_min: None,
+        };
+        let mut o = Observed::fresh();
+        o.now = Some(500);
+        let pl = plan_with(&o, &a, auth, &sb, wide).unwrap();
+        assert_eq!(pl.todo.len(), 10);
+        let last = pl.todo.last().unwrap();
+        assert_eq!(last.step.name, "WideSetRules");
+        assert!(last.after_seeded);
+        assert_eq!(last.step.ixs[0].data[0], 0xDB);
+        assert_eq!(last.step.ixs[0].accounts[2].pubkey, wide::rules_config(&a));
+        // Created and set up: WideSetRules alone, still after Seeded.
+        o.season = Some(view(st::CREATED, &sb, auth));
+        o.logs = vec![true; 16];
+        o.shards = vec![vec![true; 8]; 6];
+        let pl = plan_with(&o, &a, auth, &sb, wide).unwrap();
+        assert_eq!(pl.todo.len(), 1);
+        assert!(pl.todo[0].after_seeded);
+        // Seeded / Running: now.
+        for s in [st::SEEDED, st::RUNNING] {
+            o.season = Some(view(s, &sb, auth));
+            let pl = plan_with(&o, &a, auth, &sb, wide).unwrap();
+            assert_eq!(pl.todo.len(), 1);
+            assert!(!pl.todo[0].after_seeded);
+            assert_eq!(pl.todo[0].not_before, None);
+        }
+        // Done (ours, or another rule set: write-once).
+        o.rules = Some(wide::ours());
+        let pl = plan_with(&o, &a, auth, &sb, wide).unwrap();
+        assert!(pl.todo.is_empty());
+        assert_eq!(pl.done.last().unwrap(), "WideSetRules");
+        o.rules = Some([2, 3, 1, 1]);
+        let pl = plan_with(&o, &a, auth, &sb, wide).unwrap();
+        assert!(pl.todo.is_empty());
+        assert!(pl.done.last().unwrap().contains("other rule bytes"));
+        // The S1 plan never has the wide step.
+        let s1 = season_bytes(&profile("devnet")).unwrap();
+        o.rules = None;
+        o.season = Some(view(st::SEEDED, &s1, auth));
+        assert!(plan(&o, &a, auth, &s1).unwrap().todo.is_empty());
+        // The bit the keeper's lane table keys on is the ABI's.
+        assert_eq!(
+            fclient::budgets::LANE_VERSION_BIT,
+            frontier_abi::world_index::wide_ix::WIDE_EXPERIMENTAL_VERSION_BIT
+        );
+        assert_ne!(PLAYABLE_VERSION & fclient::budgets::LANE_VERSION_BIT, 0);
+        // The rules record reader.
+        let mut d = vec![0u8; frontier_abi::world_index::rules::rules_config::SIZE];
+        assert_eq!(wide::rules_of(&d), None);
+        d[..8].copy_from_slice(&frontier_abi::world_index::rules::rules_config::MAGIC);
+        d[18..22].copy_from_slice(&wide::ours());
+        assert_eq!(wide::rules_of(&d), Some(wide::ours()));
+    }
+
+    /// A 64-bit little-endian ELF header whose section headers end at `len`.
+    fn fake_elf(len: usize, body: &[u8]) -> Vec<u8> {
+        let mut e = vec![0u8; len];
+        e[..4].copy_from_slice(b"\x7fELF");
+        e[4] = 2;
+        e[5] = 1;
+        let (n, size) = (2u16, 64u16);
+        let shoff = (len - (n * size) as usize) as u64;
+        e[0x28..0x30].copy_from_slice(&shoff.to_le_bytes());
+        e[0x3A..0x3C].copy_from_slice(&size.to_le_bytes());
+        e[0x3C..0x3E].copy_from_slice(&n.to_le_bytes());
+        e[100..100 + body.len()].copy_from_slice(body);
+        e
+    }
+
+    #[test]
+    fn the_deployed_program_is_hashed_and_its_markers_read() {
+        let elf = fake_elf(4_096, b"PSF_DEVNET_PLAYABLE_BUILD");
+        assert_eq!(elf_len(&elf), Some(4_096));
+        assert_eq!(elf_len(&elf[..4_000]), None);
+        assert_eq!(elf_len(b"not an elf"), None);
+        // ProgramData: header, the ELF, zero padding to max_len.
+        let mut pd = vec![3u8; PROGRAMDATA_HEADER];
+        pd.extend_from_slice(&elf);
+        pd.extend(std::iter::repeat_n(0u8, 5_000));
+        let mut p = profile("devnet");
+        p.required_markers = vec!["PSF_DEVNET_PLAYABLE_BUILD".into()];
+        p.refused_markers = vec!["PSF_TEST_BEACON_BUILD".into()];
+        let info = program_info(&pd, &p);
+        let want = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&elf));
+        assert_eq!(info.sha256.as_deref(), Some(want.as_str()));
+        assert_eq!(info.elf_len, 4_096);
+        assert_eq!(info.found_markers, ["PSF_DEVNET_PLAYABLE_BUILD"]);
+        assert!(info.marker_problems.is_empty());
+        let bad = program_info(
+            &[
+                &pd[..PROGRAMDATA_HEADER],
+                &fake_elf(4_096, b"PSF_TEST_BEACON_BUILD")[..],
+            ]
+            .concat(),
+            &p,
+        );
+        assert_eq!(bad.marker_problems.len(), 2, "{:?}", bad.marker_problems);
+        assert!(!program_info(&[0u8; 10], &p).marker_problems.is_empty());
+    }
+
+    #[test]
+    fn the_send_gate() {
+        let o = |yes: bool, approval: bool, sha: Option<&str>| Opts {
+            profile: "p".into(),
+            yes_send: yes,
+            approval,
+            approved_sha256: sha.map(str::to_string),
+            ..Opts::default()
+        };
+        let h = "ab".repeat(32);
+        // Loopback: --yes-send alone.
+        assert!(gate_flags(&o(true, false, None), Endpoint::Loopback).is_empty());
+        assert_eq!(
+            gate_flags(&o(false, false, None), Endpoint::Loopback).len(),
+            1
+        );
+        // Public: the approval and the hash too.
+        assert_eq!(gate_flags(&o(true, false, None), Endpoint::Public).len(), 2);
+        assert_eq!(gate_flags(&o(true, true, None), Endpoint::Public).len(), 1);
+        assert!(gate_flags(&o(true, true, Some(&h)), Endpoint::Public).is_empty());
+        let info = ProgramInfo {
+            sha256: Some(h.clone()),
+            elf_len: 1,
+            found_markers: vec![],
+            marker_problems: vec!["required marker X is not in the deployed program".into()],
+        };
+        // The hash must be the deployed program's; markers count on a public cluster.
+        assert_eq!(
+            gate_program(&o(true, true, Some(&h)), Endpoint::Public, &info).len(),
+            1
+        );
+        let other = "cd".repeat(32);
+        assert_eq!(
+            gate_program(&o(true, true, Some(&other)), Endpoint::Public, &info).len(),
+            2
+        );
+        assert!(gate_program(&o(true, false, None), Endpoint::Loopback, &info).is_empty());
+        // Arguments.
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let a = parse_args(&s(&[
+            "--profile",
+            "p",
+            "--rpc",
+            "http://127.0.0.1:1",
+            "--preset",
+            "S1_DEVNET_WIDE_7D",
+            "--authority",
+            "k",
+            "--yes-send",
+            APPROVAL_FLAG,
+            "--approved-sha256",
+            &h.to_uppercase(),
+            "--t-create-min",
+            "123",
+            "--record",
+            "r.jsonl",
+        ]))
+        .unwrap();
+        assert_eq!(a.cluster_url.as_deref(), Some("http://127.0.0.1:1"));
+        assert_eq!(a.approved_sha256.as_deref(), Some(h.as_str()));
+        assert_eq!((a.approval, a.t_create_min), (true, Some(123)));
+        assert!(parse_args(&s(&["--profile", "p", "--rpc", "a", "--cluster-url", "b"])).is_err());
+        assert!(parse_args(&s(&["--profile", "p", APPROVAL_FLAG])).is_err());
+        assert!(parse_args(&s(&[
+            "--profile",
+            "p",
+            "--yes-send",
+            "--authority",
+            "k",
+            "--approved-sha256",
+            "xyz"
+        ]))
+        .is_err());
     }
 
     #[test]

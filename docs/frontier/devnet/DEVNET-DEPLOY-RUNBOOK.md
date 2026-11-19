@@ -327,9 +327,70 @@ its sites), and `pfund_initial` 36 SOL (every wedge fund must hold `128 × rent(
 6,960). Keeper A's rings duty runs with `extend = true`, `extend_max_ring = 128` and `lazy_provinces = true`: the
 genesis rings are opened whole and every later ring without its provinces, which open on demand (opening all 49,537
 provinces to ring 128 would cost 1,224 SOL). One 50-player season of this preset is **98.22 SOL** at 5,080 (106.24
-at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator` does not create a 0x4804 season yet (B3): its
-`PRESETS` are `S1_LOCAL_7D` and `S1_LOCAL_14D` only (`stack/src/operator.rs`), and the playable profile has no
-`operator` block. So today the playable program can be deployed, but no tool can start its season on devnet.
+at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator --preset S1_DEVNET_WIDE_7D` creates this
+season (§6b).
+
+### 6b. The playable lane's season: `frontier-operator --preset S1_DEVNET_WIDE_7D` **[r0ze, only after §5a]**
+
+Built with the stack crate's `playable-lane` feature (the wide-land ABI tables). It reads
+`scripts/devnet/devnet-playable-profile.json` (its `operator` block: `seasonId` 1, `beacon` quicknet;
+`program.programVersion` 0x4804; `program.requiredMarkers` / `refusedMarkers`) and sends, signed by the upgrade
+authority's key file only:
+
+| # | Transaction | When | Creates | Lamports from the authority at 5,080 / 6,960 per byte | CU (local) |
+|---|---|---|---|---|---|
+| 1 | AnnounceSeason (0x08) | now | Season 2,048 B + 1 SOL bond | 1,011,059,080 / 1,015,149,960 | 17,279 |
+| 2 | CreateSeason (0x01), the preset's 352 B at version 0x4804 | after the 24 h lead | Frontier, 6 ProvinceFunds (6 SOL float each), DefencePool (20 SOL float) | 56,013,009,800 / 56,017,822,600 | 45,372 |
+| 3 | InitBeaconLogs (0x09) | after CreateSeason | 16 BeaconLogs | 20,812,680 / 28,513,160 | 75,363 |
+| 4–9 | InitShards(0..5) (0x02) | after CreateSeason | 8 JoinShards each | 15,610,760 / 21,386,120 each | 39,720 each |
+| 10 | WideSetRules (0xDB): keep_holder MixedInterleaved, free_city DeployedLe32V1, camp NoCamp, region SortKeyHashV1 (the bytes every lane world and test uses; write-once) | once keeper A's ConsumeGenesisSeed has seeded the season | WideRulesConfig 96 B | 1,142,920 / 1,564,040 | 8,209 |
+| | **Total** | | | **57,139,689,040 / 57,191,366,480** (57 SOL float + 0.1396 / 0.1913 SOL rent + 0.00005 SOL fees) | |
+
+Every transaction requests cu_limit 1,400,000 and the runtime's 64 MiB loaded-data limit (the lane's ProgramData
+alone is 4.58 MB). Fees are 5,000 lamports each (no priority fee). The CU column is measured on the devnet `.so` in
+the local test below. The 57 SOL are floats: the 1 SOL bond comes back after a normal season, and the funds are
+the season's own (the same lines as §4a's season cost, whose other 41 SOL are keeper and relay pools, the keeper's
+AnchorArchives / BellAnchors and player rent).
+
+```sh
+(cd frontier-node && cargo build --locked --release -p stack --features playable-lane --bin frontier-operator)
+B=frontier-node/target/release/frontier-operator
+P=scripts/devnet/devnet-playable-profile.json            # programId and upgradeAuthority filled after §5a
+K=~/wylls-devnet-keys/upgrade-authority.json              # mode 600, outside the repository
+H=<the sha256 r0ze approved in §5a, today da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741>
+
+$B --profile $P --offline        # the plan at rent.assume, no RPC
+$B --profile $P --authority $K   # dry run on devnet: the cluster's rent, the balance, the deployed program's sha256
+                                 # and markers, "SEND GATE: OPEN/CLOSED"; sends nothing
+$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-1.jsonl
+#   → AnnounceSeason; exit 3 "CreateSeason opens at chain clock T"
+# 24 h 5 min later, the same command:
+#   → CreateSeason, InitBeaconLogs, InitShards × 6; exit 3 "WideSetRules needs the season Seeded"
+# start keeper A (§7; built from this code or later: the lane's loaded-data table), with the profile's rings duty
+# (extend = true, extend_max_ring = 128, lazy_provinces = true); about 21 min after T it consumes the genesis round.
+# Then the same command once more:
+#   → WideSetRules; exit 0 "setup complete"; any later run prints "setup complete: nothing to send"
+```
+
+On devnet a send needs all three of `--yes-send`, `--i-have-r0ze-approval` and `--approved-sha256`; without them the
+tool refuses before it reads the key file or contacts the cluster. `--approved-sha256` must equal the sha256 of the
+ELF in the deployed ProgramData, and the deployed program must carry `PSF_DEVNET_PLAYABLE_BUILD` and none of the
+profile's refused markers. Everything in §6 holds too (URL and genesis guards, key-file guard, idempotent re-runs,
+`--wait`, `--max-txs`). `--t-create-min UNIX` fixes `t_create_min` (≥ the chain clock + 24 h + 60 s); the plan then
+prints the genesis round it fixes. `--record FILE` appends one JSON line per landed transaction (signature, slot,
+compute units, fee, lamports). `--rpc` is `--cluster-url`; `--preset` overrides the profile's preset.
+
+**Tested offline only** (`frontier-node/crates/stack/tests/operator_playable.rs`, CI key-tests): the committed devnet
+`.so` (`frontier-node/fixtures/verify/devnet-playable-da3dc1aa.so.gz`, the §1a artefact) in an in-process
+frontier-localnet; this command with `--rpc` on loopback; then the real `frontier-keeper` (`feed = "rpc"`, the
+devnet rings duty) with a local `drand-replay` serving the committed real quicknet rounds (the season's
+`t_create_min` is chosen so its genesis round is one of them) seeds the season and opens the genesis rings; the
+operator's WideSetRules lands; the real `frontier-herald` (`--source rpc --cluster devnet`) folds the season; a test
+participant Joins and places a first home in the heartland. Keeper A's ConsumeGenesisSeed took 329,539 CU. That run
+found that the keeper requested the S1 loaded-data limits (1,835,008 B) for this 0x4804 season, so every keeper write
+failed `MaxLoadedAccountsDataSizeExceeded`; fixed in `fclient::budgets::canonical_lane`. **It has never been run
+against devnet**, and nothing past the genesis rings was reached: rings 4..=128 and the wide land need a live drand
+round per bell (§7 P2, P6).
 
 ## 7. Services and play (not ready)
 
@@ -340,12 +401,14 @@ Re-checked against the code on 2026-11-20 (`origin/main` 8fdcdb64). G1, G2 and G
 |---|---|---|---|
 | G1 | The Rust services POST JSON-RPC over `https` | closed (code): hardened `curl`, no TLS crate | `frontier-node/crates/fclient/src/https.rs`, `http.rs` `post_json_with` |
 | G2 | The keeper reads the program feed from a public RPC | closed (code): `keeper.toml` `feed = "rpc"` (default stays `"localnet"`) | `keeper/src/clusterfeed.rs`, `keeper/src/config.rs` |
-| G4 | Operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs, InitShards | S1 presets: closed (§6, local tests only). **Playable lane: open** (no `S1_DEVNET_WIDE_7D`, no 0x4804 season) | `stack/src/operator.rs` `PRESETS` |
+| G4 | Operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs, InitShards (and the lane's WideSetRules) | S1 presets: closed (§6). Playable lane: closed (code), `--preset S1_DEVNET_WIDE_7D` (§6b). Both local tests only | `stack/src/operator.rs` |
+| K1 | The keeper's transactions fit the lane's program (loaded data) | closed (code): a 0x4804 season takes `Budgets::canonical_lane` (64 MiB); loopback test only | `fclient/src/budgets.rs`, `stack/tests/operator_playable.rs` |
 | G5 | Address listing for keeper and relay payers | closed | `frontier-keeper --print-addresses`, `--print-relay-addresses` |
 | P1 | **The playable lane's page actions are localnet-only**: act, march, depart, reveal, return and conquest require `cluster === 'localnet'`, and the local-play relay forwards to a loopback runner only | open | `permutation-server/web/frontier/flocalplay-*.mjs` |
 | P2 | First homes at the rim: PlaceHome is capped at the season's base `r_max` 16, so a rim home needs FileTicket and a runner that settles it, which exists in the local TEST harness only. `S1_DEVNET_WIDE_7D` keeps `outpost_tier_min` 1 (a Town anchors a wide claim; the local wide world uses 0). The devnet rule is the owner's (Q-W1) | open | `proc/citizen.rs` place_home, `frontier-node/crates/itest/src/wide_play.rs` |
 | P3 | Wide → wide marches (WideDepart) answer `NotImplemented` in the devnet build by design (§1a), so a wide keep, which only such a march can reach, cannot be captured there; local TEST only (`localnet-wide-depart`) | closed gate | `proc/wide.rs` `DEPART_DEBIT_ENABLED` |
 | P4 | Operator AI residents (`--agent-wallet`, `--agent-runner`) and the test-token faucet are localnet-only | open | `permutation-gateway/src/frontier/config.mjs` |
+| P6 | The wide rings have no keeper duty: nothing sends WideRequestRingSeed / WideConsumeRingSeed / WideOpenProvince on a live season (the rings duty stops at ring 128), so even after the rim the wide land stays unopened | open | `keeper/src/rings.rs`; the TEST harness's `itest/src/wide_land.rs` `grow` |
 | P5 | Fog of war is a web-client view of LOCAL test worlds only (`LOCAL_FOG` and `cfg.localPlay`); chain data is public | by design | `permutation-server/web/frontier/map/fog.mjs` |
 
 Once they are closed, the order and flags are PLAYTEST-RUNBOOK §3 (steps 7–10) and §4, with `--cluster devnet` for
