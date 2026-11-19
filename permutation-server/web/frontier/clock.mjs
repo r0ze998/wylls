@@ -38,7 +38,8 @@ export const seedRound = (drand, close, margin) => firstRoundFrom(drand.genesis,
  * agree. A missing field or an inconsistent record must not imply that a
  * season can no longer end. War-period rules remain undecided.
  */
-const NO_END_BELL = 4294967295;
+/** The program's "no end" turn (u32::MAX); seasonterms.mjs reads it too. */
+export const NO_END_BELL = 4294967295;
 export const worldContinues = season => Number(season?.endBell) === NO_END_BELL
   && (Number(season?.conquestParams?.continuous ?? 0) === 1 || season?.continuous === true);
 
