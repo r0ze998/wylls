@@ -2,4 +2,6 @@
 # builds it from the committed source (toolchain 1.95.0). See the "Cross-host bytes" note in that script; consumed
 # only by --check. aarch64-apple-darwin built the committed module (2026-11-19, from main f9a2f5fe's sources; the
 # module of 2026-10-12, 77e42c83..., was never rebuilt after later source changes and no CI step checked it).
+# x86_64-unknown-linux-gnu is the GitHub runner, from the log of CI run 44468171843 (PR #84) for the same source.
 aarch64-apple-darwin c124f7a3d19abf04e91c7f67c3361d40d6963c1986e0666300cf362e7184a890 211688
+x86_64-unknown-linux-gnu eb96d1ccadc3f382bbd4932167b2d50f181d21273cf2eae28e1ae95bc5b7dd85 211650
