@@ -58,6 +58,7 @@ permutation-gateway/test/frontier-expedition-depart-prepare.test.mjs
 permutation-gateway/test/frontier-live-connect-fresh-economy.test.mjs
 permutation-gateway/test/frontier-local-play-act.test.mjs
 permutation-gateway/test/frontier-local-play-conquest.test.mjs
+permutation-gateway/test/frontier-local-play-march-resident-turns.test.mjs
 permutation-gateway/test/frontier-local-play-march.test.mjs
 permutation-gateway/test/frontier-local-play-operator-kept-keys.test.mjs
 permutation-gateway/test/frontier-local-play-operator-residents.test.mjs
