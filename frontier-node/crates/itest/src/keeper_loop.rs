@@ -149,7 +149,9 @@ impl Status {
         json!({"schema": SCHEMA, "running": self.running, "resolved_next": self.resolved_next, "bell": self.bell, "resident": self.resident,
             "anchors_posted": self.anchors_posted, "dest_anchors_posted": self.dest_anchors_posted, "fast_forwards": self.fast_forwards, "rounds_cached": self.rounds_cached,
             "last_action": self.last_action, "last_error": self.last_error, "stopped": self.stopped, "unknown_signature": self.unknown_signature, "blocked": self.blocked, "origin_step": self.origin_step, "destination_step": self.destination_step, "resident_step": self.resident_step})
-        .as_object().cloned().map(|mut m| { if let Some(n) = self.village { m.insert("village".into(), json!(n)); } if let Some(e) = &self.expedition_step { m.insert("expedition_step".into(), json!(e)); } Value::Object(m) }).unwrap_or(Value::Null)
+        .as_object().cloned().map(|mut m| { if let Some(n) = self.village { m.insert("village".into(), json!(n)); }
+            if let Some(e) = &self.expedition_step { m.insert("expedition_step".into(), json!(e)); }
+            Value::Object(m) }).unwrap_or(Value::Null)
     }
 }
 

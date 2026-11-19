@@ -1429,7 +1429,7 @@ impl LegacyMarchDriver {
                 if self.known.get(&key).is_some_and(|k| !k.revealed)
                     && !self.noted_closed.contains(&key)
                 {
-                    self.noted_closed.push(key.clone());
+                    self.noted_closed.push(key);
                     eprintln!(
                         "{}",
                         serde_json::json!({"legacy_march": "unrevealable", "slot": slot, "arrive": arrive, "why": format!("its route crosses ({}, {}), which has no Province: settled unrevealed (routed home)", pc.0, pc.1)})
