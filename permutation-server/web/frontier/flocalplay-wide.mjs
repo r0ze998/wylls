@@ -21,6 +21,7 @@ import { sortKeyOf } from './fwide.mjs';
 import { ringPosition } from './map/wide.mjs';
 import { setComputeUnitLimit, setComputeUnitPrice, setLoadedAccountsDataSizeLimit, requestHeapFrame } from '../sdk/frontier/budgets.mjs';
 import { compileMessage } from '../sdk/solana-tx.mjs';
+import { decodePrefix } from './fcodec.mjs';
 import { decode } from '../sdk/base58.mjs';
 import { toHex, utf8 } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
@@ -122,4 +123,28 @@ export function claimTargets(home, opened) {
   return (opened ?? []).map(t => ({ p: String(t.p), q: String(t.q) }))
     .filter(t => { try { return ringPosition(BigInt(t.p), BigInt(t.q)).ring >= FIRST_WIDE_RING && distance(home, t) <= OUTPOST_RANGE; } catch { return false; } })
     .sort((a, b) => distance(home, a) - distance(home, b) || (a.p + ',' + a.q < b.p + ',' + b.q ? -1 : 1));
+}
+
+/**
+ * The free sites of each wide province in a herald `/h/world/wide/route` answer (its captured province bytes, decoded
+ * by the game's own Province decoder): `Map("p,q" → [site…])`, a site FREE (0) or RELEASED (3) and below its count.
+ * A claim on any other site is "taken" at its settle — the settler cost spent, no village (wide-local-playable run 5:
+ * site 0 of a province was reserved, state 5) — so a claim names only one of these. A province whose bytes do not
+ * decode is left out (no guess).
+ */
+export function freeWideSites(route) {
+  const out = new Map();
+  for (const r of Array.isArray(route?.route) ? route.route : []) {
+    try {
+      const b64 = r?.capture?.bytes_b64;
+      if (typeof b64 !== 'string') continue;
+      const bytes = typeof Buffer !== 'undefined' ? new Uint8Array(Buffer.from(b64, 'base64')) : Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const d = decodePrefix('Province', bytes, { profile: 2 });
+      const n = Number(d.siteCount);
+      const free = [];
+      for (let i = 0; i < Math.min(n, 12); i++) if ([0, 3].includes(Number(d.siteMirror?.[i]?.state))) free.push(i);
+      out.set(`${r.p},${r.q}`, free);
+    } catch { /* not readable: not offered */ }
+  }
+  return out;
 }

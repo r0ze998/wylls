@@ -36,6 +36,7 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
+import { freeWideSites } from './flocalplay-wide.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
@@ -3533,7 +3534,15 @@ export const ACTIONS = {
   'wide-claim': async d => {
     const h = activeHolding(FS);
     if (!h || !localPlay?.wideLand) return;
-    const target = { p: String(d.p), q: String(d.q) }, site = num(d.site), slot = num(d.slot);
+    const target = { p: String(d.p), q: String(d.q) }, slot = num(d.slot);
+    // (a claim names a FREE site of the province as the herald last captured it — any other is "taken" at its settle,
+    //  the cost spent for nothing; flocalplay-wide.mjs freeWideSites. None known: nothing is sent)
+    let site = num(d.site);
+    try {
+      const r = await herald.wideRoute({ places: [target] });
+      const free = r?.ok !== false ? freeWideSites(r?.json ?? r)?.get(`${target.p},${target.q}`) : null;
+      if (Array.isArray(free)) { const next = free.find(x => x >= site) ?? free[0]; if (next === undefined) { failed({ code: 'NoFreeHome', text: L`この州には空いている村の場所がありません。` }); return; } site = next; }
+    } catch { /* the herald did not answer: the card's own site, as before */ }
     const r = await act('WideClaim', { v: { holding: { p: h.p, q: h.q, site: h.site }, target }, fields: { site, slot }, say: () => L`広い土地（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
     // (a refused or failed site is not offered again: the next press names the next site)
     if (r && r.ok === false && r.sent !== true) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }

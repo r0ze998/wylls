@@ -199,7 +199,9 @@ export function decideNext(memory, view, { homes, nowSecs, wide = null }) {
   // (TEST-ONLY wide play: save, then claim the nearest wide land within reach — header)
   if (wide && Array.isArray(wide.targets) && wide.targets.length && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS) {
     const tried = new Set(memory.triedClaims ?? []);
-    const next = wide.targets.flatMap(t => Array.from({ length: 12 }, (_, site) => ({ t, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
+    // (a target's FREE sites when the herald's capture names them — flocalplay-wide.mjs freeWideSites; else every site)
+    const sitesOf = t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site));
+    const next = wide.targets.flatMap(t => sitesOf(t).map(site => ({ t: { p: t.p, q: t.q }, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
     if (next) {
       const waiting = (memory.claimWaitUntil ?? 0) > memory.decisions || (memory.cooldown.WideClaim ?? 0) > memory.decisions;
       if (wide.canClaim && !waiting) {

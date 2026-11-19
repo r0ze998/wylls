@@ -1913,6 +1913,7 @@ export default {
   'チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this march before running it. It was not sent.',
   '進軍は期限までに記録されませんでした。これから記録されることはありません。': 'The march was not recorded in time. It can no longer be.',
   // (wide-local-playable, TEST-only local wide play)
+  "この州には空いている村の場所がありません。": "This province has no free village place.",
   "辺境の村を申し込んでいます…": "Requesting a village on the rim…",
   "辺境の村を申し込みました。ターンの終わりに決まります。": "The rim village was requested. It is decided at the end of the turn.",
   "村の申し込みを送れませんでした。候補を更新してください。": "The village request could not be sent. Refresh the candidates.",

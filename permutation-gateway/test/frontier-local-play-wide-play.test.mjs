@@ -58,6 +58,23 @@ test('settler cost and claim targets', () => {
   assert.deepEqual(W.claimTargets({ p: 68, q: 60 }, [{ p: '-62', q: '131' }, { p: '70', q: '60' }, { p: '69', q: '60' }, { p: '64', q: '64' }]), [{ p: '69', q: '60' }, { p: '70', q: '60' }]);
 });
 
+test('free sites: a claim names only a FREE or RELEASED site of the herald\'s captured province (live capture, run 5)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const route = JSON.parse(readFileSync(new URL('./fixtures/wide-route-local-65-129.json', import.meta.url), 'utf8'));
+  // (captured from a local wide world: site 0 an operator resident's village, site 8 reserved — state 5)
+  assert.deepEqual(W.freeWideSites(route).get('-65,129'), [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]);
+  assert.equal(W.freeWideSites({ route: [{ p: '1', q: '1', capture: { bytes_b64: 'AAAA' } }] }).size, 0, 'unreadable bytes: not offered');
+  assert.equal(W.freeWideSites(null).size, 0);
+  // the AI rule takes the free list when it has one
+  const m = P.createResidentMemory(0);
+  const v1 = { joined: true, faction: 1, holding: { p: -64, q: 128, site: 1, tile: 5 }, wide: 0 };
+  const d = P.decideNext(m, v1, { homes: [], wide: { targets: [{ p: '-65', q: '129', free: [1, 2] }], canClaim: true }, nowSecs: 1 });
+  assert.deepEqual([d.name, d.fields.site, d.v.target], ['WideClaim', 1, { p: '-65', q: '129' }]);
+  // the page's press asks the herald first
+  const ctl = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  assert.ok(ctl.includes("const r = await herald.wideRoute({ places: [target] });"));
+});
+
 test('the page and the relay take the wide claim and a ONE-site rim request, and build the same bytes', () => {
   assert.deepEqual(A.LOCAL_ACT_NAMES, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim']);
   assert.deepEqual(LOCAL_ACT_COMMANDS, A.LOCAL_ACT_NAMES);

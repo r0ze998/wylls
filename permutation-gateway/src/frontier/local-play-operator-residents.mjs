@@ -40,7 +40,7 @@ import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutati
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf } from './local-play-operator-policy.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
-import { claimTargets, settlerCost } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
+import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
 
@@ -195,6 +195,13 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     const v = view?.holding;
     const secs = v ? await deps.nowSecs().catch(() => null) : null;
     wide = { targets: v ? claimTargets(v, wideTargets) : [], canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 2 + (view.wide ?? 0)) };
+    // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
+    if (wide.canClaim && wide.targets.length && deps.route) {
+      try {
+        const near = wide.targets.slice(0, 4), free = freeWideSites(await deps.route(near));
+        wide.targets = near.map(t => (free.has(`${t.p},${t.q}`) ? { ...t, free: free.get(`${t.p},${t.q}`) } : t));
+      } catch { /* no answer: every site, as before (a refused site is not asked again) */ }
+    }
   }
   const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null };
@@ -277,6 +284,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     nowSecs: async () => chainSecondsOf(await getJson(`${o.herald}/h/status`)),
     season: () => getJson(`${o.herald}/h/season`),
     read: wallet => getJson(`${o.herald}/h/me/${wallet}`),
+    route: places => getJson(`${o.herald}/h/world/wide/route?at=${encodeURIComponent(places.map(t => `${t.p},${t.q}`).join(';'))}`),
     submit: (order, r) => submitLocalAct(order, { allowed: () => ({ ok: true, relay: r.origin }), identity: () => r.identity, rulesetHash: () => r.rulesetHash, signer: () => r.signer, post: postFor(r) }),
     follow: (signature, r) => followLocalAct(signature, { origin: r.origin, still: () => !stop.signal.aborted, post: postFor(r), tries: 20, every: 1000 }),
   };
