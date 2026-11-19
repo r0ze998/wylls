@@ -1517,7 +1517,8 @@ mod tests {
             "    run_paced(state, source, holding, home, Pace::Natural, stop, report).await\n"
         ));
         let bin = include_str!("bin/localnet_natural_play.rs");
-        assert!(bin.contains("let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };"));
+        // (wide-local-playable: and the TEST-ONLY wide world's own clock above 1x, `--wide-scale`, which the launcher checked)
+        assert!(bin.contains("let pace = if demo.is_some() || wide_scale.is_some_and(|s| s > 1) { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };"));
         assert_eq!(bin.matches("DEMO_PACE").count(), 1);
         let exp = include_str!("bin/localnet_expedition_play.rs");
         assert!(
