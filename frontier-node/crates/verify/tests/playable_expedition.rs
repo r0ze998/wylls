@@ -3950,3 +3950,341 @@ fn a_settlement_archived_as_failed_that_the_program_runs_fails() {
     let rep = verify_core::verify(&inp);
     assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
 }
+
+// ------------------------------------------- verify-pr97: independent mutations
+//
+// The reviewer's own mutations (verify-pr97), one or more per new kind and
+// wide-native op: none may PASS; each is asserted to FAIL unless noted.
+
+mod verify_pr97 {
+    use super::*;
+
+    fn strip(inp: &mut Input) {
+        for x in inp.txs.iter_mut() {
+            x.post.clear();
+        }
+    }
+
+    fn not_pass(inp: &Input, what: &str) -> Report {
+        let rep = verify_core::verify(inp);
+        assert_ne!(rep.verdict, Verdict::Pass, "{what}");
+        rep
+    }
+
+    fn fails(inp: &Input, what: &str) -> Report {
+        let rep = verify_core::verify(inp);
+        assert_eq!(rep.verdict, Verdict::Fail, "{what}: {:#?}", show(&rep));
+        rep
+    }
+
+    /// The position in tx `t`'s message keys of account `k`.
+    fn key_index(inp: &Input, t: usize, k: &Address) -> usize {
+        let x = tx::from_wire(&inp.txs[t].tx).unwrap();
+        x.message.account_keys.iter().position(|a| a == k).unwrap()
+    }
+
+    fn bal_mut(inp: &mut Input, t: usize) -> &mut verify_core::input::Balances {
+        let s = inp.txs[t].signature.to_string();
+        inp.chain.balances.get_mut(&s).unwrap()
+    }
+
+    /// Flip one base64 char inside the first `Program data:` line (the
+    /// receipt), keeping post-states (so VX compares the logs).
+    fn flip_log(inp: &mut Input, t: usize) {
+        let l = inp.txs[t]
+            .logs
+            .iter_mut()
+            .find(|l| l.starts_with("Program data: "))
+            .expect("a record");
+        let n = l.len() / 2 + 7;
+        let c = if l.as_bytes()[n] == b'Q' { "R" } else { "Q" };
+        l.replace_range(n..n + 1, c);
+    }
+
+    #[test]
+    fn m01_settle_siege_receipt_forged_with_post_states_fails() {
+        let mut inp = cov(Sc::Siege);
+        let t = one(&inp, dx::Kind::SettleSiege);
+        flip_log(&mut inp, t);
+        let rep = fails(&inp, "M1");
+        assert!(
+            vx_at(&rep, t).iter().any(|f| f.severity == Severity::Fail),
+            "{:?}",
+            vx_at(&rep, t)
+        );
+    }
+
+    #[test]
+    fn m02_settle_reservation_omitted_fails() {
+        let mut inp = cov(Sc::Siege);
+        let t = one(&inp, dx::Kind::SettleReservation);
+        inp.txs.remove(t);
+        for x in &mut inp.declared {
+            if x.at > t {
+                x.at -= 1;
+            }
+        }
+        fails(&inp, "M2 with post-states");
+        strip(&mut inp);
+        fails(&inp, "M2 genesis");
+    }
+
+    #[test]
+    fn m03_settle_retained_failure_lamports_inflated_on_chain_fails() {
+        let mut inp = cov(Sc::Retained);
+        let t = one(&inp, dx::Kind::SettleRetainedFailure);
+        strip(&mut inp);
+        // move 1000 lamports from the fee payer (key 0) to the last
+        // writable program account the chain shows: conserved, but not what
+        // the program does
+        let b = bal_mut(&mut inp, t);
+        let i = (1..b.post.len())
+            .find(|&i| b.post[i] > 0 && b.pre[i] != b.post[i])
+            .unwrap_or(1);
+        b.post[i] += 1000;
+        b.post[0] -= 1000;
+        fails(&inp, "M3");
+    }
+
+    #[test]
+    fn m04_settle_forfeit_and_failure_without_the_declared_slot_patch_fail() {
+        // Without the patch the archive shows the slot present (the
+        // Reveal's post-state) while the chain's balances show it empty
+        // before the settlement: VX must not start from the chain's 0
+        // lamports (an absent account) and agree.
+        for (sc, k) in [
+            (Sc::Forfeit, dx::Kind::SettleForfeit),
+            (Sc::Failure, dx::Kind::SettleFailure),
+        ] {
+            let mut inp = cov(sc);
+            let t = one(&inp, k);
+            let before = inp.declared.len();
+            inp.declared.retain(|d| !d.what.contains("arrival slot"));
+            assert_eq!(inp.declared.len(), before - 1);
+            let rep = fails(&inp, "M4");
+            assert!(
+                fails_vx(&rep, t, "ReExecMismatch"),
+                "{sc:?}: {:?}",
+                vx_at(&rep, t)
+            );
+            strip(&mut inp);
+            fails(&inp, "M4 genesis");
+        }
+    }
+
+    #[test]
+    fn m05_settle_failure_without_its_declared_fate_patch_fails() {
+        let mut inp = cov(Sc::Failure);
+        let t = one(&inp, dx::Kind::SettleFailure);
+        inp.declared.retain(|d| !d.what.contains("fate DESTROYED"));
+        let rep = fails(&inp, "M5");
+        assert!(
+            vx_at(&rep, t).iter().any(|f| f.severity == Severity::Fail),
+            "{:?}",
+            vx_at(&rep, t)
+        );
+        // and with every patch kept, the honest one stays UNVERIFIABLE
+        let rep = not_pass(&cov(Sc::Failure), "M5 honest");
+        assert_eq!(rep.verdict, Verdict::Unverifiable);
+    }
+
+    #[test]
+    fn m06_close_terminal_replayed_twice_fails() {
+        let mut inp = cov(Sc::Terminal);
+        let t = one(&inp, dx::Kind::CloseTerminal);
+        let mut dup = inp.txs[t].clone();
+        dup.slot += 1;
+        dup.seq += 1;
+        inp.txs.insert(t + 1, dup);
+        for x in &mut inp.declared {
+            if x.at > t {
+                x.at += 1;
+            }
+        }
+        strip(&mut inp);
+        fails(&inp, "M6");
+    }
+
+    #[test]
+    fn m07_settle_camp_citizen_underpaid_fails() {
+        let mut inp = cov(Sc::Camp);
+        let t = one(&inp, dx::Kind::SettleCamp);
+        let k = some_program_post(&inp, t).unwrap();
+        // every program account it writes: lower the first one's lamports
+        edit_post(&mut inp, t, &k, |a| a.lamports -= 1000);
+        let rep = fails(&inp, "M7 post-states");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+        // and on chain: the Citizen (15th instruction account) shown paid
+        // less than the program pays it
+        let mut inp = cov(Sc::Camp);
+        let citizen = acct(&inp, t, 14);
+        let i = key_index(&inp, t, &citizen);
+        strip(&mut inp);
+        let b = bal_mut(&mut inp, t);
+        b.post[i] -= 1000;
+        b.post[0] += 1000;
+        fails(&inp, "M7 genesis");
+    }
+
+    #[test]
+    fn m08_wide_dissolve_post_owner_forged_fails() {
+        for (n, &t) in of_native(&cov(Sc::WideHost), "WideDissolve")
+            .iter()
+            .enumerate()
+        {
+            let mut inp = cov(Sc::WideHost);
+            let k = some_program_post(&inp, t).unwrap();
+            edit_post(&mut inp, t, &k, |a| a.owner = Address::default());
+            let rep = fails(&inp, "M8");
+            assert!(
+                fails_vx(&rep, t, "ReExecMismatch"),
+                "dissolve {n}: {:?}",
+                vx_at(&rep, t)
+            );
+        }
+    }
+
+    #[test]
+    fn m09_wide_return_without_its_dissolve_fails() {
+        let mut inp = cov(Sc::WideHost);
+        let rt = one_native(&inp, "WideReturn");
+        let d = *of_native(&inp, "WideDissolve")
+            .iter()
+            .rfind(|&&d| d < rt)
+            .unwrap();
+        inp.txs.remove(d);
+        for x in &mut inp.declared {
+            if x.at > d {
+                x.at -= 1;
+            }
+        }
+        fails(&inp, "M9 post-states");
+        strip(&mut inp);
+        fails(&inp, "M9 genesis");
+    }
+
+    #[test]
+    fn m10_wide_disband_stranded_archived_as_failed_fails() {
+        let mut inp = cov(Sc::WideHost);
+        let t = one_native(&inp, "WideDisbandStranded");
+        strip(&mut inp);
+        inp.txs[t].err = Some("InstructionError(0, Custom(6))".into());
+        inp.txs[t].code = Some(6);
+        fails(&inp, "M10");
+    }
+
+    #[test]
+    fn m11_wide_close_roster_rent_redirected_on_chain_fails() {
+        let mut inp = cov(Sc::WideHost);
+        let t = one_native(&inp, "WideCloseRoster");
+        strip(&mut inp);
+        let b = bal_mut(&mut inp, t);
+        // the rent refund shown landing on the fee payer instead of rent_to
+        let i = (1..b.post.len())
+            .find(|&i| b.post[i] > b.pre[i])
+            .expect("rent_to credited");
+        let moved = b.post[i] - b.pre[i];
+        b.post[i] -= moved;
+        b.post[0] += moved;
+        // (VG: a wallet movement the archive cannot explain is MissingData
+        // by its documented rule, verify-pr91; never PASS)
+        not_pass(&inp, "M11 genesis");
+        // with post-states: the roster shown still open
+        let mut inp = cov(Sc::WideHost);
+        let (k, _) = inp.txs[t]
+            .post
+            .iter()
+            .find(|(_, a)| a.is_none())
+            .cloned()
+            .expect("closed");
+        let back = inp.txs[..t]
+            .iter()
+            .rev()
+            .find_map(|x| x.post.iter().find(|(y, _)| *y == k).cloned())
+            .unwrap();
+        inp.txs[t].post.iter_mut().find(|(y, _)| *y == k).unwrap().1 = back.1;
+        let rep = fails(&inp, "M11 post-states");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+    }
+
+    #[test]
+    fn m12_a_successful_wide_resident_act_fails() {
+        // A WideMuster of the widehost recording rewrapped as an NFT
+        // resident's WideResidentAct(Muster), archived as a success.
+        let mut inp = cov(Sc::WideHost);
+        let t = (0..inp.txs.len())
+            .find(|&t| inp.txs[t].err.is_none() && native_at(&inp, t) == Some("WideMuster"))
+            .expect("a WideMuster");
+        let mut x = tx::from_wire(&inp.txs[t].tx).unwrap();
+        let prog = inp.cfg.program;
+        let ixr = x
+            .message
+            .instructions
+            .iter_mut()
+            .find(|i| x.message.account_keys[i.program_id_index as usize] == prog)
+            .unwrap();
+        let inner = ixr.data.clone();
+        let mut act = vec![0u8; 5 + inner.len()];
+        wix::ResidentAct {
+            generation: 0,
+            inner: &inner,
+        }
+        .encode_into(&mut act)
+        .unwrap();
+        ixr.data = act;
+        inp.txs[t].tx = tx::wire(&x);
+        for strip_posts in [false, true] {
+            let mut i2 = inp.clone();
+            if strip_posts {
+                strip(&mut i2);
+            }
+            let rep = fails(&i2, "M12");
+            assert!(
+                rep.findings
+                    .iter()
+                    .any(|f| f.check == "V0" && f.fail() && f.code == "UnknownInstruction"),
+                "{:#?}",
+                show(&rep)
+            );
+        }
+    }
+
+    #[test]
+    fn m13_a_wide_tx_omitted_before_a_psff_receipt_fails() {
+        // VW1's chain skip after a VX transaction carrying a PSFF record is
+        // global (any chain whose last record precedes it): omit the wide just before it, one at a
+        // time (with and without post-states): each must still FAIL
+        // (VX/VWL/VG provenance), not only lose VW1's final-head check.
+        let base = cov(Sc::Retained);
+        let s = one(&base, dx::Kind::SettleRetainedFailure);
+        // the wide (non-dispatch) transactions just before it, whose PSW1
+        // records end a chain before the PSFF receipt
+        let later: Vec<usize> = (s.saturating_sub(12)..s)
+            .filter(|&t| base.txs[t].err.is_none() && native_at(&base, t).is_some())
+            .collect();
+        assert!(!later.is_empty());
+        let mut unver = vec![];
+        for &g in &later {
+            for stripped in [false, true] {
+                let mut inp = base.clone();
+                inp.txs.remove(g);
+                for x in &mut inp.declared {
+                    if x.at > g {
+                        x.at -= 1;
+                    }
+                }
+                if stripped {
+                    strip(&mut inp);
+                }
+                let rep = not_pass(&inp, "M13");
+                if rep.verdict != Verdict::Fail {
+                    unver.push((g, stripped, native_at(&base, g), kind_at(&base, g)));
+                }
+            }
+        }
+        assert!(
+            unver.is_empty(),
+            "omissions judged only UNVERIFIABLE: {unver:?}"
+        );
+    }
+}

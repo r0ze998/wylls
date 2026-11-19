@@ -569,6 +569,24 @@ fn judge_all(
                 }
             }
         }
+        // verify-pr97: with the chain's balances every named account starts
+        // from exactly them, so a program-owned account the archive shows
+        // holding L lamports could start the re-run with fewer (0: absent,
+        // its data dropped) and the re-run would agree with a forged
+        // archive. Only the program debits its own account and only a
+        // transaction does: fewer lamports before it than the archive's last
+        // post-state of it is a debit no archived transaction made (as VG
+        // rules for an archive without post-states).
+        if let Some(e) = known.and_then(|b| debit_outside(w, declared, rec, i, b)) {
+            prov[i] = match &e {
+                Fail(_, d) => Prov::Forged(format!("tx#{i}: {d}")),
+                Missing(_) => Prov::Unknown,
+            };
+            if let Some(name) = name {
+                out.push((i, name.clone(), e));
+            }
+            continue;
+        }
         let r = crate::reexec::replay_known(
             &mut svm,
             &rec.tx,
@@ -605,6 +623,39 @@ fn judge_all(
         }
     }
     out
+}
+
+/// verify-pr97: the first program-owned account named by `rec` whose
+/// chain balance before it (`b.pre`) is below the lamports of the state the
+/// archive shows before it ([`before`]). From an archived post-state that is
+/// a debit no archived transaction made: FAIL. From a declared state it is
+/// `MissingData` (the patch, not the chain, is in question).
+fn debit_outside(
+    w: &World,
+    declared: &[crate::input::Declared],
+    rec: &fclient::ports::TxRecord,
+    i: usize,
+    b: &crate::input::Balances,
+) -> Option<Wrong> {
+    let m = fclient::tx::from_wire(&rec.tx).ok()?;
+    for (j, k) in m.message.account_keys.iter().enumerate() {
+        let Some(&chain) = b.pre.get(j) else { continue };
+        let Some((how, Some(a))) = before(w, declared, &k.to_bytes(), i) else {
+            continue;
+        };
+        if a.owner.to_bytes() != w.program || chain >= a.lamports {
+            continue;
+        }
+        let d = format!(
+            "account {k}: the chain shows {chain} lamports before it, {} fewer than the state the archive shows before it (only the program debits its own account, and only inside a transaction)",
+            a.lamports - chain
+        );
+        return Some(match how {
+            Pre::Declared => Missing(format!("{d}; that state is one the archive only declares")),
+            _ => Fail(REEXEC_MISMATCH, d),
+        });
+    }
+    None
 }
 
 fn program_of(input: &Input) -> Option<Program> {

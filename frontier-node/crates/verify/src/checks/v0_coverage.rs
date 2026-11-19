@@ -497,9 +497,6 @@ pub fn run(cx: &mut Ctx) {
 mod tests {
     use super::*;
 
-    /// Q16-1: the playable lane (0x4804) is a known version only in the
-    /// `playable-lane` build. There a wide tag is UNVERIFIABLE (named), a
-    /// land tag is VL's, and any other tag outside ABI v2 is a FAIL (the
     /// verifier-coverage: in the playable lane a successful WideResidentAct
     /// is a FAIL (its program refuses every one: no Citizen of the lane is
     /// an NFT resident); the four wide-native host-lifecycle commands are
@@ -542,6 +539,9 @@ mod tests {
         assert!(!vx_judged(&muster));
     }
 
+    /// Q16-1: the playable lane (0x4804) is a known version only in the
+    /// `playable-lane` build. There a wide tag is UNVERIFIABLE (named), a
+    /// land tag is VL's, and any other tag outside ABI v2 is a FAIL (the
     /// build refuses it); elsewhere 0x4804 is an unknown version.
     #[test]
     fn the_playable_lane_is_known_only_with_its_feature() {
