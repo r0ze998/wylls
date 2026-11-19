@@ -59,7 +59,8 @@ pub mod cq_layout {
         R_MAX_CEILING @ 78 : "u16" = 2;
         CONTINUOUS @ 80 : "u8" = 1;
         CENTRE @ 81 : "u8" = 1;
-        RSV @ 82 : "rsv" = 46;
+        SPAWN_REACH @ 82 : "u8" = 1;
+        RSV @ 83 : "rsv" = 45;
     );
 }
 
@@ -202,6 +203,50 @@ pub struct ConquestParams {
     /// keeps, camps, tickets, sieges; their keeps follow the mixed nation).
     /// `CENTRE_FREE` needs placement 2 and an S1 season.
     pub centre: u8,
+    /// Byte 82 (⑭ R3, owner decision t346u, 2026-11-18): where PlaceHome may
+    /// put a first home. [`SPAWN_RING`] (0, every season before the byte):
+    /// the heartland rings only. `1..=`[`SPAWN_REACH_MAX`]: the heartland, a
+    /// settled province, or a province within this many provinces of a
+    /// settled one that the transaction names as a witness
+    /// ([`spawn_allows`]). Needs placement 2 and an S1 season.
+    pub spawn_reach: u8,
+}
+
+/// `spawn_reach` 0: first homes in the heartland rings only (the ring rule).
+pub const SPAWN_RING: u8 = 0;
+/// The largest `spawn_reach` (provinces from a settled province).
+pub const SPAWN_REACH_MAX: u8 = 8;
+/// The `spawn_reach` of the playable/devnet presets (⑭ R3): one empty
+/// province of buffer, below `outpost_range` 3, so a newcomer lands next to
+/// the settled land, not inside it.
+pub const SPAWN_PLAYABLE: u8 = 2;
+
+/// ⑭ R3's PlaceHome rule beyond the nation and the open rings, shared by the
+/// program and the verifier: may a first home go to a province of `ring`?
+///
+/// - `spawn_reach` 0 (the ring rule): only `2..=heartland_max_ring`, and no
+///   witness may be named;
+/// - otherwise: ring ≥ 2 and one of: the heartland (the genesis seed of the
+///   settled land), the target province already settled
+///   (`target_used` = its `N_SITES_USED` > 0), or a witness province
+///   (`distance` from the target, its `N_SITES_USED`) that is settled and at
+///   most `spawn_reach` provinces away.
+pub fn spawn_allows(
+    spawn_reach: u8,
+    heartland_max_ring: u8,
+    ring: u32,
+    target_used: u8,
+    witness: Option<(u32, u8)>,
+) -> bool {
+    if ring < 2 {
+        return false;
+    }
+    if spawn_reach == SPAWN_RING {
+        return witness.is_none() && ring <= heartland_max_ring as u32;
+    }
+    ring <= heartland_max_ring as u32
+        || target_used > 0
+        || witness.is_some_and(|(d, used)| used > 0 && d <= spawn_reach as u32)
 }
 
 /// `centre` 0: the Concord (ring 0) and the Seats (ring 1).
@@ -277,7 +322,8 @@ impl ConquestParams {
             & wr_u8(&mut d, L::PLACEMENT, self.placement)
             & wr_u16(&mut d, L::R_MAX_CEILING, self.r_max_ceiling)
             & wr_u8(&mut d, L::CONTINUOUS, self.continuous)
-            & wr_u8(&mut d, L::CENTRE, self.centre);
+            & wr_u8(&mut d, L::CENTRE, self.centre)
+            & wr_u8(&mut d, L::SPAWN_REACH, self.spawn_reach);
         d
     }
 
@@ -288,6 +334,7 @@ impl ConquestParams {
             || d[L::PLACEMENT] > PLACEMENT_MIXED
             || d[L::CONTINUOUS] > 1
             || d[L::CENTRE] > CENTRE_FREE
+            || d[L::SPAWN_REACH] > SPAWN_REACH_MAX
             || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0)
         {
             return None;
@@ -328,6 +375,7 @@ impl ConquestParams {
             r_max_ceiling: rd_u16(d, L::R_MAX_CEILING)?,
             continuous: rd_u8(d, L::CONTINUOUS)?,
             centre: rd_u8(d, L::CENTRE)?,
+            spawn_reach: rd_u8(d, L::SPAWN_REACH)?,
         })
     }
 
@@ -484,6 +532,15 @@ impl SeasonParamsV2 {
         {
             return Err("centre");
         }
+        // ⑭ R3: a hull-spawn season is an S1 season of placement 2 (a home
+        // outside the heartland takes the mixed nation of its ring).
+        if self.cq.spawn_reach > SPAWN_REACH_MAX
+            || (self.cq.spawn_reach != SPAWN_RING
+                && (self.cq.placement != PLACEMENT_MIXED
+                    || self.base.program_version < PROGRAM_VERSION_S1))
+        {
+            return Err("spawn");
+        }
         if self.base.dormant_after_secs != self.cq.dormant_after_secs
             || self.base.release_after_secs != self.cq.release_after_secs
         {
@@ -563,6 +620,7 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     r_max_ceiling: 0,
     continuous: 0,
     centre: CENTRE_CONCORD,
+    spawn_reach: SPAWN_RING,
 };
 
 /// Frontier-28's conquest block (§3.12).
@@ -688,12 +746,14 @@ pub const PLACEMENT_PLAYABLE: u8 = PLACEMENT_MIXED;
 
 /// A season with no centre: the playable/devnet presets' first homes are not
 /// laid out as six wedges about (0,0) but by [`PLACEMENT_PLAYABLE`] (⑭ R1,
-/// ⑧ (c)); its `centre` is [`CENTRE_PLAYABLE`] (⑭ R2). Every other byte is
+/// ⑧ (c)); its `centre` is [`CENTRE_PLAYABLE`] (⑭ R2) and its first homes
+/// follow the settled land ([`SPAWN_PLAYABLE`], ⑭ R3). Every other byte is
 /// unchanged.
 pub const fn centreless(p: SeasonParamsV2) -> SeasonParamsV2 {
     let mut q = p;
     q.cq.placement = PLACEMENT_PLAYABLE;
     q.cq.centre = CENTRE_PLAYABLE;
+    q.cq.spawn_reach = SPAWN_PLAYABLE;
     q
 }
 
@@ -877,6 +937,7 @@ mod tests {
         let mut back = S1_LOCAL_7D;
         back.cq.placement = PLACEMENT_WEDGE;
         back.cq.centre = CENTRE_CONCORD;
+        back.cq.spawn_reach = SPAWN_RING;
         assert_eq!(back, s1(MC_LOCAL_7D), "nothing else changed");
         // ⑭ R2: centre 1 needs placement 2 and S1; 2 is refused; it round-trips
         let mut free = S1_LOCAL_7D;
@@ -895,6 +956,58 @@ mod tests {
         p.cq.centre = CENTRE_FREE;
         p.cq.placement = PLACEMENT_MIXED;
         assert!(p.validate().is_err());
+    }
+
+    /// ⑭ R3: the playable presets spawn by the settled land (byte 82), every
+    /// MC preset and `S1_TEST` keep the ring rule; the byte needs placement 2
+    /// and S1, is capped at `SPAWN_REACH_MAX`, and round-trips.
+    #[test]
+    fn playable_presets_spawn_by_the_settled_land_r3() {
+        for p in [S1_LOCAL_7D, S1_LOCAL_14D, S1_LOCAL_CONTINUOUS] {
+            assert_eq!(p.cq.spawn_reach, SPAWN_PLAYABLE);
+            assert_eq!(p.to_bytes()[SEASON_PARAMS_LEN + cq_layout::SPAWN_REACH], 2);
+        }
+        assert_eq!(S1_TEST.cq.spawn_reach, SPAWN_RING);
+        for (_, p) in PRESETS {
+            assert_eq!(p.cq.spawn_reach, SPAWN_RING);
+        }
+        let mut p = S1_LOCAL_7D;
+        p.cq.spawn_reach = SPAWN_REACH_MAX;
+        assert_eq!(p.validate(), Ok(()));
+        assert_eq!(SeasonParamsV2::from_bytes(&p.to_bytes()), Some(p));
+        let mut bad = p.cq.to_bytes();
+        bad[cq_layout::SPAWN_REACH] = SPAWN_REACH_MAX + 1;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        p.cq.spawn_reach = SPAWN_REACH_MAX + 1;
+        assert_eq!(p.validate(), Err("spawn"));
+        p.cq.spawn_reach = 1;
+        p.cq.placement = PLACEMENT_DISPERSED;
+        assert_eq!(p.validate(), Err("spawn"));
+        let mut mc = MC_LOCAL_7D;
+        mc.cq.spawn_reach = 1;
+        assert!(mc.validate().is_err());
+        assert_eq!(cq_layout::RSV, 83);
+    }
+
+    /// ⑭ R3's rule table: the ring rule is today's PlaceHome exactly; the
+    /// hull rule adds the settled province and the witness within reach.
+    #[test]
+    fn spawn_allows_ring_and_hull_rules() {
+        // ring rule: 2..=heartland, no witness
+        for ring in 0..8 {
+            assert_eq!(spawn_allows(0, 3, ring, 0, None), (2..=3).contains(&ring));
+            assert_eq!(spawn_allows(0, 3, ring, 5, None), (2..=3).contains(&ring));
+        }
+        assert!(!spawn_allows(0, 3, 2, 0, Some((1, 1))));
+        // hull rule
+        assert!(!spawn_allows(2, 3, 1, 9, Some((0, 9))), "rings 0-1 never");
+        assert!(spawn_allows(2, 3, 3, 0, None), "the heartland seeds it");
+        assert!(!spawn_allows(2, 3, 4, 0, None));
+        assert!(spawn_allows(2, 3, 9, 1, None), "a settled province");
+        assert!(spawn_allows(2, 3, 9, 0, Some((2, 1))));
+        assert!(!spawn_allows(2, 3, 9, 0, Some((3, 1))), "beyond reach");
+        assert!(!spawn_allows(2, 3, 9, 0, Some((1, 0))), "an empty witness");
+        assert!(spawn_allows(8, 3, 100, 0, Some((8, 1))));
     }
 
     /// ⑧ P1: the local continuous preset is `S1_LOCAL_7D` with exactly the
@@ -1173,6 +1286,7 @@ mod tests {
         p.base.end_bell = crate::presets::NO_END_BELL;
         p.base.join_close_bell = crate::presets::NO_END_BELL;
         p.cq.placement = PLACEMENT_DISPERSED;
+        p.cq.spawn_reach = SPAWN_RING; // (⑭ R3 needs placement 2)
         p.cq.r_max_ceiling = 128;
         p.cq.continuous = 1;
         assert_eq!(p.validate(), Ok(()));
@@ -1187,12 +1301,16 @@ mod tests {
         bad = raw;
         bad[77] = 3; // (2 is PLACEMENT_MIXED since ⑧ wide land (i))
         assert!(ConquestParams::from_bytes(&bad).is_none());
-        // byte 81 is `centre` since ⑭ R2 (1 decodes, 2 is refused); 82 stays reserved
+        // byte 81 is `centre` since ⑭ R2 (1 decodes, 2 is refused); 82 is
+        // `spawn_reach` since ⑭ R3 (≤ 8 decodes, 9 is refused); 83 stays reserved
         bad = raw;
         bad[81] = 2;
         assert!(ConquestParams::from_bytes(&bad).is_none());
         bad = raw;
-        bad[82] = 1;
+        bad[82] = 9;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        bad = raw;
+        bad[83] = 1;
         assert!(ConquestParams::from_bytes(&bad).is_none());
     }
 

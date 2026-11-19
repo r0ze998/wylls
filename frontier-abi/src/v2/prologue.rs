@@ -71,17 +71,22 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
     match ix {
         Ix::PlaceHome => {
             const {
-                &[one!(&[
-                    ACTOR,
-                    PAYER_SW,
-                    SEASON_R,
-                    CITIZEN_W,
-                    s!("frontier", KindV2(K2::Frontier), false, R),
-                    PROVINCE_W,
-                    HOLDING_W,
-                    s!("joinshard", KindV2(K2::JoinShard), false, W),
-                    SYSTEM,
-                ])]
+                &[
+                    one!(&[
+                        ACTOR,
+                        PAYER_SW,
+                        SEASON_R,
+                        CITIZEN_W,
+                        s!("frontier", KindV2(K2::Frontier), false, R),
+                        PROVINCE_W,
+                        HOLDING_W,
+                        s!("joinshard", KindV2(K2::JoinShard), false, W),
+                        SYSTEM,
+                    ]),
+                    // ⑭ R3: a settled Province within the season's
+                    // `spawn_reach` of a home outside the heartland.
+                    rep!(&[s!("witness", KindV2(K2::Province), false, R)], 0, 1),
+                ]
             }
         }
         Ix::DeclareSiege => {
