@@ -148,7 +148,8 @@ export function residentView(me, decode) {
       if (ring(p, q) > 128) { wide += 1; continue; }
       if (holding) continue;
       const tile = Number(h.tile);
-      holding = Object.freeze({ p, q, site, ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}), decoded: h });
+      // (the decoded record rides along, not enumerable: the wide rule reads its stores; the view itself is as it was)
+      holding = Object.freeze(Object.defineProperty({ p, q, site, ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) }, 'decoded', { value: h, enumerable: false }));
     } catch { /* another kind of record: not this rule's */ }
   }
   return Object.freeze({ joined: true, faction, holding, wide });

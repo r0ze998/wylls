@@ -35,9 +35,13 @@ test('what the herald says, read by the page decoder: unknown is never "not join
   assert.equal(residentView(null, decode), null);
   assert.equal(residentView({ v: 2, citizen: null }, decode), null);
   assert.equal(residentView({ v: 1, citizen: { bytes_b64: b64({ kind: 'Holding' }) }, holdings: [] }, decode), null);
-  assert.deepEqual(residentView({ v: 1, citizen: { bytes_b64: b64({ kind: 'Citizen', faction: 4 }) }, holdings: [] }, decode), { joined: true, faction: 4, holding: null });
+  // (wide-local-playable: and how many of its villages are on the wide land, ring 129+ — never the rotation's village)
+  assert.deepEqual(residentView({ v: 1, citizen: { bytes_b64: b64({ kind: 'Citizen', faction: 4 }) }, holdings: [] }, decode), { joined: true, faction: 4, holding: null, wide: 0 });
   const v = residentView({ v: 1, citizen: { bytes_b64: b64({ kind: 'Citizen', faction: 1 }) }, holdings: [{ bytes_b64: 'bad' }, { bytes_b64: b64({ kind: 'Holding', p: -1, q: 2, site: 3, tile: 30 }) }] }, decode);
-  assert.deepEqual(v, { joined: true, faction: 1, holding: { p: -1, q: 2, site: 3, tile: 30 } });
+  assert.deepEqual(v, { joined: true, faction: 1, holding: { p: -1, q: 2, site: 3, tile: 30 }, wide: 0 });
+  assert.equal(v.holding.decoded.kind, 'Holding', 'the decoded record rides along, not enumerable');
+  const w = residentView({ v: 1, citizen: { bytes_b64: b64({ kind: 'Citizen', faction: 1 }) }, holdings: [{ bytes_b64: b64({ kind: 'Holding', p: 129, q: 0, site: 1 }) }, { bytes_b64: b64({ kind: 'Holding', p: 128, q: 0, site: 3 }) }] }, decode);
+  assert.deepEqual(w, { joined: true, faction: 1, holding: { p: 128, q: 0, site: 3 }, wide: 1 });
 });
 
 test('the rule: join its fixed nation, then the next untried heartland site, then the rotation; refusals cool down', () => {
