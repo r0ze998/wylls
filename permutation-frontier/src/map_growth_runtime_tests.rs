@@ -747,6 +747,18 @@ impl World {
 
     /// PlaceHome(P, Q, site) by the member's wallet, the payer funding it.
     fn place_home(&mut self, m: &Member, c: ProvinceCoord, site: u8) -> Result<(), u32> {
+        self.place_home_with(m, c, site, None)
+    }
+
+    /// [`World::place_home`] with ⑭ R3's optional 10th account, the witness
+    /// Province (read-only).
+    fn place_home_with(
+        &mut self,
+        m: &Member,
+        c: ProvinceCoord,
+        site: u8,
+        witness: Option<AccountInfo<'static>>,
+    ) -> Result<(), u32> {
         let province = self.province(c);
         let holding = self.holding(c, site);
         let shard = self.shard(m.faction, m.shard_i);
@@ -761,6 +773,8 @@ impl World {
             shard,
             self.system.clone(),
         ];
+        let mut a = a.to_vec();
+        a.extend(witness.map(|w| with_writable(&w, false)));
         let d = aix::PlaceHome {
             p: c.p as i16,
             q: c.q as i16,
@@ -2071,4 +2085,100 @@ fn centre_free_season_opens_rings_0_and_1_as_ordinary_land() {
             assert_eq!(per, [1; 6]);
         }
     }
+}
+
+/// ⑭ R3 on the real PlaceHome: in a season of placement 2 with
+/// `spawn_reach` 2 a first home may go outside the heartland only next to
+/// the settled land: into a settled province, or one within 2 provinces of
+/// a settled witness Province named as the 10th account. An empty or too
+/// distant witness, a forged one, and no witness are refused; the ring rule
+/// (`spawn_reach` 0) refuses any witness and keeps the heartland.
+#[test]
+fn hull_spawn_places_first_homes_next_to_the_settled_land() {
+    use frontier_abi::v2::presets::{cq_layout as L, PLACEMENT_MIXED};
+    use permutation_rules::frontier::geometry::ring_provinces;
+    let _g = begin();
+    at_bell(1);
+    let mut w = World::new();
+    {
+        let mut sd = w.season.try_borrow_mut_data().unwrap();
+        sd[SEASON_CQ_OFFSET + L::PLACEMENT] = PLACEMENT_MIXED;
+        sd[SEASON_CQ_OFFSET + L::SPAWN_REACH] = 2;
+    }
+    {
+        let mut fd = w.frontier.try_borrow_mut_data().unwrap();
+        put(&mut fd, FR::RINGS_OPENED, &(R_MAX + 1).to_le_bytes());
+    }
+    let mixed = |c: ProvinceCoord| home_nation(c, PLACEMENT_MIXED, HMR, &GENESIS_SEED).unwrap();
+    let target = ring_provinces(6)[0];
+    let nation = mixed(target);
+    let at = |d: u32| {
+        (4..=R_MAX as u32)
+            .flat_map(ring_provinces)
+            .find(|x| x.distance(target) == d)
+            .unwrap()
+    };
+    let (near, far) = (at(2), at(3));
+    let a = w.member(WALLET_A, nation);
+    let b = w.member(WALLET_B, nation);
+    let settle = |w: &mut World, c: ProvinceCoord, n: u8| {
+        let p = w.province(c);
+        p.try_borrow_mut_data().unwrap()[PV::N_SITES_USED] = n;
+        p
+    };
+
+    // Outside the heartland with no witness, an empty one, a distant one.
+    let rs = Err(E::ReservedSite as u32);
+    assert_eq!(w.place_home(&a, target, 0), rs);
+    let empty = settle(&mut w, near, 0);
+    assert_eq!(w.place_home_with(&a, target, 0, Some(empty)), rs);
+    let distant = settle(&mut w, far, 1);
+    assert_eq!(w.place_home_with(&a, target, 0, Some(distant)), rs);
+    // A forged witness: settled bytes at an address that is not its PDA.
+    let mut forged = province_bytes(near);
+    forged[PV::N_SITES_USED] = 1;
+    let forged = info(leak([0x77; 32], PROGRAM, forged, 0, BIG), false, false);
+    assert!(w.place_home_with(&a, target, 0, Some(forged)).is_err());
+    assert_eq!(w.holding_data(target, 0).len(), 0, "nothing was placed");
+
+    // A settled witness 2 provinces away: the home lands.
+    let witness = settle(&mut w, near, 1);
+    assert_eq!(w.place_home_with(&a, target, 0, Some(witness)), Ok(()));
+    let pd = w.province_data(target);
+    assert_eq!(pd[PV::N_SITES_USED], 1);
+    assert_eq!(w.holding_data(target, 0)[H::STATE], H::STATE_FINAL);
+    // The target is settled now: the next home there needs no witness.
+    assert_eq!(w.place_home(&b, target, 1), Ok(()));
+
+    // The heartland still seeds the hull under the rule.
+    let home = heartland().into_iter().find(|c| mixed(*c) == 0).unwrap();
+    let c0 = w.member(WALLET_S, 0);
+    assert_eq!(w.place_home(&c0, home, 0), Ok(()));
+
+    // The ring rule: a witness is refused even next to the settled land.
+    let mut w = World::new();
+    {
+        let mut sd = w.season.try_borrow_mut_data().unwrap();
+        sd[SEASON_CQ_OFFSET + L::PLACEMENT] = PLACEMENT_MIXED;
+    }
+    {
+        let mut fd = w.frontier.try_borrow_mut_data().unwrap();
+        put(&mut fd, FR::RINGS_OPENED, &(R_MAX + 1).to_le_bytes());
+    }
+    let a = w.member(WALLET_A, nation);
+    let witness = settle(&mut w, near, 1);
+    assert_eq!(w.place_home_with(&a, target, 0, Some(witness.clone())), rs);
+    let settled_target = settle(&mut w, target, 1);
+    drop(settled_target);
+    assert_eq!(
+        w.place_home(&a, target, 0),
+        rs,
+        "no settled-province rule either"
+    );
+    let home = heartland()
+        .into_iter()
+        .find(|c| mixed(*c) == nation)
+        .unwrap();
+    assert_eq!(w.place_home_with(&a, home, 0, Some(witness)), rs);
+    assert_eq!(w.place_home(&a, home, 0), Ok(()));
 }

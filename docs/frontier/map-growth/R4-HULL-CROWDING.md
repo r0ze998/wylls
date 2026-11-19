@@ -16,6 +16,9 @@
    program has no such set: no account holds a hull, a nearest-settlement index or per-chunk occupancy.
    Building it is R3's prerequisite ("a hull or nearest-settlement index on chain (a new account or a
    herald-proof)"), and R3 is deferred (large ABI change, not recommended before devnet).
+   *(Update 2026-11-19: R3 is implemented without a stored hull — PlaceHome takes an optional
+   witness Province within `spawn_reach` (conquest byte 82, `presets::spawn_allows`). A
+   per-transaction witness gives θ nothing to read, so this blocker stands.)*
 2. "Open land as chunks around settlements" replaces RingSeed / OpenRing / `rings_opened`, which the
    dense host index, ExtendFrontier, the herald's ring-indexed paths and the page's ring seeds all use.
    That is a layout and ABI change of the same size as R3 (and touches R5's index).

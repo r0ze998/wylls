@@ -601,6 +601,20 @@ pub fn file_ticket(a: &Addresses, p: &Player, sites: &[Site]) -> Instruction {
 
 /// 0x38: grant an immediately final first home; shard is the citizen's stored Join shard.
 pub fn place_home(a: &Addresses, p: &Player, site: Site, faction: u8, shard: u8) -> Instruction {
+    place_home_near(a, p, site, faction, shard, None)
+}
+
+/// [`place_home`] with ⑭ R3's witness: the `(P, Q)` of a settled Province
+/// within the season's `spawn_reach` of `site` (a home outside the
+/// heartland, in a province not yet settled), read-only as the 10th account.
+pub fn place_home_near(
+    a: &Addresses,
+    p: &Player,
+    site: Site,
+    faction: u8,
+    shard: u8,
+    witness: Option<(i16, i16)>,
+) -> Instruction {
     let mut m = p.metas(a);
     m.extend([
         r(a.frontier()),
@@ -609,6 +623,7 @@ pub fn place_home(a: &Addresses, p: &Player, site: Site, faction: u8, shard: u8)
         w(a.join_shard(faction, shard)),
         r(addr::system_program()),
     ]);
+    m.extend(witness.map(|(wp, wq)| r(a.province(wp as i32, wq as i32))));
     build(
         a,
         m,
