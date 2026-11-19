@@ -13,7 +13,7 @@ import { encode } from '../../permutation-server/web/sdk/base58.mjs';
 import { parseWideManifest, worldIdOf, ringPosition, compareRingOrder, WORLD_DOMAIN, WideWalk, loadWide } from '../../permutation-server/web/frontier/map/wide.mjs';
 import {
   terrainOfCapture, wideLandOf, cellsIn, paintWideLand, wideTags, paintWideTags, wideLevel, mountWideLand, holderFill, meanColour,
-  MAP_LIMIT, POLL_S, RETRY_S, NEUTRAL_LAND, WIDE_WORDS, MIN_CELL_PX, cellGrow, PATH_CHUNK,
+  MAP_LIMIT, POLL_S, RETRY_S, NEUTRAL_LAND, WIDE_WORDS, MIN_CELL_PX, cellGrow, PATH_CHUNK, villageNation, villagesOf, villageRec,
 } from '../../permutation-server/web/frontier/map/wideland.mjs';
 import { NATION_LAND } from '../../permutation-server/web/frontier/palette.mjs';
 import { landBox, fitView } from '../../permutation-server/web/frontier/map/camera.mjs';
@@ -34,6 +34,15 @@ function wideAt(p, q, holder = 4) {
   const e = syntheticWideEntry({ seasonAddress, program, p: String(p), q: String(q), slot: '20' });
   const b = Buffer.from(e.wide.capture.bytes_b64, 'base64'); b[4481] = holder;
   e.wide.capture.bytes_b64 = b.toString('base64'); e.wide.keepHolder = holder;
+  return e;
+}
+/** The same province with no village (the land's own colours alone). */
+const bareAt = (p, q, holder = 4) => { const e = wideAt(p, q, holder); e.wide.holdings = []; return e; };
+/** The same province whose one village (site 2) is of `nation` (Holding.FACTION @112 of its capture). */
+function villageAt(p, q, holder, nation) {
+  const e = wideAt(p, q, holder);
+  const b = Buffer.from(e.wide.holdings[0].capture.bytes_b64, 'base64'); b[112] = nation;
+  e.wide.holdings[0].capture.bytes_b64 = b.toString('base64');
   return e;
 }
 /** A legacy record (ring ≤ 128), as the herald lists the heartland. */
@@ -151,7 +160,7 @@ test('thousands of wide provinces: no canvas path holds more than PATH_CHUNK of 
 });
 
 test('far: the nation\'s own colour; nearer: the terrain under a wash of it; tile view: the 61 tiles', async () => {
-  const land = await landOf([wideAt(129, 0, 0), wideAt(129, -1, 0), wideAt(130, -1, 3), wideAt(131, -1, 6)]);
+  const land = await landOf([bareAt(129, 0, 0), bareAt(129, -1, 0), bareAt(130, -1, 3), bareAt(131, -1, 6)]);
   const seen = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
   const chart = fakeCtx();
   paintWideLand(chart.ctx, land, { seen, zoom: 0.05, level: 'chart' });
@@ -199,7 +208,7 @@ test('the land is named once a direction, in the page\'s language', async () => 
 });
 
 test('from far a province is never less than MIN_CELL_PX on screen: a mosaic ringed in ink', async () => {
-  const land = await landOf([wideAt(129, 0, 0), wideAt(129, -1, 0), wideAt(130, -1, 3)]);
+  const land = await landOf([bareAt(129, 0, 0), bareAt(129, -1, 0), bareAt(130, -1, 3)]);
   const seen = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
   const z = 0.003;
   assert.ok(2 * PROVINCE_CIRCUMRADIUS * z < MIN_CELL_PX, 'the chart of a grown map draws a province under a few px');
@@ -286,4 +295,35 @@ test('the map paints the land over the cloud sea and lets the camera, sheet and 
   assert.match(app, /mountWideLand\(\{ herald, isSample: \(\) => !!FS\.sample, recordOf: \(\) => FS\.record \?\? null/);
   for (const k of ["'広い土地'", "'第{0}輪・記録'", "'第{0}–{1}輪・記録'"]) assert.ok(en.includes(k), k);
   // (rendering only: that the module reaches no key API is the CI key scan's own check, scripts/ci/scan-node-key-tests.mjs)
+});
+
+// ------------------------------------------------------------------ villages (verify-pr88)
+test('a wide village is drawn: its nation\'s sigil on its own site at the tile view, one mark per province from farther', async () => {
+  const land = await landOf([villageAt(129, 0, 3, 0), villageAt(129, -1, 3, 5), bareAt(130, -1, 3)]);
+  const c = land.byKey.get('129,0');
+  assert.deepEqual(c.villages, [{ site: 2, nation: 0 }], 'the nation is the village\'s own (Holding.FACTION), not the keep\'s');
+  assert.deepEqual(land.byKey.get('130,-1').villages, []);
+  const rec = villageRec(c.villages);
+  assert.equal(rec.sites[2], 1); assert.equal(rec.owners[2], 0);
+  assert.equal(rec.sites.filter(x => x === 1).length, 1); assert.ok(rec.owners.every((o, i) => i === 2 || o === 7));
+  const seen = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+  for (const [level, zoom] of [['chart', 0.003], ['world', 0.05], ['province', 0.4], ['tile', 1.2]]) {
+    const { ctx } = fakeCtx();
+    assert.equal(paintWideLand(ctx, land, { seen, zoom, level }).villages, 2, level);
+  }
+  // (a province with no village draws exactly what it drew before: no mark)
+  const bare = await landOf([bareAt(129, 0, 3)]);
+  const { ctx } = fakeCtx();
+  assert.equal(paintWideLand(ctx, bare, { seen, zoom: 0.003, level: 'chart' }).villages, 0);
+});
+
+test('a village\'s nation is read only from a whole wide holding capture; anything else names none and is not drawn', () => {
+  const b = Buffer.alloc(1344); b[112] = 4;
+  assert.equal(villageNation({ capture: { bytes_b64: b.toString('base64') } }), 4);
+  b[112] = 6; assert.equal(villageNation({ capture: { bytes_b64: b.toString('base64') } }), null);
+  assert.equal(villageNation({ capture: { bytes_b64: Buffer.alloc(1280).toString('base64') } }), null);
+  assert.equal(villageNation({ capture: { bytes_b64: '%%' } }), null);
+  assert.equal(villageNation(null), null);
+  assert.deepEqual(villagesOf([{ site: 13 }, { site: 1, capture: { bytes_b64: '' } }]), [{ site: 1, nation: null }]);
+  assert.deepEqual(villageRec([{ site: 1, nation: null }]).sites, Array(12).fill(0));
 });
