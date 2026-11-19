@@ -78,6 +78,8 @@ import { marcherSpots, marcherTop, paintMarcher } from './marcher.mjs';
 import { ProtoBoard, POLE_AT } from './protoboard.mjs';
 import { protoLandAt } from '../proto/board-model.mjs';
 import { protoTag } from './protowords.mjs';
+// the wide land (rings 129+, the herald's recorded wide world) on this map and its chart: map/wideland.mjs
+import { paintWideLand, paintWideTags, wideLevel } from './wideland.mjs';
 import { PROTO_LOOK, bannerUnit } from './protoland.mjs';
 import { landMarks, landMarksKey, paintLandMarks } from './landmarks.mjs';
 import { syncProtoChip } from './protochip.mjs';
@@ -874,7 +876,7 @@ export class FrontierMap {
    */
   sheetClip(v, size, T, G) {
     if (T.flat) return 'none';
-    const sh = sheetOf(this.rings ?? 1), m = HAZE_INSET;
+    const sh = sheetOf(this.sheetRings()), m = HAZE_INSET;
     const sx = x => (x - v.x) * v.zoom + size.width / 2, sy = y => (y - v.y) * v.zoom + size.height / 2;
     const x0 = sx(-sh.x + m), x1 = sx(sh.x - m), y0 = sy(-sh.y + m), y1 = sy(sh.y - m);
     if (T.quad().every(p => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1)) return 'none';
@@ -1013,7 +1015,9 @@ export class FrontierMap {
   }
 
   /** The open rings, as the last frame knew them. */
-  ringsNow() { return Math.max(1, this.rings ?? this.source?.()?.ringsOpen ?? 1); }
+  ringsNow() { return Math.max(1, this.rings ?? this.source?.()?.ringsOpen ?? 1, this.wideReach ?? 0); }
+  /** The rings the sheet is cut for: the opened ones, and the recorded wide land past them (map/wideland.mjs). */
+  sheetRings() { return Math.max(1, this.rings ?? 1, this.wideReach ?? 0); }
   /** The furthest the map zooms out: a little past the far view. */
   zoomMin(size = this.size()) {
     if (!(size.width > 0) || !(size.height > 0)) return ZOOM_MIN;
@@ -1164,7 +1168,8 @@ export class FrontierMap {
 
   /** The far view of this canvas: the opened world above the sheet, at world LOD. */
   farView(src = this.source?.(), size = this.size()) {
-    return fitView(Math.max(1, src?.ringsOpen ?? 1), size, { inset: this.inset(), cap: FAR_ZOOM_CAP });
+    // (the recorded wide land, when there is one, is part of the world the far view shows: map/wideland.mjs)
+    return fitView(Math.max(1, src?.ringsOpen ?? 1, src?.wideLand?.reach ?? 0), size, { inset: this.inset(), cap: FAR_ZOOM_CAP });
   }
 
   /** Jump to the far view, unless a person already moved the camera. */
@@ -1892,7 +1897,7 @@ export class FrontierMap {
     const OW = Math.round(width * dpr), OH = Math.round(height * dpr);
     if (staged && (this.canvas.width !== OW || this.canvas.height !== OH)) { this.canvas.width = OW; this.canvas.height = OH; }
     // the table the world's sheet lies on (map/table.mjs): stained boards and a pool of lamp light, laid on the world
-    const table = (g, view = groundView(this.cam.drawn, G)) => paintTable(g, { view, size: gsize, ratio: gr, sheet: sheetOf(this.rings ?? 1), bare: true });
+    const table = (g, view = groundView(this.cam.drawn, G)) => paintTable(g, { view, size: gsize, ratio: gr, sheet: sheetOf(this.sheetRings()), bare: true });
     const inset = this.inset();
     // the depth dressing: on the page, over the stage (custom properties of #map-dress); on a map without a stage, in the canvas
     const dressing = (zoom, deg = 0, shown = 1, haze = 1, sheet = 'none', dusk = 0) => {
@@ -1905,6 +1910,8 @@ export class FrontierMap {
     // (the terrain this frame makes anew is bounded: map/terrain.mjs. The source's own reads above are not in it)
     (src.terrainOf ?? this.terrainOf)?.frame?.();
     this.rings = src.ringsOpen ?? 1;
+    // (the camera, the sheet and the chart reach the recorded wide land too: rings past the opened ones, map/wideland.mjs)
+    this.wideReach = src.wideLand?.reach ?? 0;
     if (!this.open(src, size, { dpr, now })) {
       // who is looking is not known yet: the table and the bare sheet, seen from the seat. Never the world first, and
       // nothing that says who the viewer is or is not (UX brief §12.3). Painted once: it does not change
@@ -2104,7 +2111,7 @@ export class FrontierMap {
    * full angle (the picture is the seat's, not the far view's flat chart).
    */
   waitView(size = this.size(), inset = this.inset()) {
-    const sh = sheetOf(this.rings ?? 1), f = freeBox(size, inset), g = tiltGeo(size, this.tiltMax, this.persp);
+    const sh = sheetOf(this.sheetRings()), f = freeBox(size, inset), g = tiltGeo(size, this.tiltMax, this.persp);
     const lean = g.flat ? 1 : Math.cos((g.deg * Math.PI) / 180);
     const zoom = Math.max(Math.min(ZOOM_MIN, this.zoomMin(size)), Math.min((WAIT_VIEW.wide * f.width) / (2 * sh.x), (WAIT_VIEW.high * f.height) / (2 * sh.y * lean)));
     const s = g.toStage(size.width / 2 + f.x, size.height / 2 + f.y + WAIT_VIEW.drop * f.height);
@@ -2121,7 +2128,7 @@ export class FrontierMap {
    * waiting picture and the dive's first frame are the same pixels.
    */
   paintBare(g, gv, gsize, ratio) {
-    const sheet = sheetOf(this.rings ?? 1), z = gv.zoom, hw = gsize.width / 2 / z, hh = gsize.height / 2 / z;
+    const sheet = sheetOf(this.sheetRings()), z = gv.zoom, hw = gsize.width / 2 / z, hh = gsize.height / 2 / z;
     const box = { x0: gv.x - hw, y0: gv.y - hh, x1: gv.x + hw, y1: gv.y + hh };
     const corners = [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }];
     if (!this.quickSheet(g, { view: gv, size: gsize, ratio, sheet, corners, ringsOpen: this.rings ?? 1 })) {
@@ -2355,7 +2362,7 @@ export class FrontierMap {
     // the sheet the world is drawn on (map/table.mjs), and the table where the picture reaches past it. The paper's
     // grain is made for the same resolution as the provinces' own sheets (the tile view's sprite set, the far
     // bitmaps' step), so the paper is one
-    const sheet = sheetOf(ringsOpen);
+    const sheet = sheetOf(Math.max(ringsOpen, src.wideLand?.reach ?? 0));
     const paperRes = lod === 'tile' ? artSize(RADIUS * Math.max(z, artZoom) * dpr).r / RADIUS : farRes((this.cam.moving ? Math.min(z, this.cam.view.zoom) : z) * dpr);
     const seen = { x0: view.x - width / 2 / z, y0: view.y - height / 2 / z, x1: view.x + width / 2 / z, y1: view.y + height / 2 / z };
     const corners = [{ x: seen.x0, y: seen.y0 }, { x: seen.x1, y: seen.y0 }, { x: seen.x1, y: seen.y1 }, { x: seen.x0, y: seen.y1 }];
@@ -2559,6 +2566,11 @@ export class FrontierMap {
     }
     // away from the tile view: the sea over the far picture (at the tile view it lies between the props and the people)
     if (lod !== 'tile' || !tileOpts) { ctx.setTransform(...world); sea(ctx, null); }
+    // the recorded wide land (rings 129+, map/wideland.mjs): over the cloud sea that lies past the opened rings, at this
+    // frame's level of detail; a place the record does not list stays cloud (unknown, not land)
+    const wideLand = src.wideLand?.count ? src.wideLand : null;
+    if (wideLand) { ctx.setTransform(...world); globalThis.__frontierTrace?.('scene: wide land'); this.wideDrawn = paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse) }); }
+    else this.wideDrawn = null;
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
     // the season's first-home placement (home.mjs seasonPlace, in the source as `place`): the home region the map
@@ -2656,6 +2668,8 @@ export class FrontierMap {
       // where this frame's words may stand (map/labelpass.mjs): clear of the HUD, of each other, and not on a tile whose pile is put away
       const pass = F.pass = this.labelPass(z, !!w);
       realm?.(o);
+      // (the wide land's name, one tag a direction, from afar: nearer, the land itself says where it is)
+      if (wideLand && lod !== 'tile') paintWideTags(o, wideLand, { seen, zoom: z });
       labels?.(o, pass);
       if (src.threats?.length) { paintThreats(o, src.threats, z, src.threatLabel ?? null, 'label'); this.invalidateSoon(); }
       // the wait's words, the candidates' first: they keep clear of the standard's cloth, and the standard's own tag
