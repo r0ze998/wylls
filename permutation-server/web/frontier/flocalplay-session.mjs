@@ -15,7 +15,7 @@
 import { L, onLangChange } from '../lang.mjs';
 import { expiryStable } from './flocalplay-expiry.mjs';
 import { CIV_NAMES } from '../i18n.mjs';
-import { worldEndedText } from './flocalplay-ended.mjs';
+import { worldEndedText, launcherLostText } from './flocalplay-ended.mjs';
 
 export const SESSION_NOTICE_ID = 'local-play-session';
 /** An end time on this machine's clock, `YYYY-MM-DD HH:MM` (the same in either language). */
@@ -89,6 +89,8 @@ export function pairGuideText(view) {
 
 /** One notice per document: a second mount returns the first. */
 const mounted = new WeakMap();
+/** B21: the notice mounted on `doc`, or null (the page tells it when its world ended or its launcher went silent). */
+export const sessionNoticeOf = (doc = globalThis.document) => (doc ? mounted.get(doc) ?? null : null);
 
 /**
  * `doc` / `win`: the page's (tests pass stand-ins); `onCheck`: the gate's keeper ask (optional). →
@@ -121,6 +123,9 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
   const pairCheck = pairs ? el('button', 'local-play-session-check local-play-session-pair') : null, pairSaid = pairs ? el('p', 'local-play-session-keeper local-play-session-pair-said') : null;
   if (pairs) { pairCheck.type = 'button'; pairSaid.hidden = true; box.append(pairCheck, pairSaid); }
   box.append(fold);
+  // B21: what the page knows of the world itself — 'live', 'ended' (confirmed; never taken back) or 'lost' (the launcher
+  // cannot be reached). The box then says that, not an earlier keeper answer ("services running") or a coming end time
+  let world = 'live';
   let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null, folded = false, pairAsking = false, pairAnswer = null;
   const label = () => {
     title.textContent = L`この試験世界について`;
@@ -131,6 +136,8 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
     items[1].textContent = persisted && end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろにいったん止まります（開始サービスが決めた時刻。この端末の時計で表示）。`
       : end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。`
       : L`自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。`;
+    if (world === 'ended') items[1].textContent = L`この世界は終了しました。ターンはもう進みません。`;
+    else if (world === 'lost') items[1].textContent = L`この世界はいま止まっているようです（開始サービスに届きません）。`;
     items[2].textContent = persisted ? L`止まっても進行は保存されています。同じブラウザで開始を押すと、続きから再開します。`
       : L`世界が終わると、その世界の進行は保存されません。`;
     if (isDemo) items[3].textContent = L`この世界は試験用の攻略デモです。時計は ${demo} 倍の合成時計で、ほかの村は試験参加者です（自然な世界の時間ではありません）。`;
@@ -139,7 +146,7 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
       : L`鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。`;
     fold.textContent = folded ? L`詳しく見る` : L`たたむ`;
     fold.setAttribute?.('aria-expanded', folded ? 'false' : 'true');
-    if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = keeperText(answer); said.textContent = t ?? ''; said.hidden = t === null; }
+    if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = world === 'ended' ? worldEndedText() : world === 'lost' ? launcherLostText() : keeperText(answer); said.textContent = t ?? ''; said.hidden = t === null; }
     if (pairs) { pairCheck.textContent = pairAsking ? L`確認しています…` : L`二人の対戦の国と砦を確認`; const t = pairGuideText(pairAnswer); pairSaid.textContent = t ?? ''; pairSaid.hidden = t === null; }
   };
   const paint = () => {
@@ -188,6 +195,12 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
       else if (!expiryStable(end, view)) { end = null; moved = true; }
       label(); paint();
     },
+    /** B21: the world as the page knows it now: 'ended' stays; 'lost' and 'live' follow the launcher. A stale keeper answer is dropped. */
+    worldState(state) {
+      if (!live || world === 'ended' || !['live', 'ended', 'lost'].includes(state) || state === world) return;
+      world = state; answer = null; label(); paint();
+    },
+    worldStateNow: () => world,
     endState: () => (end !== null ? 'known' : 'unknown'),
     isDestroyed: () => destroyed,
     unmount() {
