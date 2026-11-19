@@ -8,6 +8,8 @@
 //     --cu-limit <n> --loaded-limit <n> [--preview-bin <abs path of frontier-original-expedition-preview>]
 //     [--resident-bin <abs path of frontier-experimental-expedition-prepare>]
 //     [--conquest-bin <abs path of the conquest prepare CLI>]   (refused at start while the dispatch kind is unpinned)
+//     [--resident-turns <abs dir>]   a RESIDENT's relay: one action per bell for its wallet's Citizen on every send
+//                                    route (local-play-turns.mjs; the launcher gives it to operator residents' relays)
 //
 // Binds 127.0.0.1 only, answers loopback peers only, bodies ≤ 16 KiB of JSON.
 // Holds no key. Prints one public line when listening.
@@ -23,6 +25,7 @@ import { createLocalPlayConquest, ConquestPrepareError, CONQUEST_ROUTES } from '
 import { CONQUEST_ORDERS_ROUTE } from './local-play-conquest-orders.mjs';
 import { createLocalPlayAct, LocalActError, LOCAL_ACT_ROUTES } from './local-play-act.mjs';
 import { createLocalPlayMarch, LocalMarchError, LOCAL_MARCH_ROUTES } from './local-play-march.mjs';
+import { residentTurnsFromArgs } from './local-play-turns.mjs';
 
 export const MAX_BODY = 16 * 1024;
 
@@ -126,7 +129,7 @@ export function serveLocalPlayRelay(relay, port, { reveal = null, preview = null
 const FLAGS = { '--rpc': 'rpc', '--program': 'program', '--season': 'season', '--wallet': 'wallet', '--ruleset-hash': 'rulesetHash',
   '--prepare-bin': 'prepareBin', '--cu-limit': 'cuLimit', '--loaded-limit': 'loadedLimit', '--listen-port': 'port' };
 const OPTIONAL = { '--preview-bin': 'previewBin', '--resident-bin': 'residentBin', '--conquest-bin': 'conquestBin', '--conquest-capability': 'conquestCapability',
-  '--runner-instance': 'runnerInstance', '--economy': 'economy', '--march-trial': 'marchTrial' };
+  '--runner-instance': 'runnerInstance', '--economy': 'economy', '--march-trial': 'marchTrial', '--resident-turns': 'residentTurns' };
 /** `--march-trial local-march-trial-v1` (TEST-ONLY; needs `--economy`): the march capability answers `trial: true`. */
 export const MARCH_TRIAL_MODE = 'local-march-trial-v1';
 /**
@@ -199,8 +202,10 @@ export function parseArgs(argv) {
   const trialWord = cfg.marchTrial ?? null; delete cfg.marchTrial;   // (apart from the relay's closed configuration)
   if (trialWord !== null && trialWord !== MARCH_TRIAL_MODE) throw new Error(`--march-trial must be ${MARCH_TRIAL_MODE}`);
   if (trialWord !== null && economyWord === null) throw new Error('--march-trial needs --economy');
+  const residentTurns = cfg.residentTurns ?? null; delete cfg.residentTurns;   // (apart from the relay's closed configuration)
+  if (residentTurns !== null && (!path.isAbsolute(residentTurns) || residentTurns.includes('\0'))) throw new Error('--resident-turns must be an absolute path');
   if (String(port) !== String(Number.parseInt(port, 10))) throw new Error('--listen-port');
-  return { port, cfg: { localPlay, ...cfg }, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy: economyWord !== null, marchTrial: trialWord !== null };
+  return { port, cfg: { localPlay, ...cfg }, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy: economyWord !== null, marchTrial: trialWord !== null, ...(residentTurns === null ? {} : { residentTurns }) };
 }
 
 /**
@@ -208,20 +213,20 @@ export function parseArgs(argv) {
  * otherwise `createLocalPlayAct` over the relay's own configuration, with the one runner instance when there is one.
  * `create` is for tests.
  */
-export function actFromArgs({ cfg, economy = false, runnerInstance = null }, { create = createLocalPlayAct } = {}) {
+export function actFromArgs({ cfg, economy = false, runnerInstance = null, turns = null }, { create = createLocalPlayAct } = {}) {
   if (economy !== true) return null;
-  return create(runnerInstance === null ? { cfg } : { cfg, runnerInstance });
+  return create({ cfg, ...(runnerInstance === null ? {} : { runnerInstance }), ...(turns === null ? {} : { turns }) });
 }
 
 /**
  * The ordinary march's routes of a start: ONLY with `--economy page-signed-v1`, `--march-trial local-march-trial-v1` and
  * `--runner-instance`; never otherwise (default closed). `create` is for tests.
  */
-export function marchFromArgs({ cfg, economy = false, runnerInstance = null, marchTrial = false }, { create = createLocalPlayMarch } = {}) {
+export function marchFromArgs({ cfg, economy = false, runnerInstance = null, marchTrial = false, turns = null }, { create = createLocalPlayMarch } = {}) {
   // DEFAULT CLOSED: the economy flag alone serves no march. Only the test-only trial word, with the economy routes and
   // a pinned runner instance, builds it (createLocalPlayMarch refuses anything less as well).
   if (economy !== true || marchTrial !== true || runnerInstance === null) return null;
-  return create({ cfg, runnerInstance, trial: true });
+  return create({ cfg, runnerInstance, trial: true, ...(turns === null ? {} : { turns }) });
 }
 
 /**
@@ -234,14 +239,14 @@ export function marchFromArgs({ cfg, economy = false, runnerInstance = null, mar
  * proves nothing by itself; that it is this start's is the launcher's responsibility. The relay only refuses one
  * that does not name its own program, Season and runner, and then serves nothing but that capability's city.
  */
-export function conquestFromArgs({ cfg, conquestBin, conquestCapability, runnerInstance = null }, { read = readBounded, create = createLocalPlayConquest } = {}) {
+export function conquestFromArgs({ cfg, conquestBin, conquestCapability, runnerInstance = null, turns = null }, { read = readBounded, create = createLocalPlayConquest } = {}) {
   if (conquestBin === null || conquestBin === undefined) {
     if (conquestCapability !== null && conquestCapability !== undefined) throw new Error('--conquest-capability needs --conquest-bin');
     return null;
   }
   const capability = conquestCapability === null || conquestCapability === undefined ? null : readConquestCapability(conquestCapability, read);
   // (the runner instance is handed on only when one was given: the call is the same as before for a runner that states none)
-  return create(runnerInstance === null ? { cfg, conquestBin, capability } : { cfg, conquestBin, capability, runnerInstance });
+  return create({ cfg, conquestBin, capability, ...(runnerInstance === null ? {} : { runnerInstance }), ...(turns === null ? {} : { turns }) });
 }
 
 /**
@@ -249,25 +254,27 @@ export function conquestFromArgs({ cfg, conquestBin, conquestCapability, runnerI
  * was given, and the conquest routes (`conquestFromArgs`). The ONE runner instance of the command line, when there is
  * one, goes to all three alike — they send to the same runner. `make` is for tests.
  */
-export function relaysFromArgs({ cfg, residentBin = null, conquestBin = null, conquestCapability = null, runnerInstance = null },
+export function relaysFromArgs({ cfg, residentBin = null, conquestBin = null, conquestCapability = null, runnerInstance = null, turns = null },
   { relay = createLocalPlayRelay, resident = createLocalPlayResident, conquest = conquestFromArgs } = {}) {
-  const pinned = runnerInstance === null ? {} : { runnerInstance };
+  const pinned = { ...(runnerInstance === null ? {} : { runnerInstance }), ...(turns === null ? {} : { turns }) };
   return { relay: relay({ cfg, ...pinned }), resident: residentBin === null ? null : resident({ cfg, residentBin, ...pinned }),
-    conquest: conquest({ cfg, conquestBin, conquestCapability, runnerInstance }) };
+    conquest: conquest({ cfg, conquestBin, conquestCapability, runnerInstance, ...(turns === null ? {} : { turns }) }) };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
-    const { port, cfg, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy, marchTrial } = parseArgs(process.argv.slice(2));
+    const { port, cfg, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy, marchTrial, residentTurns } = parseArgs(process.argv.slice(2));
+    // (a resident's relay: one action per bell on every send route — the same lease for all of them)
+    const turns = residentTurnsFromArgs(residentTurns);
     // (the three relays that SEND: depart, resident, conquest — with the one runner instance when the command line
     //  gives one. The conquest routes throw while an opening condition is not established: asking does not open them)
-    const { relay, resident, conquest } = relaysFromArgs({ cfg, residentBin, conquestBin, conquestCapability, runnerInstance });
+    const { relay, resident, conquest } = relaysFromArgs({ cfg, residentBin, conquestBin, conquestCapability, runnerInstance, turns });
     // (the Reveal routes over the same pins: the same wallet, program, Season and loopback runner)
     const reveal = createLocalPlayReveal({ cfg });
     const preview = previewBin === null ? null : createLocalPlayPreview({ cfg, previewBin });
     // (the page-signed economy commands: only when the command line asks for them in words)
-    const act = actFromArgs({ cfg, economy, runnerInstance });
-    const march = marchFromArgs({ cfg, economy, runnerInstance, marchTrial });
+    const act = actFromArgs({ cfg, economy, runnerInstance, turns });
+    const march = marchFromArgs({ cfg, economy, runnerInstance, marchTrial, turns });
     const s = await serveLocalPlayRelay(relay, port, { reveal, preview, resident, conquest, act, march });
     console.log(JSON.stringify({ schema: 'frontier-local-play-relay-v1', listen: `127.0.0.1:${s.port}`, ...relay.info() }));
     const stop = () => s.close().then(() => process.exit(0));

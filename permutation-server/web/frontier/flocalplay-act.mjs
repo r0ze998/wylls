@@ -40,7 +40,8 @@ export const LOCAL_ACT_SEASON_ID = '11';
  * `LocalActSendRefused` (the send was attempted) and `LocalActMessageUsed` (the bytes or the signature are already known).
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
-  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed']);
+  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
 /**
  * (2026-11-19, fix-march-held) The relay's answer that the RUNNER did not take the transaction (gateway
  * local-play-act.mjs `runnerRejection`: its preflight failed, its blockhash was unknown, its signature did not verify):

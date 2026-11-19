@@ -660,7 +660,7 @@ export class AgentGateway {
         const built = { lastValidBlockHeight, slotFloor };
         try {
           sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
-            tx, wire, shape, lastValidBlockHeight, viaAgent: true,
+            tx, wire, shape, lastValidBlockHeight, viaAgent: true, turnSource: `agent:${r.source}`,
             beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
               // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
               if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
@@ -875,6 +875,15 @@ export class AgentGateway {
 
   /** Whether `pubkey` is one of this relay's agent keys (the relay refuses such a key on POST /f/relay). */
   isAgentKey(pubkey) { return this.keyring.isAgentKey(pubkey); }
+
+  /**
+   * Whether `citizen` (a Citizen address) is a resident here: an agent of its owner is in auto mode. The relay then
+   * holds the owner's own POST /f/relay writes for that Citizen to the same one-action-per-bell lease as the agent's
+   * (routes/relay.mjs residentTurnOf). A read.
+   */
+  residentCitizen(citizen) {
+    return this.ledger.agents().some(rec => rec.mode === MODES.AUTO && this.ctx.addresses.citizen(rec.owner) === citizen);
+  }
 
   /**
    * Today's budget line as the ledger would roll it: the stored day is rolled only when a hold is made, so a

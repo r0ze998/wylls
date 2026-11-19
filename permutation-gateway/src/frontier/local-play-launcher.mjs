@@ -818,7 +818,10 @@ export async function startOperatorResidents({ n, nations = null, dir, ports, rp
   if (!first || first.schema !== OPERATOR_RESIDENTS_SCHEMA || first.mode !== OPERATOR_RESIDENTS_MODE || first.test_only !== true || !Array.isArray(wallets) || wallets.length !== n
     || !wallets.every(validWallet) || new Set([...wallets, ...players]).size !== n + players.length) throw fault('OperatorResidentsNotReady', 503);
   for (const w of wallets) await (limit.operatorFund ?? (a => runnerRpc(rpc, 'requestAirdrop', [a, OPERATOR_LAMPORTS])))(w);
-  wallets.forEach((w, i) => launch(`relay-op-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i])]));
+  // (each is a RESIDENT's relay: one action per bell for its wallet's Citizen, Q16-2 — one lease directory per world,
+  //  so a second relay for the same wallet in this world could not double-act either)
+  const turnsDir = path.resolve(dir, 'resident-turns');
+  wallets.forEach((w, i) => launch(`relay-op-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i]), '--resident-turns', turnsDir]));
   await fs.writeFile(path.join(dir, 'operators.json'), JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, count: n, ...(nations ? { nations: [...nations] } : {}), wallets, ports, lamports_each: OPERATOR_LAMPORTS, homes: homes.length }), { flag: 'wx' });
   return Object.freeze({ count: n, wallets: Object.freeze([...wallets]), ports: Object.freeze([...ports]) });
 }
@@ -836,8 +839,11 @@ export async function startExternalResidents({ wallets, dir, ports, rpc, interna
   for (const p of ports) { await freePort(p.herald); await freePort(p.relay); }
   for (const w of wallets) { if (stopping()) throw fault('WorldStopped', 503); await (limit.externalFund ?? (a => runnerRpc(rpc, 'requestAirdrop', [a, OPERATOR_LAMPORTS])))(w); }
   const heralds = {};
+  // (each is a RESIDENT's relay too — ⑤B, an external AI resident: one action per bell for its wallet's Citizen, Q16-2,
+  //  on the world's one lease directory, the same as the operator residents' relays)
+  const turnsDir = path.resolve(dir, 'resident-turns');
   for (const [i, w] of wallets.entries()) {
-    launchSide(`relay-ext-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i].relay)]);
+    launchSide(`relay-ext-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i].relay), '--resident-turns', turnsDir]);
     const x = createWorldProxy({ port: ports[i].herald, targetPort: internalHerald, launcherPort, relayPort: ports[i].relay });
     proxies.push(x);
     await new Promise((resolve, reject) => { x.once('error', reject); x.listen(ports[i].herald, '127.0.0.1', resolve); });

@@ -37,6 +37,7 @@ import { encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { parseTransaction, wireTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
+import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf } from './local-play-operator-policy.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 
@@ -142,8 +143,8 @@ export function parseArgs(argv) {
   return { count, ports, herald: o.herald, homes, ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
 }
 
-/** PR #62's relay answer: this resident already acted in this bell (resident-turns.mjs RESIDENT_ALREADY_ACTED). */
-export const RESIDENT_ALREADY_ACTED = 'ResidentAlreadyActed';
+/** PR #62's relay answer: this resident already acted in this bell (re-exported from resident-turns.mjs). */
+export { RESIDENT_ALREADY_ACTED };
 
 /** The Season's GENESIS_TS from the herald's `/h/season` record (the game's own decoder), or null when unreadable. */
 export function genesisOf(record, rulesetHash = null, decode = decodePrefix) {
@@ -173,11 +174,12 @@ export async function residentTurn(r, { homes, deps, bell = null }) {
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
   const detail = r.lastRefusal ?? null; r.lastRefusal = null;
-  // (Q16-2, PR #62) the relay says this resident already acted in this bell: nothing was sent and nothing is marked tried;
-  // the bell is used up here as well, so the policy does not ask again before the next bell
+  // One action per resident per bell (Q16-2): its relay (PR #62, resident-turns.mjs) says this bell's action was already
+  // taken — by this resident or by another writer for it. Not a refusal: nothing was sent, nothing is marked tried; the
+  // bell is used up here as well ('held', no refusal counted), so the policy does not ask again before the next bell
   if (!sent.ok && sent.code === RESIDENT_ALREADY_ACTED) {
     r.budget.spent('held', deps.now(), bell);
-    return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', seen, budget: r.budget.state() };
+    return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), seen, budget: r.budget.state() };
   }
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
   if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
