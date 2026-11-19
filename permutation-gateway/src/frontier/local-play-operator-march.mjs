@@ -16,7 +16,7 @@
 import fs from 'node:fs/promises';
 import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
 import { loadKernel } from '../../../permutation-server/web/frontier/wasm.mjs';
-import { conquestEnabled, kernelFile } from '../../../permutation-server/web/frontier/fconquest.mjs';
+import { conquestEnabled, kernelFile, keepFromProvince } from '../../../permutation-server/web/frontier/fconquest.mjs';
 import { reachableKeeps } from '../../../permutation-server/web/frontier/fkeepreach.mjs';
 import { planRoute, sendMarch, earliestBell, arrivalWindow, tipOptions, departMargin, DEPART_STAMINA, freeTransitSlot } from '../../../permutation-server/web/frontier/fmarch.mjs';
 import { sealMarch, checkBeacon } from '../../../permutation-server/web/frontier/seal.mjs';
@@ -70,7 +70,36 @@ export function keepsOf(control, overviews) {
 export function warRings(control, homeRings) {
   const homes = [...(homeRings ?? [])];
   const near = r => homes.some(h => Math.abs(h - r) <= REACH_PROVINCES + 1);
-  return [...new Set((control?.provinces ?? []).map(p => ring(p.p, p.q)))].filter(r => r >= 1 && near(r)).sort((a, b) => a - b);
+  // (fix-loop4: and every ring around a village up to the last ring of ordinary land — a wide world's control snapshot
+  //  covers only the map before its growth (rings 0-2 at the setup's last turn), so the rim's keeps were never seen)
+  const around = homes.flatMap(h => Array.from({ length: 2 * REACH_PROVINCES + 3 }, (_, i) => h - REACH_PROVINCES - 1 + i)).filter(r => r <= WIDE_FIRST_RING - 1);
+  return [...new Set([...(control?.provinces ?? []).map(p => ring(p.p, p.q)), ...around])].filter(r => r >= 1 && near(r)).sort((a, b) => a - b);
+}
+
+/** The first ring of the wide land (an ordinary Depart never goes there; wide marches are their own). */
+export const WIDE_FIRST_RING = 129;
+
+/**
+ * (fix-loop4) The keeps of the provinces within REACH_PROVINCES of `homes` (`[{p, q}]`) that the ring `overviews` show a
+ * keep in, from each one's own province record as the page builds them (fconquest.mjs keepFromProvince — controller.mjs
+ * loadEnvelope), laid over `keeps` (the control snapshot's) where newer. `read(p, q)` → a herald province answer.
+ * Ordinary land only (never the wide land).
+ */
+export async function nearKeeps(keeps, overviews, homes, read) {
+  const out = new Map(keeps);
+  const want = [];
+  for (const o of overviews.values()) for (const pv of o.provinces ?? []) {
+    if (pv.keepTile === null || pv.keepTile === undefined || ring(pv.p, pv.q) >= WIDE_FIRST_RING) continue;
+    if (homes.some(h => provinceDistance(h, pv) <= REACH_PROVINCES)) want.push(pv);
+  }
+  for (const pv of want) {
+    let r; try { r = await read(pv.p, pv.q); } catch { continue; }
+    const k = r?.ok ? keepFromProvince(r.province) : null;
+    if (!k) continue;
+    const c = out.get(`${k.p},${k.q}`);
+    if (!c || k.asOfBell >= (c.asOfBell ?? 0)) out.set(`${k.p},${k.q}`, Object.freeze(k));
+  }
+  return out;
 }
 
 /**
@@ -80,7 +109,7 @@ export function warRings(control, homeRings) {
 export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fetch(...a) }) {
   const herald = createHerald({ base, fetch: f });
   let kernel = null, kernelFor = null;
-  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), seeds: [], controlBell: null, bellRead: null, homeRings: new Set() };
+  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), seeds: [], controlBell: null, bellRead: null, homeRings: new Set(), homes: new Map() };
   async function refresh() {
     const st = await (await f(`${base}/h/status`, { signal: AbortSignal.timeout(4000) })).json();
     const now = Array.isArray(st?.live) ? Number(st.live[1]) : NaN;
@@ -101,7 +130,8 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
           const rings = warRings(c.control, world.homeRings);
           const overviews = new Map();
           for (const r of rings) { const o = await herald.overview2(r); if (o.ok) overviews.set(r, o); }
-          world.keeps = keepsOf(c.control, overviews); world.controlBell = c.control.bell;
+          world.keeps = await nearKeeps(keepsOf(c.control, overviews), overviews, [...world.homes.values()], (p, q) => herald.province(p, q));
+          world.controlBell = c.control.bell;
         }
       }
       world.bellRead = bellAt(world.clock.genesisTs, now);
@@ -128,6 +158,7 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     // (the village's ring: the next refresh reads the keeps of the rings around it; a newly known ring is read at once)
     const hr = ring(holding.p, holding.q);
     if (!world.homeRings.has(hr)) { world.homeRings.add(hr); world.bellRead = null; }
+    if (!world.homes.has(wallet)) { world.homes.set(wallet, { p: holding.p, q: holding.q }); world.bellRead = null; }
     const where = new Map();
     for (const h of me.record.hosts ?? []) if (Array.isArray(h?.province)) where.set(`${h.province[0]},${h.province[1]}`, { p: Number(h.province[0]), q: Number(h.province[1]) });
     where.set(`${holding.p},${holding.q}`, { p: holding.p, q: holding.q });

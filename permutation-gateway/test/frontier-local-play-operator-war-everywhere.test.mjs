@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { chooseMarch, MUSTER_MIN } from '../src/frontier/local-play-operator-war.mjs';
 import { createResidentMemory, decideNext, noteOutcome, createOperatorBudget } from '../src/frontier/local-play-operator-policy.mjs';
-import { warRings, REACH_PROVINCES } from '../src/frontier/local-play-operator-march.mjs';
+import { warRings, nearKeeps, REACH_PROVINCES, WIDE_FIRST_RING } from '../src/frontier/local-play-operator-march.mjs';
 import { residentTurn, WAR_DEFAULTS, parseArgs, WAR_WIDE_RETRY_BELLS } from '../src/frontier/local-play-operator-residents.mjs';
 import { wideMarchDue } from '../src/frontier/local-play-operator-policy.mjs';
 
@@ -17,10 +17,11 @@ const row = (p, q, troops, secs) => ({ p, q, tile: 30, holder: 2, troops, route:
 test('the war eyes read ring 1 too (a natural world\'s contestable land) and only rings near a village', () => {
   const control = { provinces: [[0, 0], [1, 0], [-1, 1], [2, -1], [0, 3], [4, 0], [9, 0], [0, -128], [65, -129]].map(([p, q]) => ({ p, q })) };
   assert.deepEqual(warRings(control, new Set()), [], 'no village yet: nothing read');
-  assert.deepEqual(warRings(control, new Set([2])), [1, 2, 3, 4], 'a ring-2 village: ring 1 included (it was skipped: r >= 2), ring 0 never');
+  assert.deepEqual(warRings(control, new Set([2])), [1, 2, 3, 4, 5, 6], 'a ring-2 village: ring 1 included (it was skipped: r >= 2), ring 0 never, and the rings around it');
   assert.equal(REACH_PROVINCES + 1, 4);
-  assert.deepEqual(warRings(control, new Set([128])), [128, 129], 'a rim village of a wide world: the rim and the wide land only, not 131 rings');
-  assert.deepEqual(warRings(null, new Set([2])), []);
+  assert.deepEqual(warRings(control, new Set([128])), [124, 125, 126, 127, 128, 129], 'a rim village of a wide world: the rings around it (absent from its control snapshot), not 131 rings');
+  assert.deepEqual(warRings({ provinces: [{ p: 0, q: 0 }, { p: 1, q: 0 }] }, new Set([128])), [124, 125, 126, 127, 128], 'never the wide land unless the snapshot has it');
+  assert.deepEqual(warRings(null, new Set([2])), [1, 2, 3, 4, 5, 6], 'no snapshot: still the rings around the village');
   const src = readFileSync(new URL('local-play-operator-march.mjs', SRC), 'utf8');
   assert.match(src, /const rings = warRings\(c\.control, world\.homeRings\);/);
   assert.doesNotMatch(src, /filter\(r => r >= 2\)/);
@@ -110,4 +111,20 @@ test('a war resident whose expedition is held (province settling) leaves the nex
   const p = mk(false);
   await residentTurn(p.r, { homes: [], deps: p.deps, bell: 50, wideTargets: [] });
   assert.equal(p.r.memory.wideMarchUntil, undefined, 'peaceful: as before (#92)');
+});
+
+test('the war eyes take the keeps in reach from their own province records, as the page does (a wide world\'s rim keeps)', async () => {
+  const pv = (p, q, holder, resolvedNext = 200) => ({ ok: true, province: { p, q, layoutVersion: 2, resolvedNext, keep: { tile: 50, holder, troops: 100, flags: 0, consolidatedUntilBell: 0, contender: 255, progress: 0, required: 72 } } });
+  const ov = new Map([[128, { provinces: [{ p: -63, q: 128, keepTile: 50 }, { p: -62, q: 128, keepTile: 50 }, { p: -40, q: 128, keepTile: 50 }, { p: -62, q: 129, keepTile: 50 }, { p: -61, q: 128, keepTile: null }] }]]);
+  const reads = [];
+  const read = async (p, q) => { reads.push(`${p},${q}`); return p === -63 ? pv(p, q, 4) : pv(p, q, 3); };
+  const old = new Map([['-62,128', { p: -62, q: 128, tile: 50, holder: 7, troops: 100, asOfBell: 126 }]]);
+  const k = await nearKeeps(old, ov, [{ p: -63, q: 128 }], read);
+  assert.deepEqual(reads, ['-63,128', '-62,128'], 'only keeps within reach, never the far one, the wide land or a province with no keep');
+  assert.equal(WIDE_FIRST_RING, 129);
+  assert.deepEqual([...k.keys()].sort(), ['-62,128', '-63,128']);
+  assert.equal(k.get('-62,128').holder, 3, 'the newer province record replaces the stale snapshot');
+  assert.equal(old.get('-62,128').holder, 7, 'the snapshot passed in is not changed');
+  const failing = await nearKeeps(new Map(), ov, [{ p: -63, q: 128 }], async () => { throw new Error('down'); });
+  assert.equal(failing.size, 0, 'a failed read adds nothing');
 });
