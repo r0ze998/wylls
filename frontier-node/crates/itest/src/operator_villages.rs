@@ -324,7 +324,8 @@ mod tests {
     }
 
     #[test]
-    fn the_runner_wires_it_on_any_natural_world_opens_rings_only_in_the_demo_and_writes_nothing_directly() {
+    fn the_runner_wires_it_on_any_natural_world_opens_rings_only_in_the_demo_and_writes_nothing_directly(
+    ) {
         let bin = include_str!("bin/localnet_natural_play.rs");
         // (loop-play4 B-6: no longer refused outside the demo; the ring opening stays the demo's own)
         assert!(!bin.contains("--operator-villages is accepted only together with"));
