@@ -1206,9 +1206,30 @@ async fn village_drivers(
     let legacy_ref = crate::legacy_march::legacy_village(&lock(state), &keeper.a, &h);
     let (destination, legacy) = match legacy_ref {
         Some(href) => {
+            // (TEST-ONLY wide world, wide-march-local: a rim village — ring 128, beside the wide land — also marches
+            //  INTO the wide land by the version-2 expedition wrapper; its transit is a bridge record, not an inline
+            //  one, so the wide destination driver serves it beside the legacy march driver. Off everywhere else.)
+            let wide = crate::destination_driver::SELF_REVEAL
+                .load(std::sync::atomic::Ordering::SeqCst)
+                && permutation_rules::frontier::geometry::ProvinceCoord::new(
+                    href.p as i32,
+                    href.q as i32,
+                )
+                .ring()
+                    == 128;
+            let expedition = if wide {
+                let payer = fund_fresh(state, stop).await?;
+                Some(crate::destination_driver::DestinationDriver::new(
+                    h,
+                    payer,
+                    stop.clone(),
+                ))
+            } else {
+                None
+            };
             let mut d = crate::legacy_march::LegacyMarchDriver::new(href, dest_payer, stop.clone());
             d.world_crank = world_crank;
-            (None, Some(d))
+            (expedition, Some(d))
         }
         None => (
             Some(crate::destination_driver::DestinationDriver::new(

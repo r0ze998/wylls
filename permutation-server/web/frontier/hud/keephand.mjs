@@ -290,9 +290,9 @@ export function renderKeepsPop(FS, model, { head }) {
     : km.state === 'error' ? html`<p class="pop-line pop-why">${clientText(km.code)}</p>`
     : km.rows.length ? html`<ol class="kh-rows" aria-label="${L`${who}が届く砦`}">${km.rows.map(row)}</ol>`
     // (B9: keeps the page cannot place yet — a ring's village list not read — : the list is still being worked out)
-    : Number(FS.conquest?.keepsPending ?? 0) > 0 && !fogNow().on ? html`<p class="pop-line kh-loading">${L`届く砦を調べています…`}</p>`
     // (the fog of war of a local test world, map/fog.mjs: only keeps the viewer has seen are listed; nothing is "pending")
     : fogNow().on ? html`<p class="pop-line">${L`見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。`}</p>`
+    : Number(FS.conquest?.keepsPending ?? 0) > 0 ? html`<p class="pop-line kh-loading">${L`届く砦を調べています…`}</p>`
     : html`<p class="pop-line">${L`この軍勢がいま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`;
   // the wait line (real), and its invisible stand-in: when nothing waits, the slot holds the settling line this host would
   // show, hidden and inert, so the card keeps the same height when the province's turn finishing comes and goes each half

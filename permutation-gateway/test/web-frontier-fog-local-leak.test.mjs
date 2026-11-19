@@ -159,5 +159,5 @@ test('the page\'s wiring: every surface that shows the map reads the fogged copi
   assert.ok(ctl.includes('if (fog.on) FS.incoming = fog.incoming(FS.incoming, { nowBell: nowBell(), departures });'));
   assert.ok(km.includes('const keeps = viewKeeps(cq.keeps);'));
   assert.ok(feed.includes('viewRecord({ p: e.p, q: e.q }, () => !!e.side)'), 'keep news');
-  assert.ok(kh.includes("Number(FS.conquest?.keepsPending ?? 0) > 0 && !fogNow().on"));
+  assert.ok(kh.indexOf(': fogNow().on ? html`<p class="pop-line">') < kh.indexOf(': Number(FS.conquest?.keepsPending ?? 0) > 0 ? html`<p class="pop-line kh-loading">'), 'nothing unseen is "being worked out"');
 });
