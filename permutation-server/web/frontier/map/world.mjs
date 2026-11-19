@@ -139,6 +139,10 @@ export function placeOf(w, p, q, present = () => null, { centre = false } = {}) 
     //  it — the local world opens the home provinces only. A centre ring partly on chain is being opened by a keeper:
     //  its missing places stay pending, as every ring's)
     if (centre && d < CENTRE_RINGS && n === 0) return PLACE.centre;
+    // (⑭ R2, a centre-free season: ring 0's one province, (0,0), when nothing opened it — the local worlds open ring 1
+    //  only, since the page's terrain kernel still draws the Concord's land at (0,0) — is closed the same way: no march
+    //  may end there, and nothing is "being made")
+    if (!centre && d === 0 && n === 0) return PLACE.centre;
     if (set && !set.has(`${p},${q}`)) return PLACE.pending;
   }
   return PLACE.open;

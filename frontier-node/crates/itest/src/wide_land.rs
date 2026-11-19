@@ -71,9 +71,33 @@ pub fn take_wide_args(mut args: Vec<String>) -> Result<(Vec<String>, bool), Stri
     Ok((args, true))
 }
 
+/// `--wide-scale <1-60>` out of the runner's arguments (TEST-ONLY, wide world only, at most once): the chain clock's
+/// scale from `ready-for-join` on (game seconds per real second), so a rim Hamlet's stores reach the settler cost of a
+/// wide claim within a play session (1× takes ~30 h of game time; ×60 ~30 min). `None` without it (1×).
+pub fn take_wide_scale(mut args: Vec<String>) -> Result<(Vec<String>, Option<u32>), String> {
+    let Some(i) = args.iter().position(|a| a == "--wide-scale") else {
+        return Ok((args, None));
+    };
+    let v = args
+        .get(i + 1)
+        .cloned()
+        .ok_or("--wide-scale needs a value")?;
+    args.drain(i..i + 2);
+    if args.iter().any(|a| a == "--wide-scale") {
+        return Err("--wide-scale given twice".into());
+    }
+    let n: u32 = v
+        .parse()
+        .ok()
+        .filter(|n: &u32| (1..=60).contains(n) && v == n.to_string())
+        .ok_or("--wide-scale takes a whole number 1-60")?;
+    Ok((args, Some(n)))
+}
+
 /// The wide world's Season: the real `S1_DEVNET_WIDE_7D` with the deployed program's version.
 pub fn params() -> SeasonParamsV2 {
-    let mut p = S1_DEVNET_WIDE_7D;
+    // (TEST-ONLY local rules on top: the centre free and a Hamlet rim home anchors a wide claim; `wide_play`)
+    let mut p = crate::wide_play::local_wide(S1_DEVNET_WIDE_7D);
     p.base.program_version = PROGRAM_VERSION;
     p
 }
@@ -305,7 +329,7 @@ pub async fn grow(
     homes: &[(i16, i16, u8)],
     send: impl Fn(&Shared, &[&Keypair], &[Instruction], &str) -> Result<String, String>,
     advance_to: impl Fn(&Shared, i64) -> Result<(), String>,
-) -> Result<Value, String> {
+) -> Result<(Value, Vec<(i16, i16, u8)>), String> {
     let t0 = std::time::Instant::now();
     let season_clock = || -> Result<fclient::clock::SeasonClock, String> {
         let c = lock(state);
@@ -474,6 +498,20 @@ pub async fn grow(
         );
         wide.push(json!({"ring": ring, "provinces": plan.iter().map(|c| json!({"p": c.p().to_string(), "q": c.q().to_string()})).collect::<Vec<_>>()}));
     }
+    // 4b. (TEST-ONLY wide play) one real rim first home per nation and rim province (`wide_play::settle_rim`)
+    let sd = read(state, &a.season, "the Season")?;
+    let cq = frontier_abi::v2::presets::ConquestParams::of_season(&sd)
+        .ok_or("the Season's conquest params")?;
+    let seed: [u8; 32] = sd[frontier_abi::v2::layout::world::season::GENESIS_SEED..][..32]
+        .try_into()
+        .unwrap();
+    let rim_xy: Vec<(i32, i32)> = rim
+        .iter()
+        .filter_map(|v| Some((v["p"].as_i64()? as i32, v["q"].as_i64()? as i32)))
+        .collect();
+    let rim_homes = crate::wide_play::rim_homes(&rim_xy, &cq, &seed);
+    let rim_settlers =
+        crate::wide_play::settle_rim(state, a, payer, &rim_homes, &send, &advance_to).await?;
     // 5. the rest of the heartland, the other nations' test participants, and the first province brought up to now
     for &(p, q, _) in homes.iter().skip(1) {
         send(
@@ -504,12 +542,13 @@ pub async fn grow(
         "legacy_rings_opened": frontier_u16(state, a, FR::RINGS_OPENED)?,
         "r_max_ext": frontier_u16(state, a, FR::R_MAX_EXT)?,
         "rim_provinces": rim,
+        "rim_settlers": rim_settlers,
         "wide_rings": wide,
         "bell_at_ready": clock.bell_at(now()),
         "setup_secs": t0.elapsed().as_secs(),
     });
     step("done", summary.clone());
-    Ok(summary)
+    Ok((summary, rim_homes))
 }
 
 /// One test participant (its own in-memory key, funded by the test chain's faucet): Join, then PlaceHome on the first
@@ -652,7 +691,7 @@ async fn catch_up(
     Ok(v.resolved_next)
 }
 
-fn free_site(state: &Shared, a: &Addresses, p: i16, q: i16) -> Option<u8> {
+pub(crate) fn free_site(state: &Shared, a: &Addresses, p: i16, q: i16) -> Option<u8> {
     use frontier_abi::v2::layout::province::{province as PV, site as SM};
     let pd = read(state, &a.province(p as i32, q as i32), "province").ok()?;
     (0..pd[PV::SITE_COUNT] as usize)
@@ -681,6 +720,14 @@ mod tests {
             (a(&["--x"]), true)
         );
         assert!(take_wide_args(a(&["--wide-land", "wide"])).is_err());
+        assert_eq!(take_wide_scale(a(&["--x"])).unwrap(), (a(&["--x"]), None));
+        assert_eq!(
+            take_wide_scale(a(&["--wide-scale", "60", "--x"])).unwrap(),
+            (a(&["--x"]), Some(60))
+        );
+        for bad in ["0", "61", "06", "x", "-1"] {
+            assert!(take_wide_scale(a(&["--wide-scale", bad])).is_err(), "{bad}");
+        }
         assert!(take_wide_args(a(&["--wide-land"])).is_err());
         assert!(take_wide_args(a(&[
             "--wide-land",
@@ -694,7 +741,7 @@ mod tests {
     #[test]
     fn the_season_is_the_devnet_wide_preset() {
         let p = params();
-        let mut d = S1_DEVNET_WIDE_7D;
+        let mut d = crate::wide_play::local_wide(S1_DEVNET_WIDE_7D);
         d.base.program_version = PROGRAM_VERSION;
         assert_eq!(p.to_bytes(), d.to_bytes());
         assert_eq!(p.cq.r_max_ceiling, R_MAX_HARD);

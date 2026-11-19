@@ -41,7 +41,8 @@ import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions, actorsAt } from './map/actions.mjs';
-import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeNow, worldOf, seededRings, contiguousRings } from './map/world.mjs';
+import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeNow, worldOf, seededRings, contiguousRings, centreIsLand } from './map/world.mjs';
+import { setCentreLand } from './map/sprites.mjs';
 // The world's extent as the map, the roster and the minimap read it: FS.world (map/world.mjs), never the length of
 // the record's `rings`. A sparse world (one far ring seeded alone) has `ringsOpen` = one past its outermost seeded
 // ring, its `seeded` rings, and no land on the others.
@@ -197,7 +198,7 @@ import { tileHex, ringProvinces, homeNation, locate } from './fgeo.mjs';
 import { project, RADIUS } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
-import { instantHomeEnabled, homeSites, homeRingsOpen, seasonPlace, sameHome } from './home.mjs';
+import { instantHomeEnabled, homeSites, homeRingsOpen, seasonPlace, homePlaceOf, homeRingsOf, sameHome } from './home.mjs';
 
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
@@ -4224,7 +4225,7 @@ export function w4Bind(name, value) {
 }
 
 /** The play actions that send something to the chain: a refusal of one offers "try again" (hud/status.mjs). */
-export const SENDS = Object.freeze(new Set(['harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'session-replace', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
+export const SENDS = Object.freeze(new Set(['wide-claim', 'harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'session-replace', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
   // S1 (screens/s1.mjs)
   's1-vault', 's1-structure', 's1-raid', 's1-vote', 's1-seize', 's1-siege', 's1-expel', 's1-readmit',
   // (orders of the prototype rule "banners": to the sample world only)
@@ -4480,6 +4481,8 @@ async function loadSeason(herald) {
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
   if (!FS.beacon.ok) seasonError({ code: FS.beacon.code, text: clientText(FS.beacon.code) });
   FS.season = season;
+  // (⑭ R2: a centre-free season draws no Seat camps on ring 1 — map/sprites.mjs)
+  setCentreLand(centreIsLand(season));
   reconcileExpedition();
   // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
   // chain is asked for its list (again with each season record, until it is whole). The record, the world and the
@@ -4779,7 +4782,7 @@ export async function boot() {
         const chooseHome = () => {
           if (FS.selected !== hit || !instantHomeEnabled(FS.season) || FS.holdings?.length || FS.homeChoice?.busy || !Number.isInteger(hit.idx)) return;
           // (a tile past the heartland is no home candidate, however open its ring: PlaceHome refuses it, home.mjs homeRingsOpen)
-          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(worldNow()) : 0), place: seasonPlace(FS.season) }).find(s => s.tile === hit.idx);
+          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: homeRingsOf(FS, FS.record ? contiguousRings(worldNow()) : 0), place: homePlaceOf(FS) }).find(s => s.tile === hit.idx);
           if (!candidate) return;
           const choice = FS.homeChoice;
           if (!choice) return;

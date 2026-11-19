@@ -72,6 +72,16 @@ export function localNaturalWorld(cfg, loc = globalThis.location) {
 export function localCaptureDemoPage(cfg, loc = globalThis.location) {
   try { return localLauncherRequested(cfg, loc) && new URL(loc.href).searchParams.get('demo') === 'capture'; } catch { return false; }
 }
+/**
+ * (TEST-ONLY wide play) The start answer's `wideLand` → `{scale, targets}` (the clock scale 1-60 and the opened wide
+ * provinces `[{p, q}]` as decimal strings), or null when absent or malformed. Only a `--wide-land` world states it.
+ */
+export function launcherWideLand(w) {
+  if (!w || typeof w !== 'object' || Array.isArray(w) || !Number.isInteger(w.scale) || w.scale < 1 || w.scale > 60 || !Array.isArray(w.targets) || w.targets.length > 4096) return null;
+  const num = v => typeof v === 'string' && /^-?(0|[1-9][0-9]{0,17})$/.test(v);
+  if (!w.targets.every(t => t && typeof t === 'object' && num(t.p) && num(t.q))) return null;
+  return Object.freeze({ scale: w.scale, targets: Object.freeze(w.targets.map(t => Object.freeze({ p: t.p, q: t.q }))) });
+}
 /** The start answer's `captureDemo` → its synthetic clock scale (a whole number 10..60), or null. */
 export function launcherCaptureDemo(v) {
   const s = v?.scale;
@@ -300,7 +310,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
   let keyStore = null;
   // (a launcher that prepares its worlds fast needs longer for a start: the wait is 150 s there, 70 s otherwise)
   const marchTrial = localMarchTrialPage(cfg, loc), demoPage = localCaptureDemoPage(cfg, loc);
-  let claimedDemo = null;
+  let claimedDemo = null, claimedWide = null;
   const accelerated = localPreparationAccelerated(cfg, loc), natural = localNaturalWorld(cfg, loc), longest = natural ? NATURAL_START_MS : accelerated ? 150000 : 70000;
   let pendingLaunch = null;
   // (launcher mode: the standing notice mounted once the world is verified; told when the key is destroyed)
@@ -353,6 +363,9 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
             claimedDemo = launcherCaptureDemo(body?.captureDemo);
             if ((claimedDemo !== null) !== demoPage || (body?.captureDemo !== undefined && claimedDemo === null)) return { ok: false, code: 'LauncherWorldMismatch' };
             claimedMarch = launcherMarchStatement(body, { launcher: true, trialPage: marchTrial });
+            // (TEST-ONLY wide play: the wide world's own statement, carried to the identity as `wideLand`)
+            claimedWide = launcherWideLand(body?.wideLand);
+            if (body?.wideLand !== undefined && claimedWide === null) return { ok: false, code: 'LauncherWorldMismatch' };
             // (TEST-ONLY persisted worlds: the page's `persist=local` and the answer's `persisted` agree)
             const kept = launcherPersisted(body?.persisted);
             if ((kept !== null) !== persisted || (body?.persisted !== undefined && kept === null)) return { ok: false, code: 'LauncherWorldMismatch' };
@@ -388,7 +401,8 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     // (and the world's absolute end, from its checked expiry statement: a pending march send (flocalplay-pending.mjs) is
     //  withdrawn at that moment and is never offered when the end is not known)
     const endAt = launcher && claimedDemo !== null ? worldEndOf(claimedEnd, claimedMarch?.instance ?? null) : null;
-    const playedAs = launcher && claimedDemo !== null ? Object.freeze({ ...played, clockScale: claimedDemo, ...(endAt !== null ? { worldEndsAt: endAt } : {}) }) : played;
+    const playedDemo = launcher && claimedDemo !== null ? Object.freeze({ ...played, clockScale: claimedDemo, ...(endAt !== null ? { worldEndsAt: endAt } : {}) }) : played;
+    const playedAs = launcher && claimedWide !== null ? Object.freeze({ ...playedDemo, wideLand: claimedWide }) : playedDemo;
     // (TEST-ONLY persisted world: the march book (the sealed marches' reveal halves) is kept encrypted for this wallet,
     //  loaded before the game boots, and the game's march sender uses it instead of a memory-only one)
     if (persisted && keyStore) {

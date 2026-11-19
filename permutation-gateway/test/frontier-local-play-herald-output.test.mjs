@@ -54,7 +54,7 @@ test('the herald gets the option only from the launcher\'s own config, and the w
 });
 
 test('the usage text and the ready line name it', () => {
-  assert.match(L.USAGE, /\[--herald-output compact-v1: TEST-ONLY, only with --capture-demo:/);
+  assert.match(L.USAGE, /\[--herald-output compact-v1: TEST-ONLY, only with --capture-demo or --wide-land:/);   // (wide-local-playable: and the wide land)
   const src = readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
   assert.match(src, /herald_output: config\.heraldOutput \?\? 'default'/);
 });

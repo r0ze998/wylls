@@ -53,11 +53,12 @@ pub fn params() -> SeasonParamsV2 {
 /// [`params`], or with `continuous` the real `S1_LOCAL_CONTINUOUS` preset (the same parameters, no end bell, joins
 /// always open; TEST-ONLY option `--continuous local-continuous-v1`), with the deployed program's version.
 pub fn params_for(continuous: bool) -> SeasonParamsV2 {
-    let mut p = if continuous {
+    // (TEST-ONLY local rules: the centre free, ⑭ R2; `wide_play::local_free`. The presets are unchanged.)
+    let mut p = crate::wide_play::local_free(if continuous {
         S1_LOCAL_CONTINUOUS
     } else {
         S1_LOCAL_7D
-    };
+    });
     p.base.program_version = PROGRAM_VERSION;
     p
 }
@@ -236,6 +237,45 @@ pub fn heartland_sites(
         .filter(|h| h.2 == faction)
         .flat_map(|&(p, q, _)| (0..site_count(p, q)).map(move |s| (p, q, s)))
         .collect()
+}
+
+/// (TEST-ONLY wide play) The player's slot-1 village when it stands on one of `homes` past the heartland (ring > 3: a
+/// settled rim province the wide world lists) and the program wrote it: the Citizen's slot 1 names it with a gen, the
+/// legacy Holding there is this Citizen's at that site. `None` otherwise (also for every heartland home: those are
+/// identified by their exact PlaceHome).
+pub fn ticket_home(
+    a: &Addresses,
+    wallet: &Address,
+    homes: &[(i16, i16, u8)],
+    citizen: &[u8],
+    read: impl Fn(&Address) -> Option<Vec<u8>>,
+) -> Option<NaturalHome> {
+    use frontier_abi::v2::layout::player::holding as H;
+    let c = fclient::decode::Citizen::decode(citizen).ok()?;
+    if c.wallet != *wallet {
+        return None;
+    }
+    let s = c.holding[0];
+    if s.gen == 0xFF
+        || !homes.iter().any(|h| (h.0, h.1) == (s.p, s.q))
+        || ProvinceCoord::new(s.p as i32, s.q as i32).ring() <= 6
+    {
+        return None;
+    }
+    let holding = a.holding(s.p as i32, s.q as i32, s.site);
+    let hd = read(&holding)?;
+    if hd.get(..8) != Some(b"PSF1HOLD".as_slice())
+        || hd.get(H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32)
+            != Some(a.citizen(wallet).to_bytes().as_slice())
+    {
+        return None;
+    }
+    Some(NaturalHome {
+        holding,
+        home: (s.p, s.q),
+        site: s.site,
+        gen: s.gen,
+    })
 }
 
 /// The next `Chain::feed` cursor after one page: `feed(after, …)` SKIPS `after` records and a record's `seq` is 1-based
@@ -570,12 +610,46 @@ pub async fn prepare_with(
             "OpenProvince",
         )?;
     }
-    // (TEST-ONLY wide land: the map grown to the rim and into the wide land, still on the synthetic clock)
+    // (TEST-ONLY wide land: the map grown to the rim and into the wide land, still on the synthetic clock; its rim
+    //  homes are PlaceHome targets as the heartland's are)
+    let mut homes = homes;
     if o.wide {
-        let summary =
+        let (summary, rim) =
             crate::wide_land::grow(&state, &a, &upgrade, &payer, &homes, send, advance_to).await?;
         crate::wide_land::wide_metadata(&mut metadata, &summary);
+        homes.extend(rim);
     }
+    // (TEST-ONLY local rules: the centre free; its ring-1 provinces opened, never PlaceHome targets: the program's
+    //  first homes stay at ring 2+)
+    let centre = crate::wide_play::centre_provinces(&cq, &seed);
+    for &(pp, qq, _) in &centre {
+        send(
+            &state,
+            &[&payer],
+            &[ix::open_province(&a, payer.pubkey(), pp, qq)],
+            "OpenProvince (centre)",
+        )?;
+    }
+    metadata
+        .as_object_mut()
+        .expect("an object")
+        .insert("local_rules".into(), {
+            let mut v = crate::wide_play::rules_metadata(
+                if o.wide {
+                    "S1_DEVNET_WIDE_7D"
+                } else if o.continuous {
+                    "S1_LOCAL_CONTINUOUS"
+                } else {
+                    "S1_LOCAL_7D"
+                },
+                o.wide,
+            );
+            v["centre_provinces"] = json!(centre
+                .iter()
+                .map(|(p, q, n)| json!({"p": p, "q": q, "nation": n}))
+                .collect::<Vec<_>>());
+            v
+        });
     if let Some(r) = &run {
         r.record(&fresh_record(true))?;
     }
@@ -748,6 +822,20 @@ pub async fn await_home(
             .unwrap_or(0)
         };
         let candidates = heartland_sites(&w.homes, site_count, faction);
+        // (TEST-ONLY wide play: a first home on the rim comes by the legacy ticket — PlaceHome cannot name a province past
+        //  the Season's base r_max — settled by the runner's own duty (`wide_play::run_claims`): the keeper starts on
+        //  the Citizen's slot-1 village once the program has written it, provisional or final, at a listed rim home)
+        if let Some(n) = cd.as_deref().and_then(|d| {
+            ticket_home(&w.a, wallet, &w.homes, d, |k| {
+                account(&w.state, k, "a home account").ok()
+            })
+        }) {
+            step(
+                "ticket-home-landed",
+                json!({"p": n.home.0.to_string(), "q": n.home.1.to_string(), "site": n.site, "holding": n.holding.to_string(), "test_only": true}),
+            );
+            return Ok((n, String::new()));
+        }
         for (_, sig, ok, wire) in ours.iter().filter(|o| o.2) {
             let Some(at) = decode_wire(wire)
                 .ok()

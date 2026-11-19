@@ -15,7 +15,8 @@ const answerOf = over => ({ schema: P.LOCAL_MARCH_CAPABILITY_SCHEMA, wallet: WAL
 const stub = (status, body, seen = []) => async (url, init) => { seen.push([url, init]); return { ok: status === 200, status, json: async () => body }; };
 
 test('the economy list stays the six; the march has its own paths, the relay\'s and the launcher\'s', () => {
-  assert.deepEqual([...LOCAL_ACT_NAMES], ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster']);
+  // (wide-local-playable: plus the local wide world's one-site rim request and wide claim; still no march)
+  assert.deepEqual([...LOCAL_ACT_NAMES], ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim']);
   assert.equal(P.LOCAL_MARCH_CAPABILITY_SCHEMA, R.LOCAL_MARCH_CAPABILITY_SCHEMA);
   for (const [k, path] of [['capability', P.LOCAL_MARCH_CAPABILITY_PATH], ['submit', P.LOCAL_MARCH_SUBMIT_PATH], ['status', P.LOCAL_MARCH_STATUS_PATH]]) {
     assert.equal('/gw' + R.LOCAL_MARCH_ROUTES[k].slice(5), path); assert.ok(WORLD_POST_ROUTES.includes(path), path);
