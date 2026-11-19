@@ -436,6 +436,23 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
             ),
         ));
     }
+    // ⑧ (d) (#69, `proc/wide.rs` `set_rules`): under placement 2 a wide
+    // Free City is the deployed kernel's (`DeployedLe32V1`) or none; the
+    // different wide formula `CanonicalHashV1` is refused `BadData`.
+    let free_city = wr::FreeCityRule::from_byte(x.free_city).map_err(|er| {
+        fail(
+            WIDE_RULE,
+            format!("a Free City byte the program refuses ({er:?})"),
+        )
+    })?;
+    if !wr::free_city_allowed(placement, free_city) {
+        return Err(fail(
+            WIDE_RULE,
+            format!(
+                "Free City rule {free_city:?} is not allowed under the Season's placement {placement} (the program refuses BadData)"
+            ),
+        ));
+    }
     let rec = WideRulesConfig::new(
         e.sid,
         world,

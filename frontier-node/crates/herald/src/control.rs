@@ -120,6 +120,7 @@ pub fn points_lead(w: &[u32; 7]) -> (u8, u8) {
 /// bell `b − 1` (pause detection), `events` the bell's CONQUEST events,
 /// `clash` whether the bell logged a CLASH, `owner_tag(site)` the title
 /// holder's citizen tag.
+#[allow(clippy::too_many_arguments)]
 pub fn view_of(
     pd: &[u8],
     prev: Option<&[u8]>,
@@ -128,6 +129,7 @@ pub fn view_of(
     clash: bool,
     events: &[Event],
     owner_tag: &dyn Fn(usize) -> Option<u64>,
+    centre_free: bool,
 ) -> R<View> {
     if !is_v2_province(pd) {
         return Err(BAD);
@@ -136,9 +138,15 @@ pub fn view_of(
     let (p, q) = qm::coord(pd)?;
     let wedge = pd[P::WEDGE];
     let keep = qm::read_keep(pd)?;
-    let pc = control::province_control(keep.as_ref(), ring, (ring == 1).then_some(wedge));
+    // (⑭ R2: a centre-free season has no Concord and no Seats)
+    let pc = control::province_control_in(
+        keep.as_ref(),
+        ring,
+        (ring == 1).then_some(wedge),
+        centre_free,
+    );
     let mut flags = 0u8;
-    if ring <= 1 {
+    if ring <= 1 && !centre_free {
         flags |= pflag::SEAT;
     }
     if clash {
@@ -285,7 +293,7 @@ pub fn view_of(
     }
     let w = qm::control_weights(pd, b)?;
     let (points_lead, points_share) = points_lead(&w);
-    let control = if ring == 0 {
+    let control = if ring == 0 && !centre_free {
         CONTROL_NEUTRAL
     } else {
         pc.code()
@@ -318,23 +326,35 @@ pub fn view_of(
 
 /// The `PSFCT1` record of a province with no view at the bell: unopened
 /// (the Concord is always neutral; rings 0–1 carry the seat flag).
-pub fn unopened(index: u32) -> ControlProvince {
+pub fn unopened(index: u32, centre_free: bool) -> ControlProvince {
     let ring = ProvinceCoord::from_index(index).ring();
     ControlProvince {
-        control: if index == 0 {
+        control: if index == 0 && !centre_free {
             CONTROL_NEUTRAL
         } else {
             CONTROL_NONE
         },
         contender: CONTROL_NONE,
-        flags: if ring <= 1 { pflag::SEAT } else { 0 },
+        flags: if ring <= 1 && !centre_free {
+            pflag::SEAT
+        } else {
+            0
+        },
         points_lead: CONTROL_NONE,
         ..Default::default()
     }
 }
 
 /// A province's `ProvinceControl` from its `PSFCT1` code and ring.
-pub fn control_of_code(code: u8, ring: u32) -> ProvinceControl {
+/// ⑭ R2: in a centre-free season every ring's code is a keep's holder.
+pub fn control_of_code(code: u8, ring: u32, centre_free: bool) -> ProvinceControl {
+    if centre_free {
+        return if code < 6 {
+            ProvinceControl::Keep(code)
+        } else {
+            ProvinceControl::Unopened
+        };
+    }
     match ring {
         0 => ProvinceControl::Neutral,
         1 if code < 6 => ProvinceControl::Seat(code),
@@ -353,12 +373,23 @@ pub struct MarchInputs<'a> {
     pub call: &'a BTreeSet<(i32, i32)>,
 }
 
+/// ⑭ R2: whether a control file is a centre-free season's: index 0 (the
+/// former Concord) is not neutral (a file with the centre always has
+/// control 6 there).
+pub fn centre_free_file(f: &ControlFile) -> bool {
+    f.provinces
+        .first()
+        .is_some_and(|p| p.control != CONTROL_NEUTRAL)
+}
+
 /// The banner of March `m` and its `keeps` byte over a file's provinces.
-pub fn banner_of(m: MarchCoord, codes: &[u8]) -> (Banner, u8) {
+pub fn banner_of(m: MarchCoord, codes: &[u8], centre_free: bool) -> (Banner, u8) {
     let ctrls: Vec<ProvinceControl> = march_members(m)
         .iter()
         .map(|c| match c.checked_index() {
-            Some(i) if (i as usize) < codes.len() => control_of_code(codes[i as usize], c.ring()),
+            Some(i) if (i as usize) < codes.len() => {
+                control_of_code(codes[i as usize], c.ring(), centre_free)
+            }
             _ => ProvinceControl::Unopened,
         })
         .collect();
@@ -388,11 +419,15 @@ pub fn control_file(
     views: &BTreeMap<u32, ControlProvince>,
     prev: Option<&ControlFile>,
     mi: &MarchInputs<'_>,
+    centre_free: bool,
 ) -> ControlFile {
     let n = permutation_rules::frontier::geometry::provinces_within(rings);
     let mut provinces = Vec::with_capacity(n as usize);
     for i in 0..n {
-        let mut r = views.get(&i).copied().unwrap_or_else(|| unopened(i));
+        let mut r = views
+            .get(&i)
+            .copied()
+            .unwrap_or_else(|| unopened(i, centre_free));
         if let Some(pr) = prev.and_then(|f| f.provinces.get(i as usize)) {
             if pr.control != r.control {
                 r.flags |= pflag::CHANGED;
@@ -415,7 +450,7 @@ pub fn control_file(
     let marches = order
         .iter()
         .map(|m| {
-            let (banner, keeps) = banner_of(*m, &codes);
+            let (banner, keeps) = banner_of(*m, &codes, centre_free);
             let code = banner.code();
             let mut flags = 0u8;
             if prev.is_some() && prev_banner.get(&(m.m, m.n)).is_some_and(|&x| x != code) {
@@ -468,12 +503,15 @@ pub struct Series {
 impl Series {
     pub fn push(&mut self, f: &ControlFile) {
         let codes: Vec<u8> = f.provinces.iter().map(|p| p.control).collect();
+        // (⑭ R2: a file with the centre has control 6 at index 0; a
+        //  centre-free one never)
+        let cf = centre_free_file(f);
         let order = march_order(f.rings().unwrap_or(0));
         for (m, r) in order.iter().zip(&f.marches) {
             let b = match r.banner {
                 x if x < 6 => Banner::Faction(x),
                 _ => {
-                    if banner_of(*m, &codes).0 == Banner::None {
+                    if banner_of(*m, &codes, cf).0 == Banner::None {
                         Banner::None
                     } else {
                         Banner::Contested
@@ -760,6 +798,53 @@ mod tests {
         assert_eq!(points_lead(&[0, 0, 0, 0, 0, 0, 9]), (6, 255));
     }
 
+    /// ⑭ R2: a centre-free season's file has no neutral index 0 and no seat
+    /// flags; a ring-1 keep is its holder's; it encodes, decodes and reads
+    /// as centre-free, and the keep codes count in the banners.
+    #[test]
+    fn centre_free_control_file_has_no_concord_and_no_seats() {
+        let e = BTreeMap::new();
+        let s = BTreeSet::new();
+        let mi = MarchInputs {
+            lead: &e,
+            lead_changed: &s,
+            call: &s,
+        };
+        let mut views = BTreeMap::new();
+        for i in 0..7u32 {
+            views.insert(
+                i,
+                ControlProvince {
+                    control: 2,
+                    contender: CONTROL_NONE,
+                    points_lead: CONTROL_NONE,
+                    ..Default::default()
+                },
+            );
+        }
+        let f = control_file(1, 10, 3, &views, None, &mi, true);
+        assert!(centre_free_file(&f));
+        assert!(f.provinces.iter().all(|p| p.control != CONTROL_NEUTRAL));
+        assert!(f.provinces.iter().all(|p| p.flags & pflag::SEAT == 0));
+        let back = ControlFile::decode(&f.encode().unwrap()).unwrap();
+        assert_eq!(back, f);
+        assert_eq!(unopened(0, true).control, CONTROL_NONE);
+        assert_eq!(unopened(0, false).control, CONTROL_NEUTRAL);
+        assert_eq!(unopened(3, false).flags & pflag::SEAT, pflag::SEAT);
+        assert_eq!(unopened(3, true).flags, 0);
+        assert_eq!(control_of_code(2, 1, true), ProvinceControl::Keep(2));
+        assert_eq!(control_of_code(2, 1, false), ProvinceControl::Seat(2));
+        assert_eq!(control_of_code(2, 0, true), ProvinceControl::Keep(2));
+        // the March round (0,0) is nation 2's with seven keeps
+        let codes: Vec<u8> = f.provinces.iter().map(|p| p.control).collect();
+        let (banner, _) = banner_of(MarchCoord { m: 0, n: 0 }, &codes, true);
+        assert_eq!(banner, Banner::Faction(2));
+        // a file with the centre still decodes (the checks are one-way)
+        let old = control_file(1, 10, 3, &BTreeMap::new(), None, &mi, false);
+        assert!(!centre_free_file(&old));
+        assert!(ControlFile::decode(&old.encode().unwrap()).is_ok());
+    }
+
     #[test]
     fn cq_unopened_records_pass_the_format_checks() {
         let mut views = BTreeMap::new();
@@ -780,7 +865,7 @@ mod tests {
             lead_changed: &s,
             call: &s,
         };
-        let f = control_file(1, 10, 3, &views, None, &mi);
+        let f = control_file(1, 10, 3, &views, None, &mi, false);
         let b = f.encode().expect("a valid PSFCT1");
         assert_eq!(ControlFile::decode(&b).expect("decodes"), f);
         assert!(f.marches.iter().all(|m| m.banner == CONTROL_NONE));

@@ -6,9 +6,9 @@ combat, Free-City siege/capture and original-reserve return test. They are not
 expected outputs produced by the independent verifier.
 
 - `dissolve_v1.bin`: 35,324 bytes; SHA256
-  `0d46cd2d175c57c947af8e67f14f2d002e18c9e7e7d47fb4a944e98023f39a84`.
+  `bd2f482c4c36e58d99753445f4a4d21a933b1c0ce73ece9ddafd15ffa91aa5bf`.
 - `return_v1.bin`: 34,195 bytes; SHA256
-  `6f22a8e606852e52d87f66e0f2452fd00c6a26aa42716a2fc874feb4643d7da3`.
+  `41881c1496904a5cd03fc38c835fdb4fe5c5e23f9b37fbad73893bd850ddab75`.
 
 The native lifecycle now reconstructs these bytes from actual before/after
 World snapshots and emitted receipts and asserts exact `include_bytes!` parity.

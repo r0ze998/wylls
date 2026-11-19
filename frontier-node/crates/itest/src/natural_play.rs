@@ -62,14 +62,21 @@ pub fn params_for(continuous: bool) -> SeasonParamsV2 {
     p
 }
 
-/// (t_create_min, genesis round, genesis_ts), from the preset and the chain's fixed g0 only.
+/// (t_create_min, genesis round, genesis_ts), from the preset and the chain's fixed g0 only: EVERY world made this
+/// way consumes the same genesis round, so the program derives the same genesis seed and the same map.
 pub fn genesis_plan() -> (i64, u64, i64) {
+    genesis_plan_at(localnet::Config::default().g0)
+}
+
+/// [`genesis_plan`] for a chain whose clock origin is `g0` (TEST-ONLY `--map-origin`: another origin fixes another
+/// genesis round, and the program's unchanged rules derive another genesis seed from that round's signature).
+pub fn genesis_plan_at(g0: i64) -> (i64, u64, i64) {
     let p = params().base;
     let clock = BeaconClock {
         genesis: p.drand_genesis,
         period: p.drand_period as i64,
     };
-    let t = localnet::Config::default().g0 + T_CREATE_MIN_AFTER_G0;
+    let t = g0 + T_CREATE_MIN_AFTER_G0;
     let r = genesis_seed_round(&clock, t, p.seed_margin);
     (t, r, beacon_genesis_ts(&clock, r))
 }
@@ -391,7 +398,9 @@ pub async fn prepare_with(
     };
     let program = Address::new_from_array(PROGRAM);
     let a = Addresses::new(program, SEASON_ID);
-    let (t_create_min, round, genesis_ts) = genesis_plan();
+    // (TEST-ONLY `--map-origin`: a NEW world's clock origin; a resumed chain keeps its ledger's own)
+    let g0 = o.map_origin.unwrap_or(localnet::Config::default().g0);
+    let (t_create_min, round, genesis_ts) = genesis_plan_at(g0);
     let p = params_for(o.continuous);
     let fresh_record = |done: bool| WorldRecord {
         wallet,
@@ -411,6 +420,7 @@ pub async fn prepare_with(
         allow_tamper: false,
         data_dir: run.as_ref().map(RunDir::chain_dir),
         keep_snapshots: 2,
+        g0,
         ..localnet::Config::default()
     })
     .map_err(|e| format!("the chain: {e}"))?;
@@ -461,6 +471,7 @@ pub async fn prepare_with(
         "clock": "SYNTHETIC only before genesis (the chain's fixed g0); NATURAL from ready-for-join on, never moved again",
         "memory_only": run.is_none()});
     world_metadata(&mut metadata, o, false);
+    map_metadata(&mut metadata, g0);
     let sp = p.to_bytes();
     let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
     send(
@@ -576,6 +587,17 @@ fn world_metadata(m: &mut Value, o: &NaturalOptions, resumed: bool) {
     }
 }
 
+/// The TEST-ONLY fresh map on the runner's first line: stated only by a world whose chain clock origin is not the fixed
+/// one (`--map-origin` at its first start), with that origin and the genesis round it fixes.
+fn map_metadata(m: &mut Value, g0: i64) {
+    if g0 != localnet::Config::default().g0 {
+        m.as_object_mut().expect("an object").insert(
+            "fresh_map".into(),
+            json!({"mode": persist::FRESH_MAP_MODE, "origin": g0, "genesis_round": genesis_plan_at(g0).1, "test_only": true}),
+        );
+    }
+}
+
 /// A world re-opened from its run dir: nothing is deployed, funded or sent; the recovered Season must be the
 /// recorded one (`natural_persist::check_resumed_season`); the home provinces are those the Season's own seed and
 /// parameters give (as `prepare` opened them).
@@ -615,6 +637,7 @@ async fn resume_world(
     }
     let runner_instance = hex::encode(c.status_instance());
     let slot = c.slot();
+    let g0 = c.config().g0; // (the ledger's own origin: a `--map-origin` of this start changes nothing)
     let state: Shared = std::sync::Arc::new(std::sync::Mutex::new(c));
     let running = localnet::server::start_with_policy(
         state.clone(),
@@ -633,6 +656,7 @@ async fn resume_world(
         "clock": "NATURAL; it stood still while the world was stopped and continues from the game time of its last record",
         "memory_only": false});
     world_metadata(&mut metadata, o, true);
+    map_metadata(&mut metadata, g0);
     Ok(World {
         running,
         state,
@@ -742,6 +766,36 @@ pub async fn await_home(
 #[cfg(test)]
 mod resume {
     use super::*;
+
+    /// The gap t363u names, and the TEST-ONLY way out: with the fixed origin every world fixes the SAME genesis
+    /// round (pinned here), so the program derives the same seed and the same map; another origin fixes another
+    /// round, by the kernel's own `genesis_seed_round` (no rule is changed).
+    #[test]
+    fn the_fixed_origin_fixes_one_genesis_round_and_another_origin_another() {
+        let g0 = localnet::Config::default().g0;
+        assert_eq!(genesis_plan(), genesis_plan_at(g0));
+        assert_eq!(genesis_plan(), (1_785_632_400, 30_943_232, 1_785_633_660));
+        let lo = g0 - persist::MAP_ORIGIN_SPAN_SECS;
+        let mut rounds = std::collections::BTreeSet::new();
+        for o in [lo, lo + 3, g0 - 86_400, g0 - 3, g0] {
+            assert_eq!(persist::map_origin_ok(o), o != g0);
+            let (t, r, ts) = genesis_plan_at(o);
+            assert_eq!(t, o + T_CREATE_MIN_AFTER_G0);
+            assert!(ts > t && r < genesis_plan().1 || o == g0);
+            assert!(r > 0);
+            rounds.insert(r);
+        }
+        assert_eq!(rounds.len(), 5, "each origin fixes its own round");
+        // (stated on the first line only by a world of another origin)
+        let mut m = json!({});
+        map_metadata(&mut m, g0);
+        assert_eq!(m, json!({}));
+        map_metadata(&mut m, g0 - 3);
+        assert_eq!(
+            m["fresh_map"],
+            json!({"mode": "local-fresh-map-v1", "origin": g0 - 3, "genesis_round": 30_943_231u64, "test_only": true})
+        );
+    }
     use crate::keeper_loop::submit_and_wait;
     use std::time::Duration;
 
@@ -768,6 +822,7 @@ mod resume {
         let o = NaturalOptions {
             continuous: true,
             persist: Some(dir.clone()),
+            map_origin: None,
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -869,6 +924,7 @@ mod resume {
             let other = NaturalOptions {
                 continuous: false,
                 persist: Some(dir.clone()),
+                map_origin: None,
             };
             assert!(prepare_with(&art, w, 41_380, 41_381, &other)
                 .await

@@ -2287,3 +2287,132 @@ fn cq_vectors_are_fresh() {
     check_fresh("keep-vectors-v1.json", &keep_vectors());
     check_fresh("control-vectors-v1.json", &control_vectors());
 }
+
+// ------------------------------------------------------------ ⑭ R2: no centre
+
+/// ⑭ R2 kernels: with `centre_free == false` each `*_in` is the deployed
+/// function exactly; with `true` rings 0-1 are ordinary land.
+#[test]
+fn centre_free_kernels_are_the_deployed_ones_with_the_centre_and_ordinary_land_without() {
+    use permutation_rules::frontier::camp::{place_v2, place_v2_in};
+    use permutation_rules::frontier::control::{
+        province_control, province_control_in, ProvinceControl,
+    };
+    use permutation_rules::frontier::geometry::{
+        home_nation, home_nation_in, ring_provinces, PLACEMENT_MIXED,
+    };
+    use permutation_rules::frontier::keep::{try_open, try_open_in, KeepParams};
+    use permutation_rules::frontier::siege::{may_besiege_v3_in, SiegeRefusal};
+    use permutation_rules::frontier::terrain::{generate_province, generate_province_in};
+    let seed = [9u8; 32];
+    let prm = KeepParams {
+        bells: 72,
+        consolidate_bells: 288,
+        home_guard: 100,
+        garrison_bps: 5_000,
+    };
+    for d in 0..=6u32 {
+        for c in ring_provinces(d) {
+            for pl in [0u8, 1, 2] {
+                assert_eq!(
+                    home_nation_in(c, pl, 3, &seed, false),
+                    home_nation(c, pl, 3, &seed)
+                );
+            }
+            assert_eq!(
+                generate_province_in(&seed, c, false),
+                generate_province(&seed, c)
+            );
+            if d >= 1 {
+                assert_eq!(
+                    generate_province_in(&seed, c, true),
+                    generate_province(&seed, c),
+                    "{c:?}"
+                );
+            }
+            let t = generate_province(&seed, c);
+            assert_eq!(
+                place_v2_in(&seed, c, &t, 3, false, true, None, false),
+                place_v2(&seed, c, &t, 3, false, true, None)
+            );
+            assert_eq!(
+                try_open_in(c, 2, 3, 5, &prm, 1, false),
+                try_open(c, 2, 3, 5, &prm, 1)
+            );
+            if d >= 2 {
+                assert_eq!(
+                    home_nation_in(c, PLACEMENT_MIXED, 3, &seed, true),
+                    home_nation(c, PLACEMENT_MIXED, 3, &seed)
+                );
+                assert_eq!(
+                    try_open_in(c, 2, 3, 5, &prm, 1, true),
+                    try_open(c, 2, 3, 5, &prm, 1)
+                );
+            }
+        }
+    }
+    // (0,0): ordinary land with sites; ring 0-1: a nation, a keep, a camp candidate
+    let concord = ProvinceCoord::new(0, 0);
+    assert_eq!(generate_province(&seed, concord).site_count, 0);
+    let free = generate_province_in(&seed, concord, true);
+    assert!(free.site_count > 0, "(0,0) has sites without the centre");
+    assert_eq!(home_nation(concord, PLACEMENT_MIXED, 3, &seed), None);
+    let mut per = [0u32; 6];
+    for c in ring_provinces(1) {
+        per[home_nation_in(c, PLACEMENT_MIXED, 3, &seed, true).unwrap() as usize] += 1;
+        assert!(try_open(c, 2, 3, 5, &prm, 1).unwrap().is_none());
+        let k = try_open_in(c, 2, 3, 5, &prm, 1, true).unwrap().unwrap();
+        assert!(!k.heartland_safe);
+        assert_eq!(
+            province_control_in(Some(&k), 1, Some(4), true),
+            ProvinceControl::Keep(2)
+        );
+        assert_eq!(province_control(None, 1, Some(4)), ProvinceControl::Seat(4));
+    }
+    assert_eq!(per, [1; 6], "each nation one province of ring 1");
+    assert!(home_nation_in(concord, PLACEMENT_MIXED, 3, &seed, true).is_some());
+    assert_eq!(
+        province_control_in(None, 0, None, true),
+        ProvinceControl::Unopened
+    );
+    assert_eq!(province_control(None, 0, None), ProvinceControl::Neutral);
+    // the camp's first ring
+    let mut camps = 0;
+    for c in ring_provinces(1).into_iter().chain([concord]) {
+        let t = generate_province_in(&seed, c, true);
+        assert_eq!(place_v2(&seed, c, &t, 3, false, true, None), None);
+        camps += place_v2_in(&seed, c, &t, 3, false, true, None, true).is_some() as u32;
+    }
+    assert!(camps > 0, "rings 0-1 may take initial camps");
+    // sieges: the Seat / Concord refusals only with the centre
+    for c in [concord, ProvinceCoord::new(1, 0)] {
+        let chk = SiegeCheckV3 {
+            province: c,
+            ..check_v3()
+        };
+        assert_eq!(may_besiege_v3(&chk), Err(SiegeRefusal::Seat));
+        assert_eq!(may_besiege_v3_in(&chk, true), may_besiege_v3(&check_v3()));
+    }
+    let seat_kind = SiegeCheckV3 {
+        kind: HoldingKind::Seat,
+        ..check_v3()
+    };
+    assert_eq!(may_besiege_v3_in(&seat_kind, true), Err(SiegeRefusal::Seat));
+}
+
+/// ⑭ R2: `home_nation_in` for a centre-free mixed season, rings 0-2 in
+/// index order, seed `[5; 32]`; the web's `fgeo.homeNation(.., {centreFree})`
+/// is pinned to the same list (web-frontier-placement.test.mjs).
+#[test]
+fn centre_free_home_nation_pinned_vector() {
+    use permutation_rules::frontier::geometry::{home_nation_in, ring_provinces, PLACEMENT_MIXED};
+    let seed = [5u8; 32];
+    let got: Vec<u8> = (0..=2u32)
+        .flat_map(ring_provinces)
+        .map(|c| home_nation_in(c, PLACEMENT_MIXED, 3, &seed, true).unwrap())
+        .collect();
+    assert_eq!(
+        got,
+        vec![3, 0, 1, 2, 3, 4, 5, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1]
+    );
+}

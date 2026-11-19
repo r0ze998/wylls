@@ -147,6 +147,15 @@ export const LOCAL_MARCH_STATUS_SCHEMA = 'frontier-local-play-march-status-v1';
 /** The relay's refusals made BEFORE its send (local-play-march.mjs `LOCAL_MARCH_PRESEND_REFUSALS`): only these say "not sent". */
 export const LOCAL_MARCH_PRESEND_REFUSALS = Object.freeze(['LocalMarchInvalid', 'LocalMarchNotAllowed', 'LocalMarchWideHolding', 'LocalMarchNotYourHost', 'LocalMarchSeal',
   'LocalMarchMessageMismatch', 'LocalMarchSigner', 'LocalMarchCitizen', 'LocalMarchHolding', 'LocalMarchProvince', 'LocalMarchBusy', 'LocalMarchRpcUnavailable', 'LocalMarchClosed']);
+/**
+ * (2026-11-19, fix-march-held) The relay's answer that the RUNNER did not take the Depart (gateway local-play-march.mjs
+ * `LOCAL_MARCH_REJECTED`; local-play-act.mjs `runnerRejection`): its preflight failed — e.g. NotResident (26) or
+ * ArrivalBell (31) when the turn rolled over under the send —, its blockhash was unknown, or its signature did not
+ * verify. The transaction was never queued or run: "not sent". The order goes back to its card with the reason; the
+ * host is NOT held. (Before this, the relay said `LocalMarchSendRefused` for these too, and the page held the host on a
+ * signature that could never land, for the rest of the world: D-r0ze-play-kit-1.)
+ */
+export const LOCAL_MARCH_REJECTED = Object.freeze(['LocalMarchRejected']);
 export const LOCAL_MARCH_BOOK_KEY = 'local-march:memory';
 export const LOCAL_MARCH_MAX_BYTES = 16 * 1024;
 const POST_PATHS = Object.freeze([LOCAL_ACT_CONTEXT_PATH, LOCAL_MARCH_SUBMIT_PATH, LOCAL_MARCH_STATUS_PATH]);
@@ -238,9 +247,14 @@ export async function signWithMemoryWallet(w, wallet, message) {
   return localDepartSigned(out?.signedTransaction ?? [], { message, digest: toHex(sha256(message)) }, wallet);
 }
 
-/** The relay's status answer → `{state: 'landed'|'failed'|'pending', slot?, programCode?}`; throws on anything else. */
+/**
+ * The relay's status answer → `{state: 'landed'|'failed'|'expired'|'pending', slot?, programCode?}`; throws on anything
+ * else. `expired` (2026-11-19): the relay read the transaction's blockhash as no longer valid BEFORE it read the signature
+ * as still unknown — it can never land (Solana's block-height expiry; the runner drops it from its queue).
+ */
 function statusOf(v, signature) {
-  check(object(v) && v.signature === signature && ['pending', 'processed', 'confirmed', 'finalized', 'failed'].includes(v.status), 'BadLocalMarchStatus');
+  check(object(v) && v.signature === signature && ['pending', 'processed', 'confirmed', 'finalized', 'failed', 'expired'].includes(v.status), 'BadLocalMarchStatus');
+  if (v.status === 'expired') return { state: 'expired' };
   if (v.status === 'confirmed' || v.status === 'finalized') return { state: 'landed', slot: Number.isSafeInteger(v.slot) ? v.slot : null };
   if (v.status === 'failed') {
     check(v.err !== null && v.err !== undefined, 'BadLocalMarchStatus');
@@ -256,11 +270,12 @@ function statusOf(v, signature) {
  *   open()        whether `FS.localMarch?.open === true` NOW (asked before anything is signed)
  *   identity()    `fs.localPlay`;  rulesetHash() the Season's ruleset hash;  signer() the live memory wallet
  *   post, sign    (tests) the POST and the signing step; production: postLocalMarch, signWithMemoryWallet
- *   wait, tries, every  the status reads after the send (40 × 1.5 s by default)
+ *   wait, tries, every  the status reads after the send (60 × 1.5 s by default: longer than a blockhash lives, 150
+ *                       slots ≈ 60 s, so a transaction that never lands is read as `expired` inside it)
  * → `{storage, bookKey, held(host), depsFor({holding, province}), ask(signature)}`. Constructing it sends nothing.
  */
 export function createLocalMarchSender({ allowed, open, identity, rulesetHash, signer, post = postLocalMarch, sign = signWithMemoryWallet,
-  wait = ms => new Promise(r => setTimeout(r, ms)), tries = 40, every = 1500 } = {}) {
+  wait = ms => new Promise(r => setTimeout(r, ms)), tries = 60, every = 1500 } = {}) {
   const storage = keptStorage ?? memoryStorage(), bookKey = LOCAL_MARCH_BOOK_KEY;
   const read = () => { try { const v = JSON.parse(storage.get(bookKey) ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
   const patch = (signature, p) => storage.set(bookKey, JSON.stringify(read().map(e => (e.signature === signature ? { ...e, ...p } : e))));
@@ -308,7 +323,15 @@ export function createLocalMarchSender({ allowed, open, identity, rulesetHash, s
             const code = codeOf(e, 'LocalMarchFailed');
             if (!attempted) return no(code);
             if (e?.refused === true && LOCAL_MARCH_PRESEND_REFUSALS.includes(code)) { origins.delete(sig); return no(code); }
-            // sent, outcome unknown (no answer, an unbelievable answer, the runner's refusal of the send, a used message):
+            // the runner's definite "not taken" (its preflight failed): not sent — with the program's code, so the card
+            // can say why (NotResident, ArrivalBell…)
+            if (e?.refused === true && LOCAL_MARCH_REJECTED.includes(code)) {
+              origins.delete(sig);
+              const pc = e.detail?.program_code;
+              return { ...no(code), ...(Number.isInteger(pc) && pc >= 0 && pc <= 0xffffffff ? { programCode: pc } : {}) };
+            }
+            // sent, outcome unknown (no answer, an unbelievable answer, the runner's refusal of the send — other than a
+            // definite rejection —, a used message):
             // kept by its signature and followed; never sent again
             return { ok: true, signature: sig, outcome: 'unknown', relayCode: code };
           }
@@ -321,13 +344,14 @@ export function createLocalMarchSender({ allowed, open, identity, rulesetHash, s
             try { s = await readStatus(origin, signature); } catch { s = null; }
             if (s?.state === 'landed') return { ok: true, slot: s.slot };
             if (s?.state === 'failed') return { ok: false, state: 'failed', code: 'TransactionFailed', programCode: s.programCode };
+            if (s?.state === 'expired') return { ok: false, state: 'expired', code: 'LocalMarchExpired' };
             if (n + 1 < tries) await wait(every);
           }
           return { ok: false, state: 'unconfirmed', code: 'Unconfirmed' };
         },
       };
     },
-    /** ONE status read of a held march, through the relay it was sent through: `'landed'`, `'failed'` (the book lets it go) or `'unconfirmed'` (still held). Sends nothing. */
+    /** ONE status read of a held march, through the relay it was sent through: `'landed'`, `'failed'` or `'expired'` (the book lets it go), or `'unconfirmed'` (still held). Sends nothing. */
     async ask(signature) {
       const origin = originOf(signature);
       if (!origin || !read().some(e => e.signature === signature && e.state === 'sent')) return 'none';
@@ -335,6 +359,7 @@ export function createLocalMarchSender({ allowed, open, identity, rulesetHash, s
       try { s = await readStatus(origin, signature); } catch { s = null; }
       if (s?.state === 'landed') { patch(signature, { state: 'landed' }); return 'landed'; }
       if (s?.state === 'failed') { patch(signature, { state: 'failed', failure: 'TransactionFailed' }); return 'failed'; }
+      if (s?.state === 'expired') { patch(signature, { state: 'failed', failure: 'LocalMarchExpired' }); return 'expired'; }
       return 'unconfirmed';
     },
   });

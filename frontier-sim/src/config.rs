@@ -88,10 +88,12 @@ pub struct Config {
     pub bot_aggression: Option<f64>,
     /// Holding emission (design: `Full`).
     pub emission: Emission,
-    /// Relic Sites spawn at Engine stages and pay their revision-2 laurels
-    /// (1 a bell to the holder). K3 default `false` (O4 step 4): they mint
-    /// nothing, and with no other modelled purpose the sim does not spawn
-    /// them.
+    /// Relic Sites spawned at Engine stages and paid their revision-2
+    /// laurels (1 a bell to the holder). K3 default `false` (O4 step 4).
+    /// ⑭ R6 (owner decision t346u, 2026-11-18): the Engine stages are
+    /// retired with the central tower, so nothing spawns a Relic Site any
+    /// more and this flag (and `--relics`, `--rev2-economy`'s relics) has
+    /// no effect; the relic payout code stays for an empty list.
     pub relics: bool,
     /// Works credited per wallet per day at most [sim].
     pub works_cap: u64,

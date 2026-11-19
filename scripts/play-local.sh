@@ -45,8 +45,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --ai N          operator AI residents in the world, 0-4 (default 2; --resume keeps the kept world's number)
   --demo          the 15-minute capture demo instead of a kept world: compressed clock, land preview, memory-only
                   (a stop ends it for good; not resumable)
-  --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; at 60 the land preview's
-                  FoldLand often runs out of compute units, see the report; use 30 or less to check land yield)
+  --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; the land preview's
+                  FoldLand folds as many turns as fit its compute at every speed since fix-march-held)
   --minutes N     the world's life in minutes, 15-240 (default 90)
   --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999).
                   The browser keeps a kept world's key per address, so --resume uses the kept world's port.
@@ -54,6 +54,10 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   browser's language; its top-right button switches 日本語 ⇄ English.
   --fresh         start a brand-new kept world (the default without --resume)
   --resume        reopen the last kept world: the same chain, village and AI residents (same browser, same port)
+  --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
+                  world has the same map: the local chain always starts at one fixed clock origin, so every world
+                  draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the
+                  program derives another seed by its unchanged rules. Not with --resume (a kept world keeps its map)
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
@@ -65,7 +69,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
+AI=2 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -90,6 +94,7 @@ while [ $# -gt 0 ]; do
     --cluster) need_val "$@"; CLUSTER="$2"; shift 2 ;;
     --fresh) FRESH=1; shift ;;
     --resume) RESUME=1; shift ;;
+    --random-map) RANDOM_MAP=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --no-build) NOBUILD=1; shift ;;
     --no-open) NOOPEN=1; shift ;;
@@ -114,6 +119,14 @@ for v in SOLANA_URL SOLANA_RPC_URL ANCHOR_PROVIDER_URL; do
   fi
 done
 if [ "$FRESH" = 1 ] && [ "$RESUME" = 1 ]; then err "--fresh と --resume は同時に使えません" "--fresh and --resume cannot be combined"; exit 2; fi
+if [ "$RANDOM_MAP" = 1 ] && [ "$RESUME" = 1 ]; then err "--random-map は --resume と一緒には使えません (保存した世界は作ったときの地図のままです)" "--random-map cannot be combined with --resume (a kept world keeps the map it was made with)"; exit 2; fi
+# (the fresh map: only when the launcher on this checkout knows it; refused, never faked, otherwise)
+FRESH_MAP_WORD="$(sed -n "s/.*FRESH_MAP_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" 2>/dev/null | head -1)"
+if [ "$RANDOM_MAP" = 1 ] && [ -z "$FRESH_MAP_WORD" ]; then
+  err "--random-map: このチェックアウトのランチャーには世界ごとの新しい地図 (--fresh-map) がまだありません。地図は毎回同じです。" \
+      "--random-map: the launcher on this checkout has no per-world fresh map (--fresh-map) yet; every local world has the same map."
+  exit 5
+fi
 if [ "$DEMO" = 1 ] && [ "$RESUME" = 1 ]; then err "--demo の世界は保存されないので --resume できません" "--demo worlds are not kept, so they cannot be resumed (--resume)"; exit 2; fi
 if [ "$DEMO" = 0 ] && [ "$SPEED_SET" = 1 ]; then err "--speed は --demo と一緒にだけ使えます (保存する世界は通常の速さです)" "--speed works only with --demo (a kept world runs at the natural speed)"; exit 2; fi
 if [ "$REBUILD" = 1 ] && [ "$NOBUILD" = 1 ]; then err "--rebuild と --no-build は同時に使えません" "--rebuild and --no-build cannot be combined"; exit 2; fi
@@ -203,6 +216,7 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
     --preview "$T/frontier-original-expedition-preview" --resident "$T/frontier-experimental-expedition-prepare" \
     --artifact "$SO" --artifact-sha "$sha" --world-ttl-minutes "$MINUTES" --port "$PORT" --world-port "$WORLD_PORT"
   if [ "$AI" -gt 0 ]; then printf '%s\n' --operator-residents "$AI"; fi
+  if [ "$RANDOM_MAP" = 1 ]; then printf '%s\n' --fresh-map "$FRESH_MAP_WORD"; fi
 }
 
 if [ "$PLAN" = 1 ]; then
@@ -218,6 +232,7 @@ if [ "$PLAN" = 1 ]; then
   echo "world=$([ "$DEMO" = 1 ] && echo demo || echo kept)"
   echo "mode=$([ "$RESUME" = 1 ] && echo resume || echo fresh)"
   echo "persist_available=$HAS_PERSIST"
+  echo "map=$([ "$RANDOM_MAP" = 1 ] && echo fresh || echo fixed)"
   echo "build=$([ "$NOBUILD" = 1 ] && echo never || { [ "$REBUILD" = 1 ] && echo always || echo when-changed; })"
   echo "open=$([ "$NOOPEN" = 1 ] && echo no || echo yes)"
   echo "data=$DATA"

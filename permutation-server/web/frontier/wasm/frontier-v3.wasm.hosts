@@ -3,5 +3,5 @@
 # only by --check. aarch64-apple-darwin built the committed module (2026-10-26, from main 79c80684's sources; --check
 # reproduced it byte for byte). x86_64-unknown-linux-gnu is the GitHub runner, taken from the log of CI run
 # 40240862639 (job 121312134735, PR #13 at 239a4e05) for the same source.
-aarch64-apple-darwin a66d1a6bad622feee5f669c9138299e37704b9ceedcd0d1a41255057fd152f45 215400
-x86_64-unknown-linux-gnu c352c39cf3236567933903eee8c6a99c2de9459f948776113844d39343608848 215362
+aarch64-apple-darwin 7b7224c0f6121b78b7ba2275fb5608e3c392adc19782c9d216441096927f4199 215474
+x86_64-unknown-linux-gnu 913bf720ad2e1adbee1dadbc45b57841c0cb35ca45c668c618ac8132b88de3b6 215436
