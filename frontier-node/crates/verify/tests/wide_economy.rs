@@ -10,6 +10,8 @@
 //! Run with
 //! `cargo test --locked --offline -p verify --features wide-economy-experimental --test wide_economy`.
 #![cfg(feature = "wide-economy-experimental")]
+// The constant "not a full-season replay" assertions are the point.
+#![allow(clippy::assertions_on_constants)]
 
 use frontier_abi::layout::header as HDR;
 use frontier_abi::v2::layout::player::{citizen as C2, holding as H2};

@@ -226,6 +226,7 @@ pub fn verify_transition(t: &Transition<'_>) -> Result<Verified, Refusal> {
                 reason: "instruction privileges",
             });
         }
+        #[allow(clippy::needless_range_loop)]
         for j in 0..i {
             if account.key == a[j].key {
                 // Repeated live anchor metas are legitimate. Anything else

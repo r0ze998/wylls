@@ -324,9 +324,9 @@ pub fn run(input: &Input) -> Report {
         vl_land::run(&mut cx);
         ran.push("VL:land");
     }
-    // Q16-1 continued: the wide land opening (WideSetRules,
-    // WideRequestRingSeed, WideConsumeRingSeed, WideOpenProvince) in a
-    // playable-lane season, re-run from the states before them.
+    // Q16-1 continued: the wide land opening, the wide claims, the
+    // season-end closes and the wide economy / garrison of a playable-lane
+    // season, re-run from the states before them.
     #[cfg(feature = "playable-lane")]
     if !cfg!(feature = "mutate-vwl") {
         vwl_wide_land::run(&mut cx);

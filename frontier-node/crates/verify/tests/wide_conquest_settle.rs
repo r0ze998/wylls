@@ -1,4 +1,6 @@
 #![cfg(feature = "wide-economy-experimental")]
+// The constant "not a full-season replay" assertions are the point.
+#![allow(clippy::assertions_on_constants)]
 //! Literal public identities, codecs, public hashes and scalar arithmetic only.
 use frontier_abi::layout::{
     header as HDR,

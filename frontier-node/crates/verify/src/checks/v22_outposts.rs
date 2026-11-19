@@ -276,7 +276,9 @@ pub fn run(cx: &mut Ctx) {
             let (p, q) = (s.p as i32, s.q as i32);
             let target = ProvinceCoord::new(p, q);
             let site_what = format!("{what} to ({p}, {q}, {})", s.site);
-            if target.ring() < 2 || target.ring() >= rings_opened {
+            // (⑭ R2: rings 0-1 are ordinary land in a centre-free season)
+            let reserved = target.ring() < 2 && !crate::checks::v11_land::centre_free(Some(&cq));
+            if reserved || target.ring() >= rings_opened {
                 bad.push((
                     t,
                     site_what,

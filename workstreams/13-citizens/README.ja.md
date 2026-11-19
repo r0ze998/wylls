@@ -1,5 +1,7 @@
 # ⑬ プレイヤーの代理ではない、独立したAI住民（最小実装）
 
+> **状況 2026-11-19（main `1d6c0039`、コードが正）：** 実際の HTTP で確認済み、修正は main にある（PR #28）。遊べる世界にはつながっていない：⑤ の AI 住人は自分の方針のモジュール（`permutation-gateway/src/frontier/local-play-operator-policy.mjs`）を使い、⑬ を呼ばない。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
+
 作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（統合候補 `integrate/claude-consolidation-20261029` の handoff 文書。`main` 9214293 に試遊キット文書を足したもの）。作業ブランチ `claude/eager-cerf-k74z5s`（この担当専用。`main` から 4cd901de へ早送り）。この担当の成果物はすべてこのディレクトリにあり、**共有コード（`permutation-gateway` ほか）は一行も変えていない**。共有コードへの変更は [patches/](patches/) に未適用の差分として分けた。
 
 > **2026-11-08：** ④ `cf517b55` の認証付き run 受付（requester、Created/Existing、NotAuthorized、run view の NoRecord と StoreUnavailable）に run ポートを合わせ、⑲の実契約（coverage・history）で入力を判定。記録は [WORK-20261108.ja.md](WORK-20261108.ja.md)。

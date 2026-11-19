@@ -793,20 +793,26 @@ pub(crate) fn declare_siege_as(
         // dispersed placement the heartland is `home_nation`'s, not the
         // wedge's, so the kernel's wedge test is switched off (an empty ring
         // range) and the same refusal, still the last step, is made here.
-        let (placement, genesis_seed) = {
+        // (⑭ R2: a centre-free season (`cq_layout::CENTRE`) has no Seat and
+        //  no Concord to refuse)
+        let (placement, genesis_seed, centre_free) = {
             let sd = season_ai.try_borrow_data()?;
             (
                 cq_u8(&sd, CQ::PLACEMENT)?,
                 Ro(&sd).arr::<32>(crate::layout::season::GENESIS_SEED)?,
+                cq_u8(&sd, CQ::CENTRE)? == frontier_abi::v2::presets::CENTRE_FREE,
             )
         };
         if placement == geometry::PLACEMENT_WEDGE {
-            siege::may_besiege_v3(&check).map_err(refusal)?;
+            siege::may_besiege_v3_in(&check, centre_free).map_err(refusal)?;
         } else {
-            siege::may_besiege_v3(&SiegeCheckV3 {
-                heartland_max_ring: 1,
-                ..check
-            })
+            siege::may_besiege_v3_in(
+                &SiegeCheckV3 {
+                    heartland_max_ring: 1,
+                    ..check
+                },
+                centre_free,
+            )
             .map_err(refusal)?;
             if geometry::is_home_heartland(
                 check.province,
@@ -821,7 +827,11 @@ pub(crate) fn declare_siege_as(
     } else {
         // A Free City skips step 8 except the Seat and Concord test.
         let c = ProvinceCoord::new(tp as i32, tq as i32);
-        if c.is_seat() || c.is_concord() {
+        let centre_free = {
+            let sd = season_ai.try_borrow_data()?;
+            cq_u8(&sd, CQ::CENTRE)? == frontier_abi::v2::presets::CENTRE_FREE
+        };
+        if c.is_seat_in(centre_free) || c.is_concord_in(centre_free) {
             return Err(FrontierError::ReservedSite.into());
         }
     }

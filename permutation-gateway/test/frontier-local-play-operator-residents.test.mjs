@@ -11,7 +11,7 @@ import { submitLocalAct } from '../../permutation-server/web/frontier/flocalplay
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
 import { encode } from '../../permutation-server/web/sdk/base58.mjs';
 
-const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', RULESET = '234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d';
+const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', RULESET = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
 const SEASON = seasonAddresses(PROGRAM, String(LOCAL_PLAY_SEASON_ID)).season, BLOCKHASH = encode(new Uint8Array(32).fill(7));
 
 /** A relay in memory: the context answers a blockhash; the submit runs the relay's OWN check (`localActSubmit`) for ITS wallet. */

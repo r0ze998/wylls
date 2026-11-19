@@ -23,6 +23,10 @@
 /// Version of this kernel, bound into `ruleset_hash_input_v2`
 /// (`super::KERNEL_VERSIONS_V2`).
 pub const CONTROL_VERSION: u16 = 1;
+/// ⑭ R2 (owner decision t346u, 2026-11-18): the kernel's centre-free
+/// variant (`*_in(.., centre_free)`). Bound into `ruleset_hash_input_v3`
+/// (and v4) in place of the previous version.
+pub const CONTROL_VERSION_CENTRE_FREE: u16 = 2;
 
 use super::geometry::{march_members, march_of, MarchCoord, ProvinceCoord, FACTIONS};
 use super::keep::Keep;
@@ -158,6 +162,25 @@ pub fn province_control(
     ring: u16,
     seat_faction: Option<u8>,
 ) -> ProvinceControl {
+    province_control_in(keep, ring, seat_faction, false)
+}
+
+/// [`province_control`] in a season with or without the centre: ⑭ R2, in
+/// a centre-free season every ring is its keep's holder (unopened without a
+/// keep), so no province is neutral and none a Seat (`seat_faction` is
+/// ignored).
+pub fn province_control_in(
+    keep: Option<&Keep>,
+    ring: u16,
+    seat_faction: Option<u8>,
+    centre_free: bool,
+) -> ProvinceControl {
+    if centre_free {
+        return match keep {
+            Some(k) if k.holder < FACTIONS => ProvinceControl::Keep(k.holder),
+            _ => ProvinceControl::Unopened,
+        };
+    }
     match ring {
         0 => ProvinceControl::Neutral,
         1 => match seat_faction {

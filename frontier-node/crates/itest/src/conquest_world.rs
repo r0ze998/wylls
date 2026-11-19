@@ -45,12 +45,13 @@ pub const MARKERS: [&str; 2] = [
 pub const FLAG: &str = "--world-preset";
 
 /// The preset's rule bytes: the expedition world's [`crate::wide_destination::RULES`]
-/// with only the Free City rule changed to the ABI's existing
-/// `CanonicalHashV1` (the program's own OpenProvince then places it). No other
-/// rule, Season field or gate differs.
+/// with only the Free City rule changed to `DeployedLe32V1` (⑧ (d): the
+/// deployed `terrain::free_city_site` itself; the program's own OpenProvince
+/// then places it; a placement-2 Season refuses the older `CanonicalHashV1`).
+/// No other rule, Season field or gate differs.
 pub const RULES: frontier_abi::world_index::rules::RuleBytes =
     frontier_abi::world_index::rules::RuleBytes {
-        free_city: frontier_abi::world_index::rules::FreeCityRule::CanonicalHashV1 as u8,
+        free_city: frontier_abi::world_index::rules::FreeCityRule::DeployedLe32V1 as u8,
         ..crate::wide_destination::RULES
     };
 
@@ -485,7 +486,7 @@ mod tests {
         );
         assert_eq!(
             RULES.free_city,
-            frontier_abi::world_index::rules::FreeCityRule::CanonicalHashV1 as u8
+            frontier_abi::world_index::rules::FreeCityRule::DeployedLe32V1 as u8
         );
         assert_ne!(RULES.free_city, w.free_city);
         // the SetRules of each carries its own bytes; the expedition one is unchanged

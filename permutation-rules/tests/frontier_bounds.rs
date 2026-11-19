@@ -530,7 +530,7 @@ fn settlement_for(recs: &[CitizenRecord], p: &PayoutParams) -> Settlement {
             .add(&r.weights_at(p.works_per_usdc))
             .unwrap();
     }
-    settle(&pools_for(recs), &t, &[INDEX_ONE; FACTIONS], 0, p).unwrap()
+    settle(&pools_for(recs), &t, &[INDEX_ONE; FACTIONS], p).unwrap()
 }
 
 /// CL-08: an over-claim in faction 2, offset by an under-claim in faction
@@ -897,7 +897,6 @@ fn weights_follow_the_season_rate() {
         &pools_for(&recs),
         &totals,
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams {
             works_per_usdc: 140,
             ..PayoutParams::REV3

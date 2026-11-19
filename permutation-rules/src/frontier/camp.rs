@@ -34,6 +34,10 @@ pub const CAMP_VERSION: u16 = 1;
 /// garrisons cannot share a tile). Bound into `ruleset_hash_input_v2`
 /// only; [`CAMP_VERSION`] keeps the M1 value.
 pub const CAMP_VERSION_V2: u16 = 2;
+/// ⑭ R2 (owner decision t346u, 2026-11-18): the kernel's centre-free
+/// variant (`*_in(.., centre_free)`). Bound into `ruleset_hash_input_v3`
+/// (and v4) in place of the previous version.
+pub const CAMP_VERSION_CENTRE_FREE: u16 = 3;
 
 /// Troops of a camp: `CAMP_TROOPS_MIN + rand(0..=CAMP_TROOPS_SPREAD)`.
 pub const CAMP_TROOPS_MIN: u32 = 100;
@@ -104,6 +108,33 @@ pub fn place_v2(
     place_inner(ring_seed, p, terrain, day, has_holding, initial, keep_tile)
 }
 
+/// [`place_v2`] in a season with or without the centre: ⑭ R2, a
+/// centre-free season gives rings 0 and 1 their initial camp too
+/// (otherwise exactly [`place_v2`]).
+#[allow(clippy::too_many_arguments)]
+pub fn place_v2_in(
+    ring_seed: &[u8; 32],
+    p: ProvinceCoord,
+    terrain: &ProvinceTerrain,
+    day: u32,
+    has_holding: bool,
+    initial: bool,
+    keep_tile: Option<u8>,
+    centre_free: bool,
+) -> Option<Camp> {
+    let first = if centre_free { 0 } else { CAMP_FIRST_RING };
+    place_from(
+        ring_seed,
+        p,
+        terrain,
+        day,
+        has_holding,
+        initial,
+        keep_tile,
+        first,
+    )
+}
+
 fn place_inner(
     ring_seed: &[u8; 32],
     p: ProvinceCoord,
@@ -113,8 +144,31 @@ fn place_inner(
     initial: bool,
     exclude: Option<u8>,
 ) -> Option<Camp> {
+    place_from(
+        ring_seed,
+        p,
+        terrain,
+        day,
+        has_holding,
+        initial,
+        exclude,
+        CAMP_FIRST_RING,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn place_from(
+    ring_seed: &[u8; 32],
+    p: ProvinceCoord,
+    terrain: &ProvinceTerrain,
+    day: u32,
+    has_holding: bool,
+    initial: bool,
+    exclude: Option<u8>,
+    first_ring: u32,
+) -> Option<Camp> {
     if initial {
-        if p.ring() < CAMP_FIRST_RING {
+        if p.ring() < first_ring {
             return None;
         }
     } else {

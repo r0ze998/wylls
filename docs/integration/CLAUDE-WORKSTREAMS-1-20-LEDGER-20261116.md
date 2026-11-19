@@ -3,6 +3,11 @@
 No secrets. Restricted everywhere, in every lane: NFT transfer verification or equivalent procedures, session guard,
 prize, real funds, public issuance. No time estimates: none is backed by a measurement.
 
+> **Status 2026-11-19:** the current state of every item on `main` is in the last column of the ledger table and in the
+> section "Status 2026-11-19 JST" at the end of this file. The restriction above was written on 2026-11-16; since then the
+> owner reopened ⑰ prize and ⑳ NFT resident ID for local and devnet test builds only (t351u). Real funds, mainnet and
+> public issuance stay restricted. Everything between the table and that last section is a historical record.
+
 ## How to read it
 - **Self-claim (date)** is the workstream README's own status line, at the date it gives. It is NOT re-verified today
   and is NOT "done now". Most date from 2026-10-30 … 11-08, before the continuous-world and v2 changes.
@@ -15,30 +20,32 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
   `verification/16-independent/` plus 21 `v16_*`/`v16-*` test files, 119 commits not in main, based on `92142932`.
   Several of its fixes reached main by other routes (herald `holderTag`, verifier V0). See the Grok report
   `plan-6-9-10-12-16` for the per-patch state.)
+- **Status 2026-11-19** (added 2026-11-19) = what is on `main` @ `1d6c0039`, checked against the code and the merged
+  pull requests. It overrides the older columns where they differ. File and line evidence is in the last section.
 
 ## Ledger
-| # | name | self-claim (date) | last commit | integration | restricted parts |
-|---|---|---|---|---|---|
-| ① | national strategy (a nation plans; people join) | design + local prototype done; real S1 connection and human play not done (10-30) | 42b1f393 (11-08) | records in canonical | — |
-| ② | rights (use others' resources with limited authority) | proposal awaiting adoption; host-native check done; SBF/LiteSVM/event replay not done | 626a5cc8 (11-08) | records in canonical; code a proposal | delegation/session-adjacent: ordinary parts only |
-| ③ | composability (external programs, MCP) | local MCP client on a local real chain confirmed (per its table) | 1398f44c (11-08) | records in canonical | doc 22 is NFT transfer: excluded |
-| ④ | execution (multi-turn runs) | local integration branch ws04/integration-20261030 | cca16cd8 (11-09) | records in canonical | — |
-| ⑤ | AI participation | audit + local demo; a proposal, not adopted | 16576826 (11-08) | records in canonical | agent wallet / session keys: excluded |
-| ⑥ | creation (residents publish mechanisms) | local prototype done; chain connection not done (11-05) | 695e1d83 (11-08) | records in canonical | — |
-| ⑦ | player experience (UI/UX) | screen wiring "implemented, awaiting verification"; latest record INTEGRATION §0o | 4532651d (11-08) | records in canonical; the page lane continued in canonical rounds 33–49 | NFT card parts (⑳): excluded |
-| ⑧ | persistence (roles for newcomers, losers, absentees) | continuous-world migration design first (10-31) | cd449f08 (11-08) | records in canonical | — |
-| ⑨ | capacity (borrow a workshop's processing) | work of 10-30 recorded | b1157847 (11-08) | records in canonical | — |
-| ⑩ | custody (storage/transport keeping ownership) | minimal base in kernel/model/host (10-30); adapter for ⑨ (11-05/06) | 970c50a1 (11-08) | records in canonical | transfer-of-ownership checks: excluded |
-| ⑪ | extensions (users/AI add functions) | r13: ABI/coverage contract matched on cf517b55; recommends B (declared effects) | af41e617 (11-08) | records in canonical | — |
-| ⑫ | memory (memory/relations change AI's next act) | isolated prototype; limits listed | 64960c1e (11-08) | records in canonical | — |
-| ⑬ | citizens (independent AI residents) | minimal implementation; connected to ④/⑤/⑫ in a mock world (11-06) | 5133f3c7 (11-08) | records in canonical | NFT resident ID (⑳): excluded |
-| ⑭ | central tower | pushed 11-08; stage value always 0 in production | 45da6d38 (11-08) | records in canonical | — |
-| ⑮ | coop outcomes (evaluator) | branch ws/15-coop-outcomes (10-30); long-run.json changed in the WIP | bcc63a24 (11-15, WIP) | records in canonical | — |
-| ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded |
-| ⑰ | settlement / prize (x402, USDC) | **Reopened 2026-11-18 by owner; devnet/test-USDC only; mainnet needs legal review** (18:26 JST; supersedes the 14:42 closure and PR #37's note) — settlement windows behind feature `epochs`, see the dated section at the end | preserve/ws17-0c80381d; grok/ws17-prize (draft PR) | epoch pools implemented and tested locally (LiteSVM); local stack only, OFF by default; not deployed | real-money prize, mainnet: **restricted** (legal review first) |
-| ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | origin/fix/ws18-clippy-hostile-20261103 @ 0bba3f31 (11-03; = preserve/ws18-4fbe0c77 + clippy fix) | **in main**: all 17 commits applied as one delta in 6b670edb (2026-11-03), patch-id identical per file (2026-11-18 check, see section below) | — |
-| ⑲ | MagicBlock and public RPC | **Integrated; ER lane not adopted (2026-11-18)** — see the dated section at the end | archive/ws19-er-candidate-20261108 (0c2214d5) | findex/verify parts in main (6b670edb, 668e9b66…); consistency tests ported 2026-11-18; frontier-er ER candidate obsolete (O8) | public network: nothing sent |
-| ⑳ | NFT resident ID and authorization | **Reopened 2026-11-18 by owner; devnet/local only** (18:26 JST, supersedes the 14:42 closure of #37): implemented behind `nft-experimental` in the playable localnet lane `localnet-nft-sbf` and the devnet dry-run (`--nft-resident`); no mainnet issuance, no sale — see the section "⑳ NFT resident ID reopened" at the end | grok/ws20-nft-resident | local play check on the real SBF lane passes; devnet not deployed | undecided U-items run on conservative defaults (`frontier_abi::resident_terms`), blocked on r0ze |
+| # | name | self-claim (date) | last commit | integration | restricted parts | status 2026-11-19 (main `1d6c0039`; code wins) |
+|---|---|---|---|---|---|---|
+| ① | national strategy (a nation plans; people join) | design + local prototype done; real S1 connection and human play not done (10-30) | 42b1f393 (11-08) | records in canonical | — | Co-op request, sending-source, history and crosslink UI on main ([#24], [#25]); the core loop was played twice in local TEST worlds. ①'s board serves ⑮'s `/coop/outcomes` ([#31]), but the local-play launcher starts no board, so the co-op screens have nothing to read there — fix open in [#60] |
+| ② | rights (use others' resources with limited authority) | proposal awaiting adoption; host-native check done; SBF/LiteSVM/event replay not done | 626a5cc8 (11-08) | records in canonical; code a proposal | delegation/session-adjacent: ordinary parts only | Option A on main ([#33]; owner t335u): StockSwap output lands in the grantee's Vault and is hauled by caravan; paid, wallet-only issuance. Behind `rights-experimental` (off by default); the devnet profile refuses that build; no LiteSVM cover |
+| ③ | composability (external programs, MCP) | local MCP client on a local real chain confirmed (per its table) | 1398f44c (11-08) | records in canonical | doc 22 is NFT transfer: excluded | MCP server verified over real HTTP; loopback bind and Host allow-list on main ([#28]). Open: the exposure policy for a public devnet world |
+| ④ | execution (multi-turn runs) | local integration branch ws04/integration-20261030 | cca16cd8 (11-09) | records in canonical | — | Node client and HTTP bridge verified ([#28]); frontier-node test fixes ([#41]); CI job `exec-native` runs the `e2e-native` host tests. The native `runexec` binary was not built or run in the 11-18/19 runs |
+| ⑤ | AI participation | audit + local demo; a proposal, not adopted | 16576826 (11-08) | records in canonical | agent wallet / session keys: excluded | A (operator AI residents, [#40]) and B (external AI residents with their own wallet, [#57]) on main, local TEST worlds only (t335u, t343u). Open: [#62] one action per resident per bell (t353u), [#68] residents march and capture (t359u; no AI caps, t364u), [#60] per-turn budget |
+| ⑥ | creation (residents publish mechanisms) | local prototype done; chain connection not done (11-05) | 695e1d83 (11-08) | records in canonical | — | JS prototype, not called by the playable game. Stale J8 pin fixed and CI job `creation06` added ([#51]). Not needed for the first devnet |
+| ⑦ | player experience (UI/UX) | screen wiring "implemented, awaiting verification"; latest record INTEGRATION §0o | 4532651d (11-08) | records in canonical; the page lane continued in canonical rounds 33–49 | NFT card parts (⑳): excluded | Page fixes on main: [#29], [#30], [#46] (B5–B9), [#63] (B10/B11), [#73], [#61] (re-key keeps the delegation). Open: [#75] refused march holds the host (HIGH), [#60] |
+| ⑧ | persistence (roles for newcomers, losers, absentees) | continuous-world migration design first (10-31) | cd449f08 (11-08) | records in canonical | — | On main: P3 §1-A ([#29]); P1 continuous preset, P2 option B kept TEST worlds and wide land (i) = placement value 2 ([#38]; t335u, t346u); play kit `scripts/play-local.sh` ([#65]) with `--resume` ([#71]) and `--random-map` ([#74]). Open: [#69] (placement 2 as default, deployed Free City formula), [#70] |
+| ⑨ | capacity (borrow a workshop's processing) | work of 10-30 recorded | b1157847 (11-08) | records in canonical | — | Core on main behind `capacity-preview`; cannot be built together with the wide (playable) lane; CI job `frontier-previews` runs its host tests ([#51]). After the first devnet |
+| ⑩ | custody (storage/transport keeping ownership) | minimal base in kernel/model/host (10-30); adapter for ⑨ (11-05/06) | 970c50a1 (11-08) | records in canonical | transfer-of-ownership checks: excluded | Core on main behind `custody-preview`; cannot be built together with the wide (playable) lane; CI job `frontier-previews` ([#51]). After the first devnet |
+| ⑪ | extensions (users/AI add functions) | r13: ABI/coverage contract matched on cf517b55; recommends B (declared effects) | af41e617 (11-08) | records in canonical | — | Verifier holes H1–H4 closed on main ([#49]). Option (b) declarative effects only after the first playable devnet (t335u): not started |
+| ⑫ | memory (memory/relations change AI's next act) | isolated prototype; limits listed | 64960c1e (11-08) | records in canonical | — | Isolated module, CI job `memory12`; not called by the playable game ([#50] note). After the first devnet |
+| ⑬ | citizens (independent AI residents) | minimal implementation; connected to ④/⑤/⑫ in a mock world (11-06) | 5133f3c7 (11-08) | records in canonical | NFT resident ID (⑳): excluded | Verified over real HTTP, fixes on main ([#28]). Not wired to the playable world: ⑤'s residents use their own policy module |
+| ⑭ | central tower | pushed 11-08; stage value always 0 in production | 45da6d38 (11-08) | records in canonical | — | **Abolished** (owner t333u). Client side on main: no tower drawn, no centre named ([#30]); the T1 pin of [#27] went with it. On-chain rules R1/R2/R4/R6 approved (t346u) and open in [#69]; R3/R5 deferred |
+| ⑮ | coop outcomes (evaluator) | branch ws/15-coop-outcomes (10-30); long-run.json changed in the WIP | bcc63a24 (11-15, WIP) | records in canonical | — | Ruleset B wired on main ([#31]; t335u): titles and chronicle only, no win or prize effect, `carryInputs` true; CI job `coop15` ([#26]). Not visible in launcher worlds until [#60] (no board there) |
+| ⑯ | independent verification (verifier re-judging actors) | named in canonical docs; fix candidates referenced | — (no folder) | not determined | SESSION_SETTER/HOLDER parts: excluded | On main: the verifier knows the playable lane `0x4804` ([#64]) and its check VWL re-judges the wide land opening ([#67]) and the wide claims ([#72]); holes of [#49]; Q16-3 ([#61]). Still UNVERIFIABLE: expedition depart/arrive, wide keep capture, Free City conquest, WideClose, wide economy/garrison (open: [#76]). Q16-2 open in [#62]. ⑯'s own branch folder is not on main |
+| ⑰ | settlement / prize (x402, USDC) | **Reopened 2026-11-18 by owner; devnet/test-USDC only; mainnet needs legal review** (18:26 JST; supersedes the 14:42 closure and PR #37's note) — settlement windows behind feature `epochs`, see the dated section at the end | preserve/ws17-0c80381d; grok/ws17-prize (merged 2026-11-19, PR #54) | epoch pools implemented and tested locally (LiteSVM); local stack only, OFF by default; not deployed | real-money prize, mainnet: **restricted** (legal review first) | On main ([#54]; t351u, t353u): settlement windows behind `epochs` (off by default), test USDC, local stack only. **Prize gate closed**: no payout may rest on a played playable-lane season until the verifier covers expeditions and captures ([#76] and later) |
+| ⑱ | drand / sealed march / verification (V0) | local branch claude/brave-bohr-xe4n4p (code 853140ef, docs 90df6a64), "not received" in older docs | origin/fix/ws18-clippy-hostile-20261103 @ 0bba3f31 (11-03; = preserve/ws18-4fbe0c77 + clippy fix) | **in main**: all 17 commits applied as one delta in 6b670edb (2026-11-03), patch-id identical per file (2026-11-18 check, see section below) | — | In main (6b670edb); docs [#43]. Nothing open |
+| ⑲ | MagicBlock and public RPC | **Integrated; ER lane not adopted (2026-11-18)** — see the dated section at the end | archive/ws19-er-candidate-20261108 (0c2214d5) | findex/verify parts in main (6b670edb, 668e9b66…); consistency tests ported 2026-11-18; frontier-er ER candidate obsolete (O8) | public network: nothing sent | In main; consistency tests [#45]; ER lane not adopted. Nothing open; not needed for devnet |
+| ⑳ | NFT resident ID and authorization | **Reopened 2026-11-18 by owner; devnet/local only** (18:26 JST, supersedes the 14:42 closure of #37): implemented behind `nft-experimental` in the playable localnet lane `localnet-nft-sbf` and the devnet dry-run (`--nft-resident`); no mainnet issuance, no sale — see the section "⑳ NFT resident ID reopened" at the end | grok/ws20-nft-resident (merged 2026-11-19, PR #53) | local play check on the real SBF lane passes; devnet not deployed | undecided U-items run on conservative defaults (`frontier_abi::resident_terms`), blocked on r0ze | On main ([#53]; t351u, t353u): behind `nft-experimental`, off by default, no sale. The local-play launcher and `scripts/play-local.sh` build only the plain lane, so NFT residents run in the localnet harness, not in a browser world |
 
 ## The ordinary game lane (separate from ①–⑳): first playable vs full
 - **First playable (ordinary wallets, local test world)** critical path, from
@@ -52,6 +59,8 @@ prize, real funds, public issuance. No time estimates: none is backed by a measu
 - **Full ①–⑳**: most workstreams are proposals or prototypes by their own last claims; ⑰ and ⑳ cannot be completed
   under the current restrictions, and parts of ②⑤⑩⑬⑯ stay unverified for the same reason. Full ①–⑳ completion is not
   reachable as stated; only the ordinary parts can be advanced.
+  (Status 2026-11-19: superseded. The owner decided the open rules on 2026-11-18 (t333u, t335u/t336u, t346u, t351u,
+  t353u), and ⑰ and ⑳ are implemented on `main` for local and devnet test builds. See the last section.)
 
 ## Lanes started 2026-11-16 (ordinary only)
 See the table at the end of this file, updated as lanes report.
@@ -662,7 +671,7 @@ Run ws19-integrate (branch `grok/ws19-integrate` from main 28ef2f02). Code wins 
 NFT resident ID closed" above, whose ⑰ part is now historical). A real-money prize on mainnet needs a legal review
 first; nothing here deploys, spends SOL or uses a key.
 
-- **What was built** (branch `grok/ws17-prize`, draft PR): `permutation-prize` feature `epochs` (OFF by default) adds
+- **What was built** (branch `grok/ws17-prize`; merged to `main` on 2026-11-19 as PR #54): `permutation-prize` feature `epochs` (OFF by default) adds
   epoch pools: InitEpochPool, EpochTally, EpochFinalize and Sweep. Shares, claims and the operator's part reuse the
   legacy instructions. The numbers are the owner's: 25 test USDC per entry, 80% prize, 20% operator. Design and OSS
   comparison: [`docs/frontier/payments/X402-PRIZE-EPOCHS.md`](../frontier/payments/X402-PRIZE-EPOCHS.md)
@@ -726,3 +735,152 @@ closure recorded in the section above (PR #37) for ⑳ only; ⑰ prize stays clo
 - Nothing was ported, because nothing was missing. The live quicknet test (`fclient/tests/live_drand.rs`) is
   `#[ignore]` and also needs `FRONTIER_LIVE_DRAND=1`. The TLS hostile test (`drand-replay/tests/hostile.rs`) is `#[ignore]`.
 - Report: `~/Projects/wylls-grok-state/reports/ws18-integrate.md` (tests and discrepancies).
+
+## Status 2026-11-19 JST — ①–⑳ on main
+
+Docs-only refresh (run `ledger-refresh`). Basis: `main` @ `1d6c0039` (2026-11-19 08:16 JST, after [#74]). Each line was
+checked against the code or the merged pull request; nothing was built or run for this section. Code wins over every
+older line of this file. "Open" means a pull request that is not merged, so it is **not** on `main`.
+
+### What changed since the 2026-11-18 sections
+
+- 44 pull requests ([#26]–[#74], without the open ones) were merged between 2026-11-18 14:59 JST and 2026-11-19 08:16
+  JST. Each one was merged after CI and a separate verification run.
+- **Nothing is deployed.** No devnet or mainnet transaction was sent, no SOL was spent and no deploy key exists. The
+  deploy waits for r0ze's own local play check (t341u) and r0ze's confirmation.
+- The one-command local play check is on `main`: `scripts/play-local.sh` ([#65]; guide `docs/frontier/PLAY-LOCAL.ja.md`),
+  with kept worlds and `--resume` ([#38], [#71]) and a fresh map per world with `--random-map` ([#74]).
+
+### Owner decisions this status rests on (by id)
+
+| id | date (JST) | decision |
+|---|---|---|
+| t333u | 11-18 14:41 | ⑭: abolish the central tower; an endless map with no centre |
+| t335u / t336u | 11-18 14:42 | ② A, ⑤ A then B, ⑧ P2 option B + wide land (i), ⑪ (b) after the first playable devnet, ⑮ B. First milestone: playable on Solana devnet; no deploy, SOL or deploy key without r0ze's confirmation |
+| t341u | 11-18 16:04 | r0ze plays the local build before any devnet deploy |
+| t343u / t345u | 11-18 | ⑤ B external AI residents; a recorded six-nation bot session |
+| t346u | 11-18 17:29 | on-chain rule changes approved: ⑭ R1–R6 and the ⑧ wide land program and parameter change |
+| t351u | 11-18 18:26 | ⑰ prize and ⑳ NFT resident ID reopened: implement, devnet and test USDC only; a real-money prize on mainnet needs a legal review first |
+| t353u | 11-18 21:44 | all recommendations: Q16-1 = A (verifier covers the playable lane before any payout), Q16-2 (one action per resident per turn), Q16-3 (re-key keeps the delegation), ⑰ and ⑳ defaults, CI on pull requests and `main` only |
+| t359u–t364u | 11-19 00:35–06:06 | operator AI residents march and capture in the real local world (t359u); the video comes from the real game screen (t360u) on a freshly generated map (t363u); no march or troop caps for AI residents (t364u) |
+
+### Per item: on main, behind a flag, open
+
+| # | on `main` (evidence) | behind a flag / not in the playable build | open (not on `main`) and next step |
+|---|---|---|---|
+| ① | Co-op UI from [#24] and [#25]; board route `GET /coop/outcomes` in `workstreams/01-national-strategy/coop/board.mjs` ([#31]) | The board is a separate process. `permutation-gateway/src/frontier/local-play-launcher.mjs` has no board, so a `scripts/play-local.sh` world shows no co-op requests | [#60] (B13: board in launcher worlds). Then a co-op play-through in a local world |
+| ② | Option A: `permutation-frontier/src/proc/rights.rs:16` (`VaultFull` on ExecuteSwap), issue cost 25 gold (`rights_runtime_tests.rs:1446`) ([#33]) | `rights-experimental` (`permutation-frontier/Cargo.toml:103`), off by default. Refused by the devnet build (`scripts/devnet/devnet-profile.json:18`, `PSF_RIGHTS_EXPERIMENTAL_BUILD`). No file for it in `svm-tests/src/cover/` | No open PR. Next: decide when it enters the playable build (program version with the wide lane is undecided) |
+| ③ | Loopback listen host and Host allow-list: `workstreams/03-composability/mcp/bin/mcp-settings.mjs:16-27` ([#28]) | Remote bind only with `WYLLS_MCP_ALLOW_REMOTE_BIND=1` | No open PR. Next: exposure policy for a public devnet world |
+| ④ | Verified over HTTP ([#28]); CI job `exec-native` (`.github/workflows/ci.yml:453`) runs `e2e-native` | — | No open PR. Native `runexec` build and run still to do |
+| ⑤ | A: `local-play-operator-residents.mjs`, `local-play-operator-policy.mjs` ([#40]). B: `local-play-external-residents.mjs` ([#57]). Six-nation session tooling `scripts/demo/sixnation` ([#58], [#66]) | TEST-only launcher options (`--operator-residents`, `--operator-nations`, `--external-residents`); refused together with `--prize-epochs` (`local-play-launcher.mjs:1211-1212`) | [#62] one action per bell (`ResidentAlreadyActed` is not on `main`), [#68] march/siege/capture, [#60] per-turn budget. Then the real-screen six-nation video on a random map (needs [#68] and [#69]) |
+| ⑥ | Prototype in `workstreams/06-creation`; CI job `creation06` (`ci.yml:254`) ([#51]) | Not reachable from the playable game | No open PR. After the first devnet |
+| ⑦ | [#29], [#30], [#46], [#61], [#63], [#73] | — | [#75] (refused march no longer holds the host; FoldLand compute at ×60), [#60] |
+| ⑧ | `--continuous local-continuous-v1` and `--persist local-persist-v1` (`local-play-launcher.mjs:320-338`); placement value 2 `PLACEMENT_MIXED` (`permutation-rules/src/frontier/geometry.rs:448`, accepted by `frontier-abi/src/v2/presets.rs:393`) ([#38]); `scripts/play-local.sh` ([#65], [#71], [#74]) | Kept worlds and the fresh map are TEST-only launcher modes. The default preset still has `placement: PLACEMENT_WEDGE` (`presets.rs:529`) | [#69] (placement 2 as default, Free City formula as deployed), [#70] (devnet preset that reaches the wide land) |
+| ⑨ | Rules, ABI and program core; CI job `frontier-previews` (`ci.yml:340`) ([#51]) | `capacity-preview`; excluded with rights, NFT and the wide lane (`permutation-frontier/src/lib.rs:326-331`) | No open PR. After the first devnet |
+| ⑩ | Core and verifier check `v26_custody.rs`; CI job `frontier-previews` ([#51]) | `custody-preview`; excluded with NFT, rights and the wide lane (`lib.rs:332-337`) | No open PR. After the first devnet |
+| ⑪ | Verifier holes H1–H4 ([#49]) | — | Option (b) declarative effects: not started, after the first playable devnet |
+| ⑫ | `workstreams/12-memory`, CI job `memory12` (`ci.yml:222`) | Not called by the playable game | No open PR. After the first devnet |
+| ⑬ | Fixes of [#28] | Not wired to the playable world | No open PR |
+| ⑭ | Client: `map/belltower.mjs` and `map/enginestage.mjs` removed, no centre named ([#30]) | — | [#69] on-chain R1/R2/R4/R6 (in verification); R3/R5 deferred |
+| ⑮ | Reader `workstreams/15-coop-outcomes/src/live.mjs`, page card `permutation-server/web/frontier/hud/coopoutcomes.mjs` ([#31]); CI job `coop15` (`ci.yml:236`, [#26]) | Ruleset C frozen | [#60] (the board in launcher worlds) |
+| ⑯ | `frontier-node/crates/verify`: feature `playable-lane` (`Cargo.toml:59`), checks `vl_land.rs`, `vwl_wide_land.rs`, `vwl_wide_claims.rs` ([#64], [#67], [#72]); [#49]; [#61] | `playable-lane` is not built in CI on `main`. Unmodelled wide commands stay UNVERIFIABLE (`checks/v0_coverage.rs:68`, `:232`) | [#76] (SetRules keep-holder gate, WideClose, wide economy/garrison, CI job), [#62]. After that: expedition depart/arrive, wide keep capture, Free City conquest |
+| ⑰ | `permutation-prize` feature `epochs` (`Cargo.toml:22`), `OperatorMember` (`src/epoch.rs:141`); stack `--prize-epochs` (`frontier-node/crates/stack/src/config.rs:764-766`) ([#54]) | Off by default; local stack only; the launcher refuses `--prize-epochs`; the devnet plan includes it only with `--with-prize` | **Prize gate closed** until the verifier covers expeditions and captures. Mainnet: legal review first |
+| ⑱ | In `main` since `6b670edb` ([#43] is the record) | — | — |
+| ⑲ | In `main`; consistency tests ([#45]) | ER lane not adopted | — |
+| ⑳ | `nft-experimental` (`permutation-frontier/Cargo.toml:66`), `localnet-nft-sbf` (`:137`), `scripts/build-frontier-localnet-nft-sbf.sh`, `dry-run.mjs --nft-resident` ([#53]) | Off by default; cannot combine with the devnet playable build (`lib.rs:97`) | No open PR. A browser world with NFT residents is not built |
+
+### The prize gate (⑰ with ⑯)
+
+Owner decision Q16-1 = A (t353u): devnet ships as an "unverified preview", and the verifier must cover the playable lane
+before any prize is paid. On `main` the verifier re-judges the S1 part, the land part, the wide land opening and the wide
+claims. Expedition depart and arrive, keep capture on the wide land, Free City conquest, WideClose and the wide economy
+and garrison commands are reported UNVERIFIABLE, so a season that was really played (marches, captures) cannot PASS.
+The gate is this rule plus the verifier's verdict. No code in `permutation-prize` or in the relay reads a verifier
+verdict, so the operator must keep the gate by hand.
+
+### Devnet (first milestone)
+
+- On `main`: the dry-run planner and both profiles (`scripts/devnet/`, [#36], [#42], [#48], [#52]), the deployable build
+  of the playable lane (`devnet-playable-sbf`, `scripts/build-frontier-devnet-playable-sbf.sh`, [#55]), the season setup
+  tool `frontier-operator` ([#47]) and the https RPC path ([#44]).
+- Open: [#69] then [#70]. Without [#70] the playable profile's preset is `S1_LOCAL_7D`
+  (`scripts/devnet/devnet-playable-profile.json:61`), and the wide land cannot be reached on it.
+- Waiting for r0ze: the local play check (t341u), three offline keys, faucet SOL, hosting and RPC sign-ups, the final OK.
+
+### Doc ↔ code differences found in this refresh
+
+Numbered as in the run report (`D-ledger-refresh-N`). Items 1–4 are corrected by this refresh; the rest are listed only.
+
+1. The ledger table had no current state for ①–⑯: its self-claims date from 10-30 … 11-08. Fixed by the new column.
+2. Row ⑰ said "draft PR" and the ⑰ section "branch `grok/ws17-prize`, draft PR"; [#54] is merged. Fixed.
+3. "Full ①–⑳ completion is not reachable … ⑰ and ⑳ cannot be completed" contradicts t351u and [#53], [#54]. Annotated.
+4. Workstream READMEs ①–⑮ carried status lines older than `main` (for example ② "proposal awaiting adoption", ⑤ "a
+   proposal, not adopted", ⑧ "migration design first"). Each README now has one dated status line.
+5. `workstreams/06-creation/README.ja.md:7` says one test fails (J8) and no CI job runs ⑥; [#51] fixed J8 and added
+   `creation06`.
+6. `workstreams/09-capacity/README.ja.md:3` and `workstreams/10-custody/README.ja.md:5` say CI does not build the
+   feature and cite `lib.rs:276-281` / `282-287`; CI job `frontier-previews` runs the host tests, and the lines are now
+   `326-331` / `332-337`.
+7. This file's section "⑰ prize and ⑳ NFT resident ID closed" cites `config.rs:739-743`, `Cargo.toml:61` and
+   `controller.mjs:193-195`; on `main` these are `config.rs:764-766` (the message now ends "(settlement windows:
+   --prize-epochs)"), `Cargo.toml:66` and `controller.mjs:201-202`. The section is dated, so it was left as written.
+8. `README.md:73` ends "The prize stays closed." and `README.md:75` says the prize is reopened; `docs/frontier/DECISIONS.md:483`
+   says "the ⑳ part stands" and `:495` says ⑳ is reopened. Each pair was written by two parallel runs; the later
+   sentence is the true one in both.
+9. The section "⑳ NFT resident ID reopened" says the launcher "still pins `0x4804`". The launcher source names no
+   program version; it runs the binaries it is given, and `scripts/play-local.sh:346` builds only the land lane. The
+   effect is the same (no NFT browser world), the wording is not.
+10. "Prize gate" reads like a switch. It is the verifier's verdict plus an operator rule; nothing in the prize program
+    or the relay enforces it (see above).
+11. [#69]'s title says "based on unmerged #38"; [#38] is merged and [#69] now targets `main`.
+12. Line 13 of this file ("⑯–⑳ have no folder in canonical") is true only for `workstreams/`: ⑰ is `permutation-prize/`,
+    ⑱ is `frontier-node/crates/drand-replay/`, ⑳ is `permutation-nft-resident-spike/` and the `nft-experimental` code.
+13. Row ① of the co-op chain: ⑮'s titles ([#31]) are "on main" but cannot be seen in a `scripts/play-local.sh` world,
+    because that world has no board until [#60].
+
+[#24]: https://github.com/r0ze998/wylls/pull/24
+[#25]: https://github.com/r0ze998/wylls/pull/25
+[#26]: https://github.com/r0ze998/wylls/pull/26
+[#27]: https://github.com/r0ze998/wylls/pull/27
+[#28]: https://github.com/r0ze998/wylls/pull/28
+[#29]: https://github.com/r0ze998/wylls/pull/29
+[#30]: https://github.com/r0ze998/wylls/pull/30
+[#31]: https://github.com/r0ze998/wylls/pull/31
+[#33]: https://github.com/r0ze998/wylls/pull/33
+[#36]: https://github.com/r0ze998/wylls/pull/36
+[#38]: https://github.com/r0ze998/wylls/pull/38
+[#40]: https://github.com/r0ze998/wylls/pull/40
+[#41]: https://github.com/r0ze998/wylls/pull/41
+[#42]: https://github.com/r0ze998/wylls/pull/42
+[#43]: https://github.com/r0ze998/wylls/pull/43
+[#44]: https://github.com/r0ze998/wylls/pull/44
+[#45]: https://github.com/r0ze998/wylls/pull/45
+[#46]: https://github.com/r0ze998/wylls/pull/46
+[#47]: https://github.com/r0ze998/wylls/pull/47
+[#48]: https://github.com/r0ze998/wylls/pull/48
+[#49]: https://github.com/r0ze998/wylls/pull/49
+[#50]: https://github.com/r0ze998/wylls/pull/50
+[#51]: https://github.com/r0ze998/wylls/pull/51
+[#52]: https://github.com/r0ze998/wylls/pull/52
+[#53]: https://github.com/r0ze998/wylls/pull/53
+[#54]: https://github.com/r0ze998/wylls/pull/54
+[#55]: https://github.com/r0ze998/wylls/pull/55
+[#57]: https://github.com/r0ze998/wylls/pull/57
+[#58]: https://github.com/r0ze998/wylls/pull/58
+[#60]: https://github.com/r0ze998/wylls/pull/60
+[#61]: https://github.com/r0ze998/wylls/pull/61
+[#62]: https://github.com/r0ze998/wylls/pull/62
+[#63]: https://github.com/r0ze998/wylls/pull/63
+[#64]: https://github.com/r0ze998/wylls/pull/64
+[#65]: https://github.com/r0ze998/wylls/pull/65
+[#66]: https://github.com/r0ze998/wylls/pull/66
+[#67]: https://github.com/r0ze998/wylls/pull/67
+[#68]: https://github.com/r0ze998/wylls/pull/68
+[#69]: https://github.com/r0ze998/wylls/pull/69
+[#70]: https://github.com/r0ze998/wylls/pull/70
+[#71]: https://github.com/r0ze998/wylls/pull/71
+[#72]: https://github.com/r0ze998/wylls/pull/72
+[#73]: https://github.com/r0ze998/wylls/pull/73
+[#74]: https://github.com/r0ze998/wylls/pull/74
+[#75]: https://github.com/r0ze998/wylls/pull/75
+[#76]: https://github.com/r0ze998/wylls/pull/76

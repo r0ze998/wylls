@@ -32,6 +32,10 @@ pub const SIEGE_VERSION: u16 = 2;
 /// `ruleset_hash_input_v2` only, [`SIEGE_VERSION`] keeps the M1 value
 /// (staged ABI, MC §5.1).
 pub const SIEGE_VERSION_V3: u16 = 3;
+/// ⑭ R2 (owner decision t346u, 2026-11-18): the kernel's centre-free
+/// variant (`*_in(.., centre_free)`). Bound into `ruleset_hash_input_v3`
+/// (and v4) in place of the previous version.
+pub const SIEGE_VERSION_CENTRE_FREE: u16 = 4;
 
 use super::doctrine::bounds::SIEGE_EXTRA_MAX;
 use super::geometry::{is_heartland, is_heartland_in, march_of, valid_faction, ProvinceCoord};
@@ -678,12 +682,22 @@ pub struct SiegeCheckV3 {
 /// heartland unless at war) with the season's protection timers and
 /// `heartland_max_ring`.
 pub fn may_besiege_v3(c: &SiegeCheckV3) -> Result<(), SiegeRefusal> {
+    may_besiege_v3_in(c, false)
+}
+
+/// [`may_besiege_v3`] in a season with or without the centre: ⑭ R2, a
+/// centre-free season has no Seat and no Concord, so neither refusal
+/// applies to rings 0 and 1 (a `HoldingKind::Seat` is still refused).
+pub fn may_besiege_v3_in(c: &SiegeCheckV3, centre_free: bool) -> Result<(), SiegeRefusal> {
     if !valid_faction(c.attacker_faction, false)
         || !valid_faction(c.owner_faction, c.kind == HoldingKind::FreeCity)
     {
         return Err(SiegeRefusal::BadFaction);
     }
-    if c.kind == HoldingKind::Seat || c.province.is_seat() || c.province.is_concord() {
+    if c.kind == HoldingKind::Seat
+        || c.province.is_seat_in(centre_free)
+        || c.province.is_concord_in(centre_free)
+    {
         return Err(SiegeRefusal::Seat);
     }
     if c.kind == HoldingKind::FreeCity {

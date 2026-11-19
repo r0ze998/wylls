@@ -1,4 +1,6 @@
 #![cfg(feature = "wide-economy-experimental")]
+// The constant "not a full-season replay" assertions are the point.
+#![allow(clippy::assertions_on_constants)]
 //! Immutable actual native output, not synthetic expected post-state generated
 //! by this verifier. No keys, signatures, RPC, process launch or file writes.
 use frontier_abi::{

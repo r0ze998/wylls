@@ -33,8 +33,8 @@ use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use permutation_rules::frontier::holding::{Resource, MAX_WALLS};
 use permutation_rules::frontier::siege::{
-    can_complete_before, immunity_bars, may_besiege_v3, required_bells, HoldingKind, Relation,
-    SiegeCheckV3, FRONTIER_PROTECTION_RANGE,
+    can_complete_before, immunity_bars, required_bells, HoldingKind, Relation, SiegeCheckV3,
+    FRONTIER_PROTECTION_RANGE,
 };
 
 use super::Ctx;
@@ -387,8 +387,13 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
             frontier_protect_after_secs: cq.frontier_protect_after_secs as i64,
             genesis_ts: f.genesis_ts,
         };
-        may_besiege_v3(&check).map_err(|e| (SIEGE_ILLEGAL, format!("may_besiege: {e:?}")))?;
-    } else if tp.is_seat() || tp.is_concord() {
+        // (⑭ R2: a centre-free season has no Seat and no Concord)
+        let cf = crate::checks::v11_land::centre_free(Some(cq));
+        permutation_rules::frontier::siege::may_besiege_v3_in(&check, cf)
+            .map_err(|e| (SIEGE_ILLEGAL, format!("may_besiege: {e:?}")))?;
+    } else if tp.is_seat_in(crate::checks::v11_land::centre_free(Some(cq)))
+        || tp.is_concord_in(crate::checks::v11_land::centre_free(Some(cq)))
+    {
         return Err((
             SIEGE_ILLEGAL,
             "a Free City on the Seat or the Concord".into(),
