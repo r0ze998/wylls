@@ -20,7 +20,7 @@ import { s1Marks, S1_WORDS } from '../map/s1marks.mjs';
 import { leaderHex } from '../people/leaders.mjs';
 import { identityOf, displayName } from '../people/identity.mjs';
 import { hostParts } from '../faddr.mjs';
-import { viewOverviews } from '../map/fog.mjs';
+import { fogNow, viewOverviews } from '../map/fog.mjs';
 import { activityText } from '../people/activity.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
@@ -93,8 +93,11 @@ export function inspectModel(FS, terrainOf) {
     const state = m ? (m.state === 5 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : rec?.siteKinds?.[j] === 2 ? 'freeCity' : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
     const faction = m ? m.faction : rec?.owners?.[j];
     const mine = (FS.holdings ?? []).find(h => h.p === s.p && h.q === s.q && h.site === j) ?? null;
-    const holder = state === 'holding' ? FS.roster?.ownerOf(s.p, s.q, j) ?? null : null;
-    tile.site = { index: j, state, faction: state === 'holding' ? faction : null, owner: holder ? identityOf(holder.tag) : null, tier: m?.tier ?? (state === 'holding' ? FS.roster?.tierOf?.(s.p, s.q, j) ?? null : null), garrison: m ? troopsOf(m.garrison) : null,
+    // (the fog of war of a local test world, map/fog.mjs — verify-pr93: the roster is live, so a village seen before but out
+    //  of sight now is named, and its tier said, only when it is the viewer's nation's; its lord now is not the viewer's to know)
+    const rosterHere = here === 3 || !fogNow().on || (Number.isInteger(FS.citizen?.faction) && faction === FS.citizen.faction);
+    const holder = state === 'holding' && rosterHere ? FS.roster?.ownerOf(s.p, s.q, j) ?? null : null;
+    tile.site = { index: j, state, faction: state === 'holding' ? faction : null, owner: holder ? identityOf(holder.tag) : null, tier: m?.tier ?? (state === 'holding' && rosterHere ? FS.roster?.tierOf?.(s.p, s.q, j) ?? null : null), garrison: m ? troopsOf(m.garrison) : null,
       shield: m ? m.shieldUntilBell > (FS.nowBell ?? 0) : false, mine: !!mine, holdingIndex: mine ? FS.holdings.indexOf(mine) : -1 };
   }
   for (const e of prov?.entries ?? []) {
@@ -108,7 +111,8 @@ export function inspectModel(FS, terrainOf) {
   // drawn whatever the survey, the viewer's by the owner tag)
   if (FS.s1) {
     const mk = s1Marks(FS.s1, { own: ownTag(FS) });
-    const at = [...mk.vaults, ...mk.structures].filter(x => x.p === s.p && x.q === s.q && x.tile === s.idx);
+    // (under the fog of war of a local test world, map/fog.mjs — verify-pr93: another's vault or structure only in sight now)
+    const at = [...mk.vaults, ...mk.structures].filter(x => x.p === s.p && x.q === s.q && x.tile === s.idx && (x.own || here === 3 || !fogNow().on));
     if (at.length) tile.s1 = at.map(x => ({ kind: x.kind, faction: x.faction, own: x.own }));
   }
   // Ownership is current server state, so it is only shown while this tile is in sight.

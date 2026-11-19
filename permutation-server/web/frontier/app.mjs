@@ -910,11 +910,11 @@ export function peopleSource() {
     restBelow: DEPART_STAMINA,
     constructions: constructionsNow(),
     moments: liveMoments(FS.moments ?? [], performance.now() / 1000),
-    nameOf: ownNamer(scene.namer(rosterRef)),
+    nameOf: fogLords(ownNamer(scene.namer(rosterRef))),
     life: FS.life ?? null,
     tierName: t => TIERS[t] ?? '',
     now: FS.chain?.now() ?? 0,
-    lordOf: (p, q, site) => { const o = rosterRef?.ownerOf(p, q, site); return o ? identityOf(o.tag) : null; },
+    lordOf: fogLords((p, q, site) => { const o = rosterRef?.ownerOf(p, q, site); return o ? identityOf(o.tag) : null; }),
     bell,
     own: FS.holdings ?? [],
     columnLabel: d => L`出陣 · ターン ${fmtNum(d.arriveBell)} に到着`,
@@ -927,6 +927,19 @@ export function peopleSource() {
   peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000));
   autoBattles();
   return peopleCache.value;
+}
+/**
+ * A roster reader `(p, q, site, faction?)` under the fog of war of a local test world (map/fog.mjs — verify-pr93): the
+ * roster is live, so a lord is named only where the site's tile is in sight now, or for the viewer's own nation. Without
+ * the fog: the reader itself.
+ */
+function fogLords(read) {
+  return (p, q, site, faction) => {
+    if (!FS.fog?.on) return read(p, q, site, faction);
+    const tile = terrainRef?.(p, q)?.sites?.[site];
+    const own = Number.isInteger(FS.citizen?.faction) && (faction === FS.citizen.faction || (FS.holdings ?? []).some(h => h.p === p && h.q === q && h.site === site));
+    return own || (Number.isInteger(tile) && FS.survey?.levelOf?.(p, q, tile) === 3) ? read(p, q, site, faction) : null;
+  };
 }
 const lastHtml = new Map();
 /** Put markup in an element only when it changed (a hover title survives the one-second tick). */
@@ -3167,7 +3180,10 @@ function showTip(hit, at) {
   if (globalThis.matchMedia?.('(hover: none)')?.matches) { tip.hidden = true; return; }
   const acts = hit && Number.isInteger(hit.idx) ? mapRef?.art?.activities?.get(`${hit.p},${hit.q},${hit.idx}`) : null;
   const t = acts || hit ? mapRef?.art?.tiles?.find(u => u.p === hit?.p && u.pq === hit?.q && u.idx === hit?.idx) : null;
-  const owner = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
+  const owner0 = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
+  // (the fog of war of a local test world, map/fog.mjs — verify-pr93: the roster and the lords' lives are live, so out of
+  //  sight now a village of another nation is not named, nor what its lord is doing)
+  const owner = owner0 && FS.fog?.on && FS.survey?.levelOf?.(hit.p, hit.q, hit.idx) !== 3 && t.owner !== FS.citizen?.faction ? null : owner0;
   const land = protoTipLines(hit);
   if (!acts?.length && !owner && !land.length) { tip.hidden = true; return; }
   const lines = [];

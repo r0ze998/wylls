@@ -20,7 +20,7 @@
 //
 // This file reads nothing from the network and sends no order.
 import { FS } from '../fstate.mjs';
-import { conquestEnabled } from '../fconquest.mjs';
+import { conquestEnabled, keepEventSide } from '../fconquest.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { reachableKeeps } from '../fkeepreach.mjs';
 import { palisadeHexesOf } from '../s1walk.mjs';
@@ -30,14 +30,31 @@ import { subjectOf, marchCheck } from '../hud/subject.mjs';
 import { reachWhy } from './keeps.mjs';
 import { mountOwnClash } from './ownclash.mjs';
 import { autoPanDefault } from './autopan.mjs';
-import { viewKeeps } from './fog.mjs';
+import { fogNow, viewKeeps } from './fog.mjs';
 
 const int = Number.isInteger;
 
 /** The page's part of the keeps' records, for the map: `{enabled, events, viewer, bell}`. */
 export function keepFeedOf(fs) {
   const enabled = conquestEnabled(fs?.season) && !territoryEnabled(fs);
-  return { enabled, events: enabled && Array.isArray(fs.conquest?.events) ? fs.conquest.events : null, viewer: int(fs?.citizen?.faction) ? fs.citizen.faction : null, bell: int(fs?.nowBell) ? fs.nowBell : null };
+  const viewer = int(fs?.citizen?.faction) ? fs.citizen.faction : null;
+  return { enabled, events: enabled && Array.isArray(fs.conquest?.events) ? fogEvents(fs.conquest.events, viewer) : null, viewer, bell: int(fs?.nowBell) ? fs.nowBell : null };
+}
+/**
+ * The keep events the board may play (verify-pr93): under the fog of war of a local test world (map/fog.mjs) only those
+ * whose keep is in sight now or in which the viewer's nation is a side — the board's rows hold last-known keeps too, and
+ * a capture read for one of them would play its flood and change its holder out of sight. Kept per events array and
+ * fog view (asked once a frame). Without the fog: the events as they are.
+ */
+let fogEventsMemo = { events: null, fog: null, out: null };
+function fogEvents(events, viewer) {
+  const fog = fogNow();
+  if (!fog.on) return events;
+  if (fogEventsMemo.events !== events || fogEventsMemo.fog !== fog) {
+    const out = events.filter(e => !int(e?.p) || !int(e?.q) || !!keepEventSide(e, viewer) || fog.seen({ p: e.p, q: e.q, ...(int(e.tile) ? { tile: e.tile } : {}) }, () => false));
+    fogEventsMemo = { events, fog, out };
+  }
+  return fogEventsMemo.out;
 }
 
 /** The fighting host in the hand that may march now: a host row (hud/subject.mjs), or null. */
