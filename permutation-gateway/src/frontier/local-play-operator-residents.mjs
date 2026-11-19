@@ -24,6 +24,12 @@
 // Same rules as a person: no other route, no operator read, no clock control, no account write, no RPC of the runner.
 // No model, no network beyond 127.0.0.1, no paid API. SIGINT/SIGTERM: prints its summary line AT ONCE (the launcher
 // kills a side process 3 s after SIGINT, which may be mid-send), stops, exits 0.
+//
+// TEST-ONLY war world (`--war operator-war-v1`, the launcher's `--operator-war`; owner t359u): up to 12 residents, two
+// per nation; each turn the world's eyes are read once (local-play-operator-march.mjs: the page's herald client, keeps
+// and kernel), each resident's war snapshot is taken, the policy decides (defend / attack / muster / train / economy),
+// at most ONE action per resident per turn (owner Q16-2), and a march is sealed and sent by the page's own flow to the
+// resident's own relay (opened only by the page's own capability read with the TEST-ONLY trial).
 // `--keys-dir` (TEST-ONLY, NOT FOR PRODUCTION; passed by the launcher only for a world started with `--persist
 // local-persist-v1`, ⑧ P2): instead of step 1's memory-only keys, each resident's TEST key is kept as a PKCS#8 file
 // `resident-<i>.pkcs8.pem` (mode 0600) in that directory (mode 0700), so a RESUMED world has the same residents and
@@ -37,9 +43,17 @@ import { encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { parseTransaction, wireTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
+import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf } from './local-play-operator-policy.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
+import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX, mayActThisTurn } from './local-play-operator-war.mjs';
+import { createWarEyes, openMarch, sendWarMarch } from './local-play-operator-march.mjs';
+
+/** A war world's pace: residents look every 2 s (one action per turn still), and a budget for a long world. */
+export const WAR_DEFAULTS = Object.freeze({ cadenceMs: 2000, maxActs: 5000, maxRefusals: 400, minGapMs: 1000 });
+/** Bells after its arrival a keep a resident marched on counts as taken by it (its contest runs 72 turns). */
+export const TARGET_HOLD_BELLS = 80;
 
 const SPKI_ED25519_PREFIX = 12;   // (an ed25519 SPKI DER is 12 bytes of header, then the 32-byte public key)
 
@@ -124,14 +138,17 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
+  if (o.war !== undefined && o.war !== OPERATOR_WAR_MODE) throw new Error(`--war must be exactly ${OPERATOR_WAR_MODE}`);
+  const war = o.war === OPERATOR_WAR_MODE;
   const count = Number(o.count);
   // (`--nations`: one named nation per resident, up to six; without it the fixed nations of residents 0-3)
   const nations = o.nations === undefined ? null : parseOperatorNations(o.nations);
   if (o.nations !== undefined && (nations === null || nations.length !== count)) throw new Error('--nations');
-  if (!Number.isInteger(count) || count < 1 || count > (nations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('--count');
+  if (!/^([1-9]|1[0-2])$/.test(String(o.count)) || count < 1 || count > (war ? OPERATOR_WAR_MAX : nations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX)) throw new Error('--count');
+  const D = war ? WAR_DEFAULTS : OPERATOR_DEFAULTS;
   const ports = String(o['relay-ports'] ?? '').split(',').map(Number);
   if (ports.length !== count || ports.some(p => !Number.isInteger(p) || p < 41000 || p > 41999)) throw new Error('--relay-ports');
   if (!/^http:\/\/(localhost|127\.0\.0\.1):\d{4,5}$/.test(o.herald ?? '')) throw new Error('--herald (loopback only)');
@@ -140,7 +157,7 @@ export function parseArgs(argv) {
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
   if (o['keys-dir'] !== undefined && !path.isAbsolute(o['keys-dir'])) throw new Error('--keys-dir (absolute path)');
   if (o['keys-dir'] !== undefined) privateOrThrow(o['keys-dir'], true);
-  return { count, ports, herald: o.herald, homes, ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
+  return { count, ports, herald: o.herald, homes, war, ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
 }
 
 /** PR #62's relay answer: this resident already acted in this bell (re-exported from resident-turns.mjs). */
@@ -157,20 +174,73 @@ export function genesisOf(record, rulesetHash = null, decode = decodePrefix) {
 }
 
 /**
+ * The turn a war resident's sent action is booked on (owner Q16-2): the later of the bell it was decided at and the
+ * bell the chain is in when the send and its follow are over (`deps.liveBell`). A send started at the very end of a
+ * turn runs on the chain in the NEXT one (seen 2026-11-19, verify-pr68: a Depart decided at bell 26 ran — and was
+ * refused NotResident — in bell 27, and a Build of bell 27 followed it): booked on the later bell, the resident does
+ * nothing more in the turn its transaction ran in.
+ */
+export function spentBell(nowBell, deps) {
+  const live = typeof deps?.liveBell === 'function' ? deps.liveBell() : null;
+  return Number.isSafeInteger(live) && Number.isSafeInteger(nowBell) ? Math.max(nowBell, live) : nowBell;
+}
+
+/**
  * One resident's one round: its budget first (a resident whose bell is used reads nothing), then read, decide, maybe
  * send and follow. → the line to print. `bell`: the bell of this round (`bellOf`), or null (then nothing is sent).
  * `deps` (tests): `read(wallet)`, `submit(order, ctx)`, `follow(signature)`, `now()` (ms), `nowSecs()`.
  */
 export async function residentTurn(r, { homes, deps, bell = null }) {
   const t = deps.now();
-  const allow = r.budget.allow(t, bell);
-  if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.stopped ? 'stopped' : 'later', why: allow.why };
+  // (a war resident's bell is the one its eyes read this round — the same chain clock —; its budget is asked after the
+  //  decision, so a held turn (the settle wait) and the war rule's own "already acted" are said as what they are)
+  const war = r.memory.war === true;
+  const nowBell = war && deps.nowBell ? deps.nowBell() : null;
+  const turnBell = war ? nowBell : bell;
+  if (!war) {
+    const allow = r.budget.allow(t, turnBell);
+    if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.stopped ? 'stopped' : 'later', why: allow.why };
+  }
   let me;
   try { me = await deps.read(r.key.address); } catch (e) { return { resident: r.index, wallet: r.key.address, step: 'read', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 80) }; }
-  const view = residentView(me, (kind, bytes) => decodePrefix(kind, bytes, { profile: 2 }));
-  const d = decideNext(r.memory, view, { homes, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null });
-  const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null };
+  // (`deps.view`: tests only — the same reduction from an already decoded record)
+  const view = deps.view ? deps.view(me) : residentView(me, (kind, bytes) => decodePrefix(kind, bytes, { profile: 2 }));
+  // (a war resident with a village: its war snapshot — the page's own reads, keeps and target finder)
+  let snap = null;
+  if (war && view?.holding && deps.warView) { try { snap = await deps.warView(r); } catch (e) { snap = null; } }
+  const d = decideNext(r.memory, view, { homes, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
+    war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
+  const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
+    ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready } : {}) };
   if (d.wait) { noteOutcome(r.memory, d, 'wait'); return { resident: r.index, wallet: r.key.address, step: 'decide', outcome: 'wait', why: d.why, seen }; }
+  if (war) {
+    // (one action per resident per turn, owner Q16-2: a war resident that acted this turn waits for the next)
+    if (!mayActThisTurn(r.memory.lastBell, nowBell, d.name)) return { resident: r.index, wallet: r.key.address, step: 'turn', outcome: 'wait', why: 'already acted this turn', want: d.name, seen };
+    const allow = r.budget.allow(t, turnBell);
+    if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.stopped ? 'stopped' : 'later', why: allow.why, want: d.name, seen };
+  }
+  if (d.name === 'Depart') {
+    if (!r.marchOpen) return { resident: r.index, wallet: r.key.address, step: 'march', outcome: 'wait', why: 'the march is not open on its own relay', want: 'Depart', seen };
+    r.lastRefusal = null;
+    const m = await deps.march(r, snap);
+    const detail = r.lastRefusal; r.lastRefusal = null;
+    // (its relay's own one-action-per-bell rule, #62: this bell's action is taken — nothing was sent; not a refusal of
+    //  the march: no cooldown, no refusal counted; the bell is used up ('held') and booked, and it decides again in the next)
+    if (!m.ok && m.code === RESIDENT_ALREADY_ACTED) {
+      r.memory.lastBell = spentBell(nowBell, deps);
+      r.budget.spent('held', deps.now(), turnBell);
+      return { resident: r.index, wallet: r.key.address, step: 'act', act: 'Depart', kind: d.kind, outcome: 'wait', code: m.code, why: 'this resident already acted in this bell: the next bell', seen, budget: r.budget.state() };
+    }
+    const outcome = m.ok ? 'landed' : m.step === 'check' || m.step === 'route' || m.step === 'sealing' ? 'refused' : m.code === 'TransactionFailed' ? 'failed' : m.step === 'sent' && m.code !== 'network' ? 'refused' : 'unknown';
+    if (outcome !== 'refused') r.memory.lastBell = spentBell(nowBell, deps);
+    if (outcome === 'landed' || outcome === 'unknown') (r.memory.targets ??= {})[`${d.row.p},${d.row.q}`] = (m.arriveBell ?? nowBell) + TARGET_HOLD_BELLS;
+    noteOutcome(r.memory, d, outcome);
+    r.budget.spent(outcome, deps.now(), turnBell);
+    return { resident: r.index, wallet: r.key.address, step: 'act', act: 'Depart', kind: d.kind, why: d.why, outcome,
+      to: { p: d.row.p, q: d.row.q, tile: d.row.tile, holder: d.row.holder, guard: d.row.troops }, host: { id: String(snap.march.host.id), troops: snap.march.host.troops, from: [d.row.origin.p, d.row.origin.q] },
+      ...(m.arriveBell ? { arrive_bell: m.arriveBell } : {}), ...(m.route ? { route: m.route } : {}), ...(m.code ? { code: m.code } : {}), ...(m.programCode !== undefined ? { program_code: m.programCode } : {}), ...(m.problems ? { problems: m.problems } : {}),
+      ...(m.signature ? { signature: m.signature } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 500) } : {}), seen, budget: r.budget.state() };
+  }
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;
   const detail = r.lastRefusal ?? null; r.lastRefusal = null;
@@ -178,7 +248,8 @@ export async function residentTurn(r, { homes, deps, bell = null }) {
   // taken — by this resident or by another writer for it. Not a refusal: nothing was sent, nothing is marked tried; the
   // bell is used up here as well ('held', no refusal counted), so the policy does not ask again before the next bell
   if (!sent.ok && sent.code === RESIDENT_ALREADY_ACTED) {
-    r.budget.spent('held', deps.now(), bell);
+    if (war) r.memory.lastBell = spentBell(nowBell, deps);
+    r.budget.spent('held', deps.now(), turnBell);
     return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), seen, budget: r.budget.state() };
   }
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
@@ -189,8 +260,9 @@ export async function residentTurn(r, { homes, deps, bell = null }) {
     outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown';
     code = f.code ?? sent.relayCode ?? null;
   }
+  if (war && outcome !== 'refused' && d.name !== 'Join') r.memory.lastBell = spentBell(nowBell, deps);
   noteOutcome(r.memory, d, outcome);
-  r.budget.spent(outcome, deps.now(), bell);
+  r.budget.spent(outcome, deps.now(), turnBell);
   return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, fields: JSON.parse(JSON.stringify(d.fields, (_, v) => (typeof v === 'bigint' ? v.toString() : v))), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), ...(signature ? { signature } : {}), seen, budget: r.budget.state() };
 }
 
@@ -222,10 +294,10 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(s, () => { summary(s); stop.abort(s); });
   let keys;
   try { keys = Array.from({ length: o.count }, (_, index) => (o.keysDir ? keptTestKey(o.keysDir, index) : memoryTestKey())); } catch (e) { process.stderr.write(`operator residents: ${e.message}\n`); return 64; }
-  residents = Array.from({ length: o.count }, (_, index) => ({ index, key: keys[index], port: o.ports[index], memory: createResidentMemory(index, o.nations?.[index]),
+  residents = Array.from({ length: o.count }, (_, index) => ({ index, key: keys[index], port: o.ports[index], memory: createResidentMemory(index, o.nations?.[index], { war: o.war }),
     budget: createOperatorBudget({ maxActs: o.maxActs, maxRefusals: o.maxRefusals, minGapMs: o.minGapMs }), identity: null, rulesetHash: null }));
   residents.forEach(r => { r.signer = pageShapedSigner(r.key); r.origin = `http://127.0.0.1:${r.port}`; });
-  print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: o.keysDir ? 'TEST keys kept in the persisted world\'s private keys dir (0600 files, 0700 dir); never printed' : 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address) }));
+  print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: o.keysDir ? 'TEST keys kept in the persisted world\'s private keys dir (0600 files, 0700 dir); never printed' : 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address), ...(o.war ? { war: OPERATOR_WAR_MODE } : {}) }));
   // 2. each resident's own relay, pinned to its own wallet
   for (const r of residents) {
     for (let i = 0; !stop.signal.aborted; i++) {
@@ -252,6 +324,23 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     submit: (order, r) => submitLocalAct(order, { allowed: () => ({ ok: true, relay: r.origin }), identity: () => r.identity, rulesetHash: () => r.rulesetHash, signer: () => r.signer, post: postFor(r) }),
     follow: (signature, r) => followLocalAct(signature, { origin: r.origin, still: () => !stop.signal.aborted, post: postFor(r), tries: 20, every: 1000 }),
   };
+  // (TEST-ONLY war world: the world's eyes, read once per loop; the march opened per resident by its own relay)
+  const eyes = o.war ? createWarEyes({ herald: o.herald }) : null;
+  if (eyes) {
+    deps.warView = r => eyes.view(r.key.address, r.memory);
+    deps.nowBell = () => eyes.world.nowBell;
+    deps.liveBell = () => eyes.liveBell();
+    deps.march = (r, snap) => sendWarMarch(r, snap, eyes, { post: marchPostFor(r) });
+  }
+  const marchPosts = new Map();
+  function marchPostFor(r) {
+    if (!marchPosts.has(r.origin)) marchPosts.set(r.origin, (origin, path, body) => postLocalMarch(origin, path, body, { fetch: async (url, init) => {
+      const res = await globalThis.fetch(String(url).replace(`${origin}/gw/`, `${origin}/`), init);
+      if (!res.ok) { try { r.lastRefusal = await res.clone().json(); } catch { /* not JSON */ } }
+      return res;
+    } }));
+    return marchPosts.get(r.origin);
+  }
   let why = null, genesis = null;
   const quiet = createQuietLog();
   while (!stop.signal.aborted) {
@@ -259,12 +348,21 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     //  time; either unknown = nobody sends this round)
     if (genesis === null) genesis = genesisOf(await deps.season().catch(() => null), residents[0]?.rulesetHash);
     const bell = bellOf(genesis, await deps.nowSecs().catch(() => null));
-    for (const r of residents) {
-      if (stop.signal.aborted) break;
-      if (r.budget.state().stopped) continue;   // (said once, when it stopped)
+    if (eyes) {
+      try { await eyes.refresh(); } catch (e) { print(JSON.stringify({ at: new Date().toISOString(), turn: turns, step: 'eyes', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 120) })); await delay(o.cadenceMs, stop.signal); continue; }
+      for (const r of residents) if (!r.marchOpen && turns % 5 === 0) {
+        try { const m = await openMarch(r.origin, r.key.address); r.marchOpen = m.open === true; if (r.marchOpen || turns % 50 === 0) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, resident: r.index, step: 'march-capability', open: r.marchOpen, trial: m.trial ?? null, ...(m.why ? { why: m.why } : {}) })); } catch { /* its relay is not up yet */ }
+      }
+    }
+    const one = async r => {
+      if (stop.signal.aborted || r.budget.state().stopped) return;   // (stopped for good: said once, when it stopped)
       const line = await residentTurn(r, { homes: o.homes, deps, bell });
       if (quiet.fresh(line)) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, bell, ...line }));
-    }
+    };
+    // (a war world: every resident takes its turn at once — each has its own relay and its own wallet, and a refused
+    //  send's follow must not hold the other residents past the turn; one action per resident per turn still)
+    if (o.war) await Promise.all(residents.map(one));
+    else for (const r of residents) { if (stop.signal.aborted) break; await one(r); }
     turns++;
     if (residents.every(r => r.budget.state().stopped)) { why = 'every resident is stopped for good'; break; }
     await delay(o.cadenceMs, stop.signal);

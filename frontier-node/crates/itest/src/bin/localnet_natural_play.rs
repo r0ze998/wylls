@@ -48,6 +48,11 @@ fn main() {
         if land && demo.is_none() {
             return Err("--land-preview is accepted only together with --capture-demo".into());
         }
+        // the TEST-ONLY operator AI war world's option likewise (only with the capture demo)
+        let (rest, operators) = itest::operator_villages::take_villages_args(rest)?;
+        if operators.is_some() && demo.is_none() {
+            return Err("--operator-villages is accepted only together with --capture-demo".into());
+        }
         let o = play::parse_args(rest)?;
         if second == Some(o.player_wallet) {
             return Err("--second-wallet must be another wallet than --player-wallet".into());
@@ -103,6 +108,19 @@ fn main() {
                 // (the second player's village joins the same keeper loop once its own PlaceHome lands)
                 let (more_tx, more_rx) = tokio::sync::mpsc::unbounded_channel::<itest::keeper_loop::MoreVillage>();
                 let pair_slot: itest::capture_demo::PairSlot = std::sync::Arc::new(std::sync::Mutex::new(None));
+                // (TEST-ONLY operator AI war world: each operator resident's village joins the same keeper loop once its
+                //  own PlaceHome lands, as the pair's second does; the demo's `ready` then opens the rest of its new ring)
+                let (ready_tx, ready_rx) = tokio::sync::watch::channel(false);
+                if let Some(path) = operators.clone() {
+                    let (st, a, rx, tx) = (world.state.clone(), world.a.clone(), stop_rx.clone(), more_tx.clone());
+                    tokio::spawn(async move { itest::operator_villages::watch(st, a, path, tx, rx, |v| println!("{v}")).await });
+                    let (st, a, rx, ready) = (world.state.clone(), world.a.clone(), stop_rx.clone(), ready_rx.clone());
+                    tokio::spawn(async move {
+                        if let Err(e) = itest::operator_villages::open_rest(st, a, ready, rx, |v| println!("{v}")).await {
+                            println!("{}", serde_json::json!({"schema": itest::operator_villages::VILLAGES_SCHEMA, "operator_step": "stopped", "test_only": true, "why": e}));
+                        }
+                    });
+                }
                 if let Some(b) = second {
                     let (w2, mut rx2, slot2) = (world.clone(), stop_rx.clone(), pair_slot.clone());
                     tokio::spawn(async move {
@@ -127,7 +145,7 @@ fn main() {
                             Err(e) => println!("{}", itest::contest_pair::line("stopped", serde_json::json!({"why": e}))),
                         }
                     });
-                } else {
+                } else if operators.is_none() {
                     drop(more_tx);
                 }
                 match natural::await_home(&world, &wallet, &mut stop_rx).await {
@@ -136,14 +154,14 @@ fn main() {
                             let (st, a, homes, h, rx, player) = (state.clone(), world.a.clone(), world.homes.clone(), home.home, keeper_rx.clone(), wallet);
                             let pair = second.map(|b| (b, pair_slot.clone()));
                             tokio::spawn(async move {
-                                if let Err(e) = itest::capture_demo::run(st, a, homes, h, player, pair, scale, rx, |v| println!("{v}")).await {
+                                if let Err(e) = itest::capture_demo::run(st, a, homes, h, player, pair, scale, rx, |v| { if v["demo_step"] == "ready" { let _ = ready_tx.send(true); } println!("{v}") }).await {
                                     println!("{}", serde_json::json!({"schema": itest::capture_demo::DEMO_SCHEMA, "demo_step": "stopped", "test_only": true, "why": e}));
                                 }
                             });
                         }
                         // (the TEST-ONLY demo's pace: short ticks only while work lands; a natural world ticks as always)
                         let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };
-                        let more = if second.is_some() { Some(more_rx) } else { None };
+                        let more = if second.is_some() || operators.is_some() { Some(more_rx) } else { None };
                         itest::keeper_loop::run_paced_with(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, pace, keeper_rx, |s| println!("{}", s.json()), more).await;
                     }
                     Err(e) => println!("{}", serde_json::json!({"schema": natural::NATURAL_SCHEMA, "natural_step": "stopped", "why": e, "keeper_started": false})),
