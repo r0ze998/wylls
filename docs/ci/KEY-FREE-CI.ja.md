@@ -55,6 +55,7 @@
 - **新しい job `exec-native`**：④ の `e2e-native`（本物の prize と game の program を host で動かす。鍵なし）。
 - **frontier-node**：fmt と clippy（全 target を compile するが、実行はしない）、それに `findex` と `herald` の lib の試験だけを動かします。
   - 2026-11-19 追加（Q16-1、賞金の関門）：検証器の `playable-lane` feature の clippy と、記録済み fixture だけを読む試験 5 ファイル（`playable_lane`、`playable_wide_land`、`playable_wide_claims`、`playable_wide_next`、`wallet_finals`）。同日、`playable_wide_march`（集結・鐘の解決・広域の砦奪取）を追加して 6 ファイル。鍵の生成・導出・署名はありません（記録を作る試験はすべて `#[ignore]` で、CI では動きません）。
+  - 2026-11-19 追加（Q16-1、封印行軍）：`playable_march`（playable lane の通常の封印行軍 Depart → Reveal → Gather → Resolve → Settle の記録済み fixture だけを読む試験）。記録を作る試験は `#[ignore]` で、CI では動きません。
   - `keeper` の lib の試験は、`Payers::new(&[9; 32])` で導出するので、外しました。
 
 ### 実行する検査と、実行しなくなる検査
@@ -68,7 +69,7 @@
 | gateway と web の鍵なしの試験ファイル 168 件（guard 付き） | gateway と web の 94 件 |
 | check-v9-frozen、fmt、Rules の clippy、ABI の clippy・試験・vector、Frontier の host の試験（既定と no-default） | Frontier の LiteSVM の G1–G13（CU の上限を含む） |
 | frontier-node の fmt・clippy、findex と herald の lib の試験 | frontier-node の workspace の試験（debug、release） |
-| frontier-wasm の 2 つの build と hash | Prize の LiteSVM（fmt、clippy、試験） |
+| frontier-wasm の 3 つの build と hash（Linux の runner。2026-11-19 から征服の `--cq` も）と、基準ホスト（Apple silicon の runner）での 3 つの byte 一致（`--check --reference`） | Prize の LiteSVM（fmt、clippy、試験） |
 | prize の fmt・clippy・host の試験、exec-native | — |
 
 **失う安全性**：SBF の build が本番と同じ形か（e_flags、overflow の検査、2 回の build の hash の一致）、CU の上限、LiteSVM での実際の取引。これらは、承認のうえで手動で動かすまで確かめられません。

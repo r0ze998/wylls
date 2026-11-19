@@ -210,6 +210,7 @@ permutation-gateway/test/web-frontier-build-walls-items.test.mjs
 permutation-gateway/test/web-frontier-camera.test.mjs
 permutation-gateway/test/web-frontier-capture-lock-actions.test.mjs
 permutation-gateway/test/web-frontier-cards.test.mjs
+permutation-gateway/test/web-frontier-centre-no-province.test.mjs
 permutation-gateway/test/web-frontier-clash-origin.test.mjs
 permutation-gateway/test/web-frontier-conquest-hand.test.mjs
 permutation-gateway/test/web-frontier-conquest-order.test.mjs

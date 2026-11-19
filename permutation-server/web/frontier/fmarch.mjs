@@ -167,6 +167,9 @@ export function checkMarch(m) {
   }
   if (m.holding && freeTransitSlot(m.holding) === null) add('TransitState');
   if (!m.dest || !(m.dest.tile >= 0 && m.dest.tile < PROVINCE_TILES)) add('NoDestination');
+  // (B14, loop-play3: the program's Reveal needs the destination's Province; a march sealed for a place without one was
+  //  accepted and never revealed. `destOpen` false: the page knows the place is not open land; unknown is not refused)
+  else if (m.destOpen === false) add('DestinationNotOpen');
   if (!m.route) add('NoPath');
   else if (m.route.dirs.length < 1 || m.route.dirs.length > MAX_PATH_STEPS || m.route.provinces.length > 4) add('Path');
   const w = arrivalWindow(m.season, m.nowBell, m.earliest);

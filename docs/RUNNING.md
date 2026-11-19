@@ -197,5 +197,6 @@ permutation-frontier/svm-tests/run.sh --release                       # game pro
 scripts/build-prize.sh && (cd permutation-prize/svm-tests && cargo test --locked)   # prize pool program tests (reads the built .so)
 (cd frontier-node && cargo test --locked --workspace)                 # off-chain workspace
 scripts/build-wasm.sh --check                                         # WebAssembly module matches the source
+scripts/build-wasm.sh --cq --check && scripts/build-wasm.sh --s1 --check   # the conquest and S1 modules (frontier-v2.wasm, frontier-v3.wasm)
 scripts/check-v9-frozen.sh                                            # earlier-version files untouched (needs full git history)
 ```

@@ -1,6 +1,7 @@
-//! **TEST-ONLY contest pair** (runner `--contest-pair contest-pair-v1 --second-wallet <base58 public key>`, accepted only
-//! together with the capture demo; never the natural preset's behaviour). One memory-only world, TWO players: the second
-//! wallet is funded like the first (fees and rent only), its own page Joins and PlaceHomes with its own memory-only key,
+//! **TEST-ONLY contest pair** (runner `--contest-pair contest-pair-v1 --second-wallet <base58 public key>`; with the
+//! capture demo, or since B16 (loop-play3) on a natural world, kept or not; never without the option). One world, TWO
+//! players: the second wallet is funded like the first at the world's first start (fees and rent only; a resumed kept
+//! world funds nothing), its own page Joins and PlaceHomes with its own key,
 //! and the same keeper loop serves its village (`keeper_loop::Pilot::add_village`). Both sides are people: there is no
 //! automatic opponent. No rule, parameter or account is changed for either player.
 use fclient::Address;

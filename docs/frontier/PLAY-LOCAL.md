@@ -45,6 +45,7 @@ scripts/play-local.sh
     centre-free rules of PR #69) each nation's homes in its own wedge. Not with `--resume`: a kept world keeps its map.
   - `--demo`: the 15-minute capture demo (`--speed 30` makes it ×30)
   - `--ai 0`: no AI residents (default 2)
+  - `--two`: two people in one world (§3.1; a kept world or `--demo`)
   - `--port 41930`: other ports
   - `--lang ja`: the script's messages in Japanese
   - `--check-only`: only the checks
@@ -56,6 +57,25 @@ scripts/play-local.sh
 In a kept world, try 1–5 (join, home, build, train, muster), then stop and come back as in §4. A new host can move only
 once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (keep, clash, capture) with `--demo`, in about
 15 minutes.
+
+**In a kept world (1×) no keep of another nation is in reach of a first village.** This is the rules and the clock, not a bug:
+- At the start only rings 2–3 have provinces, and every one of them is some nation's heartland. A heartland keep is never
+  contested (`fkeepreach.mjs` `contestableKeeps`, the rules' `heartland_safe`), so the page says 「この軍勢がいま届く他国の砦は
+  ありません」 [No keep of another nation is within this host's reach now].
+- Contestable keeps come with ring 4, which opens once 65% of a wedge's open village sites are settled (OpenRing's crowding
+  rule). Two AI residents and one or two people will not get there.
+- Even then, at 1× a march to a keep takes several turns (a turn is 10 minutes: an hour or more), longer than the
+  15-minute checklist.
+- `--demo` opens ring 4 with test participants and runs a ×60 clock, so a keep can be tried in about 15 minutes.
+- A tuning of the TEST preset cannot change this (heartland protection is the same rule as on devnet). In a kept world,
+  check 1–5 and §4; check keeps with `--demo`.
+
+**The centre (rings 0–1)**: the seven provinces at the map's centre have no province in this world, because the season's
+rules do not make the centre ordinary land yet (the ⑭ R2 switch `CENTRE_PLAYABLE` stays off until the page's terrain and
+route modules support it). The inspector says 「第1輪（中央・州なし）」 [Ring 1 (centre, no province)]; no village can be
+placed there, and no march can end there or pass through (fixed 2026-11-19, fix-b14-b16: it said 「生まれるところです」 [being
+made], a march there could be sent, and the host never came back). If such a march reaches the chain anyway, once its
+arrival turn's window has closed the host comes home routed (half its troops).
 
 1. **Join**: 「世界を開始（保存された世界は続きから）」 [Start the world (a kept world continues)] (with `--demo`:
    「新しい世界を開始」 [Start a new world]) → 「国を選ぶ」 [Choose a nation] → pick a banner → the button below becomes
@@ -77,6 +97,29 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
    「このブラウザで確かめる」 [Check in this browser]; 「一致：…」 [Match] means the browser recomputed the chain's record.
 8. **Capture**: hold the keep's tile for 72 turns (12 minutes or more at ×60). The map shows 「砦を保持中」 [Holding the keep]
    with a round counter over the keep, and the clash report says 「奪取まで N/72 ターン」 [N/72 turns to capture].
+
+### 3.1 Two people in one world (`--two`)
+
+Normally every browser gets its own world (the launcher runs one world per browser and address, two at most). To put two
+people in the same world, add `--two`:
+
+```bash
+scripts/play-local.sh --two            # a kept world for two
+scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
+```
+
+1. The first person opens `http://localhost:41920/` as usual and presses the start button. It says 「もう一人のプレイヤーを
+   待っています」 [Waiting for the other player] and waits (about 4 minutes; after that, press again).
+2. The second person opens the same address in **another browser** (or another profile), or **`http://127.0.0.1:41920/`**
+   in the same browser, and presses the same button. A kept world's test key is one per browser and address, so another
+   tab of the same browser would be the same player.
+3. Once both have pressed, one world starts; each chooses a nation and gets a village. Marches and clashes happen in the
+   same world.
+- `--resume` reopens the same two-person world (with or without `--two`). Whoever presses first, the world opens for both
+  without waiting. Each person uses the same browser and address as before.
+- A kept world started for one person cannot become a two-person world later (start a new one with `--fresh --two`).
+- Either person's 「世界を終了」 [End this world] stops it for both (a kept world can be resumed with `--resume`). A third person cannot join.
+
 
 ## 4. Stop, and come back tomorrow
 
@@ -111,6 +154,9 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
   - `--demo`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world).
 - Report on GitHub Issues (r0ze998/wylls) with a screenshot and the folder's path.
 - Known problems (2026-11-18):
+  - (Fixed 2026-11-19, fix-b14-b16) A march to a ring-1 tile could be sent, and the host stayed 「封を開ける鍵を待って
+    います」 [Waiting for the key that opens the seal] for good. The page no longer uses the centre (rings 0–1) as a
+    destination or road, and the runner brings such a march home routed.
   - (Fixed 2026-11-19, fix-march-held) A march the chain's node did not take (sent as the turn changed, for example) now
     says 「進軍は送られていません」 [The march was not sent] with the reason, and its order card stays: the host can move;
     check the card and press again. A march sent whose outcome is not known yet is checked again by the page for about
