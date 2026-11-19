@@ -140,7 +140,9 @@ export function landBox(ringsOpen) {
   if (boxes.has(d)) return boxes.get(d);
   let x = 0, y = 0;
   let provinces;
-  if (Number.isInteger(d) && d <= 129) {
+  // (any whole number of rings: the vertex rule holds for every ring, the opened ones and the recorded wide land past
+  // ring 128 that the map reaches too, map/wideland.mjs; ringProvinces has no province past ring 128)
+  if (Number.isSafeInteger(d)) {
     // Province centres form a convex hexagon. For each fixed tile offset,
     // project(tileHex(...)) is linear in the province coordinates, so both
     // absolute coordinate maxima occur at a vertex. Keep the tile projection

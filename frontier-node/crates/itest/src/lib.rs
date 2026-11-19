@@ -86,4 +86,7 @@ pub mod resident_bells;
 pub mod standin;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_destination;
+// TEST-ONLY wide land on a natural world: the devnet wide preset, the map grown to the rim, wide rings 129+
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_land;
 pub mod world;
