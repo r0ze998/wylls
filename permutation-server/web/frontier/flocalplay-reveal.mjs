@@ -370,6 +370,11 @@ export async function checkLocalReveal(fs, { allowed, signer, post = postLocalRe
     catch (e) {
       // (an exact arrival of this departure is only believed under the same identity and seal as it was read)
       if (e?.code === 'RevealAlreadyIn') { held(origin); check(localRevealCandidate(fs) === record, 'RevealSealChanged'); record.revealed = record.revealed ?? { signature: null, by: 'chain' }; return end('revealed', { code: 'RevealAlreadyIn' }); }
+      // (fix-wide-breaks BREAK-3: the world's runner reveals an expedition itself; once the arrival turn is over a transit
+      //  already gathered, or gone — settled — is a seal the chain has opened: let it go, as above, and say why)
+      if ((e?.code === 'RevealAlreadyGathered' || e?.code === 'RevealTransitMissing') && Number.isInteger(fs.nowBell) && fs.nowBell > record.arriveBell) {
+        held(origin); check(localRevealCandidate(fs) === record, 'RevealSealChanged'); record.revealed = record.revealed ?? { signature: null, by: 'chain' }; return end('blocked', { code: e.code });
+      }
       throw e;
     }
     // (the check was awaited: the page, its identity and the seal are asked again before anything is said to be ready)
