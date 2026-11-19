@@ -13,8 +13,10 @@
 //! URL`, repeatable) for the same season and requires that they serve the
 //! same thing, item by item:
 //!
-//! 1. the same cluster (`getGenesisHash`), and a witness that is not the
-//!    primary URL itself;
+//! 1. the same cluster (`getGenesisHash`), and a witness whose endpoint is
+//!    not the primary's nor another witness's ([`same_source`]: the same
+//!    host in any spelling, port, path or query; for a loopback host the
+//!    same port);
 //! 2. the program's whole finalized signature list (`getSignaturesForAddress`
 //!    paged to its end, failed transactions included) up to the later of
 //!    the two final-state slots: every signature the witness lists is
@@ -81,7 +83,7 @@ use crate::{Finding, Severity};
 pub const CHECK: &str = "VS";
 
 /// What stays trusted when the witnesses agree (report text).
-pub const RESIDUAL: &str = "the witnesses are independent of the primary RPC: two RPCs that collude, or that read one storage or one compromised validator, can serve the same false season and pass. Block identities agree between the sources; they are not verified against validator votes";
+pub const RESIDUAL: &str = "the witnesses are independent of the primary RPC: two RPCs that collude, that read one storage or one compromised validator, or a witness that proxies the primary (only one host given twice is refused) can serve the same false season and pass. Block identities agree between the sources; they are not verified against validator votes";
 
 /// A block as `getBlock` (transactionDetails `signatures`) serves it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -350,8 +352,57 @@ impl Outcome {
     }
 }
 
-fn norm(u: &str) -> &str {
-    u.trim_end_matches('/')
+/// An endpoint's identity for the independence check: `(host, port)`,
+/// lowercased, the scheme's default port filled in, `localhost` / `[::1]`
+/// read as `127.0.0.1`, path, query, fragment and user info dropped.
+/// `None`: not an `http(s)://` URL (compared as written).
+pub fn endpoint(u: &str) -> Option<(String, u16)> {
+    let l = u.trim().to_ascii_lowercase();
+    let (rest, default) = if let Some(r) = l.strip_prefix("https://") {
+        (r, 443)
+    } else if let Some(r) = l.strip_prefix("http://") {
+        (r, 80)
+    } else {
+        return None;
+    };
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let auth = auth.rsplit('@').next().unwrap_or("");
+    let (host, port) = if let Some(v6) = auth.strip_prefix('[') {
+        let (h, after) = v6.split_once(']')?;
+        (h.to_string(), after.strip_prefix(':'))
+    } else {
+        match auth.rsplit_once(':') {
+            Some((h, p)) => (h.to_string(), Some(p)),
+            None => (auth.to_string(), None),
+        }
+    };
+    let port = match port {
+        None | Some("") => default,
+        Some(p) => p.parse().ok()?,
+    };
+    let host = host.trim_end_matches('.').to_string();
+    let host = if host == "localhost" || host == "::1" {
+        "127.0.0.1".to_string()
+    } else {
+        host
+    };
+    Some((host, port))
+}
+
+fn loopback(host: &str) -> bool {
+    host.starts_with("127.")
+}
+
+/// Whether two RPC URLs are not two sources (verify-pr95): the same host
+/// (any port, path, query or spelling: one operator), or for a loopback
+/// host (the verifier's own nodes, the local tests) the same host and port.
+/// Two hostnames that resolve to one machine, a witness that proxies the
+/// primary, or two providers on one storage are not seen ([`RESIDUAL`]).
+pub fn same_source(a: &str, b: &str) -> bool {
+    match (endpoint(a), endpoint(b)) {
+        (Some((ha, pa)), Some((hb, pb))) => ha == hb && (!loopback(&ha) || pa == pb),
+        _ => a.trim().trim_end_matches('/') == b.trim().trim_end_matches('/'),
+    }
 }
 
 fn owned(a: &Option<Account>, program: &Key) -> bool {
@@ -465,14 +516,31 @@ pub fn judge(input: &Input) -> (Vec<Finding>, Option<Outcome>) {
     let last_slot = input.txs.iter().map(|t| t.slot).max().unwrap_or(0);
     let mut blocks_checked = 0;
     let mut accounts_checked = 0;
-    for w in &cross.witnesses {
+    for (wi, w) in cross.witnesses.iter().enumerate() {
         let who = format!("witness {}", w.url);
-        if norm(&w.url) == norm(&p.url) {
+        if same_source(&w.url, &p.url) {
             push(
                 WITNESS_UNAVAILABLE,
                 who.clone(),
                 String::new(),
-                "the witness is the primary RPC itself: not a second source".into(),
+                format!(
+                    "the witness is the primary RPC's own endpoint ({}): not a second source",
+                    p.url
+                ),
+            );
+        }
+        if let Some(o) = cross.witnesses[..wi]
+            .iter()
+            .find(|o| same_source(&o.url, &w.url))
+        {
+            push(
+                WITNESS_UNAVAILABLE,
+                who.clone(),
+                String::new(),
+                format!(
+                    "the same endpoint as witness {}: given twice, not another source",
+                    o.url
+                ),
             );
         }
         for e in &w.errors {

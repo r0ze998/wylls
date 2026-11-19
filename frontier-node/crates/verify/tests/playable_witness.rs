@@ -496,3 +496,39 @@ fn a_mutate_vs_build_lets_a_dropped_transaction_pass() {
         assert_ne!(r.verdict, Verdict::Pass);
     }
 }
+
+#[test]
+fn one_endpoint_in_another_spelling_is_not_a_second_source() {
+    // verify-pr95: the primary's host given again (case, default port,
+    // path, query, fragment, `localhost`) or one witness given twice.
+    for (p, w) in [
+        ("http://witness", "HTTP://WITNESS"),
+        ("http://witness", "http://witness:80/"),
+        ("http://witness", "http://witness/?x=1"),
+        ("http://witness", "http://witness#a"),
+        (
+            "https://rpc.example.com",
+            "https://rpc.example.com:443/key-2",
+        ),
+        ("https://rpc.example.com", "https://rpc.example.com:8899"),
+        ("https://rpc.example.com", "https://user@RPC.example.com."),
+        ("http://127.0.0.1:8899", "http://localhost:8899"),
+        ("http://[::1]:8899", "http://127.0.0.1:8899/"),
+    ] {
+        let mut inp = witnessed();
+        cross(&mut inp).primary.url = p.into();
+        cross(&mut inp).witnesses[0].url = w.into();
+        assert_caught(&inp, WITNESS_UNAVAILABLE, &format!("{p} vs {w}"));
+    }
+    // Two loopback nodes on two ports stay two sources (the live tests).
+    let mut inp = witnessed();
+    cross(&mut inp).primary.url = "http://127.0.0.1:8899".into();
+    cross(&mut inp).witnesses[0].url = "http://127.0.0.1:8900".into();
+    assert_eq!(verify_core::verify(&inp).verdict, Verdict::Pass);
+    // One witness given twice.
+    let mut inp = witnessed();
+    let mut again = cross(&mut inp).witnesses[0].clone();
+    again.url = "http://WITNESS/".into();
+    cross(&mut inp).witnesses.push(again);
+    assert_caught(&inp, WITNESS_UNAVAILABLE, "a witness given twice");
+}
