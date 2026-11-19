@@ -32,8 +32,10 @@ const signedFor = (intent, p = pins(), signers = [W]) => wireOf(localActMessage(
 const refused = (f, code) => assert.throws(f, e => e instanceof LocalActError && e.code === code, code);
 
 test('the closed list: exactly the six commands, each one the page already sends; nothing else is taken', () => {
-  assert.deepEqual(LOCAL_ACT_COMMANDS, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster']); assert.ok(Object.isFrozen(LOCAL_ACT_COMMANDS));
-  for (const n of LOCAL_ACT_COMMANDS) assert.ok(Object.hasOwn(SIGNED_BY, n), n);
+  // (wide-local-playable: and the local wide world's one-site rim request and wide claim — the claim is not an SDK
+  //  shape, flocalplay-wide.mjs builds it on both sides; frontier-local-play-wide-play.test.mjs)
+  assert.deepEqual(LOCAL_ACT_COMMANDS, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim']); assert.ok(Object.isFrozen(LOCAL_ACT_COMMANDS));
+  for (const n of LOCAL_ACT_COMMANDS.filter(n => n !== 'WideClaim')) assert.ok(Object.hasOwn(SIGNED_BY, n), n);
   for (const name of ['SetSession', 'JoinResident', 'DeclareSiege', 'Depart', 'Dissolve', 'Garrison', 'Explore', 'SendCaravan', 'RaidCaravan', 'BuildVault', 'Vote', 'SeizeVault', 'SettleTransit', 'toString', '__proto__', '']) {
     refused(() => localActIntent({ name, subject: { holding: HOME }, fields: {} }, { wallet: W.address }), name === '' ? 'LocalActNotAllowed' : 'LocalActNotAllowed');
   }
