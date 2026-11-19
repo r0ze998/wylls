@@ -10,7 +10,8 @@
 //!   failure half-way), the resume, and a final re-run (nothing sent); the
 //!   lamports spent equal the dry run's total;
 //! - O3 refusals: a mainnet-beta genesis (a loopback mock: only
-//!   `getGenesisHash` is called), loose key-file mode, a symlinked key, a
+//!   `getGenesisHash` is called), a devnet genesis behind a loopback URL
+//!   without the approval flags, loose key-file mode, a symlinked key, a
 //!   key that is not the profile's authority, `--yes-send` without a key.
 //!
 //! The `.so`: `PSF_FRONTIER_RELEASE_SO`, else
@@ -505,6 +506,36 @@ async fn o3_refusals() {
     all.push_str(&r.stdout);
     all.push_str(&r.stderr);
     assert_eq!(r.code, operator::EXIT_REFUSED);
+    h.abort();
+
+    // A devnet genesis behind a loopback URL (a tunnel or proxy to devnet):
+    // the public gate applies, so --yes-send alone is refused after the one
+    // call, and so is the approval flag without the approved sha256.
+    let (seen, h) = mock_rpc(mock_port() + 2, operator::DEVNET_GENESIS).await;
+    let url3 = format!("http://127.0.0.1:{}", mock_port() + 2);
+    for extra in [vec![], vec!["--i-have-r0ze-approval"]] {
+        let mut a = vec![
+            "--profile",
+            p,
+            "--rpc",
+            &url3,
+            "--authority",
+            k,
+            "--yes-send",
+        ];
+        a.extend(extra);
+        let r = op(args(&a)).await;
+        all.push_str(&r.stdout);
+        all.push_str(&r.stderr);
+        assert_eq!(r.code, operator::EXIT_REFUSED, "{}\n{}", r.stdout, r.stderr);
+        assert!(r.stderr.contains("SEND GATE: CLOSED"), "{}", r.stderr);
+        assert!(r.stderr.contains("--approved-sha256"), "{}", r.stderr);
+    }
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec!["getGenesisHash".to_string(), "getGenesisHash".to_string()],
+        "nothing but the genesis is read"
+    );
     h.abort();
 
     // Loose mode: refused before the key is read or the RPC called.

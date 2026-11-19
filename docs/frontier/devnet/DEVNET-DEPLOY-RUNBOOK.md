@@ -373,7 +373,9 @@ $B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha2
 ```
 
 On devnet a send needs all three of `--yes-send`, `--i-have-r0ze-approval` and `--approved-sha256`; without them the
-tool refuses before it reads the key file or contacts the cluster. `--approved-sha256` must equal the sha256 of the
+tool refuses before it reads the key file or contacts the cluster. A loopback `--rpc` that reaches devnet (an SSH
+tunnel, a local proxy) gets the same gate: the cluster's genesis hash decides, so such a send is refused right after
+`getGenesisHash`. `--approved-sha256` must equal the sha256 of the
 ELF in the deployed ProgramData, and the deployed program must carry `PSF_DEVNET_PLAYABLE_BUILD` and none of the
 profile's refused markers. The dry run prints both hashes of the deployed program: the file's `sha256sum`
 (`da3dc1aa…`, the one to approve) and `solana-verify get-program-hash`'s (trailing zero bytes stripped: `786ef80f…`,

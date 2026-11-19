@@ -25,7 +25,8 @@
 //!   transaction, WideSetRules (write-once; it needs the season Seeded, so
 //!   it follows keeper A's ConsumeGenesisSeed). Built with the
 //!   `playable-lane` feature (the wide-land ABI tables).
-//! - **Send gate.** On a public URL a send also needs
+//! - **Send gate.** On a public URL, or any URL whose genesis is devnet's
+//!   (a loopback tunnel or proxy to devnet), a send also needs
 //!   `--i-have-r0ze-approval` and `--approved-sha256 HEX`, which must be the
 //!   sha256 of the program the cluster runs (read from its ProgramData), and
 //!   the program's markers must match the profile's `program.requiredMarkers`
@@ -1843,6 +1844,28 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
         .map_err(|e| (EXIT_FAILED, format!("{}: {e}", redact(&url))))?;
     let genesis = genesis.as_str().unwrap_or("").to_string();
     check_genesis(&genesis, ep).map_err(refused)?;
+    // A loopback URL that reaches devnet (an SSH tunnel, a local proxy) is
+    // devnet: the public cluster's gate applies, decided by the cluster's
+    // genesis, not by the URL.
+    let ep = if genesis == DEVNET_GENESIS {
+        Endpoint::Public
+    } else {
+        ep
+    };
+    if profile.beacon == BeaconChoice::TestKey && ep == Endpoint::Public {
+        return Err(refused(
+            "operator.beacon test-key is for loopback test chains only (I-53); this cluster is devnet",
+        ));
+    }
+    if o.yes_send {
+        let closed = gate_flags(o, ep);
+        if !closed.is_empty() {
+            return Err(refused(format!(
+                "SEND GATE: CLOSED (genesis {genesis} is devnet's)\n  - {}\n(nothing was sent)",
+                closed.join("\n  - ")
+            )));
+        }
+    }
     let (prog_check, info) = check_program(&chain, &a, authority, &profile).await;
     let obs = observe(&chain, &a, wide)
         .await
