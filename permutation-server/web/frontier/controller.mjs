@@ -402,6 +402,56 @@ function orderUnconfirmed(o, signature, code = 'LocalActUnconfirmed') {
   fxEmit('order:unconfirmed', payload);
 }
 const localActUnconfirmedText = signature => () => L`この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 ${signature}`;
+const localMarchUnconfirmedText = signature => () => L`進軍は送信済みですが、まだ確認できていません。同じ進軍は送り直しません。しばらく自動で確かめます（「もう一度」でも確認できます）。署名 ${signature}`;
+/** (2026-11-19) The reason a march the runner rejected was not taken: the program's own words for its code (NotResident: the turn changed under the send), else the relay's. */
+const localMarchRejectedText = r => (r.programCode === 26 ? L`送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。`
+  : r.programCode === 31 ? L`送るあいだにターンが変わり、この到着ターンには着けなくなりました。`
+  : failureText(r.programCode !== undefined ? r : { code: 'LocalMarchRejected' }));
+/**
+ * (2026-11-19) A held march (sent, outcome unknown) is asked about again on its own, a bounded number of times: every
+ * HELD_RECHECK_MS, at most HELD_RECHECK_TRIES times (about 2 minutes, longer than a blockhash lives). Each ask is ONE
+ * read through the relay it was sent through; nothing is sent again. Landed, failed on chain or expired (the relay read
+ * its blockhash as past its life and the signature as unknown) — the host is free again and the player is told.
+ */
+export const HELD_RECHECK_MS = 5000, HELD_RECHECK_TRIES = 24;
+const heldRechecks = new Set();
+const HELD_TOLD = {
+  landed: () => L`送信済みだった進軍は記録されました。軍勢は進軍中です。`,
+  failed: () => L`送信済みだった進軍はチェーンで断られました。軍勢は村にいます。もう一度命令できます。`,
+  expired: () => L`送信済みだった進軍は期限までに記録されませんでした（これから記録されることはありません）。軍勢は村にいます。もう一度命令できます。`,
+};
+function heldTold(x) {
+  if (!HELD_TOLD[x]) return false;
+  if (x === 'landed') done(HELD_TOLD.landed); else setNotice({ ok: false, busy: false, text: HELD_TOLD[x], unsent: 'march-held', retry: false });
+  refresh().catch(e => console.error('frontier refresh:', e));
+  return true;
+}
+function recheckHeldMarch(signature, { tries = HELD_RECHECK_TRIES, every = HELD_RECHECK_MS } = {}) {
+  if (!localMarchSender || heldRechecks.has(signature)) return;
+  heldRechecks.add(signature);
+  const sender = localMarchSender;
+  let n = 0;
+  const tick = async () => {
+    if (sender !== localMarchSender) { heldRechecks.delete(signature); return; }
+    let x = 'unconfirmed';
+    try { x = await sender.ask(signature); } catch { x = 'unconfirmed'; }
+    if (x !== 'unconfirmed') { heldRechecks.delete(signature); invalidate('panel'); heldTold(x); return; }
+    if (++n >= tries) { heldRechecks.delete(signature); return; }
+    setTimeout(tick, every);
+  };
+  setTimeout(tick, every);
+}
+/** The press on a host held by an earlier march: ONE read of each of its held signatures; told when one is settled. */
+async function askHeldMarches(hostId, { told = false } = {}) {
+  if (!localMarchSender) return;
+  busy(() => L`送信済みの進軍の結果を確認しています…`);
+  let last = 'unconfirmed';
+  for (const sig of localMarchSender.held(hostId)) { try { last = await localMarchSender.ask(sig); } catch { last = 'unconfirmed'; } if (last !== 'unconfirmed') break; }
+  invalidate('panel');
+  if (heldTold(last)) return;
+  const sig = localMarchSender.held(hostId)[0];
+  if (told && sig) setNotice({ busy: false, text: localMarchUnconfirmedText(sig), code: 'LocalActUnconfirmed', unsent: 'march-send' });
+}
 /** A press on an order that is held as sent-and-unconfirmed: ONE question about its signature; nothing is built or sent. */
 async function localActAsk(name, lo, { order, say, after }) {
   busy(() => L`送信済みの命令の結果を確認しています…`);
@@ -2668,7 +2718,7 @@ const heldNow = card => (localMarchSender ? localMarchSender.held(card.host?.id 
 const pendingDriver = createPendingDriver({
   look: card => {
     const same = FS.compose === card, now = same ? marchNow(card) : { problems: null, intent: null };
-    return { ...now, nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0, sameCard: same,
+    return { ...now, nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0 || marchNearEnd(), sameCard: same,
       keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN };
   },
   // (the read is applied only while this page still reads the same herald for the same world with the same live key and the
@@ -2706,13 +2756,22 @@ export function localSyncTick(t = Date.now()) {
   loadEnvelope(target.p, target.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } }, () => null).then(() => { localSyncBusy = false; });
   return true;
 }
+// (2026-11-19, fix-march-held) The march's press, like the muster's (round 21): not in the last moments of a turn. A Depart
+// that lands after the turn changed is refused by the program (NotResident 26: the origin province must be resolved
+// through the landing turn − 2; ArrivalBell 31) — seen live at ×60, sent 0.6 s before the turn ended. In those moments the
+// press arms the waiting send instead (sent once when every check passes in the next turn, or withdrawn and told — e.g.
+// when the arrival turn moved with the turn). It lowers the chance of a refusal; the program's check still decides.
+const marchNearEnd = () => nearTurnEnd({ genesisTs: FS.clock?.genesisTs, nowTs: now(), bellSecs: BELL_SECS, rate: FS.chain?.accelerated ? Number(FS.chain.rate) : 1 });
 function armMarchWait() {
   const c = FS.compose;
+  // (a march of this host sent earlier whose outcome is not known — the march's gate is closed then (LocalMarchHeld) —:
+  //  the press asks about it, one read; nothing is sent)
+  if (c && !c.sending && !c.pending && !pendingDriver.armed && localPlay && heldNow(c)) return askHeldMarches(c.host?.id ?? null, { told: true });
   if (!c || c.sending || c.pending || pendingDriver.armed || !localMarchTrial()) return;
   const { problems, intent } = marchNow(c);
-  // ready now: this press is an ordinary press
-  if (problems.length === 0) return sendTheMarch();
-  if (heldNow(c) || !pendable(problems)) return;
+  // ready now, and not at the turn's very end: this press is an ordinary press
+  if (problems.length === 0 && !marchNearEnd()) return sendTheMarch();
+  if (problems.length > 0 && !pendable(problems)) return;
   const p = armPending({ intent, nowBell: nowBell() });
   if (!p || !pendingDriver.arm(c, p)) return;
   c.pending = p;
@@ -2879,7 +2938,12 @@ async function sendTheMarch() {
         if (to > c.arriveBell) c.moved = { from: c.moved?.from ?? c.arriveBell, to };
         c.earliest = r.earliest; c.arriveBell = to;
       }
-      if (localSent && r.code !== 'TransactionFailed') setNotice({ busy: false, text: localActUnconfirmedText(r.signature) }); else failed(r);
+      // (2026-11-19) sent, outcome not known: said as that (the code makes it the "unconfirmed" state, not a refusal titled
+      // with another action's words — it read 「編成はまだ命じられていません」), and asked again a bounded number of times;
+      // a march the runner rejected, or one refused before the send, goes back to its card: "not sent", with the reason
+      if (localSent && r.code !== 'TransactionFailed') { setNotice({ busy: false, text: localMarchUnconfirmedText(r.signature), code: 'LocalActUnconfirmed', unsent: 'march-send' }); recheckHeldMarch(r.signature); }
+      else if (localPlay && r.code === 'LocalMarchRejected') failed({ ...r, unsent: 'march-send', text: () => `${localMarchRejectedText(r)} ${L`命令は送られていません。カードはそのままです。確かめてから、もう一度押してください。`}` });
+      else failed(localPlay ? { ...r, unsent: 'march-send' } : r);
     }
   } finally {
     c.sending = false; delete c.sendingArrival;

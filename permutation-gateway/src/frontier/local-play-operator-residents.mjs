@@ -151,7 +151,8 @@ export async function residentTurn(r, { homes, deps }) {
   // by another writer for it. Not a refusal of the command: nothing was sent, nothing is marked tried or spent; it waits
   // for the next bell and decides again.
   if (!sent.ok && sent.code === RESIDENT_ALREADY_ACTED) return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), seen, budget: r.budget.state() };
-  if (!sent.ok) { outcome = 'refused'; code = sent.code; }
+  // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
+  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
   else {
     signature = sent.signature;
     const f = await deps.follow(signature, r);

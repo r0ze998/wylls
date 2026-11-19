@@ -463,6 +463,19 @@ test('sendMarch: a refusal marks the entry failed (it may be re-sealed); a lost 
   assert.deepEqual([r.ok, r.step, r.code, called], [false, 'sealing', 'SealAuditFailed', false]);
 });
 
+test('(fix-march-held) sendMarch: a refusal carrying the program code (the local runner\'s rejection) keeps it on the answer; the entry is failed, not held', async () => {
+  const w = world();
+  const base = { seal: req => seal.sealMarch(req, { inline: true }), clock: CLOCK, publicKey: TEST_BEACON.publicKey, bookKey: 'k', session: {}, accounts: {}, track: async () => ({ ok: true }) };
+  const storage = memoryStorage();
+  const r = await march.sendMarch({ ...good(w), holdingAddress: 'h' }, { ...base, storage, submit: async () => ({ ok: false, code: 'LocalMarchRejected', error: 'LocalMarchRejected', programCode: 26 }) });
+  assert.deepEqual([r.ok, r.step, r.code, r.programCode], [false, 'sent', 'LocalMarchRejected', 26]);
+  const e = book.loadBook(storage, 'k')[0];
+  assert.deepEqual([e.state, e.failure, e.signature ?? null], ['failed', 'LocalMarchRejected', null], 'not `sent`: nothing holds the host');
+  // without a program code, none is invented
+  const r2 = await march.sendMarch({ ...good(w), holdingAddress: 'h' }, { ...base, storage: memoryStorage(), submit: async () => ({ ok: false, code: 'TipNotPreset' }) });
+  assert.equal(Object.hasOwn(r2, 'programCode'), false);
+});
+
 test('sendMarch: an earliest bell gone stale by send time refuses ArrivalBell before sealing (wave-3 review)', async () => {
   const w = world();
   let sealed = false, sent = false;
