@@ -1210,6 +1210,16 @@ impl LegacyMarchDriver {
                     .checked(state, ix, &format!("SettleDeparture(slot {slot})"))
                     .await;
             }
+            if t.state != T_SETTLED
+                && crate::destination_driver::SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst)
+            {
+                // (TEST-ONLY wide world: an expedition into the wide land keeps this inline slot while its bridge record
+                //  is driven by the wide destination driver; never this driver's, and never a stop of the village)
+                return Step::Wait(format!(
+                    "transit slot {slot} (state {}): an expedition, the wide destination driver's",
+                    t.state
+                ));
+            }
             if t.state != T_SETTLED {
                 return Step::Stopped(format!("transit slot {slot} is in state {} (destroyed at origin or unknown): not driven here", t.state));
             }
