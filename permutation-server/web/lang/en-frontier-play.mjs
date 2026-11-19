@@ -1973,4 +1973,6 @@ export default {
   'このローカルの世界では、到着のターンが終わると世界の進行役が封を開けます（この端末に封の控えがなくても進みます）。': "In this local world the world's automatic services open the seal once the arrival turn is over (it goes ahead even without a copy of the seal on this device).",
   // loop-play4 (B-7's neighbour): local play's nation choice — no wallet prompts and no in-game key there
   'この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。': "In this test world the page's own test wallet signs by itself (no wallet prompt and no in-game key).",
+  // loop-play4 B-9: the viewer's own wide village, said on its province
+  'あなたの村（広い土地）': 'Your village (wide land)',
 };

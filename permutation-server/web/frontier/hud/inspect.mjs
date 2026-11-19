@@ -31,6 +31,7 @@ import { TERRAIN_TEXT, villageDrawn, provinceName, provinceCoords, tileName } fr
 import { unpack } from '../seal.mjs';
 import { materialBytes } from '../marchbook.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
+import { wideSlots } from '../fwide.mjs';
 import { conquestEnabled, keepFor, renderKeep, renderOutpost } from '../screens/conquest.mjs';
 import { territoryEnabled, territoryOf, territoryOwner } from '../territory.mjs';
 import { landOf, landTile, landTileLines } from '../land.mjs';
@@ -279,8 +280,13 @@ export function render(FS, terrainOf, activities = null) {
   // (a keep's holder, garrison and contest are the season's public record: the control snapshot and the reach list already
   // say them of every province, surveyed or not, so the panel stands for any province the player goes to: "go there" from
   // the reach list leads to the keep and its march button, not to a card that only says "unsurveyed")
+  // (loop-play4 B-9: a province where the viewer holds a wide village — a wide-bound slot of its own inventory, never one
+  //  of FS.holdings — says so, and opens that village; before, its sigil only named the province and its ring)
+  const ownWide = wideSlots(FS).find(e => e.holding && String(e.holding.p) === String(m.p) && String(e.holding.q) === String(m.q)) ?? null;
+  if (ownWide) chips.push(chip(L`あなたの村（広い土地）`, 'you', 'home'));
   const keepVisible = !!keep;
   const acts = inspectActions(FS, m);
+  if (ownWide) acts.unshift({ act: 'wide-select', data: { slot: ownWide.inventorySlot }, text: L`この村を開く`, primary: true });
   const main = acts.filter(a => a.act !== 'pin-toggle'), pin = acts.find(a => a.act === 'pin-toggle');
   const btn = (a, cls = '') => html`<button type="button" class="btn small${a.primary ? ' primary' : ''}${cls}" data-act="${a.act}" ${dataAttrs(a.data)}>${a.text}</button>`;
   const hosts = t?.hosts?.length ? html`${label(L`このマスの軍勢`)}<ul class="list insp-hosts">${t.hosts.map(h => html`<li class="host-row">${h.unit ? html`<img class="unit-card small f${h.faction}" src="${miniCardUrl(h.faction, h.unit.toLowerCase())}" alt="" width="32" height="40" loading="lazy" decoding="async">` : ''}<span class="host-what"><strong>${unitCount(h.unit, h.troops)}</strong>${h.pending ? html` <span class="muted">${L`（次のターンから）`}</span>` : ''}<span class="host-of">${h.owner ? personChip(h.owner, h.faction, { size: 30, own: isOwnIdentity(FS, h.owner) }) : html`${swatch(h.faction)}${factionName(h.faction)}`}</span></span></li>`)}</ul>` : '';

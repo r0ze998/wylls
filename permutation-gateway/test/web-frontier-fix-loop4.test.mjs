@@ -67,3 +67,21 @@ test('B-7\'s neighbour: local play\'s nation choice says the page\'s test wallet
   const en = L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。`;
   assert.doesNotMatch(en, CJK); assert.match(en, /signs by itself/);
 });
+
+// loop-play4 B-9: a finalized wide claim was still offered, and the own wide village's province said nothing of it
+import { wideClaimModel } from '../../permutation-server/web/frontier/screens/holding.mjs';
+test('B-9: the wide-claim card counts the wide villages and never offers a province where one stands', () => {
+  const targets = [{ p: '-66', q: '-63' }, { p: '-67', q: '-62' }];
+  const base = { localPlay: { wideLand: { scale: 60, targets } }, holdings: [{ p: -66, q: -62, site: 8, order: 1 }], ui: {} };
+  const m = { holding: { p: -66, q: -62, site: 8, order: 1 }, have: [5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000] };
+  const before = wideClaimModel(base, m);
+  assert.deepEqual(before.targets.map(t => `${t.p},${t.q}`), ['-66,-63', '-67,-62']);
+  assert.equal(before.slot, 2);
+  const after = wideClaimModel({ ...base, wideStatus: 'ready', wideHoldings: { slots: [{ inventorySlot: 2, status: 'captured-unverified', holding: { p: -66n, q: -63n } }] } }, m);
+  assert.deepEqual(after.targets.map(t => `${t.p},${t.q}`), ['-67,-62'], 'the claimed province is no longer offered');
+  assert.equal(after.slot, 3, 'the next claim is the third village');
+  const inspect = src('hud/inspect.mjs');
+  assert.match(inspect, /const ownWide = wideSlots\(FS\)\.find\(e => e\.holding && String\(e\.holding\.p\) === String\(m\.p\) && String\(e\.holding\.q\) === String\(m\.q\)\) \?\? null;/);
+  assert.match(inspect, /if \(ownWide\) acts\.unshift\(\{ act: 'wide-select', data: \{ slot: ownWide\.inventorySlot \}, text: L`この村を開く`, primary: true \}\);/);
+  setLang('en'); assert.equal(L`あなたの村（広い土地）`, 'Your village (wide land)');
+});
