@@ -94,6 +94,33 @@ test('after the POST: only the relay\'s pre-send refusals say "not sent"; everyt
   }
 });
 
+test('(fix-march-held) the runner\'s definite rejection is "not sent", with the program\'s code; the host is not held', async () => {
+  const rej = Object.assign(refusal('LocalMarchRejected', 422), { detail: { code: -32002, message: 'Transaction simulation failed: InstructionError(3, Custom(26))', program_code: 26, signature: SIG } });
+  const h = harness({ answers: { '/gw/f/local-play/act/context': CONTEXT, [P.LOCAL_MARCH_SUBMIT_PATH]: rej } });
+  assert.deepEqual(await h.deps.submit({ name: 'Depart', fields: FIELDS }), { ok: false, code: 'LocalMarchRejected', error: 'LocalMarchRejected', programCode: 26 });
+  assert.equal(submits(h.posts), 1);
+  assert.deepEqual([...P.LOCAL_MARCH_REJECTED], [...R.LOCAL_MARCH_REJECTED], 'the page says "not sent" for exactly the relay\'s rejection code');
+  // a bad program code is dropped, the refusal stays
+  const h2 = harness({ answers: { '/gw/f/local-play/act/context': CONTEXT, [P.LOCAL_MARCH_SUBMIT_PATH]: Object.assign(refusal('LocalMarchRejected', 422), { detail: { program_code: -1 } }) } });
+  assert.deepEqual(await h2.deps.submit({ name: 'Depart', fields: FIELDS }), { ok: false, code: 'LocalMarchRejected', error: 'LocalMarchRejected' });
+});
+
+test('(fix-march-held) an expired march: track and ask read it as settled (never landing); the host is free again', async () => {
+  const status = v => ({ [P.LOCAL_MARCH_SUBMIT_PATH]: SUBMITTED(), '/gw/f/local-play/act/context': CONTEXT, [P.LOCAL_MARCH_STATUS_PATH]: v });
+  let h = harness({ answers: status({ signature: SIG, status: 'expired', context_slot: 400 }) });
+  await h.deps.submit({ name: 'Depart', fields: FIELDS });
+  assert.deepEqual(await h.deps.track(SIG), { ok: false, state: 'expired', code: 'LocalMarchExpired' });
+  assert.equal(h.posts.filter(p => p.path === P.LOCAL_MARCH_STATUS_PATH).length, 1, 'one read: expired is definite');
+  // ask: a held entry is let go
+  h = harness({ answers: status({ signature: SIG, status: 'expired', context_slot: 400 }) });
+  await h.deps.submit({ name: 'Depart', fields: FIELDS });
+  h.sender.storage.set(h.sender.bookKey, JSON.stringify([{ v: 1, host: String(HOST), transitSlot: 0, arriveBell: 12, state: 'sent', signature: SIG, attempts: [] }]));
+  assert.deepEqual(h.sender.held(HOST), [SIG]);
+  assert.equal(await h.sender.ask(SIG), 'expired');
+  assert.deepEqual(h.sender.held(HOST), []);
+  assert.equal(submits(h.posts), 1, 'never sent again');
+});
+
 test('track reads only; landed, failed with the program code, or unconfirmed (held); ask is one read', async () => {
   const status = v => ({ [P.LOCAL_MARCH_SUBMIT_PATH]: SUBMITTED(), '/gw/f/local-play/act/context': CONTEXT, [P.LOCAL_MARCH_STATUS_PATH]: v });
   let h = harness({ answers: status({ signature: SIG, status: 'confirmed', slot: 5 }) });
@@ -166,7 +193,10 @@ test('the controller: a local march with a signature is recorded as SENT (unconf
   assert.match(body, /const localSent = localPlay && !r\.ok && typeof r\.signature === 'string' && r\.signature !== '';/);
   assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) orderUnconfirmed\(marchOrder, r\.signature\);/);
   assert.match(body, /localSent \? \{ code: r\.code \?\? null, sent: true, signature: r\.signature \} : \{ code: r\.code \?\? null, sent: false \}/);
-  assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) setNotice\(\{ busy: false, text: localActUnconfirmedText\(r\.signature\) \}\); else failed\(r\);/);
+  // (2026-11-19, fix-march-held) the unconfirmed notice carries its code (the "unconfirmed" state, never a refusal titled
+  // with another action's words) and starts the bounded re-check; a runner rejection goes back to the card as "not sent"
+  assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); recheckHeldMarch\(r\.signature\); \}/);
+  assert.match(body, /else if \(localPlay && r\.code === 'LocalMarchRejected'\) failed\(\{ \.\.\.r, unsent: 'march-send'/);
   // "sent: false" appears exactly once in the function, and only on the branch without a local signature
   assert.equal(body.split('sent: false').length - 1, 1);
   assert.ok(body.indexOf('sent: false') > body.indexOf('localSent ?'), 'the not-sent record is the last alternative, after the local signature branch');

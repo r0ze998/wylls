@@ -45,8 +45,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --ai N          operator AI residents in the world, 0-4 (default 2; --resume keeps the kept world's number)
   --demo          the 15-minute capture demo instead of a kept world: compressed clock, land preview, memory-only
                   (a stop ends it for good; not resumable)
-  --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; at 60 the land preview's
-                  FoldLand often runs out of compute units, see the report; use 30 or less to check land yield)
+  --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; the land preview's
+                  FoldLand folds as many turns as fit its compute at every speed since fix-march-held)
   --minutes N     the world's life in minutes, 15-240 (default 90)
   --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999).
                   The browser keeps a kept world's key per address, so --resume uses the kept world's port.

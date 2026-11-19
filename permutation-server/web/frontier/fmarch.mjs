@@ -243,7 +243,7 @@ export async function sendMarch(m, deps) {
     // Refused before sending (or by the relay): nothing is on chain; the entry may be re-sealed.
     // A lost answer ('network') may still land: the entry stays 'sealed' and reconciles later.
     if (r.code !== 'network') save({ state: 'failed', failure: r.code });
-    return { ok: false, step: 'sent', code: r.code, error: r.error, entry };
+    return { ok: false, step: 'sent', code: r.code, error: r.error, ...(Number.isInteger(r.programCode) ? { programCode: r.programCode } : {}), entry };
   }
   save({ state: 'sent', signature: r.signature });
   step('sent', r);

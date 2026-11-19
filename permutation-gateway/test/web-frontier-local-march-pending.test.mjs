@@ -70,7 +70,11 @@ test('the controller: armed only on local play\'s test march with a known world 
   const c = src('controller.mjs');
   assert.match(c, /const localMarchTrial = \(\) => !!localPlay && localPlay\.march\?\.trialEntry === true && FS\.localMarch\?\.open === true && Number\.isFinite\(localPlay\.worldEndsAt\);/);
   assert.match(c, /if \(!c \|\| c\.sending \|\| c\.pending \|\| pendingDriver\.armed \|\| !localMarchTrial\(\)\) return;/, 'no other path arms it');
-  assert.match(c, /if \(heldNow\(c\) \|\| !pendable\(problems\)\) return;/, 'never armed past an unknown outcome or a non-settling problem');
+  // (2026-11-19, fix-march-held) a held host's press asks about its march (one read) before anything else; a non-settling
+  // problem never arms; ready but in the turn's last moments arms the wait (the muster's nearTurnEnd guard)
+  assert.match(c, /if \(c && !c\.sending && !c\.pending && !pendingDriver\.armed && localPlay && heldNow\(c\)\) return askHeldMarches\(/, 'never armed past an unknown outcome');
+  assert.match(c, /if \(problems\.length > 0 && !pendable\(problems\)\) return;/, 'never armed past a non-settling problem');
+  assert.match(c, /if \(problems\.length === 0 && !marchNearEnd\(\)\) return sendTheMarch\(\);/, 'ready and not at the turn end: an ordinary press');
   assert.match(c, /return loadEnvelope\(card\.origin\.p, card\.origin\.q, 'latest', still\)\.then\(/, 'the read is the ordinary read-only province read');
   assert.match(c, /const still = \(\) => herald === h0 && localPlay === lp0 && \(FS\.wallet\?\.address \?\? null\) === w0 && FS\.wallet\?\.destroyed !== true && pendingDriver\.armed === card;/, 'applied only for the same herald, world, live key and armed card');
   // a stale answer is dropped BEFORE anything is applied
