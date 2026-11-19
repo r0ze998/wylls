@@ -43,12 +43,19 @@
 //! (fees and other programs' accounts are not this program's to prove); a
 //! runtime account (the System program, a sysvar) whose chain balance is
 //! not LiteSVM's (D-verify-pr89-2: the receipts digest it); a transaction
-//! that names the ProgramData when the upgrade authority was not read.
+//! that names the ProgramData when the upgrade authority was not read;
+//! balances no chain can show (its accounts do not lose exactly its fee, a
+//! read-only account's lamports move, a failed transaction moves more than
+//! the fee payer's fee); an archive whose slots go back (not the chain's order) (verify-pr91).
 //!
 //! What VG assumes: the archive is the program's **whole** history from the
-//! Season's creation (a missing transaction shows as a FAIL of a later
-//! one, or of the final states; ⑲'s history rule still keeps an unproven
-//! history from a PASS); LiteSVM's runtime behaves as the cluster's for this
+//! Season's creation, in the chain's order. A missing transaction that
+//! changes a program account shows as a FAIL of a later one, or of the
+//! final states; one that changes none does not (a failed transaction, a
+//! success that leaves every account it writes as it was, a pair that
+//! cancels out), nor does a swap of two transactions of one slot (or with
+//! their slots swapped too) whose effects commute (verify-pr91 mutations).
+//! ⑲'s history rule keeps an unproven history from a PASS; LiteSVM's runtime behaves as the cluster's for this
 //! program (rent 5,080 lamports per byte; fees re-based on the fee payer
 //! only); the program reads no account of another program (none in the
 //! playable lane; such a state is not in this archive). A program-owned
@@ -61,7 +68,7 @@ use fclient::ports::Account;
 use solana_address::Address;
 
 use crate::codes::*;
-use crate::input::Input;
+use crate::input::{Balances, Input};
 use crate::reexec::{judged_logs, replay_known, Pre, Program, Svm};
 use crate::world::{b58, Key};
 use crate::{Finding, Severity};
@@ -129,6 +136,36 @@ fn with_lamports(a: Option<Account>, l: u64) -> Option<Account> {
     }
 }
 
+/// Why a transaction's archived balances are not ones a chain can show:
+/// its accounts lose exactly its fee (`meta.fee`); a read-only account's
+/// lamports do not move; a failed transaction moves only the fee payer's
+/// (its fee). `None`: they can be.
+fn balances_doubt(b: &Balances, writable: &[bool], ok: bool, fee: u64) -> Option<String> {
+    let pre: u128 = b.pre.iter().map(|&x| x as u128).sum();
+    let post: u128 = b.post.iter().map(|&x| x as u128).sum();
+    if pre != post + fee as u128 {
+        return Some(format!(
+            "its accounts hold {pre} lamports before it and {post} after, and its fee is {fee}"
+        ));
+    }
+    for (j, (x, y)) in b.pre.iter().zip(b.post.iter()).enumerate() {
+        if x == y {
+            continue;
+        }
+        if !writable.get(j).copied().unwrap_or(false) {
+            return Some(format!(
+                "the read-only account #{j} goes from {x} to {y} lamports"
+            ));
+        }
+        if !ok && j > 0 {
+            return Some(format!(
+                "it failed, and account #{j} goes from {x} to {y} lamports"
+            ));
+        }
+    }
+    None
+}
+
 enum Judged {
     Ok,
     Fail(&'static str, String),
@@ -191,7 +228,23 @@ pub fn derive(input: &Input) -> Derived {
     let mut unknown: BTreeSet<Key> = BTreeSet::new();
     let mut derived = input.clone();
     let mut runtime_noted: BTreeSet<Key> = BTreeSet::new();
+    let mut last_slot = 0u64;
     for (i, rec) in input.txs.iter().enumerate() {
+        // The archive's order must be the chain's: slots never go back
+        // (verify-pr91; transactions of one slot cannot be ordered here).
+        if rec.slot < last_slot {
+            out.findings.push(finding(
+                Severity::Unverifiable,
+                MISSING_DATA,
+                Some(i),
+                input,
+                format!(
+                    "the archive puts it (slot {}) after a transaction of slot {last_slot}: not the chain's order, so the re-executions are not the chain's",
+                    rec.slot
+                ),
+            ));
+        }
+        last_slot = last_slot.max(rec.slot);
         // A recorder's declared patch, in force from before `txs[at]`.
         for d in input.declared.iter().filter(|d| d.at == i) {
             state.insert(d.key, d.account.clone());
@@ -261,6 +314,15 @@ pub fn derive(input: &Input) -> Derived {
             }
             continue;
         }
+        // The balances must be ones a chain can show (verify-pr91): never a
+        // PASS otherwise. It is still re-executed, so that a FAIL the
+        // re-run shows (an archive no chain produced) stays a FAIL.
+        if let Some(d) = balances_doubt(bal, &writable, ok, rec.fee) {
+            push(
+                &mut out,
+                Judged::Missing(format!("the archived balances are not a chain's: {d}")),
+            );
+        }
         if let Some(k) = keys.iter().find(|k| unknown.contains(*k)) {
             if ok {
                 push(&mut out, Judged::Missing(format!("it names {}, whose state an earlier transaction left unknown (not re-executed)", b58(k))));
@@ -302,6 +364,20 @@ pub fn derive(input: &Input) -> Derived {
                     if bal.pre[j] < have && early.is_none() {
                         early = Some(Judged::Fail(REEXEC_MISMATCH, format!("account {}: the chain shows {} lamports before it, {} fewer than the program's earlier transactions left (only the program debits its account, and every transaction that invokes it is in its history)", b58(k), bal.pre[j], have - bal.pre[j])));
                     }
+                }
+            }
+        }
+        // A program account this transaction does not write (read-only, or
+        // the transaction failed) keeps the lamports the chain shows before
+        // it (a credit, if more: checked above): a later transaction must
+        // not show it with fewer (verify-pr91).
+        for (j, k) in keys.iter().enumerate() {
+            if ok && writable[j] {
+                continue;
+            }
+            if let Some(Some(a)) = state.get_mut(k) {
+                if a.owner.to_bytes() == program && bal.pre[j] > a.lamports {
+                    a.lamports = bal.pre[j];
                 }
             }
         }

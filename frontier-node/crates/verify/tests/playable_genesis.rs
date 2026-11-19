@@ -462,3 +462,93 @@ fn a_post_state_of_an_account_the_transaction_does_not_write_fails() {
         );
     }
 }
+
+// ------------------------------- balances no chain shows (verify-pr91)
+
+fn assert_not_pass_vg(inp: &Input, what: &str) {
+    let r = verify_core::verify(inp);
+    assert_ne!(r.verdict, Verdict::Pass, "{what}: {:#?}", show(&r));
+    assert!(
+        r.findings
+            .iter()
+            .any(|f| f.check == "VG" && f.severity >= Severity::Unverifiable),
+        "{what}: {:#?}",
+        show(&r)
+    );
+}
+
+#[test]
+fn balances_that_do_not_conserve_lamports_are_never_a_pass() {
+    // verify-pr91 mutations: the fee payer's balances were re-based away,
+    // a read-only account's and a failed transaction's were not compared.
+    let base = rpc_shaped();
+    let ok = (0..base.txs.len())
+        .find(|&i| base.txs[i].err.is_none() && i > 20)
+        .unwrap();
+    let failed = base.txs.iter().position(|t| t.err.is_some()).unwrap();
+    let ro = |i: usize| {
+        let m = fclient::tx::from_wire(&base.txs[i].tx).unwrap().message;
+        (0..m.account_keys.len())
+            .find(|&j| !fclient::tx::is_writable_index(&m, j))
+            .unwrap()
+    };
+    for (what, i, j, pre, d) in [
+        ("fee payer pre +1", ok, 0, true, 1i64),
+        ("fee payer pre -1", ok, 0, true, -1),
+        ("fee payer post +1", ok, 0, false, 1),
+        ("read-only pre +1", ok, ro(ok), true, 1),
+        ("read-only post +1", ok, ro(ok), false, 1),
+        ("failed: payer post +1", failed, 0, false, 1),
+        ("failed: account #1 post +1", failed, 1, false, 1),
+    ] {
+        let mut inp = base.clone();
+        let s = sig(&inp, i);
+        let b = inp.chain.balances.get_mut(&s).unwrap();
+        let v = if pre { &mut b.pre[j] } else { &mut b.post[j] };
+        *v = (*v as i64 + d) as u64;
+        assert_not_pass_vg(&inp, what);
+    }
+    // the fee alone
+    let mut inp = base.clone();
+    inp.txs[ok].fee += 1;
+    assert_not_pass_vg(&inp, "fee +1");
+}
+
+#[test]
+fn a_program_account_that_loses_lamports_after_a_failed_transaction_fails() {
+    // A failed transaction shows a program account with one lamport more
+    // (a credit, before and after it); the next transaction naming it shows
+    // the old balance: only the program debits it.
+    let mut inp = rpc_shaped();
+    let program = inp.cfg.program.to_bytes();
+    let rec = recorded();
+    let (i, j) = (0..inp.txs.len())
+        .filter(|&i| inp.txs[i].err.is_some())
+        .find_map(|i| {
+            let m = fclient::tx::from_wire(&inp.txs[i].tx).unwrap().message;
+            let j = (1..m.account_keys.len()).find(|&j| {
+                rec.finals
+                    .get(&m.account_keys[j].to_bytes())
+                    .is_some_and(|a| owned(a, &program))
+            })?;
+            Some((i, j))
+        })
+        .unwrap();
+    let s = sig(&inp, i);
+    let b = inp.chain.balances.get_mut(&s).unwrap();
+    b.pre[j] += 1;
+    b.post[j] += 1;
+    b.pre[0] -= 1;
+    b.post[0] -= 1;
+    let r = assert_fail(&inp, "lamports lost after a failed transaction");
+    assert!(fails_vg(&r), "{:#?}", show(&r));
+}
+
+#[test]
+fn an_archive_out_of_slot_order_is_never_a_pass() {
+    let mut inp = rpc_shaped();
+    // two setup transactions whose effects commute (they write disjoint
+    // accounts and log no record): swapped, every state is the same
+    inp.txs.swap(3, 4);
+    assert_not_pass_vg(&inp, "slots go back");
+}
