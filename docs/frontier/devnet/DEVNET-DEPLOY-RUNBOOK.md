@@ -58,7 +58,7 @@ before approving. The build differs from the local-play lane (`localnet-land-sbf
 the same features). In code that is the `[0x45; 32]` program-id check, the markers and WideDepart's debit gate
 (`proc::wide::DEPART_DEBIT_ENABLED`, closed here: wide → wide marches answer `NotImplemented`). `lib.rs` refuses to
 compile `devnet-playable-sbf` together with a localnet lane, `localnet-wide-depart`, `nft-experimental` or any
-test feature (oracle, test-beacon, trace, native-crypto-tests, public-proof-tests), and the build script and the
+test feature (oracle, test-beacon, trace, native-crypto-tests, public-proof-tests, runtime-contract-tests), and the build script and the
 profile both refuse every other marker.
 
 **Two tool versions are needed** (checked against agave source, 2026-11-18):
@@ -181,6 +181,10 @@ authority) at 5,000 lamports.
 A later **upgrade** holds a second sum for a while: a buffer funded with `rent(45 + so_len)`, 9.81 SOL at 6,960 (7.16
 at 5,080), returned when the upgrade lands.
 
+`node scripts/devnet/dry-run.mjs [--rate N]` prints this for the `.so` on disk, and per-season costs too. The devnet
+faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so an S1 deploy alone takes 3 requests at
+6,960 (2 at 5,080).
+
 ### 4a. The playable lane (B7)
 
 `node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json [--rate N]`, for the §1a
@@ -194,10 +198,6 @@ at 5,080), returned when the upgrade lands.
 At 5 SOL per faucet request: 5 requests for the deploy at 5,080 (7 at 6,960), 25 for deploy + one season (28). Of a
 season's 98.22 SOL only 0.625 SOL (fees and tips) is spent; the rest is returned or float. A world that never ends
 adds 1.02 SOL per day of AnchorArchives (1.40 at 6,960) [model].
-
-`node scripts/devnet/dry-run.mjs [--rate N]` prints this for the `.so` on disk, and per-season costs too. The devnet
-faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so a deploy alone takes 3 requests at
-6,960 (2 at 5,080).
 
 ## 5. Deploy **[r0ze]**
 
@@ -225,7 +225,9 @@ node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile
   --approved-sha256 <file_sha256 from the first line>
 ```
 
-`programId` and `upgradeAuthority` go into `scripts/devnet/devnet-playable-profile.json` (not `devnet-profile.json`).
+`program-playable.json` is a second program keypair, made like `program.json` in §2 (the playable lane is its own
+program, with its own address). Its address and the authority's go into `programId` and `upgradeAuthority` of
+`scripts/devnet/devnet-playable-profile.json` (not `devnet-profile.json`).
 The deploy command is the one below with `permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so`
 and `--max-len 4575232`; the authority signs about 4,300 Writes. The L(kind) cap of 1,441,792 B below is the S1
 profile's; the playable profile's cap is 8,388,608 B.
@@ -342,7 +344,7 @@ Re-checked against the code on 2026-11-20 (`origin/main` 8fdcdb64). G1, G2 and G
 | G5 | Address listing for keeper and relay payers | closed | `frontier-keeper --print-addresses`, `--print-relay-addresses` |
 | P1 | **The playable lane's page actions are localnet-only**: act, march, depart, reveal, return and conquest require `cluster === 'localnet'`, and the local-play relay forwards to a loopback runner only | open | `permutation-server/web/frontier/flocalplay-*.mjs` |
 | P2 | First homes at the rim: PlaceHome is capped at the season's base `r_max` 16, so a rim home needs FileTicket and a runner that settles it, which exists in the local TEST harness only. `S1_DEVNET_WIDE_7D` keeps `outpost_tier_min` 1 (a Town anchors a wide claim; the local wide world uses 0). The devnet rule is the owner's (Q-W1) | open | `proc/citizen.rs` place_home, `frontier-node/crates/itest/src/wide_play.rs` |
-| P3 | Wide → wide marches (WideDepart) and wide keep capture: `NotImplemented` in the devnet build by design (§1a); local TEST only | closed gate | `proc/wide.rs` `DEPART_DEBIT_ENABLED` |
+| P3 | Wide → wide marches (WideDepart) answer `NotImplemented` in the devnet build by design (§1a), so a wide keep, which only such a march can reach, cannot be captured there; local TEST only (`localnet-wide-depart`) | closed gate | `proc/wide.rs` `DEPART_DEBIT_ENABLED` |
 | P4 | Operator AI residents (`--agent-wallet`, `--agent-runner`) and the test-token faucet are localnet-only | open | `permutation-gateway/src/frontier/config.mjs` |
 | P5 | Fog of war is a web-client view of LOCAL test worlds only (`LOCAL_FOG` and `cfg.localPlay`); chain data is public | by design | `permutation-server/web/frontier/map/fog.mjs` |
 
