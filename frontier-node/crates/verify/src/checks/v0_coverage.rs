@@ -75,8 +75,14 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// pinned program, `vx_reexec`), the wide-native host lifecycle's
 /// WideDissolve, WideReturn, WideCloseRoster and WideDisbandStranded by VX
 /// too (verifier-coverage), a successful WideResidentAct is a FAIL (the
-/// lane's program refuses every one), and every other wide instruction stays
-/// UNVERIFIABLE (`WideUnmodelled`, naming the command): see
+/// lane's program refuses every one), and since verifier-coverage-2 every
+/// other decodable wide command is VX's too (WideClaimDefence, WideClose
+/// what 2–5, the raw WideDepart / WideGather / WideSettleDeparture /
+/// WideSettleTransit / WideReveal and the raw expedition and conquest
+/// commands: `vx_reexec::native_of`), and V0 FAILs (`GateClosed`) the ones
+/// the pinned devnet-playable binary can never run ([`gate_closed`],
+/// [`GATE_CLOSED_BINARIES`]). Only data neither the wide codec nor the
+/// dispatch envelope decodes stays UNVERIFIABLE (`WideUnmodelled`): see
 /// [`judge_outside_v2`].
 pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
 
@@ -84,6 +90,105 @@ pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
 const _: () = assert!(
     PROGRAM_VERSION_PLAYABLE == frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION
 );
+
+/// sha256 of the program binaries whose closed gates verifier-coverage-2
+/// checked IN THE BINARY (not only by source flag), for [`gate_closed`]:
+/// the devnet-playable build `da3dc1aa…b9741` (`devnet-playable-sbf`,
+/// committed as `fixtures/verify/devnet-playable-da3dc1aa.so.gz`). Its
+/// markers are `PSF_DEVNET_PLAYABLE_BUILD` and no `PSF_LOCALNET_*`; the
+/// recorder (`tests/playable_expedition.rs`, `Sc::Closes` / `Sc::WideRaw`)
+/// sends every gated raw command to it and archives the refusal: code 99
+/// (NotImplemented) for the EXPEDITION / CONQUEST_LIFECYCLE / Depart-debit
+/// gates (the raw WideDepart of a standing wide host that passes every
+/// other check: the same transaction departs on the local land build with
+/// `localnet-wide-depart`), code 2 (BadAccount) for the v1-slot readers
+/// over the expedition's v2 slot. A rebuilt binary (any source change
+/// alters the hash) is NOT in this list until its gates are re-checked:
+/// its raw commands then stay with VX's re-execution alone.
+pub const GATE_CLOSED_BINARIES: &[[u8; 32]] = &[[
+    0xda, 0x3d, 0xc1, 0xaa, 0xe6, 0x6d, 0x26, 0x2b, 0xa7, 0x93, 0x21, 0xca, 0x90, 0x31, 0xb4, 0xb3,
+    0x51, 0x0a, 0xcc, 0x13, 0xb6, 0x90, 0x15, 0x4f, 0x02, 0xb2, 0xe3, 0x04, 0xb3, 0x8b, 0x97, 0x41,
+]];
+
+/// Whether the season's program is pinned to a binary of
+/// [`GATE_CLOSED_BINARIES`]: the configured `program_hash` is one, and every
+/// hash the archive observed on chain (if any) is that one (a chain that
+/// served another binary is V2's / CQ2's FAIL, never this rule's).
+pub fn pinned_gate_closed(pinned: Option<[u8; 32]>, observed: &[(u64, [u8; 32])]) -> bool {
+    pinned
+        .is_some_and(|h| GATE_CLOSED_BINARIES.contains(&h) && observed.iter().all(|(_, o)| *o == h))
+}
+
+/// The reason a binary of [`GATE_CLOSED_BINARIES`] refuses every instance
+/// of this wide command, whatever the state (verifier-coverage-2), or
+/// `None` when it may run:
+///
+/// * the raw expedition commands (ExpeditionDepart, ExpeditionSettleOrigin,
+///   ExpeditionReveal, ExpeditionGather outside the dispatch envelope):
+///   `proc::wide::dispatch` refuses them with `EXPEDITION_ENABLED` (a
+///   `const false`) before reading any account;
+/// * the raw conquest commands (DeclareSiege, SettleCapture,
+///   ResolveWithConquest, SettleSiege, CloseConquest, CloseCaptureEscrow):
+///   `require_conquest_lifecycle` (`CONQUEST_LIFECYCLE_ENABLED`, `const
+///   false`) first; the dispatch kinds 12–18 reach the same handlers
+///   through the envelope's `*_inner` entries, which VX judges;
+/// * WideDepart: `DEPART_DEBIT_ENABLED` (true only under `cfg(test)` with
+///   `native-crypto-tests` or with `localnet-wide-depart`) refuses after
+///   every check and before the first effect: no success path exists;
+/// * WideReveal, WideSettleDeparture, WideSettleTransit and WideClose(5):
+///   each reads the 288-byte v1 wide transit record (`WideTransit::
+///   from_bytes`, exact length) and refuses without one; the only creator
+///   of such a record is WideDepart's effect (`proc::wide` `depart_as`,
+///   behind the debit gate). The expedition's transit is the 336-byte
+///   `OwnedBridgeTransit`;
+/// * WideClaimDefence and WideClose(2): each reads the v1 arrival slot
+///   (`WideArrivalSlot::read`, family version 2), which refuses the
+///   expedition's v2 slot (`ExpeditionArrivalSlot`, version 3: "the
+///   original v2 bytes never pass v1 read"); the only creator of a v1 slot
+///   is the raw WideReveal (above). The program's v2-slot ClaimDefence
+///   (`claim_expedition_defence`) has no dispatcher.
+///
+/// NOT here (they can run on that binary; VX re-executes them): WideGather
+/// (over a bell with no ArrivalDay bit it creates a no-arrival ClashInputs
+/// and succeeds: recorded in `Sc::WideRaw`), WideClose(3) and WideClose(4)
+/// (the expedition's ArrivalDay and ClashInputs are the shared wide
+/// layouts: recorded in `Sc::Closes`).
+#[cfg(feature = "playable-lane")]
+pub fn gate_closed(data: &[u8]) -> Option<&'static str> {
+    use frontier_abi::world_index::wide_ix::{self as wix, WideCommand as C};
+    Some(match wix::WideCommand::decode(data).ok()? {
+        C::ExpeditionDepart(_)
+        | C::ExpeditionSettleOrigin(_)
+        | C::ExpeditionReveal(_)
+        | C::ExpeditionGather(_) => {
+            "its raw form is refused by EXPEDITION_ENABLED (compiled false) before any account is read"
+        }
+        C::DeclareSiege(_)
+        | C::SettleCapture(_)
+        | C::ResolveWithConquest(_)
+        | C::SettleSiege(_)
+        | C::CloseConquest(_)
+        | C::CloseCaptureEscrow(_) => {
+            "its raw form is refused by CONQUEST_LIFECYCLE_ENABLED (compiled false) before any account is read"
+        }
+        C::Depart(_) => {
+            "WideDepart's debit gate (DEPART_DEBIT_ENABLED, off in this build) refuses it after every check, before any effect"
+        }
+        C::Reveal(_) | C::SettleDeparture(_) | C::SettleTransit(_) => {
+            "it needs a v1 wide transit record, which only WideDepart (gated off in this build) creates"
+        }
+        C::Close(x) if x.what == wix::CLOSE_WHAT_TRANSIT => {
+            "it needs a v1 wide transit record, which only WideDepart (gated off in this build) creates"
+        }
+        C::ClaimDefence(_) => {
+            "it reads only v1 arrival slots, which only the raw WideReveal (itself unreachable in this build) creates; the expedition's v2 slots are refused"
+        }
+        C::Close(x) if x.what == wix::CLOSE_WHAT_SLOT => {
+            "it reads only v1 arrival slots, which only the raw WideReveal (itself unreachable in this build) creates; the expedition's v2 slots are refused"
+        }
+        _ => return None,
+    })
+}
 
 /// Whether `pv` is the playable lane and this build judges it.
 pub fn playable(pv: Option<u16>) -> bool {
@@ -269,7 +374,8 @@ pub fn judge_outside_v2(
     }
     // The wide build's own tags, in its own seasons: left to VW (r16), which
     // judges the wide event chains and nothing of the wide rules, so they
-    // stay UNVERIFIABLE (`WideUnmodelled`), never a PASS.
+    // stay UNVERIFIABLE (`WideUnmodelled`), never a PASS (outside the
+    // playable lane; in it, VWL, VX and `gate_closed` judge them).
     // Q16-1 continued: what `vwl_wide_land::judged` names is VWL's (it
     // re-runs those commands from the states before them).
     #[cfg(feature = "playable-lane")]
@@ -453,6 +559,30 @@ pub fn run(cx: &mut Ctx) {
             };
             let Some(known) = Ix::from_tag(tag) else {
                 let pv = cx.f.params.as_ref().map(|p| p.program_version);
+                // verifier-coverage-2: a wide command the PINNED binary can
+                // never run is known-bad, keyed on that binary's hash.
+                #[cfg(feature = "playable-lane")]
+                if is_wide_tag(tag)
+                    && playable(pv)
+                    && pinned_gate_closed(cx.cfg.program_hash, &cx.input.program_hashes)
+                {
+                    if let Some(why) = gate_closed(&ix.data) {
+                        let name = wide_command(&ix.data).unwrap_or_default();
+                        cx.fail(
+                            V,
+                            GATE_CLOSED,
+                            format!("tx#{i}"),
+                            0,
+                            Some(i),
+                            format!(
+                                "instruction {}: {name} (0x{tag:02x}) succeeded, but the pinned program binary ({}) refuses every one: {why}",
+                                ix.index,
+                                hex::encode(cx.cfg.program_hash.unwrap_or_default())
+                            ),
+                        );
+                        continue;
+                    }
+                }
                 if let Some((sev, code, d)) = judge_outside_v2(tag, &ix.data, pv, cx.s1) {
                     let d = format!("instruction {}: {d}", ix.index);
                     match sev {
@@ -496,6 +626,82 @@ pub fn run(cx: &mut Ctx) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// verifier-coverage-2: exactly the commands the devnet-playable binary
+    /// can never run are `gate_closed`; the ones it runs are not, and every
+    /// decodable wide command is judged by VWL, VX or V0 (none is left
+    /// `WideUnmodelled`).
+    #[cfg(feature = "playable-lane")]
+    #[test]
+    fn gate_closed_names_exactly_the_never_running_commands() {
+        use frontier_abi::world_index::wide_ix as wix;
+        let closed = |d: &[u8]| gate_closed(d).is_some();
+        let close = |what| wix::Close { what }.to_bytes().to_vec();
+        for what in [wix::CLOSE_WHAT_SLOT, wix::CLOSE_WHAT_TRANSIT] {
+            assert!(closed(&close(what)), "WideClose({what})");
+        }
+        for what in [
+            wix::CLOSE_WHAT_TICKET,
+            wix::CLOSE_WHAT_HOLDING,
+            wix::CLOSE_WHAT_DAY,
+            wix::CLOSE_WHAT_INPUTS,
+            wix::CLOSE_WHAT_PROVINCE,
+        ] {
+            assert!(!closed(&close(what)), "WideClose({what}) runs");
+        }
+        let gather = wix::Gather {
+            bell: 9,
+            start: 0,
+            n: 24,
+        }
+        .to_bytes()
+        .to_vec();
+        assert!(!closed(&gather), "WideGather runs (a no-arrival bell)");
+        let claim = wix::ClaimDefence { day: 0, n: 1 }
+            .to_bytes()
+            .unwrap()
+            .to_vec();
+        assert!(closed(&claim));
+        assert!(closed(
+            &wix::ExpeditionSettleOrigin { transit_slot: 0 }.to_bytes()
+        ));
+        assert!(closed(&wix::CloseCaptureEscrow.to_bytes()));
+        assert!(closed(&wix::CloseConquest { p: 1, q: 2 }.to_bytes()));
+        assert!(!closed(&wix::CloseRoster.to_bytes()));
+        assert!(!closed(&wix::Return.to_bytes()));
+        // every one of these is VX's or VWL's, never WideUnmodelled
+        for d in [
+            close(wix::CLOSE_WHAT_SLOT),
+            close(wix::CLOSE_WHAT_DAY),
+            close(wix::CLOSE_WHAT_INPUTS),
+            close(wix::CLOSE_WHAT_TRANSIT),
+            gather,
+            claim,
+        ] {
+            assert!(vx_judged(&d) && !vwl_judged(&d), "{d:?}");
+        }
+        for what in [
+            wix::CLOSE_WHAT_TICKET,
+            wix::CLOSE_WHAT_HOLDING,
+            wix::CLOSE_WHAT_PROVINCE,
+        ] {
+            assert!(vwl_judged(&close(what)) && !vx_judged(&close(what)));
+        }
+        let pv = Some(PROGRAM_VERSION_PLAYABLE);
+        assert!(judge_outside_v2(0xDE, &close(wix::CLOSE_WHAT_DAY), pv, true).is_none());
+        // the pinned-binary key
+        let devnet = GATE_CLOSED_BINARIES[0];
+        assert_eq!(
+            hex::encode(devnet),
+            "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741"
+        );
+        assert!(pinned_gate_closed(Some(devnet), &[(0, devnet)]));
+        assert!(!pinned_gate_closed(Some([1; 32]), &[]));
+        assert!(!pinned_gate_closed(
+            Some(devnet),
+            &[(0, devnet), (9, [1; 32])]
+        ));
+    }
 
     /// verifier-coverage: in the playable lane a successful WideResidentAct
     /// is a FAIL (its program refuses every one: no Citizen of the lane is

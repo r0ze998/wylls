@@ -2,8 +2,8 @@
 //! (Q16-1 = A continued, 2026-11-19): **WideEconomy** (0xDA op 3: the S1
 //! Harvest, Build or Train over a wide holding) and **WideGarrison** (0xDA
 //! op 4: Spearmen from the reserve into the site's pending garrison), the
-//! wallet forms (an NFT resident's is WideResidentAct, still
-//! `WideUnmodelled`). The program's handlers are `permutation-frontier`
+//! wallet forms (an NFT resident's is WideResidentAct, a V0 FAIL in this
+//! lane since verifier-coverage: no Citizen of it can be a resident). The program's handlers are `permutation-frontier`
 //! `proc/wide_economy_exec.rs` `economy_as` and `proc/wide_garrison_exec.rs`
 //! `garrison_as`.
 //!

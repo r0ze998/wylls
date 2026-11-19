@@ -56,7 +56,8 @@
 //! seed (`AnchorArchive`; `MissingData`), the payer's and the displaced
 //! rent payer's lamports (not program accounts), the chain's rent rate
 //! except from an exactly funded record (else `MissingData`), and the
-//! season-end WideClose (still `WideUnmodelled`).
+//! season-end WideClose (VWL's for a ticket, a holding and a province,
+//! `vwl_wide_close.rs`; VX's for the march records, verifier-coverage-2).
 
 use frontier_abi::layout::beacon::{bell_anchor as BA, seed_cache as SC};
 use frontier_abi::layout::player::{citizen as C, holding as H};

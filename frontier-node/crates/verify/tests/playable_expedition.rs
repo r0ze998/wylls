@@ -147,6 +147,8 @@ struct Rec {
     declared: Vec<Declared>,
     /// The logs of the last landed transaction (diagnostics).
     last_logs: Vec<String>,
+    /// A local land `.so` (`PSF_LOCAL_LAND`), whose WideDepart runs.
+    local: bool,
 }
 
 impl Rec {
@@ -174,6 +176,27 @@ impl Rec {
             }
         ));
         ok
+    }
+    /// verifier-coverage-2: an instruction the pinned program must REFUSE
+    /// with `code` (archived as a failed transaction, as a chain shows it).
+    fn refused(&mut self, signers: &[&Keypair], ixs: &[Instruction], what: &str, code: u32) {
+        let (bh, _) = self.c.latest_blockhash();
+        let t = tx::build(ixs, &budget(), signers, &bh).expect("build");
+        let sig = self.c.submit(&tx::wire(&t)).expect("lands (as a failure)");
+        self.c.produce_block();
+        let l = self.c.transaction(&sig).cloned().expect("landed");
+        self.last_logs = l.logs.clone();
+        self.log.push(format!(
+            "PROBE {what}: refused {:?} code {:?}",
+            l.err, l.code
+        ));
+        assert!(
+            l.err.is_some() && l.code == Some(code),
+            "{what}: want code {code}, got {:?} {:?}: {:#?}",
+            l.err,
+            l.code,
+            l.logs
+        );
     }
     fn send(&mut self, signers: &[&Keypair], ixs: &[Instruction], what: &str) {
         if !self.try_send(signers, ixs, what) {
@@ -246,6 +269,25 @@ impl Rec {
             .map(|k| (k.to_bytes(), self.c.account(&k)))
             .collect();
         (txs, finals)
+    }
+}
+
+/// verifier-coverage-2: program error codes the probes expect.
+const BAD_ACCOUNT: u32 = frontier_abi::error::FrontierError::BadAccount as u32;
+const NOT_IMPLEMENTED: u32 = frontier_abi::error::FrontierError::NotImplemented as u32;
+
+/// The RAW (non-envelope) form of a dispatch-envelope instruction: the
+/// inner wide command alone (`[tag, 0xff, 2, kind] ++ inner` → `inner`).
+fn raw_of(ix: &Instruction) -> Instruction {
+    let inner = ix.data[dx::HEADER_LEN..].to_vec();
+    assert!(
+        wix::WideCommand::decode(&inner).is_ok(),
+        "the inner bytes are a whole wide command"
+    );
+    Instruction {
+        program_id: ix.program_id,
+        accounts: ix.accounts.clone(),
+        data: inner,
     }
 }
 
@@ -644,10 +686,12 @@ enum Sc {
     Terminal,
     WideHost,
     Camp,
+    Closes,
+    WideRaw,
 }
 
 impl Sc {
-    const COVERAGE: [Sc; 7] = [
+    const COVERAGE: [Sc; 9] = [
         Sc::Siege,
         Sc::Retained,
         Sc::Forfeit,
@@ -655,6 +699,8 @@ impl Sc {
         Sc::Terminal,
         Sc::WideHost,
         Sc::Camp,
+        Sc::Closes,
+        Sc::WideRaw,
     ];
     fn fixture(self) -> &'static str {
         match self {
@@ -666,6 +712,8 @@ impl Sc {
             Sc::Terminal => "playable-cov-terminal.json.gz",
             Sc::WideHost => "playable-cov-widehost.json.gz",
             Sc::Camp => "playable-cov-camp.json.gz",
+            Sc::Closes => "playable-cov-closes.json.gz",
+            Sc::WideRaw => "playable-cov-wideraw.json.gz",
         }
     }
     fn bad_seal(self) -> bool {
@@ -677,11 +725,19 @@ fn record(sc: Sc) {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
     let so_hash = common::sha2_256(&so);
-    assert_eq!(
-        hex::encode(so_hash),
-        MAIN_SHA256,
-        "not the devnet-playable build of main (da3dc1aa)"
-    );
+    // verifier-coverage-2: `PSF_LOCAL_LAND=1` runs `Sc::WideRaw` on a LOCAL
+    // land `.so` (`localnet-land-sbf`, WideDepart's debit gate open since
+    // #94): evidence only, never a committed fixture.
+    let local = std::env::var("PSF_LOCAL_LAND").is_ok();
+    if local {
+        assert_eq!(sc, Sc::WideRaw, "PSF_LOCAL_LAND is for Sc::WideRaw only");
+    } else {
+        assert_eq!(
+            hex::encode(so_hash),
+            MAIN_SHA256,
+            "not the devnet-playable build of main (da3dc1aa)"
+        );
+    }
     assert_eq!(localnet::bls_and_sbpf_v2_active(), (true, true));
 
     let rounds = FixtureDrand::load(&fb::fixture_dir(), fb::quicknet_info())
@@ -732,6 +788,7 @@ fn record(sc: Sc) {
         log: vec![],
         declared: vec![],
         last_logs: vec![],
+        local,
     };
     let a = r.a.clone();
     let ctx = ctx_of(&a);
@@ -1134,11 +1191,18 @@ fn record(sc: Sc) {
     r.log.push(format!(
         "destination {dest_coord:?} (region {region}): Free City at site {fc_site}, tile {fc_tile}"
     ));
-    if sc == Sc::WideHost {
+    if sc == Sc::WideHost || sc == Sc::WideRaw {
         let keeper = Keypair::new_from_array([0xA3; 32]);
         r.c.airdrop(&keeper.pubkey(), 100_000_000_000).unwrap();
         r.c.produce_block();
-        wide_host(&mut r, &members[1], &opened, &payer, &keeper);
+        wide_host(
+            &mut r,
+            &members[1],
+            &opened,
+            &payer,
+            &keeper,
+            sc == Sc::WideRaw,
+        );
         finish(&r, sc, program, so_hash, &so, &upgrade);
         return;
     }
@@ -1240,6 +1304,16 @@ fn record(sc: Sc) {
     };
     let wallet0 = Keypair::new_from_array([0xB1; 32]);
     assert_eq!(wallet0.pubkey(), w0);
+    if sc == Sc::Closes {
+        // verifier-coverage-2: the RAW (non-envelope) form of each expedition
+        // command is refused by EXPEDITION_ENABLED before anything is read.
+        r.refused(
+            &[&wallet0],
+            &[raw_of(&depart)],
+            "raw ExpeditionDepart (EXPEDITION_ENABLED)",
+            NOT_IMPLEMENTED,
+        );
+    }
     r.send(
         &[&wallet0],
         &[depart],
@@ -1256,6 +1330,27 @@ fn record(sc: Sc) {
     r.c.airdrop(&keeper.pubkey(), 100_000_000_000).unwrap();
     r.c.produce_block();
     legacy_resolve(&mut r, &keeper, RIM.0 as i16, RIM.1 as i16, b0);
+    if sc == Sc::Closes {
+        r.refused(
+            &[&keeper],
+            &[Instruction {
+                program_id: program,
+                accounts: vec![
+                    AccountMeta::new(keeper.pubkey(), true),
+                    AccountMeta::new_readonly(a.season, false),
+                    AccountMeta::new(adr(rim_prov), false),
+                    AccountMeta::new(adr(h0), false),
+                    AccountMeta::new(adr(rim_prov), false),
+                    AccountMeta::new(external, false),
+                ],
+                data: wix::ExpeditionSettleOrigin { transit_slot: 0 }
+                    .to_bytes()
+                    .to_vec(),
+            }],
+            "raw ExpeditionSettleOrigin (EXPEDITION_ENABLED)",
+            NOT_IMPLEMENTED,
+        );
+    }
     r.send(
         &[&keeper],
         &[Instruction {
@@ -1329,6 +1424,14 @@ fn record(sc: Sc) {
         0,
         &route,
     );
+    if sc == Sc::Closes {
+        r.refused(
+            &[&wallet0],
+            &[raw_of(&rev)],
+            "raw ExpeditionReveal (EXPEDITION_ENABLED)",
+            NOT_IMPLEMENTED,
+        );
+    }
     r.send(
         &[&wallet0],
         &[rev],
@@ -1360,6 +1463,14 @@ fn record(sc: Sc) {
     let close = anchor_close(&r, arrive, region);
     r.advance_to(close + 1);
     let gather = gather_ix(&r, &keeper.pubkey(), dest, dest_key, region, arrive);
+    if sc == Sc::Closes {
+        r.refused(
+            &[&keeper],
+            &[raw_of(&gather)],
+            "raw ExpeditionGather (EXPEDITION_ENABLED)",
+            NOT_IMPLEMENTED,
+        );
+    }
     r.send(
         &[&keeper],
         &[gather],
@@ -1387,6 +1498,62 @@ fn record(sc: Sc) {
         .unwrap();
     // SettleMember is due `transit::SETTLE_AFTER_CLOSE_SECS` (600 s) after the close
     r.advance_to(close + 601);
+    if sc == Sc::Closes {
+        // verifier-coverage-2: the expedition's arrival slot is the v2
+        // representation (`ExpeditionArrivalSlot`); the native WideClaimDefence
+        // and WideClose(2) read only v1 (`WideArrivalSlot::read`), so both
+        // refuse it BadAccount, and no v1 slot exists in this lane (only the
+        // raw WideReveal writes one, from a WideDepart transit record).
+        let day = frontier_abi::addr::day_of(bell_now(&r));
+        let beneficiary = sl.common().beneficiary;
+        r.log.push(format!(
+            "the v2 slot's beneficiary is the keeper: {}",
+            beneficiary == keeper.pubkey().to_bytes()
+        ));
+        r.refused(
+            &[&keeper],
+            &[wide_ix(
+                &a,
+                vec![
+                    AccountMeta::new(keeper.pubkey(), true),
+                    AccountMeta::new_readonly(a.season, false),
+                    AccountMeta::new(a.defence_pool(), false),
+                    AccountMeta::new(
+                        adr(ctx.defence_claim(&keeper.pubkey().to_bytes(), day)),
+                        false,
+                    ),
+                    AccountMeta::new_readonly(fclient::addr::system_program(), false),
+                    AccountMeta::new(slot_k, false),
+                    AccountMeta::new_readonly(a.anchor(arrive, region), false),
+                ],
+                wix::ClaimDefence { day, n: 1 }
+                    .to_bytes()
+                    .expect("n in 1..=6")
+                    .to_vec(),
+            )],
+            "WideClaimDefence of the expedition's v2 arrival slot",
+            BAD_ACCOUNT,
+        );
+        r.refused(
+            &[&keeper],
+            &[wide_ix(
+                &a,
+                vec![
+                    AccountMeta::new_readonly(keeper.pubkey(), true),
+                    AccountMeta::new_readonly(a.season, false),
+                    AccountMeta::new(slot_k, false),
+                    AccountMeta::new(adr(sl.common().rent_to), false),
+                ],
+                wix::Close {
+                    what: wix::CLOSE_WHAT_SLOT,
+                }
+                .to_bytes()
+                .to_vec(),
+            )],
+            "WideClose(2) of the expedition's v2 arrival slot",
+            BAD_ACCOUNT,
+        );
+    }
     let settle = Instruction {
         program_id: program,
         data: dx::encode(
@@ -1548,6 +1715,14 @@ fn record(sc: Sc) {
                 .collect(),
             data: dx::encode(dx::Kind::DeclareSiege, &d.inner_bytes()).unwrap(),
         };
+        if sc == Sc::Closes {
+            r.refused(
+                &[&wallet0],
+                &[raw_of(&ix)],
+                "raw DeclareSiege (CONQUEST_LIFECYCLE_ENABLED)",
+                NOT_IMPLEMENTED,
+            );
+        }
         r.try_send(
             &[&wallet0],
             &[ix],
@@ -1565,6 +1740,7 @@ fn record(sc: Sc) {
     // verifier-coverage (`Sc::Siege`): the bell the host left while its
     // siege ran (Dissolve, kind 4).
     let mut siege_left: Option<u32> = None;
+    let mut raw_rwc = false;
     if declared_ok {
         for _ in 0..80 {
             let b = resolved_next_of(&r, dest_coord);
@@ -1574,6 +1750,22 @@ fn record(sc: Sc) {
             let close = window_close(&r, b);
             if r.c.unix_timestamp() < close + 1 {
                 r.advance_to(close + 1);
+            }
+            if sc == Sc::Closes && !raw_rwc {
+                raw_rwc = true;
+                r.refused(
+                    &[&keeper],
+                    &[raw_of(&rwc_ix(
+                        &a,
+                        &keeper.pubkey(),
+                        dest,
+                        dest_key,
+                        region,
+                        b,
+                    ))],
+                    "raw ResolveWithConquest (CONQUEST_LIFECYCLE_ENABLED)",
+                    NOT_IMPLEMENTED,
+                );
             }
             r.send(
                 &[&keeper],
@@ -1634,6 +1826,14 @@ fn record(sc: Sc) {
                 AccountMeta::new_readonly(fclient::addr::system_program(), false),
             ],
         };
+        if sc == Sc::Closes {
+            r.refused(
+                &[&keeper],
+                &[raw_of(&capture)],
+                "raw SettleCapture (CONQUEST_LIFECYCLE_ENABLED)",
+                NOT_IMPLEMENTED,
+            );
+        }
         if sc == Sc::Siege || !r.try_send(&[&keeper], &[capture], "SettleCapture") {
             let escrow = r
                 .data(&escrow_k)
@@ -1856,6 +2056,14 @@ fn record(sc: Sc) {
                 )
                 .unwrap(),
             };
+            if sc == Sc::Closes {
+                r.refused(
+                    &[&keeper],
+                    &[raw_of(&ix)],
+                    "raw CloseCaptureEscrow (CONQUEST_LIFECYCLE_ENABLED)",
+                    NOT_IMPLEMENTED,
+                );
+            }
             if !r.try_send(&[&keeper], &[ix], "CloseCaptureEscrow") {
                 let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
                 r.log.push(format!("CloseCaptureEscrow tail: {tail:?}"));
@@ -1883,10 +2091,66 @@ fn record(sc: Sc) {
                     AccountMeta::new(adr(t.rent_payer()), false),
                 ],
             };
+            if sc == Sc::Closes {
+                r.refused(
+                    &[&keeper],
+                    &[raw_of(&ix)],
+                    "raw CloseConquest (CONQUEST_LIFECYCLE_ENABLED)",
+                    NOT_IMPLEMENTED,
+                );
+            }
             if !r.try_send(&[&keeper], &[ix], "CloseConquest") {
                 let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
                 r.log.push(format!("CloseConquest tail: {tail:?}"));
             }
+        }
+        if sc == Sc::Closes {
+            // verifier-coverage-2: the expedition's own season-end leftovers,
+            // closed by the native WideClose: its ArrivalDay (what 3) and the
+            // arrival bell's ClashInputs (what 4), each whole to its rent_to.
+            let day_k = adr(wa::arrival_day_address(&ctx, dest, wa::day_of(arrive)));
+            let day = wa::WideArrivalDay::read(&r.data(&day_k).expect("the ArrivalDay"))
+                .expect("a wide ArrivalDay");
+            r.send(
+                &[&keeper],
+                &[wide_ix(
+                    &a,
+                    vec![
+                        AccountMeta::new_readonly(keeper.pubkey(), true),
+                        AccountMeta::new_readonly(a.season, false),
+                        AccountMeta::new_readonly(dest_key, false),
+                        AccountMeta::new(day_k, false),
+                        AccountMeta::new(adr(day.rent_to), false),
+                    ],
+                    wix::Close {
+                        what: wix::CLOSE_WHAT_DAY,
+                    }
+                    .to_bytes()
+                    .to_vec(),
+                )],
+                "WideClose(3) of the expedition's ArrivalDay",
+            );
+            let ih = WideClashInputsHdr::read(&r.data(&inputs_k).expect("the ClashInputs"))
+                .expect("a wide ClashInputs");
+            r.send(
+                &[&keeper],
+                &[wide_ix(
+                    &a,
+                    vec![
+                        AccountMeta::new_readonly(keeper.pubkey(), true),
+                        AccountMeta::new_readonly(a.season, false),
+                        AccountMeta::new_readonly(dest_key, false),
+                        AccountMeta::new(inputs_k, false),
+                        AccountMeta::new(adr(ih.rent_to), false),
+                    ],
+                    wix::Close {
+                        what: wix::CLOSE_WHAT_INPUTS,
+                    }
+                    .to_bytes()
+                    .to_vec(),
+                )],
+                "WideClose(4) of the arrival bell's ClashInputs",
+            );
         }
     } else {
         let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
@@ -1950,7 +2214,14 @@ fn dissolve_ix(
 /// `m` in the first opened wide province, every step a real transaction
 /// but the declared reserve (as `playable_wide_march.rs`'s patch 4) and the
 /// staged bells (THE anchor and SeedCache, declared: no live drand).
-fn wide_host(r: &mut Rec, m: &Member, opened: &[WideCoord], payer: &Keypair, keeper: &Keypair) {
+fn wide_host(
+    r: &mut Rec,
+    m: &Member,
+    opened: &[WideCoord],
+    payer: &Keypair,
+    keeper: &Keypair,
+    raw: bool,
+) {
     use frontier_abi::world_index::{key::WideHostRef, ticket as wt};
     let a = r.a.clone();
     let c = ctx_of(&a);
@@ -2137,6 +2408,74 @@ fn wide_host(r: &mut Rec, m: &Member, opened: &[WideCoord], payer: &Keypair, kee
     );
     let b = bell_now(r);
     resolve_through(r, payer, p0, reg0, b + 1);
+    if raw {
+        // verifier-coverage-2 (`Sc::WideRaw`): the raw WideDepart of this
+        // standing wide host (state 1, its province resolved, a syntactically
+        // valid seal, the tip floor) passes every check and is refused by the
+        // debit gate (DEPART_DEBIT_ENABLED, off in the devnet-playable build)
+        // with NotImplemented before its first effect.
+        let sd = r.data(&a.season).unwrap();
+        let season = fclient::decode::Season::decode(&sd).expect("the Season");
+        let tip = fclient::fees::min_tip_lamports(
+            season.min_reveal_priority_milli,
+            season.reveal_cu_limit,
+            season.reveal_loaded_limit,
+        );
+        let mut seal = [0u8; frontier_abi::world_index::seal::WIDE_SEAL_LEN];
+        seal[0] = 0x80;
+        let mut acc = player(vec![
+            AccountMeta::new(hk, false),
+            AccountMeta::new(prov_k, false),
+            AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            AccountMeta::new_readonly(prov_k, false),
+        ]);
+        for s in 0..4u8 {
+            let t = adr(frontier_abi::world_index::march::transit_address(
+                &c,
+                &hk.to_bytes(),
+                s,
+            ));
+            acc.push(if s == 0 {
+                AccountMeta::new(t, false)
+            } else {
+                AccountMeta::new_readonly(t, false)
+            });
+        }
+        acc.push(AccountMeta::new_readonly(roster_k, false));
+        let now_b = bell_now(r);
+        let ix = wide_ix(
+            &a,
+            acc,
+            wix::Depart {
+                host: host.to_bytes(),
+                transit_slot: 0,
+                arrive_bell: now_b + 4,
+                tip,
+                commit: [7; 32],
+                seal,
+            }
+            .to_bytes()
+            .to_vec(),
+        );
+        if r.local {
+            // the local land build: the same transaction departs
+            r.send(
+                &[&m.wallet],
+                &[ix],
+                "raw WideDepart of a standing wide host (local land .so: the gate is open)",
+            );
+            // (the host is now in transit: the rest of the lifecycle is not
+            // this run's; the archive ends with the WideDepart)
+            return;
+        } else {
+            r.refused(
+                &[&m.wallet],
+                &[ix],
+                "raw WideDepart of a standing wide host (DEPART_DEBIT_ENABLED)",
+                NOT_IMPLEMENTED,
+            );
+        }
+    }
     dissolve(r, host, "WideDissolve");
     let ret = |r: &mut Rec, what: &str| {
         let mut acc = vec![
@@ -2166,6 +2505,63 @@ fn wide_host(r: &mut Rec, m: &Member, opened: &[WideCoord], payer: &Keypair, kee
     let b = bell_now(r);
     resolve_through(r, payer, p0, reg0, b + 1);
     dissolve(r, host2, "WideDissolve of the second host");
+    // verifier-coverage-2 (`Sc::WideRaw`): the raw WideGather is NOT gated:
+    // over a bell with no ArrivalDay bit it creates a no-arrival ClashInputs
+    // (every position scanned) and succeeds; the bell's WideResolve then
+    // reads it, and the season-end WideClose(4) closes it.
+    let mut raw_inputs = None;
+    if raw {
+        let gb = resolved_next(r, p0);
+        if r.c.account(&adr(c.bell_anchor(gb, reg0))).is_none() {
+            stage_seed(r, gb, reg0, seed_of(gb));
+        }
+        let close = window_close(r, gb);
+        if r.c.unix_timestamp() < close + 1 {
+            r.advance_to(close + 1);
+        }
+        let inputs = adr(wa::clash_inputs_address(&c, pkey, gb));
+        let mut acc = vec![
+            AccountMeta::new(keeper.pubkey(), true),
+            AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new_readonly(prov_k, false),
+            AccountMeta::new_readonly(a.anchor(gb, reg0), false),
+            AccountMeta::new(inputs, false),
+            AccountMeta::new_readonly(
+                adr(wa::arrival_day_address(&c, pkey, wa::day_of(gb))),
+                false,
+            ),
+            AccountMeta::new_readonly(fclient::addr::instructions_sysvar(), false),
+            AccountMeta::new_readonly(fclient::addr::system_program(), false),
+        ];
+        let positions = 4 * fclient::abi::FACTIONS;
+        for k in 0..positions {
+            acc.push(AccountMeta::new_readonly(
+                adr(wa::arrival_slot_address(&c, pkey, gb, k / 4, k % 4)),
+                false,
+            ));
+            acc.push(AccountMeta::new_readonly(
+                fclient::addr::system_program(),
+                false,
+            ));
+        }
+        r.send(
+            &[keeper],
+            &[wide_ix(
+                &a,
+                acc,
+                wix::Gather {
+                    bell: gb,
+                    start: 0,
+                    n: positions,
+                }
+                .to_bytes()
+                .to_vec(),
+            )],
+            &format!("raw WideGather bell {gb} (no arrivals)"),
+        );
+        resolve_through(r, payer, p0, reg0, gb + 1);
+        raw_inputs = Some(inputs);
+    }
     end_season(r, keeper);
     let rent_payer: [u8; 32] = r.data(&hk).unwrap()[H::RENT_PAYER..H::RENT_PAYER + 32]
         .try_into()
@@ -2245,6 +2641,29 @@ fn wide_host(r: &mut Rec, m: &Member, opened: &[WideCoord], payer: &Keypair, kee
     ) {
         let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
         r.log.push(format!("WideCloseRoster tail: {tail:?}"));
+    }
+    if let Some(inputs) = raw_inputs {
+        let ih = WideClashInputsHdr::read(&r.data(&inputs).expect("the raw gather's ClashInputs"))
+            .expect("a wide ClashInputs");
+        r.send(
+            &[keeper],
+            &[wide_ix(
+                &a,
+                vec![
+                    AccountMeta::new_readonly(keeper.pubkey(), true),
+                    AccountMeta::new_readonly(a.season, false),
+                    AccountMeta::new_readonly(prov_k, false),
+                    AccountMeta::new(inputs, false),
+                    AccountMeta::new(adr(ih.rent_to), false),
+                ],
+                wix::Close {
+                    what: wix::CLOSE_WHAT_INPUTS,
+                }
+                .to_bytes()
+                .to_vec(),
+            )],
+            "WideClose(4) of the raw gather's ClashInputs",
+        );
     }
 }
 
@@ -2332,7 +2751,12 @@ fn finish(r: &Rec, sc: Sc, program: Address, so_hash: [u8; 32], so: &[u8], upgra
     println!("whole verdict {:?}", rep.verdict);
     if let Ok(dir) = std::env::var("PLAYABLE_EXPEDITION_DUMP") {
         let d = std::path::PathBuf::from(dir);
-        whole.save(&d.join(sc.fixture())).expect("save");
+        let name = if r.local {
+            "playable-local-wideraw.json.gz"
+        } else {
+            sc.fixture()
+        };
+        whole.save(&d.join(name)).expect("save");
         println!("saved to {}", d.display());
     }
 }
@@ -3640,6 +4064,17 @@ fn cov_targets(sc: Sc) -> Targets {
                 ("WideCloseRoster", 1),
             ],
         ),
+        Sc::Closes => (vec![], vec![("WideClose", 2)]),
+        Sc::WideRaw => (
+            vec![],
+            vec![
+                ("WideDissolve", 2),
+                ("WideReturn", 1),
+                ("WideDisbandStranded", 1),
+                ("WideCloseRoster", 1),
+                ("WideGather", 1),
+            ],
+        ),
         Sc::Main => (vec![], vec![]),
     }
 }
@@ -3663,6 +4098,14 @@ fn cov_txs(inp: &Input, sc: Sc) -> Vec<(String, usize)> {
 /// Kinds 8 and 9 start from the one declared patch no real path avoids.
 fn patched(sc: Sc) -> bool {
     matches!(sc, Sc::Forfeit | Sc::Failure)
+}
+
+/// Whether transaction `name` of `sc` starts from a declared state: kinds 8
+/// and 9 (above), and (verifier-coverage-2) the raw WideGather, which reads
+/// its bell's THE anchor, staged by the recorder (no live drand, O-M1-12;
+/// on a real chain PostAnchor writes it).
+fn starts_declared(sc: Sc, name: &str) -> bool {
+    (patched(sc) && name != "DeclareSiege") || (sc == Sc::WideRaw && name == "WideGather")
 }
 
 fn assert_honest(inp: &Input, sc: Sc, how: &str) {
@@ -3694,8 +4137,8 @@ fn assert_honest(inp: &Input, sc: Sc, how: &str) {
     );
     for (name, t) in cov_txs(inp, sc) {
         let v = vx_at(&rep, t);
-        if patched(sc) && name != "DeclareSiege" {
-            // re-executed exactly, from the declared absent slot: never PASS
+        if starts_declared(sc, &name) {
+            // re-executed exactly, from a declared state: never PASS
             assert!(
                 v.len() == 1
                     && v[0].severity == Severity::Unverifiable
@@ -4286,5 +4729,669 @@ mod verify_pr97 {
             unver.is_empty(),
             "omissions judged only UNVERIFIABLE: {unver:?}"
         );
+    }
+}
+
+// ------------------------------------------- verifier-coverage-2
+//
+// WideClaimDefence and WideClose(2–5) in VX; the raw ops that can NEVER
+// succeed on the PINNED devnet-playable binary are a V0 FAIL (`GateClosed`),
+// keyed on that binary's hash; every refusal was observed in the binary
+// (the recorder's `Sc::Closes` / `Sc::WideRaw` probes, archived as failed).
+
+mod verifier_coverage_2 {
+    use super::*;
+
+    fn strip(inp: &mut Input) {
+        for x in inp.txs.iter_mut() {
+            x.post.clear();
+        }
+    }
+
+    /// The failed transactions whose program instruction is a wide command,
+    /// with its name and the error.
+    fn probes(inp: &Input) -> Vec<(usize, &'static str, String)> {
+        (0..inp.txs.len())
+            .filter_map(|t| {
+                let e = inp.txs[t].err.clone()?;
+                let (data, _) = prog_ix(inp, t)?;
+                let c = wix::WideCommand::decode(&data).ok()?;
+                Some((t, c.name(), e))
+            })
+            .collect()
+    }
+
+    fn gate_closed_at(rep: &Report, t: usize) -> bool {
+        rep.findings.iter().any(|f| {
+            f.check == "V0" && f.fail() && f.code == "GateClosed" && f.entity == format!("tx#{t}")
+        })
+    }
+
+    /// The archive with transaction `t` shown as a success.
+    fn as_success(inp: &Input, t: usize) -> Input {
+        let mut i2 = inp.clone();
+        i2.txs[t].err = None;
+        i2.txs[t].code = None;
+        i2
+    }
+
+    /// The probes every recording must hold: (scenario, command, error).
+    const PROBES: &[(Sc, &str, &str)] = &[
+        (Sc::Closes, "ExpeditionDepart", "Custom(99)"),
+        (Sc::Closes, "ExpeditionSettleOrigin", "Custom(99)"),
+        (Sc::Closes, "ExpeditionReveal", "Custom(99)"),
+        (Sc::Closes, "ExpeditionGather", "Custom(99)"),
+        (Sc::Closes, "WideClaimDefence", "Custom(2)"),
+        (Sc::Closes, "WideClose", "Custom(2)"),
+        (Sc::Closes, "WideDeclareSiege", "Custom(99)"),
+        (Sc::Closes, "WideResolveWithConquest", "Custom(99)"),
+        (Sc::Closes, "WideSettleCapture", "Custom(99)"),
+        (Sc::Closes, "WideCloseCaptureEscrow", "Custom(99)"),
+        (Sc::Closes, "WideCloseConquest", "Custom(99)"),
+        (Sc::WideRaw, "WideDepart", "Custom(99)"),
+    ];
+
+    #[test]
+    fn every_gate_is_refused_by_the_pinned_binary_and_archived() {
+        for sc in [Sc::Closes, Sc::WideRaw] {
+            let inp = cov(sc);
+            assert_eq!(
+                inp.cfg.program_hash.map(hex::encode).as_deref(),
+                Some(MAIN_SHA256)
+            );
+            let got = probes(&inp);
+            for &(s, name, err) in PROBES.iter().filter(|p| p.0 == sc) {
+                assert!(
+                    got.iter().any(|(_, n, e)| *n == name && e.contains(err)),
+                    "{s:?}: no archived refusal of {name} with {err}: {got:?}"
+                );
+            }
+        }
+        // the two real season-end closes and the raw WideGather succeeded
+        let c = cov(Sc::Closes);
+        let closes: Vec<u8> = of_native(&c, "WideClose")
+            .into_iter()
+            .map(|t| prog_ix(&c, t).unwrap().0[1])
+            .collect();
+        assert_eq!(closes, vec![wix::CLOSE_WHAT_DAY, wix::CLOSE_WHAT_INPUTS]);
+        let w = cov(Sc::WideRaw);
+        let whats: Vec<u8> = of_native(&w, "WideClose")
+            .into_iter()
+            .map(|t| prog_ix(&w, t).unwrap().0[1])
+            .collect();
+        assert!(whats.contains(&wix::CLOSE_WHAT_INPUTS), "{whats:?}");
+        assert_eq!(of_native(&w, "WideGather").len(), 1);
+    }
+
+    #[test]
+    fn the_binary_carries_the_devnet_marker_and_no_localnet_one() {
+        // (the gates are build constants: DEPART_DEBIT_ENABLED is true only
+        // with `localnet-wide-depart` (marker PSF_LOCALNET_WIDE_DEPART_BUILD)
+        // or under cfg(test))
+        let so = so();
+        let has = |m: &[u8]| so.windows(m.len()).any(|w| w == m);
+        assert!(has(b"PSF_DEVNET_PLAYABLE_BUILD"));
+        for m in [
+            &b"PSF_LOCALNET_WIDE_DEPART_BUILD"[..],
+            b"PSF_LOCALNET_EXPEDITION_SBF_BUILD",
+            b"PSF_LOCALNET_CONQUEST_SBF_BUILD",
+        ] {
+            assert!(!has(m), "{}", String::from_utf8_lossy(m));
+        }
+    }
+
+    #[test]
+    fn a_refused_probe_archived_as_a_success_fails() {
+        let mut judged = 0;
+        for sc in [Sc::Closes, Sc::WideRaw] {
+            let inp = cov(sc);
+            for (t, name, _) in probes(&inp) {
+                if !PROBES.iter().any(|p| p.0 == sc && p.1 == name) {
+                    continue;
+                }
+                judged += 1;
+                for strip_posts in [false, true] {
+                    let mut i2 = as_success(&inp, t);
+                    if strip_posts {
+                        strip(&mut i2);
+                    }
+                    let rep = verify_core::verify(&i2);
+                    assert_eq!(rep.verdict, Verdict::Fail, "{sc:?} {name} tx#{t}");
+                    assert!(
+                        gate_closed_at(&rep, t),
+                        "{sc:?} {name} tx#{t} posts stripped {strip_posts}: {:#?}",
+                        show(&rep)
+                    );
+                    if !strip_posts {
+                        // and the pinned program, re-executing it, refuses it
+                        assert!(
+                            fails_vx(&rep, t, "ReExecRefused"),
+                            "{sc:?} {name} tx#{t}: {:?}",
+                            vx_at(&rep, t)
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(judged, PROBES.len());
+    }
+
+    #[test]
+    fn under_another_pinned_binary_the_gate_rule_does_not_fire_and_nothing_passes() {
+        // e.g. a local land build, whose WideDepart runs (#94): V0 must not
+        // call these known-bad; without the pinned binary VX cannot decide
+        // (UNVERIFIABLE), so the season is never a PASS either.
+        let local = [0x6f; 32];
+        for sc in [Sc::Closes, Sc::WideRaw] {
+            let inp = cov(sc);
+            for (t, name, _) in probes(&inp) {
+                if !PROBES.iter().any(|p| p.0 == sc && p.1 == name) {
+                    continue;
+                }
+                let mut i2 = as_success(&inp, t);
+                i2.cfg.program_hash = Some(local);
+                let rep = verify_core::verify(&i2);
+                assert!(!gate_closed_at(&rep, t), "{sc:?} {name}: {:#?}", show(&rep));
+                assert_ne!(rep.verdict, Verdict::Pass, "{sc:?} {name}");
+                assert!(
+                    !rep.findings
+                        .iter()
+                        .any(|f| f.code == "WideUnmodelled" && f.entity == format!("tx#{t}")),
+                    "{sc:?} {name}: VX's now, not WideUnmodelled: {:#?}",
+                    show(&rep)
+                );
+            }
+        }
+        // and a chain that served another binary than the pinned one
+        assert!(!verify_core::checks::v0_coverage::pinned_gate_closed(
+            Some(hex::decode(MAIN_SHA256).unwrap().try_into().unwrap()),
+            &[(1, local)]
+        ));
+        assert!(verify_core::checks::v0_coverage::pinned_gate_closed(
+            Some(hex::decode(MAIN_SHA256).unwrap().try_into().unwrap()),
+            &[]
+        ));
+        assert!(!verify_core::checks::v0_coverage::pinned_gate_closed(
+            None,
+            &[]
+        ));
+    }
+
+    /// The WideClose(4) of the raw gather (keeper-signed), its data replaced
+    /// by `data` and signed again with the recorder's fixed in-memory keeper
+    /// key: a success the program cannot have run.
+    fn forged_success(data: Vec<u8>) -> (Input, usize) {
+        let mut inp = cov(Sc::WideRaw);
+        let t = *of_native(&inp, "WideClose")
+            .iter()
+            .find(|&&t| prog_ix(&inp, t).unwrap().0[1] == wix::CLOSE_WHAT_INPUTS)
+            .unwrap();
+        let mut x = tx::from_wire(&inp.txs[t].tx).unwrap();
+        let prog = inp.cfg.program;
+        let ixr = x
+            .message
+            .instructions
+            .iter_mut()
+            .find(|i| x.message.account_keys[i.program_id_index as usize] == prog)
+            .unwrap();
+        ixr.data = data;
+        let keeper = Keypair::new_from_array([0xA3; 32]);
+        assert_eq!(x.message.account_keys[0], keeper.pubkey());
+        let x = tx::sign(x.message, &[&keeper]).unwrap();
+        let old = inp.txs[t].signature.to_string();
+        let new = tx::signature(&x);
+        inp.txs[t].tx = tx::wire(&x);
+        inp.txs[t].signature = new;
+        if let Some(b) = inp.chain.balances.remove(&old) {
+            inp.chain.balances.insert(new.to_string(), b);
+        }
+        (inp, t)
+    }
+
+    #[test]
+    fn a_forged_success_of_each_never_running_command_fails() {
+        // the WideRaw probe's real host reference
+        let w = cov(Sc::WideRaw);
+        let (dt, _, _) = probes(&w)
+            .into_iter()
+            .find(|p| p.1 == "WideDepart")
+            .unwrap();
+        let depart = wix::Depart::decode(&prog_ix(&w, dt).unwrap().0).unwrap();
+        let seal = depart.seal;
+        let cmds: Vec<(&str, Vec<u8>)> = vec![
+            ("WideDepart", depart.to_bytes().to_vec()),
+            (
+                "WideSettleDeparture",
+                wix::SettleDeparture {
+                    host: depart.host,
+                    transit_slot: 0,
+                }
+                .to_bytes()
+                .to_vec(),
+            ),
+            (
+                "WideSettleTransit",
+                wix::SettleTransit {
+                    transit_slot: 0,
+                    commit: [7; 32],
+                    seal,
+                    beneficiary: [9; 32],
+                }
+                .to_bytes()
+                .to_vec(),
+            ),
+            (
+                "WideClose(5)",
+                wix::Close {
+                    what: wix::CLOSE_WHAT_TRANSIT,
+                }
+                .to_bytes()
+                .to_vec(),
+            ),
+            (
+                "WideClose(2)",
+                wix::Close {
+                    what: wix::CLOSE_WHAT_SLOT,
+                }
+                .to_bytes()
+                .to_vec(),
+            ),
+            (
+                "WideClaimDefence",
+                wix::ClaimDefence { day: 0, n: 1 }
+                    .to_bytes()
+                    .unwrap()
+                    .to_vec(),
+            ),
+            (
+                "ExpeditionSettleOrigin",
+                wix::ExpeditionSettleOrigin { transit_slot: 0 }
+                    .to_bytes()
+                    .to_vec(),
+            ),
+            (
+                "CloseCaptureEscrow",
+                wix::CloseCaptureEscrow.to_bytes().to_vec(),
+            ),
+        ];
+        for (name, data) in cmds {
+            assert!(wix::WideCommand::decode(&data).is_ok(), "{name}");
+            let (inp, t) = forged_success(data);
+            for strip_posts in [false, true] {
+                let mut i2 = inp.clone();
+                if strip_posts {
+                    strip(&mut i2);
+                }
+                let rep = verify_core::verify(&i2);
+                assert_eq!(rep.verdict, Verdict::Fail, "{name}");
+                assert!(gate_closed_at(&rep, t), "{name}: {:#?}", show(&rep));
+            }
+        }
+    }
+
+    #[test]
+    fn a_forged_raw_gather_and_forged_closes_fail() {
+        // WideGather is NOT gate-closed (it runs): a forged success is VX's
+        let mut inp = cov(Sc::WideRaw);
+        let t = of_native(&inp, "WideGather")[0];
+        let k = program_post(&inp, t);
+        edit_post(&mut inp, t, &k, |a| a.data[40] ^= 1);
+        let rep = verify_core::verify(&inp);
+        assert_eq!(rep.verdict, Verdict::Fail);
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+        assert!(!gate_closed_at(&rep, t));
+        // the expedition's ArrivalDay close shown leaving the day open
+        let mut inp = cov(Sc::Closes);
+        let t = of_native(&inp, "WideClose")[0];
+        let (k, _) = inp.txs[t]
+            .post
+            .iter()
+            .find(|(_, a)| a.is_none())
+            .cloned()
+            .expect("the day closed");
+        let back = inp.txs[..t]
+            .iter()
+            .rev()
+            .find_map(|x| x.post.iter().find(|(y, _)| *y == k).cloned())
+            .unwrap();
+        inp.txs[t].post.iter_mut().find(|(y, _)| *y == k).unwrap().1 = back.1;
+        let rep = verify_core::verify(&inp);
+        assert_eq!(rep.verdict, Verdict::Fail);
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+        // the ClashInputs close archived before the ArrivalDay close's
+        // season end: replayed twice (genesis)
+        let mut inp = cov(Sc::Closes);
+        strip(&mut inp);
+        let t = of_native(&inp, "WideClose")[1];
+        let dup = inp.txs[t].clone();
+        inp.txs.insert(t + 1, dup);
+        let rep = verify_core::verify(&inp);
+        assert_ne!(rep.verdict, Verdict::Pass);
+        assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
+    }
+
+    /// Evidence only (not CI): the `Sc::WideRaw` run on a LOCAL land `.so`
+    /// (`localnet-wide-depart`, #94), whose raw WideDepart succeeds: set
+    /// `PSF_LOCAL_LAND_SO` (the `.so`) and `PSF_LOCAL_WIDERAW` (the
+    /// recorder's `playable-local-wideraw.json.gz`). V0's gate rule must not
+    /// fire, and VX re-executes the WideDepart exactly.
+    #[test]
+    #[ignore = "needs a local land .so and its recording: PSF_LOCAL_LAND_SO, PSF_LOCAL_WIDERAW"]
+    fn on_a_local_land_binary_the_raw_wide_depart_is_not_a_fail() {
+        let so = std::fs::read(std::env::var("PSF_LOCAL_LAND_SO").unwrap()).unwrap();
+        let mut inp = Input::load(std::path::Path::new(
+            &std::env::var("PSF_LOCAL_WIDERAW").unwrap(),
+        ))
+        .unwrap();
+        assert_eq!(inp.cfg.program_hash, Some(common::sha2_256(&so)));
+        assert_ne!(
+            inp.cfg.program_hash.map(hex::encode).as_deref(),
+            Some(MAIN_SHA256)
+        );
+        inp.program_so = Some(std::sync::Arc::new(so));
+        let t = of_native(&inp, "WideDepart");
+        assert_eq!(t.len(), 1, "one successful raw WideDepart");
+        let t = t[0];
+        for strip_posts in [false, true] {
+            let mut i2 = inp.clone();
+            if strip_posts {
+                strip(&mut i2);
+            }
+            let rep = verify_core::verify(&i2);
+            for f in &rep.findings {
+                println!(
+                    "posts-stripped {strip_posts}: {:?} {} {} {} {}",
+                    f.severity,
+                    f.check,
+                    f.code,
+                    f.entity,
+                    f.detail.chars().take(200).collect::<String>()
+                );
+            }
+            assert!(!rep.findings.iter().any(|f| f.fail()), "no FAIL");
+            assert!(!gate_closed_at(&rep, t));
+            assert!(vx_at(&rep, t).is_empty(), "{:?}", vx_at(&rep, t));
+        }
+    }
+}
+
+/// verify-pr100 (independent review of #100): the reviewer's own mutations
+/// of the `Sc::Closes` / `Sc::WideRaw` recordings, and of a recording made
+/// on a LOCAL land `.so` (`localnet-wide-depart`), none of which may PASS.
+mod verify_pr100 {
+    use super::*;
+
+    fn strip(inp: &mut Input) {
+        for x in inp.txs.iter_mut() {
+            x.post.clear();
+        }
+    }
+
+    fn fails(inp: &Input, what: &str) -> Report {
+        let rep = verify_core::verify(inp);
+        assert_eq!(rep.verdict, Verdict::Fail, "{what}: {:#?}", show(&rep));
+        rep
+    }
+
+    fn not_pass(inp: &Input, what: &str) -> Report {
+        let rep = verify_core::verify(inp);
+        assert_ne!(rep.verdict, Verdict::Pass, "{what}: {:#?}", show(&rep));
+        rep
+    }
+
+    fn gate_closed_any(rep: &Report) -> bool {
+        rep.findings
+            .iter()
+            .any(|f| f.check == "V0" && f.code == "GateClosed")
+    }
+
+    fn close_of(inp: &Input, what: u8) -> usize {
+        *of_native(inp, "WideClose")
+            .iter()
+            .find(|&&t| prog_ix(inp, t).unwrap().0[1] == what)
+            .unwrap_or_else(|| panic!("a successful WideClose({what})"))
+    }
+
+    fn devnet_hash() -> [u8; 32] {
+        hex::decode(MAIN_SHA256).unwrap().try_into().unwrap()
+    }
+
+    /// The reviewer's local land recording and its `.so`
+    /// (`PSF_LOCAL_LAND_SO`, `PSF_LOCAL_WIDERAW`), or `None` (CI).
+    fn local() -> Option<Input> {
+        let so = std::fs::read(std::env::var("PSF_LOCAL_LAND_SO").ok()?).unwrap();
+        let mut inp = Input::load(std::path::Path::new(
+            &std::env::var("PSF_LOCAL_WIDERAW").ok()?,
+        ))
+        .unwrap();
+        assert_eq!(inp.cfg.program_hash, Some(common::sha2_256(&so)));
+        inp.program_so = Some(std::sync::Arc::new(so));
+        Some(inp)
+    }
+
+    /// R1: the ArrivalDay close's archived receipt gains a log line the
+    /// program does not write.
+    #[test]
+    fn r01_day_close_extra_log_line_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_DAY);
+        let n = inp.txs[t].logs.len() - 1;
+        inp.txs[t]
+            .logs
+            .insert(n, "Program log: refund doubled".into());
+        let rep = fails(&inp, "R1");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+    }
+
+    /// R2: the ClashInputs close moved before the Season's end (first
+    /// position after its creating gather is not needed: anywhere earlier
+    /// than EndSeason) — the program refuses it there.
+    #[test]
+    fn r02_inputs_close_moved_before_season_end_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_INPUTS);
+        let x = inp.txs.remove(t);
+        let to = inp.txs.len() / 3;
+        inp.txs.insert(to, x);
+        not_pass(&inp, "R2");
+        fails(&inp, "R2");
+    }
+
+    /// R3: the ClashInputs close's rent shown going to the fee payer on
+    /// chain (the balances), not to the record's immutable recipient.
+    #[test]
+    fn r03_inputs_close_rent_redirected_on_chain_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_INPUTS);
+        strip(&mut inp);
+        let s = inp.txs[t].signature.to_string();
+        let b = inp.chain.balances.get_mut(&s).unwrap();
+        // (the recipient may be the fee payer itself, key 0: the keeper
+        // funded the record's rent)
+        let i = (0..b.post.len())
+            .find(|&i| b.post[i] > b.pre[i])
+            .expect("a credited recipient");
+        // part of it left in the closed record (writable, debited): a
+        // close that did not close; conserved. (Onto a read-only account
+        // it is VG's UNVERIFIABLE: not a chain's balances.)
+        let j = (0..b.post.len())
+            .find(|&j| j != i && b.pre[j] > b.post[j])
+            .expect("the closed record");
+        b.post[i] -= 1000;
+        b.post[j] += 1000;
+        fails(&inp, "R3");
+    }
+
+    /// R4: the raw WideGather omitted from the WideRaw archive (its
+    /// ClashInputs then appear from nowhere for the resolve and the close).
+    #[test]
+    fn r04_raw_gather_omitted_fails() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = of_native(&inp, "WideGather")[0];
+        inp.txs.remove(t);
+        not_pass(&inp, "R4");
+        let mut s = inp.clone();
+        strip(&mut s);
+        not_pass(&s, "R4 stripped");
+    }
+
+    /// R5: the ArrivalDay close replayed twice (the second has nothing to
+    /// close), with and without post-states.
+    #[test]
+    fn r05_day_close_replayed_twice_fails() {
+        for strip_posts in [false, true] {
+            let mut inp = cov(Sc::Closes);
+            let t = close_of(&inp, wix::CLOSE_WHAT_DAY);
+            let dup = inp.txs[t].clone();
+            inp.txs.insert(t + 1, dup);
+            if strip_posts {
+                strip(&mut inp);
+            }
+            fails(&inp, "R5");
+        }
+    }
+
+    /// R6: the WideRaw WideDepart probe shown as a success while the
+    /// archive observed NO deployment: still FAIL (V0 GateClosed against
+    /// the pin; VX: the pinned binary refuses it), never PASS.
+    #[test]
+    fn r06_gated_depart_success_with_no_observed_deployment_fails() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = (0..inp.txs.len())
+            .find(|&t| inp.txs[t].err.is_some() && native_at(&inp, t) == Some("WideDepart"))
+            .unwrap();
+        inp.txs[t].err = None;
+        inp.txs[t].code = None;
+        inp.program_hashes.clear();
+        let rep = fails(&inp, "R6");
+        assert!(gate_closed_any(&rep));
+    }
+
+    /// R7: a gated success where the chain served ANOTHER binary than the
+    /// pinned devnet one: V0's gate rule is silent (V2's mismatch FAILs).
+    #[test]
+    fn r07_gated_success_on_an_observed_other_binary_is_v2s_fail_not_v0s() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = (0..inp.txs.len())
+            .find(|&t| inp.txs[t].err.is_some() && native_at(&inp, t) == Some("WideDepart"))
+            .unwrap();
+        inp.txs[t].err = None;
+        inp.txs[t].code = None;
+        inp.program_hashes = vec![(0, [0x6f; 32])];
+        let rep = fails(&inp, "R7");
+        assert!(!gate_closed_any(&rep), "{:#?}", show(&rep));
+        assert!(rep
+            .findings
+            .iter()
+            .any(|f| f.check == "V2" && f.code == "ProgramMismatch" && f.fail()));
+    }
+
+    /// R8: the ClashInputs close's post-state shows the record still open
+    /// with its data (the program closed it).
+    #[test]
+    fn r08_inputs_close_shown_leaving_the_record_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_INPUTS);
+        let (k, _) = inp.txs[t]
+            .post
+            .iter()
+            .find(|(_, a)| a.as_ref().is_none_or(|a| a.lamports == 0))
+            .cloned()
+            .expect("the inputs closed");
+        let back = inp.txs[..t]
+            .iter()
+            .rev()
+            .find_map(|x| x.post.iter().find(|(y, _)| *y == k).cloned())
+            .unwrap();
+        inp.txs[t].post.iter_mut().find(|(y, _)| *y == k).unwrap().1 = back.1;
+        let rep = fails(&inp, "R8");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+    }
+
+    /// R9: the raw WideGather's archived failure flag set (archived as
+    /// failed though the program ran it): what follows leans on its
+    /// ClashInputs.
+    #[test]
+    fn r09_raw_gather_archived_as_failed_is_not_a_pass() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = of_native(&inp, "WideGather")[0];
+        inp.txs[t].err = Some("InstructionError(0, Custom(2))".into());
+        inp.txs[t].code = Some(2);
+        not_pass(&inp, "R9");
+    }
+
+    /// R10 (local land .so, evidence only): the honest recording has no
+    /// FAIL and no GateClosed; re-pinned to the devnet binary it FAILs;
+    /// the WideDepart's transit post-state forged FAILs; the devnet `.so`
+    /// given under the local pin never PASSes and is no GateClosed.
+    #[test]
+    #[ignore = "needs PSF_LOCAL_LAND_SO and PSF_LOCAL_WIDERAW (the reviewer's local recording)"]
+    fn r10_local_land_recording_honest_and_mutated() {
+        let inp = local().expect("PSF_LOCAL_LAND_SO / PSF_LOCAL_WIDERAW");
+        let t = of_native(&inp, "WideDepart");
+        assert_eq!(t.len(), 1);
+        let t = t[0];
+        for strip_posts in [false, true] {
+            let mut i2 = inp.clone();
+            if strip_posts {
+                strip(&mut i2);
+            }
+            let rep = verify_core::verify(&i2);
+            println!(
+                "honest posts-stripped {strip_posts}: {:?} {:#?}",
+                rep.verdict,
+                show(&rep)
+            );
+            assert!(!rep.findings.iter().any(|f| f.fail()), "no FAIL");
+            assert!(!gate_closed_any(&rep));
+            assert!(vx_at(&rep, t).is_empty(), "{:?}", vx_at(&rep, t));
+        }
+        // (a) re-pinned to the devnet binary (the local recording judged as
+        // if it claimed to be devnet-playable)
+        let mut i2 = inp.clone();
+        i2.cfg.program_hash = Some(devnet_hash());
+        i2.program_so = Some(so());
+        let rep = fails(&i2, "R10a");
+        assert!(gate_closed_any(&rep) || fails_vx(&rep, t, "ReExecRefused"));
+        // (b) the WideDepart's created transit record forged
+        let mut i2 = inp.clone();
+        let k = i2.txs[t]
+            .post
+            .iter()
+            .find(|(_, a)| {
+                a.as_ref().is_some_and(|a| {
+                    a.owner == i2.cfg.program
+                        && a.data.len() == frontier_abi::world_index::march::WIDE_TRANSIT_LEN
+                })
+            })
+            .map(|(k, _)| *k)
+            .expect("the 288-byte transit record");
+        let a = i2.txs[t]
+            .post
+            .iter_mut()
+            .find(|(y, _)| *y == k)
+            .unwrap()
+            .1
+            .as_mut()
+            .unwrap();
+        a.data[100] ^= 1;
+        let rep = fails(&i2, "R10b");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+        // (c) the devnet .so given under the local pin: VX cannot judge
+        let mut i2 = inp.clone();
+        i2.program_so = Some(so());
+        let rep = not_pass(&i2, "R10c");
+        assert!(!gate_closed_any(&rep));
+        // (d) the WideDepart's escrow shown going to the payer on chain
+        let mut i2 = inp.clone();
+        strip(&mut i2);
+        let s = i2.txs[t].signature.to_string();
+        let b = i2.chain.balances.get_mut(&s).unwrap();
+        let i = (1..b.post.len())
+            .find(|&i| b.post[i] > b.pre[i])
+            .expect("a credited account");
+        b.post[i] -= 1;
+        b.post[0] += 1;
+        fails(&i2, "R10d");
     }
 }

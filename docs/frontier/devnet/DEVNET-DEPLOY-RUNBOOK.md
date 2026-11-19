@@ -7,14 +7,21 @@
 > [`PUBLIC-TEST-DEVNET.ja.md`](PUBLIC-TEST-DEVNET.ja.md). Where they differ, this page follows the code as of
 > `origin/main` 50050623.
 
+> **Refreshed 2026-11-20 against `origin/main` 8fdcdb64 (offline; still nothing deployed, no key, no devnet
+> contact).** The owner decided on 2026-11-18 16:03 JST (B7) that the **playable lane** (expedition / wide land /
+> conquest, `program_version` 0x4804) goes to devnet **first**, not the S1 release. §1a, §4a and §5a give that
+> lane's artefact, cost and commands; the S1 text is kept because the S1 release stays deployable. §7 lists what is
+> still missing for a *playable* devnet world.
+
 ## 1. What gets deployed
 
 | Program | Deployed? | Why |
 |---|---|---|
-| `permutation-frontier`, plain release build (`scripts/build-frontier.sh`, S1 rules, `program_version` 4) | **yes** | The only artefact the build calls `deployable yes` |
-| `permutation-frontier --features localnet-conquest-sbf` (what local play runs) | no | Carries the `PSF_LOCALNET_*` markers and runs only under program id `[0x45; 32]`. The dry run refuses it (exit 3) |
+| `permutation-frontier --features devnet-playable-sbf` (`scripts/build-frontier-devnet-playable-sbf.sh`, `program_version` 0x4804) | **yes, first** (owner decision B7) | The playable lane's devnet build (§1a): marker `PSF_DEVNET_PLAYABLE_BUILD`, no program-id check, deployable only through `scripts/devnet/devnet-playable-profile.json` |
+| `permutation-frontier`, plain release build (`scripts/build-frontier.sh`, S1 rules, `program_version` 4) | deployable, **not first** (B7) | The only artefact the build calls `deployable yes`; a separate program with its own id and profile (`devnet-profile.json`) |
+| `permutation-frontier --features localnet-land-sbf` (what `scripts/play-local.sh` runs) | no | Carries the `PSF_LOCALNET_*` markers (and the TEST-only `PSF_LOCALNET_WIDE_DEPART_BUILD`) and runs only under program id `[0x45; 32]`. Both profiles refuse it (exit 3) |
 | `permutation-prize` | no (default); plan only with `--with-prize` | ⑰ reopened 2026-11-18 by the owner, devnet/test-USDC only; a mainnet real-money prize needs a legal review first. `dry-run.mjs --with-prize` checks the `--features epochs` build (`permutation-prize/target/deploy-epochs/permutation_prize.so`, marker `PRZ_EPOCHS_TEST_USDC_BUILD`) and adds its cost; it is never sent (no prize deploy step) |
-| `wylls_resident_program` (NFT spike) | no | Owner decision ⑳ = A (no NFT resident) |
+| `wylls_resident_program` (NFT spike) | no | Not part of any devnet plan. ⑳ was reopened on 2026-11-18 18:26 JST as a devnet/local dry run only: `dry-run.mjs --nft-resident` plans the `nft-experimental` build and its send gate stays closed |
 | `permutation-chain` (v9) | no | Superseded by `permutation-frontier` |
 
 The release build measured on 2026-11-18 (this branch, solana-cargo-build-sbf 3.1.9, platform-tools v1.52):
@@ -29,6 +36,30 @@ The release build measured on 2026-11-18 (this branch, solana-cargo-build-sbf 3.
 
 Another toolchain or another commit can give another hash. Before approving, run the build again and approve the
 hash it prints. (An independent rebuild on 2026-11-18 from a fresh checkout gave the same two hashes.)
+
+### 1a. The playable lane's build (B7; measured 2026-11-20 on `origin/main` 8fdcdb64)
+
+`scripts/build-frontier-devnet-playable-sbf.sh --twice` (solana-cargo-build-sbf 3.1.9, platform-tools v1.52, offline,
+key-free), both builds identical:
+
+| | value |
+|---|---|
+| `so_len` | 3,657,488 B |
+| `--max-len` | 4,575,232 B |
+| ProgramData length | 4,575,277 B |
+| `file_sha256` (the value for `--approved-sha256`) | `da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741` |
+| `program_hash` | `786ef80f132a9d2d18afc5708336a396afba32ff3d4c37ebf6c94425a51352df` |
+
+These are the bytes of `frontier-node/fixtures/verify/devnet-playable-da3dc1aa.so.gz` (the `.so` the verifier
+tests replay). The hash is unchanged since PR #70; it changes with any edit the build links, so build again right
+before approving. The build differs from the local-play lane (`localnet-land-sbf`) by cargo features of
+`permutation-frontier` only: it has `devnet-playable-sbf` and lacks `localnet-expedition-sbf`,
+`localnet-conquest-sbf`, `localnet-land-sbf` and the TEST-only `localnet-wide-depart` (every dependency resolves
+the same features). In code that is the `[0x45; 32]` program-id check, the markers and WideDepart's debit gate
+(`proc::wide::DEPART_DEBIT_ENABLED`, closed here: wide → wide marches answer `NotImplemented`). `lib.rs` refuses to
+compile `devnet-playable-sbf` together with a localnet lane, `localnet-wide-depart`, `nft-experimental` or any
+test feature (oracle, test-beacon, trace, native-crypto-tests, public-proof-tests, runtime-contract-tests), and the build script and the
+profile both refuse every other marker.
 
 **Two tool versions are needed** (checked against agave source, 2026-11-18):
 
@@ -151,8 +182,22 @@ A later **upgrade** holds a second sum for a while: a buffer funded with `rent(4
 at 5,080), returned when the upgrade lands.
 
 `node scripts/devnet/dry-run.mjs [--rate N]` prints this for the `.so` on disk, and per-season costs too. The devnet
-faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so a deploy alone takes 3 requests at
+faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so an S1 deploy alone takes 3 requests at
 6,960 (2 at 5,080).
+
+### 4a. The playable lane (B7)
+
+`node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json [--rate N]`, for the §1a
+`.so` (4,303 Write transactions, 8,611 signatures):
+
+| lamports/byte | ProgramData | Program | Fees | **Peak the payer needs** | Stays locked | Later upgrade float | One season `S1_DEVNET_WIDE_7D`, 50 players | **Deploy + one season** |
+|---|---|---|---|---|---|---|---|---|
+| **5,080 (measured 2026-11-18)** | 23.2430 | 0.0008 | 0.0430 | **23.29 SOL** | 23.24 SOL | 18.58 SOL | 98.22 SOL | **121.50 SOL** |
+| 6,960 (worst case, SIMD-0438) | 31.8448 | 0.0011 | 0.0430 | **31.89 SOL** | 31.85 SOL | 25.46 SOL | 106.24 SOL | **138.13 SOL** |
+
+At 5 SOL per faucet request: 5 requests for the deploy at 5,080 (7 at 6,960), 25 for deploy + one season (28). Of a
+season's 98.22 SOL only 0.625 SOL (fees and tips) is spent; the rest is returned or float. A world that never ends
+adds 1.02 SOL per day of AnchorArchives (1.40 at 6,960) [model].
 
 ## 5. Deploy **[r0ze]**
 
@@ -166,6 +211,26 @@ node scripts/devnet/dry-run.mjs \
   --upgrade-authority ~/wylls-devnet-keys/authority.json \
   --approved-sha256 <file_sha256 from the line above>
 ```
+
+### 5a. The playable lane (B7): the same steps with its own profile and program keypair
+
+```sh
+scripts/build-frontier-devnet-playable-sbf.sh --twice                 # note file_sha256 (§1a)
+export PATH="$HOME/solana-4x/bin:$PATH"
+node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json \
+  --i-have-r0ze-approval \
+  --keypair ~/wylls-devnet-keys/deployer.json \
+  --program-keypair ~/wylls-devnet-keys/program-playable.json \
+  --upgrade-authority ~/wylls-devnet-keys/authority.json \
+  --approved-sha256 <file_sha256 from the first line>
+```
+
+`program-playable.json` is a second program keypair, made like `program.json` in §2 (the playable lane is its own
+program, with its own address). Its address and the authority's go into `programId` and `upgradeAuthority` of
+`scripts/devnet/devnet-playable-profile.json` (not `devnet-profile.json`).
+The deploy command is the one below with `permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so`
+and `--max-len 4575232`; the authority signs about 4,300 Writes. The L(kind) cap of 1,441,792 B below is the S1
+profile's; the playable profile's cap is 8,388,608 B.
 
 The script runs these and stops at the first failure: `solana --version` (4.0.0 or newer), `solana address` on both
 key files (they must match the profile), `solana balance`, then this deploy command:
@@ -262,18 +327,26 @@ its sites), and `pfund_initial` 36 SOL (every wedge fund must hold `128 × rent(
 6,960). Keeper A's rings duty runs with `extend = true`, `extend_max_ring = 128` and `lazy_provinces = true`: the
 genesis rings are opened whole and every later ring without its provinces, which open on demand (opening all 49,537
 provinces to ring 128 would cost 1,224 SOL). One 50-player season of this preset is **98.22 SOL** at 5,080 (106.24
-at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator` does not create a 0x4804 season yet (B3).
+at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator` does not create a 0x4804 season yet (B3): its
+`PRESETS` are `S1_LOCAL_7D` and `S1_LOCAL_14D` only (`stack/src/operator.rs`), and the playable profile has no
+`operator` block. So today the playable program can be deployed, but no tool can start its season on devnet.
 
-## 7. Services (blocked)
+## 7. Services and play (not ready)
 
-These cannot run against devnet with today's code (re-checked 2026-11-18):
+Re-checked against the code on 2026-11-20 (`origin/main` 8fdcdb64). G1, G2 and G5 were closed in code by PR #44;
+"closed (code)" means tested against loopback only, **never against a real cluster**.
 
-| # | Gap | Evidence |
-|---|---|---|
-| G1 | The Rust services cannot POST JSON-RPC over `https`. `https://` GETs (live drand) now go through a hardened `curl` | `frontier-node/crates/fclient/src/http.rs:5-18, 83-84` |
-| G2 | The keeper reads the program feed through `frontier_feed`, a localnet-only call | `frontier-node/crates/keeper/src/main.rs:213` `RpcPort::localnet`; `fclient/src/rpc.rs:624` |
-| G4 | **Addressed (§6, `frontier-operator`; local tests only).** Was: no operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs and InitShards against a public RPC | `frontier-node/crates/stack/src/operator.rs` |
-| G5 | No address listing for keeper and relay payers | no `--print-addresses` in the keeper |
+| # | Gap | Status | Evidence |
+|---|---|---|---|
+| G1 | The Rust services POST JSON-RPC over `https` | closed (code): hardened `curl`, no TLS crate | `frontier-node/crates/fclient/src/https.rs`, `http.rs` `post_json_with` |
+| G2 | The keeper reads the program feed from a public RPC | closed (code): `keeper.toml` `feed = "rpc"` (default stays `"localnet"`) | `keeper/src/clusterfeed.rs`, `keeper/src/config.rs` |
+| G4 | Operator tool for AnnounceSeason, CreateSeason, InitBeaconLogs, InitShards | S1 presets: closed (§6, local tests only). **Playable lane: open** (no `S1_DEVNET_WIDE_7D`, no 0x4804 season) | `stack/src/operator.rs` `PRESETS` |
+| G5 | Address listing for keeper and relay payers | closed | `frontier-keeper --print-addresses`, `--print-relay-addresses` |
+| P1 | **The playable lane's page actions are localnet-only**: act, march, depart, reveal, return and conquest require `cluster === 'localnet'`, and the local-play relay forwards to a loopback runner only | open | `permutation-server/web/frontier/flocalplay-*.mjs` |
+| P2 | First homes at the rim: PlaceHome is capped at the season's base `r_max` 16, so a rim home needs FileTicket and a runner that settles it, which exists in the local TEST harness only. `S1_DEVNET_WIDE_7D` keeps `outpost_tier_min` 1 (a Town anchors a wide claim; the local wide world uses 0). The devnet rule is the owner's (Q-W1) | open | `proc/citizen.rs` place_home, `frontier-node/crates/itest/src/wide_play.rs` |
+| P3 | Wide → wide marches (WideDepart) answer `NotImplemented` in the devnet build by design (§1a), so a wide keep, which only such a march can reach, cannot be captured there; local TEST only (`localnet-wide-depart`) | closed gate | `proc/wide.rs` `DEPART_DEBIT_ENABLED` |
+| P4 | Operator AI residents (`--agent-wallet`, `--agent-runner`) and the test-token faucet are localnet-only | open | `permutation-gateway/src/frontier/config.mjs` |
+| P5 | Fog of war is a web-client view of LOCAL test worlds only (`LOCAL_FOG` and `cfg.localPlay`); chain data is public | by design | `permutation-server/web/frontier/map/fog.mjs` |
 
 Once they are closed, the order and flags are PLAYTEST-RUNBOOK §3 (steps 7–10) and §4, with `--cluster devnet` for
 the herald and `--rpc <provider URL>` for every service. Ports stay in 41000–41999 on the operator host. Only the
