@@ -12,7 +12,8 @@
 //! the `HARVEST` chain of the anchor; `proc/nation.rs` `mark_holding`).
 //!
 //! * **WideClaimSite (0xD9)** — the wallet form only (the NFT resident's
-//!   form is WideResidentAct 0xDD, V28's and still `WideUnmodelled`):
+//!   form is WideResidentAct 0xDD, which the playable lane's program
+//!   refuses for every Citizen: a V0 FAIL there, verifier-coverage):
 //!   the player prologue (`frontier_abi::prologue::player_prologue`, steps
 //!   1–2: the Season Running with the S1 ruleset, the Citizen at its
 //!   address, the actor its wallet or session), this build's version, the

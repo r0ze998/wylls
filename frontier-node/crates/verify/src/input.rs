@@ -113,9 +113,10 @@ pub struct Input {
     pub program_so: Option<std::sync::Arc<Vec<u8>>>,
     /// States the archive DECLARES rather than shows: a recorder's
     /// `set_account` patches, each in force from before transaction `at`
-    /// (an index into `txs`). Only VX reads them, as a re-execution's
-    /// starting state (never better than UNVERIFIABLE); every other check
-    /// sees the archive as before. A real chain archive has none.
+    /// (an index into `txs`). Only VX (as a re-execution's starting state)
+    /// and VWL (as the state before an instruction it re-judges,
+    /// verifier-coverage) read them, never better than UNVERIFIABLE; every
+    /// other check sees the archive as before. A real chain archive has none.
     pub declared: Vec<Declared>,
     /// What the chain shows about each transaction beyond its bytes and
     /// logs: `getTransaction`'s `meta.preBalances` / `meta.postBalances`

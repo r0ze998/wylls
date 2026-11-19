@@ -72,7 +72,10 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// and WideResolve (the bell, the wide keep capture) by VWL, the expedition
 /// dispatch envelope (`[tag, 0xff, 2, kind]`, kinds 0–18: the expedition
 /// wrapper and the Free City conquest, 2026-11-19) by VX (re-executed by the
-/// pinned program, `vx_reexec`), and every other wide instruction stays
+/// pinned program, `vx_reexec`), the wide-native host lifecycle's
+/// WideDissolve, WideReturn, WideCloseRoster and WideDisbandStranded by VX
+/// too (verifier-coverage), a successful WideResidentAct is a FAIL (the
+/// lane's program refuses every one), and every other wide instruction stays
 /// UNVERIFIABLE (`WideUnmodelled`, naming the command): see
 /// [`judge_outside_v2`].
 pub const PROGRAM_VERSION_PLAYABLE: u16 = 0x4804;
@@ -273,6 +276,28 @@ pub fn judge_outside_v2(
     if is_wide_tag(tag) && playable(pv) && vwl_judged(data) {
         return None;
     }
+    // verifier-coverage (2026-11-20): a WideResidentAct (0xDD) runs its
+    // inner command only for an NFT resident's Citizen
+    // (`proc::wide::resident_act` → `player_start_as` / the conquest's
+    // `declare_siege_resident` → `resident::start` → `resident::check`:
+    // the Citizen's `resident_citizen::resident_asset` must be the asset).
+    // The playable lane's program is never built with `nft-experimental`
+    // (`permutation-frontier` lib.rs refuses it beside `devnet-playable-sbf`,
+    // and the lane's version 0x4804 is the plain one; the NFT lane is
+    // 0xC804), and only `nft-experimental`'s JoinResident
+    // (`resident::join`) marks a Citizen as a resident; the wallet Join
+    // writes a non-zero WALLET, which `resident_asset` refuses. So no
+    // Citizen of a playable-lane season is a resident, and the pinned
+    // program refuses every WideResidentAct: a successful one is a FAIL
+    // (another program ran), as for any tag a known version refuses.
+    #[cfg(feature = "playable-lane")]
+    if tag == frontier_abi::world_index::wide_ix::TAG_RESIDENT_ACT && playable(pv) {
+        return Some((
+            Fail,
+            UNKNOWN_INSTRUCTION,
+            format!("WideResidentAct (0x{tag:02x}) succeeded in a playable-lane season (program version {PROGRAM_VERSION_PLAYABLE:#06x}), whose program refuses every one: it runs only for an NFT resident's Citizen, and no Citizen of this lane can be one (only the nft-experimental build's JoinResident marks one)"),
+        ));
+    }
     // Q16-1 = A (prize gate): the expedition dispatch envelope (the
     // expedition wrapper and the Free City conquest kinds) is VX's: its
     // whole transaction is re-executed by the pinned program.
@@ -471,6 +496,48 @@ pub fn run(cx: &mut Ctx) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// verifier-coverage: in the playable lane a successful WideResidentAct
+    /// is a FAIL (its program refuses every one: no Citizen of the lane is
+    /// an NFT resident); the four wide-native host-lifecycle commands are
+    /// VX's (re-executed), not `WideUnmodelled`.
+    #[cfg(feature = "playable-lane")]
+    #[test]
+    fn wide_native_ops_in_the_playable_lane() {
+        use crate::Severity::Fail;
+        use frontier_abi::world_index::wide_ix as wix;
+        let pv = Some(PROGRAM_VERSION_PLAYABLE);
+        let muster = wix::Muster {
+            unit: 0,
+            troops: 10,
+            tile: 3,
+        }
+        .to_bytes();
+        let mut act = vec![0u8; 5 + muster.len()];
+        wix::ResidentAct {
+            generation: 0,
+            inner: &muster,
+        }
+        .encode_into(&mut act)
+        .unwrap();
+        assert!(wix::WideCommand::decode(&act).is_ok());
+        for s1 in [true, false] {
+            let j = judge_outside_v2(act[0], &act, pv, s1).expect("judged");
+            assert_eq!((j.0, j.1), (Fail, UNKNOWN_INSTRUCTION), "{j:?}");
+        }
+        let host = [1u8; frontier_abi::world_index::key::HOST_REF_LEN];
+        for d in [
+            wix::Dissolve { host }.to_bytes().to_vec(),
+            wix::Return.to_bytes().to_vec(),
+            wix::CloseRoster.to_bytes().to_vec(),
+            wix::DisbandStranded { entry: 3 }.to_bytes().to_vec(),
+        ] {
+            assert!(vx_judged(&d), "{d:?}");
+            assert!(judge_outside_v2(d[0], &d, pv, true).is_none(), "{d:?}");
+        }
+        // WideMuster and WideResolve stay VWL's, not VX's
+        assert!(!vx_judged(&muster));
+    }
 
     /// Q16-1: the playable lane (0x4804) is a known version only in the
     /// `playable-lane` build. There a wide tag is UNVERIFIABLE (named), a

@@ -188,6 +188,22 @@ fn wide_bodies(logs: &[String], program: &str) -> Result<Vec<(bool, Vec<u8>)>, &
     Ok(out)
 }
 
+/// Whether `logs` carry a `Program data:` record whose 4-byte family tag
+/// is neither PSW1 nor PSWC (e.g. PSFF). Used only for transactions VX
+/// re-executes, whose logs VX compares with the pinned program's.
+fn other_family(logs: &[String]) -> bool {
+    let b64 = base64::engine::general_purpose::STANDARD;
+    logs.iter()
+        .filter_map(|l| l.strip_prefix("Program data:"))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .filter_map(|tag| b64.decode(tag).ok())
+        .any(|tag| {
+            tag.len() == 4
+                && tag.as_slice() != &WIDE_LOG_PREFIX[..]
+                && tag.as_slice() != SIDECAR_LOG_PREFIX
+        })
+}
+
 /// Display labels are not keys: coordinates repeat in every world.
 /// Include the entity tag and the complete canonical identity bytes.
 fn target_key(t: &WideTarget) -> (u8, Vec<u8>) {
@@ -323,6 +339,16 @@ pub fn judge_with(
     for (i, ok, logs) in txs {
         if !ok {
             continue;
+        }
+        // verifier-coverage: a VX transaction may advance a wide chain with
+        // a record of another family (the expedition failure, forfeit and
+        // retained-failure receipts are `PSFF`, which commit both chain
+        // advances in one record and are no PSW1 kind). VX compares its
+        // logs and the accounts' chain headers with the pinned program's, so
+        // the chain continues from the post-states VX proved, as for a PSW1
+        // body this decoder does not read.
+        if vx.contains(i) && other_family(logs) {
+            vx_skipped.insert(*i);
         }
         match wide_bodies(logs, program) {
             Ok(bs) => {
