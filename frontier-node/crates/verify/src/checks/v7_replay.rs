@@ -968,8 +968,15 @@ fn continuity(cx: &mut Ctx) {
         frontier_abi::v2::tags::Ix::FortGarrison.tag(),
     ];
     let mut bad: Vec<ContinuityFinding> = vec![];
+    let pv = f.params.as_ref().map(|p| p.program_version);
     for (t, tx) in w.txs.iter().enumerate() {
         if !tx.ok {
+            continue;
+        }
+        // Q16-1 = A: a transaction VX re-executes (the expedition wrapper,
+        // the Free City conquest) has its Holding writes judged there, byte
+        // for byte, by the pinned program.
+        if super::v0_coverage::vx_tx(tx, pv) {
             continue;
         }
         for (k, a) in &tx.post {

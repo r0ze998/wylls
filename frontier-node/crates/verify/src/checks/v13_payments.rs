@@ -709,6 +709,8 @@ mod tests {
             scenarios: vec![],
             history: Default::default(),
             resident_feed: None,
+            program_so: None,
+            declared: vec![],
         };
         let mut cx = Ctx {
             w,

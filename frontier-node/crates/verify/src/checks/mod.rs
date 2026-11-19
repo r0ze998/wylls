@@ -37,6 +37,8 @@ pub mod vr_rights;
 pub mod vw_chains;
 #[cfg(feature = "playable-lane")]
 pub mod vwl_wide_land;
+#[cfg(feature = "playable-lane")]
+pub mod vx_reexec;
 
 use crate::facts::{Facts, SigCache};
 use crate::input::{Config, Input};
@@ -221,6 +223,30 @@ pub fn run(input: &Input) -> Report {
     // written (V0E, ⑪).
     v0_evidence::run(&mut cx);
     ran.push("V0E");
+    // States the archive DECLARES (a recorder's patches): no archived
+    // transaction wrote them, so the season is never a PASS.
+    if !input.declared.is_empty() {
+        cx.unverifiable(
+            "V0E",
+            crate::codes::MISSING_DATA,
+            "archive",
+            0,
+            None,
+            format!(
+                "the archive declares {} account state(s) no archived transaction wrote (a recorder's patches): {}",
+                input.declared.len(),
+                input
+                    .declared
+                    .iter()
+                    .map(|d| d.what.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+                    .chars()
+                    .take(600)
+                    .collect::<String>()
+            ),
+        );
+    }
     macro_rules! check {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
@@ -331,6 +357,14 @@ pub fn run(input: &Input) -> Report {
     if !cfg!(feature = "mutate-vwl") {
         vwl_wide_land::run(&mut cx);
         ran.push("VWL:wide-land");
+    }
+    // Q16-1 = A (prize gate): the expedition wrapper and Free City conquest
+    // of a playable-lane season, re-executed by the pinned program from the
+    // archive's states.
+    #[cfg(feature = "playable-lane")]
+    if !cfg!(feature = "mutate-vx") {
+        vx_reexec::run(&mut cx);
+        ran.push("VX:re-execution");
     }
     // 02-rights (candidate): the Grant's instructions, records and
     // accounts; on every season (outside S1 the program refuses them, so

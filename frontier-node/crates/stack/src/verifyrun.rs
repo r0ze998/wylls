@@ -134,6 +134,8 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         scenarios: vec![],
         history,
         resident_feed,
+        program_so: None,
+        declared: vec![],
     })
 }
 

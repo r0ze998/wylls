@@ -461,6 +461,8 @@ fn record_playable_lane_natural() {
         scenarios: vec!["playable-lane-natural".into()],
         history: Default::default(),
         resident_feed: None,
+        program_so: None,
+        declared: vec![],
     };
     for l in &r.log {
         println!("{l}");

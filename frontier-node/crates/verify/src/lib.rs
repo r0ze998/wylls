@@ -43,6 +43,9 @@ pub mod fixture;
 pub mod history;
 pub mod holding;
 pub mod input;
+/// Re-execution of an archived transaction by the pinned program (VX).
+#[cfg(feature = "playable-lane")]
+pub mod reexec;
 pub mod report;
 pub mod resident_feed;
 pub mod skip;
@@ -92,7 +95,8 @@ pub fn mutated() -> Option<&'static str> {
         "mutate-v9",
         "mutate-v11",
         "mutate-v12",
-        "mutate-v13"
+        "mutate-v13",
+        "mutate-vx"
     )
 }
 

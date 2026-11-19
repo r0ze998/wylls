@@ -348,6 +348,8 @@ fn input_of(
         scenarios: vec![scenario.into()],
         history: Default::default(),
         resident_feed: None,
+        program_so: None,
+        declared: vec![],
     }
 }
 

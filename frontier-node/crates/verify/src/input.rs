@@ -106,6 +106,28 @@ pub struct Input {
     /// V28's holder judgements (⑳, [`crate::resident_feed`]); `None`: the
     /// holder of every ResidentAct is UNVERIFIABLE.
     pub resident_feed: Option<crate::resident_feed::ResidentFeed>,
+    /// The pinned program's `.so` bytes, for VX's re-execution of the
+    /// playable lane's expedition wrapper and Free City conquest
+    /// (`--program-so`; never part of a fixture file: its sha256 must equal
+    /// `cfg.program_hash`). `None`: those transactions are UNVERIFIABLE.
+    pub program_so: Option<std::sync::Arc<Vec<u8>>>,
+    /// States the archive DECLARES rather than shows: a recorder's
+    /// `set_account` patches, each in force from before transaction `at`
+    /// (an index into `txs`). Only VX reads them, as a re-execution's
+    /// starting state (never better than UNVERIFIABLE); every other check
+    /// sees the archive as before. A real chain archive has none.
+    pub declared: Vec<Declared>,
+}
+
+/// One declared state (see [`Input::declared`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Declared {
+    /// In force from before `txs[at]`.
+    pub at: usize,
+    pub key: Key,
+    pub account: Option<Account>,
+    /// What the patch is (report text).
+    pub what: String,
 }
 
 impl Input {
@@ -127,6 +149,21 @@ impl Input {
         }
         if let Some(f) = &self.resident_feed {
             v["resident_feed"] = f.to_json();
+        }
+        if !self.declared.is_empty() {
+            v["declared"] = Value::Array(
+                self.declared
+                    .iter()
+                    .map(|d| {
+                        json!([
+                            d.at,
+                            Address::new_from_array(d.key).to_string(),
+                            d.account.as_ref().map(account_json),
+                            d.what
+                        ])
+                    })
+                    .collect(),
+            );
         }
         v
     }
@@ -179,6 +216,11 @@ impl Input {
                 .get("resident_feed")
                 .map(crate::resident_feed::ResidentFeed::from_json)
                 .transpose()?,
+            program_so: None,
+            declared: match v.get("declared") {
+                None => vec![],
+                Some(d) => declared_from_json(d)?,
+            },
         })
     }
 
@@ -236,6 +278,27 @@ impl Input {
         }
         std::fs::write(path, out).map_err(|e| e.to_string())
     }
+}
+
+fn declared_from_json(v: &Value) -> Result<Vec<Declared>, String> {
+    let mut out = vec![];
+    for p in v.as_array().ok_or("declared")? {
+        let at = p.get(0).and_then(|x| x.as_u64()).ok_or("declared at")? as usize;
+        let k: Address = p
+            .get(1)
+            .and_then(|x| x.as_str())
+            .and_then(|s| s.parse().ok())
+            .ok_or("declared key")?;
+        let account = parse_account(p.get(2).unwrap_or(&Value::Null)).map_err(|e| e.to_string())?;
+        let what = p.get(3).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        out.push(Declared {
+            at,
+            key: k.to_bytes(),
+            account,
+            what,
+        });
+    }
+    Ok(out)
 }
 
 pub fn finals_from_json(v: &Value) -> Result<BTreeMap<Key, Option<Account>>, String> {
