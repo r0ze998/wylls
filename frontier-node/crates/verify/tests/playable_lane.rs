@@ -4,7 +4,7 @@
 //! `playable-lane` feature (Q16-1 = A, 2026-11-18).
 //!
 //! * `record_playable_lane_natural` (ignored; needs the artefact): a REAL
-//!   season of the deployed devnet-playable `.so` in the in-process LiteSVM
+//!   season of the devnet-playable `.so` (built from main faf1a520) in the in-process LiteSVM
 //!   chain (`localnet::Chain`), by its own instructions only, as the natural
 //!   local-play world builds it (AnnounceSeason → CreateSeason →
 //!   InitBeaconLogs → InitShards → ConsumeGenesisSeed → OpenRing →
@@ -39,7 +39,7 @@ use verify_core::Verdict;
 
 const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
-const PLAYABLE_SHA256: &str = "45f012f21b179ca07808ebb3174fa50d4f30ecd68c39f840c78c98a9ad622dcd";
+const PLAYABLE_SHA256: &str = "ec511123493c23e9ab1f83295e4bf666bc48c8e3f8dcfee2298d9371cc483ca3";
 
 fn params() -> SeasonParamsV2 {
     let mut p = S1_LOCAL_7D;
@@ -146,7 +146,7 @@ fn claim_ix(a: &Addresses, payer: &Address, p: i16, q: i16, site: u8) -> Instruc
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 45f012f2…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 ec511123…), run with --ignored"]
 fn record_playable_lane_natural() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
