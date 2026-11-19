@@ -44,6 +44,9 @@ const ERRORS = Object.freeze({
   LocalActRpcUnavailable: [503, 'the local-play runner did not give a usable answer'],
   LocalActUnknownSignature: [404, 'not a signature this relay submitted'],
   LocalActSendRefused: [502, 'the local-play runner refused the transaction'],
+  // (2026-11-19, fix-march-held) the runner's send answered that it did NOT take the transaction (its preflight
+  //  simulation failed, the blockhash is unknown, the signature does not verify): never in its queue, never run
+  LocalActRejected: [422, 'the local-play runner rejected the transaction before running it: it was not sent'],
   // (the relay is stopping: asked before the send — nothing was sent by a submit that answers this)
   LocalActClosed: [503, 'the local-play relay is closing'],
   // (the instance read of the context route: this relay was started without a pinned runner instance)
@@ -60,6 +63,35 @@ export class LocalActError extends Error {
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed']);
+
+/**
+ * (2026-11-19, fix-march-held) The runner's own "not taken" answers to `sendTransaction`: the send WAS called, and the
+ * runner said it did not take these bytes. Solana's RPC (and this repo's localnet, server.rs `sendTransaction`)
+ * answers
+ *   -32002 "Transaction simulation failed: …"   the preflight ran the transaction and it failed (`data.err`, `data.logs`):
+ *                                               it is not queued or forwarded — EXCEPT `AlreadyProcessed`, which says
+ *                                               the signature IS known (it may land or have landed)
+ *   -32003 "Transaction signature verification failure"   never queued
+ * Every other answer (another code, AlreadyProcessed, a malformed error) stays "the runner refused the send": the
+ * outcome is not known and the signature is kept. → `null`, or `{err, programCode, logs}` for a definite rejection.
+ */
+export function runnerRejection(error) {
+  if (error === null || typeof error !== 'object' || Array.isArray(error)) return null;
+  const data = error.data !== null && typeof error.data === 'object' && !Array.isArray(error.data) ? error.data : {};
+  const message = String(error.message ?? '');
+  if (error.code === -32003 && /signature verification failure/i.test(message)) return Object.freeze({ err: 'SignatureFailure', programCode: null, logs: [] });
+  if (error.code !== -32002 || !/^Transaction simulation failed/.test(message)) return null;
+  if (data.err === undefined || data.err === null || data.err === 'AlreadyProcessed' || /already been processed/i.test(message)) return null;
+  const ie = Array.isArray(data.err?.InstructionError) ? data.err.InstructionError[1] : undefined;
+  const custom = Number.isInteger(ie?.Custom) ? ie.Custom : null;
+  const logs = Array.isArray(data.logs) ? data.logs.filter(x => typeof x === 'string').slice(-6).map(x => x.slice(0, 200)) : [];
+  return Object.freeze({ err: data.err, programCode: custom, logs });
+}
+/** The detail of a send answer: the runner's code and message, the signature, and — for a rejection — its error and program code. */
+export function sendRefusalDetail(error, signature) {
+  const r = runnerRejection(error);
+  return { code: error?.code, message: String(error?.message ?? '').slice(0, 300), signature, ...(r ? { err: r.err, program_code: r.programCode, logs: r.logs } : {}) };
+}
 const fail = code => { throw new LocalActError(code); };
 const check = (ok, code = 'LocalActInvalid') => { if (!ok) fail(code); };
 const exact = (v, keys) => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
@@ -298,7 +330,9 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
       let sent;
       try { sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]); }
       catch { return { status: 'unknown', name: intent.name, signature: ok.signature, status_route: LOCAL_ACT_ROUTES.status }; }   // (the outcome is unknown: asked about by its signature, never sent again)
-      if (sent?.error) throw new LocalActError('LocalActSendRefused', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: ok.signature });
+      // (a definite rejection — the runner did not take the bytes — is said as that: the page may say "not sent";
+      //  anything else stays "refused, outcome unknown" and keeps the signature)
+      if (sent?.error) throw new LocalActError(runnerRejection(sent.error) ? 'LocalActRejected' : 'LocalActSendRefused', sendRefusalDetail(sent.error, ok.signature));
       return { status: sent?.result === ok.signature ? 'submitted' : 'unknown', name: intent.name, signature: ok.signature, status_route: LOCAL_ACT_ROUTES.status };
     },
 

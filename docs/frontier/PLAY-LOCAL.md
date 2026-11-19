@@ -111,9 +111,11 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
   - `--demo`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world).
 - Report on GitHub Issues (r0ze998/wylls) with a screenshot and the folder's path.
 - Known problems (2026-11-18):
-  - If a march says 「できませんでした … この命令は送信済みですが、まだ確認できていません」 [Could not … the order was sent but is not
-    confirmed yet], that host can no longer move in this world. Start a new world (see report D-r0ze-play-kit-1).
+  - (Fixed 2026-11-19, fix-march-held) A march the chain's node did not take (sent as the turn changed, for example) now
+    says 「進軍は送られていません」 [The march was not sent] with the reason, and its order card stays: the host can move;
+    check the card and press again. A march sent whose outcome is not known yet is checked again by the page for about
+    two minutes and released once it has expired.
   - The title's "a turn every 10 minutes" and the start screen's "two hours by default" do not hold for this test world
     (at ×60 a turn is 10 s; the world lasts 90 minutes).
-  - At ×60 the land preview's FoldLand is often refused for running out of compute units (`fold_refused` in
-    runner.out). To check land yield, use `--demo --speed 30` or lower.
+  - (Fixed 2026-11-19, fix-march-held) At ×60 the land preview's FoldLand no longer runs out of compute units: it
+    folds as many turns as fit (a `fold_fit` line in runner.out is a fold that asked for fewer turns).
