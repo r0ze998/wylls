@@ -104,7 +104,10 @@ test('the page reads the world\'s extent, not the record\'s length: source, rost
   const app = read('app.mjs'), fmap = read('map/fmap.mjs');
   assert.doesNotMatch(app, /rings\?\.length|rings\.length/, 'no place of the page counts rings by the record\'s length');
   assert.match(app, /const worldNow = \(\) => FS\.world \?\? worldOf\(FS\.record\);\nconst ringsOpenNow = \(\) => Math\.max\(1, worldNow\(\)\.ringsOpen\);\nconst seededNow = \(\) => seededRings\(worldNow\(\)\);/);
-  assert.match(app, /return \{ overviews: FS\.overviews, ringsOpen: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own,/, 'the map source carries the seeded rings');
+  // (fog-local, 2026-11-19: the map source reads the overviews through shownOverviews() — FS.overviews itself, except under
+  //  the fog of war of a local test world, where it is the fogged copy: map/fog.mjs. The seeded rings are carried as before)
+  assert.match(app, /return \{ overviews: shownOverviews\(\), ringsOpen: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own,/, 'the map source carries the seeded rings');
+  assert.match(app, /const shownOverviews = \(\) => \(FS\.fog\?\.on \? FS\.fog\.overviews : FS\.overviews\);/, 'and the page\'s own overviews without the fog');
   assert.equal(app.split('for (const d of seededNow()) rosterRef.ensure(d);').length - 1, 2, 'the roster is asked for the seeded rings only (both places)');
   assert.match(app, /rings: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own:/, 'the minimap is given the seeded rings'); assert.match(app, /minimap\.frameOf\(ringsOpenNow\(\) \+ 1, r\.width\);/);
   assert.equal(app.split('homeRingsOpen(FS.season, ').length - 1, 1); assert.equal(app.split('homeRingsOf(FS, ').length - 1, 1, 'the tap: home.mjs homeRingsOf (wide-local-playable)'); assert.equal(app.split('contiguousRings(worldNow())').length - 1, 2, 'home rings are counted from the centre without a gap');

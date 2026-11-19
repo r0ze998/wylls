@@ -1937,4 +1937,10 @@ export default {
   "村の場所 {0}": "Village place {0}",
   "ここに村を出す": "Found a village here",
   "申し込みはターンの終わりに決まります（同じ場所を選んだ人がいれば抽選）。": "A request is decided at the end of the turn (by lot if someone else chose the same place).",
+  // the local test world's fog of war (frontier/map/fog.mjs)
+  "霧の世界：見えるのは、自分の村と軍勢、自分の国の村と州のまわりだけです。一度見た土地は、最後に見たときのようす（薄く表示）のまま残ります。ほかの国の軍勢や進軍は、いま見えている場所でだけ表示します。まだ見ていない土地は白紙です。": "Fog of war: you see only around your own villages and hosts, and around your nation's villages and provinces. Land you have seen stays as you last saw it (shown faded). Other nations' hosts and marches show only where you can see now. Land you have never seen is blank.",
+  "この州の砦は、まだ見ていません。": "You have not seen this province's keep yet.",
+  "最後に見たときのようすです（いまは見えていません）。": "As you last saw it (out of sight now).",
+  "見えている他国の砦で、いま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within reach now. Keeps on land you have not seen are not shown.",
+  "見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within this host's reach now. Keeps on land you have not seen are not shown.",
 };

@@ -40,8 +40,10 @@ import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
+// the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
-import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock)
+import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions, actorsAt } from './map/actions.mjs';
@@ -84,7 +86,7 @@ import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
 // the ordinary map is not changed by it
 import { mountWideMode } from './map/widemode.mjs';
 // the same recorded wide world drawn on the ordinary map and its chart 「全体図」 (map/wideland.mjs: rendering only)
-import { mountWideLand } from './map/wideland.mjs';
+import { mountWideLand, landOfCells } from './map/wideland.mjs';
 import { provinceName as placeProvinceName } from './hud/place.mjs';
 // the prototype rule "banners" (a design tried in the sample world: hud/proto.mjs, proto/hand-model.mjs)
 import * as protoHud from './hud/proto.mjs';
@@ -464,7 +466,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
     const warned = (FS.incoming ?? []).length > 0;
     parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(reportScreen.clashesFrom(shownChronicle() ?? []), L`最近の衝突`, { FS }),
     settingsMarkup(FS), ...surveyHelpWithProto(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
@@ -800,6 +802,8 @@ function renderMode() {
 let mapRef = null;
 let wideModeRef = null;
 let wideLandRef = null;
+/** The wide land as the herald records it (wideLandRef is what the map shows: the same, fogged under the fog of war). */
+let wideLandRaw = null;
 let terrainRef = null;
 /** Who holds each site (people/roster.mjs): names and faces for tags, the rail, the inspector, reports. */
 let rosterRef = null;
@@ -809,9 +813,14 @@ let surveyDeps = [], revealTold = -Infinity;
 function surveyNow() {
   // asked every frame: the anchors are read again only when something they are read from was replaced
   const deps = [FS.mode, FS.record, FS.wallet, FS.citizen, FS.land, FS.holdings, FS.chronicle, FS.marches, FS.activeHolding, FS.nowBell, viewerKnown, terrainRef?.status?.(), ...FS.provinces.values()];
+  // (the fog of war: the nation's villages and provinces see too, and the wide land can be seen — read from the overviews
+  //  and the wide land, so a new one of either is a new survey)
+  const fog = fogActive(FS);
+  if (fog) deps.push(wideLandRaw?.land?.() ?? null, FS.conquest?.control ?? null, ...FS.overviews.values());
   if (FS.survey && deps.length === surveyDeps.length && deps.every((x, i) => x === surveyDeps[i])) return FS.survey;
   surveyDeps = deps;
-  FS.survey = surveyor(surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }));
+  FS.survey = surveyor({ ...surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }), ...(fog ? fogSurveyExtras() : {}) });
+  fogUpdate();
   // land that comes out of the chart now is told once on the effects bus (a shimmer: fx/stage.mjs)
   let newest = -Infinity;
   for (const t0 of FS.survey.reveals?.values?.() ?? []) if (t0 > newest) newest = t0;
@@ -819,6 +828,38 @@ function surveyNow() {
   // The candidate sites of the wait come into the picture without words: nobody surveyed them)
   if (newest > revealTold) { revealTold = newest; fxEmit('reveal', { n: FS.survey.reveals.size, words: (FS.holdings ?? []).length > 0 }); }
   return FS.survey;
+}
+/**
+ * The fog of war of a local test world (map/fog.mjs): the survey's extra anchors (the viewer's nation) and the wide
+ * land's provinces, which exist beyond the open rings; then the fogged copies of the records every map surface shows.
+ */
+const fogger = createFogger();
+function fogSurveyExtras() {
+  const wide = wideLandRaw?.land?.() ?? null;
+  const own = new Set((FS.holdings ?? []).filter(h => Number.isInteger(h?.tile)).map(h => `${h.p},${h.q},${h.tile}`));
+  const src = nationSources({ overviews: FS.overviews, wide, faction: FS.citizen?.faction ?? null, terrainOf: terrainRef, own, control: FS.conquest?.control?.provinces ?? null });
+  return { extraAnchors: nationAnchors(src), extraOpen: (wide?.cells ?? []).map(c => c.key).sort() };
+}
+function fogUpdate() {
+  const sc = scope() || null, w = FS.wallet?.address ?? null;
+  FS.fog = fogger({ active: fogActive(FS) && (FS.holdings ?? []).length > 0, survey: FS.survey, overviews: FS.overviews, wide: wideLandRaw?.land?.() ?? null,
+    viewer: FS.citizen?.faction ?? null, terrainOf: terrainRef, terrainRev: terrainRef?.status?.() ?? '', relayout: landOfCells, memKey: sc && w ? fogMemoryKey(sc, w) : null });
+  return FS.fog;
+}
+/** The overviews the map shows (fogged under the fog of war). */
+const shownOverviews = () => (FS.fog?.on ? FS.fog.overviews : FS.overviews);
+/** The wide land the map shows (fogged under the fog of war). */
+const shownWide = land => (FS.fog?.on ? FS.fog.wide : land);
+/** The chronicle the page shows (under the fog of war: the records in sight or the viewer's own; kept per log and survey). */
+let shownLogCache = { log: null, fog: null, out: null };
+function shownChronicle() {
+  const log = FS.chronicle, fog = FS.fog;
+  if (!fog?.on || !Array.isArray(log)) return log;
+  if (shownLogCache.log !== log || shownLogCache.fog !== fog) {
+    const mine = r => { try { return !!FS.isMine?.(r); } catch { return false; } };
+    shownLogCache = { log, fog, out: log.filter(x => fog.seen(x.record ?? x, mine)) };
+  }
+  return shownLogCache.out;
 }
 /** The face and name of a report row's owner (a host id; holdings' ids give none). */
 const reportOwner = id => { try { return hostOwner(rosterRef, id); } catch { return null; } };
@@ -865,23 +906,25 @@ export function peopleSource() {
     scene.seedOwn(rosterRef, FS.holdings);
   }
   // the labels inside (construction names, tiers) are in the page's language: a switch rebuilds them
+  // (the local test world's fog of war, map/fog.mjs: only the columns and explorations the viewer sees)
+  const shownLog = shownChronicle(), shownOv = shownOverviews();
   peopleCache = { at: sec, lang: lang(), value: {
-    departures: scene.departuresAt(FS.chronicle, FS.overviews, bell),
+    departures: scene.departuresAt(shownLog, shownOv, bell),
     // the hosts the public record says are on the road until their arrival is resolved (a player's character is away with its first host: UX design 14.3)
-    away: scene.awayAt(FS.chronicle, bell),
-    explores: scene.exploresAt(FS.chronicle, FS.overviews, bell),
+    away: scene.awayAt(shownLog, bell),
+    explores: scene.exploresAt(shownLog, shownOv, bell),
     marches: ownColumns(),
     // the token layer (people/units.mjs): who explores, whose column walks its road, the stamina a march needs
-    exploringHosts: new Set(scene.exploresAt(FS.chronicle, FS.overviews, bell).map(x => x.host).filter(Boolean)),
+    exploringHosts: new Set(scene.exploresAt(shownLog, shownOv, bell).map(x => x.host).filter(Boolean)),
     marchingHosts: new Set(ownColumns().map(m => m.host)),
     restBelow: DEPART_STAMINA,
     constructions: constructionsNow(),
     moments: liveMoments(FS.moments ?? [], performance.now() / 1000),
-    nameOf: ownNamer(scene.namer(rosterRef)),
+    nameOf: fogLords(ownNamer(scene.namer(rosterRef))),
     life: FS.life ?? null,
     tierName: t => TIERS[t] ?? '',
     now: FS.chain?.now() ?? 0,
-    lordOf: (p, q, site) => { const o = rosterRef?.ownerOf(p, q, site); return o ? identityOf(o.tag) : null; },
+    lordOf: fogLords((p, q, site) => { const o = rosterRef?.ownerOf(p, q, site); return o ? identityOf(o.tag) : null; }),
     bell,
     own: FS.holdings ?? [],
     columnLabel: d => L`出陣 · ターン ${fmtNum(d.arriveBell)} に到着`,
@@ -894,6 +937,19 @@ export function peopleSource() {
   peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000));
   autoBattles();
   return peopleCache.value;
+}
+/**
+ * A roster reader `(p, q, site, faction?)` under the fog of war of a local test world (map/fog.mjs — verify-pr93): the
+ * roster is live, so a lord is named only where the site's tile is in sight now, or for the viewer's own nation. Without
+ * the fog: the reader itself.
+ */
+function fogLords(read) {
+  return (p, q, site, faction) => {
+    if (!FS.fog?.on) return read(p, q, site, faction);
+    const tile = terrainRef?.(p, q)?.sites?.[site];
+    const own = Number.isInteger(FS.citizen?.faction) && (faction === FS.citizen.faction || (FS.holdings ?? []).some(h => h.p === p && h.q === q && h.site === site));
+    return own || (Number.isInteger(tile) && FS.survey?.levelOf?.(p, q, tile) === 3) ? read(p, q, site, faction) : null;
+  };
 }
 const lastHtml = new Map();
 /** Put markup in an element only when it changed (a hover title survives the one-second tick). */
@@ -2243,6 +2299,14 @@ function s1MarksNow() {
     // (the provinces' caravan slots say which caravans an open raid holds; they are read again at the next bell)
     s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell, provinces: FS.provinces }) };
   }
+  // (the fog of war of a local test world, map/fog.mjs: another's vault, structure or caravan only where the viewer sees now)
+  if (FS.fog?.on) {
+    const fog = FS.fog, seen = x => !!x && fog.seen({ p: x.p, q: x.q, tile: x.tile });
+    if (s1Memo.fog !== fog) s1Memo.fogged = { ...s1Memo.marks, vaults: s1Memo.marks.vaults.filter(v => v.own || seen(v)), structures: s1Memo.marks.structures.filter(x => x.own || seen(x)),
+      caravans: s1Memo.marks.caravans.filter(c => c.own || (seen(c.from) && seen(c.to))) };
+    s1Memo.fog = fog;
+    return s1Memo.fogged;
+  }
   return s1Memo.marks;
 }
 
@@ -3126,7 +3190,10 @@ function showTip(hit, at) {
   if (globalThis.matchMedia?.('(hover: none)')?.matches) { tip.hidden = true; return; }
   const acts = hit && Number.isInteger(hit.idx) ? mapRef?.art?.activities?.get(`${hit.p},${hit.q},${hit.idx}`) : null;
   const t = acts || hit ? mapRef?.art?.tiles?.find(u => u.p === hit?.p && u.pq === hit?.q && u.idx === hit?.idx) : null;
-  const owner = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
+  const owner0 = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
+  // (the fog of war of a local test world, map/fog.mjs — verify-pr93: the roster and the lords' lives are live, so out of
+  //  sight now a village of another nation is not named, nor what its lord is doing)
+  const owner = owner0 && FS.fog?.on && FS.survey?.levelOf?.(hit.p, hit.q, hit.idx) !== 3 && t.owner !== FS.citizen?.faction ? null : owner0;
   const land = protoTipLines(hit);
   if (!acts?.length && !owner && !land.length) { tip.hidden = true; return; }
   const lines = [];
@@ -3294,7 +3361,7 @@ function renderMinimap() {
     if (cv.width !== px * dpr) { cv.width = px * dpr; cv.height = px * dpr; }
     // Herald adoption replaces overview envelopes. Camera movement and the
     // home pip keep the same envelopes and can reuse their flattened map.
-    const entries = [...FS.overviews];
+    const entries = [...shownOverviews()];
     if (!miniOverview || entries.length !== miniOverview.entries.length ||
         entries.some(([key, value], i) => key !== miniOverview.entries[i][0] || value !== miniOverview.entries[i][1])) {
       const recs = new Map();
@@ -3329,7 +3396,7 @@ function setLensMenu(open) {
 let searchHits = [];
 function runSearch(q) {
   const recs = new Map();
-  for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
+  for (const ov of shownOverviews().values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
   searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [], survey: FS.survey ?? null, pinName: x => pins.pinName(x, FS) });
   const el = $('map-search-results');
   if (el) setHtml(el, search.renderResults(searchHits, q));
@@ -4627,6 +4694,8 @@ export async function boot() {
   // takes none of this path.
   if (localPlayRequested(cfg)) cfg = (await openLocalPlayGate({ cfg, makeHerald: base => createHerald({ base }) }).ready).cfg;
   FS.mode = cfg.mode;
+  // (the local test world's fog of war, map/fog.mjs: never-seen land is plain paper — set before anything is painted)
+  if (LOCAL_FOG && cfg.localPlay && FS.mode === 'play') setBlankChart(FOG_RULES.blankChart);
   // (the loop-play report B5: a launcher world that its launcher has ended is said to have ended, and its clock stands
   //  at the herald's last sample — worldEnded; the launcher is asked only after a herald read failed by the network)
   // (B21: the same one answer is also counted by launcherWatch — a launcher that gives no answer at all, twice in a row,
@@ -4687,7 +4756,7 @@ export async function boot() {
         // its ribbon from the same inputs as a tap, without scheduling a draw
         // from inside this draw. The path cache keeps the planner work bounded.
         hoverPlan(hoverHit, { redraw: false });
-        return { overviews: FS.overviews, ringsOpen: ringsOpenNow(), seeded: worldNow().seeded ?? null, own, selected: FS.selected, terrainOf,
+        return { overviews: shownOverviews(), ringsOpen: ringsOpenNow(), seeded: worldNow().seeded ?? null, own, selected: FS.selected, terrainOf,
           // the recorded wide land (rings 129+), read in the background: map/wideland.mjs (null while the herald serves none)
           wideLand: wideLandRef?.land() ?? null,
           // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
@@ -4840,9 +4909,14 @@ export async function boot() {
     // the recorded wide world (read-only, experimental): refused on a sample world, explicit when the herald has
     // none; it reads the season record's pins (season, Season address, program) so a manifest of another season or
     // namespace is never shown
-    try { wideModeRef = mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
+    // (the local test world's fog of war, map/fog.mjs: the recorded world's sheet lists every captured province, its keep
+    //  nation and villages — a full-map view — so a fogged world does not offer it: a player sees only what they saw)
+    const fogWorld = LOCAL_FOG && !!cfg.localPlay && FS.mode === 'play';
+    if (!fogWorld) try { wideModeRef = mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
     // the same record on this map and its chart (rings 129+ in their terrain and keep nations' colours): read in the background
     try { wideLandRef = mountWideLand({ herald, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier wide land:', e); }
+    // (the map reads the wide land through this: under the fog of war of a local test world, the fogged copy — map/fog.mjs)
+    if (wideLandRef) { wideLandRaw = wideLandRef; const raw = wideLandRaw; wideLandRef = { ...raw, land: () => shownWide(raw.land()) }; }
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)

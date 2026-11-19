@@ -47,6 +47,10 @@ export function searchMap(query, { recs = new Map(), roster = null, sitesOf = ()
     const id = identityOf(e.tag);
     const names = [displayName(id, { full: true, language: 'en' }), displayName(id, { full: true, language: 'ja' })].map(norm);
     if (!names.some(n => n.includes(q)) || !seenSite(e.p, e.q, e.site)) continue;
+    // (the fog of war of a local test world, map/fog.mjs — verify-pr93: `recs` are the fogged copies; the roster is live,
+    //  so a lord is found only where the site's tile is in sight now or the copy still shows the viewer's nation there)
+    const fr = recs.get(`${e.p},${e.q}`);
+    if (fr?.fog && !(fr.fog === 'sight' && Number.isInteger(sitesOf(e.p, e.q)?.[e.site]) && survey?.levelOf?.(e.p, e.q, sitesOf(e.p, e.q)[e.site]) === 3)) continue;
     const tile = sitesOf(e.p, e.q)?.[e.site];
     out.push({ kind: 'lord', text: L`${displayName(id, { full: true })}（${placeName(e.p, e.q, e.site)[lang() === 'en' ? 'en' : 'ja']}）`, p: e.p, q: e.q, tile: Number.isInteger(tile) ? tile : undefined });
   }
