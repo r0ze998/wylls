@@ -64,6 +64,18 @@ export function reachedMilestones(FS) {
   return out;
 }
 
+/**
+ * The milestones worth a banner, of `fresh` (newMilestones): a ring opening is the world's news, not the viewer's, so
+ * the rings already open when this viewer's record is first made (`firstRecord`: e.g. a player who joins a grown map,
+ * the TEST-ONLY wide land or a devnet season past ring 100) are recorded without a banner, and of several rings that
+ * open together only the newest is told. Everything else is kept, in order.
+ */
+export function bannerMilestones(fresh, { firstRecord = false } = {}) {
+  const rings = fresh.filter(m => m.kind === 'ring');
+  const newest = rings.reduce((a, m) => (a === null || Number(m.ring) > Number(a.ring) ? m : a), null);
+  return fresh.filter(m => m.kind !== 'ring' || (!firstRecord && m === newest));
+}
+
 /** Load the seen record `{v:1, seen: {id: {bell, kind, ...}}}` (a damaged one reads as none). */
 export function loadSeen(storage, key) {
   try { const v = JSON.parse(storage.get(key) ?? 'null'); if (v && v.v === 1 && v.seen && typeof v.seen === 'object') return v; } catch { /* damaged */ }
