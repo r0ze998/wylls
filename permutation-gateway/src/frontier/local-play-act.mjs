@@ -26,8 +26,11 @@ import { ringPosition } from '../../../permutation-server/web/frontier/map/wide.
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { budgetPrefix } from '../../../permutation-server/web/sdk/frontier/budgets.mjs';
 import { compileMessage } from '../../../permutation-server/web/sdk/solana-tx.mjs';
+import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 
-export const LOCAL_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster']);
+// (TEST-ONLY wide play, owner t379u: the seventh, the wide claim 0xD9, built by the page's own flocalplay-wide.mjs)
+// (and FileTicket, one site: a first village on the rim of a local wide world, where PlaceHome cannot reach)
+export const LOCAL_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM]);
 export const LOCAL_ACT_SUBMIT_SCHEMA = 'frontier-local-play-act-submit-v1';
 const ERRORS = Object.freeze({
   LocalActInvalid: [400, 'invalid local-play command request'],
@@ -124,13 +127,23 @@ function village(h) {
  */
 export function localActIntent(value, { wallet }) {
   check(exact(value, ['name', 'subject', 'fields']) && typeof value.name === 'string');
-  check(LOCAL_ACT_COMMANDS.includes(value.name) && Object.hasOwn(SIGNED_BY, value.name), 'LocalActNotAllowed');
+  check(LOCAL_ACT_COMMANDS.includes(value.name) && (value.name === WIDE_CLAIM || Object.hasOwn(SIGNED_BY, value.name)), 'LocalActNotAllowed');
   const { name, subject: s, fields: f } = value;
   check(s !== null && typeof s === 'object' && !Array.isArray(s) && f !== null && typeof f === 'object' && !Array.isArray(f));
+  // (the wide claim: its anchor village is a legacy one, its target a wide province within range; flocalplay-wide.mjs)
+  if (name === WIDE_CLAIM) {
+    try { return wideClaimIntent(s, f, 'LocalActInvalid'); } catch (e) { fail(e?.code === 'LocalActWideHolding' ? 'LocalActWideHolding' : 'LocalActInvalid'); }
+  }
   if (name === 'Join') {
     check(exact(s, ['faction']) && int(s.faction, 0, 5) && exact(f, ['faction', 'session', 'session_expiry']) && f.faction === s.faction);
     check(address(f.session) && f.session === wallet && typeof f.session_expiry === 'string' && /^[1-9][0-9]{0,18}$/.test(f.session_expiry));
     return Object.freeze({ name, subject: Object.freeze({ faction: s.faction }), fields: Object.freeze({ faction: f.faction, session: f.session, session_expiry: f.session_expiry }) });
+  }
+  if (name === 'FileTicket') {
+    check(exact(s, ['sites']) && Array.isArray(s.sites) && s.sites.length === 1 && exact(f, ['sites']) && Array.isArray(f.sites) && f.sites.length === 1);
+    const h = village(s.sites[0]), g = village(f.sites[0]);
+    check(h.p === g.p && h.q === g.q && h.site === g.site);
+    return Object.freeze({ name, subject: Object.freeze({ sites: Object.freeze([h]) }), fields: Object.freeze({ sites: Object.freeze([h]) }) });
   }
   if (name === 'PlaceHome') {
     check(exact(s, ['holding', 'faction']) && int(s.faction, 0, 5));
@@ -159,6 +172,9 @@ export const LOCAL_ACT_LOADED_LIMIT = 67108864;
 export function localActMessage(intent, pins, blockhash) {
   const A = seasonAddresses(pins.program, String(pins.seasonId));
   check(A.season === pins.season && address(pins.wallet) && address(blockhash));
+  if (intent.name === WIDE_CLAIM) {
+    try { return { message: wideClaimMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
+  }
   const profile = profileForHash(pins.rulesetHash);
   const v = { addresses: A, wallet: pins.wallet, actor: pins.wallet, profile, ...intent.subject };
   const fields = intent.name === 'Join' ? { faction: intent.fields.faction, session: Uint8Array.from(decode(intent.fields.session)), session_expiry: BigInt(intent.fields.session_expiry) } : { ...intent.fields };
@@ -240,6 +256,8 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
   if (intent.name === 'Join') { check(citizen === null, 'LocalActAlreadyJoined'); return; }
   check(citizen !== null && citizen.owner === pins.program, 'LocalActCitizen');
   try { citizenIdentity(citizen.bytes, { seasonId: pins.seasonId, wallet: decode(pins.wallet), address: decode(citizenAt) }); } catch { fail('LocalActCitizen'); }
+  // (a village request names no village of its own yet: the Citizen above is the whole check; the program checks the sites)
+  if (intent.name === 'FileTicket') return;
   if (intent.name === 'PlaceHome') {
     // (the command makes or claims the village: it may be absent; what must not be there is another family's account)
     if (holding !== null) { check(holding.owner === pins.program, 'LocalActHolding'); check(magicOf(holding.bytes) !== WIDE_HOLDING_MAGIC, 'LocalActWideHolding'); }

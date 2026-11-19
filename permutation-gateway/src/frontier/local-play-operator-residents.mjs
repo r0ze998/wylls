@@ -47,6 +47,20 @@ import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalp
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf } from './local-play-operator-policy.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
+import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
+import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
+import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
+
+/**
+ * (TEST-ONLY wide play) Whether `holding` (the page's decoder's fields) holds the settler cost of the citizen's next
+ * holding (`holdingsN` after it) at chain time `secs`. False when anything is unreadable.
+ */
+export function coversSettlerCost(holding, secs, holdingsN) {
+  try {
+    const have = storesAt(holding, secs, RESOURCE_ORDER).map(x => x.value), need = settlerCost(holdingsN);
+    return need.every((n, i) => (have[i] ?? 0) >= n);
+  } catch { return false; }
+}
 import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX, mayActThisTurn } from './local-play-operator-war.mjs';
 import { createWarEyes, openMarch, sendWarMarch } from './local-play-operator-march.mjs';
 
@@ -138,7 +152,7 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war', 'wide'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   if (o.war !== undefined && o.war !== OPERATOR_WAR_MODE) throw new Error(`--war must be exactly ${OPERATOR_WAR_MODE}`);
@@ -157,7 +171,14 @@ export function parseArgs(argv) {
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
   if (o['keys-dir'] !== undefined && !path.isAbsolute(o['keys-dir'])) throw new Error('--keys-dir (absolute path)');
   if (o['keys-dir'] !== undefined) privateOrThrow(o['keys-dir'], true);
-  return { count, ports, herald: o.herald, homes, war, ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
+  // (TEST-ONLY wide play: the opened wide provinces `[{p, q}]`, decimal strings, from the runner's first line)
+  let wide = null;
+  if (o.wide !== undefined) {
+    wide = JSON.parse(o.wide);
+    if (!Array.isArray(wide) || !wide.length || wide.length > 4096 || !wide.every(t => t && /^-?[0-9]{1,19}$/.test(String(t.p)) && /^-?[0-9]{1,19}$/.test(String(t.q)))) throw new Error('--wide');
+    wide = Object.freeze(wide.map(t => Object.freeze({ p: String(t.p), q: String(t.q) })));
+  }
+  return { count, ports, herald: o.herald, homes, war, ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
 }
 
 /** PR #62's relay answer: this resident already acted in this bell (re-exported from resident-turns.mjs). */
@@ -190,7 +211,7 @@ export function spentBell(nowBell, deps) {
  * send and follow. → the line to print. `bell`: the bell of this round (`bellOf`), or null (then nothing is sent).
  * `deps` (tests): `read(wallet)`, `submit(order, ctx)`, `follow(signature)`, `now()` (ms), `nowSecs()`.
  */
-export async function residentTurn(r, { homes, deps, bell = null }) {
+export async function residentTurn(r, { homes, deps, bell = null, wideTargets = null }) {
   const t = deps.now();
   // (a war resident's bell is the one its eyes read this round — the same chain clock —; its budget is asked after the
   //  decision, so a held turn (the settle wait) and the war rule's own "already acted" are said as what they are)
@@ -208,7 +229,21 @@ export async function residentTurn(r, { homes, deps, bell = null }) {
   // (a war resident with a village: its war snapshot — the page's own reads, keeps and target finder)
   let snap = null;
   if (war && view?.holding && deps.warView) { try { snap = await deps.warView(r); } catch (e) { snap = null; } }
-  const d = decideNext(r.memory, view, { homes, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
+  // (TEST-ONLY wide play: the opened wide provinces within reach of the village, and whether its stores cover the claim)
+  let wide = null;
+  if (Array.isArray(wideTargets)) {
+    const v = view?.holding;
+    const secs = v ? await deps.nowSecs().catch(() => null) : null;
+    wide = { targets: v ? claimTargets(v, wideTargets) : [], canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 2 + (view.wide ?? 0)) };
+    // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
+    if (wide.canClaim && wide.targets.length && deps.route) {
+      try {
+        const near = wide.targets.slice(0, 4), free = freeWideSites(await deps.route(near));
+        wide.targets = near.map(t => (free.has(`${t.p},${t.q}`) ? { ...t, free: free.get(`${t.p},${t.q}`) } : t));
+      } catch { /* no answer: every site, as before (a refused site is not asked again) */ }
+    }
+  }
+  const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
     war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
     ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready } : {}) };
@@ -321,6 +356,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     nowSecs: async () => chainSecondsOf(await getJson(`${o.herald}/h/status`)),
     season: () => getJson(`${o.herald}/h/season`),
     read: wallet => getJson(`${o.herald}/h/me/${wallet}`),
+    route: places => getJson(`${o.herald}/h/world/wide/route?at=${encodeURIComponent(places.map(t => `${t.p},${t.q}`).join(';'))}`),
     submit: (order, r) => submitLocalAct(order, { allowed: () => ({ ok: true, relay: r.origin }), identity: () => r.identity, rulesetHash: () => r.rulesetHash, signer: () => r.signer, post: postFor(r) }),
     follow: (signature, r) => followLocalAct(signature, { origin: r.origin, still: () => !stop.signal.aborted, post: postFor(r), tries: 20, every: 1000 }),
   };
@@ -356,7 +392,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     }
     const one = async r => {
       if (stop.signal.aborted || r.budget.state().stopped) return;   // (stopped for good: said once, when it stopped)
-      const line = await residentTurn(r, { homes: o.homes, deps, bell });
+      const line = await residentTurn(r, { homes: o.homes, deps, bell, wideTargets: o.wide ?? null });
       if (quiet.fresh(line)) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, bell, ...line }));
     };
     // (a war world: every resident takes its turn at once — each has its own relay and its own wallet, and a refused

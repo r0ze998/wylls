@@ -38,6 +38,7 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
+import { freeWideSites } from './flocalplay-wide.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
@@ -67,7 +68,7 @@ import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProb
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
-import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
+import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, homePlaceOf, homeRingsOf, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
 import * as protoIo from './proto/orders.mjs';
 import * as pm from './proto/hand-model.mjs';
@@ -2222,7 +2223,7 @@ export async function refreshHomes({ force = false } = {}) {
     if (force) FS.overviewsBell = undefined;
     await refreshOverviews(nowBell());
     // (the rings a first village may be placed in: the open rings, no further than the heartland: home.mjs homeRingsOpen)
-    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
+    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: homePlaceOf(FS), ringsOpen: homeRingsOf(FS, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     const cur = standing();
@@ -2404,7 +2405,7 @@ export async function confirmHome() {
       }
       const env = await loadEnvelope(site.p, site.q);
       if (!mine()) return;
-      if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
+      if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOf(FS, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0), place: homePlaceOf(FS) }).some(s => sameHome(s, site))) {
         run.choice.selected = null; saveHomePatch({ selected: null });
         return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
       }
@@ -2445,6 +2446,18 @@ export async function confirmHome() {
       return;
     }
     pending('placing');
+    // (TEST-ONLY wide play, local wide-land worlds: a first village past the heartland — a settled rim province — is a
+    //  one-site village REQUEST (FileTicket), because the program's PlaceHome names no province past the Season's base
+    //  r_max (16) even on a grown map; the world's runner settles it on the bell's beacon at the turn's end)
+    if (localPlay?.wideLand && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {
+      const one = [{ p: site.p, q: site.q, site: site.site }];
+      const filed = await act('FileTicket', { v: { sites: one }, fields: { sites: one }, label: () => L`辺境の村を申し込んでいます…`, say: () => L`辺境の村を申し込みました。ターンの終わりに決まります。` });
+      if (!mine()) return;
+      if (!filed?.ok) { await refresh(); if (mine()) error(filed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`村の申し込みを送れませんでした。候補を更新してください。`); return; }
+      pending('confirming');
+      if (!await waitForOwn(() => (FS.holdings ?? []).length > 0)) error('PendingHome', L`村の申し込みは送りました。ターンの終わりの決着を待っています。`);
+      return;
+    }
     const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },
       label: () => L`あなたの村を確定しています…`,
       // (local play: the note also carries the scope the PlaceHome was SENT under — wallet, world and relay — given by
@@ -3529,6 +3542,24 @@ export const ACTIONS = {
   },
   // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
   'auto-ticket': () => autoTicket({ force: true }),
+  // (TEST-ONLY wide play, local wide-land worlds only: the wide claim from the first home — screens/holding.mjs wideClaimCard)
+  'wide-claim': async d => {
+    const h = activeHolding(FS);
+    if (!h || !localPlay?.wideLand) return;
+    const target = { p: String(d.p), q: String(d.q) }, slot = num(d.slot);
+    // (a claim names a FREE site of the province as the herald last captured it — any other is "taken" at its settle,
+    //  the cost spent for nothing; flocalplay-wide.mjs freeWideSites. None known: nothing is sent)
+    let site = num(d.site);
+    try {
+      const r = await herald.wideRoute({ places: [target] });
+      const free = r?.ok !== false ? freeWideSites(r?.json ?? r)?.get(`${target.p},${target.q}`) : null;
+      if (Array.isArray(free)) { const next = free.find(x => x >= site) ?? free[0]; if (next === undefined) { failed({ code: 'NoFreeHome', text: L`この州には空いている村の場所がありません。` }); return; } site = next; }
+    } catch { /* the herald did not answer: the card's own site, as before */ }
+    const r = await act('WideClaim', { v: { holding: { p: h.p, q: h.q, site: h.site }, target }, fields: { site, slot }, say: () => L`広い土地（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
+    // (a refused or failed site is not offered again: the next press names the next site)
+    if (r && r.ok === false && r.sent !== true) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
+    return r;
+  },
   harvest: () => { const h = activeHolding(FS); return act('Harvest', { v: { holding: h }, order: orderOf('harvest', 'Harvest', { grown: h ? grownSince(h, now()) : [], say: () => L`収穫を蔵に納めました` }) }); },
   // Build(item): a building (0–5), the walls (6) or the promotion to the next tier (7: the program's ITEM_TIER_UP)
   build: d => homeAction(() => {

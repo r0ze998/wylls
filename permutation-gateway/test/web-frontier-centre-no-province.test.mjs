@@ -54,16 +54,18 @@ test('the words: the ring and the note say the centre has no province, in both l
   assert.equal(clientText('DestinationNotOpen'), 'そこには州がないので、進軍の行き先にできません');
 });
 
-test('no road through the centre: its 7 × 61 hexes are blocked for the planner, none in a centre-free season', () => {
+test('no road through the centre: its 7 × 61 hexes are blocked for the planner; in a centre-free season only an unopened (0,0)', () => {
   const closed = W.closedCentreHexes(fsOf(withCentre));
   assert.equal(closed.length, 7 * 61);
   assert.equal(new Set(closed.map(h => `${h.q},${h.r}`)).size, 7 * 61);
-  assert.deepEqual(W.closedCentreHexes(fsOf(centreFree)), []);
+  // (wide-local-playable, 2026-11-19: a centre-free season's (0,0) with no Province — the local worlds open ring 1 only,
+  //  the page's terrain kernel still drawing the Concord's land there — is closed as well; ring 1 is land)
+  assert.equal(W.closedCentreHexes(fsOf(centreFree)).length, 61);
   assert.deepEqual(W.closedCentreHexes({}), [], 'no season record: nothing is known, nothing is blocked');
   assert.equal(ringProvinces(0).length + ringProvinces(1).length, 7);
   // the march planner's `blocked` (fmarch planRoute, keep reach) carries them
   assert.equal(palisadeHexesOf(fsOf(withCentre)).length, 7 * 61);
-  assert.deepEqual(palisadeHexesOf(fsOf(centreFree)), []);
+  assert.equal(palisadeHexesOf(fsOf(centreFree)).length, 61);
 });
 
 test('the composer: a destination that is not open land is refused before anything is sealed', () => {

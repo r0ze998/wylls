@@ -163,7 +163,8 @@ test('after the POST began, "not sent" is said ONLY for the relay\'s refusals be
 test('WHERE AN ORDER GOES, for every command the page can send: in local play only the six in their plain form go to the local path, everything else is refused; outside local play nothing ever does', async () => {
   const { localOrderRoute } = await import('../../permutation-server/web/frontier/flocalplay-act.mjs');
   const { SIGNED_BY } = await import('../../permutation-server/web/frontier/fplay.mjs');
-  const names = Object.keys(SIGNED_BY), ID = IDENTITY, v = { holding: HOME };
+  // (wide-local-playable: the wide claim is not an SDK shape — flocalplay-wide.mjs builds it — so it is not among SIGNED_BY)
+  const names = [...Object.keys(SIGNED_BY), 'WideClaim'], ID = IDENTITY, v = { holding: HOME };
   assert.ok(names.length > 20 && LOCAL_ACT_NAMES.every(n => names.includes(n)));
   for (const name of names) {
     const want = LOCAL_ACT_NAMES.includes(name) ? 'local-act' : 'refuse';
@@ -493,7 +494,8 @@ test('the controller: the six are held from the moment they are sent, an unconfi
 test('AS THE CONTROLLER CALLS THEM: each entry point\'s own arguments — the page\'s holding object with all its fields, Build\'s item beside the village, the ABI\'s widths — go through to one send of exactly that order', async () => {
   const { TAGS } = await import('../../permutation-server/web/sdk/frontier/abi-v2-tags.mjs');
   // the ABI's own argument widths, which the intent's bounds follow (a byte: 0-255; four bytes: up to 2^32 - 1)
-  const args = Object.fromEntries(TAGS.instructions.filter(i => LOCAL_ACT_NAMES.includes(i.name)).map(i => [i.name, (i.data ?? i.args ?? i.fields).map(a => `${a.name}:${a.len}`)]));
+  // (wide-local-playable: FileTicket's data is a variable list — no fixed widths — and the wide claim is no SDK shape)
+  const args = Object.fromEntries(TAGS.instructions.filter(i => LOCAL_ACT_NAMES.includes(i.name) && i.name !== 'FileTicket').map(i => [i.name, (i.data ?? i.args ?? i.fields).map(a => `${a.name}:${a.len}`)]));
   assert.deepEqual(args, { Join: ['faction:1', 'session:32', 'session_expiry:8'], PlaceHome: ['p:2', 'q:2', 'site:1'], Harvest: [], Build: ['item:1'], Train: ['unit:1', 'n:4'], Muster: ['unit:1', 'troops:4', 'tile:1'] });
   // the page's ACTIVE HOLDING as it is decoded (fstate.mjs activeHolding): far more than three coordinates, with bytes and bigints
   const holding = { p: 3, q: -2, site: 4, gen: 1, tile: 9, state: 2, seasonId: 11n, ownerCitizen: decode(CITIZEN_AT), faction: 2, hostSeq: 3, transit: [{ state: 0 }, { state: 0 }, { state: 0 }, { state: 0 }], flags: 0 };

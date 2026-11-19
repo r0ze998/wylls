@@ -334,6 +334,8 @@ const CLIENT_TEXT = {
   ScopeChanged: () => L`準備の間に、世界・ウォレット・住民のどれかが変わりました。この操作は送っていません。`,
   ContextChanged: () => L`鍵を用意している間に、世界・ウォレット・住民のどれかが変わりました。鍵は保存しておらず、何も送っていません。`,
   ExploreNone: () => L`この村には、受け取る探索の結果がありません。`,
+  // (TEST-ONLY local wide play: the wide claim found no free site in the province the herald last captured; nothing sent)
+  NoFreeHome: () => L`この州には空いている村の場所がありません。`,
   ExploreChanged: () => L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。探索の結果は受け取っていません。もう一度確かめてから受け取ってください。`,
   S1PrepChanged: () => L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。`,
   // The code of a failure that named none (`e?.code ?? 'Error'`: a province read, a march reread, a thrown order).
