@@ -23,6 +23,11 @@ fn main() {
             itest::natural_persist::take_world_args(std::env::args().skip(1).collect())?;
         // (the TEST-ONLY wide land: a memory-only natural world of its own, on the natural clock after its setup)
         let (rest, wide) = itest::wide_land::take_wide_args(rest)?;
+        // (its TEST-ONLY clock scale from ready-for-join on: only with the wide land)
+        let (rest, wide_scale) = itest::wide_land::take_wide_scale(rest)?;
+        if wide_scale.is_some() && !wide {
+            return Err("--wide-scale is accepted only together with --wide-land".into());
+        }
         let mut world_opts = world_opts;
         world_opts.wide = wide;
         let (rest, demo) = itest::capture_demo::take_demo_args(rest)?;
@@ -88,6 +93,12 @@ fn main() {
             if land {
                 itest::land_lane::land_metadata(&mut world.metadata);
             }
+            if let Some(scale) = wide_scale {
+                world.metadata["wide_land"]["scale"] = serde_json::json!(scale);
+                world.metadata["clock"] = serde_json::json!(format!("SYNTHETIC before genesis and through the wide land's growth; from ready-for-join on a TEST clock at x{scale} (TEST-ONLY --wide-scale)"));
+                // (applied with the first natural block: the chain is still paused here)
+                localnet::server::lock(&world.state).set_scale(scale as f64);
+            }
             println!("{}", world.metadata);
             let (stop_tx, mut stop_rx) = tokio::sync::watch::channel(false);
             let keeper_rx = stop_rx.clone();
@@ -100,6 +111,15 @@ fn main() {
                 tokio::spawn(async move {
                     if let Err(e) = itest::land_lane::run(st, a, rx, |v| println!("{v}")).await {
                         println!("{}", serde_json::json!({"schema": itest::land_lane::LAND_SCHEMA, "land_step": "stopped", "test_only": true, "why": e}));
+                    }
+                });
+            }
+            // (TEST-ONLY wide play: the wide claims' class-D duty, beside the keeper)
+            if wide {
+                let (st, a, rx) = (world.state.clone(), world.a.clone(), stop_rx.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = itest::wide_play::run_claims(st, a, rx, |v| println!("{v}")).await {
+                        println!("{}", serde_json::json!({"schema": itest::wide_play::WIDE_PLAY_SCHEMA, "wide_play_step": "stopped", "test_only": true, "why": e}));
                     }
                 });
             }
@@ -160,7 +180,7 @@ fn main() {
                             });
                         }
                         // (the TEST-ONLY demo's pace: short ticks only while work lands; a natural world ticks as always)
-                        let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };
+                        let pace = if demo.is_some() || wide_scale.is_some_and(|s| s > 1) { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };
                         let more = if second.is_some() || operators.is_some() { Some(more_rx) } else { None };
                         itest::keeper_loop::run_paced_with(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, pace, keeper_rx, |s| println!("{}", s.json()), more).await;
                     }

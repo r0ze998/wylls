@@ -27,6 +27,13 @@
 // keeps playing until the world ends — on a ×10 two-hour TEST world (≈120 bells) at most ≈120 actions per resident, on
 // 1× (12 bells) at most 12.
 // Never: a march, a conquest step, a caravan, a reveal, a vote, an invite, a privileged route, an operator read.
+//
+// (TEST-ONLY wide play, owner t379u 「広い版がんばれ」, 2026-11-19) In a wide-land world (`--wide`: the runner's opened
+// wide provinces) the same rule spreads outward: the PlaceHome candidates are taken rim first (the runner lists the
+// settled rim provinces beside the heartland ones); a village within reach of the wide land saves (Harvest only) until
+// its stores cover the next settler cost, then files a WIDE CLAIM (flocalplay-wide.mjs, 0xD9) on the nearest opened
+// wide province within `outpost_range`, site by site; at most OPERATOR_WIDE_CLAIMS claims, then the usual rotation.
+// Still one action per bell; the world's runner settles the claims (itest wide_play).
 // EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
 import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, warStep, warHomeOrder } from './local-play-operator-war.mjs';
@@ -119,10 +126,10 @@ export function homesOf(lines) {
 }
 
 const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
-/** Every heartland site of `faction`, nearest ring first, then by place: `[{p, q, site}]` (sites 0-11; the program decides which exist). */
-export function homeCandidates(homes, faction) {
+/** Every heartland site of `faction`, nearest ring first (`outward`: farthest first, the wide world's rim), then by place: `[{p, q, site}]` (sites 0-11; the program decides which exist). */
+export function homeCandidates(homes, faction, { outward = false } = {}) {
   return (homes ?? []).filter(h => h.nation === faction)
-    .sort((a, b) => ring(a.p, a.q) - ring(b.p, b.q) || a.p - b.p || a.q - b.q)
+    .sort((a, b) => (outward ? -1 : 1) * (ring(a.p, a.q) - ring(b.p, b.q)) || a.p - b.p || a.q - b.q)
     .flatMap(h => Array.from({ length: 12 }, (_, site) => Object.freeze({ p: h.p, q: h.q, site })));
 }
 
@@ -138,19 +145,27 @@ export function residentView(me, decode) {
   try { citizen = decode('Citizen', Buffer.from(String(me.citizen?.bytes_b64 ?? ''), 'base64')); } catch { return null; }
   const faction = Number(citizen?.faction);
   if (!Number.isInteger(faction)) return null;
-  let holding = null;
+  let holding = null, wide = 0;
   for (const row of Array.isArray(me.holdings) ? me.holdings : []) {
     try {
       const h = decode('Holding', Buffer.from(String(row?.bytes_b64 ?? ''), 'base64'));
       const p = Number(h.p), q = Number(h.q), site = Number(h.site);
       if (![p, q, site].every(Number.isSafeInteger)) continue;
+      // (a wide village, ring 129+: counted, never the village the rotation works — the six are legacy commands)
+      if (ring(p, q) > 128) { wide += 1; continue; }
+      if (holding) continue;
       const tile = Number(h.tile);
-      holding = Object.freeze({ p, q, site, ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) });
-      break;
+      // (the decoded record rides along, not enumerable: the wide rule reads its stores; the view itself is as it was)
+      holding = Object.freeze(Object.defineProperty({ p, q, site, ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) }, 'decoded', { value: h, enumerable: false }));
     } catch { /* another kind of record: not this rule's */ }
   }
-  return Object.freeze({ joined: true, faction, holding });
+  return Object.freeze({ joined: true, faction, holding, wide });
 }
+
+/** At most this many wide claims per resident (slots 2 and 3). */
+export const OPERATOR_WIDE_CLAIMS = 2;
+/** Decisions to wait after a claim landed, for the world's runner to settle its ticket (one ticket at a time). */
+export const OPERATOR_CLAIM_SETTLE_WAIT = 4;
 
 /** A resident's memory between decisions: what it tried and what was refused. Plain data; no key, no address of anyone else. */
 export function createResidentMemory(index, faction, { war = false } = {}) {
@@ -182,7 +197,7 @@ const key = a => (a.name === 'Build' ? `Build:${a.item ?? a.fields?.item}` : a.n
  * `submitLocalAct`), or `{wait: true, why}`. `view` from `residentView`; `homes` from `homesOf`; `nowSecs` the clock
  * the Join's expiry is counted from. Pure: the memory is changed only by `noteOutcome`.
  */
-export function decideNext(memory, view, { homes, nowSecs, war = null }) {
+export function decideNext(memory, view, { homes, nowSecs, war = null, wide = null }) {
   if (view === null || view === undefined) return { wait: true, why: 'the herald did not give a readable answer' };
   if (!view.joined) {
     if (!Number.isSafeInteger(nowSecs) || nowSecs <= 0) return { wait: true, why: 'no clock for the Join expiry' };
@@ -191,8 +206,13 @@ export function decideNext(memory, view, { homes, nowSecs, war = null }) {
   }
   if (!view.holding) {
     const tried = new Set(memory.triedHomes);
-    const next = (memory.war ? warHomeCandidates(homes, view.faction, memory.index) : homeCandidates(homes, view.faction)).find(h => !tried.has(`${h.p},${h.q},${h.site}`));
+    // (wide play: a filed rim request is settled by the world's runner at its turn's end: wait for it)
+    if ((memory.ticketUntil ?? 0) > memory.decisions) return { wait: true, why: 'a rim village request is waiting for its turn to settle' };
+    const next = (memory.war ? warHomeCandidates(homes, view.faction, memory.index) : homeCandidates(homes, view.faction, { outward: !!wide })).find(h => !tried.has(`${h.p},${h.q},${h.site}`));
     if (!next) return { wait: true, why: 'no untried heartland site of this nation' };
+    // (wide play: past the heartland — a settled rim province — a first village is a one-site request, FileTicket: the
+    //  program's PlaceHome names no province past the Season's base r_max)
+    if (wide && ring(next.p, next.q) > 6) return { name: 'FileTicket', v: { sites: [next] }, fields: { sites: [next] }, why: 'a citizen with no village: request a rim site of its nation, beside the wide land' };
     return { name: 'PlaceHome', v: { holding: next, faction: view.faction }, fields: { p: next.p, q: next.q, site: next.site }, why: 'a citizen with no village: the next heartland site of its nation' };
   }
   const h = { p: view.holding.p, q: view.holding.q, site: view.holding.site };
@@ -206,6 +226,21 @@ export function decideNext(memory, view, { homes, nowSecs, war = null }) {
     if (s?.name === 'Depart') return { name: 'Depart', kind: s.kind, row: s.row, war: true, bell, why: `${s.kind}: the keep at ${s.row.p},${s.row.q} (garrison ${s.row.troops ?? '?'}, host ${s.row.origin?.troops ?? '?'})` };
     if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
     if (s?.name === 'Train') return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
+  }
+  // (TEST-ONLY wide play: save, then claim the nearest wide land within reach — header)
+  if (wide && Array.isArray(wide.targets) && wide.targets.length && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS) {
+    const tried = new Set(memory.triedClaims ?? []);
+    // (a target's FREE sites when the herald's capture names them — flocalplay-wide.mjs freeWideSites; else every site)
+    const sitesOf = t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site));
+    const next = wide.targets.flatMap(t => sitesOf(t).map(site => ({ t: { p: t.p, q: t.q }, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
+    if (next) {
+      const waiting = (memory.claimWaitUntil ?? 0) > memory.decisions || (memory.cooldown.WideClaim ?? 0) > memory.decisions;
+      if (wide.canClaim && !waiting) {
+        const slot = 2 + Math.min(1, Math.max(Number.isInteger(view.wide) ? view.wide : 0, memory.claims ?? 0));
+        return { name: 'WideClaim', v: { holding: h, target: next.t }, fields: { site: next.site, slot }, why: `stores cover the settler cost: claim wide land at ${next.t.p},${next.t.q} site ${next.site} (slot ${slot})` };
+      }
+      return { name: 'Harvest', v: { holding: h }, fields: {}, why: waiting ? 'a wide claim is settling: harvest meanwhile' : 'saving for a wide claim (the settler cost): harvest' };
+    }
   }
   for (let k = 0; k < OPERATOR_ROTATION.length; k++) {
     const a = OPERATOR_ROTATION[(memory.step + k) % OPERATOR_ROTATION.length];
@@ -228,6 +263,17 @@ export function noteOutcome(memory, decision, outcome) {
   if (decision?.wait) return memory;
   const bad = outcome === 'refused' || outcome === 'failed';
   if (decision.name === 'PlaceHome' && (bad || outcome === 'unknown')) memory.triedHomes.push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
+  if (decision.name === 'FileTicket') {
+    const k = `${decision.fields.sites[0].p},${decision.fields.sites[0].q},${decision.fields.sites[0].site}`;
+    // (a filed site is not filed again either way: a request that lost its site — taken — moves on to the next)
+    if (outcome === 'landed') memory.ticketUntil = memory.decisions + OPERATOR_CLAIM_SETTLE_WAIT * 2;
+    memory.triedHomes.push(k);
+  }
+  if (decision.name === 'WideClaim') {
+    if (outcome === 'landed') { memory.claims = (memory.claims ?? 0) + 1; memory.claimWaitUntil = memory.decisions + OPERATOR_CLAIM_SETTLE_WAIT; }
+    // (a refused site is not asked again; the claim itself cools down — a site taken, a ticket still open, stores short)
+    if (bad || outcome === 'unknown') { (memory.triedClaims ??= []).push(`${decision.v.target.p},${decision.v.target.q},${decision.fields.site}`); memory.cooldown.WideClaim = memory.decisions + OPERATOR_COOLDOWN; }
+  }
   if (decision.war && (bad || (decision.name === 'Depart' && outcome === 'unknown'))) memory.cooldown[`war:${decision.name}`] = (Number.isSafeInteger(decision.bell) ? decision.bell : 0) + WAR_COOLDOWN_BELLS;
   if (Number.isInteger(decision.rotationStep)) {
     memory.step = decision.rotationStep + 1;

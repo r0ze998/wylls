@@ -42,5 +42,5 @@ test('the launcher passes --keys-dir only for a persisted world, in the wallet\'
   const src = readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
   assert.match(src, /const operatorKeys = persist && natural && c\.operatorResidents \? path\.join\(home, 'operator-keys'\) : null;/);
   assert.match(src, /if \(operatorKeys\) await ensurePrivateDir\(operatorKeys\);/);
-  assert.match(src, /\.\.\.\(keysDir \? \['--keys-dir', keysDir\] : \[\]\)\]\);/);
+  assert.match(src, /\.\.\.\(keysDir \? \['--keys-dir', keysDir\] : \[\]\),/);
 });

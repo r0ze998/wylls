@@ -33,6 +33,40 @@ import { hostsIn } from '../fland.mjs';
 import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
+import { claimTargets, settlerCost } from '../flocalplay-wide.mjs';
+
+/**
+ * (TEST-ONLY wide play, LOCAL play only: owner t379u 「広い版がんばれ」) The village screen's wide-land card in a local
+ * wide-land world (`FS.localPlay.wideLand`, the launcher's statement): the opened wide provinces within reach of this
+ * first home (`outpost_range` 3), the settler cost of the next village against the stores, and one button per province
+ * that files the WIDE CLAIM (0xD9 WideClaimSite, flocalplay-wide.mjs) on its next untried site. The world's runner
+ * settles the claim. Nothing for any other world, a village that is not the first home, or one out of reach.
+ */
+export function wideClaimModel(FS, m) {
+  const wide = FS?.localPlay?.wideLand;
+  if (!wide || !m?.holding) return null;
+  const h = m.holding;
+  if (Number(h.order ?? 1) !== 1) return null;
+  const targets = claimTargets({ p: h.p, q: h.q }, wide.targets).slice(0, 6);
+  if (!targets.length) return null;
+  const owned = Array.isArray(FS.holdings) ? FS.holdings.length : 1;
+  const need = settlerCost(Math.min(3, owned + 1));
+  const short = need.map((n, i) => ({ resource: RESOURCE_ORDER[i], need: n, have: m.have[i] ?? 0 })).filter(x => x.need > 0 && x.have < x.need);
+  const tried = FS.ui?.wideTried ?? {};
+  return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0 })), need, short, full: owned >= 3, slot: Math.min(3, owned + 1) };
+}
+function wideClaimCard(FS, m, busy) {
+  const w = wideClaimModel(FS, m);
+  if (!w) return '';
+  const cost = w.need.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(' · ');
+  return html`<section class="vcard" id="hp-wide" aria-labelledby="hp-wide-h">
+    ${cardHead({ id: 'hp-wide-h', ic: 'flag', title: L`広い土地に村を出す（テスト）` })}
+    <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
+    <p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>
+    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span></span>
+      <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>`}
+    <p class="muted">${L`申し込みはターンの終わりに決まります（同じ場所を選んだ人がいれば抽選）。`}</p></section>`;
+}
 
 export { queueSlots, buildSecs } from '../hud/rulebook.mjs';
 export const introBuildAvailable = h => (Number(h?.flags ?? 0) & 2) !== 0;
@@ -470,5 +504,6 @@ export function render(FS) {
   // (2026-11-17, ⑦: what became of the orders given from this village this turn — screens/villageorders.mjs — rides with
   //  the head too; it reads FS.orders and the record, and changes no button)
   const orderNote = renderVillageOrders(FS, m.settled, m.now, { rereadShown: holdingRead(FS).reread.can });
-  return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
+  const wideCard = wideClaimCard(FS, m, actionBusy);
+  return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }

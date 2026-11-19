@@ -181,7 +181,7 @@ scripts/play-local.sh --wide
   ring 128, θ 1 bp, a 36 SOL province fund).
 - During the world's setup (before 「国を選ぶ」 [Choose a nation]) the program's own instructions grow the map **one ring
   per turn** to ring 128; only during that setup the local chain's clock is moved a turn at a time (the setup took about
-  11 s on 2026-11-19). Then the clock is the natural one (a turn is 10 minutes) and the game starts at about turn 130.
+  11 s on 2026-11-19). Then the clock runs at `--speed` (default ×60, a turn is 10 s) and the game starts at about turn 130.
   - One test resident per nation places a village near the centre (the growth rule needs "a settler in some wedge").
     One centre province is opened first and the rest after the growth, so every province is resolved up to the turn
     the game starts at.
@@ -198,8 +198,24 @@ scripts/play-local.sh --wide
     「第129輪」 [ring 129] province in the list, press 「ここを原点にする」 [Make this the origin] and zoom in: ring 128
     (gold) and rings 129–131 (the six nations' colours) side by side.
   - 「全体図」 [World chart] shows your village in the middle and the wide land just outside the six corners.
+  - A village on the wide land (yours or an AI resident's) is drawn as its nation's sigil: on its own site when zoomed in,
+    and as one mark on its province from farther and on 「全体図」, once the herald has recorded it.
+- Playing on the wide land (TEST-only rules, 2026-11-19; the devnet settings and the program are unchanged):
+  - **This world's own Season bytes**: the centre free (⑭ R2, `centre` = 1: rings 0–1 are ordinary land; ring 1's six
+    provinces are opened; (0,0) is not, because the page's terrain kernel still draws the Concord there) and
+    `outpost_tier_min` = 0 (a Hamlet first village may claim wide land; the presets say 1 = Town). The presets
+    (`S1_LOCAL_7D`, `S1_DEVNET_WIDE_7D`) are not changed.
+  - In the setup, test residents take real first villages on two ring-128 provinces per nation (beside the wide land,
+    in different wedges) by the legacy request (FileTicket → the bell's beacon anchor and seed → SettleTicket).
+  - After 「国を選ぶ」 the page offers **rim (ring 128) provinces first** as the first village. A rim village is a
+    one-site request (FileTicket) the runner settles at the turn's end (PlaceHome cannot name a province past the
+    Season's base r_max of 16).
+  - The village screen's 「広い土地に村を出す（テスト）」 [Found a village on the wide land] claims a site of a wide
+    province within range 3 as the 2nd or 3rd village (0xD9 WideClaimSite; the cost comes from the village's stores,
+    1,200 wood etc.; the runner settles it with WideSettleTicket / WideFinalize).
+  - The clock runs at `--speed` (default 60, 10–60). A Hamlet saves the cost in about 30 game hours: ~30 min at ×60.
+  - AI residents (`--ai N`) request rim villages too, save (harvest only) and claim wide land; one action per turn.
 - Not possible yet (2026-11-19):
-  - a village on the wide land, or a march into it: a wide village needs a first village that is a Town on rings
-    126–128, and the page places first villages near the centre only, so nobody in this world qualifies;
+  - a march into the wide land: the program's WideDepart is still closed in SBF (`NotImplemented`);
   - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.
-- Not with `--demo`, `--resume`, `--fresh`, `--speed` or `--two` (the wide version is for one player). A stop ends the world.
+- Not with `--demo`, `--resume`, `--fresh` or `--two` (the wide version is for one player). A stop ends the world.
