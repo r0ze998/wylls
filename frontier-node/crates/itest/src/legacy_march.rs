@@ -30,8 +30,12 @@
 //!
 //! A refusal (simulated or landed) stops the driver; an outcome not seen is
 //! `Unknown` with its signature and is never resent. A seal that does not
-//! open validly, a destination that is not open, or a missed reveal window
-//! stops it with the reason named: their settlement is not driven here.
+//! open validly or a missed reveal window stops it with the reason named:
+//! their settlement is not driven here. A destination with NO Province (B14:
+//! rings 0-1 of a season with the centre, a province never opened) is never
+//! revealed: once THE anchor of its arrival bell and `settle_after` passed,
+//! SettleTransit settles it against the absent Province (Routed: the host
+//! comes home with the rout survivors), as the program allows (v1.7).
 //! No account is written directly and no rule is changed: every write is a
 //! program instruction the production keeper also sends.
 use fclient::addr::Addresses;
@@ -325,6 +329,26 @@ pub fn settle_args(
         resolver,
         holding_rent_payer: rent_payer,
         camp_citizen,
+    }
+}
+
+/// What the driver does next with a transit whose destination has no Province (B14): wait for THE anchor of its
+/// arrival bell in the destination's region, then for `settle_after(A)`, then settle it (routed home). Pure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AbsentDest {
+    WaitAnchor,
+    WaitSettle,
+    Settle,
+}
+pub fn absent_destination(
+    anchor: Option<i64>,
+    now: i64,
+    settle_after: impl Fn(i64) -> i64,
+) -> AbsentDest {
+    match anchor {
+        None => AbsentDest::WaitAnchor,
+        Some(a_ts) if now < settle_after(a_ts) => AbsentDest::WaitSettle,
+        Some(_) => AbsentDest::Settle,
     }
 }
 
@@ -1240,6 +1264,16 @@ impl LegacyMarchDriver {
             let opened = self.known[&key].opened.expect("opened");
             let plain = opened.plain().expect("valid");
             let dest = (plain.dest_p as i32, plain.dest_q as i32);
+            // (B14, loop-play3: a destination with NO Province — rings 0-1 of a season with the centre, a province never
+            //  opened — is never revealed (the program refuses: RevealDestinationNotOpen); it is settled home instead)
+            let absent = lock(state)
+                .account(&self.a.province(dest.0, dest.1))
+                .is_none();
+            if absent {
+                return self
+                    .settle_absent(state, h, v2, clock, slot, &t, &d, dest)
+                    .await;
+            }
             let dv = {
                 let c = lock(state);
                 lk::view(&c, &self.a, plain.dest_p, plain.dest_q)
@@ -1382,6 +1416,82 @@ impl LegacyMarchDriver {
                 self.stands.push((dest, t.host_id));
             }
             s
+        }
+    }
+
+    /// SettleTransit of a march whose destination has NO Province (B14, loop-play3): nothing can be revealed, gathered or
+    /// resolved there, so the driver waits for THE anchor of the arrival bell in the destination's region (the keeper
+    /// anchors every region of a pending arrival bell) and for `settle_after`, then settles the transit against the
+    /// absent Province, as the program allows for a valid seal (transit.rs v1.7): outcome Routed (unresolved), the host
+    /// comes home with the rout survivors. Before this the driver stopped for good ("the destination ... is not open")
+    /// and the host, and every later march of the village, was never driven again.
+    #[allow(clippy::too_many_arguments)]
+    async fn settle_absent(
+        &mut self,
+        state: &Shared,
+        h: &Holding,
+        v2: bool,
+        clock: &fclient::clock::SeasonClock,
+        slot: u8,
+        t: &Transit,
+        d: &DepartArgs,
+        dest: (i32, i32),
+    ) -> Step {
+        let me = self.payer.pubkey();
+        let arrive = t.arrive_bell;
+        let region = permutation_rules::frontier::geometry::region_of(
+            permutation_rules::frontier::geometry::ProvinceCoord::new(dest.0, dest.1),
+        );
+        let (anchor, now) = {
+            let c = lock(state);
+            (
+                lk::anchor_landed(&c, &self.a, arrive, region),
+                c.unix_timestamp(),
+            )
+        };
+        let anchor = match anchor {
+            Ok(a) => a,
+            Err(e) => return Step::Stopped(e),
+        };
+        match absent_destination(anchor, now, |a_ts| clock.settle_after(arrive, a_ts)) {
+            AbsentDest::WaitAnchor => Step::Wait(format!(
+                "the destination ({}, {}) has no Province: THE anchor of bell {arrive} in region {region} is not posted yet (then the host is settled home, routed)",
+                dest.0, dest.1
+            )),
+            AbsentDest::WaitSettle => Step::Wait(format!(
+                "the destination ({}, {}) has no Province: SettleTransit of slot {slot} (routed home) is not due yet",
+                dest.0, dest.1
+            )),
+            AbsentDest::Settle => {
+                let args = settle_args(
+                    self.href,
+                    slot,
+                    d,
+                    t,
+                    h.faction,
+                    dest,
+                    h.owner_citizen,
+                    h.rent_payer,
+                    None,
+                    None,
+                    true,
+                    me,
+                );
+                let ix = if v2 {
+                    ix2::settle_transit(&self.a, me, &args, None)
+                } else {
+                    ix::settle_transit(&self.a, me, &args)
+                };
+                self.checked(
+                    state,
+                    ix,
+                    &format!(
+                        "SettleTransit(slot {slot}, bell {arrive}, no Province at ({}, {}): routed home)",
+                        dest.0, dest.1
+                    ),
+                )
+                .await
+            }
         }
     }
 
@@ -1823,6 +1933,29 @@ mod tests {
         assert_eq!(
             legacy_seal_root(&commit, &seal),
             permutation_rules::hash::sha256(&[&commit, &ct])
+        );
+    }
+
+    /// B14 (loop-play3): a march into a tile with no Province waits for THE anchor, then for settle_after, then is
+    /// settled home; it is never a stop (a stop ended the driver of the whole village for good).
+    #[test]
+    fn a_destination_without_a_province_is_settled_home_after_its_window() {
+        let after = |a: i64| a + 1_000;
+        assert_eq!(
+            absent_destination(None, 5_000, after),
+            AbsentDest::WaitAnchor
+        );
+        assert_eq!(
+            absent_destination(Some(100), 1_099, after),
+            AbsentDest::WaitSettle
+        );
+        assert_eq!(
+            absent_destination(Some(100), 1_100, after),
+            AbsentDest::Settle
+        );
+        assert_eq!(
+            absent_destination(Some(100), 9_999, after),
+            AbsentDest::Settle
         );
     }
 
@@ -2608,6 +2741,123 @@ mod real_legacy {
             }
         }
         None
+    }
+
+    /// **REAL artifact — B14 (loop-play3): an ordinary march sealed for a tile of ring 1, where the local world has NO
+    /// Province** (`#[ignore]`; the same approval variables). The page no longer offers such a march (fix-b14-b16), but
+    /// one that reaches the chain anyway must not lose the host: the driver never reveals it (the program cannot), waits
+    /// for THE anchor and `settle_after`, and settles it against the absent Province. The host comes home routed (the
+    /// program's rout survivors), the transit slot is free again, and the driver is never stopped.
+    #[test]
+    #[ignore]
+    fn a_real_march_into_ring_one_without_a_province_comes_home_routed() {
+        let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
+        assert_eq!(
+            need("WYLLS_LEGACY_MARCH_APPROVED"),
+            "1",
+            "approval is required before this test runs"
+        );
+        assert_eq!(need("WYLLS_PUBLIC_DRAND"), "1");
+        let path = std::path::PathBuf::from(need("WYLLS_EXPEDITION_SBF"));
+        let art = crate::expedition_play::inspect(
+            path.clone(),
+            std::fs::read(&path).unwrap(),
+            &need("WYLLS_EXPEDITION_SBF_SHA256"),
+        )
+        .unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let (rpc, ws) = crate::destination_real::ports(41_946);
+            let player = Keypair::new();
+            let w = player.pubkey();
+            let world = crate::natural_play::prepare(&art, w, rpc, ws).await.expect("the natural world");
+            let (state, a) = (world.state.clone(), world.a.clone());
+            lock(&state).set_paused(false);
+            // a home province in ring 2 and a ring-1 province next to it that has NO Province on chain
+            let &(hp_, hq_, nation) = world.homes.iter().find(|h| ProvinceCoord::new(h.0 as i32, h.1 as i32).ring() == 2).expect("a ring-2 home province");
+            let dest = {
+                let c = ProvinceCoord::new(hp_ as i32, hq_ as i32).centre();
+                let mut found = None;
+                for (dq, dr) in DIRECTIONS {
+                    let (pc, _) = locate(Hex::new(c.q + dq * 9, c.r + dr * 9));
+                    if ProvinceCoord::new(pc.p, pc.q).ring() == 1 { found = Some((pc.p, pc.q)); break; }
+                }
+                found.expect("a ring-1 neighbour")
+            };
+            assert!(lock(&state).account(&a.province(dest.0, dest.1)).is_none(), "ring 1 has no Province in a local world");
+            let me = fclient::ix::Player { actor: w, payer: w, wallet: w };
+            let now = lock(&state).unix_timestamp();
+            player_send(&state, &player, ix::join(&a, w, w, nation, &w, now + 3_600, None), "Join").await;
+            let (faction, shard) = crate::natural_play::joined(&bytes(&state, &a.citizen(&w)), &w).expect("joined");
+            let free = {
+                use frontier_abi::v2::layout::province::{province as PV, site as SM};
+                let pd = bytes(&state, &a.province(hp_ as i32, hq_ as i32));
+                (0..pd[PV::SITE_COUNT] as usize).find(|i| matches!(pd[PV::site(*i) + SM::STATE], SM::STATE_FREE | SM::STATE_RELEASED_FREE)).map(|i| i as u8).expect("a free site")
+            };
+            player_send(&state, &player, ix::place_home(&a, &me, ix::Site { p: hp_, q: hq_, site: free }, faction, shard), "PlaceHome").await;
+            let href = HoldingRef { p: hp_, q: hq_, site: free };
+            let holding = href.address(&a);
+            player_send(&state, &player, ix2::train(&a, &me, href, 0, 400), "Train 400").await;
+            let h0 = Holding::decode(&bytes(&state, &holding)).unwrap();
+            let host = fclient::addr::host_id(hp_ as i32, hq_ as i32, free, h0.gen, h0.host_seq).unwrap();
+            let start = h0.tile;
+            let mut pilot = Pilot::new_at(&state, public_quicknet(), Some(holding), (hp_, hq_), rx()).await.expect("the pilot");
+            for _ in 0..400 {
+                let v = lk::view(&lock(&state), &a, hp_, hq_).unwrap();
+                if frontier_abi::prologue::resident_ok(v.resolved_next, v.bell_now) { break; }
+                assert!(pilot.tick(&state).await, "the keeper stopped: {:?}", pilot.keeper.status);
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + 60);
+            }
+            player_send(&state, &player, ix::muster(&a, &me, href, 0, 400, start), "Muster 400").await;
+            let clock = { let c = lock(&state); lk::season_clock(&c, &a).unwrap() };
+            let muster_bell = clock.bell_at(lock(&state).unix_timestamp()).unwrap();
+            for _ in 0..80 {
+                assert!(pilot.tick(&state).await, "the keeper stopped: {:?}", pilot.keeper.status);
+                if lk::view(&lock(&state), &a, hp_, hq_).unwrap().resolved_next > muster_bell + 1 { break; }
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + 120);
+            }
+            let troops_before = fclient::decode::Province::decode(&bytes(&state, &a.province(hp_ as i32, hq_ as i32))).unwrap().entries.into_iter().find(|e| e.id == host).expect("the host stands at home").troops;
+            // ONE ordinary Depart sealed for the ring-1 tile (its road is never checked: nothing can reveal it)
+            let season = Season::decode(&bytes(&state, &a.season)).unwrap();
+            let bell = clock.bell_at(lock(&state).unix_timestamp()).unwrap();
+            let arrive = bell + 4;
+            let (path_len, path_bits) = permutation_rules::frontier::seal::encode_path(&[0, 0, 0]).unwrap();
+            let plain = permutation_rules::frontier::seal::pack(&permutation_rules::frontier::seal::Plain { version: permutation_rules::frontier::seal::PLAIN_VERSION, host_id: host,
+                arrive_bell: arrive, dest_p: dest.0 as _, dest_q: dest.1 as _, dest_tile: 30, stance: 0, retreat_bps: 0, path_len, path: path_bits, reserved: Default::default() });
+            let sealed = fclient::seal::seal(&plain, &fclient::beacon::quicknet_info().public_key, clock.tlock_round(arrive)).unwrap();
+            let tip = fclient::fees::min_tip_lamports(season.min_reveal_priority_milli, season.reveal_cu_limit, season.reveal_loaded_limit);
+            let args = DepartArgs { host_id: host, commit: sealed.commit, seal: sealed.seal, arrive_bell: arrive, tip, transit_slot: 0 };
+            player_send(&state, &player, ix2::depart(&a, &me, href, (hp_, hq_), &args), "Depart into ring 1").await;
+            let mut seen: Vec<String> = vec![];
+            let mut settled = false;
+            for i in 0..3000 {
+                assert!(pilot.tick(&state).await, "the keeper stopped: {:?}", pilot.keeper.status);
+                for s in [pilot.keeper.status.destination_step.clone(), pilot.keeper.status.origin_step.clone()].into_iter().flatten() {
+                    if s.starts_with("Landed") && !seen.contains(&s) { seen.push(s); }
+                }
+                assert!(pilot.keeper.status.unknown_signature.is_none(), "an unknown outcome: {:?}", pilot.keeper.status);
+                if let Some(t) = pilot.legacy.as_ref().and_then(|d| d.terminal()) { panic!("the legacy driver stopped: {t:?}; seen {seen:?}"); }
+                if seen.iter().any(|s| s.contains(&format!("SettleTransit(slot 0, bell {arrive}, no Province at ({}, {}): routed home)", dest.0, dest.1))) { settled = true; break; }
+                if i % 50 == 0 { eprintln!("tick {i}: {:?}", pilot.keeper.status.destination_step); }
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + 60);
+            }
+            eprintln!("landed: {seen:?}");
+            assert!(settled, "the march into ring 1 was settled home");
+            assert!(seen.iter().any(|s| s.contains("SettleDeparture(slot 0)")), "it departed");
+            assert!(!seen.iter().any(|s| s.contains(&format!("Reveal(slot 0, bell {arrive})"))), "never revealed");
+            let h1 = Holding::decode(&bytes(&state, &holding)).unwrap();
+            assert_eq!(h1.transit[0].state, T_FREE, "the transit slot is free again");
+            let home = fclient::decode::Province::decode(&bytes(&state, &a.province(hp_ as i32, hq_ as i32))).unwrap();
+            let back = home.entries.iter().find(|e| e.id == host).map(|e| e.troops).or_else(|| (h1.reserve[0] > h0.reserve[0]).then_some(h1.reserve[0] * 1_000));
+            eprintln!("troops before {troops_before} milli; back: {back:?}; reserve {} → {}", h0.reserve[0], h1.reserve[0]);
+            assert!(back.is_some_and(|t| t > 0 && t < troops_before), "the host came home routed (fewer troops, not lost)");
+        });
     }
 
     /// **REAL artifact — the keep (fort) of a province ONE RING PAST THE HEARTLAND, taken by an ordinary march**

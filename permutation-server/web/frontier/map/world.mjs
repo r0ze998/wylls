@@ -14,6 +14,12 @@
 //              when the crowding rule holds; the cloud sea lies there)
 //   pending    its ring is open but its seed is still on its way, or the
 //              Province is not on chain yet (the keeper is creating it)
+//   centre     (B14, loop-play3) rings 0–1 of a season WITH the centre (conquest
+//              byte 81 `centre` 0: ⑭ R2 off) with no Province of the ring on chain:
+//              seeded but never land there — no village, no march's
+//              destination or road (the program's Reveal needs the
+//              Province). With ⑭ R2 on (`centre` 1) they are ordinary land
+//              and read as every other ring
 //   open       on chain. Fog over open land is the viewer's survey
 //              (map/survey.mjs: chart, surveyed, in sight), never a state of
 //              the world: everything open is public.
@@ -29,10 +35,14 @@
 // it for ring lists; it never fetches on its own).
 import { FLATTEN, RADIUS } from '../../map.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { locate, ringOf, ringProvinces, ringSize } from '../fgeo.mjs';
+import { locate, ringOf, ringProvinces, ringSize, tileHex } from '../fgeo.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
 
-export const PLACE = Object.freeze({ open: 'open', pending: 'pending', unopened: 'unopened', outside: 'outside', extendable: 'extendable', beyondCeiling: 'beyondCeiling', beyondHard: 'beyondHard' });
+export const PLACE = Object.freeze({ open: 'open', pending: 'pending', unopened: 'unopened', outside: 'outside', extendable: 'extendable', beyondCeiling: 'beyondCeiling', beyondHard: 'beyondHard', centre: 'centre' });
+/** The rings of the centre (the Concord and the Seats of a season with the centre). */
+export const CENTRE_RINGS = 2;
+/** ⑭ R2: whether a season's rings 0–1 are ordinary land (conquest byte 81 `centre` = 1, fcodec.mjs checkWorldMode). */
+export const centreIsLand = season => season?.conquestParams?.centre === 1;
 /** The program's hard limit of any season's outermost ring (geometry R_MAX_HARD). */
 export const R_MAX_HARD = 128;
 
@@ -111,7 +121,7 @@ export function partialRings(w) {
  * What place (p, q) is (PLACE). `present(d)`: the Set of "p,q" on chain in ring d when the page has its list,
  * else null (a partly created ring without its list counts as open: the herald's province answer decides).
  */
-export function placeOf(w, p, q, present = () => null) {
+export function placeOf(w, p, q, present = () => null, { centre = false } = {}) {
   const d = ringOf(p, q);
   if (w.rMax !== null && d > w.rMax) {
     if (!int(w.rMaxCeiling)) return PLACE.outside;
@@ -125,6 +135,10 @@ export function placeOf(w, p, q, present = () => null) {
   const n = w.ringProvinces?.[d];
   if (int(n) && n < ringSize(d)) {
     const set = present(d);
+    // (B14: a centre ring of a season with the centre that has NO Province at all is not "being made": nothing makes
+    //  it — the local world opens the home provinces only. A centre ring partly on chain is being opened by a keeper:
+    //  its missing places stay pending, as every ring's)
+    if (centre && d < CENTRE_RINGS && n === 0) return PLACE.centre;
     if (set && !set.has(`${p},${q}`)) return PLACE.pending;
   }
   return PLACE.open;
@@ -136,7 +150,24 @@ export function placeOf(w, p, q, present = () => null) {
  */
 export function placeNow(FS, p, q) {
   if (!FS.world && !FS.record) return null;
-  return placeOf(FS.world ?? worldOf(FS.record), p, q, d => FS.worldRings?.get?.(d) ?? null);
+  return placeOf(FS.world ?? worldOf(FS.record), p, q, d => FS.worldRings?.get?.(d) ?? null, { centre: !centreIsLand(FS.season) });
+}
+
+/**
+ * B14: the hexes of the centre's places without a Province (PLACE.centre) — no march may end there or pass through
+ * (the program's Reveal needs every Province of the road). Empty while the page has no season record, in a season whose
+ * centre is land (⑭ R2), and once their Provinces are on chain.
+ */
+export function closedCentreHexes(FS, tileHexOf = tileHex) {
+  const out = [];
+  if (!FS?.world && !FS?.record) return out;
+  for (let d = 0; d < CENTRE_RINGS; d++) {
+    for (const { p, q } of ringProvinces(d)) {
+      if (placeNow(FS, p, q) !== PLACE.centre) continue;
+      for (let t = 0; t < 61; t++) { const h = tileHexOf(p, q, t); if (h) out.push({ q: h.q, r: h.r }); }
+    }
+  }
+  return out;
 }
 
 /**
@@ -232,6 +263,7 @@ export const PLACE_NOTE = Object.freeze({
   outside: () => L`ここはいまの地図の外です`,
   unopened: () => L`まだひらいていない土地です`,
   pending: () => L`この土地は生まれるところです（しばらくお待ちください）`,
+  centre: () => L`ここは中央です。この世界では州がないので、村も置けず、進軍の行き先にもできません`,
   extendable: () => L`ここはまだ地図の外です（地図はここまで広げられます）`,
   beyondCeiling: () => L`ここはこのシーズンの上限の外です`,
   beyondHard: () => L`ここはプログラムの上限（第128輪）の外です`,
@@ -242,6 +274,7 @@ export function ringText(state, ring) {
   if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（いまの地図の外）`;
   if (state === PLACE.unopened) return L`第${fmtNum(ring)}輪（まだひらいていません）`;
   if (state === PLACE.pending) return L`第${fmtNum(ring)}輪（生まれるところです）`;
+  if (state === PLACE.centre) return L`第${fmtNum(ring)}輪（中央・州なし）`;
   if (state === PLACE.extendable) return L`第${fmtNum(ring)}輪（広げられるが、まだ地図の外）`;
   if (state === PLACE.beyondCeiling) return L`第${fmtNum(ring)}輪（このシーズンの上限の外）`;
   if (state === PLACE.beyondHard) return L`第${fmtNum(ring)}輪（プログラムの上限・第128輪の外）`;

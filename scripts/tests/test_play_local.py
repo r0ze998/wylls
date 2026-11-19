@@ -27,13 +27,15 @@ def run(*args, env_extra=None):
     return p.returncode, p.stdout, p.stderr
 
 
-def kept_state(port=41920, ai=2, sha='ab' * 32):
-    """A state dir holding one kept world as play-local writes it (play-local.conf + last-kept), and nothing else."""
+def kept_state(port=41920, ai=2, sha='ab' * 32, two=None):
+    """A state dir holding one kept world as play-local writes it (play-local.conf + last-kept), and nothing else.
+    `two`: None writes no `two=` line (a world kept before --two existed), else its value."""
     st = tempfile.mkdtemp(prefix='play-local-state-')
     world = os.path.join(st, 'kept', '20261119-000000')
     os.makedirs(world)
     with open(os.path.join(world, 'play-local.conf'), 'w') as f:
-        f.write(f'# test\ncreated=20261119-000000\ncommit=0000000\nport={port}\nai={ai}\nsha256={sha}\n')
+        extra = '' if two is None else f'two={two}\n'
+        f.write(f'# test\ncreated=20261119-000000\ncommit=0000000\nport={port}\nai={ai}\n{extra}sha256={sha}\n')
     with open(os.path.join(st, 'last-kept'), 'w') as f:
         f.write(world + '\n')
     return st, world
@@ -204,7 +206,7 @@ class Refusals(unittest.TestCase):
             self.assertTrue(p['data'].startswith(TMP + '/worlds/'), extra)
         # (never with the demo, a resume, a kept world's --fresh or the demo's --speed, in either order, before any write)
         st, _ = kept_state()
-        for args in [('--wide', '--demo'), ('--demo', '--wide'), ('--wide', '--fresh'), ('--wide', '--speed', '30')]:
+        for args in [('--wide', '--demo'), ('--demo', '--wide'), ('--wide', '--fresh'), ('--wide', '--speed', '30'), ('--wide', '--two'), ('--two', '--wide')]:
             code, out, err = run('--print-plan', *args)
             self.assertEqual((code, out), (2, ''), args)
             self.assertIn('--wide', err)
@@ -234,6 +236,26 @@ class Refusals(unittest.TestCase):
         self.assertIn('41960', err)
         code, _, err = run('--print-plan', '--resume', '--ai', '0', env_extra={'PLAY_LOCAL_STATE': st})
         self.assertEqual(code, 5, err)
+
+    def test_two_people_in_one_world(self):
+        # (B16, fix-b14-b16: the launcher's contest pair, on a kept world or the demo)
+        self.assertEqual(plan()['players'], 'one')
+        self.assertNotIn('--contest-pair', plan()['launcher'])
+        for extra in ((), ('--demo',)):
+            p = plan('--two', *extra)
+            self.assertEqual(p['players'], 'two')
+            self.assertIn('--contest-pair contest-pair-v1', p['launcher'])
+            self.assertEqual(p['ports'], '41920-41941', 'the pair takes the second world slot: no more ports')
+        # a kept pair resumes as a pair, with or without --two; a world of one never becomes a pair
+        st, _ = kept_state(two=1)
+        self.assertIn('--contest-pair contest-pair-v1', plan('--resume', env_extra={'PLAY_LOCAL_STATE': st})['launcher'])
+        self.assertEqual(plan('--resume', '--two', env_extra={'PLAY_LOCAL_STATE': st})['players'], 'two')
+        for two in (None, 0):
+            st, _ = kept_state(two=two)
+            self.assertEqual(plan('--resume', env_extra={'PLAY_LOCAL_STATE': st})['players'], 'one')
+            code, _, err = run('--print-plan', '--resume', '--two', env_extra={'PLAY_LOCAL_STATE': st})
+            self.assertEqual(code, 5, err)
+            self.assertIn('--two', err)
 
     def test_resume_with_a_dangling_pointer_is_refused(self):
         st, world = kept_state()

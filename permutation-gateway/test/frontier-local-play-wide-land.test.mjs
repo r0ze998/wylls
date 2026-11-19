@@ -36,6 +36,7 @@ test('parseConfig: the word exact, once, on a natural world without the demo, th
   await fault([...natural, '--march-trial', L.MARCH_TRIAL_MODE, '--capture-demo', L.CAPTURE_DEMO_MODE, '--demo-scale', '20', '--wide-land', L.WIDE_LAND_MODE], 'WideLandNeedsNaturalWorld');
   await fault([...natural, '--continuous', L.CONTINUOUS_MODE, '--wide-land', L.WIDE_LAND_MODE], 'WideLandNeedsNaturalWorld');
   await fault([...natural, '--persist', L.PERSIST_MODE, '--wide-land', L.WIDE_LAND_MODE], 'WideLandNeedsNaturalWorld');
+  await fault([...natural, '--contest-pair', L.CONTEST_PAIR_MODE, '--wide-land', L.WIDE_LAND_MODE], 'WideLandNeedsNaturalWorld');
   // (well-formed alone, with the march trial, residents or a fresh map: it fails only later, at the paths, which do not exist here)
   const words = ['InvalidWideLand', 'WideLandNeedsNaturalWorld', 'InvalidArguments'];
   for (const more of [[], ['--march-trial', L.MARCH_TRIAL_MODE], ['--operator-residents', '2'], ['--fresh-map', L.FRESH_MAP_MODE]])
@@ -51,6 +52,7 @@ test('startWorld refuses the option off a natural world, in another shape, or wi
   await refused({ ...base, marchTrial: true, captureDemo: { scale: 20 }, wideLand: true }, 'with the demo');
   await refused({ ...base, continuous: true, wideLand: true }, 'continuous');
   await refused({ ...base, persist: true, wideLand: true }, 'kept');
+  await refused({ ...base, contestPair: true, wideLand: true }, 'the pair');
 });
 
 test('the runner\'s first line must state the wide land exactly when it was asked for', () => {

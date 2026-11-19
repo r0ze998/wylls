@@ -169,6 +169,11 @@ test('checkMarch names every refusal before anything is sealed', () => {
   assert.deepEqual(march.checkMarch(good(w)), []);
   const has = (m, code) => assert.ok(march.checkMarch(m).includes(code), `${code}: ${march.checkMarch(m)}`);
   has(good(world({ state: 1 })), 'NotFinal');
+  // (B14, fix-b14-b16: a destination the page knows is not open land — the centre without a Province — is refused;
+  //  one it cannot tell about is not)
+  has(good(w, { dest: { p: 1, q: -1, tile: 30 }, destOpen: false }), 'DestinationNotOpen');
+  assert.deepEqual(march.checkMarch(good(w, { destOpen: true })), []);
+  assert.deepEqual(march.checkMarch(good(w, { destOpen: undefined })), []);
   has(good(w, { resolvedNext: 38 }), 'NotResident');
   has(good(world({ pendOp: 5 })), 'HostBusy');
   has(good(world({ entryState: 3 })), 'HostBusy');

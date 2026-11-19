@@ -34,10 +34,11 @@ fn main() {
                 "--continuous and --persist-dir are not accepted with --capture-demo".into(),
             );
         }
-        // the TEST-ONLY contest pair's two options likewise (both or neither), and only on a capture-demo world
+        // the TEST-ONLY contest pair's two options likewise (both or neither): two people in one world, on a capture-demo
+        // world or (B16, loop-play3) a natural one, kept (--continuous/--persist-dir) or not
         let (rest, second) = itest::contest_pair::take_pair_args(rest)?;
-        if second.is_some() && (demo.is_none() || wide) {
-            return Err("--contest-pair is accepted only together with --capture-demo".into());
+        if second.is_some() && wide {
+            return Err("--contest-pair is not accepted with --wide-land".into());
         }
         // the TEST-ONLY land lane's option likewise (only with the capture demo's synthetic clock; feature localnet-land-play)
         #[cfg(feature = "localnet-land-play")]
@@ -68,12 +69,14 @@ fn main() {
             if let Some(scale) = demo {
                 itest::capture_demo::demo_metadata(&mut world.metadata, scale);
             }
-            // (the second player of the TEST-ONLY pair: funded like the first, fees and rent only)
+            // (the second player of the TEST-ONLY pair: funded like the first, fees and rent only — once: a resumed kept
+            //  world funded it at its first start, and nothing is funded at a resume)
             if let Some(b) = second {
-                let mut c = localnet::server::lock(&world.state);
-                c.airdrop(&b, play::PLAYER_LAMPORTS)?;
-                c.produce_block();
-                drop(c);
+                if !world.resumed {
+                    let mut c = localnet::server::lock(&world.state);
+                    c.airdrop(&b, play::PLAYER_LAMPORTS)?;
+                    c.produce_block();
+                }
                 itest::contest_pair::pair_metadata(&mut world.metadata, &b);
             }
             #[cfg(feature = "localnet-land-play")]

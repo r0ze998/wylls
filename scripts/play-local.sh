@@ -43,6 +43,10 @@ usage() {
 scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory chain, test keys only)
 
   --ai N          operator AI residents in the world, 0-4 (default 2; --resume keeps the kept world's number)
+  --two           TWO people in ONE world (TEST-ONLY launcher option --contest-pair): the second person opens the
+                  same page in another browser (or this browser at http://127.0.0.1:<port>/ instead of localhost)
+                  and presses the same start button; the first start waits for the second (about 4 minutes, then
+                  press again). Kept worlds and --demo alike; --resume brings the same two back (either may press)
   --demo          the 15-minute capture demo instead of a kept world: compressed clock, land preview, memory-only
                   (a stop ends it for good; not resumable)
   --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; the land preview's
@@ -74,7 +78,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet
+AI=2 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -94,6 +98,7 @@ while [ $# -gt 0 ]; do
     --speed) need_val "$@"; SPEED="$2"; SPEED_SET=1; shift 2 ;;
     --demo) DEMO=1; shift ;;
     --wide) WIDE=1; shift ;;
+    --two) TWO=1; TWO_SET=1; shift ;;
     --minutes) need_val "$@"; MINUTES="$2"; shift 2 ;;
     --port) need_val "$@"; PORT="$2"; PORT_SET=1; shift 2 ;;
     --lang) need_val "$@"; shift 2 ;;
@@ -133,8 +138,8 @@ if [ "$RANDOM_MAP" = 1 ] && [ -z "$FRESH_MAP_WORD" ]; then
       "--random-map: the launcher on this checkout has no per-world fresh map (--fresh-map) yet; every local world has the same map."
   exit 5
 fi
-if [ "$WIDE" = 1 ] && { [ "$DEMO" = 1 ] || [ "$RESUME" = 1 ] || [ "$FRESH" = 1 ] || [ "$SPEED_SET" = 1 ]; }; then
-  err "--wide は --demo / --resume / --fresh / --speed と一緒には使えません (広い版はメモリだけの世界です)" "--wide cannot be combined with --demo, --resume, --fresh or --speed (the wide version is a memory-only world)"; exit 2
+if [ "$WIDE" = 1 ] && { [ "$DEMO" = 1 ] || [ "$RESUME" = 1 ] || [ "$FRESH" = 1 ] || [ "$SPEED_SET" = 1 ] || [ "$TWO" = 1 ]; }; then
+  err "--wide は --demo / --resume / --fresh / --speed / --two と一緒には使えません (広い版はメモリだけの一人用の世界です)" "--wide cannot be combined with --demo, --resume, --fresh, --speed or --two (the wide version is a memory-only world for one player)"; exit 2
 fi
 # (the wide land: only when the launcher on this checkout knows it; refused, never faked, otherwise)
 WIDE_WORD="$(sed -n "s/.*WIDE_LAND_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" 2>/dev/null | head -1)"
@@ -144,6 +149,13 @@ if [ "$WIDE" = 1 ] && [ -z "$WIDE_WORD" ]; then
 fi
 if [ "$DEMO" = 1 ] && [ "$RESUME" = 1 ]; then err "--demo の世界は保存されないので --resume できません" "--demo worlds are not kept, so they cannot be resumed (--resume)"; exit 2; fi
 if [ "$DEMO" = 0 ] && [ "$SPEED_SET" = 1 ]; then err "--speed は --demo と一緒にだけ使えます (保存する世界は通常の速さです)" "--speed works only with --demo (a kept world runs at the natural speed)"; exit 2; fi
+# (two people in one world: only when the launcher on this checkout takes the pair on a natural world — B16, fix-b14-b16)
+PAIR_WORD="$(sed -n "s/.*CONTEST_PAIR_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" 2>/dev/null | head -1)"
+if [ "$TWO" = 1 ] && { [ -z "$PAIR_WORD" ] || ! grep -q "out\['capture-demo'\] === undefined && !natural" "$LAUNCHER" 2>/dev/null; }; then
+  err "--two: このチェックアウトのランチャーは、二人で一つの世界 (--contest-pair を普通の世界で) にまだ対応していません。" \
+      "--two: the launcher on this checkout cannot yet put two people in one world (--contest-pair on a natural world)."
+  exit 5
+fi
 if [ "$REBUILD" = 1 ] && [ "$NOBUILD" = 1 ]; then err "--rebuild と --no-build は同時に使えません" "--rebuild and --no-build cannot be combined"; exit 2; fi
 is_int "$AI" && [ "$AI" -le 4 ] || { err "--ai は 0〜4 です" "--ai must be 0-4"; exit 2; }
 is_int "$SPEED" && [ "$SPEED" -ge 10 ] && [ "$SPEED" -le 60 ] || { err "--speed は 10〜60 です" "--speed must be 10-60"; exit 2; }
@@ -175,7 +187,12 @@ if [ "$RESUME" = 1 ]; then
     exit 5
   fi
   KEPT_CONF="$LASTK/play-local.conf"
-  K_PORT="$(conf_get port)"; K_AI="$(conf_get ai)"
+  K_PORT="$(conf_get port)"; K_AI="$(conf_get ai)"; K_TWO="$(conf_get two)"; K_TWO="${K_TWO:-0}"
+  if [ "$TWO_SET" = 1 ] && [ "$K_TWO" != 1 ]; then
+    err "--resume: 保存した世界は一人用です。--two は付けられません (二人で遊ぶなら --fresh --two で新しく始めてください)。" \
+        "--resume: the kept world is for one person; --two cannot be added (start a new one with --fresh --two)."
+    exit 5
+  fi
   if [ "$PORT_SET" = 1 ] && [ "$((10#$PORT))" != "$K_PORT" ]; then
     err "--resume: 保存した世界はポート $K_PORT です。ブラウザは鍵をアドレスごとに覚えるので、--port は変えられません。" \
         "--resume: the kept world uses port $K_PORT. The browser keeps the key per address, so --port cannot change."
@@ -185,7 +202,7 @@ if [ "$RESUME" = 1 ]; then
     err "--resume: 保存した世界の AI 住民は $K_AI 人です。--ai は変えられません。" "--resume: the kept world has $K_AI AI resident(s); --ai cannot change."
     exit 5
   fi
-  PORT="$K_PORT"; AI="$K_AI"
+  PORT="$K_PORT"; AI="$K_AI"; TWO="$K_TWO"
 fi
 
 # Ports, as the launcher counts them: the page on BASE, the worlds from BASE+4: two worlds × 5, plus 2 × 4 for the
@@ -235,6 +252,7 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
     --artifact "$SO" --artifact-sha "$sha" --world-ttl-minutes "$MINUTES" --port "$PORT" --world-port "$WORLD_PORT"
   if [ "$AI" -gt 0 ]; then printf '%s\n' --operator-residents "$AI"; fi
   if [ "$RANDOM_MAP" = 1 ]; then printf '%s\n' --fresh-map "$FRESH_MAP_WORD"; fi
+  if [ "$TWO" = 1 ]; then printf '%s\n' --contest-pair "$PAIR_WORD"; fi
 }
 
 if [ "$PLAN" = 1 ]; then
@@ -251,6 +269,7 @@ if [ "$PLAN" = 1 ]; then
   echo "mode=$([ "$RESUME" = 1 ] && echo resume || echo fresh)"
   echo "persist_available=$HAS_PERSIST"
   echo "map=$([ "$RANDOM_MAP" = 1 ] && echo fresh || echo fixed)"
+  echo "players=$([ "$TWO" = 1 ] && echo two || echo one)"
   echo "build=$([ "$NOBUILD" = 1 ] && echo never || { [ "$REBUILD" = 1 ] && echo always || echo when-changed; })"
   echo "open=$([ "$NOOPEN" = 1 ] && echo no || echo yes)"
   echo "data=$DATA"
@@ -387,7 +406,7 @@ if [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ] && [ "$RESUME" = 0 ]; then
   # (a new kept world: what a resume must repeat, and the pointer --resume follows)
   { echo "# play-local kept world (TEST-ONLY, not for production): what --resume repeats"
     echo "created=$RUN_ID"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD)"
-    echo "port=$PORT"; echo "ai=$AI"; echo "sha256=$SHA"; } > "$DATA/play-local.conf"
+    echo "port=$PORT"; echo "ai=$AI"; echo "two=$TWO"; echo "sha256=$SHA"; } > "$DATA/play-local.conf"
   echo "$DATA" > "$STATE/last-kept"
 fi
 ARGV=()
@@ -461,6 +480,13 @@ else
   if [ "$RESUME" = 1 ]; then say "   前回の世界を続けます (同じ村)。止めているあいだ、世界の時計は止まっていました。" "   Resuming the last world (the same village). Its clock stood still while it was stopped."; fi
 fi
 [ "$AI" -gt 0 ] && say "   AI 住民 $AI 人 (運営側のテスト住民) が同じ世界で動きます。" "   $AI operator AI resident(s) play in the same world."
+if [ "$TWO" = 1 ]; then
+  ALT_URL="$(printf '%s' "$URL" | sed 's#//localhost:#//127.0.0.1:#')"
+  say "   二人で一つの世界です。2 人目は別のブラウザで $URL を開くか、同じブラウザなら $ALT_URL を開いて、同じボタンを押してください。" \
+      "   Two people, one world. The second person opens $URL in another browser, or $ALT_URL in this browser, and presses the same button."
+  say "   1 人目の開始は 2 人目が押すまで待ちます (約 4 分。過ぎたらもう一度押します)。テスト鍵はブラウザとアドレスごとに別なので、続きも同じブラウザ・同じアドレスで開きます。" \
+      "   The first start waits for the second press (about 4 minutes; after that, press again). Each browser and address keeps its own test key, so continue later in the same browser at the same address."
+fi
 say "   言語はページ右上のボタンで 日本語 ⇄ English を切り替えます。" "   The page's top-right button switches 日本語 ⇄ English."
 say "   止めるには Ctrl-C を押してください。" "   Press Ctrl-C to stop."
 if [ "$NOOPEN" = 0 ]; then
