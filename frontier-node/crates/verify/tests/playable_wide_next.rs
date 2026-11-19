@@ -7,7 +7,7 @@
 //! * the wide economy (Harvest / Build / Train) and WideGarrison.
 //!
 //! One recording of the devnet-playable `.so` built from `origin/main`
-//! `1c55036b` (sha256 70b41975…; `scripts/build-frontier-devnet-playable-sbf.sh`)
+//! `faf1a520` (sha256 ec511123…; `scripts/build-frontier-devnet-playable-sbf.sh`)
 //! in the in-process LiteSVM chain (`localnet::Chain`), made by
 //! `record_playable_wide_next` (ignored; needs the artefact). Unlike the
 //! earlier recorders it keeps the feed **unfiltered**: every writable
@@ -74,11 +74,13 @@ use verify_core::input::{Config, Input};
 
 const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
-/// The devnet-playable `.so` built from `origin/main` `1c55036b`.
-const MAIN_SHA256: &str = "70b41975750e2d369ecae0eed89395e6235896e56e009c0bfb554f2b9c42ebfc";
+/// The devnet-playable `.so` built from `origin/main` `faf1a520`.
+const MAIN_SHA256: &str = "ec511123493c23e9ab1f83295e4bf666bc48c8e3f8dcfee2298d9371cc483ca3";
 const RULES: wr::RuleBytes = wr::RuleBytes {
     keep_holder: KeepHolderRule::MixedInterleaved as u8,
-    free_city: FreeCityRule::CanonicalHashV1 as u8,
+    // (⑧ (d), #69: a placement-2 Season — `S1_LOCAL_7D` since #69 — takes
+    //  the deployed formula; `CanonicalHashV1` is refused `BadData`)
+    free_city: FreeCityRule::DeployedLe32V1 as u8,
     camp: CampRule::SortKeyDrawV1 as u8,
     region: RegionRule::SortKeyHashV1 as u8,
 };
@@ -535,7 +537,7 @@ fn transfer_ix(from: &Address, to: &Address, lamports: u64) -> Instruction {
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 70b41975…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 ec511123…), run with --ignored"]
 fn record_playable_wide_next() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
@@ -543,7 +545,7 @@ fn record_playable_wide_next() {
     assert_eq!(
         hex::encode(so_hash),
         MAIN_SHA256,
-        "not the devnet-playable build of main 1c55036b"
+        "not the devnet-playable build of main faf1a520"
     );
     assert_eq!(localnet::bls_and_sbpf_v2_active(), (true, true));
 
@@ -754,7 +756,7 @@ fn record_playable_wide_next() {
         nat_finals,
         r.c.slot(),
         format!(
-            "verify/tests/playable_wide_next.rs record_playable_wide_next: the devnet-playable .so built from origin/main 1c55036b (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process), a real season by its own instructions at program version 0x4804 with conquest placement 2 (genesis on the shipped quicknet round {round}), three players' Join + PlaceHome, a refused WideSetRules(OrbitBalanced) and the authority's WideSetRules(MixedInterleaved); the UNFILTERED feed (wallet post-states and finals included); steps: {}",
+            "verify/tests/playable_wide_next.rs record_playable_wide_next: the devnet-playable .so built from origin/main faf1a520 (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process), a real season by its own instructions at program version 0x4804 with conquest placement 2 (genesis on the shipped quicknet round {round}), three players' Join + PlaceHome, a refused WideSetRules(OrbitBalanced) and the authority's WideSetRules(MixedInterleaved); the UNFILTERED feed (wallet post-states and finals included); steps: {}",
             r.log.join("; ")
         ),
         "playable-next-setrules",
@@ -996,7 +998,7 @@ fn record_playable_wide_next() {
     let snap_a = r.snapshot.take().unwrap();
     let (a_txs, a_finals) = r.archive(seg_a_from, &program);
     let prov_common = format!(
-        "verify/tests/playable_wide_next.rs record_playable_wide_next: the devnet-playable .so built from origin/main 1c55036b (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process); a real placement-2 season by its own instructions, the declared wide land patch (RingSeed(128), Frontier wedge counters) and the real ring-129 opening, the declared claims patch (three players' PlaceHome holdings copied to the rim (128,0) as final Towns with stores, a v2 Province there, the Citizens' slot 1 re-pointed; THE anchor and SeedCache of each ticket bell with a literal seed); the UNFILTERED feed (wallet post-states, witness states and finals included)"
+        "verify/tests/playable_wide_next.rs record_playable_wide_next: the devnet-playable .so built from origin/main faf1a520 (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process); a real placement-2 season by its own instructions, the declared wide land patch (RingSeed(128), Frontier wedge counters) and the real ring-129 opening, the declared claims patch (three players' PlaceHome holdings copied to the rim (128,0) as final Towns with stores, a v2 Province there, the Citizens' slot 1 re-pointed; THE anchor and SeedCache of each ticket bell with a literal seed); the UNFILTERED feed (wallet post-states, witness states and finals included)"
     );
     let seg_a = input_of(
         program,
@@ -1519,8 +1521,9 @@ fn has_wallets(inp: &Input) -> bool {
 }
 
 const T_RULES: u8 = wix::TAG_SET_RULES;
-/// `tag ‖ config_version u16 ‖ keep_holder ‖ …` (`wix::SetRules`).
+/// `tag ‖ config_version u16 ‖ keep_holder ‖ free_city ‖ …` (`wix::SetRules`).
 const RULES_KEEP_HOLDER_AT: usize = 3;
+const RULES_FREE_CITY_AT: usize = 4;
 
 /// The Season's conquest-block `placement` byte.
 fn placement_offset() -> usize {
@@ -1601,6 +1604,42 @@ fn set_rules_with_a_keep_holder_the_placement_forbids_fails() {
         show(&rep.findings)
     );
     // Not a byte mismatch: the record is the one the instruction names.
+    assert!(!has(&rep.findings, "WideReplayMismatch"));
+}
+
+/// ⑧ (d) (#69): under placement 2 the program refuses the wide formula
+/// `CanonicalHashV1` for the Free City (`BadData`). The recorded rules with
+/// that byte, in the instruction, the record it wrote and the final: a
+/// self-consistent SetRules only the Free City gate tells from the
+/// program's, so the verdict is a FAIL and never a PASS.
+#[test]
+fn set_rules_with_a_free_city_formula_the_placement_forbids_fails() {
+    let mut inp = natural();
+    let t = txs_like(&inp, &[T_RULES], true)[0];
+    let k = ix_key(&inp, t, 2);
+    let bad = FreeCityRule::CanonicalHashV1 as u8;
+    assert_ne!(
+        first_ix(&inp, t).unwrap().0[RULES_FREE_CITY_AT],
+        bad,
+        "the recording names the deployed formula"
+    );
+    verify_core::tamper::edit_ix_tag(&mut inp, t, T_RULES, |d| d[RULES_FREE_CITY_AT] = bad);
+    edit_post(&mut inp, t, &k, |a| {
+        a.data[wr::rules_config::FREE_CITY] = bad
+    });
+    inp.finals.get_mut(&k).unwrap().as_mut().unwrap().data[wr::rules_config::FREE_CITY] = bad;
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, verify_core::Verdict::Fail);
+    assert!(
+        has_at(
+            &rep.findings,
+            "WideRule",
+            t,
+            "Free City rule CanonicalHashV1"
+        ),
+        "{:#?}",
+        show(&rep.findings)
+    );
     assert!(!has(&rep.findings, "WideReplayMismatch"));
 }
 
