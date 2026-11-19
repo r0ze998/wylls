@@ -185,10 +185,12 @@ function diffFeedNow(prev, next) {
     if (item) out.push(item);
   }
   // B18: the host that took a keep left part of itself as the keep's garrison and went home with the rest (K-19)
+  // ("go back", not "are back": the record is logged with the capture; the reserve is credited by the return's settle,
+  //  seen live one turn later — fix-ui-b17-b21)
   if (prev.returns && next.returns) for (const [k, e] of next.returns) {
     if (prev.returns.has(k) || (Number.isInteger(bell) && e.bell < bell - KEEP_NEWS_BELLS)) continue;
     const home = village(next.holdings.get(`${e.p},${e.q},${e.site}`) ?? { p: e.p, q: e.q, site: e.site });
-    out.push({ id: `kr:${k}`, kind: 'keep', bell, p: e.p, q: e.q, side: 'gain', text: L`砦を取った軍勢は、一部を砦の守備兵に残し、残りの ${fmtNum(e.troops)} 人が${home}の控えに戻りました。村でもう一度、軍勢に編成できます。` });
+    out.push({ id: `kr:${k}`, kind: 'keep', bell, p: e.p, q: e.q, side: 'gain', text: L`砦を取った軍勢は、一部を砦の守備兵に残し、残りの ${fmtNum(e.troops)} 人は${home}の控えに戻ります。戻ったあと、村でもう一度、軍勢に編成できます。` });
   }
   // an exploration's result: what the record says it earned (the tiles themselves are surveyed on the map). Only a
   // result of the last turns is news: older ones are the log being read up

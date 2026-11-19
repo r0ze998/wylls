@@ -1909,7 +1909,7 @@ export default {
   'チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this march before running it. It was not sent.',
   '進軍は期限までに記録されませんでした。これから記録されることはありません。': 'The march was not recorded in time. It can no longer be.',
   // fix-ui-b17-b21 (loop-play3 B18–B21)
-  '砦を取った軍勢は、一部を砦の守備兵に残し、残りの {0} 人が{1}の控えに戻りました。村でもう一度、軍勢に編成できます。': 'The host that took the keep left part of itself as the keep\'s garrison; the other {0} troops returned to the reserve of {1}. You can form them into a host again in the village.',
+  '砦を取った軍勢は、一部を砦の守備兵に残し、残りの {0} 人は{1}の控えに戻ります。戻ったあと、村でもう一度、軍勢に編成できます。': 'The host that took the keep left part of itself as the keep\'s garrison; the other {0} troops go back to the reserve of {1}. Once they are back, you can form them into a host again in the village.',
   'いま軍勢はいませんが、村の控えに兵が {0} 人います。村で軍勢に編成できます。': 'You have no host right now, but {0} troops are in your village\'s reserve. Form them into a host on the Village tab.',
   'いま軍勢はいませんが、村の守備隊に兵が {0} 人います。軍勢を作るには、村で兵を訓練して編成してください。': 'You have no host right now, but {0} troops stand in your village\'s garrison. To make a host, train troops on the Village tab and form one.',
   '時間が進んだため、到着はターン {0} になりました（さきほどまではターン {1}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン {2} まで。取り消せます）。': 'Time moved on, so the arrival is now turn {0} (it was turn {1}). The send is still waiting: as soon as the province has finished its turn, this order is sent once for that arrival turn (until turn {2}; you can cancel).',

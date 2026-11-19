@@ -119,8 +119,8 @@ test('B18: the notice — the rest of the host returned to the reserve, with the
   const items = FEED.diffFeed(before, after).filter(x => x.id.startsWith('kr:'));
   assert.equal(items.length, 1, 'only the return to the viewer\'s own village');
   assert.equal(items[0].kind, 'keep'); assert.equal(items[0].p, 2); assert.equal(items[0].q, -3);
-  assert.match(items[0].text, /残りの 242 人が.+の控えに戻りました。村でもう一度、軍勢に編成できます。/);
-  assert.match(items[0].words.en, /the other 242 troops returned to the reserve of .+\. You can form them into a host again in the village\./);
+  assert.match(items[0].text, /残りの 242 人は.+の控えに戻ります。戻ったあと、村でもう一度、軍勢に編成できます。/);
+  assert.match(items[0].words.en, /the other 242 troops go back to the reserve of .+\. Once they are back, you can form them into a host again in the village\./);
   assert.doesNotMatch(items[0].words.en, JP);
   assert.equal(FEED.diffFeed(after, FEED.snapshot(feedWorld({ events: ev, returns: ret }), 0, after)).filter(x => x.id.startsWith('kr:')).length, 0, 'told once');
   // the first reading of the season's days is the record, not news; nor is a return of long ago
