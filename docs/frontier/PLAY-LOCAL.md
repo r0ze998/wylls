@@ -194,6 +194,8 @@ scripts/play-local.sh --wide
     129–131 · recorded] tag in each of the six directions). From far a mosaic of the nations' colours, nearer the
     terrain under the nation's colour, closest the 61 tiles and their sites. A place the record does not list stays
     cloud (read-only: nothing here lets a village be placed there).
+  - (Under the fog of war, §7, the wide land is drawn only as far as you have seen it, and the 「記録」 view below is not
+    offered.)
   - 「記録」 [Records] at the map's bottom right → 「記録された世界（読み取り専用・実験中）」 [The recorded world]. Pick a
     「第129輪」 [ring 129] province in the list, press 「ここを原点にする」 [Make this the origin] and zoom in: ring 128
     (gold) and rings 129–131 (the six nations' colours) side by side.
@@ -219,3 +221,22 @@ scripts/play-local.sh --wide
   - a march into the wide land: the program's WideDepart is still closed in SBF (`NotImplemented`);
   - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.
 - Not with `--demo`, `--resume`, `--fresh` or `--two` (the wide version is for one player). A stop ends the world.
+
+## 7. Fog of war (every local test world)
+
+Local test worlds show a player's view, as in Civ: the page draws only what your people can see. It is presentation only
+(cosmetic fog): every account on the local chain stays public and unchanged, and nothing on devnet changes. A page that is
+not a local test world (devnet, the spectator page, practice) looks exactly as before.
+
+- **What you see now:** the land around your own villages and hosts, and around your own nation's villages and the
+  provinces your nation holds. Alliances share nothing.
+- **What you saw before:** stays on the map as you last saw it (muted): villages, keeps and their holders as they were
+  then. It is kept in this browser per world and player (`localStorage` key `ps-ffog:v1:…`).
+- **Never seen:** plain paper, on the map and on 「全体図」 [World chart]; no terrain, village, keep or nation colour.
+- **Other nations' hosts, marches, clashes and contests:** only inside what you see now (no ghosts). An enemy column
+  coming at your village is told once it sets out from a place you see, or once it is 3 turns from arriving.
+- The keep lists, the inspector, the chronicle, alarms and the minimap follow the same rule. The 「記録」 [Records] view
+  (every recorded province) and the map legend's link to the spectator page are not offered under the fog.
+- The one switch: `LOCAL_FOG` in `permutation-server/web/frontier/map/fog.mjs` (`false` = local worlds as before). The
+  radii and the other choices are in `FOG_RULES` there.
+

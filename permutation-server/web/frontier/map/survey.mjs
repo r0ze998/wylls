@@ -73,7 +73,7 @@ const place = o => (o && int(o.p) && int(o.q) && int(o.tile) ? tileHex(o.p, o.q,
  * without a whole tile is left out (a candidate whose province has no
  * terrain yet has no tile).
  */
-export function anchorsOf({ villages = [], hosts = [], candidates = [], explored = [], destinations = [], routes = [] } = {}) {
+export function anchorsOf({ villages = [], hosts = [], candidates = [], explored = [], destinations = [], routes = [], extraAnchors = [] } = {}) {
   const out = [];
   const add = (o, radius, level, kind) => { const h = place(o); if (h) out.push({ q: h.q, r: h.r, radius, level, kind }); };
   for (const v of villages) add(v, SIGHT.village(v.tier ?? 0), L3, 'village');
@@ -83,6 +83,8 @@ export function anchorsOf({ villages = [], hosts = [], candidates = [], explored
   for (const d of destinations) add(d, SIGHT.destination, L2, 'destination');
   // (the tiles a column of the viewer's walked: surveyed as a line, each tile alone)
   for (const t of routes) add(t, SIGHT.route, L2, 'route');
+  // (the local test world's fog of war, map/fog.mjs: the viewer's own nation's villages and held provinces, as hexes)
+  for (const a of extraAnchors) if (int(a?.q) && int(a?.r) && int(a?.radius)) out.push({ q: a.q, r: a.r, radius: a.radius, level: a.level ?? L3, kind: a.kind ?? 'nation' });
   return out;
 }
 
@@ -105,12 +107,16 @@ export function anchorsOf({ villages = [], hosts = [], candidates = [], explored
  *   tiles               Map hexKey → 2 | 3 (every surveyed tile; empty with showAll)
  *   away                Map hexKey → tiles from the nearest anchor that sees it
  */
-export function buildSurvey({ ringsOpen = 1, seeded = null, showAll = false, anchors = [], memory = null } = {}) {
+export function buildSurvey({ ringsOpen = 1, seeded = null, showAll = false, anchors = [], memory = null, extraOpen = null } = {}) {
   const tiles = new Map(), away = new Map();
   // (a sparse world, map/world.mjs: only its `seeded` rings exist; an inner ring without a seed is cloud like any ring beyond the map)
   const seededSet = Array.isArray(seeded) ? new Set(seeded) : null;
+  // (`extraOpen`: "p,q" of provinces that exist beyond the open rings — the recorded wide land, map/fog.mjs — so that
+  //  they can be seen and remembered like any other land)
+  const extraSet = Array.isArray(extraOpen) && extraOpen.length ? new Set(extraOpen) : null;
   const ringOpen = d => d < ringsOpen && (!seededSet || seededSet.has(d));
-  const open = (q, r) => { const at = locate(q, r); return ringOpen(ringOf(at.p, at.q)); };
+  const provOpen = (p, q) => ringOpen(ringOf(p, q)) || (!!extraSet && extraSet.has(`${p},${q}`));
+  const open = (q, r) => { const at = locate(q, r); return provOpen(at.p, at.q); };
   if (!showAll) {
     for (const a of anchors) {
       const n = a.radius;
@@ -134,7 +140,7 @@ export function buildSurvey({ ringsOpen = 1, seeded = null, showAll = false, anc
     const hit = provinces.get(pk);
     if (hit) return hit;
     let v;
-    if (!ringOpen(ringOf(p, q))) v = { kind: 'cloud', max: L0, min: L0, sig: '0', sig2: '0' };
+    if (!provOpen(p, q)) v = { kind: 'cloud', max: L0, min: L0, sig: '0', sig2: '0' };
     else if (showAll) v = { kind: 'sight', max: L3, min: L3, sig: '3', sig2: '3' };
     else {
       let max = L1, min = L3, near = false, rim = L3, sig = '', sig2 = '';
@@ -289,7 +295,8 @@ export function createSurveyor({ storage = browserStorage, now = () => 0 } = {})
     const play = (input.mode ?? 'play') === 'play';
     const body = play ? { ringsOpen, seeded, ready: !!input.ready, wallet: input.wallet ?? null, scope: input.scope ?? null, villages: input.villages ?? [], hosts: input.hosts ?? [],
       candidates: input.candidates ?? [], explored: input.explored ?? [], destinations: input.destinations ?? [], routes: input.routes ?? [], hostIds: input.hostIds ?? [], home: input.home ?? null,
-      faction: input.faction ?? null, stage: input.stage ?? 'none', board: input.board ?? null, genesisTs: input.genesisTs ?? null } : { ringsOpen, seeded, open: true };
+      faction: input.faction ?? null, stage: input.stage ?? 'none', board: input.board ?? null, genesisTs: input.genesisTs ?? null,
+      ...(input.extraAnchors?.length ? { extraAnchors: input.extraAnchors } : {}), ...(input.extraOpen?.length ? { extraOpen: input.extraOpen } : {}) } : { ringsOpen, seeded, open: true };
     const sig = sigOf(body);
     if (sig === lastSig && last) return last;
     lastSig = sig;
@@ -298,7 +305,7 @@ export function createSurveyor({ storage = browserStorage, now = () => 0 } = {})
     else {
       const key = body.scope && body.wallet ? memoryKey(body.scope, body.wallet) : null;
       if (key !== memKey) { memKey = key; memory = key ? unpackMemory(storage.get(key)) : new Set(); seen = false; reveals = new Map(); gain = null; }
-      survey = buildSurvey({ ringsOpen, seeded, anchors: anchorsOf(body), memory });
+      survey = buildSurvey({ ringsOpen, seeded, anchors: anchorsOf(body), memory, extraOpen: body.extraOpen ?? null });
       if (body.ready) {
         // what comes into sight after the first picture dissolves out of the chart (the first picture is what the records say)
         const t = now();

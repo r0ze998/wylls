@@ -8,6 +8,7 @@
 // FS.conquest.reach: the keeps of other nations the viewer's marches can reach (fkeepreach.mjs `cachedReach`;
 // the controller's `wantKeepReach` fills it when this tab or a keep panel is shown).
 import { html, raw } from '../../util.mjs';
+import { fogNow, viewKeeps } from '../map/fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName, UNITS, RESOURCES, RESOURCE_ORDER, routeLine, clientText } from '../fi18n.mjs';
 import { activeHolding } from '../fstate.mjs';
@@ -43,7 +44,8 @@ export function scoreRows(record) {
 }
 
 export function keepFor(FS, p, q) {
-  const keeps = FS.conquest?.keeps;
+  // (the local test world's fog of war, map/fog.mjs: a keep never seen is not told, one seen before is its last-known)
+  const keeps = viewKeeps(FS.conquest?.keeps);
   return keeps instanceof Map ? keeps.get(`${p},${q}`) ?? null : keeps?.[`${p},${q}`] ?? null;
 }
 
@@ -177,11 +179,14 @@ function renderKeepMarches(FS, m) {
 export function renderKeep(FS, keep) {
   if (!conquestEnabled(FS)) return '';
   if (keep?.tile === 255) return html`<p class="muted">${L`この州には砦がありません。`}</p>`;
+  // (the local test world's fog of war, map/fog.mjs: a keep never seen is not told — not "loading" either)
+  if (!keep && fogNow().on) return html`<section class="conquest-keep hpanel"><h4>${L`この州の砦`}</h4><p class="muted">${L`この州の砦は、まだ見ていません。`}</p></section>`;
   const m = keepModel(FS, keep);
   if (!m) return html`<section class="conquest-keep hpanel"><h4>${L`この州の砦`}</h4><p class="muted">${L`砦の情報を確認しています。`}</p></section>`;
   const owner = m.holder < 6 ? factionName(m.holder) : L`中立`;
   const ended = (!worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity));
-  const hist = keepHistory(FS.conquest?.history?.get?.(`${m.p},${m.q}`));
+  // (a keep out of sight is its last-known look: no live history of contests and captures — map/fog.mjs)
+  const hist = keep?.fog === 'memory' ? null : keepHistory(FS.conquest?.history?.get?.(`${m.p},${m.q}`));
   // (no host can depart this moment: the ones on their way to being ready say so, with the turn; hud/keephand.mjs)
   // (and beside the ones that can: a host mustered a moment ago is named with the turn from which it can depart)
   // (a host of the viewer's that stands on the keep's own tile is not offered as one to send there, and is not said to
@@ -207,6 +212,7 @@ export function renderKeep(FS, keep) {
     <dl class="facts kp-facts"><div class="row"><dt>${L`支配国`}</dt><dd>${owner}${m.mine ? html` · ${L`あなたの国`}` : ''}</dd></div>
       ${hist?.last ? html`<div class="row"><dt>${L`前の支配国`}</dt><dd>${factionName(hist.last.from)} · ${L`第${fmtNum(hist.last.bell)}ターンに交代`}</dd></div>` : ''}
       ${Number.isInteger(m.asOfBell) ? html`<div class="row"><dt>${L`最終確認`}</dt><dd>${L`第${fmtNum(m.asOfBell)}ターン`}</dd></div>` : ''}</dl>
+    ${keep?.fog === 'memory' ? html`<p class="muted kp-fog">${L`最後に見たときのようすです（いまは見えていません）。`}</p>` : ''}
     ${m.heartland ? html`<p class="kp-state kp-state-safe">${icon('shield')}<span>${L`本国の中核地です。この砦は奪取されません。`}</span></p>` : m.protectedFor > 0 ? html`<p class="kp-state kp-state-safe">${icon('shield')}<span>${L`占領後の保護中です。あと${span(m.protectedFor * bellSeconds(FS))}（ゲーム内）で再び争奪できます。`}</span></p>`
       : html`<p class="kp-state">${hold !== null && !m.mine ? html`<strong>${L`敵の軍勢が砦のマスを ${fmtNum(hold)} ターン続けて保つと、州はその国のものになります。`}</strong> ` : ''}${worldContinues(FS.season) ? L`砦を保持する国がこの州を支配します。この世界は続きます。戦期の勝敗と集計は未決定です。` : L`砦を保持する国がこの州を支配します。シーズンの終わりに支配する州が最も多い国が勝ちます。`}</p>`}
     ${!m.heartland && !m.mine && !m.protectionKnown ? html`<p class="muted">${L`この砦の保護状態を確認しています。`}</p>` : ''}
@@ -237,7 +243,7 @@ export function renderOutpost(FS, site) {
  * (controller.mjs keepsPending — a ring's village list not read). An empty list then says so, and never that no keep is
  * within reach.
  */
-export const reachLoading = FS => Number(FS?.conquest?.keepsPending ?? 0) > 0;
+export const reachLoading = FS => Number(FS?.conquest?.keepsPending ?? 0) > 0 && !fogNow().on;   // (under the fog of war nothing unseen is "pending": map/fog.mjs)
 
 /** The keeps of other nations a march of the viewer can reach now, nearest first. */
 export function renderReach(FS) {
@@ -263,7 +269,7 @@ export function renderReach(FS) {
     <h4 id="conquest-reach-title">${L`あなたの軍が届く他国の砦`}</h4>
     ${!r ? html`<p class="muted">${L`届く砦を調べています…`}</p>` : !r.ok ? html`<p class="muted">${clientText(r.code)}</p>` : html`
       ${r.home ? (waits.length ? html`${renderWaits(FS, waits)}<p class="muted">${L`そのあいだは、村からの道のりで調べています。`}</p>` : html`<p class="muted">${L`出発できる戦闘部隊がいないため、村からの道のりで調べています。`}</p>`) : ''}
-      ${others.length ? html`<ul class="list kr-rows" aria-labelledby="conquest-reach-title">${others.map(row)}</ul>` : reachLoading(FS) ? html`<p class="muted kr-loading">${L`届く砦を調べています…`}</p>` : html`<p>${L`いま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`}`}
+      ${others.length ? html`<ul class="list kr-rows" aria-labelledby="conquest-reach-title">${others.map(row)}</ul>` : reachLoading(FS) ? html`<p class="muted kr-loading">${L`届く砦を調べています…`}</p>` : fogNow().on ? html`<p>${L`見えている他国の砦で、いま届くものはありません。まだ見ていない土地の砦は表示しません。`}</p>` : html`<p>${L`いま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`}`}
   </section>`;
 }
 

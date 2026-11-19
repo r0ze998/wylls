@@ -27,6 +27,7 @@ import { keepArrival } from '../hud/rulebook.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { hostRows } from './host.mjs';
 import { cardHead } from './parts.mjs';
+import { viewKeeps } from '../map/fog.mjs';
 import { holdingModel } from './holding.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
@@ -34,7 +35,7 @@ import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, w
 export const CONQUEST_STEPS = Object.freeze(['village', 'build', 'train', 'muster', 'march', 'hold', 'capture']);
 const int = Number.isInteger;
 
-const keepsOf = FS => (FS.conquest?.keeps instanceof Map ? [...FS.conquest.keeps.values()] : []);
+const keepsOf = FS => (FS.conquest?.keeps instanceof Map ? [...viewKeeps(FS.conquest.keeps).values()] : []);
 
 /**
  * What the records say of the viewer on the way to a province: `{village, built, trained, host, marched, holding:
