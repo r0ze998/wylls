@@ -53,16 +53,10 @@ fn main() {
         if land && demo.is_none() {
             return Err("--land-preview is accepted only together with --capture-demo".into());
         }
-        // the TEST-ONLY operator AI war world's option likewise (only with the capture demo)
+        // the TEST-ONLY operator AI war world's option likewise: on any natural world (loop-play4 B-6: the kept, plain,
+        // fresh-map and wide worlds too, so that the AI residents' marches are revealed and settled by the keeper loop
+        // that serves their villages, as the player's are). Only the demo also opens the rest of its new ring (open_rest)
         let (rest, operators) = itest::operator_villages::take_villages_args(rest)?;
-        // (TEST-ONLY wide-march-local: also with the wide land, where the AI residents march into the wide land and
-        //  only the keeper loop that serves their villages reveals and settles those marches)
-        if operators.is_some() && demo.is_none() && !wide {
-            return Err(
-                "--operator-villages is accepted only together with --capture-demo or --wide-land"
-                    .into(),
-            );
-        }
         if wide {
             // (TEST-ONLY wide world: rim villages march into the wide land by the expedition wrapper; this runner reveals
             //  them from the public round and catches the wide destination up from its opening turn)
@@ -143,6 +137,20 @@ fn main() {
                     }
                 });
             }
+            // (TEST-ONLY wide world, fix wide-herald-lag: the world's turns kept current from ready-for-join until the
+            //  player's home lands — the keeper loop starts only there; this duty ends first, so the two never race)
+            let mut warm = if wide {
+                let (until_tx, until_rx) = tokio::sync::watch::channel(false);
+                let (st, a, rx) = (world.state.clone(), world.a.clone(), stop_rx.clone());
+                let h = tokio::spawn(async move {
+                    if let Err(e) = itest::wide_land::warm_keep(st, a, rx, until_rx, |v| println!("{v}")).await {
+                        println!("{}", serde_json::json!({"schema": itest::wide_land::WIDE_SCHEMA, "wide_step": "warm_keeper_stopped", "test_only": true, "why": e}));
+                    }
+                });
+                Some((until_tx, h))
+            } else {
+                None
+            };
             let task = tokio::spawn(async move {
                 let world = std::sync::Arc::new(world);
                 // (the second player's village joins the same keeper loop once its own PlaceHome lands)
@@ -189,7 +197,12 @@ fn main() {
                 } else if operators.is_none() {
                     drop(more_tx);
                 }
-                match natural::await_home(&world, &wallet, &mut stop_rx).await {
+                let found = natural::await_home(&world, &wallet, &mut stop_rx).await;
+                if let Some((until_tx, h)) = warm.take() {
+                    let _ = until_tx.send(true);
+                    let _ = h.await;
+                }
+                match found {
                     Ok((home, _sig)) => {
                         if let Some(scale) = demo {
                             let (st, a, homes, h, rx, player) = (state.clone(), world.a.clone(), world.homes.clone(), home.home, keeper_rx.clone(), wallet);

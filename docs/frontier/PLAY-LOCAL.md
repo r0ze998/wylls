@@ -48,7 +48,10 @@ scripts/play-local.sh
     centre-free rules of PR #69) each nation's homes in its own wedge. Not with `--resume`: a kept world keeps its map.
   - `--demo`: the 15-minute capture demo (`--speed 30` makes it ×30)
   - `--wide`: the wide version (§6)
-  - `--ai 0`: no AI residents (default 2)
+  - `--ai 0`: no AI residents (default 2). The AI residents are **at war by default** (fix-loop4): besides building and
+    training they muster hosts and march on other nations' reachable keeps (siege, capture), one action per turn, in
+    every world (kept, `--random-map`, `--wide`, `--demo`)
+  - `--ai-peaceful`: the AI residents do not go to war (build, harvest, train and muster only)
   - `--two`: two people in one world (§3.1; a kept world or `--demo`)
   - `--port 41930`: other ports
   - `--lang ja`: the script's messages in Japanese
@@ -216,10 +219,23 @@ scripts/play-local.sh --wide
     province within range 3 as the 2nd or 3rd village (0xD9 WideClaimSite; the cost comes from the village's stores,
     1,200 wood etc.; the runner settles it with WideSettleTicket / WideFinalize).
   - The clock runs at `--speed` (default 60, 10–60). A Hamlet saves the cost in about 30 game hours: ~30 min at ×60.
-  - AI residents (`--ai N`) request rim villages too, save (harvest only) and claim wide land; one action per turn.
+  - AI residents (`--ai N`) request rim villages too, save, claim wide land and send expeditions into it; by default
+    they also go to war (marches on reachable keeps of other nations). One action per turn.
+  - The setup brings every opened province up to the turn the world opens at, and until your first village lands a
+    TEST-only warm keeper keeps every province's turns current (wide-herald-lag; before it, the rim started tens of turns
+    behind and took ~10 min at ×60 to catch up). If a province still falls behind (a loaded machine), a muster or a
+    departure becomes a waiting send: the page says "This province's turns are N behind: this machine is under heavy
+    load …" and sends it once as soon as it catches up (no need to press again).
+  - 「支配する州」 [Provinces held] and the standings count the rim (ring 128) and the wide land's keeps too (counts
+    only; the herald's per-turn control map still covers rings 0–127, and its 州・時間 score counts no wide province).
 - Not possible yet (2026-11-19):
-  - a march into the wide land: the program's WideDepart is still closed in SBF (`NotImplemented`);
-  - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.
+  - a march into the wide land works only as the rim village's expedition (「境界への道を準備」, the 0x4804 wrapper,
+    #92), and wide → wide only in the TEST-only local build (`localnet-wide-depart`, #94); devnet's SBF WideDepart is
+    still closed;
+  - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time;
+  - a march whose reveal window closed unrevealed (the keeper loop's pass was longer than the ×60 window) holds its
+    province for good (no program settlement, §−2.4f (d), blocked on r0ze); the herald writes a turn's records only
+    once every opened province has resolved it, so 「支配する州」 and the standings then stop at that turn.
 - Not with `--demo`, `--resume`, `--fresh` or `--two` (the wide version is for one player). A stop ends the world.
 
 ## 7. Fog of war (every local test world)

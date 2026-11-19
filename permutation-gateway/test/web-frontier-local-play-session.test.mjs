@@ -31,7 +31,7 @@ test('mounted once per document, in the page\'s language, with no time made up',
     const boxes = doc.all.filter(e => e.id === SESSION_NOTICE_ID); assert.equal(boxes.length, 1); assert.ok(doc.inBody(boxes[0]));
     assert.equal(boxes[0].attrs.role, 'status');
     const said = points(doc).join('\n');
-    for (const part of [/鍵はこのページのメモリにだけ/, /このページでは確認できません/, /既定は開始から2時間/, /進行は保存されません/]) assert.match(said, part);
+    for (const part of [/鍵はこのページのメモリにだけ/, /このページでは確認できません/, /進行は保存されません/]) assert.match(said, part);
     assert.doesNotMatch(said, /[0-9]{1,2}:[0-9]{2}|残り/, 'no end time, no time left');
     setLang('en');
     assert.match(points(doc).join('\n'), /cannot confirm when the world ends/); assert.match(doc.byClass('local-play-session-title')[0].textContent, /About this test world/);

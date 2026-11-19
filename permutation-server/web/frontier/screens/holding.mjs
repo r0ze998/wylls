@@ -34,6 +34,7 @@ import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
 import { claimTargets, settlerCost } from '../flocalplay-wide.mjs';
+import { wideSlots } from '../fwide.mjs';
 
 /**
  * (TEST-ONLY wide play, LOCAL play only: owner t379u 「広い版がんばれ」) The village screen's wide-land card in a local
@@ -47,9 +48,13 @@ export function wideClaimModel(FS, m) {
   if (!wide || !m?.holding) return null;
   const h = m.holding;
   if (Number(h.order ?? 1) !== 1) return null;
-  const targets = claimTargets({ p: h.p, q: h.q }, wide.targets).slice(0, 6);
+  // (loop-play4 B-9: a wide village of this citizen is a wide-bound slot of its inventory, not one of FS.holdings — it
+  //  counts toward the three villages, and its province is never offered again)
+  const mine = wideSlots(FS);
+  const held = new Set(mine.filter(e => e.holding).map(e => `${String(e.holding.p)},${String(e.holding.q)}`));
+  const targets = claimTargets({ p: h.p, q: h.q }, wide.targets).filter(t => !held.has(`${String(t.p)},${String(t.q)}`)).slice(0, 6);
   if (!targets.length) return null;
-  const owned = Array.isArray(FS.holdings) ? FS.holdings.length : 1;
+  const owned = (Array.isArray(FS.holdings) ? FS.holdings.length : 1) + mine.length;
   const need = settlerCost(Math.min(3, owned + 1));
   const short = need.map((n, i) => ({ resource: RESOURCE_ORDER[i], need: n, have: m.have[i] ?? 0 })).filter(x => x.need > 0 && x.have < x.need);
   const tried = FS.ui?.wideTried ?? {};

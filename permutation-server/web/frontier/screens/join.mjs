@@ -125,23 +125,23 @@ export function renderNations(FS) {
   const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span><span class="nc-face">${raw(leaderSvg(c.faction, { size: 76, shape: 'card' }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— ${L`教義：${c.doctrine}`}</span></strong>
       <span class="nc-pitch">${DOCTRINE_PITCH[c.faction]()}</span></div></div>`);
   const confirm = html`<div class="nation-confirm${pick ? '' : ' nc-empty'}">
-    <div class="nc-what">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
+    <div class="nc-what" data-stable="join-says">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
     <div class="nc-go">
       ${gated ? html`<label class="field nc-invite">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}"></label>` : ''}
-      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
+      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-stable="join-go" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}` : ''}
     ${instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
     ${nationFull(FS) ? fallbackNation(FS, busy) : ''}
-    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
+    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.localPlay ? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
     ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}
     ${renderWorldLines(FS)}
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
     <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、果てのない辺境を分け合っています。国で決まるのは、村を置く土地と教義、そしてあなたの姿です。`}</p></header>
-    <ul class="banners">${banners}</ul>
+    <ul class="banners" data-stable="join-banners">${banners}</ul>
     ${confirm}
   </section>`;
 }
@@ -396,7 +396,10 @@ export function render(FS) {
   // The key is the owner's agent's (handed over on the agent page), ③'s courier's, or another app's or device's: the
   // key card says so, rather than "this device has no game key" (renderSessionFix; Q16-3).
   // ⑳: an NFT Citizen has no in-game key (its wallet signs); no key to fix.
-  if (!FS.resident && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
+  // (loop-play4 B-7: local play's page-signed economy signs with the page's own test wallet — there is no in-game key to
+  //  make or fix (controller.mjs asks for none in local play); while a wide world's rim request settled, this card read as
+  //  a key failure for about a minute. The request's own wait view is shown instead)
+  if (!FS.resident && !FS.localPlay && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;
