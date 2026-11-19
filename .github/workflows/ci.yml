@@ -418,6 +418,10 @@ jobs:
   frontier-wasm:
     name: Frontier M1 web kernels (WASM build and hash)
     runs-on: ubuntu-24.04
+    env:
+      # The runner's own builds are kept and uploaded below (the bytes differ
+      # from the reference host's; see "Cross-host bytes" in build-wasm.sh).
+      BUILD_WASM_KEEP: ${{ github.workspace }}/wasm-built
     steps:
       - uses: actions/checkout@v7
       # The wasm32 target is installed on the CI runner only; the local
@@ -430,10 +434,57 @@ jobs:
       - name: WASM build matches the committed module
         if: hashFiles('scripts/build-wasm.sh') != ''
         run: scripts/build-wasm.sh --check
+      # The conquest module (program version 3 seasons and the conquest scripts).
+      - name: Conquest WASM build matches the committed module
+        if: ${{ !cancelled() && hashFiles('scripts/build-wasm.sh') != '' }}
+        run: scripts/build-wasm.sh --cq --check
       # The S1 module the web client loads for an S1 season (program version 4).
       - name: S1 WASM build matches the committed module
-        if: hashFiles('scripts/build-wasm.sh') != ''
+        if: ${{ !cancelled() && hashFiles('scripts/build-wasm.sh') != '' }}
         run: scripts/build-wasm.sh --s1 --check
+      - name: Upload this runner's modules
+        if: ${{ !cancelled() && hashFiles('scripts/build-wasm.sh') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontier-wasm-x86_64-unknown-linux-gnu
+          path: wasm-built/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The Linux job above can only compare its build with the Linux hash recorded
+  # in <module>.hosts. Whether the COMMITTED module is what the source builds is
+  # only visible on the host that built it (aarch64-apple-darwin): PR #69 merged
+  # a frontier.wasm that its own source did not build, and the Linux job was
+  # green. This job rebuilds on an Apple-silicon runner and accepts byte
+  # identity only. Key-free: it compiles the kernels and runs no test.
+  frontier-wasm-reference:
+    name: Frontier M1 web kernels (reference host, byte-identical)
+    runs-on: macos-15
+    env:
+      BUILD_WASM_KEEP: ${{ github.workspace }}/wasm-built
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain and wasm32 target
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup target add wasm32-unknown-unknown --toolchain 1.95.0
+          rustc +1.95.0 -vV
+      - name: WASM build is byte-identical to the committed module
+        run: scripts/build-wasm.sh --check --reference
+      - name: Conquest WASM build is byte-identical to the committed module
+        if: ${{ !cancelled() }}
+        run: scripts/build-wasm.sh --cq --check --reference
+      - name: S1 WASM build is byte-identical to the committed module
+        if: ${{ !cancelled() }}
+        run: scripts/build-wasm.sh --s1 --check --reference
+      - name: Upload this runner's modules
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontier-wasm-aarch64-apple-darwin
+          path: wasm-built/
+          if-no-files-found: warn
+          retention-days: 14
 
   prize-program:
     name: Prize pool program (host + SBF v2 + LiteSVM)
