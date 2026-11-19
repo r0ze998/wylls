@@ -259,8 +259,11 @@ impl ControlProvince {
         ensure(self.control <= CONTROL_NONE, BAD_VALUE, || {
             format!("{}: control {}", at(), self.control)
         })?;
+        // (⑭ R2: in a centre-free season (0,0) holds a keep code and no
+        //  province is neutral, so the rule is one-way: control 6 is the
+        //  Concord's alone)
         ensure(
-            (self.control == CONTROL_NEUTRAL) == (index == 0),
+            self.control != CONTROL_NEUTRAL || index == 0,
             BAD_VALUE,
             || format!("{}: control 6 is the Concord's alone", at()),
         )?;
@@ -270,10 +273,12 @@ impl ControlProvince {
                 detail: format!("{}: index beyond ring 128", at()),
             })?
             .ring();
+        // (⑭ R2: a centre-free season has no Seats, so rings 0-1 may lack
+        //  the flag; it never marks a ring >= 2)
         ensure(
-            (self.flags & pflag::SEAT != 0) == (ring <= 1),
+            self.flags & pflag::SEAT == 0 || ring <= 1,
             BAD_VALUE,
-            || format!("{}: the seat flag marks rings 0–1 exactly", at()),
+            || format!("{}: the seat flag marks rings 0–1 only", at()),
         )?;
         ensure(
             self.flags & pflag::HEARTLAND == 0 || ring >= 2,
@@ -2194,7 +2199,9 @@ pub mod vectors {
             b,
         );
         let mut b = cb.clone();
-        b[CONTROL_HEADER + 3 * CONTROL_PROVINCE + 4] &= !pflag::SEAT;
+        // (⑭ R2: rings 0-1 may lack the seat flag in a centre-free season;
+        //  the flag on ring 2 is refused)
+        b[CONTROL_HEADER + 7 * CONTROL_PROVINCE + 4] |= pflag::SEAT;
         bad(&mut files, "control", "bad-control-seat.bin", BAD_VALUE, b);
         let mut b = cb.clone();
         let mo = CONTROL_HEADER + c4.provinces.len() * CONTROL_PROVINCE;
@@ -2705,8 +2712,13 @@ mod tests {
         f.marches.pop();
         assert_eq!(f.encode().unwrap_err().code, BAD_SHAPE);
         let mut f = sample_control(1, 1, 3, 11);
-        f.provinces[0].control = 0;
+        f.provinces[7].control = CONTROL_NEUTRAL;
         assert_eq!(f.encode().unwrap_err().code, BAD_VALUE);
+        // ⑭ R2: index 0 may hold a keep code (a centre-free season)
+        let mut f = sample_control(1, 1, 3, 11);
+        f.provinces[0].control = 0;
+        f.provinces[0].flags &= !pflag::SEAT;
+        assert!(f.encode().is_ok());
         let mut f = sample_control(1, 1, 3, 11);
         f.provinces.push(ControlProvince::default());
         assert_eq!(f.encode().unwrap_err().code, BAD_SHAPE);

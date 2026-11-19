@@ -1984,3 +1984,91 @@ fn map_growth_open_and_free_sites_per_wedge_through_ring_8() {
         .collect();
     assert_eq!(funds, vec![open_through; 6], "the funds counted the same");
 }
+
+/// ⑭ R2 on the real OpenProvince: in a centre-free season (placement 2,
+/// conquest byte 81 = 1) (0,0) and ring 1 are ordinary land — sites free
+/// (only (0,0)'s site 0 reserved, the "no site" ticket sentinel), a keep
+/// held by the mixed nation, counted open in their funds; the same rings
+/// of a season with the centre keep every site reserved and no keep.
+#[test]
+fn centre_free_season_opens_rings_0_and_1_as_ordinary_land() {
+    use frontier_abi::v2::presets::{cq_layout as L, CENTRE_FREE, PLACEMENT_MIXED};
+    use permutation_rules::frontier::geometry::{home_nation_in, ring_provinces};
+    let _g = begin();
+    at_bell(1);
+    for centre_free in [false, true] {
+        let mut w = World::new();
+        {
+            let mut sd = w.season.try_borrow_mut_data().unwrap();
+            sd[SEASON_CQ_OFFSET + L::PLACEMENT] = PLACEMENT_MIXED;
+            sd[SEASON_CQ_OFFSET + L::CENTRE] = if centre_free { CENTRE_FREE } else { 0 };
+        }
+        for x in 0..6u8 {
+            let f = w.fund(x);
+            let mut d = f.try_borrow_mut_data().unwrap();
+            put(&mut d, PF::OPEN_SITES, &0u32.to_le_bytes());
+        }
+        let mut want_open = [0u32; 6];
+        for d in 0..=1u16 {
+            let seed = crate::proc::map::genesis_ring_seed(&GENESIS_SEED, d);
+            let key = w.ctx.ring_seed(d);
+            w.ring_seeds.insert(
+                d,
+                info(
+                    leak(key, PROGRAM, seeded_ring_seed_bytes(d, &seed), 0, BIG),
+                    false,
+                    true,
+                ),
+            );
+            for c in ring_provinces(d as u32) {
+                assert_eq!(w.open_province(c), Ok(()), "OpenProvince {c:?}");
+                let pd = w.province_data(c);
+                let n = pd[PV::SITE_COUNT] as usize;
+                let states: Vec<u8> = (0..n).map(|i| pd[PV::site(i) + SM::STATE]).collect();
+                let keep = frontier_abi::conquest_model::read_keep(&pd).unwrap();
+                if !centre_free {
+                    assert!(states.iter().all(|s| *s == SM::STATE_RESERVED), "{c:?}");
+                    assert!(keep.is_none(), "{c:?}: no keep with the centre");
+                    if c.is_concord() {
+                        assert_eq!(n, 0, "the Concord has no sites");
+                    }
+                    continue;
+                }
+                assert!(n > 0, "{c:?}: ordinary land has sites");
+                for (i, s) in states.iter().enumerate() {
+                    let reserved = c.is_concord() && i == 0;
+                    assert_eq!(
+                        *s,
+                        if reserved {
+                            SM::STATE_RESERVED
+                        } else {
+                            SM::STATE_FREE
+                        },
+                        "{c:?} site {i}"
+                    );
+                }
+                let k = keep.expect("a keep on rings 0-1");
+                assert_eq!(
+                    Some(k.holder),
+                    home_nation_in(c, PLACEMENT_MIXED, HMR, &GENESIS_SEED, true)
+                );
+                assert!(!k.heartland_safe);
+                want_open[crate::proc::map::fund_wedge(c) as usize] +=
+                    n as u32 - c.is_concord() as u32;
+            }
+        }
+        let funds: Vec<u32> = (0..6u8)
+            .map(|x| rd_u32(&w.fund_data(x), PF::OPEN_SITES))
+            .collect();
+        assert_eq!(funds, want_open.to_vec(), "centre_free {centre_free}");
+        if centre_free {
+            // each nation holds exactly one keep of ring 1
+            let mut per = [0u32; 6];
+            for c in ring_provinces(1) {
+                per[home_nation_in(c, PLACEMENT_MIXED, HMR, &GENESIS_SEED, true).unwrap()
+                    as usize] += 1;
+            }
+            assert_eq!(per, [1; 6]);
+        }
+    }
+}

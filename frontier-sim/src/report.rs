@@ -317,10 +317,6 @@ pub fn stats_table(sim: &Sim, o: &Outcome) -> String {
             format!("{} / {}", st.routs, st.disarray),
         ),
         (
-            "Engine stages (completion days)",
-            format!("{} {:?}", sim.engine_stages, st.engine_stage_days),
-        ),
-        (
             "Relic Sites spawned / laurels minted by relics",
             format!("{} / {:.0}", st.relics_spawned, lau(st.relic_minted)),
         ),

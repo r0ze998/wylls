@@ -28,6 +28,20 @@ pub const GEOMETRY_VERSION: u16 = 1;
 /// `ruleset_hash_input_v2` only; [`GEOMETRY_VERSION`] keeps the M1 value
 /// (staged ABI, MC §5.1).
 pub const GEOMETRY_VERSION_V2: u16 = 2;
+/// The S1 rules' version of this kernel (⑧ (a), owner decision t346u,
+/// 2026-11-18): [`home_nation`] takes [`PLACEMENT_MIXED`] (the mixing on
+/// every ring). Strictly by `super::ruleset_hash_input`'s rule ("an
+/// algorithm change that keeps every constant must bump its module's
+/// version"), not the placement-1 precedent. Bound into
+/// `ruleset_hash_input_v3` (and so v4) only; an MC season (program version
+/// 3) refuses placement 2 (`SeasonParamsV2::validate`), so
+/// [`GEOMETRY_VERSION_V2`] and `RULESET_HASH_V2` stay.
+pub const GEOMETRY_VERSION_V3: u16 = 3;
+/// ⑭ R2 (owner decision t346u, 2026-11-18): a centre-free season
+/// ([`home_nation_in`], [`ProvinceCoord::is_seat_in`]) has no Seat and its
+/// rings 0 and 1 take the mixed nation too. Bound into
+/// `ruleset_hash_input_v3` (and v4) in place of [`GEOMETRY_VERSION_V3`].
+pub const GEOMETRY_VERSION_CENTRE_FREE: u16 = 4;
 /// Default outermost heartland ring (`heartland_max_ring`, MC §3.12): the
 /// M1 heartland, rings 2–3.
 pub const HEARTLAND_MAX_RING_DEFAULT: u8 = 3;
@@ -202,6 +216,18 @@ impl ProvinceCoord {
     /// A Seat (ring 1): a faction capital, never capturable.
     pub fn is_seat(self) -> bool {
         self.ring() == 1
+    }
+
+    /// [`Self::is_seat`] in a season with (`centre_free == false`) or
+    /// without (⑭ R2) the centre: a centre-free season has no Seat.
+    pub fn is_seat_in(self, centre_free: bool) -> bool {
+        !centre_free && self.is_seat()
+    }
+
+    /// [`Self::is_concord`] as a rule: the Concord exists only in a season
+    /// with the centre (⑭ R2: in a centre-free one (0,0) is ordinary land).
+    pub fn is_concord_in(self, centre_free: bool) -> bool {
+        !centre_free && self.is_concord()
     }
 
     /// Centre tile.
@@ -471,16 +497,35 @@ pub fn home_nation(
     heartland_max_ring: u8,
     genesis_seed: &[u8; 32],
 ) -> Option<u8> {
+    home_nation_in(p, placement, heartland_max_ring, genesis_seed, false)
+}
+
+/// [`home_nation`] in a season with or without the centre. ⑭ R2: in a
+/// centre-free season ([`PLACEMENT_MIXED`] only) the mixed rule covers
+/// rings 0 and 1 too — ring 0's one province is position 0 plus `o_0`, and
+/// each nation takes one of ring 1's six — so every province has a nation
+/// (`None` never). `centre_free == false` is [`home_nation`] exactly.
+pub fn home_nation_in(
+    p: ProvinceCoord,
+    placement: u8,
+    heartland_max_ring: u8,
+    genesis_seed: &[u8; 32],
+    centre_free: bool,
+) -> Option<u8> {
     let r = p.ring();
     let mixed_here = match placement {
         PLACEMENT_DISPERSED => r >= 2 && r <= heartland_max_ring as u32,
-        PLACEMENT_MIXED => r >= 2,
+        PLACEMENT_MIXED => r >= 2 || centre_free,
         _ => false,
     };
     if !mixed_here {
         return p.wedge();
     }
-    let i = p.index() - provinces_within(r - 1);
+    let i = if r == 0 {
+        0
+    } else {
+        p.index() - provinces_within(r - 1)
+    };
     let h = sha256(&[PLACEMENT_DOMAIN, genesis_seed, &(r as u16).to_le_bytes()]);
     let mut b = [0u8; 8];
     b.copy_from_slice(&h[..8]);

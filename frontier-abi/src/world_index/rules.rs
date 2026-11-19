@@ -14,7 +14,7 @@
 //! | rule | byte 0 | candidates |
 //! |---|---|---|
 //! | keep holder | unset (refused) | 1 [`KeepHolderRule::MixedInterleaved`] (`placement::mixed_home_nation`), 2 [`KeepHolderRule::OrbitBalanced`] (`placement::orbit_balanced_outer_nation`) |
-//! | Free City | unset (refused) | 1 [`FreeCityRule::NoFreeCity`], 2 [`FreeCityRule::CanonicalHashV1`] ([`wide_free_city_site`]) |
+//! | Free City | unset (refused) | 1 [`FreeCityRule::NoFreeCity`], 2 [`FreeCityRule::CanonicalHashV1`] ([`wide_free_city_site`]), 3 [`FreeCityRule::DeployedLe32V1`] ([`deployed_free_city_site`]; table v2 only) |
 //! | camp | unset (refused) | 1 [`CampRule::NoCamp`], 2 [`CampRule::SortKeyDrawV1`] ([`wide_initial_camp`]) |
 //! | region | unset (refused) | 1 [`RegionRule::SortKeyHashV1`] ([`wide_region`]) |
 //!
@@ -63,8 +63,13 @@ use permutation_rules::hash::sha256;
 use permutation_rules::rng::rand;
 
 /// Version of the candidate table above. A candidate constant; a changed
-/// table is a new version.
-pub const WIDE_RULES_CONFIG_VERSION: u16 = 1;
+/// table is a new version. Version 2 (⑧ (d), owner decision t346u,
+/// 2026-11-18: wide land's Free City "as deployed") adds
+/// [`FreeCityRule::DeployedLe32V1`]; a version-1 record is still read with
+/// version 1's table (byte 3 is unknown there), never reinterpreted.
+pub const WIDE_RULES_CONFIG_VERSION: u16 = 2;
+/// The first table (`FreeCityRule` 1–2).
+pub const WIDE_RULES_CONFIG_VERSION_V1: u16 = 1;
 /// Seed tag of the configuration record (**provisional**; not a kernel
 /// `SeedKind`).
 pub const RULES_CONFIG_TAG: [u8; 2] = *b"wc";
@@ -154,6 +159,21 @@ pub enum FreeCityRule {
     NoFreeCity = 1,
     /// [`wide_free_city_site`], when the season has Free Cities at all.
     CanonicalHashV1 = 2,
+    /// [`deployed_free_city_site`]: the deployed kernel's own
+    /// `terrain::free_city_site` (`LE32(P) ‖ LE32(Q)` over the canonical
+    /// copy), when the season has Free Cities at all. Table v2.
+    DeployedLe32V1 = 3,
+}
+
+impl FreeCityRule {
+    /// Whether the rule is in table `config_version` (`DeployedLe32V1` is
+    /// not in version 1's).
+    pub const fn in_table(self, config_version: u16) -> bool {
+        match self {
+            FreeCityRule::DeployedLe32V1 => config_version >= WIDE_RULES_CONFIG_VERSION,
+            _ => true,
+        }
+    }
 }
 
 /// Whether and where a wide province gets its initial camp.
@@ -200,7 +220,11 @@ rule_bytes!(
     "keep_holder",
     [MixedInterleaved, OrbitBalanced]
 );
-rule_bytes!(FreeCityRule, "free_city", [NoFreeCity, CanonicalHashV1]);
+rule_bytes!(
+    FreeCityRule,
+    "free_city",
+    [NoFreeCity, CanonicalHashV1, DeployedLe32V1]
+);
 rule_bytes!(CampRule, "camp", [NoCamp, SortKeyDrawV1]);
 rule_bytes!(RegionRule, "region", [SortKeyHashV1]);
 
@@ -234,6 +258,30 @@ pub fn wide_free_city_site(ring_seed: &[u8; 32], coord: WideCoord, site_count: u
     let mut w = [0u8; 8];
     w.copy_from_slice(&h[..8]);
     (u64::from_le_bytes(w) % site_count as u64) as u8
+}
+
+/// Largest ring [`deployed_free_city_site`] gives a site on: every
+/// coordinate within it, and each of its turns, fits `i32` with room for
+/// `Hex` arithmetic, so the deployed `LE32(P) ‖ LE32(Q)` is defined there.
+pub const DEPLOYED_FREE_CITY_MAX_RING: u64 = 1 << 30;
+
+/// The genesis Free City site of a wide province (candidate
+/// `DeployedLe32V1`, ⑧ (d)): **the deployed kernel itself**,
+/// `terrain::free_city_site(ring_seed, (P, Q), site_count)` =
+/// `LE64(sha256("PSF-FREE-CITY" ‖ ring_seed ‖ LE32(P) ‖ LE32(Q))[..8]) mod
+/// site_count` over the canonical wedge-0 copy, so ring 129 follows the
+/// rule of ring 128 with no switch. `0xFF` without a site, and beyond
+/// [`DEPLOYED_FREE_CITY_MAX_RING`] (where `LE32` cannot hold a coordinate).
+pub fn deployed_free_city_site(ring_seed: &[u8; 32], coord: WideCoord, site_count: u8) -> u8 {
+    if site_count == 0 || coord.ring() > DEPLOYED_FREE_CITY_MAX_RING {
+        return u8::MAX;
+    }
+    // within the bound both fit i32 (|p|, |q| <= ring <= 2^30)
+    let p = permutation_rules::frontier::geometry::ProvinceCoord::new(
+        coord.p() as i32,
+        coord.q() as i32,
+    );
+    permutation_rules::frontier::terrain::free_city_site(ring_seed, p, site_count)
 }
 
 /// The beacon region of a wide province (candidate `SortKeyHashV1`):
@@ -405,6 +453,7 @@ pub struct OpeningInput<'a> {
 impl WideRulesConfig {
     /// A configuration from the four bytes: every rule a known candidate
     /// (`Unset`, `Unknown` otherwise), version [`WIDE_RULES_CONFIG_VERSION`].
+    /// (A version-1 record is only read, never made: [`Self::read`].)
     pub fn new(
         season_id: u64,
         world: WorldId,
@@ -454,6 +503,11 @@ impl WideRulesConfig {
                 Some(wide_free_city_site(input.ring_seed, coord, site_count))
             }
             FreeCityRule::CanonicalHashV1 => None,
+            FreeCityRule::DeployedLe32V1 if input.free_cities && site_count > 0 => {
+                Some(deployed_free_city_site(input.ring_seed, coord, site_count))
+                    .filter(|s| *s != u8::MAX)
+            }
+            FreeCityRule::DeployedLe32V1 => None,
         };
         let camp = match self.camp {
             CampRule::NoCamp => None,
@@ -498,7 +552,7 @@ impl WideRulesConfig {
             return Err(RulesError::Magic);
         }
         let version = rd_u16(d, L::CONFIG_VERSION).ok_or(t)?;
-        if version != WIDE_RULES_CONFIG_VERSION {
+        if version != WIDE_RULES_CONFIG_VERSION && version != WIDE_RULES_CONFIG_VERSION_V1 {
             return Err(RulesError::Version {
                 expected: WIDE_RULES_CONFIG_VERSION,
                 got: version,
@@ -506,7 +560,7 @@ impl WideRulesConfig {
         }
         land::zero(d, L::RSV_22, 2).map_err(|_| RulesError::Reserved)?;
         land::zero(d, L::RSV, 8).map_err(|_| RulesError::Reserved)?;
-        Ok(WideRulesConfig {
+        let cfg = WideRulesConfig {
             season_id: rd_u64(d, L::SEASON_ID).ok_or(t)?,
             world: WorldId::new(rd_arr(d, L::WORLD).ok_or(t)?)?,
             config_version: version,
@@ -515,7 +569,15 @@ impl WideRulesConfig {
             camp: CampRule::from_byte(rd_u8(d, L::CAMP).ok_or(t)?)?,
             region: RegionRule::from_byte(rd_u8(d, L::REGION).ok_or(t)?)?,
             authority: rd_arr(d, L::AUTHORITY).ok_or(t)?,
-        })
+        };
+        // a byte outside the record's own table is unknown there
+        if !cfg.free_city.in_table(version) {
+            return Err(RulesError::Unknown {
+                rule: FreeCityRule::NAME,
+                byte: cfg.free_city.to_byte(),
+            });
+        }
+        Ok(cfg)
     }
 
     /// Writes every byte of the record (reserved ranges zeroed).
@@ -559,6 +621,19 @@ impl WideRulesConfig {
 pub const fn keep_holder_allowed(placement: u8, rule: KeepHolderRule) -> bool {
     placement != permutation_rules::frontier::geometry::PLACEMENT_MIXED
         || matches!(rule, KeepHolderRule::MixedInterleaved)
+}
+
+/// Whether a Free City candidate may be configured for a Season of the
+/// given `placement` (⑧ (d), owner decision t346u, 2026-11-18: wide land's
+/// Free City "as deployed"): under `geometry::PLACEMENT_MIXED` a wide Free
+/// City, when the configuration has one, is placed by the deployed kernel
+/// ([`FreeCityRule::DeployedLe32V1`]); the different wide formula
+/// [`FreeCityRule::CanonicalHashV1`] is refused. A configuration without
+/// wide Free Cities ([`FreeCityRule::NoFreeCity`]) stays allowed. Other
+/// placements keep every candidate.
+pub const fn free_city_allowed(placement: u8, rule: FreeCityRule) -> bool {
+    placement != permutation_rules::frontier::geometry::PLACEMENT_MIXED
+        || !matches!(rule, FreeCityRule::CanonicalHashV1)
 }
 
 #[cfg(test)]
@@ -635,7 +710,8 @@ mod tests {
         );
         assert_ne!(rules_config::MAGIC, land::ring_seed::MAGIC);
         assert_ne!(rules_config::MAGIC, land::province::MAGIC);
-        assert_eq!(WIDE_RULES_CONFIG_VERSION, 1);
+        assert_eq!(WIDE_RULES_CONFIG_VERSION, 2);
+        assert_eq!(WIDE_RULES_CONFIG_VERSION_V1, 1);
         assert_eq!(
             permutation_rules::frontier::addr::SeedKind::from_tag(&RULES_CONFIG_TAG),
             None
@@ -772,12 +848,12 @@ mod tests {
         x[2] ^= 1;
         assert_eq!(WideRulesConfig::read(&x), Err(RulesError::Magic));
         let mut x = d;
-        x[rules_config::CONFIG_VERSION] = 2;
+        x[rules_config::CONFIG_VERSION] = 3;
         assert_eq!(
             WideRulesConfig::read(&x),
             Err(RulesError::Version {
-                expected: 1,
-                got: 2
+                expected: 2,
+                got: 3
             })
         );
         for off in [
@@ -1101,6 +1177,126 @@ mod tests {
         for p in [PLACEMENT_WEDGE, PLACEMENT_DISPERSED] {
             assert!(keep_holder_allowed(p, KeepHolderRule::MixedInterleaved));
             assert!(keep_holder_allowed(p, KeepHolderRule::OrbitBalanced));
+        }
+    }
+
+    /// ⑧ (d): `DeployedLe32V1` is the deployed `terrain::free_city_site`
+    /// itself, so ring 129 continues ring 128's rule; it is wedge-symmetric
+    /// and `0xFF` without a site or past its bound.
+    #[test]
+    fn deployed_free_city_candidate_is_the_deployed_kernel() {
+        use permutation_rules::frontier::terrain::free_city_site;
+        for p in ring_provinces(128) {
+            let w = c(p.p as i64, p.q as i64);
+            assert_eq!(
+                deployed_free_city_site(&SEED, w, 12),
+                free_city_site(&SEED, p, 12)
+            );
+        }
+        for ring in [129u64, 130, 200] {
+            for k in 0..(6 * ring) {
+                let w = at(ring, (k / ring) as u8, k % ring);
+                let p = ProvinceCoord::new(w.p() as i32, w.q() as i32);
+                assert_eq!(p.ring() as u64, ring);
+                for sc in [1u8, 7, 12] {
+                    assert_eq!(
+                        deployed_free_city_site(&SEED, w, sc),
+                        free_city_site(&SEED, p, sc),
+                        "ring {ring} {p:?}"
+                    );
+                }
+            }
+        }
+        for ring in [129u64, 131] {
+            for pos in 0..ring {
+                let want = deployed_free_city_site(&SEED, at(ring, 0, pos), 7);
+                for wedge in 1..6 {
+                    assert_eq!(
+                        deployed_free_city_site(&SEED, at(ring, wedge, pos), 7),
+                        want
+                    );
+                }
+            }
+        }
+        assert_eq!(deployed_free_city_site(&SEED, c(129, 0), 0), 0xFF);
+        let far = DEPLOYED_FREE_CITY_MAX_RING as i64 + 1;
+        assert_eq!(deployed_free_city_site(&SEED, c(far, 0), 7), 0xFF);
+        assert_ne!(
+            deployed_free_city_site(&SEED, c(DEPLOYED_FREE_CITY_MAX_RING as i64, 0), 12),
+            0xFF
+        );
+        // a full configuration with the deployed rule places it as the kernel does
+        let mut cfg = all();
+        cfg.free_city = FreeCityRule::DeployedLe32V1;
+        let t = terrain();
+        for coord in [c(129, 0), c(0, 140), c(-70, -70)] {
+            let r = cfg
+                .decide(&OpeningInput {
+                    coord,
+                    genesis_seed: &GENESIS,
+                    ring_seed: &SEED,
+                    terrain: &t,
+                    day: 1,
+                    keep_tile: None,
+                    free_cities: true,
+                })
+                .unwrap();
+            assert_eq!(
+                r.free_city_site,
+                Decision::Decided(Some(deployed_free_city_site(&SEED, coord, t.site_count)))
+            );
+        }
+    }
+
+    /// Table v2 adds byte 3; a v1 record is still read with v1's table, and
+    /// a v1 record naming byte 3 is refused (never reinterpreted).
+    #[test]
+    fn table_v2_adds_the_deployed_free_city_and_v1_still_reads() {
+        let mut cfg = all();
+        cfg.free_city = FreeCityRule::DeployedLe32V1;
+        assert_eq!(cfg.config_version, WIDE_RULES_CONFIG_VERSION);
+        assert_eq!(WIDE_RULES_CONFIG_VERSION, 2);
+        let mut d = [0u8; rules_config::SIZE];
+        cfg.write(&mut d).unwrap();
+        assert_eq!(WideRulesConfig::read(&d), Ok(cfg));
+        let mut v1 = d;
+        v1[rules_config::CONFIG_VERSION] = 1;
+        assert_eq!(
+            WideRulesConfig::read(&v1),
+            Err(RulesError::Unknown {
+                rule: "free_city",
+                byte: 3
+            })
+        );
+        v1[rules_config::FREE_CITY] = FreeCityRule::CanonicalHashV1 as u8;
+        let old = WideRulesConfig::read(&v1).unwrap();
+        assert_eq!(old.config_version, 1);
+        assert_eq!(old.free_city, FreeCityRule::CanonicalHashV1);
+    }
+
+    /// ⑧ (d): a placement-2 Season may not take the different wide formula.
+    #[test]
+    fn a_mixed_placement_season_takes_only_the_deployed_free_city_formula() {
+        use permutation_rules::frontier::geometry::{
+            PLACEMENT_DISPERSED, PLACEMENT_MIXED, PLACEMENT_WEDGE,
+        };
+        assert!(free_city_allowed(
+            PLACEMENT_MIXED,
+            FreeCityRule::DeployedLe32V1
+        ));
+        assert!(free_city_allowed(PLACEMENT_MIXED, FreeCityRule::NoFreeCity));
+        assert!(!free_city_allowed(
+            PLACEMENT_MIXED,
+            FreeCityRule::CanonicalHashV1
+        ));
+        for p in [PLACEMENT_WEDGE, PLACEMENT_DISPERSED] {
+            for r in [
+                FreeCityRule::NoFreeCity,
+                FreeCityRule::CanonicalHashV1,
+                FreeCityRule::DeployedLe32V1,
+            ] {
+                assert!(free_city_allowed(p, r));
+            }
         }
     }
 }

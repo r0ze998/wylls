@@ -97,7 +97,6 @@ pub struct Done {
     pub outs: Vec<Outcome>,
     pub secs: f64,
     pub stats: crate::sim::Stats,
-    pub engine_stages: u8,
 }
 
 pub struct Job {
@@ -134,7 +133,6 @@ pub fn run_all(jobs: Vec<Job>) -> Vec<Done> {
                     outs,
                     secs,
                     stats: sim.stats.clone(),
-                    engine_stages: sim.engine_stages,
                 });
             });
         }
@@ -940,7 +938,7 @@ pub fn suite(base: &Config, seeds: u64, only: Option<&str>) -> String {
 fn stats_line(d: &Done) -> String {
     let st = &d.stats;
     format!(
-        "Final ring {}, rings opened {}; sessions {}; clashes {} ({} engagements, {} kernel refusals); sieges declared {} / completed {} / failed {} (never held {}, lost {}); occupations {}, liberations {}, captures {}, Free City captures {}; camps beaten {}; routs {}; Disarray postures {}; Engine stages {} on days {:?}; Relic Sites {} minting {:.0} laurels; dormancies {}, first holdings released {}; 2nd/3rd holdings founded {}; withdrawn joins {}; Mandate shares {} (fee-only completions without a share {}), Mandate laurels paid {:.0}, left in reserve {:.0}; office-terms Minister {} / paid Warden {}.\n",
+        "Final ring {}, rings opened {}; sessions {}; clashes {} ({} engagements, {} kernel refusals); sieges declared {} / completed {} / failed {} (never held {}, lost {}); occupations {}, liberations {}, captures {}, Free City captures {}; camps beaten {}; routs {}; Disarray postures {}; Relic Sites {} minting {:.0} laurels; dormancies {}, first holdings released {}; 2nd/3rd holdings founded {}; withdrawn joins {}; Mandate shares {} (fee-only completions without a share {}), Mandate laurels paid {:.0}, left in reserve {:.0}; office-terms Minister {} / paid Warden {}.\n",
         st.final_ring,
         st.rings_opened,
         st.sessions,
@@ -959,8 +957,6 @@ fn stats_line(d: &Done) -> String {
         st.camps_won,
         st.routs,
         st.disarray,
-        d.engine_stages,
-        st.engine_stage_days,
         st.relics_spawned,
         lau(st.relic_minted),
         st.dormancies,
@@ -1568,11 +1564,11 @@ mod tests {
         assert!(free.stats.minister_vacant < tiny.stats.minister_vacant);
     }
 
-    /// CL-33 / D24 variant: with `relic_to_mandate` the relic emission goes
-    /// only to Mandate reserves, no holder banks a relic laurel, and the
-    /// season still conserves.
+    /// ⑭ R6: Relic Sites spawned only at Engine stages, which are retired,
+    /// so `relics` (and the D24 `relic_to_mandate` variant) mints nothing;
+    /// the season still conserves.
     #[test]
-    fn relic_emission_can_feed_the_mandate_reserve() {
+    fn relics_never_spawn_once_the_engine_stages_are_retired() {
         let (sim, o) = play(&Config {
             relics: true,
             relic_to_mandate: true,
@@ -1581,8 +1577,8 @@ mod tests {
         for c in &o.checks {
             assert!(c.ok, "{} ({})", c.name, c.detail);
         }
-        assert!(sim.stats.relic_minted > 0);
-        assert_eq!(sim.stats.relic_to_mandate, sim.stats.relic_minted);
+        assert_eq!(sim.stats.relics_spawned, 0);
+        assert_eq!(sim.stats.relic_minted, 0);
         assert!(o.agents.iter().all(|a| a.earned.relic == 0));
     }
 

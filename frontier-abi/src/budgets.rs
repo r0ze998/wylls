@@ -185,7 +185,9 @@ budgets! {
     Join: 25_000, 0, 700, 12_495;
     SetSession: 6_000, 0, 300, 5_259;
     SetVigil: 6_000, 0, 250, 5_204;
-    FileTicket: 17_000, 0, 560, 16_096;
+    // (⑧ (b), 2026-11-19: under placement 2 the outer-ring ticket rule
+    //  hashes each site's ring offset, `home_nation`; G1 worst 16,096 -> 17,132)
+    FileTicket: 18_000, 0, 560, 17_132;
     SettleTicket: 40_000, 0, 900, 22_383;
     ReleaseDormant: 25_000, 0, 480, 11_864;
     CloseHolding: 15_000, 0, 330, 6_750;

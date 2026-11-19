@@ -304,7 +304,7 @@ pub fn settle_run(sim: &Sim, p: &IndexParams) -> Outcome {
     let members_all: u64 = facts.iter().map(|f| f.members).sum();
     let raw: [u64; FACTIONS] = core::array::from_fn(|k| clamped_mean(k, &facts, p));
     let herd: [u64; FACTIONS] = core::array::from_fn(|k| herding(facts[k].members, members_all, p));
-    let st = settle(&sim.pools, &totals, &index, sim.engine_stages, &pp).expect("settle");
+    let st = settle(&sim.pools, &totals, &index, &pp).expect("settle");
     let prize = sim.pools.prize().expect("prize");
     let mut ledger = SeasonLedger::new(&st).expect("ledger");
     assert_eq!(ledger.prize, prize);

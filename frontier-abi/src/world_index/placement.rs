@@ -35,7 +35,10 @@
 //! `geometry::PLACEMENT_MIXED` (2) makes the deployed `home_nation` this
 //! same formula on every disk ring, and a placement-2 Season's wide rules
 //! configuration must choose this function as its keep holder
-//! (`rules::keep_holder_allowed`), so ring 128 and ring 129 follow one rule. The
+//! (`rules::keep_holder_allowed`), so ring 128 and ring 129 follow one rule;
+//! its wide Free City, when it has one, is the deployed kernel's
+//! (`rules::free_city_allowed`, ⑧ (d)), and its outer-ring first-village
+//! tickets follow the same nation (⑧ (b), `ticket_nation_allowed`). The
 //! texture is **evenly interleaved individual provinces** (no two ring
 //! neighbours share a nation); clustered nation patches would be a
 //! different rule and another owner decision. The `genesis_seed` is the

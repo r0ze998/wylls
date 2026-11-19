@@ -412,7 +412,6 @@ pub struct Stats {
     pub releases: u64,
     pub dormancies: u64,
     pub second_holdings: u64,
-    pub engine_stage_days: Vec<u32>,
     pub routs: u64,
     pub disarray: u64,
     pub mandate_paid: u64,
@@ -524,8 +523,6 @@ pub struct Sim {
     /// Factions whose Ministers are at least half bots this term
     /// (`Config::bot_mandates`).
     bot_steered: [bool; 6],
-    pub engine_total: u64,
-    pub engine_stages: u8,
     pub relics: Vec<u32>,
     crisis: [bool; 6],
     pub escrow: u64,
@@ -610,8 +607,6 @@ impl Sim {
             attack_routed: 0,
             attack_disarray: 0,
             bot_steered: [false; 6],
-            engine_total: 0,
-            engine_stages: 0,
             relics: Vec::new(),
             crisis: [false; 6],
             escrow: 0,
@@ -1167,7 +1162,6 @@ impl Sim {
         for a in ss {
             self.session(a, b);
         }
-        self.engine_check(b);
         self.resolve_bell(b);
         self.relic_credit(b);
         if b % HOUR_BELLS == HOUR_BELLS - 1 {
@@ -1936,61 +1930,8 @@ impl Sim {
         ag.pledged += e_units + s_units;
         ag.facts[3] += e_units;
         ag.facts[2] += s_units * kb as u64 / BPS_ONE as u64;
-        self.engine_total += e_units;
         self.add_works(a, b, WORKS_PLEDGE);
         1
-    }
-
-    fn engine_check(&mut self, b: u32) {
-        if self.engine_stages >= 5 {
-            return;
-        }
-        let k = self.engine_stages as u64 + 1;
-        let need = k * (k + 1) / 2 * ENGINE_PER_HOLDING * self.used_sites.max(1);
-        if self.engine_total >= need {
-            self.engine_stages += 1;
-            self.stats.engine_stage_days.push(b / BELLS_PER_DAY);
-            self.spawn_relics(b);
-        }
-    }
-
-    /// Six Relic Sites, one per wedge, three rings inside the rim.
-    fn spawn_relics(&mut self, _b: u32) {
-        if !self.cfg.relics {
-            return;
-        }
-        let d = self.open_ring.saturating_sub(3).max(4).min(self.open_ring);
-        let ring = ring_provinces(d);
-        for k in 0..6u8 {
-            let in_wedge: Vec<ProvinceCoord> = ring
-                .iter()
-                .copied()
-                .filter(|p| p.wedge() == Some(k))
-                .collect();
-            let n = in_wedge.len();
-            for j in 0..n {
-                let c = in_wedge[(n / 2 + j) % n];
-                let Some(pi) = self.prov_at(c) else { continue };
-                if self.prov(pi).relic.is_some() {
-                    continue;
-                }
-                let tile = {
-                    let p = self.prov(pi);
-                    (1..PROVINCE_TILES as u8)
-                        .find(|&t| p.terrain.passable(t) && !p.terrain.is_site(t))
-                };
-                if let Some(t) = tile {
-                    let pr = self.prov_mut(pi);
-                    pr.relic = Some(t);
-                    if pr.camp.as_ref().is_some_and(|c| c.tile == t) {
-                        pr.camp = None;
-                    }
-                    self.relics.push(pi);
-                    self.stats.relics_spawned += 1;
-                    break;
-                }
-            }
-        }
     }
 
     // -------------------------------------------------------- military

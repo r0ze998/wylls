@@ -76,7 +76,7 @@ use permutation_rules::frontier::camp;
 use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::geometry::{self, region_of, ProvinceCoord, PROVINCE_TILES};
 use permutation_rules::frontier::holding::Tier;
-use permutation_rules::frontier::terrain::{free_city_site, generate_province, ProvinceTerrain};
+use permutation_rules::frontier::terrain::{free_city_site, generate_province_in, ProvinceTerrain};
 use permutation_rules::hash::sha256;
 
 use crate::addr::{self, AddrCtx};
@@ -677,11 +677,17 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     // Everything the Province holds, computed before any lamport moves.
     crate::heap::trace_checkpoint(200);
-    let terrain = generate_province(&ring_seed, coord);
+    // ⑭ R2: a centre-free season (conquest byte 81) has no Concord and no
+    // Seats: (0,0) is ordinary land and rings 0-1 take keeps and camps.
+    let centre_free = cq.centre == frontier_abi::v2::presets::CENTRE_FREE;
+    let terrain = generate_province_in(&ring_seed, coord, centre_free);
     crate::heap::trace_checkpoint(201);
     let now_bell = bell_or_zero(&hdr, now.ts);
     let day = addr::day_of(now_bell);
-    let reserved_ring = ring < camp::CAMP_FIRST_RING as u16;
+    let reserved_ring = !centre_free && ring < camp::CAMP_FIRST_RING as u16;
+    // (⑭ R2: (0,0)'s site 0 stays reserved, since the ticket entry (0,0,0)
+    //  means "no site" (`ticket_sites`); its other sites are free)
+    let reserved_site0 = centre_free && coord.is_concord() && terrain.site_count > 0;
     // MC §3.2: the keep (rings ≥ 2) on the symmetric keep tile (A-8).
     // The keep's tile follows the wedge (terrain symmetry); its holder and
     // heartland safety follow the season's placement (`home_nation`; the
@@ -690,20 +696,33 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let sd = season_ai.try_borrow_data()?;
         Ro(&sd).arr::<32>(S::GENESIS_SEED)?
     };
-    let keep = match coord.wedge() {
-        Some(w) if coord.ring() >= 2 => {
+    // (⑭ R2: in a centre-free season (0,0) takes wedge 0's keep tile and
+    //  every ring's holder is the mixed nation)
+    let keep_wedge = if centre_free {
+        Some(fund_wedge(coord))
+    } else {
+        coord.wedge()
+    };
+    let keep = match keep_wedge {
+        Some(w) if centre_free || coord.ring() >= 2 => {
             let tile = kkeep::keep_tile(&terrain, &terrain.sites, terrain.site_count, w)
                 .unwrap_or(kkeep::NO_KEEP_TILE);
-            let holder =
-                geometry::home_nation(coord, cq.placement, cq.heartland_max_ring, &genesis_seed)
-                    .unwrap_or(w);
-            kkeep::try_open(
+            let holder = geometry::home_nation_in(
+                coord,
+                cq.placement,
+                cq.heartland_max_ring,
+                &genesis_seed,
+                centre_free,
+            )
+            .unwrap_or(w);
+            kkeep::try_open_in(
                 coord,
                 holder,
                 cq.heartland_max_ring,
                 tile,
                 &cq.keep_params(),
                 now_bell,
+                centre_free,
             )
             .map_err(|_| crate::error::kernel(SUB_KEEP_CAP))?
             .map(|mut k| {
@@ -720,7 +739,16 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         _ => None,
     };
     let keep_tile = keep.map(|k| k.tile);
-    let camp_now = camp::place_v2(&ring_seed, coord, &terrain, day, false, true, keep_tile);
+    let camp_now = camp::place_v2_in(
+        &ring_seed,
+        coord,
+        &terrain,
+        day,
+        false,
+        true,
+        keep_tile,
+        centre_free,
+    );
     // MC §3.7: the genesis Free City (ring ≥ free_city_min_ring ≠ 0).
     let free_city = if cq.free_city_min_ring != 0
         && ring >= cq.free_city_min_ring as u16
@@ -762,7 +790,7 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         )?;
         for i in 0..PV::SITES_N {
             let o = PV::site(i);
-            let state = if (i as u8) < site_count && reserved_ring {
+            let state = if (i as u8) < site_count && (reserved_ring || (i == 0 && reserved_site0)) {
                 SM::STATE_RESERVED
             } else {
                 SM::STATE_FREE
@@ -803,7 +831,11 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     let digest = terrain_digest(&pd)?;
     // The wedge fund's live counters (I-48) and the RingSeed's count.
-    let open_sites = if reserved_ring { 0 } else { site_count as u32 };
+    let open_sites = if reserved_ring {
+        0
+    } else {
+        site_count as u32 - reserved_site0 as u32
+    };
     {
         let mut fdat = fund.try_borrow_mut_data()?;
         let mut w = Rw(&mut fdat);
@@ -1149,7 +1181,7 @@ mod tests {
         let seed = [7u8; 32];
         for (pp, qq) in [(0, 0), (1, 0), (2, -1), (-3, 5), (7, 2)] {
             let c = ProvinceCoord::new(pp, qq);
-            let t = generate_province(&seed, c);
+            let t = permutation_rules::frontier::terrain::generate_province(&seed, c);
             let mut d = alloc::vec![0u8; PV::SIZE];
             encode_terrain(&t, &mut d).unwrap();
             let r = Ro(&d);

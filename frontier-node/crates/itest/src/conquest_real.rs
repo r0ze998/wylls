@@ -6,7 +6,7 @@
 //! on real SBF:
 //!
 //! 1. the `local-conquest-test-v1` opening: real ConsumeRingSeed /
-//!    SetRules(`CanonicalHashV1`) / WideOpenProvince, the Free City read back
+//!    SetRules(`DeployedLe32V1`, ⑧ (d)) / WideOpenProvince, the Free City read back
 //!    from this chain, and this start's `conquest_world` statement;
 //! 2. a real Depart routed to the Free City's tile, the player's Reveal, and
 //!    the keeper (with the conquest runner's resident bells) to the member

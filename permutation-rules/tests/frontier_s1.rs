@@ -15,7 +15,7 @@ fn hex(b: &[u8]) -> String {
 
 /// `RULESET_HASH_V3`. Pinned here and in `frontier-abi`; a change to any S1
 /// kernel version or table moves it on purpose.
-const V3_RULESET_HASH: &str = "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d";
+const V3_RULESET_HASH: &str = "e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70";
 
 #[test]
 fn s1_ruleset_hash_pinned_and_older_hashes_unchanged() {
@@ -56,6 +56,14 @@ fn s1_ruleset_hash_pinned_and_older_hashes_unchanged() {
         ("catalog", Some(2), 3),
         ("doctrine", Some(2), 3),
         ("holding", Some(3), 4),
+        // ⑧ (a), 2026-11-18: placement 2 (`GEOMETRY_VERSION_V3`); ⑭ R2,
+        // 2026-11-19: the centre-free variants (`*_CENTRE_FREE`)
+        ("geometry", Some(2), 4),
+        ("terrain", Some(2), 3),
+        ("camp", Some(2), 3),
+        ("siege", Some(3), 4),
+        ("keep", Some(2), 3),
+        ("control", Some(1), 2),
         ("arms", None, 1),
         ("caravan", None, 1),
         ("structure", None, 1),
@@ -64,7 +72,12 @@ fn s1_ruleset_hash_pinned_and_older_hashes_unchanged() {
         assert_eq!((ver2(n), ver3(n)), (a, b), "{n}");
     }
     for (n, v) in KERNEL_VERSIONS_V2 {
-        if !["frontier", "catalog", "doctrine", "holding"].contains(&n) {
+        if ![
+            "frontier", "catalog", "doctrine", "holding", "geometry", "terrain", "camp", "siege",
+            "keep", "control",
+        ]
+        .contains(&n)
+        {
             assert_eq!(ver3(n), v, "{n} unchanged");
         }
     }

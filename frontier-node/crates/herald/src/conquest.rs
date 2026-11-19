@@ -131,6 +131,15 @@ pub struct SeasonInfo {
     pub end_bell: u32,
     pub genesis_seed: [u8; 32],
     pub ended: bool,
+    /// ⑭ R2: the season has no centre (conquest byte 81).
+    pub centre_free: bool,
+}
+
+/// ⑭ R2: the captured Season's conquest block says it has no centre.
+pub fn centre_free_of(f: &Fold) -> bool {
+    f.account(&f.ctx.season)
+        .and_then(|s| frontier_abi::v2::presets::ConquestParams::of_season(&s.data))
+        .is_some_and(|q| q.centre == frontier_abi::v2::presets::CENTRE_FREE)
 }
 
 /// The conquest state (checkpointed with the fold).
@@ -228,6 +237,8 @@ pub fn season_info(f: &Fold) -> Option<SeasonInfo> {
             .try_into()
             .ok()?,
         ended: status == SE::STATUS_ENDED || status == SE::STATUS_CLOSED,
+        centre_free: frontier_abi::v2::presets::ConquestParams::of_season(d)
+            .is_some_and(|q| q.centre == frontier_abi::v2::presets::CENTRE_FREE),
     })
 }
 
@@ -1396,16 +1407,25 @@ pub fn after_records(
             }
             let clash = f.st.clashes.contains(&(pq.0, pq.1, b));
             let fr: &Fold = f;
+            let cf = centre_free_of(fr);
             let owner = |s: usize| holding_owner_tag(fr, pq.0 as i32, pq.1 as i32, s as u8);
-            let mut view =
-                match ctl::view_of(&pd_b, prev.as_deref(), b, genesis, clash, &events, &owner) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        cq.alarms.replay_errors += 1;
-                        prev = Some(pd_b);
-                        continue;
-                    }
-                };
+            let mut view = match ctl::view_of(
+                &pd_b,
+                prev.as_deref(),
+                b,
+                genesis,
+                clash,
+                &events,
+                &owner,
+                cf,
+            ) {
+                Ok(v) => v,
+                Err(_) => {
+                    cq.alarms.replay_errors += 1;
+                    prev = Some(pd_b);
+                    continue;
+                }
+            };
             if let Some(scores) = territory.as_mut() {
                 if score_holder < 6 {
                     scores[score_holder as usize] += 1;
@@ -1725,6 +1745,7 @@ pub fn rest_views(f: &mut Fold, bells: &[crate::rest::Bell]) {
             false,
             &[],
             &owner,
+            centre_free_of(fr),
         ) else {
             cq.alarms.replay_errors += 1;
             continue;
@@ -1835,7 +1856,8 @@ fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot
         call: &call_set,
     };
     let season = f.cfg.season_id;
-    let file = ctl::control_file(season, b, rings, &recs, cq.prev_ct.as_ref(), &mi);
+    let cf = si.is_some_and(|s| s.centre_free);
+    let file = ctl::control_file(season, b, rings, &recs, cq.prev_ct.as_ref(), &mi, cf);
     let bytes = match file.encode() {
         Ok(x) => x,
         Err(e) => {
@@ -1989,7 +2011,8 @@ fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot
             ..Default::default()
         };
         for (c, v) in &views {
-            if c.ring() >= 2 && v.ct.control < 6 {
+            // (⑭ R2: a centre-free season's rings 0-1 are held land too)
+            if (c.ring() >= 2 || si.is_some_and(|s| s.centre_free)) && v.ct.control < 6 {
                 hs.provinces[v.ct.control as usize] += 1;
             }
             for x in 0..6 {
@@ -2025,7 +2048,11 @@ fn herald_call(
         .iter()
         .map(|(c, v)| MapProvince {
             coord: *c,
-            control: ctl::control_of_code(v.ct.control, c.ring()),
+            control: ctl::control_of_code(
+                v.ct.control,
+                c.ring(),
+                si.is_some_and(|s| s.centre_free),
+            ),
             contestable: v.contestable,
         })
         .collect();
@@ -2042,9 +2069,13 @@ fn herald_call(
         }
     }
     let now = |m: &(i32, i32)| {
-        ctl::banner_of(MarchCoord { m: m.0, n: m.1 }, &codes)
-            .0
-            .code()
+        ctl::banner_of(
+            MarchCoord { m: m.0, n: m.1 },
+            &codes,
+            si.is_some_and(|s| s.centre_free),
+        )
+        .0
+        .code()
     };
     for (m, h) in &cq.banner_hist {
         let cur = now(m);
@@ -2137,9 +2168,18 @@ fn ov2_of(cq: &Cq, f: &Fold, v1: &[u8], ring: u16, b: u32) -> Option<Overview2Fi
                 .account(&f.ctx.province(p as i32, q as i32))
                 .and_then(|a| {
                     let owner = |_s: usize| None;
-                    ctl::view_of(&a.data, None, b, genesis, false, &[], &owner)
-                        .ok()
-                        .map(|v| v.ext)
+                    ctl::view_of(
+                        &a.data,
+                        None,
+                        b,
+                        genesis,
+                        false,
+                        &[],
+                        &owner,
+                        centre_free_of(f),
+                    )
+                    .ok()
+                    .map(|v| v.ext)
                 }),
         };
         let mut r = ext.unwrap_or_else(|| Overview2Record::from_v1([0; OVERVIEW_RECORD]));

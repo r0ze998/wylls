@@ -386,10 +386,10 @@
     {
       "name": "FileTicket",
       "tag": 51,
-      "cu_budget": 17000,
+      "cu_budget": 18000,
       "cu_per_unit": 0,
-      "cu_limit": 17000,
-      "measured": 16096,
+      "cu_limit": 18000,
+      "measured": 17132,
       "tx_contract": 560,
       "tx_ceiling": 576,
       "tx_worst_estimate": 575,
@@ -397,7 +397,7 @@
       "loaded_need_placeholder": 1492689,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 17000
+      "cu_limit_s1": 18000
     },
     {
       "name": "SettleTicket",

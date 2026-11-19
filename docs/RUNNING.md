@@ -118,7 +118,7 @@ All three verifiers are the project's own; none is an independent audit.
 
 ```sh
 V=frontier-node/target/release/frontier-verify
-R=234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d
+R=e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70
 $V --program <program id from state.json> --season <N> --rpc http://127.0.0.1:41910 --localnet --test-key --ruleset $R \
   --out .local/verify --save .local/verify/fixture.json.gz
 $V tamper --fixture .local/verify/fixture.json.gz --test-key --ruleset $R --out .local/tamper

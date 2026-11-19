@@ -32,11 +32,13 @@ fn continuous_world_is_created_and_accepts_later_join() {
     assert_eq!(u32_at(&created, S::END_BELL), NO_END_BELL);
     assert_eq!(u32_at(&created, S::JOIN_CLOSE_BELL), NO_END_BELL);
     assert_eq!(created[SEASON_CQ_OFFSET + cq_layout::CONTINUOUS], 1);
+    // (the playable preset's placement is 2 since ⑭ R1 / ⑧ (c); the
+    //  ceiling stays 0)
     assert_eq!(
         &created[SEASON_CQ_OFFSET + cq_layout::PLACEMENT
             ..SEASON_CQ_OFFSET + cq_layout::CONTINUOUS],
-        &[0; 3],
-        "the map extension bytes remain reserved"
+        &[frontier_abi::v2::presets::PLACEMENT_MIXED, 0, 0],
+        "the preset's placement; the map extension bytes remain 0"
     );
     assert_eq!(
         &created[S::PARAMS_HASH..S::PARAMS_HASH + 32],
