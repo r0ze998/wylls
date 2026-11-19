@@ -68,6 +68,8 @@ import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
 import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
+// the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
+import { fogNow, viewKeeps } from './map/fog.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, homePlaceOf, homeRingsOf, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
@@ -1488,6 +1490,7 @@ async function refreshChronicle() {
   // them itself when a line is drawn)
   const holdingsNow = FS.holdings ?? [];
   FS.incoming = FS.citizen ? incomingWarnings({ kernel: k, departures, holdings: holdingsNow.map(o => ({ p: o.p, q: o.q, site: o.site, tile: o.tile, shieldUntilBell: FS.provinces.get(`${o.p},${o.q}`)?.province?.siteMirror?.[o.site]?.shieldUntilBell })), faction: FS.citizen.faction, genesisTs: FS.clock.genesisTs, nowBell: nowBell(), unitOf: () => WARNING_UNIT }) : [];
+  { const fog = fogNow(); if (fog.on) FS.incoming = fog.incoming(FS.incoming, { nowBell: nowBell(), departures }); }
   // (2026-11-17, ⑦ the warning's way on — screens/incoming.mjs: each warning names its village whole (its tile and its
   //  generation, from the very holdings it was judged for), and how this judging was read is kept beside it: the pinned
   //  world, whether the rules were there, whether the chronicle's read came, and how many departures still under way
@@ -1963,7 +1966,7 @@ export function wantKeepReach() {
   if (!cq?.control || !conquestEnabled(FS.season) || !Number.isInteger(FS.citizen?.faction)) return false;
   const { home, origins } = reachOrigins(FS);
   if (!origins.length) return false;
-  const args = { keeps: cq.keeps, origins, home, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
+  const args = { keeps: viewKeeps(cq.keeps), origins, home, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
     seeds: (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed })), blocked: palisadeHexes(FS) };
   const key = reachKey(args);
   if (cq.reach?.key === key) return false;
@@ -1991,7 +1994,7 @@ export function wantHostReach(hostId) {
   const r = hostRow(hostId);
   if (!r) return false;
   const origins = [{ p: r.p, q: r.q, tile: r.tile, unit: r.unit, host: String(r.id), troops: r.troops }];
-  const args = { keeps: cq.keeps, origins, home: false, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
+  const args = { keeps: viewKeeps(cq.keeps), origins, home: false, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
     seeds: (FS.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), blocked: palisadeHexes(FS) };
   const key = `h:${r.id}|${reachKey(args)}`;
   if (cq.hostReach?.key === key) return false;

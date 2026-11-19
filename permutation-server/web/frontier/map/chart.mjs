@@ -261,10 +261,30 @@ function glyph(g, dots, t, detail) {
  * the finished sheet once, which costs a slow canvas far less than a clip of
  * sixty hexes under every stroke.
  */
+/**
+ * Never-seen land as plain paper (no terrain wash, lattice, coast or glyph): the local test world's fog of war
+ * (map/fog.mjs FOG_RULES.blankChart; set once at boot, before anything is painted). Off everywhere else.
+ */
+let blankChart = false;
+export const setBlankChart = on => { blankChart = !!on; };
+export const chartIsBlank = () => blankChart;
+
 export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone = false, ink = true } = {}) {
   // `ink` false: the bare sheet (paper, its age, the thin washes), with no lattice, coast or glyph: what the chart
   // is next to painted land, where its ink is let through only in part (applySurvey)
   if (!tiles.length || !g?.save) return;
+  if (blankChart) {
+    // (the fog of war: what was never seen says nothing of its land — paper alone, cut to the tiles)
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    for (const t of tiles) { bx0 = Math.min(bx0, t.x); bx1 = Math.max(bx1, t.x); by0 = Math.min(by0, t.y); by1 = Math.max(by1, t.y); }
+    g.save();
+    const cut = () => { g.beginPath(); for (const t of tiles) hexPath(g, t.x, t.y, -Math.min(1.6, 0.6 / res)); };
+    if (!alone) { cut(); g.clip(); }
+    paintPaper(g, { x0: bx0 - RADIUS - 2, y0: by0 - RADIUS, x1: bx1 + RADIUS + 2, y1: by1 + RADIUS }, res);
+    if (alone) { g.globalCompositeOperation = 'destination-in'; g.globalAlpha = 1; g.fillStyle = '#000'; cut(); g.fill(); }
+    g.restore();
+    return;
+  }
   const detail = res >= 0.42 ? 2 : res >= 0.16 ? 1 : 0;
   const lw = Math.max(1.3, 0.8 / res);
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

@@ -20,7 +20,7 @@
 //
 // This file reads nothing from the network and sends no order.
 import { FS } from '../fstate.mjs';
-import { conquestEnabled } from '../fconquest.mjs';
+import { conquestEnabled, keepEventSide } from '../fconquest.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { reachableKeeps } from '../fkeepreach.mjs';
 import { palisadeHexesOf } from '../s1walk.mjs';
@@ -30,13 +30,31 @@ import { subjectOf, marchCheck } from '../hud/subject.mjs';
 import { reachWhy } from './keeps.mjs';
 import { mountOwnClash } from './ownclash.mjs';
 import { autoPanDefault } from './autopan.mjs';
+import { fogNow, viewKeeps } from './fog.mjs';
 
 const int = Number.isInteger;
 
 /** The page's part of the keeps' records, for the map: `{enabled, events, viewer, bell}`. */
 export function keepFeedOf(fs) {
   const enabled = conquestEnabled(fs?.season) && !territoryEnabled(fs);
-  return { enabled, events: enabled && Array.isArray(fs.conquest?.events) ? fs.conquest.events : null, viewer: int(fs?.citizen?.faction) ? fs.citizen.faction : null, bell: int(fs?.nowBell) ? fs.nowBell : null };
+  const viewer = int(fs?.citizen?.faction) ? fs.citizen.faction : null;
+  return { enabled, events: enabled && Array.isArray(fs.conquest?.events) ? fogEvents(fs.conquest.events, viewer) : null, viewer, bell: int(fs?.nowBell) ? fs.nowBell : null };
+}
+/**
+ * The keep events the board may play (verify-pr93): under the fog of war of a local test world (map/fog.mjs) only those
+ * whose keep is in sight now or in which the viewer's nation is a side — the board's rows hold last-known keeps too, and
+ * a capture read for one of them would play its flood and change its holder out of sight. Kept per events array and
+ * fog view (asked once a frame). Without the fog: the events as they are.
+ */
+let fogEventsMemo = { events: null, fog: null, out: null };
+function fogEvents(events, viewer) {
+  const fog = fogNow();
+  if (!fog.on) return events;
+  if (fogEventsMemo.events !== events || fogEventsMemo.fog !== fog) {
+    const out = events.filter(e => !int(e?.p) || !int(e?.q) || !!keepEventSide(e, viewer) || fog.seen({ p: e.p, q: e.q, ...(int(e.tile) ? { tile: e.tile } : {}) }, () => false));
+    fogEventsMemo = { events, fog, out };
+  }
+  return fogEventsMemo.out;
 }
 
 /** The fighting host in the hand that may march now: a host row (hud/subject.mjs), or null. */
@@ -58,7 +76,8 @@ export function keepReachOf(fs, h) {
   const cq = fs?.conquest, me = fs?.citizen?.faction;
   if (!h || !cq?.keeps?.size || !fs.kernel || !int(me)) return null;
   const nowBell = fs.nowBell ?? 0;
-  const r = reachableKeeps({ kernel: fs.kernel, keeps: cq.keeps, origins: [{ p: h.p, q: h.q, tile: h.tile, unit: h.unit }], seeds: (fs.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), faction: me, nowBell, blocked: palisadeHexesOf(fs) });
+  const keeps = viewKeeps(cq.keeps);   // (the fog of war of a local test world: map/fog.mjs)
+  const r = reachableKeeps({ kernel: fs.kernel, keeps, origins: [{ p: h.p, q: h.q, tile: h.tile, unit: h.unit }], seeds: (fs.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), faction: me, nowBell, blocked: palisadeHexesOf(fs) });
   if (!r.ok) return null;
   const secsPerTurn = Number(fs.season?.bellSecs ?? 600) || 600, departTs = (fs.chain?.now?.() ?? 0) + departMargin(fs.chain?.rate);
   const turnOf = secs => {
@@ -68,7 +87,7 @@ export function keepReachOf(fs, h) {
   };
   const out = [], lit = new Set();
   for (const k of r.rows) { lit.add(`${k.p},${k.q}`); out.push({ p: k.p, q: k.q, tile: k.tile, arriveTurn: turnOf(k.route.secs), holder: k.holder, defenders: k.troops ?? null, reachable: true, why: null }); }
-  for (const k of cq.keeps.values()) {
+  for (const k of keeps.values()) {
     const key = `${k.p},${k.q}`;
     if (lit.has(key) || !int(k.holder) || k.holder > 5 || k.holder === me) continue;
     const why = k.heartland ? reachWhy.heartland() : int(k.consolidatedUntil) && k.consolidatedUntil > nowBell ? reachWhy.guarded(k.consolidatedUntil) : reachWhy.far();

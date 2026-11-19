@@ -138,6 +138,24 @@ export function wideLandOf(walk) {
     cells.push(cell); byKey.set(cell.key, cell);
     min = min === null ? ring : Math.min(min, ring); max = max === null ? ring : Math.max(max, ring);
   }
+  bordersOf(cells, byKey);
+  return Object.freeze({ cells, byKey, rings: { min, max }, reach: max === null ? 0 : max + 1, far, count: cells.length,
+    key: `${walk?.world ?? ''}|${walk?.snapshot?.epoch ?? ''}|${walk?.snapshot?.stamp ?? ''}|${cells.length}` });
+}
+
+/**
+ * The same land with only `cells` (copies of some of `land`'s cells, holders possibly changed: the fog of war of a local
+ * test world, map/fog.mjs), its borders drawn again. `reach` and `rings` stay the whole land's (the camera's extent is
+ * not a secret: the wide land's rings are in the season record).
+ */
+export function landOfCells(cells, land) {
+  const byKey = new Map(cells.map(c => [c.key, c]));
+  bordersOf(cells, byKey);
+  return Object.freeze({ cells, byKey, rings: land?.rings ?? { min: null, max: null }, reach: land?.reach ?? 0, far: land?.far ?? 0, count: cells.length, key: land?.key ?? '' });
+}
+
+/** Each cell's `corners` and `edges` (see wideLandOf), from its neighbours in `byKey`. */
+function bordersOf(cells, byKey) {
   for (const cell of cells) {
     const corners = cell.corners = provinceCorners(cell.p, cell.q), edges = [];
     for (const [dp, dq] of NEIGHBOURS) {
@@ -150,8 +168,6 @@ export function wideLandOf(walk) {
     }
     cell.edges = edges;
   }
-  return Object.freeze({ cells, byKey, rings: { min, max }, reach: max === null ? 0 : max + 1, far, count: cells.length,
-    key: `${walk?.world ?? ''}|${walk?.snapshot?.epoch ?? ''}|${walk?.snapshot?.stamp ?? ''}|${cells.length}` });
 }
 
 /** The two corners two neighbouring cells share (within a pixel), or null. */

@@ -1955,4 +1955,10 @@ export default {
   "広い土地の州 {0} へ遠征中の軍勢がいます": "A host is on an expedition to wide-land province {0}",
   "広い土地への遠征は終わりました。結果は「進軍」で確かめられます。": "The expedition into the wide land is over. See its result in Marches.",
   "道のりに、まだ州が開かれていない土地があります。そこを通る進軍は封を開けられないので、別の行き先を選んでください": "The route crosses land whose province is not open yet. A march through it cannot have its seal opened, so choose another destination",
+  // the local test world's fog of war (frontier/map/fog.mjs)
+  "霧の世界：見えるのは、自分の村と軍勢、自分の国の村と州のまわりだけです。一度見た土地は、最後に見たときのようす（薄く表示）のまま残ります。ほかの国の軍勢や進軍は、いま見えている場所でだけ表示します。まだ見ていない土地は白紙です。": "Fog of war: you see only around your own villages and hosts, and around your nation's villages and provinces. Land you have seen stays as you last saw it (shown faded). Other nations' hosts and marches show only where you can see now. Land you have never seen is blank.",
+  "この州の砦は、まだ見ていません。": "You have not seen this province's keep yet.",
+  "最後に見たときのようすです（いまは見えていません）。": "As you last saw it (out of sight now).",
+  "見えている他国の砦で、いま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within reach now. Keeps on land you have not seen are not shown.",
+  "見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within this host's reach now. Keeps on land you have not seen are not shown.",
 };
