@@ -28,7 +28,14 @@
 # (x86_64-unknown-linux-gnu) differ by 38-46 B in every module. The current
 # hashes and sizes are in web/frontier/wasm/<artefact>.hosts, not here. The
 # cause is not established; it is not the checkout path (remapped) and not
-# floating point (the sources use none). So the committed module stays the one
+# floating point (the sources use none). Measured on the modules of CI run
+# 44468171843 (both hosts upload theirs): types, exports, globals and memory
+# are equal; the data section holds the same bytes in another order; the code
+# section holds the functions in another order and the Mac build has one
+# function more (frontier.wasm: 612 against 611). That is what differing
+# symbol hashes followed by LTO would give (unproven guess: cargo mixes the
+# host triple into the metadata of crates that depend on a proc-macro, here
+# borsh through borsh-derive). So the committed module stays the one
 # built on aarch64-apple-darwin, and <artefact>.hosts records the sha256 each
 # build host produces from the committed source. --check passes on a host when
 # it reproduces the committed module byte for byte, or when it reproduces that
