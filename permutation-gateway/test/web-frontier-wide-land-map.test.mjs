@@ -13,7 +13,7 @@ import { encode } from '../../permutation-server/web/sdk/base58.mjs';
 import { parseWideManifest, worldIdOf, ringPosition, compareRingOrder, WORLD_DOMAIN, WideWalk, loadWide } from '../../permutation-server/web/frontier/map/wide.mjs';
 import {
   terrainOfCapture, wideLandOf, cellsIn, paintWideLand, wideTags, paintWideTags, wideLevel, mountWideLand, holderFill, meanColour,
-  MAP_LIMIT, POLL_S, RETRY_S, NEUTRAL_LAND, WIDE_WORDS, MIN_CELL_PX, cellGrow,
+  MAP_LIMIT, POLL_S, RETRY_S, NEUTRAL_LAND, WIDE_WORDS, MIN_CELL_PX, cellGrow, PATH_CHUNK,
 } from '../../permutation-server/web/frontier/map/wideland.mjs';
 import { NATION_LAND } from '../../permutation-server/web/frontier/palette.mjs';
 import { landBox, fitView } from '../../permutation-server/web/frontier/map/camera.mjs';
@@ -126,6 +126,28 @@ test('only the cells in view are visited, at every level of detail', async () =>
   const { ctx, log } = fakeCtx();
   assert.deepEqual(paintWideLand(ctx, land, { seen: { x0: 0, y0: 0, x1: 1, y1: 1 } }), { cells: 0, fills: 0 });
   assert.equal(log.fill.length, 0);
+});
+
+test('thousands of wide provinces: no canvas path holds more than PATH_CHUNK of them (one huge path is not linear in the browser)', () => {
+  // rings 129–135 whole (5,544 provinces) as a walk would hold them; no capture bytes (plain fills), holders 0–6
+  const entries = new Map();
+  for (let p = -135; p <= 135; p++) for (let q = -135; q <= 135; q++) {
+    const r = Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
+    if (r >= 129 && r <= 135) entries.set(`${p},${q}`, { state: 'open', ring: BigInt(r), p: BigInt(p), q: BigInt(q), wedge: 0, wide: { capture: { bytes_b64: '' }, keepHolder: (p * 7 + q * 3 + 700) % 7, holdings: [] } });
+  }
+  const land = wideLandOf({ entries, world: 'w', snapshot: { epoch: '1', stamp: 'x' } });
+  assert.equal(land.count, 5544);
+  const seen = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+  for (const [level, zoom] of [['chart', 0.006], ['world', 0.06], ['province', 0.25]]) {
+    let open = 0, most = 0, paths = 0;
+    const { ctx } = fakeCtx();
+    ctx.beginPath = () => { open = 0; paths++; };
+    ctx.moveTo = () => { open++; most = Math.max(most, open); };
+    const r = paintWideLand(ctx, land, { seen, zoom, level });
+    assert.equal(r.cells, 5544);
+    assert.ok(most <= PATH_CHUNK, `${level}: ${most} sub-paths in one path`);
+    assert.ok(paths >= Math.ceil(5544 / PATH_CHUNK), `${level}: ${paths} paths`);
+  }
 });
 
 test('far: the nation\'s own colour; nearer: the terrain under a wash of it; tile view: the 61 tiles', async () => {

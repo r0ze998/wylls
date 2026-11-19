@@ -17,7 +17,7 @@
 // summary); the client never regenerates wide terrain.
 //
 // Levels of detail (the ordinary map's own: map/fmap.mjs coarseChart / lod):
-//  - chart and world: one cell per province in its keep nation's colour, cells batched one path per colour (as
+//  - chart and world: one cell per province in its keep nation's colour, cells batched per colour, at most PATH_CHUNK a path (as
 //    fmap.mjs paintChartCells does), the borders where the keep nation changes, and the wide land's outer edge;
 //  - province: each cell in the mean colour of its terrain, washed with its nation's colour, the same borders;
 //  - tile: the 61 tiles in their terrain colours, a lighter wash of the nation, the same borders.
@@ -143,6 +143,12 @@ export function cellsIn(land, seen) {
 /** The level of detail the wide land is painted at, from the map's own (`lod`) and whether the frame is the coarse chart. */
 export const wideLevel = (lod, coarse) => (coarse ? 'chart' : lod === 'tile' ? 'tile' : lod === 'province' ? 'province' : 'world');
 
+/**
+ * Most hexagons (or border segments) one canvas path holds. One path of many sub-paths costs the browser far more than
+ * linear time (Chromium, measured in verify-pr87: 5,544 hexagons in one path 92 ms, the same in paths of 256 6 ms), so
+ * a colour's batch is drawn in paths of at most this many.
+ */
+export const PATH_CHUNK = 256;
 // (`grow`: how much larger than the province each hexagon is drawn, about its centre; 1 = the province itself)
 const path = (ctx, cells, grow = 1) => {
   ctx.beginPath();
@@ -151,6 +157,12 @@ const path = (ctx, cells, grow = 1) => {
     pts.forEach(([x, y], j) => { const X = c.x + (x - c.x) * grow, Y = c.y + (y - c.y) * grow; return j ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
     ctx.closePath();
   }
+};
+/** Fills `cells` (as `path` draws them) in the current fill style, PATH_CHUNK hexagons a path. → the number of fills. */
+const fillCells = (ctx, cells, grow = 1) => {
+  let n = 0;
+  for (let i = 0; i < cells.length; i += PATH_CHUNK) { path(ctx, cells.slice(i, i + PATH_CHUNK), grow); ctx.fill(); n++; }
+  return n;
 };
 /** How much a province is enlarged at `zoom` so it is at least MIN_CELL_PX across (1 when it already is). */
 export const cellGrow = zoom => Math.max(1, MIN_CELL_PX / (2 * PROVINCE_CIRCUMRADIUS * Math.max(zoom, 1e-9)));
@@ -168,10 +180,10 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
   const grow = level === 'chart' || level === 'world' ? cellGrow(zoom) : 1;
   if (grow > 1) {
     const ring = 2.4 / zoom / PROVINCE_CIRCUMRADIUS;
-    path(ctx, cells, grow + ring); ctx.fillStyle = 'rgba(27,46,40,.9)'; ctx.fill(); fills++;
+    ctx.fillStyle = 'rgba(27,46,40,.9)'; fills += fillCells(ctx, cells, grow + ring);
     const base = new Map();
     for (const c of cells) { const colour = holderFill(c.holder); if (!base.has(colour)) base.set(colour, []); base.get(colour).push(c); }
-    for (const [colour, group] of base) { path(ctx, group, grow); ctx.fillStyle = colour; ctx.fill(); fills++; }
+    for (const [colour, group] of base) { ctx.fillStyle = colour; fills += fillCells(ctx, group, grow); }
     ctx.restore();
     return { cells: cells.length, fills, grow };
   }
@@ -189,7 +201,7 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
       if (!base.has(colour)) base.set(colour, []);
       base.get(colour).push(c);
     }
-    for (const [colour, group] of base) { path(ctx, group); ctx.fillStyle = colour; ctx.fill(); fills++; }
+    for (const [colour, group] of base) { ctx.fillStyle = colour; fills += fillCells(ctx, group); }
   }
   // the nation's wash over the land (none on the chart, whose land is already the nation's)
   if (level === 'province' || level === 'tile') {
@@ -200,7 +212,7 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
       wash.get(colour).push(c);
     }
     ctx.globalAlpha = WASH[level];
-    for (const [colour, group] of wash) { path(ctx, group); ctx.fillStyle = colour; ctx.fill(); fills++; }
+    for (const [colour, group] of wash) { ctx.fillStyle = colour; fills += fillCells(ctx, group); }
     ctx.globalAlpha = 1;
   }
   // borders: between keep nations, in ink with a paper halo under it; the wide land's outer edge, a dashed ink line
@@ -208,10 +220,12 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
   const inner = [], outer = [];
   for (const c of cells) for (const e of c.edges ?? []) (e.inner ? inner : outer).push(e);
   const stroke = (list, colour, width) => {
-    if (!list.length) return;
-    ctx.beginPath();
-    for (const e of list) { ctx.moveTo(e.a[0], e.a[1]); ctx.lineTo(e.b[0], e.b[1]); }
-    ctx.strokeStyle = colour; ctx.lineWidth = width / zoom; ctx.stroke();
+    ctx.strokeStyle = colour; ctx.lineWidth = width / zoom;
+    for (let i = 0; i < list.length; i += PATH_CHUNK) {
+      ctx.beginPath();
+      for (const e of list.slice(i, i + PATH_CHUNK)) { ctx.moveTo(e.a[0], e.a[1]); ctx.lineTo(e.b[0], e.b[1]); }
+      ctx.stroke();
+    }
   };
   const w = level === 'chart' ? 1 : level === 'world' ? 1.4 : 2;
   stroke(inner, 'rgba(244,239,224,.85)', w + 1.6);
