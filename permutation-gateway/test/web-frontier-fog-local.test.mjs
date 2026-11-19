@@ -73,6 +73,16 @@ test('vision: the viewer\'s nation sees too (its villages and held provinces); a
   assert.deepEqual(F.nationSources({ overviews: ov, faction: null, terrainOf }), { villages: [], territory: [] }, 'no nation yet: nothing more');
 });
 
+test('vision: the nation\'s held provinces come from the control snapshot too, so they never blink out with an overview read again', () => {
+  // (live war world, 2026-11-20: a ring's overview read again carries no `control` until the next control read lays it
+  //  on — fconquest.mjs applyControl — and the territory's sight flickered 1,199 ↔ 335 tiles between frames)
+  const ov = new Map([[2, { provinces: [rec(-2, 2)] }]]);
+  const src = F.nationSources({ overviews: ov, faction: VIEWER, terrainOf, control: [{ p: -2, q: 2, control: VIEWER }, { p: 0, q: -2, control: ENEMY }] });
+  assert.deepEqual(src.territory, [{ p: -2, q: 2 }]);
+  ov.get(2).provinces[0].control = VIEWER;
+  assert.deepEqual(F.nationSources({ overviews: ov, faction: VIEWER, terrainOf, control: [{ p: -2, q: 2, control: VIEWER }] }).territory, [{ p: -2, q: 2 }], 'once, from either');
+});
+
 test('the survey can see the wide land past the open rings when told it exists (extraOpen); not otherwise', () => {
   const far = { p: 3, q: 0 }, h = tileHex(3, 0, 0);
   const anchors = [{ q: h.q, r: h.r, radius: 1, level: S.L3, kind: 'host' }];

@@ -145,6 +145,8 @@ test('the page\'s wiring: every surface that shows the map reads the fogged copi
   assert.ok(app.includes('if (LOCAL_FOG && cfg.localPlay && FS.mode === \'play\') setBlankChart(FOG_RULES.blankChart);'), 'plain paper only in a local world');
   // the map source, the wide land, the minimap, search and the people layer
   assert.ok(app.includes('return { overviews: shownOverviews(), ringsOpen: ringsOpenNow(),'));
+  assert.ok(app.includes('control: FS.conquest?.control?.provinces ?? null });'), 'the territory from the control snapshot');
+  assert.ok(app.includes('deps.push(wideLandRaw?.land?.() ?? null, FS.conquest?.control ?? null, ...FS.overviews.values());'));
   assert.ok(app.includes('wideLandRef = { ...raw, land: () => shownWide(raw.land()) };'));
   assert.ok(app.includes('const entries = [...shownOverviews()];'), 'the minimap');
   assert.ok(app.includes('for (const ov of shownOverviews().values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);\n  searchHits = search.searchMap('), 'search');

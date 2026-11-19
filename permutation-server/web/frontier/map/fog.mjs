@@ -61,11 +61,16 @@ export const fogActive = fs => LOCAL_FOG && !!fs?.localPlay && (fs?.mode ?? 'pla
  * `terrainOf(p, q)` → {sites} for a legacy province. `own` (a Set of "p,q,tile") leaves out the viewer's own villages.
  * Reading the raw records is right here: they are the viewer's own nation's, which the viewer always sees.
  */
-export function nationSources({ overviews = null, wide = null, faction = null, terrainOf = null, own = null } = {}) {
-  const villages = [], territory = [];
+export function nationSources({ overviews = null, wide = null, faction = null, terrainOf = null, own = null, control = null } = {}) {
+  const villages = [], territory = [], held = new Set();
   if (!nation(faction)) return { villages, territory };
+  const hold = (p, q) => { const k = `${p},${q}`; if (!held.has(k)) { held.add(k); territory.push({ p, q }); } };
+  // (the held provinces from the control snapshot itself — `control` [{p, q, control}], FS.conquest.control.provinces —:
+  //  the copy laid on the overviews (fconquest.mjs applyControl) is missing from a ring's overview read again until the
+  //  next control read lays it on, and the nation's own land must not blink out of sight meanwhile)
+  for (const c of Array.isArray(control) ? control : []) if (c?.control === faction && int(c.p) && int(c.q)) hold(c.p, c.q);
   for (const o of overviews?.values?.() ?? []) for (const r of o?.provinces ?? []) {
-    if (r.control === faction) territory.push({ p: r.p, q: r.q });
+    if (r.control === faction) hold(r.p, r.q);
     const sites = terrainOf?.(r.p, r.q)?.sites ?? null;
     if (!sites) continue;
     for (let j = 0; j < 12; j++) {
@@ -75,7 +80,7 @@ export function nationSources({ overviews = null, wide = null, faction = null, t
     }
   }
   for (const c of wide?.cells ?? []) {
-    if (c.holder === faction) territory.push({ p: c.p, q: c.q });
+    if (c.holder === faction) hold(c.p, c.q);
     const sites = c.terrain?.sites ?? null;
     for (const v of c.villages ?? []) if (v.nation === faction && sites && int(sites[v.site]) && !own?.has(`${c.p},${c.q},${sites[v.site]}`)) villages.push({ p: c.p, q: c.q, tile: sites[v.site], tier: 0 });
   }

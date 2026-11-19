@@ -806,7 +806,7 @@ function surveyNow() {
   // (the fog of war: the nation's villages and provinces see too, and the wide land can be seen — read from the overviews
   //  and the wide land, so a new one of either is a new survey)
   const fog = fogActive(FS);
-  if (fog) deps.push(wideLandRaw?.land?.() ?? null, ...FS.overviews.values());
+  if (fog) deps.push(wideLandRaw?.land?.() ?? null, FS.conquest?.control ?? null, ...FS.overviews.values());
   if (FS.survey && deps.length === surveyDeps.length && deps.every((x, i) => x === surveyDeps[i])) return FS.survey;
   surveyDeps = deps;
   FS.survey = surveyor({ ...surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }), ...(fog ? fogSurveyExtras() : {}) });
@@ -827,7 +827,7 @@ const fogger = createFogger();
 function fogSurveyExtras() {
   const wide = wideLandRaw?.land?.() ?? null;
   const own = new Set((FS.holdings ?? []).filter(h => Number.isInteger(h?.tile)).map(h => `${h.p},${h.q},${h.tile}`));
-  const src = nationSources({ overviews: FS.overviews, wide, faction: FS.citizen?.faction ?? null, terrainOf: terrainRef, own });
+  const src = nationSources({ overviews: FS.overviews, wide, faction: FS.citizen?.faction ?? null, terrainOf: terrainRef, own, control: FS.conquest?.control?.provinces ?? null });
   return { extraAnchors: nationAnchors(src), extraOpen: (wide?.cells ?? []).map(c => c.key).sort() };
 }
 function fogUpdate() {
