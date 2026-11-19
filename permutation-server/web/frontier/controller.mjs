@@ -2742,7 +2742,7 @@ const pendingDriver = createPendingDriver({
   withdrawn: (card, why) => { card.pending = null; if (PENDING_WITHDRAWN[why]) setNotice({ busy: false, text: PENDING_WITHDRAWN[why](), unsent: 'march-send', retry: false }); else invalidate('panel'); },
   // B20 (loop-play3): the turn passed before the province settled and the arrival turn moved on with it. The waiting
   // send is kept for the same order at the new arrival turn, and the player is told (nothing is changed silently)
-  followed: (card, p, moved) => { card.pending = p; setNotice({ busy: false, waiting: true, text: L`ターンが進んだため、到着はターン ${fmtNum(moved.to)} になりました（さきほどまではターン ${fmtNum(moved.from)}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` }); },
+  followed: (card, p, moved) => { card.pending = p; setNotice({ busy: false, waiting: true, text: L`時間が進んだため、到着はターン ${fmtNum(moved.to)} になりました（さきほどまではターン ${fmtNum(moved.from)}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` }); },
   onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
 });
 // TEST-ONLY local play, the march's test entry: while an order is composed, or the village's muster or forts card is open,

@@ -64,13 +64,19 @@ export function createWorldWatch({ ask, onEnded = () => {}, now = () => Date.now
 export function launcherSilent(result) {
   return !!result && typeof result === 'object' && result.ok === false && (result.launcher === null || result.launcher === undefined);
 }
-/** This many silent answers in a row before the page says the launcher cannot be reached. */
-export const LAUNCHER_LOST_AFTER = 2;
+/**
+ * This many silent answers in a row before the page says the launcher cannot be reached. One: the question is asked
+ * only after a read of the world's herald already failed by the network, so one silent answer is two failures (the
+ * world's herald AND the launcher); and the season is read every 30 s or slower, so a second answer would leave the
+ * page saying only "N s behind" for a minute or more after a Ctrl-C (seen live, fix-ui-b17-b21). It is taken back by
+ * the next answer or good read.
+ */
+export const LAUNCHER_LOST_AFTER = 1;
 
 /**
  * B21: the count of a launcher that stopped answering. It asks NOTHING itself: the page hands it each answer of the one
  * question it already asks after a herald read failed by the network (`heard`: the gate's `checkWorld` result, as
- * `createWorldWatch` gets it). After `LAUNCHER_LOST_AFTER` silent answers in a row `onLost` is called; an answer of
+ * `createWorldWatch` gets it). After `LAUNCHER_LOST_AFTER` silent answers in a row (`after`) `onLost` is called; an answer of
  * any kind, or a herald read that worked (`readOk`), calls `onBack` — unlike a world's end this is taken back: a
  * launcher started again answers again. No timer, no read, no send.
  */

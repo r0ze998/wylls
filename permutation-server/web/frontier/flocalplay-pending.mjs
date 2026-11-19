@@ -9,6 +9,9 @@
 // The order is frozen when armed (`intentOf`): world, wallet, holding, host, troops, origin, destination, route, arrival
 // turn, stance, retreat, tip. If any of it is different at the moment it could be sent — the arrival turn included, which
 // moves when a turn passes — the pending send is withdrawn and the player is told; nothing is changed silently.
+// (B20, fix-ui-b17-b21: with ONE exception — when only the arrival turn differs and it is the turn the card's own clock
+//  moved to, the pending send is kept and re-aimed at that turn, and the player is told: `arrivalFollowed`. At ×60 a
+//  keep march took three presses otherwise. A turn the player picked, or any other difference, withdraws it as before.)
 // It is withdrawn too when the march's own gate closes (world ended or expired, gate, a march held by its signature), when
 // an earlier send's outcome is unknown, after its turn limit, on any problem that is not a settling one, or on cancel.
 // It lives in the page's memory only (on FS.compose): a reload never revives it.

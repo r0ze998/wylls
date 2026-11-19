@@ -325,6 +325,9 @@ function renderStatus() {
   setText('season-status', status);
   const err = $('error-line');
   if (err) { err.hidden = !FS.error; err.textContent = FS.error ? bannerText(FS.error, !!s) : ''; }
+  // B21: while the launcher cannot be reached the banner's plain line says so; the season poll's own "could not
+  // connect" is not raised over it (it comes back with the line's end, if the read still fails)
+  if (err && FS.launcherLost && FS.error?.source === 'season') { err.hidden = true; err.textContent = ''; }
 }
 
 /** Whether a host or holding id is the viewer's (its province, site and generation are one of the viewer's holdings). */
