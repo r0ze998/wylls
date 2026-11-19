@@ -149,6 +149,44 @@ export function renderMarch(m, FS = null) {
   </li>`;
 }
 
+/** The words of an expedition's stage (flocalplay-expedition.mjs expeditionStage). */
+const EXPEDITION_STAGE_TEXT = {
+  sent: () => L`出発を送りました。記録されるのを待っています。`,
+  marching: () => L`広い土地へ進軍中です`,
+  arrived: () => L`到着しました。封が開けられるのを待っています（ワールドの進行役が公開の鍵で開けます）。`,
+  revealed: () => L`封が開けられました。到着のターンの決着を待っています。`,
+  resolved: () => L`決着しました。結果の受け取りを待っています。`,
+  settled: () => L`結果を受け取りました`,
+  unknown: () => L`この遠征の記録が見つかりません。結果を読めていません。`,
+};
+const EXPEDITION_FATE_TEXT = {
+  stays: () => L`留まる：軍勢は広い土地の州に立っています`,
+  withdrew: () => L`撤退：軍勢は村へ戻ります`,
+  bounced: () => L`押し返された：軍勢は村へ戻ります`,
+  retreated: () => L`退却：軍勢は損害を受けて村へ戻ります`,
+  destroyed: () => L`全滅：軍勢は失われました`,
+};
+/** The expedition phases (depart, arrive, result), each done by its stage. */
+const EXPEDITION_ORDER = ['sent', 'marching', 'arrived', 'revealed', 'resolved', 'settled'];
+export function expeditionPhases(stage, arriveBell, nowBell) {
+  const at = EXPEDITION_ORDER.indexOf(stage);
+  const done = { depart: at >= 1 || stage === 'unknown', arrive: nowBell >= arriveBell && (at >= 2 || stage === 'unknown'), result: at >= 4 };
+  let seen = false;
+  return ['depart', 'arrive', 'result'].map(id => { if (done[id]) return { id, state: 'done' }; if (!seen) { seen = true; return { id, state: 'now' }; } return { id, state: 'next' }; });
+}
+/** One expedition card (TEST-ONLY wide local play, fix-wide-breaks BREAK-1): `m.expedition` of flocalplay-expedition.mjs expeditionRows. */
+export function renderExpedition(m, FS = null) {
+  const x = m.expedition, d = x.dest, nowBell = FS?.nowBell ?? m.facts?.nowBell ?? 0;
+  const troops = Number.isInteger(x.troopsAfter) ? Math.floor(x.troopsAfter / 1000) : null;
+  return html`<li class="vcard march-card" data-march-host="${x.host.slice(-16)}" data-expedition="${x.stage}">
+    <div class="march-top">${icon('banner')}<strong class="march-to">${L`広い土地の州 ${d.p},${d.q} へ`}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(x.arriveBell)} に到着`}`, x.stage === 'settled' ? 'ok' : 'info')}</div>
+    <ol class="track track-phases" aria-label="${L`進軍の流れ`}">${expeditionPhases(x.stage, x.arriveBell, nowBell).map(s => html`<li class="${s.state}"><span class="track-dot" aria-hidden="true"></span><span class="track-name">${PHASE_TEXT[s.id]()}</span></li>`)}</ol>
+    <p class="march-now"><strong>${EXPEDITION_STAGE_TEXT[x.stage]?.() ?? ''}</strong></p>
+    ${x.fate ? html`<p class="march-out" data-fate="${x.fate}">${EXPEDITION_FATE_TEXT[x.fate]?.() ?? x.fate}${troops !== null && x.fate !== 'destroyed' ? html` <span class="muted">${L`（兵 ${fmtNum(troops)}）`}</span>` : ''}</p>` : ''}
+    ${FS && (FS.mode ?? 'play') === 'play' ? html`<div class="actions"><button type="button" class="btn small" data-act="goto" data-p="${d.p}" data-q="${d.q}">${L`地図で見る`}</button></div>` : ''}
+  </li>`;
+}
+
 export function render(FS) {
   const list = FS.marches ?? [];
   // (2026-11-17, ⑦: an empty list is "none" only once the marches were read for this viewer, village and world —
@@ -157,7 +195,7 @@ export function render(FS) {
   const unread = !list.length && (FS.mode ?? 'play') === 'play' && !!FS.wallet && !FS.marchesRead && (!!FS.citizen || FS.meStatus !== 'ready');
   if (!list.length) return html`<section class="vcard" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><p class="muted"${unread ? html` role="status" data-read="unread"` : ''}>${unread ? L`進軍の記録をまだ読めていません。進軍がないという意味ではありません。次の読み込みで確かめます。` : L`進軍中の軍勢はいません`}</p>
     <div class="actions"><button type="button" class="btn" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button></div></section>`;
-  return html`<section class="bare" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><ul class="marches">${list.map(m => renderMarch(m, FS))}</ul></section>`;
+  return html`<section class="bare" aria-labelledby="tracker-title"><h3 id="tracker-title" class="visually-hidden">${L`進軍`}</h3><ul class="marches">${list.map(m => (m.expedition ? renderExpedition(m, FS) : renderMarch(m, FS)))}</ul></section>`;
 }
 
 /** Whether the viewer's march list changed state (for the bell chip's dot and the polite announcement). */

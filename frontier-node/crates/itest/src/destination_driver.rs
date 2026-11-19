@@ -945,8 +945,12 @@ pub struct DestinationDriver {
     pub log: Vec<String>,
     /// [`SELF_REVEAL`]: transits (slot, seal root) found not revealable (never tried again).
     unrevealable: Vec<(u8, [u8; 32])>,
+    /// [`SELF_REVEAL`]: why the last of `unrevealable` was given up (kept in every later Wait, fix-wide-breaks BREAK-2).
+    pub never_revealed: Option<String>,
     /// [`SELF_REVEAL`]: verified public signatures by round.
     rounds: std::collections::BTreeMap<u64, [u8; 48]>,
+    /// A rim village's driver beside its legacy march driver (TEST-ONLY wide world): it reports in its own status field.
+    pub beside_legacy: bool,
 }
 
 impl DestinationDriver {
@@ -968,7 +972,9 @@ impl DestinationDriver {
             last: None,
             log: vec![],
             unrevealable: vec![],
+            never_revealed: None,
             rounds: Default::default(),
+            beside_legacy: false,
         }
     }
 
@@ -1029,6 +1035,24 @@ impl DestinationDriver {
         step
     }
 
+    /// TEST-ONLY wide world ([`SELF_REVEAL`], verify-pr96 BREAK-1): ONLY the due self-reveal of the watched holding's
+    /// expedition, or `None` (nothing due, the switch off, or the driver already ended). The keeper loop calls it for
+    /// every village at the START of each pass, before any keeper posts THE anchor of the bell that just ended: a pass
+    /// of a many-village wide world is longer than a reveal window (A + W, 600 chain seconds — about 25 slots), so a
+    /// reveal left to the village's own turn in the pass could still find the window closed. Ends the driver as `step`
+    /// does on an Unknown or a Stop.
+    pub async fn reveal_only(&mut self, state: &Shared) -> Option<Step> {
+        if self.terminal.is_some() || !SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {
+            return None;
+        }
+        let s = self.self_reveal(state).await?;
+        if matches!(s, Step::Unknown { .. } | Step::Stopped(_)) {
+            self.terminal = Some(s.clone());
+        }
+        self.last = Some(s.clone());
+        Some(s)
+    }
+
     async fn step_inner(&mut self, state: &Shared) -> Step {
         if SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {
             if let Some(s) = self.self_reveal(state).await {
@@ -1058,7 +1082,16 @@ impl DestinationDriver {
         };
         let (arr, clock, now, v) = match read {
             Ok(Some(x)) => x,
-            Ok(None) => return Step::Wait("no revealed arrival of the watched holding".into()),
+            Ok(None) => {
+                return Step::Wait(match &self.never_revealed {
+                    // (an expedition given up unrevealed: the program has no settlement for a never-revealed bridge
+                    //  transit, so its host stays held; the line says why, every pass)
+                    Some(why) => {
+                        format!("no revealed arrival of the watched holding; never revealed: {why}")
+                    }
+                    None => "no revealed arrival of the watched holding".into(),
+                });
+            }
             Err(e) => return Step::Stopped(e),
         };
         let window_closed = v
@@ -1377,9 +1410,11 @@ pub fn self_reveal_ix(
 
 impl DestinationDriver {
     /// TEST-ONLY wide world ([`SELF_REVEAL`]): the reveal of a departed, origin-settled expedition of the watched
-    /// holding that has no landed Reveal yet, once THE anchor of `(arrive, destination region)` exists and while its
-    /// window is open. `None` = nothing of ours to reveal (the ordinary steps follow). A window that closed
-    /// unrevealed is reported, never forced (the program's settlement then decides the march's fate).
+    /// holding that has no landed Reveal yet, as soon as its arrival turn ended and `T(arrive)` is public — BEFORE THE
+    /// anchor of `(arrive, destination region)` exists too (the program admits that; fix-wide-breaks BREAK-2), and
+    /// while that anchor's window is open once it exists. `None` = nothing of ours to reveal (the ordinary steps
+    /// follow). A window that closed unrevealed is reported, never forced; the program has no settlement of a
+    /// never-revealed bridge transit, so its host stays held (`never_revealed` says why in every later step).
     async fn self_reveal(&mut self, state: &Shared) -> Option<Step> {
         let ctx = ctx_of(&self.a);
         let due = {
@@ -1455,7 +1490,9 @@ impl DestinationDriver {
                 self.unrevealable.push((slot, t.seal_root));
                 self.log
                     .push(format!("transit {slot}: not revealable: {e}"));
-                return Some(Step::Wait(format!("transit {slot}: not revealable: {e}")));
+                let why: String = format!("transit {slot}: not revealable: {e}");
+                self.never_revealed = Some(why.clone());
+                return Some(Step::Wait(why));
             }
         };
         let (ix, what) = {
@@ -1463,9 +1500,9 @@ impl DestinationDriver {
             let dest_key = Address::new_from_array(province_address(&ctx, o.dest.coord()));
             let Some(pacc) = c.account(&dest_key).filter(|x| x.owner == self.a.program) else {
                 self.unrevealable.push((slot, t.seal_root));
-                return Some(Step::Wait(format!(
-                    "transit {slot}: its destination province is not open"
-                )));
+                let why: String = format!("transit {slot}: its destination province is not open");
+                self.never_revealed = Some(why.clone());
+                return Some(Step::Wait(why));
             };
             let prov = match WideProvince::read(&pacc.data) {
                 Ok(p) => p,
@@ -1475,22 +1512,25 @@ impl DestinationDriver {
                 Ok(x) => x,
                 Err(e) => return Some(Step::Stopped(e)),
             };
-            let Some(a_ts) = anchor else {
-                return Some(Step::Wait(format!(
-                    "the anchor of bell {} in region {} (the keeper's)",
-                    o.arrive, prov.region
-                )));
-            };
-            if c.unix_timestamp() >= clock.reveal_close(o.arrive, a_ts) {
+            // (fix-wide-breaks BREAK-2: the reveal is NOT held for THE anchor. The program admits a reveal before the
+            //  anchor exists (wide_expedition_reveal: an absent anchor and archive are no refusal) and its window closes
+            //  only at A + W. Waiting for the anchor first left a ×60 world's 600-chain-second window — ten wall
+            //  seconds — to the pace of a whole keeper pass over every village: a pass that ran past it marked the
+            //  expedition unrevealable, and its host was held for good (the program has no settlement of a
+            //  never-revealed bridge transit). Revealing as soon as T(arrive) is public removes that race.)
+            if let Some(a_ts) =
+                anchor.filter(|a_ts| c.unix_timestamp() >= clock.reveal_close(o.arrive, *a_ts))
+            {
                 self.unrevealable.push((slot, t.seal_root));
-                self.log.push(format!(
-                    "transit {slot}: the reveal window of bell {} closed unrevealed",
-                    o.arrive
-                ));
-                return Some(Step::Wait(format!(
-                    "transit {slot}: the reveal window of bell {} closed unrevealed",
-                    o.arrive
-                )));
+                let why: String = format!(
+                    "transit {slot}: the reveal window of bell {} closed unrevealed (anchor at {a_ts}, closed at {}, first seen at {})",
+                    o.arrive,
+                    clock.reveal_close(o.arrive, a_ts),
+                    c.unix_timestamp()
+                );
+                self.log.push(why.clone());
+                self.never_revealed = Some(why.clone());
+                return Some(Step::Wait(why));
             }
             let target = (0..4u8).find(|i| {
                 c.account(&Address::new_from_array(arrival_slot_address(
@@ -1500,10 +1540,12 @@ impl DestinationDriver {
             });
             let Some(target) = target else {
                 self.unrevealable.push((slot, t.seal_root));
-                return Some(Step::Wait(format!(
+                let why: String = format!(
                     "transit {slot}: the nation's four arrival slots of bell {} are taken",
                     o.arrive
-                )));
+                );
+                self.never_revealed = Some(why.clone());
+                return Some(Step::Wait(why));
             };
             match self_reveal_ix(
                 &ctx,
@@ -1537,6 +1579,7 @@ impl DestinationDriver {
                     x.err, x.code
                 );
                 self.log.push(why.clone());
+                self.never_revealed = Some(why.clone());
                 return Some(Step::Wait(why));
             }
             Err(e) => return Some(Step::Wait(format!("{what} simulation: {e}"))),
