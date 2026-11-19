@@ -56,6 +56,7 @@
 - **frontier-node**：fmt と clippy（全 target を compile するが、実行はしない）、それに `findex` と `herald` の lib の試験だけを動かします。
   - 2026-11-19 追加（Q16-1、賞金の関門）：検証器の `playable-lane` feature の clippy と、記録済み fixture だけを読む試験 5 ファイル（`playable_lane`、`playable_wide_land`、`playable_wide_claims`、`playable_wide_next`、`wallet_finals`）。同日、`playable_wide_march`（集結・鐘の解決・広域の砦奪取）を追加して 6 ファイル。鍵の生成・導出・署名はありません（記録を作る試験はすべて `#[ignore]` で、CI では動きません）。
   - 2026-11-19 追加（Q16-1、封印行軍）：`playable_march`（playable lane の通常の封印行軍 Depart → Reveal → Gather → Resolve → Settle の記録済み fixture だけを読む試験）。記録を作る試験は `#[ignore]` で、CI では動きません。
+  - 2026-11-19 追加（Q16-1、遠征ラッパーと自由都市の征服）：`playable_expedition`（記録済み fixture と、固定した playable lane の `.so`（`fixtures/verify/devnet-playable-da3dc1aa.so.gz`）を読み、LiteSVM で取引を再実行する試験）。署名の検証はしますが、鍵の生成・導出・署名はありません。記録を作る試験は `#[ignore]` で、CI では動きません。
   - `keeper` の lib の試験は、`Payers::new(&[9; 32])` で導出するので、外しました。
 
 ### 実行する検査と、実行しなくなる検査

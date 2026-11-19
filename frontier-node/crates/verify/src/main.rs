@@ -9,6 +9,7 @@
 //! options: --test-key | --quicknet-pk HEX   the pinned drand key (default: quicknet)
 //!          --ruleset HEX                    expected ruleset hash (default: this build's)
 //!          --program-hash HEX               expected .so sha256 (V2)
+//!          --program-so FILE                the pinned .so (or .so.gz), for VX (playable lane)
 //!          --out DIR                        report directory (default: verify-report)
 //!          --json                           print the JSON report instead of the Markdown
 //!          --save FILE                      also write the input read as a fixture (.gz: gzip)
@@ -43,7 +44,7 @@ fn usage(msg: &str) -> ! {
         include_str!("main.rs")
             .lines()
             .skip(4)
-            .take(16)
+            .take(17)
             .map(|l| {
                 l.strip_prefix("//! ")
                     .or_else(|| l.strip_prefix("//!"))
@@ -92,6 +93,7 @@ fn main() {
     let mut pk: Option<[u8; 96]> = None;
     let mut ruleset: Option<[u8; 32]> = None;
     let mut program_hash: Option<[u8; 32]> = None;
+    let mut program_so: Option<PathBuf> = None;
     let mut out = PathBuf::from("verify-report");
     let mut json = false;
     let mut fallback: Option<PathBuf> = None;
@@ -117,6 +119,7 @@ fn main() {
             "--quicknet-pk" => pk = Some(hex_arr(&val()).unwrap_or_else(|e| usage(&e))),
             "--ruleset" => ruleset = Some(hex_arr(&val()).unwrap_or_else(|e| usage(&e))),
             "--program-hash" => program_hash = Some(hex_arr(&val()).unwrap_or_else(|e| usage(&e))),
+            "--program-so" => program_so = Some(val().into()),
             "--out" => out = val().into(),
             "--json" => json = true,
             "--save" => save = Some(val().into()),
@@ -281,6 +284,8 @@ fn main() {
             scenarios: vec![],
             history,
             resident_feed,
+            program_so: None,
+            declared: vec![],
         }
     };
     // A fixture carries its own trust roots; say so when the operator did
@@ -299,6 +304,20 @@ fn main() {
     }
     if program_hash.is_some() {
         inp.cfg.program_hash = program_hash;
+    }
+    if let Some(p) = &program_so {
+        let raw = std::fs::read(p).unwrap_or_else(|e| usage(&format!("{}: {e}", p.display())));
+        let so = if raw.starts_with(&[0x1f, 0x8b]) {
+            use std::io::Read;
+            let mut out = vec![];
+            flate2::read::GzDecoder::new(&raw[..])
+                .read_to_end(&mut out)
+                .unwrap_or_else(|e| usage(&format!("{}: {e}", p.display())));
+            out
+        } else {
+            raw
+        };
+        inp.program_so = Some(std::sync::Arc::new(so));
     }
     if let Some(p) = &save {
         if let Err(e) = inp.save(p) {

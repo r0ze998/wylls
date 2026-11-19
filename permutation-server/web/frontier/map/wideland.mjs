@@ -21,6 +21,11 @@
 //    fmap.mjs paintChartCells does), the borders where the keep nation changes, and the wide land's outer edge;
 //  - province: each cell in the mean colour of its terrain, washed with its nation's colour, the same borders;
 //  - tile: the 61 tiles in their terrain colours, a lighter wash of the nation, the same borders.
+// Villages (verify-pr88): every captured wide Holding of a province (`e.wide.holdings`, the herald's own capture of the
+// PSFXWHL1 account: a v2 Holding plus a trailer, so its nation is Holding.FACTION @112) is drawn as its nation's sigil
+// — on its own site at the tile view (layers.mjs paintTiles' `rec`, as a legacy province's settled sites), and from
+// farther as one sigil at the province's centre (its first village's nation), so a new wide village is seen on the map
+// and on 「全体図」 as soon as the herald records it.
 // Only the provinces whose box meets the view are visited, so the cost follows what is on screen.
 //
 // Precision (no centre assumption): a captured coordinate is a BigInt. The ordinary map lays provinces out in
@@ -31,7 +36,7 @@ import { COLORS } from '../../map.mjs';
 import { TERRAIN } from '../wasm.mjs';
 import { L } from '../../lang.mjs';
 import { NATION_LAND, NATION_DARK } from '../palette.mjs';
-import { provinceCorners, provincePixel, PROVINCE_CIRCUMRADIUS, paintTiles } from './layers.mjs';
+import { provinceCorners, provincePixel, PROVINCE_CIRCUMRADIUS, paintTiles, paintSigil } from './layers.mjs';
 import { loadWide, WideWalk, sourcePins } from './wide.mjs';
 
 /** The legacy map's coordinate range: a wide province further than this from (0, 0) is left to the 「記録」 sheet. */
@@ -55,6 +60,28 @@ export const WASH = Object.freeze({ chart: 0.92, world: 0.86, province: 0.55, ti
 
 // the Province v2 offsets (frontier-abi v2/layout/province.rs) of what the map draws
 const TERRAIN_AT = 128, TILES = 61, SITES_AT = 250, SITE_COUNT_AT = 262, PASSABLE_AT = 264;
+// the Holding v2 offset of its nation (frontier-abi v2/layout/player.rs holding FACTION @ 112) and the wide holding's size
+const HOLDING_FACTION_AT = 112, WIDE_HOLDING_BYTES = 1344;
+
+/** A captured wide Holding's nation (0–5), or null when its bytes are not a whole wide holding or name no nation. */
+export function villageNation(h) {
+  let b;
+  try { b = fromBase64(h?.capture?.bytes_b64); } catch { return null; }
+  if (!(b instanceof Uint8Array) || b.length !== WIDE_HOLDING_BYTES) return null;
+  const f = b[HOLDING_FACTION_AT];
+  return f < 6 ? f : null;
+}
+/** The villages of a wide province record: `[{site, nation}]` (site 0–11, nation 0–5 or null), in site order. */
+export function villagesOf(holdings) {
+  return (Array.isArray(holdings) ? holdings : []).filter(h => Number.isInteger(h?.site) && h.site >= 0 && h.site < 12)
+    .map(h => ({ site: h.site, nation: villageNation(h) })).sort((a, b) => a.site - b.site);
+}
+/** paintTiles' `rec` for a province's villages: a settled site (1) and its nation as owner (7 = none). */
+export function villageRec(villages) {
+  const sites = Array(12).fill(0), owners = Array(12).fill(7);
+  for (const v of villages) if (v.nation !== null) { sites[v.site] = 1; owners[v.site] = v.nation; }
+  return { sites, owners };
+}
 
 /** The terrain block of a captured wide province (`bytes_b64`, 4,864 bytes) → `{terrain, sites, names, passable}`, or null. */
 export function terrainOfCapture(b64) {
@@ -106,7 +133,7 @@ export function wideLandOf(walk) {
     const p = Number(e.p), q = Number(e.q), ring = Number(e.ring);
     const t = terrainOfCapture(e.wide.capture?.bytes_b64);
     const c = provincePixel(p, q), r = PROVINCE_CIRCUMRADIUS;
-    const cell = { p, q, key: `${p},${q}`, ring, wedge: e.wedge, holder: e.wide.keepHolder, holdings: e.wide.holdings?.length ?? 0, terrain: t,
+    const cell = { p, q, key: `${p},${q}`, ring, wedge: e.wedge, holder: e.wide.keepHolder, holdings: e.wide.holdings?.length ?? 0, villages: villagesOf(e.wide.holdings), terrain: t,
       colour: t ? meanColour(t.terrain) : NEUTRAL_LAND, x: c.x, y: c.y, box: { x0: c.x - r, y0: c.y - r, x1: c.x + r, y1: c.y + r } };
     cells.push(cell); byKey.set(cell.key, cell);
     min = min === null ? ring : Math.min(min, ring); max = max === null ? ring : Math.max(max, ring);
@@ -184,12 +211,13 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
     const base = new Map();
     for (const c of cells) { const colour = holderFill(c.holder); if (!base.has(colour)) base.set(colour, []); base.get(colour).push(c); }
     for (const [colour, group] of base) { ctx.fillStyle = colour; fills += fillCells(ctx, group, grow); }
+    const villages = paintVillageMarks(ctx, cells, { zoom, grow });
     ctx.restore();
-    return { cells: cells.length, fills, grow };
+    return { cells: cells.length, fills, grow, villages };
   }
   if (level === 'tile') {
     for (const c of cells) {
-      if (c.terrain) paintTiles(ctx, { p: c.p, q: c.q, terrain: c.terrain.terrain, sites: c.terrain.sites, names: c.terrain.names });
+      if (c.terrain) paintTiles(ctx, { p: c.p, q: c.q, terrain: c.terrain.terrain, sites: c.terrain.sites, names: c.terrain.names, rec: c.villages?.length ? villageRec(c.villages) : null });
       else { path(ctx, [c]); ctx.fillStyle = c.colour; ctx.fill(); }
       fills++;
     }
@@ -233,8 +261,29 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
   ctx.setLineDash([6 / zoom, 4 / zoom]);
   stroke(outer, 'rgba(27,46,40,.9)', w + 0.4);
   ctx.setLineDash([]);
+  // (the tile view drew each village on its own site, with the tiles; farther, one mark at the province's centre)
+  const villages = level === 'tile' ? cells.reduce((n, c) => n + (c.terrain ? (c.villages ?? []).filter(v => v.nation !== null).length : 0), 0)
+    : paintVillageMarks(ctx, cells, { zoom, grow });
   ctx.restore();
-  return { cells: cells.length, fills, grow };
+  return { cells: cells.length, fills, grow, villages };
+}
+
+/**
+ * One mark per province with a village (its first village's nation's sigil on a paper disc, at least ~11 CSS px) at the
+ * province's centre, enlarged as the cell is (`grow`). → the number of marks.
+ */
+function paintVillageMarks(ctx, cells, { zoom, grow = 1 }) {
+  let n = 0;
+  const r = Math.max(PROVINCE_CIRCUMRADIUS * 0.22, 5.5 / Math.max(zoom, 1e-9));
+  for (const c of cells) {
+    const v = (c.villages ?? []).find(x => x.nation !== null);
+    if (!v) continue;
+    ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#f4efe0'; ctx.fill(); ctx.strokeStyle = '#3a3a33'; ctx.lineWidth = 1.6 / Math.max(zoom, 1e-9); ctx.stroke();
+    paintSigil(ctx, { x: c.x, y: c.y, r: r * 0.66, faction: v.nation });
+    n++;
+  }
+  return n;
 }
 
 /** The words the map writes on the wide land (the page's language). */

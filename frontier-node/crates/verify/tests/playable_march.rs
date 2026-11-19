@@ -847,6 +847,8 @@ fn record_playable_march() {
         scenarios: vec!["playable-march".into()],
         history: Default::default(),
         resident_feed: None,
+        program_so: None,
+        declared: vec![],
     };
     for l in &r.log {
         println!("{l}");

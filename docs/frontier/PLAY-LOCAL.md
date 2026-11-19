@@ -198,6 +198,8 @@ scripts/play-local.sh --wide
     「第129輪」 [ring 129] province in the list, press 「ここを原点にする」 [Make this the origin] and zoom in: ring 128
     (gold) and rings 129–131 (the six nations' colours) side by side.
   - 「全体図」 [World chart] shows your village in the middle and the wide land just outside the six corners.
+  - A village on the wide land (yours or an AI resident's) is drawn as its nation's sigil: on its own site when zoomed in,
+    and as one mark on its province from farther and on 「全体図」, once the herald has recorded it.
 - Playing on the wide land (TEST-only rules, 2026-11-19; the devnet settings and the program are unchanged):
   - **This world's own Season bytes**: the centre free (⑭ R2, `centre` = 1: rings 0–1 are ordinary land; ring 1's six
     provinces are opened; (0,0) is not, because the page's terrain kernel still draws the Concord there) and
