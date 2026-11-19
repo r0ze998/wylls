@@ -123,6 +123,10 @@ test('the launcher: --wide-scale 1-60 only with --wide-land; the statement agree
   assert.equal(L.runnerWideAgrees(meta(null), true, 60), false);
   assert.deepEqual(L.wideTargetsOf(meta(60)), [{ p: '65', q: '64' }, { p: '-66', q: '130' }]);
   assert.match(L.USAGE, /--wide-scale <1-60>: TEST-ONLY, only with --wide-land/);
+  // (the herald's compact output may come with the wide land too: its 129-ring map outgrows the plain output's guard)
+  await assert.rejects(L.parseConfig([...natural, '--herald-output', 'compact-v2']), e => e.code === 'HeraldOutputNeedsCaptureDemo');
+  await assert.rejects(L.parseConfig([...natural, '--wide-land', L.WIDE_LAND_MODE, '--herald-output', 'compact-v2']), e => e.code !== 'HeraldOutputNeedsCaptureDemo' && e.code !== 'InvalidHeraldOutput');
+  assert.match(L.USAGE, /--herald-output compact-v1: TEST-ONLY, only with --capture-demo or --wide-land/);
 });
 
 test('the page: the wide statement checked; rim-first homes only in a local wide world', () => {

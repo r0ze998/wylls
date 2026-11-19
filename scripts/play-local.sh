@@ -251,6 +251,8 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
   if [ "$WIDE" = 1 ]; then
     printf '%s\n' --wide-land "$WIDE_WORD"
     if [ "$WIDE_SCALE_OK" = 1 ]; then printf '%s\n' --wide-scale "$SPEED"; fi
+    # (the herald's compact output: a 129-ring map every turn at the TEST clock outgrows the plain output's guard)
+    if grep -q "out\['wide-land'\] === undefined) throw fault('HeraldOutputNeedsCaptureDemo')" "$LAUNCHER" 2>/dev/null; then printf '%s\n' --herald-output compact-v2; fi
   elif [ "$DEMO" = 0 ]; then
     local cm pm
     cm="$(sed -n "s/.*CONTINUOUS_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" | head -1)"

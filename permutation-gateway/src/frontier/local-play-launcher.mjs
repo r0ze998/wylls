@@ -1294,7 +1294,7 @@ export const USAGE = `local-play launcher (this machine only)
        and reaches its own relay; one stop or the limit ends it for both]
     [--world-option land-preview-v1: TEST-ONLY, only with --capture-demo: the land preview's crank runs beside the
        keeper (FoldLand / ClaimLandYield, provisional tags); needs a program, runner and herald built with it]
-    [--herald-output compact-v1: TEST-ONLY, only with --capture-demo: each new world's herald keeps only the .gz of each
+    [--herald-output compact-v1: TEST-ONLY, only with --capture-demo or --wide-land: each new world's herald keeps only the .gz of each
        output file (every file of every turn kept and served as before); the world is used only if its herald recorded it.
        compact-v2: the same, and the herald's findex store gzip-compressed (every record kept)]
     [--continuous local-continuous-v1: TEST-ONLY, natural preset only, not with --capture-demo: the world's Season is
@@ -1398,7 +1398,9 @@ export async function parseConfig(args) {
   if (out['contest-pair'] !== undefined && (out['contest-pair'] !== CONTEST_PAIR_MODE || (out['capture-demo'] === undefined && !natural))) throw fault('InvalidContestPair');
   // (the test-only compact herald output: exactly its one word, and only for capture-demo test worlds)
   if (out['herald-output'] !== undefined && !HERALD_OUTPUT_MODES.includes(out['herald-output'])) throw fault('InvalidHeraldOutput');
-  if (out['herald-output'] !== undefined && out['capture-demo'] === undefined) throw fault('HeraldOutputNeedsCaptureDemo');
+  // (also with the TEST-ONLY wide land: its herald writes a 129-ring map every turn of a TEST clock up to x60, which the
+  //  plain output takes past the world's 128 MiB guard in about 20 minutes — wide-local-playable run 3, `output-limit`)
+  if (out['herald-output'] !== undefined && out['capture-demo'] === undefined && out['wide-land'] === undefined) throw fault('HeraldOutputNeedsCaptureDemo');
   // (the test-only land preview: exactly its one word, and only with the capture demo)
   if (out['world-option'] !== undefined && out['world-option'] !== LAND_PREVIEW_OPTION) throw fault('InvalidWorldOption');
   if (out['world-option'] !== undefined && out['capture-demo'] === undefined) throw fault('WorldOptionNeedsCaptureDemo');
