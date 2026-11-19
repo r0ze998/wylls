@@ -71,6 +71,9 @@ function checkWorldMode(bytes, season) {
   // (⑭ R2: byte 81 `centre`, 0 the Concord and the Seats, 1 no centre; absent in a layout before it)
   const centre = season.conquestParams?.centre ?? 0;
   if (centre !== 0 && centre !== 1) throw new CodecError('BadWorldMode', 'unknown centre mode');
+  // (⑭ R3: byte 82 `spawn_reach`, 0 the heartland rings only, 1..8 provinces from the settled land)
+  const spawnReach = season.conquestParams?.spawnReach ?? 0;
+  if (!Number.isInteger(spawnReach) || spawnReach < 0 || spawnReach > 8) throw new CodecError('BadWorldMode', 'unknown spawn rule');
   const base = SEASON_CQ_V2?.[1];
   if (base === undefined || !CQ_V2) throw new CodecError('BadLayout', 'missing conquest block');
   for (const [, off, len, ty] of CQ_V2.fields) {
