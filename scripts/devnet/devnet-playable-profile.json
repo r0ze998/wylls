@@ -159,7 +159,12 @@
         "count": 32
       }
     ],
-    "note": "S1_DEVNET_WIDE_7D (frontier-abi/src/v2/presets.rs; devnet-preset-wide, D-1 of verifier-wide-instrs): S1_LOCAL_7D with r_max_ceiling 128, theta 1 bp early/late and pfund_initial 36 SOL, so the legacy map can grow one ring per bell to ring 128 (~21 h from genesis ring 3) and the wide land (ring 129+) can be requested; S1_LOCAL_7D's map ends at ring 16 and no wide instruction but WideSetRules could ever land there. Provinces past the genesis rings are opened on demand only (keeper lazy_provinces = true): opening every province to ring 128 would cost 49,537 x 24,709,120 lamports = 1,224 SOL. The natural local world (itest natural_play.rs) still creates its Season from S1_LOCAL_7D with program_version 0x4804. No operator tool creates a 0x4804 season on a public RPC yet (B3), and the verifier cannot PASS a 0x4804 season's wide instructions (Q16-1)."
+    "note": "S1_DEVNET_WIDE_7D (frontier-abi/src/v2/presets.rs; devnet-preset-wide, D-1 of verifier-wide-instrs): S1_LOCAL_7D with r_max_ceiling 128, theta 1 bp early/late and pfund_initial 36 SOL, so the legacy map can grow one ring per bell to ring 128 (~21 h from genesis ring 3) and the wide land (ring 129+) can be requested; S1_LOCAL_7D's map ends at ring 16 and no wide instruction but WideSetRules could ever land there. Provinces past the genesis rings are opened on demand only (keeper lazy_provinces = true): opening every province to ring 128 would cost 49,537 x 24,709,120 lamports = 1,224 SOL. The natural local world (itest natural_play.rs) still creates its Season from S1_LOCAL_7D with program_version 0x4804. frontier-operator --preset S1_DEVNET_WIDE_7D creates the 0x4804 season (B3; loopback-tested on the devnet .so), and the verifier cannot PASS a 0x4804 season's wide instructions (Q16-1)."
+  },
+  "operator": {
+    "seasonId": 1,
+    "beacon": "quicknet",
+    "note": "frontier-operator --preset S1_DEVNET_WIDE_7D (frontier-node/crates/stack, built --features playable-lane; devnet blocker B3) reads this block with rpcUrl, allowedRpcHosts, refusedRpcHostPatterns, programId, upgradeAuthority, rent.assume, season.preset, program.programVersion and program.required/refusedMarkers. seasonId: the Season PDA id AnnounceSeason uses (never reusable). beacon: quicknet (the devnet build has no test beacon). The setup is AnnounceSeason, the 24 h lead, CreateSeason, InitBeaconLogs, InitShards x 6, then WideSetRules once keeper A has seeded the season (DEVNET-DEPLOY-RUNBOOK section 6b)."
   },
   "services": {
     "herald": {
@@ -194,6 +199,6 @@
   "risks": {
     "SIMD-0500": "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g 'Disable deployment of SBPF v0, v1 and v2 programs' was inactive on devnet at 2026-11-18 20:40 JST (devnet-readonly-checks). This .so is SBPF v2: once it activates, a deploy or upgrade of it is refused. Moving to SBPF v3 leaves the pinned cargo-build-sbf 3.1.9 (blocked on r0ze).",
     "verifier": "frontier-verify reports a 0x4804 season as UNVERIFIABLE (plan-6-9-10-12-16 Q16-1, r0ze's question).",
-    "seasonTool": "no operator tool creates a 0x4804 season on a public RPC yet (B3)."
+    "seasonTool": "frontier-operator --preset S1_DEVNET_WIDE_7D creates the 0x4804 season and its WideSetRules (B3, tested on loopback only with the devnet .so). Not a tool yet: the wide rings (WideRequestRingSeed / WideConsumeRingSeed / WideOpenProvince) have no keeper duty, and rim first homes need the ticket settle runner."
   }
 }

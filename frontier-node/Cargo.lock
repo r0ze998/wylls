@@ -4487,6 +4487,7 @@ name = "stack"
 version = "0.1.0"
 dependencies = [
  "fclient",
+ "flate2",
  "frontier-abi",
  "hex",
  "keeper",
