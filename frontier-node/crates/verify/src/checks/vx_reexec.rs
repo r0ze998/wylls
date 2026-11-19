@@ -11,7 +11,10 @@
 //! kinds DeclareSiege, ResolveWithConquest, SettleCapture, SettleSiege,
 //! CloseConquest, CloseCaptureEscrow, SettleReservation), and every legacy
 //! **OpenProvince** (tag 0x22, whose Province no independent check of the
-//! playable lane compares byte for byte: D-verify-pr89-3), is executed again
+//! playable lane compares byte for byte: D-verify-pr89-3), and every
+//! wide-native **WideDissolve**, **WideReturn**, **WideCloseRoster** and
+//! **WideDisbandStranded** (the closed wide host lifecycle no VWL port
+//! models: [`native_of`], verifier-coverage), is executed again
 //! by the pinned `.so` ([`crate::reexec`]) from the states the archive
 //! shows before it, and judged:
 //!
@@ -95,9 +98,36 @@ pub fn kind_of(data: &[u8]) -> Option<String> {
         .map(|c| format!("{:?}", c.kind()))
 }
 
+/// The wide-native command `data` names, if it is one VX re-executes
+/// (verifier-coverage, 2026-11-20): the closed host lifecycle's
+/// **WideDissolve** (0xDA op 2), **WideReturn** (0xDC op 2),
+/// **WideCloseRoster** (0xDE op 1) and **WideDisbandStranded** (0xDE op 2).
+/// (WideResidentAct, 0xDD, is not here: V0 FAILs every successful one in
+/// the playable lane, whose program refuses it for every Citizen,
+/// `v0_coverage::judge_outside_v2`.) No independent port of their rules
+/// exists (VWL's cover the land, the claims, the economy, the garrison,
+/// WideMuster and WideResolve), so, as for the expedition dispatch kinds,
+/// the pinned program is the rule: the transaction is executed again from
+/// the states before it and compared byte for byte.
+pub fn native_of(data: &[u8]) -> Option<&'static str> {
+    use frontier_abi::world_index::wide_ix::WideCommand as C;
+    match C::decode(data).ok()? {
+        c @ (C::Dissolve(_) | C::Return(_) | C::CloseRoster(_) | C::DisbandStranded(_)) => {
+            Some(c.name())
+        }
+        _ => None,
+    }
+}
+
+/// What VX calls the instruction it re-executes (a dispatch kind, or a
+/// wide-native command).
+fn name_of(data: &[u8]) -> Option<String> {
+    kind_of(data).or_else(|| native_of(data).map(str::to_string))
+}
+
 /// Whether VX re-executes the transaction of this instruction.
 pub fn judged(data: &[u8]) -> bool {
-    kind_of(data).is_some()
+    name_of(data).is_some()
 }
 
 /// The legacy OpenProvince (ABI v2 tag 0x22): in the playable lane no
@@ -115,7 +145,7 @@ fn selected(t: &Tx) -> Option<String> {
         .ixs
         .iter()
         .filter_map(|ix| {
-            kind_of(&ix.data)
+            name_of(&ix.data)
                 .or_else(|| (ix.tag() == Some(OPEN_PROVINCE)).then(|| "OpenProvince".into()))
         })
         .collect();

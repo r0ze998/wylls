@@ -48,8 +48,12 @@
 //! arrivals stays UNVERIFIABLE in season mode), THE anchor's and the
 //! SeedCache's provenance (PostAnchor / PostSeed, the S1 checks' job), and
 //! anything the program and the shared kernels have in common (as V7, VL).
-//! WideResolveWithConquest (the conquest table) and an NFT resident's
-//! WideResidentAct(Muster) stay `WideUnmodelled`.
+//! WideResolveWithConquest is VX's through the expedition dispatch envelope
+//! (its raw form never succeeds: `CONQUEST_LIFECYCLE_ENABLED = false`), and
+//! an NFT resident's WideResidentAct(Muster) is a V0 FAIL in the playable
+//! lane, whose program refuses every WideResidentAct (verifier-coverage).
+//! WideDissolve, WideReturn, WideCloseRoster and WideDisbandStranded, the
+//! rest of the host lifecycle, are re-executed by VX (`vx_reexec::native_of`).
 
 use frontier_abi::entry::{write_entry, Entry};
 use frontier_abi::layout::beacon::bell_anchor as BA;

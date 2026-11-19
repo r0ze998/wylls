@@ -34,9 +34,21 @@
 //! VX re-executes from the very states the recorder set and reports a
 //! transaction that starts from one as UNVERIFIABLE, never PASS.
 //!
+//! verifier-coverage (2026-11-20): seven more recordings of the same
+//! season, `playable-cov-*.json.gz` (`record_playable_coverage`, one per
+//! [`Sc`] scenario), cover the dispatch kinds the main one does not:
+//! SettleCamp (7), SettleFailure (8), SettleForfeit (9), CloseTerminal (10),
+//! SettleRetainedFailure (11), SettleSiege (15) and SettleReservation (18),
+//! and the wide-native host lifecycle VX now re-executes: WideDissolve,
+//! WideReturn, WideDisbandStranded and WideCloseRoster. All are real
+//! transactions of the pinned program, except that kinds 8 and 9 start from
+//! one declared patch no real path avoids (the arrival slot made absent;
+//! kind 8 also the fate DESTROYED), so they stay UNVERIFIABLE.
+//!
 //! Run the recorder:
 //! `PSF_PLAYABLE_SO=/abs/devnet-playable.so PLAYABLE_EXPEDITION_DUMP=/abs/dir \
 //!  cargo test -p verify --features playable-lane --test playable_expedition -- --ignored --nocapture`
+//! (`PLAYABLE_SC=Siege,Camp` records only those coverage scenarios.)
 #![cfg(feature = "playable-lane")]
 
 mod common;
@@ -568,6 +580,100 @@ fn seed_of(bell: u32) -> [u8; 32] {
 #[test]
 #[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 da3dc1aa…), run with --ignored"]
 fn record_playable_expedition() {
+    record(Sc::Main);
+}
+
+/// verifier-coverage (2026-11-20): one small recording per remaining
+/// dispatch kind and for the wide-native host lifecycle, each branching off
+/// the same season as [`record_playable_expedition`] (module doc of
+/// [`Sc`]).
+#[test]
+#[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 da3dc1aa…), run with --ignored"]
+fn record_playable_coverage() {
+    // (`PLAYABLE_SC=Siege,Terminal` records only those)
+    let only = std::env::var("PLAYABLE_SC").ok();
+    for sc in Sc::COVERAGE {
+        if only
+            .as_deref()
+            .is_none_or(|o| o.split(',').any(|x| x == format!("{sc:?}")))
+        {
+            record(sc);
+        }
+    }
+}
+
+/// The recorder's scenarios. `Main` is the recording of #89/#91
+/// (`playable-expedition-whole`); the others (verifier-coverage) branch off
+/// the same season:
+///
+/// * `Siege`: SettleMember, DeclareSiege, the host's **Dissolve** (kind 4)
+///   while its siege runs, ResolveWithConquest until the siege FAILS (site
+///   record kind NONE), **SettleSiege** (15); a second DeclareSiege while
+///   the province's resolve cursor lags (a reservation) whose host has left,
+///   ResolveWithConquest until it is NOT_APPLIED, **SettleReservation**
+///   (18); the leave bell, Return (5). All real.
+/// * `Retained`: the Depart's seal with one BODY byte flipped (its flag
+///   byte stays valid, so Depart takes it; `ct_hash` and the root over the
+///   flipped bytes), Reveal, Gather, the arrival's WideResolve (fate
+///   STAYS), then **SettleRetainedFailure** (11): the seal does not open.
+///   All real.
+/// * `Forfeit` / `Failure`: as `Retained`, then ONE **declared** patch the
+///   program cannot reach (the canonical arrival slot made absent; for
+///   `Failure` also the row's fate DESTROYED: no real path leaves a row
+///   whose slot is gone, `expedition_close::close_slot` has no non-test
+///   caller), then **SettleForfeit** (9) / **SettleFailure** (8). VX
+///   re-executes them exactly and reports them UNVERIFIABLE for the patch,
+///   never PASS.
+/// * `Terminal`: the Depart and SettleOrigin, never revealed; EndSeason,
+///   the 72 h grace, **CloseTerminal** (10). All real.
+/// * `WideHost`: the closed wide host lifecycle in the wide land: player
+///   1's WideClaimSite, WideSettleTicket, WideFinalize, a declared reserve
+///   (as `playable_wide_march.rs`'s patch 4), WideMuster, WideResolve,
+///   **WideDissolve**, the leave bell, **WideReturn**; a second WideMuster
+///   left standing; EndSeason, the grace, WideClose of the holding,
+///   **WideDisbandStranded** of the stranded entry, **WideCloseRoster**.
+/// * `Camp`: a valid expedition onto the destination's camp, then
+///   **SettleCamp** (7), when the destination has a live camp.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sc {
+    Main,
+    Siege,
+    Retained,
+    Forfeit,
+    Failure,
+    Terminal,
+    WideHost,
+    Camp,
+}
+
+impl Sc {
+    const COVERAGE: [Sc; 7] = [
+        Sc::Siege,
+        Sc::Retained,
+        Sc::Forfeit,
+        Sc::Failure,
+        Sc::Terminal,
+        Sc::WideHost,
+        Sc::Camp,
+    ];
+    fn fixture(self) -> &'static str {
+        match self {
+            Sc::Main => "playable-expedition-whole.json.gz",
+            Sc::Siege => "playable-cov-siege.json.gz",
+            Sc::Retained => "playable-cov-retained.json.gz",
+            Sc::Forfeit => "playable-cov-forfeit.json.gz",
+            Sc::Failure => "playable-cov-failure.json.gz",
+            Sc::Terminal => "playable-cov-terminal.json.gz",
+            Sc::WideHost => "playable-cov-widehost.json.gz",
+            Sc::Camp => "playable-cov-camp.json.gz",
+        }
+    }
+    fn bad_seal(self) -> bool {
+        matches!(self, Sc::Retained | Sc::Forfeit | Sc::Failure)
+    }
+}
+
+fn record(sc: Sc) {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
     let so_hash = common::sha2_256(&so);
@@ -997,6 +1103,29 @@ fn record_playable_expedition() {
     });
     let (dest_coord, fc_site, fc_tile) =
         free_city.expect("an opened wide province with a Free City");
+    // verifier-coverage (`Sc::Camp`): the opened provinces' camps.
+    use frontier_abi::layout::province::camp as CM;
+    let camps: Vec<(WideCoord, u8, u8, u32)> = opened
+        .iter()
+        .filter_map(|&coord| {
+            let d = r.data(&adr(wl::province_address(&ctx, coord)))?;
+            let o = PV::CAMP;
+            let troops =
+                u32::from_le_bytes(d[o + CM::TROOPS..o + CM::TROOPS + 4].try_into().unwrap());
+            Some((coord, d[o + CM::STATE], d[o + CM::TILE], troops))
+        })
+        .collect();
+    r.log.push(format!(
+        "the opened provinces' camps (coord, state, tile, troops): {camps:?}"
+    ));
+    let (dest_coord, fc_tile) = match (sc, camps.iter().find(|c| c.1 == CM::STATE_PRESENT)) {
+        (Sc::Camp, Some(c)) => (c.0, c.2),
+        (Sc::Camp, None) => {
+            println!("SKIP Sc::Camp: no opened province has a live camp at the departure");
+            return;
+        }
+        _ => (dest_coord, fc_tile),
+    };
     let dest = ProvinceKey::new(world, dest_coord);
     let dest_key = adr(wl::province_address(&ctx, dest_coord));
     let region = WideProvince::read(&r.data(&dest_key).unwrap())
@@ -1005,6 +1134,14 @@ fn record_playable_expedition() {
     r.log.push(format!(
         "destination {dest_coord:?} (region {region}): Free City at site {fc_site}, tile {fc_tile}"
     ));
+    if sc == Sc::WideHost {
+        let keeper = Keypair::new_from_array([0xA3; 32]);
+        r.c.airdrop(&keeper.pubkey(), 100_000_000_000).unwrap();
+        r.c.produce_block();
+        wide_host(&mut r, &members[1], &opened, &payer, &keeper);
+        finish(&r, sc, program, so_hash, &so, &upgrade);
+        return;
+    }
     let mut lands = vec![masks_of(rim_key, &r.data(&adr(rim_prov)).unwrap())];
     for &coord in &opened {
         let k = ProvinceKey::new(world, coord);
@@ -1063,6 +1200,21 @@ fn record_playable_expedition() {
         sclock.tlock_round(arrive),
     )
     .expect("a real wide seal");
+    let mut sealed = sealed;
+    if sc.bad_seal() {
+        // verifier-coverage: a seal that does not open. The flag byte stays
+        // valid (Depart's `seal_flag_ok`), one BODY byte flips; the
+        // ciphertext hash and the root are over the flipped bytes, so Depart
+        // stores them and Reveal (plain, salt, ct_hash against the root)
+        // takes them. Only the settlement opens the seal.
+        use frontier_abi::world_index::seal as wsl;
+        let n = sealed.seal.len() - 1;
+        sealed.seal[n] ^= 1;
+        sealed.ct_hash = wsl::ct_hash(&sealed.seal);
+        sealed.seal_root = wsl::seal_root(&sealed.commit, &sealed.ct_hash);
+        r.log
+            .push("the seal's last body byte flipped (a seal that does not open)".into());
+    }
     let w0 = m0.wallet.pubkey();
     let draft = DepartDraft::for_wallet(
         &ctx,
@@ -1124,6 +1276,35 @@ fn record_playable_expedition() {
         }],
         &format!("SettleOrigin bell {b0}"),
     );
+    if sc == Sc::Terminal {
+        // verifier-coverage: the transit is never revealed. At the Season's
+        // end (EndSeason, the 72 h grace) the bridge closes by
+        // **CloseTerminal** (kind 10): `[season, holding, external, rent_to]`.
+        let rent_to = OwnedBridgeTransit::from_bytes(&ctx, &r.data(&external).unwrap())
+            .unwrap()
+            .transit()
+            .rent_to;
+        end_season(&mut r, &keeper);
+        let ix = Instruction {
+            program_id: program,
+            accounts: vec![
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(h0), false),
+                AccountMeta::new(external, false),
+                AccountMeta::new(adr(rent_to), false),
+            ],
+            data: dx::encode(
+                dx::Kind::CloseTerminal,
+                &frontier_abi::world_index::expedition_terminal_ix::DraftCommand::new(0)
+                    .unwrap()
+                    .to_bytes(),
+            )
+            .unwrap(),
+        };
+        r.send(&[&keeper], &[ix], "CloseTerminal");
+        finish(&r, sc, program, so_hash, &so, &upgrade);
+        return;
+    }
 
     // ---- 8. The destination resolved up to the arrival bell; THE anchor
     // and SeedCache of the arrival bell declared before anything names
@@ -1232,6 +1413,114 @@ fn record_playable_expedition() {
             AccountMeta::new(keeper.pubkey(), false),
         ],
     };
+    if sc.bad_seal() {
+        // verifier-coverage: the seal does not open. Kind 11 with the arrival
+        // slot present (real); kinds 9 / 8 need the slot absent, which no
+        // real transaction leaves beside a row (declared patch).
+        let roster_k = adr(wro::roster_address(&ctx, dest));
+        let mut accounts = settle.accounts.clone();
+        let (kind, inner) = match sc {
+            Sc::Retained => {
+                accounts.push(AccountMeta::new_readonly(roster_k, false));
+                (
+                    dx::Kind::SettleRetainedFailure,
+                    frontier_abi::world_index::expedition_retained_failure_ix::DraftCommand::new(
+                        0,
+                        sealed.commit,
+                        sealed.seal,
+                    )
+                    .unwrap()
+                    .to_bytes()
+                    .to_vec(),
+                )
+            }
+            Sc::Forfeit => {
+                absent_slot(&mut r, slot_k);
+                accounts.push(AccountMeta::new_readonly(roster_k, false));
+                (
+                    dx::Kind::SettleForfeit,
+                    frontier_abi::world_index::expedition_forfeit_ix::DraftCommand::new(
+                        0,
+                        sealed.commit,
+                        sealed.seal,
+                    )
+                    .unwrap()
+                    .to_bytes()
+                    .to_vec(),
+                )
+            }
+            _ => {
+                absent_slot(&mut r, slot_k);
+                r.edit(
+                    inputs_k.to_bytes(),
+                    &format!("the ClashInputs row of position {position}: fate DESTROYED"),
+                    |d| {
+                        let mut x = WideArrival::read_at(d, position).unwrap().unwrap();
+                        x.fate = frontier_abi::world_index::arrival::wide_arrival::FATE_DESTROYED;
+                        x.write_at(d, position).unwrap();
+                    },
+                );
+                (
+                    dx::Kind::SettleFailure,
+                    frontier_abi::world_index::expedition_failure_ix::DraftCommand::new(
+                        0,
+                        sealed.commit,
+                        sealed.seal,
+                    )
+                    .unwrap()
+                    .to_bytes()
+                    .to_vec(),
+                )
+            }
+        };
+        // (SettleMember itself refuses the seal: archived as a failure)
+        r.try_send(
+            &[&keeper],
+            std::slice::from_ref(&settle),
+            "SettleMember of a seal that does not open (refused)",
+        );
+        let ix = Instruction {
+            program_id: program,
+            accounts,
+            data: dx::encode(kind, &inner).unwrap(),
+        };
+        r.send(&[&keeper], &[ix], &format!("{kind:?}"));
+        finish(&r, sc, program, so_hash, &so, &upgrade);
+        return;
+    }
+    if sc == Sc::Camp {
+        // verifier-coverage: the host holds the camp's tile (`camp_mask`):
+        // SettleMember refuses a camp winner, **SettleCamp** (kind 7) pays the
+        // camp's loot to the original owner's Citizen (the 15th account).
+        let ih = WideClashInputsHdr::read(&r.data(&inputs_k).unwrap()).unwrap();
+        r.log
+            .push(format!("the ClashInputs' camp_mask: {:#x}", ih.camp_mask));
+        r.try_send(
+            &[&keeper],
+            std::slice::from_ref(&settle),
+            "SettleMember of the camp winner (refused)",
+        );
+        let mut accounts = settle.accounts.clone();
+        accounts.push(AccountMeta::new(adr(m0.citizen), false));
+        let ix = Instruction {
+            program_id: program,
+            accounts,
+            data: dx::encode(
+                dx::Kind::SettleCamp,
+                &frontier_abi::world_index::expedition_settlement_ix::camp_v2::DraftCommand::new(
+                    0,
+                    sealed.commit,
+                    sealed.seal,
+                )
+                .unwrap()
+                .to_bytes(),
+            )
+            .unwrap(),
+        };
+        r.send(&[&keeper], &[ix], "SettleCamp");
+        finish(&r, sc, program, so_hash, &so, &upgrade);
+        return;
+    }
     r.send(&[&keeper], &[settle], "SettleMember");
 
     // ---- 10. The Free City: the player's DeclareSiege (kind 12) from the
@@ -1273,6 +1562,9 @@ fn record_playable_expedition() {
     }
     let conquest_k = adr(conquest_address(&ctx, dest));
     let mut taken = None;
+    // verifier-coverage (`Sc::Siege`): the bell the host left while its
+    // siege ran (Dissolve, kind 4).
+    let mut siege_left: Option<u32> = None;
     if declared_ok {
         for _ in 0..80 {
             let b = resolved_next_of(&r, dest_coord);
@@ -1298,6 +1590,18 @@ fn record_playable_expedition() {
                 if e.rules.kind == CR::KIND_CAPTURE_DUE || e.rules.kind == CR::KIND_NONE {
                     taken = Some((b, e));
                     break;
+                }
+                if sc == Sc::Siege && siege_left.is_none() && e.rules.progress >= 1 {
+                    // the host leaves while its siege runs: the siege fails at
+                    // the bell after its leave bell (the attacker no longer holds)
+                    let ix = dissolve_ix(&ctx, program, host0, dest, w0);
+                    if r.try_send(&[&wallet0], &[ix], "Dissolve while the siege runs") {
+                        siege_left = Some(bell_now(&r));
+                    } else {
+                        let tail: Vec<_> =
+                            r.last_logs.iter().rev().take(6).rev().cloned().collect();
+                        r.log.push(format!("Dissolve tail: {tail:?}"));
+                    }
                 }
             }
         }
@@ -1330,7 +1634,7 @@ fn record_playable_expedition() {
                 AccountMeta::new_readonly(fclient::addr::system_program(), false),
             ],
         };
-        if !r.try_send(&[&keeper], &[capture], "SettleCapture") {
+        if sc == Sc::Siege || !r.try_send(&[&keeper], &[capture], "SettleCapture") {
             let escrow = r
                 .data(&escrow_k)
                 .and_then(|d| WideCaptureEscrow::read(&d, SEASON_ID, world, m0.citizen).ok());
@@ -1400,16 +1704,91 @@ fn record_playable_expedition() {
         }
         rwc_once(&mut r);
     }
-    if let Ok(d) = ResidentDraft::for_wallet(&ctx, host0, dest, w0, w0) {
-        let ix = Instruction {
-            program_id: program,
-            accounts: d
-                .roles()
+    if sc == Sc::Siege {
+        // verifier-coverage: the host left already. A second DeclareSiege of
+        // the site while the province's resolve cursor lags is a
+        // RESERVATION; at its bell the host is no longer on the roster, so
+        // it is NOT_APPLIED, and **SettleReservation** (kind 18) returns it.
+        dissolved = siege_left;
+        let rn = resolved_next_of(&r, dest_coord);
+        let sd = r.data(&a.season).unwrap();
+        let (_, _, _, g) = clock_of(&sd);
+        r.advance_to(g + 600 * (rn as i64 + 1) + 1);
+        if let Some(entry) = entry {
+            let d = ConquestDraft::declare_siege(&ctx, host0, dest, fc_site, entry, w0)
+                .expect("a DeclareSiege draft");
+            let ix = Instruction {
+                program_id: program,
+                accounts: d
+                    .roles()
+                    .iter()
+                    .map(|ro| meta(ro.address, ro.signer, ro.writable))
+                    .collect(),
+                data: dx::encode(dx::Kind::DeclareSiege, &d.inner_bytes()).unwrap(),
+            };
+            if !r.try_send(
+                &[&wallet0],
+                &[ix],
+                &format!("DeclareSiege of site {fc_site} while the cursor lags (a reservation)"),
+            ) {
+                let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+                r.log.push(format!("reservation tail: {tail:?}"));
+            }
+        }
+        let not_applied = |r: &Rec| {
+            WideConquest::read(&r.data(&conquest_k)?, SEASON_ID, dest)
+                .ok()?
+                .reservations()
                 .iter()
-                .map(|ro| meta(ro.address, ro.signer, ro.writable))
-                .collect(),
-            data: dx::encode(dx::Kind::Dissolve, &d.proposed_bytes()).unwrap(),
+                .flatten()
+                .find(|x| x.status == frontier_abi::world_index::conquest::RES_NOT_APPLIED)
+                .copied()
         };
+        for _ in 0..6 {
+            if not_applied(&r).is_some() {
+                break;
+            }
+            rwc_once(&mut r);
+        }
+        if let Some(res) = not_applied(&r) {
+            let escrow_k = adr(capture_escrow_address(&ctx, &res.citizen));
+            let funder = r
+                .data(&escrow_k)
+                .and_then(|d| WideCaptureEscrow::read(&d, SEASON_ID, world, res.citizen).ok())
+                .map(|e| adr(e.funder()))
+                .unwrap_or(keeper.pubkey());
+            let source = adr(resolver.holding_address(&res.source()).unwrap());
+            let ix = Instruction {
+                program_id: program,
+                data: dx::encode(
+                    dx::Kind::SettleReservation,
+                    &wix::SettleReservation { seq: res.seq }.to_bytes(),
+                )
+                .unwrap(),
+                accounts: vec![
+                    AccountMeta::new_readonly(keeper.pubkey(), true),
+                    AccountMeta::new_readonly(a.season, false),
+                    AccountMeta::new(dest_key, false),
+                    AccountMeta::new(conquest_k, false),
+                    AccountMeta::new(adr(res.citizen), false),
+                    AccountMeta::new(escrow_k, false),
+                    AccountMeta::new(funder, false),
+                    AccountMeta::new(source, false),
+                ],
+            };
+            if !r.try_send(
+                &[&keeper],
+                &[ix],
+                &format!("SettleReservation seq {}", res.seq),
+            ) {
+                let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+                r.log.push(format!("SettleReservation tail: {tail:?}"));
+            }
+        } else {
+            r.log.push("no NOT_APPLIED reservation".into());
+        }
+    } else {
+        let ix = dissolve_ix(&ctx, program, host0, dest, w0);
         if r.try_send(&[&wallet0], &[ix], "Dissolve") {
             dissolved = Some(bell_now(&r));
         } else {
@@ -1514,9 +1893,394 @@ fn record_playable_expedition() {
         r.log.push(format!("EndSeason tail: {tail:?}"));
     }
 
-    // ---- 11. The archive: the whole season from AnnounceSeason on, the
+    finish(&r, sc, program, so_hash, &so, &upgrade);
+}
+
+/// **Declared patch** (verifier-coverage, `Sc::Forfeit` / `Sc::Failure`):
+/// the canonical arrival slot made absent. No real transaction leaves a
+/// ClashInputs row whose slot is gone (the expedition slot's closer,
+/// `expedition_close::close_slot`, has no non-test caller; the native
+/// WideClose refuses a v2 slot; SettleMember closes it but marks the row
+/// settled), and the program's own tests of kinds 8/9 patch it the same way.
+fn absent_slot(r: &mut Rec, k: Address) {
+    r.c.set_account(
+        k,
+        Account {
+            lamports: 0,
+            data: vec![],
+            owner: Address::default(),
+            executable: false,
+        },
+    )
+    .expect("patch");
+    let at = r.feed_len();
+    r.declared.push(Declared {
+        at,
+        key: k.to_bytes(),
+        account: None,
+        what: "the canonical arrival slot made absent (no real path)".into(),
+    });
+    r.log
+        .push("PATCH (set_account, declared): the arrival slot made absent".into());
+}
+
+/// The player's Dissolve (dispatch kind 4) of the original host `host`
+/// standing in `dest` (`fclient::wide_resident_draft`).
+fn dissolve_ix(
+    ctx: &AddrCtx,
+    program: Address,
+    host: frontier_abi::world_index::WideHostRef,
+    dest: ProvinceKey,
+    wallet: Address,
+) -> Instruction {
+    let d = fclient::wide_resident_draft::Draft::for_wallet(ctx, host, dest, wallet, wallet)
+        .expect("a Dissolve draft");
+    Instruction {
+        program_id: program,
+        accounts: d
+            .roles()
+            .iter()
+            .map(|ro| meta(ro.address, ro.signer, ro.writable))
+            .collect(),
+        data: dx::encode(dx::Kind::Dissolve, &d.proposed_bytes()).unwrap(),
+    }
+}
+
+/// verifier-coverage (`Sc::WideHost`): the closed wide host lifecycle of
+/// `m` in the first opened wide province, every step a real transaction
+/// but the declared reserve (as `playable_wide_march.rs`'s patch 4) and the
+/// staged bells (THE anchor and SeedCache, declared: no live drand).
+fn wide_host(r: &mut Rec, m: &Member, opened: &[WideCoord], payer: &Keypair, keeper: &Keypair) {
+    use frontier_abi::world_index::{key::WideHostRef, ticket as wt};
+    let a = r.a.clone();
+    let c = ctx_of(&a);
+    let world = world_of(&a);
+    let p0 = opened[0];
+    let pkey = ProvinceKey::new(world, p0);
+    let prov_k = adr(wl::province_address(&c, p0));
+    let roster_k = adr(wro::roster_address(&c, pkey));
+    let reg0 = WideProvince::read(&r.data(&prov_k).unwrap())
+        .unwrap()
+        .region;
+    let bell_now = |r: &Rec| -> u32 {
+        let sd = r.data(&r.a.season).unwrap();
+        let (_, _, _, g) = clock_of(&sd);
+        ((r.c.unix_timestamp() - g) / 600) as u32
+    };
+    let w = m.wallet.pubkey();
+    let player = |extra: Vec<AccountMeta>| -> Vec<AccountMeta> {
+        let mut v = vec![
+            AccountMeta::new_readonly(w, true),
+            AccountMeta::new(w, true),
+            AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new(adr(m.citizen), false),
+        ];
+        v.extend(extra);
+        v
+    };
+    // 1. The claim (slot 2), its fresh settle, the finality.
+    let pd = r.data(&prov_k).unwrap();
+    let site = (0..pd[PV::SITE_COUNT])
+        .find(|&s| {
+            let o = PV::site(s as usize);
+            let ro = frontier_abi::v2::layout::province::province::record(s as usize);
+            pd[o + SM::STATE] == SM::STATE_FREE && pd[ro..ro + 32].iter().all(|b| *b == 0)
+        })
+        .expect("a free site");
+    let tile = pd[PV::SITES + site as usize];
+    let hk = adr(wh::holding_address(&c, p0, site));
+    let anchor = adr(c.holding(RIM.0, RIM.1, m.rim_site));
+    let anchor_p = adr(c.province(RIM.0, RIM.1));
+    let b0 = bell_now(r);
+    r.send(
+        &[&m.wallet],
+        &[wide_ix(
+            &a,
+            player(vec![
+                AccountMeta::new_readonly(a.frontier(), false),
+                AccountMeta::new(prov_k, false),
+                AccountMeta::new(adr(wt::ticket_address(&c, &m.citizen)), false),
+                AccountMeta::new(anchor, false),
+                AccountMeta::new_readonly(anchor_p, false),
+                AccountMeta::new(anchor, false),
+                AccountMeta::new_readonly(anchor_p, false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ]),
+            wix::ClaimSite {
+                p: p0.p(),
+                q: p0.q(),
+                site,
+                slot: 2,
+            }
+            .to_bytes()
+            .to_vec(),
+        )],
+        &format!("WideClaimSite ({p0:?}, site {site}) slot 2"),
+    );
+    let final0 = stage_seed(r, b0, reg0, seed_of(b0));
+    r.send(
+        &[payer],
+        &[wide_ix(
+            &a,
+            vec![
+                AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(m.citizen), false),
+                AccountMeta::new(adr(wt::ticket_address(&c, &m.citizen)), false),
+                AccountMeta::new(hk, false),
+                AccountMeta::new(prov_k, false),
+                AccountMeta::new(a.join_shard(m.faction, m.shard), false),
+                AccountMeta::new_readonly(adr(c.seed_cache(b0, reg0, 0)), false),
+                AccountMeta::new_readonly(adr(c.bell_anchor(b0, reg0)), false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ],
+            wix::SettleTicket { k: 0 }.to_bytes().to_vec(),
+        )],
+        "WideSettleTicket (fresh)",
+    );
+    r.advance_to(final0.max(r.c.unix_timestamp()) + 5);
+    r.send(
+        &[payer],
+        &[wide_ix(
+            &a,
+            vec![
+                AccountMeta::new_readonly(payer.pubkey(), true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(hk, false),
+                AccountMeta::new_readonly(prov_k, false),
+            ],
+            wix::Finalize.to_bytes().to_vec(),
+        )],
+        "WideFinalize",
+    );
+    let now_b = bell_now(r);
+    resolve_through(r, payer, p0, reg0, now_b);
+    // 2. Declared: the holding's Spearman reserve.
+    const TROOPS: u32 = 3_000;
+    r.edit(
+        hk.to_bytes(),
+        &format!("the wide holding: {TROOPS} Spearmen in reserve"),
+        |d| {
+            let ro = H::reserve(0);
+            d[ro..ro + 4].copy_from_slice(&TROOPS.to_le_bytes());
+        },
+    );
+    let muster = |r: &mut Rec, troops: u32, what: &str| -> WideHostRef {
+        let hd = r.data(&hk).unwrap();
+        let seq = u32::from_le_bytes(hd[H::HOST_SEQ..H::HOST_SEQ + 4].try_into().unwrap());
+        let host = WideHostRef::new(pkey, site, hd[H::GEN], seq).unwrap();
+        r.send(
+            &[&m.wallet],
+            &[wide_ix(
+                &a,
+                player(vec![
+                    AccountMeta::new(hk, false),
+                    AccountMeta::new(prov_k, false),
+                    AccountMeta::new(roster_k, false),
+                    AccountMeta::new_readonly(fclient::addr::system_program(), false),
+                ]),
+                wix::Muster {
+                    unit: 0,
+                    troops,
+                    tile,
+                }
+                .to_bytes()
+                .to_vec(),
+            )],
+            what,
+        );
+        host
+    };
+    let transits = |v: &mut Vec<AccountMeta>| {
+        for s in 0..4u8 {
+            v.push(AccountMeta::new_readonly(
+                adr(frontier_abi::world_index::march::transit_address(
+                    &c,
+                    &hk.to_bytes(),
+                    s,
+                )),
+                false,
+            ));
+        }
+    };
+    // 3. The muster, its bell resolved, WideDissolve, the leave bell, WideReturn.
+    // (the standing and the holding's province are one account here: the
+    // program's test `dissolve_at` names it twice the same way)
+    let dissolve = |r: &mut Rec, host: WideHostRef, what: &str| {
+        let mut acc = player(vec![
+            AccountMeta::new(hk, false),
+            AccountMeta::new(prov_k, false),
+            AccountMeta::new_readonly(roster_k, false),
+            AccountMeta::new_readonly(prov_k, false),
+        ]);
+        transits(&mut acc);
+        let ix = wide_ix(
+            &a,
+            acc,
+            wix::Dissolve {
+                host: host.to_bytes(),
+            }
+            .to_bytes()
+            .to_vec(),
+        );
+        if !r.try_send(&[&m.wallet], &[ix], what) {
+            let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+            r.log.push(format!("{what} tail: {tail:?}"));
+        }
+        let leave = bell_now(r);
+        resolve_through(r, payer, p0, reg0, leave + 1);
+    };
+    let host = muster(
+        r,
+        TROOPS,
+        &format!("WideMuster {TROOPS} Spearmen onto tile {tile}"),
+    );
+    let b = bell_now(r);
+    resolve_through(r, payer, p0, reg0, b + 1);
+    dissolve(r, host, "WideDissolve");
+    let ret = |r: &mut Rec, what: &str| {
+        let mut acc = vec![
+            AccountMeta::new(keeper.pubkey(), true),
+            AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new(prov_k, false),
+            AccountMeta::new(roster_k, false),
+            AccountMeta::new(hk, false),
+        ];
+        transits(&mut acc);
+        if !r.try_send(
+            &[keeper],
+            &[wide_ix(&a, acc, wix::Return.to_bytes().to_vec())],
+            what,
+        ) {
+            let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+            r.log.push(format!("{what} tail: {tail:?}"));
+        }
+    };
+    ret(r, "WideReturn");
+    // 4. A second host left departed; the Season's end; the holding closed
+    // (the host is then stranded), WideDisbandStranded, WideCloseRoster.
+    // (dissolved and its leave bell resolved, never returned: DEPARTED, so
+    // DisbandStranded frees it at once once its holding is gone; a ROSTER
+    // entry would need the province resolved through the end bell)
+    let host2 = muster(r, 1_000, "WideMuster 1000 Spearmen (never returned)");
+    let b = bell_now(r);
+    resolve_through(r, payer, p0, reg0, b + 1);
+    dissolve(r, host2, "WideDissolve of the second host");
+    end_season(r, keeper);
+    let rent_payer: [u8; 32] = r.data(&hk).unwrap()[H::RENT_PAYER..H::RENT_PAYER + 32]
+        .try_into()
+        .unwrap();
+    if !r.try_send(
+        &[keeper],
+        &[wide_ix(
+            &a,
+            vec![
+                AccountMeta::new_readonly(keeper.pubkey(), true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(hk, false),
+                AccountMeta::new(adr(rent_payer), false),
+                AccountMeta::new(a.defence_pool(), false),
+            ],
+            wix::Close {
+                what: wix::CLOSE_WHAT_HOLDING,
+            }
+            .to_bytes()
+            .to_vec(),
+        )],
+        "WideClose(holding)",
+    ) {
+        let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+        r.log.push(format!("WideClose(holding) tail: {tail:?}"));
+    }
+    let pd = r.data(&prov_k).unwrap();
+    let entry = (0..pd[PV::N_ENTRIES] as usize).find(|&i| {
+        frontier_abi::entry::read_entry(&pd, i).is_ok_and(|e| {
+            e.faction == m.faction && e.state != frontier_abi::layout::province::entry::STATE_FREE
+        })
+    });
+    r.log
+        .push(format!("the standing entry to disband: {entry:?}"));
+    if let Some(entry) = entry {
+        let mut acc = vec![
+            AccountMeta::new_readonly(keeper.pubkey(), true),
+            AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new(prov_k, false),
+            AccountMeta::new(roster_k, false),
+            AccountMeta::new_readonly(hk, false),
+        ];
+        transits(&mut acc);
+        if !r.try_send(
+            &[keeper],
+            &[wide_ix(
+                &a,
+                acc,
+                wix::DisbandStranded { entry: entry as u8 }
+                    .to_bytes()
+                    .to_vec(),
+            )],
+            "WideDisbandStranded",
+        ) {
+            let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+            r.log.push(format!("WideDisbandStranded tail: {tail:?}"));
+        }
+    }
+    let rd = r.data(&roster_k).expect("the roster");
+    let rent_to = wro::WideRoster::read(&rd).map(|x| x.rent_to);
+    r.log.push(format!("the roster's rent_to: {rent_to:?}"));
+    let rent_to = rent_to.map(adr).unwrap_or(payer.pubkey());
+    if !r.try_send(
+        &[keeper],
+        &[wide_ix(
+            &a,
+            vec![
+                AccountMeta::new_readonly(keeper.pubkey(), true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(roster_k, false),
+                AccountMeta::new(rent_to, false),
+                AccountMeta::new_readonly(prov_k, false),
+            ],
+            wix::CloseRoster.to_bytes().to_vec(),
+        )],
+        "WideCloseRoster",
+    ) {
+        let tail: Vec<_> = r.last_logs.iter().rev().take(6).rev().cloned().collect();
+        r.log.push(format!("WideCloseRoster tail: {tail:?}"));
+    }
+}
+
+/// EndSeason once the Season's end bell began, then the 72 h grace.
+fn end_season(r: &mut Rec, keeper: &Keypair) {
+    let sd = r.data(&r.a.season).unwrap();
+    let (_, _, _, genesis_ts) = clock_of(&sd);
+    let end_bell = u32::from_le_bytes(sd[S::END_BELL..S::END_BELL + 4].try_into().unwrap());
+    let end = genesis_ts + 600 * end_bell as i64;
+    r.advance_to(end + 1);
+    let a = r.a.clone();
+    r.send(
+        &[keeper],
+        &[ix::end_season(&a, keeper.pubkey())],
+        "EndSeason",
+    );
+    r.advance_to(end + frontier_abi::presets::END_GRACE_SECS + 1);
+}
+
+/// The archive of the whole season from AnnounceSeason on (the UNFILTERED
+/// feed, the declared patches with it, the chain witness), judged once for
+/// the log and saved under `PLAYABLE_EXPEDITION_DUMP` as `sc`'s fixture.
+fn finish(r: &Rec, sc: Sc, program: Address, so_hash: [u8; 32], so: &[u8], upgrade: &Keypair) {
+    // The archive: the whole season from AnnounceSeason on, the
     // UNFILTERED feed, the declared patches with it.
-    let (txs, finals) = r.archive(0, &program);
+    let (txs, mut finals) = r.archive(0, &program);
+    if sc != Sc::Main {
+        // verifier-coverage: the final of every declared account too (the
+        // staged bells' THE anchors and SeedCaches no transaction writes),
+        // as a read of every program account shows it; VG asks for it.
+        for d in &r.declared {
+            finals
+                .entry(d.key)
+                .or_insert_with(|| r.c.account(&adr(d.key)).filter(|a| a.lamports > 0));
+        }
+    }
     let mut whole = input_of(
         program,
         so_hash,
@@ -1524,10 +2288,10 @@ fn record_playable_expedition() {
         finals,
         r.c.slot(),
         format!(
-            "verify/tests/playable_expedition.rs record_playable_expedition: the devnet-playable .so built from origin/main c889f6cf (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process); a real placement-2 season by its own instructions, the declared wide land patch (RingSeed(128), Frontier wedge counters) and the real ring-129 opening, the declared rim-homes patch (as playable_wide_march.rs), the declared host patch (player 0's {STRONG_TROOPS} milli-troop host on its rim home, the rim's resolved_next), THE anchor and SeedCache of every resolved bell declared with a literal seed (no live drand, O-M1-12), the real expedition wrapper (ExpeditionDepart, SettleOrigin, ExpeditionReveal, ExpeditionGather, SettleMember) to the Free City's tile and the Free City conquest through the wrapper (DeclareSiege, ResolveWithConquest, …); the UNFILTERED feed; every patch is in `declared`; steps: {}",
+            "verify/tests/playable_expedition.rs record(Sc::{sc:?}): the devnet-playable .so built from origin/main c889f6cf (sha256 {MAIN_SHA256}) in localnet::Chain (LiteSVM, in process); a real placement-2 season by its own instructions, the declared wide land patch (RingSeed(128), Frontier wedge counters) and the real ring-129 opening, the declared rim-homes patch (as playable_wide_march.rs), the declared host patch (player 0's {STRONG_TROOPS} milli-troop host on its rim home, the rim's resolved_next), THE anchor and SeedCache of every resolved bell declared with a literal seed (no live drand, O-M1-12), the real expedition wrapper (ExpeditionDepart, SettleOrigin, ExpeditionReveal, ExpeditionGather, SettleMember) to the Free City's tile and the Free City conquest through the wrapper (DeclareSiege, ResolveWithConquest, …); the UNFILTERED feed; every patch is in `declared`; steps: {}",
             r.log.join("; ")
         ),
-        "playable-expedition-whole",
+        sc.fixture().trim_end_matches(".json.gz"),
     );
     whole.declared = r.declared.clone();
     // What getTransaction serves beside each transaction (VG's input).
@@ -1552,7 +2316,7 @@ fn record_playable_expedition() {
         println!("STEP {l}");
     }
     let mut judged = whole.clone();
-    judged.program_so = Some(std::sync::Arc::new(so.clone()));
+    judged.program_so = Some(std::sync::Arc::new(so.to_vec()));
     let rep = verify_core::verify(&judged);
     for f in &rep.findings {
         println!(
@@ -1567,9 +2331,7 @@ fn record_playable_expedition() {
     println!("whole verdict {:?}", rep.verdict);
     if let Ok(dir) = std::env::var("PLAYABLE_EXPEDITION_DUMP") {
         let d = std::path::PathBuf::from(dir);
-        whole
-            .save(&d.join("playable-expedition-whole.json.gz"))
-            .expect("save");
+        whole.save(&d.join(sc.fixture())).expect("save");
         println!("saved to {}", d.display());
     }
 }
@@ -2251,7 +3013,8 @@ fn explained(f: &Finding) -> bool {
         "V0E" => d.contains("declares"),
         "VX" => d.contains("only declares"),
         "VWL" => {
-            d.contains("bell anchor")
+            d.contains("only declares")
+                || d.contains("bell anchor")
                 || d.contains("seed cache")
                 || d.contains("RingSeed of ring 128")
                 || d.contains("wedge fund")
@@ -2818,4 +3581,371 @@ fn without_post_states_a_forged_gather_log_fails() {
         .findings
         .iter()
         .any(|f| f.fail() && f.check == "VG" && f.entity == format!("tx#{t}")));
+}
+
+// ------------------------------------- verifier-coverage: the remaining kinds
+
+/// A coverage recording (`record_playable_coverage`), with the pinned
+/// program given to VX.
+fn cov(sc: Sc) -> Input {
+    let mut inp = common::fixture(sc.fixture());
+    inp.program_so = Some(so());
+    inp
+}
+
+/// The wide-native command of transaction `t`'s first program instruction
+/// (WideDissolve, WideReturn, …), if it is one.
+fn native_at(inp: &Input, t: usize) -> Option<&'static str> {
+    let (data, _) = prog_ix(inp, t)?;
+    wix::WideCommand::decode(&data).ok().map(|c| c.name())
+}
+
+fn of_native(inp: &Input, name: &str) -> Vec<usize> {
+    (0..inp.txs.len())
+        .filter(|&t| inp.txs[t].err.is_none() && native_at(inp, t) == Some(name))
+        .collect()
+}
+
+/// What a coverage recording's declared patches explain: the main
+/// recording's, and V7's view of a patched rim home of player 1 (the
+/// WideHost claim's anchor), which no archived transaction wrote.
+fn cov_explained(f: &Finding) -> bool {
+    explained(f) || (f.check == "V7" && f.detail.contains("no earlier post-state"))
+}
+
+/// The transactions each scenario adds: dispatch kinds, then wide-native
+/// commands, each recorded exactly as many times.
+/// (dispatch kinds, wide-native commands), each with its count.
+type Targets = (Vec<(dx::Kind, usize)>, Vec<(&'static str, usize)>);
+
+fn cov_targets(sc: Sc) -> Targets {
+    use dx::Kind::*;
+    match sc {
+        Sc::Siege => (
+            vec![(SettleSiege, 1), (SettleReservation, 1), (DeclareSiege, 2)],
+            vec![],
+        ),
+        Sc::Retained => (vec![(SettleRetainedFailure, 1)], vec![]),
+        Sc::Forfeit => (vec![(SettleForfeit, 1)], vec![]),
+        Sc::Failure => (vec![(SettleFailure, 1)], vec![]),
+        Sc::Terminal => (vec![(CloseTerminal, 1)], vec![]),
+        Sc::Camp => (vec![(SettleCamp, 1)], vec![]),
+        Sc::WideHost => (
+            vec![],
+            vec![
+                ("WideDissolve", 2),
+                ("WideReturn", 1),
+                ("WideDisbandStranded", 1),
+                ("WideCloseRoster", 1),
+            ],
+        ),
+        Sc::Main => (vec![], vec![]),
+    }
+}
+
+fn cov_txs(inp: &Input, sc: Sc) -> Vec<(String, usize)> {
+    let (kinds, natives) = cov_targets(sc);
+    let mut out = vec![];
+    for (k, n) in kinds {
+        let v = of_kind(inp, k);
+        assert_eq!(v.len(), n, "{sc:?} {k:?}: {v:?}");
+        out.extend(v.into_iter().map(|t| (format!("{k:?}"), t)));
+    }
+    for (name, n) in natives {
+        let v = of_native(inp, name);
+        assert_eq!(v.len(), n, "{sc:?} {name}: {v:?}");
+        out.extend(v.into_iter().map(|t| (name.to_string(), t)));
+    }
+    out
+}
+
+/// Kinds 8 and 9 start from the one declared patch no real path avoids.
+fn patched(sc: Sc) -> bool {
+    matches!(sc, Sc::Forfeit | Sc::Failure)
+}
+
+fn assert_honest(inp: &Input, sc: Sc, how: &str) {
+    let rep = verify_core::verify(inp);
+    assert_eq!(
+        rep.verdict,
+        Verdict::Unverifiable,
+        "{sc:?} {how}: {:#?}",
+        show(&rep)
+    );
+    for f in &rep.findings {
+        assert_ne!(
+            f.severity,
+            Severity::Fail,
+            "{sc:?} {how}: {:#?}",
+            show(&rep)
+        );
+        if f.severity == Severity::Unverifiable {
+            assert!(
+                cov_explained(f),
+                "{sc:?} {how}: an unexplained finding: {f:?}"
+            );
+        }
+    }
+    assert!(
+        rep.findings.iter().all(|f| f.code != "WideUnmodelled"),
+        "{sc:?} {how}: {:#?}",
+        show(&rep)
+    );
+    for (name, t) in cov_txs(inp, sc) {
+        let v = vx_at(&rep, t);
+        if patched(sc) && name != "DeclareSiege" {
+            // re-executed exactly, from the declared absent slot: never PASS
+            assert!(
+                v.len() == 1
+                    && v[0].severity == Severity::Unverifiable
+                    && v[0].detail.contains("re-executed exactly")
+                    && v[0].detail.contains("only declares"),
+                "{sc:?} {how} {name} tx#{t}: {v:?}"
+            );
+        } else {
+            assert!(v.is_empty(), "{sc:?} {how} {name} tx#{t}: {v:?}");
+        }
+    }
+}
+
+#[test]
+fn every_remaining_kind_and_wide_native_op_is_recorded_on_the_pinned_program() {
+    for sc in Sc::COVERAGE {
+        let inp = cov(sc);
+        assert_eq!(
+            inp.cfg.program_hash.map(hex::encode).as_deref(),
+            Some(MAIN_SHA256),
+            "{sc:?}"
+        );
+        assert_eq!(inp.chain.balances.len(), inp.txs.len(), "{sc:?}");
+        let found = cov_txs(&inp, sc);
+        assert!(!found.is_empty(), "{sc:?}");
+        // real transactions only, but the main recording's patches and, for
+        // kinds 8 / 9, the arrival slot (and kind 8's fate)
+        let extra: Vec<&str> = inp
+            .declared
+            .iter()
+            .map(|d| d.what.as_str())
+            .filter(|w| w.contains("arrival slot") || w.contains("fate DESTROYED"))
+            .collect();
+        match sc {
+            Sc::Forfeit => assert_eq!(extra.len(), 1, "{extra:?}"),
+            Sc::Failure => assert_eq!(extra.len(), 2, "{extra:?}"),
+            _ => assert!(extra.is_empty(), "{sc:?}: {extra:?}"),
+        }
+    }
+}
+
+#[test]
+fn each_remaining_kind_re_executes_exactly_with_post_states() {
+    for sc in Sc::COVERAGE {
+        assert_honest(&cov(sc), sc, "with post-states");
+    }
+}
+
+#[test]
+fn each_remaining_kind_re_executes_exactly_from_genesis_without_post_states() {
+    // As a public RPC serves it: VG derives every post-state first.
+    for sc in Sc::COVERAGE {
+        let rec = cov(sc);
+        let mut inp = rec.clone();
+        for t in inp.txs.iter_mut() {
+            t.post.clear();
+        }
+        let rep = verify_core::verify(&inp);
+        assert!(rep.checks_run.contains(&"VG:genesis-replay"), "{sc:?}");
+        assert_honest(&inp, sc, "VG");
+        // and VG derives the recorded program states, byte for byte
+        let d = verify_core::genesis::derive(&inp);
+        assert!(
+            d.findings.iter().all(|f| !f.fail()),
+            "{sc:?}: {:?}",
+            d.findings
+        );
+        let derived = d.input.unwrap();
+        for (i, (a, b)) in rec.txs.iter().zip(derived.txs.iter()).enumerate() {
+            if a.err.is_some() {
+                continue;
+            }
+            for (k, acc) in &a.post {
+                if acc.as_ref().is_some_and(|x| x.owner == rec.cfg.program) {
+                    let got = b.post.iter().find(|(x, _)| x == k).map(|(_, s)| s);
+                    assert_eq!(got, Some(acc), "{sc:?} tx#{i} {k}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn without_the_pinned_binary_no_remaining_kind_passes() {
+    for sc in Sc::COVERAGE {
+        let mut inp = cov(sc);
+        inp.program_so = None;
+        let rep = verify_core::verify(&inp);
+        assert_ne!(rep.verdict, Verdict::Pass, "{sc:?}");
+        for (name, t) in cov_txs(&inp, sc) {
+            assert!(
+                vx_at(&rep, t)
+                    .iter()
+                    .any(|f| f.severity == Severity::Unverifiable
+                        && f.detail.contains("no program binary")),
+                "{sc:?} {name} tx#{t}: {:?}",
+                vx_at(&rep, t)
+            );
+        }
+    }
+}
+
+/// A program post-state of transaction `t` with data (the first one).
+fn some_program_post(inp: &Input, t: usize) -> Option<Address> {
+    inp.txs[t]
+        .post
+        .iter()
+        .find(|(_, a)| {
+            a.as_ref()
+                .is_some_and(|a| a.owner == inp.cfg.program && !a.data.is_empty())
+        })
+        .map(|(k, _)| *k)
+}
+
+#[test]
+fn a_forged_post_state_at_each_remaining_kind_fails() {
+    for sc in Sc::COVERAGE {
+        for (name, t) in cov_txs(&cov(sc), sc) {
+            let mut inp = cov(sc);
+            let Some(key) = some_program_post(&inp, t) else {
+                // (a pure close: every program account it writes ends closed)
+                let k = inp.txs[t]
+                    .post
+                    .iter()
+                    .find(|(_, a)| a.is_none())
+                    .map(|(k, _)| *k)
+                    .expect("a closed account");
+                let back = inp.txs[..t]
+                    .iter()
+                    .rev()
+                    .find_map(|x| x.post.iter().find(|(y, _)| *y == k).cloned())
+                    .expect("its state before");
+                let slot = inp.txs[t].post.iter_mut().find(|(y, _)| *y == k).unwrap();
+                slot.1 = back.1;
+                let rep = verify_core::verify(&inp);
+                assert_eq!(
+                    rep.verdict,
+                    Verdict::Fail,
+                    "{sc:?} {name}: {:#?}",
+                    show(&rep)
+                );
+                assert!(
+                    fails_vx(&rep, t, "ReExecMismatch"),
+                    "{sc:?} {name}: {:?}",
+                    vx_at(&rep, t)
+                );
+                continue;
+            };
+            edit_post(&mut inp, t, &key, |a| {
+                let n = a.data.len() - 1;
+                a.data[n] ^= 1;
+            });
+            let rep = verify_core::verify(&inp);
+            assert_eq!(
+                rep.verdict,
+                Verdict::Fail,
+                "{sc:?} {name}: {:#?}",
+                show(&rep)
+            );
+            assert!(
+                fails_vx(&rep, t, "ReExecMismatch"),
+                "{sc:?} {name} tx#{t}: {:?}",
+                vx_at(&rep, t)
+            );
+        }
+    }
+}
+
+#[test]
+fn without_post_states_a_forged_record_at_each_remaining_kind_fails() {
+    let mut forged = 0;
+    for sc in Sc::COVERAGE {
+        for (name, t) in cov_txs(&cov(sc), sc) {
+            let mut inp = cov(sc);
+            for x in inp.txs.iter_mut() {
+                x.post.clear();
+            }
+            let Some(l) = inp.txs[t]
+                .logs
+                .iter_mut()
+                .find(|l| l.starts_with("Program data: "))
+            else {
+                continue;
+            };
+            let n = l.len() - 6;
+            let c = if l.as_bytes()[n] == b'A' { "B" } else { "A" };
+            l.replace_range(n..n + 1, c);
+            forged += 1;
+            let rep = verify_core::verify(&inp);
+            assert_eq!(
+                rep.verdict,
+                Verdict::Fail,
+                "{sc:?} {name}: {:#?}",
+                show(&rep)
+            );
+            assert!(
+                rep.findings
+                    .iter()
+                    .any(|f| f.fail() && f.check == "VG" && f.entity == format!("tx#{t}")),
+                "{sc:?} {name} tx#{t}: {:#?}",
+                show(&rep)
+            );
+        }
+    }
+    // every kind and op prints a record (the closes too)
+    assert!(forged >= 13, "{forged}");
+}
+
+#[test]
+fn a_wide_return_before_its_leave_bell_resolved_fails() {
+    // WideReturn needs the leave bell's WideResolve (the entry DEPARTED):
+    // without it the program finds nothing to return (AlreadyDone).
+    let sc = Sc::WideHost;
+    let mut inp = cov(sc);
+    let d = of_native(&inp, "WideDissolve")[0];
+    let rt = one_native(&inp, "WideReturn");
+    let gone: Vec<usize> = (d + 1..rt)
+        .filter(|&t| inp.txs[t].err.is_none() && native_at(&inp, t) == Some("WideResolve"))
+        .collect();
+    assert!(!gone.is_empty());
+    for &g in gone.iter().rev() {
+        inp.txs.remove(g);
+        for x in &mut inp.declared {
+            if x.at > g {
+                x.at -= 1;
+            }
+        }
+    }
+    let t = one_native(&inp, "WideReturn");
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
+    assert!(fails_vx(&rep, t, "ReExecRefused"), "{:?}", vx_at(&rep, t));
+}
+
+fn one_native(inp: &Input, name: &str) -> usize {
+    let v = of_native(inp, name);
+    assert_eq!(v.len(), 1, "{name}: {v:?}");
+    v[0]
+}
+
+#[test]
+fn a_settlement_archived_as_failed_that_the_program_runs_fails() {
+    // SettleRetainedFailure archived with a program error the pinned program
+    // does not raise (it runs the transaction to success): VG FAILs.
+    let mut inp = cov(Sc::Retained);
+    let t = one(&inp, dx::Kind::SettleRetainedFailure);
+    for x in inp.txs.iter_mut() {
+        x.post.clear();
+    }
+    inp.txs[t].err = Some("InstructionError(4, Custom(99))".into());
+    inp.txs[t].code = Some(99);
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
 }
