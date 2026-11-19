@@ -18,7 +18,8 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // page; their logic is in screens/{report,practice,onboarding,spectate}.mjs
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
-import { localPlayRequested, openLocalPlayGate, localPlayWorldCheck } from './flocalplay.mjs';
+import { localPlayRequested, localLauncherRequested, openLocalPlayGate, localPlayWorldCheck } from './flocalplay.mjs';
+import { currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
 import { createWorldWatch, worldStateOf, worldEndedWord } from './flocalplay-ended.mjs';
 // B21: the launcher that stopped answering (a plain line, not only the dial's red mark) and the test-world box that is told
@@ -57,6 +58,7 @@ import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
+import { localCoopBoardOptions } from './hud/coopboard-local.mjs';
 import * as coopTitles from './hud/coopoutcomes.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
@@ -4634,6 +4636,9 @@ export async function boot() {
   $('panel')?.addEventListener('scroll', e => { releaseRows(e.target); }, { capture: true, passive: true });
   // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
   globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
+  // (B13, TEST-ONLY: in a launcher world ①'s co-op board is the launcher's, under that world's mount, and its records
+  //  are signed with this page's memory-only key — hud/coopboard-local.mjs; elsewhere the board is looked for as before)
+  const coopOptions = cfg.localPlay ? localCoopBoardOptions({ herald: cfg.herald, handle: currentEphemeralWallet(), launcher: localLauncherRequested(cfg) }) : null;
   const herald = createHerald({ base: cfg.herald });
   rosterRef = createRoster({ base: cfg.herald ?? '', onChange: () => { mapRef?.invalidate(); invalidate('panel'); } });
   FS.roster = rosterRef;
@@ -4931,10 +4936,11 @@ export async function boot() {
         // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
         // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
         // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
-        if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel') }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel'), ...(coopOptions ?? {}) }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
         // (workstream 15, ruleset B: the titles and chronicle of cooperation 01's board judges — read only, a record that
         //  changes no standing; nothing drawn on a server without them. Installs once — hud/coopoutcomes.mjs)
-        try { coopTitles.installCoopOutcomes({ changed: () => invalidate('panel') }); } catch (e) { console.error('frontier coop titles:', e); }
+        //  (B13: in a launcher world they are read under that world's board mount, beside its board — hud/coopboard-local.mjs)
+        try { coopTitles.installCoopOutcomes({ changed: () => invalidate('panel'), ...(coopOptions?.base ? { base: coopOptions.base } : {}) }); } catch (e) { console.error('frontier coop titles:', e); }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });

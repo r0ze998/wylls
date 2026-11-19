@@ -150,16 +150,19 @@ test('the command line: --resident-turns takes an absolute directory and reaches
   } finally { await Promise.all(proxies.map(x => new Promise(r => x.close(() => r())))); }
 });
 
-test('an operator resident told ResidentAlreadyActed waits for the next bell: nothing marked tried, nothing spent', async () => {
+test('an operator resident told ResidentAlreadyActed waits for the next bell: nothing marked tried, no refusal counted, this bell used up', async () => {
   const r = { index: 0, key: { address: W.address }, memory: createResidentMemory(0), budget: createOperatorBudget({ maxActs: 5, maxRefusals: 1, minGapMs: 0 }), lastRefusal: { code: RESIDENT_ALREADY_ACTED, detail: { bell: 9 } } };
   const decisions = r.memory.decisions;
   // (not joined yet: the rule decides a Join; its relay answers that this resident's bell is taken)
   const deps = { now: () => 1, nowSecs: async () => 1_700_000_000, read: async () => ({ v: 1, citizen: null }), submit: async () => ({ ok: false, code: RESIDENT_ALREADY_ACTED }), follow: async () => { throw new Error('nothing to follow'); } };
-  const line = await residentTurn(r, { homes: [], deps });
+  // (PR #60 B12 per-bell budget, merged with this: the round's bell is passed in; the relay's answer uses that bell up
+  //  — 'held': nothing sent, no refusal counted — so the resident does not ask again until the next bell)
+  const line = await residentTurn(r, { homes: [], deps, bell: 9 });
   assert.equal(line.step, 'act'); assert.equal(line.act, 'Join');
   assert.equal(line.outcome, 'wait'); assert.equal(line.code, RESIDENT_ALREADY_ACTED); assert.match(line.detail, /"bell":9/);
-  assert.deepEqual(r.budget.state(), { sent: 0, refusalsInRow: 0, stopped: null }, 'no refusal counted: maxRefusals 1 would otherwise stop it');
-  assert.equal(r.budget.allow(2).ok, true, 'it may ask again');
+  assert.deepEqual(r.budget.state(), { sent: 0, refusalsInRow: 0, bell: 9, inBell: 1, stopped: null }, 'no refusal counted: maxRefusals 1 would otherwise stop it');
+  assert.equal(r.budget.allow(2, 9).ok, false, 'not again in the same bell');
+  assert.equal(r.budget.allow(2, 10).ok, true, 'it may ask again in the next bell');
   assert.equal(r.memory.decisions, decisions, 'the decision memory is unchanged: the same command next bell');
 });
 

@@ -767,10 +767,11 @@ pub const CENTRE_PLAYABLE: u8 = CENTRE_CONCORD;
 
 /// `S1_LOCAL_7D`, `S1_LOCAL_14D` and `S1_TEST`: the MC presets of the same
 /// names for the S1 program (redesign 30, J5: stage 1 runs in a new
-/// season). `S1_LOCAL_7D` and `S1_LOCAL_14D` are the playable/devnet
-/// presets (the devnet profiles, frontier-operator and the local natural
-/// world use them) and are [`centreless`] (⑭ R1); `S1_TEST` (itests and
-/// smokes only) keeps the wedge, as every MC preset does.
+/// season). `S1_LOCAL_7D` and `S1_LOCAL_14D` are the playable presets (the
+/// S1 devnet profile, frontier-operator and the local natural world use
+/// them; the playable lane's devnet profile uses [`S1_DEVNET_WIDE_7D`], whose
+/// map can reach the wide land) and are [`centreless`] (⑭ R1); `S1_TEST`
+/// (itests and smokes only) keeps the wedge, as every MC preset does.
 pub const S1_LOCAL_7D: SeasonParamsV2 = centreless(s1(MC_LOCAL_7D));
 pub const S1_LOCAL_14D: SeasonParamsV2 = centreless(s1(MC_LOCAL_14D));
 pub const S1_TEST: SeasonParamsV2 = s1(MC_TEST);
@@ -792,12 +793,62 @@ pub const fn continuous(p: SeasonParamsV2) -> SeasonParamsV2 {
 /// always open, `EndSeason` refused (`CqError::ContinuousWorld`).
 pub const S1_LOCAL_CONTINUOUS: SeasonParamsV2 = continuous(S1_LOCAL_7D);
 
+/// θ of [`S1_DEVNET_WIDE_7D`]: 1 bp, i.e. "some wedge has a settler"
+/// (`ring_occupancy_met` needs `occupied × 10,000 ≥ 1 × open`, so one
+/// occupied site in a wedge of fewer than 10,000 open sites). The ring still
+/// needs a bell since the last opening, its drand round and the funds.
+pub const THETA_DEVNET_WIDE_BPS: u16 = 1;
+
+/// `pfund_initial` of [`S1_DEVNET_WIDE_7D`]: 36 SOL, 6 SOL per wedge fund
+/// (CreateSeason's `wedge_share`). The fund checks are balance checks, not
+/// spends: the last legacy ring needs every fund above its rent by
+/// `128 × rent(4,736)`, the first wide ring by `129 × rent(4,864)` (wide
+/// province). At devnet's measured 5,080 lamports/byte that is 3.163 SOL /
+/// 3.271 SOL; at the classic 6,960 (LiteSVM, a possible devnet reset)
+/// 4.333 / 4.482 SOL. 6 SOL leaves 2.73 SOL (≈ 110 provinces) per wedge of
+/// opening headroom at 5,080 and 1.52 SOL (≈ 44) at 6,960. Test SOL; float
+/// (returned by CloseSeason, never paid out).
+pub const PFUND_DEVNET_WIDE: u64 = 36_000_000_000;
+
+/// The DEVNET playable season (owner decision B7: the playable lane,
+/// expedition / wide land / conquest, on devnet; Q-D3: a smaller preset is
+/// fine). `S1_LOCAL_7D` (centre-free placement, 7 days, `r_max` 16) with
+/// exactly three changes, so the wide land that starts at ring 129
+/// (`world_index::land::FIRST_WIDE_RING`, which needs the legacy ring 128
+/// seeded) is reachable in one season:
+///
+/// - `r_max_ceiling = 128` (map growth: ExtendFrontier raises the outermost
+///   ring one ring per bell up to the legacy rim; `S1_LOCAL_7D` has 0, so its
+///   map ends at ring 16 and no wide instruction but WideSetRules can land);
+/// - `θ = 1 bp` early and late ([`THETA_DEVNET_WIDE_BPS`]): growth needs a
+///   settler in some wedge, not 55–65 % of its sites (a 50-player devnet
+///   season never crowds 55 % of even the genesis rings);
+/// - `pfund_initial` = [`PFUND_DEVNET_WIDE`] (the rim and ring 129 fund
+///   checks).
+///
+/// From genesis ring 3 the rim is 125 openings away, one bell (600 s) each:
+/// ≈ 21 h of a 1,008-bell season, then ring 129 the bell after. Rings past
+/// the genesis are opened without their provinces (a keeper's
+/// `lazy_provinces`); a province opens when someone needs it.
+pub const S1_DEVNET_WIDE_7D: SeasonParamsV2 = devnet_wide(S1_LOCAL_7D);
+
+/// [`S1_DEVNET_WIDE_7D`]'s three changes over any S1 season.
+pub const fn devnet_wide(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = p;
+    q.cq.r_max_ceiling = permutation_rules::frontier::geometry::R_MAX_HARD;
+    q.base.theta_early_bps = THETA_DEVNET_WIDE_BPS;
+    q.base.theta_late_bps = THETA_DEVNET_WIDE_BPS;
+    q.base.pfund_initial = PFUND_DEVNET_WIDE;
+    q
+}
+
 /// Every S1 preset with its name (vectors).
-pub const PRESETS_S1: [(&str, SeasonParamsV2); 4] = [
+pub const PRESETS_S1: [(&str, SeasonParamsV2); 5] = [
     ("S1_LOCAL_7D", S1_LOCAL_7D),
     ("S1_LOCAL_14D", S1_LOCAL_14D),
     ("S1_TEST", S1_TEST),
     ("S1_LOCAL_CONTINUOUS", S1_LOCAL_CONTINUOUS),
+    ("S1_DEVNET_WIDE_7D", S1_DEVNET_WIDE_7D),
 ];
 
 #[cfg(test)]
@@ -846,6 +897,10 @@ mod tests {
             assert_eq!(p.validate(), Ok(()), "{name}");
             if name == "S1_LOCAL_CONTINUOUS" {
                 assert_eq!(continuous(S1_LOCAL_7D), p);
+                continue;
+            }
+            if name == "S1_DEVNET_WIDE_7D" {
+                assert_eq!(devnet_wide(S1_LOCAL_7D), p);
                 continue;
             }
             let mc = PRESETS
@@ -958,6 +1013,69 @@ mod tests {
     /// ⑧ P1: the local continuous preset is `S1_LOCAL_7D` with exactly the
     /// three continuous fields changed, it round-trips, and its params hash
     /// differs from the finite world's.
+    /// B7 / D-1: the devnet playable preset is `S1_LOCAL_7D` with only the
+    /// ceiling, θ and the province fund changed; its map can grow to the
+    /// legacy rim (so wide ring 129 can be requested), inside the season,
+    /// and every fund covers the rim's and ring 129's checks at both rent
+    /// rates with headroom. The localnet presets are unchanged.
+    #[test]
+    fn s1_devnet_wide_7d_reaches_the_wide_land() {
+        use permutation_rules::frontier::geometry::R_MAX_HARD;
+        // `world_index` is feature-gated; its two numbers, pinned below.
+        const FIRST_WIDE_RING: u64 = R_MAX_HARD as u64 + 1;
+        const WIDE_PROVINCE_SIZE: u64 = 4_864;
+        #[cfg(feature = "world-index-experimental")]
+        {
+            assert_eq!(FIRST_WIDE_RING, crate::world_index::land::FIRST_WIDE_RING);
+            assert_eq!(
+                WIDE_PROVINCE_SIZE,
+                crate::world_index::land::province::SIZE as u64
+            );
+        }
+        let (l, d) = (S1_LOCAL_7D, S1_DEVNET_WIDE_7D);
+        assert_eq!(d.validate(), Ok(()));
+        assert_eq!(SeasonParamsV2::from_bytes(&d.to_bytes()), Some(d));
+        // D-1: the localnet/devnet-profile preset cannot reach ring 128.
+        assert_eq!((l.base.r_max, l.cq.r_max_ceiling), (16, 0));
+        assert_eq!(d.cq.r_max_ceiling, R_MAX_HARD);
+        assert_eq!(FIRST_WIDE_RING, d.cq.r_max_ceiling as u64 + 1);
+        // exactly the three changes
+        let mut back = d;
+        back.cq.r_max_ceiling = l.cq.r_max_ceiling;
+        back.base.theta_early_bps = l.base.theta_early_bps;
+        back.base.theta_late_bps = l.base.theta_late_bps;
+        back.base.pfund_initial = l.base.pfund_initial;
+        assert_eq!(back, l);
+        assert_eq!(
+            (l.base.theta_early_bps, l.base.theta_late_bps),
+            (5_500, 6_500)
+        );
+        assert_eq!(l.base.pfund_initial, 21_000_000_000);
+        // one opening per bell from the genesis ring to the rim, then 129
+        let openings = (R_MAX_HARD - d.base.genesis_ring as u16) as u32 + 1;
+        assert_eq!(openings, 126);
+        assert!(
+            openings * 4 < d.base.join_close_bell,
+            "reached in the first quarter of the joins"
+        );
+        // the fund checks (balance, not spend) at 5,080 and 6,960 lamports/byte
+        let share = d.base.pfund_initial / 6;
+        for (rate, headroom_min) in [(5_080u64, 2_700_000_000u64), (6_960, 1_500_000_000)] {
+            let rent = |len: u64| (128 + len) * rate;
+            let fund_rent = rent(crate::layout::world::province_fund::SIZE as u64);
+            let rim = R_MAX_HARD as u64 * rent(4_736);
+            let wide = FIRST_WIDE_RING * rent(WIDE_PROVINCE_SIZE);
+            assert!(wide > rim);
+            assert!(share - fund_rent >= wide + headroom_min, "rate {rate}");
+        }
+        // θ = 1 bp: one settler in a wedge of < 10,000 open sites is enough
+        // (OpenRing's `ring_occupancy_met`: open > 0 and occ × 10,000 ≥ θ × open)
+        let met =
+            |occ: u64, open: u64| open > 0 && occ * 10_000 >= THETA_DEVNET_WIDE_BPS as u64 * open;
+        assert!(met(1, 9_999));
+        assert!(!met(0, 1) && !met(0, 0));
+    }
+
     #[test]
     fn s1_local_continuous_is_s1_local_7d_with_no_end() {
         let (f, c) = (S1_LOCAL_7D, S1_LOCAL_CONTINUOUS);

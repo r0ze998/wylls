@@ -275,6 +275,15 @@ pub struct KeeperConfig {
     /// see whether the season has a prize pool, so it keeps the cap unless
     /// told otherwise). At most 128 (`R_MAX_HARD`).
     pub extend_max_ring: u16,
+    /// Lazy provinces (devnet-preset-wide, the `S1_DEVNET_WIDE_7D` season;
+    /// off by default): past the genesis rings the `rings` duty opens and
+    /// seeds rings but opens none of their provinces, and a seeded ring
+    /// counts as complete at once (no fold wait: an unopened province adds
+    /// no site to fold). The genesis rings are still opened whole. Provinces
+    /// past them open on demand (OpenProvince is permissionless). Opening
+    /// every province to ring 128 would cost 49,537 province rents
+    /// (1,224 SOL at 5,080 lamports/byte).
+    pub lazy_provinces: bool,
     /// Where the transaction feed comes from (devnet-readiness B2):
     /// `"localnet"` (default: `frontier_feed` of `frontier-localnet`) or
     /// `"rpc"` (a public cluster: `findex::RpcPoll` over
@@ -353,6 +362,7 @@ impl KeeperConfig {
             rest: false,
             extend: false,
             extend_max_ring: EXTEND_MAX_RING_DEFAULT,
+            lazy_provinces: false,
             feed: FeedSource::Localnet,
             feed_poll_ms: 2_000,
             feed_max_backoff_ms: 60_000,
@@ -540,6 +550,9 @@ impl KeeperConfig {
         if let Some(v) = take("extend") {
             c.extend = matches!(v, Value::Bool(true));
         }
+        if let Some(v) = take("lazy_provinces") {
+            c.lazy_provinces = matches!(v, Value::Bool(true));
+        }
         if let Some(v) = take("extend_max_ring") {
             let r = int(v, "extend_max_ring")?;
             if r > u64::from(permutation_rules::frontier::geometry::R_MAX_HARD) {
@@ -662,6 +675,13 @@ mod tests {
                 .unwrap();
         assert!(ext.extend && ext.extend_max_ring == 24);
         assert!(KeeperConfig::from_toml(&format!("{text}\nextend_max_ring = 129\n")).is_err());
+        // devnet-preset-wide: lazy provinces only when asked
+        assert!(!c.lazy_provinces && !KeeperConfig::new(p, 1, b).lazy_provinces);
+        let lazy = KeeperConfig::from_toml(&format!(
+            "{text}\nextend = true\nextend_max_ring = 128\nlazy_provinces = true\n"
+        ))
+        .unwrap();
+        assert!(lazy.lazy_provinces && lazy.extend && lazy.extend_max_ring == 128);
     }
 
     #[test]
