@@ -237,6 +237,7 @@ pub fn stage_settle_siege(c: &Context, b: &[Account]) -> R<Staged> {
         program: c.program,
     };
     let world = codec(WorldId::derive_legacy_season(&c.season, &c.program))?;
+    #[allow(clippy::needless_range_loop)]
     for i in 2..=5 {
         owned(&b[i], c.program)?;
     }

@@ -687,6 +687,12 @@ pub fn set_rules(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if !wr::keep_holder_allowed(placement, holder) {
         return Err(FrontierError::BadData.into());
     }
+    // ⑧ (d): under placement 2 a wide Free City is the deployed kernel's
+    // (`DeployedLe32V1`); the different wide formula is refused (`BadData`).
+    let free_city = wr::FreeCityRule::from_byte(x.free_city).map_err(rules_err)?;
+    if !wr::free_city_allowed(placement, free_city) {
+        return Err(FrontierError::BadData.into());
+    }
     let rec = WideRulesConfig::new(
         hdr.id,
         world,

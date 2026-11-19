@@ -407,7 +407,7 @@ impl World {
                 tx.post.clear();
             }
             if tx.ok {
-                match fclient::log::bodies_from_logs(&t.logs, program) {
+                match ps2_bodies(&t.logs, program) {
                     Ok(bodies) => {
                         for (pos, b) in bodies.iter().enumerate() {
                             // The ABI v2 decoder reads M1's kinds exactly as
@@ -530,4 +530,36 @@ impl World {
 /// Base58 of a key (report entities).
 pub fn b58(k: &Key) -> String {
     Address::new_from_array(*k).to_string()
+}
+
+/// The PS2 bodies the program printed (`fclient::log::bodies_from_logs`,
+/// frame-checked).
+///
+/// The shared reader refuses a transaction that also printed a wide
+/// record (`PSW1`: the keeper and the herald must never read a wide season
+/// as an empty history). In a `playable-lane` build the wide records are
+/// another check's (VW1 walks their chains, VWL re-runs the instructions
+/// that print them), so here they are left out of the PS2 reading instead
+/// of failing every transaction that carries one (a wide economy action,
+/// a garrison, a province close). The default build is unchanged.
+pub fn ps2_bodies(
+    logs: &[String],
+    program: &Address,
+) -> Result<Vec<Vec<u8>>, fclient::log::LogError> {
+    if !cfg!(feature = "playable-lane") {
+        return fclient::log::bodies_from_logs(logs, program);
+    }
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let wide = |l: &String| {
+        l.strip_prefix("Program data: ")
+            .and_then(|rest| rest.split(' ').next())
+            .and_then(|tag| b64.decode(tag).ok())
+            .is_some_and(|tag| tag == b"PSW1")
+    };
+    if !logs.iter().any(wide) {
+        return fclient::log::bodies_from_logs(logs, program);
+    }
+    let kept: Vec<String> = logs.iter().filter(|l| !wide(l)).cloned().collect();
+    fclient::log::bodies_from_logs(&kept, program)
 }

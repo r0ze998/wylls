@@ -47,6 +47,10 @@
 /// keep tile is [`keep_tile_symmetric`] (the same tile in every wedge of a
 /// ring), no longer [`keep_tile`]'s scan of the province's own indices.
 pub const KEEP_VERSION: u16 = 2;
+/// ⑭ R2 (owner decision t346u, 2026-11-18): the kernel's centre-free
+/// variant (`*_in(.., centre_free)`). Bound into `ruleset_hash_input_v3`
+/// (and v4) in place of the previous version.
+pub const KEEP_VERSION_CENTRE_FREE: u16 = 3;
 
 use super::clash::Garrison;
 use super::geometry::{is_heartland_in, tile_index, tile_offset, ProvinceCoord, PROVINCE_TILES};
@@ -264,10 +268,26 @@ pub fn try_open(
     prm: &KeepParams,
     bell: u32,
 ) -> Result<Option<Keep>, KeepError> {
+    try_open_in(p, wedge, heartland_max_ring, tile, prm, bell, false)
+}
+
+/// [`try_open`] in a season with or without the centre: ⑭ R2, a
+/// centre-free season opens a keep on rings 0 and 1 too (held by the
+/// caller's nation; never heartland-safe there). Otherwise exactly
+/// [`try_open`].
+pub fn try_open_in(
+    p: ProvinceCoord,
+    wedge: u8,
+    heartland_max_ring: u8,
+    tile: u8,
+    prm: &KeepParams,
+    bell: u32,
+    centre_free: bool,
+) -> Result<Option<Keep>, KeepError> {
     if prm.home_guard > MAX_KEEP_TROOPS {
         return Err(KeepError::TroopsAboveCap);
     }
-    if p.ring() < 2 || tile as usize >= PROVINCE_TILES {
+    if (!centre_free && p.ring() < 2) || tile as usize >= PROVINCE_TILES {
         return Ok(None);
     }
     Ok(Some(Keep {

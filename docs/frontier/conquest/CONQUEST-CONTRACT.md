@@ -776,7 +776,11 @@ FoldOccupancy adds `extra_holdings` to occupied sites, so Join's reserve and the
 | 74 | `retire_hosts u8` |
 | 75 | `relations u8` (0 = Rivalry everywhere) |
 | 76 | `flags u8` (bit 0 war, bit 1 truce, bit 2 hostility) |
-| 77 | rsv 51 |
+| 77 | `placement u8` (0 wedge, 1 dispersed, 2 mixed on every ring — S1 only, ⑧ wide land (i); `frontier-abi/src/v2/presets.rs`) |
+| 78 | `r_max_ceiling u16` (map growth; 0 = no extension) |
+| 80 | `continuous u8` (⑧ P1) |
+| 81 | `centre u8` (0 the Concord and the Seats; 1 no centre, ⑭ R2, 2026-11-19 — needs placement 2 and S1) |
+| 82 | rsv 46 |
 
 - **CreateSeason validation:**
   - `relations == 0` and `flags == 0` (M3 values refused, `BadParams`);
@@ -1267,11 +1271,11 @@ Herald, keeper, bots, verifier and stack use only these, never their own offsets
 ```
 header 32 B : magic "PSFCT1\0\0" · season u64 · bell u32 · n_prov u16 · n_march u16 · reserved u64
 province    : n_prov × 8 B, dense province order (kernel ProvinceCoord::index over rings 0..open)
-  0 control u8      0–5 keep holder (Seat: seat faction) · 6 neutral (Concord) · 7 unopened
+  0 control u8      0–5 keep holder (Seat: seat faction) · 6 neutral (Concord) · 7 unopened (⑭ R2: in a centre-free season index 0 and ring 1 carry their keep holder, never 6)
   1 contender u8    0–5 · 7 none
   2 progress u8     keep progress (0..required)
   3 required u8     keep_bells
-  4 flags u8        1 control changed this bell · 2 consolidating · 4 heartland (never contestable) · 8 seat or Concord
+  4 flags u8        1 control changed this bell · 2 consolidating · 4 heartland (never contestable) · 8 seat or Concord (⑭ R2: never set in a centre-free season; decoders check only that it marks no ring ≥ 2)
                     · 16 keep taken this bell · 32 contest broken this bell · 64 clash this bell · 128 reserved
   5 holdings u8     low nibble active holding sieges (sat. 15) · high nibble occupations (sat. 15)
   6 points_lead u8  the side leading the province's strength weight (0–6; 7 none). Points, never a map colour (v1.1, R-15)

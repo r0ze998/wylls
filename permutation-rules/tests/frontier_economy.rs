@@ -25,7 +25,7 @@ use permutation_rules::frontier::payout::{
     SeasonLedger, Settlement, TENURE_ONE, WORKS_PER_USDC,
 };
 use permutation_rules::frontier::pools::{
-    civ_share_bps, steward_rows, EconError, Entry, EntrySchedule, Pools, USDC,
+    steward_rows, EconError, Entry, EntrySchedule, Pools, CIV_SHARE_BPS, USDC,
 };
 
 /// SplitMix64: a small deterministic generator for property tests.
@@ -96,9 +96,8 @@ fn late_joins_pay_less_and_last_call_closes() {
         assert!(c <= last && c >= USDC);
         last = c;
     }
-    assert_eq!(civ_share_bps(0), 500);
-    assert_eq!(civ_share_bps(5), 1_500);
-    assert_eq!(civ_share_bps(9), 1_500);
+    // ⑭ R6: the Engine-stage bonus is retired; the base share stays
+    assert_eq!(CIV_SHARE_BPS, 500);
     assert_eq!(steward_rows(1, 2), 4 * USDC);
     assert_eq!(steward_rows(9, 9), 10 * USDC);
 }
@@ -564,7 +563,6 @@ fn a_day_21_citizen_gets_the_same_return_per_usdc() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -591,7 +589,6 @@ fn laurel_pool_goes_to_stakers_by_laurels_and_the_cap_sweeps() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -613,7 +610,6 @@ fn laurel_pool_goes_to_stakers_by_laurels_and_the_cap_sweeps() {
         &pools_of(&many),
         &totals_of(&many),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -632,7 +628,6 @@ fn steward_rows_are_paid_in_full_or_pro_rata() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -651,7 +646,6 @@ fn steward_rows_are_paid_in_full_or_pro_rata() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -671,7 +665,6 @@ fn a_claim_needs_its_record_in_the_totals() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -693,7 +686,6 @@ struct Season {
     facts: [FactionFacts; FACTIONS],
     pools: Pools,
     paid_in: u64,
-    stages: u8,
 }
 
 fn random_season(seed: u64) -> Season {
@@ -762,7 +754,6 @@ fn random_season(seed: u64) -> Season {
         facts,
         pools,
         paid_in,
-        stages: r.below(7) as u8,
     }
 }
 
@@ -778,7 +769,7 @@ fn reference_claims(s: &Season, index: &[u64; FACTIONS]) -> Vec<u64> {
         .map(|r| r.fee as u128)
         .sum();
     let civ = if builders > 0 {
-        s.pools.citizen as u128 * civ_share_bps(s.stages) as u128 / 10_000
+        s.pools.citizen as u128 * CIV_SHARE_BPS as u128 / 10_000
     } else {
         0
     };
@@ -873,7 +864,7 @@ fn claims_conserve_money_under_random_seasons() {
         let s = random_season(77_000 + seed);
         let index = faction_index(&s.facts, &IndexParams::REV2);
         let totals = totals_of(&s.recs);
-        let st = settle(&s.pools, &totals, &index, s.stages, &p).unwrap();
+        let st = settle(&s.pools, &totals, &index, &p).unwrap();
         let prize = s.pools.prize().unwrap();
         assert!(st.allocated <= prize, "seed {seed}");
         let mut ledger = SeasonLedger::new(&st).unwrap();
@@ -933,7 +924,7 @@ fn incremental_sharded_totals_are_order_independent() {
         let s = random_season(91_000 + seed);
         let batch = totals_of(&s.recs);
         let index = faction_index(&s.facts, &IndexParams::REV2);
-        let want = settle(&s.pools, &batch, &index, s.stages, &PayoutParams::REV3).unwrap();
+        let want = settle(&s.pools, &batch, &index, &PayoutParams::REV3).unwrap();
         for order in 0..7u64 {
             let mut r = Rng(seed * 100 + order);
             let mut shards = [[FactionTotals::default(); 16]; FACTIONS];
@@ -994,8 +985,7 @@ fn incremental_sharded_totals_are_order_independent() {
                 }
             }
             assert_eq!(folded, batch, "seed {seed} order {order}");
-            let got: Settlement =
-                settle(&s.pools, &folded, &index, s.stages, &PayoutParams::REV3).unwrap();
+            let got: Settlement = settle(&s.pools, &folded, &index, &PayoutParams::REV3).unwrap();
             assert_eq!(got, want);
         }
     }
@@ -1012,7 +1002,6 @@ fn passive_wallets_and_bot_farms_do_not_pay_by_themselves() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -1057,7 +1046,6 @@ fn late_stakes_do_not_reach_back() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams::REV3,
     )
     .unwrap();
@@ -1187,7 +1175,7 @@ fn officer_pay_never_makes_an_office_profitable() {
     for seed in 0..200u64 {
         let s = random_season(55_000 + seed);
         let index = faction_index(&s.facts, &IndexParams::REV2);
-        let st = settle(&s.pools, &totals_of(&s.recs), &index, s.stages, &p).unwrap();
+        let st = settle(&s.pools, &totals_of(&s.recs), &index, &p).unwrap();
         let mut ledger = SeasonLedger::new(&st).unwrap();
         for r in &s.recs {
             let c = claim(&st, r).unwrap();
@@ -1223,7 +1211,6 @@ fn officer_pay_never_makes_an_office_profitable() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &p,
     )
     .unwrap();
@@ -1235,7 +1222,6 @@ fn officer_pay_never_makes_an_office_profitable() {
         &pools_of(&recs),
         &totals_of(&recs),
         &[INDEX_ONE; FACTIONS],
-        0,
         &PayoutParams {
             office_ceiling_bps: u32::MAX,
             ..p
@@ -1425,7 +1411,6 @@ fn bad_season_parameters_are_refused() {
                 &pools_of(&recs),
                 &totals_of(&recs),
                 &[INDEX_ONE; FACTIONS],
-                0,
                 &p
             ),
             Err(EconError::BadParams)

@@ -1,5 +1,7 @@
 # ⑫ 記憶・会話・関係が AI の次の行動を変える（隔離した試作、v4：継続世界）
 
+> **状況 2026-11-19（main `1d6c0039`、コードが正）：** 隔離した試作のまま。CI の `memory12` が走る。遊べるゲームからは呼ばれない。最初の devnet の後。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
+
 > **2026-11-18 の確認（main `de781916`、コードが正）：** 隔離した試作のまま。遊べるゲームからは呼ばれない（⑤ A の運営 AI 住人 `permutation-gateway/src/frontier/local-play-operator-policy.mjs` は⑫を使わない）。試験の数は下の「100 件」より増えた：`node --test test/*.test.mjs`（Node 23）は **198 件中 195 通過・0 失敗・3 skip**。CI の `memory12` job（Node 22、`tools/keyfree-tests.txt` の 8 ファイル）は **77 件中 76 通過・1 skip**。
 
 会話を保存するだけでなく、**過去の協力・約束・不履行を根拠付きで覚え、次の取引相手の選択に効かせる**ための module と、決定的な fixture によるデモ・回帰テスト。実 LLM への通信・課金はしない。

@@ -122,16 +122,18 @@ const PLACEMENT_DOMAIN = utf8('PSF-PLACEMENT-v1');
  * `geometry::home_nation`): the wedge, except under the dispersed placement
  * in rings 2..=heartlandMaxRing (and under the mixed placement in every ring >= 2), where it is (position in the ring +
  * u64le(sha256(domain ‖ genesisSeed ‖ le16 ring)[..8]) mod 6) mod 6.
- * `genesisSeed` is 32 bytes; null for province (0, 0).
+ * `genesisSeed` is 32 bytes; null for province (0, 0) unless `centreFree` (⑭ R2) with the mixed placement.
  */
-export function homeNation(p, q, { placement = PLACEMENT_WEDGE, heartlandMaxRing = 3, genesisSeed = null } = {}) {
+export function homeNation(p, q, { placement = PLACEMENT_WEDGE, heartlandMaxRing = 3, genesisSeed = null, centreFree = false } = {}) {
   const r = ringOf(p, q);
-  if (r === 0) return null;
+  // (⑭ R2, `geometry::home_nation_in`: a centre-free season of the mixed placement mixes rings 0 and 1 too)
+  const free = centreFree === true && Number(placement) === PLACEMENT_MIXED;
+  if (r === 0 && !free) return null;
   if (![PLACEMENT_WEDGE, PLACEMENT_DISPERSED, PLACEMENT_MIXED].includes(Number(placement))) return null;
   if (Number(placement) === PLACEMENT_WEDGE) return wedgeOf(p, q);
   if (!genesisSeed || genesisSeed.length !== 32) return null;
-  if (r < 2 || (Number(placement) === PLACEMENT_DISPERSED && r > Number(heartlandMaxRing))) return wedgeOf(p, q);
-  const i = provinceIndex(p, q) - provincesWithin(r - 1);
+  if ((r < 2 && !free) || (Number(placement) === PLACEMENT_DISPERSED && r > Number(heartlandMaxRing))) return wedgeOf(p, q);
+  const i = r === 0 ? 0 : provinceIndex(p, q) - provincesWithin(r - 1);
   const h = sha256(PLACEMENT_DOMAIN, Uint8Array.from(genesisSeed), Uint8Array.of(r & 255, r >> 8));
   const o = Number(new DataView(h.buffer, h.byteOffset, 8).getBigUint64(0, true) % 6n);
   return (i + o) % 6;

@@ -2,6 +2,8 @@
 //! cases are not program parity; the separate pinned host record establishes
 //! parity only for its exact one-transition fixture.
 #![cfg(feature = "wide-economy-experimental")]
+// The constant "not a full-season replay" assertions are the point.
+#![allow(clippy::assertions_on_constants)]
 use frontier_abi::bytes::*;
 use frontier_abi::layout::{
     header as HDR,

@@ -217,7 +217,7 @@ pub fn verify(input: &Input) -> Report {
                 );
             }
         }
-        let bodies = match fclient::log::bodies_from_logs(&tx.logs, &input.cfg.program) {
+        let bodies = match crate::world::ps2_bodies(&tx.logs, &input.cfg.program) {
             Ok(x) => x,
             Err(e) => {
                 finding(

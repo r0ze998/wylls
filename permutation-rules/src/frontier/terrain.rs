@@ -33,6 +33,10 @@ pub const TERRAIN_VERSION: u16 = 1;
 /// ([`free_city_site`]) and the keep tile (`keep::keep_tile`). Bound into
 /// `ruleset_hash_input_v2` only; [`TERRAIN_VERSION`] keeps the M1 value.
 pub const TERRAIN_VERSION_V2: u16 = 2;
+/// ⑭ R2 (owner decision t346u, 2026-11-18): the kernel's centre-free
+/// variant (`*_in(.., centre_free)`). Bound into `ruleset_hash_input_v3`
+/// (and v4) in place of the previous version.
+pub const TERRAIN_VERSION_CENTRE_FREE: u16 = 3;
 /// Domain of [`free_city_site`].
 pub const FREE_CITY_DOMAIN: &[u8] = b"PSF-FREE-CITY";
 
@@ -219,7 +223,11 @@ fn carve(out: &mut ProvinceTerrain, mark: &[bool; PROVINCE_TILES], concord: bool
 
 /// The canonical copy (wedge 0, or the Concord) of a province's land.
 fn canonical(seed: &Seed, pc: ProvinceCoord) -> ProvinceTerrain {
-    let concord = pc.is_concord();
+    canonical_as(seed, pc, pc.is_concord())
+}
+
+/// [`canonical`] with the Concord's six-fold shape on (`concord`) or off.
+fn canonical_as(seed: &Seed, pc: ProvinceCoord, concord: bool) -> ProvinceTerrain {
     let base = rand(seed, b"frontier/terrain", &[]);
     shape_province(concord, |i| {
         let mut g = pc.tile(i).unwrap_or(Hex::ORIGIN);
@@ -303,6 +311,22 @@ fn shape_province<F: FnMut(u8) -> (Terrain, Option<TileResource>)>(
 pub fn generate_province(ring_seed: &Seed, p: ProvinceCoord) -> ProvinceTerrain {
     let k = p.wedge().unwrap_or(0);
     turn_canonical(canonical(ring_seed, p.turned(k)), k)
+}
+
+/// [`generate_province`] in a season with or without the centre. ⑭ R2: in
+/// a centre-free season (0,0) is ordinary land — its tiles are sampled as
+/// any canonical copy's (no six-fold turn) and its sites are chosen and
+/// carved as every other province's. Every other province, and every
+/// province of a season with the centre, is [`generate_province`] exactly.
+pub fn generate_province_in(
+    ring_seed: &Seed,
+    p: ProvinceCoord,
+    centre_free: bool,
+) -> ProvinceTerrain {
+    if centre_free && p.is_concord() {
+        return canonical_as(ring_seed, p, false);
+    }
+    generate_province(ring_seed, p)
 }
 
 /// The land of a province in wedge `k` from its canonical copy: each tile
