@@ -14,7 +14,9 @@
 //! playable lane compares byte for byte: D-verify-pr89-3), and every
 //! wide-native **WideDissolve**, **WideReturn**, **WideCloseRoster** and
 //! **WideDisbandStranded** (the closed wide host lifecycle no VWL port
-//! models: [`native_of`], verifier-coverage), is executed again
+//! models: [`native_of`], verifier-coverage), and (verifier-coverage-2)
+//! every other wide command no VWL port judges: **WideClaimDefence**,
+//! **WideClose** what 2–5 and the raw commands ([`native_of`]), is executed again
 //! by the pinned `.so` ([`crate::reexec`]) from the states the archive
 //! shows before it, and judged:
 //!
@@ -98,24 +100,49 @@ pub fn kind_of(data: &[u8]) -> Option<String> {
         .map(|c| format!("{:?}", c.kind()))
 }
 
-/// The wide-native command `data` names, if it is one VX re-executes
-/// (verifier-coverage, 2026-11-20): the closed host lifecycle's
-/// **WideDissolve** (0xDA op 2), **WideReturn** (0xDC op 2),
-/// **WideCloseRoster** (0xDE op 1) and **WideDisbandStranded** (0xDE op 2).
+/// The wide-native command `data` names, if it is one VX re-executes:
+///
+/// * (verifier-coverage, 2026-11-20) the closed host lifecycle's
+///   **WideDissolve** (0xDA op 2), **WideReturn** (0xDC op 2),
+///   **WideCloseRoster** (0xDE op 1) and **WideDisbandStranded** (0xDE op 2);
+/// * (verifier-coverage-2) **every other wide command** no VWL port judges
+///   (`vwl_wide_land::judged`): **WideClaimDefence** (0xDC op 6),
+///   **WideClose** what 2–5 (ArrivalSlot, ArrivalDay, ClashInputs, transit),
+///   the raw **WideDepart**, **WideGather**, **WideSettleDeparture**,
+///   **WideSettleTransit**, **WideReveal**, the raw expedition commands
+///   (ExpeditionDepart, ExpeditionSettleOrigin, ExpeditionReveal,
+///   ExpeditionGather outside the dispatch envelope) and the raw conquest
+///   commands (DeclareSiege, SettleCapture, ResolveWithConquest,
+///   SettleSiege, CloseConquest, CloseCaptureEscrow).
+///
 /// (WideResidentAct, 0xDD, is not here: V0 FAILs every successful one in
 /// the playable lane, whose program refuses it for every Citizen,
 /// `v0_coverage::judge_outside_v2`.) No independent port of their rules
-/// exists (VWL's cover the land, the claims, the economy, the garrison,
-/// WideMuster and WideResolve), so, as for the expedition dispatch kinds,
-/// the pinned program is the rule: the transaction is executed again from
-/// the states before it and compared byte for byte.
+/// exists, so, as for the expedition dispatch kinds, the pinned program is
+/// the rule: the transaction is executed again from the states before it
+/// and compared byte for byte. That is what keys their verdict on the
+/// PINNED binary's behaviour: on the devnet-playable build the gated ones
+/// (and the ones that need a record only a gated one creates) are refused
+/// from any state, so an archived success is FAIL `ReExecRefused` (V0 also
+/// FAILs them outright for that binary: `v0_coverage::gate_closed`); on a
+/// local land build (`localnet-wide-depart`, #94) WideDepart runs, and an
+/// exact re-execution has no finding.
 pub fn native_of(data: &[u8]) -> Option<&'static str> {
-    use frontier_abi::world_index::wide_ix::WideCommand as C;
-    match C::decode(data).ok()? {
-        c @ (C::Dissolve(_) | C::Return(_) | C::CloseRoster(_) | C::DisbandStranded(_)) => {
-            Some(c.name())
+    use frontier_abi::world_index::wide_ix::{self as wix, WideCommand as C};
+    let c = C::decode(data).ok()?;
+    match c {
+        C::ResidentAct(_) => None,
+        // VWL's (re-judged by its ports), whatever form VWL takes
+        C::Close(x)
+            if matches!(
+                x.what,
+                wix::CLOSE_WHAT_TICKET | wix::CLOSE_WHAT_HOLDING | wix::CLOSE_WHAT_PROVINCE
+            ) =>
+        {
+            None
         }
-        _ => None,
+        _ if super::vwl_wide_land::judged(data).is_some() => None,
+        c => Some(c.name()),
     }
 }
 

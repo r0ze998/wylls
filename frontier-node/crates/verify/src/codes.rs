@@ -12,6 +12,10 @@ pub const UNDECODABLE: &str = "Undecodable";
 // V0 coverage (⑱, 2026-10-31)
 /// A successful program instruction with no tag or a tag outside ABI v2.
 pub const UNKNOWN_INSTRUCTION: &str = "UnknownInstruction";
+/// A successful wide command that the PINNED program binary can never run
+/// (its gate is compiled off in that build, or it needs a record only a
+/// gated command creates): V0, playable lane, verifier-coverage-2.
+pub const GATE_CLOSED: &str = "GateClosed";
 /// A successful ABI instruction no check of this verifier models (UNVERIFIABLE).
 pub const UNVERIFIED_INSTRUCTION: &str = "UnverifiedInstruction";
 /// A Season of a program version this verifier does not implement (UNVERIFIABLE).

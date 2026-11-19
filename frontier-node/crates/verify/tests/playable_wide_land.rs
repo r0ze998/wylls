@@ -845,10 +845,12 @@ fn an_undecodable_wide_instruction_is_never_a_pass() {
 }
 
 #[test]
-fn an_unjudged_wide_command_stays_unverifiable() {
-    // The march-record closes (WideClose what 2..=5) are not modelled (the
-    // ticket, holding and province closes are VWL's since
-    // `vwl_wide_close.rs`): V0 names the command, never a PASS.
+fn a_march_record_close_is_never_a_pass_and_no_longer_unmodelled() {
+    // verifier-coverage-2: the march-record closes (WideClose what 2..=5)
+    // are VX's (re-executed by the pinned program; the ticket, holding and
+    // province closes are VWL's since `vwl_wide_close.rs`), and on the
+    // devnet-playable binary what 2 (and 5) can never run: V0 `GateClosed`
+    // when the archive pins that binary. Never a PASS, never `WideUnmodelled`.
     let mut inp = natural();
     let t = txs_with(&inp, T_RULES)[0];
     verify_core::tamper::edit_ix_tag(&mut inp, t, T_RULES, |d| {
@@ -861,9 +863,26 @@ fn an_unjudged_wide_command_stays_unverifiable() {
     let rep = verify_core::verify(&inp);
     assert_ne!(rep.verdict, Verdict::Pass);
     assert!(
+        !rep.findings
+            .iter()
+            .any(|f| f.code == "WideUnmodelled" && f.entity == format!("tx#{t}")),
+        "{:#?}",
+        show(&rep.findings)
+    );
+    let at_t: Vec<_> = rep
+        .findings
+        .iter()
+        .filter(|f| f.entity == format!("tx#{t}") && (f.check == "V0" || f.check == "VX"))
+        .collect();
+    assert!(!at_t.is_empty(), "{:#?}", show(&rep.findings));
+    let pinned_devnet = inp.cfg.program_hash.is_some_and(|h| {
+        verify_core::checks::v0_coverage::pinned_gate_closed(Some(h), &inp.program_hashes)
+    });
+    assert_eq!(
+        pinned_devnet,
         rep.findings
             .iter()
-            .any(|f| f.check == "V0" && f.code == "WideUnmodelled"),
+            .any(|f| f.code == "GateClosed" && f.entity == format!("tx#{t}")),
         "{:#?}",
         show(&rep.findings)
     );
