@@ -105,7 +105,11 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
   }
   // keep events (controller refreshKeepEvents): null until the season's days are read, so the past is not news
   const keeps = Array.isArray(FS.conquest?.events) ? new Map(FS.conquest.events.map(e => [`${e.kind}:${e.seq}`, { ...e, side: keepEventSide(e, FS.citizen?.faction) }])) : null;
-  return { bell: FS.nowBell ?? null, now, keeps, territory, territoryKnown, territorySeen, marches, builds, pendingBuilds, holdings, clashes, fights, explored, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
+  // B18: the returns home of the viewer's own keep-capture donors (controller refreshKeepEvents; K-19), by seq.
+  // null until the season's days are read, as `keeps`
+  const mine = new Map((FS.holdings ?? []).map(h => [`${h.p},${h.q},${h.site}`, h]));
+  const returns = Array.isArray(FS.conquest?.events) ? new Map((FS.conquest.returns ?? []).filter(e => mine.has(`${e.p},${e.q},${e.site}`)).map(e => [String(e.seq), e])) : null;
+  return { bell: FS.nowBell ?? null, now, keeps, returns, territory, territoryKnown, territorySeen, marches, builds, pendingBuilds, holdings, clashes, fights, explored, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
 }
 
 const SIDE_TEXT = { gain: () => L`あなたの国が得た`, loss: () => L`あなたの国が失った`, attack: () => L`あなたの国が攻めている`, defend: () => L`あなたの国が守っている` };
@@ -179,6 +183,14 @@ function diffFeedNow(prev, next) {
     if (prev.keeps.has(k) || (Number.isInteger(bell) && e.bell < bell - KEEP_NEWS_BELLS)) continue;
     const item = keepItem(k, e, bell);
     if (item) out.push(item);
+  }
+  // B18: the host that took a keep left part of itself as the keep's garrison and went home with the rest (K-19)
+  // ("go back", not "are back": the record is logged with the capture; the reserve is credited by the return's settle,
+  //  seen live one turn later — fix-ui-b17-b21)
+  if (prev.returns && next.returns) for (const [k, e] of next.returns) {
+    if (prev.returns.has(k) || (Number.isInteger(bell) && e.bell < bell - KEEP_NEWS_BELLS)) continue;
+    const home = village(next.holdings.get(`${e.p},${e.q},${e.site}`) ?? { p: e.p, q: e.q, site: e.site });
+    out.push({ id: `kr:${k}`, kind: 'keep', bell, p: e.p, q: e.q, side: 'gain', text: L`砦を取った軍勢は、一部を砦の守備兵に残し、残りの ${fmtNum(e.troops)} 人は${home}の控えに戻ります。戻ったあと、村でもう一度、軍勢に編成できます。` });
   }
   // an exploration's result: what the record says it earned (the tiles themselves are surveyed on the map). Only a
   // result of the last turns is news: older ones are the log being read up

@@ -849,7 +849,7 @@ export default {
   '記録された世界を閉じる': 'Close the recorded world',
   '読み取り専用': 'Read-only',
   '見本の世界には記録された世界はありません。': 'A sample world has no recorded world.',
-  'この配信元は記録された世界を出していません（WideWorldUnavailable）。': 'This source serves no recorded world (WideWorldUnavailable).',
+  'この世界には「記録された世界」の表示（実験中）はありません。遊ぶうえで困ることはありません。この画面は閉じてかまいません。': 'This world has no “recorded world” view (an experimental display). Nothing is wrong with your game; you can close this panel.',
   '協力の板の設定を読めませんでした（BadConfig）。': 'The co-op board\'s settings could not be read (BadConfig).',
   '協力の板の内容を読めませんでした（BadView）。': 'The co-op board\'s contents could not be read (BadView).',
   'この配信元は世界の履歴の索引を出していません（WideIndexUnavailable）。': 'This source serves no index of the world\'s history (WideIndexUnavailable).',

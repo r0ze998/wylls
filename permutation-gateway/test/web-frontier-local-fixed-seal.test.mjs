@@ -73,7 +73,7 @@ test('the main button is the same handler as before, which looks again at the pr
 test('English: the new texts, no Japanese, no banned word', () => {
   setLang('en');
   const CJK = /[\u3040-\u30ff\u3400-\u9fff]/, BANNED_EN = /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i;
-  const texts = [L`確認した命令で出発`, L`送信待ち`, L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（到着ターンなどが変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`];
+  const texts = [L`確認した命令で出発`, L`送信待ち`, L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（時間が進んで到着ターンが先へ動いたときは、その到着ターンで送ります。ほかの内容が変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`];
   for (const t of texts) { assert.doesNotMatch(t, CJK, t); assert.doesNotMatch(t, BANNED_EN, t); }
   const en = String(card(fs({ extra: TRIAL })));
   assert.match(en, /Send this order/); assert.doesNotMatch(footer(en), CJK, 'the English footer has no Japanese');
