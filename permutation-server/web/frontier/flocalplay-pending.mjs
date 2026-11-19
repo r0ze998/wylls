@@ -33,6 +33,18 @@ export function provinceLag(province, nowBell) {
   if (!Number.isInteger(nowBell) || !Number.isInteger(rn)) return null;
   return Math.max(0, nowBell - (rn + 1));
 }
+/**
+ * verify-pr98 BREAK-1: the province's settling judged against the chain's turn NOW (`nowBell`), the program's own rule
+ * (fland.mjs actionBlocks: NotResident while `resolvedNext + 1 < nowBell`). The card's problems come from the page's model,
+ * whose turn may still be the previous one for a moment after the turn changes; a waiting send looked at in that moment saw
+ * no problem, was sent, and was refused NotResident (LocalActRejected) — the wait ended unsent. Adds 'NotResident' when the
+ * province `province` (decoded, or null: unknown, unchanged) has not settled the turn before `nowBell`.
+ */
+export function settleNow(problems, province, nowBell) {
+  const rn = province?.resolvedNext;
+  if (!Array.isArray(problems) || !Number.isInteger(nowBell) || !Number.isInteger(rn) || rn + 1 >= nowBell || problems.includes('NotResident')) return problems;
+  return [...problems, 'NotResident'];
+}
 /** The pending send kept past its turn limit while only the province's settling blocks it: a fresh limit from `nowBell`. */
 export function extendPending(p, { nowBell }) {
   if (!p || !Number.isInteger(nowBell)) return null;
