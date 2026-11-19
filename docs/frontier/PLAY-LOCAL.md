@@ -1,6 +1,7 @@
 # Play-check locally (TEST only, one command)
 
 How to try the playable lane (expedition, wide land, taking a keep) on your own Mac before anything goes to devnet.
+Only the `--wide` world shows the wide land (rings 129 and out, §6); every other local world's map ends at ring 16.
 It uses a local chain on this Mac and test keys only. No real key, SOL, devnet or paid API is used.
 Japanese version: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md). The longer reference is [LOCAL-PLAY-START.md](LOCAL-PLAY-START.md).
 
@@ -29,12 +30,14 @@ scripts/play-local.sh
 - It checks the tools, builds (skipped when nothing changed since the last build), starts a world and opens
   `http://localhost:41920/` in the browser.
 - The first build took about 3 minutes (2026-11-18, a Mac with the crates already cached). Later starts take seconds.
-- There are two kinds of world:
+- There are three kinds of world:
   - **A kept world (the default):** the natural clock (a turn is 10 minutes), and the world never ends by the rules.
     Stop it any time and continue later with `--resume`, from the same village. The chain is kept in
     `.local/play-local/kept/`, and the page's test key is kept in this browser.
   - **The 15-minute capture demo (`--demo`):** a ×60 clock (a turn is 10 s), so you can try up to taking a keep in about
     15 minutes. It is not kept: a stop ends that world.
+  - **The wide version (`--wide`):** during its setup the map is grown to ring 128 and the wide land beyond it (rings
+    129–131) is opened. It is not kept. See §6.
 - Useful options:
   - `--resume`: continue the last kept world
   - `--fresh`: start a new kept world (the same as leaving out `--resume`)
@@ -44,6 +47,7 @@ scripts/play-local.sh
     seed by its unchanged rules. What stays the same by rule: the six-fold symmetry of the terrain, and (until the
     centre-free rules of PR #69) each nation's homes in its own wedge. Not with `--resume`: a kept world keeps its map.
   - `--demo`: the 15-minute capture demo (`--speed 30` makes it ×30)
+  - `--wide`: the wide version (§6)
   - `--ai 0`: no AI residents (default 2)
   - `--port 41930`: other ports
   - `--lang ja`: the script's messages in Japanese
@@ -108,7 +112,8 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
 - Logs:
   - a kept world: `.local/play-local/kept/<date-time>/` (`launcher-<date-time>.log`; runner, herald, relay and operators
     logs in `persist/<address>/starts/<n>/`);
-  - `--demo`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world).
+  - `--demo` and `--wide`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world;
+    with `--wide` the world folder's `wide-land.json` lists the rings grown and the provinces opened).
 - Report on GitHub Issues (r0ze998/wylls) with a screenshot and the folder's path.
 - Known problems (2026-11-18):
   - (Fixed 2026-11-19, fix-march-held) A march the chain's node did not take (sent as the turn changed, for example) now
@@ -119,3 +124,32 @@ once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (k
     (at ×60 a turn is 10 s; the world lasts 90 minutes).
   - (Fixed 2026-11-19, fix-march-held) At ×60 the land preview's FoldLand no longer runs out of compute units: it
     folds as many turns as fit (a `fold_fit` line in runner.out is a fold that asked for fewer turns).
+
+## 6. The wide version (`--wide`, TEST only)
+
+```bash
+scripts/play-local.sh --wide
+```
+
+- The Season uses the devnet playable preset `S1_DEVNET_WIDE_7D` (PR #70: centre-free nation placement, map ceiling
+  ring 128, θ 1 bp, a 36 SOL province fund).
+- During the world's setup (before 「国を選ぶ」 [Choose a nation]) the program's own instructions grow the map **one ring
+  per turn** to ring 128; only during that setup the local chain's clock is moved a turn at a time (the setup took about
+  11 s on 2026-11-19). Then the clock is the natural one (a turn is 10 minutes) and the game starts at about turn 130.
+  - One test resident per nation places a village near the centre (the growth rule needs "a settler in some wedge").
+    One centre province is opened first and the rest after the growth, so every province is resolved up to the turn
+    the game starts at.
+  - The wide land on rings 129–131 is opened (WideRequestRingSeed / WideConsumeRingSeed / WideSetRules /
+    WideOpenProvince): 6 provinces in the middle of each wedge, 108 in all, plus the 42 ring-128 provinces just inside.
+  - Provinces on rings 5–127 are not opened (as the devnet keeper's `lazy_provinces`); the map shows their terrain only.
+- To see the wide land:
+  - 「記録」 [Records] at the map's bottom right → 「記録された世界（読み取り専用・実験中）」 [The recorded world]. Pick a
+    「第129輪」 [ring 129] province in the list, press 「ここを原点にする」 [Make this the origin] and zoom in: ring 128
+    (gold) and rings 129–131 (the six nations' colours) side by side.
+  - 「全体図」 [World chart] shows your village in the middle of the map grown to ring 128.
+  - On the ordinary map everything past ring 128 is cloud (the ordinary map never draws rings 129 and out).
+- Not possible yet (2026-11-19):
+  - a village on the wide land, or a march into it: a wide village needs a first village that is a Town on rings
+    126–128, and the page places first villages near the centre only, so nobody in this world qualifies;
+  - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.
+- Not with `--demo`, `--resume`, `--fresh` or `--speed`. A stop ends the world.

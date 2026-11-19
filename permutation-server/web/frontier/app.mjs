@@ -980,10 +980,12 @@ function checkMilestones() {
   const key = milestones.MILESTONE_KEY + uiKey(sc).slice(UI_PREFIX.length);
   if (FS.mileRecord === undefined) FS.mileRecord = milestones.loadSeen(uiStorage, key);
   const quiet = Date.now() - BOOT_AT < MILE_QUIET_MS;
+  const firstRecord = !FS.mileRecord;
   const { fresh, record } = milestones.newMilestones(quiet && !FS.mileRecord ? null : FS.mileRecord ?? { v: 1, seen: {} }, milestones.reachedMilestones(FS), FS.nowBell ?? 0);
   if (Object.keys(record.seen).length !== Object.keys(FS.mileRecord?.seen ?? {}).length) { FS.mileRecord = record; uiStorage.set(key, JSON.stringify(record)); }
   // (the first village's line comes with its landing on the map: mountLandingLine)
-  const say = fresh.filter(m => m.id !== 'first-holding' || !mapRef);
+  // (rings open before this viewer's first record are old news; of several opening together only the newest is told)
+  const say = milestones.bannerMilestones(fresh.filter(m => m.id !== 'first-holding' || !mapRef), { firstRecord });
   if (!quiet && say.length) { FS.mileQueue = [...(FS.mileQueue ?? []), ...say]; showMilestone(); }
 }
 const mileShown = new Set();
