@@ -85,6 +85,14 @@ export function render(FS) {
   }
   const h = m.holding, x = h.economy, c = m.currentness;
   const state = HOLDING_STATE[x.state] ?? 'none';
+  // (TEST-ONLY wide -> wide marches, local wide-land worlds only, Q-W2 owner t385u: the one press that raises this wide
+  //  village's host and marches it onto a neighbouring keep — controller `wide-host-step`; the program opens the march
+  //  only in the local land lane, devnet unchanged)
+  const hostCard = FS.localPlay?.wideLand ? html`<section class="vcard wide-village" id="wide-host" aria-labelledby="wide-host-h">
+    ${cardHead({ id: 'wide-host-h', ic: 'flag', title: L`広い土地の軍勢（テスト）`, side: stamp(L`ローカル専用`, 'warn') })}
+    <p>${L`押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。`}</p>
+    ${FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
+    <div class="actions"><button type="button" class="btn" data-act="wide-host-step">${L`次の一手（広い土地）`}</button></div></section>` : '';
   const head = html`<section class="vcard village-head wide-village" aria-labelledby="wide-v-title">
     ${cardHead({ id: 'wide-v-title', ic: 'home', title: m.title, sub: `${coordText(h.p, h.q)} · ${L`村の場所 ${fmtNum(h.site)} · 世代 ${fmtNum(h.generation)}`}`, side: stamp(L`捕捉・未検証`, 'warn') })}
     <ul class="fact-chips">
@@ -147,7 +155,7 @@ export function render(FS) {
       ${fact(L`生産（記録上の毎時）`, x.production.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
       ${fact(L`維持費（記録上の毎時）`, x.upkeep.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
     </dl>`)}</section>`;
-  return [head, provenance, stores, build, troops, more];
+  return [head, ...(hostCard ? [hostCard] : []), provenance, stores, build, troops, more];
 }
 
 /** Failed or unavailable wide reads are visible beside both layouts, never silently an empty inventory. */

@@ -590,3 +590,14 @@ mod entrypoint {
         crate::dispatch(program_id, accounts, data).map_err(Into::into)
     }
 }
+
+// TEST-only localnet wide->wide march (Cargo.toml `localnet-wide-depart`):
+// only inside the isolated localnet lane (its program-id check), never in
+// the devnet build. Appended at the end so no earlier line moves.
+#[cfg(all(
+    feature = "localnet-wide-depart",
+    not(feature = "localnet-expedition-sbf")
+))]
+compile_error!("localnet-wide-depart is the localnet lane's only (localnet-land-sbf)");
+#[cfg(all(feature = "localnet-wide-depart", feature = "devnet-playable-sbf"))]
+compile_error!("localnet-wide-depart never enters the devnet-playable build");

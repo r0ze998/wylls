@@ -27,10 +27,14 @@ import { profileForHash } from '../../../permutation-server/web/sdk/frontier/pro
 import { budgetPrefix } from '../../../permutation-server/web/sdk/frontier/budgets.mjs';
 import { compileMessage } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
+import { WIDE_HOST_ACTS, wideHostIntent, wideHostMessage } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
+import { worldIdOf } from '../../../permutation-server/web/frontier/map/wide.mjs';
 
 // (TEST-ONLY wide play, owner t379u: the seventh, the wide claim 0xD9, built by the page's own flocalplay-wide.mjs)
 // (and FileTicket, one site: a first village on the rim of a local wide world, where PlaceHome cannot reach)
-export const LOCAL_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM]);
+// (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: a wide village's own Train, Muster and Depart, the page's
+//  flocalplay-wide-host.mjs; the program authenticates the wide accounts, this relay the Citizen and the bytes)
+export const LOCAL_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, ...WIDE_HOST_ACTS]);
 export const LOCAL_ACT_SUBMIT_SCHEMA = 'frontier-local-play-act-submit-v1';
 const ERRORS = Object.freeze({
   LocalActInvalid: [400, 'invalid local-play command request'],
@@ -127,12 +131,15 @@ function village(h) {
  */
 export function localActIntent(value, { wallet }) {
   check(exact(value, ['name', 'subject', 'fields']) && typeof value.name === 'string');
-  check(LOCAL_ACT_COMMANDS.includes(value.name) && (value.name === WIDE_CLAIM || Object.hasOwn(SIGNED_BY, value.name)), 'LocalActNotAllowed');
+  check(LOCAL_ACT_COMMANDS.includes(value.name) && (value.name === WIDE_CLAIM || WIDE_HOST_ACTS.includes(value.name) || Object.hasOwn(SIGNED_BY, value.name)), 'LocalActNotAllowed');
   const { name, subject: s, fields: f } = value;
   check(s !== null && typeof s === 'object' && !Array.isArray(s) && f !== null && typeof f === 'object' && !Array.isArray(f));
   // (the wide claim: its anchor village is a legacy one, its target a wide province within range; flocalplay-wide.mjs)
   if (name === WIDE_CLAIM) {
     try { return wideClaimIntent(s, f, 'LocalActInvalid'); } catch (e) { fail(e?.code === 'LocalActWideHolding' ? 'LocalActWideHolding' : 'LocalActInvalid'); }
+  }
+  if (WIDE_HOST_ACTS.includes(name)) {
+    try { return wideHostIntent(name, s, f, 'LocalActInvalid'); } catch { fail('LocalActInvalid'); }
   }
   if (name === 'Join') {
     check(exact(s, ['faction']) && int(s.faction, 0, 5) && exact(f, ['faction', 'session', 'session_expiry']) && f.faction === s.faction);
@@ -174,6 +181,9 @@ export function localActMessage(intent, pins, blockhash) {
   check(A.season === pins.season && address(pins.wallet) && address(blockhash));
   if (intent.name === WIDE_CLAIM) {
     try { return { message: wideClaimMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
+  }
+  if (WIDE_HOST_ACTS.includes(intent.name)) {
+    try { return { message: wideHostMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, world: worldIdOf(A.season, pins.program), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
   }
   const profile = profileForHash(pins.rulesetHash);
   const v = { addresses: A, wallet: pins.wallet, actor: pins.wallet, profile, ...intent.subject };
@@ -237,6 +247,8 @@ export const LOCAL_ACT_CONTEXT_SCHEMA = 'frontier-local-play-act-context-v1';
 // alone is never returned as confirmed. No pin: `LocalActNoInstance` (nothing asked). Anything else: unavailable.
 export const LOCAL_ACT_INSTANCE_SCHEMA = 'frontier-local-play-act-instance-v1';
 export const LOCAL_ACT_STATUS_SCHEMA = 'frontier-local-play-act-status-v1';
+export const LOCAL_ACT_WIDE_READ_SCHEMA = 'frontier-local-play-act-wide-read-v1';
+export const LOCAL_ACT_WIDE_READ_MAX = 16;
 export const LOCAL_ACT_MAX_HISTORY = 256;
 const LEGACY_HOLDING_MAGIC = 'PSF1HOLD', WIDE_HOLDING_MAGIC = 'PSFXWHL1';
 const magicOf = bytes => String.fromCharCode(...bytes.subarray(0, 8));
@@ -258,6 +270,9 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
   try { citizenIdentity(citizen.bytes, { seasonId: pins.seasonId, wallet: decode(pins.wallet), address: decode(citizenAt) }); } catch { fail('LocalActCitizen'); }
   // (a village request names no village of its own yet: the Citizen above is the whole check; the program checks the sites)
   if (intent.name === 'FileTicket') return;
+  // (a wide village's own act: the Citizen above is this relay's check; the program authenticates the wide holding,
+  //  its owner and its provinces — a legacy Holding cannot stand at a wide address)
+  if (WIDE_HOST_ACTS.includes(intent.name)) return;
   if (intent.name === 'PlaceHome') {
     // (the command makes or claims the village: it may be absent; what must not be there is another family's account)
     if (holding !== null) { check(holding.owner === pins.program, 'LocalActHolding'); check(magicOf(holding.bytes) !== WIDE_HOLDING_MAGIC, 'LocalActWideHolding'); }
@@ -316,6 +331,18 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
         const ctx = p.result?.context, value = p.result?.value;
         if (!Number.isSafeInteger(ctx?.slot) || ctx.slot < 0 || !Array.isArray(value) || value.length !== 0 || ctx.instance !== runnerInstance) fail('LocalActRpcUnavailable');
         return { wallet: pins.wallet, instance: runnerInstance };
+      }
+      // (TEST-ONLY wide -> wide marches: the READ-ONLY account read of a wide village's host — its holding, its
+      //  provinces and rosters — for the page and the AI residents to see their wide hosts and the keeps. At most
+      //  LOCAL_ACT_WIDE_READ_MAX addresses; an account another program owns is answered as absent. Nothing is sent)
+      if (exact(body, ['schema', 'addresses']) && body.schema === LOCAL_ACT_WIDE_READ_SCHEMA) {
+        check(Array.isArray(body.addresses) && body.addresses.length >= 1 && body.addresses.length <= LOCAL_ACT_WIDE_READ_MAX && body.addresses.every(address));
+        const got = await ask('getMultipleAccounts', [body.addresses, { encoding: 'base64', commitment: 'confirmed' }]);
+        open();
+        const slot = got.result?.context?.slot, rows = got.result?.value;
+        if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== body.addresses.length) fail('LocalActRpcUnavailable');
+        return { schema: LOCAL_ACT_WIDE_READ_SCHEMA, context_slot: String(slot),
+          accounts: rows.map(row => { const a = accountOf(row); return a !== null && a.owner === pins.program ? { data_b64: Buffer.from(a.bytes).toString('base64') } : null; }) };
       }
       check(exact(body, ['schema']) && body.schema === LOCAL_ACT_CONTEXT_SCHEMA);
       const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);

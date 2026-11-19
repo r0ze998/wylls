@@ -92,4 +92,7 @@ pub mod wide_land;
 // TEST-ONLY local play rules (the centre free; the wide world's Hamlet anchor) and wide play (rim homes, wide claims' duty)
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_play;
+// TEST-ONLY wide -> wide marches and wide keep capture (Q-W2, owner t385u): the crank of the wide bells and marches
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_depart;
 pub mod world;
