@@ -137,6 +137,10 @@ pub struct Status {
     /// of the destination a settled resident of the watched Holding stands in;
     /// a Stopped/Unknown here ends that driver only (never resent).
     pub resident_step: Option<String>,
+    /// TEST-ONLY wide world (fix-wide-breaks, BREAK-2): the wide destination driver's last step for a rim village that
+    /// also has a legacy march driver (both used to write `destination_step`, the legacy one last, so this one never
+    /// showed). Only in the line when set: every other world's line is unchanged.
+    pub expedition_step: Option<String>,
     /// A second village of the same loop (TEST-ONLY contest pair): its number; `None` for the first (its line is unchanged).
     pub village: Option<u8>,
 }
@@ -145,7 +149,9 @@ impl Status {
         json!({"schema": SCHEMA, "running": self.running, "resolved_next": self.resolved_next, "bell": self.bell, "resident": self.resident,
             "anchors_posted": self.anchors_posted, "dest_anchors_posted": self.dest_anchors_posted, "fast_forwards": self.fast_forwards, "rounds_cached": self.rounds_cached,
             "last_action": self.last_action, "last_error": self.last_error, "stopped": self.stopped, "unknown_signature": self.unknown_signature, "blocked": self.blocked, "origin_step": self.origin_step, "destination_step": self.destination_step, "resident_step": self.resident_step})
-        .as_object().cloned().map(|mut m| { if let Some(n) = self.village { m.insert("village".into(), json!(n)); } Value::Object(m) }).unwrap_or(Value::Null)
+        .as_object().cloned().map(|mut m| { if let Some(n) = self.village { m.insert("village".into(), json!(n)); }
+            if let Some(e) = &self.expedition_step { m.insert("expedition_step".into(), json!(e)); }
+            Value::Object(m) }).unwrap_or(Value::Null)
     }
 }
 
@@ -751,6 +757,8 @@ pub enum Field {
     Destination,
     Resident,
     Origin,
+    /// The wide destination driver beside a legacy march driver (TEST-ONLY wide world): its own status field.
+    Expedition,
 }
 /// One step's outcome, as the sequencer needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -876,19 +884,39 @@ driver_step!(
     Field::Destination,
     origin_out
 );
-driver_step!(
-    crate::destination_driver::DestinationDriver,
-    Field::Destination,
-    |st: crate::destination_driver::Step| {
-        use crate::destination_driver::Step as S;
-        match st {
-            S::Landed(..) => Out::Landed,
-            S::Unknown { signature, why } => Out::Unknown { signature, why },
-            S::Stopped(e) => Out::Stopped(e),
-            _ => Out::Quiet,
-        }
+fn destination_out(st: crate::destination_driver::Step) -> Out {
+    use crate::destination_driver::Step as S;
+    match st {
+        S::Landed(..) => Out::Landed,
+        S::Unknown { signature, why } => Out::Unknown { signature, why },
+        S::Stopped(e) => Out::Stopped(e),
+        _ => Out::Quiet,
     }
-);
+}
+impl TickStep for crate::destination_driver::DestinationDriver {
+    fn run<'a>(
+        &'a mut self,
+        state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Report> + Send + 'a>> {
+        Box::pin(async move {
+            let st = self.step(state).await;
+            let text = format!("{st:?}");
+            Report {
+                // (beside a legacy march driver its line is its own: fix-wide-breaks BREAK-2)
+                field: if self.beside_legacy {
+                    Field::Expedition
+                } else {
+                    Field::Destination
+                },
+                out: destination_out(st),
+                text,
+            }
+        })
+    }
+    fn done(&self) -> bool {
+        self.terminal().is_some()
+    }
+}
 driver_step!(
     crate::resident_bells::ResidentBells,
     Field::Resident,
@@ -956,6 +984,7 @@ fn apply(keeper: &mut Keeper, r: &RunOut) {
             Field::Destination => keeper.status.destination_step = Some(rep.text.clone()),
             Field::Resident => keeper.status.resident_step = Some(rep.text.clone()),
             Field::Origin => keeper.status.origin_step = Some(rep.text.clone()),
+            Field::Expedition => keeper.status.expedition_step = Some(rep.text.clone()),
         }
         if rep.field != Field::Keeper {
             if let Out::Unknown { signature, .. } = &rep.out {
@@ -989,6 +1018,32 @@ pub trait PassVillage: Send {
     fn halt(&mut self, why: String);
     fn ended(&self) -> bool;
     fn end(&mut self);
+    /// TEST-ONLY wide world (verify-pr96 BREAK-1): only its expedition's due self-reveal, at the start of a pass
+    /// ([`orchestrate`]); `None` = nothing due (every other world, and every mock: the default).
+    fn reveal_first<'a>(
+        &'a mut self,
+        _state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        Box::pin(async { None })
+    }
+}
+
+/// [`PassVillage::reveal_first`] of a village's wide destination driver, as its report.
+async fn reveal_report(
+    d: &mut Option<crate::destination_driver::DestinationDriver>,
+    state: &Shared,
+) -> Option<Report> {
+    let d = d.as_mut()?;
+    let st = d.reveal_only(state).await?;
+    Some(Report {
+        field: if d.beside_legacy {
+            Field::Expedition
+        } else {
+            Field::Destination
+        },
+        text: format!("{st:?}"),
+        out: destination_out(st),
+    })
 }
 
 /// The keeper loop's outer order, shared by the real [`Pilot`] and the tests: `(alive, landed)`. One village: its pass and
@@ -1019,13 +1074,48 @@ pub async fn orchestrate(
             v.end();
         }
     }
+    // (TEST-ONLY wide world, verify-pr96 BREAK-1: every village's due expedition reveal FIRST, before any keeper of this
+    //  pass posts THE anchor of the bell that just ended. The program admits a reveal before the anchor, and its window
+    //  closes at A + W — about 25 slots at ×60 — while one pass of a many-village wide world (the first keeper's anchors
+    //  and seeds, other keepers, catch-ups) is longer than that: left to its village's turn, a reveal still found the
+    //  window closed and the host was held for good. Nothing is due in any other world: every village returns None.)
     if pair && must(first, others) {
         halt_all(first, others);
         return (false, false);
     }
+    let mut landed = false;
+    if let Some(rep) = first.reveal_first(state).await {
+        landed |= rep.out == Out::Landed;
+        first.record(&RunOut {
+            reports: vec![rep],
+            landed: false,
+            stopped: None,
+        });
+    }
+    for i in 0..others.len() {
+        // (a pair: an unknown outcome of a reveal ends the sweep at once, and the check below halts every village)
+        if pair && must(first, others) {
+            break;
+        }
+        if others[i].ended() {
+            continue;
+        }
+        if let Some(rep) = others[i].reveal_first(state).await {
+            landed |= rep.out == Out::Landed;
+            others[i].record(&RunOut {
+                reports: vec![rep],
+                landed: false,
+                stopped: None,
+            });
+        }
+    }
+    if pair && must(first, others) {
+        halt_all(first, others);
+        return (false, landed);
+    }
     let r = first.pass(state, pair).await;
     first.record(&r);
-    let mut landed = r.landed;
+    landed |= r.landed;
     if let Some(stop) = &r.stopped {
         if pair {
             halt_all(first, others);
@@ -1118,6 +1208,12 @@ impl PassVillage for FirstVillage<'_> {
         false
     }
     fn end(&mut self) {}
+    fn reveal_first<'a>(
+        &'a mut self,
+        state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        Box::pin(reveal_report(self.destination, state))
+    }
 }
 impl PassVillage for Village {
     fn pass<'a>(
@@ -1154,6 +1250,12 @@ impl PassVillage for Village {
     }
     fn end(&mut self) {
         self.ended = true;
+    }
+    fn reveal_first<'a>(
+        &'a mut self,
+        state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        Box::pin(reveal_report(&mut self.destination, state))
     }
 }
 
@@ -1219,11 +1321,10 @@ async fn village_drivers(
                     == 128;
             let expedition = if wide {
                 let payer = fund_fresh(state, stop).await?;
-                Some(crate::destination_driver::DestinationDriver::new(
-                    h,
-                    payer,
-                    stop.clone(),
-                ))
+                let mut d =
+                    crate::destination_driver::DestinationDriver::new(h, payer, stop.clone());
+                d.beside_legacy = true;
+                Some(d)
             } else {
                 None
             };
@@ -2638,6 +2739,118 @@ mod pair_tests {
             .filter(|n| n.starts_with(who))
             .count()
     }
+    // ---- verify-pr96 BREAK-1: the reveal sweep at the start of a pass
+    struct SweepVillage {
+        tag: &'static str,
+        reveal: Option<Out>,
+        status: Status,
+        ended: bool,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+    impl PassVillage for SweepVillage {
+        fn pass<'a>(
+            &'a mut self,
+            _state: &'a Shared,
+            _pair: bool,
+        ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
+            self.log.lock().unwrap().push(format!("{} pass", self.tag));
+            Box::pin(async { RunOut::default() })
+        }
+        fn record(&mut self, r: &RunOut) {
+            for rep in &r.reports {
+                if let Out::Unknown { signature, .. } = &rep.out {
+                    self.status.unknown_signature = Some(signature.clone());
+                }
+            }
+        }
+        fn status(&self) -> &Status {
+            &self.status
+        }
+        fn halt(&mut self, why: String) {
+            self.status.stopped = Some(why);
+        }
+        fn ended(&self) -> bool {
+            self.ended
+        }
+        fn end(&mut self) {
+            self.ended = true;
+        }
+        fn reveal_first<'a>(
+            &'a mut self,
+            _state: &'a Shared,
+        ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{} reveal", self.tag));
+            let out = self.reveal.clone();
+            Box::pin(async move {
+                out.map(|out| Report {
+                    field: Field::Expedition,
+                    out,
+                    text: "Landed(\"ExpeditionReveal\")".into(),
+                })
+            })
+        }
+    }
+    fn sv(tag: &'static str, reveal: Option<Out>, log: &Arc<Mutex<Vec<String>>>) -> SweepVillage {
+        SweepVillage {
+            tag,
+            reveal,
+            status: Status::default(),
+            ended: false,
+            log: log.clone(),
+        }
+    }
+    #[tokio::test]
+    async fn every_villages_due_reveal_runs_before_any_villages_pass() {
+        // (verify-pr96 BREAK-1: a reveal left to its village's turn in a long pass found its window — about 25 slots at
+        //  ×60 — closed; the sweep runs every village's due reveal before the first keeper posts the bell's anchors)
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        let mut b = sv("B", Some(Out::Landed), &log);
+        let mut c = sv("C", None, &log);
+        c.ended = true;
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b, &mut c];
+        let (alive, landed) = orchestrate(&st, &mut a, &mut rest).await;
+        assert!(alive);
+        assert!(landed, "a landed reveal counts as the pass's landing");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal", "B reveal", "A pass", "B pass"],
+            "every live village's reveal first, then the passes in their order; an ended village is never called"
+        );
+    }
+    #[tokio::test]
+    async fn a_pairs_unknown_reveal_stops_the_sweep_and_every_pass() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", Some(unk()), &log);
+        let mut b = sv("B", Some(Out::Landed), &log);
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
+        let (alive, _) = orchestrate(&st, &mut a, &mut rest).await;
+        assert!(!alive, "the pair loop stops");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal"],
+            "nothing runs after the unknown outcome"
+        );
+        assert!(b.ended && b.status.stopped.is_some());
+    }
+    #[test]
+    fn the_reveal_sweep_is_wired_for_both_kinds_of_village() {
+        let src = include_str!("keeper_loop.rs");
+        assert!(
+            src.contains("Box::pin(reveal_report(self.destination, state))"),
+            "the first village"
+        );
+        assert!(
+            src.contains("Box::pin(reveal_report(&mut self.destination, state))"),
+            "every other village"
+        );
+        let dd = include_str!("destination_driver.rs");
+        assert!(dd.contains("if self.terminal.is_some() || !SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {\n            return None;"),
+            "off in every world without the wide switch, and after the driver ended");
+    }
     #[tokio::test]
     async fn full_loop_a_unknown_means_b_is_never_called() {
         let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
@@ -2794,6 +3007,68 @@ mod pair_tests {
         assert_eq!(st.unknown_signature.as_deref(), Some("sig"));
         let src = include_str!("keeper_loop.rs");
         assert!(src.contains("if rep.field != Field::Keeper {\n            if let Out::Unknown { signature, .. } = &rep.out { keeper.status.unknown_signature = Some(signature.clone()); }"));
+    }
+    #[test]
+    fn the_wide_destination_driver_beside_a_legacy_one_has_its_own_status_field() {
+        // (fix-wide-breaks BREAK-2: both drivers wrote `destination_step`, the legacy one last, so the expedition
+        //  driver's step never showed; beside a legacy driver it reports as Field::Expedition)
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let d = crate::destination_driver::DestinationDriver::new(
+            Address::new_unique(),
+            Keypair::new(),
+            rx,
+        );
+        assert!(
+            !d.beside_legacy,
+            "a wide holding's own driver keeps its field"
+        );
+        let mut st = Status::default();
+        assert!(
+            st.json().get("expedition_step").is_none(),
+            "no new key in any other world's line"
+        );
+        let r = RunOut {
+            reports: vec![
+                Report {
+                    field: Field::Expedition,
+                    out: Out::Quiet,
+                    text: "Wait(\"e\")".into(),
+                },
+                Report {
+                    field: Field::Destination,
+                    out: Out::Quiet,
+                    text: "Wait(\"legacy\")".into(),
+                },
+            ],
+            landed: false,
+            stopped: None,
+        };
+        for rep in &r.reports {
+            match rep.field {
+                Field::Destination => st.destination_step = Some(rep.text.clone()),
+                Field::Expedition => st.expedition_step = Some(rep.text.clone()),
+                _ => {}
+            }
+        }
+        assert_eq!(st.json()["expedition_step"], "Wait(\"e\")");
+        assert_eq!(st.json()["destination_step"], "Wait(\"legacy\")");
+        let src = include_str!("keeper_loop.rs");
+        assert!(src.contains(
+            "Field::Expedition => keeper.status.expedition_step = Some(rep.text.clone()),"
+        ));
+        assert!(src.contains("d.beside_legacy = true;"));
+    }
+    #[test]
+    fn a_reveal_is_not_held_for_the_anchor() {
+        // (fix-wide-breaks BREAK-2: the program admits a reveal before THE anchor exists; both drivers reveal as soon as
+        //  T(arrive) is public and stop only once an anchor's window has closed)
+        let dd = include_str!("destination_driver.rs");
+        assert!(dd.contains(
+            "anchor.filter(|a_ts| c.unix_timestamp() >= clock.reveal_close(o.arrive, *a_ts))"
+        ));
+        assert!(!dd.contains("\"the anchor of bell {} in region {} (the keeper's)\""));
+        let lm = include_str!("legacy_march.rs");
+        assert!(lm.contains("anchor_a.filter(|a_ts| now >= clock.reveal_close(arrive, *a_ts))"));
     }
     #[test]
     fn a_second_villages_status_line_says_which_village_and_the_first_is_unchanged() {

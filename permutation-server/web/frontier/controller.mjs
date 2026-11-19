@@ -50,6 +50,7 @@ import * as wallet from '../wallet.mjs';
 import { LOCAL_PLAY_WALLET_NAMES, currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import * as localDepart from './flocalplay-depart.mjs';
 import * as localReveal from './flocalplay-reveal.mjs';
+import * as localExpedition from './flocalplay-expedition.mjs';
 import * as localReturn from './flocalplay-return.mjs';
 import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
@@ -1233,6 +1234,23 @@ function ownMarchDest(t, scope) {
   return { p: o.dest.p, q: o.dest.q, tile: o.dest.tile };
 }
 const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
+/**
+ * fix-wide-breaks BREAK-4: a route through a province the chain holds no Province for — grown land the herald has no
+ * record of (NotFound) — is sealed and departs, but its Reveal is refused for good (the program reads every path
+ * province: BadAccount, Custom(2), for an absent one) and the host comes home unrevealed. Asked once the route is
+ * planned (not awaited by setDestination): such a route is taken back with RouteNotOpen, so nothing is sealed for it.
+ */
+async function checkRouteOpen(c, dest, route) {
+  const crossed = routeProvincesOf(route).filter(x => !(x.p === c.origin.p && x.q === c.origin.q) && !(x.p === dest.p && x.q === dest.q) && !FS.provinces?.has?.(`${x.p},${x.q}`));
+  for (const x of crossed) {
+    const pr = await herald.province(x.p, x.q, 'latest').catch(() => null);
+    if (FS.compose !== c || c.dest !== dest || c.route !== route) return;
+    if (pr && !pr.ok && pr.code === 'NotFound') { c.route = null; c.routeError = 'RouteNotOpen'; invalidate('panel'); return; }
+  }
+}
+/** The provinces a planned route crosses, as `{p, q}` integers (the planner's ProvinceCoord list). */
+export const routeProvincesOf = route => (route?.provinces ?? []).map(x => (Array.isArray(x) ? { p: Number(x[0]), q: Number(x[1]) } : { p: Number(x?.p), q: Number(x?.q) }))
+  .filter(x => Number.isInteger(x.p) && Number.isInteger(x.q));
 
 async function readMarches() {
   const key = bookKey();
@@ -1348,6 +1366,18 @@ async function readMarches() {
       if (got) forming.push({ host: String(r.id), bell, facts: got.facts });
     }
   }
+  // (TEST-ONLY wide local play, fix-wide-breaks BREAK-1/3: the expeditions this page sent into the wide land — their
+  //  host is in a bridge transit, the village's slot holds only its marker (state 4), so none of the reads above sees
+  //  them. One read each through the relay's reveal/context route; their rows join the list. Reads only.)
+  if (localPlay && localDepart.localDepartReveals(FS).some(r => r.signature)) {
+    const gate = localDepartGate();
+    if (gate?.ok) {
+      await localExpedition.readExpeditions(FS, { relay: gate.relay, pin: { programId: localPlay.programId, seasonAddress: localPlay.seasonAddress },
+        faction: Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : null, nowBell: b }).catch(() => null);
+      if (!same()) return;
+    }
+    marches.push(...localExpedition.expeditionRows(FS));
+  }
   if (key !== bookKey() || !same()) return;
   FS.formingBells = forming;
   book.saveBook(store, key, entries);
@@ -1357,7 +1387,7 @@ async function readMarches() {
   FS.marchesRead = { key, world: at.world, ctx: readCtx, viewer: readViewer, holding: at.holding };
   FS.bellItems = [
     ...(holding ? [{ bell: b, region: regionOf(holding.p, holding.q), why: 'current', facts: {} }] : []),
-    ...marches.map(m => ({ bell: m.entry?.arriveBell ?? m.transit?.arriveBell, region: m.region, why: 'arrival', facts: {} })),
+    ...marches.filter(m => !m.expedition).map(m => ({ bell: m.entry?.arriveBell ?? m.transit?.arriveBell, region: m.region, why: 'arrival', facts: {} })),
   ];
 }
 
@@ -2673,6 +2703,7 @@ async function setDestination(dest) {
     const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
     const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;
     c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;
+    checkRouteOpen(c, dest, r.route);
   } catch (e) {
     console.error('frontier route:', e);
     c.route = null; c.routeError = e?.code ?? 'Error'; c.routeUnread = true;

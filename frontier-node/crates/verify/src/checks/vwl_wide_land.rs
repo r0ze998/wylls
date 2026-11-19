@@ -66,8 +66,10 @@
 //! WideCloses of a ticket record, a holding and a province
 //! (`vwl_wide_close.rs`), the wide economy and garrison
 //! (`vwl_wide_economy.rs`), and WideMuster and WideResolve, the bell with
-//! the wide keep capture (`vwl_wide_march.rs`). The other wide commands stay V0's
-//! `WideUnmodelled`.
+//! the wide keep capture (`vwl_wide_march.rs`). WideDissolve, WideReturn,
+//! WideCloseRoster and WideDisbandStranded are VX's (re-executed by the
+//! pinned program, verifier-coverage), a successful WideResidentAct is a V0
+//! FAIL in this lane; the other wide commands stay V0's `WideUnmodelled`.
 //!
 //! Lamports: the archive holds program transactions only, and anyone can
 //! send lamports to any account by a plain system transfer, so an archived
@@ -158,6 +160,14 @@ struct Env<'a> {
     /// An execution witness (the segment's pre-states), consulted for an
     /// account no earlier transaction of the archive wrote.
     snapshot: Option<&'a BTreeMap<Key, Option<Account>>>,
+    /// A recorder's declared patches (`Input::declared`): a state set
+    /// between two transactions that no archived transaction wrote
+    /// (verifier-coverage: VWL read the last archived post-state instead,
+    /// and FAILed an honest recording whose later patch it did not see).
+    declared: &'a [crate::input::Declared],
+    /// Whether the judgement read a declared state (then it is never a
+    /// PASS: `MissingData` when nothing else is wrong, as VX rules).
+    read_declared: std::cell::Cell<bool>,
     ctx: AddrCtx,
     sid: u64,
     tx: usize,
@@ -168,11 +178,23 @@ struct Env<'a> {
 impl Env<'_> {
     /// The account before the transaction (`None`: absent).
     fn acct_before(&self, k: &Key) -> Option<Account> {
-        if let Some(v) = self.w.posts.get(k) {
+        let posted = self.w.posts.get(k).and_then(|v| {
             let i = v.partition_point(|&t| t < self.tx);
-            if let Some(t) = i.checked_sub(1).and_then(|i| v.get(i)) {
-                return self.w.txs[*t].post.get(k).cloned().flatten();
-            }
+            i.checked_sub(1).and_then(|i| v.get(i)).copied()
+        });
+        // the last declared patch in force before this transaction, when it
+        // is later than the last archived write (`vx_reexec::before`)
+        let decl = self
+            .declared
+            .iter()
+            .rfind(|d| d.key == *k && d.at <= self.tx)
+            .filter(|d| posted.is_none_or(|t| d.at > t));
+        if let Some(d) = decl {
+            self.read_declared.set(true);
+            return d.account.clone();
+        }
+        if let Some(t) = posted {
+            return self.w.txs[t].post.get(k).cloned().flatten();
         }
         self.snapshot.and_then(|s| s.get(k).cloned().flatten())
     }
@@ -183,6 +205,7 @@ impl Env<'_> {
             .posts
             .get(k)
             .is_some_and(|v| v.partition_point(|&t| t < self.tx) > 0)
+            || self.declared.iter().any(|d| d.key == *k && d.at <= self.tx)
             || self.snapshot.is_some_and(|s| s.contains_key(k))
     }
     fn before(&self, k: &Key, what: &str) -> Result<Account, Wrong> {
@@ -1111,10 +1134,12 @@ fn lamports_unchanged(before: u64, after: u64, k: &Key) -> Result<(), Wrong> {
 }
 
 /// Every successful wide land instruction of `w`, judged; findings in order.
+#[allow(clippy::too_many_arguments)]
 fn judge_all(
     w: &World,
     recs: &[fclient::ports::TxRecord],
     snapshot: Option<&BTreeMap<Key, Option<Account>>>,
+    declared: &[crate::input::Declared],
     program: &Key,
     season_id: u64,
     quicknet_pk: [u8; 96],
@@ -1149,14 +1174,22 @@ fn judge_all(
                 w,
                 recs,
                 snapshot,
+                declared,
+                read_declared: std::cell::Cell::new(false),
                 ctx,
                 sid: season_id,
                 tx: i,
                 now: t.time,
                 quicknet_pk,
             };
-            if let Err(er) = judge(&e, ix, sigs) {
-                out.push((i, name, er));
+            match judge(&e, ix, sigs) {
+                Err(er) => out.push((i, name, er)),
+                Ok(()) if e.read_declared.get() => out.push((
+                    i,
+                    name,
+                    Missing("re-judged exactly, but from a state the archive only declares (a recorder's patch, not an archived transaction's write)".into()),
+                )),
+                Ok(()) => {}
             }
         }
     }
@@ -1173,6 +1206,7 @@ pub fn run(cx: &mut Ctx) {
         cx.w,
         &cx.input.txs,
         None,
+        &cx.input.declared,
         &cx.cfg.program.to_bytes(),
         cx.cfg.season_id,
         cx.cfg.quicknet_pk,
@@ -1214,6 +1248,7 @@ pub fn judge_segment(input: &Input, snapshot: &BTreeMap<Key, Option<Account>>) -
         &w,
         &input.txs,
         Some(snapshot),
+        &input.declared,
         &input.cfg.program.to_bytes(),
         input.cfg.season_id,
         input.cfg.quicknet_pk,

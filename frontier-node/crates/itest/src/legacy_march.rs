@@ -210,6 +210,19 @@ pub fn entry_of(t: &Transit, owner_citizen: &Address) -> SlotEntry {
     }
 }
 
+/// The first province a march's route crosses (besides its destination) that has no Province account on this chain,
+/// or `None` (fix-wide-breaks BREAK-4: such a march can never be revealed — the program refuses an absent path province).
+pub fn path_not_open(
+    c: &Chain,
+    a: &Addresses,
+    t: &Transit,
+    plain: &fclient::seal::Plain,
+) -> Option<(i32, i32)> {
+    let path = play::path_provinces((t.origin_p as i32, t.origin_q as i32, t.origin_tile), plain)?;
+    path.into_iter()
+        .find(|&(p, q)| c.account(&a.province(p, q)).is_none())
+}
+
 /// The Reveal of an opened march (pure): the target index from the slots as read, the path provinces, and whether
 /// the ArrivalDay must be written. `Err` names why it cannot be revealed (the program would refuse it for good).
 #[allow(clippy::too_many_arguments)]
@@ -611,6 +624,8 @@ pub struct LegacyMarchDriver {
     stop: tokio::sync::watch::Receiver<bool>,
     pub land_timeout: Duration,
     known: std::collections::BTreeMap<(u64, u32), Known>,
+    /// Marches already reported as never revealable by their route (fix-wide-breaks BREAK-4): said once each.
+    noted_closed: Vec<(u64, u32)>,
     terminal: Option<Step>,
     pub log: Vec<String>,
     /// The provinces where a settled march's host STANDS (`(dest, host_id)`, never the home: that is the origin
@@ -657,6 +672,7 @@ impl LegacyMarchDriver {
             stop,
             land_timeout: crate::keeper_loop::LAND_TIMEOUT,
             known: Default::default(),
+            noted_closed: vec![],
             terminal: None,
             log: vec![],
             stands: vec![],
@@ -706,10 +722,70 @@ impl LegacyMarchDriver {
         };
         match sim {
             Ok(sim) if sim.err.is_none() => self.send(state, ix, what).await,
-            Ok(sim) => Step::Stopped(format!(
-                "{what} simulation: {:?} (code {:?})",
-                sim.err, sim.code
-            )),
+            Ok(sim) => {
+                // DIAG (fix-wide-breaks BREAK-4): every account of the refused instruction, as the chain holds it
+                let c = lock(state);
+                let metas: Vec<String> = ix
+                    .accounts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| {
+                        let acc = c.account(&m.pubkey);
+                        format!(
+                            "{i}:{}:{}{}:{}",
+                            m.pubkey,
+                            if m.is_signer { "s" } else { "" },
+                            if m.is_writable { "w" } else { "r" },
+                            acc.map(|a| format!(
+                                "own={} len={} head={:02x?}",
+                                if a.owner == self.a.program {
+                                    "P".to_string()
+                                } else {
+                                    a.owner.to_string()
+                                },
+                                a.data.len(),
+                                &a.data[..a.data.len().min(12)]
+                            ))
+                            .unwrap_or_else(|| "absent".into())
+                        )
+                    })
+                    .collect();
+                // (and, for a Reveal, the same instruction with one thing changed at a time, simulated at once — the
+                //  window is ten wall seconds at ×60 — so the refusing check can be told by what moves its code or CU)
+                let mut variants = vec![];
+                if what.starts_with("Reveal(") && ix.accounts.len() >= 16 {
+                    let mut tries: Vec<(&str, Instruction)> = vec![];
+                    let mut v = ix.clone();
+                    v.accounts[8].is_writable = !v.accounts[8].is_writable;
+                    tries.push(("day-writable-flipped", v));
+                    for t in 1..4u8 {
+                        let mut v = ix.clone();
+                        v.data[2] = t;
+                        for i in 0..4usize {
+                            v.accounts[9 + i].is_writable = i == t as usize;
+                        }
+                        tries.push(("target", v));
+                    }
+                    let mut v = ix.clone();
+                    v.data[3..40].iter_mut().for_each(|b| *b = 0);
+                    tries.push(("zero-plain", v));
+                    for (name, v) in tries {
+                        let r = lk::simulate_ix(&c, &self.payer, &v);
+                        variants.push(match r {
+                            Ok(r) => serde_json::json!({"v": name, "target": v.data[2], "err": r.err, "code": r.code, "units": r.units}),
+                            Err(e) => serde_json::json!({"v": name, "error": e}),
+                        });
+                    }
+                }
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"diag": "refused-simulation", "what": what, "err": sim.err, "code": sim.code, "units": sim.units, "logs": sim.logs, "accounts": metas, "data_len": ix.data.len(), "data": ix.data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "variants": variants})
+                );
+                Step::Stopped(format!(
+                    "{what} simulation: {:?} (code {:?}, {} CU)",
+                    sim.err, sim.code, sim.units
+                ))
+            }
             Err(e) => Step::Stopped(e),
         }
     }
@@ -1339,16 +1415,35 @@ impl LegacyMarchDriver {
             if mine {
                 self.known.get_mut(&key).expect("known").revealed = true;
             }
-            if !mine && inputs.is_none() && dv.resolved_next <= arrive {
-                let Some(a_ts) = anchor_a else {
-                    return Step::Wait(format!(
-                        "THE anchor of bell {arrive} in region {} is not posted yet",
-                        dv.region
-                    ));
-                };
+            // (fix-wide-breaks BREAK-4: a march whose route crosses a province with no Province on this chain — grown land
+            //  that was never opened — can never be revealed: the program reads every path province and refuses an
+            //  absent one (BadAccount, Custom(2)). It is not revealed and the driver goes on with the destination's
+            //  bells; its SettleTransit then settles it as the program settles an unrevealed march (routed home), so the
+            //  host is not held and the village's driver is not stopped.)
+            let closed_path = if !mine {
+                path_not_open(&lock(state), &self.a, &t, &plain)
+            } else {
+                None
+            };
+            if let Some(pc) = closed_path {
+                if self.known.get(&key).is_some_and(|k| !k.revealed)
+                    && !self.noted_closed.contains(&key)
+                {
+                    self.noted_closed.push(key);
+                    eprintln!(
+                        "{}",
+                        serde_json::json!({"legacy_march": "unrevealable", "slot": slot, "arrive": arrive, "why": format!("its route crosses ({}, {}), which has no Province: settled unrevealed (routed home)", pc.0, pc.1)})
+                    );
+                }
+            }
+            if !mine && closed_path.is_none() && inputs.is_none() && dv.resolved_next <= arrive {
+                // (fix-wide-breaks BREAK-2, as the wide destination driver: the reveal is not held for THE anchor — the
+                //  program admits it before the anchor exists, and the window closes only at A + W; at ×60 that window
+                //  is ten wall seconds, shorter than a keeper pass over many villages)
                 let now = lock(state).unix_timestamp();
-                if now >= clock.reveal_close(arrive, a_ts) {
-                    return Step::Stopped(format!("the reveal window of bell {arrive} closed with transit slot {slot} unrevealed: not forced"));
+                if let Some(a_ts) = anchor_a.filter(|a_ts| now >= clock.reveal_close(arrive, *a_ts))
+                {
+                    return Step::Stopped(format!("the reveal window of bell {arrive} closed with transit slot {slot} unrevealed (anchor at {a_ts}): not forced"));
                 }
                 let entries: [Option<SlotEntry>; 4] = core::array::from_fn(|i| {
                     slots4[i].as_ref().map(|s| SlotEntry {
@@ -1767,6 +1862,64 @@ mod tests {
         t.origin_p = 2;
         t.dep_mass = 100;
         t
+    }
+
+    /// fix-wide-breaks BREAK-4, the exact route refused in run2 (verify-pr92's "Reveal … Custom(2)"): from tile 58 of
+    /// (-68, -60) twelve steps to tile 11 of (-67, -61), entering (-67, -60) first. On a chain where (-67, -60) has no
+    /// Province the march can never be revealed (the program's Reveal reads every path province: BadAccount), and
+    /// `path_not_open` names that province; with it present the route is revealable.
+    #[test]
+    fn a_route_through_a_province_with_no_account_is_found_before_any_reveal() {
+        let mut c = Chain::new(localnet::Config::default());
+        c.produce_block();
+        let a = Addresses::new(Address::new_from_array([0x45; 32]), 11);
+        let mut t = transit(T_SETTLED);
+        (t.origin_p, t.origin_q, t.origin_tile) = (-68, -60, 58);
+        let (path_len, path) =
+            permutation_rules::frontier::seal::encode_path(&[1, 2, 1, 2, 3, 2, 2, 2, 2, 3, 3, 2])
+                .unwrap();
+        let plain = fclient::seal::Plain {
+            version: 1,
+            host_id: 77,
+            arrive_bell: 9,
+            dest_p: -67,
+            dest_q: -61,
+            dest_tile: 11,
+            path_len,
+            path,
+            ..Default::default()
+        };
+        assert_eq!(
+            play::path_provinces((-68, -60, 58), &plain),
+            Some(vec![(-67, -60)])
+        );
+        let put = |c: &mut Chain, p: i32, q: i32| {
+            c.set_account(
+                a.province(p, q),
+                fclient::ports::Account {
+                    lamports: 1,
+                    data: vec![0; 8],
+                    owner: a.program,
+                    executable: false,
+                },
+            )
+            .unwrap()
+        };
+        put(&mut c, -68, -60);
+        put(&mut c, -67, -61);
+        assert_eq!(
+            path_not_open(&c, &a, &t, &plain),
+            Some((-67, -60)),
+            "the unopened province is named"
+        );
+        put(&mut c, -67, -60);
+        assert_eq!(
+            path_not_open(&c, &a, &t, &plain),
+            None,
+            "every path province is there: revealable"
+        );
+        let src = include_str!("legacy_march.rs");
+        assert!(src.contains("if !mine && closed_path.is_none() && inputs.is_none() && dv.resolved_next <= arrive {"), "such a march is never revealed; its destination's bells and SettleTransit follow");
     }
 
     #[test]

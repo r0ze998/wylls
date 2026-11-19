@@ -746,6 +746,8 @@ function renderDrawer(markupOf) {
   if (drawerPress.hold(() => renderDrawer(markupOf))) return drawerOf(FS);
   const d = drawerOf(FS);
   applyDrawer(d);
+  // (fix-wide-breaks BREAK-3: the free-standing reveal strip follows the drawer — it moves out of its header's way)
+  if (localRevealEl) { const css = localRevealCss(!!d); if (localRevealEl.dataset.at !== css) { localRevealEl.style.cssText = css; localRevealEl.dataset.at = css; } }
   const body = $('panel-body');
   const view = `${d?.kind ?? ''}|${FS.mode}`;
   const same = view === lastPanelView;
@@ -1478,6 +1480,9 @@ function hotKeepRow(key) {
  * card is open the strip is the card's own, and this one is empty. Made on first need; never present outside local play.
  */
 let localRevealEl = null;
+/** Where the free-standing reveal strip stands: top right, or top left below the provinces bar while a drawer is open. */
+export const localRevealCss = drawerOpen => (drawerOpen ? 'position:fixed;top:124px;left:12px;right:auto;bottom:auto;max-width:min(360px,calc(100vw - 24px));z-index:40'
+  : 'position:fixed;top:72px;right:12px;left:auto;bottom:auto;max-width:min(360px,calc(100vw - 24px));z-index:40');
 function renderLocalRevealStrip() {
   const doc = globalThis.document;
   const strip = FS.localPlay && FS.hand?.pop !== OUTBOUND_POP ? hand.localRevealStrip(FS) : '', markup = String(strip);
@@ -1485,9 +1490,12 @@ function renderLocalRevealStrip() {
   if (!localRevealEl) {
     localRevealEl = doc.createElement('section'); localRevealEl.id = 'local-reveal'; localRevealEl.className = 'hand-pop local-reveal-strip';
     localRevealEl.setAttribute('aria-label', L`ローカルプレイ：封を開く`);
-    localRevealEl.style.cssText = 'position:fixed;top:72px;right:12px;left:auto;bottom:auto;max-width:min(360px,calc(100vw - 24px));z-index:40';
     doc.body.appendChild(localRevealEl);
   }
+  // (fix-wide-breaks BREAK-3: at the top right it stood over the open drawer's header — the march order's among them;
+  //  while a drawer is open it stands at the top left, below the provinces bar, instead)
+  const css = localRevealCss(!!drawerOf(FS));
+  if (localRevealEl.dataset.at !== css) { localRevealEl.style.cssText = css; localRevealEl.dataset.at = css; }
   if (localRevealEl.hidden !== !markup) localRevealEl.hidden = !markup;
   setHtmlIfChanged(localRevealEl, strip);
 }
