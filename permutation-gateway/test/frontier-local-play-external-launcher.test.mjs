@@ -83,8 +83,12 @@ test('a natural world with two admitted residents: funded like the player, a rel
   const arg = (a, k) => a[a.indexOf(k) + 1];
   const r0 = await read('relay-41423.json'), r1 = await read('relay-41425.json'), player = await read('relay-41407.json');
   assert.equal(arg(r0, '--wallet'), EXT[0]); assert.equal(arg(r1, '--wallet'), EXT[1]);
-  const strip = a => a.filter((x, i) => !['--wallet', '--listen-port'].includes(x) && !['--wallet', '--listen-port'].includes(a[i - 1]));
-  assert.deepEqual(strip(r0), strip(player), 'the player\'s relay arguments, only the wallet and the port changed');
+  const strip = a => a.filter((x, i) => !['--wallet', '--listen-port', '--resident-turns'].includes(x) && !['--wallet', '--listen-port', '--resident-turns'].includes(a[i - 1]));
+  assert.deepEqual(strip(r0), strip(player), 'the player\'s relay arguments, only the wallet and the port changed (and the turn lease)');
+  // (Q16-2: an external resident's relay holds it to one action per bell, on the world's lease directory; the player's does not)
+  assert.equal(arg(r0, '--resident-turns'), arg(r1, '--resident-turns'));
+  assert.ok(path.isAbsolute(arg(r0, '--resident-turns')) && arg(r0, '--resident-turns').endsWith(`${path.sep}resident-turns`));
+  assert.equal(player.includes('--resident-turns'), false);
   // the world's answer names each resident's own proxy; its relay routes reach ITS relay, the rest the shared herald
   assert.deepEqual(w.external, { [EXT[0]]: 'http://localhost:41422', [EXT[1]]: 'http://localhost:41424' });
   const info = await (await fetch('http://localhost:41422/gw/f/local-play/info')).json();

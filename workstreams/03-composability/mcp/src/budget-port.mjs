@@ -35,6 +35,10 @@ export const FIVE_REFUSALS = Object.freeze({
   SendFailed: R('chain', 'chain', false, 'the chain\'s answer is in the receipt'),
   AgentKeyDirect: R('⑤', 'request', false, 'the agent\'s key is used only through the agent wallet'),
   AgentWalletDisabled: R('⑤', 'agent', false, 'the relay runs without the agent wallet'),
+  // One action per resident per bell (Q16-2): another writer (the operator runner, the owner's page, another agent) or
+  // this one already acted for the resident in this bell. Nothing was sent; the refusal names the bell.
+  ResidentAlreadyActed: R('⑤', 'turn', false, 'this resident already acted in this bell: wait for the next bell (the refusal names it), then prepare again'),
+  ResidentTurnUnavailable: R('⑤', 'turn', false, 'the relay could not record the resident\'s turn; nothing was sent: try again later'),
   // ⑤'s patch 0001 (agent-wallet-staking-limits, ⑤ ba3c180b; not applied in this repository): present only on a
   // gateway that has it.
   PerCallLimit: R('⑤', 'budget', false, 'the owner raises the per-call limit, or the plan asks for less'),

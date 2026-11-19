@@ -84,7 +84,7 @@ export function conquestCapabilityProblems(capability, cfg) {
  * established, and always without a capability of this very world: no route rather than a looser one.
  */
 // (`runnerInstance`: handed on to the relay machinery unchanged — see createLocalPlayRelay. No start gives one today.)
-export function createLocalPlayConquest({ cfg, conquestBin, capability = null, dispatch = null, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now(), spawn, setTimer, clearTimer, runnerInstance = null }) {
+export function createLocalPlayConquest({ cfg, conquestBin, capability = null, dispatch = null, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now(), spawn, setTimer, clearTimer, runnerInstance = null, turns = null }) {
   const problems = localPlayRelayConfigProblems(cfg);
   if (problems.length) throw new Error('local-play conquest: ' + problems.join('; '));
   // (an explicit `dispatch` or `prepare` is a test's: it says nothing about the real program. Without one, the module's
@@ -110,7 +110,7 @@ export function createLocalPlayConquest({ cfg, conquestBin, capability = null, d
     } catch { adapter = null; }
     if (!adapter) throw new Error('local-play conquest: closed (the conquest prepare binary must be an absolute path AND the dispatch kind must be pinned; it is not published yet)');
   }
-  const relay = createLocalPlayRelay({ cfg, prepare: adapter, rpc, now, runnerInstance,
+  const relay = createLocalPlayRelay({ cfg, prepare: adapter, rpc, now, runnerInstance, turns,
     flow: { routes: CONQUEST_ROUTES, submitSchema: CONQUEST_SUBMIT_SCHEMA, statusSchema: CONQUEST_STATUS_SCHEMA, scopeOf: body => body.source_request } });
   /**
    * THE CITY BINDING, before the CLI is asked anything: the request must name this start's Free City and no other.

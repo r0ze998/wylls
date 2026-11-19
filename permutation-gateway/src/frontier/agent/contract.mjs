@@ -76,6 +76,10 @@ export const ERR = Object.freeze({
   WITHDRAW_FAILED: 'WithdrawFailed',
   INFERENCE_FAILED: 'InferenceFailed',
   AGENT_KEY_DIRECT: 'AgentKeyDirect',
+  // One action per resident per bell (Q16-2; routes/relay.mjs residentTurnOf, resident-turns.mjs): passed through
+  // from the relay with `{bell, nextBell, citizen, by}`. Nothing was sent.
+  RESIDENT_ALREADY_ACTED: 'ResidentAlreadyActed',
+  RESIDENT_TURN_UNAVAILABLE: 'ResidentTurnUnavailable',
   TOO_MANY_AGENTS: 'TooManyAgents',
   DISABLED: 'AgentWalletDisabled',
 });

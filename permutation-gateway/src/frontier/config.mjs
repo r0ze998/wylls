@@ -85,6 +85,8 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   agentKeysDir: path.join(FRONTIER_DIR, 'agent-keys'),
   /** The ledger's own state file; null: `agent-wallet.json` next to --state-file. */
   agentStateFile: null,
+  /** One action per resident per bell (resident-turns.mjs): its lease directory; null: `resident-turns/` next to --state-file. */
+  residentTurnsDir: null,
   /** Fixed test price of one model call (base units of the 6-decimal test mint: 10,000 = 0.01). TEST VALUE. */
   agentInferencePrice: 10_000,
   /** A JSON file `{actionName: baseUnits}` of USDC prices for game actions; none: every action stays free or resource-paid. */
@@ -196,6 +198,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     agentCustodyKeyFile: pick('agent-custody-key-file', 'FRONTIER_AGENT_CUSTODY_KEY_FILE', d.agentCustodyKeyFile),
     agentKeysDir: pick('agent-keys-dir', 'FRONTIER_AGENT_KEYS_DIR', d.agentKeysDir),
     agentStateFile: pick('agent-state-file', 'FRONTIER_AGENT_STATE_FILE', d.agentStateFile),
+    residentTurnsDir: pick('resident-turns-dir', 'FRONTIER_RESIDENT_TURNS_DIR', d.residentTurnsDir),
     agentInferencePrice: int(pick('agent-inference-price', 'FRONTIER_AGENT_INFERENCE_PRICE', d.agentInferencePrice), '--agent-inference-price'),
     agentGamePricesFile: pick('agent-game-prices-file', 'FRONTIER_AGENT_GAME_PRICES_FILE', d.agentGamePricesFile),
     agentReconcileMs: int(pick('agent-reconcile-ms', 'FRONTIER_AGENT_RECONCILE_MS', d.agentReconcileMs), '--agent-reconcile-ms'),
