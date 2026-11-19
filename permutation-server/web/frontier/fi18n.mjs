@@ -223,7 +223,7 @@ const CLIENT_TEXT = {
   // the wide village on the village screen is a captured record shown read-only (fwide.mjs): no order reaches it
   WideReadOnly: () => L`遠方の村は捕捉記録の読み取り専用表示です。この村には命令を送れません。`,
   NotFound: () => L`まだ記録がありません`,
-  WideWorldUnavailable: () => L`この配信元は記録された世界を出していません（WideWorldUnavailable）。`,
+  WideWorldUnavailable: () => L`この世界には「記録された世界」の表示（実験中）はありません。遊ぶうえで困ることはありません。この画面は閉じてかまいません。`,
   WideIndexUnavailable: () => L`この配信元は世界の履歴の索引を出していません（WideIndexUnavailable）。`,
   BadConfig: () => L`協力の板の設定を読めませんでした（BadConfig）。`,
   // (hud/coopboard.mjs readView: the board answered, but not a list of requests of the shape the board writes)

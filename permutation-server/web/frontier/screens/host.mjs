@@ -9,7 +9,7 @@ import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { unitCount, errorText } from '../fi18n.mjs';
-import { hostsIn, hostOfHolding, UNIT_ORDER, SCOUT, actionBlocks, ticketTimes } from '../fland.mjs';
+import { hostsIn, hostOfHolding, UNIT_ORDER, SCOUT, SETTLER, actionBlocks, ticketTimes } from '../fland.mjs';
 import { hostParts } from '../faddr.mjs';
 import { countdown } from '../clock.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
@@ -171,6 +171,16 @@ function wideLines(FS) {
     return html`<li data-host-wide="${at}">${x.stage === 'settled' ? L`広い土地の州 ${at} に軍勢が留まっています` : L`広い土地の州 ${at} へ遠征中の軍勢がいます`}${Number.isInteger(x.troopsAfter) && x.stage === 'settled' ? L`（兵 ${Math.floor(x.troopsAfter / 1000)}）` : ''}</li>`; })}</ul>`;
 }
 
+/** B18: the troops a village holds outside any host: `{reserveN}` (not Settlers) and `{garrisonN}` (its own site's garrison, when its province is read). */
+export function troopsAtHome(FS, h) {
+  if (!h) return { reserveN: 0, garrisonN: 0 };
+  const reserveN = (Array.isArray(h.reserve) ? h.reserve : []).reduce((a, n, unit) => a + (unit === SETTLER ? 0 : Math.max(0, Number(n) || 0)), 0);
+  const m = FS.provinces?.get?.(`${h.p},${h.q}`)?.province?.siteMirror?.[h.site];
+  let g = 0;
+  try { g = Number(BigInt(m?.garrison ?? 0) / 1000n); } catch { g = 0; } // the mirror holds milli-troops
+  return { reserveN, garrisonN: Number.isFinite(g) && g > 0 ? g : 0 };
+}
+
 export function render(FS) {
   const rows = hostRows(FS);
   const h = activeHolding(FS);
@@ -201,6 +211,14 @@ export function render(FS) {
       <div class="actions"><button type="button" class="btn primary" data-act="tab" data-tab="marches">${L`進軍を開く`}</button></div></section>${around}`;
   }
   if (!rows.length) {
+    // B18 (loop-play3): "no hosts, train some" is not said over a village that holds troops (after a capture the
+    // host's rest is back in the reserve: K-19)
+    const { reserveN, garrisonN } = troopsAtHome(FS, h);
+    if (placesKnown && !unreadPlaces && (reserveN > 0 || garrisonN > 0)) {
+      return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
+        <p role="status" data-hosts="home">${reserveN > 0 ? L`いま軍勢はいませんが、村の控えに兵が ${fmtNum(reserveN)} 人います。村で軍勢に編成できます。` : L`いま軍勢はいませんが、村の守備隊に兵が ${fmtNum(garrisonN)} 人います。軍勢を作るには、村で兵を訓練して編成してください。`}</p>
+        ${h ? html`<div class="actions"><button type="button" class="btn primary" data-act="tab" data-tab="holding">${L`村を開く`}</button></div>` : ''}</section>${around}`;
+    }
     return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
       <p${unreadPlaces || !placesKnown ? html` role="status" data-hosts="${placesKnown ? 'unread' : 'unknown'}"` : ''}>${!placesKnown ? L`いま読めている州には、この村の軍勢は出ていません。軍勢がどの州にいるかの一覧をまだ読めていないので、軍勢がいない、という意味ではありません。`
         : unreadPlaces ? L`いま読めている州には、この村の軍勢はいません。読めていない州があるので、軍勢がいない、という意味ではありません。` : L`軍勢はいません。村で兵を訓練し、軍勢を編成してください。`}</p>

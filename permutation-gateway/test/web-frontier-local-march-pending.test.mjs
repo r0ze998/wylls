@@ -202,7 +202,7 @@ test('the card offers it only on the test march (one fixed main button since rou
 test('English: every new text, no Japanese, no banned word', () => {
   setLang('en');
   const texts = [L`送信待ちを取り消しました。命令は送られていません。`, L`送信待ちを取り消す`, L`確認した命令で出発`, L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${36} まで。取り消せます）。`,
-    L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（到着ターンなどが変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`,
+    L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（時間が進んで到着ターンが先へ動いたときは、その到着ターンで送ります。ほかの内容が変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`,
     L`送信待ちを取り消しました。前に送った命令の結果がまだわからないためです。送り直しはしません。`];
   for (const t of texts) { assert.doesNotMatch(t, CJK, t); assert.doesNotMatch(t, BANNED_EN, t); }
   assert.match(texts[3], /until turn 36/);

@@ -56,6 +56,46 @@ export function createWorldWatch({ ask, onEnded = () => {}, now = () => Date.now
   return Object.freeze({ readFailed, isEnded: () => ended, asks: () => asks });
 }
 
+/**
+ * B21 (loop-play3): whether a launcher answer is NO answer at all — the launcher itself could not be reached (stopped
+ * with Ctrl-C, its terminal closed), which `worldStateOf` rightly leaves 'unknown'. `result`: the gate's `askLauncher`
+ * result; an answer of any kind (the world runs, a refusal the launcher named) is the launcher being there.
+ */
+export function launcherSilent(result) {
+  return !!result && typeof result === 'object' && result.ok === false && (result.launcher === null || result.launcher === undefined);
+}
+/**
+ * This many silent answers in a row before the page says the launcher cannot be reached. One: the question is asked
+ * only after a read of the world's herald already failed by the network, so one silent answer is two failures (the
+ * world's herald AND the launcher); and the season is read every 30 s or slower, so a second answer would leave the
+ * page saying only "N s behind" for a minute or more after a Ctrl-C (seen live, fix-ui-b17-b21). It is taken back by
+ * the next answer or good read.
+ */
+export const LAUNCHER_LOST_AFTER = 1;
+
+/**
+ * B21: the count of a launcher that stopped answering. It asks NOTHING itself: the page hands it each answer of the one
+ * question it already asks after a herald read failed by the network (`heard`: the gate's `checkWorld` result, as
+ * `createWorldWatch` gets it). After `LAUNCHER_LOST_AFTER` silent answers in a row (`after`) `onLost` is called; an answer of
+ * any kind, or a herald read that worked (`readOk`), calls `onBack` — unlike a world's end this is taken back: a
+ * launcher started again answers again. No timer, no read, no send.
+ */
+export function createLauncherWatch({ onLost = () => {}, onBack = () => {}, after = LAUNCHER_LOST_AFTER } = {}) {
+  let lost = false, silent = 0;
+  const back = () => { silent = 0; if (!lost) return; lost = false; try { onBack(); } catch { /* the display's own failure */ } };
+  const heard = result => {
+    if (result === null || result === undefined) return lost;      // not a launcher world's page any more: nothing is said
+    if (!launcherSilent(result)) { back(); return lost; }
+    silent += 1;
+    if (!lost && silent >= after) { lost = true; try { onLost(); } catch { /* the display's own failure */ } }
+    return lost;
+  };
+  return Object.freeze({ heard, readOk: back, isLost: () => lost });
+}
+
+/** B21: the plain line of a launcher that cannot be reached (the banner and the "About this test world" box). */
+export const launcherLostText = () => L`開始サービス（ターミナルで動かしている開始用のプログラム）に届きません。止めたのであれば、この世界はいま止まっています。ターンは進まず、命令も送れません。続けるには、開始サービスをもう一度起動し（保存した世界は続きから）、開始ページを開き直してください。`;
+
 /** The banner's sentence once the world has ended (it replaces the "view is behind" banner: there is nothing later to read). */
 export const worldEndedText = () => L`この世界は終了しました。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。`;
 /** The dial's word under the last turn the world reached (short: the dial's line holds "9:26 left"; the banner says the rest). */

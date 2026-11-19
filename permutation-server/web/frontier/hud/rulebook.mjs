@@ -118,6 +118,21 @@ export function settled(holding, now) {
 }
 
 // ------------------------------------------------------------------ building
+/**
+ * B19 (loop-play3): whether the village has been used at all — something built or queued (a building, the walls, a
+ * promotion), troops trained (a reserve), a host ever formed (`hostSeq`) or a march under way. The first-village
+ * welcome card is for a village nothing has been done with: in local play its "seen" note lives in the page's memory
+ * only, so a reload or `--resume` forgot it and welcomed the player to a village that already had a farm and a host.
+ */
+export function villageInUse(h) {
+  if (!h) return false;
+  if (Number(h.hostSeq ?? 0) > 0 || Number(h.walls ?? 0) > 0 || Number(h.tier ?? 0) > 0) return true;
+  if ((h.reserve ?? []).some(n => Number(n) > 0)) return true;
+  if ((h.queue ?? []).some(q => q && Number(q.doneAt ?? 0) > 0)) return true;
+  if ((h.transit ?? []).some(t => t && Number(t.state ?? 0) !== 0)) return true;
+  try { return BUILD_ITEMS.some(b => b.cost && copyNumber(h, b.item) > 1); } catch { return false; }
+}
+
 /** The number of the copy the next Build of `item` (0–5) makes: built (production above the tier's base) + queued + 1. */
 export function copyNumber(h, item) {
   const b = buildItemOf(item);

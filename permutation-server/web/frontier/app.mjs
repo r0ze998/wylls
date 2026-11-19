@@ -22,6 +22,10 @@ import { localPlayRequested, localLauncherRequested, openLocalPlayGate, localPla
 import { currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
 import { createWorldWatch, worldStateOf, worldEndedWord } from './flocalplay-ended.mjs';
+// B21: the launcher that stopped answering (a plain line, not only the dial's red mark) and the test-world box that is told
+import { createLauncherWatch } from './flocalplay-ended.mjs';
+import { sessionNoticeOf } from './flocalplay-session.mjs';
+import { launcherLostBannerView } from './stale-banner.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
@@ -268,6 +272,9 @@ function renderChip() {
   if (banner) {
     // (B5: a world confirmed ended is not "behind" — the banner says that it ended)
     const v = FS.worldEnded ? endedBannerView() : staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
+    // B21: the launcher cannot be reached (stopped): said in a plain line; an ended world's own banner stays first
+    if (!FS.worldEnded && FS.launcherLost) Object.assign(v, launcherLostBannerView());
+    if (banner.dataset && (banner.dataset.lost === '1') !== !!v.lost) { if (v.lost) banner.dataset.lost = '1'; else delete banner.dataset.lost; }
     banner.hidden = v.hidden;
     if (banner.dataset && (banner.dataset.ended === '1') !== !!v.ended) { if (v.ended) banner.dataset.ended = '1'; else delete banner.dataset.ended; }
     if (!v.hidden) {
@@ -323,6 +330,9 @@ function renderStatus() {
   setText('season-status', status);
   const err = $('error-line');
   if (err) { err.hidden = !FS.error; err.textContent = FS.error ? bannerText(FS.error, !!s) : ''; }
+  // B21: while the launcher cannot be reached the banner's plain line says so; the season poll's own "could not
+  // connect" is not raised over it (it comes back with the line's end, if the read still fails)
+  if (err && FS.launcherLost && FS.error?.source === 'season') { err.hidden = true; err.textContent = ''; }
 }
 
 /** Whether a host or holding id is the viewer's (its province, site and generation are one of the viewer's holdings). */
@@ -4096,9 +4106,21 @@ export function worldEnded() {
   FS.worldEnded = { at: Date.now() };
   FS.chain?.halt?.();
   if (FS.error?.source === 'season') FS.error = null;
+  // B21: the "About this test world" box says so too (an earlier "services running" answer is dropped)
+  FS.launcherLost = null;
+  try { sessionNoticeOf(globalThis.document)?.worldState('ended'); } catch { /* the box's own failure does not undo the end */ }
   const m = FS.clock ? hud.bellModel(FS.clock, FS.chain?.now() ?? null) : null;
   if (m && Number.isInteger(m.bell)) FS.nowBell = m.bell;
   invalidate('chip', 'status', 'map', 'panel', 'tabs', 'rail');
+}
+/** B21, local play, launcher worlds: the watch for a launcher that stopped answering (flocalplay-ended.mjs createLauncherWatch). */
+let launcherWatch = null;
+/** B21: the launcher cannot be reached (`lost`), or answers again: the banner's plain line and the test-world box follow. */
+export function launcherLost(lost) {
+  if (FS.worldEnded || !!FS.launcherLost === !!lost) return;
+  FS.launcherLost = lost ? { at: Date.now() } : null;
+  try { sessionNoticeOf(globalThis.document)?.worldState(lost ? 'lost' : 'live'); } catch { /* the box's own failure */ }
+  invalidate('chip', 'status');
 }
 const num = x => Number.parseInt(x, 10);
 
@@ -4460,6 +4482,8 @@ async function loadSeason(herald) {
   const seq = askSeason();
   const r = await herald.season();
   if (seasonStale(seq)) return true;
+  // B21: a read that worked takes the "launcher cannot be reached" line away
+  if (r.ok) launcherWatch?.readOk();
   // (the loop-play report B5, launcher worlds only: a read that failed by the network is the one reason to ask the
   //  launcher whether it still runs this world — flocalplay-ended.mjs; a herald that answers is never doubted. Once the
   //  world is confirmed ended, a read that fails says nothing new: the banner says the world ended, and the season
@@ -4613,7 +4637,9 @@ export async function boot() {
   FS.mode = cfg.mode;
   // (the loop-play report B5: a launcher world that its launcher has ended is said to have ended, and its clock stands
   //  at the herald's last sample — worldEnded; the launcher is asked only after a herald read failed by the network)
-  { const check = localPlayWorldCheck(cfg); if (check) worldWatch = createWorldWatch({ ask: () => check().then(worldStateOf), onEnded: worldEnded }); }
+  // (B21: the same one answer is also counted by launcherWatch — a launcher that gives no answer at all, twice in a row,
+  //  is said in a plain line; no second question is asked)
+  { const check = localPlayWorldCheck(cfg); if (check) { launcherWatch = createLauncherWatch({ onLost: () => launcherLost(true), onBack: () => launcherLost(false) }); worldWatch = createWorldWatch({ ask: () => check().then(r => { launcherWatch?.heard(r); return worldStateOf(r); }), onEnded: worldEnded }); } }
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
   // the materials drawn by code (paper grain, the sheet's uneven edge, cloth, brushed metal): hud/textures.mjs
