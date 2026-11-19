@@ -44,8 +44,9 @@
 //!   printed; every written byte compared.
 //!
 //! What this part does **not** prove: the ClashInputs' own provenance
-//! (WideGather and WideReveal stay `WideUnmodelled`, so a season with
-//! arrivals stays UNVERIFIABLE in season mode), THE anchor's and the
+//! (the raw WideGather and WideReveal are VX's since verifier-coverage-2:
+//! re-executed, not ported; the raw WideReveal never runs on the
+//! devnet-playable binary, V0 `GateClosed`), THE anchor's and the
 //! SeedCache's provenance (PostAnchor / PostSeed, the S1 checks' job), and
 //! anything the program and the shared kernels have in common (as V7, VL).
 //! WideResolveWithConquest is VX's through the expedition dispatch envelope
