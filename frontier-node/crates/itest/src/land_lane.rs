@@ -35,6 +35,44 @@ pub const LOOK_EVERY: Duration = Duration::from_secs(2);
 /// A holding's yield is claimed once this many folded bells are unpaid.
 pub const CLAIM_AFTER_BELLS: u32 = 6;
 
+/// (2026-11-19, fix-march-held) Whether a refused FoldLand ran out of compute units (the SVM's `ProgramFailedToComplete`
+/// with the "exceeded CUs meter" / "consumed … of … compute units" log, or `ComputationalBudgetExceeded`).
+pub fn out_of_compute(why: &str) -> bool {
+    why.contains("ComputationalBudgetExceeded")
+        || why.contains("exceeded CUs meter")
+        || (why.contains("ProgramFailedToComplete") && why.contains("compute units"))
+}
+
+/// (2026-11-19, fix-march-held) The share of the transaction's compute limit a simulated FoldLand may use to be sent
+/// (headroom for the bell resolving between the simulation and the block it lands in).
+pub const FOLD_FIT_PERCENT: u64 = 85;
+
+/// (2026-11-19, fix-march-held) Whether a simulated fold `(units, err)` fits under `limit`: it succeeded and used at most
+/// FOLD_FIT_PERCENT of the limit. A simulation that failed for another reason "fits" (it is sent and refused as before:
+/// the lane reports the program's own refusal; only running out of compute is avoided here).
+pub fn fold_fits(units: u64, err: Option<&str>, limit: u64) -> bool {
+    match err {
+        Some(e) if out_of_compute(e) || e.contains("ProgramFailedToComplete") => false,
+        Some(_) => true,
+        None => units * 100 <= limit * FOLD_FIT_PERCENT,
+    }
+}
+
+/// (2026-11-19, fix-march-held) The bells the next FoldLand of a province asks for, after its last answer: a fold that
+/// ran out of compute units asks for half as many next time (never below 1); one that landed keeps its cap. The lane
+/// asked for `MAX_FOLD_BELLS` every time: on the ×60 capture demo a province two or more bells behind could not fold at
+/// all (1,229 refusals at 1,399,344 of 1,399,400 CU in two worlds; D-r0ze-play-kit-2) and never caught up. A one-bell
+/// fold fits (the lane's ×10 worlds fold one bell at a time with no refusal). Nothing about the rule changes: the
+/// program folds at most the bells it is asked for, in order.
+pub fn next_fold_cap(cap: u8, landed: bool, why: &str) -> u8 {
+    let cap = cap.clamp(1, fl::MAX_FOLD_BELLS);
+    if !landed && out_of_compute(why) {
+        (cap / 2).max(1)
+    } else {
+        cap
+    }
+}
+
 /// `--land-preview land-preview-v1` out of the runner's arguments: `(rest, true)` when given exactly once,
 /// `(args, false)` when absent; anything else is refused.
 pub fn take_land_args(args: Vec<String>) -> Result<(Vec<String>, bool), String> {
@@ -202,6 +240,20 @@ pub fn todo(pd: &[u8], ld: Option<&[u8]>) -> Option<Todo> {
     Some(t)
 }
 
+/// One read-only simulation of `ix` as the lane would send it: `(units, err)`, or None when it could not be built.
+fn simulate_fold(
+    state: &Shared,
+    payer: &Keypair,
+    ix: Instruction,
+) -> Option<(u64, Option<String>)> {
+    let c = lock(state);
+    let (blockhash, _) = c.latest_blockhash();
+    let t = fclient::tx::build(&[ix], &crate::local_keeper::budget(), &[payer], &blockhash).ok()?;
+    let r = c.simulate(&fclient::tx::wire(&t), false).ok()?;
+    let err = r.err.map(|e| format!("{e} {}", r.logs.join(" ")));
+    Some((r.units, err))
+}
+
 /// The lane: runs until `stop`. `out` receives each public line.
 pub async fn run(
     state: Shared,
@@ -215,6 +267,8 @@ pub async fn run(
         json!({"look_every_ms": LOOK_EVERY.as_millis() as u64, "claim_after_bells": CLAIM_AFTER_BELLS}),
     ));
     let mut last_tiles: BTreeMap<(i32, i32), BTreeMap<u8, u32>> = BTreeMap::new();
+    // the bells each province's next FoldLand asks for (next_fold_cap), MAX_FOLD_BELLS until a fold runs out of compute
+    let mut fold_caps: BTreeMap<(i32, i32), u8> = BTreeMap::new();
     loop {
         if *stop.borrow() {
             return Ok(());
@@ -252,14 +306,33 @@ pub async fn run(
         };
         for ((p, q), t, next) in work {
             if t.fold_behind > 0 {
-                let ix = fold_ix(
-                    &a,
-                    &payer.pubkey(),
-                    p as i16,
-                    q as i16,
-                    &next,
-                    fl::MAX_FOLD_BELLS,
-                );
+                let mut cap = *fold_caps.get(&(p, q)).unwrap_or(&fl::MAX_FOLD_BELLS);
+                // (2026-11-19) simulated first — read only, nothing sent —: a fold of more bells than one transaction's
+                // compute allows asks for half as many, down to one, before anything reaches the chain
+                let limit = crate::local_keeper::budget().cu_limit as u64;
+                let mut sims = vec![];
+                while cap > 1 {
+                    let sim = simulate_fold(
+                        &state,
+                        &payer,
+                        fold_ix(&a, &payer.pubkey(), p as i16, q as i16, &next, cap),
+                    );
+                    let Some((units, err)) = sim else { break };
+                    let fits = fold_fits(units, err.as_deref(), limit);
+                    sims.push(json!({"max_bells": cap, "units": units, "fits": fits}));
+                    if fits {
+                        break;
+                    }
+                    cap /= 2;
+                }
+                if sims.len() > 1 {
+                    out(line(
+                        "fold_fit",
+                        json!({"p": p, "q": q, "behind": t.fold_behind, "max_bells": cap, "simulated": sims}),
+                    ));
+                }
+                fold_caps.insert((p, q), cap);
+                let ix = fold_ix(&a, &payer.pubkey(), p as i16, q as i16, &next, cap);
                 match submit_and_wait(
                     &state,
                     &payer,
@@ -271,14 +344,25 @@ pub async fn run(
                 .await
                 {
                     Sent::Landed(sig) => {
+                        // (a fold that fits again at full size next time: the cap goes back up once the province caught up)
+                        if t.fold_behind <= cap as u32 {
+                            fold_caps.remove(&(p, q));
+                        }
                         if t.fold_behind > 1 || !last_tiles.contains_key(&(p, q)) {
                             out(line(
                                 "fold",
-                                json!({"p": p, "q": q, "behind": t.fold_behind, "signature": sig}),
+                                json!({"p": p, "q": q, "behind": t.fold_behind, "max_bells": cap, "signature": sig}),
                             ));
                         }
                     }
-                    Sent::Failed(e) => out(line("fold_refused", json!({"p": p, "q": q, "why": e}))),
+                    Sent::Failed(e) => {
+                        let to = next_fold_cap(cap, false, &e);
+                        fold_caps.insert((p, q), to);
+                        out(line(
+                            "fold_refused",
+                            json!({"p": p, "q": q, "why": e, "max_bells": cap, "next_max_bells": to}),
+                        ))
+                    }
                     Sent::Unknown { signature, why } => out(line(
                         "fold_unknown",
                         json!({"p": p, "q": q, "signature": signature, "why": why}),
@@ -369,6 +453,60 @@ mod tests {
         pd[P::site(0) + SM::STATE] = SM::STATE_HOLDING;
         pd[P::site(0) + SM::FACTION] = 2;
         assert_eq!(todo(&pd, None).unwrap().fold_behind, 1);
+    }
+
+    #[test]
+    fn a_fold_out_of_compute_asks_for_fewer_bells_next_time() {
+        let cu = "FoldLand(-2,-1) failed: InstructionError(4, ProgramFailedToComplete) (code None) [\"Program x consumed 1399344 of 1399400 compute units\", \"Program x failed: exceeded CUs meter at BPF instruction\"]";
+        assert!(out_of_compute(cu));
+        assert!(out_of_compute(
+            "InstructionError(4, ComputationalBudgetExceeded)"
+        ));
+        assert!(!out_of_compute(
+            "FoldLand(1,1) failed: InstructionError(4, Custom(12))"
+        ));
+        assert!(!out_of_compute(
+            "FoldLand(1,1) refused before landing: BlockhashNotFound"
+        ));
+        assert_eq!(
+            next_fold_cap(fl::MAX_FOLD_BELLS, false, cu),
+            fl::MAX_FOLD_BELLS / 2
+        );
+        let mut c = fl::MAX_FOLD_BELLS;
+        for _ in 0..10 {
+            c = next_fold_cap(c, false, cu);
+        }
+        assert_eq!(c, 1, "never below one bell");
+        assert_eq!(next_fold_cap(2, true, ""), 2, "a landed fold keeps its cap");
+        assert_eq!(
+            next_fold_cap(4, false, "Custom(12)"),
+            4,
+            "another refusal is not about compute"
+        );
+        assert_eq!(next_fold_cap(0, true, ""), 1);
+        assert_eq!(next_fold_cap(200, true, ""), fl::MAX_FOLD_BELLS);
+    }
+
+    #[test]
+    fn a_simulated_fold_is_sent_only_when_it_fits() {
+        let limit = 1_400_000;
+        assert!(
+            fold_fits(997_796, None, limit),
+            "four bells measured at x60: about 1.0M"
+        );
+        assert!(
+            !fold_fits(1_200_000, None, limit),
+            "over 85 %: halved first"
+        );
+        assert!(!fold_fits(
+            1_399_344,
+            Some("ProgramFailedToComplete consumed 1399344 of 1399400 compute units"),
+            limit
+        ));
+        assert!(
+            fold_fits(10_000, Some("InstructionError(4, Custom(12))"), limit),
+            "another refusal is the program's own: sent and reported"
+        );
     }
 
     #[test]

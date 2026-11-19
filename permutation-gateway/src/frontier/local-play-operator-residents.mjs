@@ -179,7 +179,8 @@ export async function residentTurn(r, { homes, deps, bell = null }) {
     r.budget.spent('held', deps.now(), bell);
     return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', seen, budget: r.budget.state() };
   }
-  if (!sent.ok) { outcome = 'refused'; code = sent.code; }
+  // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
+  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
   else {
     signature = sent.signature;
     const f = await deps.follow(signature, r);

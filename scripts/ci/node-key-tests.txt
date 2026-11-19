@@ -63,6 +63,7 @@ permutation-gateway/test/frontier-local-play-operator-residents.test.mjs
 permutation-gateway/test/frontier-local-play-relay.test.mjs
 permutation-gateway/test/frontier-local-play-resident.test.mjs
 permutation-gateway/test/frontier-local-play-reveal.test.mjs
+permutation-gateway/test/frontier-local-play-runner-rejection.test.mjs
 permutation-gateway/test/frontier-prize.test.mjs
 permutation-gateway/test/frontier-process.test.mjs
 permutation-gateway/test/frontier-relay-parts.test.mjs
@@ -289,6 +290,7 @@ permutation-gateway/test/web-frontier-local-play-nudge-more.test.mjs
 permutation-gateway/test/web-frontier-local-play-nudge.test.mjs
 permutation-gateway/test/web-frontier-local-wait-notice.test.mjs
 permutation-gateway/test/web-frontier-map.test.mjs
+permutation-gateway/test/web-frontier-march-held.test.mjs
 permutation-gateway/test/web-frontier-march.test.mjs
 permutation-gateway/test/web-frontier-marches.test.mjs
 permutation-gateway/test/web-frontier-minimap-cache.test.mjs

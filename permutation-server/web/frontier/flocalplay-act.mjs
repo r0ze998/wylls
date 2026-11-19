@@ -41,6 +41,12 @@ export const LOCAL_ACT_SEASON_ID = '11';
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed']);
+/**
+ * (2026-11-19, fix-march-held) The relay's answer that the RUNNER did not take the transaction (gateway
+ * local-play-act.mjs `runnerRejection`: its preflight failed, its blockhash was unknown, its signature did not verify):
+ * never queued, never run — "not sent", with the program's code when there is one. Not a "sent, outcome unknown".
+ */
+export const LOCAL_ACT_REJECTED = Object.freeze(['LocalActRejected']);
 export const LOCAL_ACT_MAX_BYTES = 16 * 1024;
 export const LOCAL_ACT_TIMEOUT_MS = 30_000;
 
@@ -283,7 +289,7 @@ export async function postLocalAct(origin, path, body, { fetch: fetcher = (...a)
   } catch { fail('LocalActNoAnswer'); } finally { clearTimeout(timer); }
   check(typeof raw === 'string' && raw.length <= LOCAL_ACT_MAX_BYTES, 'LocalActTooLarge');
   let value; try { value = JSON.parse(raw); } catch { fail('LocalActNoAnswer'); }
-  if (!res.ok) throw Object.assign(new Error('refused'), { code: codeOf(value, 'LocalActRefused'), refused: true, status: res.status });
+  if (!res.ok) throw Object.assign(new Error('refused'), { code: codeOf(value, 'LocalActRefused'), refused: true, status: res.status, detail: value?.detail });
   return value;
 }
 
@@ -340,6 +346,11 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
     // In both the transaction may be, or already is, on the chain. Losing the signature there would let the same
     // order be built again on a new blockhash and done twice. It is followed by its signature and never sent again.
     if (e?.refused === true && LOCAL_ACT_PRESEND_REFUSALS.includes(code)) return no(code, statusOf(e));
+    // (2026-11-19) the runner's definite "not taken": not sent, with the program's code
+    if (e?.refused === true && LOCAL_ACT_REJECTED.includes(code)) {
+      const pc = e.detail?.program_code;
+      return { ...no(code, statusOf(e)), ...(Number.isInteger(pc) && pc >= 0 && pc <= 0xffffffff ? { programCode: pc } : {}) };
+    }
     return { ok: true, signature: sig, message, feePayer: wallet, lastValidBlockHeight: height, bytes, outcome: 'unknown', relayCode: code };
   }
 }
