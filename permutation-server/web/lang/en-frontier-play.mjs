@@ -1943,4 +1943,11 @@ export default {
   "最後に見たときのようすです（いまは見えていません）。": "As you last saw it (out of sight now).",
   "見えている他国の砦で、いま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within reach now. Keeps on land you have not seen are not shown.",
   "見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within this host's reach now. Keeps on land you have not seen are not shown.",
+  // loop-play4 B-2: a local world's province behind by turns (the keeper under the machine's load); the waiting send goes on
+  'この編成': 'this order to form a host',
+  'この命令': 'this order',
+  'この州の決着が {0} ターン遅れています。このマシンの負荷が高く、世界の進行（ターンの決着）が追いついていないためです。送信待ちはそのまま続け、州が追いつき次第{1}を1回だけ送ります。押し直す必要はありません（取り消せます）。': "This province's turns are {0} behind: this machine is under heavy load and the world's turn settling has not caught up. The send keeps waiting, and {1} is sent once as soon as the province catches up. No need to press again (you can cancel).",
+  '送信待ちを続けています。州のターンの決着がまだつかないため、待つ期限をターン {0} まで延ばしました。決着がつき次第{1}を1回だけ送ります（取り消せます）。': "Still waiting to send: the province has not finished its turn yet, so the wait now runs until turn {0}. As soon as it has, {1} is sent once (you can cancel).",
+  'この州の決着が {0} ターン遅れています。このマシンの負荷が高く、世界の進行が追いついていないためです。': "This province's turns are {0} behind: this machine is under heavy load and the world's progress has not caught up.",
+  '決着が追いつくまで、送信待ちは自動で延ばします。': 'Until it catches up, the waiting send is extended on its own.',
 };

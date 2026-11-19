@@ -214,7 +214,7 @@ test('B20: the driver — a turn passes, the arrival moves, the send stays armed
 
 test('B20: the controller follows only the turn its own clock moved; the notice and the card say so in both languages; #75\'s refusal path is untouched', () => {
   const ctl = src('controller.mjs');
-  assert.match(ctl, /follow: same && Number\.isInteger\(card\.moved\?\.to\) \? card\.moved\.to : null \};/);
+  assert.match(ctl, /follow: same && Number\.isInteger\(card\.moved\?\.to\) \? card\.moved\.to : null,\n/);
   assert.match(ctl, /  followed: \(card, p, moved\) => \{ card\.pending = p; setNotice\(\{ busy: false, waiting: true, text: L`時間が進んだため、到着はターン /);
   assert.match(ctl, /c\.moved = null;   \/\/ \(the turn is the player's own choice again\)/, 'a turn the player picks is never followed');
   assert.match(ctl, /send: card => \{ card\.pending = null; return sendTheMarch\(\); \},/, 'the send is the ordinary single send');

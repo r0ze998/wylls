@@ -53,16 +53,10 @@ fn main() {
         if land && demo.is_none() {
             return Err("--land-preview is accepted only together with --capture-demo".into());
         }
-        // the TEST-ONLY operator AI war world's option likewise (only with the capture demo)
+        // the TEST-ONLY operator AI war world's option likewise: on any natural world (loop-play4 B-6: the kept, plain,
+        // fresh-map and wide worlds too, so that the AI residents' marches are revealed and settled by the keeper loop
+        // that serves their villages, as the player's are). Only the demo also opens the rest of its new ring (open_rest)
         let (rest, operators) = itest::operator_villages::take_villages_args(rest)?;
-        // (TEST-ONLY wide-march-local: also with the wide land, where the AI residents march into the wide land and
-        //  only the keeper loop that serves their villages reveals and settles those marches)
-        if operators.is_some() && demo.is_none() && !wide {
-            return Err(
-                "--operator-villages is accepted only together with --capture-demo or --wide-land"
-                    .into(),
-            );
-        }
         if wide {
             // (TEST-ONLY wide world: rim villages march into the wide land by the expedition wrapper; this runner reveals
             //  them from the public round and catches the wide destination up from its opening turn)

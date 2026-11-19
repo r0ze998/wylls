@@ -69,7 +69,7 @@ export function keepsOf(control, overviews) {
 export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fetch(...a) }) {
   const herald = createHerald({ base, fetch: f });
   let kernel = null, kernelFor = null;
-  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), seeds: [], controlBell: null, bellRead: null };
+  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), seeds: [], controlBell: null, bellRead: null, homeRings: new Set() };
   async function refresh() {
     const st = await (await f(`${base}/h/status`, { signal: AbortSignal.timeout(4000) })).json();
     const now = Array.isArray(st?.live) ? Number(st.live[1]) : NaN;
@@ -83,7 +83,13 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
       if (conquestEnabled(s.season)) {
         const c = await herald.control();
         if (c.ok) {
-          const rings = [...new Set(c.control.provinces.map(p => ring(p.p, p.q)))].filter(r => r >= 2).sort((a, b) => a - b);
+          // (every ring with provinces — ring 1 too: a natural world's ring 1 is ordinary contestable land (B14), and
+          //  loop-play4 B-6 found its keeps were the only ones in reach of a kept world's villages — but only the rings
+          //  within reach of a resident's village (none before the first village; a wide world has 131 rings and a turn
+          //  is 10 s at x60))
+          const homes = [...world.homeRings];
+          const near = r => homes.some(h => Math.abs(h - r) <= REACH_PROVINCES + 1);
+          const rings = [...new Set(c.control.provinces.map(p => ring(p.p, p.q)))].filter(r => r >= 1 && near(r)).sort((a, b) => a - b);
           const overviews = new Map();
           for (const r of rings) { const o = await herald.overview2(r); if (o.ok) overviews.set(r, o); }
           world.keeps = keepsOf(c.control, overviews); world.controlBell = c.control.bell;
@@ -110,6 +116,9 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     const me = await herald.me(wallet);
     if (!me.ok || !me.citizen || !me.holdings.length) return null;
     const holding = me.holdings[0], faction = Number(me.citizen.faction), nowBell = world.nowBell;
+    // (the village's ring: the next refresh reads the keeps of the rings around it; a newly known ring is read at once)
+    const hr = ring(holding.p, holding.q);
+    if (!world.homeRings.has(hr)) { world.homeRings.add(hr); world.bellRead = null; }
     const where = new Map();
     for (const h of me.record.hosts ?? []) if (Array.isArray(h?.province)) where.set(`${h.province[0]},${h.province[1]}`, { p: Number(h.province[0]), q: Number(h.province[1]) });
     where.set(`${holding.p},${holding.q}`, { p: holding.p, q: holding.q });

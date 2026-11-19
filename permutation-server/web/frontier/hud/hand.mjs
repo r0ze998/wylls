@@ -50,6 +50,7 @@ import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
 import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
 import { localConquestShown, localConquestSpent, localConquestReadFor, localConquestOrderFor, localConquestCityFor } from '../flocalplay-conquest.mjs';
 import { hostStepInFlight } from '../flocalplay-hoststep.mjs';
+import { provinceLag, PENDING_LAG_TURNS } from '../flocalplay-pending.mjs';
 import { SETTLE_CODES } from '../flocalplay-pending.mjs';
 import { localOrderRoute } from '../flocalplay-act.mjs';
 
@@ -418,8 +419,12 @@ function musterPop(FS, model) {
   const go = waiting
     ? html`<button type="button" class="btn primary pop-go" aria-disabled="true">${icon('ranks')}${L`送信待ち`}</button><button type="button" class="btn pop-quiet" data-act="muster-wait-cancel">${L`送信待ちを取り消す`}</button>`
     : html`<button type="button" class="btn primary pop-go" data-act="${local ? 'muster-send-wait' : 'muster'}" data-unit="${d.unit ?? 0}" data-troops="${d.troops}" data-tile="${d.tile ?? h.tile}" ${raw(why && !waitable ? 'aria-disabled="true"' : '')}>${icon('ranks')}${who ? L`${who} をここに集める` : L`ここに集める`}</button>`;
-  const line = waiting ? L`送信待ち：州のターンの決着がつき次第、この編成を1回だけ送ります（ターン ${fmtNum(FS.musterWait.untilBell)} まで）。兵種・兵数・場所が変わったら、送らずに取り消します。`
-    : waitable ? L`${why} 押すと、整い次第この編成を1回だけ送ります（兵種・兵数・場所が変わったら送らずに取り消します）。` : null;
+  // (loop-play4 B-2, local play only: the province turns behind is the world's keeper under the machine's load — said, so
+  //  that a refusal for minutes is not a mystery; the waiting send keeps waiting by itself until it catches up)
+  const lag = local ? provinceLag(FS.provinces?.get(`${h.p},${h.q}`)?.province, FS.nowBell) : null;
+  const loadNote = Number.isInteger(lag) && lag >= PENDING_LAG_TURNS && blocks.includes('NotResident') ? L`この州の決着が ${fmtNum(lag)} ターン遅れています。このマシンの負荷が高く、世界の進行が追いついていないためです。` : '';
+  const line = waiting ? L`送信待ち：州のターンの決着がつき次第、この編成を1回だけ送ります（ターン ${fmtNum(FS.musterWait.untilBell)} まで）。兵種・兵数・場所が変わったら、送らずに取り消します。` + (loadNote ? ' ' + loadNote + ' ' + L`決着が追いつくまで、送信待ちは自動で延ばします。` : '')
+    : waitable ? (loadNote ? loadNote + ' ' : '') + L`${why} 押すと、整い次第この編成を1回だけ送ります（兵種・兵数・場所が変わったら送らずに取り消します）。` : null;
   // (a low card: the board above it is where the tile is chosen)
   return html`${popHead(L`編成`, html`${icon('pin')}${L`集める場所：`}<strong>${at}</strong>`)}
     <div class="pop-foot pop-muster">

@@ -40,7 +40,7 @@ test('English: no Japanese, no banned word', () => {
 
 test('the scale reaches the page only from a capture-demo start, and both card waits use it', () => {
   const gate = readFileSync(new URL('flocalplay.mjs', WEB), 'utf8');
-  assert.match(gate, /const playedDemo = launcher && claimedDemo !== null \? Object\.freeze\(\{ \.\.\.played, clockScale: claimedDemo, \.\.\.\(endAt !== null \? \{ worldEndsAt: endAt \} : \{\}\) \}\) : played;/);
+  assert.match(gate, /const playedDemo = launcher && claimedDemo !== null \? Object\.freeze\(\{ \.\.\.playedEnd, clockScale: claimedDemo \}\) : playedEnd;/);
   // (wide-local-playable: a local wide world adds its own statement, never a clock scale)
   assert.match(gate, /const playedAs = launcher && claimedWide !== null \? Object\.freeze\(\{ \.\.\.playedDemo, wideLand: claimedWide \}\) : playedDemo;/);
   assert.match(gate, /localPlay: playedAs \}/);

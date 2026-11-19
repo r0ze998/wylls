@@ -398,10 +398,13 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const played = launcher && claimedMarch?.instance ? Object.freeze({ ...identity, march: claimedMarch }) : identity;
     // (TEST-ONLY capture demo: its synthetic clock scale, as the start answer stated it and the gate checked it, so that a wait
     //  can be said in the wall's time and not in game minutes thirty times too long; no other world carries it)
-    // (and the world's absolute end, from its checked expiry statement: a pending march send (flocalplay-pending.mjs) is
-    //  withdrawn at that moment and is never offered when the end is not known)
-    const endAt = launcher && claimedDemo !== null ? worldEndOf(claimedEnd, claimedMarch?.instance ?? null) : null;
-    const playedDemo = launcher && claimedDemo !== null ? Object.freeze({ ...played, clockScale: claimedDemo, ...(endAt !== null ? { worldEndsAt: endAt } : {}) }) : played;
+    // (and the world's absolute end, from its checked expiry statement: a pending march or muster send
+    //  (flocalplay-pending.mjs) is withdrawn at that moment and is never offered when the end is not known. EVERY launcher
+    //  world states its end — kept, plain, wide and demo alike — so every one carries it (loop-play4 B-3: only the demo
+    //  did, and every other world's "send when ready" was withdrawn as 'closed' at once))
+    const endAt = launcher ? worldEndOf(claimedEnd, claimedMarch?.instance ?? null) : null;
+    const playedEnd = endAt !== null ? Object.freeze({ ...played, worldEndsAt: endAt }) : played;
+    const playedDemo = launcher && claimedDemo !== null ? Object.freeze({ ...playedEnd, clockScale: claimedDemo }) : playedEnd;
     const playedAs = launcher && claimedWide !== null ? Object.freeze({ ...playedDemo, wideLand: claimedWide }) : playedDemo;
     // (TEST-ONLY persisted world: the march book (the sealed marches' reveal halves) is kept encrypted for this wallet,
     //  loaded before the game boots, and the game's march sender uses it instead of a memory-only one)

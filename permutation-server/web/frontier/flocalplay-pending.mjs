@@ -18,8 +18,26 @@
 
 /** The only problems a pending send may wait through: the province settling its previous turn. */
 export const SETTLE_CODES = Object.freeze(['NotResident', 'NotFinal']);
-/** At most this many turns after it was armed; then it is withdrawn. */
+/** At most this many turns after it was armed (or last extended); then it is withdrawn. */
 export const PENDING_MAX_TURNS = 2;
+/**
+ * loop-play4 B-2: the origin province this many turns or more behind the chain's turn is the world's keeper falling behind
+ * (seen 2–21 turns at load 12–24 on a shared machine), not the turn's ordinary few seconds of settling. The page then says
+ * so, and a waiting send whose only problem is that settling is EXTENDED turn by turn instead of withdrawn as 'expired' —
+ * until the province catches up (sent once, as before), anything else withdraws it, or the world ends.
+ */
+export const PENDING_LAG_TURNS = 2;
+/** How many turns the province `province` (its `resolvedNext`) is behind `nowBell` (0 when caught up), or null when unknown. */
+export function provinceLag(province, nowBell) {
+  const rn = province?.resolvedNext;
+  if (!Number.isInteger(nowBell) || !Number.isInteger(rn)) return null;
+  return Math.max(0, nowBell - (rn + 1));
+}
+/** The pending send kept past its turn limit while only the province's settling blocks it: a fresh limit from `nowBell`. */
+export function extendPending(p, { nowBell }) {
+  if (!p || !Number.isInteger(nowBell)) return null;
+  return Object.freeze({ ...p, untilBell: nowBell + PENDING_MAX_TURNS, extended: (p.extended ?? 0) + 1 });
+}
 /** How often the page looks while a send is pending (ms). */
 export const PENDING_TICK_MS = 100;
 
@@ -66,17 +84,23 @@ export function pendingStep(p, { intent, problems, nowBell, open, held, busy, sa
   if (held) return { act: 'withdraw', why: 'unknown' };
   if (open !== true) return { act: 'withdraw', why: 'closed' };
   if (sameCard !== true) return { act: 'withdraw', why: 'changed' };
+  // (loop-play4 B-2: only the province's settling stands in the way — the keeper behind under load —: the wait goes on)
+  const settling = pendable(problems);
   if (intent !== p.intent) {
     // B20: only the arrival turn moved, and the clock moved it (`follow`): keep waiting for the same order at that turn
-    const moved = (p.follows ?? 0) < PENDING_MAX_FOLLOWS ? arrivalFollowed(p.intent, intent, follow) : null;
+    // (B-2: past PENDING_MAX_FOLLOWS too while only the settling blocks it; the player is told at every move)
+    const moved = (p.follows ?? 0) < PENDING_MAX_FOLLOWS || settling ? arrivalFollowed(p.intent, intent, follow) : null;
     const next = moved ? followPending(p, { intent, nowBell }) : null;
     return next ? { act: 'follow', pending: next, moved } : { act: 'withdraw', why: 'changed' };
   }
-  if (!Number.isInteger(nowBell) || nowBell > p.untilBell) return { act: 'withdraw', why: 'expired' };
+  if (!Number.isInteger(nowBell)) return { act: 'withdraw', why: 'expired' };
+  // (B-2: at the turn limit while only the settling blocks it, the limit moves on instead of withdrawing)
+  if (settling && nowBell >= p.untilBell) return { act: 'wait', pending: extendPending(p, { nowBell }) };
+  if (nowBell > p.untilBell) return { act: 'withdraw', why: 'expired' };
   if (busy) return { act: 'wait' };
   if (!Array.isArray(problems)) return { act: 'withdraw', why: 'problem' };
   if (problems.length === 0) return { act: 'send' };
-  if (pendable(problems)) return { act: 'wait' };
+  if (settling) return { act: 'wait' };
   return { act: 'withdraw', why: 'problem' };
 }
 
@@ -116,11 +140,14 @@ export const PENDING_REFRESH_MS = 400;
  * - `send(card)`: the ordinary single send, called at most once per arming;
  * - `withdrawn(card, why)`: told once per arming when it ends without a send;
  * - `followed(card, pending, {from, to})` (optional, B20): the arming was kept and re-aimed at the arrival turn the clock moved to;
+ * - `lagging(card, pending, lag)` (optional, loop-play4 B-2): the province is `lag` turns behind (≥ PENDING_LAG_TURNS: the
+ *   world's keeper behind, e.g. under machine load), told when that number changes or the wait was extended past its limit;
+ *   `look` may then give `lag` (provinceLag of the origin province);
  * - `onPageHide(f)` → an undo: the page being hidden for good (pagehide) withdraws at once.
  * A refresh that resolves after the send was withdrawn, sent, or armed again never sends (its generation is old).
  */
-export function createPendingDriver({ look, refresh, send, withdrawn, followed = null, now = () => Date.now(), setTimer = (f, ms) => setInterval(f, ms), clearTimer = id => clearInterval(id), onPageHide = null, tickMs = PENDING_TICK_MS, refreshMs = PENDING_REFRESH_MS }) {
-  let armed = null, gen = 0, timer = null, refreshing = false, lastRefresh = -Infinity, hideOff = null;
+export function createPendingDriver({ look, refresh, send, withdrawn, followed = null, lagging = null, now = () => Date.now(), setTimer = (f, ms) => setInterval(f, ms), clearTimer = id => clearInterval(id), onPageHide = null, tickMs = PENDING_TICK_MS, refreshMs = PENDING_REFRESH_MS }) {
+  let armed = null, gen = 0, timer = null, refreshing = false, lastRefresh = -Infinity, hideOff = null, toldLag = null;
   const stop = () => { if (timer !== null) { clearTimer(timer); timer = null; } if (hideOff) { const off = hideOff; hideOff = null; off(); } };
   const end = () => { const a = armed; armed = null; gen += 1; stop(); return a; };
   const withdraw = why => { if (!armed) return; const a = end(); withdrawn(a.card, why); };
@@ -134,6 +161,10 @@ export function createPendingDriver({ look, refresh, send, withdrawn, followed =
     // B20: the same arming goes on at the moved arrival turn (told once per move); looked at again on the next tick
     if (step.act === 'follow') { armed = { card: a.card, pending: step.pending }; followed?.(a.card, step.pending, step.moved); return; }
     if (step.act === 'send') { end(); send(a.card); return; }
+    // B-2: the wait kept past its limit (only the settling blocks it), and the keeper's lag said when it changes
+    const lag = Number.isInteger(s.lag) && s.lag >= PENDING_LAG_TURNS ? s.lag : null;
+    if (step.pending) { armed = { card: a.card, pending: step.pending }; }
+    if ((step.pending || (lag !== null && lag !== toldLag)) && lagging) { toldLag = lag; lagging(a.card, armed.pending, lag); }
     // waiting: one read-only read at a time, not more often than refreshMs; its answer counts only for this arming
     if (!refreshing && now() - lastRefresh >= refreshMs) {
       const mine = gen; refreshing = true; lastRefresh = now();
@@ -145,7 +176,7 @@ export function createPendingDriver({ look, refresh, send, withdrawn, followed =
     /** Arms one pending send for `card` (refused while another is armed). */
     arm(card, pending) {
       if (armed || !card || !pending) return false;
-      armed = { card, pending }; gen += 1; timer = setTimer(tick, tickMs);
+      armed = { card, pending }; gen += 1; toldLag = null; timer = setTimer(tick, tickMs);
       if (onPageHide) hideOff = onPageHide(() => withdraw('closed'));
       return true;
     },

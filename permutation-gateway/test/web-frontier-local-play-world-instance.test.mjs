@@ -239,3 +239,18 @@ test('the read module: one request, no timer beyond its bound, no storage, key, 
   assert.match(gate, /confirmWorldEnd\(\{ expiry: claimedEnd, origin: at, wallet: asked, request, notice: session, now, still: \(\) => !handle\.destroyed && handle\.address === asked && state\.herald === at \}\)\.catch\(\(\) => \{\}\);/);
   assert.doesNotMatch(gate, /await confirmWorldEnd/);
 });
+
+// loop-play4 B-3: the world's absolute end rides on the identity for EVERY launcher start (a kept, plain or wide world,
+// not only the capture demo), so the page's "press now, send when ready" (muster and march) is not withdrawn as 'closed'
+// at once; still only from a checked expiry statement whose instance is the start's own, and never a clock scale
+test('B-3: a launcher start that is not the capture demo carries the world\'s end (worldEndsAt), and no clock scale', async () => {
+  const o = await connected(open());
+  const { cfg } = await o.gate.ready;
+  assert.equal(cfg.localPlay.worldEndsAt, EXP().expiresAt);
+  assert.equal(cfg.localPlay.clockScale, undefined, 'a clock scale only for the capture demo');
+  assert.equal(cfg.localPlay.march.instance, INSTANCE);
+  for (const [name, start] of Object.entries({ 'no expiry': () => reply(200, { herald: HERALD }), 'inconsistent': () => reply(200, { herald: HERALD, expiry: EXP({ expiresAt: T0 }) }), 'no instance': () => reply(200, { herald: HERALD, expiry: EXP({ instance: null }) }) })) {
+    const x = await connected(open({ start }));
+    assert.equal((await x.gate.ready).cfg.localPlay.worldEndsAt, undefined, `${name}: no end is invented`);
+  }
+});

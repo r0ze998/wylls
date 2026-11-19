@@ -66,8 +66,9 @@ export function coversSettlerCost(holding, secs, holdingsN) {
 import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX, mayActThisTurn } from './local-play-operator-war.mjs';
 import { createWarEyes, openMarch, sendWarMarch } from './local-play-operator-march.mjs';
 
-/** A war world's pace: residents look every 2 s (one action per turn still), and a budget for a long world. */
-export const WAR_DEFAULTS = Object.freeze({ cadenceMs: 2000, maxActs: 5000, maxRefusals: 400, minGapMs: 1000 });
+/** A war world's pace: residents look every 2 s (one action per turn still), and no send cap (owner t364u: no caps; one
+ *  action per turn is the only limit — loop-play4 B-6 puts war in every play-local world, kept ones of hours too). */
+export const WAR_DEFAULTS = Object.freeze({ cadenceMs: 2000, maxActs: null, maxRefusals: 400, minGapMs: 1000 });
 /** Bells after its arrival a keep a resident marched on counts as taken by it (its contest runs 72 turns). */
 export const TARGET_HOLD_BELLS = 80;
 
@@ -260,7 +261,9 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   }
   // (TEST-ONLY wide -> wide, Q-W2 owner t385u: a wide village's own host — train, muster, then march onto a
   //  neighbouring province's keep. Local-play-operator-wide-host.mjs; the program opens the march only in the local lane)
-  if (wide && deps.wideHost && (r.memory.wideVillages ?? []).length && !war) {
+  //  A war resident's wide village does the same (loop-play4 B-6: war is on by default in every play-local world with AI
+  //  residents), within its one action per turn (Q16-2)
+  if (wide && deps.wideHost && (r.memory.wideVillages ?? []).length && (!war || mayActThisTurn(r.memory.lastBell, nowBell, 'WideHost'))) {
     let w;
     try { w = await deps.wideHost.decide(r, { wideTargets, villages: r.memory.wideVillages }); } catch (e) { w = { why: String(e?.message ?? e).slice(0, 160) }; }
     r.wideHostWhy = w?.why ?? null;
@@ -281,6 +284,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
         code = fl.code ?? sent.relayCode ?? null;
       }
       deps.wideHost.note(r, wd, outcome);
+      if (war && outcome !== 'refused') r.memory.lastBell = spentBell(nowBell, deps);
       noteOutcome(r.memory, wd, outcome);
       r.budget.spent(outcome, deps.now(), turnBell);
       return { resident: r.index, wallet: r.key.address, step: 'act', act: wd.name, why: wd.why, outcome, test_only: true, wide_host: true,
@@ -331,6 +335,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
       return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', outcome: 'wait', code: m.code, why: 'the home province has not settled this turn: the next turn', test_only: true, seen, budget: r.budget.state() };
     }
     const outcome = m.ok ? 'landed' : m.unknown ? 'unknown' : m.step === 'failed' ? 'failed' : 'refused';
+    if (war && outcome !== 'refused') r.memory.lastBell = spentBell(nowBell, deps);
     noteOutcome(r.memory, d, outcome);
     r.budget.spent(outcome, deps.now(), turnBell);
     return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', why: d.why, outcome, test_only: true,
