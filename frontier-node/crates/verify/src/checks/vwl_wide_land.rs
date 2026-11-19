@@ -69,7 +69,9 @@
 //! the wide keep capture (`vwl_wide_march.rs`). WideDissolve, WideReturn,
 //! WideCloseRoster and WideDisbandStranded are VX's (re-executed by the
 //! pinned program, verifier-coverage), a successful WideResidentAct is a V0
-//! FAIL in this lane; the other wide commands stay V0's `WideUnmodelled`.
+//! FAIL in this lane; since verifier-coverage-2 every other decodable wide
+//! command is VX's (`vx_reexec::native_of`), and the ones the pinned
+//! devnet-playable binary can never run are a V0 FAIL (`GateClosed`).
 //!
 //! Lamports: the archive holds program transactions only, and anyone can
 //! send lamports to any account by a plain system transfer, so an archived
