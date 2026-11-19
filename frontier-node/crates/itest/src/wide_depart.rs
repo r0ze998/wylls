@@ -121,8 +121,21 @@ pub fn scan(c: &Chain, a: &Addresses) -> Scan {
                 continue;
             }
             let pk = ProvinceKey::new(p.world, p.coord);
-            let rn = u32_at(d, frontier_abi::v2::layout::province::province::RESOLVED_NEXT).unwrap_or(0);
-            s.provs.insert(pk, Prov { key: *k, pk, region: p.region, rn, data: d.clone() });
+            let rn = u32_at(
+                d,
+                frontier_abi::v2::layout::province::province::RESOLVED_NEXT,
+            )
+            .unwrap_or(0);
+            s.provs.insert(
+                pk,
+                Prov {
+                    key: *k,
+                    pk,
+                    region: p.region,
+                    rn,
+                    data: d.clone(),
+                },
+            );
         } else if let Ok(r) = WideRoster::read(d) {
             if r.season_id == a.season_id && *k == addr(roster_address(&ctx, r.province)) {
                 rosters.push(r.province);
@@ -151,13 +164,25 @@ pub fn scan(c: &Chain, a: &Addresses) -> Scan {
             continue;
         }
         let holding = addr(holding_address(&ctx, t.host.key().coord(), t.host.site()));
-        let Some(slot) = (0..4u8).find(|i| addr(transit_address(&ctx, &holding.to_bytes(), *i)) == k) else {
+        let Some(slot) =
+            (0..4u8).find(|i| addr(transit_address(&ctx, &holding.to_bytes(), *i)) == k)
+        else {
             continue;
         };
-        let Some(h) = c.account(&holding).filter(|x| x.owner == a.program).and_then(|x| WideHolding::read(&x.data).ok()) else {
+        let Some(h) = c
+            .account(&holding)
+            .filter(|x| x.owner == a.program)
+            .and_then(|x| WideHolding::read(&x.data).ok())
+        else {
             continue;
         };
-        s.marches.push(March { holding, h, slot, key: k, t });
+        s.marches.push(March {
+            holding,
+            h,
+            slot,
+            key: k,
+            t,
+        });
     }
     for e in exp_slots {
         if s.provs.get(&e.dest).is_some_and(|p| e.bell >= p.rn) {
@@ -187,13 +212,33 @@ pub fn scan(c: &Chain, a: &Addresses) -> Scan {
 /// One transaction this crank may send.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Act {
-    Anchor { bell: u32, region: u8 },
-    Seed { bell: u32, region: u8, anchor_ts: i64 },
-    Gather { dest: ProvinceKey, bell: u32, start: u8 },
-    Resolve { dest: ProvinceKey, bell: u32 },
-    SettleDeparture { march: usize },
-    Reveal { march: usize },
-    SettleTransit { march: usize },
+    Anchor {
+        bell: u32,
+        region: u8,
+    },
+    Seed {
+        bell: u32,
+        region: u8,
+        anchor_ts: i64,
+    },
+    Gather {
+        dest: ProvinceKey,
+        bell: u32,
+        start: u8,
+    },
+    Resolve {
+        dest: ProvinceKey,
+        bell: u32,
+    },
+    SettleDeparture {
+        march: usize,
+    },
+    Reveal {
+        march: usize,
+    },
+    SettleTransit {
+        march: usize,
+    },
 }
 
 impl Act {
@@ -205,10 +250,16 @@ impl Act {
             Act::Gather { dest, .. } | Act::Resolve { dest, .. } => {
                 format!("prov:{},{}", dest.coord().p(), dest.coord().q())
             }
-            Act::SettleDeparture { march } | Act::Reveal { march } | Act::SettleTransit { march } => {
+            Act::SettleDeparture { march }
+            | Act::Reveal { march }
+            | Act::SettleTransit { march } => {
                 let m = &s.marches[*march];
                 // a march's settle and its origin's resolve never share a round
-                format!("prov:{},{}", m.t.origin.key().coord().p(), m.t.origin.key().coord().q())
+                format!(
+                    "prov:{},{}",
+                    m.t.origin.key().coord().p(),
+                    m.t.origin.key().coord().q()
+                )
             }
         }
     }
@@ -222,7 +273,12 @@ pub struct Now {
     pub end_bell: u32,
 }
 
-fn clash_header(c: &Chain, a: &Addresses, dest: ProvinceKey, bell: u32) -> Result<Option<WideClashInputsHdr>, String> {
+fn clash_header(
+    c: &Chain,
+    a: &Addresses,
+    dest: ProvinceKey,
+    bell: u32,
+) -> Result<Option<WideClashInputsHdr>, String> {
     let k = addr(clash_inputs_address(&ctx_of(a), dest, bell));
     match c.account(&k) {
         None => Ok(None),
@@ -258,7 +314,10 @@ pub fn province_act(
         return Ok(None);
     }
     let Some(a_ts) = lk::anchor_landed(c, a, b, p.region)? else {
-        return Ok(Some(Act::Anchor { bell: b, region: p.region }));
+        return Ok(Some(Act::Anchor {
+            bell: b,
+            region: p.region,
+        }));
     };
     if now.ts < clock.reveal_close(b, a_ts) {
         return Ok(None);
@@ -269,22 +328,38 @@ pub fn province_act(
         let ctx = ctx_of(a);
         for k in 0..wix::GATHER_POSITIONS {
             if let Some(x) = c.account(&addr(arrival_slot_address(&ctx, p.pk, b, k / 4, k % 4))) {
-                if matches!(ArrivalSlot::read(&ctx, &x.data), Ok(ArrivalSlot::Expedition(_))) {
+                if matches!(
+                    ArrivalSlot::read(&ctx, &x.data),
+                    Ok(ArrivalSlot::Expedition(_))
+                ) {
                     return Ok(None);
                 }
             }
         }
         let mask = header.map_or(0, |h| h.arrivals_mask);
         if let Some(start) = (0..wix::GATHER_POSITIONS).find(|k| mask & (1 << k) == 0) {
-            return Ok(Some(Act::Gather { dest: p.pk, bell: b, start }));
+            return Ok(Some(Act::Gather {
+                dest: p.pk,
+                bell: b,
+                start,
+            }));
         }
     }
     if c.account(&a.seed_cache(b, p.region, 0)).is_none() {
-        return Ok(Some(Act::Seed { bell: b, region: p.region, anchor_ts: a_ts }));
+        return Ok(Some(Act::Seed {
+            bell: b,
+            region: p.region,
+            anchor_ts: a_ts,
+        }));
     }
     match crate::resident_bells::conquest_of(c, a, p.pk, &p.data)? {
-        crate::resident_bells::Conquest::None => Ok(Some(Act::Resolve { dest: p.pk, bell: b })),
-        other => Err(format!("bell {b}: conquest state {other:?}: a plain Resolve is not sent")),
+        crate::resident_bells::Conquest::None => Ok(Some(Act::Resolve {
+            dest: p.pk,
+            bell: b,
+        })),
+        other => Err(format!(
+            "bell {b}: conquest state {other:?}: a plain Resolve is not sent"
+        )),
     }
 }
 
@@ -295,19 +370,36 @@ pub const LEAD_BELLS: u32 = 8;
 /// The anchors and seeds of the ended bells `rn + 1 ..= rn + LEAD_BELLS` (below `now.bell` and the end) that are
 /// missing: an anchor first, a seed once the bell's window closed (never for a bell with arrivals, whose gather comes
 /// first). Pure over the chain.
-pub fn lead_acts(c: &Chain, a: &Addresses, clock: &fclient::clock::SeasonClock, p: &Prov, now: Now) -> Result<Vec<Act>, String> {
+pub fn lead_acts(
+    c: &Chain,
+    a: &Addresses,
+    clock: &fclient::clock::SeasonClock,
+    p: &Prov,
+    now: Now,
+) -> Result<Vec<Act>, String> {
     let mut out = vec![];
-    let last = now.bell.saturating_sub(1).min(now.end_bell.saturating_sub(1)).min(p.rn.saturating_add(LEAD_BELLS));
+    let last = now
+        .bell
+        .saturating_sub(1)
+        .min(now.end_bell.saturating_sub(1))
+        .min(p.rn.saturating_add(LEAD_BELLS));
     for b in p.rn.saturating_add(1)..=last {
         match lk::anchor_landed(c, a, b, p.region)? {
-            None => out.push(Act::Anchor { bell: b, region: p.region }),
+            None => out.push(Act::Anchor {
+                bell: b,
+                region: p.region,
+            }),
             Some(a_ts) => {
                 if now.ts >= clock.reveal_close(b, a_ts)
                     && c.account(&a.seed_cache(b, p.region, 0)).is_none()
                     && clash_header(c, a, p.pk, b)?.is_none()
                     && !arrival_bit(c, a, p.pk, b)
                 {
-                    out.push(Act::Seed { bell: b, region: p.region, anchor_ts: a_ts });
+                    out.push(Act::Seed {
+                        bell: b,
+                        region: p.region,
+                        anchor_ts: a_ts,
+                    });
                 }
             }
         }
@@ -325,10 +417,14 @@ pub fn landed_depart(c: &Chain, a: &Addresses, m: &March) -> Result<Option<wix::
         let t = fclient::tx::from_wire(&l.wire)?;
         let keys = &t.message.account_keys;
         for ix in &t.message.instructions {
-            if keys.get(ix.program_id_index as usize) != Some(&a.program) || ix.data.first() != Some(&wix::Depart::IX.tag()) {
+            if keys.get(ix.program_id_index as usize) != Some(&a.program)
+                || ix.data.first() != Some(&wix::Depart::IX.tag())
+            {
                 continue;
             }
-            let Ok(d) = wix::Depart::decode(&ix.data) else { continue };
+            let Ok(d) = wix::Depart::decode(&ix.data) else {
+                continue;
+            };
             if d.transit_slot == m.slot
                 && d.host == m.t.host.to_bytes()
                 && d.arrive_bell == m.t.arrive_bell
@@ -364,7 +460,8 @@ pub fn open_seal(
     sig48: &[u8; 48],
 ) -> Result<Opened, String> {
     use permutation_rules::frontier::seal as ks;
-    let mut k = fclient::seal::open_ibe(&wseal::ibe_block(seal), sig48).map_err(|e| format!("the seal does not open: {e:?}"))?;
+    let mut k = fclient::seal::open_ibe(&wseal::ibe_block(seal), sig48)
+        .map_err(|e| format!("the seal does not open: {e:?}"))?;
     let plain = wseal::open_body(&k, seal, commit);
     let salt = ks::salt_of(&k);
     k.fill(0);
@@ -384,7 +481,13 @@ pub fn open_seal(
     if at.province() != pt.dest || at.local() != pt.dest_tile {
         return Err("the committed path does not end at the sealed destination tile".into());
     }
-    Ok(Opened { plain, salt, ct_hash: wseal::ct_hash(seal), dest: pt.dest, path })
+    Ok(Opened {
+        plain,
+        salt,
+        ct_hash: wseal::ct_hash(seal),
+        dest: pt.dest,
+        path,
+    })
 }
 
 /// WideSettleDeparture (0xDC op 3, `wide_ix::SETTLE_DEPARTURE`).
@@ -393,7 +496,12 @@ pub fn settle_departure_ix(a: &Addresses, payer: &Address, m: &March) -> Instruc
     let origin = m.t.origin.key();
     Instruction {
         program_id: a.program,
-        data: wix::SettleDeparture { host: m.t.host.to_bytes(), transit_slot: m.slot }.to_bytes().to_vec(),
+        data: wix::SettleDeparture {
+            host: m.t.host.to_bytes(),
+            transit_slot: m.slot,
+        }
+        .to_bytes()
+        .to_vec(),
         accounts: vec![
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(a.season, false),
@@ -406,14 +514,30 @@ pub fn settle_departure_ix(a: &Addresses, payer: &Address, m: &March) -> Instruc
 }
 
 /// The first free ArrivalSlot position of `faction` at `(dest, bell)` (0–3), `None` when all four are taken.
-pub fn free_target(c: &Chain, a: &Addresses, dest: ProvinceKey, bell: u32, faction: u8) -> Option<u8> {
+pub fn free_target(
+    c: &Chain,
+    a: &Addresses,
+    dest: ProvinceKey,
+    bell: u32,
+    faction: u8,
+) -> Option<u8> {
     let ctx = ctx_of(a);
-    (0..4u8).find(|i| c.account(&addr(arrival_slot_address(&ctx, dest, bell, faction, *i))).is_none())
+    (0..4u8).find(|i| {
+        c.account(&addr(arrival_slot_address(&ctx, dest, bell, faction, *i)))
+            .is_none()
+    })
 }
 
 /// WideReveal (0xEE, `wide_ix::REVEAL`): the sixteen accounts then the path provinces, paid by `payer` (the
 /// beneficiary). Writable: the payer, the ArrivalDay, the target slot.
-pub fn reveal_ix(a: &Addresses, payer: &Address, m: &March, o: &Opened, region: u8, target: u8) -> Result<Instruction, String> {
+pub fn reveal_ix(
+    a: &Addresses,
+    payer: &Address,
+    m: &March,
+    o: &Opened,
+    region: u8,
+    target: u8,
+) -> Result<Instruction, String> {
     let ctx = ctx_of(a);
     let (dest, arrive) = (o.dest, m.t.arrive_bell);
     let data = wix::Reveal {
@@ -432,7 +556,10 @@ pub fn reveal_ix(a: &Addresses, payer: &Address, m: &March, o: &Opened, region: 
         AccountMeta::new_readonly(m.holding, false),
         AccountMeta::new_readonly(m.key, false),
         AccountMeta::new_readonly(addr(ctx.bell_anchor(arrive, region)), false),
-        AccountMeta::new_readonly(addr(ctx.anchor_archive(region, archive_part_of(arrive))), false),
+        AccountMeta::new_readonly(
+            addr(ctx.anchor_archive(region, archive_part_of(arrive))),
+            false,
+        ),
         AccountMeta::new_readonly(addr(ctx.beacon_log(region)), false),
         AccountMeta::new_readonly(addr(clash_inputs_address(&ctx, dest, arrive)), false),
         AccountMeta::new_readonly(addr(province_address(&ctx, dest.coord())), false),
@@ -440,26 +567,52 @@ pub fn reveal_ix(a: &Addresses, payer: &Address, m: &March, o: &Opened, region: 
     ];
     for i in 0..4u8 {
         let k = addr(arrival_slot_address(&ctx, dest, arrive, m.t.faction, i));
-        acc.push(if i == target { AccountMeta::new(k, false) } else { AccountMeta::new_readonly(k, false) });
+        acc.push(if i == target {
+            AccountMeta::new(k, false)
+        } else {
+            AccountMeta::new_readonly(k, false)
+        });
     }
-    acc.push(AccountMeta::new_readonly(fclient::addr::instructions_sysvar(), false));
-    acc.push(AccountMeta::new_readonly(fclient::addr::system_program(), false));
+    acc.push(AccountMeta::new_readonly(
+        fclient::addr::instructions_sysvar(),
+        false,
+    ));
+    acc.push(AccountMeta::new_readonly(
+        fclient::addr::system_program(),
+        false,
+    ));
     if acc.len() != wix::REVEAL_FIXED {
         return Err("the reveal's fixed accounts".into());
     }
     for k in &o.path {
-        acc.push(AccountMeta::new_readonly(addr(province_address(&ctx, k.coord())), false));
+        acc.push(AccountMeta::new_readonly(
+            addr(province_address(&ctx, k.coord())),
+            false,
+        ));
     }
-    Ok(Instruction { program_id: a.program, accounts: acc, data })
+    Ok(Instruction {
+        program_id: a.program,
+        accounts: acc,
+        data,
+    })
 }
 
 /// One WideGather position `k` (`wide_ix::GATHER` pairs): the slot, and for a present slot its host's wide transit
 /// record (writable), else a read-only filler.
-fn gather_pair(c: &Chain, a: &Addresses, dest: ProvinceKey, bell: u32, k: u8) -> Result<[AccountMeta; 2], String> {
+fn gather_pair(
+    c: &Chain,
+    a: &Addresses,
+    dest: ProvinceKey,
+    bell: u32,
+    k: u8,
+) -> Result<[AccountMeta; 2], String> {
     let ctx = ctx_of(a);
     let slot = addr(arrival_slot_address(&ctx, dest, bell, k / 4, k % 4));
     let Some(acc) = c.account(&slot) else {
-        return Ok([AccountMeta::new_readonly(slot, false), AccountMeta::new_readonly(fclient::addr::system_program(), false)]);
+        return Ok([
+            AccountMeta::new_readonly(slot, false),
+            AccountMeta::new_readonly(fclient::addr::system_program(), false),
+        ]);
     };
     if acc.owner != a.program {
         return Err(format!("position {k}: the slot is not the program's"));
@@ -473,7 +626,15 @@ fn gather_pair(c: &Chain, a: &Addresses, dest: ProvinceKey, bell: u32, k: u8) ->
 }
 
 /// WideGather (0xDC op 4) of positions `start..start + n`.
-pub fn gather_ix(c: &Chain, a: &Addresses, payer: &Address, p: &Prov, bell: u32, start: u8, n: u8) -> Result<Instruction, String> {
+pub fn gather_ix(
+    c: &Chain,
+    a: &Addresses,
+    payer: &Address,
+    p: &Prov,
+    bell: u32,
+    start: u8,
+    n: u8,
+) -> Result<Instruction, String> {
     let ctx = ctx_of(a);
     let mut acc = vec![
         AccountMeta::new(*payer, true),
@@ -488,11 +649,22 @@ pub fn gather_ix(c: &Chain, a: &Addresses, payer: &Address, p: &Prov, bell: u32,
     for k in start..start + n {
         acc.extend(gather_pair(c, a, p.pk, bell, k)?);
     }
-    Ok(Instruction { program_id: a.program, accounts: acc, data: wix::Gather { bell, start, n }.to_bytes().to_vec() })
+    Ok(Instruction {
+        program_id: a.program,
+        accounts: acc,
+        data: wix::Gather { bell, start, n }.to_bytes().to_vec(),
+    })
 }
 
 /// The widest WideGather from `start` that fits one packet.
-pub fn gather_batch(c: &Chain, a: &Addresses, payer: &Keypair, p: &Prov, bell: u32, start: u8) -> Result<Instruction, String> {
+pub fn gather_batch(
+    c: &Chain,
+    a: &Addresses,
+    payer: &Keypair,
+    p: &Prov,
+    bell: u32,
+    start: u8,
+) -> Result<Instruction, String> {
     let mut best = None;
     for n in 1..=(wix::GATHER_POSITIONS - start) {
         let ix = gather_ix(c, a, &payer.pubkey(), p, bell, start, n)?;
@@ -519,12 +691,22 @@ pub fn settle_transit_ix(
     let ctx = ctx_of(a);
     let arrive = m.t.arrive_bell;
     let hd = c.account(&m.holding).ok_or("the holding is absent")?.data;
-    let rent_payer = addr(hd.get(H::RENT_PAYER..H::RENT_PAYER + 32).ok_or("holding bytes")?.try_into().unwrap());
+    let rent_payer = addr(
+        hd.get(H::RENT_PAYER..H::RENT_PAYER + 32)
+            .ok_or("holding bytes")?
+            .try_into()
+            .unwrap(),
+    );
     let header = clash_header(c, a, dest.pk, arrive)?;
-    let resolved = header.filter(|h| h.flags & frontier_abi::world_index::arrival::wide_clash_inputs::FLAG_RESOLVED != 0);
+    let resolved = header.filter(|h| {
+        h.flags & frontier_abi::world_index::arrival::wide_clash_inputs::FLAG_RESOLVED != 0
+    });
     let mut i = 0u8;
     if resolved.is_some() {
-        let inputs = c.account(&addr(clash_inputs_address(&ctx, dest.pk, arrive))).ok_or("inputs")?.data;
+        let inputs = c
+            .account(&addr(clash_inputs_address(&ctx, dest.pk, arrive)))
+            .ok_or("inputs")?
+            .data;
         let base = frontier_abi::world_index::arrival::wide_clash_inputs::position(m.t.faction, 0);
         for j in 0..4usize {
             if let Ok(Some(x)) = WideArrival::read_at(&inputs, base + j) {
@@ -567,7 +749,14 @@ pub fn settle_transit_ix(
     Ok(Instruction {
         program_id: a.program,
         accounts: acc,
-        data: wix::SettleTransit { transit_slot: m.slot, commit: d.commit, seal: d.seal, beneficiary: payer.to_bytes() }.to_bytes().to_vec(),
+        data: wix::SettleTransit {
+            transit_slot: m.slot,
+            commit: d.commit,
+            seal: d.seal,
+            beneficiary: payer.to_bytes(),
+        }
+        .to_bytes()
+        .to_vec(),
     })
 }
 
@@ -588,10 +777,24 @@ pub struct Crank {
 
 impl Crank {
     pub fn new(a: Addresses, payer: Keypair) -> Crank {
-        Crank { a, payer, rounds: HashMap::new(), seeds: HashMap::new(), backoff: HashMap::new(), sealed_shut: BTreeSet::new(), learned: BTreeMap::new(), landed: 0, refused: 0 }
+        Crank {
+            a,
+            payer,
+            rounds: HashMap::new(),
+            seeds: HashMap::new(),
+            backoff: HashMap::new(),
+            sealed_shut: BTreeSet::new(),
+            learned: BTreeMap::new(),
+            landed: 0,
+            refused: 0,
+        }
     }
 
-    async fn round_of(&mut self, clock: &fclient::clock::SeasonClock, bell: u32) -> Result<lk::RoundProvenance, String> {
+    async fn round_of(
+        &mut self,
+        clock: &fclient::clock::SeasonClock,
+        bell: u32,
+    ) -> Result<lk::RoundProvenance, String> {
         if let Some(r) = self.rounds.get(&bell) {
             return Ok(r.clone());
         }
@@ -607,10 +810,18 @@ impl Crank {
             }
         }
         if self.rounds.len() > 4096 {
-            let keep: Vec<u32> = self.rounds.keys().copied().filter(|b| *b + 512 >= bell).collect();
+            let keep: Vec<u32> = self
+                .rounds
+                .keys()
+                .copied()
+                .filter(|b| *b + 512 >= bell)
+                .collect();
             self.rounds.retain(|b, _| keep.contains(b));
         }
-        self.rounds.get(&bell).cloned().ok_or_else(|| format!("round of bell {bell} not served"))
+        self.rounds
+            .get(&bell)
+            .cloned()
+            .ok_or_else(|| format!("round of bell {bell} not served"))
     }
 
     async fn seed_sig(&mut self, round: u64) -> Result<[u8; 48], String> {
@@ -623,44 +834,89 @@ impl Crank {
     }
 
     /// Builds the instruction of one act (fetching the public rounds it needs).
-    async fn build(&mut self, state: &Shared, s: &Scan, clock: &fclient::clock::SeasonClock, now: Now, act: &Act) -> Result<Option<(Instruction, String)>, String> {
+    async fn build(
+        &mut self,
+        state: &Shared,
+        s: &Scan,
+        clock: &fclient::clock::SeasonClock,
+        now: Now,
+        act: &Act,
+    ) -> Result<Option<(Instruction, String)>, String> {
         let me = self.payer.pubkey();
         match act {
             Act::Anchor { bell, region } => {
                 let r = self.round_of(clock, *bell).await?;
-                Ok(Some((lk::post_anchor_ix(&self.a, &me, *region, &r)?, format!("PostAnchor(bell {bell}, region {region})"))))
+                Ok(Some((
+                    lk::post_anchor_ix(&self.a, &me, *region, &r)?,
+                    format!("PostAnchor(bell {bell}, region {region})"),
+                )))
             }
-            Act::Seed { bell, region, anchor_ts } => {
+            Act::Seed {
+                bell,
+                region,
+                anchor_ts,
+            } => {
                 let round = clock.seed_round(*bell, *anchor_ts);
                 if clock.drand.round_time(round) > now.ts {
                     return Ok(None);
                 }
                 let sig48 = self.seed_sig(round).await?;
-                let arg = BeaconArg { round, sig48, hints: fclient::beacon::hints_bytes(round) };
-                Ok(Some((post_seed(&self.a, me, *region, *bell, 0, &arg, &me), format!("PostSeed(bell {bell}, region {region}, round {round})"))))
+                let arg = BeaconArg {
+                    round,
+                    sig48,
+                    hints: fclient::beacon::hints_bytes(round),
+                };
+                Ok(Some((
+                    post_seed(&self.a, me, *region, *bell, 0, &arg, &me),
+                    format!("PostSeed(bell {bell}, region {region}, round {round})"),
+                )))
             }
             Act::Gather { dest, bell, start } => {
                 let c = lock(state);
                 let p = s.provs.get(dest).ok_or("province")?;
                 let ix = gather_batch(&c, &self.a, &self.payer, p, *bell, *start)?;
-                Ok(Some((ix, format!("WideGather({},{} bell {bell} from {start})", dest.coord().p(), dest.coord().q()))))
+                Ok(Some((
+                    ix,
+                    format!(
+                        "WideGather({},{} bell {bell} from {start})",
+                        dest.coord().p(),
+                        dest.coord().q()
+                    ),
+                )))
             }
             Act::Resolve { dest, bell } => {
                 let p = s.provs.get(dest).ok_or("province")?;
                 Ok(Some((
                     crate::resident_bells::resolve_ix(&self.a, &me, *dest, &p.key, p.region, *bell),
-                    format!("WideResolve({},{} bell {bell})", dest.coord().p(), dest.coord().q()),
+                    format!(
+                        "WideResolve({},{} bell {bell})",
+                        dest.coord().p(),
+                        dest.coord().q()
+                    ),
                 )))
             }
             Act::SettleDeparture { march } => {
                 let m = &s.marches[*march];
-                Ok(Some((settle_departure_ix(&self.a, &me, m), format!("WideSettleDeparture(slot {} of {},{} site {})", m.slot, m.h.coord.p(), m.h.coord.q(), m.h.site))))
+                Ok(Some((
+                    settle_departure_ix(&self.a, &me, m),
+                    format!(
+                        "WideSettleDeparture(slot {} of {},{} site {})",
+                        m.slot,
+                        m.h.coord.p(),
+                        m.h.coord.q(),
+                        m.h.site
+                    ),
+                )))
             }
             Act::Reveal { march } => {
                 let m = s.marches[*march].clone();
-                let d = { landed_depart(&lock(state), &self.a, &m)? }.ok_or("no landed WideDepart of this march")?;
+                let d = { landed_depart(&lock(state), &self.a, &m)? }
+                    .ok_or("no landed WideDepart of this march")?;
                 let r = self.round_of(clock, m.t.arrive_bell).await?;
-                let sig48: [u8; 48] = hex::decode(&r.signature_hex).map_err(|e| e.to_string())?.try_into().map_err(|_| "sig")?;
+                let sig48: [u8; 48] = hex::decode(&r.signature_hex)
+                    .map_err(|e| e.to_string())?
+                    .try_into()
+                    .map_err(|_| "sig")?;
                 let o = match open_seal(&m.t, &d.commit, &d.seal, &sig48) {
                     Ok(o) => o,
                     Err(e) => {
@@ -669,13 +925,19 @@ impl Crank {
                     }
                 };
                 self.learned.insert(m.t.seal_root, o.dest);
-                let dp = s.provs.get(&o.dest).ok_or_else(|| format!("the sealed destination {:?} is not an opened wide province", o.dest.coord()))?;
+                let dp = s.provs.get(&o.dest).ok_or_else(|| {
+                    format!(
+                        "the sealed destination {:?} is not an opened wide province",
+                        o.dest.coord()
+                    )
+                })?;
                 let planned = {
                     let c = lock(state);
                     if lk::anchor_landed(&c, &self.a, m.t.arrive_bell, dp.region)?.is_none() {
                         None
                     } else {
-                        let target = free_target(&c, &self.a, o.dest, m.t.arrive_bell, m.t.faction).ok_or("all four arrival slots of the nation are taken")?;
+                        let target = free_target(&c, &self.a, o.dest, m.t.arrive_bell, m.t.faction)
+                            .ok_or("all four arrival slots of the nation are taken")?;
                         Some((reveal_ix(&self.a, &me, &m, &o, dp.region, target)?, target))
                     }
                 };
@@ -686,12 +948,20 @@ impl Crank {
             }
             Act::SettleTransit { march } => {
                 let m = s.marches[*march].clone();
-                let d = { landed_depart(&lock(state), &self.a, &m)? }.ok_or("no landed WideDepart of this march")?;
-                let dest_pk = match m.t.dest.or_else(|| self.learned.get(&m.t.seal_root).copied()) {
+                let d = { landed_depart(&lock(state), &self.a, &m)? }
+                    .ok_or("no landed WideDepart of this march")?;
+                let dest_pk = match m
+                    .t
+                    .dest
+                    .or_else(|| self.learned.get(&m.t.seal_root).copied())
+                {
                     Some(k) => k,
                     None => {
                         let r = self.round_of(clock, m.t.arrive_bell).await?;
-                        let sig48: [u8; 48] = hex::decode(&r.signature_hex).map_err(|e| e.to_string())?.try_into().map_err(|_| "sig")?;
+                        let sig48: [u8; 48] = hex::decode(&r.signature_hex)
+                            .map_err(|e| e.to_string())?
+                            .try_into()
+                            .map_err(|_| "sig")?;
                         match open_seal(&m.t, &d.commit, &d.seal, &sig48) {
                             Ok(o) => {
                                 self.learned.insert(m.t.seal_root, o.dest);
@@ -707,25 +977,57 @@ impl Crank {
         }
     }
 
-    fn settle_with(&mut self, state: &Shared, s: &Scan, m: &March, d: &wix::Depart, dest_pk: ProvinceKey, _now: Now) -> Result<Option<(Instruction, String)>, String> {
+    fn settle_with(
+        &mut self,
+        state: &Shared,
+        s: &Scan,
+        m: &March,
+        d: &wix::Depart,
+        dest_pk: ProvinceKey,
+        _now: Now,
+    ) -> Result<Option<(Instruction, String)>, String> {
         let me = self.payer.pubkey();
         let c = lock(state);
-        let dp = s.provs.get(&dest_pk).ok_or("the settlement's province is not an opened wide province")?;
+        let dp = s
+            .provs
+            .get(&dest_pk)
+            .ok_or("the settlement's province is not an opened wide province")?;
         let ix = settle_transit_ix(&c, &self.a, &me, m, d, dp, false)?;
-        let what = format!("WideSettleTransit(slot {} of {},{} site {} against {},{})", m.slot, m.h.coord.p(), m.h.coord.q(), m.h.site, dest_pk.coord().p(), dest_pk.coord().q());
+        let what = format!(
+            "WideSettleTransit(slot {} of {},{} site {} against {},{})",
+            m.slot,
+            m.h.coord.p(),
+            m.h.coord.q(),
+            m.h.site,
+            dest_pk.coord().p(),
+            dest_pk.coord().q()
+        );
         if matches!(lk::simulate_ix(&c, &self.payer, &ix), Ok(r) if r.err.is_none()) {
             return Ok(Some((ix, what)));
         }
-        Ok(Some((settle_transit_ix(&c, &self.a, &me, m, d, dp, true)?, format!("{what} with the owner Citizen"))))
+        Ok(Some((
+            settle_transit_ix(&c, &self.a, &me, m, d, dp, true)?,
+            format!("{what} with the owner Citizen"),
+        )))
     }
 
     /// The march's next act (pure over the chain; `None`: nothing due).
-    fn march_act(&self, c: &Chain, clock: &fclient::clock::SeasonClock, s: &Scan, i: usize, now: Now) -> Result<Option<Act>, String> {
+    fn march_act(
+        &self,
+        c: &Chain,
+        clock: &fclient::clock::SeasonClock,
+        s: &Scan,
+        i: usize,
+        now: Now,
+    ) -> Result<Option<Act>, String> {
         let m = &s.marches[i];
         let t = &m.t;
         match t.state {
             MarchState::Departed => {
-                let origin = s.provs.get(&t.origin.key()).ok_or("the origin is not an opened wide province")?;
+                let origin = s
+                    .provs
+                    .get(&t.origin.key())
+                    .ok_or("the origin is not an opened wide province")?;
                 return Ok((origin.rn > t.depart_bell).then_some(Act::SettleDeparture { march: i }));
             }
             MarchState::Settled | MarchState::DestroyedAtOrigin | MarchState::Gathered => {}
@@ -735,41 +1037,69 @@ impl Crank {
             return Ok(None);
         }
         // revealed? (an ArrivalSlot of this host at its arrival bell in any province names it)
-        let revealed = t.dest.is_some() || s.provs.values().any(|p| {
-            (0..4u8).any(|j| {
-                c.account(&addr(arrival_slot_address(&ctx_of(&self.a), p.pk, t.arrive_bell, t.faction, j)))
+        let revealed = t.dest.is_some()
+            || s.provs.values().any(|p| {
+                (0..4u8).any(|j| {
+                    c.account(&addr(arrival_slot_address(
+                        &ctx_of(&self.a),
+                        p.pk,
+                        t.arrive_bell,
+                        t.faction,
+                        j,
+                    )))
                     .and_then(|x| WideArrivalSlot::read(&x.data).ok())
                     .is_some_and(|x| x.host == t.host && x.transit_slot == m.slot)
-            })
-        });
+                })
+            });
         let shut = self.sealed_shut.contains(&t.seal_root);
-        if !revealed && !shut && t.state != MarchState::DestroyedAtOrigin {
+        // (a reveal is due while THE anchor of the learned destination is absent or its window is open; a window that
+        //  closed unrevealed is never forced: the settlement decides, as the program's rule says)
+        let window_open = match self.learned.get(&t.seal_root).and_then(|k| s.provs.get(k)) {
+            Some(dp) => match lk::anchor_landed(c, &self.a, t.arrive_bell, dp.region)? {
+                Some(a_ts) => now.ts < clock.reveal_close(t.arrive_bell, a_ts),
+                None => true,
+            },
+            None => true,
+        };
+        if !revealed && !shut && window_open && t.state != MarchState::DestroyedAtOrigin {
             return Ok(Some(Act::Reveal { march: i }));
         }
-        // settle once the destination resolved the arrival and the delay passed
-        let dest_rn_past = |k: &ProvinceKey| s.provs.get(k).is_some_and(|p| p.rn > t.arrive_bell);
-        let any_anchor_ts = s.provs.values().find_map(|p| lk::anchor_landed(c, &self.a, t.arrive_bell, p.region).ok().flatten());
-        let Some(a_ts) = any_anchor_ts else { return Ok(None) };
-        if now.ts < clock.reveal_close(t.arrive_bell, a_ts) + SETTLE_AFTER_CLOSE_SECS {
+        // settle once the destination (gathered, or learned from the opened seal; the origin for a seal that does not
+        // open) resolved the arrival bell, and the settle delay after THE anchor's reveal close passed
+        let dest = t
+            .dest
+            .or_else(|| self.learned.get(&t.seal_root).copied())
+            .or(shut.then_some(t.origin.key()));
+        let Some(dp) = dest.and_then(|k| s.provs.get(&k)) else {
             return Ok(None);
-        }
-        if let Some(k) = t.dest {
-            if !dest_rn_past(&k) {
-                return Ok(None);
-            }
+        };
+        let Some(a_ts) = lk::anchor_landed(c, &self.a, t.arrive_bell, dp.region)? else {
+            return Ok(None);
+        };
+        if now.ts < clock.reveal_close(t.arrive_bell, a_ts) + SETTLE_AFTER_CLOSE_SECS
+            || dp.rn <= t.arrive_bell
+        {
+            return Ok(None);
         }
         Ok(Some(Act::SettleTransit { march: i }))
     }
 
     /// One round: scan, plan one act per lane, simulate, send, wait. Returns the landed/refused lines.
-    pub async fn round(&mut self, state: &Shared, stop: &mut tokio::sync::watch::Receiver<bool>) -> Result<Vec<Value>, String> {
+    pub async fn round(
+        &mut self,
+        state: &Shared,
+        stop: &mut tokio::sync::watch::Receiver<bool>,
+    ) -> Result<Vec<Value>, String> {
         let (s, clock, now, acts) = {
             let c = lock(state);
             let clock = lk::season_clock(&c, &self.a)?;
             let ts = c.unix_timestamp();
-            let Some(bell) = clock.bell_at(ts) else { return Ok(vec![]) };
+            let Some(bell) = clock.bell_at(ts) else {
+                return Ok(vec![]);
+            };
             let sd = c.account(&self.a.season).ok_or("no Season")?.data;
-            let end_bell = u32_at(&sd, frontier_abi::v2::layout::world::season::END_BELL).ok_or("season bytes")?;
+            let end_bell = u32_at(&sd, frontier_abi::v2::layout::world::season::END_BELL)
+                .ok_or("season bytes")?;
             let now = Now { ts, bell, end_bell };
             let s = scan(&c, &self.a);
             let mut acts: Vec<Act> = vec![];
@@ -882,10 +1212,17 @@ impl Crank {
 
 /// The crank's loop until `stop` (one round every ~0.5 s; a quiet round sleeps 1 s). One JSON line per landed,
 /// refused or failed send; a status line every minute.
-pub async fn run(state: Shared, a: Addresses, mut stop: tokio::sync::watch::Receiver<bool>, out: impl Fn(Value)) -> Result<(), String> {
+pub async fn run(
+    state: Shared,
+    a: Addresses,
+    mut stop: tokio::sync::watch::Receiver<bool>,
+    out: impl Fn(Value),
+) -> Result<(), String> {
     let payer = crate::keeper_loop::fund_fresh(&state, &mut stop).await?;
-    out(json!({"schema": WIDE_DEPART_SCHEMA, "wide_depart_step": "crank", "test_only": true, "payer": payer.pubkey().to_string(),
-        "gate": "localnet-wide-depart (the local land .so only; devnet unchanged)"}));
+    out(
+        json!({"schema": WIDE_DEPART_SCHEMA, "wide_depart_step": "crank", "test_only": true, "payer": payer.pubkey().to_string(),
+        "gate": "localnet-wide-depart (the local land .so only; devnet unchanged)"}),
+    );
     let mut crank = Crank::new(a, payer);
     let mut last_status = Instant::now();
     loop {
@@ -894,7 +1231,9 @@ pub async fn run(state: Shared, a: Addresses, mut stop: tokio::sync::watch::Rece
         }
         let lines = match crank.round(&state, &mut stop).await {
             Ok(l) => l,
-            Err(e) => vec![json!({"schema": WIDE_DEPART_SCHEMA, "wide_depart_step": "round_error", "test_only": true, "why": e})],
+            Err(e) => vec![
+                json!({"schema": WIDE_DEPART_SCHEMA, "wide_depart_step": "round_error", "test_only": true, "why": e}),
+            ],
         };
         let quiet = lines.is_empty();
         for l in lines {
@@ -903,10 +1242,12 @@ pub async fn run(state: Shared, a: Addresses, mut stop: tokio::sync::watch::Rece
         if last_status.elapsed() > Duration::from_secs(60) {
             last_status = Instant::now();
             let s = scan(&lock(&state), &crank.a);
-            out(json!({"schema": WIDE_DEPART_SCHEMA, "wide_depart_step": "status", "test_only": true, "landed": crank.landed, "refused": crank.refused,
+            out(
+                json!({"schema": WIDE_DEPART_SCHEMA, "wide_depart_step": "status", "test_only": true, "landed": crank.landed, "refused": crank.refused,
                 "driven": s.drive.iter().map(|k| { let p = &s.provs[k]; json!({"p": k.coord().p(), "q": k.coord().q(), "resolved_next": p.rn}) }).collect::<Vec<_>>(),
                 "marches": s.marches.iter().map(|m| json!({"holding": [m.h.coord.p(), m.h.coord.q(), m.h.site], "slot": m.slot, "state": format!("{:?}", m.t.state), "depart": m.t.depart_bell, "arrive": m.t.arrive_bell})).collect::<Vec<_>>(),
-                "expedition_held": s.expedition.len()}));
+                "expedition_held": s.expedition.len()}),
+            );
         }
         let pause = if quiet { 1000 } else { 300 };
         tokio::select! {
@@ -922,12 +1263,29 @@ mod tests {
 
     #[test]
     fn the_wide_march_commands_decode_as_the_wide_tables_name_them() {
-        let g = wix::Gather { bell: 7, start: 0, n: 3 }.to_bytes();
-        assert!(matches!(wix::WideCommand::decode(&g), Ok(wix::WideCommand::Gather(x)) if x.bell == 7 && x.start == 0 && x.n == 3));
-        let d = wix::SettleDeparture { host: [0; 56], transit_slot: 2 }.to_bytes();
-        assert!(matches!(wix::WideCommand::decode(&d), Ok(wix::WideCommand::SettleDeparture(x)) if x.transit_slot == 2));
+        let g = wix::Gather {
+            bell: 7,
+            start: 0,
+            n: 3,
+        }
+        .to_bytes();
+        assert!(
+            matches!(wix::WideCommand::decode(&g), Ok(wix::WideCommand::Gather(x)) if x.bell == 7 && x.start == 0 && x.n == 3)
+        );
+        let d = wix::SettleDeparture {
+            host: [0; 56],
+            transit_slot: 2,
+        }
+        .to_bytes();
+        assert!(
+            matches!(wix::WideCommand::decode(&d), Ok(wix::WideCommand::SettleDeparture(x)) if x.transit_slot == 2)
+        );
         assert_eq!(wix::REVEAL_FIXED, 16, "the reveal's sixteen fixed accounts");
-        assert_eq!(wix::SETTLE_TRANSIT_FIXED, 17, "the settlement's seventeen fixed accounts");
+        assert_eq!(
+            wix::SETTLE_TRANSIT_FIXED,
+            17,
+            "the settlement's seventeen fixed accounts"
+        );
         assert_eq!(wix::GATHER_POSITIONS, 24);
     }
 }
@@ -939,19 +1297,59 @@ mod parity {
     #[test]
     fn the_page_pins_the_same_wide_host_derivations() {
         use frontier_abi::world_index::{march::wide_host_alias, WideCoord, WorldId};
-        let a = Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID);
+        let a = Addresses::new(
+            Address::new_from_array(crate::expedition_play::PROGRAM),
+            crate::expedition_play::SEASON_ID,
+        );
         let ctx = ctx_of(&a);
         let world = WorldId::derive_legacy_season(&ctx.season, &ctx.program).unwrap();
         let coord = WideCoord::checked(130, -1).unwrap();
         let pk = ProvinceKey::new(world, coord);
         let holding = holding_address(&ctx, coord, 4);
         let host = frontier_abi::world_index::WideHostRef::new(pk, 4, 1, 2).unwrap();
-        assert_eq!(a.season.to_string(), "7pshbHEvHUftsEcrGUPb9FoVXWmV1gEs1R1cZCGXjSCt");
-        assert_eq!(addr(holding).to_string(), "5EtbQ8buHtvvbY15QmwtMnhsxrPtC6ZUZJP38wH7ejJE");
-        assert_eq!(addr(roster_address(&ctx, pk)).to_string(), "DULG5c1eLfCrQLZcULyaaKGnvTRt9t6tcLCKBxA7PfxU");
-        assert_eq!(addr(transit_address(&ctx, &holding, 2)).to_string(), "Fc8aoQKnGFkNSG9L8uyBGzFDLMiXG7mm4qwaLd2WGz3P");
-        assert_eq!(addr(province_address(&ctx, coord)).to_string(), "4cbQ7NUZRW2qG5USCBB6o7Huhw4quWMnkqHPbHSUQsY5");
+        assert_eq!(
+            a.season.to_string(),
+            "7pshbHEvHUftsEcrGUPb9FoVXWmV1gEs1R1cZCGXjSCt"
+        );
+        assert_eq!(
+            addr(holding).to_string(),
+            "5EtbQ8buHtvvbY15QmwtMnhsxrPtC6ZUZJP38wH7ejJE"
+        );
+        assert_eq!(
+            addr(roster_address(&ctx, pk)).to_string(),
+            "DULG5c1eLfCrQLZcULyaaKGnvTRt9t6tcLCKBxA7PfxU"
+        );
+        assert_eq!(
+            addr(transit_address(&ctx, &holding, 2)).to_string(),
+            "Fc8aoQKnGFkNSG9L8uyBGzFDLMiXG7mm4qwaLd2WGz3P"
+        );
+        assert_eq!(
+            addr(province_address(&ctx, coord)).to_string(),
+            "4cbQ7NUZRW2qG5USCBB6o7Huhw4quWMnkqHPbHSUQsY5"
+        );
         assert_eq!(hex::encode(host.to_bytes()), "01c125eafbbe1563c4fde011a2e0a72b7f240480b0d65cf87d0c7a0c1bda24e5f70000000000000082050000000000000081040102000000");
         assert_eq!(wide_host_alias(&host), 13084875854677356326);
+    }
+}
+
+#[cfg(test)]
+mod record_print {
+    /// Evidence helper (ignored): decodes the PSW1 wide records of a landed transaction's `Program data:` lines, given
+    /// as base64 bodies in `WIDE_RECORDS` (space-separated), and prints kind, key and payload.
+    #[test]
+    #[ignore]
+    fn print_wide_records() {
+        use base64::Engine as _;
+        use frontier_abi::world_index::event::WideRecord;
+        for b in std::env::var("WIDE_RECORDS")
+            .unwrap_or_default()
+            .split_whitespace()
+        {
+            let body = base64::engine::general_purpose::STANDARD.decode(b).unwrap();
+            match WideRecord::decode(&body) {
+                Ok(r) => println!("RECORD {r:?}"),
+                Err(e) => println!("RECORD error {e:?}"),
+            }
+        }
     }
 }
