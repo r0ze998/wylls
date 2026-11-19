@@ -281,6 +281,10 @@ fn land_magic(m: &[u8; 8]) -> bool {
         // Q16-1 continued (2026-11-19): the wide roster side table (VWL
         // judges its writes by WideMuster and WideResolve).
         || *m == frontier_abi::world_index::roster::wide_roster::MAGIC
+        // Q16-1 = A (2026-11-19): the wide ClashInputs, which VX's
+        // re-executed ExpeditionGather creates and VWL's WideResolve
+        // resolves (every written byte compared by one or the other).
+        || *m == frontier_abi::world_index::arrival::wide_clash_inputs::MAGIC
 }
 #[cfg(not(feature = "playable-lane"))]
 fn land_magic(_: &[u8; 8]) -> bool {
@@ -883,7 +887,12 @@ pub fn run(cx: &mut Ctx) {
                 }
             }
         }
-        // Any program account of no known kind.
+        // Any program account of no known kind. Q16-1 = A: a transaction
+        // VX re-executes (the expedition wrapper, the Free City conquest)
+        // has every program-owned post-state judged byte for byte there.
+        if super::v0_coverage::vx_tx(tx, pv) {
+            continue;
+        }
         for (k, a) in &tx.post {
             if let Some(a) = a {
                 if a.owner.to_bytes() == w.program
@@ -955,7 +964,14 @@ pub fn run(cx: &mut Ctx) {
                 }
             }
         } else if !known_magic(&a.data, pv) {
-            unknown_account(cx, pv, k, None);
+            // Q16-1 = A: the final state VX's last re-executed writer left.
+            let vx_last = w.posts.get(k).and_then(|v| v.last()).is_some_and(|&t| {
+                super::v0_coverage::vx_tx(&w.txs[t], pv)
+                    && w.txs[t].post.get(k).is_some_and(|p| p.as_ref() == Some(a))
+            });
+            if !vx_last {
+                unknown_account(cx, pv, k, None);
+            }
         }
     }
     let _ = issued;

@@ -193,6 +193,8 @@ impl World {
             scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
             history: Default::default(),
             resident_feed: None,
+            program_so: None,
+            declared: vec![],
         }
     }
 }
