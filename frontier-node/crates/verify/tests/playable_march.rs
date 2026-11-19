@@ -9,7 +9,7 @@
 //! natural recording's Muster is refused `NotResident`, 26).
 //!
 //! * `record_playable_march` (ignored; needs the devnet-playable `.so`,
-//!   `PSF_PLAYABLE_SO`, sha256 ec511123…): a real season in LiteSVM, by its
+//!   `PSF_PLAYABLE_SO`, sha256 da3dc1aa…): a real season in LiteSVM, by its
 //!   own instructions, whose genesis round is the shipped quicknet fixture
 //!   round 32 551 749 and whose march arrives at bell 21, whose THE anchor
 //!   round is T(21) = 32 556 349: the REAL round whose signature the S-TLOCK
@@ -55,7 +55,7 @@ use verify_core::Verdict;
 
 const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
-const PLAYABLE_SHA256: &str = "ec511123493c23e9ab1f83295e4bf666bc48c8e3f8dcfee2298d9371cc483ca3";
+const PLAYABLE_SHA256: &str = "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741";
 /// A shipped fixture round (`fclient/fixtures/quicknet`).
 const GENESIS_ROUND: u64 = 32_551_749;
 /// The arrival bell: T(21) = GENESIS_ROUND + 200 · (21 + 2).
@@ -390,7 +390,7 @@ fn step(p: i16, q: i16, tile: u8, d: u8) -> (i32, i32, u8) {
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 ec511123…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so built from main: set PSF_PLAYABLE_SO (sha256 da3dc1aa…), run with --ignored"]
 fn record_playable_march() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
@@ -405,7 +405,7 @@ fn record_playable_march() {
     let rounds = FixtureDrand::load(&fb::fixture_dir(), fb::quicknet_info())
         .expect("fixture rounds verify")
         .rounds;
-    let beacon = rounds.get(&GENESIS_ROUND).expect("a shipped round").clone();
+    let beacon = *rounds.get(&GENESIS_ROUND).expect("a shipped round");
     let p = params();
     let clock = BeaconClock {
         genesis: p.base.drand_genesis,
@@ -977,6 +977,9 @@ fn the_honest_march_has_no_fail_and_only_the_declared_patches_are_unverifiable()
     }
 }
 
+/// A tamper class's constructor (`verify_core::tamper`).
+type Class = fn(&Input) -> verify_core::tamper::Made;
+
 /// The repo's march tamper classes over the playable recording. Each one
 /// that this archive can carry must FAIL with its code; the list of those
 /// that apply is pinned, so it cannot shrink silently.
@@ -984,7 +987,7 @@ fn the_honest_march_has_no_fail_and_only_the_declared_patches_are_unverifiable()
 fn the_march_tamper_classes_fail_on_the_playable_march() {
     use verify_core::tamper as tc;
     let inp = recorded();
-    let classes: [(&str, fn(&Input) -> tc::Made); 14] = [
+    let classes: [(&str, Class); 14] = [
         ("T1", tc::t01),
         ("T2", tc::t02),
         ("T6", tc::t06),
