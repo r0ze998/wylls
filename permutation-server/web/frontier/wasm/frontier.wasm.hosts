@@ -5,3 +5,4 @@
 # is the one in frontier.wasm.sha256). x86_64-unknown-linux-gnu is the GitHub
 # runner, measured in CI run 38157524022 for the integrated source.
 aarch64-apple-darwin 2132b661aee2bed09025c9dce872019ab5fdb8ae5d01f28f10be4b34ba0ce104 206108
+x86_64-unknown-linux-gnu fabd631e1af6ac6ac29a5fe4411b9a7f6fbe896062f0cb605e35672896d8e9b0 206062
