@@ -6,7 +6,15 @@
 //! first GATHER, its CLASH and any SKIP over `b` (the latch). A Reveal in the
 //! last 16 game seconds of its window is a liveness warning.
 //!
-//! Codes: `RevealAfterClose`, `RevealAfterLatch`; warn `RevealNearClose`.
+//! The latch side (verifier-wide-expedition, 2026-11-19): every GATHER and
+//! every bell of a SKIP run needs THE anchor of `(b, region)` closed, as the
+//! program's `window_closed` refuses them before `A + W(b)` (`TooEarly`):
+//! one landed earlier is `LatchBeforeClose`; when the archive shows neither
+//! THE anchor's ANCHOR record nor its archive entry before the latch, the
+//! close is unprovable (`MissingData`), never a PASS.
+//!
+//! Codes: `RevealAfterClose`, `RevealAfterLatch`, `LatchBeforeClose`; warn
+//! `RevealNearClose`.
 
 use std::collections::HashMap;
 
@@ -113,6 +121,63 @@ pub fn run(cx: &mut Ctx) {
                     w.recs[l].kind.name()
                 ),
             );
+        }
+    }
+    latch_side(cx);
+}
+
+/// GATHER and SKIP: THE anchor's window closed (the program's
+/// `window_closed`), over an anchor the archive shows.
+fn latch_side(cx: &mut Ctx) {
+    let w = cx.w;
+    let f = cx.f;
+    for (n, r) in w.recs.iter().enumerate() {
+        let bells: Vec<u32> = match r.kind {
+            Kind::GATHER => vec![r.ku32("bell")],
+            Kind::SKIP => {
+                let b0 = r.pu32("b0");
+                (b0..b0.saturating_add(r.pu8("n") as u32)).collect()
+            }
+            _ => continue,
+        };
+        let (p, q) = r.pq();
+        let region = Facts::region(p, q);
+        let t = w.txs[r.tx].time;
+        for b in bells {
+            let what = format!("{} ({p}, {q}) bell {b}", r.kind.name());
+            let a = f
+                .anchor(b, region)
+                .filter(|a| a.rec < n)
+                .map(|a| a.a)
+                .or_else(|| {
+                    f.archived
+                        .get(&(b, region))
+                        .filter(|(_, _, ar)| *ar < n)
+                        .and_then(|_| f.anchor_a(b, region))
+                });
+            let Some(a) = a else {
+                cx.missing(
+                    V,
+                    what,
+                    b,
+                    Some(r.tx),
+                    format!(
+                        "THE anchor of (bell {b}, region {region}) is not in the archive before it: its window close is unprovable"
+                    ),
+                );
+                continue;
+            };
+            let close = f.close(b, a);
+            if t < close {
+                cx.fail(
+                    V,
+                    LATCH_BEFORE_CLOSE,
+                    what,
+                    b,
+                    Some(r.tx),
+                    format!("landed at {t}, before the window closed at A + W = {close}"),
+                );
+            }
         }
     }
 }

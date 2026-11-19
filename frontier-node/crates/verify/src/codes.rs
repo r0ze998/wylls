@@ -84,6 +84,9 @@ pub const RING_SEED_RULE: &str = "RingSeedRule";
 // V4 windows
 pub const REVEAL_AFTER_CLOSE: &str = "RevealAfterClose";
 pub const REVEAL_AFTER_LATCH: &str = "RevealAfterLatch";
+/// A GATHER or a SKIP bell landed before THE anchor's window closed
+/// (`A + W(b)`; the program's `window_closed`, `TooEarly`).
+pub const LATCH_BEFORE_CLOSE: &str = "LatchBeforeClose";
 // V5 seals
 pub const REVEAL_COMMIT_MISMATCH: &str = "RevealCommitMismatch";
 pub const VERDICT_DISAGREES_WITH_TLOCK: &str = "VerdictDisagreesWithTlock";
@@ -187,6 +190,7 @@ pub const FAIL_CODES: &[&str] = &[
     RING_SEED_RULE,
     REVEAL_AFTER_CLOSE,
     REVEAL_AFTER_LATCH,
+    LATCH_BEFORE_CLOSE,
     REVEAL_COMMIT_MISMATCH,
     VERDICT_DISAGREES_WITH_TLOCK,
     BAD_SEAL_SURVIVED,

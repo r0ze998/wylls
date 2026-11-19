@@ -58,7 +58,10 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// which the devnet build `devnet-playable-sbf` (conquest-dispatch +
 /// land-preview) and the localnet expedition / conquest / land lanes run.
 /// A known version only in the `playable-lane` build: there its ABI v2
-/// instructions are judged by the S1 checks (the program runs S1's
+/// instructions are judged by the S1 checks (since 2026-11-19 on a recorded
+/// sealed march too: Muster, Depart, Reveal, GatherClash,
+/// ResolveFromInputs, SkipQuiet, SettleDeparture, SettleTransit,
+/// `tests/playable_march.rs`; the program runs S1's
 /// handlers, which differ only where a wide marker or bridge is present,
 /// and only a wide instruction writes one), its land preview instructions
 /// by VL, the wide land opening (WideSetRules, WideRequestRingSeed,
