@@ -1908,4 +1908,13 @@ export default {
   'チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this order before running it. It was not sent.',
   'チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this march before running it. It was not sent.',
   '進軍は期限までに記録されませんでした。これから記録されることはありません。': 'The march was not recorded in time. It can no longer be.',
+  // fix-ui-b17-b21 (loop-play3 B18–B21)
+  '砦を取った軍勢は、一部を砦の守備兵に残し、残りの {0} 人が{1}の控えに戻りました。村でもう一度、軍勢に編成できます。': 'The host that took the keep left part of itself as the keep\'s garrison; the other {0} troops returned to the reserve of {1}. You can form them into a host again in the village.',
+  'いま軍勢はいませんが、村の控えに兵が {0} 人います。村で軍勢に編成できます。': 'You have no host right now, but {0} troops are in your village\'s reserve. Form them into a host on the Village tab.',
+  'いま軍勢はいませんが、村の守備隊に兵が {0} 人います。軍勢を作るには、村で兵を訓練して編成してください。': 'You have no host right now, but {0} troops stand in your village\'s garrison. To make a host, train troops on the Village tab and form one.',
+  'ターンが進んだため、到着はターン {0} になりました（さきほどまではターン {1}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン {2} まで。取り消せます）。': 'The turn moved on, so the arrival is now turn {0} (it was turn {1}). The send is still waiting: as soon as the province has finished its turn, this order is sent once for that arrival turn (until turn {2}; you can cancel).',
+  'ただし、ターンが進んで到着ターンだけが先へ動いたときは、取り消さずに新しい到着ターンに合わせて待ち続けます。': 'But when only the arrival turn moves on because a turn passed, the send is not cancelled: it goes on waiting for the new arrival turn.',
+  '開始サービス（ターミナルで動かしている開始用のプログラム）に届きません。止めたのであれば、この世界はいま止まっています。ターンは進まず、命令も送れません。続けるには、開始サービスをもう一度起動し（保存した世界は続きから）、開始ページを開き直してください。': 'The start service (the program you run in a terminal) cannot be reached. If you stopped it, this world is stopped now: its turns do not advance and no order can be sent. To go on, start the service again (a kept world resumes) and open the start page again.',
+  'この世界は終了しました。ターンはもう進みません。': 'This world has ended. Its turns no longer advance.',
+  'この世界はいま止まっているようです（開始サービスに届きません）。': 'This world seems to be stopped now (the start service cannot be reached).',
 };

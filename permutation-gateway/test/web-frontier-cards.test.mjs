@@ -281,9 +281,15 @@ test('the Hosts tab while the only host is on the march: it is away (Marches), n
     assert.match(away, /data-act="tab" data-tab="marches"/);
     assert.doesNotMatch(text(away), lang === 'en' ? /train|No hosts/i : /訓練し/);
     if (lang === 'en') assert.doesNotMatch(text(away), JP);
+    // (B18, fix-ui-b17-b21: "no hosts, train some" is for a village with no troops at home. This fixture's village has
+    //  500 in reserve — the state after a keep capture sent the host's rest home — and is told that instead.)
     FS.marches = [];
-    const none = String(hostScreen.render(FS));
-    assert.match(text(none), lang === 'en' ? /train/i : /訓練し/, 'with no march either, the old line stands');
+    const home = String(hostScreen.render(FS));
+    assert.match(text(home), lang === 'en' ? /no host right now, but 500 troops are in your village/ : /村の控えに兵が 500 人います/);
+    assert.doesNotMatch(text(home), lang === 'en' ? /No hosts yet/ : /軍勢はいません。/);
+    const bare = world({ reserve: [0, 0, 0, 0, 0, 0, 0, 0], entries: [] }).FS; bare.marches = [];
+    const none = String(hostScreen.render(bare));
+    assert.match(text(none), lang === 'en' ? /train/i : /訓練し/, 'with no march and no troops at home, the old line stands');
     assert.doesNotMatch(none, /data-tab="marches"/);
   }
   setLang('ja');

@@ -40,6 +40,24 @@ export function mergeKeepEvents(known, events) {
   return [...out.values()].sort((a, b) => a.bell - b.bell || (BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0));
 }
 
+/** RETIRE's `by` for the host that took a keep and went home with the rest (frontier-abi retire_by::KEEP_DONOR; K-19). */
+export const RETIRE_BY_KEEP_DONOR = 2;
+/**
+ * B18 (loop-play3): the `retired` events of a conquest day that are a keep capture's donor going home (K-19: half of
+ * the host stays as the keep's garrison, the rest returns to its village's reserve). `p, q, site` are the HOME
+ * village (the herald reads them from the host id); `troops` is whole troops (the record holds milli-troops).
+ * No duplicates, oldest first.
+ */
+export function mergeDonorReturns(known, events) {
+  const out = new Map((known ?? []).map(e => [String(e.seq), e]));
+  for (const e of events ?? []) {
+    if (e.kind !== 'retired' || Number(e.detail?.by) !== RETIRE_BY_KEEP_DONOR) continue;
+    if (!Number.isInteger(e.p) || !Number.isInteger(e.q) || !Number.isInteger(e.site) || !Number.isFinite(e.detail?.troops)) continue;
+    out.set(String(e.seq), { seq: String(e.seq), bell: e.bell, p: e.p, q: e.q, site: e.site, troops: Math.floor(e.detail.troops / 1000), host: typeof e.detail.host === 'string' ? e.detail.host : null });
+  }
+  return [...out.values()].sort((a, b) => a.bell - b.bell || (BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0));
+}
+
 /** The viewer's side of a keep event: 'gain' | 'loss' | 'attack' | 'defend' | null. */
 export function keepEventSide(e, faction) {
   if (!Number.isInteger(faction) || faction < 0 || faction > 5) return null;
