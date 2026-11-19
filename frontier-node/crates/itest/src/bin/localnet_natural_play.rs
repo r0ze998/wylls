@@ -21,7 +21,14 @@ fn main() {
         // the TEST-ONLY continuous preset and run dir (natural_persist) first: never with the demo's compressed clock
         let (rest, world_opts) =
             itest::natural_persist::take_world_args(std::env::args().skip(1).collect())?;
+        // (the TEST-ONLY wide land: a memory-only natural world of its own, on the natural clock after its setup)
+        let (rest, wide) = itest::wide_land::take_wide_args(rest)?;
+        let mut world_opts = world_opts;
+        world_opts.wide = wide;
         let (rest, demo) = itest::capture_demo::take_demo_args(rest)?;
+        if wide && demo.is_some() {
+            return Err("--wide-land is not accepted with --capture-demo".into());
+        }
         if demo.is_some() && (world_opts.continuous || world_opts.persist.is_some()) {
             return Err(
                 "--continuous and --persist-dir are not accepted with --capture-demo".into(),
@@ -30,6 +37,9 @@ fn main() {
         // the TEST-ONLY contest pair's two options likewise (both or neither): two people in one world, on a capture-demo
         // world or (B16, loop-play3) a natural one, kept (--continuous/--persist-dir) or not
         let (rest, second) = itest::contest_pair::take_pair_args(rest)?;
+        if second.is_some() && wide {
+            return Err("--contest-pair is not accepted with --wide-land".into());
+        }
         // the TEST-ONLY land lane's option likewise (only with the capture demo's synthetic clock; feature localnet-land-play)
         #[cfg(feature = "localnet-land-play")]
         let (rest, land) = itest::land_lane::take_land_args(rest)?;

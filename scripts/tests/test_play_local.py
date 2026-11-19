@@ -192,6 +192,31 @@ class Refusals(unittest.TestCase):
         self.assertIn("FRESH_MAP_MODE = 'local-fresh-map-v1'", read(os.path.join(ROOT, 'permutation-gateway/src/frontier/local-play-launcher.mjs')))
         self.assertIn('--random-map', run('--help')[1])
 
+    def test_wide_is_opt_in_memory_only_and_alone(self):
+        # (without the flag: no wide land on the launcher line)
+        self.assertNotIn('--wide-land', plan()['launcher'])
+        for extra in [(), ('--ai', '0'), ('--random-map',), ('--minutes', '240')]:
+            p = plan('--wide', *extra)
+            self.assertEqual((p['world'], p['speed'], p['mode']), ('wide', 'natural', 'fresh'), extra)
+            line = p['launcher']
+            self.assertEqual(line.count('--wide-land local-wide-land-v1'), 1, extra)
+            # (a memory-only world of its own: not kept, not the demo, not the land preview)
+            for bad in ['--continuous', '--persist', '--capture-demo', '--demo-scale', '--world-option']:
+                self.assertNotIn(bad, line, extra)
+            self.assertTrue(p['data'].startswith(TMP + '/worlds/'), extra)
+        # (never with the demo, a resume, a kept world's --fresh or the demo's --speed, in either order, before any write)
+        st, _ = kept_state()
+        for args in [('--wide', '--demo'), ('--demo', '--wide'), ('--wide', '--fresh'), ('--wide', '--speed', '30'), ('--wide', '--two'), ('--two', '--wide')]:
+            code, out, err = run('--print-plan', *args)
+            self.assertEqual((code, out), (2, ''), args)
+            self.assertIn('--wide', err)
+        code, out, err = run('--print-plan', '--wide', '--resume', env_extra={'PLAY_LOCAL_STATE': st})
+        self.assertEqual((code, out), (2, ''))
+        # (the word is the launcher's own, read from its source; the help names the flag; the herald serves the wide view)
+        self.assertIn("WIDE_LAND_MODE = 'local-wide-land-v1'", read(os.path.join(ROOT, 'permutation-gateway/src/frontier/local-play-launcher.mjs')))
+        self.assertIn('--wide ', run('--help')[1])
+        self.assertIn('-p herald --features land-preview,wide-world-experimental', read(SCRIPT))
+
     def test_resume_reopens_the_last_kept_world(self):
         st, world = kept_state(port=41930, ai=1)
         p = plan('--resume', env_extra={'PLAY_LOCAL_STATE': st})

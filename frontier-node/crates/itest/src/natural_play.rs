@@ -401,7 +401,17 @@ pub async fn prepare_with(
     // (TEST-ONLY `--map-origin`: a NEW world's clock origin; a resumed chain keeps its ledger's own)
     let g0 = o.map_origin.unwrap_or(localnet::Config::default().g0);
     let (t_create_min, round, genesis_ts) = genesis_plan_at(g0);
-    let p = params_for(o.continuous);
+    if o.wide && (o.continuous || o.persist.is_some()) {
+        return Err(
+            "--wide-land is a memory-only finite world: not with --continuous or --persist-dir"
+                .into(),
+        );
+    }
+    let p = if o.wide {
+        crate::wide_land::params()
+    } else {
+        params_for(o.continuous)
+    };
     let fresh_record = |done: bool| WorldRecord {
         wallet,
         artifact_sha256: artifact.sha256().to_owned(),
@@ -551,13 +561,20 @@ pub async fn prepare_with(
         )?;
     }
     let homes = home_provinces(&cq, &seed);
-    for &(pp, qq, _) in &homes {
+    // (the TEST-ONLY wide land opens the heartland itself: most of it after the growth, so it starts resolved to now)
+    for &(pp, qq, _) in homes.iter().filter(|_| !o.wide) {
         send(
             &state,
             &[&payer],
             &[ix::open_province(&a, payer.pubkey(), pp, qq)],
             "OpenProvince",
         )?;
+    }
+    // (TEST-ONLY wide land: the map grown to the rim and into the wide land, still on the synthetic clock)
+    if o.wide {
+        let summary =
+            crate::wide_land::grow(&state, &a, &upgrade, &payer, &homes, send, advance_to).await?;
+        crate::wide_land::wide_metadata(&mut metadata, &summary);
     }
     if let Some(r) = &run {
         r.record(&fresh_record(true))?;
@@ -823,6 +840,7 @@ mod resume {
             continuous: true,
             persist: Some(dir.clone()),
             map_origin: None,
+            wide: false,
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -925,6 +943,7 @@ mod resume {
                 continuous: false,
                 persist: Some(dir.clone()),
                 map_origin: None,
+                wide: false,
             };
             assert!(prepare_with(&art, w, 41_380, 41_381, &other)
                 .await

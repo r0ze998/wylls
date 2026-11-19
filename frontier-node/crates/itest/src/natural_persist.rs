@@ -64,6 +64,9 @@ pub struct NaturalOptions {
     /// Season fixes another genesis round and the program derives another genesis seed (terrain, sites, Free City,
     /// dispersed home offsets) by its unchanged rules. Ignored by a resumed world (its ledger's origin wins).
     pub map_origin: Option<i64>,
+    /// TEST-ONLY `--wide-land local-wide-land-v1` (`wide_land`): the Season from `S1_DEVNET_WIDE_7D`, grown to the rim
+    /// and into the wide land during the setup. Memory-only and finite: never with `continuous` or `persist`.
+    pub wide: bool,
 }
 
 /// `--continuous local-continuous-v1` (exactly that word), `--persist-dir <absolute path>` and `--map-origin <unix
