@@ -54,6 +54,39 @@ export function seasonPlace(season) {
 export const grantId = h => `${h.p},${h.q},${h.site},${h.gen}`;
 
 /**
+ * (TEST-ONLY wide play, LOCAL play only: owner t379u 「広い版がんばれ」) In a local wide-land world (the launcher's
+ * `--wide-land`, stated to this page as `FS.localPlay.wideLand`) a first village may also be placed in a SETTLED
+ * province outside the heartland (⑭ R3, the program's PlaceHome: `target_used > 0`, `spawn_reach` > 0) — the world's
+ * runner settles rim provinces beside the wide land for every nation — and those are offered FIRST (outward), so that
+ * a newcomer starts where the wide land can be claimed. The nation of a province there is the mixed placement's (2:
+ * ⑧ (c), every ring ≥ 2). Every other world, and every non-local page, is exactly as before.
+ */
+export const wideLocal = FS => !!FS?.localPlay?.wideLand;
+export function homePlaceOf(FS) {
+  const base = seasonPlace(FS?.season);
+  if (!base || !wideLocal(FS)) return base;
+  return { ...base, placement: 2, outward: true };
+}
+/** The rings a first village may be placed in: `homeRingsOpen`, or every open ring in a local wide-land world (R3 above). */
+export const homeRingsOf = (FS, ringsOpen) => (wideLocal(FS) ? (Number.isInteger(ringsOpen) ? ringsOpen : Infinity) : homeRingsOpen(FS?.season, ringsOpen));
+const settledSites = sites => (sites ?? []).some(s => s === 1);
+/** Outward candidates (`place.outward`): the nation's provinces with a free site, heartland or settled, farthest ring first. */
+function outwardCandidates(overviews, faction, place) {
+  const out = [];
+  for (const ov of overviews.values()) {
+    if (!ov?.provinces || ov.ring < 2) continue;
+    for (const pr of ov.provinces) {
+      if (homeNation(pr.p, pr.q, place) !== faction) continue;
+      const ring = ringOf(pr.p, pr.q);
+      if (ring > Number(place.heartlandMaxRing) && !settledSites(pr.sites)) continue;
+      const free = pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
+      if (free > 0) out.push({ p: pr.p, q: pr.q, ring, free });
+    }
+  }
+  return out.sort((a, b) => b.ring - a.ring || a.p - b.p || a.q - b.q);
+}
+
+/**
  * The rings a first village may be placed in, as a count like `ringsOpen` (rings 0 .. n−1): the season's open
  * rings, and on a v2 Season (a conquest block with `heartlandMaxRing`) no further than the heartland, since PlaceHome
  * refuses a ring above `heartland_max_ring` (ReservedSite) whether or not it is open. A map that has grown past the
@@ -71,6 +104,8 @@ export function homeRingsOpen(season, ringsOpen) {
 /** `place` = {placement, heartlandMaxRing, genesisSeed} (fgeo `homeNation`); absent: the wedge rule. */
 export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = Infinity, place = undefined } = {}) {
   if (!province || ringOf(province.p, province.q) < 2 || ringOf(province.p, province.q) >= ringsOpen) return [];
+  // (outward, local wide play: past the heartland only a settled province takes a first village — ⑭ R3)
+  if (place?.outward && ringOf(province.p, province.q) > Number(place.heartlandMaxRing) && !(province.siteMirror ?? []).some(m => m?.state === 1)) return [];
   const f = homeNation(province.p, province.q, place);
   if (f === null || (faction !== null && f !== faction)) return [];
   if ((province.ticketCohorts ?? []).some(c => c.filed > c.settled && nowBell < c.bell + COHORT_BELLS)) return [];
@@ -79,9 +114,9 @@ export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = I
 
 /** At most 24 reads, different nations before joining, different places after. */
 export async function planHomes({ overviews, read, faction = null, nowBell = 0, ringsOpen = Infinity, seed = '', rotation = 0, max = 3, place = undefined }) {
-  if (place && (Number(place.placement) !== 1 || !place.genesisSeed || place.genesisSeed.length !== 32)) return { candidates: [], error: 'Unavailable', reads: 0 };
+  if (place && ((Number(place.placement) !== 1 && !(place.outward && Number(place.placement) === 2)) || !place.genesisSeed || place.genesisSeed.length !== 32)) return { candidates: [], error: 'Unavailable', reads: 0 };
   const factions = faction === null ? Array.from({ length: 6 }, (_, i) => (i + rotation) % 6) : [faction];
-  const lists = factions.map(f => candidateProvinces(overviews, f, place).sort((a, b) => a.ring - b.ring || hash32(`${seed}|${a.p},${a.q}`) - hash32(`${seed}|${b.p},${b.q}`)));
+  const lists = factions.map(f => (place?.outward ? outwardCandidates(overviews, f, place) : candidateProvinces(overviews, f, place).sort((a, b) => a.ring - b.ring || hash32(`${seed}|${a.p},${a.q}`) - hash32(`${seed}|${b.p},${b.q}`))));
   const candidates = [];
   let reads = 0, failures = 0;
   for (let round = 0; reads < 24 && lists.some(l => l[round]); round++) {

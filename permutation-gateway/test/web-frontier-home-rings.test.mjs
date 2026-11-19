@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ringProvinces, ringOf, wedgeOf, homeNation } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { freeByNation, freeByWedge, FIRST_TICKET_RING } from '../../permutation-server/web/frontier/fland.mjs';
-import { homeRingsOpen, homeSites, planHomes, seasonPlace } from '../../permutation-server/web/frontier/home.mjs';
+import { homeRingsOpen, homeSites, planHomes, seasonPlace, homePlaceOf, homeRingsOf } from '../../permutation-server/web/frontier/home.mjs';
 import { factionCards } from '../../permutation-server/web/frontier/screens/join.mjs';
 import { wedgeSites } from '../../permutation-server/web/frontier/map/waitview.mjs';
 import * as HL from '../../permutation-server/web/frontier/map/homeland.mjs';
@@ -127,9 +127,13 @@ test('every reader of the home candidates takes the home rings: the planner, the
   const ctl = source('controller.mjs'), app = source('app.mjs'), map = source('map/fmap.mjs'), join = source('screens/join.mjs');
   // (2026-11-15: every reader counts the home rings from the Concord without a gap — contiguousRings — the map tap's
   //  expression; web-frontier-home-rings-sparse.test.mjs has the measured sparse vector)
-  assert.match(ctl, /planHomes\(\{ overviews: FS\.overviews, faction, nowBell: nowBell\(\), place: seasonPlace\(FS\.season\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\),/);
-  assert.match(ctl, /homeSites\(env\?\.province, \{ faction: site\.faction, nowBell: nowBell\(\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\), place: seasonPlace\(FS\.season\) \}\)/);
-  assert.match(app, /homeSites\(FS\.provinces\.get\(`\$\{hit\.p\},\$\{hit\.q\}`\)\?\.province, \{ faction: FS\.citizen\?\.faction \?\? null, nowBell: FS\.nowBell, ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(worldNow\(\)\) : 0\), place: seasonPlace\(FS\.season\) \}\)/);
+  // (wide-local-playable: home.mjs homeRingsOf / homePlaceOf = homeRingsOpen / seasonPlace outside a local wide world)
+  assert.match(ctl, /planHomes\(\{ overviews: FS\.overviews, faction, nowBell: nowBell\(\), place: homePlaceOf\(FS\), ringsOpen: homeRingsOf\(FS, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\),/);
+  assert.match(ctl, /homeSites\(env\?\.province, \{ faction: site\.faction, nowBell: nowBell\(\), ringsOpen: homeRingsOf\(FS, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\), place: homePlaceOf\(FS\) \}\)/);
+  assert.match(app, /homeSites\(FS\.provinces\.get\(`\$\{hit\.p\},\$\{hit\.q\}`\)\?\.province, \{ faction: FS\.citizen\?\.faction \?\? null, nowBell: FS\.nowBell, ringsOpen: homeRingsOf\(FS, FS\.record \? contiguousRings\(worldNow\(\)\) : 0\), place: homePlaceOf\(FS\) \}\)/);
+  for (const fs of [{ season: { conquestParams: { placement: 2, heartlandMaxRing: 3 } } }, { season: { conquestParams: { placement: 0, heartlandMaxRing: 3 } } }]) {
+    assert.deepEqual(homePlaceOf(fs), seasonPlace(fs.season)); assert.equal(homeRingsOf(fs, 9), homeRingsOpen(fs.season, 9));
+  }
   for (const [name, src] of [['controller.mjs', ctl], ['app.mjs', app]]) assert.doesNotMatch(src, /homeSites\([^\n]*ringsOpen: FS\.record\?\.rings/, `${name}: no home read by the open rings alone`);
   assert.match(app, /homeRings: homeRingsOpen\(FS\.season, contiguousRings\(worldNow\(\)\)\),/, 'the map source carries the home rings beside the open rings');
   // (stale at d85884fa already: the map source reads the world's own count and seeded rings, map/world.mjs)

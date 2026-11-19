@@ -40,6 +40,20 @@ import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutati
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf } from './local-play-operator-policy.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
+import { claimTargets, settlerCost } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
+import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
+import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
+
+/**
+ * (TEST-ONLY wide play) Whether `holding` (the page's decoder's fields) holds the settler cost of the citizen's next
+ * holding (`holdingsN` after it) at chain time `secs`. False when anything is unreadable.
+ */
+export function coversSettlerCost(holding, secs, holdingsN) {
+  try {
+    const have = storesAt(holding, secs, RESOURCE_ORDER).map(x => x.value), need = settlerCost(holdingsN);
+    return need.every((n, i) => (have[i] ?? 0) >= n);
+  } catch { return false; }
+}
 
 const SPKI_ED25519_PREFIX = 12;   // (an ed25519 SPKI DER is 12 bytes of header, then the 32-byte public key)
 
@@ -124,7 +138,7 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'wide'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   const count = Number(o.count);
@@ -140,7 +154,14 @@ export function parseArgs(argv) {
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
   if (o['keys-dir'] !== undefined && !path.isAbsolute(o['keys-dir'])) throw new Error('--keys-dir (absolute path)');
   if (o['keys-dir'] !== undefined) privateOrThrow(o['keys-dir'], true);
-  return { count, ports, herald: o.herald, homes, ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
+  // (TEST-ONLY wide play: the opened wide provinces `[{p, q}]`, decimal strings, from the runner's first line)
+  let wide = null;
+  if (o.wide !== undefined) {
+    wide = JSON.parse(o.wide);
+    if (!Array.isArray(wide) || !wide.length || wide.length > 4096 || !wide.every(t => t && /^-?[0-9]{1,19}$/.test(String(t.p)) && /^-?[0-9]{1,19}$/.test(String(t.q)))) throw new Error('--wide');
+    wide = Object.freeze(wide.map(t => Object.freeze({ p: String(t.p), q: String(t.q) })));
+  }
+  return { count, ports, herald: o.herald, homes, ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', OPERATOR_DEFAULTS.cadenceMs), maxActs: num('max-acts', OPERATOR_DEFAULTS.maxActs), maxRefusals: num('max-refusals', OPERATOR_DEFAULTS.maxRefusals), minGapMs: num('min-gap-ms', OPERATOR_DEFAULTS.minGapMs) };
 }
 
 /** PR #62's relay answer: this resident already acted in this bell (re-exported from resident-turns.mjs). */
@@ -161,14 +182,21 @@ export function genesisOf(record, rulesetHash = null, decode = decodePrefix) {
  * send and follow. → the line to print. `bell`: the bell of this round (`bellOf`), or null (then nothing is sent).
  * `deps` (tests): `read(wallet)`, `submit(order, ctx)`, `follow(signature)`, `now()` (ms), `nowSecs()`.
  */
-export async function residentTurn(r, { homes, deps, bell = null }) {
+export async function residentTurn(r, { homes, deps, bell = null, wideTargets = null }) {
   const t = deps.now();
   const allow = r.budget.allow(t, bell);
   if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.stopped ? 'stopped' : 'later', why: allow.why };
   let me;
   try { me = await deps.read(r.key.address); } catch (e) { return { resident: r.index, wallet: r.key.address, step: 'read', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 80) }; }
   const view = residentView(me, (kind, bytes) => decodePrefix(kind, bytes, { profile: 2 }));
-  const d = decideNext(r.memory, view, { homes, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null });
+  // (TEST-ONLY wide play: the opened wide provinces within reach of the village, and whether its stores cover the claim)
+  let wide = null;
+  if (Array.isArray(wideTargets)) {
+    const v = view?.holding;
+    const secs = v ? await deps.nowSecs().catch(() => null) : null;
+    wide = { targets: v ? claimTargets(v, wideTargets) : [], canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 2 + (view.wide ?? 0)) };
+  }
+  const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null };
   if (d.wait) { noteOutcome(r.memory, d, 'wait'); return { resident: r.index, wallet: r.key.address, step: 'decide', outcome: 'wait', why: d.why, seen }; }
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
@@ -262,7 +290,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     for (const r of residents) {
       if (stop.signal.aborted) break;
       if (r.budget.state().stopped) continue;   // (said once, when it stopped)
-      const line = await residentTurn(r, { homes: o.homes, deps, bell });
+      const line = await residentTurn(r, { homes: o.homes, deps, bell, wideTargets: o.wide ?? null });
       if (quiet.fresh(line)) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, bell, ...line }));
     }
     turns++;

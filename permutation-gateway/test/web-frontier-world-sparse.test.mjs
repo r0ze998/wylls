@@ -107,7 +107,7 @@ test('the page reads the world\'s extent, not the record\'s length: source, rost
   assert.match(app, /return \{ overviews: FS\.overviews, ringsOpen: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own,/, 'the map source carries the seeded rings');
   assert.equal(app.split('for (const d of seededNow()) rosterRef.ensure(d);').length - 1, 2, 'the roster is asked for the seeded rings only (both places)');
   assert.match(app, /rings: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own:/, 'the minimap is given the seeded rings'); assert.match(app, /minimap\.frameOf\(ringsOpenNow\(\) \+ 1, r\.width\);/);
-  assert.equal(app.split('homeRingsOpen(FS.season, ').length - 1, 2); assert.equal(app.split('contiguousRings(worldNow())').length - 1, 2, 'home rings are counted from the centre without a gap');
+  assert.equal(app.split('homeRingsOpen(FS.season, ').length - 1, 1); assert.equal(app.split('homeRingsOf(FS, ').length - 1, 1, 'the tap: home.mjs homeRingsOf (wide-local-playable)'); assert.equal(app.split('contiguousRings(worldNow())').length - 1, 2, 'home rings are counted from the centre without a gap');
   assert.match(app, /function loadOverviews\(herald, rings = overviewRings\(FS\.world, FS\.overviewTaken\)\)/, 'the boot asks for the overviews the world wants');
   // the renderer: every "is this ring open" goes through the seeded test; ringsOpen alone still bounds sheet, sea and camera
   assert.match(fmap, /const ringIsOpen = ringOpenOf\(src\);/);

@@ -85,4 +85,7 @@ pub mod wide_destination;
 // TEST-ONLY wide land on a natural world: the devnet wide preset, the map grown to the rim, wide rings 129+
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_land;
+// TEST-ONLY local play rules (the centre free; the wide world's Hamlet anchor) and wide play (rim homes, wide claims' duty)
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_play;
 pub mod world;

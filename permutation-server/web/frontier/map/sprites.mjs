@@ -405,6 +405,15 @@ function sharedEdge(a, b) {
 /** The overview's site identity, including PSFOV2 kinds (its legacy prefix cannot encode a Free City). */
 export const overviewArtKey = rec => rec ? `${rec.control ?? ''}:${rec.owners.join('')}${rec.sites.join('')}|${rec.siteKinds?.join('') ?? ''}` : '';
 
+/**
+ * ⑭ R2 (centre-free season, conquest byte 81 = 1): rings 0-1 are ordinary land, so ring 1 has no Seat camps and its
+ * province centres draw their own tiles. Set by the page when it reads the Season (app.mjs); off (the Seats drawn,
+ * as before) until then and in every season that keeps its centre.
+ */
+let CENTRE_LAND = false;
+export function setCentreLand(on) { CENTRE_LAND = on === true; }
+export const centreLand = () => CENTRE_LAND;
+
 export class SpriteArt {
   /** `onLoad`: something still changed (art arrived): repaint all. `onTick`: an animation frame is due. */
   constructor({ onLoad = () => {}, onTick = onLoad, base = BASE } = {}) {
@@ -1100,7 +1109,7 @@ export class SpriteArt {
     // ground at the tile view: it is in the province's ground bitmap, not drawn tile by tile on every moving frame
     // (some 600 sprites a frame, most of a moving frame's props). Not where a tile carries something of its own
     const lowProp = (t) => !far && !t.cloud && t.lv >= L2 && LOW_PROPS.has(t.name) && !t.river && !siteGround(t) && !t.relic && !t.waystone
-      && !(t.ring === 1 && (t.centre || nearCentre(t)));
+      && !(!CENTRE_LAND && t.ring === 1 && (t.centre || nearCentre(t)));
     // the still ground of one tile: its sprite, shores and beaches, roads
     const groundOf = (t) => {
       const img = t.river ? this.image('rivers', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
@@ -1363,13 +1372,13 @@ export class SpriteArt {
       // (a ring that has just opened still sheds its cloud: the chart comes out from under it)
       if (t.lv < L2) { if (opening !== null && t.ring === opening && openFrame < 8) { const c = this.image('fog', s.key, `cloud_1_open_${openFrame}`); if (c) draw(c, t); } return; }
       // a Seat's camp spreads over its province's centre and six neighbours
-      if (t.centre && t.ring === 1) {
+      if (!CENTRE_LAND && t.centre && t.ring === 1) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 1.8;
         const st0 = this.image('specials', es.key, `seat_${ART_FACTIONS[wedgeOf(t.p, t.pq)] ?? 'ember'}`), st = st0 && t.lv === L2 && !far ? mutedSprite(st0) : st0;
         if (st) raise(t.x, t.y, () => g.drawImage(st, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m));
         return;
       }
-      if (t.ring === 1 && nearCentre(t)) return;
+      if (!CENTRE_LAND && t.ring === 1 && nearCentre(t)) return;
       if (t.relic) {
         const f = t.relic.holder;
         const img = this.image('specials', s.key, f === null || f === undefined ? 'relic_open' : `relic_${ART_FACTIONS[f]}`);
@@ -1579,7 +1588,7 @@ export class SpriteArt {
       // a host stands in the scene: a mountain, a wood or a town on a tile in front of it covers it. The figure
       // is drawn on a scratch, the things in front are cut out of it, and what is left goes onto the map
       const m = ctx.getTransform?.() ?? null, sc = m && m.a > 0 ? this.scratch ??= spare(8, 8) : null, sg = sc?.getContext?.('2d') ?? null;
-      const tall = (u) => !!u && !u.cloud && (TALL.has(u.name) || u.camp || (u.site !== undefined && u.state !== undefined && u.state !== 0) || (u.centre && u.ring <= 1));
+      const tall = (u) => !!u && !u.cloud && (TALL.has(u.name) || u.camp || (u.site !== undefined && u.state !== undefined && u.state !== 0) || (!CENTRE_LAND && u.centre && u.ring <= 1));
       for (const tok of tokens) {
         if (!figures && !(tok.character && RADIUS * zoom * (tok.character.share ?? 1) >= CHARACTER_FIGURE_MIN_R)) continue;
         // (a player's character stands beside its village, often on the tile next door: what is in front of it is in front of THAT hex)

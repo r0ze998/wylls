@@ -61,8 +61,12 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --wide          the WIDE version (TEST-ONLY launcher option --wide-land): the world's Season is the devnet wide
                   preset S1_DEVNET_WIDE_7D, and during its setup the program's own instructions grow the map one ring
                   per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131, with
-                  one test participant per nation. Then the natural clock (a turn is 10 min). The page's 「記録」
-                  (recorded world) view shows the wide land. Memory-only: a stop ends it (not with --demo/--resume)
+                  one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
+                  nation gets real homes on the rim: the page offers a rim village first, and from it the village
+                  screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
+                  ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. The page's
+                  「記録」 (recorded world) view shows the wide land. Memory-only: a stop ends it (not with
+                  --demo/--resume)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
                   draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the
@@ -138,8 +142,15 @@ if [ "$RANDOM_MAP" = 1 ] && [ -z "$FRESH_MAP_WORD" ]; then
       "--random-map: the launcher on this checkout has no per-world fresh map (--fresh-map) yet; every local world has the same map."
   exit 5
 fi
-if [ "$WIDE" = 1 ] && { [ "$DEMO" = 1 ] || [ "$RESUME" = 1 ] || [ "$FRESH" = 1 ] || [ "$SPEED_SET" = 1 ] || [ "$TWO" = 1 ]; }; then
-  err "--wide は --demo / --resume / --fresh / --speed / --two と一緒には使えません (広い版はメモリだけの一人用の世界です)" "--wide cannot be combined with --demo, --resume, --fresh, --speed or --two (the wide version is a memory-only world for one player)"; exit 2
+if [ "$WIDE" = 1 ] && { [ "$DEMO" = 1 ] || [ "$RESUME" = 1 ] || [ "$FRESH" = 1 ] || [ "$TWO" = 1 ]; }; then
+  err "--wide は --demo / --resume / --fresh / --two と一緒には使えません (広い版はメモリだけの一人用の世界です)" "--wide cannot be combined with --demo, --resume, --fresh or --two (the wide version is a memory-only world for one player)"; exit 2
+fi
+# (the wide world's TEST clock: only when the launcher on this checkout takes --wide-scale; refused, never faked, otherwise)
+if [ "$WIDE" = 1 ] && ! grep -q "'wide-scale'" "$LAUNCHER" 2>/dev/null; then
+  if [ "$SPEED_SET" = 1 ]; then err "--wide --speed: このチェックアウトのランチャーには広い版の時計 (--wide-scale) がありません。" "--wide --speed: the launcher on this checkout has no wide clock (--wide-scale)."; exit 5; fi
+  WIDE_SCALE_OK=0
+else
+  WIDE_SCALE_OK=1
 fi
 # (the wide land: only when the launcher on this checkout knows it; refused, never faked, otherwise)
 WIDE_WORD="$(sed -n "s/.*WIDE_LAND_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" 2>/dev/null | head -1)"
@@ -148,7 +159,7 @@ if [ "$WIDE" = 1 ] && [ -z "$WIDE_WORD" ]; then
   exit 5
 fi
 if [ "$DEMO" = 1 ] && [ "$RESUME" = 1 ]; then err "--demo の世界は保存されないので --resume できません" "--demo worlds are not kept, so they cannot be resumed (--resume)"; exit 2; fi
-if [ "$DEMO" = 0 ] && [ "$SPEED_SET" = 1 ]; then err "--speed は --demo と一緒にだけ使えます (保存する世界は通常の速さです)" "--speed works only with --demo (a kept world runs at the natural speed)"; exit 2; fi
+if [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ] && [ "$SPEED_SET" = 1 ]; then err "--speed は --demo か --wide と一緒にだけ使えます (保存する世界は通常の速さです)" "--speed works only with --demo or --wide (a kept world runs at the natural speed)"; exit 2; fi
 # (two people in one world: only when the launcher on this checkout takes the pair on a natural world — B16, fix-b14-b16)
 PAIR_WORD="$(sed -n "s/.*CONTEST_PAIR_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" 2>/dev/null | head -1)"
 if [ "$TWO" = 1 ] && { [ -z "$PAIR_WORD" ] || ! grep -q "out\['capture-demo'\] === undefined && !natural" "$LAUNCHER" 2>/dev/null; }; then
@@ -239,6 +250,7 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
     --world-preset local-natural-v1 --economy page-signed-v1 --march-trial local-march-trial-v1
   if [ "$WIDE" = 1 ]; then
     printf '%s\n' --wide-land "$WIDE_WORD"
+    if [ "$WIDE_SCALE_OK" = 1 ]; then printf '%s\n' --wide-scale "$SPEED"; fi
   elif [ "$DEMO" = 0 ]; then
     local cm pm
     cm="$(sed -n "s/.*CONTINUOUS_MODE = '\([a-z0-9-]*\)'.*/\1/p" "$LAUNCHER" | head -1)"
@@ -260,7 +272,7 @@ if [ "$PLAN" = 1 ]; then
   echo "test_only=yes"
   echo "lang=$LANG_UI"
   echo "ai=$AI"
-  echo "speed=$([ "$DEMO" = 1 ] && echo "$SPEED" || echo natural)"
+  echo "speed=$([ "$DEMO" = 1 ] || [ "$WIDE" = 1 ] && echo "$SPEED" || echo natural)"
   echo "minutes=$MINUTES"
   echo "port=$PORT"
   echo "world_port=$WORLD_PORT"
@@ -468,8 +480,10 @@ phase_start "4/4 ページ" "4/4 the page"
 say "" ""
 say "   ▶ ブラウザで開いてください:  $URL" "   ▶ Open in your browser:  $URL"
 if [ "$WIDE" = 1 ]; then
-  say "   TEST 専用の広い版: 地図はリング 128 まで広がり、広い土地 (リング 129〜131) が開いています。準備のあいだだけ時計を進め、その後は通常の速さ (1 ターン 10 分)。テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
-      "   TEST-ONLY wide version: the map is grown to ring 128 and the wide land (rings 129-131) is open. The clock was moved only during the setup; now the natural clock (a turn is 10 min). Test keys only. No real key, SOL or devnet. A stop ends this world."
+  say "   TEST 専用の広い版: 地図はリング 128 まで広がり、広い土地 (リング 129〜131) が開いています。時計は ×${SPEED} (1 ターン $((600 / SPEED)) 秒)。テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
+      "   TEST-ONLY wide version: the map is grown to ring 128 and the wide land (rings 129-131) is open. The clock runs at ×$SPEED (a turn is $((600 / SPEED)) s). Test keys only. No real key, SOL or devnet. A stop ends this world."
+  say "   最初の村は辺境 (リング 128、広い土地のとなり) に置けます。村の画面の「広い土地に村を出す」で広い土地に 2 つめの村を出せます (費用が貯まったら)。" \
+      "   Your first village can stand on the rim (ring 128, beside the wide land). The village screen's 「広い土地に村を出す」 claims a second village on the wide land (once the cost is saved)."
   say "   広い土地は地図の道具の「記録」ボタン (記録された世界・読み取り専用) で見られます。" "   The wide land is shown by the map tools' 「記録」 button (the recorded world, read-only)."
 elif [ "$DEMO" = 1 ]; then
   say "   TEST 専用: ローカルのメモリ上のチェーン、×${SPEED} の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
