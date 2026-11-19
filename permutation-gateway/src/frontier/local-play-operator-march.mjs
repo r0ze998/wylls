@@ -22,6 +22,7 @@ import { planRoute, sendMarch, earliestBell, arrivalWindow, tipOptions, departMa
 import { sealMarch, checkBeacon } from '../../../permutation-server/web/frontier/seal.mjs';
 import { seasonClock, bellAt } from '../../../permutation-server/web/frontier/clock.mjs';
 import { hostsIn, actionBlocks } from '../../../permutation-server/web/frontier/fland.mjs';
+import { tileHex, TILE_OFFSETS } from '../../../permutation-server/web/frontier/fgeo.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { createLocalMarchSender, readLocalMarchCapability, localMarchReady, LOCAL_MARCH_READY } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { orderableHosts, chooseMarch, MAX_HOSTS } from './local-play-operator-war.mjs';
@@ -76,6 +77,29 @@ export function warRings(control, homeRings) {
   return [...new Set([...(control?.provinces ?? []).map(p => ring(p.p, p.q)), ...around])].filter(r => r >= 1 && near(r)).sort((a, b) => a - b);
 }
 
+/**
+ * (fix-loop4) The hexes a war march must not be planned through: every tile of each province within REACH_PROVINCES + 1
+ * of `homes` (ordinary land, ring 0 included) that no ring overview lists — a place with no Province account. The
+ * program's Reveal reads every Province of the road and refuses an absent one (BadAccount, Custom(2): a ×60 wide world's
+ * rim marches dipped into ring 127, which its growth never opened, and were never revealed — fix-loop4 play-through;
+ * #96 BREAK-4 for the expedition). The page blocks the centre's absent places the same way (map/world.mjs
+ * closedCentreHexes). `[{q, r}]`, the planner's `blocked`.
+ */
+export function absentHexes(overviews, homes) {
+  const present = new Set();
+  for (const o of overviews.values()) for (const pv of o.provinces ?? []) present.add(`${pv.p},${pv.q}`);
+  const seen = new Set(), out = [];
+  const R = REACH_PROVINCES + 1;
+  for (const h of homes) for (let dp = -R; dp <= R; dp++) for (let dq = Math.max(-R, -dp - R); dq <= Math.min(R, -dp + R); dq++) {
+    const p = h.p + dp, q = h.q + dq, k = `${p},${q}`;
+    if (seen.has(k) || ring(p, q) >= WIDE_FIRST_RING) continue;
+    seen.add(k);
+    if (present.has(k)) continue;
+    for (let i = 0; i < TILE_OFFSETS.length; i++) out.push(tileHex(p, q, i));
+  }
+  return out;
+}
+
 /** The first ring of the wide land (an ordinary Depart never goes there; wide marches are their own). */
 export const WIDE_FIRST_RING = 129;
 
@@ -109,7 +133,7 @@ export async function nearKeeps(keeps, overviews, homes, read) {
 export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fetch(...a) }) {
   const herald = createHerald({ base, fetch: f });
   let kernel = null, kernelFor = null;
-  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), seeds: [], controlBell: null, bellRead: null, homeRings: new Set(), homes: new Map() };
+  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), blocked: [], seeds: [], controlBell: null, bellRead: null, homeRings: new Set(), homes: new Map() };
   async function refresh() {
     const st = await (await f(`${base}/h/status`, { signal: AbortSignal.timeout(4000) })).json();
     const now = Array.isArray(st?.live) ? Number(st.live[1]) : NaN;
@@ -131,6 +155,7 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
           const overviews = new Map();
           for (const r of rings) { const o = await herald.overview2(r); if (o.ok) overviews.set(r, o); }
           world.keeps = await nearKeeps(keepsOf(c.control, overviews), overviews, [...world.homes.values()], (p, q) => herald.province(p, q));
+          world.blocked = absentHexes(overviews, [...world.homes.values()]);
           world.controlBell = c.control.bell;
         }
       }
@@ -178,7 +203,7 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     if (ready.length && free && kernel) {
       const near = new Map([...keeps].filter(([, k]) => ready.some(h => provinceDistance(h, k) <= REACH_PROVINCES)));
       const origins = ready.map(h => ({ p: h.p, q: h.q, tile: h.tile, unit: h.unit, host: String(h.id), troops: h.troops }));
-      const r = reachableKeeps({ kernel, keeps: near, origins, seeds: world.seeds, faction, nowBell, blocked: [] });
+      const r = reachableKeeps({ kernel, keeps: near, origins, seeds: world.seeds, faction, nowBell, blocked: world.blocked });
       const taken = row => (memory?.targets?.[`${row.p},${row.q}`] ?? -1) >= nowBell;
       if (r.ok) march = chooseMarch(r.rows, { taken });
       if (march) march = { ...march, host: ready.find(h => String(h.id) === march.row.origin.host) ?? null, province: provinces.get(`${march.row.origin.p},${march.row.origin.q}`) ?? null };
@@ -222,7 +247,7 @@ export async function openMarch(origin, wallet, { fetch: f = (...a) => globalThi
 export async function sendWarMarch(r, snap, eyes, { post } = {}) {
   const w = eyes.world, k = eyes.kernel();
   const { row, host, province } = snap.march;
-  const route = planRoute(k, { from: { p: row.origin.p, q: row.origin.q, tile: row.origin.tile }, to: { p: row.p, q: row.q, tile: row.tile }, unit: host.unit, seeds: w.seeds, blocked: [] });
+  const route = planRoute(k, { from: { p: row.origin.p, q: row.origin.q, tile: row.origin.tile }, to: { p: row.p, q: row.q, tile: row.tile }, unit: host.unit, seeds: w.seeds, blocked: w.blocked ?? [] });
   if (!route.ok) return { ok: false, step: 'route', code: route.code };
   // (the chain's time now, as the page's chain clock extrapolates it from its last sample at the measured rate)
   const nowSecs = () => w.now + Math.max(0, (Date.now() - w.sampledAt) / 1000) * (w.rate ?? 1);

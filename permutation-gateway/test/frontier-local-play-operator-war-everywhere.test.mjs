@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { chooseMarch, MUSTER_MIN } from '../src/frontier/local-play-operator-war.mjs';
 import { createResidentMemory, decideNext, noteOutcome, createOperatorBudget } from '../src/frontier/local-play-operator-policy.mjs';
-import { warRings, nearKeeps, REACH_PROVINCES, WIDE_FIRST_RING } from '../src/frontier/local-play-operator-march.mjs';
+import { warRings, nearKeeps, absentHexes, REACH_PROVINCES, WIDE_FIRST_RING } from '../src/frontier/local-play-operator-march.mjs';
 import { residentTurn, WAR_DEFAULTS, parseArgs, WAR_WIDE_RETRY_BELLS } from '../src/frontier/local-play-operator-residents.mjs';
 import { wideMarchDue } from '../src/frontier/local-play-operator-policy.mjs';
 
@@ -127,4 +127,22 @@ test('the war eyes take the keeps in reach from their own province records, as t
   assert.equal(old.get('-62,128').holder, 7, 'the snapshot passed in is not changed');
   const failing = await nearKeeps(new Map(), ov, [{ p: -63, q: 128 }], async () => { throw new Error('down'); });
   assert.equal(failing.size, 0, 'a failed read adds nothing');
+});
+
+test('a war march is never planned through a place with no Province (the program could never reveal it)', () => {
+  // (a rim village at (-128, 67): the ring overviews list rings 124-128 partly; ring 127 behind the rim is absent)
+  const ov = new Map([[128, { provinces: [{ p: -128, q: 67 }, { p: -128, q: 66 }, { p: -128, q: 68 }] }]]);
+  const hexes = absentHexes(ov, [{ p: -128, q: 67 }]);
+  assert.equal(hexes.length % 61, 0, 'whole provinces');
+  const key = h => `${h.q},${h.r}`;
+  const all = new Set(hexes.map(key));
+  assert.ok(hexes.length > 0);
+  assert.equal(hexes.some(h => h === null), false);
+  const present = new Set(ov.get(128).provinces.map(x => `${x.p},${x.q}`));
+  assert.ok(present.size === 3);
+  assert.deepEqual(absentHexes(new Map(), []), [], 'no village: nothing');
+  // every present province's own tiles stay plannable
+  const again = absentHexes(new Map([[128, { provinces: [] }]]), [{ p: -128, q: 67 }]);
+  assert.ok(again.length > hexes.length, 'with the rim present, fewer hexes are blocked');
+  assert.ok(all.size === hexes.length, 'each hex once');
 });
