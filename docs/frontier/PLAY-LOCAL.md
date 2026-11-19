@@ -215,6 +215,5 @@ scripts/play-local.sh --wide
   - AI residents (`--ai N`) request rim villages too, save (harvest only) and claim wide land; one action per turn.
 - Not possible yet (2026-11-19):
   - a march into the wide land: the program's WideDepart is still closed in SBF (`NotImplemented`);
-  - the ordinary map never draws rings 129 and out: wide villages are seen in the 「記録」 view;
   - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time.
 - Not with `--demo`, `--resume`, `--fresh` or `--two` (the wide version is for one player). A stop ends the world.
