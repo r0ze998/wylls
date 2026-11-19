@@ -5114,3 +5114,284 @@ mod verifier_coverage_2 {
         }
     }
 }
+
+/// verify-pr100 (independent review of #100): the reviewer's own mutations
+/// of the `Sc::Closes` / `Sc::WideRaw` recordings, and of a recording made
+/// on a LOCAL land `.so` (`localnet-wide-depart`), none of which may PASS.
+mod verify_pr100 {
+    use super::*;
+
+    fn strip(inp: &mut Input) {
+        for x in inp.txs.iter_mut() {
+            x.post.clear();
+        }
+    }
+
+    fn fails(inp: &Input, what: &str) -> Report {
+        let rep = verify_core::verify(inp);
+        assert_eq!(rep.verdict, Verdict::Fail, "{what}: {:#?}", show(&rep));
+        rep
+    }
+
+    fn not_pass(inp: &Input, what: &str) -> Report {
+        let rep = verify_core::verify(inp);
+        assert_ne!(rep.verdict, Verdict::Pass, "{what}: {:#?}", show(&rep));
+        rep
+    }
+
+    fn gate_closed_any(rep: &Report) -> bool {
+        rep.findings
+            .iter()
+            .any(|f| f.check == "V0" && f.code == "GateClosed")
+    }
+
+    fn close_of(inp: &Input, what: u8) -> usize {
+        *of_native(inp, "WideClose")
+            .iter()
+            .find(|&&t| prog_ix(inp, t).unwrap().0[1] == what)
+            .unwrap_or_else(|| panic!("a successful WideClose({what})"))
+    }
+
+    fn devnet_hash() -> [u8; 32] {
+        hex::decode(MAIN_SHA256).unwrap().try_into().unwrap()
+    }
+
+    /// The reviewer's local land recording and its `.so`
+    /// (`PSF_LOCAL_LAND_SO`, `PSF_LOCAL_WIDERAW`), or `None` (CI).
+    fn local() -> Option<Input> {
+        let so = std::fs::read(std::env::var("PSF_LOCAL_LAND_SO").ok()?).unwrap();
+        let mut inp = Input::load(std::path::Path::new(
+            &std::env::var("PSF_LOCAL_WIDERAW").ok()?,
+        ))
+        .unwrap();
+        assert_eq!(inp.cfg.program_hash, Some(common::sha2_256(&so)));
+        inp.program_so = Some(std::sync::Arc::new(so));
+        Some(inp)
+    }
+
+    /// R1: the ArrivalDay close's archived receipt gains a log line the
+    /// program does not write.
+    #[test]
+    fn r01_day_close_extra_log_line_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_DAY);
+        let n = inp.txs[t].logs.len() - 1;
+        inp.txs[t]
+            .logs
+            .insert(n, "Program log: refund doubled".into());
+        let rep = fails(&inp, "R1");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+    }
+
+    /// R2: the ClashInputs close moved before the Season's end (first
+    /// position after its creating gather is not needed: anywhere earlier
+    /// than EndSeason) — the program refuses it there.
+    #[test]
+    fn r02_inputs_close_moved_before_season_end_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_INPUTS);
+        let x = inp.txs.remove(t);
+        let to = inp.txs.len() / 3;
+        inp.txs.insert(to, x);
+        not_pass(&inp, "R2");
+        fails(&inp, "R2");
+    }
+
+    /// R3: the ClashInputs close's rent shown going to the fee payer on
+    /// chain (the balances), not to the record's immutable recipient.
+    #[test]
+    fn r03_inputs_close_rent_redirected_on_chain_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_INPUTS);
+        strip(&mut inp);
+        let s = inp.txs[t].signature.to_string();
+        let b = inp.chain.balances.get_mut(&s).unwrap();
+        // (the recipient may be the fee payer itself, key 0: the keeper
+        // funded the record's rent)
+        let i = (0..b.post.len())
+            .find(|&i| b.post[i] > b.pre[i])
+            .expect("a credited recipient");
+        // part of it left in the closed record (writable, debited): a
+        // close that did not close; conserved. (Onto a read-only account
+        // it is VG's UNVERIFIABLE: not a chain's balances.)
+        let j = (0..b.post.len())
+            .find(|&j| j != i && b.pre[j] > b.post[j])
+            .expect("the closed record");
+        b.post[i] -= 1000;
+        b.post[j] += 1000;
+        fails(&inp, "R3");
+    }
+
+    /// R4: the raw WideGather omitted from the WideRaw archive (its
+    /// ClashInputs then appear from nowhere for the resolve and the close).
+    #[test]
+    fn r04_raw_gather_omitted_fails() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = of_native(&inp, "WideGather")[0];
+        inp.txs.remove(t);
+        not_pass(&inp, "R4");
+        let mut s = inp.clone();
+        strip(&mut s);
+        not_pass(&s, "R4 stripped");
+    }
+
+    /// R5: the ArrivalDay close replayed twice (the second has nothing to
+    /// close), with and without post-states.
+    #[test]
+    fn r05_day_close_replayed_twice_fails() {
+        for strip_posts in [false, true] {
+            let mut inp = cov(Sc::Closes);
+            let t = close_of(&inp, wix::CLOSE_WHAT_DAY);
+            let dup = inp.txs[t].clone();
+            inp.txs.insert(t + 1, dup);
+            if strip_posts {
+                strip(&mut inp);
+            }
+            fails(&inp, "R5");
+        }
+    }
+
+    /// R6: the WideRaw WideDepart probe shown as a success while the
+    /// archive observed NO deployment: still FAIL (V0 GateClosed against
+    /// the pin; VX: the pinned binary refuses it), never PASS.
+    #[test]
+    fn r06_gated_depart_success_with_no_observed_deployment_fails() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = (0..inp.txs.len())
+            .find(|&t| inp.txs[t].err.is_some() && native_at(&inp, t) == Some("WideDepart"))
+            .unwrap();
+        inp.txs[t].err = None;
+        inp.txs[t].code = None;
+        inp.program_hashes.clear();
+        let rep = fails(&inp, "R6");
+        assert!(gate_closed_any(&rep));
+    }
+
+    /// R7: a gated success where the chain served ANOTHER binary than the
+    /// pinned devnet one: V0's gate rule is silent (V2's mismatch FAILs).
+    #[test]
+    fn r07_gated_success_on_an_observed_other_binary_is_v2s_fail_not_v0s() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = (0..inp.txs.len())
+            .find(|&t| inp.txs[t].err.is_some() && native_at(&inp, t) == Some("WideDepart"))
+            .unwrap();
+        inp.txs[t].err = None;
+        inp.txs[t].code = None;
+        inp.program_hashes = vec![(0, [0x6f; 32])];
+        let rep = fails(&inp, "R7");
+        assert!(!gate_closed_any(&rep), "{:#?}", show(&rep));
+        assert!(rep
+            .findings
+            .iter()
+            .any(|f| f.check == "V2" && f.code == "ProgramMismatch" && f.fail()));
+    }
+
+    /// R8: the ClashInputs close's post-state shows the record still open
+    /// with its data (the program closed it).
+    #[test]
+    fn r08_inputs_close_shown_leaving_the_record_fails() {
+        let mut inp = cov(Sc::Closes);
+        let t = close_of(&inp, wix::CLOSE_WHAT_INPUTS);
+        let (k, _) = inp.txs[t]
+            .post
+            .iter()
+            .find(|(_, a)| a.as_ref().is_none_or(|a| a.lamports == 0))
+            .cloned()
+            .expect("the inputs closed");
+        let back = inp.txs[..t]
+            .iter()
+            .rev()
+            .find_map(|x| x.post.iter().find(|(y, _)| *y == k).cloned())
+            .unwrap();
+        inp.txs[t].post.iter_mut().find(|(y, _)| *y == k).unwrap().1 = back.1;
+        let rep = fails(&inp, "R8");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+    }
+
+    /// R9: the raw WideGather's archived failure flag set (archived as
+    /// failed though the program ran it): what follows leans on its
+    /// ClashInputs.
+    #[test]
+    fn r09_raw_gather_archived_as_failed_is_not_a_pass() {
+        let mut inp = cov(Sc::WideRaw);
+        let t = of_native(&inp, "WideGather")[0];
+        inp.txs[t].err = Some("InstructionError(0, Custom(2))".into());
+        inp.txs[t].code = Some(2);
+        not_pass(&inp, "R9");
+    }
+
+    /// R10 (local land .so, evidence only): the honest recording has no
+    /// FAIL and no GateClosed; re-pinned to the devnet binary it FAILs;
+    /// the WideDepart's transit post-state forged FAILs; the devnet `.so`
+    /// given under the local pin never PASSes and is no GateClosed.
+    #[test]
+    #[ignore = "needs PSF_LOCAL_LAND_SO and PSF_LOCAL_WIDERAW (the reviewer's local recording)"]
+    fn r10_local_land_recording_honest_and_mutated() {
+        let inp = local().expect("PSF_LOCAL_LAND_SO / PSF_LOCAL_WIDERAW");
+        let t = of_native(&inp, "WideDepart");
+        assert_eq!(t.len(), 1);
+        let t = t[0];
+        for strip_posts in [false, true] {
+            let mut i2 = inp.clone();
+            if strip_posts {
+                strip(&mut i2);
+            }
+            let rep = verify_core::verify(&i2);
+            println!(
+                "honest posts-stripped {strip_posts}: {:?} {:#?}",
+                rep.verdict,
+                show(&rep)
+            );
+            assert!(!rep.findings.iter().any(|f| f.fail()), "no FAIL");
+            assert!(!gate_closed_any(&rep));
+            assert!(vx_at(&rep, t).is_empty(), "{:?}", vx_at(&rep, t));
+        }
+        // (a) re-pinned to the devnet binary (the local recording judged as
+        // if it claimed to be devnet-playable)
+        let mut i2 = inp.clone();
+        i2.cfg.program_hash = Some(devnet_hash());
+        i2.program_so = Some(so());
+        let rep = fails(&i2, "R10a");
+        assert!(gate_closed_any(&rep) || fails_vx(&rep, t, "ReExecRefused"));
+        // (b) the WideDepart's created transit record forged
+        let mut i2 = inp.clone();
+        let k = i2.txs[t]
+            .post
+            .iter()
+            .find(|(_, a)| {
+                a.as_ref().is_some_and(|a| {
+                    a.owner == i2.cfg.program
+                        && a.data.len() == frontier_abi::world_index::march::WIDE_TRANSIT_LEN
+                })
+            })
+            .map(|(k, _)| *k)
+            .expect("the 288-byte transit record");
+        let a = i2.txs[t]
+            .post
+            .iter_mut()
+            .find(|(y, _)| *y == k)
+            .unwrap()
+            .1
+            .as_mut()
+            .unwrap();
+        a.data[100] ^= 1;
+        let rep = fails(&i2, "R10b");
+        assert!(fails_vx(&rep, t, "ReExecMismatch"), "{:?}", vx_at(&rep, t));
+        // (c) the devnet .so given under the local pin: VX cannot judge
+        let mut i2 = inp.clone();
+        i2.program_so = Some(so());
+        let rep = not_pass(&i2, "R10c");
+        assert!(!gate_closed_any(&rep));
+        // (d) the WideDepart's escrow shown going to the payer on chain
+        let mut i2 = inp.clone();
+        strip(&mut i2);
+        let s = i2.txs[t].signature.to_string();
+        let b = i2.chain.balances.get_mut(&s).unwrap();
+        let i = (1..b.post.len())
+            .find(|&i| b.post[i] > b.pre[i])
+            .expect("a credited account");
+        b.post[i] -= 1;
+        b.post[0] += 1;
+        fails(&i2, "R10d");
+    }
+}
