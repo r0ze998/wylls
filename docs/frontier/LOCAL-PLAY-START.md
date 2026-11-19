@@ -218,12 +218,12 @@ cannot be resumed) and off the natural preset:
   landed on the resumed chain. Disk: a continuous world's ledger grows with every turn; the launcher's 128 MiB output
   limit counts the whole directory and stops the world when it is reached.
 
-### (6) Operator AI residents and the six-nation recording (TEST-ONLY)
-Natural preset only, and never set over HTTP. Add one of these:
+### (6) Operator AI residents, the six-nation recording and the co-op board (TEST-ONLY)
+Natural preset only, and never set over HTTP. Add one of these (and, separately, the co-op board below):
 ```bash
 --operator-residents 3                 # 1-4 residents; their nations are fixed: 1, 4, 2, 5
 --operator-nations 1,4,2,5,0,3         # one resident per named nation, up to six (6 relay ports per world); not with --persist
---operator-max-acts 400                # optional: each resident's send budget (default 60)
+--operator-max-acts 400                # optional: a cap on each resident's sends for the whole world (default: none)
 ```
 Each resident is an ordinary participant. It has a memory-only TEST key (kept on disk only in a `--persist` world,
 §3 (5)), is funded like the player, and has its own relay. It joins, places a home and uses the economy commands by a fixed offline rule
@@ -231,6 +231,26 @@ Each resident is an ordinary participant. It has a memory-only TEST key (kept on
 residents are AI. `scripts/demo/sixnation/sixnation.sh` starts a world with all six nations and records it
 (see its README, EN and 日本語). With the capture demo, let the residents place their homes before the player does:
 afterwards a PlaceHome in the player's own nation was refused (`TicketState`, 45) in a trial on 2026-11-18.
+So with these options the world is **not** "no automatic opponent, nothing here is an AI" (contrast §3 (3)). Their
+roster is `operators.json` and their log `operators.out` in the world's directory.
+- **Pace:** each resident takes at most **one action per bell** (owner decision Q16-2: one action per resident per
+  turn; the bell is the program's own, counted from the Season's genesis on the chain's clock), with no cap for the
+  whole world, so residents keep playing until the world ends. On a ×10 two-hour test world (about 120 bells) that is
+  at most about 120 actions per resident; on 1× (12 bells) at most 12. A resident stops for good only after 12 refusals
+  in a row. Its log says a wait once, not every round. (Before 2026-11-18 the budget was 60 actions per world, spent in
+  about 20 turns: loop-play2 B12.)
+```bash
+--coop-board ws01-board-v1                         # ① the co-op board of each world
+```
+- **Co-op board** (`--coop-board ws01-board-v1`): workstream 01's board of requests between nations, for each world. The
+  launcher keeps it in its own process (records in the world's directory, `coop/`) and serves it on its own origin under
+  `/coop-world/<the world's proxy port>/`. The village card's co-op slot then opens 「国をまたぐ依頼を開く」 in a new
+  tab. That tab is offered **"Local Play Wallet (memory only) — co-op records only"**: the game tab's own key, which
+  there signs only ①'s board records (never a transaction). Choose it, press connect, and file or answer a request.
+  - Keep the game tab open: the board tab signs through it. Reloading the game tab makes a new key (as always in local
+    play), which is a different person to the board.
+  - Not in local play: sending a caravan from the board's page (the launcher passes no relay route there, and the board
+    page shows no send button). Requests and answers are records only; a caravan is sent from the village card.
 
 ### Then
 The page follows the browser's language; the top-right button switches Japanese ⇄ English. English labels in brackets
