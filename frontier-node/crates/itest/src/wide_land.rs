@@ -18,9 +18,13 @@
 //!    [`WIDE_RINGS`]` - 1` wide rings, a bell apart; on ring 128 the ordinary OpenProvince of every rim province that
 //!    borders a ring-129 province opened here ([`rim_plan`]), so the legacy edge and the wide land meet.
 //!
-//! 5. the rest of the heartland is opened only now (so its provinces start resolved to the turn the player joins at,
-//!    and the local keeper has nothing to catch up), one test participant per other nation places a home there, and
-//!    the first province is brought up to now by the keeper's own PostAnchor / FastForward ([`catch_up`]).
+//! 5. the rest of the heartland is opened only now, one test participant per other nation places a home there, and
+//!    EVERY opened province — the first, the rim opened at the growth's end, the heartland — is brought up to now by
+//!    the keeper's own PostAnchor / FastForward ([`catch_up_all`]; before fix wide-herald-lag only the first was, and
+//!    the rim started ~12 turns behind).
+//!
+//! From `ready-for-join` until the player's home lands, [`warm_keep`] keeps every province current (the keeper loop
+//! starts only on that home).
 //!
 //! Every step is the program's own instruction; no account is written directly; no rule, parameter or program byte
 //! changes beyond choosing the existing devnet preset for this local season. The clock after `ready-for-join` is the
@@ -943,14 +947,19 @@ pub async fn warm_keep(
                 if !lk::simulate_ix(&c, &payer, &ix).is_ok_and(|x| x.err.is_none()) {
                     continue; // (not quiet: the keeper loop resolves it for real)
                 }
-                let what = format!("FastForward({}, {} {} -> {to})", pq.0, pq.1, v.resolved_next);
+                let what = format!(
+                    "FastForward({}, {} {} -> {to})",
+                    pq.0, pq.1, v.resolved_next
+                );
                 let (blockhash, _) = c.latest_blockhash();
                 let t = fclient::tx::build(&[ix], &lk::budget(), &[&payer], &blockhash)?;
                 match c.submit(&fclient::tx::wire(&t)) {
                     Ok(sig) => batch.push((sig, what)),
                     Err(e) => {
                         failed += 1;
-                        out(json!({"schema": WIDE_SCHEMA, "wide_step": "warm_failed", "test_only": true, "what": what, "why": e.to_string()}));
+                        out(
+                            json!({"schema": WIDE_SCHEMA, "wide_step": "warm_failed", "test_only": true, "what": what, "why": e.to_string()}),
+                        );
                     }
                 }
             }
