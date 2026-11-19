@@ -127,6 +127,10 @@ test('the launcher: --wide-scale 1-60 only with --wide-land; the statement agree
   await assert.rejects(L.parseConfig([...natural, '--herald-output', 'compact-v2']), e => e.code === 'HeraldOutputNeedsCaptureDemo');
   await assert.rejects(L.parseConfig([...natural, '--wide-land', L.WIDE_LAND_MODE, '--herald-output', 'compact-v2']), e => e.code !== 'HeraldOutputNeedsCaptureDemo' && e.code !== 'InvalidHeraldOutput');
   assert.match(L.USAGE, /--herald-output compact-v1: TEST-ONLY, only with --capture-demo or --wide-land/);
+  // (and its own output guard: 512 MiB for a wide world, the 128 MiB of every other world unchanged)
+  assert.equal(L.WIDE_OUTPUT_MAX, 512 * 1024 ** 2); assert.equal(L.WORLD_OUTPUT_MAX, 128 * 1024 ** 2);
+  const src = (await import('node:fs')).readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
+  assert.ok(src.includes('outputMax: wide ? WIDE_OUTPUT_MAX : WORLD_OUTPUT_MAX'));
 });
 
 test('the page: the wide statement checked; rim-first homes only in a local wide world', () => {

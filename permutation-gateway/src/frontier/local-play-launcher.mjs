@@ -42,6 +42,8 @@ const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
 const RULESET = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
 /** Worlds at once; a world's life (the default; `--world-ttl-minutes` may choose another); its output; the disk's floor (bytes). */
 export const WORLD_LIMIT = 2, WORLD_TTL_MS = 7200000, WORLD_OUTPUT_MAX = 128 * 1024 ** 2, DISK_FLOOR = 5.25 * 1024 ** 3;
+/** (TEST-ONLY) The output guard of a `--wide-land` world (above). */
+export const WIDE_OUTPUT_MAX = 512 * 1024 ** 2;
 /** The page's statement of a world's automatic end (`expiryOf`). */
 export const WORLD_EXPIRY_SCHEMA = 'frontier-local-play-world-expiry-v1';
 /** The largest time a Date can hold (ms since the epoch). */
@@ -997,7 +999,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   if (second !== null && (!c.contestPair || (demo === null && !natural) || !validWallet(second) || second === wallet || slot + 1 >= WORLD_LIMIT)) throw fault('InvalidContestPair', 503);
   const { rpc, ws, herald, relay, internalHerald } = worldPorts(c.worldPort, slot);
   const pairPorts = second !== null ? worldPorts(c.worldPort, slot + 1) : null;
-  const limit = { ttlMs: c.worldTtlMs ?? WORLD_TTL_MS, outputMax: WORLD_OUTPUT_MAX, diskFloor: DISK_FLOOR, everyMs: 1000, ...c.guard };
+  // (TEST-ONLY wide land: its herald records a 129-ring map every turn — 128 MiB lasts ~40 min of a x60 clock even
+  //  compact (wide-local-playable run 4, ~3 MB/min) — so its world's output guard is WIDE_OUTPUT_MAX; the disk floor stands)
+  const limit = { ttlMs: c.worldTtlMs ?? WORLD_TTL_MS, outputMax: wide ? WIDE_OUTPUT_MAX : WORLD_OUTPUT_MAX, diskFloor: DISK_FLOOR, everyMs: 1000, ...c.guard };
   for (const p of [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : [])]) await freePort(p);
   const disk = await fs.statfs(c.data); if (disk.bavail * disk.bsize < limit.diskFloor) throw fault('DiskFloor', 503);
   // (persisted: the wallet's own stable private directory, and this start's logs inside it; otherwise a new directory)
