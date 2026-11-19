@@ -197,16 +197,21 @@ class Refusals(unittest.TestCase):
         self.assertNotIn('--wide-land', plan()['launcher'])
         for extra in [(), ('--ai', '0'), ('--random-map',), ('--minutes', '240')]:
             p = plan('--wide', *extra)
-            self.assertEqual((p['world'], p['speed'], p['mode']), ('wide', 'natural', 'fresh'), extra)
+            # (wide-local-playable: the wide world's TEST clock, default x60, as the launcher's --wide-scale)
+            self.assertEqual((p['world'], p['speed'], p['mode']), ('wide', '60', 'fresh'), extra)
             line = p['launcher']
             self.assertEqual(line.count('--wide-land local-wide-land-v1'), 1, extra)
+            self.assertEqual(line.count('--wide-scale 60'), 1, extra)
             # (a memory-only world of its own: not kept, not the demo, not the land preview)
             for bad in ['--continuous', '--persist', '--capture-demo', '--demo-scale', '--world-option']:
                 self.assertNotIn(bad, line, extra)
             self.assertTrue(p['data'].startswith(TMP + '/worlds/'), extra)
         # (never with the demo, a resume, a kept world's --fresh or the demo's --speed, in either order, before any write)
         st, _ = kept_state()
-        for args in [('--wide', '--demo'), ('--demo', '--wide'), ('--wide', '--fresh'), ('--wide', '--speed', '30'), ('--wide', '--two'), ('--two', '--wide')]:
+        p = plan('--wide', '--speed', '30')
+        self.assertEqual((p['speed'], p['launcher'].count('--wide-scale 30')), ('30', 1))
+        self.assertEqual(run('--print-plan', '--wide', '--speed', '9')[:2], (2, ''), 'the speed range is the demo\'s 10-60')
+        for args in [('--wide', '--demo'), ('--demo', '--wide'), ('--wide', '--fresh'), ('--wide', '--two'), ('--two', '--wide')]:
             code, out, err = run('--print-plan', *args)
             self.assertEqual((code, out), (2, ''), args)
             self.assertIn('--wide', err)
