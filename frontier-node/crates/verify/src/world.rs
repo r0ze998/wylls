@@ -502,6 +502,19 @@ impl World {
             .map(|a| a.data.as_slice())
     }
 
+    /// The lamports of `k`'s post-state written by the last successful
+    /// transaction before `tx` (exclusive) that wrote it.
+    pub fn lamports_before(&self, k: &Key, tx: usize) -> Option<u64> {
+        let v = self.posts.get(k)?;
+        let i = v.partition_point(|&t| t < tx);
+        let t = *v.get(i.checked_sub(1)?)?;
+        self.txs[t]
+            .post
+            .get(k)
+            .and_then(|a| a.as_ref())
+            .map(|a| a.lamports)
+    }
+
     /// The post-state of `k` after transaction `tx` (inclusive: its own
     /// post if it wrote `k`, else the last earlier one).
     pub fn state_after(&self, k: &Key, tx: usize) -> Option<&[u8]> {

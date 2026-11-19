@@ -24,6 +24,9 @@
 //!   amount actually paid consumes the day allowance; a partial claim pays
 //!   less, never more. Ambiguous receipt/instruction attribution is missing
 //!   evidence, not a reason to reuse the transaction's first instruction.
+//!   The Holding's own balance (in an archive with the transaction's
+//!   wallet post-states and both of the Holding's) must fall by exactly the pairs not kept as `pool_owed`
+//!   (verifier-wide-expedition, 2026-11-19: a drain the logs hide FAILs).
 //! - SETTLE's escrow refunds and global lamport conservation are not
 //!   judged in M1 (the contract makes conservation informational).
 //!
@@ -204,6 +207,43 @@ fn transits(cx: &mut Ctx) {
                     got.get(&POOL).copied().unwrap_or(0)
                 ),
             );
+        }
+        // verifier-wide-expedition (2026-11-19): the Holding pays the
+        // escrow out of its own lamports (`transit.rs` `pay`): what leaves
+        // it is every pair not kept as `pool_owed`. In an archive of the
+        // unfiltered feed (the transaction's wallet post-states are in
+        // it, as the real pipeline records them: D-verify-pr72-10), with
+        // both of the Holding's post-states, its balance must move by
+        // exactly that (a drain the logs do not show is a FAIL). A
+        // program-accounts-only archive (the synthetic march season) does
+        // not model balances and is not judged here.
+        let wallets_recorded = tx
+            .post
+            .values()
+            .any(|a| a.as_ref().is_some_and(|a| a.owner.to_bytes() != w.program));
+        if let Some(hk) = ix.key(2).filter(|_| wallets_recorded) {
+            let paid: u64 = ["tip", "fee", "bond", "reward"]
+                .iter()
+                .map(|a| r.pu64(a))
+                .sum();
+            let leaves = paid.saturating_sub(r.pu64("pool_owed_delta"));
+            if let (Some(before), Some(after)) = (
+                w.lamports_before(&hk, r.tx),
+                w.lamports_before(&hk, r.tx + 1),
+            ) {
+                if tx.post.contains_key(&hk) && before.checked_sub(leaves) != Some(after) {
+                    cx.fail(
+                        V,
+                        PAYMENT_MISMATCH,
+                        what.clone(),
+                        r.bell,
+                        Some(r.tx),
+                        format!(
+                            "the Holding's lamports went {before} → {after}; the logged payments take out {leaves}"
+                        ),
+                    );
+                }
+            }
         }
         let named_ok = chain_slot_ben
             .is_none_or(|b| b == slot_ben || outcome != transit_outcome::STAYS)
