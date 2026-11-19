@@ -145,7 +145,14 @@ localnet-nft-sbf = ["localnet-conquest-sbf", "nft-experimental"]
 land-preview = ["program", "frontier-abi/land-preview", "permutation-rules/land-preview"]
 # The localnet conquest lane plus the land preview (one feature value for
 # cargo-build-sbf), built only by scripts/build-frontier-localnet-land-sbf.sh.
-localnet-land-sbf = ["localnet-conquest-sbf", "land-preview"]
+localnet-land-sbf = ["localnet-conquest-sbf", "land-preview", "localnet-wide-depart"]
+# TEST-ONLY (owner t385u 2026-11-19 22:32 JST, Q-W2 「おすすめで」: local play only, devnet unchanged until
+# r0ze plays it): opens WideDepart's debit gate (`proc::wide::DEPART_DEBIT_ENABLED`) in the localnet lane, so a
+# wide village's host can march wide -> wide and contest a wide keep. Requires the localnet lane (program id
+# [0x45; 32], lib.rs guards); devnet-playable-sbf never carries it. Marker PSF_LOCALNET_WIDE_DEPART_BUILD.
+# THE SWITCH: remove "localnet-wide-depart" from localnet-land-sbf above and rebuild
+# (scripts/build-frontier-localnet-land-sbf.sh) to close the gate again.
+localnet-wide-depart = ["localnet-expedition-sbf"]
 # The DEVNET build of the playable lane (owner decision B7, 2026-11-18: ship
 # the playable build, expedition / wide land / conquest, to devnet). The same
 # code as localnet-land-sbf (version 0x4804, the expedition wrapper with

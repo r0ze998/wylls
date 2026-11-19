@@ -39,7 +39,7 @@ flags="$(od -An -t u4 -j 48 -N 4 "$so" | tr -d ' ')"
 [ "$flags" = 2 ] || { echo "$so: e_flags $flags, not 2 (SBPF v2)" >&2; bad=1; }
 ovf="$(count 'attempt to (add|subtract|multiply) with overflow' "$so")"
 [ "$ovf" -gt 0 ] || { echo "$so: built without overflow checks" >&2; bad=1; }
-for m in PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD; do
+for m in PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD PSF_LOCALNET_WIDE_DEPART_BUILD; do
   [ "$(count "$m" "$so")" -gt 0 ] || { echo "$so: marker $m missing" >&2; bad=1; }
 done
 for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_DEVNET_PLAYABLE_BUILD; do
@@ -50,7 +50,7 @@ echo "artefact       $so"
 echo "file_sha256    $(shasum -a 256 "$so" | cut -d' ' -f1)"
 echo "so_len         $(wc -c < "$so" | tr -d ' ')"
 echo "overflow_panic $ovf"
-echo "features       localnet-land-sbf (localnet-conquest-sbf + land-preview)"
+echo "features       localnet-land-sbf (localnet-conquest-sbf + land-preview + localnet-wide-depart: TEST-only WideDepart debit gate OPEN)"
 echo "program_id     [0x45; 32]"
 echo "land_tags      0xCD FoldLand, 0xCE ClaimLandYield (PROVISIONAL, unallocated)"
 echo "deployable     no"

@@ -4126,10 +4126,10 @@ pub fn close_roster(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
 /// `NotImplemented` refusal. No policy gate of the departure (the player
 /// prologue, the identity gate, the boundary, the funds) is bypassed by
 /// this: only the final refusal-before-effects is lifted, in that build.
-pub const DEPART_DEBIT_ENABLED: bool = cfg!(all(
-    test,
-    feature = "native-crypto-tests",
-    not(target_os = "solana")
+pub const DEPART_DEBIT_ENABLED: bool = cfg!(any(
+    all(test, feature = "native-crypto-tests", not(target_os = "solana")),
+    // TEST-only localnet lane (Cargo.toml `localnet-wide-depart`; never devnet)
+    feature = "localnet-wide-depart"
 ));
 
 /// 0xDA WideDepart(host ref, transit_slot, arrive_bell, tip, commit,
