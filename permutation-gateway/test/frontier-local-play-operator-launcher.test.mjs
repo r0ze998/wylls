@@ -126,7 +126,7 @@ test("the residents' own end never ends the people's world; a resident wallet th
   assert.deepEqual(b.funded, [], 'nothing funded for a refused roster');
 });
 
-test('the war option (owner t359u): exact word, only with residents and the capture demo; 5-12 residents only with it', { timeout: 30000 }, async t => {
+test('the war option (owner t359u): exact word, only with residents and the march trial — any natural world (loop-play4 B-6); 5-12 residents only with it', { timeout: 30000 }, async t => {
   const { tmp, c, so } = await tree(t);
   const base = { root: tmp, data: path.join(tmp, 'data3'), runner: c.runner, herald: c.herald, depart: c.runner, preview: c.runner, resident: c.runner, artifact: so, 'artifact-sha': 'cd'.repeat(32),
     'world-preset': 'local-natural-v1', 'natural-runner': c.naturalRunner, economy: 'page-signed-v1', 'march-trial': 'local-march-trial-v1', 'capture-demo': 'capture-demo-v1', 'demo-scale': '30', port: '41400', 'world-port': '41404' };
@@ -138,9 +138,16 @@ test('the war option (owner t359u): exact word, only with residents and the capt
   await refused({ ...base, 'operator-residents': '12' }, 'InvalidOperatorResidents');
   await refused({ ...base, 'operator-residents': '13', 'operator-war': 'operator-war-v1' }, 'InvalidOperatorResidents');
   await refused({ ...base, 'operator-residents': '6', 'operator-war': 'yes' }, 'InvalidOperatorWar');
-  await refused({ ...base, 'operator-war': 'operator-war-v1' }, 'OperatorWarNeedsResidentsDemo');
+  await refused({ ...base, 'operator-war': 'operator-war-v1' }, 'OperatorWarNeedsResidentsTrial');
+  // (loop-play4 B-6: no longer the capture demo's only — a plain, a kept and a wide natural world take it too)
   const { 'capture-demo': _c, 'demo-scale': _s, ...noDemo } = base;
-  await refused({ ...noDemo, 'operator-residents': '6', 'operator-war': 'operator-war-v1' }, 'OperatorWarNeedsResidentsDemo');
+  assert.equal((await parseConfig(argv({ ...noDemo, 'operator-residents': '4', 'operator-war': 'operator-war-v1' }))).operatorWar, true);
+  assert.equal((await parseConfig(argv({ ...noDemo, 'operator-residents': '4', 'operator-war': 'operator-war-v1', continuous: 'local-continuous-v1', persist: 'local-persist-v1' }))).operatorWar, true);
+  const wideOk = await parseConfig(argv({ ...noDemo, 'operator-residents': '4', 'operator-war': 'operator-war-v1', 'wide-land': 'local-wide-land-v1', 'wide-scale': '60', 'herald-output': 'compact-v2' }));
+  assert.deepEqual([wideOk.operatorWar, wideOk.wideLand], [true, true]);
+  // (but its marches are the page's own trial sends: never without the march trial)
+  const { 'march-trial': _m, ...noTrial } = noDemo;
+  await refused({ ...noTrial, 'operator-residents': '4', 'operator-war': 'operator-war-v1' }, 'OperatorWarNeedsResidentsTrial');
   // (12 residents: two worlds of five ports and two slots of twelve relays = 34 ports from the world port)
   await refused({ ...base, 'operator-residents': '12', 'operator-war': 'operator-war-v1', 'world-port': '41940', port: '41920' }, 'InvalidPorts');
   assert.equal((await parseConfig(argv({ ...base, 'operator-residents': '12', 'operator-war': 'operator-war-v1', 'world-port': '41936', port: '41920' }))).worldPort, 41936);

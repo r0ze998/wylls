@@ -16,12 +16,13 @@
 import fs from 'node:fs/promises';
 import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
 import { loadKernel } from '../../../permutation-server/web/frontier/wasm.mjs';
-import { conquestEnabled, kernelFile } from '../../../permutation-server/web/frontier/fconquest.mjs';
+import { conquestEnabled, kernelFile, keepFromProvince } from '../../../permutation-server/web/frontier/fconquest.mjs';
 import { reachableKeeps } from '../../../permutation-server/web/frontier/fkeepreach.mjs';
 import { planRoute, sendMarch, earliestBell, arrivalWindow, tipOptions, departMargin, DEPART_STAMINA, freeTransitSlot } from '../../../permutation-server/web/frontier/fmarch.mjs';
 import { sealMarch, checkBeacon } from '../../../permutation-server/web/frontier/seal.mjs';
 import { seasonClock, bellAt } from '../../../permutation-server/web/frontier/clock.mjs';
 import { hostsIn, actionBlocks } from '../../../permutation-server/web/frontier/fland.mjs';
+import { tileHex, TILE_OFFSETS } from '../../../permutation-server/web/frontier/fgeo.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { createLocalMarchSender, readLocalMarchCapability, localMarchReady, LOCAL_MARCH_READY } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { orderableHosts, chooseMarch, MAX_HOSTS } from './local-play-operator-war.mjs';
@@ -63,13 +64,76 @@ export function keepsOf(control, overviews) {
 }
 
 /**
+ * The rings whose overviews the war eyes read (loop-play4 B-6): every ring of the control snapshot from ring 1 out (a
+ * natural world's ring 1 is contestable land), within REACH_PROVINCES + 1 rings of a resident's village ring; none before
+ * any village is known. Ascending.
+ */
+export function warRings(control, homeRings) {
+  const homes = [...(homeRings ?? [])];
+  const near = r => homes.some(h => Math.abs(h - r) <= REACH_PROVINCES + 1);
+  // (fix-loop4: and every ring around a village up to the last ring of ordinary land — a wide world's control snapshot
+  //  covers only the map before its growth (rings 0-2 at the setup's last turn), so the rim's keeps were never seen)
+  const around = homes.flatMap(h => Array.from({ length: 2 * REACH_PROVINCES + 3 }, (_, i) => h - REACH_PROVINCES - 1 + i)).filter(r => r <= WIDE_FIRST_RING - 1);
+  return [...new Set([...(control?.provinces ?? []).map(p => ring(p.p, p.q)), ...around])].filter(r => r >= 1 && near(r)).sort((a, b) => a - b);
+}
+
+/**
+ * (fix-loop4) The hexes a war march must not be planned through: every tile of each province within REACH_PROVINCES + 1
+ * of `homes` (ordinary land, ring 0 included) that no ring overview lists — a place with no Province account. The
+ * program's Reveal reads every Province of the road and refuses an absent one (BadAccount, Custom(2): a ×60 wide world's
+ * rim marches dipped into ring 127, which its growth never opened, and were never revealed — fix-loop4 play-through;
+ * #96 BREAK-4 for the expedition). The page blocks the centre's absent places the same way (map/world.mjs
+ * closedCentreHexes). `[{q, r}]`, the planner's `blocked`.
+ */
+export function absentHexes(overviews, homes) {
+  const present = new Set();
+  for (const o of overviews.values()) for (const pv of o.provinces ?? []) present.add(`${pv.p},${pv.q}`);
+  const seen = new Set(), out = [];
+  const R = REACH_PROVINCES + 1;
+  for (const h of homes) for (let dp = -R; dp <= R; dp++) for (let dq = Math.max(-R, -dp - R); dq <= Math.min(R, -dp + R); dq++) {
+    const p = h.p + dp, q = h.q + dq, k = `${p},${q}`;
+    if (seen.has(k) || ring(p, q) >= WIDE_FIRST_RING) continue;
+    seen.add(k);
+    if (present.has(k)) continue;
+    for (let i = 0; i < TILE_OFFSETS.length; i++) out.push(tileHex(p, q, i));
+  }
+  return out;
+}
+
+/** The first ring of the wide land (an ordinary Depart never goes there; wide marches are their own). */
+export const WIDE_FIRST_RING = 129;
+
+/**
+ * (fix-loop4) The keeps of the provinces within REACH_PROVINCES of `homes` (`[{p, q}]`) that the ring `overviews` show a
+ * keep in, from each one's own province record as the page builds them (fconquest.mjs keepFromProvince — controller.mjs
+ * loadEnvelope), laid over `keeps` (the control snapshot's) where newer. `read(p, q)` → a herald province answer.
+ * Ordinary land only (never the wide land).
+ */
+export async function nearKeeps(keeps, overviews, homes, read) {
+  const out = new Map(keeps);
+  const want = [];
+  for (const o of overviews.values()) for (const pv of o.provinces ?? []) {
+    if (pv.keepTile === null || pv.keepTile === undefined || ring(pv.p, pv.q) >= WIDE_FIRST_RING) continue;
+    if (homes.some(h => provinceDistance(h, pv) <= REACH_PROVINCES)) want.push(pv);
+  }
+  for (const pv of want) {
+    let r; try { r = await read(pv.p, pv.q); } catch { continue; }
+    const k = r?.ok ? keepFromProvince(r.province) : null;
+    if (!k) continue;
+    const c = out.get(`${k.p},${k.q}`);
+    if (!c || k.asOfBell >= (c.asOfBell ?? 0)) out.set(`${k.p},${k.q}`, Object.freeze(k));
+  }
+  return out;
+}
+
+/**
  * The world's eyes for war residents (shared by all residents of the process): `{refresh(), world, view(wallet)}`.
  * `refresh()` reads the season, the chain clock, the control snapshot and the ring overviews once per turn.
  */
 export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fetch(...a) }) {
   const herald = createHerald({ base, fetch: f });
   let kernel = null, kernelFor = null;
-  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), seeds: [], controlBell: null, bellRead: null };
+  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), blocked: [], seeds: [], controlBell: null, bellRead: null, homeRings: new Set(), homes: new Map() };
   async function refresh() {
     const st = await (await f(`${base}/h/status`, { signal: AbortSignal.timeout(4000) })).json();
     const now = Array.isArray(st?.live) ? Number(st.live[1]) : NaN;
@@ -83,10 +147,16 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
       if (conquestEnabled(s.season)) {
         const c = await herald.control();
         if (c.ok) {
-          const rings = [...new Set(c.control.provinces.map(p => ring(p.p, p.q)))].filter(r => r >= 2).sort((a, b) => a - b);
+          // (every ring with provinces — ring 1 too: a natural world's ring 1 is ordinary contestable land (B14), and
+          //  loop-play4 B-6 found its keeps were the only ones in reach of a kept world's villages — but only the rings
+          //  within reach of a resident's village (none before the first village; a wide world has 131 rings and a turn
+          //  is 10 s at x60))
+          const rings = warRings(c.control, world.homeRings);
           const overviews = new Map();
           for (const r of rings) { const o = await herald.overview2(r); if (o.ok) overviews.set(r, o); }
-          world.keeps = keepsOf(c.control, overviews); world.controlBell = c.control.bell;
+          world.keeps = await nearKeeps(keepsOf(c.control, overviews), overviews, [...world.homes.values()], (p, q) => herald.province(p, q));
+          world.blocked = absentHexes(overviews, [...world.homes.values()]);
+          world.controlBell = c.control.bell;
         }
       }
       world.bellRead = bellAt(world.clock.genesisTs, now);
@@ -110,6 +180,10 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     const me = await herald.me(wallet);
     if (!me.ok || !me.citizen || !me.holdings.length) return null;
     const holding = me.holdings[0], faction = Number(me.citizen.faction), nowBell = world.nowBell;
+    // (the village's ring: the next refresh reads the keeps of the rings around it; a newly known ring is read at once)
+    const hr = ring(holding.p, holding.q);
+    if (!world.homeRings.has(hr)) { world.homeRings.add(hr); world.bellRead = null; }
+    if (!world.homes.has(wallet)) { world.homes.set(wallet, { p: holding.p, q: holding.q }); world.bellRead = null; }
     const where = new Map();
     for (const h of me.record.hosts ?? []) if (Array.isArray(h?.province)) where.set(`${h.province[0]},${h.province[1]}`, { p: Number(h.province[0]), q: Number(h.province[1]) });
     where.set(`${holding.p},${holding.q}`, { p: holding.p, q: holding.q });
@@ -129,7 +203,7 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     if (ready.length && free && kernel) {
       const near = new Map([...keeps].filter(([, k]) => ready.some(h => provinceDistance(h, k) <= REACH_PROVINCES)));
       const origins = ready.map(h => ({ p: h.p, q: h.q, tile: h.tile, unit: h.unit, host: String(h.id), troops: h.troops }));
-      const r = reachableKeeps({ kernel, keeps: near, origins, seeds: world.seeds, faction, nowBell, blocked: [] });
+      const r = reachableKeeps({ kernel, keeps: near, origins, seeds: world.seeds, faction, nowBell, blocked: world.blocked });
       const taken = row => (memory?.targets?.[`${row.p},${row.q}`] ?? -1) >= nowBell;
       if (r.ok) march = chooseMarch(r.rows, { taken });
       if (march) march = { ...march, host: ready.find(h => String(h.id) === march.row.origin.host) ?? null, province: provinces.get(`${march.row.origin.p},${march.row.origin.q}`) ?? null };
@@ -173,7 +247,7 @@ export async function openMarch(origin, wallet, { fetch: f = (...a) => globalThi
 export async function sendWarMarch(r, snap, eyes, { post } = {}) {
   const w = eyes.world, k = eyes.kernel();
   const { row, host, province } = snap.march;
-  const route = planRoute(k, { from: { p: row.origin.p, q: row.origin.q, tile: row.origin.tile }, to: { p: row.p, q: row.q, tile: row.tile }, unit: host.unit, seeds: w.seeds, blocked: [] });
+  const route = planRoute(k, { from: { p: row.origin.p, q: row.origin.q, tile: row.origin.tile }, to: { p: row.p, q: row.q, tile: row.tile }, unit: host.unit, seeds: w.seeds, blocked: w.blocked ?? [] });
   if (!route.ok) return { ok: false, step: 'route', code: route.code };
   // (the chain's time now, as the page's chain clock extrapolates it from its last sample at the measured rate)
   const nowSecs = () => w.now + Math.max(0, (Date.now() - w.sampledAt) / 1000) * (w.rate ?? 1);

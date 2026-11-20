@@ -222,6 +222,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     return { name: 'PlaceHome', v: { holding: next, faction: view.faction }, fields: { p: next.p, q: next.q, site: next.site }, why: 'a citizen with no village: the next heartland site of its nation' };
   }
   const h = { p: view.holding.p, q: view.holding.q, site: view.holding.site };
+  // (a war resident of a wide world: its FIRST expedition into the wide land before the war step takes every ready host —
+  //  loop-play4 B-6, war on by default: the AI nations both fight and go out into the wide land)
+  if (memory.war && war && wide?.march && (memory.wideMarches ?? 0) === 0) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell}), before the war takes it` };
   // (a war resident: the war step first — defend, attack, muster, train — then the base rotation for the economy)
   if (memory.war && war) {
     // (a war resident's refusals cool down for WAR_COOLDOWN_BELLS turns: it may act once per turn, but looks every few seconds)

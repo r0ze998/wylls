@@ -95,6 +95,20 @@ class Flags(unittest.TestCase):
             code, _, err = run('--print-plan', '--ai', bad)
             self.assertEqual(code, 2, (bad, err))
 
+    def test_ai_war_by_default_and_peaceful(self):
+        # (loop-play4 B-6, fix-loop4: the AI residents are at war in every world unless --ai-peaceful)
+        for world in [(), ('--random-map',), ('--wide',), ('--demo',)]:
+            p = plan('--ai', '4', *world)
+            self.assertEqual(p['ai_war'], 'yes', world)
+            self.assertIn('--operator-residents 4 --operator-war operator-war-v1', p['launcher'], world)
+            q = plan('--ai', '4', '--ai-peaceful', *world)
+            self.assertEqual(q['ai_war'], 'no', world)
+            self.assertNotIn('--operator-war', q['launcher'], world)
+        z = plan('--ai', '0')
+        self.assertEqual(z['ai_war'], 'no')
+        self.assertNotIn('--operator-war', z['launcher'])
+        self.assertIn('--ai-peaceful', run('--help')[1])
+
     def test_speed_and_minutes(self):
         self.assertIn('--demo-scale 10', plan('--demo', '--speed', '10')['launcher'])
         self.assertEqual(run('--print-plan', '--speed', '30')[0], 2)  # a kept world has no compressed clock

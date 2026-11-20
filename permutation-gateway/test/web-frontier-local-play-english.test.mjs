@@ -33,8 +33,8 @@ test('the controller\'s local-play texts are in English, clean of the play scree
 test('the start page says the turn waits for marches and their results — not 精算 / "settlement"', () => {
   const lp = src('flocalplay.mjs');
   assert.doesNotMatch(lp, /精算/);
-  assert.ok(lp.includes('L`通常速度では1ターン10分です。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`'));
+  assert.ok(lp.includes('L`通常速度では1ターン10分です（時計を早めた試験世界では、開始後の画面の時計が実際の長さを示します）。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`'));
   setLang('en');
-  const en = L`通常速度では1ターン10分です。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`;
+  const en = L`通常速度では1ターン10分です（時計を早めた試験世界では、開始後の画面の時計が実際の長さを示します）。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`;
   assert.doesNotMatch(en, CJK); assert.doesNotMatch(en, BANNED_EN, en); assert.match(en, /10 minutes/);
 });

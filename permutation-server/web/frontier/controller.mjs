@@ -32,7 +32,7 @@ import { exploreResultTurn, exploreResultWords } from './hud/orderparts.mjs';
 import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch, destOpenOf } from './screens/march.mjs';
-import { intentOf as pendingIntentOf, pendable, armPending, createPendingDriver, SETTLE_CODES } from './flocalplay-pending.mjs';
+import { intentOf as pendingIntentOf, pendable, armPending, createPendingDriver, SETTLE_CODES, provinceLag, PENDING_LAG_TURNS, settleNow } from './flocalplay-pending.mjs';
 import { musterIntentOf, nearTurnEnd, musterPress, sameWorld as sameMusterIdentity, sameHolding, stillSame as musterStill } from './flocalplay-muster-wait.mjs';
 import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
@@ -2761,6 +2761,16 @@ function marchNow(c) {
   const intent = pendingIntentOf({ world: localPlay?.march?.instance ?? null, wallet: FS.wallet?.address ?? null, holding: h, host: c.host, origin: c.origin, m });
   return { problems, intent };
 }
+/**
+ * loop-play4 B-2: the waiting send's notice while the province is `lag` turns behind (null: the wait was only extended).
+ * A lag of PENDING_LAG_TURNS or more is the world's keeper falling behind — on a local world, the machine's load — and the
+ * page keeps waiting on its own; nothing to press again.
+ */
+export function lagWaitText(lag, untilBell, kind) {
+  const what = kind === 'muster' ? L`この編成` : L`この命令`;
+  if (Number.isInteger(lag) && lag >= PENDING_LAG_TURNS) return L`この州の決着が ${fmtNum(lag)} ターン遅れています。このマシンの負荷が高く、世界の進行（ターンの決着）が追いついていないためです。送信待ちはそのまま続け、州が追いつき次第${what}を1回だけ送ります。押し直す必要はありません（取り消せます）。`;
+  return L`送信待ちを続けています。州のターンの決着がまだつかないため、待つ期限をターン ${fmtNum(untilBell)} まで延ばしました。決着がつき次第${what}を1回だけ送ります（取り消せます）。`;
+}
 const PENDING_WITHDRAWN = {
   cancel: () => L`送信待ちを取り消しました。命令は送られていません。`,
   changed: () => L`送信待ちを取り消しました。命令の内容（到着ターンなど）が変わったためです。命令は送られていません。確かめてから、もう一度押してください。`,
@@ -2775,10 +2785,14 @@ const heldNow = card => (localMarchSender ? localMarchSender.held(card.host?.id 
 const pendingDriver = createPendingDriver({
   look: card => {
     const same = FS.compose === card, now = same ? marchNow(card) : { problems: null, intent: null };
-    return { ...now, nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0 || marchNearEnd(), sameCard: same,
+    // (verify-pr98 BREAK-1: the origin province's settling against the chain's turn now, not the model's possibly older one)
+    const origin = FS.provinces.get(`${card.origin?.p},${card.origin?.q}`)?.province ?? null;
+    return { ...now, problems: settleNow(now.problems, origin, nowBell()), nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0 || marchNearEnd(), sameCard: same,
       keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN,
       // B20: the arrival turn the card's own clock moved to (composeTick), never a turn the player picked
-      follow: same && Number.isInteger(card.moved?.to) ? card.moved.to : null };
+      follow: same && Number.isInteger(card.moved?.to) ? card.moved.to : null,
+      // loop-play4 B-2: how far the origin province is behind (the keeper under machine load)
+      lag: provinceLag(FS.provinces.get(`${card.origin?.p},${card.origin?.q}`)?.province, nowBell()) };
   },
   // (the read is applied only while this page still reads the same herald for the same world with the same live key and the
   //  same armed card; otherwise its answer is dropped before it touches anything. A page's world never changes — startPlay
@@ -2788,10 +2802,14 @@ const pendingDriver = createPendingDriver({
     const still = () => herald === h0 && localPlay === lp0 && (FS.wallet?.address ?? null) === w0 && FS.wallet?.destroyed !== true && pendingDriver.armed === card;
     return loadEnvelope(card.origin.p, card.origin.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } });
   },
-  send: card => { card.pending = null; return sendTheMarch(); },
+  // (verify-pr98 BREAK-1: a refusal of this send names the march and its "try again" sends the march — never the player's
+  //  earlier act, which FS.lastAct still held: the wait's own press is not one of app.mjs SENDS)
+  send: card => { card.pending = null; FS.lastAct = { kind: 'act', name: 'march-send', data: {} }; return sendTheMarch(); },
   withdrawn: (card, why) => { card.pending = null; if (PENDING_WITHDRAWN[why]) setNotice({ busy: false, text: PENDING_WITHDRAWN[why](), unsent: 'march-send', retry: false }); else invalidate('panel'); },
   // B20 (loop-play3): the turn passed before the province settled and the arrival turn moved on with it. The waiting
   // send is kept for the same order at the new arrival turn, and the player is told (nothing is changed silently)
+  // loop-play4 B-2: the province is turns behind (the world's keeper under machine load): said, and the wait goes on
+  lagging: (card, p, lag) => { card.pending = p; setNotice({ busy: false, waiting: true, text: lagWaitText(lag, p.untilBell, 'march') }); },
   followed: (card, p, moved) => { card.pending = p; setNotice({ busy: false, waiting: true, text: L`時間が進んだため、到着はターン ${fmtNum(moved.to)} になりました（さきほどまではターン ${fmtNum(moved.from)}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` }); },
   onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
 });
@@ -2892,9 +2910,13 @@ function musterStillSame(card) {
 const musterDriver = createPendingDriver({
   look: card => {
     const n = musterNow(), same = sameMusterIdentity(card.identity, n.identity ?? null);
-    return { intent: n.intent, problems: n.problems, nowBell: nowBell(), open: same && !FS.resident, held: musterHeld(),
-      busy: FS.inFlight > 0 || musterNearEnd(), sameCard: n.open && sameHolding(card.holding, n.holding), keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN };
+    // (verify-pr98 BREAK-1: the village's province settling against the chain's turn now)
+    const province = FS.provinces.get(`${card.holding.p},${card.holding.q}`)?.province ?? null;
+    return { intent: n.intent, problems: settleNow(n.problems, province, nowBell()), nowBell: nowBell(), open: same && !FS.resident, held: musterHeld(),
+      busy: FS.inFlight > 0 || musterNearEnd(), sameCard: n.open && sameHolding(card.holding, n.holding), keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN,
+      lag: provinceLag(FS.provinces.get(`${card.holding.p},${card.holding.q}`)?.province, nowBell()) };
   },
+  lagging: (card, p, lag) => { FS.musterWait = { untilBell: p.untilBell, lag }; setNotice({ busy: false, waiting: true, text: lagWaitText(lag, p.untilBell, 'muster') }); },
   // (the read is applied only while the page is still the world, herald, local-play identity and key frozen at arming)
   refresh: card => {
     const still = () => sameMusterIdentity(card.identity, musterIdentity()) && FS.wallet?.destroyed !== true && musterDriver.armed === card;
@@ -2905,6 +2927,9 @@ const musterDriver = createPendingDriver({
     FS.musterWait = null;
     const why = musterStillSame(card);
     if (why) { setNotice({ busy: false, text: MUSTER_WITHDRAWN[why](), unsent: 'muster', retry: false }); return null; }
+    // (verify-pr98 BREAK-1: a refusal names the muster, and "try again" is this muster — not the earlier act in FS.lastAct
+    //  (seen: a refused waiting muster said 「訓練はまだされていません」 and its retry sent the Train form again))
+    FS.lastAct = { kind: 'act', name: 'muster', data: { unit: String(card.draft.unit), troops: String(card.draft.troops), tile: String(card.draft.tile) } };
     invalidate('panel');
     return musterOrder(card.draft.unit, card.draft.troops, card.draft.tile, card.holding);
   },
