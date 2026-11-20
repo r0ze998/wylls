@@ -392,6 +392,8 @@ impl ExpeditionDuty {
                         t.slot,
                     ) {
                         engine.set_cu_limit(&key, CU_ORIGIN);
+                        // (P10 run 7: its first version faulted past the default 32-KiB heap)
+                        engine.set_heap(&key, fclient::abi::HEAP_FRAME_RETRY);
                     }
                     return Ok(Ok(format!(
                         "SettleOrigin (home resolved to {})",
@@ -899,6 +901,8 @@ impl ExpeditionDuty {
                     t.slot,
                 ) {
                     engine.set_cu_limit(&key, CU_SETTLE);
+                    // (P10 run 7: two versions faulted past the default 32-KiB heap before the ladder's frame)
+                    engine.set_heap(&key, fclient::abi::HEAP_FRAME_RETRY);
                 }
                 Ok(Ok(format!("SettleMember (fate {fate})")))
             }
