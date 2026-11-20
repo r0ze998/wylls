@@ -256,7 +256,7 @@ training are the same rules as devnet.
 - **At ×60 your own province is one or two turns behind** (the runner-throughput check: median 2 on the page, never
   more than 3; before it, median 4 and up to 8). The keeper loop now settles your home again before every AI village's
   turn, so a muster or march is sent on the first press, usually within a few seconds (the check: muster 2.5–5 s, each
-  march 2–4 s, none withdrawn in 30-minute ×60 sessions; one muster press in the turn's last second was refused and the
+  march within 4 s, none withdrawn in 30-minute ×60 sessions; one muster press in the turn's last second was refused and the
   next press, 3 s later, went through). If one is still withdrawn (「送信待ちを取り消しました…」),
   press it again.
 - **A wide-land expedition whose reveal window was missed never settles.** The march screen stays on 「到着しました。
