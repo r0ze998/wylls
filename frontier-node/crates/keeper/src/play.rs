@@ -105,6 +105,24 @@ pub struct TransitState {
     pub holding_read_slot: u64,
 }
 
+/// The provinces with a gather, resolve, skip or fast-forward pending in
+/// `engine` (their keys are `kind:p,q:bell…`, as `clashes` writes them).
+fn in_flight_provinces(engine: &Engine) -> BTreeSet<(i16, i16)> {
+    engine
+        .pending_keys()
+        .iter()
+        .filter_map(|k| {
+            let (kind, rest) = k.split_once(':')?;
+            if !matches!(kind, "gather" | "resolve" | "skip" | "ff") {
+                return None;
+            }
+            let (pq, _) = rest.split_once(':')?;
+            let (p, q) = pq.split_once(',')?;
+            Some((p.parse().ok()?, q.parse().ok()?))
+        })
+        .collect()
+}
+
 /// MC (§5.6): the home Holding of a transit whose host id names the
 /// **previous generation** of the captured Holding `h` (`id.gen ==
 /// prev_gen ≠ gen`); `None` for an ordinary transit and in an M1 season.
@@ -896,7 +914,19 @@ impl PlayDuty {
             .filter(|(_, s)| s.read_slot == 0 || t.slot >= s.read_slot + PROVINCE_READ_SLOTS)
             .map(|(k, _)| *k)
             .collect();
-        for chunk in due.chunks(64) {
+        self.read_these(t, port, &due).await
+    }
+
+    /// Reads the tracked provinces `pqs` now and takes in what they say
+    /// (contest, pending bells, rest limit, nudges, leaves). A province the
+    /// chain no longer has is dropped.
+    async fn read_these<P: ChainPort>(
+        &mut self,
+        t: &Tick<'_>,
+        port: &P,
+        pqs: &[(i16, i16)],
+    ) -> PortResult<()> {
+        for chunk in pqs.chunks(64) {
             let keys: Vec<Address> = chunk
                 .iter()
                 .map(|&(p, q)| t.addrs.province(p as i32, q as i32))
@@ -1141,12 +1171,84 @@ impl PlayDuty {
             self.returns(t, engine);
         }
         if t.cfg.has_role("gather") || t.cfg.has_role("resolve") || t.cfg.has_role("skip") {
-            self.clashes(t, port, engine, beacon, seeds).await?;
+            self.clashes(t, port, engine, beacon, seeds, None).await?;
         }
         if t.cfg.has_role("settle") {
             self.settles(t, port, engine, beacon).await?;
         }
         Ok(())
+    }
+
+    /// The contested provinces (MC §8.2 "Contested bells") with a bell to
+    /// work now: behind the clock and the season's end, and no gather,
+    /// resolve, skip or fast-forward of theirs pending in `engine`. A
+    /// province whose write just ended has `read_slot` 0 ([`Self::on_outcome`]
+    /// asks for a fresh read): it is named all the same, and
+    /// [`Self::contested_round`] reads it first.
+    pub fn contested_ready(&self, t: &Tick<'_>, engine: &Engine) -> BTreeSet<(i16, i16)> {
+        let now_bell = t.clock.bell_at(t.now).unwrap_or(0);
+        let busy = in_flight_provinces(engine);
+        self.provinces
+            .iter()
+            .filter(|(pq, s)| {
+                s.contested && s.rn < now_bell && s.rn < t.season.end_bell && !busy.contains(pq)
+            })
+            .map(|(pq, _)| *pq)
+            .collect()
+    }
+
+    /// Whether a gather or resolve of a contested province is still in
+    /// flight in `engine`.
+    pub fn contested_in_flight(&self, engine: &Engine) -> bool {
+        let busy = in_flight_provinces(engine);
+        self.provinces
+            .iter()
+            .any(|(pq, s)| s.contested && busy.contains(pq))
+    }
+
+    /// One round of the tick's **contested follow-up** (keep-capture-
+    /// progress; MC §8.2 "Contested bells", criterion 3's close → resolve
+    /// latency): the contested provinces [`Self::contested_ready`] names
+    /// are read again and their next GatherClash or ResolveFromInputs is
+    /// planned at once, exactly as the tick's own [`Self::plan_core`]
+    /// would plan it on its next pass (the same `clash_bell`, the same
+    /// checks: the anchor, the closed reveal window, the day bit, the
+    /// seed). Never a skip: a province the read finds no longer contested
+    /// waits for the next tick. A contested bell needs a gather and then a
+    /// resolve, and the tick plans one write per province, so without
+    /// this a contested bell took two whole ticks; under a long tick
+    /// (≈ 80 provinces at the RPC pace, ≈ 42 s in devnet-page-war's P9)
+    /// the province fell behind the clock and its keep's progress (one per
+    /// resolved bell) with it. Returns the provinces it planned for.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn contested_round<P: ChainPort>(
+        &mut self,
+        t: &Tick<'_>,
+        port: &P,
+        engine: &mut Engine,
+        beacon: &BTreeMap<(u32, u8), AnchorInfo>,
+        seeds: &mut SeedFinder,
+    ) -> PortResult<usize> {
+        if self.index.feed.blocked().is_some() || !engine.feed_writes_allowed() {
+            return Ok(0);
+        }
+        let eff = t.season.effective_status(t.now);
+        if !(eff == status::RUNNING || eff == status::ENDED) {
+            return Ok(0);
+        }
+        if !(t.cfg.has_role("gather") || t.cfg.has_role("resolve")) {
+            return Ok(0);
+        }
+        let ready = self.contested_ready(t, engine);
+        if ready.is_empty() {
+            return Ok(0);
+        }
+        let pqs: Vec<(i16, i16)> = ready.iter().copied().collect();
+        self.read_these(t, port, &pqs).await?;
+        self.clashes(t, port, engine, beacon, seeds, Some(&ready))
+            .await?;
+        let busy = in_flight_provinces(engine);
+        Ok(ready.iter().filter(|pq| busy.contains(pq)).count())
     }
 
     /// Class-N housekeeping and claims: closes and ClaimDefence. The
@@ -1892,6 +1994,9 @@ impl PlayDuty {
             .map(|r| r.dest)
     }
 
+    /// Gathers, resolves and skips of every tracked province, or (`only`)
+    /// the gathers and resolves of those provinces alone: a restricted call
+    /// never plans a skip, a rest or a fast-forward.
     async fn clashes<P: ChainPort>(
         &mut self,
         t: &Tick<'_>,
@@ -1899,6 +2004,7 @@ impl PlayDuty {
         engine: &mut Engine,
         beacon: &BTreeMap<(u32, u8), AnchorInfo>,
         seeds: &mut SeedFinder,
+        only: Option<&BTreeSet<(i16, i16)>>,
     ) -> PortResult<()> {
         let now_bell = t.clock.bell_at(t.now).unwrap_or(0);
         // Horned provinces first (MC §8.2: the front of the resolve queue).
@@ -1914,6 +2020,9 @@ impl PlayDuty {
                 .filter(|pq| !self.cq_front.contains(pq))
                 .copied(),
         );
+        if let Some(only) = only {
+            pqs.retain(|pq| only.contains(pq));
+        }
         for pq in pqs {
             let s = self.provinces[&pq].clone();
             if s.rn >= t.season.end_bell || s.rn >= now_bell || s.read_slot == 0 {
@@ -1943,7 +2052,7 @@ impl PlayDuty {
                     .await?;
                 continue;
             }
-            if !t.cfg.has_role("skip") {
+            if only.is_some() || !t.cfg.has_role("skip") {
                 continue;
             }
             // Map growth: a resting Province waits until something wakes it.
