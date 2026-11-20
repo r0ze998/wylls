@@ -97,6 +97,10 @@ pub struct Page {
 /// P10 (devnet-expedition-keeper): the rim → wide expedition.
 #[path = "expedition.rs"]
 pub mod expedition;
+
+/// P14 (devnet-guard-conquest): a third party's wide Free City conquest after P10's expedition.
+#[path = "conquest.rs"]
+pub mod conquest;
 /// P8/P9 (devnet-page-war): the legacy war after the rim opened ([`war`]).
 #[path = "war.rs"]
 pub mod war;
@@ -115,6 +119,8 @@ pub struct Ctx<'a> {
     pub wide_rings: u64,
     /// P10: the rim → wide expedition ([`expedition`]).
     pub expedition: bool,
+    /// P14: after P10's expedition (onto a Free City's tile), a third party's Free City conquest ([`conquest`]).
+    pub conquest: bool,
     /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
     pub after_wide: Option<Restart>,
     /// P7: the page is the participant.
@@ -274,6 +280,17 @@ impl<'a> Run<'a> {
         signers: &[&Keypair],
         who: &str,
     ) -> Value {
+        self.try_send_budget(what, ixs, signers, who, budget())
+    }
+    /// [`Run::try_send`] with its own budget (P14: DeclareSiege needs the 256 KiB heap frame).
+    fn try_send_budget(
+        &mut self,
+        what: &str,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+        who: &str,
+        budget: tx::TxBudget,
+    ) -> Value {
         let mut c = self.c.state.lock().unwrap_or_else(|e| e.into_inner());
         c.set_paused(true);
         if let Some(wit) = self.witness.as_mut() {
@@ -289,7 +306,7 @@ impl<'a> Run<'a> {
             }
         }
         let (bh, _) = c.latest_blockhash();
-        let t = tx::build(ixs, &budget(), signers, &bh).expect("build");
+        let t = tx::build(ixs, &budget, signers, &bh).expect("build");
         let payer = signers[0].pubkey();
         let before = c.balance(&payer);
         let row = match c.submit(&tx::wire(&t)) {
@@ -823,7 +840,36 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let funds_after_rings = funds(&r);
 
     // The participant's rim province: the first of the plan whose mixed nation has a free site.
-    let (rp, rq, nation) = plan
+    // (P14: and whose ring-129 neighbour, opened by keeper A, has a Free City: the siege's target.)
+    let plan129 = keeper_core::rings::wide_plan(FIRST_WIDE_RING, PER_WEDGE);
+    let neighbours = |rp: i32, rq: i32| -> Vec<WideCoord> {
+        [(1i64, 0i64), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+            .iter()
+            .map(|(dp, dq)| WideCoord::checked(rp as i64 + dp, rq as i64 + dq).unwrap())
+            .filter(|c| c.ring() == FIRST_WIDE_RING && (!keeper_wide || plan129.contains(c)))
+            .collect()
+    };
+    let free_city_of = |r: &Run<'_>, c: WideCoord| -> Option<(u8, u8)> {
+        let d = r.data(&adr(wl::province_address(&r.ctx(), c)))?;
+        (0..d[PV::SITE_COUNT] as usize)
+            .find(|&s| {
+                d[PV::site(s) + SM::STATE]
+                    == frontier_abi::v2::layout::province::site::STATE_FREE_CITY
+            })
+            .map(|s| (s as u8, d[PV::SITES + s]))
+    };
+    let free_rim_site = |r: &Run<'_>, rp: i32, rq: i32| -> Option<u8> {
+        let pd = r.data(&a.province(rp, rq))?;
+        (0..pd[PV::SITE_COUNT] as usize)
+            .find(|i| {
+                matches!(
+                    pd[PV::site(*i) + SM::STATE],
+                    SM::STATE_FREE | SM::STATE_RELEASED_FREE
+                )
+            })
+            .map(|i| i as u8)
+    };
+    let (rp, rq, nation, rsite, target, free_city) = plan
         .iter()
         .find_map(|&(p, q)| {
             let n = home_nation(
@@ -832,34 +878,26 @@ pub async fn run(c: Ctx<'_>) -> Value {
                 cq.heartland_max_ring,
                 &gseed,
             )?;
-            Some((p, q, n))
+            let site = free_rim_site(&r, p, q)?;
+            let ns = neighbours(p, q);
+            if r.c.conquest {
+                ns.into_iter()
+                    .find_map(|c| free_city_of(&r, c).map(|fc| (p, q, n, site, c, Some(fc))))
+            } else {
+                ns.first().map(|c| (p, q, n, site, *c, None))
+            }
         })
-        .expect("a rim province with a nation");
-    let pd = r.data(&a.province(rp, rq)).unwrap();
-    let rsite = (0..pd[PV::SITE_COUNT] as usize)
-        .find(|i| {
-            matches!(
-                pd[PV::site(*i) + SM::STATE],
-                SM::STATE_FREE | SM::STATE_RELEASED_FREE
-            )
-        })
-        .expect("a free rim site") as u8;
-    // The wide target: a ring-129 neighbour of the rim province (P5: one of keeper A's ring-129 plan).
-    let plan129 = keeper_core::rings::wide_plan(FIRST_WIDE_RING, PER_WEDGE);
-    let target = [(1i64, 0i64), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
-        .iter()
-        .map(|(dp, dq)| WideCoord::checked(rp as i64 + dp, rq as i64 + dq).unwrap())
-        .find(|c| c.ring() == FIRST_WIDE_RING && (!keeper_wide || plan129.contains(c)))
-        .expect("the rim province borders ring 129 (P5: a province keeper A opened)");
+        .expect("a rim province with a nation, a free site and a ring-129 neighbour (P14: with a Free City)");
 
-    // P10: the rim → wide expedition into `target` (keeper A drives every step after the Depart).
+    // P10: the rim → wide expedition into `target` (keeper A drives every step after the Depart);
+    // P14: onto the Free City's tile, then a third party's conquest.
     if r.c.expedition {
         let extra = json!({
             "rim_plan": {"per_wedge": PER_WEDGE, "provinces": plan.len(), "opened_by": "keeper A rings duty (rim_per_wedge)",
                          "wall_secs": rim_secs, "open_province_txs": rim_open},
             "wide_rings": ring_rounds, "wide_ring_txs": wide_ring_txs.len(), "verifier_vwl_rings_segment": vwl_rings,
         });
-        return expedition::flow(&mut r, (rp, rq, rsite, nation), target, extra).await;
+        return expedition::flow(&mut r, (rp, rq, rsite, nation), target, free_city, extra).await;
     }
     // P8/P9: the legacy war from the rim (P9: the page is the participant).
     if r.c.war.is_some() {

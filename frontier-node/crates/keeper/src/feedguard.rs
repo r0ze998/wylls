@@ -733,7 +733,11 @@ impl WideScope {
 
     /// P14: the WIDE province `key` names (this Season's world), or why not.
     #[cfg(feature = "playable-lane")]
-    fn wide_of(&self, key: Option<frontier_abi::world_index::ProvinceKey>, what: &str) -> Result<(i64, i64), String> {
+    fn wide_of(
+        &self,
+        key: Option<frontier_abi::world_index::ProvinceKey>,
+        what: &str,
+    ) -> Result<(i64, i64), String> {
         let key = key.ok_or_else(|| format!("{what} names no province"))?;
         self.wide_dest(key).map_err(|e| format!("{what}: {e}"))
     }
@@ -788,7 +792,13 @@ impl WideScope {
                     return Err("PSWR: not a reservation refund".into());
                 }
                 let credit = if source_next {
-                    Some(self.conquest_source(&lines[i + 1], &receipt.encode(), bell, false, None)?)
+                    Some(self.conquest_source(
+                        &lines[i + 1],
+                        &receipt.encode(),
+                        bell,
+                        false,
+                        None,
+                    )?)
                 } else {
                     None
                 };
@@ -848,7 +858,11 @@ impl WideScope {
                         ))
                     }
                     K::ConquestCaptured => {
-                        let credit = if source_next { Some(pair(false)?) } else { None };
+                        let credit = if source_next {
+                            Some(pair(false)?)
+                        } else {
+                            None
+                        };
                         Ok((
                             ConquestFact::Captured { province, credit },
                             1 + usize::from(credit.is_some()),

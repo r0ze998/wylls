@@ -291,7 +291,10 @@ mod p10 {
                 let mut play = PlayIndex::default();
                 land.ingest_page(std::slice::from_ref(&t), &a);
                 play.ingest_page(std::slice::from_ref(&t), &a);
-                assert!(land.feed.blocked().is_none() && play.feed.blocked().is_none(), "{k}");
+                assert!(
+                    land.feed.blocked().is_none() && play.feed.blocked().is_none(),
+                    "{k}"
+                );
                 assert_eq!((land.cursor, play.cursor), (Cursor(t.seq), Cursor(t.seq)));
             }
             *seen.entry(k).or_default() += 1;
@@ -501,7 +504,9 @@ mod p10 {
 #[cfg(feature = "playable-lane")]
 mod p14 {
     use super::*;
-    use frontier_abi::world_index::event::{self as ev, WideEntity, WideKind, WideLink, WideRecord};
+    use frontier_abi::world_index::event::{
+        self as ev, WideEntity, WideKind, WideLink, WideRecord,
+    };
     use keeper_core::feedguard::{ConquestFact as C, ConquestSource as Src};
 
     const CONQUEST: [&str; 7] = [
@@ -536,7 +541,11 @@ mod p14 {
 
     /// Refused by the reader, and both indexes latch on it without applying anything.
     fn latches(a: &Addresses, t: &TxRecord, what: &str) {
-        assert!(facts(a, t).is_err(), "{what}: refused, got {:?}", facts(a, t));
+        assert!(
+            facts(a, t).is_err(),
+            "{what}: refused, got {:?}",
+            facts(a, t)
+        );
         let mut land = LandIndex::default();
         let mut play = PlayIndex::default();
         land.ingest_page(std::slice::from_ref(t), a);
@@ -617,7 +626,10 @@ mod p14 {
                 Some(home) => assert!(play.touched.contains(&home), "{k}: home re-read"),
                 None => assert!(play.touched.is_empty(), "{k}: {:?}", play.touched),
             }
-            assert!(play.feed.wide_accounted().contains_key(f[0].name()), "{k}: counted");
+            assert!(
+                play.feed.wide_accounted().contains_key(f[0].name()),
+                "{k}: counted"
+            );
             *seen.entry(k).or_default() += 1;
         }
         for k in CONQUEST {
@@ -681,13 +693,21 @@ mod p14 {
         let (j, mut b) = line(&t, b"PS2", 145);
         assert_eq!(b[7], 1, "Debit");
         b[7] = 2;
-        latches(&a, &with_line(&t, j, b"PS2", &b), "a Credit under DeclareSiege");
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "a Credit under DeclareSiege",
+        );
         // and the capture's credit marked Debit
         let (a, t) = pick("SettleCapture");
         let (j, mut b) = line(&t, b"PS2", 145);
         assert_eq!(b[7], 2, "Credit");
         b[7] = 1;
-        latches(&a, &with_line(&t, j, b"PS2", &b), "a Debit under SettleCapture");
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "a Debit under SettleCapture",
+        );
     }
 
     #[test]
@@ -697,13 +717,21 @@ mod p14 {
         let (_, d) = pick("DeclareSiege");
         let (_, debit) = line(&d, b"PS2", 145);
         let (j, _) = line(&t, b"PS2", 145);
-        latches(&a, &with_line(&t, j, b"PS2", &debit), "another operation's source");
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &debit),
+            "another operation's source",
+        );
         // the debit with its bell moved by one (its own receipt kept)
         let (a, t) = pick("DeclareSiege");
         let (j, mut b) = line(&t, b"PS2", 145);
         let bell = u32::from_le_bytes(b[2..6].try_into().unwrap()) + 1;
         b[2..6].copy_from_slice(&bell.to_le_bytes());
-        latches(&a, &with_line(&t, j, b"PS2", &b), "the source at another bell");
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "the source at another bell",
+        );
     }
 
     #[test]
@@ -711,14 +739,22 @@ mod p14 {
         let (a, t) = pick("DeclareSiege");
         let (j, mut b) = line(&t, b"PS2", 145);
         b[66] ^= 0x01; // the holding address
-        latches(&a, &with_line(&t, j, b"PS2", &b), "a non-canonical source holding");
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "a non-canonical source holding",
+        );
         let (j, mut b) = line(&t, b"PS2", 145);
         b[200] ^= 0x01; // the chain seq: still decodes (not verified here), the SAME fact
         let f = facts(&a, &with_line(&t, j, b"PS2", &b)).unwrap();
         assert!(matches!(f[0], C::Declared { .. }));
         let mut z = line(&t, b"PS2", 145).1;
         z[200..208].copy_from_slice(&0u64.to_le_bytes()); // seq 0: no chain
-        latches(&a, &with_line(&t, j, b"PS2", &z), "a source with chain seq 0");
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &z),
+            "a source with chain seq 0",
+        );
     }
 
     #[test]
@@ -726,7 +762,12 @@ mod p14 {
         // a FAILED settlement credited, a ResolveWithConquest with a source, a CloseConquest with one
         let (_, cap) = pick("SettleCapture");
         let (_, credit) = line(&cap, b"PS2", 145);
-        for k in ["SettleSiege", "ResolveWithConquest", "CloseConquest", "CloseCaptureEscrow"] {
+        for k in [
+            "SettleSiege",
+            "ResolveWithConquest",
+            "CloseConquest",
+            "CloseCaptureEscrow",
+        ] {
             let (a, t) = pick(k);
             let i = data_lines(&t).last().unwrap().0;
             let mut m = t.clone();
@@ -761,10 +802,18 @@ mod p14 {
                 }
                 let mut long = body.clone();
                 long.push(0);
-                latches(&a, &with_line(&t, i, &tag, &long), &format!("{k}: a trailing byte"));
+                latches(
+                    &a,
+                    &with_line(&t, i, &tag, &long),
+                    &format!("{k}: a trailing byte"),
+                );
                 // under another record format
                 let other: &[u8] = if tag == b"PSW1" { b"PS2" } else { b"PSW1" };
-                latches(&a, &with_line(&t, i, other, &body), &format!("{k}: retagged"));
+                latches(
+                    &a,
+                    &with_line(&t, i, other, &body),
+                    &format!("{k}: retagged"),
+                );
                 let mut tr = t.clone();
                 tr.logs.insert(i + 1, "Log truncated".into());
                 latches(&a, &tr, &format!("{k}: truncated log"));
@@ -816,17 +865,28 @@ mod p14 {
             seq: 7,
             head: [9; 32],
         }];
-        let rec = |kind, bell, payload: &[u8]| ev::encode(kind, bell, &wide_key, payload, &link).unwrap();
+        let rec =
+            |kind, bell, payload: &[u8]| ev::encode(kind, bell, &wide_key, payload, &link).unwrap();
         // the capture credited to a WIDE source: PSW1 22 + PSW1 23
         let (j, _) = line(&cap, b"PS2", 145);
         let credit = rec(WideKind::ConquestCredited, w22.bell, w22.payload);
         let m = with_line(&cap, j, b"PSW1", &credit);
         let f = facts(&a, &m).unwrap();
         assert!(
-            matches!(f[0], C::Captured { credit: Some(Src::Wide { .. }), .. }),
+            matches!(
+                f[0],
+                C::Captured {
+                    credit: Some(Src::Wide { .. }),
+                    ..
+                }
+            ),
             "{f:?}"
         );
-        assert_eq!(f[0].legacy_home(), None, "a wide source touches nothing legacy");
+        assert_eq!(
+            f[0].legacy_home(),
+            None,
+            "a wide source touches nothing legacy"
+        );
         // ... with a DEBITED record instead (the wrong direction), another bell, another receipt
         let (_, decl) = pick("DeclareSiege");
         let (_, d18) = line(&decl, b"PSW1", 18);
@@ -838,7 +898,10 @@ mod p14 {
         other_receipt[56 + 6..56 + 6 + 100].copy_from_slice(w18.payload);
         for (what, body) in [
             ("a Debited credit", debited),
-            ("another bell", rec(WideKind::ConquestCredited, w22.bell + 1, w22.payload)),
+            (
+                "another bell",
+                rec(WideKind::ConquestCredited, w22.bell + 1, w22.payload),
+            ),
             ("another receipt", other_receipt),
         ] {
             latches(&a, &with_line(&cap, j, b"PSW1", &body), what);
@@ -853,7 +916,16 @@ mod p14 {
         let (j, _) = line(&decl, b"PS2", 145);
         let debit = rec(WideKind::ConquestDebited, w18.bell, w18.payload);
         let f = facts(&a, &with_line(&decl, j, b"PSW1", &debit)).unwrap();
-        assert!(matches!(f[0], C::Declared { source: Src::Wide { .. }, .. }), "{f:?}");
+        assert!(
+            matches!(
+                f[0],
+                C::Declared {
+                    source: Src::Wide { .. },
+                    ..
+                }
+            ),
+            "{f:?}"
+        );
 
         // PSWR: version 1, Season, table, seq, bell, a RESERVATION_REFUND receipt
         let (a, res) = pick("SettleReservation");
@@ -870,7 +942,17 @@ mod p14 {
         };
         let ok = with_line(&res, ri, b"PSWR", &pswr(&a.season.to_bytes(), w21.payload));
         let f = facts(&a, &ok).unwrap();
-        assert!(matches!(f[0], C::Settled { province: None, action: 9, credit: None }), "{f:?}");
+        assert!(
+            matches!(
+                f[0],
+                C::Settled {
+                    province: None,
+                    action: 9,
+                    credit: None
+                }
+            ),
+            "{f:?}"
+        );
         latches(
             &a,
             &with_line(&res, ri, b"PSWR", &pswr(&[7; 32], w21.payload)),
@@ -887,14 +969,26 @@ mod p14 {
     /// transaction to its last, and every conquest kind is counted.
     #[test]
     fn the_whole_siege_and_closes_recordings_never_latch() {
-        for name in ["playable-cov-siege.json.gz", "playable-cov-closes.json.gz", "playable-expedition-whole.json.gz"] {
+        for name in [
+            "playable-cov-siege.json.gz",
+            "playable-cov-closes.json.gz",
+            "playable-expedition-whole.json.gz",
+        ] {
             let r = load(name);
             let mut land = LandIndex::default();
             let mut play = PlayIndex::default();
             land.ingest_page(&r.txs, &r.addrs);
             play.ingest_page(&r.txs, &r.addrs);
-            assert!(land.feed.blocked().is_none(), "{name}: {:?}", land.feed.blocked());
-            assert!(play.feed.blocked().is_none(), "{name}: {:?}", play.feed.blocked());
+            assert!(
+                land.feed.blocked().is_none(),
+                "{name}: {:?}",
+                land.feed.blocked()
+            );
+            assert!(
+                play.feed.blocked().is_none(),
+                "{name}: {:?}",
+                play.feed.blocked()
+            );
             let last = Cursor(r.txs.last().unwrap().seq);
             assert_eq!((land.cursor, play.cursor), (last, last), "{name}");
             let acc = play.feed.wide_accounted();
