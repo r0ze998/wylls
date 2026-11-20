@@ -38,10 +38,13 @@ pub mod expedition_play;
 pub mod coexist_play;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod keeper_loop;
+// TEST-ONLY runner throughput measurement (counters of landing waits, simulations, drand fetches; per-pass phases)
 #[cfg(feature = "localnet-expedition-play")]
 pub mod local_keeper;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod origin_driver;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod prof;
 // the ordinary (legacy) march of a legacy village: SettleDeparture, Decrypt, Reveal, the destination's bells, SettleTransit
 #[cfg(feature = "localnet-expedition-play")]
 pub mod legacy_march;
