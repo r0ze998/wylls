@@ -2,6 +2,8 @@
 
 > **状況 2026-11-19（main `1d6c0039`、コードが正）：** 隔離した試作のまま。CI の `memory12` が走る。遊べるゲームからは呼ばれない。最初の devnet の後。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
 
+> **2026-11-20（ws12-next、コードが正）：** 鍵なしで走る試験を 8→20 ファイル（77→204 件）に広げた（`fixtures/presigned.mjs`）。`check-integration.sh --here` でこの checkout の⑬と照合できる。⑤B 向けの任意の公開証拠リーダーを足した（[13-optional-reader-5b.ja.md](13-optional-reader-5b.ja.md)、⑤A には入れない）。数と手順は下の「実行」。
+
 > **2026-11-18 の確認（main `de781916`、コードが正）：** 隔離した試作のまま。遊べるゲームからは呼ばれない（⑤ A の運営 AI 住人 `permutation-gateway/src/frontier/local-play-operator-policy.mjs` は⑫を使わない）。試験の数は下の「100 件」より増えた：`node --test test/*.test.mjs`（Node 23）は **198 件中 195 通過・0 失敗・3 skip**。CI の `memory12` job（Node 22、`tools/keyfree-tests.txt` の 8 ファイル）は **77 件中 76 通過・1 skip**。
 
 会話を保存するだけでなく、**過去の協力・約束・不履行を根拠付きで覚え、次の取引相手の選択に効かせる**ための module と、決定的な fixture によるデモ・回帰テスト。実 LLM への通信・課金はしない。
@@ -23,15 +25,25 @@ v3（2026-10-30 の三度目のレビュー対応）では、証拠の意味を�
 
 ## 実行
 
+> 2026-11-20（ws12-next）に書き直した。数はこの枝で数えたもの（下の「試験の数」）。
+
 ```sh
-sh workstreams/12-memory/run.sh     # デモ成果物を再生成し、回帰テスト（100 件。⑬の実コードが無い木では 3 件 skip）を実行
-sh workstreams/12-memory/tools/mutate.sh    # 防御 67 か所を 1 つずつ壊して、テストが検知することを確認
-sh workstreams/12-memory/tools/check-integration.sh [REF] [--regen-ws04]   # 統合候補の実コード（④⑧⑬）と照合
-node workstreams/12-memory/tools/longrun.mjs # 長期運用の計測（results/longrun.json。計測環境に依存）
-node workstreams/12-memory/demo/run-demo.mjs     # デモの表示だけ
+sh workstreams/12-memory/run.sh     # デモ成果物を鍵なしで再生成し、鍵なしの回帰テスト（tools/keyfree-tests.txt の 20 ファイル）を実行
+node --test workstreams/12-memory/test/*.test.mjs   # 全 22 ファイル（鍵を使う 2 ファイルを含む。試験専用の固定鍵）
+sh workstreams/12-memory/tools/mutate.sh    # 防御 101 か所を 1 つずつ壊し、鍵なしの試験が検知することを確認
+sh workstreams/12-memory/tools/check-integration.sh --here [--regen-ws04]   # この checkout の④⑧⑬と照合（⑬は main にある）
+sh workstreams/12-memory/tools/check-integration.sh [REF | FILE.bundle#SHA] [--regen-ws04]   # 別の ref に⑫を重ねて照合
+node workstreams/12-memory/tools/presign.mjs [--check]   # 鍵なし試験が使う署名表（fixtures/presigned-signatures.json）を作る／確かめる（署名する道具）
+node workstreams/12-memory/tools/advise.mjs --herald URL --about WALLET   # ⑤B 向けの任意の公開証拠リーダー（13-optional-reader-5b.ja.md）
+node workstreams/12-memory/tools/longrun.mjs # 長期運用の計測（results/longrun.json。計測環境に依存。固定鍵で署名する）
+node workstreams/12-memory/demo/run-demo.mjs     # デモの表示だけ（署名表を読むだけで、鍵を使わない）
 ```
 
-Node 22 の標準ライブラリだけで動く（`npm install` 不要）。`permutation-gateway/citizens/` の `memory/config.mjs`（正規 JSON・sha256）と `mind/sanitize.mjs`（固定の消毒）を import する。既存ファイルは変更していない。
+- **Node**：22.13 以上か 23（`node:sqlite` を import する。Node 22.5–22.12 は `--experimental-sqlite` が要る。Node 20 では④の store を読むファイルが読み込めない）。CI の `memory12` は Node 22。
+- **npm**：⑫自身は要らない。`adapters-ws13-real.test.mjs`（⑬の実デモ世界）は `permutation-gateway` の依存が要る（`npm ci --prefix permutation-gateway`）。無ければ理由付きで 2 件 skip。CI は入れる。
+- **鍵**：鍵なしの試験は、固定の試験鍵が作る署名を表（`fixtures/presigned.mjs`）から読むだけ。署名そのものが主題の 2 件（`allocation-signature.test.mjs`）と表の再署名（`presigned-table.test.mjs`）だけが鍵を使い、CI では走らない。
+- **試験の数**（2026-11-20、Node 23.11）：`node --test test/*.test.mjs` は 22 ファイル **207 件中 206 通過・0 失敗・1 skip**（skip は④の実 store：`WS04_DB`、cargo で runexec を作る `--regen-ws04` が要る）。鍵なし（CI と同じ `scripts/ci/node-keyfree.sh`、20 ファイル）は **204 件中 203 通過・1 skip**（Node 23.11 と、`--experimental-sqlite` 付きの 22.12）。以前は 8 ファイル・77 件。
+- `permutation-gateway/citizens/` の `memory/config.mjs`（正規 JSON・sha256）と `mind/sanitize.mjs`（固定の消毒）を import する。
 
 ## デモ（`results/demo-console.txt`、決定的な参照ルール）
 
