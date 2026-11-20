@@ -1,8 +1,7 @@
 /**
- * WRITTEN, NOT RUN (2026-11-17, under an execution pause): no part of this file has been executed. Run it only with
- * its own approval. Its import closure is dispatch-status-pin.test.mjs's (src/connect/dispatch.mjs → caravan.mjs →
+ * Written 2026-11-17 under an execution pause; run since on Node 20 and 22. Its import closure is dispatch-status-pin.test.mjs's (src/connect/dispatch.mjs → caravan.mjs →
  * plan.mjs → keys.mjs, which names a key API never reached here; src/connect/intake.mjs; cli/connect-fixture.mjs;
- * src/canonical.mjs): it needs the same kind of review entry before a key-free job may run it.
+ * src/canonical.mjs): it is cleared by its entry in scripts/ci/node-key-reviewed.txt (ws06-next 2026-11-20), so the key-free job runs it.
  *
  * Dispatch.plan plans only the content its hashes name (dispatch.mjs hashProblem, 2026-11-17).
  *   H1 the fixture request (hashes computed from its content) is planned as before

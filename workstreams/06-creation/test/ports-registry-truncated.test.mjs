@@ -1,7 +1,6 @@
 /**
- * WRITTEN, NOT RUN (2026-11-17, under an execution pause): no part of this file has been executed. Run it only with
- * its own approval. Its import closure is ports.test.mjs's (src/connect/ports.mjs → caravan.mjs → plan.mjs → keys.mjs,
- * which names a key API it never reaches here): it needs the same review entry before any key-free job may run it.
+ * Written 2026-11-17 under an execution pause; run since on Node 20 and 22. Its import closure is ports.test.mjs's (src/connect/ports.mjs → caravan.mjs → plan.mjs → keys.mjs,
+ * which names a key API it never reaches here): it is cleared by its entry in scripts/ci/node-key-reviewed.txt (ws06-next 2026-11-20), so the key-free job runs it.
  *
  * act3FromMcp.status reads ③'s get_run_status registry rows; a cut list is no answer:
  *   T1 a full list: no act for the requestId → null; one → that receipt; two → Inconsistent (as before)
