@@ -1,8 +1,6 @@
 /**
- * WRITTEN, NOT RUN (2026-11-17, under an execution pause): no part of this file has been executed. Run it only with
- * its own approval. Its import closure is intake.test.mjs's (src/connect/dispatch.mjs → caravan.mjs → plan.mjs →
- * keys.mjs, which names a key API never reached here; cli/connect-fixture.mjs): it needs the same kind of review entry
- * before a key-free job may run it.
+ * Written 2026-11-17 under an execution pause; run since on Node 20 and 22. Its import closure is intake.test.mjs's (src/connect/dispatch.mjs → caravan.mjs → plan.mjs →
+ * keys.mjs, which names a key API never reached here; cli/connect-fixture.mjs): it is cleared by its entry in scripts/ci/node-key-reviewed.txt (ws06-next 2026-11-20), so the key-free job runs it.
  *
  * Dispatch never answers a plan as planned, nor shows its state as saved, while that state has not been seen saved
  * (dispatch.mjs #saved: the plan as loaded or as last written by a save that returned; 2026-11-17), and never takes

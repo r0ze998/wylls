@@ -2,6 +2,8 @@
 
 **位置づけ：** ⑥の仮置きと、⑥が問いたいことの一覧です。②の決定が優先します。②の成果物は 2026-10-30 時点で未提供のため、対応はすべて未確認です。
 
+> **2026-11-20：** ② = A（2026-11-18）で StockSwap は採用され、受取口は利用者の倉（Vault）になった（main、`rights-experimental` の build だけ）。下の §0 の「未採用」は古い。⑥の前提ごとの確認・反証は [00-correspondence.ja.md](00-correspondence.ja.md) の「② A との照合」。
+
 ## 0. ②の成果物（2026-11-05 に GitHub の `preserve/ws02-rights-dc3bd3d` = `dc3bd3d93465eebb65f1815eb702ca779cc31827` で読んだ）
 
 - StockSwap は、素材と生産済みの武具の交換。加工能力の貸出ではなく、未採用（② HANDOFF §0、03-CONTRACT）。**⑥の工房の手順の代替にはしない**（補遺 §2）。
