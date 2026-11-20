@@ -144,16 +144,21 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
 3. **An expedition (rim → wide land)**: train and muster in the rim village (§3 steps 4–5), select the host in the
    bottom bar (e.g. 「槍兵 500」) and press 「境界への道を準備」.
    1. Draw the road one step at a time with the direction buttons (東・北東・北西・西・南西・南東) or the dashed tiles
-      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more).
+      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more). Only the provinces of rings
+      129–131 that the map draws are open; ending on an unopened one makes step 2 say
+      「道の途中に、まだ読み取れていない州があります。」.
    2. 「地形・時間を確認」. 「山や水のマスには進めません (N)」 means step N is impassable: 「一歩戻す」 or 「道を消す」
       and draw another road (the card draws roads without looking at terrain). A passable road shows
-      「到着候補：ターン A〜B」.
+      「到着候補：ターン A〜B」. At ×60 a read that is still running when the turn changes is dropped and nothing is
+      shown: press right after a turn change. The result and the buttons of steps 3–5 are low in the card: scroll
+      inside the card to see them.
    3. Press 「最も早い候補（ターン A）を使う」 (the field for typing an arrival turn yourself is inside 「詳細」 at the
       bottom of the card).
    4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
       「出発する（ローカルプレイ）」. At ×60 「…満たしていません。 (NotResident)」 is common (the province is settled for
       only part of each turn): wait a few seconds and press 「出発条件を確認」 again. In this check it took more than
-      10 presses, about 2 minutes. A turn change clears the check's result; press again then too.
+      10 presses, about 2 minutes (loop-play5, before the runner-throughput change #109: about 60 presses, about 10 minutes at load 5–6 on this Mac). A turn
+      change clears the check's result; press again then too.
    5. 「出発が確定しました（ターン N に到着予定・移動枠 0）」 means it departed.
    - **On the arrival turn this page can open the seal.** Normally the world's keeper opens it, but at ×60 on a
      loaded machine it can miss the window of about 10 s (in this check the first expedition was missed, §8). On the
@@ -171,6 +176,11 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      about 15 minutes to catch up). Meanwhile, and at ×60 often after it too, a press answers 「送られていません」 (the
      muster's NotResident): wait a few seconds and press again. In this check about 30 presses at one per turn were
      all refused; pressing every 2 s got the muster through within a few presses, and the march two turns later.
+     (loop-play5, before the runner-throughput change: up to about 180 turns behind, about 40 minutes to catch up.)
+   - **Do not over-press.** While the province is far behind, no press gets through. This page can send at most 256
+     commands in one world (the launcher relay's limit); past it every button is refused with
+     「今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。」 and the next game day does not
+     bring it back (loop-play5, §8). Until the village's province has caught up, press at most once per turn.
    - The world's keeper opens the march's seal and catches the target province up even when it is far behind (in this
      check: reveal, clash and settlement within minutes of the arrival). The bottom bar's 「進軍」 list does not show
      marches inside the wide land. Staying on a keep for 72 turns takes it.
@@ -270,6 +280,15 @@ training are the same rules as devnet.
   minute against the chain's 6; before it, 1–2). The keeper loop resolves the other provinces' and the sieges' turns in
   same-block batches. The standings' 「第 N ターンまでの確定した得点」 is the slowest province's turn: a few turns behind
   the turn bar (before: up to hundreds, e.g. turn 251 at turn 495).
+- **This page can send at most 256 commands in one world** (how many sent commands the launcher's relay remembers;
+  sends the chain refused count too). Past it every button says 「今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、
+  また送れます。」, but in fact nothing can be sent even after the game day changes (the relay answers `LocalActBusy`;
+  loop-play5 reached it by pressing the wide land's 「次の一手」 every 2 s for about 10 minutes). A code fix for the cap and its text is in progress.
+- **An expedition into the wide land shows its result only once the target province has caught up**, after the seal is
+  open. The marches screen says 「封が開けられました。到着のターンの決着を待っています。」 and the map tag
+  「到着 · 開封を待っています（あなたにだけ見えます）」 until then (loop-play5, before the runner-throughput change: about
+  27 minutes after the arrival,
+  「留まる：軍勢は広い土地の州に立っています （兵 488）」).
 - **A rim village that stays 「仮の村」** is confirmed by one action of your own (e.g. 「収穫する」), not at the
   「遅くとも…」 time the screen states.
 - **The AI residents spend many turns on refused sends** (e.g. training the stores cannot pay). They look slow; it is
