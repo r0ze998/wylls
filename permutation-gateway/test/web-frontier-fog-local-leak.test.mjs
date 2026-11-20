@@ -158,6 +158,6 @@ test('the page\'s wiring: every surface that shows the map reads the fogged copi
   assert.equal(ctl.split('keeps: viewKeeps(cq.keeps)').length - 1, 2, 'both reach lists');
   assert.ok(ctl.includes('if (fog.on) FS.incoming = fog.incoming(FS.incoming, { nowBell: nowBell(), departures });'));
   assert.ok(km.includes('const keeps = viewKeeps(cq.keeps);'));
-  assert.ok(feed.includes('viewRecord({ p: e.p, q: e.q }, () => !!e.side)'), 'keep news');
+  assert.ok(feed.includes('viewClash({ p: e.p, q: e.q, keepTile: keepTileIn(FS.overviews, e.p, e.q), mine: !!e.side })'), 'keep news (verify-pr117: the keep tile, not any tile)');
   assert.ok(kh.indexOf(': fogNow().on ? html`<p class="pop-line">') < kh.indexOf(': Number(FS.conquest?.keepsPending ?? 0) > 0 ? html`<p class="pop-line kh-loading">'), 'nothing unseen is "being worked out"');
 });

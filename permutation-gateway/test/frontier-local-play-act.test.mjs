@@ -365,6 +365,9 @@ test('L5-1: the barrier bounds UNSETTLED commands only — once their blockhashe
   assert.equal(g.sends(), LOCAL_ACT_MAX_HISTORY); assert.equal(g.asks(), 0); assert.deepEqual(g.act.stats(), { history: LOCAL_ACT_MAX_HISTORY });
   // all still valid on the runner: the 257th is refused Busy (nothing sent, not consumed) — the text says "wait", not "today's quota"
   await rejects(g.act.submit(signedAt(300)), 'LocalActBusy'); assert.equal(g.sends(), LOCAL_ACT_MAX_HISTORY); assert.ok(g.asks() > 0);
+  // (verify-pr117) a refused submit costs the runner ONE ask while the oldest record is still valid: refusals cannot be
+  // turned into a flood of isBlockhashValid calls (64 per refusal before)
+  { const a0 = g.asks(); for (let i = 0; i < 20; i++) await rejects(g.act.submit(signedAt(300)), 'LocalActBusy'); assert.equal(g.asks() - a0, 20); }
   // the runner moves on: the first 10 blockhashes are no longer valid → those records retire and the world sends again
   for (let i = 0; i < 10; i++) expired.add(hashOf(i));
   assert.equal((await g.act.submit(signedAt(300))).status, 'submitted'); assert.equal(g.sends(), LOCAL_ACT_MAX_HISTORY + 1);

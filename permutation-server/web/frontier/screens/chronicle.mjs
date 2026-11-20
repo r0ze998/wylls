@@ -18,7 +18,7 @@ import { placeName } from '../people/identity.mjs';
 import { icon } from '../hud/icons.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { cardHead, fold } from './parts.mjs';
-import { viewRecord } from '../map/fog.mjs';
+import { viewRecord, viewClash, keepTileIn } from '../map/fog.mjs';
 
 /** A site by its place name (the name a village there carries), in the page's language. */
 const nameAt = (p, q, site) => placeName(Number(p), Number(q), Number(site))[lang() === 'en' ? 'en' : 'ja'];
@@ -82,7 +82,8 @@ export function chronicleRows(records, mine = () => false, limit = 60, FS = null
   for (const e of keeps) {
     const text = keepLineOf(e);
     if (!text) continue;
-    if (Number.isInteger(e.p) && Number.isInteger(e.q) && !viewRecord({ p: e.p, q: e.q }, () => !!keepEventSide(e, faction))) continue;
+    // (verify-pr117: a keep event's place is its keep: the clash rule, unless the viewer's nation is in it)
+    if (Number.isInteger(e.p) && Number.isInteger(e.q) && !viewClash({ p: e.p, q: e.q, keepTile: keepTileIn(FS?.overviews, e.p, e.q), mine: !!keepEventSide(e, faction) })) continue;
     // before the first older row: the newest of a bell's lines, as the capture ends that bell
     const at = out.findIndex(r => Number(r.bell) <= e.bell);
     out.splice(at < 0 ? out.length : at, 0, { seq: e.seq, bell: e.bell, text, mine: !!keepEventSide(e, faction), keep: e.kind, at: Number.isInteger(e.p) && Number.isInteger(e.q) ? { p: e.p, q: e.q } : null, clash: false });

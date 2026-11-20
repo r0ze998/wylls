@@ -300,7 +300,11 @@ export function createReplayBarrier({ max, maxAnswered = LOCAL_ACT_MAX_ANSWERED,
         const ctx = v?.result?.context;
         if (!v || v.error !== undefined || !Number.isSafeInteger(ctx?.slot) || ctx.slot < 0 || typeof v.result?.value !== 'boolean') return n;
         if (instance !== null && ctx.instance !== undefined && ctx.instance !== instance) return n;
-        if (v.result.value !== false) continue;
+        // (verify-pr117: the hashes are asked oldest record first, and a still-valid one ends the pass: records come in
+        //  roughly in blockhash order, so the rest are younger. A full relay refused again and again costs the runner
+        //  about one ask per refused submit, not up to LOCAL_RETIRE_MAX_ASKS. A record built on an older hash than its
+        //  place says retires on a later pass — later, never early: the barrier still fails closed)
+        if (v.result.value !== false) break;
         for (const [d, e] of [...live]) if (e.blockhash === h) { forget(d, e); n++; }
       }
       return n;
