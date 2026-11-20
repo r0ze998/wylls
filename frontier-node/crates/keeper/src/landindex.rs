@@ -157,6 +157,7 @@ impl LandIndex {
             return 0;
         }
         self.feed.begin_pull();
+        let scope = crate::feedguard::WideScope::of(addrs);
         for tx in page {
             if tx.seq <= self.cursor.0 {
                 continue;
@@ -165,7 +166,7 @@ impl LandIndex {
                 self.cursor = Cursor(tx.seq);
                 continue;
             }
-            let bodies = match crate::feedguard::bodies(tx, &addrs.program) {
+            let bodies = match crate::feedguard::bodies_scoped(tx, &addrs.program, scope.as_ref()) {
                 Ok(bodies) => bodies,
                 Err(reason) => {
                     self.bad += 1;
@@ -173,7 +174,9 @@ impl LandIndex {
                     break;
                 }
             };
-            for b in bodies {
+            // (P8: PSW1 records accounted for, never applied to this index)
+            self.feed.account_wide(&bodies.wide);
+            for b in bodies.ps2 {
                 self.ingest(&b, tx.slot, addrs);
                 n += 1;
             }

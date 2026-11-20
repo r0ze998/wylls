@@ -4930,6 +4930,8 @@ export async function boot() {
     try { wideLandRef = mountWideLand({ herald, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier wide land:', e); }
     // (the map reads the wide land through this: under the fog of war of a local test world, the fogged copy — map/fog.mjs)
     if (wideLandRef) { wideLandRaw = wideLandRef; const raw = wideLandRaw; wideLandRef = { ...raw, land: () => shownWide(raw.land()) }; }
+    // (devnet play, devnet gap P1: the opened wide provinces a wide claim may name — the herald's record, unfogged: fog is local-only)
+    FS.wideLandNow = () => wideLandRaw?.land?.() ?? null;
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)

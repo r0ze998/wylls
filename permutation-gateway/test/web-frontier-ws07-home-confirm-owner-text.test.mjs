@@ -100,7 +100,7 @@ test('K6 "failed / expired" lets go only of this send\'s own note, where it was 
 });
 
 test('K7 the ordinary Join: the record of the wallet it is signed with', () => {
-  order(join, '  join: async () => {', 'const still = homeJoinStill; homeJoinStill = null;', 'if (localPlay) {', 'const pin = io.pinned();', 's = await fsession.derive({',
+  order(join, '  join: async () => {', 'const still = homeJoinStill; homeJoinStill = null;', 'if (localPlay || devnetPlay) {', 'const pin = io.pinned();', 's = await fsession.derive({',
     "if (still && !still()) return { ok: false, code: 'ContextChanged' };", 'fsession.remember(s);', 'FS.session = s;',
     'const noteAt = FS.homeChoice?.busy ? homeNoteNow() : null, noteSent = new Set();', 'const lifecycle = {', 'if (FS.prize) return paidJoin(s, lifecycle);',
     "return act('Join', {", 'onSent: lifecycle.onSent, onLost: lifecycle.onLost });');
@@ -136,9 +136,9 @@ test('K9 unchanged, word for word', () => {
   assert.ok(local.includes("onSent: (r, sentUnder) => { if (FS.homeChoice?.busy) saveHomePatch({ pending: { kind: 'Join', signature: r.signature, ...(typeof sentUnder?.scope === 'string' ? { scope: sentUnder.scope } : {}) } }); },"));
   assert.ok(local.includes('onLost: () => { if (FS.homeChoice?.busy) saveHomePatch({ pending: null }); } });'));
   assert.doesNotMatch(local, /fsession|FS\.session|SetSession|publicKeyBytes|faucet|payAndJoin|remember\(/);
-  assert.match(ch, /const s = await localAct\.recheckLocalPending\(localActLedger, lscope, saved\.pending, \{ origin: g\.relay, still \}\);\n\s+if \(s\.state === 'left' \|\| !still\(\)\) return;\n\s+if \(s\.state === 'other-scope'\) return error\('PendingHome',/);
+  assert.match(ch, /const s = await localAct\.recheckLocalPending\(localActLedger, lscope, saved\.pending, \{ origin: g\.relay, still, lane: pl\.lane \}\);\n\s+if \(s\.state === 'left' \|\| !still\(\)\) return;\n\s+if \(s\.state === 'other-scope'\) return error\('PendingHome',/);
   assert.match(ch, /\} else if \(saved\.pending\) \{\n\s+pending\('confirming'\);\n\s+const tracked = await tx\.track\(saved\.pending\.signature\);\n\s+await refresh\(\);\n\s+if \(FS\.homeGrant\) return;\n\s+if \(saved\.pending\.kind === 'Join' && FS\.citizen\) saveHomePatch\(\{ pending: null \}\);\n\s+else if \(!tracked\.ok && \['failed', 'expired'\]\.includes\(tracked\.state\)\) saveHomePatch\(\{ pending: null \}\);/);
-  assert.match(ch, /if \(!localPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s+await ACTIONS\.session\(\);/);
+  assert.match(ch, /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s+await ACTIONS\.session\(\);/);
   assert.ok(ch.includes("const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },"));
   assert.ok(joinOrdinary.includes("fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },"));
 });

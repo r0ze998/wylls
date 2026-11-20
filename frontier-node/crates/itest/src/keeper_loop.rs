@@ -50,13 +50,49 @@ pub const TICK: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pace {
     Natural,
-    Demo { short: Duration, burst: u32 },
+    Demo {
+        short: Duration,
+        burst: u32,
+    },
+    /// TEST-ONLY wide world above 1x (`--wide-scale`; runner-throughput): `short` after a pass that landed, `idle` after
+    /// one that landed nothing (never the 10-s TICK: that is a whole ×60 turn), no burst limit; and each village's pass
+    /// repeats its steps while they land ([`village_rounds`]), and the player's home goes first before every other village
+    /// ([`home_first`]).
+    Wide {
+        short: Duration,
+        idle: Duration,
+    },
 }
 /// The capture demo's pace: 1 s while work lands, at most 8 in a row (then the full tick).
 pub const DEMO_PACE: Pace = Pace::Demo {
     short: Duration::from_secs(1),
     burst: 8,
 };
+
+/// The TEST-ONLY wide world's pace (runner-throughput): see [`Pace::Wide`].
+pub const WIDE_PACE: Pace = Pace::Wide {
+    short: Duration::from_millis(250),
+    idle: Duration::from_secs(1),
+};
+/// TEST-ONLY wide pace: how many times one village's pass repeats its steps while they land, and the wall time after
+/// which it does not start another round (runner-throughput: a home that is not quiet — an AI resident acts every turn —
+/// needs GatherClash → PostSeed → ResolveFromInputs per turn from its origin driver and the keeper's FastForward in
+/// between, so one round per pass resolved one turn per pass, ~3 turns a minute against the chain's 6).
+pub const WIDE_ROUNDS: u32 = 8;
+pub const WIDE_ROUND_BUDGET: Duration = Duration::from_secs(2);
+/// `(rounds, budget)` of one village's pass for `pace` (pure): 1 round everywhere but the wide pace.
+pub fn village_rounds(pace: Pace) -> (u32, Duration) {
+    match pace {
+        Pace::Wide { .. } => (WIDE_ROUNDS, WIDE_ROUND_BUDGET),
+        _ => (1, Duration::MAX),
+    }
+}
+/// Whether the first village (the person's own) steps its keeper and origin driver again before every further
+/// village's pass (pure): only at the wide pace. The person's sends wait on their home being at most one turn behind
+/// (page `settleNow`), and a pass over five villages took 20 s — two ×60 turns.
+pub fn home_first(pace: Pace) -> bool {
+    matches!(pace, Pace::Wide { .. })
+}
 
 /// TEST-ONLY capture demo: how many steps in a row one driver may take in one pass while each of them LANDS (each its
 /// own fresh read, its own simulation and its own awaited receipt — exactly the step the next pass would take, minus the
@@ -67,7 +103,7 @@ pub const DEMO_STEPS_PER_PASS: u32 = 4;
 /// Steps per driver per pass for `pace` (pure): the demo's bounded run, natural play's single step.
 pub fn steps_per_pass(pace: Pace) -> u32 {
     match pace {
-        Pace::Demo { .. } => DEMO_STEPS_PER_PASS,
+        Pace::Demo { .. } | Pace::Wide { .. } => DEMO_STEPS_PER_PASS,
         Pace::Natural => 1,
     }
 }
@@ -80,6 +116,14 @@ pub fn next_wait(pace: Pace, landed: bool, run: &mut u32) -> Duration {
             *run += 1;
             short
         }
+        Pace::Wide { short, idle } => {
+            *run = 0;
+            if landed {
+                short
+            } else {
+                idle
+            }
+        }
         _ => {
             *run = 0;
             TICK
@@ -87,6 +131,9 @@ pub fn next_wait(pace: Pace, landed: bool, run: &mut u32) -> Duration {
     }
 }
 
+/// How often a submitted transaction's landing is looked for (runner-throughput: was 200 ms; a block comes every 400 ms,
+/// so the coarse poll added ~100 ms on average to every awaited transaction, and a pass awaits dozens). Read only.
+pub const LAND_POLL: Duration = Duration::from_millis(25);
 /// How long a submitted transaction may take to land on the node's ticker.
 pub const LAND_TIMEOUT: Duration = Duration::from_secs(30);
 const PAYER_LAMPORTS: u64 = 50_000_000_000;
@@ -238,41 +285,149 @@ pub(crate) async fn submit_and_wait(
             Err(e) => return Sent::Failed(format!("{what} refused before landing: {e}")),
         }
     };
-    let deadline = Instant::now() + timeout;
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(200)) => {}
-            _ = stopped(stop) => {}
-        }
-        {
-            let c = lock(state);
-            if let Some(l) = c.transaction(&sig) {
-                if let Some(err) = &l.err {
-                    let tail: Vec<_> = l.logs.iter().rev().take(6).rev().cloned().collect();
-                    return Sent::Failed(format!(
-                        "{what} failed: {err} (code {:?}) {tail:?}",
-                        l.code
-                    ));
+    let began = Instant::now();
+    let r = async {
+        let deadline = Instant::now() + timeout;
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(LAND_POLL) => {}
+                _ = stopped(stop) => {}
+            }
+            {
+                let c = lock(state);
+                if let Some(l) = c.transaction(&sig) {
+                    if let Some(err) = &l.err {
+                        let tail: Vec<_> = l.logs.iter().rev().take(6).rev().cloned().collect();
+                        return Sent::Failed(format!(
+                            "{what} failed: {err} (code {:?}) {tail:?}",
+                            l.code
+                        ));
+                    }
+                    return Sent::Landed(sig.to_string());
                 }
-                return Sent::Landed(sig.to_string());
+                if c.is_dropped(&sig) {
+                    return Sent::Failed(format!("{what} was dropped (signature {sig})"));
+                }
             }
-            if c.is_dropped(&sig) {
-                return Sent::Failed(format!("{what} was dropped (signature {sig})"));
+            if *stop.borrow() {
+                return Sent::Unknown {
+                    signature: sig.to_string(),
+                    why: format!("{what}: stopped while waiting; outcome unknown"),
+                };
             }
-        }
-        if *stop.borrow() {
-            return Sent::Unknown {
-                signature: sig.to_string(),
-                why: format!("{what}: stopped while waiting; outcome unknown"),
-            };
-        }
-        if Instant::now() >= deadline {
-            return Sent::Unknown {
-                signature: sig.to_string(),
-                why: format!("{what} did not land within {timeout:?}; outcome unknown, not resent"),
-            };
+            if Instant::now() >= deadline {
+                return Sent::Unknown {
+                    signature: sig.to_string(),
+                    why: format!(
+                        "{what} did not land within {timeout:?}; outcome unknown, not resent"
+                    ),
+                };
+            }
         }
     }
+    .await;
+    crate::prof::LAND.add(began);
+    r
+}
+
+/// runner-throughput: the most transactions one batch submits into the same block. The node lets one writable account
+/// (the batch's fee payer is writable in every one) take 40 M CU per block, and each transaction asks 1.4 M.
+pub const BATCH_MAX: usize = 24;
+
+/// Several INDEPENDENT transactions (the caller guarantees no two write the same program account), each already accepted
+/// by its own simulation: all built and submitted under one short lock, so they land in the same block, then each awaited
+/// as [`submit_and_wait`] awaits one (landed, failed with the program's error, dropped, or `Unknown` after `timeout` /
+/// a stop — never resent). One outcome per item, in order. A stop before sending sends nothing.
+pub(crate) async fn submit_many(
+    state: &Shared,
+    payer: &Keypair,
+    items: Vec<(Instruction, String)>,
+    timeout: Duration,
+    stop: &mut tokio::sync::watch::Receiver<bool>,
+) -> Vec<Sent> {
+    let mut out: Vec<Option<Sent>> = vec![];
+    let mut sigs = vec![];
+    {
+        let mut c = lock(state);
+        let (blockhash, _) = c.latest_blockhash();
+        for (ix, what) in &items {
+            if *stop.borrow() {
+                out.push(Some(Sent::Failed(format!(
+                    "{what}: stopped by request before sending"
+                ))));
+                sigs.push(None);
+                continue;
+            }
+            let sent = fclient::tx::build(
+                std::slice::from_ref(ix),
+                &lk::budget(),
+                &[payer],
+                &blockhash,
+            )
+            .map_err(|e| format!("{what}: {e}"))
+            .and_then(|t| {
+                c.submit(&fclient::tx::wire(&t))
+                    .map_err(|e| format!("{what} refused before landing: {e}"))
+            });
+            match sent {
+                Ok(sig) => {
+                    out.push(None);
+                    sigs.push(Some(sig));
+                }
+                Err(e) => {
+                    out.push(Some(Sent::Failed(e)));
+                    sigs.push(None);
+                }
+            }
+        }
+    }
+    let began = Instant::now();
+    let deadline = began + timeout;
+    loop {
+        if out.iter().all(|o| o.is_some()) {
+            break;
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(LAND_POLL) => {}
+            _ = stopped(stop) => {}
+        }
+        let c = lock(state);
+        for (i, sig) in sigs.iter().enumerate() {
+            let (Some(sig), None) = (sig, &out[i]) else {
+                continue;
+            };
+            let what = &items[i].1;
+            if let Some(l) = c.transaction(sig) {
+                out[i] = Some(match &l.err {
+                    Some(err) => {
+                        let tail: Vec<_> = l.logs.iter().rev().take(6).rev().cloned().collect();
+                        Sent::Failed(format!("{what} failed: {err} (code {:?}) {tail:?}", l.code))
+                    }
+                    None => Sent::Landed(sig.to_string()),
+                });
+                crate::prof::LAND_BATCHED.add(began);
+            } else if c.is_dropped(sig) {
+                out[i] = Some(Sent::Failed(format!(
+                    "{what} was dropped (signature {sig})"
+                )));
+            } else if *stop.borrow() {
+                out[i] = Some(Sent::Unknown {
+                    signature: sig.to_string(),
+                    why: format!("{what}: stopped while waiting; outcome unknown"),
+                });
+            } else if Instant::now() >= deadline {
+                out[i] = Some(Sent::Unknown {
+                    signature: sig.to_string(),
+                    why: format!(
+                        "{what} did not land within {timeout:?}; outcome unknown, not resent"
+                    ),
+                });
+            }
+        }
+    }
+    out.into_iter()
+        .map(|o| o.expect("every item decided"))
+        .collect()
 }
 
 /// A fresh in-memory fee payer funded by the node's disposable faucet. The
@@ -748,6 +903,10 @@ pub struct Pilot {
     /// Steps per driver per pass ([`steps_per_pass`]): 1 (natural play, every caller of `Pilot::new*`); the TEST-ONLY
     /// demo pace sets [`DEMO_STEPS_PER_PASS`] in [`run_paced_with`], for every village of the loop.
     pub per_step: u32,
+    /// Rounds of one village's pass and their budget ([`village_rounds`]): `(1, MAX)` but at the wide pace.
+    pub rounds: (u32, Duration),
+    /// Whether the first village's keeper and origin go again before every further village ([`home_first`]).
+    pub home_first: bool,
 }
 
 /// Which status field a step's line goes to.
@@ -776,7 +935,9 @@ pub struct Report {
     pub text: String,
 }
 
-/// One step of a keeper loop pass (the keeper's own tick, or one driver's step): at most one transaction per call.
+/// One step of a keeper loop pass (the keeper's own tick, or one driver's step): at most one transaction per call — but
+/// at the TEST-ONLY wide pace the legacy march driver's world phase and stands send one same-block batch per round
+/// (runner-throughput; `legacy_march` module doc).
 pub trait TickStep: Send {
     fn run<'a>(
         &'a mut self,
@@ -819,7 +980,9 @@ pub async fn run_steps_bounded(
         if s.done() {
             continue;
         }
+        let t0 = Instant::now();
         let mut r = s.run(state).await;
+        crate::prof::phase(phase_label(&r), t0);
         out.landed |= r.out == Out::Landed;
         out.reports.push(r.clone());
         let mut taken = 1u32;
@@ -828,7 +991,9 @@ pub async fn run_steps_bounded(
             && taken < per_step.max(1)
             && !s.done()
         {
+            let t0 = Instant::now();
             r = s.run(state).await;
+            crate::prof::phase(phase_label(&r), t0);
             taken += 1;
             out.landed |= r.out == Out::Landed;
             out.reports.push(r.clone());
@@ -841,6 +1006,40 @@ pub async fn run_steps_bounded(
         };
         if end {
             out.stopped = Some(r);
+            break;
+        }
+    }
+    out
+}
+
+/// A step's label in the pass profile (measurement): its field and the start of its line.
+fn phase_label(r: &Report) -> String {
+    let t: String = r.text.chars().take(72).collect();
+    format!("{:?}:{t}", r.field)
+}
+
+/// [`run_steps_bounded`] repeated while a round lands, at most `rounds` rounds and no new round after `budget`
+/// (runner-throughput, wide pace only; `rounds` 1 is exactly one `run_steps_bounded`). A round that ends early (a keeper or
+/// origin stop, or a pair's unknown outcome) ends the run with the same `stopped`, so the caller's rules are unchanged.
+pub async fn run_rounds(
+    state: &Shared,
+    steps: &mut [&mut dyn TickStep],
+    pair: bool,
+    per_step: u32,
+    rounds: u32,
+    budget: Duration,
+) -> RunOut {
+    let began = Instant::now();
+    let mut out = RunOut::default();
+    for _ in 0..rounds.max(1) {
+        let r = run_steps_bounded(state, steps, pair, per_step).await;
+        out.landed |= r.landed;
+        out.reports.extend(r.reports);
+        if r.stopped.is_some() {
+            out.stopped = r.stopped;
+            break;
+        }
+        if !r.landed || began.elapsed() >= budget {
             break;
         }
     }
@@ -1043,6 +1242,21 @@ pub trait PassVillage: Send {
     ) -> Pin<Box<dyn Future<Output = Vec<Report>> + Send + 'a>> {
         Box::pin(async { vec![] })
     }
+    /// The rounds of this village's pass and their budget, looped by [`orchestrate`] (runner-throughput: a further
+    /// village's pass is one round per call, so the person's home and the reveal sweep go between its rounds).
+    /// `(1, MAX)`: one round (every mock: the default).
+    fn round_plan(&self) -> (u32, Duration) {
+        (1, Duration::MAX)
+    }
+    /// runner-throughput (wide pace): the first village's keeper and origin driver again, before a further village's
+    /// pass ([`home_first`]). `None` = not this village / not this pace (every mock: the default).
+    fn home<'a>(
+        &'a mut self,
+        _state: &'a Shared,
+        _pair: bool,
+    ) -> Pin<Box<dyn Future<Output = Option<RunOut>> + Send + 'a>> {
+        Box::pin(async { None })
+    }
 }
 
 /// [`PassVillage::reveal_first`] of a village: while one of its ordinary marches has departed and its departure is not
@@ -1198,12 +1412,16 @@ pub async fn orchestrate(
         halt_all(first, others);
         return (false, false);
     }
+    let t0 = Instant::now();
     let mut landed = sweep_reveals(state, first, others, pair).await;
+    crate::prof::phase("sweep", t0);
     if pair && must(first, others) {
         halt_all(first, others);
         return (false, landed);
     }
+    let t0 = Instant::now();
     let r = first.pass(state, pair).await;
+    crate::prof::phase("village 1", t0);
     first.record(&r);
     landed |= r.landed;
     if let Some(stop) = &r.stopped {
@@ -1222,18 +1440,56 @@ pub async fn orchestrate(
         if others[i].ended() {
             continue;
         }
-        // (reveal-under-load: the sweep again before every further village's pass — its keeper posts anchors, and the
-        //  passes before it may have taken longer than a reveal window; with nothing due it only reads)
-        landed |= sweep_reveals(state, first, others, pair).await;
-        if must(first, others) {
-            halt_all(first, others);
-            return (false, landed);
-        }
-        let r = others[i].pass(state, true).await;
-        others[i].record(&r);
-        landed |= r.landed;
-        if r.stopped.is_some() {
-            others[i].end();
+        // (runner-throughput: a village's pass is looped here round by round — at most its `round_plan` rounds while
+        //  they land and its budget lasts; one round everywhere but the wide pace — so the sweep and the person's home go
+        //  before EVERY round, not once per village)
+        let (rounds, budget) = others[i].round_plan();
+        let began = Instant::now();
+        for _ in 0..rounds.max(1) {
+            // (reveal-under-load: the sweep again before every further village's pass — its keeper posts anchors, and the
+            //  passes before it may have taken longer than a reveal window; with nothing due it only reads)
+            let t0 = Instant::now();
+            landed |= sweep_reveals(state, first, others, pair).await;
+            crate::prof::phase("sweep", t0);
+            if must(first, others) {
+                halt_all(first, others);
+                return (false, landed);
+            }
+            // (runner-throughput, wide pace: after the sweep — reveals first, before any keeper posts an anchor — the
+            //  person's home again: its keeper and origin driver, by the same rules as the first village's pass: a keeper
+            //  or origin stop ends the loop, a pair halts every village)
+            let t0 = Instant::now();
+            if let Some(r) = first.home(state, pair).await {
+                crate::prof::phase("home", t0);
+                first.record(&r);
+                landed |= r.landed;
+                if r.stopped.is_some() {
+                    if pair {
+                        halt_all(first, others);
+                    }
+                    return (false, landed);
+                }
+                if must(first, others) {
+                    halt_all(first, others);
+                    return (false, landed);
+                }
+            }
+            let t0 = Instant::now();
+            let r = others[i].pass(state, true).await;
+            crate::prof::phase(format!("village {}", i + 2), t0);
+            others[i].record(&r);
+            landed |= r.landed;
+            if r.stopped.is_some() {
+                others[i].end();
+                break;
+            }
+            if !r.landed || began.elapsed() >= budget {
+                break;
+            }
+            if must(first, others) {
+                halt_all(first, others);
+                return (false, landed);
+            }
         }
     }
     if pair && must(first, others) {
@@ -1251,6 +1507,8 @@ struct FirstVillage<'p> {
     resident: &'p mut Option<crate::resident_bells::ResidentBells>,
     origin: &'p mut Option<crate::origin_driver::OriginDriver>,
     per_step: u32,
+    rounds: (u32, Duration),
+    home_first: bool,
 }
 fn village_steps<'s>(
     keeper: &'s mut Keeper,
@@ -1282,6 +1540,7 @@ impl PassVillage for FirstVillage<'_> {
     ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
         Box::pin(async move {
             let per = self.per_step;
+            let (rounds, budget) = self.rounds;
             let mut steps = village_steps(
                 self.keeper,
                 self.destination,
@@ -1289,7 +1548,25 @@ impl PassVillage for FirstVillage<'_> {
                 self.resident,
                 self.origin,
             );
-            run_steps_bounded(state, &mut steps, pair, per).await
+            run_rounds(state, &mut steps, pair, per, rounds, budget).await
+        })
+    }
+    fn home<'a>(
+        &'a mut self,
+        state: &'a Shared,
+        pair: bool,
+    ) -> Pin<Box<dyn Future<Output = Option<RunOut>> + Send + 'a>> {
+        Box::pin(async move {
+            if !self.home_first {
+                return None;
+            }
+            let per = self.per_step;
+            let mut steps: Vec<&mut dyn TickStep> = vec![&mut *self.keeper as &mut dyn TickStep];
+            if let Some(o) = self.origin.as_mut() {
+                steps.push(o);
+            }
+            let (rounds, budget) = self.rounds;
+            Some(run_rounds(state, &mut steps, pair, per, rounds, budget).await)
         })
     }
     fn record(&mut self, r: &RunOut) {
@@ -1318,6 +1595,9 @@ impl PassVillage for FirstVillage<'_> {
     }
 }
 impl PassVillage for Village {
+    fn round_plan(&self) -> (u32, Duration) {
+        self.rounds
+    }
     fn pass<'a>(
         &'a mut self,
         state: &'a Shared,
@@ -1388,6 +1668,8 @@ pub struct Village {
     pub ended: bool,
     /// Steps per driver per pass ([`steps_per_pass`]; the Pilot's).
     pub per_step: u32,
+    /// Rounds of one pass and their time budget ([`village_rounds`]; the Pilot's).
+    pub rounds: (u32, Duration),
 }
 
 type Drivers = (
@@ -1518,6 +1800,8 @@ impl Pilot {
             landed: false,
             others: vec![],
             per_step: 1,
+            rounds: (1, Duration::MAX),
+            home_first: false,
         })
     }
 
@@ -1534,8 +1818,12 @@ impl Pilot {
         let mut keeper = Keeper::new_at(state, source, home, stop.clone()).await?;
         keeper.watch_holding(holding);
         keeper.status.village = Some(self.others.len() as u8 + 2);
-        let (origin, destination, resident, legacy) =
+        let (origin, destination, resident, mut legacy) =
             village_drivers(state, &keeper, holding, home, false, &mut stop).await?;
+        // (runner-throughput: the wide pace's stands go as same-block batches)
+        if let Some(l) = legacy.as_mut() {
+            l.batch = self.home_first;
+        }
         self.others.push(Village {
             home: (home.0 as i32, home.1 as i32),
             keeper,
@@ -1545,6 +1833,7 @@ impl Pilot {
             legacy,
             ended: false,
             per_step: self.per_step,
+            rounds: self.rounds,
         });
         Ok(())
     }
@@ -1570,6 +1859,8 @@ impl Pilot {
             origin,
             others,
             per_step,
+            rounds,
+            home_first,
             ..
         } = self;
         let mut first = FirstVillage {
@@ -1579,6 +1870,8 @@ impl Pilot {
             resident,
             origin,
             per_step: *per_step,
+            rounds: *rounds,
+            home_first: *home_first,
         };
         let mut rest: Vec<&mut dyn PassVillage> = others
             .iter_mut()
@@ -1631,6 +1924,31 @@ pub async fn run_paced(
 /// A keeper pass at least this long (wall ms) is reported on stderr (measurement, reveal-under-load).
 pub const SLOW_PASS_MS: u128 = 2000;
 
+/// How often the loop writes its world census line (measurement, runner-throughput).
+pub const CENSUS_EVERY: Duration = Duration::from_secs(60);
+
+/// The world census (measurement, read only): the current bell, and every opened legacy province's `resolved_next`
+/// (`"p,q": rn`), with the least of them and how many are more than one turn behind.
+pub fn world_census(state: &Shared) -> serde_json::Value {
+    let a = Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID);
+    let c = lock(state);
+    let mut rn = serde_json::Map::new();
+    let mut bell = 0u32;
+    let mut least: Option<u32> = None;
+    let mut behind = 0u32;
+    for (p, q) in crate::legacy_march::opened_provinces(&c, &a) {
+        if let Ok(v) = lk::view(&c, &a, p as i16, q as i16) {
+            bell = bell.max(v.bell_now);
+            least = Some(least.map_or(v.resolved_next, |l| l.min(v.resolved_next)));
+            if v.bell_now > v.resolved_next + 1 {
+                behind += 1;
+            }
+            rn.insert(format!("{p},{q}"), json!(v.resolved_next));
+        }
+    }
+    json!({"world_census": {"bell": bell, "least": least, "behind_gt1": behind, "provinces": rn.len(), "rn": rn}})
+}
+
 /// A village to add to a running loop (TEST-ONLY contest pair): its round source, Holding and home province.
 pub type MoreVillage = (RoundSource, Address, (i16, i16));
 
@@ -1659,6 +1977,34 @@ pub async fn run_paced_with(
         }
     };
     p.per_step = steps_per_pass(pace);
+    p.rounds = village_rounds(pace);
+    p.home_first = home_first(pace);
+    // (runner-throughput: at the wide pace the first village's world phase and stands go as same-block batches)
+    if let Some(l) = p.legacy.as_mut() {
+        l.batch = home_first(pace);
+    }
+    let mut last_census = Instant::now();
+    // (runner-throughput measurement: the person's home lag `bell_now − resolved_next`, sampled every 2 s by its own
+    //  read-only task — uniform in time, not at pass ends — and written with the census line as a histogram)
+    let home_lag: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, u32>>> =
+        Default::default();
+    {
+        let (st, hl, mut stop2) = (state.clone(), home_lag.clone(), stop.clone());
+        let a = Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                    _ = stopped(&mut stop2) => return,
+                }
+                let v = lk::view(&lock(&st), &a, home.0, home.1);
+                if let (Ok(v), Ok(mut h)) = (v, hl.lock()) {
+                    *h.entry(v.bell_now.saturating_sub(v.resolved_next))
+                        .or_default() += 1;
+                }
+            }
+        });
+    }
     let mut last = Status::default();
     let mut last_others: Vec<Status> = vec![];
     loop {
@@ -1675,14 +2021,34 @@ pub async fn run_paced_with(
             }
         }
         let began = Instant::now();
+        let prof0 = crate::prof::snapshot();
         let alive = p.tick(&state).await;
-        // (reveal-under-load measurement: a pass longer than a ×60 reveal window's share is reported, on stderr)
+        // (reveal-under-load measurement: a pass longer than a ×60 reveal window's share is reported, on stderr;
+        //  runner-throughput: with where its time went — awaited landings, simulations, drand fetches — and, with
+        //  WYLLS_PASS_PROFILE=1, every phase and step of the pass in order)
         let ms = began.elapsed().as_millis();
+        let phases = crate::prof::take_phases();
         if ms >= SLOW_PASS_MS {
-            eprintln!(
-                "{}",
-                json!({"keeper_pass_ms": ms as u64, "villages": 1 + p.others.len(), "landed": p.landed})
-            );
+            let prof = crate::prof::delta_json(&prof0, &crate::prof::snapshot());
+            let mut line = json!({"keeper_pass_ms": ms as u64, "villages": 1 + p.others.len(), "landed": p.landed, "prof": prof});
+            if std::env::var("WYLLS_PASS_PROFILE").is_ok_and(|v| v == "1") {
+                line["phases"] = json!(phases);
+            }
+            eprintln!("{line}");
+        }
+        // (runner-throughput measurement: once a minute, every opened legacy province's resolved turn, on stderr)
+        if last_census.elapsed() >= CENSUS_EVERY {
+            last_census = Instant::now();
+            let mut line = world_census(&state);
+            line["world_census"]["t"] = json!(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0));
+            line["world_census"]["home"] = json!([home.0, home.1]);
+            if let Ok(mut h) = home_lag.lock() {
+                line["world_census"]["home_lag"] = json!(std::mem::take(&mut *h));
+            }
+            eprintln!("{line}");
         }
         if p.keeper.status != last {
             report(&p.keeper.status);
@@ -1762,8 +2128,10 @@ mod tests {
         ));
         let bin = include_str!("bin/localnet_natural_play.rs");
         // (wide-local-playable: and the TEST-ONLY wide world's own clock above 1x, `--wide-scale`, which the launcher checked)
-        assert!(bin.contains("let pace = if demo.is_some() || wide_scale.is_some_and(|s| s > 1) { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };"));
+        // (runner-throughput: the wide world's own pace, WIDE_PACE; the capture demo keeps DEMO_PACE)
+        assert!(bin.contains("let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else if wide_scale.is_some_and(|s| s > 1) { itest::keeper_loop::WIDE_PACE } else { itest::keeper_loop::Pace::Natural };"));
         assert_eq!(bin.matches("DEMO_PACE").count(), 1);
+        assert_eq!(bin.matches("WIDE_PACE").count(), 1);
         let exp = include_str!("bin/localnet_expedition_play.rs");
         assert!(
             !exp.contains("DEMO_PACE") && !exp.contains("run_paced"),
@@ -2865,6 +3233,11 @@ mod pair_tests {
     struct SweepVillage {
         tag: &'static str,
         reveal: Option<Out>,
+        /// runner-throughput: what its home step answers (None: not a first village at the wide pace)
+        home: Option<Out>,
+        /// runner-throughput: its rounds per pass, and whether each of its passes lands
+        plan: (u32, Duration),
+        pass_lands: bool,
         status: Status,
         ended: bool,
         log: Arc<Mutex<Vec<String>>>,
@@ -2876,7 +3249,16 @@ mod pair_tests {
             _pair: bool,
         ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
             self.log.lock().unwrap().push(format!("{} pass", self.tag));
-            Box::pin(async { RunOut::default() })
+            let landed = self.pass_lands;
+            Box::pin(async move {
+                RunOut {
+                    landed,
+                    ..RunOut::default()
+                }
+            })
+        }
+        fn round_plan(&self) -> (u32, Duration) {
+            self.plan
         }
         fn record(&mut self, r: &RunOut) {
             for rep in &r.reports {
@@ -2916,11 +3298,38 @@ mod pair_tests {
                     .collect()
             })
         }
+        fn home<'a>(
+            &'a mut self,
+            _state: &'a Shared,
+            _pair: bool,
+        ) -> Pin<Box<dyn Future<Output = Option<RunOut>> + Send + 'a>> {
+            let Some(out) = self.home.clone() else {
+                return Box::pin(async { None });
+            };
+            self.log.lock().unwrap().push(format!("{} home", self.tag));
+            Box::pin(async move {
+                let rep = Report {
+                    field: Field::Keeper,
+                    out: out.clone(),
+                    text: String::new(),
+                };
+                let stopped =
+                    matches!(out, Out::Stopped(_) | Out::Unknown { .. }).then(|| rep.clone());
+                Some(RunOut {
+                    landed: out == Out::Landed,
+                    reports: vec![rep],
+                    stopped,
+                })
+            })
+        }
     }
     fn sv(tag: &'static str, reveal: Option<Out>, log: &Arc<Mutex<Vec<String>>>) -> SweepVillage {
         SweepVillage {
             tag,
             reveal,
+            home: None,
+            plan: (1, Duration::MAX),
+            pass_lands: false,
             status: Status::default(),
             ended: false,
             log: log.clone(),
@@ -2945,6 +3354,204 @@ mod pair_tests {
             "every live village's reveal first, then the passes in their order, the sweep again before every further \
              village's pass (reveal-under-load); an ended village is never called"
         );
+    }
+    // runner-throughput: at the wide pace the person's home (first village: keeper + origin) goes again before every further
+    // village's pass, AFTER that pass's reveal sweep (reveals before any keeper posts an anchor); elsewhere never.
+    #[tokio::test]
+    async fn the_persons_home_goes_again_after_each_sweep_before_every_further_village() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        a.home = Some(Out::Landed);
+        let mut b = sv("B", None, &log);
+        let mut c = sv("C", None, &log);
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b, &mut c];
+        let (alive, landed) = orchestrate(&st, &mut a, &mut rest).await;
+        assert!(alive && landed);
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec![
+                "A reveal", "B reveal", "C reveal", "A pass", "A reveal", "B reveal", "C reveal",
+                "A home", "B pass", "A reveal", "B reveal", "C reveal", "A home", "C pass"
+            ]
+        );
+        // (a home that stops ends the loop as the first village's keeper or origin stop does: nothing after it)
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        a.home = Some(Out::Stopped("keeper".into()));
+        let mut b = sv("B", None, &log);
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
+        let (alive, _) = orchestrate(&st, &mut a, &mut rest).await;
+        assert!(!alive);
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal", "B reveal", "A pass", "A reveal", "B reveal", "A home"]
+        );
+        assert!(
+            b.ended && b.status.stopped.is_some(),
+            "a pair halts every village"
+        );
+    }
+    // runner-throughput: a further village's rounds are looped by the loop itself, the sweep and the person's home before
+    // each one; at most its rounds, while they land
+    #[tokio::test]
+    async fn the_persons_home_goes_between_every_round_of_a_further_village() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        a.home = Some(Out::Quiet);
+        let mut b = sv("B", None, &log);
+        b.plan = (3, Duration::MAX);
+        b.pass_lands = true;
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
+        let (alive, _) = orchestrate(&st, &mut a, &mut rest).await;
+        assert!(alive);
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec![
+                "A reveal", "B reveal", "A pass", "A reveal", "B reveal", "A home", "B pass",
+                "A reveal", "B reveal", "A home", "B pass", "A reveal", "B reveal", "A home",
+                "B pass"
+            ]
+        );
+        // (a round that lands nothing ends the village's pass)
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        let mut b = sv("B", None, &log);
+        b.plan = (3, Duration::MAX);
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
+        orchestrate(&st, &mut a, &mut rest).await;
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal", "B reveal", "A pass", "A reveal", "B reveal", "B pass"]
+        );
+    }
+    // runner-throughput: the wide pace (pure) and the rounds of one village's pass (the real sequencer, counting steps)
+    #[test]
+    fn the_wide_pace_is_short_after_work_and_never_the_full_tick() {
+        let mut run = 0;
+        assert_eq!(
+            next_wait(WIDE_PACE, true, &mut run),
+            Duration::from_millis(250)
+        );
+        assert_eq!(
+            next_wait(WIDE_PACE, false, &mut run),
+            Duration::from_secs(1)
+        );
+        for _ in 0..50 {
+            assert_eq!(
+                next_wait(WIDE_PACE, true, &mut run),
+                Duration::from_millis(250),
+                "no burst limit"
+            );
+        }
+        assert_eq!(steps_per_pass(WIDE_PACE), DEMO_STEPS_PER_PASS);
+        assert_eq!(village_rounds(WIDE_PACE), (WIDE_ROUNDS, WIDE_ROUND_BUDGET));
+        assert!(home_first(WIDE_PACE));
+        for p in [Pace::Natural, DEMO_PACE] {
+            assert_eq!(
+                village_rounds(p),
+                (1, Duration::MAX),
+                "one round: unchanged"
+            );
+            assert!(!home_first(p));
+        }
+        assert_eq!(LAND_POLL, Duration::from_millis(25));
+        assert!(
+            BATCH_MAX <= 28,
+            "the batch's payer may take 40 M CU per block at 1.4 M each"
+        );
+    }
+    struct Count {
+        field: Field,
+        outs: Vec<Out>,
+        n: usize,
+    }
+    impl TickStep for Count {
+        fn run<'a>(
+            &'a mut self,
+            _state: &'a Shared,
+        ) -> Pin<Box<dyn Future<Output = Report> + Send + 'a>> {
+            let out = self.outs.get(self.n).cloned().unwrap_or(Out::Quiet);
+            self.n += 1;
+            let field = self.field;
+            Box::pin(async move {
+                Report {
+                    field,
+                    out,
+                    text: String::new(),
+                }
+            })
+        }
+    }
+    #[tokio::test]
+    async fn a_pass_repeats_its_steps_while_they_land_and_stops_as_one_round_would() {
+        let st = state();
+        // keeper lands twice (rounds 1-2), the origin once (round 1): rounds 1, 2 land, round 3 lands nothing → 3 rounds
+        let mut k = Count {
+            field: Field::Keeper,
+            outs: vec![Out::Landed, Out::Landed],
+            n: 0,
+        };
+        let mut o = Count {
+            field: Field::Origin,
+            outs: vec![Out::Landed],
+            n: 0,
+        };
+        let r = {
+            let mut steps: Vec<&mut dyn TickStep> = vec![&mut k, &mut o];
+            run_rounds(&st, &mut steps, false, 1, 8, Duration::MAX).await
+        };
+        assert!(r.landed && r.stopped.is_none());
+        assert_eq!((k.n, o.n), (3, 3));
+        // at most `rounds`
+        let mut k = Count {
+            field: Field::Keeper,
+            outs: vec![Out::Landed; 20],
+            n: 0,
+        };
+        {
+            let mut steps: Vec<&mut dyn TickStep> = vec![&mut k];
+            run_rounds(&st, &mut steps, false, 1, 8, Duration::MAX).await;
+        }
+        assert_eq!(k.n, 8);
+        // no new round after the budget
+        let mut k = Count {
+            field: Field::Keeper,
+            outs: vec![Out::Landed; 20],
+            n: 0,
+        };
+        {
+            let mut steps: Vec<&mut dyn TickStep> = vec![&mut k];
+            run_rounds(&st, &mut steps, false, 1, 8, Duration::ZERO).await;
+        }
+        assert_eq!(k.n, 1);
+        // an origin stop ends the run at once, with the same `stopped` as one round
+        let mut k = Count {
+            field: Field::Keeper,
+            outs: vec![Out::Landed; 5],
+            n: 0,
+        };
+        let mut o = Count {
+            field: Field::Origin,
+            outs: vec![Out::Landed, Out::Stopped("x".into())],
+            n: 0,
+        };
+        let r = {
+            let mut steps: Vec<&mut dyn TickStep> = vec![&mut k, &mut o];
+            run_rounds(&st, &mut steps, false, 1, 8, Duration::MAX).await
+        };
+        assert_eq!(r.stopped.map(|s| s.field), Some(Field::Origin));
+        assert_eq!((k.n, o.n), (2, 2));
+        // one round is exactly run_steps_bounded
+        let mut k = Count {
+            field: Field::Keeper,
+            outs: vec![Out::Landed; 5],
+            n: 0,
+        };
+        {
+            let mut steps: Vec<&mut dyn TickStep> = vec![&mut k];
+            run_rounds(&st, &mut steps, false, 1, 1, Duration::MAX).await;
+        }
+        assert_eq!(k.n, 1);
     }
     #[tokio::test]
     async fn a_pairs_unknown_reveal_stops_the_sweep_and_every_pass() {

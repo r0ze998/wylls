@@ -248,9 +248,10 @@ jobs:
         run: scripts/ci/node-keyfree.sh workstreams/15-coop-outcomes 'test/*.test.mjs'
 
   # Workstream 06 (creation): its node test files that the scan does not list (scripts/ci/node-key-tests.txt lists the
-  # other 21) through the same runner and guard. No npm install (06 has no dependencies). Node 20 and 22, as 06's
+  # other 12, which sign with fixed demo seeds; 14 of the 15 run are cleared by scripts/ci/node-key-reviewed.txt)
+  # through the same runner and guard. No npm install (06 has no dependencies). Node 20 and 22, as 06's
   # tests run locally on both (the journal lock reads /proc on Linux, injectable in the tests). The ③/④ integration
-  # tests skip without WS03_ROOT, WS04_ROOT and RUNEXEC_BIN, as on a fresh checkout.
+  # tests skip without WS03_ROOT, WS04_ROOT and RUNEXEC_BIN, as on a fresh checkout; the runexec-live job runs them.
   creation06:
     name: Workstream 06 creation tests (key-free, Node ${{ matrix.node }})
     runs-on: ubuntu-24.04
@@ -432,13 +433,16 @@ jobs:
       # `wide_rings`) and `wide-tickets` role are behind the keeper's
       # `playable-lane` feature, which no other step lints. Their unit tests
       # (plans, builders, config, order) generate, derive and sign nothing;
-      # the end-to-end run (P5) is in key-tests.
+      # the end-to-end run (P5) is in key-tests. Gap P8: the feed guard's
+      # accounting of wide-land PSW1 records (`wide_feed_guard`, literal bytes);
+      # its end-to-end run (P6) is in key-tests too.
       - name: Keeper playable lane (lints, unit tests; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p keeper --features playable-lane --all-targets -- -D warnings
           cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: config::
+          cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -562,6 +566,26 @@ jobs:
           cargo fmt -- --check
           cargo test --locked
 
+  # Workstream 04's native `runexec` (2026-11-20, STATE D34): build it, run 04's own cargo tests (simulated world;
+  # the gateway cases stay #[ignore], their bridge signs with test keys) and 06's connect-live tests against this
+  # checkout's ③ and ④ with the binary just built (RUNEXEC_BIN_SHA256 names it for node-keyfree.sh). All 7
+  # connect-live tests must run, none skipped. Network: crates.io and npm only.
+  runexec-live:
+    name: Execution runexec + 06 connect-live (key-free, Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Build runexec, run 04's tests and 06's connect-live tests
+        run: scripts/ci/ws04-runexec-live.sh
+
   # ------------------------------------------------------------ key tests
   # Every check that generates, derives or signs with a key, unchanged from
   # the jobs above. Never started by a push or a pull request.
@@ -618,7 +642,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |

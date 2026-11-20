@@ -426,9 +426,9 @@ test('COMING BACK TO A PENDING Join / PlaceHome: asked once at this scope\'s rel
   // THE CONTROLLER: in local play the home choice's re-check is this one — never the ordinary tracker — and its note is
   // cleared only on landed (a Join whose Citizen is seen) or failed; unknown and a changed scope return without touching it
   const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
-  const from = ctl.indexOf('if (saved.pending && localPlay) {'), local = ctl.slice(from, ctl.indexOf('} else if (saved.pending) {', from));
+  const from = ctl.indexOf('if (saved.pending && playLane()) {'), local = ctl.slice(from, ctl.indexOf('} else if (saved.pending) {', from));
   assert.ok(from > 0); assert.doesNotMatch(local, /tx\.track|'expired'/);
-  assert.match(local, /const s = await localAct\.recheckLocalPending\(localActLedger, lscope, saved\.pending, \{ origin: g\.relay, still \}\);\n\s+if \(s\.state === 'left' \|\| !still\(\)\) return;\n\s+if \(s\.state === 'other-scope'\) return error\('PendingHome',/);
+  assert.match(local, /const s = await localAct\.recheckLocalPending\(localActLedger, lscope, saved\.pending, \{ origin: g\.relay, still, lane: pl\.lane \}\);\n\s+if \(s\.state === 'left' \|\| !still\(\)\) return;\n\s+if \(s\.state === 'other-scope'\) return error\('PendingHome',/);
   assert.ok(local.indexOf("if (s.state === 'other-scope') return error('PendingHome'") < local.indexOf('await refresh();'), 'a note of another scope returns before anything is read or cleared');
   assert.match(local, /await refresh\(\);\n\s+if \(!still\(\)\) return;\n\s+if \(FS\.homeGrant\) return;/);
   assert.match(local, /if \(saved\.pending\.kind === 'Join' && FS\.citizen\) saveHomePatch\(\{ pending: null \}\);\n\s+else if \(s\.state === 'failed'\) saveHomePatch\(\{ pending: null \}\);\n\s+else return error\('PendingHome',/);
@@ -456,14 +456,16 @@ test('the controller: the six are held from the moment they are sent, an unconfi
   assert.match(sendPart, /if \(local && r\.ok && \(t\.ok \|\| t\.state === 'failed'\)\) localActLedger\.release\(lscope, lkey\);/);
   // the scope, the stable key and the relay are taken by `act` BEFORE anything is awaited, and handed to the one place that sends
   const actHead = between('async function act(name,', 'const localActLedger');
-  const taken = "const local = { scope: localAct.localActScope({ identity: localPlay, relay: g.relay }), key: localAct.localActKey(name, v, fields), origin: g.relay };";
+  // (devnet gap P1: the transport — local play's, or a verified devnet season's — is `pl`, playLane(); in local play it is localPlay's own)
+  const taken = "const local = { scope: localAct.localActScope({ identity: pl.identity, relay: g.relay }), key: localAct.localActKey(name, v, fields), origin: g.relay,\n      identity: pl.identity, lane: pl.lane, deps: pl.deps };";
+  assert.match(ctl, /if \(localPlay\) return \{ lane: localAct\.LOCAL_LANE, identity: localPlay, gate: localDepartGate, deps: localActDeps\(\), otherwise: 'refuse' \};/);
   assert.ok(actHead.indexOf(taken) >= 0 && actHead.indexOf(taken) < actHead.indexOf('await '), 'taken before the first await of the order path');
   assert.match(actHead, /const out = await localAct\.withLocalActSlot\(localActLedger, local\.scope, local\.key, \(\) => actOnce\(name, \{ v, fields, signer, requester, label, after, onSent, onLost, order, say \}, early, local\)\);/);
   assert.ok(actHead.indexOf("if (route === 'local-act') {") < actHead.indexOf('const key = sendKey(name, fields);'), 'local play never reaches the ordinary sendKey guard (which would tell two Joins apart by their expiry)');
   assert.match(ctl, /const lscope = local \? lo\.scope : null, lkey = local \? lo\.key : null;/);
-  assert.match(ctl, /const localActScopeNow = \(\) => \{ const g = localDepartGate\(\); return localAct\.localActScope\(\{ identity: localPlay, relay: g\?\.ok \? g\.relay : null \}\); \};/);
+  assert.match(ctl, /const localActScopeNow = \(\) => \{ const pl = playLane\(\), g = pl\?\.gate\(\); return localAct\.localActScope\(\{ identity: pl\?\.identity \?\? null, relay: g\?\.ok \? g\.relay : null \}\); \};/);
   // followed at the relay of the SEND, only while the page is still that scope; a page that left shows nothing and releases nothing
-  assert.match(ctl, /const f = await localAct\.followLocalAct\(signature, \{ origin: lo\.origin, still: stillScope \}\);/);
+  assert.match(ctl, /const f = await localAct\.followLocalAct\(signature, \{ origin: lo\.origin, still: stillScope, lane: lo\.lane \}\);/);
   assert.doesNotMatch(ctl, /tx\.track\(signature, \{ read: localAct\.localActRead\(\{ allowed: localDepartGate \}\) \}\)/, 'no longer followed through whatever the gate allows at each poll');
   const left = "if (local && r.ok && (t.state === 'left' || !stillScope())) { code = 'LocalActScopeChanged'; fxDone = true; return { ok: false, code, signature: r.signature, sent: true }; }";
   assert.ok(sendPart.indexOf(left) >= 0 && sendPart.indexOf(left) < sendPart.indexOf('localActLedger.release(lscope, lkey)'), 'asked after the follow, BEFORE anything is released or shown');
@@ -475,17 +477,17 @@ test('the controller: the six are held from the moment they are sent, an unconfi
   assert.ok(actPart.indexOf('if (localActLedger.held(local.scope, local.key)) {') >= 0 && actPart.indexOf('if (localActLedger.held(local.scope, local.key)) {') < actPart.indexOf('withLocalActSlot('), 'asked before anything can be sent');
   const askPart = between('async function localActAsk(', '/** What the local-play transport asks');
   assert.doesNotMatch(askPart, /submitLocalAct|tx\.submit|actOnce|send\(/);
-  assert.match(askPart, /localAct\.settleLocalAct\(localActLedger, lo\.scope, lo\.key, localAct\.localActRead\(\{ allowed: \(\) => \(\{ ok: true, relay: lo\.origin \}\) \}\), \{ still: \(\) => localActScopeNow\(\) === lo\.scope \}\);/);
+  assert.match(askPart, /localAct\.settleLocalAct\(localActLedger, lo\.scope, lo\.key, localAct\.localActRead\(\{ allowed: \(\) => \(\{ ok: true, relay: lo\.origin \}\), lane: lo\.lane \}\), \{ still: \(\) => localActScopeNow\(\) === lo\.scope \}\);/);
   assert.match(askPart, /if \(s\.state === 'left' \|\| s\.state === 'none'\) return \{ ok: false, code: 'LocalActScopeChanged', sent: s\.state === 'left' \};/);
   assert.match(askPart, /return \{ ok: false, code: 'LocalActUnconfirmed', signature: s\.signature, sent: true \};/);
   // no automatic second transaction in local play
   assert.match(ctl, /if \(!local && !t\.ok && retryAfterCatchUp\(name, t\.code\)\) \{/);
   // Join: in local play no in-game key is derived, remembered or registered; a pool or a gate is not served
   const joinPart = between('  join: async () => {', '    const pin = io.pinned();');
-  assert.match(joinPart, /if \(localPlay\) \{/); assert.doesNotMatch(joinPart, /fsession|FS\.session|SetSession|publicKeyBytes/);
+  assert.match(joinPart, /if \(localPlay \|\| devnetPlay\) \{/); assert.doesNotMatch(joinPart, /fsession|FS\.session|SetSession|publicKeyBytes/);
   assert.match(joinPart, /if \(FS\.prize \|\| FS\.season\?\.joinGate\?\.some\?\.\(x => x !== 0\)\) return failed\(localPlayReadOnly\(\)\);/);
   // PlaceHome: the session step is skipped in local play only
-  assert.match(ctl, /if \(!localPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s+await ACTIONS\.session\(\);/);
+  assert.match(ctl, /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s+await ACTIONS\.session\(\);/);
   // outside local play the ordinary path is word for word what it was where it matters: the session rule and the transport
   assert.match(ctl, /if \(!FS\.session\) return early\(\{ code: 'NoSession' \}\);/); assert.match(ctl, /return tx\.submit\(\{ name, accounts, fields, signer: sign, requester,/);
   assert.match(ctl, /if \(localPlay\) return failed\(localPlayReadOnly\(\)\);   \/\/ no faucet, no payment, no Join/, 'the paid Join stays refused in local play');

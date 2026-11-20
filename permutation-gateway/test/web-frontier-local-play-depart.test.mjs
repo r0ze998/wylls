@@ -413,7 +413,7 @@ test('the wiring: the page\'s two actions go to the controller\'s local-play ent
   //  — flocalplay-act.mjs `localOrderRoute` — and refuses everything but the six economy commands in their plain form.
   //  What that decision does for every command, Depart included, is tested as behaviour in web-frontier-local-play-act.test.mjs.)
   assert.equal([...ctl.matchAll(/if \(localPlay\) return (failed|early)\(localPlayReadOnly\(\)\)/g)].length, 1, 'the one unconditional refusal of local play is as it was'); assert.equal(ctl.split('if (localPlay && FS.localMarch?.open !== true) return failed(localPlayReadOnly());').length - 1, 1, '(2026-11-13, march lane) the march\'s refusal: unless its own answer is open');
-  assert.equal(ctl.split("const route = localAct.localOrderRoute({ localPlay, name, v, signer, requester });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1);
+  assert.equal(ctl.split("const route = localAct.localOrderRoute({ localPlay: pl?.identity ?? null, name, v, signer, requester, names: pl?.lane.names, otherwise: pl?.otherwise });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1);
   assert.match(ctl, /if \(localPlay\) \{ orderAnswered\(order, false, \{ code: 'LocalPlayReadOnly', sent: false \}\); return failed\(localPlayReadOnly\(\)\); \}/);
   // (2026-11-12, the economy path: `join` and `home-confirm` left the list — in local play they are the page-signed Join
   //  and PlaceHome and make no key; what they may do is pinned in web-frontier-local-play.test.mjs and web-frontier-local-play-act.test.mjs)

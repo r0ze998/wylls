@@ -19,7 +19,10 @@ arithmetic, with reasons) and a per-host list of what a future settlement still
 lacks.
 
 It is **not** a duty and it authorizes nothing. The legacy land and play
-indexes still stop at the first `PSW1` record (`feedguard`), the legacy
+indexes still stop at the first `PSW1` record (`feedguard`; since devnet gap
+P8 a `playable-lane` keeper accounts for, without applying, the wide land's
+own records of kinds 1–17 whose provinces are all wide, and stops at every
+other one), the legacy
 cursors and their durable blocker are untouched, the production debit gate
 stays closed, and every status and observation carries `automatic_writes:
 false` and `source_complete: false`. The model never knows the history it was

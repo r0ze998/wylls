@@ -214,7 +214,7 @@ fn main() {
                             });
                         }
                         // (the TEST-ONLY demo's pace: short ticks only while work lands; a natural world ticks as always)
-                        let pace = if demo.is_some() || wide_scale.is_some_and(|s| s > 1) { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };
+                        let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else if wide_scale.is_some_and(|s| s > 1) { itest::keeper_loop::WIDE_PACE } else { itest::keeper_loop::Pace::Natural };
                         let more = if second.is_some() || operators.is_some() { Some(more_rx) } else { None };
                         itest::keeper_loop::run_paced_with(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, pace, keeper_rx, |s| println!("{}", s.json()), more).await;
                     }

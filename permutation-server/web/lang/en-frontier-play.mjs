@@ -1213,6 +1213,7 @@ export default {
   '場所': 'Place',
   '{0}に、あなたの村ができました。': a => `Your village now stands ${atPlace(a)}.`,
   'ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。': 'Your wallet is needed only to sign when you join. After that an in-game key on this device signs your actions, and the game covers the fees (test SOL, no value).',
+  'devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。': 'On devnet your wallet signs each command once and pays its fees and rent itself (devnet SOL, of no value; no in-game key is made).',
   'ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。': 'Your wallet will ask twice: once to sign for your in-game key, and once to sign for joining.',
   '村の申し込みには預け金が要ります（村の記録を置くための費用で、村ができればそこへ移り、できなければ払った人に戻ります）。額は「その他」の詳細にあります。': 'A village request needs a deposit (it pays for keeping the village\'s record: it moves there when the village is founded, and goes back to whoever paid it when it is not). The amount is under More, Details.',
   '地図の表示': 'Map view',

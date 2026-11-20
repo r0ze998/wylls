@@ -39,6 +39,29 @@ export const LOCAL_ACT_CONTEXT_SCHEMA = 'frontier-local-play-act-context-v1';
 export const LOCAL_ACT_SUBMIT_SCHEMA = 'frontier-local-play-act-submit-v1';
 export const LOCAL_ACT_STATUS_SCHEMA = 'frontier-local-play-act-status-v1';
 export const LOCAL_ACT_SEASON_ID = '11';
+// DEVNET PLAY (devnet gap P1): the same transport against the gateway's wallet-paid devnet routes
+// (permutation-gateway devnet-play-act.mjs): the connected wallet is fee payer and actor and pays its own fees; the
+// gateway rebuilds the stated intent for the transaction's one signer and the Season's real id. No wide -> wide host act.
+export const DEVNET_ACT_CONTEXT_PATH = '/gw/f/devnet-play/act/context';
+export const DEVNET_ACT_SUBMIT_PATH = '/gw/f/devnet-play/act/submit';
+export const DEVNET_ACT_STATUS_PATH = '/gw/f/devnet-play/act/status';
+export const DEVNET_ACT_INFO_SCHEMA = 'frontier-devnet-play-act-info-v1';
+export const DEVNET_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM]);
+/**
+ * WHICH TRANSPORT: local play's (the launcher's loopback relay, season 11, the memory-only wallet) — the default
+ * everywhere — or a devnet season's (`devnetLane`). Paths, schemas, the cluster the identity must name, the Season id
+ * the message is built for, and the commands it carries.
+ */
+export const LOCAL_LANE = Object.freeze({ kind: 'local', cluster: 'localnet', seasonId: LOCAL_ACT_SEASON_ID, names: LOCAL_ACT_NAMES,
+  paths: Object.freeze({ context: LOCAL_ACT_CONTEXT_PATH, submit: LOCAL_ACT_SUBMIT_PATH, status: LOCAL_ACT_STATUS_PATH }),
+  schemas: Object.freeze({ context: LOCAL_ACT_CONTEXT_SCHEMA, submit: LOCAL_ACT_SUBMIT_SCHEMA, status: LOCAL_ACT_STATUS_SCHEMA }) });
+export function devnetLane(seasonId) {
+  if (typeof seasonId !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(seasonId)) throw Object.assign(new Error('DevnetPlaySeason'), { code: 'DevnetPlaySeason' });
+  return Object.freeze({ kind: 'devnet', cluster: 'devnet', seasonId, names: DEVNET_ACT_NAMES,
+    paths: Object.freeze({ context: DEVNET_ACT_CONTEXT_PATH, submit: DEVNET_ACT_SUBMIT_PATH, status: DEVNET_ACT_STATUS_PATH }),
+    schemas: Object.freeze({ context: 'frontier-devnet-play-act-context-v1', submit: 'frontier-devnet-play-act-submit-v1', status: 'frontier-devnet-play-act-status-v1' }) });
+}
+const ACT_PATHS = [LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_SUBMIT_PATH, LOCAL_ACT_STATUS_PATH, DEVNET_ACT_CONTEXT_PATH, DEVNET_ACT_SUBMIT_PATH, DEVNET_ACT_STATUS_PATH];
 /**
  * The relay's refusals that are made BEFORE it sends anything (its validation of the stated intent and of the signed
  * bytes, its capacity check, its read of the real accounts, its last question to the runner). A closed list: a code
@@ -67,9 +90,11 @@ export const LOCAL_ACT_TIMEOUT_MS = 30_000;
  *                fee payer. Nothing is built, signed or sent for it.
  * `localPlay`: the identity the gate verified, or null.
  */
-export function localOrderRoute({ localPlay, name, v, signer, requester }) {
+// (devnet play: `names` = the devnet lane's, and an order it does not carry keeps the ordinary path — `otherwise`
+//  'general' — exactly as before; local play refuses it)
+export function localOrderRoute({ localPlay, name, v, signer, requester, names = LOCAL_ACT_NAMES, otherwise = 'refuse' }) {
   if (!localPlay) return 'general';
-  return LOCAL_ACT_NAMES.includes(name) && v !== null && typeof v === 'object' && !Array.isArray(v) && signer === undefined && (requester === null || requester === undefined) ? 'local-act' : 'refuse';
+  return names.includes(name) && v !== null && typeof v === 'object' && !Array.isArray(v) && signer === undefined && (requester === null || requester === undefined) ? 'local-act' : otherwise;
 }
 
 /**
@@ -151,12 +176,12 @@ export async function withLocalActSlot(ledger, scope, key, work) {
 //                  caller must not clear the note; it waits for the page to be that scope again.
 // The ledger is NOT required to still hold the order: an order that landed and was let go, whose result the page has
 // not shown yet, is asked about again by its signature all the same (its note is cleared by what the page then sees).
-export async function recheckLocalPending(ledger, scope, note, { origin, still, post = postLocalAct } = {}) {
+export async function recheckLocalPending(ledger, scope, note, { origin, still, post = postLocalAct, lane = LOCAL_LANE } = {}) {
   const signature = note?.signature;
   if (typeof scope !== 'string' || scope.length === 0 || typeof signature !== 'string' || signature.length === 0) return { state: 'left' };
   if (typeof note.scope !== 'string' || note.scope !== scope) return { state: 'other-scope' };
   if (!still()) return { state: 'left' };
-  const f = await followLocalAct(signature, { origin, still, post, tries: 1, every: 0, wait: async () => {} });
+  const f = await followLocalAct(signature, { origin, still, post, lane, tries: 1, every: 0, wait: async () => {} });
   if (f.state === 'landed' || f.state === 'failed') for (const e of ledger.list(scope)) if (e.signature === signature) ledger.release(scope, e.key);
   return f;
 }
@@ -186,8 +211,8 @@ export function settleLocalSend(ledger, { scope, key }, name, sent, { still, onS
  * {state: 'left'}`. `left` = the page became another wallet, world or relay while this was awaited: the following
  * stops at once; what it had read, if anything, is NOT a result for the page as it is now. Nothing is sent.
  */
-export async function followLocalAct(signature, { origin, still, post = postLocalAct, tries = 40, every = 1500, wait = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
-  const read = localActRead({ allowed: () => ({ ok: true, relay: origin }), post });
+export async function followLocalAct(signature, { origin, still, post = postLocalAct, lane = LOCAL_LANE, tries = 40, every = 1500, wait = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const read = localActRead({ allowed: () => ({ ok: true, relay: origin }), post, lane });
   for (let i = 0; i < tries; i++) {
     if (!still()) return { state: 'left' };
     const s = await read(signature);
@@ -280,11 +305,13 @@ export function localActIntentOf(name, v, fields, wallet) {
 export const LOCAL_ACT_LOADED_LIMIT = 67108864;
 
 /** The message of `intent` for `identity` on `blockhash`: the game's own builder, the wallet as fee payer and actor. */
-export function localActMessage(intent, identity, rulesetHash, blockhash) {
-  const A = seasonAddresses(identity.programId, LOCAL_ACT_SEASON_ID);
+export function localActMessage(intent, identity, rulesetHash, blockhash, lane = LOCAL_LANE) {
+  const seasonId = lane.seasonId;
+  const A = seasonAddresses(identity.programId, seasonId);
   check(A.season === identity.seasonAddress, 'LocalActIdentity');
-  if (intent.name === WIDE_CLAIM) return wideClaimMessage(intent, { programId: identity.programId, seasonId: LOCAL_ACT_SEASON_ID, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
-  if (WIDE_HOST_ACTS.includes(intent.name)) return wideHostMessage(intent, { programId: identity.programId, seasonId: LOCAL_ACT_SEASON_ID, wallet: identity.address, world: worldIdOf(A.season, identity.programId), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
+  if (intent.name === WIDE_CLAIM) return wideClaimMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
+  check(lane.names.includes(intent.name), 'LocalActNotAllowed');
+  if (WIDE_HOST_ACTS.includes(intent.name)) return wideHostMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, world: worldIdOf(A.season, identity.programId), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   const profile = profileForHash(rulesetHash), wallet = identity.address;
   const v = { addresses: A, wallet, actor: wallet, profile, ...intent.subject };
   const fields = intent.name === 'Join' ? { faction: intent.fields.faction, session: Uint8Array.from(decode(wallet)), session_expiry: BigInt(intent.fields.session_expiry) } : { ...intent.fields };
@@ -297,7 +324,7 @@ export function localActMessage(intent, identity, rulesetHash, blockhash) {
 
 /** One bounded POST of JSON to one of the three loopback routes; never a retry, never credentials. → the parsed answer; a refusal throws its code with `refused: true`. */
 export async function postLocalAct(origin, path, body, { fetch: fetcher = (...a) => globalThis.fetch(...a), timeoutMs = LOCAL_ACT_TIMEOUT_MS } = {}) {
-  check([LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_SUBMIT_PATH, LOCAL_ACT_STATUS_PATH].includes(path), 'BadLocalActPath');
+  check(ACT_PATHS.includes(path), 'BadLocalActPath');
   const text = JSON.stringify(body); check(text.length <= LOCAL_ACT_MAX_BYTES, 'LocalActTooLarge');
   const abort = new AbortController(), timer = setTimeout(() => abort.abort(), timeoutMs);
   let res, raw;
@@ -318,7 +345,9 @@ export async function postLocalAct(origin, path, body, { fetch: fetcher = (...a)
  * `deps`: `allowed()` → the page's local-play gate (`{ok, relay}`), `identity()` → `fs.localPlay`, `rulesetHash()` →
  * the Season's ruleset hash (64 hex), `signer()` → the live memory-only wallet, `post` (tests).
  */
-export async function submitLocalAct({ name, v, fields }, { allowed, identity, rulesetHash, signer, post = postLocalAct } = {}) {
+// (devnet play: `lane` = devnetLane(…), and `sign(wire)` → the connected wallet's signed transaction bytes — the page's
+//  ordinary Wallet Standard signTransaction; the signed bytes are checked exactly as the memory-only wallet's are)
+export async function submitLocalAct({ name, v, fields }, { allowed, identity, rulesetHash, signer, post = postLocalAct, lane = LOCAL_LANE, sign = null } = {}) {
   // (`httpStatus`: when the relay answered with a status, or did not answer at all (503) — the page's existing notice
   //  texts say "unavailable" for 5xx and "busy" for 429 from it (fi18n.mjs `failureText`); no new sentence is made)
   const no = (code, httpStatus = undefined) => ({ ok: false, code, error: code, ...(Number.isInteger(httpStatus) ? { httpStatus } : {}) });
@@ -328,26 +357,32 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
     const gate = () => { const a = allowed(); if (!a?.ok) fail(a?.code ?? 'LocalActNotAllowed'); return a.relay; };
     const origin = gate();
     const i = identity(), w = signer();
-    check(object(i) && address(i.address) && address(i.programId) && address(i.seasonAddress) && i.cluster === 'localnet', 'LocalActIdentity');
+    check(object(i) && address(i.address) && address(i.programId) && address(i.seasonAddress) && i.cluster === lane.cluster, 'LocalActIdentity');
+    check(lane.names.includes(name), 'LocalActNotAllowed');
     check(!!w && w.destroyed === false && w.address === i.address, 'LocalActSigner');
     wallet = i.address;
     const hash = rulesetHash(); check(typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash), 'LocalActIdentity');
     const intent = localActIntentOf(name, v, fields, wallet);
-    const ctx = await post(origin, LOCAL_ACT_CONTEXT_PATH, { schema: LOCAL_ACT_CONTEXT_SCHEMA });
+    const ctx = await post(origin, lane.paths.context, lane === LOCAL_LANE ? { schema: LOCAL_ACT_CONTEXT_SCHEMA } : { schema: lane.schemas.context, wallet });
     check(exact(ctx, ['wallet', 'blockhash']) && ctx.wallet === wallet && exact(ctx.blockhash, ['hash', 'last_valid_block_height', 'context_slot'])
       && address(ctx.blockhash.hash) && uintText(ctx.blockhash.last_valid_block_height) && uintText(ctx.blockhash.context_slot), 'BadLocalActContext');
-    message = localActMessage(intent, i, hash, ctx.blockhash.hash); height = Number(ctx.blockhash.last_valid_block_height);
+    message = localActMessage(intent, i, hash, ctx.blockhash.hash, lane); height = Number(ctx.blockhash.last_valid_block_height);
     // (the context was awaited: the page, the identity and the wallet are asked again before anything is signed)
     check(gate() === origin && signer() === w && w.destroyed === false && identity() === i, 'LocalActChanged');
-    const account = (await w.wallet.features['standard:connect'].connect()).accounts.find(a => a.address === wallet);
-    check(!!account, 'LocalActSigner');
-    const [out] = await w.wallet.features['solana:signTransaction'].signTransaction({ account, transaction: wireTransaction(message, []) });
-    const signed = await localDepartSigned(out?.signedTransaction ?? [], { message, digest: toHex(sha256(message)) }, wallet);
+    let signedBytes;
+    if (sign) signedBytes = await sign(wireTransaction(message, []));
+    else {
+      const account = (await w.wallet.features['standard:connect'].connect()).accounts.find(a => a.address === wallet);
+      check(!!account, 'LocalActSigner');
+      const [out] = await w.wallet.features['solana:signTransaction'].signTransaction({ account, transaction: wireTransaction(message, []) });
+      signedBytes = out?.signedTransaction;
+    }
+    const signed = await localDepartSigned(signedBytes ?? [], { message, digest: toHex(sha256(message)) }, wallet);
     check(gate() === origin && signer() === w && w.destroyed === false && identity() === i, 'LocalActChanged');
     sig = signed.signature; bytes = signed.wire.length;
     // from here the transaction may reach the chain: ONE POST, and its signature is this order's for good
     attempted = true;
-    const answer = await post(origin, LOCAL_ACT_SUBMIT_PATH, { schema: LOCAL_ACT_SUBMIT_SCHEMA, name: intent.name, subject: intent.subject, fields: intent.fields, transaction_b64: toBase64(signed.wire) });
+    const answer = await post(origin, lane.paths.submit, { schema: lane.schemas.submit, name: intent.name, subject: intent.subject, fields: intent.fields, transaction_b64: toBase64(signed.wire) });
     check(object(answer) && ['submitted', 'unknown'].includes(answer.status) && answer.signature === sig && answer.name === intent.name, 'BadLocalActSubmitted');
     return { ok: true, signature: sig, message, feePayer: wallet, lastValidBlockHeight: height, bytes };
   } catch (e) {
@@ -379,11 +414,11 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
  * `pending` is not a failure and not an expiry: this path has no "did not take effect" settlement, so a command that
  * never lands stays "not confirmed" — never "failed", never "done".
  */
-export function localActRead({ allowed, post = postLocalAct } = {}) {
+export function localActRead({ allowed, post = postLocalAct, lane = LOCAL_LANE } = {}) {
   return async signature => {
     try {
       const a = allowed(); if (!a?.ok) return { ok: false, code: a?.code ?? 'LocalActNotAllowed' };
-      const v = await post(a.relay, LOCAL_ACT_STATUS_PATH, { schema: LOCAL_ACT_STATUS_SCHEMA, signature });
+      const v = await post(a.relay, lane.paths.status, { schema: lane.schemas.status, signature });
       check(object(v) && v.signature === signature && ['pending', 'processed', 'confirmed', 'finalized', 'failed'].includes(v.status), 'BadLocalActStatus');
       if (v.status === 'confirmed' || v.status === 'finalized') return { ok: true, state: 'landed', slot: Number.isSafeInteger(v.slot) ? v.slot : null };
       if (v.status === 'failed') { check(v.err !== null && v.err !== undefined, 'BadLocalActStatus'); return { ok: true, state: 'failed', code: 'TransactionFailed' }; }

@@ -436,3 +436,416 @@ fn all_new_close_kinds_block_both_indexes_without_advancing_the_cursor() {
         );
     }
 }
+
+/// Devnet gap P8: a `playable-lane` keeper accounts for the PSW1 records of
+/// the wide land's own actions (a wide village's Harvest / Build / Train,
+/// WideGarrison, WideMuster, WideDissolve, the wide march's stages) instead
+/// of latching, and still latches on every other PSW1 record. Literal
+/// bodies built with the ABI's own encoder; no key, no signing, no chain.
+/// `cargo test --locked -p keeper --features playable-lane --test wide_feed_guard`.
+#[cfg(feature = "playable-lane")]
+mod p8 {
+    use super::*;
+    use frontier_abi::addr::AddrCtx;
+    use frontier_abi::world_index::event::{
+        self as wev, encode, GarrisonReceipt, WideEntity, WideKind, WideLink,
+        TRANSIT_SETTLED_DEST_AT,
+    };
+    use frontier_abi::world_index::expedition::AccountResolver;
+    use frontier_abi::world_index::{
+        EconomyAction, EconomyReceipt, ProvinceKey, WideCoord, WideHostRef, WorldId,
+    };
+    use keeper_core::feedguard::ACCOUNTED_KINDS;
+
+    /// This Season's world (the one the program derives from its address).
+    fn world() -> WorldId {
+        let a = addrs();
+        AccountResolver::for_season(&AddrCtx {
+            program: a.program.to_bytes(),
+            season: a.season.to_bytes(),
+        })
+        .unwrap()
+        .adapter()
+        .world()
+    }
+    fn other_world() -> WorldId {
+        let w = world();
+        let mut b = *w.as_bytes();
+        b[0] ^= 1;
+        WorldId::new(b).unwrap()
+    }
+    /// A ring-129 (wide) province key, or a ring-128 (the rim: legacy) one.
+    fn key(w: WorldId, ring: i64) -> ProvinceKey {
+        ProvinceKey::new(w, WideCoord::checked(ring, 0).unwrap())
+    }
+    fn link(entity: WideEntity) -> WideLink {
+        WideLink {
+            entity,
+            seq: 1,
+            head: [7; 32],
+        }
+    }
+    fn economy(action: EconomyAction) -> [u8; wev::ECONOMY_PAYLOAD_LEN] {
+        wev::economy_payload(&EconomyReceipt {
+            action,
+            now_ts: 1_790_600_000,
+            became_final: false,
+            input_digest: [0x1A; 32],
+            output_digest: [0x0B; 32],
+        })
+        .unwrap()
+    }
+    /// A literal record of `kind`: the host (site 3, generation 1, sequence
+    /// 2) or holding (sequence 0) at `home`, standing at `at`; a settlement
+    /// sealed to `dest`. Economy kinds take `action`.
+    fn record_at(
+        kind: WideKind,
+        home: ProvinceKey,
+        at: ProvinceKey,
+        dest: ProvinceKey,
+        action: Option<EconomyAction>,
+    ) -> Vec<u8> {
+        let k: Vec<u8> = if kind.host_keyed() {
+            let mut k = WideHostRef::new(home, 3, 1, 2).unwrap().to_bytes().to_vec();
+            k.extend(at.to_bytes());
+            k
+        } else if kind.holding_keyed() {
+            WideHostRef::new(home, 3, 1, 0).unwrap().to_bytes().to_vec()
+        } else {
+            at.to_bytes().to_vec()
+        };
+        let mut payload = vec![0u8; kind.payload_len()];
+        match kind {
+            WideKind::Economy => {
+                payload = economy(action.unwrap_or(EconomyAction::Harvest)).to_vec()
+            }
+            WideKind::EconomyMirror => {
+                payload = economy(action.unwrap_or(EconomyAction::Build { item: 6 })).to_vec()
+            }
+            WideKind::Garrison => {
+                payload = wev::garrison_payload(&GarrisonReceipt {
+                    delta: 7,
+                    now_ts: 1_790_600_000,
+                    became_final: false,
+                    input_digest: [0x2A; 32],
+                    output_digest: [0x0C; 32],
+                })
+                .unwrap()
+                .to_vec()
+            }
+            WideKind::TransitSettled => {
+                payload[TRANSIT_SETTLED_DEST_AT..].copy_from_slice(&dest.to_bytes())
+            }
+            WideKind::RecordClosed => payload[0] = 2,
+            _ => {}
+        }
+        let links: Vec<WideLink> = kind.links().iter().map(|e| link(*e)).collect();
+        let body = encode(kind, 40, &k, &payload, &links)
+            .unwrap_or_else(|| panic!("{kind:?} home {home:?} at {at:?} encodes"));
+        wev::WideRecord::decode(&body).unwrap_or_else(|e| panic!("{kind:?}: {e:?}"));
+        body
+    }
+    fn record(kind: WideKind, action: Option<EconomyAction>) -> Vec<u8> {
+        let w = key(world(), 129);
+        record_at(kind, w, w, w, action)
+    }
+    fn psw1(seq: u64, bodies: &[Vec<u8>]) -> TxRecord {
+        tx(seq, bodies.iter().map(|b| line(b"PSW1", b)).collect())
+    }
+
+    /// The wide village's own actions after its claim is final: none latches,
+    /// the legacy records around them still apply, each is counted by kind.
+    #[test]
+    fn every_wide_village_action_is_accounted_for_and_never_latches() {
+        let actions: [(WideKind, Option<EconomyAction>, &str); 7] = [
+            (
+                WideKind::Economy,
+                Some(EconomyAction::Harvest),
+                "WIDE_ECONOMY",
+            ),
+            (
+                WideKind::Economy,
+                Some(EconomyAction::Build { item: 0 }),
+                "WIDE_ECONOMY",
+            ),
+            (
+                WideKind::Economy,
+                Some(EconomyAction::Train { unit: 0, n: 5 }),
+                "WIDE_ECONOMY",
+            ),
+            (
+                WideKind::EconomyMirror,
+                Some(EconomyAction::Build { item: 6 }),
+                "WIDE_ECONOMY_MIRROR",
+            ),
+            (WideKind::Garrison, None, "WIDE_GARRISON"),
+            (WideKind::Muster, None, "WIDE_MUSTER"),
+            (WideKind::Dissolve, None, "WIDE_DISSOLVE"),
+        ];
+        for (kind, action, name) in actions {
+            assert_eq!(kind.name(), name);
+            let page = vec![legacy(1), psw1(2, &[record(kind, action)]), legacy(3)];
+            let mut land = LandIndex::default();
+            let mut play = PlayIndex::default();
+            assert_eq!(land.ingest_page(&page, &addrs()), 2, "{name}");
+            assert_eq!(play.ingest_page(&page, &addrs()), 2, "{name}");
+            // (the live pull marks catch-up at the feed's end)
+            land.feed.caught_up();
+            play.feed.caught_up();
+            for (cursor, provinces, feed) in [
+                (land.cursor, land.provinces.len(), &land.feed),
+                (play.cursor, play.provinces.len(), &play.feed),
+            ] {
+                assert_eq!(cursor, Cursor(3), "{name}");
+                assert_eq!(provinces, 2, "{name}");
+                assert!(feed.blocked().is_none(), "{name}: {:?}", feed.blocked());
+                assert_eq!(feed.wide_accounted().get(name), Some(&1), "{name}");
+                assert_eq!(feed.status()["state"], "legacy");
+                assert_eq!(feed.status()["wide_accounted"][name], 1);
+            }
+            // ...and the engine still allows every duty's writes (not only beacon kinds).
+            let mut e = engine();
+            assert!(land.feed.gate(&mut e, None).unwrap(), "{name}");
+            for kind in [
+                "fold",
+                "settle-ticket",
+                "wide-ring",
+                "wide-settle",
+                "wide-final",
+                "open-province",
+            ] {
+                assert!(e.allows_write_kind(kind), "{name}: {kind}");
+            }
+        }
+        // A mixed transaction: its PS2 body applies, its PSW1 body is counted.
+        let mixed = tx(
+            2,
+            vec![
+                line(b"PS2", &province(99)),
+                line(b"PSW1", &record(WideKind::Economy, None)),
+                line(b"PSW1", &record(WideKind::Muster, None)),
+            ],
+        );
+        let mut land = LandIndex::default();
+        assert_eq!(land.ingest_page(&[legacy(1), mixed], &addrs()), 2);
+        assert_eq!(land.provinces, [(1, 2), (99, 2)].into());
+        assert_eq!(land.feed.wide_accounted().values().sum::<u64>(), 2);
+    }
+
+    /// Every accounted kind (the wide march's stages included) in the wide
+    /// world decodes and is counted; the restart re-read counts it again
+    /// (the index is rebuilt from the feed) and still does not latch.
+    #[test]
+    fn every_accounted_kind_is_counted_and_a_reread_does_not_latch() {
+        let bodies: Vec<Vec<u8>> = ACCOUNTED_KINDS.iter().map(|k| record(*k, None)).collect();
+        let page = vec![legacy(1), psw1(2, &bodies), legacy(3)];
+        for _ in 0..2 {
+            for_play_and_land(&page, |cursor, provinces, blocked| {
+                assert_eq!(cursor, Cursor(3));
+                assert_eq!(provinces, 2);
+                assert!(!blocked);
+            });
+        }
+        let mut land = LandIndex::default();
+        land.ingest_page(&page, &addrs());
+        assert_eq!(land.feed.wide_accounted().values().sum::<u64>(), 17);
+    }
+
+    /// Fail-closed is kept: an unknown, undecodable, not-accounted or
+    /// cross-world PSW1 record still latches both indexes before the
+    /// transaction, and later legacy pages stay refused.
+    #[test]
+    fn unknown_unaccounted_legacy_and_foreign_records_still_latch() {
+        let wide = key(world(), 129);
+        let rim = key(world(), 128);
+        let foreign = key(other_world(), 129);
+        let mut economy_trailing = record(WideKind::Economy, None);
+        economy_trailing.push(0);
+        let mut economy_short = record(WideKind::Economy, None);
+        economy_short.truncate(economy_short.len() - 3);
+        let mut unknown_kind = record(WideKind::Economy, None);
+        unknown_kind[1] = 99;
+        let mut retired = record(WideKind::Economy, None);
+        retired[0] = 0x81;
+        // the provisional conquest kinds 18..=24: canonical bodies, decodable, not accounted for
+        let conquest: Vec<Vec<u8>> = {
+            use wev::conquest as c;
+            [
+                (WideKind::ConquestDeclared, c::DECLARE),
+                (WideKind::ConquestDebited, c::DECLARE),
+                (WideKind::ConquestResolved, c::RESOLVE),
+                (WideKind::ConquestSettled, c::FAILED),
+                (WideKind::ConquestCaptured, c::CAPTURE),
+                (WideKind::ConquestCredited, c::LAPSE),
+                (WideKind::ConquestTableClosed, c::TABLE_CLOSE),
+            ]
+            .into_iter()
+            .map(|(kind, action)| {
+                let k = if kind.holding_keyed() {
+                    WideHostRef::new(wide, 3, 1, 0).unwrap().to_bytes().to_vec()
+                } else {
+                    wide.to_bytes().to_vec()
+                };
+                let receipt = c::Receipt::new(action, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode();
+                let links: Vec<WideLink> = kind.links().iter().map(|e| link(*e)).collect();
+                let b = encode(kind, 40, &k, &receipt, &links).unwrap();
+                assert_eq!(wev::WideRecord::decode(&b).unwrap().kind, kind);
+                b
+            })
+            .collect()
+        };
+        // (the codec cannot encode an economy record of a legacy holding: the key's
+        //  province is swapped in after encoding)
+        let mut rim_economy = record(WideKind::Economy, None);
+        rim_economy[6..6 + 50].copy_from_slice(&rim.to_bytes());
+        let cases: Vec<(&str, TxRecord)> = vec![
+            ("unknown kind", psw1(2, &[unknown_kind])),
+            ("retired version", psw1(2, &[retired])),
+            ("trailing byte", psw1(2, &[economy_trailing])),
+            ("short body", psw1(2, &[economy_short])),
+            ("prefix probe", tx(2, vec![line(b"PSW1", &[0x82, 15])])),
+            ("legacy holding (the rim)", psw1(2, &[rim_economy])),
+            (
+                "rim host standing in the wide land",
+                psw1(2, &[record_at(WideKind::Departed, rim, wide, wide, None)]),
+            ),
+            (
+                "settlement sealed to the rim",
+                psw1(
+                    2,
+                    &[record_at(WideKind::TransitSettled, wide, wide, rim, None)],
+                ),
+            ),
+            (
+                "another world",
+                psw1(
+                    2,
+                    &[record_at(
+                        WideKind::Garrison,
+                        foreign,
+                        foreign,
+                        foreign,
+                        None,
+                    )],
+                ),
+            ),
+            (
+                "three parts",
+                tx(
+                    2,
+                    vec![format!(
+                        "{} AAAA",
+                        line(b"PSW1", &record(WideKind::Economy, None))
+                    )],
+                ),
+            ),
+            (
+                "an accounted record beside an unknown one",
+                psw1(2, &[record(WideKind::Economy, None), vec![0x82, 99]]),
+            ),
+            (
+                "an accounted record beside an expedition PS2 kind",
+                tx(
+                    2,
+                    vec![
+                        line(b"PSW1", &record(WideKind::Economy, None)),
+                        line(b"PS2", &[fclient::log::VERSION, 145, 0, 0, 0, 0, 0]),
+                    ],
+                ),
+            ),
+        ];
+        let mut cases = cases;
+        for b in &conquest {
+            let name = wev::WideRecord::decode(b).unwrap().kind.name();
+            cases.push((name, psw1(2, std::slice::from_ref(b))));
+        }
+        for (what, bad) in cases {
+            let page = vec![legacy(1), bad, legacy(3)];
+            for_play_and_land(&page, |cursor, provinces, blocked| {
+                assert_eq!(cursor, Cursor(1), "{what}");
+                assert_eq!(provinces, 1, "{what}");
+                assert!(blocked, "{what}");
+            });
+            let mut land = LandIndex::default();
+            land.ingest_page(&page, &addrs());
+            let b = land.feed.blocked().unwrap();
+            assert_eq!(b.seq, 2, "{what}");
+            assert!(
+                b.reason.contains("PSW1") || b.reason.contains("PS2"),
+                "{what}: {}",
+                b.reason
+            );
+            assert_eq!(land.ingest_page(&[legacy(4)], &addrs()), 0, "{what}");
+            land.feed.caught_up();
+            let mut e = engine();
+            assert!(!land.feed.gate(&mut e, None).unwrap(), "{what}");
+            assert!(!e.allows_write_kind("fold"), "{what}");
+            assert!(e.allows_write_kind("anchor"), "{what}");
+        }
+    }
+
+    /// The strict entry point (`bodies`, no scope) still refuses every PSW1
+    /// record, the accounted kinds included.
+    #[test]
+    fn the_strict_reader_still_refuses_every_psw1_record() {
+        let p = addrs().program;
+        let t = psw1(2, &[record(WideKind::Economy, None)]);
+        assert!(keeper_core::feedguard::bodies(&t, &p).is_err());
+        let scope = keeper_core::feedguard::WideScope::of(&addrs()).expect("a lane scope");
+        let got = keeper_core::feedguard::bodies_scoped(&t, &p, Some(&scope)).unwrap();
+        assert!(got.ps2.is_empty());
+        assert_eq!(got.wide, vec!["WIDE_ECONOMY"]);
+    }
+}
+
+/// Without `playable-lane` a well-formed wide economy record still latches.
+#[cfg(not(feature = "playable-lane"))]
+#[test]
+fn without_the_playable_lane_every_psw1_record_still_latches() {
+    assert!(keeper_core::feedguard::WideScope::of(&addrs()).is_none());
+    // (a literal economy record's prefix; any PSW1 line refuses here)
+    let t = tx(2, vec![line(b"PSW1", &[0x82, 15, 40, 0, 0, 0])]);
+    for_play_and_land(&[legacy(1), t, legacy(3)], |cursor, _, blocked| {
+        assert_eq!(cursor, Cursor(1));
+        assert!(blocked);
+    });
+}
+
+/// P8 audit: the playable lane's other record formats in the program's own
+/// frame (a Citizen-sidecar close PSWC, a reservation PSWR, an expedition
+/// failure PSFF or terminal PSFT; some are a transaction's only record and
+/// write a legacy Holding or Citizen) latch in every build; another
+/// program's records stay ignored.
+#[test]
+fn other_record_formats_of_the_program_latch_in_every_build() {
+    for tag in [&b"PSWC"[..], b"PSWR", b"PSFF", b"PSFT", b"PSRGA1", b"XYZ"] {
+        let alone = tx(2, vec![line(tag, &[1, 2, 3])]);
+        for_play_and_land(
+            &[legacy(1), alone, legacy(3)],
+            |cursor, provinces, blocked| {
+                assert_eq!(cursor, Cursor(1));
+                assert_eq!(provinces, 1);
+                assert!(blocked);
+            },
+        );
+        let mut land = LandIndex::default();
+        land.ingest_page(&[tx(2, vec![line(tag, &[1, 2, 3])])], &addrs());
+        let reason = &land.feed.blocked().unwrap().reason;
+        assert!(reason.starts_with("unsupported "), "{reason}");
+        let other = Address::new_from_array([25; 32]);
+        let nested = tx(
+            2,
+            vec![
+                format!("Program {other} invoke [2]"),
+                line(tag, &[1, 2, 3]),
+                format!("Program {other} success"),
+            ],
+        );
+        for_play_and_land(&[nested], |cursor, _, blocked| {
+            assert_eq!(cursor, Cursor(2));
+            assert!(!blocked);
+        });
+    }
+}

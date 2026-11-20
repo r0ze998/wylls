@@ -54,6 +54,7 @@ import * as localExpedition from './flocalplay-expedition.mjs';
 import * as localReturn from './flocalplay-return.mjs';
 import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
+import * as devnetPlayMod from './fdevnetplay.mjs';
 import * as localMarch from './flocalplay-march.mjs';
 import { localPlayIdentityOk } from './flocalplay.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
@@ -362,15 +363,19 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
   // path (flocalplay-act.mjs: the memory-only wallet is fee payer and actor; the relay rebuilds and checks the stated
   // intent). Every other order, and any of the six asked in another form (a settle shape, a wallet-only shape, a
   // requester, accounts that are a function of a fee payer), is refused here before anything is built, signed or sent.
-  const route = localAct.localOrderRoute({ localPlay, name, v, signer, requester });
+  // (devnet play, fdevnetplay.mjs: the same page-signed transport for the devnet lane's commands — the connected wallet
+  //  signs and pays; every other order keeps the ordinary path, as before)
+  const pl = playLane();
+  const route = localAct.localOrderRoute({ localPlay: pl?.identity ?? null, name, v, signer, requester, names: pl?.lane.names, otherwise: pl?.otherwise });
   if (route === 'refuse') return early(localPlayReadOnly());
   // LOCAL PLAY: one order at a time per SCOPE (this wallet, world and relay) and per STABLE key (the command, its
   // village, its fields — for Join only the nation: its expiry is re-made from the clock at every press). The ordinary
   // `sendKey` is not used here: it would tell a Join pressed one second later apart from the one still being signed.
   if (route === 'local-act') {
-    const g = localDepartGate();
+    const g = pl.gate();
     if (!g?.ok) return early({ code: g?.code ?? 'LocalActNotAllowed' });
-    const local = { scope: localAct.localActScope({ identity: localPlay, relay: g.relay }), key: localAct.localActKey(name, v, fields), origin: g.relay };
+    const local = { scope: localAct.localActScope({ identity: pl.identity, relay: g.relay }), key: localAct.localActKey(name, v, fields), origin: g.relay,
+      identity: pl.identity, lane: pl.lane, deps: pl.deps };
     if (local.scope === null) return early({ code: 'LocalActNotAllowed' });
     // SENT AND NOT CONFIRMED under this scope: the press never builds or sends another — it only asks what became of
     // the transaction already sent, by its signature. (Another scope's orders are neither seen nor asked about here.)
@@ -396,7 +401,7 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
 /** Local play's orders that were sent and are not confirmed yet (flocalplay-act.mjs `createLocalActLedger`): page memory only. */
 const localActLedger = localAct.createLocalActLedger();
 /** The scope the ledger is asked under: this page's verified identity (wallet, program, Season) and the relay its gate allows now; null when the gate is closed. */
-const localActScopeNow = () => { const g = localDepartGate(); return localAct.localActScope({ identity: localPlay, relay: g?.ok ? g.relay : null }); };
+const localActScopeNow = () => { const pl = playLane(), g = pl?.gate(); return localAct.localActScope({ identity: pl?.identity ?? null, relay: g?.ok ? g.relay : null }); };
 export const localPlayUnconfirmedOrders = () => localActLedger.list(localActScopeNow()).map(e => ({ name: e.name, signature: e.signature }));
 /** An order that was SENT and whose outcome is not known: recorded as that — with its signature — never as refused. */
 function orderUnconfirmed(o, signature, code = 'LocalActUnconfirmed') {
@@ -463,7 +468,7 @@ async function localActAsk(name, lo, { order, say, after }) {
   busy(() => L`送信済みの命令の結果を確認しています…`);
   // (asked at the relay of the scope the order is held under, and used only if the page is still that scope when the
   //  answer comes: otherwise nothing is shown, nothing is released — the order stays held under its own scope)
-  const s = await localAct.settleLocalAct(localActLedger, lo.scope, lo.key, localAct.localActRead({ allowed: () => ({ ok: true, relay: lo.origin }) }), { still: () => localActScopeNow() === lo.scope });
+  const s = await localAct.settleLocalAct(localActLedger, lo.scope, lo.key, localAct.localActRead({ allowed: () => ({ ok: true, relay: lo.origin }), lane: lo.lane }), { still: () => localActScopeNow() === lo.scope });
   if (s.state === 'left' || s.state === 'none') return { ok: false, code: 'LocalActScopeChanged', sent: s.state === 'left' };
   if (s.state === 'landed') {
     done(say ?? order?.say ?? DONE_TEXT[name] ?? (() => L`完了しました`)); orderAnswered(order, true, { signature: s.signature });
@@ -476,8 +481,46 @@ async function localActAsk(name, lo, { order, say, after }) {
 }
 
 /** What the local-play transport asks of the page: its gate, the identity the gate verified, the Season's ruleset hash as read, the live memory-only wallet. */
-const localActDeps = () => ({ allowed: localDepartGate, identity: () => localPlay,
-  rulesetHash: () => { const r = FS.season?.rulesetHash; return r instanceof Uint8Array ? [...r].map(b => b.toString(16).padStart(2, '0')).join('') : r; }, signer: currentEphemeralWallet });
+const seasonRulesetHex = () => { const r = FS.season?.rulesetHash; return r instanceof Uint8Array ? [...r].map(b => b.toString(16).padStart(2, '0')).join('') : r; };
+const localActDeps = () => ({ allowed: localDepartGate, identity: () => localPlay, rulesetHash: seasonRulesetHex, signer: currentEphemeralWallet });
+
+// ------------------------------------------------------------------ devnet play (devnet gap P1, fdevnetplay.mjs)
+/** The devnet play this page verified (readDevnetPlay at start), or null: then nothing below is ever used. */
+let devnetPlay = null;
+let devnetSeen = { address: null, identity: null, signer: null };
+/** The connected wallet's devnet identity and signer handle, one object each per wallet (submitLocalAct compares them by identity). */
+function devnetOwn() {
+  const a = FS.wallet?.address ?? null;
+  if (!devnetPlay || !a) return null;
+  if (devnetSeen.address !== a) devnetSeen = { address: a, identity: devnetPlayMod.devnetIdentityOf(devnetPlay, a), signer: Object.freeze({ address: a, destroyed: false }) };
+  return devnetSeen;
+}
+/** Whether the devnet transport may send now: devnet play on, this page's wallet connected and the one the page shows, not an NFT Citizen. */
+function devnetGate() {
+  if (!devnetPlay) return { ok: false, code: 'DevnetPlayOff' };
+  const c = wallet.connected();
+  if (!c || !FS.wallet || c.address !== FS.wallet.address) return { ok: false, code: 'NoWallet' };
+  if (FS.resident) return { ok: false, code: 'DevnetPlayResident' };
+  return { ok: true, relay: devnetPlay.relay };
+}
+export const devnetPlayOn = () => devnetPlay !== null;
+/** A wide devnet season the page plays itself (rim first villages, the wide claim). */
+const devnetWideNow = () => devnetPlayMod.devnetWide({ devnetPlay, record: FS.record, world: FS.world ?? (FS.record ? worldOf(FS.record) : null) });
+/** Whether first villages past the heartland go by the one-site village request (local wide worlds; wide devnet seasons). */
+const wideHomes = () => !!localPlay?.wideLand || devnetWideNow();
+/**
+ * THE TRANSPORT of the page-signed commands: local play's, or — on a verified devnet season with a connected wallet —
+ * the devnet lane's; null for every other page (all orders take the ordinary path). `otherwise`: what an order the
+ * lane does not carry does — refused in local play (reads only), the ordinary path on devnet.
+ */
+function playLane() {
+  if (localPlay) return { lane: localAct.LOCAL_LANE, identity: localPlay, gate: localDepartGate, deps: localActDeps(), otherwise: 'refuse' };
+  const own = devnetOwn();
+  if (!own) return null;
+  const sign = async wire => wallet.signTransaction(wire);
+  return { lane: devnetPlay.lane, identity: own.identity, gate: devnetGate, otherwise: 'general',
+    deps: { allowed: devnetGate, identity: () => devnetOwn()?.identity ?? null, rulesetHash: seasonRulesetHex, signer: () => devnetOwn()?.signer ?? null, lane: devnetPlay.lane, sign } };
+}
 
 // LOCAL PLAY — the ordinary march (flocalplay-march.mjs): the relay's instance-verified capability (read once after
 // connect), the memory-only sender, and `FS.localMarch` (a getter, set at init): the ONE answer the UI reads. It is
@@ -512,7 +555,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   if (!io.pinned()) return early({ code: 'NoPin' });
   if (!FS.wallet) return early({ code: 'NoWallet' });
   // (only one of the six reaches here in local play: `act` refused the rest. No session key, no sponsor, no NFT path.)
-  const local = lo !== null && localAct.localOrderRoute({ localPlay, name, v, signer, requester }) === 'local-act';
+  const local = lo !== null && localAct.localOrderRoute({ localPlay: lo.identity, name, v, signer, requester, names: lo.lane.names }) === 'local-act';
   // the ordinary path's answer is shown only if the page is still that viewer and world (local play follows its own scope)
   const moved = () => !local && orderScope() !== scope0;
   if (localPlay && !local) return early(localPlayReadOnly());
@@ -561,7 +604,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
       const late = typeof v === 'object' ? fwide.wideRefusal(name, v, null) : null;
       if (late) return { ok: false, code: late.code, error: late.text, text: late.text };
       // (a relay that does not serve the economy routes: said as it always was — local play is reads only there)
-      if (local) return localAct.submitLocalAct({ name, v, fields }, localActDeps()).then(x => { if (x.ok || x.code !== 'LocalActNotServed') return x; const ro = localPlayReadOnly(); return { ok: false, code: ro.code, error: ro.text, text: ro.text }; });
+      if (local) return localAct.submitLocalAct({ name, v, fields }, lo.deps).then(x => { if (x.ok || x.code !== 'LocalActNotServed') return x; const ro = localPlayReadOnly(); return { ok: false, code: ro.code, error: ro.text, text: ro.text }; });
       return tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
     };
     // (local play: the scope the order is sent under — this wallet, world and relay — was taken by `act` BEFORE anything
@@ -573,7 +616,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     //  not whatever the page's gate allows at each later poll; `left` = the page is no longer that scope)
     const follow = async signature => {
       if (!local) return tx.track(signature);
-      const f = await localAct.followLocalAct(signature, { origin: lo.origin, still: stillScope });
+      const f = await localAct.followLocalAct(signature, { origin: lo.origin, still: stillScope, lane: lo.lane });
       return f.state === 'landed' ? { ok: true, state: 'landed', slot: f.slot } : f.state === 'failed' ? { ok: false, state: 'failed', code: f.code }
         : f.state === 'left' ? { ok: false, state: 'left', code: 'LocalActScopeChanged' } : { ok: false, state: 'unknown', code: 'Unconfirmed' };
     };
@@ -2391,19 +2434,19 @@ export async function confirmHome() {
     if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }
     if (!mine()) return;
     const saved = readHome();
-    if (saved.pending && localPlay) {
+    if (saved.pending && playLane()) {
       // LOCAL PLAY: the note is of a page-signed Join or PlaceHome. It is asked about as every local order is — ONCE, at
       // the relay of this scope (wallet, world, relay), only while the page is still that scope (flocalplay-act.mjs
       // `recheckLocalPending`) — never through the ordinary tracker. The note is cleared ONLY on the chain's own word
       // (landed, or refused); an unknown outcome keeps it and nothing is sent in its place; if the page became another
       // scope meanwhile, nothing is shown and nothing is touched.
       pending('confirming');
-      const g = localDepartGate(), lscope = g?.ok ? localAct.localActScope({ identity: localPlay, relay: g.relay }) : null;
+      const pl = playLane(), g = pl.gate(), lscope = g?.ok ? localAct.localActScope({ identity: pl.identity, relay: g.relay }) : null;
       if (lscope === null) return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
       const still = () => localActScopeNow() === lscope;
       // (the note says which scope — which relay too — its transaction was sent under: asked only when that is the
       //  page's scope now. A note of another relay, wallet or world is neither asked about nor cleared: it stays.)
-      const s = await localAct.recheckLocalPending(localActLedger, lscope, saved.pending, { origin: g.relay, still });
+      const s = await localAct.recheckLocalPending(localActLedger, lscope, saved.pending, { origin: g.relay, still, lane: pl.lane });
       if (s.state === 'left' || !still()) return;
       if (s.state === 'other-scope') return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
       await refresh();
@@ -2467,7 +2510,8 @@ export async function confirmHome() {
     // generation): the key step is a wallet Citizen's. (Found in the integration: the page asked the wallet for a key
     // the program refuses to register for an NFT Citizen, SetSession → NftNoSession, and the village was never placed)
     // (local play: no in-game key at all — the memory-only wallet signs the PlaceHome itself; SetSession is never asked)
-    if (!localPlay && !FS.resident && (!FS.session || FS.sessionProblem)) {
+    // (devnet play: none either — the connected wallet is the Join's session key and signs every command itself)
+    if (!localPlay && !devnetPlay && !FS.resident && (!FS.session || FS.sessionProblem)) {
       await ACTIONS.session(); await refresh();
       if (!mine() || !FS.session || FS.sessionProblem) return;
     }
@@ -2482,7 +2526,9 @@ export async function confirmHome() {
     // (TEST-ONLY wide play, local wide-land worlds: a first village past the heartland — a settled rim province — is a
     //  one-site village REQUEST (FileTicket), because the program's PlaceHome names no province past the Season's base
     //  r_max (16) even on a grown map; the world's runner settles it on the bell's beacon at the turn's end)
-    if (localPlay?.wideLand && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {
+    // (and a wide devnet season, devnet gap P1: an opened rim province of the player's nation, settled by keeper A's
+    //  `tickets` role on the bell's beacon)
+    if (wideHomes() && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {
       const one = [{ p: site.p, q: site.q, site: site.site }];
       const filed = await act('FileTicket', { v: { sites: one }, fields: { sites: one }, label: () => L`辺境の村を申し込んでいます…`, say: () => L`辺境の村を申し込みました。ターンの終わりに決まります。` });
       if (!mine()) return;
@@ -3548,7 +3594,8 @@ export const ACTIONS = {
     // LOCAL PLAY: no in-game key is derived, remembered or registered. The page's memory-only wallet signs the Join
     // itself and is the only key the Citizen will ever have (flocalplay-act.mjs writes the wallet as the Join's
     // session key). A Season with a prize pool or a join gate is not served there.
-    if (localPlay) {
+    // (DEVNET PLAY: the same — the connected wallet signs the Join and is its session key; no key is derived or kept)
+    if (localPlay || devnetPlay) {
       if (FS.prize || FS.season?.joinGate?.some?.(x => x !== 0)) return failed(localPlayReadOnly());
       return act('Join', { v: { faction: FS.joinDraft.faction }, fields: { faction: FS.joinDraft.faction, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
         // (the note carries the scope the Join was SENT under: it is asked about again only at that relay, for that wallet and world)
@@ -3604,7 +3651,7 @@ export const ACTIONS = {
   // (TEST-ONLY wide play, local wide-land worlds only: the wide claim from the first home — screens/holding.mjs wideClaimCard)
   'wide-claim': async d => {
     const h = activeHolding(FS);
-    if (!h || !localPlay?.wideLand) return;
+    if (!h || !(localPlay?.wideLand || devnetWideNow())) return;
     const target = { p: String(d.p), q: String(d.q) }, slot = num(d.slot);
     // (a claim names a FREE site of the province as the herald last captured it — any other is "taken" at its settle,
     //  the cost spent for nothing; flocalplay-wide.mjs freeWideSites. None known: nothing is sent)
@@ -3916,6 +3963,11 @@ export async function startPlay({ herald: h, cfg }) {
       if (v === true) { if (o?.explore?.state > 0) exploreSeedMarks.set(ref, { ref, bell: Number(o.explore.bell), world: providerWorld(), state: 'ready', code: null, ask: ++exploreSeedAsk, source: 'external' }); }
       else if (ref !== null && exploreSeedMarks.get(ref)?.source === 'external') exploreSeedMarks.delete(ref);
     } });
+  // (devnet play: whether this is a wide devnet season the page plays itself, and its opened wide provinces — read by
+  //  home.mjs and screens/holding.mjs; false / null on every other page)
+  Object.defineProperty(FS, 'devnetWide', { configurable: true, enumerable: false, get: () => devnetWideNow() });
+  Object.defineProperty(FS, 'devnetWideLand', { configurable: true, enumerable: false,
+    get: () => (devnetWideNow() ? Object.freeze({ targets: devnetPlayMod.wideTargetsOf(typeof FS.wideLandNow === 'function' ? FS.wideLandNow() : null) }) : null) });
   Object.defineProperty(FS, 'localMarchFor', { configurable: true, enumerable: false, value: (holding, hostId) => localMarchFor(holding ? holdingByRef(FS.holdings, holding) : null, hostId) });
   protoIo.configure({ herald: cfg.herald ?? '' });
   const pin = io.pinned();
@@ -3974,6 +4026,13 @@ export async function startPlay({ herald: h, cfg }) {
     await kernelOrNull();
     if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
     await refresh();
+    // DEVNET PLAY (devnet gap P1): one read of the gateway's devnet play info; on only for exactly the pinned devnet
+    // world (fdevnetplay.mjs readDevnetPlay). Never in local play; elsewhere null and nothing changes.
+    if (!localPlay && io.pinned()?.cluster === 'devnet') {
+      devnetPlay = await devnetPlayMod.readDevnetPlay({ origin: cfg.herald, pin: io.pinned(), rulesetHash: FS.season?.rulesetHash });
+      FS.devnetPlay = devnetPlay;
+      if (devnetPlay) { invalidate('panel'); await refresh(); }
+    }
   } catch (e) { console.error('frontier first read:', e); }
   // Local play: the player this boot read must still be the gate's wallet's own Citizen; otherwise the page lets go
   // of the wallet and says so (sends stay refused either way).
