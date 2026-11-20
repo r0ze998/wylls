@@ -92,12 +92,16 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
       const [hb, pb, ...tb] = await read([acc.holding, acc.province, ...acc.transits]);
       if (!hb || !pb) continue;
       const holding = readWideHolding(hb), province = readWideProvince(pb);
-      if (holding.state !== STATE_FINAL) return { why: `the wide village ${village.p},${village.q} is not final yet` };
+      if (holding.state !== STATE_FINAL) return { why: `the wide village ${village.p},${village.q} is not final yet`, wait: 'village' };
+      // (fix-loop5, L5-1) a province that has not caught up with the chain refuses EVERY act of its village (the
+      //  muster's NotResident in loop-play5, 120–180 turns behind for ~40 min): nothing is planned — nothing is sent —
+      //  until the runner has caught it up. `lag` lets the page say how far behind it is and wait by itself.
+      if (province.resolvedNext + 1 < nowBell) return { why: `the province is resolved to ${province.resolvedNext}, the turn is ${nowBell}: the runner catches it up first`, wait: 'lag', lag: nowBell - province.resolvedNext };
       const hosts = wideHostsIn({ world, village, holding, province });
       const open = tb.filter(Boolean).length;
       if (!hosts.length) {
-        if (open) return { why: 'its host is away (a march is open)' };
-        if ((memory.wideDeparts ?? 0) > 0) return { why: 'its host left: the march settles' };
+        if (open) return { why: 'its host is away (a march is open)', wait: 'march' };
+        if ((memory.wideDeparts ?? 0) > 0) return { why: 'its host left: the march settles', wait: 'march' };
         if (holding.reserve[0] >= 100) {
           return { decision: { name: WIDE_MUSTER, v: { wide: village }, fields: { unit: 0, troops: Math.min(holding.reserve[0], WIDE_HOST_TROOPS), tile: holding.tile }, wideHostAct: true,
             why: `a host of ${Math.min(holding.reserve[0], WIDE_HOST_TROOPS)} Spearmen at the wide village ${village.p},${village.q}` } };
@@ -107,8 +111,7 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
         return { decision: { name: WIDE_TRAIN, v: { wide: village }, fields: { unit: 0, n }, wideHostAct: true, why: `train ${n} Spearmen at the wide village ${village.p},${village.q} (reserve ${holding.reserve[0]})` } };
       }
       const host = hosts.find(h => h.entry.state === 1 && h.entry.pendOp === 0 && h.entry.readyBell <= nowBell && h.entry.troops >= 100_000);
-      if (!host) return { why: `its host is forming or resting (${hosts.map(h => `state ${h.entry.state} op ${h.entry.pendOp} ready ${h.entry.readyBell}`).join('; ')})` };
-      if (province.resolvedNext + 1 < nowBell) return { why: `the province is resolved to ${province.resolvedNext}, the turn is ${nowBell}: the runner catches it up first` };
+      if (!host) return { why: `its host is forming or resting (${hosts.map(h => `state ${h.entry.state} op ${h.entry.pendOp} ready ${h.entry.readyBell}`).join('; ')})`, wait: 'host' };
       const slot = tb.findIndex(x => x === null);
       if (slot < 0) return { why: 'all four transit records are open' };
       // the neighbours: a keep held by another nation first

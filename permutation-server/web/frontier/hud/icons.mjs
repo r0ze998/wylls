@@ -93,3 +93,40 @@ export function iconizeMapTools(root = globalThis.document) {
     b.replaceChildren(tpl.content, ...(word ? [word] : []));
   }
 }
+
+/**
+ * (fix-loop5, B-13) An illustrated icon whose picture did not load — the page's server was out of reach for a moment
+ * (loop-play5: 36 `ERR_CONNECTION_REFUSED` for `art/ui/illustrated/*-32.webp` during a launcher blip) — stayed blank:
+ * the resource strip read 「1,240 1,030 820」 with no icons until a reload, as Chromium keeps the failed picture. A failed
+ * `img.ic-art` is asked again, with a retry mark in its address, up to ART_RETRIES times a few seconds apart; then it
+ * gives way to the sprite's glyph. `doc`: the page's document (none: nothing is watched). → the way to stop watching.
+ */
+export const ART_RETRIES = 3, ART_RETRY_MS = 4000;
+export function watchArtIcons(doc = globalThis.document, { later = (f, ms) => setTimeout(f, ms) } = {}) {
+  if (!doc?.addEventListener) return () => {};
+  const onError = e => {
+    const img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.classList?.contains('ic-art')) return;
+    const n = Number(img.dataset.artTry ?? 0);
+    if (n >= ART_RETRIES) {
+      // (the sprite's glyph of the same thing: ART_OF maps glyph → picture; the crate when none)
+      const key = /\bic-art-([\w-]+)/.exec(img.className)?.[1] ?? '';
+      const glyph = Object.keys(ART_OF).find(g => ART_OF[g] === key && ICONS.includes(g)) ?? 'crate';
+      const cls = img.className.split(/\s+/).filter(c => c && c !== 'ic' && !c.startsWith('ic-art')).join(' ');
+      const tpl = doc.createElement('template');
+      tpl.innerHTML = `<svg class="ic${cls && CLS.test(cls) ? ` ${cls}` : ''}" aria-hidden="true" focusable="false"><use href="${SPRITE}#${glyph}"/></svg>`;
+      if (tpl.content.firstChild) img.replaceWith(tpl.content.firstChild);
+      return;
+    }
+    img.dataset.artTry = String(n + 1);
+    later(() => {
+      if (!img.isConnected) return;
+      const again = u => (u ? u.replace(/([?&])r=\d+/, '').replace(/(\.webp)(\?)?/, `$1?r=${n + 1}&`).replace(/[?&]$/, '') : u);
+      const set = img.getAttribute('srcset');
+      if (set) img.setAttribute('srcset', set.split(',').map(x => { const [u, d] = x.trim().split(/\s+/); return `${again(u)} ${d ?? ''}`.trim(); }).join(', '));
+      img.setAttribute('src', again(img.getAttribute('src')));
+    }, ART_RETRY_MS * (n + 1));
+  };
+  doc.addEventListener('error', onError, true);
+  return () => doc.removeEventListener('error', onError, true);
+}

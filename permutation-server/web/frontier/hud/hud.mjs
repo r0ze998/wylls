@@ -313,8 +313,11 @@ export function nextThing(FS, { guide = null, items = null } = {}) {
     // (a step with its own press says the press: 「探索する土地を選ぶ」 is what the player does; the step's theme, 「建設を待つ
     // 間に、周りを知ろう」, is the tooltip and the steps list. The pill carried both and was cut off on a phone: the design
     // review of 2026-10-24. `short`: the line the prompt shows)
-    const short = guide.go ? go.label : guide.title;
-    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label: go.label, short, text: L`${kicker}：${guide.title}（${go.label}）`, hint: guide.go && guide.text ? `${guide.title} — ${guide.text}` : guide.go ? guide.title : guide.text, act: go.act, data: go.data ?? {}, more: list.length };
+    // (fix-loop5, L5-7: while the step waits — a host forming — the pill says the wait, and a press for meanwhile is said
+    //  as 「待つ間に：…」, never as if it were the step)
+    const short = guide.wait ?? (guide.go ? go.label : guide.title);
+    const label = go.aside ? L`待つ間に：${go.label}` : go.label;
+    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label, short, text: L`${kicker}：${guide.title}（${label}）`, hint: guide.go && guide.text ? `${guide.title} — ${guide.text}` : guide.go ? guide.title : guide.text, act: go.act, data: go.data ?? {}, more: list.length };
   }
   if (!list.length) return null;
   const x = list[0];

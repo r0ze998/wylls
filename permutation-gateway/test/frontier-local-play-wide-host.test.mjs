@@ -155,3 +155,51 @@ test('the route evaluator keeps refusing a wide origin by default (`wideOrigin` 
   assert.notEqual(w.code, 'WideOriginRequired');
   void decode;
 });
+
+// (fix-loop5, L5-1) loop-play5 pressed 「次の一手（広い土地）」 every 2 s for ~10 min while the new wide village's
+// province was 120–180 turns behind: every press built and sent an act the program refused, until the relay's cap.
+// The planner now plans NOTHING (sends nothing) while the province lags — for the Train and Muster steps too, not only
+// the march — and says how far behind it is; the page waits by itself (controller wideHostWait) instead.
+test('L5-1: a lagging wide province plans nothing for any step (train, muster, march) and says the lag; caught up, it plans again', async () => {
+  const { createWideHostPlanner } = await import('../../permutation-server/web/frontier/flocalplay-wide-plan.mjs');
+  const GENESIS = 1_000_000, nowBell = 500;
+  const season = { seasonId: SEASON_ID, genesisTs: GENESIS, drandGenesis: 0, drandPeriod: 3, seedMargin: 0, endBell: 100000 };
+  const herald = { season: async () => ({ ok: true, season, record: {} }) };
+  const holdingBytes = reserve => { const hb = new Uint8Array(1344), hv = new DataView(hb.buffer); hb[69] = 1; hb[70] = 17; hb[71] = 2; hb[112] = 3; hv.setUint32(132, 0, true); hv.setUint32(720, reserve, true); return hb; };
+  const provinceBytes = resolvedNext => { const pv = new Uint8Array(4864); new DataView(pv.buffer).setUint32(72, resolvedNext, true); pv[4480] = 0xff; return pv; };
+  const plan = async (reserve, resolvedNext) => {
+    let reads = 0;
+    const planner = createWideHostPlanner({ herald, read: async addrs => { reads++; return addrs.map((_, i) => (i === 0 ? holdingBytes(reserve) : i === 1 ? provinceBytes(resolvedNext) : null)); }, chainNow: async () => GENESIS + nowBell * 600 + 1 });
+    const w = await planner.decide({ programId: PROGRAM, seasonAddress: SEASON }, { decisions: 0 }, { wideTargets: [], villages: [village] });
+    return { w, reads };
+  };
+  for (const reserve of [0, 300]) {   // (0: the step would be Train; 300: Muster)
+    const lag = await plan(reserve, 320);
+    assert.equal(lag.w.decision, undefined, `nothing planned while 180 turns behind (reserve ${reserve})`);
+    assert.deepEqual([lag.w.wait, lag.w.lag], ['lag', 180]); assert.match(lag.w.why, /resolved to 320, the turn is 500/);
+    const ok = await plan(reserve, nowBell);
+    assert.equal(ok.w.decision?.name, reserve ? WIDE_MUSTER : WIDE_TRAIN, 'caught up: the step is planned');
+    const one = await plan(reserve, nowBell - 1);
+    assert.ok(one.w.decision, 'one turn behind is the ordinary in-turn state, not a lag');
+  }
+});
+
+test('L5-1: the wide host card says what it waits for and offers no press while it waits; the page waits one turn apart', async () => {
+  const fs = await import('node:fs');
+  const { setLang } = await import('../../permutation-server/web/lang.mjs');
+  const { wideHostWaitLine } = await import('../../permutation-server/web/frontier/screens/wideholding.mjs');
+  assert.equal(wideHostWaitLine(null), '');
+  const s = String(wideHostWaitLine({ reason: 'lag', lag: 180 }));
+  assert.match(s, /この村の州の決着が 180 ターン遅れています/); assert.match(s, /押し直す必要はありません/); assert.doesNotMatch(s, /今日|日付/);
+  for (const reason of ['host', 'village', 'turn']) assert.match(String(wideHostWaitLine({ reason })), new RegExp(`data-wide-host-wait="${reason}"`));
+  setLang('en');
+  try { assert.match(String(wideHostWaitLine({ reason: 'lag', lag: 7 })), /This village(&#39;|')s province is 7 turns behind\..*No need to press again/); } finally { setLang('ja'); }
+  const card = fs.readFileSync(new URL('../../permutation-server/web/frontier/screens/wideholding.mjs', import.meta.url), 'utf8');
+  assert.match(card, /FS\.ui\?\.wideHost\?\.waiting\s*\n?\s*\? html`<button type="button" class="btn" data-act="wide-host-step" disabled/, 'the step button is disabled while waiting');
+  assert.match(card, /data-act="wide-host-stop"/);
+  const c = fs.readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  assert.match(c, /if \(d\.auto !== true && mem0\.waiting\) return \{ ok: false, code: 'WideHostWaiting' \};/, 'a press while waiting sends nothing');
+  assert.match(c, /if \(mem0\.busy\) return \{ ok: false, code: 'WideHostBusy' \};/, 'one step at a time');
+  assert.match(c, /Math\.min\(60_000, Math\.max\(10_000, Math\.round\(BELL_SECS \* 1000 \/ \(rate > 0 \? rate : 1\)\)\)\)/, 'about one turn apart: 10 s at ×60, at most a minute');
+  assert.match(c, /export const WIDE_HOST_WAIT_MAX = 360;/);
+});

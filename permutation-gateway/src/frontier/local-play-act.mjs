@@ -272,6 +272,66 @@ export const LOCAL_ACT_STATUS_SCHEMA = 'frontier-local-play-act-status-v1';
 export const LOCAL_ACT_WIDE_READ_SCHEMA = 'frontier-local-play-act-wide-read-v1';
 export const LOCAL_ACT_WIDE_READ_MAX = 16;
 export const LOCAL_ACT_MAX_HISTORY = 256;
+/** Signatures this relay still answers `status` for after their record left the replay barrier (oldest forgotten first). */
+export const LOCAL_ACT_MAX_ANSWERED = 8192;
+/** At most this many distinct blockhashes are asked about in one retirement pass (one `isBlockhashValid` each). */
+export const LOCAL_RETIRE_MAX_ASKS = 64;
+
+/**
+ * THE REPLAY BARRIER of a local-play relay (fix-loop5, L5-1). A submitted message's record stays here — its bytes refused
+ * again, its signature answerable by `status` — for as long as the chain could still take those bytes: until the
+ * runner says its blockhash is no longer valid (`isBlockhashValid` → false; the local runner keeps a blockhash 150
+ * slots ≈ 60 s and drops a queued transaction whose blockhash expired). From then on the chain itself refuses the bytes
+ * for good, so the record may RETIRE: it leaves the barrier (its signature is kept for `status`, up to `maxAnswered`).
+ * `max` therefore bounds the commands that are still UNSETTLED — what the `…Busy` answer says — and no longer every
+ * command a world ever sent (loop-play5: a page that had sent 256 acts was refused for the rest of the world, with a
+ * text that blamed "today's quota"). Retirement happens only when the barrier is full, needs the runner's answer, and
+ * fails closed: no usable answer → nothing retires (the caller answers Busy and nothing is sent).
+ * `ask(method, params)` → a JSON-RPC answer (throws on no answer). `instance`: the pinned runner instance, or null.
+ */
+export function createReplayBarrier({ max, maxAnswered = LOCAL_ACT_MAX_ANSWERED, instance = null }) {
+  const live = new Map();       // digest → {signature, blockhash, …}
+  const answered = new Map();   // signature → entry, of retired records (insertion order = age)
+  let retired = 0;
+  const forget = (digest, e) => {
+    live.delete(digest);
+    answered.set(e.signature, e);
+    while (answered.size > maxAnswered) answered.delete(answered.keys().next().value);
+    retired++;
+  };
+  return Object.freeze({
+    has: digest => live.has(digest),
+    room: () => live.size < max,
+    add: (digest, entry) => { live.set(digest, entry); },
+    get size() { return live.size; },
+    get retired() { return retired; },
+    /** The record of a signature this relay submitted (live or retired), or undefined. */
+    find(signature) {
+      for (const e of live.values()) if (e.signature === signature) return e;
+      return answered.get(signature);
+    },
+    /** One retirement pass (when full): every record whose blockhash the runner says is no longer valid leaves the barrier. */
+    async retire(ask) {
+      if (live.size < max) return 0;
+      const hashes = [...new Set([...live.values()].map(e => e.blockhash).filter(h => typeof h === 'string'))].slice(0, LOCAL_RETIRE_MAX_ASKS);
+      let n = 0;
+      for (const h of hashes) {
+        let v;
+        try { v = await ask('isBlockhashValid', [h, { commitment: 'processed' }]); } catch { return n; }
+        const ctx = v?.result?.context;
+        if (!v || v.error !== undefined || !Number.isSafeInteger(ctx?.slot) || ctx.slot < 0 || typeof v.result?.value !== 'boolean') return n;
+        if (instance !== null && ctx.instance !== undefined && ctx.instance !== instance) return n;
+        // (verify-pr117: the hashes are asked oldest record first, and a still-valid one ends the pass: records come in
+        //  roughly in blockhash order, so the rest are younger. A full relay refused again and again costs the runner
+        //  about one ask per refused submit, not up to LOCAL_RETIRE_MAX_ASKS. A record built on an older hash than its
+        //  place says retires on a later pass — later, never early: the barrier still fails closed)
+        if (v.result.value !== false) break;
+        for (const [d, e] of [...live]) if (e.blockhash === h) { forget(d, e); n++; }
+      }
+      return n;
+    },
+  });
+}
 const LEGACY_HOLDING_MAGIC = 'PSF1HOLD', WIDE_HOLDING_MAGIC = 'PSFXWHL1';
 const magicOf = bytes => String.fromCharCode(...bytes.subarray(0, 8));
 const sha = b => createHash('sha256').update(b).digest('hex');
@@ -359,8 +419,9 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
   const A = seasonAddresses(pins.program, String(pins.seasonId));
   const citizenAt = A.of('Citizen', { wallet: pins.wallet });
   const gate = localPlayTurnGate({ turns, cfg, citizen: citizenAt });
-  // digest → {signature, name}: a submitted message, for good (the record that bars its bytes and that `status` answers from)
-  const seen = new Map();
+  // digest → {signature, name, blockhash}: a submitted message (the record that bars its bytes and that `status` answers
+  // from), until its blockhash is no longer valid on the runner (createReplayBarrier above: then the chain bars the bytes)
+  const seen = createReplayBarrier({ max: LOCAL_ACT_MAX_HISTORY, instance: runnerInstance });
   // CLOSED (`close()`, called when the listener begins to stop): a latch. From then on nothing is read and nothing is
   // sent — also by a submit that was already inside one of its awaits when the close came: it is asked on entry, after
   // every await, and as the last thing before the send. A transaction that WAS sent before the close keeps its record.
@@ -405,9 +466,12 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
     async submit(body) {
       open();
       const ok = localActSubmit(body, pins), digest = sha(ok.message);
-      // (TEST-ONLY, the coexist lane: the wallet's own Grant commands are never sent by a resident's relay)
+      // (TEST-ONLY, the coexist lane: the wallet's own Grant commands are never sent by a resident's relay — refused
+      //  before anything is read, the history retirement below included)
       if (turns !== null && RIGHTS_WALLET_ONLY.includes(ok.intent.name)) fail('LocalActWalletOnly');
-      check(!seen.has(digest), 'LocalActMessageUsed'); check(seen.size < LOCAL_ACT_MAX_HISTORY, 'LocalActBusy');
+      check(!seen.has(digest), 'LocalActMessageUsed');
+      if (!seen.room()) { await seen.retire(ask); open(); }
+      check(seen.room(), 'LocalActBusy');
       const { intent } = ok, holdingAt = intent.subject.holding ? A.of('Holding', intent.subject.holding) : intent.name === 'IssueGrant' ? A.of('Holding', intent.subject.facility) : null;
       const grantAt = RIGHTS_ACTS.includes(intent.name) ? grantOfIntent(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet }) : null;
       const asked = [citizenAt, ...(holdingAt === null ? [] : [holdingAt]), ...(grantAt === null ? [] : [grantAt])];
@@ -426,19 +490,19 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
         open();   // (…or while the runner was asked its last question)
         const ctx = p.result?.context, value = p.result?.value;
         if (!Number.isSafeInteger(ctx?.slot) || ctx.slot < 0 || !Array.isArray(value) || value.length !== 1 || ctx.instance !== runnerInstance) fail('LocalActRpcUnavailable');
-        if (value[0] !== null) { seen.set(digest, Object.freeze({ signature: ok.signature, name: intent.name })); fail('LocalActMessageUsed'); }
+        if (value[0] !== null) { seen.add(digest, Object.freeze({ signature: ok.signature, name: intent.name, blockhash: ok.blockhash })); fail('LocalActMessageUsed'); }
       }
       // A resident's relay: the chain's bell, read last (one read of the Season and the Clock at one slot).
       const turnBell = gate !== null && intent.name !== 'Join' ? await gate.bell(ask, () => fail('LocalActRpcUnavailable')) : null;
       open();
       // (re-checked after the awaits: a concurrent submit of the same bytes may have taken it. Synchronous from here to the send.)
-      check(!seen.has(digest), 'LocalActMessageUsed'); check(seen.size < LOCAL_ACT_MAX_HISTORY, 'LocalActBusy');
+      check(!seen.has(digest), 'LocalActMessageUsed'); check(seen.room(), 'LocalActBusy');
       open();   // THE LAST THING BEFORE THE SEND: a relay that is closing sends nothing
       if (test !== null) test.sendGuard();   // (test form: the test run's own end / send latch — throws: nothing sent, bytes not consumed)
       // One action per resident per bell: claimed synchronously, the first writer of the bell wins; a refusal here is
       // before the send (nothing sent, the bytes not consumed). From the claim to the send nothing can refuse.
       const ticket = gate !== null && intent.name !== 'Join' ? gate.claim(turnBell, 'local-play', (code, detail) => { throw new LocalActError(code, detail); }) : null;
-      seen.set(digest, Object.freeze({ signature: ok.signature, name: intent.name }));   // before sending: at most once
+      seen.add(digest, Object.freeze({ signature: ok.signature, name: intent.name, blockhash: ok.blockhash }));   // before sending: at most once
       ticket?.sent(ok.signature);
       let sent;
       try { sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]); }
@@ -452,7 +516,7 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
     async status(body) {
       open();
       check(exact(body, ['schema', 'signature']) && body.schema === LOCAL_ACT_STATUS_SCHEMA && typeof body.signature === 'string');
-      check([...seen.values()].some(e => e.signature === body.signature), 'LocalActUnknownSignature');
+      check(seen.find(body.signature) !== undefined, 'LocalActUnknownSignature');
       const r = await ask('getSignatureStatuses', [[body.signature], { searchTransactionHistory: true }]);
       const ctx = r.result?.context, value = r.result?.value, slot = ctx?.slot;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(value) || value.length !== 1) fail('LocalActRpcUnavailable');

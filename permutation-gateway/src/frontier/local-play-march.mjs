@@ -20,7 +20,7 @@ import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import { decode, encode } from '../../client/src/base58.mjs';
 import { parseTransaction } from '../../client/src/solana-tx.mjs';
 import { localPlayRelayConfigProblems, fetchRpc, LOCAL_PLAY_SEASON_ID } from './local-play-relay.mjs';
-import { localActAccountsCheck, LOCAL_ACT_LOADED_LIMIT, runnerRejection, sendRefusalDetail } from './local-play-act.mjs';
+import { localActAccountsCheck, LOCAL_ACT_LOADED_LIMIT, runnerRejection, sendRefusalDetail, createReplayBarrier } from './local-play-act.mjs';
 import { localPlayTurnGate } from './local-play-turns.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { accountsFor, buildShape } from '../../../permutation-server/web/frontier/fplay.mjs';
@@ -186,7 +186,9 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
   const A = seasonAddresses(pins.program, String(pins.seasonId));
   const citizenAt = A.of('Citizen', { wallet: pins.wallet });
   const gate = localPlayTurnGate({ turns, cfg, citizen: citizenAt });
-  const seen = new Map();   // digest → {signature}: for good
+  // digest → {signature, blockhash}: until the runner says the blockhash is no longer valid (local-play-act.mjs
+  // createReplayBarrier, fix-loop5 L5-1: 64 marches no longer close a world for good)
+  const seen = createReplayBarrier({ max: LOCAL_MARCH_MAX_HISTORY, instance: runnerInstance });
   let closed = false;
   const open = () => { if (closed) fail('LocalMarchClosed'); };
   const ask = async (method, params) => { let r; try { r = await rpc(method, params); } catch { fail('LocalMarchRpcUnavailable'); } if (!r || r.error !== undefined) fail('LocalMarchRpcUnavailable'); return r; };
@@ -209,7 +211,9 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
     async submit(body) {
       open();
       const ok = localMarchSubmit(body, pins), digest = sha(ok.message).toString('hex');
-      check(!seen.has(digest), 'LocalMarchMessageUsed'); check(seen.size < LOCAL_MARCH_MAX_HISTORY, 'LocalMarchBusy');
+      check(!seen.has(digest), 'LocalMarchMessageUsed');
+      if (!seen.room()) { await seen.retire(ask); open(); }
+      check(seen.room(), 'LocalMarchBusy');
       const holdingAt = A.of('Holding', ok.intent.subject.holding), provinceAt = A.of('Province', ok.intent.subject.province);
       const got = await ask('getMultipleAccounts', [[citizenAt, holdingAt, provinceAt], { encoding: 'base64', commitment: 'confirmed' }]);
       open();
@@ -221,14 +225,14 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
         open();
         const ctx = p.result?.context, value = p.result?.value;
         if (!Number.isSafeInteger(ctx?.slot) || ctx.slot < 0 || !Array.isArray(value) || value.length !== 1 || ctx.instance !== runnerInstance) fail('LocalMarchRpcUnavailable');
-        if (value[0] !== null) { seen.set(digest, Object.freeze({ signature: ok.signature })); fail('LocalMarchMessageUsed'); }
+        if (value[0] !== null) { seen.add(digest, Object.freeze({ signature: ok.signature, blockhash: ok.blockhash })); fail('LocalMarchMessageUsed'); }
       }
       // A resident's relay: the chain's bell, read last; claimed synchronously below (first writer of the bell wins).
       const turnBell = gate !== null ? await gate.bell(ask, () => fail('LocalMarchRpcUnavailable')) : null;
-      check(!seen.has(digest), 'LocalMarchMessageUsed'); check(seen.size < LOCAL_MARCH_MAX_HISTORY, 'LocalMarchBusy');
+      check(!seen.has(digest), 'LocalMarchMessageUsed'); check(seen.room(), 'LocalMarchBusy');
       open();   // the last thing before the send
       const ticket = gate !== null ? gate.claim(turnBell, 'local-play', (code, detail) => fail(code, detail)) : null;
-      seen.set(digest, Object.freeze({ signature: ok.signature, blockhash: ok.blockhash }));   // before sending: at most once
+      seen.add(digest, Object.freeze({ signature: ok.signature, blockhash: ok.blockhash }));   // before sending: at most once
       ticket?.sent(ok.signature);
       const binding = sealBinding(ok.intent);
       let sent;
@@ -242,7 +246,7 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
     async status(body) {
       open();
       check(exact(body, ['schema', 'signature']) && body.schema === LOCAL_MARCH_STATUS_SCHEMA && typeof body.signature === 'string');
-      const entry = [...seen.values()].find(e => e.signature === body.signature);
+      const entry = seen.find(body.signature);
       check(!!entry, 'LocalMarchUnknownSignature');
       // (2026-11-19) the blockhash's validity is read FIRST, then the signature: a blockhash that was already past its
       // validity and a signature still unknown after it mean the transaction can never land (the runner drops queued

@@ -75,7 +75,7 @@ import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProb
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
 // the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
-import { fogNow, viewKeeps } from './map/fog.mjs';
+import { fogNow, viewKeeps, viewTile } from './map/fog.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, homePlaceOf, homeRingsOf, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
@@ -1576,8 +1576,14 @@ export const openOriginalOutbound = () => { outbound.openOutbound(FS, expedition
 export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('map', 'panel'); return ok; };
 export const tapOriginalOutbound = hit => { const result = outbound.tapOutbound(FS, expeditionContext(), hit); if (result.handled) invalidate('map', 'panel'); return result; };
 export const originalOutboundMap = () => outbound.readOutboundMap(FS, expeditionContext());
-export const inspectOriginalOutboundRoute = () => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') });
-export const inspectOriginalOutboundContext = () => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+// (fix-loop5, L5-3: a read the clock's move dropped — fexpedition-compose `dropped` — is read again by itself, at most
+//  OUTBOUND_READ_RETRIES more times; then the card says so and the person presses again. Reads only: nothing is sent)
+export const OUTBOUND_READ_RETRIES = 2;
+const outboundReadAgain = async (run, kind) => {
+  for (let i = 0; ; i++) { await run(); if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return; }
+};
+export const inspectOriginalOutboundRoute = () => outboundReadAgain(() => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'route');
+export const inspectOriginalOutboundContext = () => outboundReadAgain(() => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'context');
 /**
  * One press on the boundary card: the earliest arrival turn of the observation still bound to this draft goes into
  * the draft's arrival field, and that observation is read again. A local edit and a read, like the two above:
@@ -2798,7 +2804,9 @@ function quickDestinations() {
   const out = [];
   for (const env of FS.provinces.values()) {
     const camp = env.province.camp;
-    if (camp?.state === 1) out.push({ kind: 'camp', p: env.province.p, q: env.province.q, tile: camp.tile });
+    // (verify-pr117: under the local fog, a camp only where its tile has been surveyed — last-known terrain is the
+    //  viewer's —: the page reads whole provinces it has never seen, and their camps were listed as 「近くの行き先」)
+    if (camp?.state === 1 && viewTile(env.province.p, env.province.q, camp.tile, 2)) out.push({ kind: 'camp', p: env.province.p, q: env.province.q, tile: camp.tile });
   }
   for (const h of FS.holdings ?? []) out.push({ kind: 'holding', p: h.p, q: h.q, tile: h.tile });
   return out;
@@ -3530,6 +3538,54 @@ function rightsIssueFromForm(f) {
     after: x => { if (x?.ok !== false && FS.rights) { FS.rights.issued.push({ address: grantAddress(pin.addresses.season, pin.programId, issuerTagOf(me), nonce), issuerTag: issuerTagOf(me), nonce }); } return refreshRights(); } });
 }
 
+async function wideHostStep(e, mem) {
+    const g = localDepartGate();
+    if (!g?.ok) return failed({ code: g?.code ?? 'LocalActNotAllowed' });
+    const village = { p: String(e.holding.p), q: String(e.holding.q), site: Number(e.holding.site) };
+    const { createWideHostPlanner } = await import('./flocalplay-wide-plan.mjs');
+    const { fromBase64 } = await import('../sdk/bytes.mjs');
+    const read = async addresses => {
+      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
+      return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
+    };
+    const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
+    let w;
+    try { w = await planner.decide(localPlay, mem, { wideTargets: localPlay.wideLand.targets, villages: [village] }); } catch (x) { w = { why: String(x?.message ?? x).slice(0, 200) }; }
+    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
+    invalidate('panel');
+    if (!w.decision) {
+      // (the province lags, the host forms, the village is not final yet: wait here, ask again about once a turn)
+      if (WIDE_HOST_AUTO_WAIT.includes(w.wait)) wideHostWait(mem, { reason: w.wait, lag: w.lag ?? null });
+      else wideHostStopWait(mem);
+      return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null };
+    }
+    const d = w.decision;
+    const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
+    mem.decisions = (mem.decisions ?? 0) + 1;
+    if (r?.ok !== false && d.name === 'WideDepart') mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
+    mem.wideHostUntil = mem.decisions;
+    // (refused BEFORE it was sent because the turn rolled under it — NotResident 26 — : wait a turn and try again
+    //  by itself; any other answer ends the waiting and is shown as it is)
+    // (`act` answers a refusal with its notice — FS.notice — not with a result)
+    const n = r === undefined ? FS.notice : r;
+    if (n?.ok === false && (Number(n.programCode) === 26 || n.code === 'NotResident' || n.code === 26)) wideHostWait(mem, { reason: 'turn', lag: null });
+    else wideHostStopWait(mem);
+    return r;
+}
+
+// (fix-loop5, L5-1) the wide village card's waiting (TEST-ONLY wide -> wide play): one timer, about one turn apart
+// (10–60 s of real time), at most WIDE_HOST_WAIT_MAX asks; stopped by 「待つのをやめる」, a sent step, or another answer.
+export const WIDE_HOST_AUTO_WAIT = Object.freeze(['lag', 'host', 'village', 'turn']);
+export const WIDE_HOST_WAIT_MAX = 360;
+const wideHostTurnMs = () => { const rate = FS.chain?.accelerated ? Number(FS.chain.rate) : 1; return Math.min(60_000, Math.max(10_000, Math.round(BELL_SECS * 1000 / (rate > 0 ? rate : 1)))); };
+function wideHostWait(mem, { reason, lag }) {
+  clearTimeout(mem.timer);
+  mem.waiting = { reason, lag, since: mem.waiting?.since ?? now(), asks: (mem.waiting?.asks ?? 0) + 1 };
+  if (mem.waiting.asks > WIDE_HOST_WAIT_MAX) { wideHostStopWait(mem); return; }
+  mem.timer = setTimeout(() => { mem.timer = null; ACTIONS['wide-host-step']({ auto: true }).catch(x => console.error('wide host wait:', x)); }, wideHostTurnMs());
+}
+function wideHostStopWait(mem) { clearTimeout(mem.timer); mem.timer = null; mem.waiting = null; }
+
 export const ACTIONS = {
   // ② rights (TEST-ONLY, a coexist local world only: screens/rights.mjs)
   'rights-read': () => refreshRights(),
@@ -3746,33 +3802,20 @@ export const ACTIONS = {
   // (TEST-ONLY wide -> wide marches, local wide-land worlds only, Q-W2 owner t385u: the selected WIDE village's own host —
   //  one press = the planner's one act: train Spearmen, muster a host, or march it onto a neighbouring province's keep;
   //  flocalplay-wide-plan.mjs, the same planner the AI residents use; the act is page-signed, flocalplay-wide-host.mjs)
-  'wide-host-step': async () => {
+  // (fix-loop5, L5-1) ONE step at a time, and the page WAITS instead of asking for presses: while the village's province
+  //  lags the chain (or its host forms), nothing is sent; the page asks again by itself about once a turn and sends the
+  //  step when it can (「待つのをやめる」 stops it). loop-play5 pressed every 2 s for ~10 min and spent the relay's cap.
+  'wide-host-step': async (d = {}) => {
     const e = fwide.selectedWide(FS);
-    if (!e?.holding || !localPlay?.wideLand) return;
-    const g = localDepartGate();
-    if (!g?.ok) return failed({ code: g?.code ?? 'LocalActNotAllowed' });
-    const village = { p: String(e.holding.p), q: String(e.holding.q), site: Number(e.holding.site) };
     FS.ui = { ...(FS.ui ?? {}) };
-    const mem = (FS.ui.wideHost ??= { decisions: 0 });
-    const { createWideHostPlanner } = await import('./flocalplay-wide-plan.mjs');
-    const { fromBase64 } = await import('../sdk/bytes.mjs');
-    const read = async addresses => {
-      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
-      return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
-    };
-    const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
-    let w;
-    try { w = await planner.decide(localPlay, mem, { wideTargets: localPlay.wideLand.targets, villages: [village] }); } catch (x) { w = { why: String(x?.message ?? x).slice(0, 200) }; }
-    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
-    invalidate('panel');
-    if (!w.decision) return { ok: false, code: 'WideHostWait', why: w.why };
-    const d = w.decision;
-    const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
-    mem.decisions = (mem.decisions ?? 0) + 1;
-    if (r?.ok !== false && d.name === 'WideDepart') mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
-    mem.wideHostUntil = mem.decisions;
-    return r;
+    const mem0 = (FS.ui.wideHost ??= { decisions: 0 });
+    if (!e?.holding || !localPlay?.wideLand) { wideHostStopWait(mem0); return; }
+    if (d.auto !== true && mem0.waiting) return { ok: false, code: 'WideHostWaiting' };   // (already waiting: the press starts nothing)
+    if (mem0.busy) return { ok: false, code: 'WideHostBusy' };
+    mem0.busy = true;
+    try { return await wideHostStep(e, mem0); } finally { mem0.busy = false; invalidate('panel'); }
   },
+  'wide-host-stop': () => { const mem = FS.ui?.wideHost; if (mem) wideHostStopWait(mem); invalidate('panel'); },
   harvest: () => { const h = activeHolding(FS); return act('Harvest', { v: { holding: h }, order: orderOf('harvest', 'Harvest', { grown: h ? grownSince(h, now()) : [], say: () => L`収穫を蔵に納めました` }) }); },
   // Build(item): a building (0–5), the walls (6) or the promotion to the next tier (7: the program's ITEM_TIER_UP)
   build: d => homeAction(() => {

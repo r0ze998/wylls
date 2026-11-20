@@ -61,6 +61,11 @@ export const awayText = (bell, nowBell = null) => (Number.isInteger(bell)
     : L`軍勢は進軍中 · ターン ${fmtNum(bell)} に到着`)
   : L`軍勢は進軍中`);
 export const awaitKeyText = () => L`到着 · 開封を待っています（あなたにだけ見えます）`;
+// (fix-loop5, L5-5: an expedition into the wide land whose seal the runner has opened kept the tag above for ~27 min
+//  while the destination province caught up: it says what it waits for now — the result, not the seal)
+export const revealedWaitText = () => L`到着 · 封は開きました · 結果の確定を待っています（あなたにだけ見えます）`;
+/** The tag over a march marker of the viewer's own: marching (its arrival turn), arrived and sealed, or opened and awaiting its result. */
+export const markerTagText = m => (!m?.arrived ? marchTagText(m?.arriveBell) : m.revealed ? revealedWaitText() : awaitKeyText());
 export const gainText = n => L`+${fmtNum(n)} マス測量`;
 export const watchTipText = () => L`見張っている土地：軍勢が立っているあいだ見えている範囲です。軍勢が去れば消えます。`;
 
