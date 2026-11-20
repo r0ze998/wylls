@@ -20,7 +20,8 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 ws04="$root/workstreams/04-execution"
 work="$(mktemp -d "${TMPDIR:-/tmp}/ws04-runexec.XXXXXX")"
 scratch="$ws04/tests/ws06_check.rs"
-cleanup() { rm -f "$scratch"; rm -rf "$work"; }
+copied=  # set once the scratch copy is ours: never remove a tests/ws06_check.rs this script did not write
+cleanup() { [ -z "$copied" ] || rm -f "$scratch"; rm -rf "$work"; }
 trap cleanup EXIT
 
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
@@ -35,14 +36,18 @@ echo "== 2. ④ cargo tests (simulated world)"
 
 echo "== 3. ④'s store on ⑥'s specs (scratch ws06_check)"
 [ ! -e "$scratch" ] || { echo "$scratch exists: refusing to overwrite it" >&2; exit 2; }
+copied=1
 cp "$root/workstreams/06-creation/handoff/ws04-check/ws06_check.rs" "$scratch"
 (cd "$ws04" && WS06_FIXTURE="$root/workstreams/06-creation/fixtures/connect/ws06-runspecs.json" \
   WS06_DB_OUT="$work" WS06_VIEW_OUT="$work" cargo test --release --locked --test ws06_check)
-rm -f "$scratch"
+rm -f "$scratch"; copied=
 for f in "$work"/*.json; do
   cmp "$f" "$root/workstreams/06-creation/fixtures/connect/run4-view-$(basename "$f")"
 done
-echo "run views equal ⑥'s fixtures ($(ls "$work"/*.json | wc -l | tr -d ' ') files)"
+views=$(ls "$work"/*.json | wc -l | tr -d ' ')
+fixtures=$(ls "$root"/workstreams/06-creation/fixtures/connect/run4-view-*.json | wc -l | tr -d ' ')
+[ "$views" = "$fixtures" ] || { echo "ws06_check wrote $views run views, ⑥ has $fixtures fixtures" >&2; exit 1; }
+echo "run views equal ⑥'s fixtures ($views files)"
 
 echo "== 4. gateway dependencies"
 [ -d "$root/permutation-gateway/node_modules" ] || (cd "$root/permutation-gateway" && npm ci --ignore-scripts --no-audit --no-fund)
