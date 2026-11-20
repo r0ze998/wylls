@@ -241,17 +241,25 @@ training are the same rules as devnet.
 - **Contested provinces trail the chain under load.** At ×60, minutes after you join, every province can fall 10–24
   turns behind (the #102 check, a loaded Mac). Meanwhile a muster or a departure waits; the page says 「この州の決着が N
   ターン遅れています。このマシンの負荷が高く…」 and sends it once when the province has caught up. No need to press again.
-- **At ×60 a march whose reveal window (about 10 s) was missed stops its province.** The siege count stands still, your
-  own host heading there stays on 「位置を読み込んでいます」, and 「支配する州」 and the standings stop at that turn (the
-  #102 check: 3 times in one ×60 world, 0 times at ×15). Ordinary marches are being fixed in #105 (draft). A missed
-  wide-land expedition has no settlement in the program; that waits on r0ze (§−2.4f (d)).
+- **An ordinary march whose reveal window (about 10 s at ×60) is missed no longer stops its province** (#105). The
+  keeper loop reveals every due march at the start of each pass and again before each village's pass; a march that
+  still misses it (seen: a 3-turn march under heavy load) is settled the way the program settles an unrevealed march —
+  its destination's turns are resolved without it, then SettleTransit (the program decides: routed home, or bounced) —
+  and the runner says `reveal-missed` on stderr. A village's march driver stopped by a refusal reads the chain again
+  after 6 steps (doubling to 96; one step per pass outside `--demo`), and the provinces where its hosts stand go back to
+  the world sweep meanwhile. A host whose arrival turn is more than 2 turns past shows "Host's arrival turn N was M
+  turns ago · waiting for its result". A missed wide-land expedition still has no settlement in the program; that
+  waits on r0ze (§−2.4f (d)).
+- **At ×60 your own province is usually a few turns behind** (median 4, the #105 check), so a waiting muster or march
+  can be withdrawn when its arrival turn moves (「送信待ちを取り消しました…」). Press it again; it sends once the
+  province catches up (the #105 check: sent on the 4th press).
 - **A wide-land expedition whose reveal window was missed never settles.** The march screen stays on 「到着しました。
   封が開けられるのを待っています」. Worse, that rim village cannot send another expedition (the page finds no free
   transit slot: 「出発できませんでした（DepartRolesUnavailable）」). In this check, on a loaded Mac at ×60, the first
   expedition was missed (`runner.out`: `never revealed: transit 0: the reveal window of bell 262 closed unrevealed`;
   3 of the 4 AI residents' villages also logged missed reveal windows). On the arrival turn press 「封を開く」 yourself
   (§4 step 3).
-- **A sieged province advances only about one turn a minute** (a sixth of the chain at ×60; the #105 check). After a
+- **A sieged province advances only about one turn a minute** (1–2 turns a minute, a third to a sixth of the chain at ×60; the #105 checks). After a
   capture it catches up quickly. The standings' 「第 N ターンまでの確定した得点」 is the slowest province's turn.
 - **A rim village that stays 「仮の村」** is confirmed by one action of your own (e.g. 「収穫する」), not at the
   「遅くとも…」 time the screen states.
