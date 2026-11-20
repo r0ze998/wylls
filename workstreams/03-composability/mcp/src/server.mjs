@@ -16,7 +16,8 @@ import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog }
 import { COOP_TOOL, REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, READ_ONLY_INSTRUCTIONS, TOOLS } from './tools.mjs';
 import { toolNamed, unknownToolText } from './dispatch.mjs';
 
-export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
+import { PROTOCOL_VERSIONS } from './protocol.mjs'; // (2026-11-20) its own module: the public server imports it without this graph
+export { PROTOCOL_VERSIONS };
 export const SERVER_INFO = Object.freeze({ name: 'wylls-mcp', title: 'Wylls (local test stack)', version: '0.1.0' });
 export const PLAN_TTL_MS = 5 * 60_000;
 const EVENT_PAGES_PER_CHECK = 10;

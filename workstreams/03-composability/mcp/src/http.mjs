@@ -139,7 +139,10 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
   const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent', 'POST /owner/statement', 'POST /owner/operations', 'POST /link/revoke/statement', 'POST /link/revoke']);
 
   const note = (req, o) => { if (req.wyllsAudit) Object.assign(req.wyllsAudit, o); };
-  return audited(handler, audit, { addressOf: req => clientAddress(req, trustProxy) });
+  // (2026-11-20, verify-pr114) the audit log writes only these paths; any other is "(other)" (src/audit.mjs)
+  const AUDIT_PATHS = ['/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp', '/link/revoke', '/link/revoke/statement',
+    '/mcp', '/oauth/authorize', '/oauth/consent', '/oauth/register', '/oauth/revoke', '/oauth/statement', '/oauth/token', '/owner', '/owner/operations', '/owner/statement'];
+  return audited(handler, audit, { addressOf: req => clientAddress(req, trustProxy), paths: AUDIT_PATHS });
 
   // (2026-11-20) Before: `return async function handler(req, res) {…}`; now the same function, wrapped by `audited`
   // (src/audit.mjs: the identity when no audit log is configured).
@@ -265,7 +268,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
           }
           if (!msg || typeof msg !== 'object') return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'a JSON-RPC message is required' } });
           if (Array.isArray(msg)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batches are not supported' } });
-          note(req, { who: { kind: 'link', linkId: principal.linkId }, rpc: typeof msg.method === 'string' ? msg.method : undefined, tool: msg.method === 'tools/call' && typeof msg.params?.name === 'string' ? msg.params.name : undefined });
+          note(req, { who: { kind: 'link', linkId: principal.linkId }, rpc: typeof msg.method === 'string' ? msg.method : undefined, tool: msg.method === 'tools/call' && msg.params?.name !== undefined ? (mcp.tools?.includes(msg.params.name) ? msg.params.name : '(unknown)') : undefined });
           // (2026-11-20) The optional daily quota per owner link (off unless configured): a tools/call over it is refused
           // with HTTP 429 before the tool runs; nothing is sent or spent.
           if (linkQuota && msg.method === 'tools/call') {

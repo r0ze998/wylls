@@ -6,7 +6,8 @@ keeps the safest choice (keys only, no anonymous access, public scope only, loop
 
 Code wins over this text. Files: `src/public-mcp.mjs`, `src/public-tools.mjs`, `src/api-keys.mjs`,
 `src/rate-limit.mjs`, `src/audit.mjs`, `src/exposure.mjs`, `bin/wylls-mcp-public.mjs`, `bin/public-settings.mjs`,
-`bin/wylls-mcp-key.mjs`, `bin/owner-exposure-settings.mjs`; tests `test/public-exposure.test.mjs`; real-HTTP driver
+`bin/wylls-mcp-key.mjs`, `bin/owner-exposure-settings.mjs`, `src/protocol.mjs`; tests `test/public-exposure.test.mjs`,
+`test/public-adversarial.test.mjs` (the independent verifier's probes, verify-pr114); real-HTTP driver
 `e2e/public-verify.mjs`.
 
 ## 1. Three surfaces, three rules
@@ -33,7 +34,8 @@ public server adds is attribution, quotas and a smaller surface, not secrecy.
 
 | Surface | Model | Why |
 |---|---|---|
-| P | **Per-agent API keys** (`Authorization: Bearer wylls_pk_<id>_<secret>`). The key file stores only SHA-256 hashes (0600, atomic writes); a token is shown once. Each key has the scope `wylls.public` only, an optional tool list, optional own rate and daily quota, an expiry and a revocation time; the server re-reads the file within ~5 s, so revocation needs no restart; a broken or widened file is refused and the keys loaded before stay. | Attribution and per-agent limits for headless agents that cannot do a browser OAuth flow (github-mcp-server's PAT + toolsets model). A key is not authority: it unlocks only public data. |
+| P | **Per-agent API keys** (`Authorization: Bearer wylls_pk_<id>_<secret>`). The key file stores only SHA-256 hashes (0600, atomic writes); a token is shown once. Each key has the scope `wylls.public` only, an optional tool list, optional own rate and daily quota, an expiry and a revocation time; the server re-reads the file within ~5 s, so revocation needs no restart; a broken or widened file is refused and the keys loaded before stay; a key file that
+is deleted or moved away accepts **no** key until it is back (fail closed, verify-pr114). | Attribution and per-agent limits for headless agents that cannot do a browser OAuth flow (github-mcp-server's PAT + toolsets model). A key is not authority: it unlocks only public data. |
 | P, anonymous | Off by default (`WYLLS_MCP_PUBLIC_ANONYMOUS=1`): keyed by client address, smaller limits. | Address-keyed limits are weak (IPv6 rotation, NAT): r0ze decides (§9 Q5). |
 | O | **Wallet-signed session** (existing, PR #22/#28): OAuth 2.1 + PKCE S256 + RFC 8707 resource/audience + RFC 9728/8414 discovery + DCR; the consent is the owner's wallet signature over a statement naming this server, client, scopes, agent and limits; refresh rotation with reuse detection; RFC 7009 revocation; owner-signed revocation pages. | The wallet is the identity; no account system, no password, no custody. |
 
@@ -68,6 +70,10 @@ feed, province envelopes, overview/roster binaries (whole-map reads: scraping co
 | owner, tools/call per link | 30 at once, then 1 a second (existing, `server.mjs` `limited`) | — |
 | owner, tools/call per link per day | off | `WYLLS_MCP_LINK_PER_DAY` (new) |
 
+The global bucket is spent only by a caller that passed authentication (a key, or an allowed anonymous caller): a
+flood of requests without a valid key gets 401 and cannot starve key holders (verify-pr114; before, the bucket was
+charged first). Buckets and daily quotas live in memory: a restart of the server starts every key's day again.
+
 A refused call spends nothing and answers HTTP 429 with `retry-after` and `error.data.reason` (`rate`, `quota`,
 `global`). Memory is bounded per table (least-recently-used key forgotten, never the whole table). The herald is
 public directly, so these limits do not protect it from direct scraping: the reverse proxy must limit `/h/*` too (§7).
@@ -91,11 +97,11 @@ public directly, so these limits do not protect it from direct scraping: the rev
 ## 6. Logging and privacy
 
 `WYLLS_MCP_AUDIT` (owner) / `WYLLS_MCP_PUBLIC_AUDIT` (public): one JSON line per request — time, server, method + path
-(no query), status, duration, who (`key` + the key's id, or `link` + an HMAC of the link id), client address as an
-HMAC (or nothing with `…_AUDIT_IP=off`), JSON-RPC method, tool name, outcome code, answer size. Never: the
+(no query; a path the server does not serve is written `(other)`), status, duration, who (`key` + the key's id, or `link` + an HMAC of the link id), client address as an
+HMAC (or nothing with `…_AUDIT_IP=off`), JSON-RPC method, tool name (a name that is not one of the server's tools is written `(unknown)`), outcome code, answer size. Never: the
 Authorization header, tokens, codes, signatures, bodies, tool arguments, an owner's wallet address, a raw address.
 The HMAC salt is random per process unless `…_AUDIT_SALT` is set (then hashes link across restarts). Mode 0600; one
-rotation to `<file>.1`. Retention is r0ze's (§9 Q6). Checked in the real-HTTP run: the owner wallet, the public key's token, `Bearer` and
+rotation to `<file>.1` past 10 MB (a size bound, not a time bound: retention in days is not implemented). Retention is r0ze's (§9 Q6). Checked in the real-HTTP run: the owner wallet, the public key's token, `Bearer` and
 `127.0.0.1` appear 0 times in either log.
 
 ## 7. TLS and reverse proxy (assumptions for a season)

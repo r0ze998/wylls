@@ -1,7 +1,7 @@
 // (2026-11-20, ③ public exposure) The audit log: one JSON line per HTTP request, for abuse investigation and quota
 // disputes. Off unless a file is configured (WYLLS_MCP_AUDIT / WYLLS_MCP_PUBLIC_AUDIT).
 //
-// What a line holds: time, which server, method + path (no query), status, duration, who (a kind and an id that is
+// What a line holds: time, which server, method + path (no query; a path the server does not serve is "(other)"), status, duration, who (a kind and an id that is
 // not a secret: a public key's id, or a salted hash of an owner link's id), the client address as a salted hash (or
 // nothing), the JSON-RPC method, the tool name, the outcome (ok, or the tool's error code) and the answer's size.
 // What a line NEVER holds: the Authorization header, a token, a code, a signature, a request body, tool arguments, an
@@ -59,8 +59,11 @@ export function createAudit({ file = null, write = null, salt = null, ip = 'hash
  * Wraps a request handler so that every request is recorded when it finishes. The route code fills `req.wyllsAudit`
  * ({who, rpc, tool, outcome}) as it learns them; the wrapper adds route, status, duration, size and address.
  */
-export function audited(handler, audit, { addressOf = req => req.socket?.remoteAddress ?? null, now = Date.now } = {}) {
+export function audited(handler, audit, { addressOf = req => req.socket?.remoteAddress ?? null, now = Date.now, paths = null } = {}) {
   if (!audit) return handler;
+  // (2026-11-20, verify-pr114) Only the server's own paths are written; any other path is the client's free text (a
+  // wallet in `/h/me/<wallet>` sent to the wrong server, a key pasted into a URL) and is recorded as "(other)".
+  const known = paths ? new Set(paths) : null;
   return async function (req, res) {
     const t0 = now();
     req.wyllsAudit = {};
@@ -70,6 +73,7 @@ export function audited(handler, audit, { addressOf = req => req.socket?.remoteA
     res.once('finish', () => {
       let path = '';
       try { path = new URL(req.url, 'http://x').pathname; } catch { path = '(unparseable)'; }
+      if (known && !known.has(path) && path !== '(unparseable)') path = '(other)';
       audit.record({ route: `${req.method} ${path}`, status: res.statusCode, ms: now() - t0, addr: addressOf(req), bytes, ...req.wyllsAudit });
     });
     return handler(req, res);

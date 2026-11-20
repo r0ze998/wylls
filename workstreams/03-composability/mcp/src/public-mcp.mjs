@@ -7,10 +7,11 @@
 // Order of checks for every request (each refusal happens before anything later runs):
 //   1. Host allow-list (DNS rebinding) → 403          (src/exposure.mjs, as the owner server)
 //   2. Origin allow-list (browser pages) → 403
-//   3. the global bucket (protects the herald) → 429
-//   4. who: a public API key (`Authorization: Bearer wylls_pk_…`, src/api-keys.mjs) or, only when the operator allowed
+//   3. who: a public API key (`Authorization: Bearer wylls_pk_…`, src/api-keys.mjs) or, only when the operator allowed
 //      it, an anonymous caller keyed by its address; anything else → 401. An owner-link token (or any other bearer) is
 //      refused: it was issued for another resource (MCP authorization, token audience / no token passthrough).
+//   4. the global bucket (protects the herald; spent only by a caller step 3 let in, so a keyless flood cannot
+//      starve key holders) → 429
 //   5. the caller's bucket (burst) → 429
 //   6. the body (≤ 16 KB, one message, no batch) → JSON-RPC errors
 //   7. tools/call: the tool exists and the key may call it (the key's `tools` list) → -32602; the caller holds the
@@ -18,7 +19,7 @@
 //      the tool's extra cost against the bucket and the daily quota → 429; the arguments → -32602.
 // Then the tool runs: one public herald GET. Its answer is plain JSON, ≤ MAX_RESULT_BYTES.
 import { randomBytes } from 'node:crypto';
-import { PROTOCOL_VERSIONS } from './server.mjs';
+import { PROTOCOL_VERSIONS } from './protocol.mjs';
 import { toolNamed, unknownToolText } from './dispatch.mjs';
 import { PUBLIC_TOOLS, PUBLIC_INSTRUCTIONS, MAX_RESULT_BYTES, PublicError, argsError } from './public-tools.mjs';
 import { PUBLIC_SCOPE, TOKEN } from './api-keys.mjs';
@@ -157,8 +158,6 @@ export function createPublicHandler({ mcp, keys = null, anonymous = false, allow
       if (!originOk(req)) return send(res, 403, { error: 'forbidden', error_description: 'origin not allowed' });
       if (url.pathname !== PUBLIC_PATH) return send(res, 404, { error: 'not_found' });
       if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }); return res.end(); }
-      const g = global.take('all', 1);
-      if (!g.ok) { note(req, { outcome: 'GlobalLimit' }); return send(res, 429, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'the server is busy', data: { reason: 'global' } } }, { 'retry-after': String(g.retryAfterSecs) }); }
       const w = who(req);
       if (!w.principal) {
         note(req, { outcome: 'Unauthenticated' });
@@ -166,6 +165,11 @@ export function createPublicHandler({ mcp, keys = null, anonymous = false, allow
       }
       const p = w.principal;
       note(req, { who: { kind: p.kind, ...(p.kind === 'key' ? { id: p.id } : {}) } });
+      // (2026-11-20, verify-pr114) The global bucket is spent by authenticated (or allowed anonymous) callers only:
+      // charged before `who`, a keyless flood of 401s emptied it and every key holder got 429 (only a tool call
+      // reaches the herald, and an unauthenticated request never does).
+      const g = global.take('all', 1);
+      if (!g.ok) { note(req, { outcome: 'GlobalLimit' }); return send(res, 429, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'the server is busy', data: { reason: 'global' } } }, { 'retry-after': String(g.retryAfterSecs) }); }
       const b = bucketOf(p).take(bucketKey(p), 1);
       if (!b.ok) { note(req, { outcome: 'RateLimited' }); return send(res, 429, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'rate limited', data: { reason: 'rate' } } }, { 'retry-after': String(b.retryAfterSecs) }); }
       const v = req.headers['mcp-protocol-version'];
@@ -176,7 +180,7 @@ export function createPublicHandler({ mcp, keys = null, anonymous = false, allow
       const msg = r.msg;
       if (!msg || typeof msg !== 'object') return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'a JSON-RPC message is required' } });
       if (Array.isArray(msg)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batches are not supported' } });
-      note(req, { rpc: typeof msg.method === 'string' ? msg.method : undefined, tool: msg.method === 'tools/call' && typeof msg.params?.name === 'string' ? msg.params.name : undefined });
+      note(req, { rpc: typeof msg.method === 'string' ? msg.method : undefined, tool: msg.method === 'tools/call' && msg.params?.name !== undefined ? (mcp.tools.includes(msg.params.name) ? msg.params.name : '(unknown)') : undefined });
       // the tool's cost beyond the 1 already spent, and the daily quota (the whole cost)
       const charge = (pr, tool) => {
         if (tool.cost > 1) { const x = bucketOf(pr).take(bucketKey(pr), tool.cost - 1); if (!x.ok) return { status: 429, reason: 'rate', retryAfterSecs: x.retryAfterSecs }; }
@@ -203,5 +207,5 @@ export function createPublicHandler({ mcp, keys = null, anonymous = false, allow
     }
   }
 
-  return audited(handler, audit, { addressOf: req => clientAddress(req, trustProxy), now });
+  return audited(handler, audit, { addressOf: req => clientAddress(req, trustProxy), now, paths: [PUBLIC_PATH] });
 }

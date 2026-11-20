@@ -93,10 +93,18 @@ export class KeyRing {
 
   #load(first) {
     let st;
-    try { st = statSync(this.file); } catch (e) { if (first) throw new KeyFileError('key file: cannot be read'); this.log('public keys: the key file cannot be read; keeping the keys loaded before'); return; }
-    if ((st.mode & 0o077) !== 0) { if (first) throw new KeyFileError('key file: must not be readable by group or others (chmod 600)'); }
+    try { st = statSync(this.file); } catch (e) {
+      if (first) throw new KeyFileError('key file: cannot be read');
+      // (2026-11-20, verify-pr114) Fail closed: an operator who deletes (or moves) the key file means "no key"; keeping
+      // the keys loaded before kept every unrevoked key working until a restart.
+      if (this.byId.size) this.log('public keys: the key file cannot be read; no key is accepted until it is back');
+      this.byId = new Map(); this.stamp = null;
+      return;
+    }
+    if ((st.mode & 0o077) !== 0 && first) throw new KeyFileError('key file: must not be readable by group or others (chmod 600)');
     const stamp = `${st.mtimeMs}:${st.size}`;
     if (stamp === this.stamp) return;
+    if ((st.mode & 0o077) !== 0) this.log('public keys: warning: the changed key file is readable by group or others (chmod 600)');
     try {
       this.#use(parseKeyFile(JSON.parse(readFileSync(this.file, 'utf8'))));
       this.stamp = stamp;
