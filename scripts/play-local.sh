@@ -68,7 +68,7 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   preset S1_DEVNET_WIDE_7D, and during its setup the program's own instructions grow the map one ring
                   per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131, with
                   one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
-                  nation gets real homes on the rim: the page offers a rim village first, and from it the village
+                  nation gets real homes on the rim: the page files your first village on the rim, and from it the village
                   screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
                   ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. A rim host
                   marches into the wide land by 「境界への道を準備」; a wide village's 「次の一手（広い土地）」 marches

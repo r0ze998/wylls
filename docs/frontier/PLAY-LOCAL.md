@@ -72,10 +72,12 @@ move only once its turn is settled: about 17 minutes later).
    「地形の鉱石なし」 can only grow to about 600 troops.
 3. **Build**: 「最初の建設を選ぶ」 → the farm's 「建てる」. It finishes in about one (in-game) minute.
 4. **Train**: 「訓練」 in the bottom bar → 「最大 500」 → 「槍兵 500 を訓練する」. It finishes at once.
-5. **Muster**: 「兵」 on the village screen → 「全部（500）」 → 「編成する」. When it says
-   「この州はまだ前のターンの決着が済んでいません」 you **may press anyway**: the muster waits and is sent once, as soon as
-   the province is ready (no need to press again; it is withdrawn if the unit or the number changes). 「立っている 1」
-   means the host can move.
+5. **Muster**: 「編成」 in the bottom bar (or the guide at the top right when it says 「軍勢を編成する」) → 「全部」 →
+   「槍兵 N をここに集める」. When it says 「この州はまだ前のターンの決着が済んでいません」 you **may press anyway**: the
+   muster waits and is sent once, as soon as the province is ready (no need to press again; it is withdrawn if the
+   unit or the number changes). The village screen's 「兵」 → 「編成する」 cannot be pressed while the province settles
+   (only the bottom bar's 「編成」 waits and sends). When the guide at the top right says 「軍勢の準備を確かめる」 or
+   「届く砦を見る」, the host is mustered.
 6. **March on a keep**: press the guide at the top right when it says 「届く砦を見る」 (if it stays on
    「軍勢の準備を確かめる」, open 「国と領土」 in the bottom bar once). Pick a keep's row and press 「確認した命令で出発」.
    While the province is settling, the same order is sent once, as soon as it can be. 「最初の出陣」 means it left.
@@ -126,24 +128,51 @@ During the world's setup (about 20 seconds) the program's own instructions grow 
 the wide land beyond it (rings 129–131, 108 provinces). The game starts around turn 140, at ×60 (a turn is 10 s).
 The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
 
-1. **A rim village**: pick a nation without an AI at 「国を選ぶ」; the first-village candidates list **rim (ring 128)
-   provinces first**. Start as offered. If the village stays 「仮の村」 (provisional), one action of your own, e.g.
-   「収穫する」, confirms it.
+1. **A rim village**: at 「国を選ぶ」 pick a nation without an AI (with `--ai 4`: Aster or Dunmar) and press
+   「（国の名前）で始める」. You do not pick the place: the page files a village on a **rim (ring 128) province**
+   (「辺境の村を申し込んでいます…」 → 「辺境の村を申し込みました。ターンの終わりに決まります。」), and a few turns later
+   「（名前）の集落ができました」 appears. While the village name carries 「仮」 (provisional), press 「収穫する」 on the
+   village screen once to confirm it (「…が確定しました」). A rim village has no 「初めての建設」 (one-minute first
+   build): the farm takes 1 h 30 min (about 1.5 minutes at ×60).
 2. **A wide village (about 30 minutes at ×60)**: the village screen's 「広い土地に村を出す（テスト）」 shows the cost
    (1,200 wood and more) and the candidate provinces. Once the stores hold it, press 「ここに村を出す」. The claim is
-   decided at the end of the turn and the village is drawn on the map with your nation's sigil. Inspecting that
-   province shows 「あなたの村（広い土地）」 and 「この村を開く」.
-3. **An expedition (rim → wide land)**: train and muster in the rim village (§3 steps 4–5), select the host and press
-   「境界への道を準備」. Press the dashed tiles on the map to extend the road beyond ring 128 → enter
-   「到着ターンの候補」 → 「地形・時間を確認」 → 「出発条件を確認」 → 「出発する（ローカルプレイ）」. When the arrival turn
-   ends, the world's keeper opens the seal and settles it.
-   - Enter the arrival turn **before** 「地形・時間を確認」 (changing it afterwards means starting over).
-   - The road can be drawn regardless of terrain. If a mountain refuses it, draw another road.
+   decided at the end of the turn and the village is drawn on the map with your nation's sigil. The easiest way to
+   open it is the 「W2」 button under the village plate at the bottom left (it opens 「遠方の村 第129輪（枠 2）」);
+   inspecting that province on the map → 「あなたの村（広い土地）」 → 「この村を開く」 works too.
+   - Training (§3 step 4) spends the stores' food and gold. Claim the wide village first, then train: the wait is
+     shorter.
+3. **An expedition (rim → wide land)**: train and muster in the rim village (§3 steps 4–5), select the host in the
+   bottom bar (e.g. 「槍兵 500」) and press 「境界への道を準備」.
+   1. Draw the road one step at a time with the direction buttons (東・北東・北西・西・南西・南東) or the dashed tiles
+      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more).
+   2. 「地形・時間を確認」. 「山や水のマスには進めません (N)」 means step N is impassable: 「一歩戻す」 or 「道を消す」
+      and draw another road (the card draws roads without looking at terrain). A passable road shows
+      「到着候補：ターン A〜B」.
+   3. Press 「最も早い候補（ターン A）を使う」 (the field for typing an arrival turn yourself is inside 「詳細」 at the
+      bottom of the card).
+   4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
+      「出発する（ローカルプレイ）」. At ×60 「…満たしていません。 (NotResident)」 is common (the province is settled for
+      only part of each turn): wait a few seconds and press 「出発条件を確認」 again. In this check it took more than
+      10 presses, about 2 minutes. A turn change clears the check's result; press again then too.
+   5. 「出発が確定しました（ターン N に到着予定・移動枠 0）」 means it departed.
+   - **On the arrival turn this page can open the seal.** Normally the world's keeper opens it, but at ×60 on a
+     loaded machine it can miss the window of about 10 s (in this check the first expedition was missed, §8). On the
+     arrival turn press 「封を開けるか確認する」 at the top right → 「封を開く（ローカルプレイ）」 (this check did not
+     get to press it inside the window). 「封を開ける期間が終わっています。(RevealWindowClosed)」 means that expedition
+     will never settle.
+   - Before sending the next host, press 「結果を照合する」 under the card's 「送信しました。確定はまだ確認できていません」
+     once (until then 「出発する」 is not shown).
    - The bar button says 「送信しません」 (does not send), but in local play the card's last button really departs.
 4. **A march inside the wide land (wide → wide)**: open the village of step 2; it has the card
-   「広い土地の軍勢（テスト）」. Pressing 「次の一手（広い土地）」 once per turn goes one step at a time: train spearmen →
-   muster a host → march on the next province's keep (the card shows the reason). A new village's stores start empty,
-   and its muster is refused for a few minutes until its province has caught up. Staying on a keep for 72 turns takes it.
+   「広い土地の軍勢（テスト）」. Pressing 「次の一手（広い土地）」 goes one step at a time: train spearmen → muster a
+   host → march on the next province's keep (the card states the next step in English, e.g. `a host of 100 Spearmen
+   at the wide village …` = muster, `the host (100 troops) marches wide -> wide … arriving turn N` = march).
+   - A new village's province starts far behind the chain (in this check 77 turns behind after the village was made;
+     about 15 minutes to catch up). Meanwhile, and at ×60 often after it too, a press answers 「送られていません」 (the
+     muster's NotResident): wait a few seconds and press again. In this check about 30 presses at one per turn were
+     all refused; pressing every 2 s got the muster through within a few presses, and the march two turns later.
+   - The world's keeper opens the march's seal. If the target province has never been settled, nothing (clash,
+     capture) happens there until it catches up (hundreds of turns). Staying on a keep for 72 turns takes it.
 - **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
   have seen it** (fog). 「支配する州」 and the standings also count rim and wide-land keeps (#102).
 - **The AI residents** also take rim villages, save up, claim wide land, send expeditions and wage war. Their battles
@@ -195,8 +224,8 @@ A player's view, as in Civ. It is display only: the local chain's records stay p
 |---|---|---|
 | Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
 | Centre | **none** (the world's own Season byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
-| Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | from a Town (the presets say 1) |
-| First village on the rim | test participants settle first in the setup; the keeper settles the claim | in progress in #104 (draft) |
+| Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
+| First village on the rim | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); no keeper role settles wide claims yet |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
@@ -215,6 +244,12 @@ training are the same rules as devnet.
   own host heading there stays on 「位置を読み込んでいます」, and 「支配する州」 and the standings stop at that turn (the
   #102 check: 3 times in one ×60 world, 0 times at ×15). Ordinary marches are being fixed in #105 (draft). A missed
   wide-land expedition has no settlement in the program; that waits on r0ze (§−2.4f (d)).
+- **A wide-land expedition whose reveal window was missed never settles.** The march screen stays on 「到着しました。
+  封が開けられるのを待っています」. Worse, that rim village cannot send another expedition (the page finds no free
+  transit slot: 「出発できませんでした（DepartRolesUnavailable）」). In this check, on a loaded Mac at ×60, the first
+  expedition was missed (`runner.out`: `never revealed: transit 0: the reveal window of bell 262 closed unrevealed`;
+  3 of the 4 AI residents' villages also logged missed reveal windows). On the arrival turn press 「封を開く」 yourself
+  (§4 step 3).
 - **A sieged province advances only about one turn a minute** (a sixth of the chain at ×60; the #105 check). After a
   capture it catches up quickly. The standings' 「第 N ターンまでの確定した得点」 is the slowest province's turn.
 - **A rim village that stays 「仮の村」** is confirmed by one action of your own (e.g. 「収穫する」), not at the
@@ -222,7 +257,7 @@ training are the same rules as devnet.
 - **The AI residents spend many turns on refused sends** (e.g. training the stores cannot pay). They look slow; it is
   by the rules. In a ×60 `--wide --ai 4` world an AI stops after 256 sends (about 45–60 minutes in).
 - A wide claim offers free sites only. The third village's cost (2,400) does not fit a Hamlet's stores (cap 2,000).
-- The expedition card does not look at terrain (a road over a mountain is refused at departure).
+- The expedition card draws roads without looking at terrain (「地形・時間を確認」 then says 「山や水のマスには進めません (N)」).
 - The 「記録」 view is not shown in a fog world (it is with `LOCAL_FOG` set to `false`).
 
 ## 9. Trouble, and where to report
