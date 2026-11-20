@@ -41,7 +41,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
-import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources } from './map/fog.mjs';
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources, viewClash } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
@@ -121,6 +121,8 @@ function artClashOf(p, q) {
   if (!env || !heraldRef) return null;
   const key = `${p},${q}`;
   const rb = env.province?.resolveSummary?.bell;
+  // (fix-loop5, L5-6: under the fog, the marks of a clash out of sight now are not drawn, nor its inputs read)
+  if (!viewClash({ p, q, keepTile: keepTileOf(p, q), mine: inspect.ownClashPlace(FS, p, q, rb) })) return null;
   // (kept per province and resolved bell: once loaded, the report of an earlier clash stayed for good, so the marks of
   // a clash that resolved while the page was open never showed; seen on the live fixture's turn)
   const have = artClash.get(key);
@@ -3354,6 +3356,8 @@ function autoBattles() {
     // a clash the notifications announce (the viewer's own province, or where a march of theirs arrived) is one of
     // the turn's own results: it plays once, in its place after the toll (tickFeed, mountTurnStrip), not here as well
     if (FS.mode === 'play' && feedAnnounces(env.province.p, env.province.q, b)) continue;
+    // (fix-loop5, L5-6: under the fog, a clash out of sight now does not play by itself either)
+    if (!clashHere(env.province.p, env.province.q, b)) continue;
     playBattle(env.province.p, env.province.q, b, { auto: true });
   }
 }
@@ -3537,6 +3541,8 @@ function leaveReport() { if (FS.report) { FS.report = null; invalidate('panel');
  */
 let playAskSeq = 0;
 async function playAsked(p, q, bell) {
+  // (fix-loop5, L5-6: the scene of another nation's clash out of sight now is not played)
+  if (!clashHere(p, q, bell)) return;
   const req = ++playAskSeq;
   const rep = FS.report ?? null, world = reportWorld();
   closeDialPop();
@@ -4218,8 +4224,18 @@ async function seasonKernel() {
  */
 // (with the pin's generation: a report read under the first A is not shown under the A pinned again after B)
 const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+/** The keep tile of (p, q) as the overviews carry it (null: none, or the province not in an overview read). */
+const keepTileOf = (p, q) => { for (const o of FS.overviews?.values?.() ?? []) { const r = o.provinces?.find(x => x.p === p && x.q === q); if (r) return r.keepTile ?? null; } return null; };
+/**
+ * (fix-loop5, L5-6) Whether the clash of (p, q) at `bell` may be read, offered or played under the fog of a local test
+ * world (map/fog.mjs clashSeen): the viewer's own, or its place in sight now. Without fog: always.
+ */
+export const clashHere = (p, q, bell) => viewClash({ p, q, keepTile: keepTileOf(p, q),
+  mine: inspect.ownClashPlace(FS, p, q, bell) || myReports(FS).some(r => r.p === p && r.q === q && r.bell === bell) });
 export async function openReport(p, q, bell) {
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return;
+  // (fix-loop5, L5-6: another nation's clash out of sight now is not read — not even asked of the herald)
+  if (!clashHere(p, q, bell)) { FS.report = { p, q, bell, world: reportWorld(), hidden: true }; FS.practice = null; invalidate('panel'); return; }
   // (2026-11-17: the herald may start serving another season or world while a report is read — loadSeason re-pins every
   // poll. A report read under one world is never shown, or added to, under another: it is dropped, not told as read)
   const world = reportWorld();

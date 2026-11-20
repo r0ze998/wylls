@@ -1986,4 +1986,6 @@ export default {
   'このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。': 'This page checks by itself about once a turn and sends the step when it can. No need to press again (pressing sends nothing).',
   '待っています…（押す必要はありません）': 'Waiting… (no need to press)',
   '待つのをやめる': 'Stop waiting',
+  // fix-loop5 L5-6: a clash out of sight under the fog
+  'この場所はいま見えていません。ほかの国どうしの衝突の報告は、その場所が見えているあいだだけ開けます。': "This place is out of sight now. A clash between other nations can be opened only while its place is in sight.",
 };

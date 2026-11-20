@@ -311,6 +311,22 @@ export function recordSeen(x, { survey, mine = () => false } = {}) {
   return int(t) && t >= 0 && t < PROVINCE_TILES ? survey.levelOf(p, q, t) === L3 : maxOf(survey, p, q) === L3;
 }
 
+/**
+ * (fix-loop5, L5-6) Whether a CLASH of province (p, q) — its report, its replay, its scene played on the map — may be
+ * offered or read under the fog. Always without fog, and always when it is the viewer's own (`mine`: a village of the
+ * viewer's there, a march of the viewer's arriving at it). Otherwise only while its place is in sight NOW (#93: other
+ * nations' clashes show only inside current vision; seen before is not enough): the keep tile when the province has a
+ * keep (a keep's clash is fought on it), else the whole province. A province with only a few rim tiles in sight is not
+ * enough (loop-play5: such a province offered 「戦いを再生」 and the full AI-vs-AI report).
+ */
+export function clashSeen({ p, q, keepTile = null, mine = false } = {}, { survey } = {}) {
+  if (mine) return true;
+  if (!survey || survey.showAll) return true;
+  if (!int(p) || !int(q)) return false;
+  if (int(keepTile) && keepTile >= 0 && keepTile < PROVINCE_TILES) return survey.levelOf(p, q, keepTile) === L3;
+  return survey.province(p, q).kind === 'sight';
+}
+
 // ------------------------------------------------------------------ the page's fog
 let current = null;
 
@@ -351,6 +367,7 @@ export function createFogger({ storage = browserStorage } = {}) {
     view = { on: true, survey: sv, overviews, wide: wideCache.out, keeps: keepsOf, memory: mem,
       incoming: (list, ctx = {}) => fogIncoming(list, { ...ctx, survey: sv, viewer: input.viewer }),
       seen: (record, mine) => recordSeen(record, { survey: sv, mine }),
+      clashSeen: x => clashSeen(x, { survey: sv }),
       departureSeen: d => departureSeen(d, { survey: sv, viewer: input.viewer }) };
     current = view;
     return view;
@@ -366,5 +383,7 @@ export const resetFogNow = () => { current = null; };
 export const viewOverviews = fs => { const f = fogNow(); return f.on && f.overviews ? f.overviews : fs?.overviews; };
 /** The keeps a surface that SHOWS them reads (FS.conquest.keeps, fogged under the fog). */
 export const viewKeeps = keeps => { const f = fogNow(); return f.on ? f.keeps(keeps) : keeps; };
+/** Whether a clash (report, replay, scene) of `{p, q, keepTile, mine}` may be offered (always, without fog). */
+export const viewClash = x => { const f = fogNow(); return !f.on || !f.clashSeen || f.clashSeen(x); };
 /** Whether a chronicle/feed record may be shown (always, without fog). */
 export const viewRecord = (record, mine = () => false) => { const f = fogNow(); return !f.on || f.seen(record, mine); };
