@@ -2856,11 +2856,32 @@ function quickDestinations() {
 // end comes, the page is hidden for good, an earlier outcome is unknown, its turns run out, another problem appears, or the
 // player cancels. Memory only: a reload never revives it.
 const localMarchTrial = () => !!localPlay && localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(localPlay.worldEndsAt);
+// (devnet-page-war-2) DEVNET PLAY, the ordinary march: the same "press now, send when ready" — on a devnet season the page's
+// read of the home province (the herald's fold) lags the chain in real time, and 封をして出発する stood disabled while it did
+// (devnet-page-war §6.5). On a verified devnet page with the connected wallet, a press while ONLY the province's settling
+// blocks the order (NotResident / NotFinal, the page's own read) arms ONE waiting send of that exact order: the page reads
+// the origin province again (one read at a time, at most every DEVNET_WAIT_REFRESH_MS) and sends once — the wallet is asked
+// to sign then — the first moment every check passes, or withdraws and says why. Nothing is signed or sent while it waits.
+export const DEVNET_WAIT_REFRESH_MS = 5_000;
+const devnetMarchWait = () => !localPlay && !!devnetPlay && devnetGate().ok === true;
+/** Whether the march card offers the waiting send: local play's test entry, or a verified devnet page with its wallet. */
+const marchWaitOn = () => localMarchTrial() || devnetMarchWait();
+/** The devnet season's end on this machine's clock (ms), as the waiting send's `endsAt`; NaN when the clock is unknown. */
+function devnetEndsAt() {
+  const end = Number(FS.season?.endBell), g = FS.clock?.genesisTs;
+  if (!Number.isFinite(end) || !Number.isFinite(g)) return NaN;
+  return Date.now() + (bellStart(g, end) - now()) * 1000;
+}
+/** An earlier devnet march of this host whose outcome is unknown (held by its signature). */
+const devnetHeldNow = card => (devnetMarchSender ? devnetMarchSender.sender.held(card.host?.id ?? null).length > 0 : false);
+let devnetWaitRead = -Infinity;
 function marchNow(c) {
   const h = c.holding ? holdingByRef(FS.holdings, c.holding) : activeHolding(FS);
   const m = composerMarch(FS, composerArrival(FS));
   const problems = checkMarch(m).filter(p => p !== 'NoDestination');
-  const intent = pendingIntentOf({ world: localPlay?.march?.instance ?? null, wallet: FS.wallet?.address ?? null, holding: h, host: c.host, origin: c.origin, m });
+  // (devnet-page-war-2: a devnet page's "world" is its verified devnet Season — the relay and the Season id it read)
+  const world = localPlay ? localPlay.march?.instance ?? null : devnetPlay ? `devnet:${devnetPlay.relay}:${devnetPlay.seasonId}` : null;
+  const intent = pendingIntentOf({ world, wallet: FS.wallet?.address ?? null, holding: h, host: c.host, origin: c.origin, m });
   return { problems, intent };
 }
 /**
@@ -2868,8 +2889,10 @@ function marchNow(c) {
  * A lag of PENDING_LAG_TURNS or more is the world's keeper falling behind — on a local world, the machine's load — and the
  * page keeps waiting on its own; nothing to press again.
  */
-export function lagWaitText(lag, untilBell, kind) {
+export function lagWaitText(lag, untilBell, kind, { devnet = false } = {}) {
   const what = kind === 'muster' ? L`この編成` : L`この命令`;
+  // (devnet-page-war-2: on devnet the lag is the keeper's and the herald's, in real time — not this machine's load)
+  if (devnet && Number.isInteger(lag) && lag >= PENDING_LAG_TURNS) return L`この州の決着の読み取りが ${fmtNum(lag)} ターン遅れています（世界の進行とこのページの読み取り先が追いつくのを待っています）。送信待ちはそのまま続け、州が追いつき次第${what}を1回だけ送ります。そのときウォレットが署名を求めます。押し直す必要はありません（取り消せます）。`;
   if (Number.isInteger(lag) && lag >= PENDING_LAG_TURNS) return L`この州の決着が ${fmtNum(lag)} ターン遅れています。このマシンの負荷が高く、世界の進行（ターンの決着）が追いついていないためです。送信待ちはそのまま続け、州が追いつき次第${what}を1回だけ送ります。押し直す必要はありません（取り消せます）。`;
   return L`送信待ちを続けています。州のターンの決着がまだつかないため、待つ期限をターン ${fmtNum(untilBell)} まで延ばしました。決着がつき次第${what}を1回だけ送ります（取り消せます）。`;
 }
@@ -2889,8 +2912,11 @@ const pendingDriver = createPendingDriver({
     const same = FS.compose === card, now = same ? marchNow(card) : { problems: null, intent: null };
     // (verify-pr98 BREAK-1: the origin province's settling against the chain's turn now, not the model's possibly older one)
     const origin = FS.provinces.get(`${card.origin?.p},${card.origin?.q}`)?.province ?? null;
-    return { ...now, problems: settleNow(now.problems, origin, nowBell()), nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0 || marchNearEnd(), sameCard: same,
-      keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN,
+    // (devnet-page-war-2: on a devnet page the march's gate is the devnet lane's — the verified season and the connected
+    //  wallet the page shows —, the key is that wallet, and the world's end is the Season's)
+    const dn = !localPlay && devnetMarchWait();
+    return { ...now, problems: settleNow(now.problems, origin, nowBell()), nowBell: nowBell(), open: localPlay ? FS.localMarch?.open === true : dn, held: localPlay ? heldNow(card) : devnetHeldNow(card), busy: !!card.sending || FS.inFlight > 0 || marchNearEnd(), sameCard: same,
+      keyAlive: localPlay ? !!FS.wallet?.address && FS.wallet.destroyed !== true : dn, endsAt: localPlay ? localPlay.worldEndsAt ?? NaN : devnetEndsAt(),
       // B20: the arrival turn the card's own clock moved to (composeTick), never a turn the player picked
       follow: same && Number.isInteger(card.moved?.to) ? card.moved.to : null,
       // loop-play4 B-2: how far the origin province is behind (the keeper under machine load)
@@ -2900,6 +2926,8 @@ const pendingDriver = createPendingDriver({
   //  same armed card; otherwise its answer is dropped before it touches anything. A page's world never changes — startPlay
   //  sets the herald and the local-play identity once — this check holds that even so)
   refresh: card => {
+    // (devnet-page-war-2: a devnet page reads the herald over the network, in real time: at most every DEVNET_WAIT_REFRESH_MS)
+    if (!localPlay) { const t = Date.now(); if (t - devnetWaitRead < DEVNET_WAIT_REFRESH_MS) return Promise.resolve(); devnetWaitRead = t; }
     const h0 = herald, lp0 = localPlay, w0 = FS.wallet?.address ?? null;
     const still = () => herald === h0 && localPlay === lp0 && (FS.wallet?.address ?? null) === w0 && FS.wallet?.destroyed !== true && pendingDriver.armed === card;
     return loadEnvelope(card.origin.p, card.origin.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } });
@@ -2911,7 +2939,7 @@ const pendingDriver = createPendingDriver({
   // B20 (loop-play3): the turn passed before the province settled and the arrival turn moved on with it. The waiting
   // send is kept for the same order at the new arrival turn, and the player is told (nothing is changed silently)
   // loop-play4 B-2: the province is turns behind (the world's keeper under machine load): said, and the wait goes on
-  lagging: (card, p, lag) => { card.pending = p; setNotice({ busy: false, waiting: true, text: lagWaitText(lag, p.untilBell, 'march') }); },
+  lagging: (card, p, lag) => { card.pending = p; setNotice({ busy: false, waiting: true, text: lagWaitText(lag, p.untilBell, 'march', { devnet: !localPlay }) }); },
   followed: (card, p, moved) => { card.pending = p; setNotice({ busy: false, waiting: true, text: L`時間が進んだため、到着はターン ${fmtNum(moved.to)} になりました（さきほどまではターン ${fmtNum(moved.from)}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` }); },
   onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
 });
@@ -2949,7 +2977,9 @@ function armMarchWait() {
   // (a march of this host sent earlier whose outcome is not known — the march's gate is closed then (LocalMarchHeld) —:
   //  the press asks about it, one read; nothing is sent)
   if (c && !c.sending && !c.pending && !pendingDriver.armed && localPlay && heldNow(c)) return askHeldMarches(c.host?.id ?? null, { told: true });
-  if (!c || c.sending || c.pending || pendingDriver.armed || !localMarchTrial()) return;
+  if (!c || c.sending || c.pending || pendingDriver.armed || !marchWaitOn()) return;
+  // (devnet: an earlier march of this host with an unknown outcome — nothing is armed; the card says it is held)
+  if (!localPlay && devnetHeldNow(c)) return;
   const { problems, intent } = marchNow(c);
   // ready now, and not at the turn's very end: this press is an ordinary press
   if (problems.length === 0 && !marchNearEnd()) return sendTheMarch();
@@ -2957,7 +2987,8 @@ function armMarchWait() {
   const p = armPending({ intent, nowBell: nowBell() });
   if (!p || !pendingDriver.arm(c, p)) return;
   c.pending = p;
-  setNotice({ busy: false, waiting: true, text: L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
+  setNotice({ busy: false, waiting: true, text: localPlay ? L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。`
+    : L`送信待ちです。このページが読む州のターンの決着が追いつき次第、この命令を1回だけ送ります。そのときウォレットが署名を求めます（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
 }
 
 // TEST-ONLY local play, the village's Form a host card (round 21; flocalplay-muster-wait.mjs): ONE press on its confirm
@@ -4125,6 +4156,8 @@ export async function startPlay({ herald: h, cfg }) {
   FS.localPlay = localPlay;
   useHerald(h);
   Object.defineProperty(FS, 'localMarch', { configurable: true, enumerable: false, get: localMarchView });
+  // (devnet-page-war-2) whether the march card offers the waiting send (local play's test entry, or a devnet page)
+  Object.defineProperty(FS, 'marchWaitOn', { configurable: true, enumerable: false, get: marchWaitOn });
   // (2026-11-17, ⑦: "the exploration's result can be collected" is true only for the village and exploration its seed was
   //  read for — exploreSeedNow. Corrected: no producer in the page writes `true` to the flag any more (refresh applies
   //  its answer through applyExploreSeed, with the village it READ for — writing the flag would have named the village

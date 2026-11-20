@@ -1670,6 +1670,10 @@ export default {
   '送信待ちを取り消しました。この世界の進軍はいま送れません。命令は送られていません。': 'The waiting send is cancelled: marches cannot be sent in this world now. The order was not sent.',
   '送信待ちを取り消しました。前に送った命令の結果がまだわからないためです。送り直しはしません。': 'The waiting send is cancelled because the outcome of an earlier order is not known yet. Nothing is sent again.',
   '送信待ちを取り消しました。ターンの決着のほかに、送れない理由があります。命令は送られていません。': 'The waiting send is cancelled: something other than the turn in progress stops this order. The order was not sent.',
+  // (devnet-page-war-2: the devnet march card's waiting send)
+  'このページが読む州の決着が遅れていても、押せば待ちます。送るときにだけウォレットが署名を求めます。待っているあいだは何も署名せず、何も送りません。': "If this page's reading of the province's turn is behind, a press waits for it. Your wallet asks you to sign only when the order is sent; nothing is signed or sent while it waits.",
+  '送信待ちです。このページが読む州のターンの決着が追いつき次第、この命令を1回だけ送ります。そのときウォレットが署名を求めます（ターン {0} まで。取り消せます）。': "Waiting to send. As soon as this page's reading of the province's turn catches up, this order is sent once, and your wallet asks you to sign it then (until turn {0}; you can cancel).",
+  'この州の決着の読み取りが {0} ターン遅れています（世界の進行とこのページの読み取り先が追いつくのを待っています）。送信待ちはそのまま続け、州が追いつき次第{1}を1回だけ送ります。そのときウォレットが署名を求めます。押し直す必要はありません（取り消せます）。': "This page's reading of the province's turns is {0} behind (waiting for the world's turn settling and this page's reader to catch up). The send keeps waiting, and {1} is sent once as soon as the province catches up; your wallet asks you to sign it then. No need to press again (you can cancel).",
   '送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン {0} まで。取り消せます）。': 'Waiting to send. As soon as the province has finished its turn, this order is sent once (until turn {0}; you can cancel).',
   '送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン {0} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。': 'Waiting to send: as soon as the province has finished its turn, this order is sent once (until turn {0}). If the order changes (its arrival turn, for example), it is cancelled instead of sent.',
   '送信待ちを取り消す': 'Cancel the waiting send',

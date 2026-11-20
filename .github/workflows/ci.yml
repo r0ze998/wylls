@@ -656,7 +656,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war); P7 and P9 need a browser and skip)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war); P7, P9 and P10 need a browser and skip)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
