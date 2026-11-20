@@ -94,7 +94,7 @@ pub struct Page {
     pub out: std::path::PathBuf,
 }
 
-/// P10 (devnet-expedition-keeper): the rim → wide expedition.
+/// P11 (devnet-expedition-keeper): the rim → wide expedition.
 #[path = "expedition.rs"]
 pub mod expedition;
 
@@ -110,19 +110,24 @@ pub mod war;
 pub struct War {
     pub keeper_api: u16,
     pub token: String,
+    /// P10 (devnet-page-war-2): how to stop and restart keeper A and drand-replay ([`war::Outage`]).
+    pub outage: Option<war::Outage>,
 }
 
 pub struct Ctx<'a> {
     /// P5: keeper A runs the wide rings (P6) and the `wide-tickets` role (P7).
     pub keeper_wide: bool,
-    /// P5: the wide rings keeper A opens ([`WIDE_RINGS`]; P10: 1).
+    /// P5: the wide rings keeper A opens ([`WIDE_RINGS`]; P11: 1).
     pub wide_rings: u64,
-    /// P10: the rim → wide expedition ([`expedition`]).
+    /// P11: the rim → wide expedition ([`expedition`]).
     pub expedition: bool,
     /// P14: after P10's expedition (onto a Free City's tile), a third party's Free City conquest ([`conquest`]).
     pub conquest: bool,
     /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
     pub after_wide: Option<Restart>,
+    /// P11 with `OPERATOR_P11_RESTARTS=1` (verify-pr121): keeper A is killed and restarted from the same config and
+    /// journal at three points of the expedition; every step must still land exactly once.
+    pub p11_restarts: Option<Restart>,
     /// P7: the page is the participant.
     pub page: Option<Page>,
     /// P8/P9: the legacy war (P9 with `page`).
@@ -133,6 +138,8 @@ pub struct Ctx<'a> {
     pub herald: u16,
     pub dir: std::path::PathBuf,
     pub keeper: &'a mut std::process::Child,
+    /// drand-replay (P10 restarts it with and without T(21)).
+    pub drand: &'a mut std::process::Child,
 }
 
 struct Run<'a> {
@@ -889,7 +896,7 @@ pub async fn run(c: Ctx<'_>) -> Value {
         })
         .expect("a rim province with a nation, a free site and a ring-129 neighbour (P14: with a Free City)");
 
-    // P10: the rim → wide expedition into `target` (keeper A drives every step after the Depart);
+    // P11: the rim → wide expedition into `target` (keeper A drives every step after the Depart);
     // P14: onto the Free City's tile, then a third party's conquest.
     if r.c.expedition {
         let extra = json!({
@@ -1457,12 +1464,17 @@ struct AfterWide<'k> {
 
 /// keeper A's `/v1/status` (its bearer token).
 fn keeper_status(api: u16, token: &str) -> Option<Value> {
+    keeper_get(api, token, "/v1/status")
+}
+
+/// GET `path` of keeper A's API (loopback, the TEST token): the JSON body of a 200, else None.
+fn keeper_get(api: u16, token: &str, path: &str) -> Option<Value> {
     use std::io::{Read, Write};
     let mut c = std::net::TcpStream::connect(("127.0.0.1", api)).ok()?;
     c.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
     write!(
         c,
-        "GET /v1/status HTTP/1.1\r\nHost: 127.0.0.1:{api}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{api}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
     )
     .ok()?;
     let mut b = vec![];

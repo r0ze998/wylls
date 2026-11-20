@@ -219,6 +219,22 @@ pub fn clash_inputs(resolved_ts: u32) -> Vec<u8> {
     d
 }
 
+/// A ClashInputs gathered (every position) and not resolved yet.
+pub fn clash_inputs_gathered() -> Vec<u8> {
+    use l::clash_inputs as c;
+    let mut d = clash_inputs(0);
+    d[c::FLAGS] = 1;
+    d
+}
+
+/// A SeedCache (its seed all zero): what `SeedFinder` reads through THE
+/// anchor's `cache`.
+pub fn seed_cache() -> Vec<u8> {
+    let mut d = vec![0u8; size::SEED_CACHE];
+    put(&mut d, 0, magic::SEED_CACHE);
+    d
+}
+
 /// An ArrivalSlot of `host`, settled (`flags & 1`) or not, unclaimed.
 pub fn arrival_slot(host: u64, settled: bool) -> Vec<u8> {
     use l::arrival_slot as s;

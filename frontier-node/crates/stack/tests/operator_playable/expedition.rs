@@ -1,4 +1,4 @@
-//! P10 (devnet-expedition-keeper; devnet runbook gaps P10 + P13): a RIM → WIDE EXPEDITION on a devnet wide season,
+//! P11 (devnet-expedition-keeper; devnet runbook gaps P10 + P13): a RIM → WIDE EXPEDITION on a devnet wide season,
 //! offline, on the exact devnet `.so`, driven by keeper A after the player's ExpeditionDepart.
 //!
 //! After P5's world (the operator's setup; keeper A seeding the season, opening the rim's provinces and, with
@@ -52,6 +52,28 @@ fn program_rows(r: &Run<'_>, since_slot: u64) -> Vec<Value> {
                    "lamports_from_payer": l.pre_balances.first().zip(l.post_balances.first()).map(|(a, b)| a.saturating_sub(*b))})
         })
         .collect()
+}
+
+/// verify-pr121 (`OPERATOR_P11_RESTARTS=1`): kill keeper A and start it again from the same config and journal.
+fn restart_keeper(r: &mut Run<'_>, n: &mut u32, why: &str) {
+    let Some(restart) = r.c.p11_restarts.as_ref() else {
+        return;
+    };
+    let (bin, config) = (restart.bin.clone(), restart.config.clone());
+    {
+        let child = &mut *r.c.keeper;
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *n += 1;
+    eprintln!("p11: keeper A restart {n} ({why})");
+    *r.c.keeper = std::process::Command::new(&bin)
+        .args(["--config", config.to_str().unwrap()])
+        .env("FRONTIER_KEEPER_TICK_LOG", "1")
+        .stdout(std::fs::File::create(r.c.dir.join(format!("keeper-restart{n}.out.log"))).unwrap())
+        .stderr(std::fs::File::create(r.c.dir.join(format!("keeper-restart{n}.log"))).unwrap())
+        .spawn()
+        .expect("frontier-keeper (restarted)");
 }
 
 pub(super) async fn flow(
@@ -369,6 +391,8 @@ pub(super) async fn flow(
         |r| transit(r).is_some_and(|t| t.state != MarchState::Departed),
     )
     .await;
+    let mut restarts = 0u32;
+    restart_keeper(r, &mut restarts, "after SettleOrigin landed");
     let anchor = adr(ctx.bell_anchor(ARRIVE_BELL, dest_region));
     drive(
         r,
@@ -397,6 +421,7 @@ pub(super) async fn flow(
         |r| slots.iter().any(|s| r.data(s).is_some()),
     )
     .await;
+    restart_keeper(r, &mut restarts, "after the Reveal landed");
     let rn_dest = |r: &Run<'_>| {
         let read = |k: &Address| r.lock().account(k);
         steps::resolved_next_at(&read, &a, &dest_key).unwrap_or(0)
@@ -410,6 +435,11 @@ pub(super) async fn flow(
         |r| rn_dest(r) > ARRIVE_BELL,
     )
     .await;
+    restart_keeper(
+        r,
+        &mut restarts,
+        "after the arrival's Resolve, before SettleMember",
+    );
     let ci = adr(clash_inputs_address(&ctx, dest, ARRIVE_BELL));
     let position = {
         let i = slots.iter().position(|s| r.data(s).is_some()).unwrap() as u8;
@@ -542,7 +572,36 @@ pub(super) async fn flow(
             "keeper A landed {k}: {keeper_steps:#?}"
         );
     }
-    let out = json!({"p10_expedition": "a test participant's rim → wide expedition on the devnet .so: ONE ExpeditionDepart; keeper A sends every later step",
+    // (verify-pr121) every keeper step landed ONCE, no expedition write failed (restarts included)
+    let landed = |k: &str| {
+        keeper_steps
+            .iter()
+            .filter(|x| x["ok"] == true && x["tx"].as_str().is_some_and(|t| t.contains(k)))
+            .count()
+    };
+    let exp_failed: Vec<&Value> = keeper_steps
+        .iter()
+        .filter(|x| {
+            x["ok"] != true
+                && x["tx"]
+                    .as_str()
+                    .is_some_and(|t| t.contains("Expedition") || t.contains("SettleMember"))
+        })
+        .collect();
+    let once = json!({"restarts": restarts, "settle_origin": landed("ExpeditionSettleOrigin"), "reveal": landed("ExpeditionReveal"),
+                      "settle_member": landed("SettleMember"), "gather": landed("ExpeditionGather"), "expedition_failed": exp_failed});
+    eprintln!("p11: exactly-once {once}");
+    assert_eq!(
+        (
+            landed("ExpeditionSettleOrigin"),
+            landed("ExpeditionReveal"),
+            landed("SettleMember")
+        ),
+        (1, 1, 1),
+        "{once}"
+    );
+    assert!(exp_failed.is_empty(), "{once}");
+    let out = json!({"exactly_once": once, "p11_expedition": "a test participant's rim → wide expedition on the devnet .so: ONE ExpeditionDepart; keeper A sends every later step",
         "plan": {"home": [hp, hq], "site": site, "nation": nation, "target": [target.p(), target.q()], "dest_region": dest_region,
                  "route": {"start_tile": start, "dirs": route.dirs, "dest_tile": route.dest_tile, "travel_upper_secs": upper},
                  "depart_bell": depart_bell, "arrive_bell": ARRIVE_BELL, "external": external.to_string()},

@@ -289,7 +289,10 @@ export function render(FS) {
   const stance = STANCES[m.stance] ?? 'Hold';
   // (TEST-ONLY local play, the march's test entry only: "press now, send when ready" — flocalplay-pending.mjs. Offered
   //  only while every problem is the province settling its previous turn; one press arms ONE send of this exact order)
-  const localWait = !!FS.localPlay && FS.localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(FS.localPlay.worldEndsAt);
+  // (devnet-page-war-2: also on a verified devnet page with its wallet — controller.mjs `marchWaitOn`: there the page's read
+  //  of the home province lags the chain in real time, and the card waits for it instead of standing disabled)
+  const localWait = FS.marchWaitOn === true || (!!FS.localPlay && FS.localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(FS.localPlay.worldEndsAt));
+  const devnetWait = localWait && !FS.localPlay;
   const waiting = localWait && !!c.pending;
   const waitLine = waiting ? html`<p class="order-pending" role="status">${icon('hourglass')}<span>${L`送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(c.pending.untilBell)} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。`}</span> <span class="order-pending-follow">${L`ただし、時間が進んで到着ターンだけが先へ動いたときは、取り消さずに新しい到着ターンに合わせて待ち続けます。`}</span></p>` : '';
   // (round 12, 2026-11-14: on the local test march the footer never changes shape. A ×30 two-person world showed a press
@@ -303,7 +306,8 @@ export function render(FS) {
   const localActs = html`<button type="button" class="btn primary seal-btn" data-act="march-send-wait" ${raw(mainOk ? '' : 'disabled')}>${icon('seal')}${waiting ? L`送信待ち` : L`確認した命令で出発`}</button>
       <button type="button" class="btn quiet" data-act="march-wait-cancel" ${raw(waiting ? '' : 'disabled')}>${L`送信待ちを取り消す`}</button>
       <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`;
-  const localRule = html`<p class="order-irrev order-local-rule">${icon('lock')}<span>${L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（時間が進んで到着ターンが先へ動いたときは、その到着ターンで送ります。ほかの内容が変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`}</span></p>`;
+  const devnetRule = devnetWait ? html`<p class="order-irrev order-devnet-rule">${icon('lock')}<span>${L`このページが読む州の決着が遅れていても、押せば待ちます。送るときにだけウォレットが署名を求めます。待っているあいだは何も署名せず、何も送りません。`}</span></p>` : '';
+  const localRule = html`${devnetRule}<p class="order-irrev order-local-rule">${icon('lock')}<span>${L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（時間が進んで到着ターンが先へ動いたときは、その到着ターンで送ります。ほかの内容が変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`}</span></p>`;
   const ch = composerChoices(FS);
   const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
   const faction = FS.citizen?.faction;
