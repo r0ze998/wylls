@@ -41,6 +41,16 @@
 //! comes home with the rout survivors), as the program allows (v1.7).
 //! No account is written directly and no rule is changed: every write is a
 //! program instruction the production keeper also sends.
+//!
+//! **runner-throughput (TEST-ONLY wide pace, `batch`):** the world phase and the
+//! stands are not one awaited transaction per step there: each step decides every
+//! province's next instruction on one fresh read (the same decision as one at a
+//! time: `plan_bell`, `world_plan`), sends them into the same block (one per
+//! province; a region's anchor or seed two provinces share, once), awaits each,
+//! and repeats on a fresh read while a round lands (at most [`BATCH_ROUNDS`]).
+//! Every instruction is still simulated first; a refusal is not sent and stops
+//! the driver as above; an unknown outcome is terminal; nothing is resent. A
+//! march's own steps (1–7) stay one transaction per step everywhere.
 use fclient::addr::Addresses;
 use fclient::decode::{ArrivalDay, ArrivalSlot, ClashInputs, Holding, Season, Transit};
 use fclient::ix::{
@@ -649,6 +659,50 @@ pub fn gather_form(
     (!parts.is_empty()).then_some(GatherForm::Parts(parts))
 }
 
+/// One province-bell's next instruction, as decided by `plan_bell` (runner-throughput).
+#[derive(Debug)]
+pub enum BellPlan {
+    Done(Step),
+    Anchor {
+        bell: u32,
+        region: u8,
+    },
+    /// (only while `defer_rounds`: a batch is planned) the seed round this bell needs is not cached yet: the batch fetches
+    /// every such round at once, in parallel, and plans the province again.
+    Round(u64),
+    Send {
+        ix: Instruction,
+        what: String,
+        simulated: bool,
+        seed: Option<(u32, u8)>,
+    },
+}
+
+/// runner-throughput: at most this many batches in one world or stand step (each awaited; a round that lands nothing ends
+/// it). A contested province needs GatherClash, PostSeed and ResolveFromInputs per turn — three rounds.
+pub const BATCH_ROUNDS: u32 = 4;
+
+/// The answer of a batched step (pure): a stop first (fail-closed: the driver stops and later recovers), else what landed
+/// (one line: the count and the first), else the first wait.
+pub fn batch_answer(
+    landed: Vec<String>,
+    stop: Option<Step>,
+    wait: Option<String>,
+    idle: &str,
+) -> Step {
+    if let Some(s) = stop {
+        return s;
+    }
+    if let Some(first) = landed.first() {
+        let (what, sig) = first.rsplit_once(' ').unwrap_or((first.as_str(), ""));
+        return Step::Landed(
+            format!("batch of {}: {what} …", landed.len()),
+            sig.to_string(),
+        );
+    }
+    Step::Wait(wait.unwrap_or_else(|| idle.into()))
+}
+
 // ------------------------------------------------------------------ the driver
 
 /// What the driver remembers of one transit between steps (memory only).
@@ -693,6 +747,11 @@ pub struct LegacyMarchDriver {
     /// how many steps in a row this village's own work kept it waiting (`world_first`: bounded, never starved).
     world_cursor: usize,
     pub world_crank: bool,
+    /// runner-throughput (TEST-ONLY wide pace): the world phase and the stands go as same-block batches
+    /// (`world_batch`, `stand_batch`) instead of one awaited transaction at a time. Off everywhere else.
+    pub batch: bool,
+    /// While a batch is planned: `plan_bell` answers `Round` for a seed round not cached instead of fetching it.
+    defer_rounds: bool,
     /// Provinces ANOTHER village of the same keeper loop resolves itself (its home and where its hosts stand): the
     /// world sweep never cranks them, so two drivers never race on one province (keeper_loop `Village`).
     pub world_skip: Vec<(i32, i32)>,
@@ -741,6 +800,8 @@ impl LegacyMarchDriver {
             stand_cursor: 0,
             world_cursor: 0,
             world_crank: true,
+            batch: false,
+            defer_rounds: false,
             world_skip: vec![],
             world_skipped: 0,
             world_rounds: Default::default(),
@@ -994,7 +1055,7 @@ impl LegacyMarchDriver {
         // (bounded fairness: after WORLD_STARVE_LIMIT steps in which this village's own work kept the world phase
         //  waiting, the world phase goes first once — the village's work is then next)
         if self.world_crank && world_first(self.world_skipped) {
-            let s = self.world_step(state, &clock, &season, home).await;
+            let s = self.world_phase(state, &clock, &season, home).await;
             self.world_skipped = 0;
             if !matches!(s, Step::Wait(_)) {
                 return s;
@@ -1010,20 +1071,638 @@ impl LegacyMarchDriver {
             }
         }
         // then the provinces where a settled host stands (a march's own steps always come first)
-        let s = self.stand_step(state, v2, &clock, &season).await;
+        let s = if self.batch {
+            self.stand_batch(state, v2, &clock, &season).await
+        } else {
+            self.stand_step(state, v2, &clock, &season).await
+        };
         if let Some(answer) = fold_step(&mut first_wait, s) {
             self.world_skipped = self.world_skipped.saturating_add(1);
             return answer;
         }
         // last, when nothing of this village's own is due: the world's other opened provinces
         if self.world_crank {
-            let s = self.world_step(state, &clock, &season, home).await;
+            let s = self.world_phase(state, &clock, &season, home).await;
             self.world_skipped = 0;
             if let Some(answer) = fold_step(&mut first_wait, s) {
                 return answer;
             }
         }
         Step::Wait(first_wait.unwrap_or_else(|| "no march of this village".into()))
+    }
+
+    /// runner-throughput: several INDEPENDENT instructions (distinct provinces; shared anchors and seeds deduplicated by
+    /// the caller) sent into the same block. Each not yet simulated is simulated first (one lock); a refused one is not
+    /// sent and answers `Stopped` (fail-closed, as `checked`), the others are submitted together and each awaited
+    /// (`keeper_loop::submit_many`). One step per item, in order; every one is logged.
+    async fn send_batch(
+        &mut self,
+        state: &Shared,
+        items: Vec<(Instruction, String, bool)>,
+    ) -> Vec<Step> {
+        if *self.stop.borrow() {
+            return vec![Step::Stopped("stopped by request".into())];
+        }
+        let mut out: Vec<Option<Step>> = vec![None; items.len()];
+        let mut go: Vec<(usize, Instruction, String)> = vec![];
+        {
+            let c = lock(state);
+            for (i, (ix, what, simulated)) in items.into_iter().enumerate() {
+                if simulated {
+                    go.push((i, ix, what));
+                    continue;
+                }
+                match lk::simulate_ix(&c, &self.payer, &ix) {
+                    Ok(sim) if sim.err.is_none() => go.push((i, ix, what)),
+                    Ok(sim) => {
+                        eprintln!(
+                            "{}",
+                            serde_json::json!({"diag": "refused-simulation", "what": what, "err": sim.err, "code": sim.code, "units": sim.units, "logs": sim.logs, "batch": true})
+                        );
+                        out[i] = Some(Step::Stopped(format!(
+                            "{what} simulation: {:?} (code {:?}, {} CU)",
+                            sim.err, sim.code, sim.units
+                        )));
+                    }
+                    Err(e) => out[i] = Some(Step::Stopped(e)),
+                }
+            }
+        }
+        let idx: Vec<usize> = go.iter().map(|g| g.0).collect();
+        let whats: Vec<String> = go.iter().map(|g| g.2.clone()).collect();
+        let sent = crate::keeper_loop::submit_many(
+            state,
+            &self.payer,
+            go.into_iter().map(|(_, ix, w)| (ix, w)).collect(),
+            self.land_timeout,
+            &mut self.stop,
+        )
+        .await;
+        for ((i, what), s) in idx.into_iter().zip(whats).zip(sent) {
+            out[i] = Some(match s {
+                Sent::Landed(sig) => Step::Landed(what, sig),
+                Sent::Failed(e) => Step::Stopped(e),
+                Sent::Unknown { signature, why } => Step::Unknown { signature, why },
+            });
+        }
+        let out: Vec<Step> = out.into_iter().map(|o| o.expect("decided")).collect();
+        for s in &out {
+            self.log.push(format!("{s:?}"));
+        }
+        out
+    }
+
+    /// runner-throughput: a missing anchor `(bell → regions)` list as PostAnchorMulti instructions (the verified round of
+    /// each bell fetched once — cached —, each region re-read: only the still-absent ones). A round not available yet is
+    /// a wait.
+    async fn anchor_items(
+        &mut self,
+        state: &Shared,
+        clock: &fclient::clock::SeasonClock,
+        anchors: std::collections::BTreeMap<u32, std::collections::BTreeSet<u8>>,
+        first_wait: &mut Option<String>,
+    ) -> Result<Vec<(Instruction, String, bool)>, Step> {
+        let me = self.payer.pubkey();
+        let mut items = vec![];
+        for (x, regions) in anchors {
+            let r = match self.world_rounds.get(&x).cloned() {
+                Some(r) => r,
+                None => {
+                    let rounds = tokio::select! {
+                        r = lk::fetch_rounds(clock, x..x + 1) => r,
+                        _ = crate::keeper_loop::stopped(&mut self.stop) => return Err(Step::Stopped("stopped by request".into())),
+                    };
+                    match rounds {
+                        Ok(r) if r.len() == 1 => {
+                            let r = r.into_iter().next().expect("one");
+                            self.world_rounds.insert(x, r.clone());
+                            while self.world_rounds.len() > WORLD_ROUND_CACHE {
+                                let k = *self.world_rounds.keys().next().expect("non-empty");
+                                self.world_rounds.remove(&k);
+                            }
+                            r
+                        }
+                        Ok(_) => {
+                            first_wait.get_or_insert(format!("anchor round of bell {x}"));
+                            continue;
+                        }
+                        Err(e) => {
+                            first_wait.get_or_insert(e);
+                            continue;
+                        }
+                    }
+                }
+            };
+            let absent: Vec<u8> = {
+                let c = lock(state);
+                let mut v = vec![];
+                for rg in regions {
+                    match lk::anchor_landed(&c, &self.a, x, rg) {
+                        Ok(None) => v.push(rg),
+                        Ok(Some(_)) => {}
+                        Err(e) => return Err(Step::Stopped(e)),
+                    }
+                }
+                v
+            };
+            for mask in lk::region_masks(absent.into_iter()) {
+                let ix = lk::post_anchor_multi_ix(&self.a, &me, mask, &r).map_err(Step::Stopped)?;
+                items.push((
+                    ix,
+                    format!("PostAnchorMulti(bell {x}, mask {mask:#06x})"),
+                    false,
+                ));
+            }
+        }
+        Ok(items)
+    }
+
+    /// runner-throughput (wide pace, `batch`): one province-bell plan into a batch: a send (a PostSeed of a seed another
+    /// item already creates is left for the next round), a missing anchor into `anchors`, a wait or stop noted.
+    #[allow(clippy::too_many_arguments)]
+    fn take_plan(
+        plan: BellPlan,
+        tag: &dyn Fn(String) -> String,
+        items: &mut Vec<(Instruction, String, bool)>,
+        anchors: &mut std::collections::BTreeMap<u32, std::collections::BTreeSet<u8>>,
+        seeds: &mut std::collections::BTreeSet<(u32, u8)>,
+        first_wait: &mut Option<String>,
+        first_stop: &mut Option<Step>,
+    ) {
+        match plan {
+            BellPlan::Done(Step::Wait(w)) => {
+                first_wait.get_or_insert(tag(w));
+            }
+            BellPlan::Done(s @ (Step::Stopped(_) | Step::Unknown { .. })) => {
+                first_stop.get_or_insert(match s {
+                    Step::Stopped(e) => Step::Stopped(tag(e)),
+                    other => other,
+                });
+            }
+            BellPlan::Done(_) | BellPlan::Round(_) => {}
+            BellPlan::Anchor { bell, region } => {
+                anchors.entry(bell).or_default().insert(region);
+            }
+            BellPlan::Send {
+                ix,
+                what,
+                simulated,
+                seed,
+            } => {
+                if let Some(k) = seed {
+                    if !seeds.insert(k) {
+                        first_wait
+                            .get_or_insert(tag(format!("{what}: the same seed is in this batch")));
+                        return;
+                    }
+                }
+                items.push((ix, tag(what), simulated));
+            }
+        }
+    }
+
+    /// `plan_bell` for a batch: a seed round not cached is not fetched on its own; the caller collects them (`rounds`)
+    /// and plans those provinces again after one parallel fetch (`prefetch_rounds`).
+    #[allow(clippy::too_many_arguments)]
+    async fn plan_for_batch(
+        &mut self,
+        state: &Shared,
+        clock: &fclient::clock::SeasonClock,
+        dest: (i32, i32),
+        dv: &lk::HomeView,
+        b: u32,
+        bound: u32,
+        rounds: &mut Vec<(u64, (i32, i32), lk::HomeView)>,
+    ) -> Option<BellPlan> {
+        self.defer_rounds = true;
+        let plan = self.plan_bell(state, clock, dest, dv, b, bound).await;
+        self.defer_rounds = false;
+        match plan {
+            BellPlan::Round(r) => {
+                rounds.push((r, dest, *dv));
+                None
+            }
+            p => Some(p),
+        }
+    }
+
+    /// Folds one batch's outcomes: the landed count, the first unknown (returned at once by the caller: terminal) and the
+    /// first stop.
+    fn fold_batch(
+        &mut self,
+        steps: Vec<Step>,
+        world: bool,
+        landed: &mut Vec<String>,
+        first_stop: &mut Option<Step>,
+    ) -> Option<Step> {
+        let mut unknown = None;
+        for s in steps {
+            match s {
+                Step::Landed(what, sig) => {
+                    if world {
+                        self.world_sent = self.world_sent.saturating_add(1);
+                    }
+                    landed.push(format!("{what} {sig}"));
+                }
+                u @ Step::Unknown { .. } => {
+                    unknown.get_or_insert(u);
+                }
+                s @ Step::Stopped(_) => {
+                    first_stop.get_or_insert(s);
+                }
+                _ => {}
+            }
+        }
+        unknown
+    }
+
+    /// runner-throughput (wide pace, `batch`): the world phase as rounds of BATCHES — every other opened province's next
+    /// instruction (the same decision as `world_step_once`: its region's missing anchor, FastForward when its simulation
+    /// accepts, else the real gather / seed / resolve of `plan_bell`) decided on one fresh read, the anchors of each bell
+    /// merged into PostAnchorMulti, all sent into one block and each awaited; then again on a fresh read while a round
+    /// lands, at most [`BATCH_ROUNDS`]. One transaction per province per round, so no two touch one province; a seed or an
+    /// anchor two provinces share is sent once. A refusal is never sent and stops the driver (fail-closed, after the rest of
+    /// its batch landed); an unknown outcome is terminal; nothing is resent.
+    async fn world_batch(
+        &mut self,
+        state: &Shared,
+        clock: &fclient::clock::SeasonClock,
+        season: &Season,
+        home: (i32, i32),
+    ) -> Step {
+        let me = self.payer.pubkey();
+        let mut landed: Vec<String> = vec![];
+        let mut first_wait: Option<String> = None;
+        let mut first_stop: Option<Step> = None;
+        for _ in 0..BATCH_ROUNDS {
+            let provinces = {
+                let c = lock(state);
+                opened_provinces(&c, &self.a)
+            };
+            let skip: Vec<(i32, i32)> = std::iter::once(home)
+                .chain(self.stands.iter().map(|s| s.0))
+                .chain(self.world_skip.iter().copied())
+                .collect();
+            let cands: Vec<(i32, i32)> = provinces
+                .into_iter()
+                .filter(|p| !skip.contains(p))
+                .collect();
+            let mut items: Vec<(Instruction, String, bool)> = vec![];
+            let mut anchors: std::collections::BTreeMap<u32, std::collections::BTreeSet<u8>> =
+                Default::default();
+            let mut seeds: std::collections::BTreeSet<(u32, u8)> = Default::default();
+            let mut later: Vec<(u64, (i32, i32), lk::HomeView)> = vec![];
+            let start = self.world_cursor;
+            self.world_cursor = self.world_cursor.wrapping_add(1);
+            for i in world_order(start, cands.len()) {
+                if items.len() >= crate::keeper_loop::BATCH_MAX {
+                    break;
+                }
+                let dest = cands[i];
+                let tag = |label: String| format!("world {},{}: {label}", dest.0, dest.1);
+                let (dv, now) = {
+                    let c = lock(state);
+                    (
+                        lk::view(&c, &self.a, dest.0 as i16, dest.1 as i16),
+                        c.unix_timestamp(),
+                    )
+                };
+                let dv = match dv {
+                    Ok(v) => v,
+                    Err(e) => {
+                        first_stop.get_or_insert(Step::Stopped(tag(e)));
+                        continue;
+                    }
+                };
+                if !(dv.resolved_next < dv.bell_now
+                    && SeasonGate::of(
+                        season.status,
+                        season.genesis_ts,
+                        season.end_bell,
+                        now,
+                        dv.resolved_next,
+                    )
+                    .drive)
+                {
+                    continue;
+                }
+                let early = {
+                    let c = lock(state);
+                    anchor_to_post(dv.resolved_next, season.end_bell, dv.bell_now, |x| {
+                        !matches!(lk::anchor_landed(&c, &self.a, x, dv.region), Ok(None))
+                    })
+                };
+                if let Some(x) = early {
+                    *self.world_counts.entry("PostAnchorMulti").or_default() += 1;
+                    anchors.entry(x).or_default().insert(dv.region);
+                    continue;
+                }
+                let end = {
+                    let c = lock(state);
+                    lk::closed_through(
+                        &c,
+                        &self.a,
+                        dv.region,
+                        dv.resolved_next,
+                        season
+                            .end_bell
+                            .min(dv.bell_now)
+                            .min(dv.resolved_next + lk::MAX_FAST_FORWARD_BELLS),
+                    )
+                };
+                let end = match end {
+                    Ok(e) => e,
+                    Err(e) => {
+                        first_stop.get_or_insert(Step::Stopped(tag(e)));
+                        continue;
+                    }
+                };
+                if end <= dv.resolved_next {
+                    *self.world_counts.entry("Wait").or_default() += 1;
+                    first_wait.get_or_insert(tag(format!(
+                        "the reveal window of turn {} is open",
+                        dv.resolved_next
+                    )));
+                    continue;
+                }
+                let ix =
+                    match lk::fast_forward_ix(&self.a, &me, dest.0 as i16, dest.1 as i16, &dv, end)
+                    {
+                        Ok(ix) => ix,
+                        Err(e) => {
+                            first_stop.get_or_insert(Step::Stopped(tag(e)));
+                            continue;
+                        }
+                    };
+                let sim = {
+                    let c = lock(state);
+                    lk::simulate_ix(&c, &self.payer, &ix)
+                };
+                let (ok, code) = match &sim {
+                    Ok(x) => (x.err.is_none(), x.code),
+                    _ => (false, None),
+                };
+                match world_plan(None, dv.resolved_next, end, ok, code) {
+                    WorldPlan::FastForward(to) => {
+                        *self.world_counts.entry("FastForward").or_default() += 1;
+                        items.push((
+                            ix,
+                            tag(format!("FastForward(world {} → {to})", dv.resolved_next)),
+                            true,
+                        ));
+                    }
+                    WorldPlan::Resolve => {
+                        *self.world_counts.entry("Resolve").or_default() += 1;
+                        let Some(plan) = self
+                            .plan_for_batch(
+                                state,
+                                clock,
+                                dest,
+                                &dv,
+                                dv.resolved_next,
+                                season.end_bell,
+                                &mut later,
+                            )
+                            .await
+                        else {
+                            continue;
+                        };
+                        Self::take_plan(
+                            plan,
+                            &tag,
+                            &mut items,
+                            &mut anchors,
+                            &mut seeds,
+                            &mut first_wait,
+                            &mut first_stop,
+                        );
+                    }
+                    _ => {
+                        *self.world_counts.entry("Stop").or_default() += 1;
+                        first_stop.get_or_insert(Step::Stopped(tag(format!(
+                            "FastForward({} → {end}) simulation: {sim:?}",
+                            dv.resolved_next
+                        ))));
+                    }
+                }
+            }
+            // (the seed rounds the batch is missing: fetched at once, in parallel; those provinces planned again)
+            if !later.is_empty() {
+                let rs: Vec<u64> = later.iter().map(|l| l.0).collect();
+                lk::prefetch_rounds(&rs).await;
+                for (_, dest, dv) in std::mem::take(&mut later) {
+                    let tag = |label: String| format!("world {},{}: {label}", dest.0, dest.1);
+                    let plan = self
+                        .plan_bell(state, clock, dest, &dv, dv.resolved_next, season.end_bell)
+                        .await;
+                    Self::take_plan(
+                        plan,
+                        &tag,
+                        &mut items,
+                        &mut anchors,
+                        &mut seeds,
+                        &mut first_wait,
+                        &mut first_stop,
+                    );
+                }
+            }
+            match self
+                .anchor_items(state, clock, anchors, &mut first_wait)
+                .await
+            {
+                Ok(a) => items.extend(a),
+                Err(s) => {
+                    first_stop.get_or_insert(s);
+                }
+            }
+            if items.is_empty() {
+                break;
+            }
+            let before = landed.len();
+            let steps = self.send_batch(state, items).await;
+            if let Some(u) = self.fold_batch(steps, true, &mut landed, &mut first_stop) {
+                return u;
+            }
+            if landed.len() == before || first_stop.is_some() {
+                break;
+            }
+        }
+        batch_answer(
+            landed,
+            first_stop,
+            first_wait,
+            "the world's provinces are current",
+        )
+    }
+
+    /// runner-throughput (wide pace, `batch`): every stand of this village at once, as rounds of batches (see
+    /// `world_batch`): a Leave turn resolved → its return settle; a turn to drive → `plan_bell`'s next instruction.
+    async fn stand_batch(
+        &mut self,
+        state: &Shared,
+        v2: bool,
+        clock: &fclient::clock::SeasonClock,
+        season: &Season,
+    ) -> Step {
+        let me = self.payer.pubkey();
+        let mut landed: Vec<String> = vec![];
+        let mut first_wait: Option<String> = None;
+        let mut first_stop: Option<Step> = None;
+        for _ in 0..BATCH_ROUNDS {
+            let mut items: Vec<(Instruction, String, bool)> = vec![];
+            let mut anchors: std::collections::BTreeMap<u32, std::collections::BTreeSet<u8>> =
+                Default::default();
+            let mut seeds: std::collections::BTreeSet<(u32, u8)> = Default::default();
+            let mut later: Vec<(u64, (i32, i32), lk::HomeView)> = vec![];
+            let mut gone: Vec<usize> = vec![];
+            let mut seen: Vec<(i32, i32)> = vec![];
+            let stands = self.stands.clone();
+            for (k, (dest, host)) in stands.into_iter().enumerate() {
+                let tag = |label: String| format!("stand {},{}: {label}", dest.0, dest.1);
+                let (dv, entry) = {
+                    let c = lock(state);
+                    let dv = lk::view(&c, &self.a, dest.0 as i16, dest.1 as i16);
+                    let pv = self.read(
+                        &c,
+                        &self.a.province(dest.0, dest.1),
+                        fclient::decode::Province::decode,
+                    );
+                    (
+                        dv,
+                        pv.and_then(|pv| pv.entries.into_iter().find(|e| e.id == host)),
+                    )
+                };
+                let dv = match dv {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Step::Stopped(format!(
+                            "cannot read the stand province {dest:?}: {e}"
+                        ))
+                    }
+                };
+                let gate = SeasonGate::of(
+                    season.status,
+                    season.genesis_ts,
+                    season.end_bell,
+                    lock(state).unix_timestamp(),
+                    dv.resolved_next,
+                );
+                match stand_action(
+                    entry.as_ref().map(|e| (e.state, e.pend_op, e.pend_bell)),
+                    dv.resolved_next,
+                    dv.bell_now,
+                    gate,
+                ) {
+                    StandAction::Forget => gone.push(k),
+                    StandAction::Return => {
+                        let ix = if v2 {
+                            ix2::settle_departure(
+                                &self.a,
+                                me,
+                                (dest.0 as i16, dest.1 as i16),
+                                self.href,
+                                ix::RETURN_SLOT,
+                            )
+                        } else {
+                            ix::settle_return(
+                                &self.a,
+                                me,
+                                (dest.0 as i16, dest.1 as i16),
+                                self.href,
+                            )
+                        };
+                        if seen.contains(&dest) {
+                            continue;
+                        }
+                        seen.push(dest);
+                        items.push((ix, format!("SettleReturn({},{})", dest.0, dest.1), false));
+                    }
+                    StandAction::Drive => {
+                        // (two hosts of this village in one province: one instruction for it per round)
+                        if seen.contains(&dest) {
+                            continue;
+                        }
+                        seen.push(dest);
+                        let Some(plan) = self
+                            .plan_for_batch(
+                                state,
+                                clock,
+                                dest,
+                                &dv,
+                                dv.resolved_next,
+                                season.end_bell,
+                                &mut later,
+                            )
+                            .await
+                        else {
+                            continue;
+                        };
+                        Self::take_plan(
+                            plan,
+                            &tag,
+                            &mut items,
+                            &mut anchors,
+                            &mut seeds,
+                            &mut first_wait,
+                            &mut first_stop,
+                        );
+                    }
+                    StandAction::Wait => {
+                        first_wait.get_or_insert(format!(
+                            "the stand province {dest:?}: turn {} has not ended",
+                            dv.resolved_next
+                        ));
+                    }
+                }
+            }
+            for g in gone.into_iter().rev() {
+                self.stands.remove(g);
+            }
+            // (the seed rounds the batch is missing: fetched at once, in parallel; those provinces planned again)
+            if !later.is_empty() {
+                let rs: Vec<u64> = later.iter().map(|l| l.0).collect();
+                lk::prefetch_rounds(&rs).await;
+                for (_, dest, dv) in std::mem::take(&mut later) {
+                    let tag = |label: String| format!("stand {},{}: {label}", dest.0, dest.1);
+                    let plan = self
+                        .plan_bell(state, clock, dest, &dv, dv.resolved_next, season.end_bell)
+                        .await;
+                    Self::take_plan(
+                        plan,
+                        &tag,
+                        &mut items,
+                        &mut anchors,
+                        &mut seeds,
+                        &mut first_wait,
+                        &mut first_stop,
+                    );
+                }
+            }
+            match self
+                .anchor_items(state, clock, anchors, &mut first_wait)
+                .await
+            {
+                Ok(a) => items.extend(a),
+                Err(s) => {
+                    first_stop.get_or_insert(s);
+                }
+            }
+            if items.is_empty() {
+                break;
+            }
+            let before = landed.len();
+            let steps = self.send_batch(state, items).await;
+            if let Some(u) = self.fold_batch(steps, false, &mut landed, &mut first_stop) {
+                return u;
+            }
+            if landed.len() == before || first_stop.is_some() {
+                break;
+            }
+        }
+        if self.stands.is_empty() {
+            self.stand_cursor = 0;
+        }
+        batch_answer(landed, first_stop, first_wait, "no march of this village")
     }
 
     /// The world phase: what the OTHER opened provinces need so that every opened province is resolved OR provably
@@ -1040,6 +1719,21 @@ impl LegacyMarchDriver {
     /// At most `WORLD_TX_PER_STEP` (4) transactions per step, each awaited and each decided on a fresh read, provinces in
     /// round-robin order (`world_order`; a step may come back to a province it already served). An unknown outcome or a
     /// refusal is returned as it is: the driver stops (fail-closed), nothing is resent. No account is written directly.
+    /// The world phase: batched at the wide pace (`batch`), else `world_step` as always.
+    async fn world_phase(
+        &mut self,
+        state: &Shared,
+        clock: &fclient::clock::SeasonClock,
+        season: &Season,
+        home: (i32, i32),
+    ) -> Step {
+        if self.batch {
+            self.world_batch(state, clock, season, home).await
+        } else {
+            self.world_step(state, clock, season, home).await
+        }
+    }
+
     async fn world_step(
         &mut self,
         state: &Shared,
@@ -1817,6 +2511,53 @@ impl LegacyMarchDriver {
         b: u32,
         arrive: u32,
     ) -> Step {
+        match self.plan_bell(state, clock, dest, dv, b, arrive).await {
+            BellPlan::Done(s) => s,
+            BellPlan::Round(r) => Step::Wait(format!("seed round {r} is being fetched")),
+            BellPlan::Anchor { bell, region } => {
+                let rounds = tokio::select! {
+                    r = lk::fetch_rounds(clock, bell..bell + 1) => r,
+                    _ = crate::keeper_loop::stopped(&mut self.stop) => return Step::Stopped("stopped by request".into()),
+                };
+                let r = match rounds {
+                    Ok(r) if r.len() == 1 => r.into_iter().next().expect("one"),
+                    Ok(_) => return Step::Wait(format!("anchor round of bell {bell}")),
+                    Err(e) => return Step::Wait(e),
+                };
+                let ix = match lk::post_anchor_ix(&self.a, &self.payer.pubkey(), region, &r) {
+                    Ok(ix) => ix,
+                    Err(e) => return Step::Stopped(e),
+                };
+                self.checked(
+                    state,
+                    ix,
+                    &format!("PostAnchor(bell {bell}, region {region})"),
+                )
+                .await
+            }
+            BellPlan::Send {
+                ix,
+                what,
+                simulated: true,
+                ..
+            } => self.send(state, ix, &what).await,
+            BellPlan::Send { ix, what, .. } => self.checked(state, ix, &what).await,
+        }
+    }
+
+    /// The decision of [`Self::destination_bell`] without sending it (runner-throughput: the same decision feeds the
+    /// batched world phase and stands, `crank_batch`): a wait or stop (`Done`), a missing anchor of a region and bell
+    /// (`Anchor`: the caller fetches its verified round and posts it), or one instruction (`Send`; `simulated` when its
+    /// simulation already accepted it — FastForward —; `seed` names the shared seed account a PostSeed creates).
+    async fn plan_bell(
+        &mut self,
+        state: &Shared,
+        clock: &fclient::clock::SeasonClock,
+        dest: (i32, i32),
+        dv: &lk::HomeView,
+        b: u32,
+        arrive: u32,
+    ) -> BellPlan {
         let me = self.payer.pubkey();
         let (dp, dq) = (dest.0 as i16, dest.1 as i16);
         // the lagging bells' anchors first, back to back and bounded (`anchor_to_post`); an unreadable one is not posted
@@ -1827,26 +2568,10 @@ impl LegacyMarchDriver {
             })
         };
         if let Some(x) = early {
-            let rounds = tokio::select! {
-                r = lk::fetch_rounds(clock, x..x + 1) => r,
-                _ = crate::keeper_loop::stopped(&mut self.stop) => return Step::Stopped("stopped by request".into()),
+            return BellPlan::Anchor {
+                bell: x,
+                region: dv.region,
             };
-            let r = match rounds {
-                Ok(r) if r.len() == 1 => r.into_iter().next().expect("one"),
-                Ok(_) => return Step::Wait(format!("anchor round of bell {x}")),
-                Err(e) => return Step::Wait(e),
-            };
-            let ix = match lk::post_anchor_ix(&self.a, &me, dv.region, &r) {
-                Ok(ix) => ix,
-                Err(e) => return Step::Stopped(e),
-            };
-            return self
-                .checked(
-                    state,
-                    ix,
-                    &format!("PostAnchor(bell {x}, region {})", dv.region),
-                )
-                .await;
         }
         let anchor = {
             let c = lock(state);
@@ -1856,40 +2581,28 @@ impl LegacyMarchDriver {
             Ok(Some(t)) => t,
             Ok(None) => {
                 if b >= dv.bell_now {
-                    return Step::Wait(format!("destination bell {b} has not ended"));
+                    return BellPlan::Done(Step::Wait(format!(
+                        "destination bell {b} has not ended"
+                    )));
                 }
                 if b == arrive {
-                    return Step::Wait(format!(
+                    return BellPlan::Done(Step::Wait(format!(
                         "THE anchor of bell {arrive} in region {} is not posted yet",
                         dv.region
-                    ));
+                    )));
                 }
-                let rounds = tokio::select! {
-                    r = lk::fetch_rounds(clock, b..b + 1) => r,
-                    _ = crate::keeper_loop::stopped(&mut self.stop) => return Step::Stopped("stopped by request".into()),
+                return BellPlan::Anchor {
+                    bell: b,
+                    region: dv.region,
                 };
-                let r = match rounds {
-                    Ok(r) if r.len() == 1 => r.into_iter().next().expect("one"),
-                    Ok(_) => return Step::Wait(format!("anchor round of bell {b}")),
-                    Err(e) => return Step::Wait(e),
-                };
-                let ix = match lk::post_anchor_ix(&self.a, &me, dv.region, &r) {
-                    Ok(ix) => ix,
-                    Err(e) => return Step::Stopped(e),
-                };
-                return self
-                    .checked(
-                        state,
-                        ix,
-                        &format!("PostAnchor(bell {b}, region {})", dv.region),
-                    )
-                    .await;
             }
-            Err(e) => return Step::Stopped(e),
+            Err(e) => return BellPlan::Done(Step::Stopped(e)),
         };
         let now = lock(state).unix_timestamp();
         if now < clock.reveal_close(b, a_ts) {
-            return Step::Wait(format!("the reveal window of destination bell {b} is open"));
+            return BellPlan::Done(Step::Wait(format!(
+                "the reveal window of destination bell {b} is open"
+            )));
         }
         if b < arrive {
             let end = {
@@ -1904,12 +2617,12 @@ impl LegacyMarchDriver {
             };
             let mut end = match end {
                 Ok(x) => x.max(b + 1).min(arrive),
-                Err(e) => return Step::Stopped(e),
+                Err(e) => return BellPlan::Done(Step::Stopped(e)),
             };
             loop {
                 let ix = match lk::fast_forward_ix(&self.a, &me, dp, dq, dv, end) {
                     Ok(ix) => ix,
-                    Err(e) => return Step::Stopped(e),
+                    Err(e) => return BellPlan::Done(Step::Stopped(e)),
                 };
                 let sim = {
                     let c = lock(state);
@@ -1921,9 +2634,12 @@ impl LegacyMarchDriver {
                 };
                 match catch_up(ok, code, end - b) {
                     CatchUp::FastForward => {
-                        return self
-                            .send(state, ix, &format!("FastForward(destination {b} → {end})"))
-                            .await
+                        return BellPlan::Send {
+                            ix,
+                            what: format!("FastForward(destination {b} → {end})"),
+                            simulated: true,
+                            seed: None,
+                        }
                     }
                     CatchUp::Narrow => {
                         end = b + 1;
@@ -1931,9 +2647,9 @@ impl LegacyMarchDriver {
                     }
                     CatchUp::Gather => break,
                     CatchUp::Stop => {
-                        return Step::Stopped(format!(
+                        return BellPlan::Done(Step::Stopped(format!(
                             "FastForward(destination {b} → {end}) simulation: {sim:?}"
-                        ))
+                        )))
                     }
                 }
             }
@@ -1979,13 +2695,12 @@ impl LegacyMarchDriver {
                     0,
                     &me,
                 );
-                return self
-                    .checked(
-                        state,
-                        ix,
-                        &format!("GatherClash(destination bell {b}, no arrivals)"),
-                    )
-                    .await;
+                return BellPlan::Send {
+                    ix,
+                    what: format!("GatherClash(destination bell {b}, no arrivals)"),
+                    simulated: false,
+                    seed: None,
+                };
             }
             Some(GatherForm::Parts(parts)) => {
                 let part = parts.into_iter().next().expect("non-empty");
@@ -2001,13 +2716,12 @@ impl LegacyMarchDriver {
                     part.bitmap,
                     &me,
                 );
-                return self
-                    .checked(
-                        state,
-                        ix,
-                        &format!("GatherClash(destination bell {b}, from {})", part.start),
-                    )
-                    .await;
+                return BellPlan::Send {
+                    ix,
+                    what: format!("GatherClash(destination bell {b}, from {})", part.start),
+                    simulated: false,
+                    seed: None,
+                };
             }
             None => {}
         }
@@ -2017,17 +2731,20 @@ impl LegacyMarchDriver {
         if !seeded {
             let round = clock.seed_round(b, a_ts);
             if clock.drand.round_time(round) > now {
-                return Step::Wait(format!(
+                return BellPlan::Done(Step::Wait(format!(
                     "the seed round {round} of destination bell {b} is not due yet"
-                ));
+                )));
+            }
+            if self.defer_rounds && !lk::round_is_cached(round) {
+                return BellPlan::Round(round);
             }
             let fetched = tokio::select! {
                 r = lk::fetch_round_at(round) => r,
-                _ = crate::keeper_loop::stopped(&mut self.stop) => return Step::Stopped("stopped by request".into()),
+                _ = crate::keeper_loop::stopped(&mut self.stop) => return BellPlan::Done(Step::Stopped("stopped by request".into())),
             };
             let sig48 = match fetched {
                 Ok(s) => s,
-                Err(e) => return Step::Wait(format!("seed round {round}: {e}")),
+                Err(e) => return BellPlan::Done(Step::Wait(format!("seed round {round}: {e}"))),
             };
             let arg = BeaconArg {
                 round,
@@ -2035,27 +2752,140 @@ impl LegacyMarchDriver {
                 hints: fclient::beacon::hints_bytes(round),
             };
             let ix = ix::post_seed(&self.a, me, dv.region, b, 0, &arg, &me);
-            return self
-                .checked(
-                    state,
-                    ix,
-                    &format!("PostSeed(destination bell {b}, round {round})"),
-                )
-                .await;
+            return BellPlan::Send {
+                ix,
+                what: format!("PostSeed(destination bell {b}, round {round})"),
+                simulated: false,
+                seed: Some((b, dv.region)),
+            };
         }
         let ix = ix::resolve_from_inputs(&self.a, me, dest, b, SeedSource::Cache { nonce: 0 }, &me);
-        self.checked(
-            state,
+        BellPlan::Send {
             ix,
-            &format!("ResolveFromInputs(destination bell {b})"),
-        )
-        .await
+            what: format!("ResolveFromInputs(destination bell {b})"),
+            simulated: false,
+            seed: None,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // runner-throughput: a batch's answer, and its shared accounts (a seed, a region's anchor) sent once per batch
+    #[test]
+    fn a_batch_answers_a_stop_first_then_what_landed_then_its_wait() {
+        let l = vec![
+            "FastForward(a) sig1".to_string(),
+            "GatherClash(b) sig2".to_string(),
+        ];
+        assert_eq!(
+            batch_answer(l.clone(), None, Some("w".into()), "idle"),
+            Step::Landed("batch of 2: FastForward(a) …".into(), "sig1".into())
+        );
+        assert_eq!(
+            batch_answer(l, Some(Step::Stopped("refused".into())), None, "idle"),
+            Step::Stopped("refused".into()),
+            "fail-closed: a refusal in the batch stops the driver (it recovers later)"
+        );
+        assert_eq!(
+            batch_answer(vec![], None, Some("w".into()), "idle"),
+            Step::Wait("w".into())
+        );
+        assert_eq!(
+            batch_answer(vec![], None, None, "idle"),
+            Step::Wait("idle".into())
+        );
+    }
+    #[test]
+    fn a_shared_seed_or_anchor_is_planned_once_per_batch() {
+        let ix = |n: u8| Instruction {
+            program_id: Address::new_from_array([n; 32]),
+            accounts: vec![],
+            data: vec![n],
+        };
+        let tag = |s: String| format!("world 1,1: {s}");
+        let (mut items, mut anchors, mut seeds) = (vec![], Default::default(), Default::default());
+        let (mut wait, mut stop) = (None, None);
+        for plan in [
+            BellPlan::Send {
+                ix: ix(1),
+                what: "PostSeed(b 5)".into(),
+                simulated: false,
+                seed: Some((5, 3)),
+            },
+            BellPlan::Send {
+                ix: ix(2),
+                what: "PostSeed(b 5)".into(),
+                simulated: false,
+                seed: Some((5, 3)),
+            },
+            BellPlan::Send {
+                ix: ix(3),
+                what: "PostSeed(b 5, r 4)".into(),
+                simulated: false,
+                seed: Some((5, 4)),
+            },
+            BellPlan::Send {
+                ix: ix(4),
+                what: "FastForward".into(),
+                simulated: true,
+                seed: None,
+            },
+            BellPlan::Anchor { bell: 7, region: 2 },
+            BellPlan::Anchor { bell: 7, region: 2 },
+            BellPlan::Anchor { bell: 7, region: 9 },
+            BellPlan::Done(Step::Wait("window open".into())),
+        ] {
+            LegacyMarchDriver::take_plan(
+                plan,
+                &tag,
+                &mut items,
+                &mut anchors,
+                &mut seeds,
+                &mut wait,
+                &mut stop,
+            );
+        }
+        assert_eq!(
+            items.iter().map(|i| i.0.data[0]).collect::<Vec<_>>(),
+            vec![1, 3, 4]
+        );
+        assert!(items[2].2, "FastForward keeps its simulation");
+        assert_eq!(
+            anchors
+                .get(&7)
+                .map(|r| r.iter().copied().collect::<Vec<_>>()),
+            Some(vec![2, 9])
+        );
+        assert!(stop.is_none());
+        assert!(wait.unwrap().contains("the same seed is in this batch"));
+        LegacyMarchDriver::take_plan(
+            BellPlan::Done(Step::Stopped("no".into())),
+            &tag,
+            &mut items,
+            &mut anchors,
+            &mut seeds,
+            &mut None,
+            &mut stop,
+        );
+        assert_eq!(stop, Some(Step::Stopped("world 1,1: no".into())));
+    }
+    #[test]
+    fn batching_is_the_wide_paces_only() {
+        let src = include_str!("legacy_march.rs");
+        assert_eq!(
+            src.matches("            batch: false,\n").count(),
+            1,
+            "off by default"
+        );
+        let kl = include_str!("keeper_loop.rs");
+        assert!(
+            kl.contains("        l.batch = home_first(pace);\n")
+                && kl.contains("            l.batch = self.home_first;\n")
+        );
+    }
 
     fn transit(state: u8) -> Transit {
         let mut t = Transit::decode(&[0u8; 512]);
