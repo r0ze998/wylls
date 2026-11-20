@@ -31,7 +31,7 @@ import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { holdingModel, provisionalNote } from '../screens/holding.mjs';
 import { hostState, hostRows } from '../screens/host.mjs';
-import { musterIdleCode, allFormedText, allFormedShort, musterRuleText, formingHosts, stoodHosts } from './firststeps.mjs';
+import { musterIdleCode, allFormedText, allFormedShort, musterRuleText, formingHosts, stoodHosts, marchClosedReasonText } from './firststeps.mjs';
 import { directionOf } from '../screens/explore.mjs';
 import { ring } from '../screens/parts.mjs';
 import { icon, RESOURCE_ICON } from './icons.mjs';
@@ -87,6 +87,17 @@ const localReadOnlyText = () => L`ローカルプレイでは、まだ命令を�
 export const localReadOnlyNamed = words => L`ローカルプレイでは、${words.map(w => L`「${w}」`).join(L`・`)}はまだ送れません（読み取りのみ）。`;
 // (round 26: a march — the bar's March, its return home, a march on a keep — is sent in local play only while the march's
 //  own answer is open (controller.mjs sendTheMarch: FS.localMarch.open), and refused with the same sentence otherwise)
+/**
+ * (fix-loop5, L5-8) Why the march buttons of this host are closed, by the march lane's own reason (LocalMarchGate: the
+ * page's test key or connection could not be confirmed this moment; LocalMarchHeld: a march of it awaits its result…).
+ * loop-play5 read 「「進軍」・「砦へ進軍」・「解散」はまだ送れません（読み取りのみ）」 in a --wide world whose march lane is
+ * open — a passing closed answer worded as if local play never marched. Null when open.
+ */
+const localMarchWhy = (FS, r = null) => {
+  if (!localMarchClosed(FS, r)) return null;
+  const a = r && typeof FS.localMarchFor === 'function' ? FS.localMarchFor(r.holding ?? null, r.id ?? null) : FS.localMarch;
+  return marchClosedReasonText(a?.reason);
+};
 const localMarchClosed = (FS, r = null) => {
   if (!FS?.localPlay) return false;
   // (round 27: for the host shown — its own village and its own held march — as its send would find it once composed)
@@ -185,7 +196,7 @@ function hostModel(FS, sub) {
   const st = hostState(r, bellOf(FS));
   const where = r.home ? L`${holdingName(h)}にいます` : L`${tileName(FS, r.p, r.q, r.tile)}（${provinceName(FS, r.p, r.q)}）にいます`;
   const buttons = [
-    { id: 'march', icon: 'march', word: MARCH_WORD(), act: 'hand-march', data: { host: r.id }, figure: L`体力 ${fmtNum(r.stamina)}/${fmtNum(RULES.STAMINA_CAP)}`, pressed: armed, why: mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
+    { id: 'march', icon: 'march', word: MARCH_WORD(), act: 'hand-march', data: { host: r.id }, figure: L`体力 ${fmtNum(r.stamina)}/${fmtNum(RULES.STAMINA_CAP)}`, pressed: armed, why: mLocal ? localMarchWhy(FS, r) : mc.ok ? null : mc.text,
       hint: L`行き先のマスを押します。体力を ${fmtNum(DEPART_STAMINA)} 使い、着くのは 2 ターン先からです` },
     // a conquest season: the keeps this host can reach, as a list (hud/keephand.mjs). A host that cannot depart yet may still
     // open it: the list then says from which turn it can go (never a dead end)
@@ -193,10 +204,10 @@ function hostModel(FS, sub) {
     ...(conquestOn(FS) && !noContestableKeep(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
       // (round 28: a march on a keep is composed from the host's own village too — controller.mjs cq-march —, so this
       //  button asks the same per-host answer as March and Return)
-      why: r.inTransit ? mc.text : mLocal ? localReadOnlyText() : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
+      why: r.inTransit ? mc.text : mLocal ? localMarchWhy(FS, r) : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
     ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: eLocal ? localReadOnlyText() : ex.ok ? null : ex.text,
       hint: L`となりのマスを 2 つまで調べます` }] : []),
-    { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
+    { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mLocal ? localMarchWhy(FS, r) : mc.ok ? null : mc.text,
       hint: L`村への進軍です（体力 ${fmtNum(DEPART_STAMINA)}）。封をする前に確かめます` },
     { id: 'dissolve', icon: 'disband', word: L`解散`, act: 'hand-pop', data: { pop: 'dissolve' }, figure: L`控えへ ${fmtNum(r.troops)}`, pressed: pop === 'dissolve', why: dLocal ? localReadOnlyText() : dc.ok ? null : dc.text, quiet: true,
       hint: L`このターンの決着のあと、兵は村の控えに戻ります` },
