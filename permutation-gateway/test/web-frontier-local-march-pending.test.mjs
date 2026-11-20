@@ -71,7 +71,11 @@ test('a pending send: sent only when every check passes; otherwise it waits only
 test('the controller: armed only on local play\'s test march with a known world end, through the driver, memory only, cancel on close', () => {
   const c = src('controller.mjs');
   assert.match(c, /const localMarchTrial = \(\) => !!localPlay && localPlay\.march\?\.trialEntry === true && FS\.localMarch\?\.open === true && Number\.isFinite\(localPlay\.worldEndsAt\);/);
-  assert.match(c, /if \(!c \|\| c\.sending \|\| c\.pending \|\| pendingDriver\.armed \|\| !localMarchTrial\(\)\) return;/, 'no other path arms it');
+  // (devnet-page-war-2: or a verified devnet page with its wallet — marchWaitOn; nothing else arms it)
+  assert.match(c, /const devnetMarchWait = \(\) => !localPlay && !!devnetPlay && devnetGate\(\)\.ok === true;/);
+  assert.match(c, /const marchWaitOn = \(\) => localMarchTrial\(\) \|\| devnetMarchWait\(\);/);
+  assert.match(c, /if \(!c \|\| c\.sending \|\| c\.pending \|\| pendingDriver\.armed \|\| !marchWaitOn\(\)\) return;/, 'no other path arms it');
+  assert.match(c, /if \(!localPlay && devnetHeldNow\(c\)\) return;/, 'devnet: never armed past an unknown outcome');
   // (2026-11-19, fix-march-held) a held host's press asks about its march (one read) before anything else; a non-settling
   // problem never arms; ready but in the turn's last moments arms the wait (the muster's nearTurnEnd guard)
   assert.match(c, /if \(c && !c\.sending && !c\.pending && !pendingDriver\.armed && localPlay && heldNow\(c\)\) return askHeldMarches\(/, 'never armed past an unknown outcome');
@@ -89,11 +93,15 @@ test('the controller: armed only on local play\'s test march with a known world 
   assert.deepEqual([...app.matchAll(/\buseHerald\(/g)].length, 1, 'the only other caller is spectate mode, which has no local march');
   assert.match(app, /function startSpectate\(herald\) \{\n  useHerald\(herald\);/);
   assert.match(c, /send: card => \{ card\.pending = null; FS\.lastAct = \{ kind: 'act', name: 'march-send', data: \{\} \}; return sendTheMarch\(\); \},/, 'the send is the ordinary single send');
-  assert.match(c, /keyAlive: !!FS\.wallet\?\.address && FS\.wallet\.destroyed !== true, endsAt: localPlay\?\.worldEndsAt \?\? NaN/);
+  assert.match(c, /keyAlive: localPlay \? !!FS\.wallet\?\.address && FS\.wallet\.destroyed !== true : dn, endsAt: localPlay \? localPlay\.worldEndsAt \?\? NaN : devnetEndsAt\(\),/);
+  assert.match(c, /open: localPlay \? FS\.localMarch\?\.open === true : dn, held: localPlay \? heldNow\(card\) : devnetHeldNow\(card\),/);
+  // (devnet-page-war-2) a devnet page re-reads the herald at most every DEVNET_WAIT_REFRESH_MS while it waits
+  assert.match(c, /export const DEVNET_WAIT_REFRESH_MS = 5_000;/);
+  assert.match(c, /if \(!localPlay\) \{ const t = Date\.now\(\); if \(t - devnetWaitRead < DEVNET_WAIT_REFRESH_MS\) return Promise\.resolve\(\); devnetWaitRead = t; \}/);
   assert.match(c, /onPageHide: f => \{ globalThis\.addEventListener\?\.\('pagehide', f\);/);
   assert.match(c, /const m = composerMarch\(FS, composerArrival\(FS\)\);\n  const problems = checkMarch\(m\)\.filter\(p => p !== 'NoDestination'\);/);
   const block = c.slice(c.indexOf('const localMarchTrial = '), c.indexOf('async function sendTheMarch()'));
-  assert.doesNotMatch(block, /localStorage|sessionStorage|saveUi|indexedDB|book\.|setInterval/, 'memory only; the driver owns the timer');
+  assert.doesNotMatch(block, /localStorage|sessionStorage|saveUi|indexedDB|book\.|setInterval|sign[T]ransaction/, 'memory only; the driver owns the timer; nothing is signed while it waits');
   assert.match(c, /'march-wait-cancel': \(\) => pendingDriver\.cancel\('cancel'\),/);
   assert.match(c, /'compose-close': \(\) => \{ pendingDriver\.cancel\('cancel'\); FS\.compose = null;/);
   assert.match(c, /\}\) : localPlay \? await sendMarch\(m, \{/, 'local play: one attempt, no resend (unchanged; devnet-page-war: after the devnet sender\'s own branch)');
@@ -195,7 +203,8 @@ test('driver: armed again while an old read is in flight — the old answer neve
 
 test('the card offers it only on the test march (one fixed main button since round 12: web-frontier-local-fixed-seal.test.mjs), says what one press does, and its cancel', () => {
   const card = src('hud/marchcard.mjs');
-  assert.match(card, /const localWait = !!FS\.localPlay && FS\.localPlay\.march\?\.trialEntry === true && FS\.localMarch\?\.open === true && Number\.isFinite\(FS\.localPlay\.worldEndsAt\);/);
+  assert.match(card, /const localWait = FS\.marchWaitOn === true \|\| \(!!FS\.localPlay && FS\.localPlay\.march\?\.trialEntry === true && FS\.localMarch\?\.open === true && Number\.isFinite\(FS\.localPlay\.worldEndsAt\)\);/);
+  assert.match(card, /const devnetWait = localWait && !FS\.localPlay;/);
   assert.match(card, /const mainOk = !busy && !waiting && !!c\.route && \(problems\.length === 0 \|\| pendable\(problems\)\);/);
   assert.match(card, /data-act="march-send-wait"/); assert.match(card, /data-act="march-wait-cancel"/);
   assert.match(card, /この命令を1回だけ送ります（ターン \$\{fmtNum\(c\.pending\.untilBell\)\} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。/);
@@ -271,7 +280,7 @@ test('B-2: the page says the load (JA/EN) on the waiting notices and on the Form
   const c = src('controller.mjs');
   assert.match(c, /lag: provinceLag\(FS\.provinces\.get\(`\$\{card\.origin\?\.p\},\$\{card\.origin\?\.q\}`\)\?\.province, nowBell\(\)\) \};/);
   assert.match(c, /lag: provinceLag\(FS\.provinces\.get\(`\$\{card\.holding\.p\},\$\{card\.holding\.q\}`\)\?\.province, nowBell\(\)\) \};/);
-  assert.match(c, /lagging: \(card, p, lag\) => \{ card\.pending = p; setNotice\(\{ busy: false, waiting: true, text: lagWaitText\(lag, p\.untilBell, 'march'\) \}\); \},/);
+  assert.match(c, /lagging: \(card, p, lag\) => \{ card\.pending = p; setNotice\(\{ busy: false, waiting: true, text: lagWaitText\(lag, p\.untilBell, 'march', \{ devnet: !localPlay \}\) \}\); \},/);
   assert.match(c, /lagging: \(card, p, lag\) => \{ FS\.musterWait = \{ untilBell: p\.untilBell, lag \}; setNotice\(\{ busy: false, waiting: true, text: lagWaitText\(lag, p\.untilBell, 'muster'\) \}\); \},/);
   const hand = src('hud/hand.mjs');
   assert.match(hand, /const lag = local \? provinceLag\(FS\.provinces\?\.get\(`\$\{h\.p\},\$\{h\.q\}`\)\?\.province, FS\.nowBell\) : null;/);

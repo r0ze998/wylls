@@ -51,6 +51,43 @@ test('a re-seal replaces an unsent entry; a sent march cannot be sealed again', 
   assert.equal(book.length, 2);
 });
 
+test('devnet-page-war-2: a self-reveal that never reached a keeper (its link down) is asked again every 60 s inside the window, bounded', () => {
+  const start = 1_800_060_000;
+  let book = [{ ...mb.entryOf(sealed(), () => 0), state: 'landed' }];
+  assert.equal(book[0].revealDelay, 0);
+  assert.deepEqual(mb.revealStep(book[0], { now: start, bellStart: start }), { action: 'send' });
+  // keeper A stopped: the relay answers KeeperUnavailable (502), then the network fails once, then a 503
+  const downs = ['KeeperUnavailable', 'network', 'HTTP503', 'KeeperUnavailable'];
+  let t = start;
+  for (const code of downs) {
+    book = mb.recordAttempt(book, book[0], { t, route: 'self', result: code });
+    assert.deepEqual(mb.revealStep(book[0], { now: t + 59, bellStart: start }), { action: 'wait', at: t + 60 }, `after ${code}: one minute`);
+    t += 60;
+    assert.deepEqual(mb.revealStep(book[0], { now: t, bellStart: start }), { action: 'send' }, `after ${code}: asked again`);
+  }
+  // the keeper is back: accepted, then the ordinary second try 60 s later, then no more
+  book = mb.recordAttempt(book, book[0], { t, route: 'self', result: 'accepted' });
+  assert.equal(mb.revealStep(book[0], { now: t + 30, bellStart: start }).action, 'wait');
+  assert.deepEqual(mb.revealStep(book[0], { now: t + 60, bellStart: start }), { action: 'send' });
+  book = mb.recordAttempt(book, book[0], { t: t + 60, route: 'self', result: 'accepted' });
+  assert.deepEqual(mb.revealStep(book[0], { now: t + 600, bellStart: start }), { action: 'none', reason: 'attempted' });
+  // a refusal the keeper gave (it got the material) still counts: two of those end the self-reveal as before
+  let r = [{ ...mb.entryOf(sealed(), () => 0), state: 'landed' }];
+  r = mb.recordAttempt(r, r[0], { t: start, route: 'self', result: 'CommitMismatch' });
+  r = mb.recordAttempt(r, r[0], { t: start + 60, route: 'self', result: 'WindowClosed' });
+  assert.deepEqual(mb.revealStep(r[0], { now: start + 600, bellStart: start }), { action: 'none', reason: 'attempted' });
+  // never more than MAX_SELF_TRIES posts for one march, even with the keeper down the whole time
+  let d = [{ ...mb.entryOf(sealed(), () => 0), state: 'landed' }];
+  let sent = 0;
+  for (let now = start; now < start + 3_600; now += 5) {
+    if (mb.revealStep(d[0], { now, bellStart: start }).action === 'send') { sent += 1; d = mb.recordAttempt(d, d[0], { t: now, route: 'self', result: 'KeeperUnavailable' }); }
+  }
+  assert.equal(sent, mb.MAX_SELF_TRIES);
+  // the window closed: nothing, whatever the attempts
+  assert.deepEqual(mb.revealStep(book[0], { now: t, bellStart: start, windowOpen: false }), { action: 'none', reason: 'windowClosed' });
+  assert.equal(mb.unreached('KeeperUnavailable') && mb.unreached('HTTP502') && !mb.unreached('accepted') && !mb.unreached('HTTP409') && !mb.unreached(null), true);
+});
+
 test('self-reveal timing: never before the bell starts, delay 0–20 s, a second try only after 60 s with the slot absent and the window open', () => {
   const start = 1_800_060_000;
   let e = { ...mb.entryOf(sealed(), () => 0.99), state: 'landed' };

@@ -103,6 +103,8 @@ pub mod war;
 pub struct War {
     pub keeper_api: u16,
     pub token: String,
+    /// P10 (devnet-page-war-2): how to stop and restart keeper A and drand-replay ([`war::Outage`]).
+    pub outage: Option<war::Outage>,
 }
 
 pub struct Ctx<'a> {
@@ -120,6 +122,8 @@ pub struct Ctx<'a> {
     pub herald: u16,
     pub dir: std::path::PathBuf,
     pub keeper: &'a mut std::process::Child,
+    /// drand-replay (P10 restarts it with and without T(21)).
+    pub drand: &'a mut std::process::Child,
 }
 
 struct Run<'a> {
@@ -1403,12 +1407,17 @@ struct AfterWide<'k> {
 
 /// keeper A's `/v1/status` (its bearer token).
 fn keeper_status(api: u16, token: &str) -> Option<Value> {
+    keeper_get(api, token, "/v1/status")
+}
+
+/// GET `path` of keeper A's API (loopback, the TEST token): the JSON body of a 200, else None.
+fn keeper_get(api: u16, token: &str, path: &str) -> Option<Value> {
     use std::io::{Read, Write};
     let mut c = std::net::TcpStream::connect(("127.0.0.1", api)).ok()?;
     c.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
     write!(
         c,
-        "GET /v1/status HTTP/1.1\r\nHost: 127.0.0.1:{api}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{api}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
     )
     .ok()?;
     let mut b = vec![];
