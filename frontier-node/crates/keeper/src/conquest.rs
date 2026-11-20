@@ -2,7 +2,7 @@
 //!
 //! | duty | trigger | write | class | role |
 //! |---|---|---|---|---|
-//! | Contested bells | a v2 Province with a siege, an occupation or a keep contest, or hostile residents on a garrison or keep hex ([`fclient::conquest::contest`]) | the play duty's gather and resolve **every bell**; the skip planner never batches it | D | `gather`, `resolve` |
+//! | Contested bells | a v2 Province with a siege, an occupation or a keep contest, or hostile residents on a garrison or keep hex ([`fclient::conquest::contest`]) | the play duty's gather and resolve **every bell**; the skip planner never batches it; after the tick's send the **contested follow-up** (`Keeper::contested_followup`, ≤ 12 rounds / 6 s) sends the next gather or resolve as soon as the previous one landed, so a contested bell no longer waits a whole tick between its two writes | D | `gather`, `resolve` |
 //! | Idle provinces | nothing contested | the play duty's SkipQuiet at least every 24 bells (4 game hours); **fold-driven:** when a March's oldest unfolded hour is ≥ 3 game hours old, its lagging idle members are skipped at once (R-23) | D | `skip` |
 //! | Capture settlement | a record of kind 3 (capture due) | SettleCapture | D | `settle` |
 //! | Stakes and slots | a record owing a stake or a slot, or (after `end_bell`) a siege that lapsed | SettleSiege | N | `settle` |
