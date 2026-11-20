@@ -32,7 +32,7 @@ test('B-7: local play has no in-game key to fix — the key card is never its vi
   const join = src('screens/join.mjs');
   assert.match(join, /if \(!FS\.resident && !FS\.localPlay && \(!FS\.session \|\| FS\.sessionProblem\)\) return renderSessionFix\(FS\);\n  if \(stage === 'ticket'\) return renderTicket\(FS\);/);
   // (the controller asks for no session in local play either)
-  assert.match(src('controller.mjs'), /if \(!localPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{/);
+  assert.match(src('controller.mjs'), /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{/);
 });
 
 test('B-8: the picker\'s confirm, its banners and its blurb are data-stable (kept as the same nodes over a ×60 turn\'s re-render)', () => {
@@ -61,8 +61,9 @@ test('B-12: the title says a faster TEST clock\'s real turn length; the launcher
 });
 
 test('B-7\'s neighbour: local play\'s nation choice says the page\'s test wallet signs by itself (no wallet prompts, no in-game key)', () => {
+  // (verify-pr110: the devnet play sentence (#110) sits between the local-play one and the ordinary wallet one)
   const join = src('screens/join.mjs');
-  assert.match(join, /: FS\.localPlay \? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS\.wallet \?/);
+  assert.match(join, /: FS\.localPlay \? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS\.devnetPlay \? L`devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。` : FS\.wallet \?/);
   setLang('en');
   const en = L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。`;
   assert.doesNotMatch(en, CJK); assert.match(en, /signs by itself/);

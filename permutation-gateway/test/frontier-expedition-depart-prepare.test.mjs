@@ -518,7 +518,7 @@ test('the real handler\'s own 30 s clock ends the request as a timeout: the chil
 test('wiring: the relay serves the route with its own limits, reads its own settings and closes it; the resident route is as it was', () => {
   const read = file => readFileSync(new URL(`../src/frontier/${file}`, import.meta.url), 'utf8');
   const app = read('app.mjs'), cfg = read('config.mjs'), server = read('server.mjs'), adapter = read('expedition-depart-prepare.mjs');
-  assert.match(app, /FRONTIER_ROUTES = Object\.freeze\(\{[^}]*\.\.\.expeditionPrepareRoutes, \.\.\.expeditionDepartPrepareRoutes \}\)/);
+  assert.match(app, /FRONTIER_ROUTES = Object\.freeze\(\{[^}]*\.\.\.expeditionPrepareRoutes, \.\.\.expeditionDepartPrepareRoutes(?:, \.\.\.devnetPlayRoutes)? \}\)/);
   const pub = app.slice(app.indexOf('export const FRONTIER_PUBLIC_ROUTES'), app.indexOf('export const FRONTIER_FUNDED_ROUTES'));
   for (const name of ['EXPEDITION_PREVIEW_ROUTE', 'EXPEDITION_PREPARE_ROUTE', 'EXPEDITION_DEPART_PREPARE_ROUTE']) assert.match(pub, new RegExp(`\\n  ${name},`));
   const funded = app.slice(app.indexOf('export const FRONTIER_FUNDED_ROUTES'), app.indexOf('export const FRONTIER_IP_LIMITS'));
@@ -535,7 +535,7 @@ test('wiring: the relay serves the route with its own limits, reads its own sett
     assert.match(cfg, new RegExp(`\\n    expeditionDepartPrepare${key}: pick\\('expedition-depart-prepare-[a-z-]+', 'FRONTIER_EXPEDITION_DEPART_PREPARE_[A-Z_]+', d\\.expeditionDepartPrepare${key}\\),`));
     assert.match(cfg, new RegExp(`\\n    expeditionPrepare${key}: pick\\('expedition-prepare-[a-z-]+', 'FRONTIER_EXPEDITION_PREPARE_[A-Z_]+', d\\.expeditionPrepare${key}\\),`), `the resident ${key} is read as before`);
   }
-  assert.match(cfg, /\[\.\.\.expeditionPreviewConfigProblems\(cfg\), \.\.\.expeditionPrepareConfigProblems\(cfg\), \.\.\.expeditionDepartPrepareConfigProblems\(cfg\)\]/);
+  assert.match(cfg, /\[\.\.\.expeditionPreviewConfigProblems\(cfg\), \.\.\.expeditionPrepareConfigProblems\(cfg\), \.\.\.expeditionDepartPrepareConfigProblems\(cfg\)(?:, \.\.\.devnetPlayConfigProblems\(cfg\))?\]/);
   assert.match(server, /apps\.ctx\.expeditionPreview\?\.close\(\); apps\.ctx\.expeditionPrepare\?\.close\(\); apps\.ctx\.expeditionDepartPrepare\?\.close\(\);/);
   // the adapter's own source: one child process API, nothing that signs, seals, connects a wallet or sends
   const code = adapter.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');

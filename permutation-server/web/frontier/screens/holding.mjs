@@ -44,7 +44,8 @@ import { wideSlots } from '../fwide.mjs';
  * settles the claim. Nothing for any other world, a village that is not the first home, or one out of reach.
  */
 export function wideClaimModel(FS, m) {
-  const wide = FS?.localPlay?.wideLand;
+  // (DEVNET PLAY, devnet gap P1: a wide devnet season's opened wide provinces, controller FS.devnetWideLand)
+  const wide = FS?.localPlay?.wideLand ?? FS?.devnetWideLand ?? null;
   if (!wide || !m?.holding) return null;
   const h = m.holding;
   if (Number(h.order ?? 1) !== 1) return null;

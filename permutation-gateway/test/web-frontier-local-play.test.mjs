@@ -181,7 +181,9 @@ test('the hooks: the page boots once, after the gate, only for local play; the c
   // (2026-11-12, the economy path: the order path asks ONE decision before anything is built — and every order but the
   //  six economy commands in their plain form stops there. The decision itself, for every command the page can send
   //  and outside local play, is tested as behaviour in web-frontier-local-play-act.test.mjs.)
-  assert.equal(ctrl.split("const route = localAct.localOrderRoute({ localPlay, name, v, signer, requester });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'every order but the six stops before anything is built');
+  // (devnet gap P1: the decision names the transport's identity and commands — in local play localPlay's and LOCAL_LANE's, refuse otherwise)
+  assert.equal(ctrl.split("const route = localAct.localOrderRoute({ localPlay: pl?.identity ?? null, name, v, signer, requester, names: pl?.lane.names, otherwise: pl?.otherwise });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'every order but the six stops before anything is built');
+  assert.match(ctrl, /if \(localPlay\) return \{ lane: localAct\.LOCAL_LANE, identity: localPlay, gate: localDepartGate, deps: localActDeps\(\), otherwise: 'refuse' \};/);
   assert.ok(ctrl.indexOf("if (route === 'refuse') return early(localPlayReadOnly());") < ctrl.indexOf('const key = sendKey(name, fields);'), 'and it is the first thing the order path does');
   const refused = /export const LOCAL_PLAY_REFUSED = Object\.freeze\(\[([^\]]*)\]\);/.exec(ctrl)[1].split(',').map(x => x.trim().replace(/'/g, ''));
   // (2026-11-12, the economy path: `join` and `home-confirm` left this list. They still make no key and pay nothing in
@@ -189,9 +191,9 @@ test('the hooks: the page boots once, after the gate, only for local play; the c
   for (const name of ['session', 'session-replace', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']) assert.ok(refused.includes(name), `${name} does not run in local play`);
   assert.deepEqual(refused.sort(), ['forget', 'nft-login', 'nft-logout', 'nudge', 'prize-faucet', 'session', 'session-replace'], 'and nothing else was taken off or put on');
   { const from = ctrl.indexOf('  join: async () => {'), local = ctrl.slice(from, ctrl.indexOf('    const pin = io.pinned();', from));
-    assert.match(local, /if \(localPlay\) \{\n\s+if \(FS\.prize \|\| FS\.season\?\.joinGate\?\.some\?\.\(x => x !== 0\)\) return failed\(localPlayReadOnly\(\)\);/, 'join in local play: a pool or a gate is refused');
+    assert.match(local, /if \(localPlay \|\| devnetPlay\) \{\n\s+if \(FS\.prize \|\| FS\.season\?\.joinGate\?\.some\?\.\(x => x !== 0\)\) return failed\(localPlayReadOnly\(\)\);/, 'join in local play: a pool or a gate is refused');
     assert.doesNotMatch(local, /fsession|FS\.session =|remember\(|publicKeyBytes|faucet|payAndJoin/, 'join in local play derives, stores and pays nothing'); }
-  assert.match(ctrl, /if \(!localPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s+await ACTIONS\.session\(\);/, 'home-confirm in local play never asks for an in-game key');
+  assert.match(ctrl, /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s+await ACTIONS\.session\(\);/, 'home-confirm in local play never asks for an in-game key');
   assert.match(ctrl, /const homeStorage = \(\) => \(localPlay \? localHomeMemory : uiStorage\);/, 'and its record is kept in the page\'s memory, not on the device');
   assert.match(ctrl, /const readHome = \(\) => homeKeyNow\(\) \? loadHome\(homeStorage\(\), homeKeyNow\(\)\)/); assert.match(ctrl, /const saveHomePatch = patch => homeKeyNow\(\) \? saveHome\(homeStorage\(\), homeKeyNow\(\), patch\) : null;/);
   assert.equal(ctrl.split('saveHome(uiStorage').length - 1 + ctrl.split('loadHome(uiStorage').length - 1, 0, 'no direct use of the device\'s storage for the home record is left');

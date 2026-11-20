@@ -201,8 +201,9 @@ export function localActMessage(intent, pins, blockhash) {
  * transaction is exactly the stated command, signed once by the relay's wallet. Throws a `LocalActError` otherwise.
  * Nothing is sent here.
  */
-export function localActSubmit(body, pins) {
-  check(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === LOCAL_ACT_SUBMIT_SCHEMA
+// (`schema`: the submit schema of the flow; devnet-play-act.mjs, the devnet wallet-paid flow, states its own)
+export function localActSubmit(body, pins, { schema = LOCAL_ACT_SUBMIT_SCHEMA } = {}) {
+  check(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === schema
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
   const intent = localActIntent({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet });
   const wire = Buffer.from(body.transaction_b64, 'base64');
@@ -262,6 +263,9 @@ function accountOf(row) {
   if (bytes.toString('base64') !== row.data[0]) fail('LocalActRpcUnavailable');
   return { owner: row.owner, bytes: new Uint8Array(bytes) };
 }
+
+/** (the same reading, for the devnet wallet-paid flow, devnet-play-act.mjs) */
+export const localActAccountOf = row => accountOf(row);
 
 /** Step 3 above, on the accounts as read: throws the refusal, or returns. `accounts` = `[citizen, holding | undefined]`. */
 export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [citizen, holding]) {

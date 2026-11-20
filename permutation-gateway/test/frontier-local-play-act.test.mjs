@@ -117,8 +117,8 @@ test('the request around it is closed too; and nothing is wired: no server, page
   }
   // the page's general `act` is still refused in local play, before anything is built — for everything but the six in their plain form
   const controller = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
-  assert.equal(controller.split("const route = localAct.localOrderRoute({ localPlay, name, v, signer, requester });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'asked first, in the order path');
-  assert.equal(controller.split("const local = lo !== null && localAct.localOrderRoute({ localPlay, name, v, signer, requester }) === 'local-act';").length - 1, 1, 'and asked again where the transaction is made');
+  assert.equal(controller.split("const route = localAct.localOrderRoute({ localPlay: pl?.identity ?? null, name, v, signer, requester, names: pl?.lane.names, otherwise: pl?.otherwise });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'asked first, in the order path');
+  assert.equal(controller.split("const local = lo !== null && localAct.localOrderRoute({ localPlay: lo.identity, name, v, signer, requester, names: lo.lane.names }) === 'local-act';").length - 1, 1, 'and asked again where the transaction is made');
   assert.equal(controller.split('localAct.submitLocalAct(').length - 1, 1, 'one place sends them');
 });
 
