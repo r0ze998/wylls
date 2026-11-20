@@ -190,7 +190,7 @@ mod tests {
         assert_eq!(crate::PROGRAM_VERSION, want);
     }
 
-    #[cfg(feature = "custody-preview")]
+    #[cfg(all(feature = "custody-preview", not(feature = "coexist-experimental")))]
     #[test]
     fn the_custody_preview_is_another_program() {
         assert_eq!(

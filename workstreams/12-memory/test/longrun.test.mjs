@@ -8,7 +8,7 @@ import { mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RecordError, fact, allocation } from '../src/records.mjs';
-import { A, LIMITS, PLACE_A, REQUEST, newMemory, cv, dm, signedAllocation, world } from '../fixtures/scenario.mjs';
+import { A, LIMITS, PLACE_A, REQUEST, newMemory, cv, dm, signedAllocation, world } from '../fixtures/presigned.mjs';
 import { growWorld } from '../fixtures/longrun-world.mjs';
 
 test('long run: 300 partitions of history stay whole; nothing is evicted or reset', () => {

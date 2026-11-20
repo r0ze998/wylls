@@ -67,6 +67,7 @@ fn devnet_playable_artefact_carries_only_its_own_marker() {
         b"PSF_TRACE_BUILD",
         b"PSF_RIGHTS_EXPERIMENTAL_BUILD",
         b"PSF_CUSTODY_PREVIEW_BUILD",
+        b"PSF_LOCALNET_COEXIST_SBF_BUILD",
     ] {
         assert!(!contains(&so, m), "{}", String::from_utf8_lossy(m));
     }

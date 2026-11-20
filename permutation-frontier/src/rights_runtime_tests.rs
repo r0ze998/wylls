@@ -2068,7 +2068,13 @@ fn a_production_season_refuses_every_grant_instruction() {
         crate::PROGRAM_VERSION & rt::RIGHTS_EXPERIMENTAL_VERSION_BIT,
         rt::RIGHTS_EXPERIMENTAL_VERSION_BIT
     );
+    // a combined build (②+⑨+⑩, base 5) runs Grants by the registry's reading
+    #[cfg(not(feature = "coexist-experimental"))]
     assert!(rt::runs_grants(crate::PROGRAM_VERSION));
+    #[cfg(feature = "coexist-experimental")]
+    assert!(frontier_abi::feature_registry::runs_grants(
+        crate::PROGRAM_VERSION
+    ));
     assert!(!rt::runs_grants(
         frontier_abi::v2::presets::PROGRAM_VERSION_S1
     ));

@@ -7,11 +7,11 @@
 //! rev 3–6: tags 0xF0–0xFD, errors 110–149, AccountKind 25 CapacityPool and
 //! 26 CapacityJob, seeds `cp` and `cj`). The magic values (`PSF1CPOL`,
 //! `PSF1CJOB`) and [`CAPACITY_PREVIEW_VERSION_BIT`] are workstream 09's
-//! proposals, not allocations. **No record kind is allocated** (workstream
-//! 09 has 20 kinds of record, workstream 4's band 120–129 holds 10): a
-//! capacity build logs no PS2 record for these instructions, and the
-//! verifier cannot judge them (they are unverifiable, as custody was before
-//! V26).
+//! proposals, not allocations. **Record kinds 150–169** (rev 8, 2026-11-20,
+//! `feature_registry`; rev 3's 120–129 held 10 of 09's 20 kinds) are not
+//! emitted yet: a capacity build logs no PS2 record for these instructions,
+//! and the verifier cannot judge them (they are unverifiable, as custody
+//! was before V26).
 //!
 //! A default build of the program never dispatches these bytes
 //! (`v2::ix::tag_of` refuses them); only a program built with

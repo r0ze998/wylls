@@ -56,9 +56,18 @@ localnet-land-play = ["localnet-expedition-play", "frontier-abi/land-preview", "
 # runner (no new dependency); off by default.
 localnet-nft-harness = ["localnet-expedition-play"]
 
+# ②+⑨+⑩ in one LOCAL build (2026-11-20, workstream 4's allocation rev 8): the localnet harness of the coexist lane
+# artefact (scripts/build-frontier-localnet-coexist-sbf.sh, version 0x7805): a StockSwap, a capacity loan and a custody
+# lot in one world. Same crates (frontier-abi's capacity tables are a feature of it); off by default.
+localnet-coexist-harness = ["localnet-expedition-play", "frontier-abi/capacity-preview", "frontier-abi/feature-coexist"]
+
 [[test]]
 name = "localnet_nft_resident"
 required-features = ["localnet-nft-harness"]
+
+[[test]]
+name = "localnet_coexist"
+required-features = ["localnet-coexist-harness"]
 
 [[test]]
 name = "localnet_expedition_depart"
@@ -68,6 +77,11 @@ required-features = ["localnet-expedition-harness"]
 name = "localnet-expedition-play"
 path = "src/bin/localnet_expedition_play.rs"
 required-features = ["localnet-expedition-play"]
+
+[[bin]]
+name = "localnet-coexist-play"
+path = "src/bin/localnet_coexist_play.rs"
+required-features = ["localnet-coexist-harness"]
 
 [[bin]]
 name = "localnet-natural-play"

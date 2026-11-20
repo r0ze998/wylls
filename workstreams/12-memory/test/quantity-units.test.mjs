@@ -4,7 +4,7 @@
 // zero; "not sent" is never concluded from a delivery that rounded to 0.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { A, PLACE_A, allocate, caravanFacts, coverage, cv, newMemory, promise } from '../fixtures/scenario.mjs';
+import { A, PLACE_A, allocate, caravanFacts, coverage, cv, newMemory, promise } from '../fixtures/presigned.mjs';
 
 const PLACE_H = Object.freeze({ partition: 'p1', kind: 1, p: 3, q: 0, at: 2, gen: 1 }); // a holding: rule-derived credit
 const one = (m, at = 300) => m.knowledge(A, at).commitments[0];

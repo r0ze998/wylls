@@ -5,8 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemory } from '../src/index.mjs';
 import { CLAIM_CRITERIA, GRACE_BELLS } from '../src/fold.mjs';
-import { A, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, dm, promise, caravanFacts, allocate, world } from '../fixtures/scenario.mjs';
-import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp, cv, alias } from '../fixtures/scenario.mjs';
+import { A, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, dm, promise, caravanFacts, allocate, world } from '../fixtures/presigned.mjs';
+import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp, cv, alias } from '../fixtures/presigned.mjs';
 
 const cov = (m, o = {}) => coverage(m, o).id;
 const state = (m, at = 300, opts) => m.knowledge(A, at, opts).commitments.map(c => c.state);

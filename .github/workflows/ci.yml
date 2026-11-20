@@ -216,9 +216,12 @@ jobs:
         run: scripts/ci/node-keyfree.sh scripts/demo/sixnation/map test/lib.test.mjs
 
   # Workstream 12 (memory): its audited key-free test files (workstreams/12-memory/tools/keyfree-tests.txt) through
-  # the same runner and guard as the gateway job. No npm install (12 has no dependencies). Node 22: node:sqlite
-  # (reading workstream 4's store) and JSON.parse source text (exact u64). 12's tests that sign test allocations
-  # are not in the list and are not run anywhere in CI.
+  # the same runner and guard as the gateway job. Node 22: node:sqlite (reading workstream 4's store) and JSON.parse
+  # source text (exact u64). 12 has no dependencies of its own; the gateway's npm install lets the real-13 resident
+  # test (adapters-ws13-real) load 13's demo world, which imports the gateway client (@solana/web3.js, ...).
+  # WS13_KEYLESS=1: 13's harness hands out keyless identities (its default; stated here so no environment changes it).
+  # 12's tests that sign (allocation-signature, presigned-table) are not in the list and are not run anywhere in CI;
+  # the others read their test signatures from fixtures/presigned-signatures.json.
   memory12:
     name: Workstream 12 memory tests (key-free)
     runs-on: ubuntu-24.04
@@ -227,7 +230,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: permutation-gateway/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: permutation-gateway
       - name: Workstream 12 tests (key-free)
+        env:
+          WS13_KEYLESS: '1'
         run: scripts/ci/node-keyfree.sh workstreams/12-memory $(grep -v '^#' workstreams/12-memory/tools/keyfree-tests.txt | grep .)
 
   # Workstream 15 (co-op outcome evaluator): its node tests through the same runner and guard. No npm install (15 has
@@ -361,6 +370,8 @@ jobs:
           cargo clippy --locked -p permutation-frontier --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features custody-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features capacity-preview,custody-preview --all-targets -- -D warnings
+          cargo clippy --locked -p frontier-abi --features capacity-preview,feature-coexist --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-frontier --features coexist-experimental --all-targets -- -D warnings
       - name: Host tests with the preview features
         run: |
           cargo test --locked -p permutation-rules --features capacity-preview
@@ -368,6 +379,9 @@ jobs:
           cargo test --locked -p permutation-frontier --features capacity-preview
           cargo test --locked -p permutation-frontier --features custody-preview
           cargo test --locked -p permutation-frontier --features capacity-preview,custody-preview
+          # ②+⑨+⑩ coexist (workstream 4 rev 8): the one registry, and the combined build on S1 (0x3005)
+          cargo test --locked -p frontier-abi --lib --features capacity-preview,land-preview,conquest-dispatch-experimental,feature-coexist feature_registry
+          cargo test --locked -p permutation-frontier --lib --features coexist-experimental -- --test-threads=1
 
   frontier-node:
     name: Frontier M1 off-chain workspace (keeper, herald, verifier, localnet)

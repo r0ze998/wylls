@@ -254,3 +254,19 @@ rev 3 の §2.1 で「空き」だった 0xCD–0xCF を、土地の試験（`la
 確定の前に要る互換の確認：(1) 版のビット 0x0400 を付けるときの、ページ・launcher・runner・検証器の版の照合、(2) 検証器が 0xCD/0xCE を「知らない tag」として扱う場面（土地の世界の記録を検証するとき）、(3) 本番の build に `land-preview` が入らないこと（既定の build は 0xCD/0xCE を BadData で拒否：`ix.rs` の試験）。
 
 **rev 7 の採用案（統合候補 `claude/canonical-candidate-20261116` の方針、2026-11-16）**：土地の試験はローカルの TEST-ONLY 世界だけで使い、版は `0x4804` のまま（ビット 0x0400 は予約のみ、適用しない）。0xCD/0xCE は上の表のとおり。版のビットを付けるときに要る変更は `docs/integration/CLAUDE-LAND-VERSION-BIT-COMPAT-20261116.md`（完全一致の照合 10 か所）。
+
+## rev 8（2026-11-20、main 760a92b4 の上。②⑨⑩ をひとつのローカル build に同居させる。**仮**）
+
+番号の表は一か所にした：`frontier-abi/src/feature_registry.rs`（`feature-coexist` と試験のときだけ build される）。帯が互いに重ならないことと、コードが実際に使う番号（v2 の命令表、②⑨⑩⑳・広域・土地の tag、`FrontierError`／`CqError`／`RightsError`、記録の kind、`AccountKind`、版の bit）がそれぞれの持ち主の帯に入ることを、試験で確かめる（全 feature で 10/10）。この文書の表と食い違えば、コードの表が正。
+
+| 項目 | rev 8 の割当（仮） |
+|---|---|
+| 命令 tag | rev 3〜7 のまま：⑩ 0xC2–0xCC、土地 0xCD–0xCF、② 0xD0–0xD5、広域 0xD6–0xDF と 0xEE（遠征の class tag 0xDA/0xDC/0xDE はこの中）、⑳ 0xE0–0xE7、⑪ 0xE8–0xED、0xEF 空き、⑨ 0xF0–0xFD、0xFE–0xFF 試験 |
+| エラー | rev 3 のまま：基準 1–94・99、⑩ 100–104、⑨ 110–149（使用中は 110–139）、⑪ 150–169、⑳ 170–179、② 200–219（使用中は 200–214） |
+| 記録の kind | **⑨ を 150–169（20 個）に移す**（rev 3 の 120–129 は 10 個で足りなかった）。120–129 は空きに戻す。145–149 は遠征（145 legacy source、146–149）。⑨ はまだ記録を出さない（割り当てのみ） |
+| AccountKind | rev 3 のまま：⑩ 23 Lot、② 24 Grant、⑨ 25 CapacityPool・26 CapacityJob、⑪ 27–30、⑳ 31–32 |
+| 版 | 下位 1 byte が規則の基準（3 MC、4 S1、5 custody 入りの S1 = `RULESET_HASH_V4`）、上位が機能の bit（0x8000 ⑳、0x4000 広域、0x2000 ②、0x1000 ⑨、0x0800 遠征、0x0400 土地は予約のみ）。**②⑨⑩ 同居：S1 の上なら 0x3005、遊べる線（localnet の土地の線）の上なら 0x7805** |
+| CreateSeason | その build 自身の版だけを受け取る（`range_view` で範囲の検査だけ S1 として見る。`validate` は緩めない） |
+| build | `permutation-frontier` の feature `coexist-experimental`（host）と `localnet-coexist-sbf`（SBF、program id [0x45; 32]、marker `PSF_LOCALNET_COEXIST_SBF_BUILD`、`scripts/build-frontier-localnet-coexist-sbf.sh`）。⑳ とも devnet の build とも組み合わせない（lib.rs の compile_error） |
+
+devnet-playable（`da3dc1aa…b9741`）と S1（`850532f0…a644`）の `.so` は、この変更の前後でバイト単位で同じ（作り直して確認、reports/feature-coexist.md）。
