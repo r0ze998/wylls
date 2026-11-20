@@ -43,3 +43,25 @@ test('the map passes the turn the herald last reported to the away tag, never th
   assert.match(app, /seenBell: seenBell\(\),/);
   assert.match(app, /function seenBell\(\) \{\n  const t = FS\.chain\?\.seen\?\.\(\) \?\? null;\n  return FS\.clock && t !== null \? bellAt\(FS\.clock\.genesisTs, t\) : null;\n\}/);
 });
+
+// reveal-under-load (verify-pr98 BREAK-2): a march whose result was not settled kept the host 'away' for 200+ turns and
+// the tag said "loading its position" all along. Past the grace it says how long ago the arrival turn was, and that the
+// result is not settled yet — never "loading" forever.
+test('the away tag: past the grace the tag says the result is not settled yet, with the turns since the arrival', () => {
+  setLang('en');
+  assert.equal(H.AWAY_SETTLE_GRACE, 2);
+  assert.equal(H.awayText(10, 12), 'Host arrived on turn 10 · loading its position', 'inside the grace: as before');
+  assert.equal(H.awayText(10, 13), 'Host\'s arrival turn 10 was 3 turns ago · waiting for its result');
+  assert.equal(H.awayText(285, 485), 'Host\'s arrival turn 285 was 200 turns ago · waiting for its result');
+  setLang('ja');
+  assert.equal(H.awayText(10, 13), '軍勢の到着ターン 10 から 3 ターン · 結果の確定を待っています');
+  assert.equal(H.awayText(285, 485), '軍勢の到着ターン 285 から 200 ターン · 結果の確定を待っています');
+  for (const lang of ['ja', 'en']) {
+    setLang(lang);
+    const w = H.awayText(10, 40);
+    assert.ok(!/読み込んでいます|loading/i.test(w), w);
+    assert.ok(!/あなたにだけ|only you/i.test(w));
+    assert.ok(!/領土|領有|territor/i.test(w));
+    if (lang === 'en') assert.ok(!/[぀-ヿ一-鿿]/.test(w), w);
+  }
+});

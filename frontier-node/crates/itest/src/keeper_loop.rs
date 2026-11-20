@@ -879,11 +879,27 @@ fn origin_out(st: crate::origin_driver::Step) -> Out {
         _ => Out::Quiet,
     }
 }
-driver_step!(
-    crate::legacy_march::LegacyMarchDriver,
-    Field::Destination,
-    origin_out
-);
+impl TickStep for crate::legacy_march::LegacyMarchDriver {
+    fn run<'a>(
+        &'a mut self,
+        state: &'a Shared,
+    ) -> Pin<Box<dyn Future<Output = Report> + Send + 'a>> {
+        Box::pin(async move {
+            let st = self.step(state).await;
+            let text = format!("{st:?}");
+            Report {
+                field: Field::Destination,
+                out: origin_out(st),
+                text,
+            }
+        })
+    }
+    /// (reveal-under-load: a stopped legacy driver is still stepped — it answers its stop for a while, then recovers;
+    ///  only an unknown outcome or a stop by request ends it)
+    fn done(&self) -> bool {
+        self.ended()
+    }
+}
 fn destination_out(st: crate::destination_driver::Step) -> Out {
     use crate::destination_driver::Step as S;
     match st {
@@ -1018,32 +1034,94 @@ pub trait PassVillage: Send {
     fn halt(&mut self, why: String);
     fn ended(&self) -> bool;
     fn end(&mut self);
-    /// TEST-ONLY wide world (verify-pr96 BREAK-1): only its expedition's due self-reveal, at the start of a pass
-    /// ([`orchestrate`]); `None` = nothing due (every other world, and every mock: the default).
+    /// Only its due reveals, before any keeper of the loop posts an anchor ([`orchestrate`]): its ordinary marches'
+    /// reveals (reveal-under-load, verify-pr98 BREAK-2) and, in the TEST-ONLY wide world, its expedition's self-reveal
+    /// (verify-pr96 BREAK-1). Empty = nothing due (and every mock: the default).
     fn reveal_first<'a>(
         &'a mut self,
         _state: &'a Shared,
-    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
-        Box::pin(async { None })
+    ) -> Pin<Box<dyn Future<Output = Vec<Report>> + Send + 'a>> {
+        Box::pin(async { vec![] })
     }
 }
 
-/// [`PassVillage::reveal_first`] of a village's wide destination driver, as its report.
+/// [`PassVillage::reveal_first`] of a village: its legacy march driver's due reveals (every one), then its wide
+/// destination driver's, as their reports.
 async fn reveal_report(
+    legacy: &mut Option<crate::legacy_march::LegacyMarchDriver>,
     d: &mut Option<crate::destination_driver::DestinationDriver>,
     state: &Shared,
-) -> Option<Report> {
-    let d = d.as_mut()?;
-    let st = d.reveal_only(state).await?;
-    Some(Report {
-        field: if d.beside_legacy {
-            Field::Expedition
-        } else {
-            Field::Destination
-        },
-        text: format!("{st:?}"),
-        out: destination_out(st),
-    })
+) -> Vec<Report> {
+    let mut out = vec![];
+    if let Some(l) = legacy.as_mut() {
+        for st in l.reveal_only(state).await {
+            let unknown = matches!(st, crate::origin_driver::Step::Unknown { .. });
+            out.push(Report {
+                field: Field::Destination,
+                text: format!("{st:?}"),
+                out: origin_out(st),
+            });
+            if unknown {
+                return out;
+            }
+        }
+    }
+    let Some(d) = d.as_mut() else { return out };
+    if let Some(st) = d.reveal_only(state).await {
+        out.push(Report {
+            field: if d.beside_legacy {
+                Field::Expedition
+            } else {
+                Field::Destination
+            },
+            text: format!("{st:?}"),
+            out: destination_out(st),
+        });
+    }
+    out
+}
+
+/// One reveal sweep over every village of the loop (reveal-under-load): each village's due reveals, in order. Returns
+/// whether one landed. A pair stops the sweep at an unknown outcome (the caller's pair check then halts every village).
+async fn sweep_reveals(
+    state: &Shared,
+    first: &mut dyn PassVillage,
+    others: &mut [&mut dyn PassVillage],
+    pair: bool,
+) -> bool {
+    fn must(first: &dyn PassVillage, others: &[&mut dyn PassVillage]) -> bool {
+        let st: Vec<&Status> = others.iter().map(|v| v.status()).collect();
+        pair_must_halt(first.status(), &st)
+    }
+    let mut landed = false;
+    let reps = first.reveal_first(state).await;
+    if !reps.is_empty() {
+        landed |= reps.iter().any(|r| r.out == Out::Landed);
+        first.record(&RunOut {
+            reports: reps,
+            landed: false,
+            stopped: None,
+        });
+    }
+    for i in 0..others.len() {
+        // (a pair: an unknown outcome of a reveal ends the sweep at once, and the caller's check halts every village)
+        if pair && must(first, others) {
+            break;
+        }
+        if others[i].ended() {
+            continue;
+        }
+        let reps = others[i].reveal_first(state).await;
+        if !reps.is_empty() {
+            landed |= reps.iter().any(|r| r.out == Out::Landed);
+            others[i].record(&RunOut {
+                reports: reps,
+                landed: false,
+                stopped: None,
+            });
+        }
+    }
+    landed
 }
 
 /// The keeper loop's outer order, shared by the real [`Pilot`] and the tests: `(alive, landed)`. One village: its pass and
@@ -1083,32 +1161,7 @@ pub async fn orchestrate(
         halt_all(first, others);
         return (false, false);
     }
-    let mut landed = false;
-    if let Some(rep) = first.reveal_first(state).await {
-        landed |= rep.out == Out::Landed;
-        first.record(&RunOut {
-            reports: vec![rep],
-            landed: false,
-            stopped: None,
-        });
-    }
-    for i in 0..others.len() {
-        // (a pair: an unknown outcome of a reveal ends the sweep at once, and the check below halts every village)
-        if pair && must(first, others) {
-            break;
-        }
-        if others[i].ended() {
-            continue;
-        }
-        if let Some(rep) = others[i].reveal_first(state).await {
-            landed |= rep.out == Out::Landed;
-            others[i].record(&RunOut {
-                reports: vec![rep],
-                landed: false,
-                stopped: None,
-            });
-        }
-    }
+    let mut landed = sweep_reveals(state, first, others, pair).await;
     if pair && must(first, others) {
         halt_all(first, others);
         return (false, landed);
@@ -1131,6 +1184,13 @@ pub async fn orchestrate(
         }
         if others[i].ended() {
             continue;
+        }
+        // (reveal-under-load: the sweep again before every further village's pass — its keeper posts anchors, and the
+        //  passes before it may have taken longer than a reveal window; with nothing due it only reads)
+        landed |= sweep_reveals(state, first, others, pair).await;
+        if must(first, others) {
+            halt_all(first, others);
+            return (false, landed);
         }
         let r = others[i].pass(state, true).await;
         others[i].record(&r);
@@ -1211,8 +1271,8 @@ impl PassVillage for FirstVillage<'_> {
     fn reveal_first<'a>(
         &'a mut self,
         state: &'a Shared,
-    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
-        Box::pin(reveal_report(self.destination, state))
+    ) -> Pin<Box<dyn Future<Output = Vec<Report>> + Send + 'a>> {
+        Box::pin(reveal_report(self.legacy, self.destination, state))
     }
 }
 impl PassVillage for Village {
@@ -1254,8 +1314,12 @@ impl PassVillage for Village {
     fn reveal_first<'a>(
         &'a mut self,
         state: &'a Shared,
-    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
-        Box::pin(reveal_report(&mut self.destination, state))
+    ) -> Pin<Box<dyn Future<Output = Vec<Report>> + Send + 'a>> {
+        Box::pin(reveal_report(
+            &mut self.legacy,
+            &mut self.destination,
+            state,
+        ))
     }
 }
 
@@ -1360,11 +1424,14 @@ async fn village_drivers(
 
 impl Village {
     /// The provinces this village resolves itself: its home and where its hosts stand.
+    /// (reveal-under-load: the stands only while its legacy driver drives them — a stopped one's stands go back to the
+    ///  first village's world phase, so no province is left with nobody to resolve it)
     fn provinces(&self) -> Vec<(i32, i32)> {
         std::iter::once(self.home)
             .chain(
                 self.legacy
                     .iter()
+                    .filter(|l| l.terminal().is_none())
                     .flat_map(|l| l.stands.iter().map(|s| s.0)),
             )
             .collect()
@@ -1518,6 +1585,9 @@ pub async fn run_paced(
     run_paced_with(state, source, holding, home, pace, stop, report, None).await
 }
 
+/// A keeper pass at least this long (wall ms) is reported on stderr (measurement, reveal-under-load).
+pub const SLOW_PASS_MS: u128 = 2000;
+
 /// A village to add to a running loop (TEST-ONLY contest pair): its round source, Holding and home province.
 pub type MoreVillage = (RoundSource, Address, (i16, i16));
 
@@ -1561,7 +1631,16 @@ pub async fn run_paced_with(
                 }
             }
         }
+        let began = Instant::now();
         let alive = p.tick(&state).await;
+        // (reveal-under-load measurement: a pass longer than a ×60 reveal window's share is reported, on stderr)
+        let ms = began.elapsed().as_millis();
+        if ms >= SLOW_PASS_MS {
+            eprintln!(
+                "{}",
+                json!({"keeper_pass_ms": ms as u64, "villages": 1 + p.others.len(), "landed": p.landed})
+            );
+        }
         if p.keeper.status != last {
             report(&p.keeper.status);
             last = p.keeper.status.clone();
@@ -2778,18 +2857,20 @@ mod pair_tests {
         fn reveal_first<'a>(
             &'a mut self,
             _state: &'a Shared,
-        ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        ) -> Pin<Box<dyn Future<Output = Vec<Report>> + Send + 'a>> {
             self.log
                 .lock()
                 .unwrap()
                 .push(format!("{} reveal", self.tag));
             let out = self.reveal.clone();
             Box::pin(async move {
-                out.map(|out| Report {
-                    field: Field::Expedition,
-                    out,
-                    text: "Landed(\"ExpeditionReveal\")".into(),
-                })
+                out.into_iter()
+                    .map(|out| Report {
+                        field: Field::Expedition,
+                        out,
+                        text: "Landed(\"ExpeditionReveal\")".into(),
+                    })
+                    .collect()
             })
         }
     }
@@ -2817,8 +2898,9 @@ mod pair_tests {
         assert!(landed, "a landed reveal counts as the pass's landing");
         assert_eq!(
             *log.lock().unwrap(),
-            vec!["A reveal", "B reveal", "A pass", "B pass"],
-            "every live village's reveal first, then the passes in their order; an ended village is never called"
+            vec!["A reveal", "B reveal", "A pass", "A reveal", "B reveal", "B pass"],
+            "every live village's reveal first, then the passes in their order, the sweep again before every further \
+             village's pass (reveal-under-load); an ended village is never called"
         );
     }
     #[tokio::test]
@@ -2840,11 +2922,11 @@ mod pair_tests {
     fn the_reveal_sweep_is_wired_for_both_kinds_of_village() {
         let src = include_str!("keeper_loop.rs");
         assert!(
-            src.contains("Box::pin(reveal_report(self.destination, state))"),
+            src.contains("Box::pin(reveal_report(self.legacy, self.destination, state))"),
             "the first village"
         );
         assert!(
-            src.contains("Box::pin(reveal_report(&mut self.destination, state))"),
+            src.contains("Box::pin(reveal_report(&mut self.legacy, &mut self.destination, state))"),
             "every other village"
         );
         let dd = include_str!("destination_driver.rs");
@@ -3006,7 +3088,8 @@ mod pair_tests {
         }
         assert_eq!(st.unknown_signature.as_deref(), Some("sig"));
         let src = include_str!("keeper_loop.rs");
-        assert!(src.contains("if rep.field != Field::Keeper {\n            if let Out::Unknown { signature, .. } = &rep.out { keeper.status.unknown_signature = Some(signature.clone()); }"));
+        // (the pin follows the rustfmt'd source: it pinned the pre-format one-liner and failed on main too)
+        assert!(src.contains("if rep.field != Field::Keeper {\n            if let Out::Unknown { signature, .. } = &rep.out {\n                keeper.status.unknown_signature = Some(signature.clone());\n            }"));
     }
     #[test]
     fn the_wide_destination_driver_beside_a_legacy_one_has_its_own_status_field() {
@@ -3068,7 +3151,11 @@ mod pair_tests {
         ));
         assert!(!dd.contains("\"the anchor of bell {} in region {} (the keeper's)\""));
         let lm = include_str!("legacy_march.rs");
-        assert!(lm.contains("anchor_a.filter(|a_ts| now >= clock.reveal_close(arrive, *a_ts))"));
+        // (reveal-under-load: the legacy driver's decision is `reveal_due`, and a closed window is settled, not stopped)
+        assert!(lm.contains(
+            ".then(|| reveal_due(anchor_a, now, |a_ts| clock.reveal_close(arrive, a_ts)));"
+        ));
+        assert!(lm.contains("Some(close) if now >= close => RevealDue::Missed { close },"));
     }
     #[test]
     fn a_second_villages_status_line_says_which_village_and_the_first_is_unchanged() {

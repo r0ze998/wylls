@@ -233,9 +233,16 @@ scripts/play-local.sh --wide
     #92), and wide → wide only in the TEST-only local build (`localnet-wide-depart`, #94); devnet's SBF WideDepart is
     still closed;
   - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time;
-  - a march whose reveal window closed unrevealed (the keeper loop's pass was longer than the ×60 window) holds its
-    province for good (no program settlement, §−2.4f (d), blocked on r0ze); the herald writes a turn's records only
-    once every opened province has resolved it, so 「支配する州」 and the standings then stop at that turn.
+  - a wide-land EXPEDITION whose reveal window closed unrevealed keeps its host held for good (the program has no
+    settlement for a never-revealed bridge transit, §−2.4f (d), blocked on r0ze). The keeper loop reveals every due
+    expedition and every due ordinary march at the start of each pass and again before each village's pass (#96,
+    reveal-under-load), so this needs a pass longer than the ×60 window AND an anchor posted in between.
+- An ORDINARY march (heartland or rim, the AI war's too) whose window is missed anyway is settled the way the program
+  settles an unrevealed march: its destination's turns are resolved without it and the host is routed home
+  (reveal-under-load). The province keeps resolving; the keeper loop says `reveal-missed` on stderr. A village's march
+  driver that stops on a refusal reads the chain again after a while (6 passes, doubling to 96) instead of stopping for
+  good, and the provinces where its hosts stand go back to the world sweep meanwhile. The map's tag of a host whose
+  arrival turn is more than 2 turns past says "Host's arrival turn N was M turns ago · waiting for its result".
 - Not with `--demo`, `--resume`, `--fresh` or `--two` (the wide version is for one player). A stop ends the world.
 
 ## 7. Fog of war (every local test world)

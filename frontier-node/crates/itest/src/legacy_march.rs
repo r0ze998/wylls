@@ -19,7 +19,9 @@
 //!    (any payer may reveal), at the index `admit_arrival` gives, with the
 //!    path provinces the program checks, once THE anchor of
 //!    `(arrive, destination region)` exists and before its reveal window
-//!    closes (a closed window unrevealed: stopped, reported — never forced);
+//!    closes. The keeper loop also sweeps every due reveal (`reveal_only`) at the start of each pass and before each
+//!    village's pass. A window that closed unrevealed is reported (`reveal-missed`) and settled as the program settles
+//!    an unrevealed march — steps 5–7 without it, SettleTransit routes the host home — never forced, never a stop;
 //! 5. **destination catch-up**: the destination's quiet bells before the
 //!    arrival by FastForward (≤ 16 per transaction), each bell's anchor of
 //!    the destination region posted first when absent (public round);
@@ -28,10 +30,11 @@
 //! 7. **SettleTransit** (0x54; v2 form) once `settle_after(arrive, A)` passed,
 //!    with the Depart's own commitment and seal.
 //!
-//! A refusal (simulated or landed) stops the driver; an outcome not seen is
-//! `Unknown` with its signature and is never resent. A seal that does not
-//! open validly or a missed reveal window stops it with the reason named:
-//! their settlement is not driven here. A destination with NO Province (B14:
+//! A refusal (simulated or landed) stops the driver for a while
+//! ([`recover_after`]: 6 steps, doubling to 96), then it reads the chain again;
+//! an outcome not seen is `Unknown` with its signature, is never resent and
+//! ends the driver. A seal that does not open validly stops it with the reason
+//! named (its settlement is not driven here). A destination with NO Province (B14:
 //! rings 0-1 of a season with the centre, a province never opened) is never
 //! revealed: once THE anchor of its arrival bell and `settle_after` passed,
 //! SettleTransit settles it against the absent Province (Routed: the host
@@ -470,6 +473,46 @@ pub fn stand_action(
 
 /// After this many steps in a row in which the village's own work kept the world phase waiting, it goes first once.
 pub const WORLD_STARVE_LIMIT: u32 = 8;
+
+/// reveal-under-load (verify-pr98 BREAK-2): how many steps a driver that STOPPED (a refusal or a fact it cannot drive;
+/// never an unknown outcome, never a stop by request) stays stopped before it reads the chain afresh and goes on: the
+/// first recovery after this many steps, each later one after twice as many as the one before, at most
+/// [`RECOVER_MAX_STEPS`]. Before this a stop ended the village's march driver for good — its host, every later march,
+/// and every province where its hosts stand (which the world phase skips as that village's) froze for the rest of the
+/// world. Nothing is resent blindly: every step simulates first, as always.
+pub const RECOVER_AFTER_STEPS: u32 = 6;
+pub const RECOVER_MAX_STEPS: u32 = 96;
+
+/// The steps a stopped driver waits before its `n`-th recovery (`n` from 0): [`RECOVER_AFTER_STEPS`] doubled per
+/// earlier recovery, at most [`RECOVER_MAX_STEPS`].
+pub fn recover_after(n: u32) -> u32 {
+    RECOVER_AFTER_STEPS
+        .saturating_mul(1u32 << n.min(16))
+        .min(RECOVER_MAX_STEPS)
+}
+
+/// Whether a stopped driver may recover at all: a stop by request (the world is closing) and an unknown outcome (a
+/// transaction that may have landed: never resent) stay terminal.
+pub fn recoverable(s: &Step) -> bool {
+    matches!(s, Step::Stopped(why) if why != "stopped by request")
+}
+
+/// What the reveal step does with an unrevealed march whose reveal is otherwise due (pure; reveal-under-load):
+/// `Reveal` while the window is open (or THE anchor is not posted yet: the program admits a reveal before it);
+/// `Missed` once `now ≥ A + W` — the program refuses a late reveal, so the march is settled as the program settles an
+/// unrevealed one (the destination's bells are resolved without it, then SettleTransit: Routed, the host comes home),
+/// never forced and never a stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RevealDue {
+    Reveal,
+    Missed { close: i64 },
+}
+pub fn reveal_due(anchor_ts: Option<i64>, now: i64, close_of: impl Fn(i64) -> i64) -> RevealDue {
+    match anchor_ts.map(close_of) {
+        Some(close) if now >= close => RevealDue::Missed { close },
+        _ => RevealDue::Reveal,
+    }
+}
 /// The world phase's transactions per step (bounded; each awaited; after the village's own work). A natural turn (600 s)
 /// needs about 5 world transactions for ~31 provinces in 16 regions (3 PostAnchorMulti of 7 regions, ~2 FastForward of
 /// 16 turns); the keeper ticks every 10 s, so one per step sustains the natural clock but not a compressed one.
@@ -626,6 +669,18 @@ pub struct LegacyMarchDriver {
     known: std::collections::BTreeMap<(u64, u32), Known>,
     /// Marches already reported as never revealable by their route (fix-wide-breaks BREAK-4): said once each.
     noted_closed: Vec<(u64, u32)>,
+    /// Marches whose reveal window closed before they were revealed (reveal-under-load): said once each, then settled
+    /// as the program settles an unrevealed march.
+    noted_missed: Vec<(u64, u32)>,
+    /// Measurement (reveal-under-load): reveals sent by the start-of-pass sweep / by the ordinary step, and windows missed.
+    pub reveals_swept: u32,
+    pub reveals_stepped: u32,
+    pub reveals_missed: u32,
+    /// While true, `transit_step` only reveals (the sweep): every other due step answers a wait.
+    reveal_mode: bool,
+    /// Steps taken while stopped, and how many times the driver recovered ([`recover_after`]).
+    stopped_steps: u32,
+    pub recoveries: u32,
     terminal: Option<Step>,
     pub log: Vec<String>,
     /// The provinces where a settled march's host STANDS (`(dest, host_id)`, never the home: that is the origin
@@ -673,6 +728,13 @@ impl LegacyMarchDriver {
             land_timeout: crate::keeper_loop::LAND_TIMEOUT,
             known: Default::default(),
             noted_closed: vec![],
+            noted_missed: vec![],
+            reveals_swept: 0,
+            reveals_stepped: 0,
+            reveals_missed: 0,
+            reveal_mode: false,
+            stopped_steps: 0,
+            recoveries: 0,
             terminal: None,
             log: vec![],
             stands: vec![],
@@ -790,16 +852,85 @@ impl LegacyMarchDriver {
         }
     }
 
-    /// At most one transaction (module doc). After `Unknown` or `Stopped`, every later call returns it.
+    /// At most one transaction (module doc). After `Unknown` (or a stop by request) every later call returns it. After any
+    /// other `Stopped`, later calls return it for [`recover_after`] steps, then the driver forgets what it remembered
+    /// (memory only) and steps again from the chain as it is now (reveal-under-load: never stopped for good).
     pub async fn step(&mut self, state: &Shared) -> Step {
         if let Some(t) = &self.terminal {
-            return t.clone();
+            if !recoverable(t) || *self.stop.borrow() {
+                return t.clone();
+            }
+            self.stopped_steps += 1;
+            if self.stopped_steps < recover_after(self.recoveries) {
+                return t.clone();
+            }
+            eprintln!(
+                "{}",
+                serde_json::json!({"legacy_march": "recovered", "after_steps": self.stopped_steps, "recovery": self.recoveries + 1, "was": format!("{t:?}")})
+            );
+            self.terminal = None;
+            self.stopped_steps = 0;
+            self.recoveries += 1;
+            self.known.clear();
         }
         let s = self.step_inner(state).await;
         if matches!(s, Step::Unknown { .. } | Step::Stopped(_)) {
             self.terminal = Some(s.clone());
         }
         s
+    }
+
+    /// Whether the driver has ended for good (an unknown outcome, or a stop by request): only then is it skipped.
+    pub fn ended(&self) -> bool {
+        self.terminal
+            .as_ref()
+            .is_some_and(|t| !recoverable(t) || *self.stop.borrow())
+    }
+
+    /// reveal-under-load (verify-pr98 BREAK-2): ONLY the due reveals of this village's ordinary marches, every one of
+    /// them (one transaction each), before anything else of the pass — the keeper loop calls it at the start of every
+    /// pass and again before every village's own pass, so no keeper of the loop posts THE anchor of a bell (which starts
+    /// the reveal window's clock: it closes at A + W, about ten wall seconds at ×60) while a reveal of that bell waits
+    /// behind other work. The program admits a reveal before THE anchor exists. Nothing else is sent here; a refusal
+    /// or a fact it cannot drive is left to the ordinary step (it stops and recovers there); an unknown outcome ends
+    /// the driver as everywhere.
+    pub async fn reveal_only(&mut self, state: &Shared) -> Vec<Step> {
+        if self.terminal.is_some() || *self.stop.borrow() {
+            return vec![];
+        }
+        let read = {
+            let c = lock(state);
+            let h = self.read(&c, &self.holding, Holding::decode);
+            let season = self.read(&c, &self.a.season, Season::decode);
+            let clock = lk::season_clock(&c, &self.a).ok();
+            (h, season, clock)
+        };
+        let (Some(h), Some(season), Some(clock)) = read else {
+            return vec![];
+        };
+        let v2 = season.is_v2();
+        let mut out = vec![];
+        for (slot, t) in live_transits(&h) {
+            if t.state != T_SETTLED {
+                continue;
+            }
+            self.reveal_mode = true;
+            let s = self.transit_step(state, &h, v2, &clock, slot, t).await;
+            self.reveal_mode = false;
+            match s {
+                Step::Landed(..) => {
+                    self.reveals_swept += 1;
+                    out.push(s);
+                }
+                Step::Unknown { .. } => {
+                    self.terminal = Some(s.clone());
+                    out.push(s);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        out
     }
 
     fn read<T>(
@@ -1271,6 +1402,11 @@ impl LegacyMarchDriver {
                     Ok(v) => v,
                     Err(e) => return Step::Stopped(format!("cannot read the origin: {e}")),
                 };
+                if self.reveal_mode {
+                    return Step::Wait(format!(
+                        "slot {slot}: departed, not settled (no reveal due)"
+                    ));
+                }
                 if !departure_due(&t, origin.resolved_next) {
                     return Step::Wait(format!(
                         "slot {slot}: the origin driver resolves departure bell {} first",
@@ -1356,6 +1492,11 @@ impl LegacyMarchDriver {
                 .account(&self.a.province(dest.0, dest.1))
                 .is_none();
             if absent {
+                if self.reveal_mode {
+                    return Step::Wait(format!(
+                        "slot {slot}: no Province at the destination (never revealed)"
+                    ));
+                }
                 return self
                     .settle_absent(state, h, v2, clock, slot, &t, &d, dest)
                     .await;
@@ -1436,15 +1577,36 @@ impl LegacyMarchDriver {
                     );
                 }
             }
-            if !mine && closed_path.is_none() && inputs.is_none() && dv.resolved_next <= arrive {
+            let now = lock(state).unix_timestamp();
+            let due =
+                (!mine && closed_path.is_none() && inputs.is_none() && dv.resolved_next <= arrive)
+                    .then(|| reveal_due(anchor_a, now, |a_ts| clock.reveal_close(arrive, a_ts)));
+            if let Some(RevealDue::Missed { close }) = due {
+                // (reveal-under-load, verify-pr98 BREAK-2: the window closed before this march was revealed — under load
+                //  a pass can be longer than the window. The program refuses a late reveal, and settles an unrevealed
+                //  march: the destination's bells are resolved without it and SettleTransit routes the host home. So
+                //  the driver goes on with exactly that (steps 5-7 below), as for a route that cannot be revealed —
+                //  never forced, and never a stop: before this the village's driver stopped for good and the
+                //  destination, and every province where its hosts stand, froze for the rest of the world.)
+                if self.reveal_mode {
+                    return Step::Wait(format!(
+                        "slot {slot}: the reveal window of bell {arrive} closed"
+                    ));
+                }
+                if !self.noted_missed.contains(&key) {
+                    self.noted_missed.push(key);
+                    self.reveals_missed += 1;
+                    eprintln!(
+                        "{}",
+                        serde_json::json!({"legacy_march": "reveal-missed", "slot": slot, "arrive": arrive, "dest": [dest.0, dest.1], "late_s": now - close, "why": "the reveal window closed before the reveal: settled unrevealed (routed home), as the program settles it"})
+                    );
+                }
+            }
+            if due == Some(RevealDue::Reveal) {
                 // (fix-wide-breaks BREAK-2, as the wide destination driver: the reveal is not held for THE anchor — the
                 //  program admits it before the anchor exists, and the window closes only at A + W; at ×60 that window
                 //  is ten wall seconds, shorter than a keeper pass over many villages)
-                let now = lock(state).unix_timestamp();
-                if let Some(a_ts) = anchor_a.filter(|a_ts| now >= clock.reveal_close(arrive, *a_ts))
-                {
-                    return Step::Stopped(format!("the reveal window of bell {arrive} closed with transit slot {slot} unrevealed (anchor at {a_ts}): not forced"));
-                }
+                let left = anchor_a.map(|a_ts| clock.reveal_close(arrive, a_ts) - now);
                 let entries: [Option<SlotEntry>; 4] = core::array::from_fn(|i| {
                     slots4[i].as_ref().map(|s| SlotEntry {
                         host_id: s.host_id,
@@ -1469,9 +1631,23 @@ impl LegacyMarchDriver {
                     Err(e) => return Step::Stopped(format!("transit slot {slot}: {e}")),
                 };
                 let ix = ix::reveal(&self.a, me, &args);
-                return self
+                let s = self
                     .checked(state, ix, &format!("Reveal(slot {slot}, bell {arrive})"))
                     .await;
+                if matches!(s, Step::Landed(..)) {
+                    if !self.reveal_mode {
+                        self.reveals_stepped += 1;
+                    }
+                    // (measurement: how much of the window was left — `null` = before THE anchor was posted)
+                    eprintln!(
+                        "{}",
+                        serde_json::json!({"legacy_march": "revealed", "slot": slot, "arrive": arrive, "dest": [dest.0, dest.1], "sweep": self.reveal_mode, "left_s": left})
+                    );
+                }
+                return s;
+            }
+            if self.reveal_mode {
+                return Step::Wait(format!("slot {slot}: no reveal due"));
             }
             // 5./6. the destination's bells up to and including the arrival, oldest first
             if dv.resolved_next <= arrive {
@@ -2120,6 +2296,102 @@ mod tests {
             absent_destination(Some(100), 9_999, after),
             AbsentDest::Settle
         );
+    }
+
+    #[test]
+    fn a_reveal_is_due_until_the_window_closes_and_a_missed_one_is_never_a_stop() {
+        // (reveal-under-load, verify-pr98 BREAK-2: before THE anchor the program admits the reveal; from A + W it
+        //  refuses it, and the march is then settled unrevealed — the old driver stopped there for good)
+        let close = |a: i64| a + 250;
+        assert_eq!(
+            reveal_due(None, 1_000, close),
+            RevealDue::Reveal,
+            "before THE anchor"
+        );
+        assert_eq!(
+            reveal_due(Some(900), 1_149, close),
+            RevealDue::Reveal,
+            "inside the window"
+        );
+        assert_eq!(
+            reveal_due(Some(900), 1_150, close),
+            RevealDue::Missed { close: 1_150 },
+            "at A + W: closed"
+        );
+        let src = include_str!("legacy_march.rs");
+        let body = &src[src.find("async fn transit_step(").unwrap()
+            ..src.find("async fn settle_absent(").unwrap()];
+        assert!(
+            !body.contains("not forced\"));"),
+            "a closed window is never a Stopped any more"
+        );
+        assert!(
+            body.contains("RevealDue::Missed { close }"),
+            "a missed window goes on to the unrevealed settlement"
+        );
+    }
+
+    #[test]
+    fn a_stop_recovers_with_a_growing_wait_but_an_unknown_or_a_requested_stop_never_does() {
+        assert_eq!(recover_after(0), RECOVER_AFTER_STEPS);
+        assert_eq!(recover_after(1), 2 * RECOVER_AFTER_STEPS);
+        assert_eq!(recover_after(2), 4 * RECOVER_AFTER_STEPS);
+        assert_eq!(recover_after(30), RECOVER_MAX_STEPS, "bounded");
+        assert!(recoverable(&Step::Stopped(
+            "Reveal(slot 0, bell 9) simulation: refused".into()
+        )));
+        assert!(!recoverable(&Step::Stopped("stopped by request".into())));
+        assert!(!recoverable(&Step::Unknown {
+            signature: "s".into(),
+            why: "not seen".into()
+        }));
+        assert!(!recoverable(&Step::Wait("w".into())));
+    }
+
+    #[tokio::test]
+    async fn a_stopped_driver_waits_then_reads_the_chain_again_and_is_never_skipped() {
+        // a chain with no Holding: every real step stops ("not readable"); the driver must come back to it again and
+        // again (each time after a longer wait), never ending for good
+        let state: Shared = std::sync::Arc::new(std::sync::Mutex::new(localnet::Chain::new(
+            localnet::Config::default(),
+        )));
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let mut d = LegacyMarchDriver::new(
+            HoldingRef {
+                p: 3,
+                q: -1,
+                site: 0,
+            },
+            Keypair::new(),
+            rx,
+        );
+        let first = d.step(&state).await;
+        assert!(
+            matches!(&first, Step::Stopped(w) if w.contains("not readable")),
+            "{first:?}"
+        );
+        assert!(d.terminal().is_some() && !d.ended(), "stopped, not ended");
+        for _ in 1..RECOVER_AFTER_STEPS {
+            assert_eq!(
+                d.step(&state).await,
+                first,
+                "the stop is answered while it waits"
+            );
+        }
+        assert_eq!(d.recoveries, 0);
+        let again = d.step(&state).await;
+        assert!(matches!(again, Step::Stopped(_)));
+        assert_eq!(
+            d.recoveries, 1,
+            "it read the chain again after {RECOVER_AFTER_STEPS} steps"
+        );
+        for _ in 0..recover_after(1) {
+            d.step(&state).await;
+        }
+        assert_eq!(d.recoveries, 2, "the next recovery after a doubled wait");
+        assert!(!d.ended());
+        tx.send(true).unwrap();
+        assert!(d.ended(), "a stop by request ends it");
     }
 
     #[test]
@@ -3223,12 +3495,17 @@ mod real_legacy {
             let mut pre_capture_milli: Option<u32> = None;
             let mut donor_after: Option<Option<fclient::decode::Entry>> = None;
             let mut return_diff: Option<(u32, u32)> = None;
+            let mut legacy_seen = 0usize;
             for i in 0..4000 {
                 let reserve_before_tick = reserve_of(&state);
                 let had_return = seen.iter().any(|s| s.contains("\"SettleReturn("));
                 if taken.is_none() { if let Some(e) = donor_of(&state) { pre_capture_milli = Some(e.troops); } }
                 assert!(pilot.tick(&state).await, "the keeper stopped: {:?}; seen {:?}", pilot.keeper.status, seen.len());
-                for s in [pilot.keeper.status.destination_step.clone(), pilot.keeper.status.origin_step.clone()].into_iter().flatten() {
+                // (the legacy driver's own log: a Reveal lands in the pass's opening sweep since reveal-under-load)
+                let legacy_log = pilot.legacy.as_ref().unwrap().log.clone();
+                let legacy_new = legacy_log[legacy_seen.min(legacy_log.len())..].to_vec();
+                legacy_seen = legacy_log.len();
+                for s in legacy_new.into_iter().chain(pilot.keeper.status.origin_step.clone()) {
                     if s.starts_with("Landed") && !seen.contains(&s) { seen.push(s); }
                 }
                 assert!(pilot.keeper.status.unknown_signature.is_none(), "an unknown outcome: {:?}", pilot.keeper.status);
@@ -3348,7 +3625,7 @@ mod real_legacy {
     #[test]
     #[ignore]
     fn a_real_ordinary_march_departs_arrives_at_home_and_settles() {
-        run(false);
+        run(false, false);
     }
 
     /// The same, with the ONE Depart going one step into a neighbouring province that exists on this chain (the
@@ -3356,10 +3633,22 @@ mod real_legacy {
     #[test]
     #[ignore]
     fn a_real_ordinary_march_departs_arrives_in_another_province_and_settles() {
-        run(true);
+        run(true, false);
     }
 
-    fn run(other: bool) {
+    /// reveal-under-load (verify-pr98 BREAK-2), a simulated LATE PASS: the same march into the neighbouring province,
+    /// but the arrival bell's anchor is posted (by the keeper alone, as another village's keeper or the world phase
+    /// would) and then the chain's clock passes the reveal window before the march driver gets its turn — what a long
+    /// pass under load did. The driver must not stop: no Reveal is sent (the program refuses a late one), the
+    /// destination's bells are resolved without it, SettleTransit routes the host home and the slot is free.
+    #[test]
+    #[ignore]
+    fn a_real_ordinary_march_whose_reveal_window_closed_is_settled_home_and_its_destination_resolves(
+    ) {
+        run(true, true);
+    }
+
+    fn run(other: bool, late: bool) {
         let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
         assert_eq!(
             need("WYLLS_LEGACY_MARCH_APPROVED"),
@@ -3379,7 +3668,12 @@ mod real_legacy {
             .build()
             .unwrap();
         rt.block_on(async {
-            let (rpc, ws) = crate::destination_real::ports(41_940);
+            // (WYLLS_REAL_PORT_BASE: another free range than the launcher tests' 41920–41989 when those are busy)
+            let base = std::env::var("WYLLS_REAL_PORT_BASE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(41_940);
+            let (rpc, ws) = crate::destination_real::ports(base);
             let player = Keypair::new();
             let w = player.pubkey();
             let world = crate::natural_play::prepare(&art, w, rpc, ws)
@@ -3574,19 +3868,54 @@ mod real_legacy {
             // the keeper: origin resolve, SettleDeparture, Decrypt, Reveal, gather/seed/resolve at home, SettleTransit
             let mut seen: Vec<String> = vec![];
             let mut reveal_ts: Option<i64> = None;
+            let mut made_late = false;
+            let mut legacy_seen = 0usize;
+            let dest_region = lk::view(&lock(&state), &a, dest.0 as i16, dest.1 as i16)
+                .unwrap()
+                .region;
             for _ in 0..240 {
+                // (the late pass: once the arrival bell has ended and the departure is settled, THE anchor is posted by
+                //  the keeper's own tick alone, then the clock passes A + W before any march driver step)
+                let now = lock(&state).unix_timestamp();
+                if late
+                    && !made_late
+                    && clock.bell_at(now).unwrap() > arrive
+                    && Holding::decode(&bytes(&state, &holding)).unwrap().transit[0].state
+                        == T_SETTLED
+                {
+                    let mut a_ts = None;
+                    for _ in 0..20 {
+                        assert!(pilot.keeper.tick(&state).await, "the keeper stopped");
+                        a_ts = lk::anchor_landed(&lock(&state), &a, arrive, dest_region).unwrap();
+                        if a_ts.is_some() {
+                            break;
+                        }
+                        let t = lock(&state).unix_timestamp();
+                        crate::destination_real::advance(&state, t + 5);
+                    }
+                    let a_ts = a_ts.expect("THE anchor of the arrival bell");
+                    let close = clock.reveal_close(arrive, a_ts);
+                    crate::destination_real::advance(&state, close + 1);
+                    eprintln!(
+                        "late pass: anchor at {a_ts}, window closed at {close}, now {}",
+                        close + 1
+                    );
+                    made_late = true;
+                }
                 assert!(
                     pilot.tick(&state).await,
                     "the keeper stopped: {:?}; seen {seen:?}",
                     pilot.keeper.status
                 );
-                // (in the order the Pilot ran them this tick: the legacy driver before the origin driver)
-                for s in [
-                    pilot.keeper.status.destination_step.clone(),
-                    pilot.keeper.status.origin_step.clone(),
-                ]
-                .into_iter()
-                .flatten()
+                // (in the order the Pilot ran them this tick: the legacy driver before the origin driver. The legacy
+                //  driver's own log of what it sent, not its status line: since reveal-under-load a Reveal lands in the
+                //  pass's opening sweep and the same pass's later step overwrites `destination_step`)
+                let legacy_log = pilot.legacy.as_ref().unwrap().log.clone();
+                let legacy_new = legacy_log[legacy_seen.min(legacy_log.len())..].to_vec();
+                legacy_seen = legacy_log.len();
+                for s in legacy_new
+                    .into_iter()
+                    .chain(pilot.keeper.status.origin_step.clone())
                 {
                     if s.starts_with("Landed") && !seen.contains(&s) {
                         seen.push(s);
@@ -3615,6 +3944,23 @@ mod real_legacy {
                 "reveal→settle: {} chain-seconds",
                 lock(&state).unix_timestamp() - reveal_ts.unwrap_or(0)
             );
+            if late {
+                assert!(made_late, "the late pass happened");
+                assert!(
+                    !seen.iter().any(|s| s.contains("\"Reveal(")),
+                    "no late Reveal is sent: {seen:?}"
+                );
+                let l = pilot.legacy.as_ref().unwrap();
+                assert_eq!(l.reveals_missed, 1, "the missed window is counted once");
+                assert_eq!(l.recoveries, 0, "it never stopped: {:?}", l.log);
+                assert!(
+                    lk::view(&lock(&state), &a, dest.0 as i16, dest.1 as i16)
+                        .unwrap()
+                        .resolved_next
+                        > arrive,
+                    "the destination resolved past the arrival (not frozen)"
+                );
+            } else
             // the plan's order: departure resolve → SettleDeparture → Reveal → arrival gather → ARRIVAL resolve → SettleTransit
             if let Err(e) = landed_order::check(&seen, 0, depart_bell, arrive) {
                 panic!("{e}");
