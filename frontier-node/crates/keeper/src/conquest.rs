@@ -2,7 +2,7 @@
 //!
 //! | duty | trigger | write | class | role |
 //! |---|---|---|---|---|
-//! | Contested bells | a v2 Province with a siege, an occupation or a keep contest, or hostile residents on a garrison or keep hex ([`fclient::conquest::contest`]) | the play duty's gather and resolve **every bell**; the skip planner never batches it | D | `gather`, `resolve` |
+//! | Contested bells | a v2 Province with a siege, an occupation or a keep contest, or hostile residents on a garrison or keep hex ([`fclient::conquest::contest`]) | the play duty's gather and resolve **every bell**; the skip planner never batches it; after the tick's send the **contested follow-up** (`Keeper::contested_followup`, ≤ 12 rounds / 6 s) sends the next gather or resolve as soon as the previous one landed, so a contested bell no longer waits a whole tick between its two writes | D | `gather`, `resolve` |
 //! | Idle provinces | nothing contested | the play duty's SkipQuiet at least every 24 bells (4 game hours); **fold-driven:** when a March's oldest unfolded hour is ≥ 3 game hours old, its lagging idle members are skipped at once (R-23) | D | `skip` |
 //! | Capture settlement | a record of kind 3 (capture due) | SettleCapture | D | `settle` |
 //! | Stakes and slots | a record owing a stake or a slot, or (after `end_bell`) a siege that lapsed | SettleSiege | N | `settle` |
@@ -1346,6 +1346,235 @@ mod tests {
         assert!(!d.conquest.hot((p, q)), "taken: no contest");
         assert_eq!(e.keys("skip:"), vec![format!("skip:{p},{q}:{}:1", tb + 1)]);
         assert!(e.keys("gather:").is_empty());
+    }
+
+    /// keep-capture-progress (MC §8.2 "Contested bells", criterion 3): a
+    /// held keep needs a GatherClash and then a ResolveFromInputs every
+    /// bell, and the tick plans one write per province. The tick's
+    /// contested follow-up (`PlayDuty::contested_round`, called again after
+    /// each landing) plans the resolve as soon as the gather landed and the
+    /// next bell's gather as soon as the resolve landed, so a lagging
+    /// contested province moves a bell per two follow-up rounds instead of
+    /// one per two ticks (devnet-page-war P9: 1 → 9 of 72 in 48 bells). It
+    /// never plans a skip, and a peaceful province is not its business.
+    #[tokio::test]
+    async fn cq_contested_round_resolves_once_its_gather_landed() {
+        let mut e = env(&["gather", "resolve", "skip"], 1_008);
+        let mut d = PlayDuty::default();
+        let (p, q) = (3i16, 0i16);
+        let rg = fclient::ix::region_of(3, 0);
+        let b0 = 200u32;
+        let lag = 4u32;
+        let mut pd = testkit::province_v2(p, q, b0);
+        let keep_bells = e.season.conquest.unwrap().keep_bells as u8;
+        testkit::set_keep(&mut pd, 30, 2, keep_bells);
+        let host = fclient::addr::host_id(2, 0, 4, 0, 1).unwrap();
+        testkit::set_entry(&mut pd, 0, host, 4, 0, 30, 2_000_000);
+        e.put(e.addrs.province(3, 0), pd.clone());
+        // A peaceful neighbour in the same tick (skipped by the tick only).
+        let (pp, pq2) = (4i16, -1i16);
+        e.put(e.addrs.province(4, -1), testkit::province_v2(pp, pq2, b0));
+        let rg2 = fclient::ix::region_of(4, -1);
+        for b in b0..b0 + lag {
+            for r in [rg, rg2] {
+                e.anchor(b, r);
+                if let Some(a) = e.beacon.get_mut(&(b, r)) {
+                    a.cache = Some(crate::beacon::CacheInfo {
+                        nonce: 0,
+                        rent_to: Address::new_from_array([1; 32]),
+                        slot: 1,
+                    });
+                }
+                e.put(e.addrs.seed_cache(b, r, 0), testkit::seed_cache());
+            }
+        }
+        let prm = cm::StepParams {
+            genesis_ts: G,
+            end_bell: e.season.end_bell,
+            cq: e.season.conquest.unwrap(),
+        };
+        // The province is `lag` bells behind the clock.
+        let now = after_close(b0 + lag - 1);
+        let mut slot = 20u64;
+        e.play(&mut d, slot, now, &[(3, 0), (4, -1)]).await;
+        assert!(e.engine.is_pending(&format!("gather:{p},{q}:{b0}:all")));
+        let skips = e.keys("skip:");
+        assert!(
+            skips
+                .iter()
+                .all(|k| k.starts_with(&format!("skip:{pp},{pq2}:"))),
+            "only the peaceful province is skipped: {skips:?}"
+        );
+        macro_rules! tick {
+            ($slot:expr) => {
+                Tick {
+                    slot: $slot,
+                    now,
+                    season: &e.season,
+                    clock: SeasonClock::from_season(&e.season),
+                    addrs: &e.addrs,
+                    cfg: &e.cfg,
+                }
+            };
+        }
+        // Nothing landed yet: the follow-up has nothing to plan.
+        {
+            let t = tick!(slot);
+            let n = d
+                .contested_round(&t, &e.port, &mut e.engine, &e.beacon, &mut e.seeds)
+                .await
+                .unwrap();
+            assert_eq!(n, 0, "the gather is still in flight");
+            assert!(d.contested_in_flight(&e.engine));
+        }
+        let landed = |slot: u64| Outcome::Landed {
+            slot,
+            sig: Default::default(),
+            payer: Address::default(),
+            versions: 1,
+            first_slot: slot,
+            already_done: false,
+        };
+        let start_progress = cm::read_keep(&pd).unwrap().unwrap().progress;
+        let mut progress0 = start_progress;
+        for b in b0..b0 + lag {
+            // The gather of b landed (in the tick's send or the last round).
+            let gather = format!("gather:{p},{q}:{b}:all");
+            assert!(e.engine.is_pending(&gather), "bell {b}: gathered");
+            e.engine
+                .cancel(&gather, crate::engine::CancelReason::ChainStateObserved);
+            e.put(
+                e.addrs.clash_inputs(3, 0, b),
+                testkit::clash_inputs_gathered(),
+            );
+            // As the keeper's poll delivers it: the landed write asks for a
+            // fresh read of its province (`read_slot` 0; the follow-up must
+            // still take it).
+            d.on_outcome(&gather, &landed(slot));
+            assert_eq!(d.provinces[&(p, q)].read_slot, 0);
+            slot += 1;
+            e.port.set_clock(slot, now);
+            let t = tick!(slot);
+            let n = d
+                .contested_round(&t, &e.port, &mut e.engine, &e.beacon, &mut e.seeds)
+                .await
+                .unwrap();
+            let resolve = format!("resolve:{p},{q}:{b}");
+            assert_eq!(n, 1, "bell {b}: one write planned");
+            assert!(e.engine.is_pending(&resolve), "bell {b}: resolved at once");
+            // The resolve landed: the native model's step of bell b.
+            e.engine
+                .cancel(&resolve, crate::engine::CancelReason::ChainStateObserved);
+            let rep = cm::report_quiet(&pd, b).unwrap();
+            cm::step(&mut pd, b, &rep, &prm).unwrap();
+            testkit::set_resolved_next(&mut pd, b + 1);
+            e.put(e.addrs.province(3, 0), pd.clone());
+            d.on_outcome(&resolve, &landed(slot));
+            let progress = cm::read_keep(&pd).unwrap().unwrap().progress;
+            assert_eq!(progress, progress0 + 1, "bell {b}: one held bell counted");
+            progress0 = progress;
+            slot += 1;
+            e.port.set_clock(slot, now);
+            let t = tick!(slot);
+            let n = d
+                .contested_round(&t, &e.port, &mut e.engine, &e.beacon, &mut e.seeds)
+                .await
+                .unwrap();
+            if b + 1 < b0 + lag {
+                assert_eq!(n, 1, "bell {}: gathered at once", b + 1);
+                assert!(e
+                    .engine
+                    .is_pending(&format!("gather:{p},{q}:{}:all", b + 1)));
+            } else {
+                // Every closed bell is resolved: the next one has no
+                // anchor yet, so nothing is planned or in flight (the
+                // keeper's follow-up stops here).
+                assert_eq!(n, 0);
+                assert!(!d.contested_in_flight(&e.engine));
+                assert!(e.keys("gather:").is_empty() && e.keys("resolve:").is_empty());
+            }
+            assert_eq!(e.keys("skip:"), skips, "the follow-up never plans a skip");
+        }
+        assert_eq!(d.provinces[&(p, q)].rn, b0 + lag, "as last read");
+        assert_eq!(
+            progress0,
+            start_progress + lag as u8,
+            "one held bell per bell"
+        );
+    }
+
+    /// verify-pr120: the contested follow-up re-reads its provinces, and one
+    /// the read finds no longer contested (here the hostile host left the
+    /// keep hex while its gather was out) waits for the next tick: the
+    /// follow-up plans neither a skip nor a rest for it.
+    #[tokio::test]
+    async fn cq_contested_round_never_skips_a_province_that_calmed_down() {
+        let mut e = env(&["gather", "resolve", "skip"], 1_008);
+        let mut d = PlayDuty::default();
+        let (p, q) = (3i16, 0i16);
+        let rg = fclient::ix::region_of(3, 0);
+        let b0 = 200u32;
+        let lag = 4u32;
+        let mut pd = testkit::province_v2(p, q, b0);
+        let keep_bells = e.season.conquest.unwrap().keep_bells as u8;
+        testkit::set_keep(&mut pd, 30, 2, keep_bells);
+        let host = fclient::addr::host_id(2, 0, 4, 0, 1).unwrap();
+        testkit::set_entry(&mut pd, 0, host, 4, 0, 30, 2_000_000);
+        e.put(e.addrs.province(3, 0), pd.clone());
+        for b in b0..b0 + lag {
+            e.anchor(b, rg);
+            if let Some(a) = e.beacon.get_mut(&(b, rg)) {
+                a.cache = Some(crate::beacon::CacheInfo {
+                    nonce: 0,
+                    rent_to: Address::new_from_array([1; 32]),
+                    slot: 1,
+                });
+            }
+            e.put(e.addrs.seed_cache(b, rg, 0), testkit::seed_cache());
+        }
+        let now = after_close(b0 + lag - 1);
+        let mut slot = 20u64;
+        e.play(&mut d, slot, now, &[(3, 0)]).await;
+        let gather = format!("gather:{p},{q}:{b0}:all");
+        assert!(e.engine.is_pending(&gather), "contested: gathered");
+        assert!(d.provinces[&(p, q)].contested);
+        // The gather ended; meanwhile the province calmed down (no keep
+        // contest, nobody on it): the chain now holds a peaceful Province.
+        e.engine
+            .cancel(&gather, crate::engine::CancelReason::ChainStateObserved);
+        e.put(e.addrs.province(3, 0), testkit::province_v2(p, q, b0));
+        let landed = Outcome::Landed {
+            slot,
+            sig: Default::default(),
+            payer: Address::default(),
+            versions: 1,
+            first_slot: slot,
+            already_done: false,
+        };
+        d.on_outcome(&gather, &landed);
+        slot += 1;
+        e.port.set_clock(slot, now);
+        let t = Tick {
+            slot,
+            now,
+            season: &e.season,
+            clock: SeasonClock::from_season(&e.season),
+            addrs: &e.addrs,
+            cfg: &e.cfg,
+        };
+        let n = d
+            .contested_round(&t, &e.port, &mut e.engine, &e.beacon, &mut e.seeds)
+            .await
+            .unwrap();
+        assert!(!d.provinces[&(p, q)].contested, "the read saw it calm");
+        assert_eq!(n, 0, "nothing planned for a calmed province");
+        assert!(e.keys("skip:").is_empty(), "no skip: {:?}", e.keys("skip:"));
+        assert!(e.keys("ff:").is_empty() && e.keys("rest:").is_empty());
+        assert!(
+            e.engine.pending_keys().is_empty(),
+            "{:?}",
+            e.engine.pending_keys()
+        );
     }
 
     /// The anchors of `from..to` and a play tick after the last one closed.
