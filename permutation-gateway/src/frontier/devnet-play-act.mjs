@@ -18,6 +18,17 @@
 //      verifies;
 //   3. one read of the real accounts (the Citizen, and the village for a village command) at one slot;
 //   4. the replay barrier (these bytes were not submitted before), then ONE sendTransaction, never again.
+//
+// devnet-page-war: the ORDINARY sealed march (legacy Depart 0x50) on the same terms, over its own two routes:
+//   POST /f/devnet-play/march/submit {schema: …-march-submit-v1, name: 'Depart', subject, fields, transaction_b64}
+//   POST /f/devnet-play/march/status {schema: …-march-status-v1, signature} → also `expired` (the blockhash read first)
+// The checks are local play's march validator (local-play-march.mjs `localMarchSubmit` / `localMarchAccountsCheck`):
+// the Depart rebuilt for the ONE signer with the game's builder, byte-compared, the signature verified, the seal's
+// shape, the host of THIS village; then one read of the Citizen, the legacy village and its province; the replay
+// barrier; ONE send. The seal stays opaque here (a drand time-lock): the march is revealed by keeper A from the public
+// round, or from the owner's material the page hands to the keeper (`POST /f/reveal`), never by this gateway.
+// The march's later steps (SettleDeparture, the reveal, the clash, SettleTransit, the return) are keeper A's play
+// roles: nothing else of the war is served here.
 // No key is held, nothing is signed here. Off unless the operator starts the gateway with `--devnet-play`
 // (config.mjs devnetPlayConfigProblems: cluster devnet, an https RPC; the offline test form only on loopback).
 import { createHash } from 'node:crypto';
@@ -28,10 +39,16 @@ import { WIDE_CLAIM } from '../../../permutation-server/web/frontier/flocalplay-
 import { fetchRpc } from './local-play-relay.mjs';
 import { LocalActError, localActAccountOf, localActAccountsCheck, localActSubmit, runnerRejection, sendRefusalDetail } from './local-play-act.mjs';
 import { LOCALNET_PLAYABLE_LANE } from './playable-lane-profile.mjs';
+import { LocalMarchError, localMarchAccountOf, localMarchAccountsCheck, localMarchSubmit, sealBinding } from './local-play-march.mjs';
 
 /** The commands a devnet page sends itself (the first village, its economy, the wide claim). */
 export const DEVNET_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM]);
 export const DEVNET_ACT_ROUTES = Object.freeze({ context: 'POST /f/devnet-play/act/context', submit: 'POST /f/devnet-play/act/submit', status: 'POST /f/devnet-play/act/status' });
+/** devnet-page-war: the ordinary sealed march (Depart) of the devnet page, wallet-paid as the acts. */
+export const DEVNET_MARCH_COMMANDS = Object.freeze(['Depart']);
+export const DEVNET_MARCH_ROUTES = Object.freeze({ submit: 'POST /f/devnet-play/march/submit', status: 'POST /f/devnet-play/march/status' });
+export const DEVNET_MARCH_SUBMIT_SCHEMA = 'frontier-devnet-play-march-submit-v1';
+export const DEVNET_MARCH_STATUS_SCHEMA = 'frontier-devnet-play-march-status-v1';
 export const DEVNET_ACT_INFO_SCHEMA = 'frontier-devnet-play-act-info-v1';
 export const DEVNET_ACT_CONTEXT_SCHEMA = 'frontier-devnet-play-act-context-v1';
 export const DEVNET_ACT_SUBMIT_SCHEMA = 'frontier-devnet-play-act-submit-v1';
@@ -94,7 +111,8 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
   return Object.freeze({
     routes: DEVNET_ACT_ROUTES,
     /** The lane this gateway serves (its own configuration; nothing is read). */
-    info: () => ({ schema: DEVNET_ACT_INFO_SCHEMA, cluster: 'devnet', program: base.program, season: base.season, season_id: seasonId, ruleset_hash: base.rulesetHash, commands: [...DEVNET_ACT_COMMANDS] }),
+    info: () => ({ schema: DEVNET_ACT_INFO_SCHEMA, cluster: 'devnet', program: base.program, season: base.season, season_id: seasonId, ruleset_hash: base.rulesetHash, commands: [...DEVNET_ACT_COMMANDS],
+      march: { commands: [...DEVNET_MARCH_COMMANDS], reveal: 'keeper' } }),
 
     async context(body) {
       if (exact(body, ['schema']) && body.schema === DEVNET_ACT_INFO_SCHEMA) return this.info();
@@ -144,6 +162,52 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
       if (s === null) return { signature: body.signature, status: 'pending', context_slot: slot };
       if (typeof s !== 'object' || Array.isArray(s) || !Object.hasOwn(s, 'err') || !Number.isSafeInteger(s.slot) || s.slot < 0
           || !['processed', 'confirmed', 'finalized'].includes(s.confirmationStatus)) fail('LocalActRpcUnavailable');
+      return { signature: body.signature, status: s.err !== null ? 'failed' : s.confirmationStatus, err: s.err, slot: s.slot, context_slot: slot };
+    },
+
+    /** ONE page-signed Depart (the wallet the only signer, fee payer AND actor), checked as local play's march. */
+    async marchSubmit(body) {
+      const mfail = (code, detail) => { throw new LocalMarchError(code, detail); };
+      if (!(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === DEVNET_MARCH_SUBMIT_SCHEMA && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700)) mfail('LocalMarchInvalid');
+      if (!DEVNET_MARCH_COMMANDS.includes(body.name)) mfail('LocalMarchNotAllowed');
+      let signer = null;
+      try { const t = parseTransaction(Buffer.from(body.transaction_b64, 'base64')); if (t.signers.length === 1) signer = t.signers[0]; } catch { mfail('LocalMarchInvalid'); }
+      if (!address(signer)) mfail('LocalMarchSigner');
+      const pins = Object.freeze({ ...base, wallet: signer });
+      const ok = localMarchSubmit(body, pins, { schema: DEVNET_MARCH_SUBMIT_SCHEMA }), digest = sha(ok.message);
+      if (seen.has(digest)) mfail('LocalMarchMessageUsed');
+      const citizenAt = A.of('Citizen', { wallet: pins.wallet });
+      const holdingAt = A.of('Holding', ok.intent.subject.holding), provinceAt = A.of('Province', ok.intent.subject.province);
+      let got; try { got = await rpc('getMultipleAccounts', [[citizenAt, holdingAt, provinceAt], { encoding: 'base64', commitment: 'confirmed' }]); } catch { mfail('LocalMarchRpcUnavailable'); }
+      const slot = got?.result?.context?.slot, rows = got?.result?.value;
+      if (got?.error !== undefined || !Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== 3) mfail('LocalMarchRpcUnavailable');
+      localMarchAccountsCheck(ok.intent, pins, { citizenAt, holdingAt }, rows.map(localMarchAccountOf));
+      if (seen.has(digest)) mfail('LocalMarchMessageUsed');   // (re-checked after the await; synchronous from here to the send)
+      remember(digest, Object.freeze({ signature: ok.signature, name: 'Depart', blockhash: ok.blockhash, at: now() }));
+      const binding = sealBinding(ok.intent);
+      let sent;
+      try { sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]); }
+      catch { return { status: 'unknown', name: 'Depart', signature: ok.signature, ...binding, status_route: DEVNET_MARCH_ROUTES.status }; }
+      if (sent?.error) throw new LocalMarchError(runnerRejection(sent.error) ? 'LocalMarchRejected' : 'LocalMarchSendRefused', sendRefusalDetail(sent.error, ok.signature));
+      return { status: sent?.result === ok.signature ? 'submitted' : 'unknown', name: 'Depart', signature: ok.signature, ...binding, status_route: DEVNET_MARCH_ROUTES.status };
+    },
+
+    /** The chain's word on a march this gateway sent; `expired` once its blockhash is no longer valid and it is unknown. */
+    async marchStatus(body) {
+      const mfail = code => { throw new LocalMarchError(code); };
+      if (!(exact(body, ['schema', 'signature']) && body.schema === DEVNET_MARCH_STATUS_SCHEMA && typeof body.signature === 'string' && body.signature.length <= 100)) mfail('LocalMarchInvalid');
+      const entry = [...seen.values()].find(e => e.signature === body.signature && e.name === 'Depart');
+      if (!entry) mfail('LocalMarchUnknownSignature');
+      const q = async (m, p) => { let r; try { r = await rpc(m, p); } catch { mfail('LocalMarchRpcUnavailable'); } if (!r || r.error !== undefined) mfail('LocalMarchRpcUnavailable'); return r; };
+      const v = await q('isBlockhashValid', [entry.blockhash, { commitment: 'processed' }]);
+      const expired = v.result?.value === false;
+      const r = await q('getSignatureStatuses', [[body.signature], { searchTransactionHistory: true }]);
+      const value = r.result?.value, slot = r.result?.context?.slot;
+      if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(value) || value.length !== 1) mfail('LocalMarchRpcUnavailable');
+      const s = value[0];
+      if (s === null) return { signature: body.signature, status: expired ? 'expired' : 'pending', context_slot: slot };
+      if (typeof s !== 'object' || Array.isArray(s) || !Object.hasOwn(s, 'err') || !Number.isSafeInteger(s.slot) || s.slot < 0
+          || !['processed', 'confirmed', 'finalized'].includes(s.confirmationStatus)) mfail('LocalMarchRpcUnavailable');
       return { signature: body.signature, status: s.err !== null ? 'failed' : s.confirmationStatus, err: s.err, slot: s.slot, context_slot: slot };
     },
 

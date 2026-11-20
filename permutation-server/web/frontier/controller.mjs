@@ -55,6 +55,7 @@ import * as localReturn from './flocalplay-return.mjs';
 import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
 import * as devnetPlayMod from './fdevnetplay.mjs';
+import { openDevnetBook } from './fdevnetbook.mjs';
 import * as localMarch from './flocalplay-march.mjs';
 import { localPlayIdentityOk } from './flocalplay.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
@@ -520,6 +521,40 @@ function playLane() {
   const sign = async wire => wallet.signTransaction(wire);
   return { lane: devnetPlay.lane, identity: own.identity, gate: devnetGate, otherwise: 'general',
     deps: { allowed: devnetGate, identity: () => devnetOwn()?.identity ?? null, rulesetHash: seasonRulesetHex, signer: () => devnetOwn()?.signer ?? null, lane: devnetPlay.lane, sign } };
+}
+
+// DEVNET PLAY — the ordinary sealed march (devnet-page-war): the march book kept ENCRYPTED in this browser for the
+// connected wallet (fdevnetbook.mjs: a non-extractable AES-GCM key in IndexedDB; a reload keeps the reveal halves), and
+// the march sender of local play over the devnet lane (flocalplay-march.mjs devnetMarchLane): the connected wallet
+// signs the Depart, the gateway forwards it once; keeper A settles, reveals, resolves and settles the transit.
+let devnetBook = null, devnetBookOpening = null, devnetMarchSender = null, devnetMarchKey = null;
+/** The devnet march book of the connected wallet (opened once per wallet), or null when it cannot be kept here. */
+async function devnetBookNow() {
+  const a = FS.wallet?.address ?? null;
+  if (!devnetPlay || !a) return null;
+  if (devnetBook?.wallet === a) return devnetBook;
+  if (devnetBookOpening?.wallet !== a) {
+    const p = openDevnetBook(devnetPlay, a).then(b => { if (devnetBookOpening?.p === p) devnetBook = b; return b; }, () => null);
+    devnetBookOpening = { wallet: a, p };
+  }
+  const b = await devnetBookOpening.p;
+  return b?.wallet === (FS.wallet?.address ?? null) ? b : null;
+}
+/** Where the march book lives: the devnet encrypted book on a devnet season (once open), the browser's otherwise. */
+const marchStore = () => (devnetPlay && devnetBook && devnetBook.wallet === (FS.wallet?.address ?? null) ? devnetBook.storage : book.browserStorage);
+/** The devnet march sender for the connected wallet and its book key, or null (not a devnet page, or no book here). */
+async function devnetMarchSenderNow() {
+  if (!devnetOwn()) return null;
+  const bk = await devnetBookNow(), key = bookKey();
+  if (!bk || !key) return null;
+  if (!devnetMarchSender || devnetMarchKey !== `${bk.wallet}|${key}`) {
+    devnetMarchKey = `${bk.wallet}|${key}`;
+    devnetMarchSender = Object.freeze({ book: bk, sender: localMarch.createLocalMarchSender({ allowed: devnetGate, open: () => devnetGate().ok === true,
+      identity: () => devnetOwn()?.identity ?? null, rulesetHash: seasonRulesetHex, signer: () => devnetOwn()?.signer ?? null,
+      lane: localMarch.devnetMarchLane(devnetPlay.seasonId), storage: bk.storage, bookKey: key,
+      sign: localMarch.connectedWalletSigner(w => wallet.signTransaction(w)) }) });
+  }
+  return devnetMarchSender;
 }
 
 // LOCAL PLAY — the ordinary march (flocalplay-march.mjs): the relay's instance-verified capability (read once after
@@ -1301,7 +1336,9 @@ async function readMarches() {
   // (2026-11-17, ⑦: the context and the viewer this reading BEGAN under — kept on the mark the list is written with, so
   //  a list read before a change of herald, viewer or world, or for another village, is never taken for this one's)
   const readCtx = contextSeq, readViewer = viewerKey() ?? null;
-  const store = book.browserStorage;
+  // (devnet play: the encrypted book of the connected wallet; opened once, before the first read)
+  if (devnetPlay) await devnetBookNow().catch(() => null);
+  const store = marchStore();
   // (the Holding and the slots of the last `refresh`)
   const holding = activeHolding(FS) ?? null, slotsOfMine = mySlots;
   // (round 29: what this reading belongs to; a change of any of it while the reading waits — another herald, world,
@@ -1354,7 +1391,8 @@ async function readMarches() {
       e = cur.find(x => sameMarch(x, first)) ?? e;
     }
     // (local play: the keeper sends the SettleTransit, as it reveals — the relay serves no page settle, so no button)
-    const settleReady = !localPlay && !!transit && !!env && transit.state >= 2 && pl.state === 'resolved' && pl.close !== null && now() >= pl.close + 600;
+    // (devnet play: keeper A's `settle` role sends it, as it reveals: no page settle)
+    const settleReady = !localPlay && !devnetPlay && !!transit && !!env && transit.state >= 2 && pl.state === 'resolved' && pl.close !== null && now() >= pl.close + 600;
     // (`unread`: which of this march's reads did not come — for the tracker's words and its "read again"; nothing above reads it)
     marches.push({ entry: e, transit, facts: { nowBell: b, pipeline: pl.state, slotPresent: !!slot, settleReady }, record, slot, env, dest, region,
       unread: slotRead.failed || factsRead.failed ? { slot: !!slotRead.failed, facts: !!factsRead.failed, code: slotRead.code ?? factsRead.code ?? null } : null });
@@ -3032,7 +3070,20 @@ async function sendTheMarch() {
     // A turn that rolls over between composing and sending: the march is sent again with the arrival moved (fmarch.sendMarchRetrying).
     // (round 29: the identity this order is sent under, kept on its record — see marchScope)
     const sentScope = marchScope(h);
-    const r = localPlay ? await sendMarch(m, {
+    // (devnet play: the devnet march sender, ONE attempt as local play's — no rollover resend, no nudge, no session;
+    //  the book entry is kept encrypted BEFORE the wallet is asked to sign)
+    const dm = !localPlay && devnetOwn() ? await devnetMarchSenderNow() : null;
+    if (!localPlay && devnetOwn() && !dm) { failed({ code: 'NoIndexedDB' }); return; }
+    const devnetDeps = dm ? (() => {
+      const d = dm.sender.depsFor({ holding: { p: h.p, q: h.q, site: h.site }, province: { p: c.origin.p, q: c.origin.q } });
+      return { ...d, submit: async req => { try { await dm.book.flush(); } catch { return { ok: false, code: 'NoIndexedDB', error: 'NoIndexedDB' }; } return d.submit(req); } };
+    })() : null;
+    const r = dm ? await sendMarch(m, {
+      seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey, accounts: null, session: null,
+      ...devnetDeps,
+      onStep: s => { c.step = s; invalidate('panel'); },
+      earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
+    }) : localPlay ? await sendMarch(m, {
       seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey, accounts: null, session: null,
       ...localMarchSenderNow().depsFor({ holding: { p: h.p, q: h.q, site: h.site }, province: { p: c.origin.p, q: c.origin.q } }),
       onStep: s => { c.step = s; invalidate('panel'); },
@@ -3056,7 +3107,7 @@ async function sendTheMarch() {
       dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null, arriveBell: arrive, home, scope: sentScope, transitSlot: Number.isInteger(r.entry?.transitSlot) ? r.entry.transitSlot : null });
     // (local play: a march that carries a signature WAS sent — it is never recorded as "not sent". Not confirmed: held
     //  by its signature (the memory book keeps it `sent`; only "ask" is offered). Failed on chain: sent, and refused there)
-    const localSent = localPlay && !r.ok && typeof r.signature === 'string' && r.signature !== '';
+    const localSent = (localPlay || !!dm) && !r.ok && typeof r.signature === 'string' && r.signature !== '';
     if (localSent && r.code !== 'TransactionFailed') orderUnconfirmed(marchOrder, r.signature);
     else orderAnswered(marchOrder, r.ok, r.ok ? {} : localSent ? { code: r.code ?? null, sent: true, signature: r.signature } : { code: r.code ?? null, sent: false });
     // (the board keeps the screen: the column sets out there; the marches drawer is one press away. It opened by itself
@@ -3074,7 +3125,7 @@ async function sendTheMarch() {
       // (2026-11-19) sent, outcome not known: said as that (the code makes it the "unconfirmed" state, not a refusal titled
       // with another action's words — it read 「編成はまだ命じられていません」), and asked again a bounded number of times;
       // a march the runner rejected, or one refused before the send, goes back to its card: "not sent", with the reason
-      if (localSent && r.code !== 'TransactionFailed') { setNotice({ busy: false, text: localMarchUnconfirmedText(r.signature), code: 'LocalActUnconfirmed', unsent: 'march-send' }); recheckHeldMarch(r.signature); }
+      if (localSent && r.code !== 'TransactionFailed') { setNotice({ busy: false, text: localMarchUnconfirmedText(r.signature), code: 'LocalActUnconfirmed', unsent: 'march-send' }); if (localPlay) recheckHeldMarch(r.signature); }
       else if (localPlay && r.code === 'LocalMarchRejected') failed({ ...r, unsent: 'march-send', text: () => `${localMarchRejectedText(r)} ${L`命令は送られていません。カードはそのままです。確かめてから、もう一度押してください。`}` });
       else failed(localPlay ? { ...r, unsent: 'march-send' } : r);
     }

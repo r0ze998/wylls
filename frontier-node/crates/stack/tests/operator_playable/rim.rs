@@ -94,6 +94,17 @@ pub struct Page {
     pub out: std::path::PathBuf,
 }
 
+/// P8/P9 (devnet-page-war): the legacy war after the rim opened ([`war`]).
+#[path = "war.rs"]
+pub mod war;
+
+/// P8/P9: keeper A's API (its `/v1/reveal` takes a participant's reveal material; `/v1/status`).
+#[derive(Clone)]
+pub struct War {
+    pub keeper_api: u16,
+    pub token: String,
+}
+
 pub struct Ctx<'a> {
     /// P5: keeper A runs the wide rings (P6) and the `wide-tickets` role (P7).
     pub keeper_wide: bool,
@@ -101,6 +112,8 @@ pub struct Ctx<'a> {
     pub after_wide: Option<Restart>,
     /// P7: the page is the participant.
     pub page: Option<Page>,
+    /// P8/P9: the legacy war (P9 with `page`).
+    pub war: Option<War>,
     pub state: Arc<Mutex<localnet::Chain>>,
     pub a: Addresses,
     pub program: Address,
@@ -744,6 +757,14 @@ pub async fn run(c: Ctx<'_>) -> Value {
         .find(|c| c.ring() == FIRST_WIDE_RING && (!keeper_wide || plan129.contains(c)))
         .expect("the rim province borders ring 129 (P5: a province keeper A opened)");
 
+    // P8/P9: the legacy war from the rim (P9: the page is the participant).
+    if r.c.war.is_some() {
+        let extra = json!({
+            "rim_plan": {"per_wedge": PER_WEDGE, "provinces": plan.len(), "opened_by": "keeper A rings duty (rim_per_wedge)",
+                         "wall_secs": rim_secs, "open_province_txs": rim_open},
+        });
+        return war::flow(&mut r, &plan, extra).await;
+    }
     // P7: from here the web page is the participant (Join, the rim FileTicket, Harvest, WideClaimSite), signed by its
     // connected wallet and sent through the gateway's devnet play routes; this test only moves the clock and declares
     // the bells' anchors and seeds; keeper A settles and finalizes.

@@ -120,7 +120,7 @@ test('H4 a host\'s ways on, and what stands of its plan', () => {
   assert.equal((ctl.match(/FS\.compose = \{/g) ?? []).length, 1, 'plans are made in one place');
   assert.ok(ctl.includes('c.sendingArrival = arrival; c.sending = true; c.step = null;'), 'the send marks the plan at its start');
   assert.doesNotMatch(ctl, /delete c\.step|c\.step = undefined/, 'and the mark is never removed');
-  order(ctl.slice(ctl.indexOf('c.sendingArrival = arrival; c.sending = true; c.step = null;')), 'const r = localPlay ? await sendMarch(m, {', "const marchOrder = orderOf('march', 'Depart', { host: String(c.host.id),",
+  order(ctl.slice(ctl.indexOf('c.sendingArrival = arrival; c.sending = true; c.step = null;')), '}) : localPlay ? await sendMarch(m, {', "const marchOrder = orderOf('march', 'Depart', { host: String(c.host.id),",
     'c.sending = false; delete c.sendingArrival;');
   assert.ok(ctl.includes('c.pending = p;'), 'the armed waiting send');
   assert.doesNotMatch(hs, /まだ送っていません/, 'the first version\'s claim is gone');

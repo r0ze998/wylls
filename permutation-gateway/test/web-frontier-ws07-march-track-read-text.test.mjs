@@ -44,7 +44,7 @@ test('T2 readMarches carries the flags; the reveal step is as it was', () => {
     'FS.marchesRead = { key, world: at.world,');
   const send = rm.slice(rm.indexOf("if (step.action === 'send' && !localPlay) {"), rm.indexOf('const settleReady'));
   assert.doesNotMatch(send, /failed|unread|slotRead|factsRead/, 'the self-reveal reads none of the new flags');
-  assert.ok(rm.includes('const settleReady = !localPlay && !!transit && !!env && transit.state >= 2 && pl.state === \'resolved\' && pl.close !== null && now() >= pl.close + 600;'), 'the settle offer is as it was');
+  assert.ok(rm.includes('const settleReady = !localPlay && !devnetPlay && !!transit && !!env && transit.state >= 2 && pl.state === \'resolved\' && pl.close !== null && now() >= pl.close + 600;'), 'the settle offer is as it was');
 });
 
 test('T3 the tracker: not read is said as not read', () => {
