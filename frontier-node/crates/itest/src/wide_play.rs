@@ -24,21 +24,21 @@
 //!   outside the heartland a PlaceHome needs a settled target or a settled witness within `spawn_reach` 2, and the
 //!   heartland is 125 rings away). Once settled, a rim province is a legal PlaceHome target for anyone of its
 //!   nation (R3: `target_used > 0`): the page and the AI residents place their homes there, with no witness.
-//! - [`run_claims`], after `ready-for-join`: the wide claims' class-D duty that no live keeper has yet (gap 1 of
-//!   verify-pr70): for every open wide ticket (0xD9 WideClaimSite, filed by a player or an AI resident) it posts the
+//! - [`run_claims`], after `ready-for-join`: the wide claims' class-D duty of the local runner (gap 1 of
+//!   verify-pr70; on devnet the keeper's `wide-tickets` role, `keeper_core::widetickets`, sends the same
+//!   instructions from `keeper_core::widelane`): for every open wide ticket (0xD9 WideClaimSite, filed by a player or an AI resident) it posts the
 //!   ticket bell's anchor and seed in the wide province's region (public rounds) and lands 0xDC WideSettleTicket;
 //!   for every provisional wide holding, 0xDF WideFinalize once due.
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use fclient::addr::Addresses;
-use fclient::{ix, AccountMeta, Address, Instruction, Keypair, Signer};
+use fclient::{ix, Address, Instruction, Keypair, Signer};
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::v2::presets::{ConquestParams, SeasonParamsV2, CENTRE_FREE};
-use frontier_abi::world_index::holding::{self as wh, WideHolding};
+use frontier_abi::world_index::holding::WideHolding;
 use frontier_abi::world_index::land::{self as wl, WideProvince};
 use frontier_abi::world_index::ticket::{self as wt, TicketStatus, WideTicket};
-use frontier_abi::world_index::wide_ix as wix;
 use frontier_abi::world_index::WideCoord;
 use localnet::server::{lock, Shared};
 use permutation_rules::frontier::geometry::{home_nation_in, ProvinceCoord};
@@ -344,39 +344,22 @@ pub fn wide_settle_ix(
     shard: u8,
     region: u8,
 ) -> Instruction {
-    let c = ctx(a);
-    let m = vec![
-        AccountMeta::new(payer, true),
-        AccountMeta::new_readonly(a.season, false),
-        AccountMeta::new(addr(rec.citizen), false),
-        AccountMeta::new(addr(wt::ticket_address(&c, &rec.citizen)), false),
-        AccountMeta::new(addr(wh::holding_address(&c, rec.coord, rec.site)), false),
-        AccountMeta::new(addr(wl::province_address(&c, rec.coord)), false),
-        AccountMeta::new(a.join_shard(faction, shard), false),
-        AccountMeta::new_readonly(a.seed_cache(rec.bell, region, 0), false),
-        AccountMeta::new_readonly(a.anchor(rec.bell, region), false),
-        AccountMeta::new_readonly(fclient::addr::system_program(), false),
-    ];
-    Instruction {
-        program_id: a.program,
-        accounts: m,
-        data: wix::SettleTicket { k: 0 }.to_bytes().to_vec(),
-    }
+    // (one copy: the keeper's P7 `wide-tickets` role sends the same instruction on devnet)
+    keeper_core::widelane::settle_ticket(
+        a,
+        payer,
+        rec,
+        faction,
+        shard,
+        region,
+        ix::SeedSource::Cache { nonce: 0 },
+        None,
+    )
 }
 
 /// 0xDF WideFinalize: `[anyone s] [season r] [holding w] [wide province r]`.
 pub fn wide_finalize_ix(a: &Addresses, payer: Address, coord: WideCoord, site: u8) -> Instruction {
-    let c = ctx(a);
-    Instruction {
-        program_id: a.program,
-        accounts: vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(a.season, false),
-            AccountMeta::new(addr(wh::holding_address(&c, coord, site)), false),
-            AccountMeta::new_readonly(addr(wl::province_address(&c, coord)), false),
-        ],
-        data: wix::Finalize {}.to_bytes().to_vec(),
-    }
+    keeper_core::widelane::finalize(a, payer, coord, site)
 }
 
 /// An open LEGACY ticket of a Citizen (FileTicket — a first home, e.g. on the rim — or FileOutpost): its wallet, nation,

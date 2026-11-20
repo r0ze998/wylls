@@ -66,6 +66,25 @@ pub const ROLES: [&str; 16] = [
     "sweep",
 ];
 
+/// Roles of the playable lane (devnet runbook gap P7), accepted besides
+/// [`ROLES`] only by a keeper built with the `playable-lane` feature and
+/// never part of an "every role" keeper (they are listed apart so the
+/// stack's and the tests' all-roles keepers stay what they were):
+/// `wide-tickets` settles the wide claims (WideSettleTicket 0xDC) and
+/// finalizes the wide villages (WideFinalize 0xDF), [`crate::widetickets`].
+pub const WIDE_ROLES: [&str; 1] = ["wide-tickets"];
+
+/// The most wide rings the `rings` duty opens (`wide_rings`): rings
+/// 129..=136. The devnet profile asks for 3 (129–131, the local wide world).
+pub const WIDE_RINGS_MAX: u16 = 8;
+
+/// The most wide provinces per wedge and ring (`wide_per_wedge`): a wedge's
+/// arc on ring 129 has 129 provinces.
+pub const WIDE_PER_WEDGE_MAX: u16 = 129;
+
+/// Whether this build carries the playable lane's wide duties.
+pub const PLAYABLE_LANE: bool = cfg!(feature = "playable-lane");
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Str(String),
@@ -298,6 +317,23 @@ pub struct KeeperConfig {
     /// wedge funds (24,709,120 lamports a province at 5,080 lamports/byte).
     /// At most [`RIM_PER_WEDGE_MAX`].
     pub rim_per_wedge: u16,
+    /// Wide rings the `rings` duty opens (devnet runbook gap P6; default 0
+    /// = off; needs the `playable-lane` build): once the legacy rim (ring
+    /// 128) is seeded, rings `129..129 + wide_rings` one at a time, each a
+    /// bell after the previous one opened (the program's rule):
+    /// WideRequestRingSeed (the record's rent from the keeper's payer),
+    /// WideConsumeRingSeed on the bound quicknet round, then
+    /// WideOpenProvince for the `wide_per_wedge` provinces in the middle of
+    /// each wedge's arc ([`crate::rings::wide_plan`], the local wide
+    /// world's plan; rent from the wedge funds). At most [`WIDE_RINGS_MAX`].
+    pub wide_rings: u16,
+    /// Wide provinces per wedge and ring (with `wide_rings`; 1..=
+    /// [`WIDE_PER_WEDGE_MAX`]). The same `n` as `rim_per_wedge` puts every
+    /// rim village within `outpost_range` of a ring-129 province.
+    pub wide_per_wedge: u16,
+    /// `wide-tickets`: slots between two scans of the known Citizens' wide
+    /// ticket records (default 25, about 10 s; at least 1).
+    pub wide_scan_slots: u64,
     /// Where the transaction feed comes from (devnet-readiness B2):
     /// `"localnet"` (default: `frontier_feed` of `frontier-localnet`) or
     /// `"rpc"` (a public cluster: `findex::RpcPoll` over
@@ -378,6 +414,9 @@ impl KeeperConfig {
             extend_max_ring: EXTEND_MAX_RING_DEFAULT,
             lazy_provinces: false,
             rim_per_wedge: 0,
+            wide_rings: 0,
+            wide_per_wedge: 0,
+            wide_scan_slots: 25,
             feed: FeedSource::Localnet,
             feed_poll_ms: 2_000,
             feed_max_backoff_ms: 60_000,
@@ -449,6 +488,26 @@ impl KeeperConfig {
         self.roles.iter().any(|x| x == r)
     }
 
+    /// The playable lane's duties (P6 `wide_rings`, P7 `wide-tickets`):
+    /// only in a `playable-lane` build, `wide_rings` with the `rings` role
+    /// and a plan (`wide_per_wedge` ≥ 1).
+    pub fn check_wide(&self) -> Result<(), String> {
+        let wants = self.wide_rings > 0 || WIDE_ROLES.iter().any(|r| self.has_role(r));
+        if wants && !PLAYABLE_LANE {
+            return Err(
+                "`wide_rings` / role `wide-tickets` need a keeper built with `--features playable-lane`"
+                    .into(),
+            );
+        }
+        if self.wide_rings > 0 && !self.has_role("rings") {
+            return Err("`wide_rings` is part of the `rings` duty: add the role".into());
+        }
+        if self.wide_rings > 0 && self.wide_per_wedge == 0 {
+            return Err("`wide_rings` needs `wide_per_wedge` ≥ 1".into());
+        }
+        Ok(())
+    }
+
     /// Reads `keeper.toml` text.
     pub fn from_toml(text: &str) -> Result<KeeperConfig, String> {
         let mut m = parse_toml(text)?;
@@ -502,7 +561,11 @@ impl KeeperConfig {
         }
         if let Some(v) = take("roles") {
             c.roles = strs(v, "roles")?;
-            if let Some(bad) = c.roles.iter().find(|r| !ROLES.contains(&r.as_str())) {
+            if let Some(bad) = c
+                .roles
+                .iter()
+                .find(|r| !ROLES.contains(&r.as_str()) && !WIDE_ROLES.contains(&r.as_str()))
+            {
                 return Err(format!("unknown role `{bad}`"));
             }
         }
@@ -577,6 +640,25 @@ impl KeeperConfig {
             }
             c.rim_per_wedge = n as u16;
         }
+        if let Some(v) = take("wide_rings") {
+            let n = int(v, "wide_rings")?;
+            if n > u64::from(WIDE_RINGS_MAX) {
+                return Err(format!("`wide_rings` must be at most {WIDE_RINGS_MAX}"));
+            }
+            c.wide_rings = n as u16;
+        }
+        if let Some(v) = take("wide_per_wedge") {
+            let n = int(v, "wide_per_wedge")?;
+            if n > u64::from(WIDE_PER_WEDGE_MAX) {
+                return Err(format!(
+                    "`wide_per_wedge` must be at most {WIDE_PER_WEDGE_MAX}"
+                ));
+            }
+            c.wide_per_wedge = n as u16;
+        }
+        if let Some(v) = take("wide_scan_slots") {
+            c.wide_scan_slots = int(v, "wide_scan_slots")?.max(1);
+        }
         if let Some(v) = take("extend_max_ring") {
             let r = int(v, "extend_max_ring")?;
             if r > u64::from(permutation_rules::frontier::geometry::R_MAX_HARD) {
@@ -626,6 +708,7 @@ impl KeeperConfig {
             c.feed_witness = Some(s(v, "feed_witness")?);
         }
         c.check_feed()?;
+        c.check_wide()?;
         if c.p_def_milli > crate::P_DEF_MILLI || c.p_delay_milli > c.p_def_milli {
             return Err("p_def_milli ≤ 2000 and p_delay_milli ≤ p_def_milli".into());
         }
@@ -716,6 +799,46 @@ mod tests {
         assert_eq!(rim.rim_per_wedge, 6);
         assert!(KeeperConfig::from_toml(&format!("{text}\nrim_per_wedge = 130\n")).is_err());
         assert!(KeeperConfig::from_toml(&format!("{text}\nrim_per_wedge = -1\n")).is_err());
+        // P6 / P7: the playable lane's duties only when asked, and only in a `playable-lane` build
+        assert_eq!(
+            (c.wide_rings, c.wide_per_wedge, c.wide_scan_slots),
+            (0, 0, 25)
+        );
+        assert!(!c.has_role("wide-tickets"));
+        let wide = format!(
+            "{}\nwide_rings = 3\nwide_per_wedge = 6\nwide_scan_slots = 10\n",
+            text.replace("\"rings\"]", "\"rings\", \"wide-tickets\"]")
+        );
+        match (KeeperConfig::from_toml(&wide), PLAYABLE_LANE) {
+            (Ok(w), true) => {
+                assert_eq!(
+                    (w.wide_rings, w.wide_per_wedge, w.wide_scan_slots),
+                    (3, 6, 10)
+                );
+                assert!(w.has_role("wide-tickets"));
+            }
+            (Err(e), false) => assert!(e.contains("playable-lane"), "{e}"),
+            (r, lane) => panic!("playable-lane build {lane}: {:?}", r.err()),
+        }
+        if PLAYABLE_LANE {
+            for bad in [
+                "\nwide_rings = 9\nwide_per_wedge = 6\n",
+                "\nwide_rings = 3\n",
+                "\nwide_rings = 1\nwide_per_wedge = 130\n",
+            ] {
+                assert!(
+                    KeeperConfig::from_toml(&format!("{text}{bad}")).is_err(),
+                    "{bad}"
+                );
+            }
+            let no_rings = format!(
+                "{}\nwide_rings = 1\nwide_per_wedge = 1\n",
+                text.replace(", \"rings\"]", "]")
+            );
+            assert!(KeeperConfig::from_toml(&no_rings).is_err());
+        }
+        // (the wide role is never part of an all-roles keeper)
+        assert!(!ROLES.contains(&WIDE_ROLES[0]));
     }
 
     #[test]

@@ -32,13 +32,12 @@
 use std::collections::BTreeMap;
 
 use fclient::addr::Addresses;
-use fclient::{ix, AccountMeta, Address, Instruction, Keypair, Signer};
+use fclient::{ix, Address, Instruction, Keypair, Signer};
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::layout::world::{frontier as FR, ring_seed as RS};
 use frontier_abi::v2::presets::{SeasonParamsV2, S1_DEVNET_WIDE_7D};
 use frontier_abi::world_index::land::{self as wl, WideRingSeed, FIRST_WIDE_RING};
 use frontier_abi::world_index::rules as wr;
-use frontier_abi::world_index::wide_ix as wix;
 use frontier_abi::world_index::WideCoord;
 use localnet::server::{lock, Shared};
 use permutation_rules::frontier::geometry::{ProvinceCoord, R_MAX_HARD};
@@ -109,46 +108,8 @@ pub fn params() -> SeasonParamsV2 {
 /// The wide provinces opened on `ring`: per wedge, the `per_wedge` provinces in the middle of that wedge's arc (in
 /// the ring's walking order), wedges in order. Pure.
 pub fn wide_plan(ring: u64, per_wedge: usize) -> Vec<WideCoord> {
-    let r = ring as i64;
-    let mut by_wedge: BTreeMap<u8, Vec<(f64, WideCoord)>> = BTreeMap::new();
-    for p in -r..=r {
-        for q in (-r).max(-p - r)..=r.min(-p + r) {
-            let Ok(c) = WideCoord::checked(p, q) else {
-                continue;
-            };
-            if c.ring() != ring {
-                continue;
-            }
-            let Some(w) = c.wedge() else { continue };
-            // (the axial position's angle: a stable order along the ring)
-            let (x, y) = (
-                p as f64 + q as f64 / 2.0,
-                q as f64 * 0.866_025_403_784_438_6,
-            );
-            by_wedge.entry(w).or_default().push((y.atan2(x), c));
-        }
-    }
-    let mut out = vec![];
-    for (_, mut v) in by_wedge {
-        v.sort_by(|a, b| a.0.total_cmp(&b.0));
-        // (a wedge straddling the angle's wrap: walk it from its largest gap so the arc is contiguous)
-        if v.len() > 1 {
-            let gap = (0..v.len())
-                .max_by(|&i, &j| {
-                    let g = |k: usize| {
-                        (v[(k + 1) % v.len()].0 - v[k].0).rem_euclid(std::f64::consts::TAU)
-                    };
-                    g(i).total_cmp(&g(j))
-                })
-                .unwrap_or(0);
-            let n = v.len();
-            v.rotate_left((gap + 1) % n);
-        }
-        let n = per_wedge.min(v.len());
-        let from = (v.len() - n) / 2;
-        out.extend(v[from..from + n].iter().map(|x| x.1));
-    }
-    out
+    // (one copy: the keeper's P6 duty opens the same plan on devnet)
+    keeper_core::widelane::wide_plan(ring, per_wedge)
 }
 
 /// The rim provinces opened beside the wide land: every ring-128 province that borders one of `plan`'s ring-129
@@ -194,40 +155,11 @@ fn ctx(a: &Addresses) -> AddrCtx {
 fn addr(b: [u8; 32]) -> Address {
     Address::new_from_array(b)
 }
-fn wix_ix(accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instruction {
-    Instruction {
-        program_id: Address::new_from_array(PROGRAM),
-        accounts,
-        data,
-    }
-}
 
 /// 0xD6 WideRequestRingSeed: `[payer s,w] [season r] [frontier r] [previous ring seed r] [wide ring seed w]
 /// [pfund × 6 r] [system]`.
 pub fn request_ix(a: &Addresses, payer: Address, ring: u64) -> Instruction {
-    let c = ctx(a);
-    let previous = if ring == FIRST_WIDE_RING {
-        a.ring_seed(R_MAX_HARD)
-    } else {
-        addr(wl::ring_seed_address(&c, ring - 1))
-    };
-    let mut m = vec![
-        AccountMeta::new(payer, true),
-        AccountMeta::new_readonly(a.season, false),
-        AccountMeta::new_readonly(a.frontier(), false),
-        AccountMeta::new_readonly(previous, false),
-        AccountMeta::new(addr(wl::ring_seed_address(&c, ring)), false),
-    ];
-    m.extend(
-        a.province_funds()
-            .into_iter()
-            .map(|f| AccountMeta::new_readonly(f, false)),
-    );
-    m.push(AccountMeta::new_readonly(
-        fclient::addr::system_program(),
-        false,
-    ));
-    wix_ix(m, wix::RequestRingSeed { ring }.to_bytes().to_vec())
+    keeper_core::widelane::request_ring_seed(a, payer, ring)
 }
 
 /// 0xD7 WideConsumeRingSeed: `[payer s,w] [season r] [wide ring seed w]`.
@@ -238,47 +170,12 @@ pub fn consume_ix(
     round: u64,
     sig48: [u8; 48],
 ) -> Result<Instruction, String> {
-    let hints: [u8; frontier_abi::ix::HINTS_LEN] = fclient::beacon::hints_bytes(round)
-        .try_into()
-        .map_err(|_| "hints length")?;
-    Ok(wix_ix(
-        vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(a.season, false),
-            AccountMeta::new(addr(wl::ring_seed_address(&ctx(a), ring)), false),
-        ],
-        wix::ConsumeRingSeed {
-            ring,
-            round,
-            sig48,
-            hints,
-        }
-        .to_bytes()
-        .to_vec(),
-    ))
+    keeper_core::widelane::consume_ring_seed(a, payer, ring, round, sig48)
 }
 
 /// 0xD8 WideOpenProvince: `[payer s,w] [season r] [wide ring seed w] [pfund w] [province w] [rules_config r] [system]`.
 pub fn open_ix(a: &Addresses, payer: Address, coord: WideCoord) -> Result<Instruction, String> {
-    let c = ctx(a);
-    let wedge = coord.wedge().ok_or("a wide province has a wedge")?;
-    Ok(wix_ix(
-        vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(a.season, false),
-            AccountMeta::new(addr(wl::ring_seed_address(&c, coord.ring())), false),
-            AccountMeta::new(a.province_fund(wedge), false),
-            AccountMeta::new(addr(wl::province_address(&c, coord)), false),
-            AccountMeta::new_readonly(addr(wr::rules_config_address(&c)), false),
-            AccountMeta::new_readonly(fclient::addr::system_program(), false),
-        ],
-        wix::OpenProvince {
-            p: coord.p(),
-            q: coord.q(),
-        }
-        .to_bytes()
-        .to_vec(),
-    ))
+    keeper_core::widelane::open_province(a, payer, coord)
 }
 
 /// Fetches and verifies `rounds` from the public drand API, at most [`FETCH_AT_ONCE`] at a time.

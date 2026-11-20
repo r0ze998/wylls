@@ -332,7 +332,15 @@ same duty's `rim_per_wedge = 6` opens the 42 ring-128 provinces beside the middl
 (`keeper::rings::rim_plan`, the local wide world's rim; 1.04 SOL of province rent at 5,080, 1.42 SOL at 6,960, out of
 the wedge funds' float, not new money). A player's first village there is a one-site **FileTicket** (PlaceHome cannot
 name a province past the base `r_max` 16); keeper A's **`tickets`** role settles it on the bell's seed, which its
-`beacon` role posts. Neither needs a program change: the `.so` and its sha256 are unchanged. One 50-player season of this preset is **98.22 SOL** at 5,080 (106.24
+`beacon` role posts. **The wide land (gaps P6, P7, closed in code):** with `wide_rings = 3` and `wide_per_wedge = 6`
+the same duty then opens the wide rings 129, 130 and 131, one a bell after the previous one opened (the program's
+rule): WideRequestRingSeed (a 192-byte record, 1,625,600 lamports of rent at 5,080 from keeper A's payer),
+WideConsumeRingSeed on the quicknet round the request bound, and WideOpenProvince for the middle six provinces of each
+wedge's arc (`keeper::rings::wide_plan`, the local wide world's plan; 108 provinces, 2.74 SOL of rent at 5,080, 3.75
+SOL at 6,960, out of the wedge funds' float). Keeper A's **`wide-tickets`** role settles every wide claim on its
+bell's seed (WideSettleTicket 0xDC) and finalizes the village when the program's finality rule holds (WideFinalize
+0xDF); it pays fees only. Both need keeper A built with `--features playable-lane`. None of this needs a program
+change: the `.so` and its sha256 are unchanged. One 50-player season of this preset is **98.22 SOL** at 5,080 (106.24
 at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator --preset S1_DEVNET_WIDE_7D` creates this
 season (§6b).
 
@@ -372,9 +380,11 @@ $B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha2
 #   → AnnounceSeason; exit 3 "CreateSeason opens at chain clock T"
 # 24 h 5 min later, the same command:
 #   → CreateSeason, InitBeaconLogs, InitShards × 6; exit 3 "WideSetRules needs the season Seeded"
-# start keeper A (§7; built from this code or later: the lane's loaded-data table and the rim duty), with the
-# profile's roles (beacon, archive, rings, fold, tickets) and rings duty (extend = true, extend_max_ring = 128,
-# lazy_provinces = true, rim_per_wedge = 6); about 21 min after T it consumes the genesis round.
+# start keeper A (§7; built from this code or later with the wide duties:
+#   (cd frontier-node && cargo build --locked --release -p keeper --features playable-lane --bin frontier-keeper)),
+# with the profile's roles (beacon, archive, rings, fold, tickets, wide-tickets) and rings duty (extend = true,
+# extend_max_ring = 128, lazy_provinces = true, rim_per_wedge = 6, wide_rings = 3, wide_per_wedge = 6); a keeper built
+# without the feature refuses `wide_rings` and `wide-tickets`. About 21 min after T it consumes the genesis round.
 # Then the same command once more:
 #   → WideSetRules; exit 0 "setup complete"; any later run prints "setup complete: nothing to send"
 ```
@@ -410,12 +420,25 @@ herald shows the rim village. Then: the wide ring 129 by its own instructions bo
 (WideRequestRingSeed 15,186 CU and 1,630,600 lamports; WideConsumeRingSeed 330,942 CU; WideOpenProvince 519,987 CU);
 the village's own Harvests flip it final and collect a Hamlet's production (about 20 game hours for the slot-2 settler
 cost); **WideClaimSite from the rim Hamlet** (25,007 CU, 9,108,360 lamports: fee + the ticket record's rent + escrow);
-WideSettleTicket (21,210 CU, its seed again declared) and WideFinalize (6,424 CU), sent by the test because no
-production keeper role sends them yet (§7 P7). That run
+WideSettleTicket (21,210 CU, its seed again declared) and WideFinalize (6,424 CU), sent by the test. That run
 found that the keeper requested the S1 loaded-data limits (1,835,008 B) for this 0x4804 season, so every keeper write
 failed `MaxLoadedAccountsDataSizeExceeded`; fixed in `fclient::budgets::canonical_lane`. **It has never been run
 against devnet**, and nothing past the genesis rings was reached: rings 4..=128 and the wide land need a live drand
-round per bell (§7 P2, P6).
+round per bell (§7 P2).
+
+**Keeper A's wide rings and wide claims (gaps P6 + P7), tested offline too** (the same file, P5; keeper A built with
+`--features playable-lane`, the profile's roles with `wide-tickets` and its rings duty with `wide_rings = 3`,
+`wide_per_wedge = 6`). The run is P4 with **no wide-ring, settle or finalize instruction sent by the test**: keeper A
+requests each wide ring's seed as soon as the program allows it (a bell after the previous ring opened), consumes it
+on the bound round and opens the ring's 36 planned provinces; its `wide-tickets` role settles the rim Hamlet's wide
+claim and finalizes the village. The test only moves the chain's clock so that each request binds one of the 32
+shipped quicknet rounds (ring 128 is declared opened in the rim's bell, so the rim's 42 provinces open first; the
+claim bell's anchor and seed are declared as in P4). Measured (keeper A's own transactions, the D class's first bid):
+WideRequestRingSeed 15,186–15,573 CU (1,625,600 lamports of record rent + the fee), WideConsumeRingSeed
+330,628–332,336 CU, WideOpenProvince × 108 476,712–538,387 CU (rent from the wedge funds: 25,359,360 lamports each),
+WideSettleTicket 21,410 CU, WideFinalize 6,424 CU. The verifier's VWL judges two witnessed segments, keeper A's
+114 wide-ring transactions and the claim → settle → finalize, with **no FAIL and nothing UNVERIFIABLE**. The wide
+writes carry their own CU limits (`keeper::widelane::WIDE_BUDGETS`; the canonical budgets tables have no wide rows).
 
 ## 7. Services and play (not ready)
 
@@ -433,8 +456,7 @@ Re-checked against the code on 2026-11-20 (`origin/main` 8fdcdb64). G1, G2 and G
 | P2 | First homes at the rim (owner decision Q-W1, 2026-11-20: allowed on wide devnet seasons, as in local play): PlaceHome is capped at the season's base `r_max` 16, so a rim home is a one-site FileTicket, settled by keeper A's `tickets` role, on the rim provinces its `rim_per_wedge` duty opens; `S1_DEVNET_WIDE_7D` has `outpost_tier_min` 0, so that Hamlet anchors a wide claim. The page does not offer it on devnet yet (P1) | closed (code), loopback test only | `keeper/src/rings.rs` `rim_plan`, `stack/tests/operator_playable.rs` P4 |
 | P3 | Wide → wide marches (WideDepart) answer `NotImplemented` in the devnet build by design (§1a), so a wide keep, which only such a march can reach, cannot be captured there; local TEST only (`localnet-wide-depart`) | closed gate | `proc/wide.rs` `DEPART_DEBIT_ENABLED` |
 | P4 | Operator AI residents (`--agent-wallet`, `--agent-runner`) and the test-token faucet are localnet-only | open | `permutation-gateway/src/frontier/config.mjs` |
-| P6 | The wide rings have no keeper duty: nothing sends WideRequestRingSeed / WideConsumeRingSeed / WideOpenProvince on a live season (the rings duty stops at ring 128), so even after the rim the wide land stays unopened | open | `keeper/src/rings.rs`; the TEST harness's `itest/src/wide_land.rs` `grow` |
-| P7 | The wide claims' settlement has no production keeper role: WideSettleTicket (0xDC) and WideFinalize (0xDF) are sent only by the local TEST runner's `run_claims` duty and by tests; the keeper's `wideclaim` module plans WideClaimDefence only | open | `itest/src/wide_play.rs` `run_claims`, `stack/tests/operator_playable.rs` P4 |
+| P8 | **The keeper's feed guard stops keeper A at the first wide record.** A successful program transaction that logs a `PSW1` record latches the keeper's fail-closed feed guard for good (`keeper/src/feedguard.rs` `bodies`; it survives restarts). From then on only the beacon writes go out (`engine.rs` `allows_write_kind`): rings (with P6's wide rings), fold, tickets and `wide-tickets` stop. On the devnet build a wide village's own actions log one: Economy (Harvest, Build, Train; `proc/wide_economy_exec.rs`), and Muster, Dissolve, Garrison. So the first player who uses a wide village stops keeper A. The offline P5 run never sends one. Recovery today is "an upgraded reader and an operator rebuild" | open (found by devnet-wide-keeper; design question, not changed) | `keeper/src/feedguard.rs`, `keeper/src/landindex.rs` `ingest_page` |
 | P5 | Fog of war is a web-client view of LOCAL test worlds only (`LOCAL_FOG` and `cfg.localPlay`); chain data is public | by design | `permutation-server/web/frontier/map/fog.mjs` |
 
 Once they are closed, the order and flags are PLAYTEST-RUNBOOK §3 (steps 7–10) and §4, with `--cluster devnet` for

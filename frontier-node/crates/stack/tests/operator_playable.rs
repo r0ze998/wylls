@@ -39,6 +39,8 @@ mod rim;
 /// `OPERATOR_PLAYABLE_PORT_BASE` / `OPERATOR_RIM_PORT_BASE` move them.
 const P3_PORT_BASE: u16 = 41_450;
 const P4_PORT_BASE: u16 = 41_560;
+/// P5's (`OPERATOR_WIDE_KEEPER_PORT_BASE` moves them).
+const P5_PORT_BASE: u16 = 41_590;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -440,19 +442,51 @@ fn ix_name(wire: &[u8], program: &Address) -> String {
 /// P3: the season of the playable lane on the exact devnet `.so`, set up by the operator in send mode.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
-    playable_season(ports("OPERATOR_PLAYABLE_PORT_BASE", P3_PORT_BASE), false).await;
+    playable_season(
+        ports("OPERATOR_PLAYABLE_PORT_BASE", P3_PORT_BASE),
+        Mode::Setup,
+    )
+    .await;
 }
 
 /// P4 (owner Q-W1, 2026-11-20): P3, then a FIRST VILLAGE ON THE RIM and a wide claim from it, on the devnet `.so`
 /// with the keeper roles a devnet season would run (module doc of [`rim`]).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p4_a_rim_first_village_and_a_wide_claim_on_the_devnet_so_offline() {
-    playable_season(ports("OPERATOR_RIM_PORT_BASE", P4_PORT_BASE), true).await;
+    playable_season(ports("OPERATOR_RIM_PORT_BASE", P4_PORT_BASE), Mode::Rim).await;
 }
 
-async fn playable_season(pt: Ports, rim_run: bool) {
+/// P5 (devnet runbook gaps P6 + P7): P4 with keeper A's new duties: its rings duty opens the wide rings 129–131
+/// (`wide_rings` 3, `wide_per_wedge` 6) and its `wide-tickets` role settles and finalizes the wide claim; no wide
+/// ring, settle or finalize instruction is sent by the test. Needs keeper A built with `--features playable-lane`
+/// (`cargo build --locked -p keeper --features playable-lane -p drand-replay -p herald`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p5_keeper_a_opens_the_wide_rings_and_settles_the_wide_claim_offline() {
+    playable_season(
+        ports("OPERATOR_WIDE_KEEPER_PORT_BASE", P5_PORT_BASE),
+        Mode::KeeperWide,
+    )
+    .await;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// P3: the season's setup only.
+    Setup,
+    /// P4: the rim first village and the wide claim (the test sends the wide ring, settle and finalize).
+    Rim,
+    /// P5: P4 with keeper A's wide rings (P6) and `wide-tickets` role (P7).
+    KeeperWide,
+}
+
+async fn playable_season(pt: Ports, mode: Mode) {
     use fclient::abi::status as st;
-    let tag = if rim_run { "p4" } else { "p3" };
+    let rim_run = mode != Mode::Setup;
+    let tag = match mode {
+        Mode::Setup => "p3",
+        Mode::Rim => "p4",
+        Mode::KeeperWide => "p5",
+    };
     let so = devnet_so();
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
     let drand_bin = sibling_bin("DRAND_REPLAY_BIN", "drand-replay");
@@ -668,15 +702,20 @@ async fn playable_season(pt: Ports, rim_run: bool) {
         kp = pt.keeper_api,
         // (P4: the devnet profile's keeper A with Q-W1's duties: the `tickets` role settles a rim FileTicket on
         //  the bell's seed, and `rim_per_wedge` opens the rim's provinces)
-        roles = if rim_run {
-            "\"beacon\", \"rings\", \"fold\", \"tickets\""
-        } else {
-            "\"beacon\", \"rings\", \"fold\""
+        // (P5: the profile's keeper A with P6/P7: `wide-tickets`, and the rings duty's wide rings)
+        roles = match mode {
+            Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
+            Mode::Rim => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
+            Mode::KeeperWide => "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\"",
         },
-        rim = if rim_run {
-            format!("rim_per_wedge = {}\n", rim::PER_WEDGE)
-        } else {
-            String::new()
+        rim = match mode {
+            Mode::Setup => String::new(),
+            Mode::Rim => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
+            Mode::KeeperWide => format!(
+                "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
+                n = rim::PER_WEDGE,
+                w = rim::WIDE_RINGS
+            ),
         },
     );
     std::fs::write(kdir.join("keeper.toml"), &toml).unwrap();
@@ -959,6 +998,7 @@ async fn playable_season(pt: Ports, rim_run: bool) {
     let rim_summary = if rim_run {
         Some(
             rim::run(rim::Ctx {
+                keeper_wide: mode == Mode::KeeperWide,
                 state: state.clone(),
                 a: a.clone(),
                 program,

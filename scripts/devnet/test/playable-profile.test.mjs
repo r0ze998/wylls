@@ -192,6 +192,23 @@ test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and it
   // the rim FileTickets (role tickets); the preset's Hamlet anchors a wide claim (outpost_tier_min 0), the S1 one keeps Town
   assert.equal(playable().services.keeperA.ringsDuty.rim_per_wedge, 6);
   assert.ok(playable().services.keeperA.roles.includes('tickets') && playable().services.keeperA.roles.includes('beacon'));
+  // P6 / P7: keeper A opens the wide rings 129-131 with the rim's own n (every rim village within outpost_range of a
+  // ring-129 province) and settles / finalizes the wide claims (role wide-tickets, a playable-lane keeper build)
+  const rd = playable().services.keeperA.ringsDuty;
+  assert.equal(rd.wide_rings, 3);
+  assert.equal(rd.wide_per_wedge, rd.rim_per_wedge);
+  assert.ok(playable().services.keeperA.roles.includes('wide-tickets'));
+  for (const rate of [5080, 6960]) {
+    // after the genesis rings (≤ 7 provinces a wedge, the Concord's included), the rim (≤ 8) and wide rings 129-130
+    // (6 each), every fund still clears ring 131's balance check
+    const share = season.lamports.pfundInitial / 6;
+    const spent = 15n * rentExempt(4736, rate) + BigInt(2 * rd.wide_per_wedge) * rentExempt(4864, rate);
+    const left = BigInt(share) - rentExempt(128, rate) - spent;
+    assert.ok(left > BigInt(128 + rd.wide_rings) * rentExempt(4864, rate), `rate ${rate}`);
+  }
+  assert.equal(sol(rentExempt(192, 5080)), '0.0016');
+  assert.equal(sol(108n * rentExempt(4864, 5080)), '2.7388');
+  assert.equal(sol(108n * rentExempt(4864, 6960)), '3.7523');
   assert.equal(conquest.outpost_tier_min, 0);
   assert.equal(local.conquest.outpost_tier_min, 1);
   assert.equal(sol(seasonCost(season, 6960).total), '106.2438');
