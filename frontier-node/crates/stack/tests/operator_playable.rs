@@ -41,6 +41,8 @@ const P3_PORT_BASE: u16 = 41_450;
 const P4_PORT_BASE: u16 = 41_560;
 /// P5's (`OPERATOR_WIDE_KEEPER_PORT_BASE` moves them).
 const P5_PORT_BASE: u16 = 41_590;
+/// P6's (devnet gap P8; `OPERATOR_P8_PORT_BASE` moves them).
+const P6_PORT_BASE: u16 = 41_650;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -469,6 +471,22 @@ async fn p5_keeper_a_opens_the_wide_rings_and_settles_the_wide_claim_offline() {
     .await;
 }
 
+/// P6 (devnet gap P8): P5, then the wide village ACTS after its claim is final — WideEconomy Harvest, Build, walls
+/// (the province mirror), Train, WideGarrison, WideMuster: each logs a `PSW1` record, which latched keeper A's feed
+/// guard for good before P8 — and keeper A keeps every duty: its `tickets` role settles a new rim ticket, its
+/// `wide-tickets` role settles and finalizes a slot-3 wide claim, after a restart (which re-reads the whole feed,
+/// the PSW1 records included) its rings duty requests ring 132's seed (`wide_rings` 4), and its `fold` role folds
+/// every bell of a window of [`rim::P8_BELLS`] bells. The verifier's VWL judges the wide economy segment and the
+/// slot-3 claim segment. Same build as P5.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p6_keeper_a_keeps_every_duty_after_the_wide_village_acts_offline() {
+    playable_season(
+        ports("OPERATOR_P8_PORT_BASE", P6_PORT_BASE),
+        Mode::AfterWide,
+    )
+    .await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// P3: the season's setup only.
@@ -477,6 +495,8 @@ enum Mode {
     Rim,
     /// P5: P4 with keeper A's wide rings (P6) and `wide-tickets` role (P7).
     KeeperWide,
+    /// P6: P5, then the wide village's own actions (PSW1 records) and keeper A's duties after them (gap P8).
+    AfterWide,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -486,6 +506,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Setup => "p3",
         Mode::Rim => "p4",
         Mode::KeeperWide => "p5",
+        Mode::AfterWide => "p6",
     };
     let so = devnet_so();
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
@@ -706,12 +727,14 @@ async fn playable_season(pt: Ports, mode: Mode) {
         roles = match mode {
             Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
             Mode::Rim => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
-            Mode::KeeperWide => "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\"",
+            Mode::KeeperWide | Mode::AfterWide => {
+                "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
+            }
         },
         rim = match mode {
             Mode::Setup => String::new(),
             Mode::Rim => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
-            Mode::KeeperWide => format!(
+            Mode::KeeperWide | Mode::AfterWide => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
@@ -998,7 +1021,13 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let rim_summary = if rim_run {
         Some(
             rim::run(rim::Ctx {
-                keeper_wide: mode == Mode::KeeperWide,
+                keeper_wide: matches!(mode, Mode::KeeperWide | Mode::AfterWide),
+                after_wide: (mode == Mode::AfterWide).then(|| rim::Restart {
+                    bin: keeper_bin.clone(),
+                    config: kdir.join("keeper.toml"),
+                    api: pt.keeper_api,
+                    token: "test-token-operator-playable".into(),
+                }),
                 state: state.clone(),
                 a: a.clone(),
                 program,
@@ -1071,7 +1100,12 @@ async fn playable_season(pt: Ports, mode: Mode) {
         )
         .unwrap();
         std::fs::write(d.join(format!("{tag}-dry-run.txt")), &dry_run).unwrap();
-        for f in ["keeper.log", "drand-replay.log", "herald.log"] {
+        for f in [
+            "keeper.log",
+            "keeper-restarted.log",
+            "drand-replay.log",
+            "herald.log",
+        ] {
             let _ = std::fs::copy(dir.join(f), d.join(format!("{tag}-{f}")));
         }
         let _ = std::fs::copy(
