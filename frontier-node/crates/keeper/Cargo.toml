@@ -80,6 +80,10 @@ expedition-dispatch-experimental = ["wide-world-experimental", "fclient/expediti
 # Gap P8: with it the legacy feed guard ACCOUNTS FOR (counts, never applies) the PSW1 records of the wide land's own
 # actions (kinds 1..=17, every named province wide and of the season's world) instead of latching; every other PSW1
 # record still latches (`feedguard.rs` module doc). Without it every PSW1 record latches as before.
+# Gaps P10 + P13 (devnet-expedition-keeper): the guard APPLIES the rim -> wide expedition's records exactly (PS2
+# 146-149 with their PSW1 25/26 parts, PSFF, PSFT; the conquest kinds still latch), and the `expeditions` role sends
+# every step after the player's ExpeditionDepart (`expeditions.rs`, `expedition_steps.rs`); off unless keeper.toml
+# names the role.
 playable-lane = ["frontier-abi/world-index-experimental"]
 # The wrapped DeclareSiege (kind 12) of the conquest lane. Without it the conquest prepare CLI
 # still reads and checks, and answers the closed blocker DispatchKindUnavailable.
@@ -97,3 +101,6 @@ agents = { path = "../agents" }
 # the real `WideFindex` over literal records; dev only, never the binary.
 findex = { path = "../findex", features = ["wide-records-experimental"] }
 solana-program-runtime.workspace = true
+# P10 (`tests/expedition_feed_guard.rs`): reads the committed gzipped verifier recordings of the devnet `.so`
+# (a workspace dependency already in the lock; dev only).
+flate2.workspace = true
