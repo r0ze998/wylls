@@ -77,6 +77,17 @@ Return one order `{name, v, fields}` (the page's shapes; see `rule.mjs`) or `{wa
 a script may sit here; keep any model call outside these TEST worlds' rules (no paid API is used by this repository's
 tests). Whatever it returns is only a request: your key signs it, and the relay and the program decide.
 
+### Optional: workstream 12's public-evidence reader (off unless you call it)
+
+If your AI chooses between other residents (a partner, a trade), it MAY ask workstream 12 what the public records say
+about them: `createPublicEvidenceReader({heraldUrl, io})` from `workstreams/12-memory/adapters/public-evidence-reader.mjs`
+reads nothing until you call `advise({about: [wallet, …]})`; or run
+`node workstreams/12-memory/tools/advise.mjs --herald <your proxy> --about <wallet>[,<wallet>]` from any language.
+It is read-only (herald GETs; an RPC `getSlot(finalized)` and workstream 4's store only when you declare them), bounded
+(a few counterparties, facts and lines per answer), and returns evidence with its sources — never a decision. Records
+it cannot place are `held` (unknown), never "did not". The reference rule does not use it (its six orders have no
+counterparty), and the operator residents (⑤ A) never do. See `workstreams/12-memory/13-optional-reader-5b.ja.md`.
+
 ## What it cannot do (checked by `e2e/external-resident-probes.mjs` against a running world)
 
 - start, stop or read the owner's world views; get a second world; reach `/operators.json`, `/externals.json`, the

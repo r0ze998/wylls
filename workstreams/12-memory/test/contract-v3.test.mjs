@@ -1,9 +1,10 @@
 // Workstream 12 contract tests v3 (third review):
 //   1 credit: no balance difference; a holding's credit by the pinned rule, a vault's only by 4's execution record
 //   2 "not sent": world, season, sender, window, every send route, gapless, finalized; not sent != not arrived
-//   3 allocation: authenticated by signature, never by what a message says; resend, correction, revoke, concurrency
+//   3 allocation: resend, correction, revoke, concurrency (authentication by signature itself: allocation-signature.test.mjs)
 //   4 reassessment: late arrivals of past facts vs events after the decision; the original decision kept
 //   + caution is labelled as not an honesty judgment
+// Key-free (fixtures/presigned.mjs): every signature is read from the committed table, none is made.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { createMemory, decisionInput } from '../src/index.mjs';
 import { RecordError, SEND_ROUTES, canonical, fact, sha256hex, utterance } from '../src/records.mjs';
 import { CREDIT_RULES } from '../src/fold.mjs';
 import { A, C, KEYS, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, WORLD, allocate, allocateOp, caravanFacts, coverage, dm, newMemory, promise,
-  signedAllocation, world, cv, alias, PARTITIONS } from '../fixtures/scenario.mjs';
+  signedAllocation, world, cv, alias, PARTITIONS } from '../fixtures/presigned.mjs';
 
 const PLACE_H = Object.freeze({ partition: 'p1', kind: 1, p: 3, q: 0, at: 2, gen: 1 }); // A's village (a holding)
 const one = (m, at = 300) => m.knowledge(A, at).commitments[0];
@@ -146,30 +147,8 @@ test('not sent is not "not arrived": a caravan that left without a settle record
 });
 
 // ---------------------------------------------------------------- 3. allocation
-test('allocation: what a message says allocates nothing; only a valid signature of a party does', () => {
-  assert.throws(() => utterance({ speaker: 'B', bell: 102, visibility: dm('A', 'B'), text: 'I allocate B#7 to you',
-    act: { type: 'allocate', ref: 'x', caravan: cv(7, 'B'), qty: 100 } }), RecordError);
-  const m = newMemory();
-  const p = promise(m);
-  caravanFacts(m);
-  assert.equal(allocateOp(m, { ref: p.accept, by: 'B', signAs: 'C' }).reason, 'auth_bad_signature', 'C cannot sign as B');
-  assert.equal(m.allocate(signedAllocation({ by: 'Z', commitment: p.accept, caravan: cv(7, 'B'), nonce: 1, bell: 102, visibility: dm('A', 'B') })).reason,
-    'auth_unknown_signer');
-  // a signed allocation for another world is refused by the signature (the world is part of the signed bytes)
-  const other = signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), nonce: 9, bell: 102, visibility: dm('A', 'B'), world: { ...WORLD, world_id: 'another-world' } });
-  assert.equal(m.allocate({ ...other, world: WORLD }).reason, 'auth_bad_signature');
-  assert.equal(one(m).links.length, 0);
-  assert.equal(one(m).reasons[0], 'no_record_found');
-  // a third party with a valid key is not a party to the promise
-  allocateOp(m, { ref: p.accept, by: 'C', vis: PUBLIC });
-  assert.equal(one(m).links[0].state, 'not_a_party');
-  // tampering a signed field breaks the signature
-  const good = signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), qty: 100, nonce: 1, bell: 102, visibility: dm('A', 'B') });
-  assert.equal(m.allocate({ ...good, qty: 90 }).reason, 'auth_bad_signature');
-  assert.equal(m.allocate(good).status, 'added');
-  assert.equal(one(m).state, 'fulfilled');
-});
-
+// Key-free: the signatures below come from fixtures/presigned-signatures.json; the two tests whose subject is the
+// signature (a forged signer, a tampered field, an edited journal line) are in allocation-signature.test.mjs.
 test('allocation: a resend is a duplicate, a reused nonce with other content is refused, a replayed old op changes nothing', () => {
   const m = newMemory();
   const p = promise(m);
@@ -251,20 +230,6 @@ test('allocation: when the debtor revokes and the creditor still allocates, the 
   const l = one(m).links[0];
   assert.equal(l.disputed, true);
   assert.deepEqual(l.by, ['A']);
-});
-
-test('allocation: private to the parties, and an edited journal line fails verification on replay', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'm12v3-'));
-  const path = join(dir, 'journal.jsonl');
-  const m = newMemory({ path });
-  const p = promise(m);
-  const id = allocate(m, { ref: p.accept });
-  assert.ok(!m.knowledge(C, 300).ids.has(id));
-  const lines = readFileSync(path, 'utf8').split('\n');
-  const i = lines.findIndex(l => l.includes(id));
-  lines[i] = lines[i].replace('"qty":100', '"qty":999');
-  writeFileSync(path, lines.join('\n'));
-  assert.throws(() => newMemory({ path }), /fails verification/);
 });
 
 // ---------------------------------------------------------------- 4. reassessment

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { decisionInput } from '../src/index.mjs';
 import { canonical, sha256hex } from '../src/records.mjs';
 import { A, B, C, LIMITS, PARTITIONS, PLACE_A, REQUEST, WORLD, alias, allocate, allocateOp, caravanFacts, coverage, cv, dm, newMemory,
-  promise, signedAllocation, tagIn, world } from '../fixtures/scenario.mjs';
+  promise, signedAllocation, tagIn, world } from '../fixtures/presigned.mjs';
 
 const BOUNDARY = 200;
 const PLACE_A2 = Object.freeze({ ...PLACE_A, partition: 'p2' });

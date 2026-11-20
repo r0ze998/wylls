@@ -8,8 +8,8 @@ import { join } from 'node:path';
 import { createMemory, decisionInput, referencePolicy, validateAnswer, summarize } from '../src/index.mjs';
 import { RecordError, canonical, sha256hex, utterance, fact } from '../src/records.mjs';
 import { HALF_LIFE_BELLS } from '../src/fold.mjs';
-import { A, B, C, D, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, ARMS, dm, firstExchange, promise, caravanFacts, allocate, runArm, world } from '../fixtures/scenario.mjs';
-import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp, cv, alias } from '../fixtures/scenario.mjs';
+import { A, B, C, D, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, ARMS, dm, firstExchange, promise, caravanFacts, allocate, runArm, world } from '../fixtures/presigned.mjs';
+import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp, cv, alias } from '../fixtures/presigned.mjs';
 
 const kept = (m, opts = {}) => { const p = promise(m, opts); allocate(m, { ref: p.accept, seq: opts.seq ?? 7, bell: (opts.bell ?? 100) + 2 }); return { ...p, ...caravanFacts(m, { seq: opts.seq ?? 7, depart: (opts.bell ?? 100) + 2, settle: (opts.bell ?? 100) + 20 }) }; };
 
@@ -44,7 +44,8 @@ test('demo: same world, seven histories; memory is one term among price, distanc
 test('demo output is deterministic and matches the committed result', async () => {
   const { execFileSync } = await import('node:child_process');
   const dir = mkdtempSync(join(tmpdir(), 'm12-'));
-  const run = f => execFileSync(process.execPath, [new URL('../demo/run-demo.mjs', import.meta.url).pathname, '--json', f]);
+  // the demo signs nothing (fixtures/presigned.mjs); this run's preloads (a key-free run's guard) go to the child too
+  const run = f => execFileSync(process.execPath, [...process.execArgv, new URL('../demo/run-demo.mjs', import.meta.url).pathname, '--json', f]);
   run(join(dir, 'a.json')); run(join(dir, 'b.json'));
   const a = readFileSync(join(dir, 'a.json'), 'utf8');
   assert.equal(a, readFileSync(join(dir, 'b.json'), 'utf8'));
