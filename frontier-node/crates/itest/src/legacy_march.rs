@@ -887,13 +887,22 @@ impl LegacyMarchDriver {
             .is_some_and(|t| !recoverable(t) || *self.stop.borrow())
     }
 
+    /// Whether a march of this village has departed and its departure is not settled yet (its origin's departure bell
+    /// is still to be resolved): the keeper loop then steps the village's origin driver in the reveal sweep too.
+    pub fn departure_pending(&self, state: &Shared) -> bool {
+        let c = lock(state);
+        self.read(&c, &self.holding, Holding::decode)
+            .is_some_and(|h| live_transits(&h).iter().any(|(_, t)| t.state == T_DEPARTED))
+    }
+
     /// reveal-under-load (verify-pr98 BREAK-2): ONLY the due reveals of this village's ordinary marches, every one of
-    /// them (one transaction each), before anything else of the pass — the keeper loop calls it at the start of every
-    /// pass and again before every village's own pass, so no keeper of the loop posts THE anchor of a bell (which starts
-    /// the reveal window's clock: it closes at A + W, about ten wall seconds at ×60) while a reveal of that bell waits
-    /// behind other work. The program admits a reveal before THE anchor exists. Nothing else is sent here; a refusal
-    /// or a fact it cannot drive is left to the ordinary step (it stops and recovers there); an unknown outcome ends
-    /// the driver as everywhere.
+    /// them (one transaction each), and what a reveal needs first — a due SettleDeparture (then that march's reveal is
+    /// tried at once) — before anything else of the pass. The keeper loop calls it at the start of every pass and again
+    /// before every village's own pass, so no keeper of the loop posts THE anchor of a bell (which starts the reveal
+    /// window's clock: it closes at A + W, about ten wall seconds at ×60) while a reveal of that bell waits behind other
+    /// work (passes were measured at 19 s median, 25 s worst under load). The program admits a reveal before THE anchor
+    /// exists. Nothing else is sent here; a refusal or a fact it cannot drive is left to the ordinary step (it stops and
+    /// recovers there); an unknown outcome ends the driver as everywhere.
     pub async fn reveal_only(&mut self, state: &Shared) -> Vec<Step> {
         if self.terminal.is_some() || *self.stop.borrow() {
             return vec![];
@@ -910,24 +919,46 @@ impl LegacyMarchDriver {
         };
         let v2 = season.is_v2();
         let mut out = vec![];
-        for (slot, t) in live_transits(&h) {
-            if t.state != T_SETTLED {
+        'slots: for (slot, t) in live_transits(&h) {
+            if t.state != T_SETTLED && t.state != T_DEPARTED {
                 continue;
             }
-            self.reveal_mode = true;
-            let s = self.transit_step(state, &h, v2, &clock, slot, t).await;
-            self.reveal_mode = false;
-            match s {
-                Step::Landed(..) => {
-                    self.reveals_swept += 1;
-                    out.push(s);
+            // (a landed SettleDeparture is followed by the same march's reveal, on a fresh read of the Holding)
+            let mut cur = (h.clone(), t);
+            for _ in 0..2 {
+                let was_departed = cur.1.state == T_DEPARTED;
+                self.reveal_mode = true;
+                let s = self
+                    .transit_step(state, &cur.0, v2, &clock, slot, cur.1)
+                    .await;
+                self.reveal_mode = false;
+                match s {
+                    Step::Landed(..) => {
+                        if !was_departed {
+                            self.reveals_swept += 1;
+                        }
+                        out.push(s);
+                    }
+                    Step::Unknown { .. } => {
+                        self.terminal = Some(s.clone());
+                        out.push(s);
+                        break 'slots;
+                    }
+                    _ => break,
                 }
-                Step::Unknown { .. } => {
-                    self.terminal = Some(s.clone());
-                    out.push(s);
+                if !was_departed {
                     break;
                 }
-                _ => {}
+                let fresh = {
+                    let c = lock(state);
+                    self.read(&c, &self.holding, Holding::decode)
+                };
+                let Some(h2) = fresh else { break };
+                let t2 = h2.transit[slot as usize];
+                if t2.state != T_SETTLED {
+                    break;
+                }
+                cur = (h2, t2);
             }
         }
         out
@@ -1402,11 +1433,8 @@ impl LegacyMarchDriver {
                     Ok(v) => v,
                     Err(e) => return Step::Stopped(format!("cannot read the origin: {e}")),
                 };
-                if self.reveal_mode {
-                    return Step::Wait(format!(
-                        "slot {slot}: departed, not settled (no reveal due)"
-                    ));
-                }
+                // (reveal-under-load: in the sweep too — a reveal needs its departure settled first, and a short
+                //  march's whole chain, origin resolve → SettleDeparture → Reveal, must fit before A + W)
                 if !departure_due(&t, origin.resolved_next) {
                     return Step::Wait(format!(
                         "slot {slot}: the origin driver resolves departure bell {} first",

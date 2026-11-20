@@ -1045,14 +1045,39 @@ pub trait PassVillage: Send {
     }
 }
 
-/// [`PassVillage::reveal_first`] of a village: its legacy march driver's due reveals (every one), then its wide
-/// destination driver's, as their reports.
+/// [`PassVillage::reveal_first`] of a village: while one of its ordinary marches has departed and its departure is not
+/// settled, ONE step of its origin driver first (it resolves the departure bell: a short march's origin resolve →
+/// SettleDeparture → Reveal must all fit before the arrival's window closes — seen live: a 3-turn AI march missed it
+/// while its origin waited for its turn in a 20-second pass); then its legacy march driver's due SettleDepartures and
+/// reveals (every one), then its wide destination driver's, as their reports.
 async fn reveal_report(
+    origin: &mut Option<crate::origin_driver::OriginDriver>,
     legacy: &mut Option<crate::legacy_march::LegacyMarchDriver>,
     d: &mut Option<crate::destination_driver::DestinationDriver>,
     state: &Shared,
 ) -> Vec<Report> {
     let mut out = vec![];
+    if let (Some(o), Some(l)) = (origin.as_mut(), legacy.as_ref()) {
+        if !l.ended() && l.departure_pending(state) {
+            let st = o.step(state).await;
+            // (only what it sent is reported here: a wait says nothing, and a stop is left to the pass's own origin
+            //  step, which ends the village by the loop's old rule)
+            if matches!(
+                st,
+                crate::origin_driver::Step::Landed(..) | crate::origin_driver::Step::Unknown { .. }
+            ) {
+                let unknown = matches!(st, crate::origin_driver::Step::Unknown { .. });
+                out.push(Report {
+                    field: Field::Origin,
+                    text: format!("{st:?}"),
+                    out: origin_out(st),
+                });
+                if unknown {
+                    return out;
+                }
+            }
+        }
+    }
     if let Some(l) = legacy.as_mut() {
         for st in l.reveal_only(state).await {
             let unknown = matches!(st, crate::origin_driver::Step::Unknown { .. });
@@ -1081,6 +1106,13 @@ async fn reveal_report(
     out
 }
 
+/// An unknown outcome of a village's origin step in the sweep ends that village as it would in its pass ([`apply`]).
+fn origin_unknown(reps: &[Report]) -> Option<Report> {
+    reps.iter()
+        .find(|r| r.field == Field::Origin && matches!(r.out, Out::Unknown { .. }))
+        .cloned()
+}
+
 /// One reveal sweep over every village of the loop (reveal-under-load): each village's due reveals, in order. Returns
 /// whether one landed. A pair stops the sweep at an unknown outcome (the caller's pair check then halts every village).
 async fn sweep_reveals(
@@ -1097,10 +1129,11 @@ async fn sweep_reveals(
     let reps = first.reveal_first(state).await;
     if !reps.is_empty() {
         landed |= reps.iter().any(|r| r.out == Out::Landed);
+        let stopped = origin_unknown(&reps);
         first.record(&RunOut {
             reports: reps,
             landed: false,
-            stopped: None,
+            stopped,
         });
     }
     for i in 0..others.len() {
@@ -1114,10 +1147,14 @@ async fn sweep_reveals(
         let reps = others[i].reveal_first(state).await;
         if !reps.is_empty() {
             landed |= reps.iter().any(|r| r.out == Out::Landed);
+            let stopped = origin_unknown(&reps);
+            if stopped.is_some() {
+                others[i].end();
+            }
             others[i].record(&RunOut {
                 reports: reps,
                 landed: false,
-                stopped: None,
+                stopped,
             });
         }
     }
@@ -1272,7 +1309,12 @@ impl PassVillage for FirstVillage<'_> {
         &'a mut self,
         state: &'a Shared,
     ) -> Pin<Box<dyn Future<Output = Vec<Report>> + Send + 'a>> {
-        Box::pin(reveal_report(self.legacy, self.destination, state))
+        Box::pin(reveal_report(
+            self.origin,
+            self.legacy,
+            self.destination,
+            state,
+        ))
     }
 }
 impl PassVillage for Village {
@@ -1316,6 +1358,7 @@ impl PassVillage for Village {
         state: &'a Shared,
     ) -> Pin<Box<dyn Future<Output = Vec<Report>> + Send + 'a>> {
         Box::pin(reveal_report(
+            &mut self.origin,
             &mut self.legacy,
             &mut self.destination,
             state,
@@ -2922,13 +2965,23 @@ mod pair_tests {
     fn the_reveal_sweep_is_wired_for_both_kinds_of_village() {
         let src = include_str!("keeper_loop.rs");
         assert!(
-            src.contains("Box::pin(reveal_report(self.legacy, self.destination, state))"),
+            src.contains(
+                "Box::pin(reveal_report(\n            self.origin,\n            self.legacy,"
+            ),
             "the first village"
         );
         assert!(
-            src.contains("Box::pin(reveal_report(&mut self.legacy, &mut self.destination, state))"),
+            src.contains("Box::pin(reveal_report(\n            &mut self.origin,\n            &mut self.legacy,"),
             "every other village"
         );
+        // (reveal-under-load: swept again before every further village's pass; a stopped legacy driver's stands go
+        //  back to the first village's world phase; a stopped legacy driver is still stepped, so it recovers; the
+        //  sweep also steps the origin driver while a departure is pending, and an unknown there ends the village)
+        assert!(src.contains("landed |= sweep_reveals(state, first, others, pair).await;"));
+        assert!(src.contains(".filter(|l| l.terminal().is_none())"));
+        assert!(src.contains("    fn done(&self) -> bool {\n        self.ended()\n    }"));
+        assert!(src.contains("if !l.ended() && l.departure_pending(state) {"));
+        assert!(src.contains("let stopped = origin_unknown(&reps);"));
         let dd = include_str!("destination_driver.rs");
         assert!(dd.contains("if self.terminal.is_some() || !SELF_REVEAL.load(std::sync::atomic::Ordering::SeqCst) {\n            return None;"),
             "off in every world without the wide switch, and after the driver ended");
