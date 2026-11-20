@@ -19,6 +19,14 @@
 //!   [`rim_plan`] not yet on chain, so a player can file a rim FileTicket
 //!   (which the `tickets` role settles) next to the wide land.
 //!
+//! - **The wide rings** (`wide_rings` > 0, `playable-lane` build; devnet
+//!   runbook gap P6): once ring 128 is seeded, rings 129.. one at a time
+//!   ([`RingDuty::plan_wide`]): WideRequestRingSeed when the previous ring
+//!   is seeded, its plan complete and a bell has passed since it opened;
+//!   WideConsumeRingSeed once the bound round is published; then
+//!   WideOpenProvince for every province of [`wide_plan`] not on chain.
+//!   A `NotImplemented` there (no WideSetRules yet) ends only the wide part.
+//!
 //! A program that answers `NotImplemented` (99) for a land instruction
 //! ends this duty with an alert (the W2 program); the beacon duties keep
 //! running.
@@ -78,7 +86,39 @@ pub struct RingDuty {
     pub rim_done: bool,
     /// `rim_per_wedge`: the plan's provinces seen on chain (status).
     pub rim_present: usize,
+    /// `wide_rings` (P6): where each wide ring stands (status, tests).
+    pub wide: WideRings,
 }
+
+/// The P6 wide rings as this keeper saw them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WideRings {
+    /// Per wide ring: `(requested, seeded, plan provinces present, plan size)`.
+    pub rings: BTreeMap<u64, (bool, bool, usize, usize)>,
+    /// Every ring of `wide_rings` seeded and its plan on chain.
+    pub done: bool,
+    /// Why the next request waits (status).
+    pub waiting: Option<String>,
+    /// A wide write died `NotImplemented` (no WideSetRules on this season).
+    pub unsupported: bool,
+    /// Wide provinces seen present (not re-read).
+    pub present: BTreeSet<(i64, i64)>,
+}
+
+pub fn wide_ring_key(ring: u64) -> String {
+    format!("wide-ring:{ring}")
+}
+pub fn wide_seed_key(ring: u64) -> String {
+    format!("wide-ring-seed:{ring}")
+}
+pub fn wide_province_key(p: i64, q: i64) -> String {
+    format!("wide-province:{p},{q}")
+}
+
+/// The wide provinces P6 opens on `ring` (`wide_per_wedge` per wedge, the
+/// middle of each wedge's arc): [`crate::widelane::wide_plan`].
+#[cfg(feature = "playable-lane")]
+pub use crate::widelane::wide_plan;
 
 /// The rim provinces a keeper with `rim_per_wedge = n` opens (owner Q-W1):
 /// on the first wide ring (129), per wedge, the `n` provinces in the middle
@@ -398,6 +438,17 @@ impl RingDuty {
         if t.cfg.rim_per_wedge > 0 && !self.rim_done && opened > R_MAX_HARD {
             self.plan_rim(t, port, engine).await?;
         }
+        // The wide rings (`wide_rings`, P6), once ring 128 is seeded.
+        #[cfg(feature = "playable-lane")]
+        if t.cfg.wide_rings > 0
+            && !self.wide.done
+            && !self.wide.unsupported
+            && opened > R_MAX_HARD
+            && eff == status::RUNNING
+        {
+            self.plan_wide(t, port, drand, rounds, engine, now_bell)
+                .await?;
+        }
         // Seeds and provinces of the opened rings not complete yet.
         let rings: Vec<u16> = (0..opened).filter(|d| !self.complete.contains(d)).collect();
         if rings.is_empty() {
@@ -514,9 +565,188 @@ impl RingDuty {
         Ok(())
     }
 
+    /// P6: the next step of the wide rings `129..129 + wide_rings`, one
+    /// ring at a time (module doc). Every gate the keeper checks before a
+    /// send is the program's own (`proc/wide.rs request_ring_seed`): the
+    /// previous ring seeded and a bell since it opened; the θ and fund
+    /// checks are left to the program (a refusal is a failed write the
+    /// engine backs off, and the status shows it).
+    #[cfg(feature = "playable-lane")]
+    async fn plan_wide<P: ChainPort, D: DrandPort>(
+        &mut self,
+        t: &Tick<'_>,
+        port: &P,
+        drand: &D,
+        rounds: &mut Rounds,
+        engine: &mut Engine,
+        now_bell: u32,
+    ) -> PortResult<()> {
+        use frontier_abi::world_index::land::{self as wl, SeedStatus, WideRingSeed};
+        let c = crate::widelane::ctx(t.addrs);
+        let first = crate::widelane::FIRST_RING;
+        let last = first + u64::from(t.cfg.wide_rings) - 1;
+        let n = t.cfg.wide_per_wedge as usize;
+        // The legacy rim's seed (the previous ring of 129).
+        let rs = port.accounts(&[t.addrs.ring_seed(R_MAX_HARD)], 0).await?;
+        let Some(rim) = rs[0]
+            .as_ref()
+            .filter(|a| a.owner == t.addrs.program)
+            .and_then(|a| RingSeed::decode(&a.data).ok())
+            .filter(|r| r.status == 2)
+        else {
+            self.wide.waiting = Some("ring 128 not seeded".into());
+            return Ok(());
+        };
+        // (previous ring's opened bell)
+        let mut prev_opened = rim.opened_bell;
+        for ring in first..=last {
+            let key = Address::new_from_array(wl::ring_seed_address(&c, ring));
+            let got = port.accounts(&[key], 0).await?;
+            let rec = got[0]
+                .as_ref()
+                .filter(|a| a.owner == t.addrs.program)
+                .and_then(|a| WideRingSeed::read(&a.data).ok());
+            let Some(rec) = rec else {
+                // Not requested: the program's own gates (a bell since the
+                // previous ring opened).
+                self.wide.rings.insert(ring, (false, false, 0, 0));
+                if now_bell <= prev_opened {
+                    self.wide.waiting = Some(format!(
+                        "ring {ring}: a bell after bell {prev_opened} (now {now_bell})"
+                    ));
+                    return Ok(());
+                }
+                self.wide.waiting = None;
+                let a = t.addrs.clone();
+                engine.ensure(
+                    WriteSpec {
+                        key: wide_ring_key(ring),
+                        kind: "wide-ring",
+                        tag: frontier_abi::world_index::wide_ix::WideIx::RequestRingSeed.tag(),
+                        class: Class::D,
+                        bell: None,
+                        region: None,
+                        build: Arc::new(move |c: &BuildCtx| {
+                            vec![crate::widelane::request_ring_seed(&a, c.payer, ring)]
+                        }),
+                        deadline_slot: None,
+                        not_before_slot: 0,
+                        fixed_payer: None,
+                    },
+                    t.slot,
+                );
+                return Ok(());
+            };
+            engine.cancel(&wide_ring_key(ring), CancelReason::ChainStateObserved);
+            if rec.status == SeedStatus::Requested {
+                self.wide.rings.insert(ring, (true, false, 0, 0));
+                if t.clock.drand.round_time(rec.round) > t.now {
+                    self.wide.waiting =
+                        Some(format!("ring {ring}: round {} not published", rec.round));
+                    return Ok(());
+                }
+                let Some(arg) = rounds.get(drand, rec.round, t.slot).await else {
+                    self.wide.waiting = Some(format!(
+                        "ring {ring}: round {} not served by drand",
+                        rec.round
+                    ));
+                    return Ok(());
+                };
+                self.wide.waiting = None;
+                let a = t.addrs.clone();
+                let (round, sig48) = (arg.round, arg.sig48);
+                engine.ensure(
+                    WriteSpec {
+                        key: wide_seed_key(ring),
+                        kind: "wide-ring-seed",
+                        tag: frontier_abi::world_index::wide_ix::WideIx::ConsumeRingSeed.tag(),
+                        class: Class::D,
+                        bell: None,
+                        region: None,
+                        build: Arc::new(move |c: &BuildCtx| {
+                            crate::widelane::consume_ring_seed(&a, c.payer, ring, round, sig48)
+                                .map(|i| vec![i])
+                                .unwrap_or_default()
+                        }),
+                        deadline_slot: None,
+                        not_before_slot: 0,
+                        fixed_payer: None,
+                    },
+                    t.slot,
+                );
+                return Ok(());
+            }
+            engine.cancel(&wide_seed_key(ring), CancelReason::ChainStateObserved);
+            // Seeded: the plan's provinces.
+            let plan = wide_plan(ring, n);
+            let want: Vec<_> = plan
+                .iter()
+                .copied()
+                .filter(|x| !self.wide.present.contains(&(x.p(), x.q())))
+                .collect();
+            let keys: Vec<Address> = want
+                .iter()
+                .map(|&x| Address::new_from_array(wl::province_address(&c, x)))
+                .collect();
+            let mut got = vec![];
+            for chunk in keys.chunks(100) {
+                got.extend(port.accounts(chunk, 0).await?);
+            }
+            let mut missing = 0usize;
+            for (&x, acct) in want.iter().zip(got) {
+                if acct.is_some_and(|a| a.owner == t.addrs.program && !a.data.is_empty()) {
+                    self.wide.present.insert((x.p(), x.q()));
+                    engine.cancel(
+                        &wide_province_key(x.p(), x.q()),
+                        CancelReason::ChainStateObserved,
+                    );
+                    continue;
+                }
+                missing += 1;
+                let a = t.addrs.clone();
+                engine.ensure(
+                    WriteSpec {
+                        key: wide_province_key(x.p(), x.q()),
+                        kind: "wide-province",
+                        tag: frontier_abi::world_index::wide_ix::WideIx::OpenProvince.tag(),
+                        class: Class::D,
+                        bell: None,
+                        region: None,
+                        build: Arc::new(move |c: &BuildCtx| {
+                            crate::widelane::open_province(&a, c.payer, x)
+                                .map(|i| vec![i])
+                                .unwrap_or_default()
+                        }),
+                        deadline_slot: None,
+                        not_before_slot: 0,
+                        fixed_payer: None,
+                    },
+                    t.slot,
+                );
+            }
+            self.wide
+                .rings
+                .insert(ring, (true, true, plan.len() - missing, plan.len()));
+            if missing > 0 {
+                self.wide.waiting = Some(format!("ring {ring}: {missing} provinces to open"));
+                return Ok(());
+            }
+            prev_opened = rec.opened_bell;
+        }
+        self.wide.waiting = None;
+        self.wide.done = true;
+        Ok(())
+    }
+
     /// A write of this duty died with NotImplemented: the program has no
     /// land instructions yet.
     pub fn on_dead(&mut self, key: &str, code: Option<u32>) -> bool {
+        // (P6: a wide write refused NotImplemented — a season without
+        //  WideSetRules — ends the wide part only; the legacy rings go on)
+        if key.starts_with("wide-") && code == Some(fclient::abi::err::NOT_IMPLEMENTED) {
+            self.wide.unsupported = true;
+            return true;
+        }
         if (key.starts_with("open-ring:")
             || key.starts_with("ring-seed:")
             || key.starts_with("open-province:"))

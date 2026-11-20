@@ -21,14 +21,23 @@
 //!    the herald shows it.
 //! 6. REAL: the wide ring 129 by its own instructions (WideRequestRingSeed bound to a SHIPPED round,
 //!    WideConsumeRingSeed with that round's real signature, WideOpenProvince beside the rim village), sent by this
-//!    test as any permissionless payer would (no keeper duty opens the wide rings yet: runbook §7 P6).
+//!    test as any permissionless payer would (P5: keeper A's rings duty does it instead, `wide_rings`).
 //! 7. REAL: the clock past the home's `final_ts`; the participant's Harvest flips it final (the lazy flip) and
 //!    collects its production; then **WideClaimSite (0xD9) from the rim Hamlet** (`outpost_tier_min` 0, Q-W1).
 //! 8. **Declared patch** of the claim bell's anchor and seed (as 4), then REAL WideSettleTicket (0xDC) and, once
-//!    due, WideFinalize (0xDF), sent by this test (the itest `run_claims` duty's instructions; no production
-//!    keeper role sends them yet: runbook §7 P7).
+//!    due, WideFinalize (0xDF), sent by this test (the itest `run_claims` duty's instructions; P5: keeper A's
+//!    `wide-tickets` role sends them instead).
 //!
 //! Every instruction's compute units and lamports are recorded.
+//!
+//! **P5** (devnet runbook gaps P6 + P7, `Ctx::keeper_wide`): the same run with keeper A built with
+//! `--features playable-lane` and configured as the devnet profile now says (role **`wide-tickets`**; rings duty
+//! **`wide_rings` 3**, **`wide_per_wedge` 6**). Steps 6 and 8 are then keeper A's, not this test's: its rings duty
+//! opens the wide rings 129, 130 and 131 (WideRequestRingSeed, WideConsumeRingSeed on the bound round,
+//! WideOpenProvince × 36 each) and its `wide-tickets` role sends WideSettleTicket and WideFinalize. The test sends
+//! no wide-ring, settle or finalize instruction; it only moves the chain's clock so that each ring's request binds
+//! one of the 32 SHIPPED quicknet rounds (on devnet every round is published, so the keeper's own timing is the
+//! schedule). The verifier's VWL judges two segments: the wide rings, and the claim → settle → finalize.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -54,12 +63,16 @@ use permutation_rules::frontier::beacon::{self as kb, round_time, BeaconClock, W
 use permutation_rules::frontier::geometry::{home_nation, ProvinceCoord, R_MAX_HARD};
 use serde_json::{json, Value};
 
-/// keeper A's `rim_per_wedge` (the devnet profile's value).
+/// keeper A's `rim_per_wedge` (the devnet profile's value; P5: also its `wide_per_wedge`).
 pub const PER_WEDGE: usize = 6;
+/// P5: keeper A's `wide_rings` (the devnet profile's value: rings 129–131).
+pub const WIDE_RINGS: u64 = 3;
 const SOL: u64 = 1_000_000_000;
 const SEASON_ID: u64 = 1;
 
 pub struct Ctx<'a> {
+    /// P5: keeper A runs the wide rings (P6) and the `wide-tickets` role (P7).
+    pub keeper_wide: bool,
     pub state: Arc<Mutex<localnet::Chain>>,
     pub a: Addresses,
     pub program: Address,
@@ -255,6 +268,60 @@ impl<'a> Run<'a> {
         self.rows.push(row.clone());
         row
     }
+    /// P5: the witness snapshot (as [`Run::try_send`] takes it) of the program accounts `ixs` name, on the paused
+    /// chain, just before keeper A sends them (`ixs` are built here with a dummy payer only for their accounts).
+    fn witness_before(&mut self, ixs: &[Instruction]) {
+        let c = self.c.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(wit) = self.witness.as_mut() {
+            for i in ixs {
+                for m in &i.accounts {
+                    let k = m.pubkey.to_bytes();
+                    if wit.written.contains(&k) || wit.snapshot.contains_key(&k) {
+                        continue;
+                    }
+                    let acct = c.account(&m.pubkey).filter(|x| x.owner == self.c.program);
+                    wit.snapshot.insert(k, acct);
+                }
+            }
+        }
+    }
+    /// P5: the program transactions (keeper A's) whose first program instruction has a tag in `tags`, landed after
+    /// `since_slot`, appended to the witness in order; a landed one's written accounts are marked.
+    fn witness_landed(&mut self, since_slot: u64, tags: &[u8]) -> usize {
+        let program = self.c.program;
+        let c = self.c.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut n = 0;
+        if let Some(wit) = self.witness.as_mut() {
+            for l in c
+                .feed(0, 1_000_000, Some(&program))
+                .into_iter()
+                .filter(|l| l.slot > since_slot)
+            {
+                let Ok(t) = fclient::tx::from_wire(&l.wire) else {
+                    continue;
+                };
+                let tag = t.message.instructions.iter().find_map(|i| {
+                    (t.message.account_keys.get(i.program_id_index as usize) == Some(&program))
+                        .then(|| i.data.first().copied())
+                        .flatten()
+                });
+                if !tag.is_some_and(|x| tags.contains(&x)) {
+                    continue;
+                }
+                if wit.txs.iter().any(|x| x.signature == l.signature) {
+                    continue;
+                }
+                if l.err.is_none() {
+                    for (k, _) in &l.post {
+                        wit.written.insert(k.to_bytes());
+                    }
+                }
+                wit.txs.push(l.record());
+                n += 1;
+            }
+        }
+        n
+    }
     fn send(&mut self, what: &str, ixs: &[Instruction], signers: &[&Keypair], who: &str) -> Value {
         let r = self.try_send(what, ixs, signers, who);
         assert_eq!(r["ok"], true, "{what}: {r:#}");
@@ -357,6 +424,39 @@ impl<'a> Run<'a> {
     }
 }
 
+/// A witnessed segment as the verifier reads it (the exact devnet `.so`'s hash).
+fn segment_of(r: &Run<'_>, wit: &Witness, scenario: &str) -> verify_core::input::Input {
+    let so_hash: [u8; 32] = hex::decode(super::DEVNET_SO_SHA256)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    verify_core::input::Input {
+        cfg: verify_core::input::Config {
+            program: r.c.program,
+            season_id: SEASON_ID,
+            quicknet_pk: fb::quicknet_info().public_key,
+            ruleset_hash: frontier_abi::v2::presets::RULESET_HASH_V3,
+            program_hash: Some(so_hash),
+        },
+        txs: wit.txs.clone(),
+        finals: Default::default(),
+        final_slot: r.lock().slot(),
+        program_hashes: vec![(0, so_hash)],
+        provenance: format!("stack/tests/operator_playable.rs: {scenario}"),
+        scenarios: vec![scenario.into()],
+        history: Default::default(),
+        resident_feed: None,
+        program_so: None,
+        declared: vec![],
+        chain: Default::default(),
+    }
+}
+
+/// VWL's judgement of a witnessed segment.
+fn judge(r: &Run<'_>, wit: &Witness, scenario: &str) -> Vec<verify_core::Finding> {
+    verify_core::checks::vwl_wide_land::judge_segment(&segment_of(r, wit, scenario), &wit.snapshot)
+}
+
 fn wide_ix(a: &Addresses, accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instruction {
     Instruction {
         program_id: a.program,
@@ -400,11 +500,6 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let mut rs = rs3.clone();
     rs.data[RS::D..RS::D + 2].copy_from_slice(&R_MAX_HARD.to_le_bytes());
     rs.data[RS::OPENED_BELL..RS::OPENED_BELL + 4].copy_from_slice(&0u32.to_le_bytes());
-    r.patch(
-        adr(ctx.ring_seed(R_MAX_HARD)),
-        rs,
-        "RingSeed(128) seeded (the genesis ring's seed, opened_bell 0)",
-    );
     let mut fr = r.lock().account(&a.frontier()).expect("the Frontier");
     fr.data[FR::RINGS_OPENED..FR::RINGS_OPENED + 2]
         .copy_from_slice(&(R_MAX_HARD + 1).to_le_bytes());
@@ -421,15 +516,57 @@ pub async fn run(c: Ctx<'_>) -> Value {
         fr,
         "Frontier rings_opened 129, r_max_ext 128, wedge_occupied = wedge_open",
     );
+    // (P5: the request time of a wide ring whose round is `rr`, and the first shipped round requestable after `after`
+    //  in a bell later than `prev_bell`: keeper A requests a ring as soon as the program allows it, and only a SHIPPED
+    //  round can be consumed offline, so the clock stops at the start of that round's window)
+    let keeper_wide = r.c.keeper_wide;
+    let t_req_of = |rr: u64| {
+        round_time(clock.genesis, clock.period as u32, rr)
+            - permutation_rules::frontier::beacon::SEED_LEAD_SECS
+            - margin as i64
+            - 1
+    };
+    let bell_of = |t: i64| ((t - genesis_ts).max(0) / 600) as u32;
+    let shipped_after = |after: i64, prev_bell: Option<u32>| {
+        rounds
+            .keys()
+            .copied()
+            .find(|&rr| {
+                let t = t_req_of(rr);
+                t > after + 2 && t >= genesis_ts + 600 && prev_bell.is_none_or(|b| bell_of(t) > b)
+            })
+            .expect("a shipped round after now")
+    };
+    let dummy = adr([0xEE; 32]); // (an address only: the witness reads the accounts keeper A's writes name)
+    let mut ring_rounds: Vec<Value> = vec![];
+    // (P5: ring 128 "opened" in this bell, so keeper A may request ring 129 only from the next bell on — the
+    //  program's rule — and the rim's 42 legacy openings, which spend the same wedge funds, are done before the
+    //  wide rings' witnessed segment starts)
+    let rim_bell = if keeper_wide { r.bell() } else { 0 };
+    rs.data[RS::OPENED_BELL..RS::OPENED_BELL + 4].copy_from_slice(&rim_bell.to_le_bytes());
+    r.patch(
+        adr(ctx.ring_seed(R_MAX_HARD)),
+        rs,
+        &format!("RingSeed(128) seeded (the genesis ring's seed, opened_bell {rim_bell})"),
+    );
     let patched_slot = r.lock().slot();
+    let seed_of = |r: &Run<'_>, ring: u64| {
+        r.data(&adr(wl::ring_seed_address(&r.ctx(), ring)))
+            .and_then(|d| wl::WideRingSeed::read(&d).ok())
+    };
 
-    // 2. keeper A's rim duty opens the rim's provinces.
+    // 2. keeper A's rim duty opens the rim's provinces (P5: and its rings duty requests ring 129's seed).
     let plan = keeper_core::rings::rim_plan(PER_WEDGE);
     let t_rim = Instant::now();
-    r.run_until(5.0, 240, "keeper A opens the rim's provinces", |r| {
-        plan.iter()
-            .all(|&(p, q)| r.lock().account(&r.c.a.province(p, q)).is_some())
-    })
+    r.run_until(
+        if keeper_wide { 0.01 } else { 5.0 },
+        240,
+        "keeper A opens the rim's provinces",
+        |r| {
+            plan.iter()
+                .all(|&(p, q)| r.lock().account(&r.c.a.province(p, q)).is_some())
+        },
+    )
     .await;
     let rim_secs = t_rim.elapsed().as_secs_f64();
     let rim_open: Vec<Value> = r
@@ -446,6 +583,108 @@ pub async fn run(c: Ctx<'_>) -> Value {
         .collect();
     let rim_ok: Vec<&Value> = rim_open.iter().filter(|x| x["ok"] == true).collect();
     assert_eq!(rim_ok.len(), plan.len(), "{rim_open:#?}");
+
+    // P5 (P6): keeper A's rings duty opens the wide rings 129..=131, one a bell apart; this test only moves the clock.
+    let wide_tags = [
+        wix::WideIx::RequestRingSeed.tag(),
+        wix::WideIx::ConsumeRingSeed.tag(),
+        wix::WideIx::OpenProvince.tag(),
+    ];
+    let mut wide_ring_txs = vec![];
+    let mut vwl_rings = Value::Null;
+    let funds = |r: &Run<'_>| -> Vec<u64> {
+        (0..6u8)
+            .map(|w| r.lock().balance(&adr(r.ctx().province_fund(w))))
+            .collect()
+    };
+    let funds_before = funds(&r);
+    let mut first_bound = None;
+    if keeper_wide {
+        assert!(
+            seed_of(&r, FIRST_WIDE_RING).is_none(),
+            "ring 129 waits a bell"
+        );
+        assert_eq!(r.bell(), rim_bell, "the rim opened within ring 128's bell");
+        r.lock().set_paused(true);
+        r.witness = Some(Witness::default());
+        for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + WIDE_RINGS {
+            let since = r.lock().slot();
+            let prev = if ring == FIRST_WIDE_RING {
+                rim_bell
+            } else {
+                seed_of(&r, ring - 1)
+                    .expect("the previous wide ring")
+                    .opened_bell
+            };
+            let bound = shipped_after(r.now(), Some(prev));
+            first_bound.get_or_insert(bound);
+            r.advance_exact(t_req_of(bound) - 1);
+            r.witness_before(&[keeper_core::widelane::request_ring_seed(&a, dummy, ring)]);
+            r.run_until(
+                0.002,
+                240,
+                &format!("keeper A requests ring {ring}'s seed"),
+                |r| seed_of(r, ring).is_some(),
+            )
+            .await;
+            r.lock().set_paused(true);
+            r.witness_landed(patched_slot, &wide_tags);
+            let rec = seed_of(&r, ring).expect("requested");
+            assert_eq!(
+                rec.round, bound,
+                "keeper A's request of ring {ring} bound the shipped round"
+            );
+            let t_seeded = Instant::now();
+            r.advance_exact(round_time(clock.genesis, clock.period as u32, bound) + 1);
+            let wplan = keeper_core::rings::wide_plan(ring, PER_WEDGE);
+            let mut ixs =
+                vec![
+                    keeper_core::widelane::consume_ring_seed(&a, dummy, ring, bound, [0; 48])
+                        .expect("consume"),
+                ];
+            for c in &wplan {
+                ixs.push(keeper_core::widelane::open_province(&a, dummy, *c).expect("open"));
+            }
+            r.witness_before(&ixs);
+            r.run_until(
+                0.05,
+                300,
+                &format!("keeper A seeds ring {ring} and opens its plan"),
+                |r| {
+                    seed_of(r, ring).is_some_and(|s| s.status == wl::SeedStatus::Seeded)
+                        && wplan
+                            .iter()
+                            .all(|c| r.data(&adr(wl::province_address(&r.ctx(), *c))).is_some())
+                },
+            )
+            .await;
+            r.lock().set_paused(true);
+            r.witness_landed(patched_slot, &wide_tags);
+            let rows = r.feed_rows(since, &wide_tags, "keeper A (rings duty, wide_rings)");
+            assert!(
+                rows.iter().filter(|x| x["ok"] == true).count() > wplan.len(),
+                "{rows:#?}"
+            );
+            ring_rounds.push(json!({"ring": ring, "bound_shipped_round": bound, "request_bell": rec.opened_bell,
+                "provinces": wplan.len(), "seed_and_open_wall_secs": t_seeded.elapsed().as_secs_f64()}));
+            wide_ring_txs.extend(rows);
+        }
+        // VWL on the wide rings' segment (keeper A's 0xD6 / 0xD7 / 0xD8): no FAIL, nothing UNVERIFIABLE.
+        let wit = r.witness.take().expect("the rings' witness");
+        let found = judge(&r, &wit, "p5-keeper-wide-rings-segment");
+        let vwl: Vec<Value> = found
+            .iter()
+            .map(|f| json!({"severity": format!("{:?}", f.severity), "check": f.check, "code": f.code, "entity": f.entity, "detail": f.detail}))
+            .collect();
+        assert!(
+            found
+                .iter()
+                .all(|f| f.severity == verify_core::Severity::Warn),
+            "VWL on keeper A's wide rings: {vwl:#?}"
+        );
+        vwl_rings = json!({"transactions": wit.txs.len(), "snapshot_accounts": wit.snapshot.len(), "findings": vwl});
+    }
+    let funds_after_rings = funds(&r);
 
     // The participant's rim province: the first of the plan whose mixed nation has a free site.
     let (rp, rq, nation) = plan
@@ -469,115 +708,122 @@ pub async fn run(c: Ctx<'_>) -> Value {
             )
         })
         .expect("a free rim site") as u8;
-    // The wide target: a ring-129 neighbour of the rim province.
+    // The wide target: a ring-129 neighbour of the rim province (P5: one of keeper A's ring-129 plan).
+    let plan129 = keeper_core::rings::wide_plan(FIRST_WIDE_RING, PER_WEDGE);
     let target = [(1i64, 0i64), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
         .iter()
         .map(|(dp, dq)| WideCoord::checked(rp as i64 + dp, rq as i64 + dq).unwrap())
-        .find(|c| c.ring() == FIRST_WIDE_RING)
-        .expect("the rim province borders ring 129");
+        .find(|c| c.ring() == FIRST_WIDE_RING && (!keeper_wide || plan129.contains(c)))
+        .expect("the rim province borders ring 129 (P5: a province keeper A opened)");
 
-    // 6 (first, while the shipped rounds last): the wide ring 129, bound to a shipped round.
-    let bound = rounds
-        .keys()
-        .copied()
-        .find(|&rr| {
-            let t = round_time(clock.genesis, clock.period as u32, rr)
-                - permutation_rules::frontier::beacon::SEED_LEAD_SECS
-                - margin as i64
-                - 1;
-            t > r.now() + 2 && t >= genesis_ts + 600
-        })
-        .expect("a shipped round after now");
-    let t_req = round_time(clock.genesis, clock.period as u32, bound)
-        - permutation_rules::frontier::beacon::SEED_LEAD_SECS
-        - margin as i64
-        - 1;
-    r.advance_exact(t_req - 1);
-    assert_eq!(
-        kb::ring_seed_round(&clock, r.now(), margin),
-        bound,
-        "the request binds a shipped round"
-    );
-    let mut req = vec![
-        AccountMeta::new(payer.pubkey(), true),
-        AccountMeta::new_readonly(a.season, false),
-        AccountMeta::new_readonly(a.frontier(), false),
-        AccountMeta::new_readonly(adr(ctx.ring_seed(R_MAX_HARD)), false),
-        AccountMeta::new(adr(wl::ring_seed_address(&ctx, FIRST_WIDE_RING)), false),
-    ];
-    for w in 0..6u8 {
-        req.push(AccountMeta::new_readonly(adr(ctx.province_fund(w)), false));
-    }
-    req.push(AccountMeta::new_readonly(
-        fclient::addr::system_program(),
-        false,
-    ));
-    let ix_req = wide_ix(
-        &a,
-        req,
-        wix::RequestRingSeed {
-            ring: FIRST_WIDE_RING,
-        }
-        .to_bytes()
-        .to_vec(),
-    );
-    r.send(
-        "WideRequestRingSeed(129)",
-        &[ix_req],
-        &[&payer],
-        "permissionless payer (test)",
-    );
-    r.advance_exact(round_time(clock.genesis, clock.period as u32, bound) + 1);
-    let beacon = rounds.get(&bound).expect("the bound round");
-    let hints: [u8; frontier_abi::ix::HINTS_LEN] =
-        fb::hints_bytes(bound).try_into().expect("hints");
-    let ix_consume = wide_ix(
-        &a,
-        vec![
+    // 6 (P4 only; P5's wide rings are keeper A's, above).
+    let bound = if keeper_wide {
+        first_bound.expect("ring 129's round")
+    } else {
+        // 6 (first, while the shipped rounds last): the wide ring 129, bound to a shipped round.
+        let bound = rounds
+            .keys()
+            .copied()
+            .find(|&rr| {
+                let t = round_time(clock.genesis, clock.period as u32, rr)
+                    - permutation_rules::frontier::beacon::SEED_LEAD_SECS
+                    - margin as i64
+                    - 1;
+                t > r.now() + 2 && t >= genesis_ts + 600
+            })
+            .expect("a shipped round after now");
+        let t_req = round_time(clock.genesis, clock.period as u32, bound)
+            - permutation_rules::frontier::beacon::SEED_LEAD_SECS
+            - margin as i64
+            - 1;
+        r.advance_exact(t_req - 1);
+        assert_eq!(
+            kb::ring_seed_round(&clock, r.now(), margin),
+            bound,
+            "the request binds a shipped round"
+        );
+        let mut req = vec![
             AccountMeta::new(payer.pubkey(), true),
             AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new_readonly(a.frontier(), false),
+            AccountMeta::new_readonly(adr(ctx.ring_seed(R_MAX_HARD)), false),
             AccountMeta::new(adr(wl::ring_seed_address(&ctx, FIRST_WIDE_RING)), false),
-        ],
-        wix::ConsumeRingSeed {
-            ring: FIRST_WIDE_RING,
-            round: bound,
-            sig48: beacon.sig48,
-            hints,
+        ];
+        for w in 0..6u8 {
+            req.push(AccountMeta::new_readonly(adr(ctx.province_fund(w)), false));
         }
-        .to_bytes()
-        .to_vec(),
-    );
-    r.send(
-        &format!("WideConsumeRingSeed(129) on shipped round {bound}"),
-        &[ix_consume],
-        &[&payer],
-        "permissionless payer (test)",
-    );
-    let wedge = target.wedge().expect("a wedge");
-    let ix_open = wide_ix(
-        &a,
-        vec![
-            AccountMeta::new(payer.pubkey(), true),
-            AccountMeta::new_readonly(a.season, false),
-            AccountMeta::new(adr(wl::ring_seed_address(&ctx, FIRST_WIDE_RING)), false),
-            AccountMeta::new(adr(ctx.province_fund(wedge)), false),
-            AccountMeta::new(adr(wl::province_address(&ctx, target)), false),
-            AccountMeta::new_readonly(adr(wr::rules_config_address(&ctx)), false),
-            AccountMeta::new_readonly(fclient::addr::system_program(), false),
-        ],
-        wix::OpenProvince {
-            p: target.p(),
-            q: target.q(),
-        }
-        .to_bytes()
-        .to_vec(),
-    );
-    r.send(
-        &format!("WideOpenProvince({}, {})", target.p(), target.q()),
-        &[ix_open],
-        &[&payer],
-        "permissionless payer (test)",
-    );
+        req.push(AccountMeta::new_readonly(
+            fclient::addr::system_program(),
+            false,
+        ));
+        let ix_req = wide_ix(
+            &a,
+            req,
+            wix::RequestRingSeed {
+                ring: FIRST_WIDE_RING,
+            }
+            .to_bytes()
+            .to_vec(),
+        );
+        r.send(
+            "WideRequestRingSeed(129)",
+            &[ix_req],
+            &[&payer],
+            "permissionless payer (test)",
+        );
+        r.advance_exact(round_time(clock.genesis, clock.period as u32, bound) + 1);
+        let beacon = rounds.get(&bound).expect("the bound round");
+        let hints: [u8; frontier_abi::ix::HINTS_LEN] =
+            fb::hints_bytes(bound).try_into().expect("hints");
+        let ix_consume = wide_ix(
+            &a,
+            vec![
+                AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(wl::ring_seed_address(&ctx, FIRST_WIDE_RING)), false),
+            ],
+            wix::ConsumeRingSeed {
+                ring: FIRST_WIDE_RING,
+                round: bound,
+                sig48: beacon.sig48,
+                hints,
+            }
+            .to_bytes()
+            .to_vec(),
+        );
+        r.send(
+            &format!("WideConsumeRingSeed(129) on shipped round {bound}"),
+            &[ix_consume],
+            &[&payer],
+            "permissionless payer (test)",
+        );
+        let wedge = target.wedge().expect("a wedge");
+        let ix_open = wide_ix(
+            &a,
+            vec![
+                AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(wl::ring_seed_address(&ctx, FIRST_WIDE_RING)), false),
+                AccountMeta::new(adr(ctx.province_fund(wedge)), false),
+                AccountMeta::new(adr(wl::province_address(&ctx, target)), false),
+                AccountMeta::new_readonly(adr(wr::rules_config_address(&ctx)), false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ],
+            wix::OpenProvince {
+                p: target.p(),
+                q: target.q(),
+            }
+            .to_bytes()
+            .to_vec(),
+        );
+        r.send(
+            &format!("WideOpenProvince({}, {})", target.p(), target.q()),
+            &[ix_open],
+            &[&payer],
+            "permissionless payer (test)",
+        );
+        bound
+    };
 
     // 3. The participant: Join (the rim province's nation) and a one-site FileTicket on the rim.
     let player = Keypair::new(); // TEST key
@@ -788,32 +1034,87 @@ pub async fn run(c: Ctx<'_>) -> Value {
         ],
         wix::SettleTicket { k: 0 }.to_bytes().to_vec(),
     );
-    let ws = r.send(
-        "WideSettleTicket(k 0)",
-        &[settle_ix],
-        &[&payer],
-        "permissionless payer (test)",
-    );
-    let whd = r.data(&wholding).expect("the wide village's Holding");
-    assert_eq!(whd[H::STATE], H::STATE_PROVISIONAL);
-    let wfinal_ts = le_i64(&whd, H::FINAL_TS);
-    let finalize_ix = wide_ix(
-        &a,
-        vec![
-            AccountMeta::new(payer.pubkey(), true),
-            AccountMeta::new_readonly(a.season, false),
-            AccountMeta::new(wholding, false),
-            AccountMeta::new_readonly(adr(wl::province_address(&ctx, target)), false),
-        ],
-        wix::Finalize {}.to_bytes().to_vec(),
-    );
-    r.advance_exact(wfinal_ts.max(r.now()) + 1);
-    let wf = r.send(
-        "WideFinalize",
-        &[finalize_ix],
-        &[&payer],
-        "permissionless payer (test)",
-    );
+    let finalize_ix = |payer: Address| {
+        wide_ix(
+            &a,
+            vec![
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(wholding, false),
+                AccountMeta::new_readonly(adr(wl::province_address(&ctx, target)), false),
+            ],
+            wix::Finalize {}.to_bytes().to_vec(),
+        )
+    };
+    let (ws, wf) = if keeper_wide {
+        // P5 (P7): keeper A's `wide-tickets` role settles the claim on the bell's seed, then finalizes the village.
+        let since = r.lock().slot();
+        let mut dummy_settle = settle_ix.clone();
+        dummy_settle.accounts[0].pubkey = dummy;
+        r.witness_before(&[dummy_settle]);
+        r.run_until(
+            2.0,
+            180,
+            "keeper A's wide-tickets role settles the wide claim",
+            |r| {
+                r.lock()
+                    .account(&wholding)
+                    .is_some_and(|h| h.owner == r.c.program)
+            },
+        )
+        .await;
+        r.lock().set_paused(true);
+        r.witness_landed(since, &[wix::WideIx::SettleTicket.tag()]);
+        let ws = r.feed_rows(
+            since,
+            &[wix::WideIx::SettleTicket.tag()],
+            "keeper A (wide-tickets role)",
+        );
+        assert!(ws.iter().any(|x| x["ok"] == true), "{ws:#?}");
+        let whd = r.data(&wholding).expect("the wide village's Holding");
+        assert_eq!(whd[H::STATE], H::STATE_PROVISIONAL);
+        let wfinal_ts = le_i64(&whd, H::FINAL_TS);
+        r.advance_exact(wfinal_ts.max(r.now()) + 1);
+        let since = r.lock().slot();
+        r.witness_before(&[finalize_ix(dummy)]);
+        r.run_until(
+            2.0,
+            180,
+            "keeper A's wide-tickets role finalizes the wide village",
+            |r| {
+                r.data(&wholding)
+                    .is_some_and(|h| h[H::STATE] == H::STATE_FINAL)
+            },
+        )
+        .await;
+        r.lock().set_paused(true);
+        r.witness_landed(since, &[wix::WideIx::Finalize.tag()]);
+        let wf = r.feed_rows(
+            since,
+            &[wix::WideIx::Finalize.tag()],
+            "keeper A (wide-tickets role)",
+        );
+        assert!(wf.iter().any(|x| x["ok"] == true), "{wf:#?}");
+        (json!(ws), json!(wf))
+    } else {
+        let ws = r.send(
+            "WideSettleTicket(k 0)",
+            &[settle_ix],
+            &[&payer],
+            "permissionless payer (test)",
+        );
+        let whd = r.data(&wholding).expect("the wide village's Holding");
+        assert_eq!(whd[H::STATE], H::STATE_PROVISIONAL);
+        let wfinal_ts = le_i64(&whd, H::FINAL_TS);
+        r.advance_exact(wfinal_ts.max(r.now()) + 1);
+        let wf = r.send(
+            "WideFinalize",
+            &[finalize_ix(payer.pubkey())],
+            &[&payer],
+            "permissionless payer (test)",
+        );
+        (ws, wf)
+    };
     let whd = r.data(&wholding).unwrap();
     assert_eq!(whd[H::STATE], H::STATE_FINAL);
     let wide = wh::WideHolding::read(&whd).expect("a wide holding");
@@ -822,31 +1123,15 @@ pub async fn run(c: Ctx<'_>) -> Value {
     // The verifier's VWL judges the claim, its settlement and the finalize from the execution witness (the
     // claim bell's anchor and seed are in it as the declared patch left them): no FAIL, nothing UNVERIFIABLE.
     let wit = r.witness.take().expect("the witness");
-    let so_hash: [u8; 32] = hex::decode(super::DEVNET_SO_SHA256)
-        .unwrap()
-        .try_into()
-        .unwrap();
-    let segment = verify_core::input::Input {
-        cfg: verify_core::input::Config {
-            program: r.c.program,
-            season_id: SEASON_ID,
-            quicknet_pk: fb::quicknet_info().public_key,
-            ruleset_hash: frontier_abi::v2::presets::RULESET_HASH_V3,
-            program_hash: Some(so_hash),
+    let segment = segment_of(
+        &r,
+        &wit,
+        if keeper_wide {
+            "p5-keeper-wide-claim-segment"
+        } else {
+            "p4-rim-claim-segment"
         },
-        txs: wit.txs.clone(),
-        finals: Default::default(),
-        final_slot: r.lock().slot(),
-        program_hashes: vec![(0, so_hash)],
-        provenance: "stack/tests/operator_playable.rs P4: the rim Hamlet's wide claim segment"
-            .into(),
-        scenarios: vec!["p4-rim-claim-segment".into()],
-        history: Default::default(),
-        resident_feed: None,
-        program_so: None,
-        declared: vec![],
-        chain: Default::default(),
-    };
+    );
     let found = verify_core::checks::vwl_wide_land::judge_segment(&segment, &wit.snapshot);
     let vwl: Vec<Value> = found
         .iter()
@@ -924,6 +1209,11 @@ pub async fn run(c: Ctx<'_>) -> Value {
         "join": join, "file_ticket": file, "harvests": harvests, "wide_claim": cl, "wide_settle": ws, "wide_finalize": wf,
         "declared_patches": r.patches,
         "wide_ring_bound_round": bound,
+        "p5_keeper_wide": if keeper_wide { json!({
+            "wide_rings": ring_rounds, "wide_ring_txs": wide_ring_txs, "verifier_vwl_rings_segment": vwl_rings,
+            "province_funds_before_rings": funds_before, "province_funds_after_rings": funds_after_rings,
+            "settle_and_finalize_by": "keeper A wide-tickets role",
+        }) } else { Value::Null },
         "verifier_vwl_segment": {"transactions": wit.txs.len(), "snapshot_accounts": wit.snapshot.len(), "findings": vwl,
             "mutation_town_season_fails": town_fails, "mutation_forged_owner_fails": forged_fails},
     })
