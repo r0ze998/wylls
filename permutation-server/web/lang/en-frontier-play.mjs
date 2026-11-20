@@ -1988,4 +1988,12 @@ export default {
   '待つのをやめる': 'Stop waiting',
   // fix-loop5 L5-6: a clash out of sight under the fog
   'この場所はいま見えていません。ほかの国どうしの衝突の報告は、その場所が見えているあいだだけ開けます。': "This place is out of sight now. A clash between other nations can be opened only while its place is in sight.",
+  // fix-loop5 L5-3/L5-5: the boundary card's dropped read
+  '読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。': "The world's clock moved on while reading, so that result could not be used (common at ×60). This page read again by itself up to 2 times without success. Press again.",
+  // fix-loop5 L5-7: the guide pill while the host forms
+  '軍勢の整列を待つ': 'Wait for the host to form',
+  '待つ間に：{0}': 'Meanwhile: {0}',
+  // fix-loop5 L5-4: a road ending on an unopened wide province
+  '終点の州 {0},{1} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。いちばん近い開いた州は {2},{3}（{4} 州先）です。': 'The end province {0},{1} is not open in this world (only the provinces of rings 129–131 drawn on the map are open). The nearest open province is {2},{3} ({4} provinces away).',
+  '終点の州 {0},{1} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。': 'The end province {0},{1} is not open in this world (only the provinces of rings 129–131 drawn on the map are open).',
 };

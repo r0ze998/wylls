@@ -165,7 +165,7 @@ export function conquestObjective(FS) {
   if (!g || g.current === 'done') return null;
   const x = g.facts, hold = holdTurns(FS), id = g.current;
   const title = TITLE[id](hold);
-  let text = '', go = null;
+  let text = '', go = null, wait = null;
   if (id === 'village') { text = L`国を選ぶと、最初の村が自動で置かれます。`; go = { act: 'join-open', data: {}, label: L`国を選ぶ` }; }
   else if (id === 'build') { text = L`村を選び、「建てる」から最初の建物を選びます。建物は毎時の産出を増やします。`; go = { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` }; }
   else if (id === 'train' || id === 'muster') {
@@ -179,9 +179,12 @@ export function conquestObjective(FS) {
       // review of 2026-11-13: the guide said nothing for the ~18 minutes between the muster and the formed host)
       const r = x.forming, s = waitingSuggestion(FS, r, t);
       text = [formingLine(FS, r), whileWaitingLine(s, r.unit)].filter(Boolean).join(' ');
-      go = s?.kind === 'train' ? { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }
-        : s?.kind === 'build' ? { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` }
+      // (fix-loop5, L5-7: a press for meanwhile — 兵を足す / 建設をひらく — is said as that, `aside`, and the step's own
+      //  line is the wait: the pill read 「ガイド 3/7 建設をひらく」 under the step 「軍勢を編成する」 after the muster)
+      go = s?.kind === 'train' ? { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す`, aside: true }
+        : s?.kind === 'build' ? { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく`, aside: true }
         : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
+      wait = L`軍勢の整列を待つ`;
     } else { text = L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`; go = { act: 'cg-go', data: { pop: 'muster' }, label: L`軍勢を編成する` }; }
   } else if (id === 'march') {
     let rows = [];
@@ -223,7 +226,7 @@ export function conquestObjective(FS) {
       : L`進軍が砦のマスに着いて勝つと、占拠のターンが数えられます。${fmtNum(hold)} ターン続けて保つと、州はあなたの国のものになります。`;
     go = x.target ? { act: 'goto', data: { p: x.target.p, q: x.target.q }, label: L`砦を見る` } : { act: 'tab', data: { tab: 'marches' }, label: L`進軍を見る` };
   }
-  return { id, n: g.n, total: g.total, title, text, go };
+  return { id, n: g.n, total: g.total, title, text, go, wait };
 }
 
 const attrs = d => raw(Object.entries(d ?? {}).map(([k, v]) => `data-${String(k).replace(/[^\w-]/g, '')}="${String(v).replace(/[^\w.,:-]/g, '')}"`).join(' '));

@@ -462,7 +462,8 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
   // a dock tab keeps one line of the selection (the inspector itself opens from the map)
   if (FS.selected) parts.push(inspect.renderBrief(FS, terrainRef));
   if (d.kind === 'holding') parts.push(holdingScreen.render(FS));
-  else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
+  // (fix-loop5, L5-10: the exploration card only where there is a scout or an exploration to speak of)
+  else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.exploreRelevant(FS, hostScreen.hostRows(FS)) ? exploreScreen.render(FS) : '');
   else if (d.kind === 'marches') {
     // a warning of arrivals stands first; with none, its quiet line closes the screen
     const warned = (FS.incoming ?? []).length > 0;
@@ -1550,9 +1551,23 @@ function renderHand() {
   // (round 20: right after the card is written, the forts card's wait slot takes the tallest height it has had for this
   //  host at this width — keephand.steadySlot; it does nothing on any other card)
   if (pop !== handLast.pop && !handPopPress.hold(() => renderHand())) { keepState(handPopEl, () => setHtml(handPopEl, pop ? hand.renderPop(FS, model) : '')); keephand.steadySlot(handPopEl, `${model.key}|${globalThis.innerWidth ?? 0}`); handLast.pop = pop; if (pop) handPopEl.setAttribute('aria-label', model.label); }
+  if (model.pop === OUTBOUND_POP) scrollOutboundResult();
   placeHandPop(model);
   measureHand();
   publishNoGo();
+}
+/**
+ * (fix-loop5, L5-3) The boundary card's newest answer — a route or departure read, its result, a dropped read — is
+ * brought into view inside the card once, when it appears (the card scrolls; the page does not).
+ */
+let outboundSeen = null;
+function scrollOutboundResult() {
+  const s = FS.expeditionCompose;
+  const now = s?.contextCheck ?? s?.routeCheck ?? (s?.dropped ? { dropped: s.dropped } : null);
+  if (!now || now === outboundSeen || now.status === 'loading') { if (!now) outboundSeen = null; return; }
+  outboundSeen = now;
+  const el = handPopEl?.querySelector?.('.outbound-context-report, .outbound-route-report, .outbound-read-dropped');
+  try { el?.scrollIntoView?.({ block: 'nearest', behavior: calm() ? 'auto' : 'smooth' }); } catch { /* an old engine: the card still scrolls by hand */ }
 }
 /** Where the bar stands, told to the stylesheet (`--hand-h`, `--hand-l`, `--hand-t` on the body): the cards stand above it, and the dock tucks behind its top left corner. */
 function measureHand() {

@@ -11,7 +11,7 @@
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
-import { exploreTargets, ticketTimes, holdingByRef } from '../fland.mjs';
+import { exploreTargets, ticketTimes, holdingByRef, SCOUT } from '../fland.mjs';
 import { DIRECTIONS, TILE_OFFSETS } from '../fgeo.mjs';
 import { dueHtml } from './shell.mjs';
 import { icon } from '../hud/icons.mjs';
@@ -53,6 +53,19 @@ export function otherExplorations(FS) {
   const active = activeHolding(FS) ?? null;
   return (FS.holdings ?? []).map((o, i) => ({ o, i })).filter(({ o }) => o !== active && o?.explore?.state > 0)
     .map(({ o, i }) => ({ i, name: holdingName(o), bell: Number(o.explore.bell), due: FS.clock ? ticketTimes(FS.clock, o.explore.bell).resultAbout : null }));
+}
+
+/**
+ * (fix-loop5, L5-10) Whether the 軍勢 tab shows the exploration card at all: an exploration under way or being chosen,
+ * one of another village, or a scout host of the open village. A spearman host's tab said 「斥候の軍勢の「探索」を押すと…」
+ * and 「はじめの探索はあと 3 回」 with no scout anywhere (loop-play4 B, loop-play5 L5-10).
+ */
+export function exploreRelevant(FS, rows = []) {
+  const h = activeHolding(FS);
+  if (h?.explore && h.explore.state !== 0) return true;
+  if (FS.explore?.host) return true;
+  if (otherExplorations(FS).length) return true;
+  return (rows ?? []).some(r => Number(r?.unit) === SCOUT);
 }
 
 export function render(FS) {

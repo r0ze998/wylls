@@ -1568,8 +1568,14 @@ export const openOriginalOutbound = () => { outbound.openOutbound(FS, expedition
 export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('map', 'panel'); return ok; };
 export const tapOriginalOutbound = hit => { const result = outbound.tapOutbound(FS, expeditionContext(), hit); if (result.handled) invalidate('map', 'panel'); return result; };
 export const originalOutboundMap = () => outbound.readOutboundMap(FS, expeditionContext());
-export const inspectOriginalOutboundRoute = () => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') });
-export const inspectOriginalOutboundContext = () => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+// (fix-loop5, L5-3: a read the clock's move dropped — fexpedition-compose `dropped` — is read again by itself, at most
+//  OUTBOUND_READ_RETRIES more times; then the card says so and the person presses again. Reads only: nothing is sent)
+export const OUTBOUND_READ_RETRIES = 2;
+const outboundReadAgain = async (run, kind) => {
+  for (let i = 0; ; i++) { await run(); if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return; }
+};
+export const inspectOriginalOutboundRoute = () => outboundReadAgain(() => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'route');
+export const inspectOriginalOutboundContext = () => outboundReadAgain(() => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'context');
 /**
  * One press on the boundary card: the earliest arrival turn of the observation still bound to this draft goes into
  * the draft's arrival field, and that observation is read again. A local edit and a read, like the two above:

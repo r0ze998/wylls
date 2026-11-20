@@ -44,7 +44,7 @@ import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
-import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate } from '../fexpedition-compose.mjs';
+import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate, outboundEndpointOpen } from '../fexpedition-compose.mjs';
 import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
 import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
 import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
@@ -638,6 +638,15 @@ function outboundContextReport(check, pick = null, entered = '') {
   </div>`;
 }
 
+/** (fix-loop5, L5-4) The road's endpoint is not an opened wide province: said at once, with the nearest opened one. */
+function outboundEndpointLine(endpoint, targets) {
+  const o = outboundEndpointOpen(endpoint, targets);
+  if (!o || o.open) return '';
+  return html`<p class="pop-line pop-why outbound-endpoint-closed" role="status">${o.nearest
+    ? L`終点の州 ${endpoint.p},${endpoint.q} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。いちばん近い開いた州は ${o.nearest.p},${o.nearest.q}（${o.nearest.away} 州先）です。`
+    : L`終点の州 ${endpoint.p},${endpoint.q} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。`}</p>`;
+}
+
 function outboundPop(FS, model) {
   const s = FS.expeditionCompose ?? {}, review = s.review, source = s.source, directions = s.directions ?? [];
   let choices = { stances: [], retreat: [], tips: [] };
@@ -663,8 +672,10 @@ function outboundPop(FS, model) {
       <button type="button" class="btn small" data-act="outbound-undo" ${raw(!directions.length ? 'aria-disabled="true"' : '')}>${L`一歩戻す`}</button>
       <button type="button" class="btn small" data-act="outbound-reset">${L`道を消す`}</button></div>
     ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
+    ${outboundEndpointLine(endpoint, FS.localPlay?.wideLand?.targets)}
     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
       <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
+    ${s.dropped && !s.routeCheck && !s.contextCheck ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
     ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
     ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
     ${outboundLocalDepart(FS, !!review && s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)}
