@@ -785,4 +785,17 @@ mod tests {
             assert_eq!(uniq.len(), plan.len());
         }
     }
+
+    /// Q-W1: the devnet keeper's `rim_per_wedge` duty opens exactly this world's rim (the same provinces, in the
+    /// same order), so local and devnet rim first villages stand beside the same wide provinces.
+    #[test]
+    fn the_keepers_rim_duty_opens_this_worlds_rim() {
+        for n in [1, 3, PER_WEDGE, 12] {
+            assert_eq!(
+                keeper_core::rings::rim_plan(n),
+                rim_plan(&wide_plan(FIRST_WIDE_RING, n)),
+                "per_wedge {n}"
+            );
+        }
+    }
 }

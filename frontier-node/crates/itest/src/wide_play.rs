@@ -48,7 +48,7 @@ use crate::local_keeper as lk;
 
 pub const LOCAL_RULES_MODE: &str = "local-rules-v1";
 pub const WIDE_PLAY_SCHEMA: &str = "frontier-localnet-wide-play-v1";
-/// The wide world's `outpost_tier_min`: 0 = Hamlet (the presets: 1 = Town).
+/// The wide world's `outpost_tier_min`: 0 = Hamlet (`S1_DEVNET_WIDE_7D` has it too since Q-W1; the other presets: 1 = Town).
 pub const WIDE_OUTPOST_TIER_MIN: u8 = 0;
 /// Rim provinces settled per nation by the setup's TEST participants.
 pub const RIM_PER_NATION: usize = 2;
@@ -661,11 +661,13 @@ mod tests {
             assert_eq!(back.to_bytes(), base.to_bytes());
             assert_eq!(w.validate(), Ok(()));
         }
-        // (the presets themselves are untouched: devnet keeps the Concord and a Town anchor)
+        // (the presets keep the Concord; since Q-W1 (owner 2026-11-20) the devnet wide preset has the local wide
+        //  world's Hamlet anchor itself, so `local_wide` changes only the centre there; S1_LOCAL_7D keeps a Town)
         assert_eq!(CENTRE_PLAYABLE, CENTRE_CONCORD);
         assert_eq!(S1_LOCAL_7D.cq.centre, CENTRE_CONCORD);
         assert_eq!(S1_DEVNET_WIDE_7D.cq.centre, CENTRE_CONCORD);
-        assert_eq!(S1_DEVNET_WIDE_7D.cq.outpost_tier_min, 1);
+        assert_eq!(S1_DEVNET_WIDE_7D.cq.outpost_tier_min, WIDE_OUTPOST_TIER_MIN);
+        assert_eq!(S1_LOCAL_7D.cq.outpost_tier_min, 1);
     }
 
     #[test]

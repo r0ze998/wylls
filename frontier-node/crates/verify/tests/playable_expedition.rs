@@ -124,6 +124,9 @@ fn params() -> SeasonParamsV2 {
     // ⑧ wide land (i): the disk's keeps mixed on every ring, so the wide
     // rules must name MixedInterleaved (`rules::keep_holder_allowed`).
     p.cq.placement = PLACEMENT_MIXED;
+    // (the committed recordings were made while the preset's `outpost_tier_min` was 1 = Town; Q-W1 made it 0 on
+    //  2026-11-20. The recorder keeps the recorded byte so a re-recording reproduces them.)
+    p.cq.outpost_tier_min = 1;
     p
 }
 

@@ -13,12 +13,17 @@
 //!   chain (6d per ring; the Concord is ring 0). With `lazy_provinces`
 //!   (devnet-preset-wide) only the genesis rings' provinces: a seeded ring
 //!   past them is complete at once ([`ring_complete_lazily`]).
+//! - **The rim's provinces** (`rim_per_wedge` > 0; owner Q-W1: a first
+//!   village may also be founded on the rim of a wide season): once ring
+//!   128 is opened and seeded, OpenProvince for every province of
+//!   [`rim_plan`] not yet on chain, so a player can file a rim FileTicket
+//!   (which the `tickets` role settles) next to the wide land.
 //!
 //! A program that answers `NotImplemented` (99) for a land instruction
 //! ends this duty with an alert (the W2 program); the beacon duties keep
 //! running.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use solana_address::Address;
@@ -28,7 +33,7 @@ use fclient::decode::{Frontier, RingSeed, Season};
 use fclient::ix;
 use fclient::land::{frontier_extend_check, ring_open_check, ExtendWait, RingWait};
 use fclient::ports::{ChainPort, DrandPort, PortResult};
-use permutation_rules::frontier::geometry::ring_provinces;
+use permutation_rules::frontier::geometry::{ring_provinces, ProvinceCoord, R_MAX_HARD};
 
 use crate::engine::{BuildCtx, CancelReason, Engine, WriteSpec};
 use crate::rounds::Rounds;
@@ -69,6 +74,68 @@ pub struct RingDuty {
     seen_seeded: BTreeSet<u16>,
     /// Bell at which this keeper saw ring d complete (keeper policy below).
     complete_bell: std::collections::BTreeMap<u16, u32>,
+    /// `rim_per_wedge`: every province of [`rim_plan`] is on chain.
+    pub rim_done: bool,
+    /// `rim_per_wedge`: the plan's provinces seen on chain (status).
+    pub rim_present: usize,
+}
+
+/// The rim provinces a keeper with `rim_per_wedge = n` opens (owner Q-W1):
+/// on the first wide ring (129), per wedge, the `n` provinces in the middle
+/// of that wedge's arc (in the ring's walking order, wedges in order); then
+/// every ring-128 province that borders one of them, in that order, each
+/// once. The same provinces as the local wide world's rim (`itest`
+/// `wide_land::rim_plan(&wide_plan(129, n))`, pinned there), so a rim first
+/// village is within `outpost_range` (3) of the wide provinces a wide-ring
+/// duty would open with the same `n`. Pure.
+pub fn rim_plan(per_wedge: usize) -> Vec<(i32, i32)> {
+    let r = i32::from(R_MAX_HARD) + 1;
+    let mut by_wedge: BTreeMap<u8, Vec<(f64, (i32, i32))>> = BTreeMap::new();
+    for p in -r..=r {
+        for q in (-r).max(-p - r)..=r.min(-p + r) {
+            let c = ProvinceCoord::new(p, q);
+            if c.ring() != r as u32 {
+                continue;
+            }
+            let Some(w) = c.wedge() else { continue };
+            // (the axial position's angle: a stable order along the ring)
+            let (x, y) = (
+                p as f64 + q as f64 / 2.0,
+                q as f64 * 0.866_025_403_784_438_6,
+            );
+            by_wedge.entry(w).or_default().push((y.atan2(x), (p, q)));
+        }
+    }
+    let mut wide = vec![];
+    for (_, mut v) in by_wedge {
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // (a wedge straddling the angle's wrap: walk it from its largest gap so the arc is contiguous)
+        if v.len() > 1 {
+            let gap = (0..v.len())
+                .max_by(|&i, &j| {
+                    let g = |k: usize| {
+                        (v[(k + 1) % v.len()].0 - v[k].0).rem_euclid(std::f64::consts::TAU)
+                    };
+                    g(i).total_cmp(&g(j))
+                })
+                .unwrap_or(0);
+            let n = v.len();
+            v.rotate_left((gap + 1) % n);
+        }
+        let n = per_wedge.min(v.len());
+        let from = (v.len() - n) / 2;
+        wide.extend(v[from..from + n].iter().map(|x| x.1));
+    }
+    let mut out = vec![];
+    for (p, q) in wide {
+        for (dp, dq) in [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)] {
+            let n = (p + dp, q + dq);
+            if ProvinceCoord::new(n.0, n.1).ring() == u32::from(R_MAX_HARD) && !out.contains(&n) {
+                out.push(n);
+            }
+        }
+    }
+    out
 }
 
 /// Keeper policy for crowding rings (wave-3 review, W3-C D5/F1; the
@@ -145,6 +212,64 @@ pub fn extend_due(
 }
 
 impl RingDuty {
+    /// OpenProvince for every province of [`rim_plan`] not on chain yet
+    /// (the rim's RingSeed must be seeded: the program reads its seed).
+    async fn plan_rim<P: ChainPort>(
+        &mut self,
+        t: &Tick<'_>,
+        port: &P,
+        engine: &mut Engine,
+    ) -> PortResult<()> {
+        let rs = port.accounts(&[t.addrs.ring_seed(R_MAX_HARD)], 0).await?;
+        if !rs[0]
+            .as_ref()
+            .and_then(|a| RingSeed::decode(&a.data).ok())
+            .is_some_and(|rs| rs.status == 2)
+        {
+            return Ok(());
+        }
+        let plan = rim_plan(t.cfg.rim_per_wedge as usize);
+        let want: Vec<(i32, i32)> = plan
+            .iter()
+            .copied()
+            .filter(|c| !self.opened.contains(c))
+            .collect();
+        let keys: Vec<Address> = want.iter().map(|&(p, q)| t.addrs.province(p, q)).collect();
+        let mut got = vec![];
+        for chunk in keys.chunks(100) {
+            got.extend(port.accounts(chunk, 0).await?);
+        }
+        let mut missing = 0usize;
+        for (&(p, q), acct) in want.iter().zip(got) {
+            if acct.is_some_and(|a| a.owner == t.addrs.program && !a.data.is_empty()) {
+                self.opened.insert((p, q));
+                engine.cancel(&province_key(p, q), CancelReason::ChainStateObserved);
+                continue;
+            }
+            missing += 1;
+            let a = t.addrs.clone();
+            let (pi, qi) = (p as i16, q as i16);
+            engine.ensure(
+                WriteSpec {
+                    key: province_key(p, q),
+                    kind: "open-province",
+                    tag: tag::OPEN_PROVINCE,
+                    class: Class::D,
+                    bell: None,
+                    region: Some(ix::region_of(p, q)),
+                    build: Arc::new(move |c: &BuildCtx| vec![ix::open_province(&a, c.payer, pi, qi)]),
+                    deadline_slot: None,
+                    not_before_slot: 0,
+                    fixed_payer: None,
+                },
+                t.slot,
+            );
+        }
+        self.rim_present = plan.len() - missing;
+        self.rim_done = missing == 0;
+        Ok(())
+    }
+
     pub async fn plan<P: ChainPort, D: DrandPort>(
         &mut self,
         t: &Tick<'_>,
@@ -264,6 +389,10 @@ impl RingDuty {
                 },
                 t.slot,
             );
+        }
+        // The rim's provinces (`rim_per_wedge`), once ring 128 is opened and seeded.
+        if t.cfg.rim_per_wedge > 0 && !self.rim_done && opened > R_MAX_HARD {
+            self.plan_rim(t, port, engine).await?;
         }
         // Seeds and provinces of the opened rings not complete yet.
         let rings: Vec<u16> = (0..opened).filter(|d| !self.complete.contains(d)).collect();
@@ -404,6 +533,41 @@ impl RingDuty {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Q-W1: the rim plan is on ring 128, each province once, every one beside a planned ring-129 province, in
+    /// every wedge; 0 opens nothing; it grows with `n`.
+    #[test]
+    fn the_rim_plan_is_on_the_rim_beside_the_middle_of_each_wedge() {
+        assert!(rim_plan(0).is_empty());
+        let plan = rim_plan(6);
+        let set: BTreeSet<(i32, i32)> = plan.iter().copied().collect();
+        assert_eq!(set.len(), plan.len(), "each province once");
+        let mut wedges = BTreeSet::new();
+        for &(p, q) in &plan {
+            let c = ProvinceCoord::new(p, q);
+            assert_eq!(c.ring(), 128);
+            wedges.insert(c.wedge().unwrap());
+            assert!(
+                [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+                    .iter()
+                    .any(|(dp, dq)| ProvinceCoord::new(p + dp, q + dq).ring() == 129),
+                "({p},{q}) borders the wide land"
+            );
+        }
+        assert_eq!(wedges.len(), 6);
+        // six ring-129 provinces per wedge touch 7 or 8 rim provinces each (a corner adds one)
+        assert!((42..=48).contains(&plan.len()), "{}", plan.len());
+        assert!(rim_plan(1).len() < plan.len() && rim_plan(12).len() > plan.len());
+        // the middle of a wedge, not its ends: far from the six corners (k·128 along an axis)
+        for &(p, q) in &plan {
+            let corner = [(128, 0), (0, 128), (-128, 128), (-128, 0), (0, -128), (128, -128)]
+                .iter()
+                .map(|&(cp, cq)| ProvinceCoord::new(p, q).distance(ProvinceCoord::new(cp, cq)))
+                .min()
+                .unwrap();
+            assert!(corner > 40, "({p},{q}) is {corner} from a corner");
+        }
+    }
 
     #[test]
     fn crowding_rings_wait_for_the_previous_ring_and_a_later_fold() {

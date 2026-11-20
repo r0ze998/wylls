@@ -37,6 +37,10 @@ use solana_address::Address;
 /// (17), restated here: the keeper does not link the prize program.
 pub const EXTEND_MAX_RING_DEFAULT: u16 = 17;
 
+/// The largest `rim_per_wedge`: a wedge's arc on ring 129 has 129
+/// provinces.
+pub const RIM_PER_WEDGE_MAX: u16 = 129;
+
 /// Duties (§8.2 `roles`). W2-F runs `beacon` (genesis seed, anchors, seed
 /// caches, beacon logs) and `archive`; W3-C runs `rings` (every ring, its
 /// seed and provinces), `fold`, `tickets`, `explore`, `dormancy` (releases
@@ -284,6 +288,16 @@ pub struct KeeperConfig {
     /// every province to ring 128 would cost 49,537 province rents
     /// (1,224 SOL at 5,080 lamports/byte).
     pub lazy_provinces: bool,
+    /// Rim provinces per wedge (owner Q-W1, 2026-11-20: a first village may
+    /// also be founded on the rim of a wide season; default 0 = off): once
+    /// the legacy rim (ring 128) is opened and seeded, the `rings` duty
+    /// opens the ring-128 provinces that border the middle `rim_per_wedge`
+    /// ring-129 provinces of each wedge ([`crate::rings::rim_plan`], the
+    /// local wide world's rim), so a player can file a rim FileTicket and
+    /// a later wide claim is within `outpost_range`. Rent comes from the
+    /// wedge funds (24,709,120 lamports a province at 5,080 lamports/byte).
+    /// At most [`RIM_PER_WEDGE_MAX`].
+    pub rim_per_wedge: u16,
     /// Where the transaction feed comes from (devnet-readiness B2):
     /// `"localnet"` (default: `frontier_feed` of `frontier-localnet`) or
     /// `"rpc"` (a public cluster: `findex::RpcPoll` over
@@ -363,6 +377,7 @@ impl KeeperConfig {
             extend: false,
             extend_max_ring: EXTEND_MAX_RING_DEFAULT,
             lazy_provinces: false,
+            rim_per_wedge: 0,
             feed: FeedSource::Localnet,
             feed_poll_ms: 2_000,
             feed_max_backoff_ms: 60_000,
@@ -553,6 +568,13 @@ impl KeeperConfig {
         if let Some(v) = take("lazy_provinces") {
             c.lazy_provinces = matches!(v, Value::Bool(true));
         }
+        if let Some(v) = take("rim_per_wedge") {
+            let n = int(v, "rim_per_wedge")?;
+            if n > u64::from(RIM_PER_WEDGE_MAX) {
+                return Err(format!("`rim_per_wedge` must be at most {RIM_PER_WEDGE_MAX}"));
+            }
+            c.rim_per_wedge = n as u16;
+        }
         if let Some(v) = take("extend_max_ring") {
             let r = int(v, "extend_max_ring")?;
             if r > u64::from(permutation_rules::frontier::geometry::R_MAX_HARD) {
@@ -682,6 +704,22 @@ mod tests {
         ))
         .unwrap();
         assert!(lazy.lazy_provinces && lazy.extend && lazy.extend_max_ring == 128);
+        // Q-W1: the rim's provinces only when asked
+        assert_eq!(c.rim_per_wedge, 0);
+        assert_eq!(KeeperConfig::new(p, 1, b).rim_per_wedge, 0);
+        let rim =
+            KeeperConfig::from_toml(&format!("{text}
+lazy_provinces = true
+rim_per_wedge = 6
+"))
+                .unwrap();
+        assert_eq!(rim.rim_per_wedge, 6);
+        assert!(KeeperConfig::from_toml(&format!("{text}
+rim_per_wedge = 130
+")).is_err());
+        assert!(KeeperConfig::from_toml(&format!("{text}
+rim_per_wedge = -1
+")).is_err());
     }
 
     #[test]
