@@ -86,6 +86,7 @@ test('X3 the Host check over a real socket', async () => {
 test('X4 bin: the checked allowedHosts reach the handler; a remote bind is a warning', () => {
   const bin = readFileSync(new URL('../bin/wylls-mcp.mjs', import.meta.url), 'utf8');
   assert.match(bin, /const \{ port, host, issuer, resource, remoteBind, allowedHosts \} = settings;/);
-  assert.match(bin, /await listen\(createHandler\(\{ auth, mcp, log, allowedHosts \}\), \{ port, host \}\);/);
+  // (2026-11-20) plus the opt-in audit log, proxy address and daily quota per link (all off when unset)
+  assert.match(bin, /await listen\(createHandler\(\{ auth, mcp, log, allowedHosts, audit, trustProxy, linkQuota \}\), \{ port, host \}\);/);
   assert.match(bin, /if \(remoteBind\) log\(`warning: listening on/);
 });
