@@ -84,7 +84,7 @@ expedition-dispatch-experimental = ["wide-world-experimental", "fclient/expediti
 # 146-149 with their PSW1 25/26 parts, PSFF, PSFT; the conquest kinds still latch), and the `expeditions` role sends
 # every step after the player's ExpeditionDepart (`expeditions.rs`, `expedition_steps.rs`); off unless keeper.toml
 # names the role.
-playable-lane = ["frontier-abi/world-index-experimental"]
+playable-lane = ["frontier-abi/world-index-experimental", "frontier-abi/conquest-dispatch-experimental"]
 # The wrapped DeclareSiege (kind 12) of the conquest lane. Without it the conquest prepare CLI
 # still reads and checks, and answers the closed blocker DispatchKindUnavailable.
 conquest-dispatch-experimental = ["expedition-dispatch-experimental", "fclient/conquest-dispatch-experimental"]
