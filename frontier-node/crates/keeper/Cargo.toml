@@ -64,8 +64,9 @@ serde_json.workspace = true
 [features]
 # Experimental, opt-in, read-only: the wide-world discovery model
 # (`wideindex`) over `frontier_abi::world_index::event` PSW1 bodies. Off by
-# default; the default keeper keeps its PSW1 feed guard and its closed
-# debit gate exactly as before, and gains no wide duty.
+# default; this feature alone keeps the PSW1 feed guard and the closed debit
+# gate exactly as before and adds no wide duty (`playable-lane` below does:
+# P6/P7 duties and, gap P8, the guard's accounting of wide-land records).
 wide-world-experimental = [
     "frontier-abi/world-index-experimental",
     "fclient/wide-records-experimental",
@@ -76,6 +77,9 @@ expedition-dispatch-experimental = ["wide-world-experimental", "fclient/expediti
 # (`wide_rings`: WideRequestRingSeed / WideConsumeRingSeed / WideOpenProvince) and the `wide-tickets` role
 # (WideSettleTicket 0xDC, WideFinalize 0xDF). It only compiles the wide-land ABI tables in; both duties stay OFF
 # unless keeper.toml turns them on, and a keeper built without it refuses those keys.
+# Gap P8: with it the legacy feed guard ACCOUNTS FOR (counts, never applies) the PSW1 records of the wide land's own
+# actions (kinds 1..=17, every named province wide and of the season's world) instead of latching; every other PSW1
+# record still latches (`feedguard.rs` module doc). Without it every PSW1 record latches as before.
 playable-lane = ["frontier-abi/world-index-experimental"]
 # The wrapped DeclareSiege (kind 12) of the conquest lane. Without it the conquest prepare CLI
 # still reads and checks, and answers the closed blocker DispatchKindUnavailable.

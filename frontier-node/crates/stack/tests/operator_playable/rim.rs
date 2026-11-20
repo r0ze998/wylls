@@ -70,9 +70,22 @@ pub const WIDE_RINGS: u64 = 3;
 const SOL: u64 = 1_000_000_000;
 const SEASON_ID: u64 = 1;
 
+/// P6 (gap P8): how to restart keeper A (the same binary and config; `wide_rings` raised by one).
+pub struct Restart {
+    pub bin: std::path::PathBuf,
+    pub config: std::path::PathBuf,
+    pub api: u16,
+    pub token: String,
+}
+
+/// P6: the bells of the window in which keeper A must fold every bell after the wide village's actions.
+pub const P8_BELLS: u32 = 6;
+
 pub struct Ctx<'a> {
     /// P5: keeper A runs the wide rings (P6) and the `wide-tickets` role (P7).
     pub keeper_wide: bool,
+    /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
+    pub after_wide: Option<Restart>,
     pub state: Arc<Mutex<localnet::Chain>>,
     pub a: Addresses,
     pub program: Address,
@@ -1192,6 +1205,24 @@ pub async fn run(c: Ctx<'_>) -> Value {
     assert!(forged_fails > 0, "a forged wide village must FAIL");
     r.lock().set_paused(false);
 
+    let p8 = if r.c.after_wide.is_some() {
+        after_wide(
+            &mut r,
+            AfterWide {
+                player: &player,
+                citizen,
+                target,
+                csite,
+                rim: (rp, rq, rsite),
+                nation,
+                dummy,
+            },
+        )
+        .await
+    } else {
+        Value::Null
+    };
+
     let keeper_alive = r.c.keeper.try_wait().ok().flatten().is_none();
     assert!(keeper_alive, "keeper A exited");
     json!({
@@ -1214,7 +1245,670 @@ pub async fn run(c: Ctx<'_>) -> Value {
             "province_funds_before_rings": funds_before, "province_funds_after_rings": funds_after_rings,
             "settle_and_finalize_by": "keeper A wide-tickets role",
         }) } else { Value::Null },
+        "p6_after_wide_village_acts": p8,
         "verifier_vwl_segment": {"transactions": wit.txs.len(), "snapshot_accounts": wit.snapshot.len(), "findings": vwl,
             "mutation_town_season_fails": town_fails, "mutation_forged_owner_fails": forged_fails},
+    })
+}
+
+/// P6's inputs from the P5 run.
+struct AfterWide<'k> {
+    player: &'k Keypair,
+    citizen: Address,
+    /// The wide village (slot 2), final.
+    target: WideCoord,
+    csite: u8,
+    /// The participant's rim village (the anchor).
+    rim: (i32, i32, u8),
+    nation: u8,
+    dummy: Address,
+}
+
+/// keeper A's `/v1/status` (its bearer token).
+fn keeper_status(api: u16, token: &str) -> Option<Value> {
+    use std::io::{Read, Write};
+    let mut c = std::net::TcpStream::connect(("127.0.0.1", api)).ok()?;
+    c.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+    write!(
+        c,
+        "GET /v1/status HTTP/1.1\r\nHost: 127.0.0.1:{api}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+    )
+    .ok()?;
+    let mut b = vec![];
+    c.read_to_end(&mut b).ok()?;
+    let t = String::from_utf8_lossy(&b);
+    let (head, body) = t.split_once("\r\n\r\n")?;
+    if !head.starts_with("HTTP/1.1 200") {
+        return None;
+    }
+    let body = if head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
+        body.split("\r\n")
+            .enumerate()
+            .filter(|(i, _)| i % 2 == 1)
+            .map(|(_, x)| x)
+            .collect::<String>()
+    } else {
+        body.to_string()
+    };
+    serde_json::from_str(&body).ok()
+}
+
+/// The PSW1 kinds keeper A's land index accounted for (`discovery.land.wide_accounted`).
+fn accounted(st: &Value, kind: &str) -> u64 {
+    st["discovery"]["land"]["wide_accounted"][kind]
+        .as_u64()
+        .unwrap_or(0)
+}
+
+/// P6 (devnet gap P8): the wide village acts after its claim is final, then keeper A keeps every duty.
+async fn after_wide(r: &mut Run<'_>, k: AfterWide<'_>) -> Value {
+    use frontier_abi::layout::player::accrual as AC;
+    use frontier_abi::layout::province::province as PV1;
+    use frontier_abi::world_index::roster as wro;
+    use frontier_abi::world_index::{EconomyAction as Action, ProvinceKey, WorldId};
+    use permutation_rules::frontier::holding::RESOURCES;
+    const STORES: i64 = 5_000_000_000;
+    // (the smallest host: `permutation_rules::frontier::host::MIN_HOST_TROOPS`)
+    const MUSTER: u32 = 100;
+
+    let restart = r.c.after_wide.take().expect("P6");
+    let a = r.c.a.clone();
+    let ctx = r.ctx();
+    let program = r.c.program;
+    let (_, _, _, genesis_ts) = r.clock();
+    let w = k.player.pubkey();
+    let wholding = adr(wh::holding_address(&ctx, k.target, k.csite));
+    let wprov = adr(wl::province_address(&ctx, k.target));
+    let world = WorldId::derive_legacy_season(&a.season.to_bytes(), &a.program.to_bytes())
+        .expect("the season's world");
+    let pkey = ProvinceKey::new(world, k.target);
+    let status = || keeper_status(restart.api, &restart.token).unwrap_or(Value::Null);
+    let edit = |r: &mut Run<'_>, key: Address, what: &str, f: &dyn Fn(&mut Vec<u8>)| {
+        let mut acct = r.lock().account(&key).expect("an account to patch");
+        f(&mut acct.data);
+        r.patch(key, acct, what);
+    };
+    r.lock().set_paused(true);
+
+    // 1. Declared patches (as `verify/tests/playable_wide_next.rs` step 5): the wide province's `resolved_next` = the
+    //    current bell, standing in for WideResolve (no keeper duty sends it yet); the wide village's stores filled and
+    //    400 Spearmen in reserve (the means of the actions; natural production would take days of chain time).
+    let now_b = r.bell();
+    edit(
+        r,
+        wprov,
+        &format!(
+            "wide province ({}, {}) resolved_next = bell {now_b} (stands in for WideResolve)",
+            k.target.p(),
+            k.target.q()
+        ),
+        &|d| d[PV1::RESOLVED_NEXT..PV1::RESOLVED_NEXT + 4].copy_from_slice(&now_b.to_le_bytes()),
+    );
+    edit(
+        r,
+        wholding,
+        "the wide village's stores filled, 400 Spearmen in reserve",
+        &|d| {
+            for res in 0..RESOURCES {
+                let so = H::store(res);
+                d[so + AC::VALUE..so + AC::VALUE + 8].copy_from_slice(&STORES.to_le_bytes());
+                let cap = i64::from_le_bytes(d[so + AC::CAP..so + AC::CAP + 8].try_into().unwrap());
+                if cap < STORES {
+                    d[so + AC::CAP..so + AC::CAP + 8].copy_from_slice(&STORES.to_le_bytes());
+                }
+            }
+            let ro = H::reserve(0);
+            d[ro..ro + 4].copy_from_slice(&400u32.to_le_bytes());
+        },
+    );
+    let metas = |extra: Vec<AccountMeta>| {
+        let mut v = vec![
+            AccountMeta::new_readonly(w, true),
+            AccountMeta::new(w, true),
+            AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new(k.citizen, false),
+        ];
+        v.extend(extra);
+        v
+    };
+    let economy_ix = |action: Action| {
+        wide_ix(
+            &a,
+            metas(vec![
+                AccountMeta::new(wholding, false),
+                if action.mirror_write() {
+                    AccountMeta::new(wprov, false)
+                } else {
+                    AccountMeta::new_readonly(wprov, false)
+                },
+            ]),
+            wix::Economy { action }.to_bytes().expect("action").to_vec(),
+        )
+    };
+    let garrison_ix = |delta: i64| {
+        wide_ix(
+            &a,
+            metas(vec![
+                AccountMeta::new(wholding, false),
+                AccountMeta::new(wprov, false),
+            ]),
+            wix::Garrison { delta }.to_bytes().expect("delta").to_vec(),
+        )
+    };
+    let muster_ix = |troops: u32, tile: u8| {
+        wide_ix(
+            &a,
+            metas(vec![
+                AccountMeta::new(wholding, false),
+                AccountMeta::new(wprov, false),
+                AccountMeta::new(adr(wro::roster_address(&ctx, pkey)), false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ]),
+            wix::Muster {
+                unit: 0,
+                troops,
+                tile,
+            }
+            .to_bytes()
+            .to_vec(),
+        )
+    };
+
+    // 2. REAL, the participant: the wide village's own actions, each its own transaction (one PSW1 record each).
+    //    Before P8 the first of them latched keeper A's feed guard for good.
+    let first_psw1_slot = r.lock().slot();
+    r.witness = Some(Witness::default());
+    let mut acts = vec![];
+    for (action, what) in [
+        (Action::Harvest, "WideEconomy Harvest (PSW1 WIDE_ECONOMY)"),
+        (
+            Action::Build { item: 0 },
+            "WideEconomy Build item 0 (PSW1 WIDE_ECONOMY)",
+        ),
+        (
+            Action::Build { item: 6 },
+            "WideEconomy Build walls (PSW1 WIDE_ECONOMY_MIRROR)",
+        ),
+        (
+            Action::Train { unit: 0, n: 5 },
+            "WideEconomy Train 5 Spearmen (PSW1 WIDE_ECONOMY)",
+        ),
+    ] {
+        acts.push(r.send(
+            what,
+            &[economy_ix(action)],
+            &[k.player],
+            "wide village owner",
+        ));
+    }
+    acts.push(r.send(
+        "WideGarrison +7 (PSW1 WIDE_GARRISON)",
+        &[garrison_ix(7)],
+        &[k.player],
+        "wide village owner",
+    ));
+    let pd = r.data(&wprov).expect("the wide province");
+    let passable = u64::from_le_bytes(
+        pd[PV1::PASSABLE_MASK..PV1::PASSABLE_MASK + 8]
+            .try_into()
+            .unwrap(),
+    );
+    let tile = (0..64u8)
+        .filter(|t| passable & (1u64 << t) != 0)
+        .find(|t| r.simulate_ok(&[muster_ix(MUSTER, *t)], &[k.player]).is_ok())
+        .unwrap_or_else(|| {
+            let t = (0..64u8).find(|t| passable & (1u64 << t) != 0).unwrap_or(0);
+            let row = r.try_send(
+                "WideMuster (probe)",
+                &[muster_ix(MUSTER, t)],
+                &[k.player],
+                "wide village owner",
+            );
+            panic!("no tile takes a muster: {row:#}")
+        });
+    acts.push(r.send(
+        &format!("WideMuster {MUSTER} Spearmen onto tile {tile} (PSW1 WIDE_MUSTER)"),
+        &[muster_ix(MUSTER, tile)],
+        &[k.player],
+        "wide village owner",
+    ));
+    // The verifier's VWL judges the economy segment: no FAIL; a forged post-state of the village FAILs.
+    let wit = r.witness.take().expect("the economy witness");
+    let found = judge(r, &wit, "p6-wide-village-economy-segment");
+    let vwl_economy: Vec<Value> = found
+        .iter()
+        .map(|f| json!({"severity": format!("{:?}", f.severity), "check": f.check, "code": f.code, "entity": f.entity, "detail": f.detail}))
+        .collect();
+    assert!(
+        found
+            .iter()
+            .all(|f| f.severity == verify_core::Severity::Warn),
+        "VWL on the wide village's actions: {vwl_economy:#?}"
+    );
+    let mut forged = segment_of(r, &wit, "p6-wide-village-economy-segment");
+    {
+        let wk = wholding.to_bytes();
+        let t = forged
+            .txs
+            .iter_mut()
+            .rev()
+            .find(|t| {
+                t.post
+                    .iter()
+                    .any(|(k, a)| k.to_bytes() == wk && a.is_some())
+            })
+            .expect("an action wrote the village");
+        let (_, acct) = t.post.iter_mut().find(|(k, _)| k.to_bytes() == wk).unwrap();
+        let ro = H::reserve(0);
+        acct.as_mut().unwrap().data[ro] ^= 0x55;
+    }
+    let forged_fails = verify_core::checks::vwl_wide_land::judge_segment(&forged, &wit.snapshot)
+        .iter()
+        .filter(|f| f.fail())
+        .count();
+    assert!(forged_fails > 0, "a forged wide village reserve must FAIL");
+    let psw1_logged: usize = wit
+        .txs
+        .iter()
+        .map(|t| {
+            t.logs
+                .iter()
+                .filter(|l| l.starts_with("Program data: UFNXMQ=="))
+                .count()
+        })
+        .sum();
+    assert_eq!(psw1_logged, 6, "one PSW1 record per action");
+    // Control on these very records: the strict reader (every build before P8) refuses each of them, which is
+    // what latched keeper A; the playable-lane scope accounts for each.
+    let scope = keeper_core::feedguard::WideScope::of(&a).expect("a playable-lane scope");
+    let mut strict_refusals = vec![];
+    for t in &wit.txs {
+        let strict = keeper_core::feedguard::bodies(t, &program)
+            .expect_err("the strict reader refuses PSW1");
+        assert_eq!(strict, "unsupported PSW1 record");
+        strict_refusals.push(strict);
+        let got = keeper_core::feedguard::bodies_scoped(t, &program, Some(&scope))
+            .expect("accounted for");
+        assert_eq!(got.wide.len(), 1);
+        assert!(got.ps2.is_empty());
+    }
+
+    // 3. keeper A reads them: accounted for, not latched, writes still allowed.
+    let t0 = Instant::now();
+    let st_after_acts = loop {
+        {
+            let mut c = r.lock();
+            c.set_scale(2.0);
+            c.set_paused(false);
+        }
+        let st = status();
+        if accounted(&st, "WIDE_ECONOMY") >= 3 && accounted(&st, "WIDE_MUSTER") >= 1 {
+            break st;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(120),
+            "keeper A did not read the PSW1 records: {st:#}"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    r.lock().set_paused(true);
+    assert_eq!(
+        st_after_acts["discovery"]["automatic_writes"], true,
+        "{st_after_acts:#}"
+    );
+    assert_eq!(st_after_acts["discovery"]["land"]["state"], "legacy");
+    assert_eq!(st_after_acts["discovery"]["play"]["state"], "legacy");
+    assert!(st_after_acts["discovery"]["blocker"].is_null());
+    for (kind, n) in [
+        ("WIDE_ECONOMY", 3),
+        ("WIDE_ECONOMY_MIRROR", 1),
+        ("WIDE_GARRISON", 1),
+        ("WIDE_MUSTER", 1),
+    ] {
+        assert_eq!(
+            accounted(&st_after_acts, kind),
+            n,
+            "{kind}: {:#}",
+            st_after_acts["discovery"]
+        );
+    }
+
+    // 4. keeper A's `tickets` role after the PSW1 records: a second participant's rim FileTicket, settled.
+    let (rp, rq, rsite) = k.rim;
+    let pd = r.data(&a.province(rp, rq)).unwrap();
+    let site2 = (0..pd[PV::SITE_COUNT] as usize)
+        .find(|i| {
+            *i as u8 != rsite
+                && matches!(
+                    pd[PV::site(*i) + SM::STATE],
+                    SM::STATE_FREE | SM::STATE_RELEASED_FREE
+                )
+        })
+        .expect("a second free rim site") as u8;
+    let p2 = Keypair::new(); // TEST key
+    let w2 = p2.pubkey();
+    r.lock().airdrop(&w2, 5 * SOL).unwrap();
+    let now = r.now();
+    let join2 = r.send(
+        "Join (second participant)",
+        &[ix::join(&a, w2, w2, k.nation, &w2, now + 30 * 86_400, None)],
+        &[&p2],
+        "second participant",
+    );
+    let me2 = ix::Player {
+        actor: w2,
+        payer: w2,
+        wallet: w2,
+    };
+    let file2 = r.send(
+        &format!("FileTicket(rim {rp}, {rq} site {site2}) (second participant)"),
+        &[ix::file_ticket(
+            &a,
+            &me2,
+            &[ix::Site {
+                p: rp as i16,
+                q: rq as i16,
+                site: site2,
+            }],
+        )],
+        &[&p2],
+        "second participant",
+    );
+    let tb2 = le_u32(&r.data(&a.citizen(&w2)).unwrap(), C::TICKET_BELL);
+    r.advance_exact(genesis_ts + 600 * (tb2 as i64 + 1) + 200);
+    r.stage_seed(tb2, ix::region_of(rp, rq), [0x6B; 32]);
+    let since = r.lock().slot();
+    let holding2 = a.holding(rp, rq, site2);
+    r.run_until(
+        2.0,
+        180,
+        "keeper A's tickets role settles a rim ticket after the PSW1 records",
+        |r| {
+            r.lock()
+                .account(&holding2)
+                .is_some_and(|h| h.owner == r.c.program)
+        },
+    )
+    .await;
+    r.lock().set_paused(true);
+    let settle2 = r.feed_rows(
+        since,
+        &[fclient::abi::tag::SETTLE_TICKET],
+        "keeper A (tickets role)",
+    );
+    assert!(settle2.iter().any(|x| x["ok"] == true), "{settle2:#?}");
+
+    // 5. keeper A's `wide-tickets` role after the PSW1 records: the first participant's slot-3 wide claim (its slot 2
+    //    is the final wide village), settled and finalized. Declared: the rim anchor's stores (the settler cost).
+    let anchor = a.holding(rp, rq, rsite);
+    let anchor_p = a.province(rp, rq);
+    edit(
+        r,
+        anchor,
+        "the rim anchor's stores filled (slot 3's settler cost)",
+        &|d| {
+            for res in 0..RESOURCES {
+                let so = H::store(res);
+                d[so + AC::VALUE..so + AC::VALUE + 8].copy_from_slice(&STORES.to_le_bytes());
+                let cap = i64::from_le_bytes(d[so + AC::CAP..so + AC::CAP + 8].try_into().unwrap());
+                if cap < STORES {
+                    d[so + AC::CAP..so + AC::CAP + 8].copy_from_slice(&STORES.to_le_bytes());
+                }
+            }
+        },
+    );
+    let tk = adr(wt::ticket_address(&ctx, &k.citizen.to_bytes()));
+    let claim3 = |c: WideCoord, site: u8| {
+        wide_ix(
+            &a,
+            vec![
+                AccountMeta::new_readonly(w, true),
+                AccountMeta::new(w, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(k.citizen, false),
+                AccountMeta::new_readonly(a.frontier(), false),
+                AccountMeta::new(adr(wl::province_address(&ctx, c)), false),
+                AccountMeta::new(tk, false),
+                AccountMeta::new(anchor, false),
+                AccountMeta::new_readonly(anchor_p, false),
+                AccountMeta::new(wholding, false),
+                AccountMeta::new_readonly(wprov, false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ],
+            wix::ClaimSite {
+                p: c.p(),
+                q: c.q(),
+                site,
+                slot: 3,
+            }
+            .to_bytes()
+            .to_vec(),
+        )
+    };
+    let plan129 = keeper_core::rings::wide_plan(FIRST_WIDE_RING, PER_WEDGE);
+    let mut near: Vec<WideCoord> = plan129.clone();
+    near.sort_by_key(|c| c.distance(k.target));
+    let mut found3 = None;
+    let mut last_err = String::new();
+    'outer: for c in near.iter().take(8) {
+        for s in 0..16u8 {
+            if *c == k.target && s == k.csite {
+                continue;
+            }
+            match r.simulate_ok(&[claim3(*c, s)], &[k.player]) {
+                Ok(_) => {
+                    found3 = Some((*c, s));
+                    break 'outer;
+                }
+                Err(e) => last_err = e,
+            }
+        }
+    }
+    let (c3, s3) = found3.unwrap_or_else(|| panic!("no slot-3 wide claim fits ({last_err})"));
+    r.witness = Some(Witness::default());
+    let cl3 = r.send(
+        &format!(
+            "WideClaimSite({}, {} site {s3}, slot 3) from the rim Hamlet",
+            c3.p(),
+            c3.q()
+        ),
+        &[claim3(c3, s3)],
+        &[k.player],
+        "rim participant",
+    );
+    let rec3 = WideTicket::read(&r.data(&tk).unwrap()).expect("a wide ticket");
+    assert_eq!(rec3.status, TicketStatus::Open);
+    let wp3 = WideProvince::read(&r.data(&adr(wl::province_address(&ctx, c3))).unwrap())
+        .expect("wide province");
+    r.advance_exact(genesis_ts + 600 * (rec3.bell as i64 + 1) + 200);
+    r.stage_seed(rec3.bell, wp3.region, [0xC3; 32]);
+    let wholding3 = adr(wh::holding_address(&ctx, c3, s3));
+    let cdn = r.data(&k.citizen).unwrap();
+    let (faction, shard) = (cdn[C::FACTION], cdn[C::JOIN_SHARD]);
+    let dummy_settle = keeper_core::widelane::settle_ticket(
+        &a,
+        k.dummy,
+        &rec3,
+        faction,
+        shard,
+        wp3.region,
+        fclient::ix::SeedSource::Cache { nonce: 0 },
+        None,
+    );
+    let since = r.lock().slot();
+    r.witness_before(&[dummy_settle]);
+    r.run_until(
+        2.0,
+        180,
+        "keeper A's wide-tickets role settles the slot-3 claim after the PSW1 records",
+        |r| {
+            r.lock()
+                .account(&wholding3)
+                .is_some_and(|h| h.owner == r.c.program)
+        },
+    )
+    .await;
+    r.lock().set_paused(true);
+    r.witness_landed(since, &[wix::WideIx::SettleTicket.tag()]);
+    let ws3 = r.feed_rows(
+        since,
+        &[wix::WideIx::SettleTicket.tag()],
+        "keeper A (wide-tickets role)",
+    );
+    assert!(ws3.iter().any(|x| x["ok"] == true), "{ws3:#?}");
+    let whd3 = r.data(&wholding3).unwrap();
+    assert_eq!(whd3[H::STATE], H::STATE_PROVISIONAL);
+    r.advance_exact(le_i64(&whd3, H::FINAL_TS).max(r.now()) + 1);
+    let since = r.lock().slot();
+    r.witness_before(&[keeper_core::widelane::finalize(&a, k.dummy, c3, s3)]);
+    r.run_until(
+        2.0,
+        180,
+        "keeper A's wide-tickets role finalizes the slot-3 village",
+        |r| {
+            r.data(&wholding3)
+                .is_some_and(|h| h[H::STATE] == H::STATE_FINAL)
+        },
+    )
+    .await;
+    r.lock().set_paused(true);
+    r.witness_landed(since, &[wix::WideIx::Finalize.tag()]);
+    let wf3 = r.feed_rows(
+        since,
+        &[wix::WideIx::Finalize.tag()],
+        "keeper A (wide-tickets role)",
+    );
+    assert!(wf3.iter().any(|x| x["ok"] == true), "{wf3:#?}");
+    let wit3 = r.witness.take().expect("the slot-3 witness");
+    let found3 = judge(r, &wit3, "p6-slot3-claim-segment");
+    let vwl_slot3: Vec<Value> = found3
+        .iter()
+        .map(|f| json!({"severity": format!("{:?}", f.severity), "check": f.check, "code": f.code, "entity": f.entity, "detail": f.detail}))
+        .collect();
+    assert!(
+        found3
+            .iter()
+            .all(|f| f.severity == verify_core::Severity::Warn),
+        "VWL on the slot-3 claim: {vwl_slot3:#?}"
+    );
+    // ...and the wide village acts again (more PSW1 records while keeper A runs).
+    let harvest_again = r.send(
+        "WideEconomy Harvest again (PSW1 WIDE_ECONOMY)",
+        &[economy_ix(Action::Harvest)],
+        &[k.player],
+        "wide village owner",
+    );
+
+    // 6. Restart keeper A with `wide_rings` 4: the new process re-reads the whole feed (every PSW1 record above), its
+    //    journal holds no latch, and its rings duty requests ring 132's seed.
+    {
+        let child = &mut *r.c.keeper;
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let toml = std::fs::read_to_string(&restart.config).unwrap();
+    let toml = toml.replace(
+        &format!("wide_rings = {WIDE_RINGS}\n"),
+        &format!("wide_rings = {}\n", WIDE_RINGS + 1),
+    );
+    assert!(toml.contains(&format!("wide_rings = {}\n", WIDE_RINGS + 1)));
+    std::fs::write(&restart.config, &toml).unwrap();
+    *r.c.keeper = std::process::Command::new(&restart.bin)
+        .args(["--config", restart.config.to_str().unwrap()])
+        .env("FRONTIER_KEEPER_TICK_LOG", "1")
+        .stdout(std::fs::File::create(r.c.dir.join("keeper-restarted.out.log")).unwrap())
+        .stderr(std::fs::File::create(r.c.dir.join("keeper-restarted.log")).unwrap())
+        .spawn()
+        .expect("frontier-keeper (restarted)");
+    let ring132 = FIRST_WIDE_RING + WIDE_RINGS;
+    let seed_of = |r: &Run<'_>, ring: u64| {
+        r.data(&adr(wl::ring_seed_address(&r.ctx(), ring)))
+            .and_then(|d| wl::WideRingSeed::read(&d).ok())
+    };
+    assert!(seed_of(r, ring132).is_none());
+    let since = r.lock().slot();
+    r.run_until(
+        2.0,
+        240,
+        "the restarted keeper A requests ring 132's seed",
+        |r| seed_of(r, ring132).is_some(),
+    )
+    .await;
+    r.lock().set_paused(true);
+    let req132 = r.feed_rows(
+        since,
+        &[wix::WideIx::RequestRingSeed.tag()],
+        "keeper A (rings duty, restarted)",
+    );
+    assert!(req132.iter().any(|x| x["ok"] == true), "{req132:#?}");
+    let rec132 = seed_of(r, ring132).unwrap();
+
+    // 7. keeper A folds every bell of a window of P8_BELLS bells (the `fold` role: three FoldOccupancy parts a bell),
+    //    with the PSW1 records in its feed, and reads them all again (restart).
+    let fold_since = r.lock().slot();
+    let b0 = r.bell();
+    let mut folded = vec![];
+    for b in b0 + 1..=b0 + P8_BELLS {
+        r.advance_exact(genesis_ts + 600 * b as i64 + 5);
+        r.run_until(1.0, 180, &format!("keeper A folds bell {b}"), |r| {
+            r.data(&r.c.a.frontier())
+                .is_some_and(|d| le_u32(&d, FR::FOLD_BELL) == b && d[FR::FOLD_PART] == 0)
+        })
+        .await;
+        r.lock().set_paused(true);
+        folded.push(b);
+    }
+    let folds = r.feed_rows(
+        fold_since,
+        &[fclient::abi::tag::FOLD_OCCUPANCY],
+        "keeper A (fold role)",
+    );
+    let folds_ok = folds.iter().filter(|x| x["ok"] == true).count();
+    assert!(folds_ok >= 3 * P8_BELLS as usize, "{folds:#?}");
+    let st_end = status();
+    assert_eq!(st_end["discovery"]["automatic_writes"], true, "{st_end:#}");
+    assert!(st_end["discovery"]["blocker"].is_null(), "{st_end:#}");
+    assert_eq!(
+        accounted(&st_end, "WIDE_ECONOMY"),
+        4,
+        "{:#}",
+        st_end["discovery"]
+    );
+    // keeper A's writes after the first PSW1 record, by duty
+    let after = |tags: &[u8]| {
+        r.feed_rows(first_psw1_slot, tags, "keeper A")
+            .into_iter()
+            .filter(|x| x["ok"] == true)
+            .count()
+    };
+    json!({
+        "gap": "P8: the legacy feed guard accounts for the wide village's PSW1 records instead of latching",
+        "declared_patches": ["wide province resolved_next = the current bell (stands in for WideResolve)",
+            "the wide village's stores filled, 400 Spearmen in reserve", "the rim anchor's stores filled (slot 3's settler cost)",
+            "the ticket bells' anchors and seeds (as P4/P5)"],
+        "wide_village_actions": acts, "harvest_again": harvest_again, "psw1_records_logged": psw1_logged + 1,
+        "strict_reader_refusals_of_these_records": strict_refusals,
+        "verifier_vwl_economy_segment": {"transactions": wit.txs.len(), "snapshot_accounts": wit.snapshot.len(),
+            "findings": vwl_economy, "mutation_forged_reserve_fails": forged_fails},
+        "keeper_status_after_actions": st_after_acts["discovery"],
+        "second_participant": {"join": join2, "file_ticket": file2, "rim_site": site2, "keeper_settle_ticket": settle2},
+        "slot3": {"p": c3.p(), "q": c3.q(), "site": s3, "claim": cl3, "keeper_wide_settle": ws3, "keeper_wide_finalize": wf3,
+            "verifier_vwl_segment": {"transactions": wit3.txs.len(), "snapshot_accounts": wit3.snapshot.len(), "findings": vwl_slot3}},
+        "restart": {"wide_rings": WIDE_RINGS + 1, "feed_reread_from": 0,
+            "ring132_request": req132, "ring132_round": rec132.round, "ring132_request_bell": rec132.opened_bell,
+            "ring132_consume": "waits for its round, which is after the 32 shipped rounds (offline only; on devnet every round exists)"},
+        "fold_window": {"bells": folded, "fold_txs_ok": folds_ok},
+        "keeper_status_end": st_end["discovery"],
+        "keeper_a_ok_writes_after_first_psw1": {
+            "fold": after(&[fclient::abi::tag::FOLD_OCCUPANCY]),
+            "settle_ticket": after(&[fclient::abi::tag::SETTLE_TICKET]),
+            "wide_settle_ticket": after(&[wix::WideIx::SettleTicket.tag()]),
+            "wide_finalize": after(&[wix::WideIx::Finalize.tag()]),
+            "wide_request_ring_seed": after(&[wix::WideIx::RequestRingSeed.tag()]),
+        },
+        "program": program.to_string(),
     })
 }

@@ -432,13 +432,16 @@ jobs:
       # `wide_rings`) and `wide-tickets` role are behind the keeper's
       # `playable-lane` feature, which no other step lints. Their unit tests
       # (plans, builders, config, order) generate, derive and sign nothing;
-      # the end-to-end run (P5) is in key-tests.
+      # the end-to-end run (P5) is in key-tests. Gap P8: the feed guard's
+      # accounting of wide-land PSW1 records (`wide_feed_guard`, literal bytes);
+      # its end-to-end run (P6) is in key-tests too.
       - name: Keeper playable lane (lints, unit tests; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p keeper --features playable-lane --all-targets -- -D warnings
           cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: config::
+          cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -618,7 +621,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
