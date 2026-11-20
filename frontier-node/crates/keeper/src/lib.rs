@@ -177,7 +177,6 @@ pub const PLAY_ROLES: [&str; 8] = [
     "claims",
 ];
 
-/// The role a land write key belongs to (for "the program lacks it").
 /// Appends what a later step of the same tick reported (the contested
 /// follow-up's polls and sends) to the tick's report.
 fn merge_step(into: &mut crate::engine::StepReport, from: crate::engine::StepReport) {
@@ -189,6 +188,7 @@ fn merge_step(into: &mut crate::engine::StepReport, from: crate::engine::StepRep
     into.send_errors.extend(from.send_errors);
 }
 
+/// The role a land write key belongs to (for "the program lacks it").
 fn role_of_key(key: &str) -> Option<&'static str> {
     match key.split(':').next()? {
         "fold" => Some("fold"),
