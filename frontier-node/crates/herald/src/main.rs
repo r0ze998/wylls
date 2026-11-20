@@ -386,7 +386,17 @@ async fn main_inner() -> Result<(), String> {
                 );
             }
             if let Some(w) = a.get("witness") {
-                rpc_poll = rpc_poll.with_witness(w.clone());
+                // Another endpoint: its own pacer (its own limit), as the
+                // keeper's `feed_witness`; an https one retries its 429s.
+                let c = fclient::rpc::RpcClient::new(w.clone());
+                rpc_poll.witness = Some(if gap > 0 {
+                    c.with_pacer(fclient::rpc::Pacer::new(
+                        Duration::from_millis(gap),
+                        Duration::from_secs(30),
+                    ))
+                } else {
+                    c
+                });
             }
             let mut src = Enriched::new(rpc_poll, rpc.clone(), program);
             src.rpc = paced(&rpc);

@@ -601,9 +601,91 @@ pub async fn seal_point_in_time(url: &str, h: &mut History) {
     }
 }
 
+/// The verifier's JSON-RPC client of `url` (B5): one [`Pacer`] per endpoint
+/// for the whole run, so every read of one public RPC is spaced and backs
+/// off together, and a 429/503 is retried after the server's `Retry-After`
+/// instead of ending the run (measured 2026-11-21: the public devnet RPC
+/// allows about 10 calls of one method per 10 s, so the 11th
+/// `getTransaction` of a season stopped `frontier-verify` with `Http(429)`).
+/// An `https://` URL is paced [`DEFAULT_PUBLIC_GAP_MS`] apart; a loopback
+/// URL is unpaced unless [`set_rpc_min_gap_ms`] was given (a loopback
+/// proxy or tunnel to a public RPC), and then it also retries.
+///
+/// [`Pacer`]: fclient::rpc::Pacer
+pub fn rpc_client(url: &str) -> fclient::rpc::RpcClient {
+    let c = fclient::rpc::RpcClient::new(url);
+    match pacer_of(url) {
+        Some(p) => {
+            let forced = MIN_GAP_MS.load(std::sync::atomic::Ordering::Relaxed) != u64::MAX;
+            let c = c.with_pacer(p);
+            if forced {
+                c.with_retries(fclient::rpc::PUBLIC_RETRIES)
+            } else {
+                c
+            }
+        }
+        None => c,
+    }
+}
+
+/// [`rpc_client`]'s spacing of a public (`https://`) endpoint.
+pub const DEFAULT_PUBLIC_GAP_MS: u64 = 250;
+
+static MIN_GAP_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+type Pacers = std::sync::Mutex<BTreeMap<String, std::sync::Arc<fclient::rpc::Pacer>>>;
+static PACERS: std::sync::OnceLock<Pacers> = std::sync::OnceLock::new();
+
+/// `--rpc-min-gap-ms`: the spacing of EVERY endpoint, loopback included
+/// (0: none at all). Call before the first read.
+pub fn set_rpc_min_gap_ms(ms: u64) {
+    MIN_GAP_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn pacer_of(url: &str) -> Option<std::sync::Arc<fclient::rpc::Pacer>> {
+    let forced = MIN_GAP_MS.load(std::sync::atomic::Ordering::Relaxed);
+    let gap = match forced {
+        u64::MAX if url.starts_with("https://") => DEFAULT_PUBLIC_GAP_MS,
+        u64::MAX => 0,
+        g => g,
+    };
+    if gap == 0 {
+        return None;
+    }
+    let mut m = PACERS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    Some(
+        m.entry(url.to_string())
+            .or_insert_with(|| {
+                fclient::rpc::Pacer::new(
+                    std::time::Duration::from_millis(gap),
+                    std::time::Duration::from_secs(30),
+                )
+            })
+            .clone(),
+    )
+}
+
+/// Requests made (each retry counted) and of them answered 429/503, per
+/// paced endpoint, so far in this process (the run's request budget).
+pub fn rpc_calls() -> Vec<(String, u64, u64)> {
+    let Some(m) = PACERS.get() else { return vec![] };
+    let m = m.lock().unwrap_or_else(|e| e.into_inner());
+    m.iter()
+        .map(|(u, p)| {
+            (
+                fclient::https::redact(u),
+                p.calls.load(std::sync::atomic::Ordering::Relaxed),
+                p.throttles.load(std::sync::atomic::Ordering::Relaxed),
+            )
+        })
+        .collect()
+}
+
 /// The ledger a local node serves (`frontier_status.runId`), if it says.
 pub async fn ledger_id(url: &str) -> Option<String> {
-    let v = fclient::rpc::RpcClient::new(url)
+    let v = rpc_client(url)
         .call("frontier_status", json!([]))
         .await
         .ok()?;
@@ -616,7 +698,8 @@ pub async fn fetch_finals(
     keys: &[Address],
 ) -> Result<(BTreeMap<Key, Option<Account>>, u64), String> {
     use fclient::ports::ChainPort;
-    let port = fclient::rpc::RpcPort::new(url, Address::default());
+    let mut port = fclient::rpc::RpcPort::new(url, Address::default());
+    port.rpc = rpc_client(url);
     let slot = port.clock().await.map_err(|e| e.to_string())?.slot;
     let mut m = BTreeMap::new();
     for chunk in keys.chunks(100) {
@@ -641,11 +724,18 @@ pub async fn program_accounts(
     program: &Address,
     season_id: u64,
 ) -> Result<Vec<Address>, String> {
-    let c = fclient::rpc::RpcClient::new(url);
+    use base64::Engine as _;
+    let c = rpc_client(url);
+    // The season id at offset 8, filtered by the node and sliced to those 8
+    // bytes (B5: unfiltered, a public RPC sent every account's whole data,
+    // every season's, to be filtered here). Checked here again below.
+    let id = base64::engine::general_purpose::STANDARD.encode(season_id.to_le_bytes());
     let v = c
         .call(
             "getProgramAccounts",
-            serde_json::json!([program.to_string(), {"encoding": "base64", "commitment": "confirmed"}]),
+            serde_json::json!([program.to_string(), {"encoding": "base64", "commitment": "confirmed",
+                "filters": [{"memcmp": {"offset": 8, "bytes": id, "encoding": "base64"}}],
+                "dataSlice": {"offset": 8, "length": 8}}]),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -670,7 +760,7 @@ pub async fn program_accounts(
                     .unwrap_or_default()
             })
             .unwrap_or_default();
-        if data.get(8..16).map(crate::world::le) == Some(season_id) {
+        if data.get(..8).map(crate::world::le) == Some(season_id) {
             out.push(k);
         }
     }
@@ -683,7 +773,8 @@ pub async fn program_accounts(
 /// length from its header). Integ-W4 review, W4-D major: V2's `.so` hash
 /// had no source in RPC and archive modes.
 pub async fn program_hash(url: &str, program: &Address) -> Result<(u64, [u8; 32]), String> {
-    let port = fclient::rpc::RpcPort::new(url, *program);
+    let mut port = fclient::rpc::RpcPort::new(url, *program);
+    port.rpc = rpc_client(url);
     let got = port
         .rpc
         .get_multiple_accounts(&[*program], 0)
@@ -730,7 +821,7 @@ pub async fn fetch_chain(
     program: &Address,
     txs: &[TxRecord],
 ) -> Result<ChainWitness, String> {
-    let rpc = fclient::rpc::RpcClient::new(url);
+    let rpc = rpc_client(url);
     let mut balances = BTreeMap::new();
     for t in txs {
         if let Some((pre, post)) = rpc
@@ -755,7 +846,8 @@ pub async fn upgrade_authority(url: &str, program: &Address) -> Result<Option<Ad
         .parse()
         .map_err(|_| "the LoaderV3 id")?;
     let (pd, _) = Address::find_program_address(&[program.as_ref()], &loader);
-    let port = fclient::rpc::RpcPort::new(url, *program);
+    let mut port = fclient::rpc::RpcPort::new(url, *program);
+    port.rpc = rpc_client(url);
     let got = port
         .rpc
         .get_multiple_accounts(&[pd], 0)
@@ -886,11 +978,12 @@ pub async fn fetch_txs(
         return Ok((out, history));
     }
     let mut s = findex::ingest::RpcPoll::new(url, *program);
+    s.rpc = rpc_client(url);
     if let Some(o) = origin {
         s = s.with_origin(o);
     }
     if let Some(w) = witness {
-        s = s.with_witness(w);
+        s.witness = Some(rpc_client(w));
     }
     let mut waits = 0;
     loop {
