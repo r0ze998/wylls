@@ -1912,6 +1912,8 @@ export default {
   '送信済みだった進軍はチェーンで断られました。軍勢は村にいます。もう一度命令できます。': 'The march that was sent was refused on chain. The host is still at the village and can be ordered again.',
   '送信済みだった進軍は期限までに記録されませんでした（これから記録されることはありません）。軍勢は村にいます。もう一度命令できます。': 'The march that was sent was not recorded in time (it can no longer be). The host is still at the village and can be ordered again.',
   'チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this order before running it. It was not sent.',
+  '送ったばかりの命令がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。': 'Too many orders you just sent have not settled yet. This one was not sent. Wait about a minute and press again.',
+  '送ったばかりの進軍がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。': 'Too many marches you just sent have not settled yet. This one was not sent. Wait about a minute and press again.',
   'チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this march before running it. It was not sent.',
   '進軍は期限までに記録されませんでした。これから記録されることはありません。': 'The march was not recorded in time. It can no longer be.',
   // fix-ui-b17-b21 (loop-play3 B18–B21)
@@ -1976,4 +1978,12 @@ export default {
   'この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。': "In this test world the page's own test wallet signs by itself (no wallet prompt and no in-game key).",
   // loop-play4 B-9: the viewer's own wide village, said on its province
   'あなたの村（広い土地）': 'Your village (wide land)',
+  // fix-loop5 L5-1: the wide host card waits by itself instead of asking for presses
+  'この村の州の決着が {0} ターン遅れています。追いつくまでは、どの命令も通りません。': "This village's province is {0} turns behind. Until it catches up, no order can get through.",
+  '軍勢が整列中か休んでいます。進軍できるようになるまで待ちます。': 'The host is forming or resting. Waiting until it can march.',
+  '広い土地の村がまだ確定していません。': 'The wide-land village is not confirmed yet.',
+  '送るあいだにターンが変わりました（州の決着待ち）。次のターンにもう一度送ります。': 'The turn changed while sending (the province had not settled). It is sent again next turn.',
+  'このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。': 'This page checks by itself about once a turn and sends the step when it can. No need to press again (pressing sends nothing).',
+  '待っています…（押す必要はありません）': 'Waiting… (no need to press)',
+  '待つのをやめる': 'Stop waiting',
 };

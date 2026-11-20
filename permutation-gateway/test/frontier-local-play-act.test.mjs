@@ -335,3 +335,55 @@ test('the server: the routes exist only when the command line asks in words; wit
   for (const v of ['true', 'yes', 'page-signed', 'all', 'PAGE-SIGNED-V1']) await assert.rejects(L.parseConfig([...need, '--economy', v]), e => e.code === 'InvalidEconomy' || /InvalidEconomy/.test(String(e?.message ?? e)), v);
   await assert.rejects(L.parseConfig([...need, '--economy', 'page-signed-v1', '--economy', 'page-signed-v1']), e => /InvalidArguments/.test(String(e?.code ?? e?.message ?? e)));
 });
+
+// (fix-loop5, L5-1) loop-play5: a page that had sent 256 acts in one world was refused for the rest of that world
+// (LocalActBusy, shown as "today's quota is used up"; it never came back). The cap now bounds the commands that are still
+// UNSETTLED: a full barrier asks the runner whether its records' blockhashes are still valid, and the records whose
+// blockhash the runner says is no longer valid retire (the chain itself refuses those bytes for good).
+test('L5-1: the barrier bounds UNSETTLED commands only — once their blockhashes expire on the runner the world can send again; it fails closed', async () => {
+  const hashOf = i => { const b = new Uint8Array(32); b[0] = 9; new DataView(b.buffer).setUint32(1, i + 1, true); return encode(b); };
+  const signedAt = (i, intent = INTENTS.Harvest) => body(intent, wireOf(localActMessage(localActIntent(intent, { wallet: W.address }), pins(), hashOf(i)).message));
+  /** A relay whose runner says `valid(hash)` for isBlockhashValid (a boolean, or a whole answer when an object). */
+  const relay = valid => {
+    const calls = [];
+    const act = createLocalPlayAct({ cfg, runnerInstance: INSTANCE, rpc: async (method, params) => {
+      calls.push({ method, params });
+      if (method === 'getMultipleAccounts') return { result: { context: { slot: 91 }, value: params[0].map(a => (a === CITIZEN_AT ? row(citizenBytes()) : row(holdingBytes()))) } };
+      if (method === 'getSignatureStatuses' && params[1]?.searchTransactionHistory && params[0].length === 1 && !calls.some(c => c.method === 'sendTransaction' && Buffer.from(c.params[0], 'base64').subarray(1, 65).equals(Buffer.from(b58d(params[0][0]))))) return { result: { context: { slot: 92, instance: INSTANCE }, value: [null] } };
+      if (method === 'getSignatureStatuses') return { result: { context: { slot: 95, instance: INSTANCE }, value: [{ slot: 93, confirmationStatus: 'finalized', err: null }] } };
+      if (method === 'sendTransaction') return { result: encode(Buffer.from(params[0], 'base64').subarray(1, 65)) };
+      if (method === 'isBlockhashValid') { const v = valid(params[0]); return typeof v === 'boolean' ? { result: { context: { slot: 500, instance: INSTANCE }, value: v } } : v; }
+      return { error: { code: -1 } };
+    } });
+    return { act, calls, sends: () => calls.filter(c => c.method === 'sendTransaction').length, asks: () => calls.filter(c => c.method === 'isBlockhashValid').length };
+  };
+  // 256 sends fill the barrier; nothing is asked about blockhashes until it is full
+  let expired = new Set();
+  const g = relay(h => !expired.has(h));
+  const first = [];
+  for (let i = 0; i < LOCAL_ACT_MAX_HISTORY; i++) first.push((await g.act.submit(signedAt(i))).signature);
+  assert.equal(g.sends(), LOCAL_ACT_MAX_HISTORY); assert.equal(g.asks(), 0); assert.deepEqual(g.act.stats(), { history: LOCAL_ACT_MAX_HISTORY });
+  // all still valid on the runner: the 257th is refused Busy (nothing sent, not consumed) — the text says "wait", not "today's quota"
+  await rejects(g.act.submit(signedAt(300)), 'LocalActBusy'); assert.equal(g.sends(), LOCAL_ACT_MAX_HISTORY); assert.ok(g.asks() > 0);
+  // the runner moves on: the first 10 blockhashes are no longer valid → those records retire and the world sends again
+  for (let i = 0; i < 10; i++) expired.add(hashOf(i));
+  assert.equal((await g.act.submit(signedAt(300))).status, 'submitted'); assert.equal(g.sends(), LOCAL_ACT_MAX_HISTORY + 1);
+  assert.equal(g.act.stats().history, LOCAL_ACT_MAX_HISTORY - 10 + 1);
+  // a retired signature is still answered by status; a never-sent one still is not
+  assert.equal((await g.act.status({ schema: LOCAL_ACT_STATUS_SCHEMA, signature: first[0] })).status, 'finalized');
+  await rejects(g.act.status({ schema: LOCAL_ACT_STATUS_SCHEMA, signature: 'never-sent' }), 'LocalActUnknownSignature');
+  // retired bytes again: not in the barrier, but the pinned runner knows the signature → MessageUsed, never sent twice
+  await rejects(g.act.submit(signedAt(0)), 'LocalActMessageUsed'); assert.equal(g.sends(), LOCAL_ACT_MAX_HISTORY + 1);
+  // a live record's bytes again: MessageUsed at once
+  await rejects(g.act.submit(signedAt(200)), 'LocalActMessageUsed');
+  // 1,000 commands over a world's life (each batch expiring before the next) — no permanent cap
+  const h = relay(hash => !expired.has(hash)); expired = new Set();
+  for (let i = 0; i < 1000; i++) { if (i >= LOCAL_ACT_MAX_HISTORY) expired.add(hashOf(i - LOCAL_ACT_MAX_HISTORY)); assert.equal((await h.act.submit(signedAt(i))).status, 'submitted', `#${i}`); }
+  assert.equal(h.sends(), 1000);
+  // FAILS CLOSED: no usable answer from the runner (an error, another instance, no context, no boolean) → nothing retires, Busy
+  for (const bad of [{ error: { code: -1 } }, { result: { context: { slot: 5, instance: 'cd'.repeat(32) }, value: false } }, { result: { value: false } }, { result: { context: { slot: 5, instance: INSTANCE }, value: 'no' } }]) {
+    const f = relay(() => bad);
+    for (let i = 0; i < LOCAL_ACT_MAX_HISTORY; i++) await f.act.submit(signedAt(i));
+    await rejects(f.act.submit(signedAt(300)), 'LocalActBusy'); assert.equal(f.sends(), LOCAL_ACT_MAX_HISTORY); assert.equal(f.act.stats().history, LOCAL_ACT_MAX_HISTORY);
+  }
+});

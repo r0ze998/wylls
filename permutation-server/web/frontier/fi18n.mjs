@@ -409,6 +409,10 @@ const CLIENT_TEXT = {
   LocalActRejected: () => L`チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。`,
   LocalMarchRejected: () => L`チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。`,
   LocalMarchExpired: () => L`進軍は期限までに記録されませんでした。これから記録されることはありません。`,
+  // (fix-loop5, L5-1) the local relay's "too many sent commands not settled yet" (429): NOT the daily quota — it clears
+  //  by itself within about a minute, once those commands' blockhashes expire (local-play-act.mjs createReplayBarrier)
+  LocalActBusy: () => L`送ったばかりの命令がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。`,
+  LocalMarchBusy: () => L`送ったばかりの進軍がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。`,
   HostStepUnknown: () => L`この軍勢には、その手順がありません。`,
   HostStepInFlight: () => L`この軍勢の別の手順が進んでいます。その結果を待ってください。`,
   RevealAlreadyIn: () => L`この封はすでに開けられています。`,

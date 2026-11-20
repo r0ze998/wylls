@@ -120,7 +120,7 @@ test('the module: no Reveal builder, no storage, no key, no retry loop', async (
   const src = readFileSync(new URL('../src/frontier/local-play-march.mjs', import.meta.url), 'utf8').split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
   for (const w of ['generateKeyPair', 'Keypair', 'localStorage', 'writeFile', 'setInterval', 'Reveal(', "'Reveal'", 'retry']) assert.ok(!src.includes(w), w);
   assert.equal(src.split("rpc('sendTransaction'").length - 1, 1, 'one send');
-  assert.match(src, /seen\.set\(digest, Object\.freeze\(\{ signature: ok\.signature, blockhash: ok\.blockhash \}\)\);   \/\/ before sending: at most once/);
+  assert.match(src, /seen\.add\(digest, Object\.freeze\(\{ signature: ok\.signature, blockhash: ok\.blockhash \}\)\);   \/\/ before sending: at most once/);
 });
 
 test('the listener: the march routes exist only with the economy routes; refusals keep their own status and code; nothing is sent', async () => {
