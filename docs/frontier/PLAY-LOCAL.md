@@ -208,8 +208,9 @@ scripts/play-local.sh --wide
 - Playing on the wide land (TEST-only rules, 2026-11-19; the devnet settings and the program are unchanged):
   - **This world's own Season bytes**: the centre free (⑭ R2, `centre` = 1: rings 0–1 are ordinary land; ring 1's six
     provinces are opened; (0,0) is not, because the page's terrain kernel still draws the Concord there) and
-    `outpost_tier_min` = 0 (a Hamlet first village may claim wide land; the presets say 1 = Town). The presets
-    (`S1_LOCAL_7D`, `S1_DEVNET_WIDE_7D`) are not changed.
+    `outpost_tier_min` = 0 (a Hamlet first village may claim wide land; `S1_LOCAL_7D` says 1 = Town, and since owner
+    decision Q-W1 of 2026-11-20 the devnet wide preset `S1_DEVNET_WIDE_7D` says 0 as well). The presets are not
+    changed by this world.
   - In the setup, test residents take real first villages on two ring-128 provinces per nation (beside the wide land,
     in different wedges) by the legacy request (FileTicket → the bell's beacon anchor and seed → SettleTicket).
   - After 「国を選ぶ」 the page offers **rim (ring 128) provinces first** as the first village. A rim village is a
