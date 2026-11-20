@@ -59,7 +59,7 @@ use frontier_abi::v2::layout::{
     world::season as S,
 };
 use frontier_abi::v2::layout::{write_header, AccountKind as K2};
-use frontier_abi::v2::presets::{RULESET_HASH_V3, RULES_VERSION_S1, S1_LOCAL_7D, SEASON_CQ_OFFSET};
+use frontier_abi::v2::presets::{S1_LOCAL_7D, SEASON_CQ_OFFSET};
 use frontier_abi::world_index::{
     expedition::AccountResolver, expedition_dispatch_ix as wire, WideHostRef,
 };
@@ -75,8 +75,9 @@ pub const SCHEMA: &str = "frontier-localnet-expedition-play-v1";
 pub const FACTION: u8 = 0;
 /// The dedicated program id of the `localnet-expedition-sbf` build.
 pub const PROGRAM: [u8; 32] = [0x45; 32];
-/// S1 (4) | wide 0x4000 | host-only dispatch 0x0800.
-pub const PROGRAM_VERSION: u16 = 0x4804;
+/// S1 (4) | wide 0x4000 | host-only dispatch 0x0800 = 0x4804; with the TEST-ONLY `coexist-lane` client feature the
+/// ②+⑨+⑩ coexist lane's 0x7805 (`wire::PROGRAM_VERSION`, the one constant every local-play binary pins).
+pub const PROGRAM_VERSION: u16 = wire::PROGRAM_VERSION;
 pub const MARKER: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 /// The usual stack's port: this runner never takes it.
 pub const REFUSED_PORT: u16 = 41970;
@@ -348,8 +349,8 @@ fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
     assert!(wr_u16(&mut s, S::R_MAX, 128));
     s[S::OFFICE_TERMS_PER_WALLET] = p.office_terms_per_wallet;
     s[S::POSTURES_ENABLED] = p.postures_enabled;
-    assert!(wr_arr(&mut s, S::RULESET_HASH, &RULESET_HASH_V3));
-    assert!(wr_u16(&mut s, S::RULES_VERSION, RULES_VERSION_S1));
+    assert!(wr_arr(&mut s, S::RULESET_HASH, &wire::LANE_RULESET_HASH));
+    assert!(wr_u16(&mut s, S::RULES_VERSION, wire::LANE_RULES_VERSION));
     assert!(wr_u16(&mut s, S::PROGRAM_VERSION, PROGRAM_VERSION));
     w32(&mut s, S::BELL_SECS, p.bell_secs);
     assert!(wr_arr(&mut s, S::GENESIS_TS, &genesis_ts.to_le_bytes()));
@@ -1245,7 +1246,7 @@ mod tests {
         assert_eq!((e.tile, e.troops), (33, 12_000));
         let s = fclient::decode::Season::decode(&f.accounts[0].1).unwrap();
         assert_eq!(s.program_version, PROGRAM_VERSION);
-        assert_eq!(s.ruleset_hash, RULESET_HASH_V3);
+        assert_eq!(s.ruleset_hash, wire::LANE_RULESET_HASH);
         assert_eq!(
             f.season,
             fclient::addr::season_pda(&Address::new_from_array(PROGRAM), SEASON_ID).0

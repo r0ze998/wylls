@@ -79,12 +79,17 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
                   draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the
                   program derives another seed by its unchanged rules. Not with --resume (a kept world keeps its map)
-  --coexist       TEST-ONLY: a local world of the ②+⑨+⑩ COEXIST lane instead (rights + capacity + custody in one
-                  program: scripts/build-frontier-localnet-coexist-sbf.sh, version 0x7805; workstream 4's allocation
-                  rev 8). No page yet: the node localnet-coexist-play serves the chain on 127.0.0.1:BASE (RPC) and
-                  BASE+1 (WebSocket), lands a StockSwap, a capacity loan and a custody lot in it, prints its metadata
-                  (one JSON line) and runs until Ctrl-C. Memory-only. Not with --demo, --wide, --two, --resume,
-                  --random-map or --ai (default port 41920; e.g. --port 41450)
+  --coexist       TEST-ONLY: the kept world runs the ②+⑨+⑩ COEXIST lane (rights + capacity + custody in one program:
+                  scripts/build-frontier-localnet-coexist-sbf.sh, version 0x7805, RULESET_HASH_V4; workstream 4's
+                  allocation rev 8; launcher option --coexist local-coexist-v1). The page is the usual one, plus ②
+                  rights: issue a Grant from a workshop village, StockSwap into the grantee's Vault, haul it out by
+                  caravan, revoke. Works with --ai, --two, --random-map and --resume (a kept coexist world resumes as
+                  one), and with --demo --speed N (the capture demo's TEST clock: at the natural clock a Vault's 200 wood
+                  + 200 stone + 50 gold take most of a day); not with --wide. Its runners, herald and tools are built with their `coexist-lane`
+                  feature into $STATE/coexist-bin/ (the default world's binaries are untouched)
+  --coexist-node  TEST-ONLY, no page: the node localnet-coexist-play alone serves a ②+⑨+⑩ chain on 127.0.0.1:BASE
+                  (RPC) and BASE+1 (WebSocket), lands a StockSwap, a capacity loan and a custody lot in it, prints its
+                  metadata (one JSON line) and runs until Ctrl-C. Memory-only, alone (no other option but --port)
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
@@ -96,7 +101,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0
+AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -126,6 +131,7 @@ while [ $# -gt 0 ]; do
     --resume) RESUME=1; shift ;;
     --random-map) RANDOM_MAP=1; shift ;;
     --coexist) COEXIST=1; shift ;;
+    --coexist-node) COEXIST_NODE=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --no-build) NOBUILD=1; shift ;;
     --no-open) NOOPEN=1; shift ;;
@@ -150,15 +156,23 @@ for v in SOLANA_URL SOLANA_RPC_URL ANCHOR_PROVIDER_URL; do
   fi
 done
 if [ "$FRESH" = 1 ] && [ "$RESUME" = 1 ]; then err "--fresh と --resume は同時に使えません" "--fresh and --resume cannot be combined"; exit 2; fi
-if [ "$COEXIST" = 1 ]; then
-  for f in "DEMO:--demo" "WIDE:--wide" "TWO:--two" "RESUME:--resume" "RANDOM_MAP:--random-map" "AI_SET:--ai" "SPEED_SET:--speed"; do
+if [ "$COEXIST_NODE" = 1 ]; then
+  for f in "DEMO:--demo" "WIDE:--wide" "TWO:--two" "RESUME:--resume" "RANDOM_MAP:--random-map" "AI_SET:--ai" "SPEED_SET:--speed" "COEXIST:--coexist"; do
     v="${f%%:*}"
     if [ "${!v}" = 1 ]; then
-      err "--coexist は ${f#*:} と一緒には使えません (②⑨⑩ の世界はページなし・AI なし・メモリだけです)" \
-          "--coexist cannot be combined with ${f#*:} (the ②+⑨+⑩ world has no page, no AI residents, memory only)"; exit 2
+      err "--coexist-node は ${f#*:} と一緒には使えません (ページなし・AI なし・メモリだけのノードです)" \
+          "--coexist-node cannot be combined with ${f#*:} (a node alone: no page, no AI residents, memory only)"; exit 2
     fi
   done
   AI=0
+fi
+if [ "$COEXIST" = 1 ]; then
+  if [ "$WIDE" = 1 ]; then
+    err "--coexist は --wide と一緒には使えません (広い版は別の世界です)" "--coexist cannot be combined with --wide (the wide version is another world)"; exit 2
+  fi
+  if ! grep -q "COEXIST_MODE" "$LAUNCHER" 2>/dev/null; then
+    err "--coexist: このチェックアウトのランチャーは ②⑨⑩ の世界 (--coexist local-coexist-v1) をまだ知りません。" "--coexist: the launcher on this checkout has no coexist worlds (--coexist local-coexist-v1) yet."; exit 5
+  fi
 fi
 if [ "$RANDOM_MAP" = 1 ] && [ "$RESUME" = 1 ]; then err "--random-map は --resume と一緒には使えません (保存した世界は作ったときの地図のままです)" "--random-map cannot be combined with --resume (a kept world keeps the map it was made with)"; exit 2; fi
 # (the fresh map: only when the launcher on this checkout knows it; refused, never faked, otherwise)
@@ -244,6 +258,11 @@ if [ "$RESUME" = 1 ]; then
     err "--resume: 保存した世界の AI 住民は $K_AI 人です。--ai は変えられません。" "--resume: the kept world has $K_AI AI resident(s); --ai cannot change."
     exit 5
   fi
+  K_LANE="$(conf_get lane)"; K_LANE="${K_LANE:-plain}"
+  if [ "$COEXIST" = 1 ] && [ "$K_LANE" != coexist ]; then
+    err "--resume --coexist: 保存した世界は ②⑨⑩ の世界ではありません。" "--resume --coexist: the kept world is not a coexist world."; exit 5
+  fi
+  if [ "$K_LANE" = coexist ]; then COEXIST=1; fi
   PORT="$K_PORT"; AI="$K_AI"; TWO="$K_TWO"
 fi
 if [ "$WAR" = 1 ] && [ "$AI" -gt 0 ] 2>/dev/null && [ "$WAR_OK" = 0 ]; then
@@ -258,8 +277,8 @@ fi
 is_int "$PORT" || { err "--port は数字です" "--port must be a number"; exit 2; }
 PORT=$((10#$PORT)); WORLD_PORT=$((PORT + 4)); SPAN=$((2 * 5 + (AI > 0 ? 2 * 4 : 0)))
 LAST=$((WORLD_PORT + SPAN - 1))
-# (--coexist: the node's RPC on BASE and its WebSocket on BASE+1, nothing else)
-if [ "$COEXIST" = 1 ]; then LAST=$((PORT + 1)); fi
+# (--coexist-node: the node's RPC on BASE and its WebSocket on BASE+1, nothing else)
+if [ "$COEXIST_NODE" = 1 ]; then LAST=$((PORT + 1)); fi
 port_ok=1
 [ "$PORT" -ge 41000 ] && [ "$LAST" -le 41999 ] || port_ok=0
 for ((p = PORT; p <= LAST; p++)); do
@@ -278,6 +297,14 @@ SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-land-sbf"
 SO="$SO_DIR/permutation_frontier.so"
 BINS=(localnet-natural-play localnet-expedition-play frontier-herald frontier-experimental-expedition-depart-prepare frontier-original-expedition-preview frontier-experimental-expedition-prepare)
 STAMP="$STATE/build.stamp"
+# (--coexist: the coexist .so, and the same binaries built with their `coexist-lane` feature, kept apart in their own
+#  directory so the default world's binaries in $T stay exactly what they were)
+if [ "$COEXIST" = 1 ]; then
+  T="$STATE/coexist-bin"
+  SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-coexist-sbf"
+  SO="$SO_DIR/permutation_frontier.so"
+  STAMP="$STATE/build-coexist-lane.stamp"
+fi
 KEPT=0; if [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ]; then KEPT=1; fi
 if [ "$RESUME" = 1 ]; then DATA="$LASTK"; elif [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ]; then DATA="$STATE/kept/$RUN_ID"; else DATA="$STATE/worlds/$RUN_ID"; fi
 
@@ -306,17 +333,18 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
   if [ "$AI" -gt 0 ] && [ "$WAR" = 1 ]; then printf '%s\n' --operator-war operator-war-v1; fi
   if [ "$RANDOM_MAP" = 1 ]; then printf '%s\n' --fresh-map "$FRESH_MAP_WORD"; fi
   if [ "$TWO" = 1 ]; then printf '%s\n' --contest-pair "$PAIR_WORD"; fi
+  if [ "$COEXIST" = 1 ]; then printf '%s\n' --coexist local-coexist-v1; fi
 }
 
 CO_SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-coexist-sbf"
 CO_SO="$CO_SO_DIR/permutation_frontier.so"
 CO_NODE="$T/localnet-coexist-play"
 CO_STAMP="$STATE/build-coexist.stamp"
-if [ "$PLAN" = 1 ] && [ "$COEXIST" = 1 ]; then
+if [ "$PLAN" = 1 ] && [ "$COEXIST_NODE" = 1 ]; then
   echo "cluster=localnet"
   echo "test_only=yes"
   echo "lang=$LANG_UI"
-  echo "world=coexist"
+  echo "world=coexist-node"
   echo "program_version=0x7805"
   echo "features=rights,capacity,custody (+ the playable lane: expedition, conquest kinds, wide land, land preview)"
   echo "port=$PORT"
@@ -341,6 +369,7 @@ if [ "$PLAN" = 1 ]; then
   echo "persist_available=$HAS_PERSIST"
   echo "map=$([ "$RANDOM_MAP" = 1 ] && echo fresh || echo fixed)"
   echo "players=$([ "$TWO" = 1 ] && echo two || echo one)"
+  if [ "$COEXIST" = 1 ]; then echo "lane=coexist"; echo "program_version=0x7805"; fi
   echo "build=$([ "$NOBUILD" = 1 ] && echo never || { [ "$REBUILD" = 1 ] && echo always || echo when-changed; })"
   echo "open=$([ "$NOOPEN" = 1 ] && echo no || echo yes)"
   echo "data=$DATA"
@@ -415,8 +444,8 @@ say "   すべてそろっています (Node $(node -v), 空き ${FREE_GIB} GiB,
 phase_end check
 if [ "$CHECKONLY" = 1 ]; then exit 0; fi
 
-# ------------------------------------------------------------------ --coexist: build and start the ②+⑨+⑩ node
-if [ "$COEXIST" = 1 ]; then
+# ------------------------------------------------------------------ --coexist-node: build and start the ②+⑨+⑩ node
+if [ "$COEXIST_NODE" = 1 ]; then
   phase_start "2/3 ビルド (②⑨⑩)" "2/3 build (②+⑨+⑩)"
   mkdir -p "$STATE/logs"
   co_key() {
@@ -461,7 +490,8 @@ src_key() {  # the sources the binaries come from: tree hashes at HEAD + any unc
   { git -C "$ROOT" rev-parse "${dirs[@]/#/HEAD:}" 2>/dev/null
     git -C "$ROOT" status --porcelain --untracked-files=normal -- "${dirs[@]}" 2>/dev/null | grep -v ' frontier-node/target/\| permutation-frontier/target/' || true
     git -C "$ROOT" diff HEAD -- "${dirs[@]}" 2>/dev/null || true
-    echo "features: land-sbf / itest localnet-land-play / herald land-preview,wide-world-experimental,expedition-records-experimental / keeper expedition-dispatch-experimental"
+    if [ "$COEXIST" = 1 ]; then echo "coexist: coexist-sbf / itest localnet-coexist-lane-play / herald +coexist-lane,rights-records / keeper +coexist-lane"
+    else echo "features: land-sbf / itest localnet-land-play / herald land-preview,wide-world-experimental,expedition-records-experimental / keeper expedition-dispatch-experimental"; fi
   } | shasum -a 256 | cut -d' ' -f1
 }
 all_built() { [ -f "$SO" ] || return 1; for b in "${BINS[@]}"; do [ -x "$T/$b" ] || return 1; done; }
@@ -489,10 +519,21 @@ else
   [ -e "$SO_DIR/permutation_frontier-keypair.json" ] || echo "placeholder: play-local never makes a program key" > "$SO_DIR/permutation_frontier-keypair.json"
   # (the program's crates must be in the cargo cache: its build is offline; a first run fetches them once)
   build_step fetch-program bash -c "cd '$ROOT' && { CARGO_NET_OFFLINE=true cargo fetch --locked --manifest-path permutation-frontier/Cargo.toml || cargo fetch --locked --manifest-path permutation-frontier/Cargo.toml; }"
+  if [ "$COEXIST" = 1 ]; then
+    # (the coexist lane: its own program, and the same binaries with `coexist-lane`, copied out of the shared target
+    #  dir into $T so a later default build — which rebuilds them without the feature — never mixes the two)
+    build_step program "$ROOT/scripts/build-frontier-localnet-coexist-sbf.sh"
+    build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-coexist-lane-play --bin localnet-natural-play --bin localnet-expedition-play"
+    build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental,coexist-lane,rights-records --bin frontier-herald"
+    build_step tools bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p keeper --features expedition-dispatch-experimental,coexist-lane --bin frontier-experimental-expedition-depart-prepare --bin frontier-original-expedition-preview --bin frontier-experimental-expedition-prepare"
+    mkdir -p "$T"
+    for b in "${BINS[@]}"; do cp -p "$ROOT/frontier-node/target/debug/$b" "$T/$b"; done
+  else
   build_step program "$ROOT/scripts/build-frontier-localnet-land-sbf.sh"
   build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-land-play --bin localnet-natural-play --bin localnet-expedition-play"
   build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental --bin frontier-herald"
   build_step tools bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p keeper --features expedition-dispatch-experimental --bin frontier-experimental-expedition-depart-prepare --bin frontier-original-expedition-preview --bin frontier-experimental-expedition-prepare"
+  fi
   all_built || { err "ビルドは終わりましたが、できていないファイルがあります" "the build finished but a binary is missing"; exit 7; }
   src_key > "$STAMP"
 fi
@@ -515,7 +556,7 @@ if [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ] && [ "$RESUME" = 0 ]; then
   # (a new kept world: what a resume must repeat, and the pointer --resume follows)
   { echo "# play-local kept world (TEST-ONLY, not for production): what --resume repeats"
     echo "created=$RUN_ID"; echo "commit=$(git -C "$ROOT" rev-parse --short HEAD)"
-    echo "port=$PORT"; echo "ai=$AI"; echo "two=$TWO"; echo "sha256=$SHA"; } > "$DATA/play-local.conf"
+    echo "port=$PORT"; echo "ai=$AI"; echo "two=$TWO"; echo "sha256=$SHA"; echo "lane=$([ "$COEXIST" = 1 ] && echo coexist || echo plain)"; } > "$DATA/play-local.conf"
   echo "$DATA" > "$STATE/last-kept"
 fi
 ARGV=()

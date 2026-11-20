@@ -35,6 +35,9 @@ pub mod standings;
 pub mod files;
 pub mod fixture;
 pub mod fold;
+/// Opt-in (`--features rights-records`): ② Grants from their records (`/h/grants`).
+#[cfg(feature = "rights-records")]
+pub mod grants;
 #[cfg(feature = "local-play-bootstrap")]
 pub mod local_play;
 pub mod nation;

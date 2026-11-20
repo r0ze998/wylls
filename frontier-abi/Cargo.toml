@@ -51,6 +51,11 @@ resident-transfer-refused = []
 # `coexist-experimental` reads its combined versions). Off by default: no
 # vector, hash or default-build change; no new dependency.
 feature-coexist = []
+# TEST-ONLY, off-chain clients of a `play-local.sh --coexist` world (2026-11-20, rights-play): the local-play
+# runner, herald and keeper tools pin the coexist Season (0x7805, RULESET_HASH_V4) instead of the plain lane's
+# (0x4804, V3) through `world_index::expedition_dispatch_ix::{PROGRAM_VERSION, LANE_RULESET_HASH}`. No program build
+# enables it (the program's coexist lane is `permutation-frontier` `localnet-coexist-sbf`); off by default.
+coexist-lane = ["world-index-experimental"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

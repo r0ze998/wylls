@@ -148,7 +148,7 @@ test('the gate: an unjoined wallet is accepted ONLY on a natural world; a Citize
 test('the gate source: the natural word comes only from the launcher\'s start answer', async () => {
   const src = await fsp.readFile(new URL('../../permutation-server/web/frontier/flocalplay.mjs', import.meta.url), 'utf8');
   const code = src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  assert.equal(code.split('{ natural }').length - 1, 1, 'passed once, in the launcher branch');
+  assert.equal(code.split('{ natural, coexist: coexistPage }').length - 1, 1, 'passed once, in the launcher branch (with the TEST-only coexist word beside it)');
   assert.match(code, /if \(\(body\?\.natural === true\) !== natural\) return \{ ok: false, code: 'LauncherWorldMismatch' \};/, 'the page\'s mode and the launcher\'s answer must agree');
   assert.match(code, /natural = localNaturalWorld\(cfg, loc\), longest = natural \? NATURAL_START_MS : accelerated \? 150000 : 70000;/, 'only the natural mode waits longer');
   assert.equal(code.split('verifyLocalPlayHerald(makeHerald(base), handle.address)').length - 1, 1, 'the operator\'s own herald path is checked as before');

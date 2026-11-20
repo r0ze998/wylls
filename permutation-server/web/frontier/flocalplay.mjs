@@ -28,11 +28,14 @@ import { mountSessionNotice, pairGuideView } from './flocalplay-session.mjs';
 import { confirmWorldEnd, worldEndOf } from './flocalplay-instance.mjs';
 import { openKeyStore, walletScope, openSealedBook, forgetLocalPlayKeys, PERSIST_PAGE_WORD } from './flocalplay-keystore.mjs';
 import { useLocalMarchStorage } from './flocalplay-march.mjs';
+import { onLocalLane, selectLocalLane, lanePair, laneOfVersion, COEXIST_LANE, COEXIST_LANE_WORD } from './flocalplay-lane.mjs';
 
 /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
 export const LOCAL_PLAY_PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
 /** S1 | wide 0x4000 | host-only dispatch 0x0800. */
-export const LOCAL_PLAY_PROGRAM_VERSION = 0x4804;
+export let LOCAL_PLAY_PROGRAM_VERSION = 0x4804;
+// (the coexist lane, TEST-ONLY: follows the page's local lane, flocalplay-lane.mjs; plain: unchanged)
+onLocalLane(l => { LOCAL_PLAY_PROGRAM_VERSION = l.programVersion; });
 export const LOCAL_PLAY_CLUSTER = 'localnet';
 export { EPHEMERAL_WALLET_NAME };
 
@@ -62,6 +65,15 @@ export function localPreparationAccelerated(cfg, loc = globalThis.location) {
  */
 export function localNaturalWorld(cfg, loc = globalThis.location) {
   try { return localLauncherRequested(cfg, loc) && new URL(loc.href).searchParams.get('world') === 'natural'; } catch { return false; }
+}
+/**
+ * TEST-ONLY (2026-11-20, rights-play): whether the launcher that served this page makes COEXIST worlds (②+⑨+⑩ in one
+ * local build, its `--coexist local-coexist-v1`): it puts `lane=coexist` on every launcher page it serves. The start
+ * answer must then say `lane: 'coexist'` as well (or the start is refused, `LauncherWorldMismatch`), and the lane is
+ * selected only when the herald's Season is itself the coexist pair (0x7805, RULESET_HASH_V4): flocalplay-lane.mjs.
+ */
+export function localCoexistLane(cfg, loc = globalThis.location) {
+  try { return localLauncherRequested(cfg, loc) && new URL(loc.href).searchParams.get('lane') === COEXIST_LANE_WORD; } catch { return false; }
 }
 /**
  * TEST-ONLY: whether the launcher that served this page runs the capture demo (its `--capture-demo`, natural worlds with
@@ -210,12 +222,17 @@ export function localHeraldOrigin(text) {
  * there must still be this wallet's, and villages without a Citizen are refused.
  * Reads only. The records are the herald's own; nothing is assumed from the URL.
  */
-export async function verifyLocalPlayHerald(herald, address, { natural = false } = {}) {
+export async function verifyLocalPlayHerald(herald, address, { natural = false, coexist = false } = {}) {
   let s;
   try { s = await herald.season(); } catch { return { ok: false, code: 'HeraldUnreachable' }; }
   if (!s?.ok) return { ok: false, code: s?.code === 'network' ? 'HeraldUnreachable' : 'HeraldNotReady' };
   if (s.record?.programId !== LOCAL_PLAY_PROGRAM) return { ok: false, code: 'LocalPlayProgram' };
   if (s.record?.cluster !== LOCAL_PLAY_CLUSTER) return { ok: false, code: 'LocalPlayCluster' };
+  // (TEST-ONLY coexist lane: with the launcher's word, and only for a Season that is itself the coexist pair — its
+  //  version AND the hash its program wrote — this page selects the lane once; every pin follows. Otherwise: plain)
+  if (coexist === true && laneOfVersion(s.season?.programVersion) === COEXIST_LANE && lanePair(s.season?.programVersion, s.season?.rulesetHash)) {
+    try { selectLocalLane(COEXIST_LANE); } catch { return { ok: false, code: 'LocalPlayVersion' }; }
+  }
   if (s.season?.programVersion !== LOCAL_PLAY_PROGRAM_VERSION) return { ok: false, code: 'LocalPlayVersion' };
   // The Season's identity is worked out here from the dedicated program and the record's Season id, never taken from
   // the herald: the record must name that canonical Season account, and the client is PINNED to it before the
@@ -311,6 +328,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
   // (a launcher that prepares its worlds fast needs longer for a start: the wait is 150 s there, 70 s otherwise)
   const marchTrial = localMarchTrialPage(cfg, loc), demoPage = localCaptureDemoPage(cfg, loc);
   let claimedDemo = null, claimedWide = null;
+  const coexistPage = localCoexistLane(cfg, loc);
   const accelerated = localPreparationAccelerated(cfg, loc), natural = localNaturalWorld(cfg, loc), longest = natural ? NATURAL_START_MS : accelerated ? 150000 : 70000;
   let pendingLaunch = null;
   // (launcher mode: the standing notice mounted once the world is verified; told when the key is destroyed)
@@ -357,6 +375,8 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
             // (a natural world: the page's mode, known before the start, and the launcher's answer must agree; then the
             //  player's Join and PlaceHome are still to come)
             if ((body?.natural === true) !== natural) return { ok: false, code: 'LauncherWorldMismatch' };
+            // (TEST-ONLY coexist lane: the page's `lane=coexist` and the answer's `lane` agree)
+            if ((body?.lane === COEXIST_LANE_WORD) !== coexistPage || (body?.lane !== undefined && body.lane !== COEXIST_LANE_WORD)) return { ok: false, code: 'LauncherWorldMismatch' };
             // (the same for the test-only march trial: the page's `march=trial` and the answer's `marchTrial` agree)
             if ((body?.marchTrial === true) !== marchTrial) return { ok: false, code: 'LauncherWorldMismatch' };
             // (and for the test-only capture demo: the page's `demo=capture` and a valid `captureDemo` in the answer agree)
@@ -371,7 +391,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
             if ((kept !== null) !== persisted || (body?.persisted !== undefined && kept === null)) return { ok: false, code: 'LauncherWorldMismatch' };
             state.resumed = kept?.resumed ?? null;
             while (!abort.signal.aborted && !handle.destroyed) {
-              const checked = await verifyLocalPlayHerald(makeHerald(base), handle.address, { natural });
+              const checked = await verifyLocalPlayHerald(makeHerald(base), handle.address, { natural, coexist: coexistPage });
               if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
               if (checked.ok || !['HeraldUnreachable', 'HeraldNotReady', 'WalletNotBound'].includes(checked.code)) return checked;
               await new Promise(resolve => setTimeout(resolve, Math.max(1, retryDelayMs)));

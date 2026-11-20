@@ -1077,4 +1077,7 @@ export default {
   '進軍中の軍勢': 'A host on the march',
   '到着しました（ターン {0}）。結果は「進軍」で確かめられます': 'Arrived (turn {0}). See Marches for the result',
   'ターン {0} に到着の予定': 'Due to arrive on turn {0}',
+  // rights-play (TEST-ONLY, a coexist local world): ② rights' relay refusals (fi18n.mjs)
+  '権利を出すことと取り消すことは、あなたのウォレットだけができます。代理の住民からは送れません。送っていません。': 'Only your wallet can issue or revoke a right; a delegated resident cannot send it. Nothing was sent.',
+  'この権利は、いまこの命令に使えません（ないか、相手や場所が違います）。送っていません。': 'This right cannot be used for this order now (it is not there, or names another player or place). Nothing was sent.',
 };
