@@ -26,7 +26,7 @@
 | `as_given` | `history` 欄の無いフィクスチャ（記録済みの試験入力） | 変えない | `null`（完全だとは主張しない） |
 | `ledger_feed` | ローカルノード自身の台帳の feed（そのままか、アーカイブ経由） | 変えない | `null` |
 | `unproven` | 公開 RPC。coverage がどの状態でも該当し、`cross_checked` も含む。出どころの分からないアーカイブも含む | **PASS にはならない**（所見 `HistoryUnproven`）。FAIL になるのは、取得済みの取引の中だけで決まる FAIL（⑪ の一覧：V0（`Undecodable` を除く）、V27、⑳ の V9 の住民の参加）があるときだけ。それ以外は UNVERIFIABLE。すべての FAIL の所見は一覧に残るが、一覧外のものは欠落した範囲が原因の可能性がある（件数は `selfContainedFails`／`otherFails`） | `false` |
-| `unproven`（⑰ Q-P2） | 公開 RPC で、coverage が `gap`・`not_fetched` 以外。VG が Season 作成時から全取引を再実行して FAIL の所見を出し、かつ証人 RPC（VS）がすべて項目ごとに一致したとき（所有者決定 2026-11-20：FAIL） | **FAIL**。`failBasis` に `vg_witnessed` が入り、`vgFails` が VG の FAIL の件数。証人の一致だけで PASS になることはない。証人の不一致・不達・一部欠け、取得の gap、VG が UNVERIFIABLE（未対応の操作）だけのときは上の行のまま | `false` |
+| `unproven`（⑰ Q-P2） | 公開 RPC で、coverage が `gap`・`not_fetched` 以外。VG が Season 作成時から全取引を再実行して FAIL の所見を出し、かつ証人 RPC（VS）がすべて項目ごとに一致したとき（所有者決定 2026-11-20：FAIL） | **FAIL**。`failBasis` に `vg_witnessed` が入り、`vgFails` が VG の FAIL の件数。証人の一致だけで PASS になることはない。証人の不一致・不達・一部欠け（主 RPC の取引の順序が証人のブロックの順序と違う、スロットが戻る、も不一致：verify-pr103）、取得の gap、VG が UNVERIFIABLE（未対応の操作）だけのときは上の行のまま | `false` |
 | `witnessed`（⑰ Q-P1） | 公開 RPC で、coverage が `gap`・`not_fetched` 以外。VG の所見がゼロ（最終状態を完全に再現）で、かつ証人 RPC がすべて一致したとき | 全体の履歴として判定（PASS、または FAIL があれば FAIL）。残る信頼：証人が主 RPC から独立していること | `null` |
 
 `failBasis` は FAIL の根拠です：`self_contained`（取得済みの取引だけで決まる FAIL）と `vg_witnessed`（一致した証人のもとでの VG の FAIL）。UNVERIFIABLE のときは空です。

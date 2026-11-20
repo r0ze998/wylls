@@ -685,3 +685,49 @@ fn one_endpoint_in_another_spelling_is_not_a_second_source() {
     cross(&mut inp).witnesses.push(again);
     assert_caught(&inp, WITNESS_UNAVAILABLE, "a witness given twice");
 }
+
+// ------------------------------------------------------------ the archive's order (verify-pr103)
+
+/// The primary's history out of the chain's order is the primary's word: VG
+/// re-executes in that order and FAILs, but no witness confirms the order,
+/// so ⑰ Q-P2 must not make it FAIL (an honest season, a misordering
+/// primary). Across slots: the witness serves each slot as the chain did.
+#[test]
+fn an_honest_season_the_primary_misorders_across_slots_is_not_fail() {
+    let mut inp = primary();
+    let t = inp.txs.remove(22);
+    inp.txs.insert(25, t);
+    inp.chain.cross = Some(mirror(&inp, "http://witness"));
+    let r = verify_core::verify(&inp);
+    assert_ne!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
+    let r = assert_caught(&inp, WITNESS_MISMATCH, "slots going back");
+    assert!(fail_basis(&r).is_empty());
+}
+
+/// Inside one slot: the block lists its transactions in execution order on
+/// both sources; the primary's history swaps two that do not commute.
+#[test]
+fn an_honest_season_the_primary_misorders_inside_a_slot_is_not_fail() {
+    // The recording has one transaction per slot: an honest chain with
+    // transactions 23 and 24 in one slot (it PASSes as witnessed first).
+    let mut honest = primary();
+    honest.txs[24].slot = honest.txs[23].slot;
+    honest.txs[24].block_time = honest.txs[23].block_time;
+    let mut ok = honest.clone();
+    ok.chain.cross = Some(mirror(&ok, "http://witness"));
+    assert_eq!(verify_core::verify(&ok).verdict, Verdict::Pass);
+    let chain = mirror(&honest, "http://witness");
+    let mut inp = honest.clone();
+    inp.txs.swap(23, 24);
+    let mut c = mirror(&inp, "http://witness");
+    c.primary.blocks = chain.primary.blocks.clone();
+    c.witnesses[0].blocks = chain.witnesses[0].blocks.clone();
+    inp.chain.cross = Some(c);
+    let r = verify_core::verify(&inp);
+    if !cfg!(feature = "mutate-vg") {
+        assert!(vg_fails(&r), "the swap does not commute: {:#?}", show(&r));
+    }
+    let r = assert_caught(&inp, WITNESS_MISMATCH, "a same-slot swap");
+    assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+    assert!(fail_basis(&r).is_empty());
+}
