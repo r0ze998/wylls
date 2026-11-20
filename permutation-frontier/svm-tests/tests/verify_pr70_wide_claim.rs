@@ -14,7 +14,7 @@
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::layout::world::{frontier as FR, ring_seed as RS};
-use frontier_abi::v2::presets::{SeasonParamsV2, S1_DEVNET_WIDE_7D};
+use frontier_abi::v2::presets::{SeasonParamsV2, S1_DEVNET_WIDE_7D, S1_LOCAL_7D};
 use frontier_abi::v2::CqError as Cq;
 use frontier_abi::world_index::land::{self as wl, WideRingSeed, FIRST_WIDE_RING};
 use frontier_abi::world_index::rules::{
@@ -260,12 +260,13 @@ fn a_rim_home_files_a_wide_claim_on_ring_129_and_a_heartland_home_cannot() {
     for e in [&rim, &heart] {
         c.edit(&e.holding, |d| d[H::ORDER] = 1);
     }
-    // A Hamlet first home is refused (`outpost_tier_min` 1 = Town in every S1 preset but S1_TEST):
-    assert_eq!(p.cq.outpost_tier_min, 1);
-    assert_code(claim(&mut c, &w, &rim, target, 0), Cq::OutpostRule);
-    // Crafted: the rim home tiered up to Town (TierUp's effect) with stores for the settler cost.
+    // Q-W1 (owner, 2026-11-20): the devnet wide preset's `outpost_tier_min` is 0, so a fresh rim village (a
+    // Hamlet) anchors a wide claim; the S1_LOCAL_7D preset keeps 1 = Town.
+    assert_eq!(p.cq.outpost_tier_min, 0);
+    assert_eq!(S1_LOCAL_7D.cq.outpost_tier_min, 1);
+    // Crafted: stores for the settler cost (both homes stay Hamlets).
     for e in [&rim, &heart] {
-        w.edit_kholding(&mut c, e, |h| h.tier = Tier::Town);
+        w.edit_kholding(&mut c, e, |h| assert_eq!(h.tier, Tier::Hamlet));
         w.enrich(&mut c, e, 10_000);
     }
     c.advance(1);

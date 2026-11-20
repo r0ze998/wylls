@@ -32,10 +32,34 @@ use frontier_stack::chain::{Chain, MAX_LOADED_LIMIT};
 use frontier_stack::operator;
 use serde_json::{json, Value};
 
-const RPC_PORT: u16 = 41_450;
-const DRAND_PORT: u16 = 41_452;
-const KEEPER_API_PORT: u16 = 41_453;
-const HERALD_PORT: u16 = 41_455;
+#[path = "operator_playable/rim.rs"]
+mod rim;
+
+/// P3's ports (RPC, its WebSocket at +1, drand-replay +2, keeper API +3, herald +5); P4 takes [`P4_PORT_BASE`].
+/// `OPERATOR_PLAYABLE_PORT_BASE` / `OPERATOR_RIM_PORT_BASE` move them.
+const P3_PORT_BASE: u16 = 41_450;
+const P4_PORT_BASE: u16 = 41_560;
+
+#[derive(Clone, Copy)]
+struct Ports {
+    rpc: u16,
+    drand: u16,
+    keeper_api: u16,
+    herald: u16,
+}
+
+fn ports(env: &str, default: u16) -> Ports {
+    let b = std::env::var(env)
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(default);
+    Ports {
+        rpc: b,
+        drand: b + 2,
+        keeper_api: b + 3,
+        herald: b + 5,
+    }
+}
 const SOL: u64 = 1_000_000_000;
 /// sha256 of the devnet build of the playable lane (reports/devnet-refresh.md, the committed verifier fixture).
 const DEVNET_SO_SHA256: &str = "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741";
@@ -416,11 +440,23 @@ fn ix_name(wire: &[u8], program: &Address) -> String {
 /// P3: the season of the playable lane on the exact devnet `.so`, set up by the operator in send mode.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
+    playable_season(ports("OPERATOR_PLAYABLE_PORT_BASE", P3_PORT_BASE), false).await;
+}
+
+/// P4 (owner Q-W1, 2026-11-20): P3, then a FIRST VILLAGE ON THE RIM and a wide claim from it, on the devnet `.so`
+/// with the keeper roles a devnet season would run (module doc of [`rim`]).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p4_a_rim_first_village_and_a_wide_claim_on_the_devnet_so_offline() {
+    playable_season(ports("OPERATOR_RIM_PORT_BASE", P4_PORT_BASE), true).await;
+}
+
+async fn playable_season(pt: Ports, rim_run: bool) {
     use fclient::abi::status as st;
+    let tag = if rim_run { "p4" } else { "p3" };
     let so = devnet_so();
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
     let drand_bin = sibling_bin("DRAND_REPLAY_BIN", "drand-replay");
-    let dir = tmpdir("p3");
+    let dir = tmpdir(tag);
     let _c = Cleanup(dir.clone());
     let authority = Keypair::new(); // TEST key, this chain only
     let program = Keypair::new().pubkey(); // an address only
@@ -440,9 +476,9 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
         .unwrap();
     chain0.airdrop(&authority.pubkey(), 200 * SOL).unwrap();
     let state = Arc::new(Mutex::new(chain0));
-    let node = localnet::server::start_with(state.clone(), RPC_PORT, RPC_PORT + 1)
+    let node = localnet::server::start_with(state.clone(), pt.rpc, pt.rpc + 1)
         .await
-        .expect("bind 41450/41451");
+        .expect("bind the RPC ports");
     let url = node.url();
     let key = write_key(&dir, "authority.json", &authority);
     let prof = playable_profile(
@@ -598,7 +634,7 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
             .args([
                 "serve",
                 "--port",
-                &DRAND_PORT.to_string(),
+                &pt.drand.to_string(),
                 "--archive",
                 fixtures.join("quicknet").to_str().unwrap(),
                 "--info",
@@ -622,12 +658,26 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
     .unwrap();
     let beneficiary = Keypair::new().pubkey();
     let toml = format!(
-        "program = \"{program}\"\nseason = 1\nrpc = [\"{url}\"]\ndrand = [\"http://127.0.0.1:{DRAND_PORT}\"]\n\
-         roles = [\"beacon\", \"rings\", \"fold\"]\nreveal_pool = 150\ndelay_pool = 32\nfunders = 4\n\
-         beneficiary = \"{beneficiary}\"\napi = \"127.0.0.1:{KEEPER_API_PORT}\"\n\
+        "program = \"{program}\"\nseason = 1\nrpc = [\"{url}\"]\ndrand = [\"http://127.0.0.1:{dp}\"]\n\
+         roles = [{roles}]\nreveal_pool = 150\ndelay_pool = 32\nfunders = 4\n\
+         beneficiary = \"{beneficiary}\"\napi = \"127.0.0.1:{kp}\"\n\
          token_file = \"{d}/keeper.token\"\nmaster_seed_file = \"{d}/keeper.seed\"\njournal = \"{d}/keeper.journal.sqlite\"\n\
-         feed = \"rpc\"\nextend = true\nextend_max_ring = 128\nlazy_provinces = true\n",
-        d = kdir.display()
+         feed = \"rpc\"\nextend = true\nextend_max_ring = 128\nlazy_provinces = true\n{rim}",
+        d = kdir.display(),
+        dp = pt.drand,
+        kp = pt.keeper_api,
+        // (P4: the devnet profile's keeper A with Q-W1's duties: the `tickets` role settles a rim FileTicket on
+        //  the bell's seed, and `rim_per_wedge` opens the rim's provinces)
+        roles = if rim_run {
+            "\"beacon\", \"rings\", \"fold\", \"tickets\""
+        } else {
+            "\"beacon\", \"rings\", \"fold\""
+        },
+        rim = if rim_run {
+            format!("rim_per_wedge = {}\n", rim::PER_WEDGE)
+        } else {
+            String::new()
+        },
     );
     std::fs::write(kdir.join("keeper.toml"), &toml).unwrap();
     std::fs::write(kdir.join("keeper.token"), "test-token-operator-playable\n").unwrap(); // TEST API token
@@ -879,7 +929,7 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
                 "--rpc-min-gap-ms",
                 "0",
                 "--listen",
-                &format!("127.0.0.1:{HERALD_PORT}"),
+                &format!("127.0.0.1:{}", pt.herald),
             ])
             .stdout(Stdio::null())
             .stderr(std::fs::File::create(dir.join("herald.log")).unwrap())
@@ -888,8 +938,8 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
     );
     let t0 = Instant::now();
     let (season_view, me) = loop {
-        let s = http_get(HERALD_PORT, "/h/season");
-        let m = http_get(HERALD_PORT, &format!("/h/me/{w}"));
+        let s = http_get(pt.herald, "/h/season");
+        let m = http_get(pt.herald, &format!("/h/me/{w}"));
         if let (Some(s), Some(m)) = (s, m) {
             if m["holdings"].as_array().is_some_and(|h| !h.is_empty()) {
                 break (s, m);
@@ -905,6 +955,22 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
     };
     assert_eq!(season_view["cluster"], "devnet");
     assert_eq!(season_view["programId"], program.to_string());
+    // P4: the rim first village and the wide claim (keeper and herald still running).
+    let rim_summary = if rim_run {
+        Some(
+            rim::run(rim::Ctx {
+                state: state.clone(),
+                a: a.clone(),
+                program,
+                herald: pt.herald,
+                dir: dir.clone(),
+                keeper: &mut keeper.0,
+            })
+            .await,
+        )
+    } else {
+        None
+    };
     drop(herald);
 
     // Every program transaction on this chain: name, payer, CU, fee, lamports (the keeper's included).
@@ -954,21 +1020,24 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
         "operator_records": records, "join": join.json(), "place_home": place.json(),
         "home": {"p": hp, "q": hq, "site": site, "nation": nation},
         "herald_season": season_view, "herald_me_holdings": me["holdings"].as_array().map(|h| h.len()),
-        "rings_opened": rings_opened(), "status": status(),
+        "rings_opened": rings_opened(), "status": status(), "rim": rim_summary,
         "program_transactions": all, "failed_transactions": failed.len(),
     });
     if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
         let d = Path::new(&d);
         std::fs::write(
-            d.join("p3-summary.json"),
+            d.join(format!("{tag}-summary.json")),
             serde_json::to_string_pretty(&summary).unwrap(),
         )
         .unwrap();
-        std::fs::write(d.join("p3-dry-run.txt"), &dry_run).unwrap();
+        std::fs::write(d.join(format!("{tag}-dry-run.txt")), &dry_run).unwrap();
         for f in ["keeper.log", "drand-replay.log", "herald.log"] {
-            let _ = std::fs::copy(dir.join(f), d.join(format!("p3-{f}")));
+            let _ = std::fs::copy(dir.join(f), d.join(format!("{tag}-{f}")));
         }
-        let _ = std::fs::copy(dir.join("keeper-a/keeper.toml"), d.join("p3-keeper.toml"));
+        let _ = std::fs::copy(
+            dir.join("keeper-a/keeper.toml"),
+            d.join(format!("{tag}-keeper.toml")),
+        );
     }
     node.stop();
 }
