@@ -137,10 +137,11 @@ fn accounts_are_4s_kinds_with_seeds_and_magic_no_one_else_uses() {
 }
 
 #[test]
-fn records_need_more_kinds_than_the_band_holds() {
-    // Not a decision: the numbers 4 must choose between (20 kinds, or the
-    // band's 10 with a sub-kind byte).
-    assert_eq!(LOG_KINDS.count(), 10);
+fn the_band_holds_one_kind_per_record() {
+    // rev 8 (2026-11-20) gave 09 twenty kinds, 150–169: one per record
+    // (rev 3's band 120–129 held 10).
+    assert_eq!(LOG_KINDS.count(), 20);
+    assert_eq!((*LOG_KINDS.start(), *LOG_KINDS.end()), (150, 169));
     assert_eq!(EVENT_KINDS, 20);
     // event_index matches every Event (a new kind fails to compile).
 }

@@ -158,7 +158,8 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
    4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
       「出発する（ローカルプレイ）」. At ×60 「…満たしていません。 (NotResident)」 is common (the province is settled for
       only part of each turn): wait a few seconds and press 「出発条件を確認」 again. In this check it took more than
-      10 presses, about 2 minutes. A turn change clears the check's result; press again then too.
+      10 presses, about 2 minutes (loop-play5, before the runner-throughput change #109: about 60 presses, about 10 minutes at load 5–6 on this Mac; fix-loop5, after #109: 16 presses, about 27 s). A turn
+      change clears the check's result; press again then too.
    5. 「出発が確定しました（ターン N に到着予定・移動枠 0）」 means it departed.
    - **On the arrival turn this page can open the seal.** Normally the world's keeper opens it, but at ×60 on a
      loaded machine it can miss the window of about 10 s (in this check the first expedition was missed, §8). On the

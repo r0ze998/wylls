@@ -1234,7 +1234,10 @@ mod tests {
     /// The isolated localnet expedition SBF lane: its own version 0x4804 (not in `validate`'s 3/4/5) is accepted by
     /// CreateSeason, the generic `validate` is NOT relaxed (it still refuses the raw parameters), and the range
     /// view maps only that exact version.
-    #[cfg(any(feature = "localnet-expedition-sbf", feature = "devnet-playable-sbf"))]
+    #[cfg(all(
+        any(feature = "localnet-expedition-sbf", feature = "devnet-playable-sbf"),
+        not(feature = "coexist-experimental")
+    ))]
     #[test]
     fn the_lane_accepts_exactly_its_own_version() {
         use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
@@ -1270,7 +1273,8 @@ mod tests {
     /// `validate` still refuses it, the S1 version and the lane's are refused, and the view maps only that version.
     #[cfg(all(
         feature = "rights-experimental",
-        not(feature = "localnet-expedition-sbf")
+        not(feature = "localnet-expedition-sbf"),
+        not(feature = "coexist-experimental")
     ))]
     #[test]
     fn the_rights_build_accepts_exactly_its_own_version() {
@@ -1377,5 +1381,38 @@ mod tests {
         } else {
             assert_eq!(p.quicknet_pk_hash, crate::QUICKNET_PK_HASH);
         }
+    }
+
+    /// ②+⑨+⑩ in one build (`coexist-experimental`, allocation rev 8): CreateSeason accepts exactly the combined
+    /// version (0x3005 on S1, 0x7805 on the playable lane), the generic `validate` still refuses it, and every
+    /// single-feature version (S1, custody 5, rights 0x2004, capacity 0x1004/0x1005, the lane's 0x4804, the NFT
+    /// lane's 0xC804, the other combined version) is refused.
+    #[cfg(feature = "coexist-experimental")]
+    #[test]
+    fn the_combined_build_accepts_exactly_its_own_version() {
+        use frontier_abi::feature_registry as fr;
+        use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+        let want = if cfg!(feature = "expedition-dispatch-experimental") {
+            fr::COEXIST_LANE_VERSION
+        } else {
+            fr::COEXIST_S1_VERSION
+        };
+        assert_eq!(crate::PROGRAM_VERSION, want);
+        let good = own_params();
+        assert!(good.validate().is_err(), "validate is unchanged");
+        assert!(create_params_ok(&good), "CreateSeason accepts it");
+        assert_eq!(range_view(&good).base.program_version, PROGRAM_VERSION_S1);
+        for v in [4, 5, 0x2004, 0x1004, 0x1005, 0x4804, 0xC804, 0x3004, 0x7804] {
+            let mut p = good;
+            p.base.program_version = v;
+            assert!(!create_params_ok(&p), "{v:#06x} is refused");
+        }
+        let mut other = good;
+        other.base.program_version = if want == fr::COEXIST_LANE_VERSION {
+            fr::COEXIST_S1_VERSION
+        } else {
+            fr::COEXIST_LANE_VERSION
+        };
+        assert!(!create_params_ok(&other), "the other combined version");
     }
 }

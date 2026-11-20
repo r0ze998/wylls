@@ -31,7 +31,8 @@
       "PSF_RIGHTS_EXPERIMENTAL_BUILD",
       "PSF_NFT_EXPERIMENTAL_BUILD",
       "PSF_LOCALNET_NFT_SBF_BUILD",
-      "PSF_LOCALNET_WIDE_DEPART_BUILD"
+      "PSF_LOCALNET_WIDE_DEPART_BUILD",
+      "PSF_LOCALNET_COEXIST_SBF_BUILD"
     ],
     "programVersion": "0x4804",
     "features": "devnet-playable-sbf = conquest-dispatch-experimental + land-preview (the land lane localnet-land-sbf without the [0x45; 32] id check)",

@@ -9,16 +9,16 @@
 //! | instruction tag | 0xF0–0xFD (14) | the 14 instructions of patch 0002, in its order |
 //! | game program error | 110–149 (≤ 40) | 110–139: `109 + CapError::code()` (codes 1–30) |
 //! | AccountKind | 25 CapacityPool, 26 CapacityJob | the same; seeds `cp`, `cj` (4's); magic proposed |
-//! | log kind | 120–129 (≤ 10) | **not assigned**: 09 has [`EVENT_KINDS`] = 20 kinds of record; 4 decides (§ below) |
+//! | log kind | 150–169 (20; rev 8, was 120–129 ≤ 10 in rev 3) | allocated, one kind per record ([`EVENT_KINDS`] = 20); not emitted yet |
 //!
 //! `Op::ClaimSplit` (patch 0003) has no tag of its own in this table: it is
 //! proposed as `ClaimJob` with the split's arguments (the destinations of
 //! the output, of each input's whole units and of the rest), so the 14
 //! tags stay 14. A proposal; 4 may give it a tag instead.
 //!
-//! Log kinds: 20 kinds of record do not fit 10. Either 4 gives 09 twenty
-//! kinds, or 09's records share kinds with a sub-kind byte. 09 does not
-//! choose; [`event_index`] numbers them 0–19 for either.
+//! Log kinds: 20 kinds of record did not fit rev 3's 10. rev 8 gave 09
+//! twenty kinds (150–169), so kind = 150 + [`event_index`] (0–19) is the
+//! natural mapping; no sub-kind byte is needed.
 
 use crate::error::CapError;
 use crate::event::Event;
@@ -81,8 +81,10 @@ pub const SEED_CAPACITY_JOB: &[u8; 2] = b"cj";
 pub const MAGIC_CAPACITY_POOL: &[u8; 8] = b"PSF1CPOL";
 pub const MAGIC_CAPACITY_JOB: &[u8; 8] = b"PSF1CJOB";
 
-/// 4's band for 09's log kinds (≤ 10) and the kinds of record 09 has.
-pub const LOG_KINDS: core::ops::RangeInclusive<u8> = 120..=129;
+/// 4's band for 09's log kinds and the kinds of record 09 has. rev 8
+/// (2026-11-20, `frontier_abi::feature_registry`) moved the band from rev
+/// 3's 120–129 (10 kinds) to 150–169 (20 kinds, one per record).
+pub const LOG_KINDS: core::ops::RangeInclusive<u8> = 150..=169;
 pub const EVENT_KINDS: usize = 20;
 
 /// 09's records numbered 0–19 (not log kinds: see the module's note).

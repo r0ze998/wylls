@@ -498,6 +498,21 @@ impl Base {
         assert!(wr_arr(s, S::AUTHORITY, &authority.to_bytes()));
     }
 
+    /// SYNTHETIC (②+⑨+⑩ coexist harness only): the Season carries `hash`
+    /// and `rules_version` instead of S1's (the combined build embeds
+    /// custody's `RULESET_HASH_V4`, rules version 13).
+    pub fn set_ruleset(&mut self, hash: &[u8; 32], rules_version: u16) {
+        let season = self.season;
+        let s = &mut self
+            .accounts
+            .iter_mut()
+            .find(|(k, _, _)| *k == season)
+            .expect("the Season")
+            .1;
+        assert!(wr_arr(s, S::RULESET_HASH, hash));
+        assert!(wr_u16(s, S::RULES_VERSION, rules_version));
+    }
+
     /// SYNTHETIC (⑳'s NFT lane harness only): the Season carries `version`
     /// instead of 0x4804, e.g. the NFT lane's 0xC804
     /// (`expedition_dispatch_ix::RESIDENT_PROGRAM_VERSION`).

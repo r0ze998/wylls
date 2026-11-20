@@ -15,6 +15,7 @@
 //! | `localnet-nft-sbf` | `PSF_LOCALNET_NFT_SBF_BUILD`, in addition to both localnet markers (the playable lane with NFT residents, never deployable) |
 //! | `devnet-playable-sbf` | `PSF_DEVNET_PLAYABLE_BUILD` (the devnet build of the playable lane, owner decision B7; deployable to devnet only, through `scripts/devnet/devnet-playable-profile.json`, which requires it; every other build and the S1 devnet profile refuse it) |
 //! | `rights-experimental` | `PSF_RIGHTS_EXPERIMENTAL_BUILD` (workstream 02, option A; never deployable; `build-frontier.sh --features rights-test-beacon` builds it with `test-beacon` for LiteSVM) |
+//! | `localnet-coexist-sbf` | `PSF_LOCALNET_COEXIST_SBF_BUILD`, in addition to the land lane's markers and the rights and custody ones (②+⑨+⑩ on the playable lane, version 0x7805, never deployable) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
 //! instruction (or every beacon verification) runs, so neither the
@@ -33,6 +34,7 @@ pub const NFT_EXPERIMENTAL: &[u8] = b"PSF_NFT_EXPERIMENTAL_BUILD";
 pub const LOCALNET_NFT_SBF: &[u8] = b"PSF_LOCALNET_NFT_SBF_BUILD";
 pub const DEVNET_PLAYABLE: &[u8] = b"PSF_DEVNET_PLAYABLE_BUILD";
 pub const LOCALNET_WIDE_DEPART: &[u8] = b"PSF_LOCALNET_WIDE_DEPART_BUILD";
+pub const LOCALNET_COEXIST_SBF: &[u8] = b"PSF_LOCALNET_COEXIST_SBF_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -63,6 +65,8 @@ pub fn touch_localnet_expedition_sbf() {
     core::hint::black_box(LOCALNET_NFT_SBF.as_ptr());
     #[cfg(feature = "localnet-wide-depart")]
     core::hint::black_box(LOCALNET_WIDE_DEPART.as_ptr());
+    #[cfg(feature = "localnet-coexist-sbf")]
+    core::hint::black_box(LOCALNET_COEXIST_SBF.as_ptr());
 }
 
 /// Keeps the `test-beacon` marker alive (called by every beacon
@@ -104,6 +108,7 @@ mod tests {
             NFT_EXPERIMENTAL,
             LOCALNET_NFT_SBF,
             DEVNET_PLAYABLE,
+            LOCALNET_COEXIST_SBF,
         ] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),
@@ -228,5 +233,58 @@ mod tests {
             land_script.contains("PSF_DEVNET_PLAYABLE_BUILD"),
             "the land lane refuses it"
         );
+    }
+
+    /// ②+⑨+⑩ (coexist): only its own script builds the playable lane with
+    /// the three, the plain build, the land lane and the devnet build refuse
+    /// its marker, and the devnet build's feature line never names it.
+    #[test]
+    fn the_coexist_lane_is_its_own_artefact() {
+        let cargo = include_str!("../Cargo.toml");
+        let line = |name: &str| {
+            cargo
+                .lines()
+                .find(|l| l.starts_with(&format!("{name} = ")))
+                .unwrap_or_else(|| panic!("{name} feature"))
+        };
+        assert_eq!(
+            line("localnet-coexist-sbf"),
+            r#"localnet-coexist-sbf = ["localnet-land-sbf", "coexist-experimental"]"#
+        );
+        for f in [
+            "localnet-land-sbf",
+            "devnet-playable-sbf",
+            "localnet-conquest-sbf",
+        ] {
+            assert!(!line(f).contains("coexist"), "{f}");
+        }
+        let lib = include_str!("lib.rs");
+        for guard in [
+            "compile_error!(\"coexist-experimental never enters the devnet-playable build\")",
+            "not(feature = \"localnet-coexist-sbf\")\n))]\ncompile_error!(\n    \"coexist-experimental on SBF",
+        ] {
+            assert!(lib.contains(guard), "lib.rs guard {guard}");
+        }
+        let plain = include_str!("../../scripts/build-frontier.sh");
+        assert!(
+            plain.contains("PSF_LOCALNET_COEXIST_SBF_BUILD"),
+            "build-frontier.sh refuses it"
+        );
+        let land = include_str!("../../scripts/build-frontier-localnet-land-sbf.sh");
+        assert!(
+            land.contains("PSF_LOCALNET_COEXIST_SBF_BUILD"),
+            "the land lane refuses it"
+        );
+        let own = include_str!("../../scripts/build-frontier-localnet-coexist-sbf.sh");
+        assert!(own.contains("--features localnet-coexist-sbf"));
+        for m in [
+            "PSF_LOCALNET_EXPEDITION_SBF_BUILD",
+            "PSF_LOCALNET_CONQUEST_SBF_BUILD",
+            "PSF_LOCALNET_COEXIST_SBF_BUILD",
+            "PSF_RIGHTS_EXPERIMENTAL_BUILD",
+            "PSF_CUSTODY_PREVIEW_BUILD",
+        ] {
+            assert!(own.contains(m), "{m}");
+        }
     }
 }
