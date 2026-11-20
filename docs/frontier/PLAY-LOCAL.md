@@ -171,8 +171,9 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      about 15 minutes to catch up). Meanwhile, and at ×60 often after it too, a press answers 「送られていません」 (the
      muster's NotResident): wait a few seconds and press again. In this check about 30 presses at one per turn were
      all refused; pressing every 2 s got the muster through within a few presses, and the march two turns later.
-   - The world's keeper opens the march's seal. If the target province has never been settled, nothing (clash,
-     capture) happens there until it catches up (hundreds of turns). Staying on a keep for 72 turns takes it.
+   - The world's keeper opens the march's seal and catches the target province up even when it is far behind (in this
+     check: reveal, clash and settlement within minutes of the arrival). The bottom bar's 「進軍」 list does not show
+     marches inside the wide land. Staying on a keep for 72 turns takes it.
 - **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
   have seen it** (fog). 「支配する州」 and the standings also count rim and wide-land keeps (#102).
 - **The AI residents** also take rim villages, save up, claim wide land, send expeditions and wage war. Their battles
