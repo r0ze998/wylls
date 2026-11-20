@@ -186,7 +186,7 @@ test('the home and land records are the viewer\'s: an NFT\'s own, never its wall
   // the key step of the confirm and the gate of the automatic request: a wallet Citizen's only
   // (since then the same step also skips local play, which has no in-game key at all, and stops when the confirm is no
   //  longer the viewer's own — `mine()`; the resident's exemption is the part pinned here, and it is still the guard's)
-  assert.match(ctl, /if \(!localPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s*await ACTIONS\.session\(\); await refresh\(\);\n\s*if \(!mine\(\) \|\| !FS\.session \|\| FS\.sessionProblem\) return;\n\s*\}/);
+  assert.match(ctl, /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s*await ACTIONS\.session\(\); await refresh\(\);\n\s*if \(!mine\(\) \|\| !FS\.session \|\| FS\.sessionProblem\) return;\n\s*\}/);
   assert.doesNotMatch(ctl, /if \((?:!localPlay && )?\(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s*await ACTIONS\.session\(\)/, 'no key step that forgets the resident');
   assert.match(ctl, /if \(\(!FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \|\| !Number\.isInteger\(FS\.citizen\?\.faction\) \|\| FS\.autoTicketBusy\) return;/);
   // an NFT's Citizen is never made by the wallet Join

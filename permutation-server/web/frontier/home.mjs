@@ -62,13 +62,25 @@ export const grantId = h => `${h.p},${h.q},${h.site},${h.gen}`;
  * ⑧ (c), every ring ≥ 2). Every other world, and every non-local page, is exactly as before.
  */
 export const wideLocal = FS => !!FS?.localPlay?.wideLand;
+/**
+ * (DEVNET PLAY, devnet gap P1: devnet-rim-homes design row "Page's devnet path" (2)) A wide devnet season the page plays
+ * itself (controller `FS.devnetWide`: devnet play verified, `rMaxCeiling` 128, opened past ring 128): a first village may
+ * also be REQUESTED on an opened rim province of the player's mixed nation (FileTicket: `ticket_nation_allowed_in`,
+ * ring < rings_opened), offered outward first. Not the local "settled province" filter: that is PlaceHome's R3 rule,
+ * and keeper A's rim duty opens rim provinces unsettled. Never in local play.
+ */
+export const wideDevnet = FS => !FS?.localPlay && FS?.devnetWide === true;
 export function homePlaceOf(FS) {
   const base = seasonPlace(FS?.season);
-  if (!base || !wideLocal(FS)) return base;
+  if (!base) return base;
+  if (wideDevnet(FS)) return { ...base, placement: 2, outward: true, anyOpen: true };
+  if (!wideLocal(FS)) return base;
   return { ...base, placement: 2, outward: true };
 }
-/** The rings a first village may be placed in: `homeRingsOpen`, or every open ring in a local wide-land world (R3 above). */
-export const homeRingsOf = (FS, ringsOpen) => (wideLocal(FS) ? (Number.isInteger(ringsOpen) ? ringsOpen : Infinity) : homeRingsOpen(FS?.season, ringsOpen));
+/** The rim's ring and one past it: a wide devnet season offers first villages up to the rim, never in the wide land. */
+const PAST_RIM = 129;
+/** The rings a first village may be placed in: `homeRingsOpen`, or every open ring in a local wide-land world (R3 above), or up to the rim on a wide devnet season. */
+export const homeRingsOf = (FS, ringsOpen) => (wideDevnet(FS) ? PAST_RIM : wideLocal(FS) ? (Number.isInteger(ringsOpen) ? ringsOpen : Infinity) : homeRingsOpen(FS?.season, ringsOpen));
 const settledSites = sites => (sites ?? []).some(s => s === 1);
 /** Outward candidates (`place.outward`): the nation's provinces with a free site, heartland or settled, farthest ring first. */
 function outwardCandidates(overviews, faction, place) {
@@ -78,7 +90,7 @@ function outwardCandidates(overviews, faction, place) {
     for (const pr of ov.provinces) {
       if (homeNation(pr.p, pr.q, place) !== faction) continue;
       const ring = ringOf(pr.p, pr.q);
-      if (ring > Number(place.heartlandMaxRing) && !settledSites(pr.sites)) continue;
+      if (ring > Number(place.heartlandMaxRing) && !place.anyOpen && !settledSites(pr.sites)) continue;
       const free = pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
       if (free > 0) out.push({ p: pr.p, q: pr.q, ring, free });
     }
@@ -105,7 +117,7 @@ export function homeRingsOpen(season, ringsOpen) {
 export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = Infinity, place = undefined } = {}) {
   if (!province || ringOf(province.p, province.q) < 2 || ringOf(province.p, province.q) >= ringsOpen) return [];
   // (outward, local wide play: past the heartland only a settled province takes a first village — ⑭ R3)
-  if (place?.outward && ringOf(province.p, province.q) > Number(place.heartlandMaxRing) && !(province.siteMirror ?? []).some(m => m?.state === 1)) return [];
+  if (place?.outward && !place.anyOpen && ringOf(province.p, province.q) > Number(place.heartlandMaxRing) && !(province.siteMirror ?? []).some(m => m?.state === 1)) return [];
   const f = homeNation(province.p, province.q, place);
   if (f === null || (faction !== null && f !== faction)) return [];
   if ((province.ticketCohorts ?? []).some(c => c.filed > c.settled && nowBell < c.bell + COHORT_BELLS)) return [];

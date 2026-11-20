@@ -38,8 +38,10 @@ import { createExpeditionPrepare, EXPEDITION_PREPARE_ROUTE, PREPARE_MAX_REQUEST_
 import { expeditionPrepareRoutes } from './routes/expedition-prepare.mjs';
 import { createExpeditionDepartPrepare, EXPEDITION_DEPART_PREPARE_ROUTE, DEPART_PREPARE_MAX_REQUEST_BYTES, DEPART_PREPARE_TIMEOUT_MS } from './expedition-depart-prepare.mjs';
 import { expeditionDepartPrepareRoutes } from './routes/expedition-depart-prepare.mjs';
+import { createDevnetPlayAct } from './devnet-play-act.mjs';
+import { devnetPlayRoutes, DEVNET_PLAY_PUBLIC_ROUTES, DEVNET_PLAY_IP_LIMITS } from './routes/devnet-play.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes, ...expeditionPreviewRoutes, ...expeditionPrepareRoutes, ...expeditionDepartPrepareRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes, ...expeditionPreviewRoutes, ...expeditionPrepareRoutes, ...expeditionDepartPrepareRoutes, ...devnetPlayRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
@@ -55,6 +57,8 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   EXPEDITION_PREPARE_ROUTE,
   // Unsigned original-host Depart preparation: its own opt-in adapter (503 ExpeditionDepartPrepareDisabled without it); never signs or sends.
   EXPEDITION_DEPART_PREPARE_ROUTE,
+  // (devnet gap P1: 404 unless the gateway runs with --devnet-play; wallet-paid, so not a funded route)
+  ...DEVNET_PLAY_PUBLIC_ROUTES,
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
@@ -65,6 +69,7 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   [EXPEDITION_PREVIEW_ROUTE]: { burst: 4, perSecond: 0.2 },
   [EXPEDITION_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
   [EXPEDITION_DEPART_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
+  ...DEVNET_PLAY_IP_LIMITS,
   'POST /f/relay': { burst: 40, perSecond: 2 },
   'POST /f/join': { burst: 10, perSecond: 0.2 },
   'POST /f/reveal': { burst: 40, perSecond: 2 },
@@ -155,7 +160,7 @@ function readJson(req, limit, signal) {
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
  */
 export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, faucetKey = null, store = { state: {}, save() {} }, now = Date.now,
-  log = console.log, limiter, funds, blockhashes, expeditionPreview, expeditionPrepare, expeditionDepartPrepare }) {
+  log = console.log, limiter, funds, blockhashes, expeditionPreview, expeditionPrepare, expeditionDepartPrepare, devnetPlay }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
     cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log, now, addresses,
@@ -171,6 +176,8 @@ export function createFrontierContext({ cfg, connection, pool, keeper = null, in
     relayed: new ReplayCache({ now }),
     blockhashes: blockhashes ?? new BlockhashBook(connection, { now }),
     funds: funds ?? FundsGuard.forSol({ read: () => pool.refresh(connection), minSol: cfg.minPoolSol, now, log }),
+    /** Devnet gap P1: the wallet-paid devnet play flow (devnet-play-act.mjs), or null (no --devnet-play). */
+    devnetPlay: devnetPlay !== undefined ? devnetPlay : cfg.devnetPlay ? createDevnetPlayAct({ cfg }) : null,
     /** Signatures this relay sent → {lastValidBlockHeight, kind}; the oldest forgotten past 10,000. */
     sent: boundedMap(10_000),
   };

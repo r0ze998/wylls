@@ -478,7 +478,7 @@ test('the wiring: four actions to the controller\'s reveal entry points under th
   // (2026-11-12, the economy path: of the three general refusals, two are unconditional as they were; the one in `act`
   //  now lets through exactly the six economy commands in their plain form, to their own page-signed path)
   assert.equal([...ctl.matchAll(/if \(localPlay\) return (failed|early)\(localPlayReadOnly\(\)\)/g)].length, 1, 'the one unconditional refusal of local play is as it was'); assert.equal(ctl.split('if (localPlay && FS.localMarch?.open !== true) return failed(localPlayReadOnly());').length - 1, 1, '(2026-11-13, march lane) the march\'s refusal: unless its own answer is open');
-  assert.equal(ctl.split("const route = localAct.localOrderRoute({ localPlay, name, v, signer, requester });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'the order path refuses everything but the six economy commands (behaviour: web-frontier-local-play-act.test.mjs)');
+  assert.equal(ctl.split("const route = localAct.localOrderRoute({ localPlay: pl?.identity ?? null, name, v, signer, requester, names: pl?.lane.names, otherwise: pl?.otherwise });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'the order path refuses everything but the six economy commands (behaviour: web-frontier-local-play-act.test.mjs)');
   // the module itself: memory only, no log, no storage, no timer that reveals by itself
   for (const banned of ['localStorage', 'sessionStorage', 'indexedDB', 'console.', 'setInterval', 'document.cookie']) assert.ok(!mod.includes(banned), banned);
 });

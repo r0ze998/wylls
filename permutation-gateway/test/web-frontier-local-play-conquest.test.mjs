@@ -335,7 +335,7 @@ test('the wiring: three actions to the controller under the departure\'s gate, n
   assert.equal([...ctl.matchAll(/if \(localPlay\) return (failed|early)\(localPlayReadOnly\(\)\)/g)].length, 1, 'the one unconditional refusal of local play is as it was'); assert.equal(ctl.split('if (localPlay && FS.localMarch?.open !== true) return failed(localPlayReadOnly());').length - 1, 1, '(2026-11-13, march lane) the march\'s refusal: unless its own answer is open');
   // (what that one decision does for every command — only the six go on, DeclareSiege is not one of them — is tested
   //  as behaviour in web-frontier-local-play-act.test.mjs; here: that the order path asks it before anything else)
-  assert.equal(ctl.split("const route = localAct.localOrderRoute({ localPlay, name, v, signer, requester });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'the order path refuses everything but the six economy commands');
+  assert.equal(ctl.split("const route = localAct.localOrderRoute({ localPlay: pl?.identity ?? null, name, v, signer, requester, names: pl?.lane.names, otherwise: pl?.otherwise });\n  if (route === 'refuse') return early(localPlayReadOnly());").length - 1, 1, 'the order path refuses everything but the six economy commands');
   for (const banned of ['localStorage', 'sessionStorage', 'indexedDB', 'console.', 'setInterval', 'document.cookie']) assert.ok(!mod.includes(banned), banned);
   assert.ok(mod.includes('export const LOCAL_CONQUEST_PAGE_CONDITIONS = Object.freeze({ heapConfirmed: false });'));
   // the post: one bounded loopback POST to the three conquest routes only
