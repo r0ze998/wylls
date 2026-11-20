@@ -1,0 +1,1602 @@
+{
+ "format": "wylls.memory12.presigned/v1",
+ "note": "Test-only: signatures by fixtures/scenario.mjs deterministic fixture keys (not any real account), written by tools/presign.mjs.",
+ "public": {
+  "A": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+  "B": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+  "Bdebtor11111111111111111111111111111111111": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+  "C": "22fc297792f0b6ffc0bfcfdb7edb0c0aa14e025a365ec0e342e86e3829cb74b6"
+ },
+ "signatures": [
+  {
+   "tag": "A",
+   "bytes": "{\"bell\":104,\"by\":\"A\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7f871dc6a021f2637d13336d847efb13e2f51a378f4fb053e47c633d00db03e77a524806d9ce91781e6f9dc999064cfe6390ae83b8ee2165f507234db3603d01"
+  },
+  {
+   "tag": "A",
+   "bytes": "{\"bell\":107,\"by\":\"A\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"0b020cb66e2c1db5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":50,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "752948a8b15f1311ab489ff740f34a031bcacc22311b4e895f67e069941bc42e11f459b65a5ccfe9c7dbef8e5f5055dc48ffff14e767e86d524648e1cd536b07"
+  },
+  {
+   "tag": "A",
+   "bytes": "{\"bell\":110,\"by\":\"A\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"975d9aeaf49b5fc4\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1d947df484d3cfc295f5f29db6aa7aaed2e59031f04d90d65150d31fe971a6d0086647f7f63908f98b8d18fcb37be1a94e0ccb4d8d840a97c72693f0b5bb0a0a"
+  },
+  {
+   "tag": "A",
+   "bytes": "{\"bell\":121,\"by\":\"A\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":60,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c2a56f09eef2e9f358e1877f0b5f2f8729a6ff9a4fc76db6a4d3960a37b834a4f3a2b44c35dbd4ff6ea6b166e1a412fdde5d3a4658607af0267a83eb3f58270c"
+  },
+  {
+   "tag": "Bdebtor11111111111111111111111111111111111",
+   "bytes": "{\"bell\":102,\"by\":\"Bdebtor11111111111111111111111111111111111\",\"caravan\":{\"partition\":\"WorLdAccountSeasonPdaXXXXXXXXXXXXXXXXXXXXXX\",\"sender\":\"0000000000000077\",\"seq\":0},\"commitment\":\"a8998f2bc73bc7a9\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":3,\"visibility\":{\"members\":[\"Acreditor111111111111111111111111111111111\",\"Bdebtor11111111111111111111111111111111111\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"FronT1erProgramXXXXXXXXXXXXXXXXXXXXXXXXXXXX/WorLdAccountSeasonPdaXXXXXXXXXXXXXXXXXXXXXX\"}}",
+   "sig": "be6bd43f284b0309e7ec0395f07bae5948acf072dbf1e17b9dae55fdbd05e27acfd1c59c105a262b30f58029923157c04683bc544dd5091507511a65e7f71107"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":1,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"x\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":9007199254740991,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f813c31130edb897de48704bba10b15be6bb8eebcd76cdd7cfa54922ff70b8cce1bf6b17578de8091dc6ed79d87ab058a32af182de91425c19497a3763275106"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":1,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"x\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":9007199254740992,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4814fcabda2d73df112db8e18c680e8bcf25c714ca9f2df2cad3f1829903842044abaeaad00ebcfccea8e1254a824be6281a4723b5d51306d9089a3689b3e303"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":10012,\"by\":\"B\",\"caravan\":{\"partition\":\"p51\",\"sender\":\"B_p51\",\"seq\":1},\"commitment\":\"4bd84b5d6f9ce6d7\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":46,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "43000dbe9445933f11147222ba1447b761d32ab14b5ba17a42143beb121f8cf75f8a46b5efbfc4f2692d3df09bcbd1e79204bb040e9ff8c9d33807db7dbad903"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":1012,\"by\":\"B\",\"caravan\":{\"partition\":\"p6\",\"sender\":\"B_p6\",\"seq\":1},\"commitment\":\"fd0f34cb40d64535\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":6,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9bc90f7fab5156109c91c5f11cff9edcc2e4fd7f62c484a779285ef66d7584802bfe6de22d176d38d432e558a5e2351d69cf3a60ef0e1dbff8049d1cc79eea07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":102,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"1f006455e07048a3\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4a57e39a737dd1cd9446ab4b082bc3cc2531ede95faaedce6cc334347d80d170d705b5a00e2686d448fc6cb229948afb8119990c56944b75fa2c2106cfad8f0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":102,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"2e484dfa868c3792\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"scope\":\"public\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a8cdef21d79439354e6281d4907b581664fbc7f9ab97e5aca76d43c087b3874c5faf3943d6e067ec0f689e8012137c252a27c3650f9e186d6b188f08b7305e04"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":102,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"e991672d857a7a35\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "bc34c544f59ca0b07952654ef10433df6ff04506be311580b0b6db582c9e1b35b3b47d7134a39cab1b395a068d01a5326ba8548c8e6bed77c426e262f33f3303"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":102,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3c55ba9b266a45fa8f03f479da168fbf63c8bb80847d66a5a929c865ee18cd7d19df658d408c862c143109878b41a90454716f757832dfa1832a55fcf1374f0a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":102,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":40,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d0a3a5bc9700e985b7b998b08072ecf6c54af265cd5ccddbc8608c2348cefdc6ca9fc69a1db27acf6048836150d70f9bb92e5d074788beede7b637a0ef0b2900"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":10212,\"by\":\"B\",\"caravan\":{\"partition\":\"p52\",\"sender\":\"B_p52\",\"seq\":1},\"commitment\":\"df7515d35d9a8f25\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":47,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "55d599f01e845de407953b2584f1c2f8122697c13d9cb55ba9ba27f5d5eb5a7fd4fa3d2dcb15aa3b5e93e0446d943c0452658415fad261ef7a9ff67a51a1de07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"29d60f7a2d885de5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":49,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3a129608688240a230b1f1f173103474c2443e8ab8c10d0c3cff1c564444d836365b10fe02923ccf9798f8cf06363cfefe923cd7098c7a0179e33385d598b809"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"725e50b200553a4d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":1,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0a5b0753531f8848b694a6c87a5f20793525ad72586f728ddbc8580803ac6f55c577e0c4ec097debcac7c1252a38c878b7ece013c3b52c50ac33f6d05359d20a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"a1c80a787c144c31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":40,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9f6135573a927a6f97dc1c1cdad7dc986c77f91ddd241861e9cf7a2ffe211b8cf935a23349a5467c5622c09e10948e802086e7411d798d6e86326b5c56b64e06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"a1c80a787c144c31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":49,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "970d5efbde8df5491038b21f65a6c765725a8941b3304bcccf9a1fe8a1620d7ccf08dc78eb65588c7f0409f9fbb9d594dd85604018a53d0cd5478e8ca67b020b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"e991672d857a7a35\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":60,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "640d65f92ac48fb6e9dffb92552f84b8ec88a30a99e1a10e37b4fa01f4442607ec0fc51e2a3ad0045a4288e3175ff0b460275f5e318c5cf10ec317740da23b00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"e991672d857a7a35\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":99,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "962a9f30a83aee47d9102d11ca0b91fbe4c2e37056b89afb1b9bc76a97b8ba3290e29ab9f5112ee85c998b15c344d6dfa8967a26a3eadba88675f8d76f57580d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "571d2466d7b997d6ceb21bb9f4df9b921f258db9720fd5f76bd08b8f2a6ccfcbd361d5bb4847869bd11f448bc935850f46a92379113be61560849d0b4ae9ee08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a6938d8211b3a92058552bd382a727d4f982cb390747eba237908009f565ccd40fe71f64ef3a9df718b70fe70ab952cc2f8eeda76946b335f3014653fd101e08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":103,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":50,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "696ee1e62f6d13ce26a93dfe00a0818ba2ac9c7cad96b862febcbdca4104d66ecb196e27ecf584c67c164b2ba52a6146c81133d0c8f0e0040caf2e489345bf03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":104,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":2},\"commitment\":\"29d60f7a2d885de5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":49,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "88d70f76be021cd51338fd7b05ed47e7653b01894e9b14d45935c125263a8e087965544df785cd1e7071920067cabfc5fdc0d96d5b9e9abc088316948d84c80c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":104,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":2},\"commitment\":\"a1c80a787c144c31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":40,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "2a80ac1d636443788cecbf702e5a044243c3a3b9ddbca97318af74dd2cdbd853bd03afd939721fd0a4fde9b890ad69a311ab736ab732cedfd178c7b06eea800e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":104,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":2},\"commitment\":\"a1c80a787c144c31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":49,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "57b742fc49442645db177bb1659a9a69f851eec5ab4649f64e45970158b7226ed3f00ab5954b4e56586f631d33cdbddd32a7db52d5706bd04a7488f90417450b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":104,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"40724a9f9bfb10e3\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":40,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6b8d122feefb0062b8a9f4458bac05abf5d928463b1fc68f8cd80513035b2f47f6c92cc5e24dc5524d606b5582e7c1c1e7378f3610e1a9fa7fdd9aaf05c05d03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":104,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"52a374474aefc24d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":50,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "49dcac42fec8345ba9abef342538a38db65ac4e4a1e33add95dde054d6840b5c64092a8ca6108fffd3ceb28903a34d3cbfbd772516db5236fea7498642657001"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":104,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":60,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c51268b2757e85fba97af07960fa4b209b78035c15b57e93b4bf3a05660aa74d4fa0fa5bc46bbe619ed20f1a6c378372d16c5c111295a5b5f972fbcdb66a5d07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":104,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":8},\"commitment\":\"886081f3b69509f0\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "771f3db05b8b254ea287476992a3182616b03a2205baf4dfd68967c45363c6428e6c4355255aba98c31309b9e84c915030bc30e1d03175c8a0f5c932c3660401"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":10412,\"by\":\"B\",\"caravan\":{\"partition\":\"p53\",\"sender\":\"B_p53\",\"seq\":1},\"commitment\":\"c246f74a7ac66310\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":48,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "2c328a3196962751261cafb4a73105ba158cd71841195eed0093d2e96bb525fea988575a270f765f2b13a741a8e3a55df2c94f0b8e97981ebb034d125da1b407"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":105,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"c696fe02996ab7ce\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":50,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "99f3e2945b4b632bff6a65b80d9ed536ea1c01cff5218b7695b90c62159045da3801901fd97ba3cf49129b2da852559ac3ca0aa2923f5d625843714bedddd90e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":105,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"revoke\",\"qty\":0,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c4df55a113d6c139cf115f6a85760da0d4358958e138412700bf3c4b2787e59edd22782f2ff525c219a02578f0fbf7308b37ae2be0648857b4aef104e676ef03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":105,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a8d025a2c412125416bc8c190fe0b681b45e03a9fc12216beaa224753ff09aea597508f8e2e7e452f72585dd12dcac771d1ec149a1ebbd19c8a5e3ca5cdb990f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":105,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":3,\"op\":\"set\",\"qty\":60,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "975205d818eb9cf53875573bf17d4fa28336ea4ae46fd29bce555bd4611d3f9a490cf414eb233726c376781d4d6c994248277371ac4cdf0107e5f9c2fef81500"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":106,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":4,\"op\":\"revoke\",\"qty\":0,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "954c1832ed1ec44eb4dda6dfccb4ce9c5d0ecbb0f89b0ec7b93cf2442ed20b87f369678317779e457340ff77787785bd46cf7a4dc9939836182edbd795bbb004"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":10612,\"by\":\"B\",\"caravan\":{\"partition\":\"p54\",\"sender\":\"B_p54\",\"seq\":1},\"commitment\":\"85416b76a0a532b6\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":49,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8c94d0cffb544dd2cbaef0021cb6b48032932ad33bac1fe6c6b46082c20470920dbbf5a977636605fdd4596ba6a6767efcd84fe93eab87c355407784a8a2b805"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":108,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9a988d062b22d8f87a8ea6a123f39823531459b668aebdc4459ad92354090cb3e96187d21198a602dcce8a660fa936fb47471a67aa38fc4b394ae8a867cdc501"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":10812,\"by\":\"B\",\"caravan\":{\"partition\":\"p55\",\"sender\":\"B_p55\",\"seq\":1},\"commitment\":\"aa247b223ad0075e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":50,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "70956d8d584bc7fc0961b5440514bfe21fd4cd546ea9a5bf1e864e8ae4fd9dc32779a5b779ffd08ee4cbafbd9745913e4d142e5ce4181bb130cbbf8ce3fd0b0e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":11012,\"by\":\"B\",\"caravan\":{\"partition\":\"p56\",\"sender\":\"B_p56\",\"seq\":1},\"commitment\":\"e539723b59404c20\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":51,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "04fe3001f0d6665b8cef1de919718819468f7ad90f27d7b4221cba42d28165cc4c27488113661044a337b619e85939f2cf327f648dafc273725d59bee4970c0a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":11212,\"by\":\"B\",\"caravan\":{\"partition\":\"p57\",\"sender\":\"B_p57\",\"seq\":1},\"commitment\":\"d3e32dedcf77f22f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":52,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b4e6b9241cb3c7c0319db7897ddfbb22efc2de7614a38f7dc13c19c3adddecfcc677508ce9b91b140fe9b07c6c7f9bc919acd0aa7881d43bb4a4abd8b12fa70c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":11412,\"by\":\"B\",\"caravan\":{\"partition\":\"p58\",\"sender\":\"B_p58\",\"seq\":1},\"commitment\":\"9d00db9c1307f735\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":53,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e5a9aee4b93a04ed3dff228ea610d7e3788fadf65cbe1795946d3526340aba6d86fb9b547cc85436ed30ac5c68cd267f610ba359b0b5acd7b0678bee13785d05"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":11612,\"by\":\"B\",\"caravan\":{\"partition\":\"p59\",\"sender\":\"B_p59\",\"seq\":1},\"commitment\":\"17899f5df34953de\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":54,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1774d278b895c0e725ff6d32868249f03b83c5a81e0eb23226adf5a6181479f317f83eb8be3fa733008f7c3944b8a5ed49fd97e3fad7161ca1e8917ff69ec20f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":12,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":1},\"commitment\":\"de725c1619b0e7d4\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "aa3baf58bed3e5257a40da1bfc3f5c88add3e1cc02f7c7b5bfb764d5fb49e6769eb5979fe695eef092bda234330c54d26058cbfdd3507dcf8aef88d4362e7101"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":12012,\"by\":\"B\",\"caravan\":{\"partition\":\"p61\",\"sender\":\"B_p61\",\"seq\":1},\"commitment\":\"e2dcb63fe2ca353a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":55,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "971774859f078ce7e56938022862d2ac316a7787c9829b960d6a0104a6f95817e509d968efb3e705ba0dcdb4890ffd691055e060161ac64de1f01f579d3e0f0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":1212,\"by\":\"B\",\"caravan\":{\"partition\":\"p7\",\"sender\":\"B_p7\",\"seq\":1},\"commitment\":\"eed884b803ef257f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":7,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "96e7c31cb7d2b1c7bdb1923d1ab1e11fa482d07046270d3e0555bdafe40f43a506ada9413ff800413e8051d5c978d6deba2a93a3f53f6c2a0685dcbdd693cf02"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":12212,\"by\":\"B\",\"caravan\":{\"partition\":\"p62\",\"sender\":\"B_p62\",\"seq\":1},\"commitment\":\"63f9dd95f35613cd\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":56,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b7461a1e415f7e01d7511b9a6f787f9fea878ae5dd9dcf67bd0eac809b4dfb9e804473c8c517efe391b266f58949d06cf3d8824a2da2e7783c82e88bbc43ea00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":12412,\"by\":\"B\",\"caravan\":{\"partition\":\"p63\",\"sender\":\"B_p63\",\"seq\":1},\"commitment\":\"b1c6c13161982df9\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":57,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3759c14058a3a4b9f1d14e7713eca884593b6575f257868fc4f1e9dff7e9db0b7c652c019885545fb61bd122b8e2bd9f7c4a19057dd7b43d3cadf57bdd94ec0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":12612,\"by\":\"B\",\"caravan\":{\"partition\":\"p64\",\"sender\":\"B_p64\",\"seq\":1},\"commitment\":\"99eb8db4f476eacd\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":58,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "aa206aa2984b67879281a318c945661203eb924b6d6bce65f156a3a60f5c20f1c1950809963aa63c281ed4b98e35f48e58e02937736e59cc94bccef3e9040906"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":12812,\"by\":\"B\",\"caravan\":{\"partition\":\"p65\",\"sender\":\"B_p65\",\"seq\":1},\"commitment\":\"67d48cd6b66671ec\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":59,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "cf197f883bb4ed9c647387e09716549274e1d30a32b2acae47e332436b8b889210940f0296c27aee9fdf566dce24c27cf1902d22f40aa4a2917ca64ab8d28209"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":13012,\"by\":\"B\",\"caravan\":{\"partition\":\"p66\",\"sender\":\"B_p66\",\"seq\":1},\"commitment\":\"ba8fda6b30b853b4\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":60,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "170c6f44bc22c9ccbecce41906bce9d6d97d0f5681cf79b306793561c2bbe6223a1ee06718fd20271a55b8dd8ff3dbc779ad2c0dc0f3f068b6875817dba11709"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":13212,\"by\":\"B\",\"caravan\":{\"partition\":\"p67\",\"sender\":\"B_p67\",\"seq\":1},\"commitment\":\"54a9e58bfa2f07c1\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":61,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8b2525f2708005184a7cbb9f049d14e911a3ba4b9ab337ee43ede0d80a4e88a39f11b872e02fb519ba99184232a98958bad29493222af118202467efb0df810c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":13412,\"by\":\"B\",\"caravan\":{\"partition\":\"p68\",\"sender\":\"B_p68\",\"seq\":1},\"commitment\":\"a3bd7ea00f544a5a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":62,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1769f280574133924835e11e6bc0880a590d1132e0fd8dbc2efbf7a4a32be622bfbd640c6011c2f6ec0df881866fd0a76b441bb54f382261c203c6681bbbfe0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":13612,\"by\":\"B\",\"caravan\":{\"partition\":\"p69\",\"sender\":\"B_p69\",\"seq\":1},\"commitment\":\"7c8021a1d050ed92\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":63,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "5838ae220d403df4d2cfbe02df38cc5137a9389c2b98cdff1909d6849315294b67459588d062b7cc78bd7c96dc69c55b0448110d3ce79afdc2768bb00adb1c04"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":14012,\"by\":\"B\",\"caravan\":{\"partition\":\"p71\",\"sender\":\"B_p71\",\"seq\":1},\"commitment\":\"4552938501a68d90\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":64,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a50767c628dd926dec63c27e06bb81073c037fa591e112af65a3957e929ef2459f5d60f40b08ff1bb3d392fa7d8d5e428a6372d4207b905f911b08f261ac560e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":1412,\"by\":\"B\",\"caravan\":{\"partition\":\"p8\",\"sender\":\"B_p8\",\"seq\":1},\"commitment\":\"244bd3d09d449887\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":8,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f987a60705ba3b2b862e02ddad5d42ca2934be0199ab9e7e7b2c12ecb001c6823c1994db23bb7f814d57d4e08828413459257fe2b0e057a6a7ceb93aac53d302"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":14212,\"by\":\"B\",\"caravan\":{\"partition\":\"p72\",\"sender\":\"B_p72\",\"seq\":1},\"commitment\":\"6168be51342a5289\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":65,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0d3798a26fa3a8304c86658fe8a4fea18d430b281f822f7443ff39fd1e8b73cbd040c66e981a342dfb08ad83d9e36ca92dc2180bb0f4a7d99509441398fce706"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":14412,\"by\":\"B\",\"caravan\":{\"partition\":\"p73\",\"sender\":\"B_p73\",\"seq\":1},\"commitment\":\"e10e6009d1517275\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":66,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c608a33071a037c8c9a103fa926c473faee1560df9aaa48dcdf21f3840f8d63151e29883312834c7ac0dbf24f96fe445e8557ea0e55e0ec2aa9e71a17360070d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":14612,\"by\":\"B\",\"caravan\":{\"partition\":\"p74\",\"sender\":\"B_p74\",\"seq\":1},\"commitment\":\"7c643c5d75a9f590\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":67,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e0011356c88a91316859dc48a9d8d2c9059cb470b2d826e009b0fb4067a2b5c5b71c4d8d777d0b611a3a69be070f500b68dc36c27e55a72ec5fe9b0ad3a18401"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":14812,\"by\":\"B\",\"caravan\":{\"partition\":\"p75\",\"sender\":\"B_p75\",\"seq\":1},\"commitment\":\"b975f0a1d4ec82d4\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":68,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f53a392451f4ad4978921699495048b95a2d660fc8bda5a971884cfc63b24ccc6d4da566533bc229e23f6da4cc440d4f503c8461ad60576ce6f772cd0f07200b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":150,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"3faea6d286008add\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"another-world\"}}",
+   "sig": "4cbb4b45b9e882faf1e6903fa18610d0fc8d1c6dd5cd26048c596b528ef0fe0a6abe535d3aa08a3464579ab4a7ffd846ccff1d52b9f823418649418974122502"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":150,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"3faea6d286008add\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "72aaa99968b50f22473a82a3da8105692854c138720e6192029b4a4e90259947af35a7e5a520b0b0ee37dbbbb2f68a2a13fc91e878e9267a98d81f92913d690f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":150,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":9},\"commitment\":\"a1c80a787c144c31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":3,\"op\":\"set\",\"qty\":2,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4936c383a82873d542761c6a7ae5796136a8403ca2e03e42a4ae64465c85bbbf4c995d360c85ea8c67e6d94e7b62674f9f536798d1cc0a4f170249cdf2bb6b03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":150,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":9},\"commitment\":\"e991672d857a7a35\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":2,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "83cabd94b1aaaebb6656d110d7ed7d0d7b95d96d5cb74b2f36dc3f7d280167726403d25ae571cd35c685a971809e4b1c7818e6d48963557786c597f92b3cde05"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":15012,\"by\":\"B\",\"caravan\":{\"partition\":\"p76\",\"sender\":\"B_p76\",\"seq\":1},\"commitment\":\"376d7959af382a95\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":69,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b31aea0b86de30051bf3054489a5c5f18cd196cb6f0d1bb62ceaa408bb630cb5a5f338b6e144c2c470fde99b384675383377163224b93e25c182205eaec7790a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":151,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":8},\"commitment\":\"1f006455e07048a3\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "57c34a931628afef3ebb2229d228e9f7c9a14c0bcc5f1bfabd543ae2675ff3931d704903a6f3814cd6b6e9f4c6e69e16a39caaab662291cfce7842dcb3523306"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":15212,\"by\":\"B\",\"caravan\":{\"partition\":\"p77\",\"sender\":\"B_p77\",\"seq\":1},\"commitment\":\"52f5bf0cd0a97637\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":70,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d5821d76d435aacbf48d45bc8c5c51649f7e3783638b983d4ac2cbb9a424479a364cb31011b0f7b2fca54cc8ca120d415287032130a8d53db31165f1fecf400b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":15412,\"by\":\"B\",\"caravan\":{\"partition\":\"p78\",\"sender\":\"B_p78\",\"seq\":1},\"commitment\":\"bd6eb9add4f0b0c1\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":71,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "faff71a0557cd4b4e36917de634a83b28ac29d2ba3d1597882fb92d8e6863f36b992ddcde83b39ac4892a5b3e5c962dff24cd661c067e403c64bd0944a9c8006"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":15612,\"by\":\"B\",\"caravan\":{\"partition\":\"p79\",\"sender\":\"B_p79\",\"seq\":1},\"commitment\":\"85690dce78956378\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":72,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "29026eb0201493b2fcdb27bbc954bd86e4f501331d9a8bf64ab87f9a3fd25940478d03f464304eaec49b3a72ce6012a296daf67283d9c4c119b6554fbbce5e0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":16012,\"by\":\"B\",\"caravan\":{\"partition\":\"p81\",\"sender\":\"B_p81\",\"seq\":1},\"commitment\":\"24c271c28246f392\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":73,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "cf90711d07612ce1e5c741e0337cebb34f86cddcd8e9b536aa5fc045f1327729e70c94a366688de0d4e99328728119b107074e178a1ded3cec73dee6647e0505"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":1612,\"by\":\"B\",\"caravan\":{\"partition\":\"p9\",\"sender\":\"B_p9\",\"seq\":1},\"commitment\":\"61aad1519ebac216\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":9,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c04b869d22e9888b521b698b01928133b1ca11bcbb32d0cb020309137bcd838092bff08a7c188c849d776c435cfad9b258e6a2b033e0a8b4e69fc8b6e2e8f40d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":16212,\"by\":\"B\",\"caravan\":{\"partition\":\"p82\",\"sender\":\"B_p82\",\"seq\":1},\"commitment\":\"aa357087f09c0f5c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":74,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "5a7f47341b7d3dd4d58c7d42ad538f50839681a10c19d8212af053868a88dcf2e863a3d55387bb01821c43515e8d148260f816c096bb7d6dcf4eed8255722905"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":16412,\"by\":\"B\",\"caravan\":{\"partition\":\"p83\",\"sender\":\"B_p83\",\"seq\":1},\"commitment\":\"ec7d435db1fa92d2\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":75,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "27d1a5cbe5aea013d5853177c68e82baf96f574e6ac8a3b3dcbf15da01e5736fcceb8253d44de01c3834874ec7d589c83f887b0dde3ae1ab82e76323cf80b00a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":16612,\"by\":\"B\",\"caravan\":{\"partition\":\"p84\",\"sender\":\"B_p84\",\"seq\":1},\"commitment\":\"bf3712f1cfd99d78\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":76,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c9ec99cf9e06496b5283b13fc283ff596c4f6faa1f69a8548bb9e49c36c0536ef513bc9ccc16adba7d52427f17561b547ff4f4f9a971c9c676d7c2f6f95f7f02"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":16812,\"by\":\"B\",\"caravan\":{\"partition\":\"p85\",\"sender\":\"B_p85\",\"seq\":1},\"commitment\":\"1441f0c2a1b19792\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":77,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "30bd3b2cbb5513bc18ff1762b813db2c0a01d0f8566dcc4011870e40597998549679ca0196eb994d8db52f5f0be47bcb5014d14e8e6838b4821f380997757305"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":17012,\"by\":\"B\",\"caravan\":{\"partition\":\"p86\",\"sender\":\"B_p86\",\"seq\":1},\"commitment\":\"652dcebe2685ce45\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":78,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e3286d41c66e26788221c7298bca684b1fc544b6f6848e5b7d6af322ab2bdc52227c4b630444d0c333402d5835d178045a5618eaac7a8ddc487df96a5679e20f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":17212,\"by\":\"B\",\"caravan\":{\"partition\":\"p87\",\"sender\":\"B_p87\",\"seq\":1},\"commitment\":\"74cec72843f5173c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":79,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6307af98dac47b7b94a1e6315e51f482e9c7c7cff3effe4658566c4493ffd3e8d48c449ca8c672af82cea1d59054af55e8773f31a09dfa0f6e612f36128eb107"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":17412,\"by\":\"B\",\"caravan\":{\"partition\":\"p88\",\"sender\":\"B_p88\",\"seq\":1},\"commitment\":\"a55099e3e7c4d744\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":80,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "fd50ffc0a00357f095e5b8e666cf5921fffbb16da05a8ac4cf93140105bdf62975a0d2a70b17d0732c8e2d95a2dcbbf4660a1fa8450e8e53b27b86410b3a350d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":17612,\"by\":\"B\",\"caravan\":{\"partition\":\"p89\",\"sender\":\"B_p89\",\"seq\":1},\"commitment\":\"9d62e8488a7e7c6b\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":81,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ba42546322494adceef6d07b37275a7b3b6f613da8616aa9d35c8ffb8bebb71674fda516cd47c1ad186c2dabab54a84861e0dab88660f4fc3e0ae363818bed07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":18012,\"by\":\"B\",\"caravan\":{\"partition\":\"p91\",\"sender\":\"B_p91\",\"seq\":1},\"commitment\":\"bf2eb937150ff6b6\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":82,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0993cd5215dfa776a6a907b7da727a1eed3a44dd34b4169ef4ddb42dc850d10135b8b2859418e67b5793888d5c07613762047ea882f123c5e28f37aaff71c10f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":18212,\"by\":\"B\",\"caravan\":{\"partition\":\"p92\",\"sender\":\"B_p92\",\"seq\":1},\"commitment\":\"510c63947f0701bb\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":83,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f0ca12cd2b9e233ab0cbc38d36348c6fc7baa3ad8fa8ee9422dad44457816fb5eddf78f700023c6e5e39800b964b218605a393037d3bbbe9fe04bf349b5deb02"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":18412,\"by\":\"B\",\"caravan\":{\"partition\":\"p93\",\"sender\":\"B_p93\",\"seq\":1},\"commitment\":\"a8bc3373f326008a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":84,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7da54887c98021a519cdecd7256f63de4cabe2df2dc73520368779b6c1cf7d81540d90ce4ee25746d8032f5f6ce9da3ea3f8be7164e68b80df5ec4d728bbfb08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":18612,\"by\":\"B\",\"caravan\":{\"partition\":\"p94\",\"sender\":\"B_p94\",\"seq\":1},\"commitment\":\"a2470c9dfbb40df9\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":85,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "89d21fdea9cac7c15d09b61edbb920a821114fd9bcc0de80cca25c2c46e72d324f6dee905d1ca37b7dcaec5b36123f7436b7d48d63a039b817688b9088eb5205"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":18812,\"by\":\"B\",\"caravan\":{\"partition\":\"p95\",\"sender\":\"B_p95\",\"seq\":1},\"commitment\":\"34ca0243db54703b\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":86,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "45238f0d1633704515dbb008710d33ff541175184c2638b9c4f7a73aaa6edb70442aa59b26fdf831bde3e2a13517678ae2948878a7a009433e9ec7e96333d80c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":19012,\"by\":\"B\",\"caravan\":{\"partition\":\"p96\",\"sender\":\"B_p96\",\"seq\":1},\"commitment\":\"a7b4d7f25d43c52d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":87,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9bb27501c8bd6fe01bac88986b7f9964ab8e3d9e568c1bd84f8e8f8aa9af634c7260d215099bdfdca598a46225521f8fbbcc955122f5c2e1c51e6ac69ed8bd05"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":19212,\"by\":\"B\",\"caravan\":{\"partition\":\"p97\",\"sender\":\"B_p97\",\"seq\":1},\"commitment\":\"dd2e01e3f491c121\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":88,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "2cc6a0e1658e0bae617943f92cde50d32a5b41e0401feb06c1b70882c40381ab1313ef855ed2638f089af700c24d38f5b21e96dfd2e0a17a2f322c452d473406"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":19412,\"by\":\"B\",\"caravan\":{\"partition\":\"p98\",\"sender\":\"B_p98\",\"seq\":1},\"commitment\":\"a3383983e4dc6d53\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":89,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "cec3f1034af7c206d4cdc0b7b50d7dab835f4d0c968b97ad92a8604d7a701dfdca95ba7a51a7ea428f440a8eb494583dc69e52ebdfdc59e9ad48f65b0e56480e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":19612,\"by\":\"B\",\"caravan\":{\"partition\":\"p99\",\"sender\":\"B_p99\",\"seq\":1},\"commitment\":\"e866a4e9665f4077\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":90,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "12220225d540261fec69c478e7c9c4f4109f6e45bca3bb7ecea2f6cf743a0928e7e1337eddefa6d6e1487c2b444474e4d412163f48447d097c3ea1674ddc9a00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":20012,\"by\":\"B\",\"caravan\":{\"partition\":\"p101\",\"sender\":\"B_p101\",\"seq\":1},\"commitment\":\"6d71f2c136c856bd\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":91,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ec95337e556df50a67344d12d428ab3b61c0859c2becdc2ffef87fb394b134f292c8b6bddfa997867120dd21712d2277b0ee8f235cf76d6c5d45d687d3e41108"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":2012,\"by\":\"B\",\"caravan\":{\"partition\":\"p11\",\"sender\":\"B_p11\",\"seq\":1},\"commitment\":\"d55414b935af03f3\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":10,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "5fe8c5d9d87469f17dc7dcaa5e367eff0e84391b008977a13ffc3d70f246a1704d1f2a758f505044eecfa266167be02b926e6b941ccfea2763bdebe70572430c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":20212,\"by\":\"B\",\"caravan\":{\"partition\":\"p102\",\"sender\":\"B_p102\",\"seq\":1},\"commitment\":\"00bb75ea3e8449ce\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":92,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "08b2bb159cc19d17a2307a8db68ecbf5141f16ec99168f770db9bf413ade908aae148a93769bb7e5f870aa358704e6eb35a82c5a3d77363bf33c0b3abbe81d05"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":20412,\"by\":\"B\",\"caravan\":{\"partition\":\"p103\",\"sender\":\"B_p103\",\"seq\":1},\"commitment\":\"5154b97bf2e877a1\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":93,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6f9e8161e34160713302010d24fcdf8d56953f74be4141d53bf4aa333c754c6454620f9e5e79aed8428ba331c06acd22986d4c548a91d89d74443c1eae804408"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":205,\"by\":\"B\",\"caravan\":{\"partition\":\"p2\",\"sender\":\"B_p2\",\"seq\":1},\"commitment\":\"2dd0d301cd944f2c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":10,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9b718f66a0fd43f014af3532b70a774fea4c2fb0924cff7d39beef531fbfed47e771635986821e940fa8646db645bc6e18ab7ba9e39a95aa85e6eb56b5c9620b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":205,\"by\":\"B\",\"caravan\":{\"partition\":\"p2\",\"sender\":\"B_p2\",\"seq\":1},\"commitment\":\"3faea6d286008add\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e1f0aab03febebb2e7aa4b690ca8f1e52d79594ad2bbcb16a436a9e2a65342954b7623953d581a4282a5505010472df20f26a3053faf6eb9b837d0a482b35906"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":20612,\"by\":\"B\",\"caravan\":{\"partition\":\"p104\",\"sender\":\"B_p104\",\"seq\":1},\"commitment\":\"d0ff97b2e9d46224\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":94,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0edf5a1d3a1e3515056a486bc7f1c9f1406de7c9b4b6aafbdf91747758868206286be3caca7a482fd8fb874827c4231c410f690c2eb68c1f42404715e1816d07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":20812,\"by\":\"B\",\"caravan\":{\"partition\":\"p105\",\"sender\":\"B_p105\",\"seq\":1},\"commitment\":\"ea8e39ec1fdfa603\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":95,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b0de7c2218dea47a339170668cff0d82e2cc2f1baf9d4e86a02bda0f23b59e0f09bfbd9c00df18448477680af6fa8db45f378b43d9870ddc3533dd74afc12407"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":210,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"3faea6d286008add\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":60,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0570a2c7c930f699d7c4046f1f4b2bc9a872baf41d30c396ccd5111de8a7b27705b8ad44ab0102377cf38d398bcb34b86a05f5dd60d572721ab50cb8140dba0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":21012,\"by\":\"B\",\"caravan\":{\"partition\":\"p106\",\"sender\":\"B_p106\",\"seq\":1},\"commitment\":\"1680b10eced6ba7c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":96,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "305a9b63c20745f1d69941da64bb3974127831f55d8d0a6d6d5d9a82f761b73debc2bd72e2494f966032b7b3e71607c5faa160a6a40bee31e23d3198615f0609"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":211,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"3faea6d286008add\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":70,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d65736c71c874c71c13aacc636882bd5413701cd71ff5c3576730ba3d68dc06dd8de5221d557bbb25d9309015a46d6089aedbf781173133ac9b5793f00a1a30d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":212,\"by\":\"B\",\"caravan\":{\"partition\":\"p2\",\"sender\":\"B_p2\",\"seq\":1},\"commitment\":\"0b716d40e0461b0e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "138d4df41657abc2188f9de3de7f7b151d8893354f3a53b96d2de61c6a8b45f2ff3864b143764cbc23b6f29426fa2ba01a36c21894353cf0d43650e5eb69bb0d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":212,\"by\":\"B\",\"caravan\":{\"partition\":\"p2\",\"sender\":\"B_p2\",\"seq\":1},\"commitment\":\"0c52f740c0958bd6\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b1cd57189a1c313fcada769ad0ac0974583b04b4c73728c49e9735445458b343e5af3f4bd095bcee206765f79eaa828090f99d6014129375a5ac88e370654106"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":21212,\"by\":\"B\",\"caravan\":{\"partition\":\"p107\",\"sender\":\"B_p107\",\"seq\":1},\"commitment\":\"860ef1d45ec8588e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":97,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "5f9dc2e0438922b36a352b2826141c922ae8d7c819da9824542b527a73bad501b5fc6c12b25fe8eae91bff114a8173df1a65696eca1d5da0f3163592ea819503"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":21412,\"by\":\"B\",\"caravan\":{\"partition\":\"p108\",\"sender\":\"B_p108\",\"seq\":1},\"commitment\":\"322db49a3aef8799\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":98,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "fc170f88514dc6d40bd39f966faae5302c9fa838e19eb09834bfb014019161a6fa28a0680987578d1544499c19662e056a073be9ebeae8ac735aeedf4f0bf300"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":21612,\"by\":\"B\",\"caravan\":{\"partition\":\"p109\",\"sender\":\"B_p109\",\"seq\":1},\"commitment\":\"f13535b0fc2a50e7\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":99,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1ecb6d3cfad39cd71d0e2f179aa9c0ee5a5f173393984237185458b5c1e512501fea8580deb45c3cf433a025d201101a109d2b6f8a23b7c5137f78cfdce42504"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":22012,\"by\":\"B\",\"caravan\":{\"partition\":\"p111\",\"sender\":\"B_p111\",\"seq\":1},\"commitment\":\"c1f8e4e887779415\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":100,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b177989287183e504b9d06db389de6b5bed88953cd733c22e8829a0f05e79ccd971aeae102c1db7c80b0727271135084ad2067f1ce28763798e508fe8bdd1a06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":2212,\"by\":\"B\",\"caravan\":{\"partition\":\"p12\",\"sender\":\"B_p12\",\"seq\":1},\"commitment\":\"8ccf8c7e0fa3064a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":11,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4611d565038bf8ece9f081350fe50005b56fb34baec804bab418861f111ce171cf831abc7ed328d16fed841540c9649d3d18ce258a1b9402cdb2409d426c1e00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":22212,\"by\":\"B\",\"caravan\":{\"partition\":\"p112\",\"sender\":\"B_p112\",\"seq\":1},\"commitment\":\"e29e077b0efb8363\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":101,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "24f4155ed18bc03b1ff73f8a921faaa5e56c2e7e32f695ef0dedb3af5271815ee0dc7928005a1055500355cd1c0c8d7802ea55926d65a5ae9fbc910793d3a10a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":22412,\"by\":\"B\",\"caravan\":{\"partition\":\"p113\",\"sender\":\"B_p113\",\"seq\":1},\"commitment\":\"39a12a8486c99a96\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":102,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "07cf6ab941c78d1c52e92bae1210f8686b983174c38307e3e10752e6dc5840270afdf8c71ac96814b123793b825de0fbf5165b3f85fe06d73d96d3683c056c0a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":22612,\"by\":\"B\",\"caravan\":{\"partition\":\"p114\",\"sender\":\"B_p114\",\"seq\":1},\"commitment\":\"f17a7006a230e457\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":103,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "cf097e0c1854d6e0537f4aad06e2ed19836e42c2dc8523be3b65c09a977ea43b927cb2c3dfd4c402ace0452105b0282248990f045e9ed107bb105a7dd29b770d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":22812,\"by\":\"B\",\"caravan\":{\"partition\":\"p115\",\"sender\":\"B_p115\",\"seq\":1},\"commitment\":\"e7bba3bf349af1b1\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":104,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "db581a9a697a7c2685fc37b17d955df2c7a9911d0175d70abd4795f1f630a54b761899e01f19e7b9a4d52c3ef5383ed7204cf166ddb89814ae53931c73411c0d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":23012,\"by\":\"B\",\"caravan\":{\"partition\":\"p116\",\"sender\":\"B_p116\",\"seq\":1},\"commitment\":\"aae1076515e58538\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":105,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "65476c4b390189258a4149b61080f47e25904885900971bf938b913da604ad280384bda28cd784c356eb66f6711e53e751958c19a8357e8d8adcfee8d5b7d30a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":23212,\"by\":\"B\",\"caravan\":{\"partition\":\"p117\",\"sender\":\"B_p117\",\"seq\":1},\"commitment\":\"983e906b164350de\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":106,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a33c10c8448ec24320b94fd8d9ed8e2f2381d3a9ebe7937abd8976e3df8ce7e1c6222bb6fa2c91473bb504fb2cf3ac07fb3bb85fc892a2a58c1201dba3ee8c09"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":23412,\"by\":\"B\",\"caravan\":{\"partition\":\"p118\",\"sender\":\"B_p118\",\"seq\":1},\"commitment\":\"b801deee6d6bef67\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":107,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "2cc796a9a81ab64077e6328eaa45b312f104df2425fffd34c08b63eb274879621aca0533c3070017a10be9110bbcf0392387f200f97c9dec253caba6cc29950f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":23612,\"by\":\"B\",\"caravan\":{\"partition\":\"p119\",\"sender\":\"B_p119\",\"seq\":1},\"commitment\":\"8b594b37e455dbcc\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":108,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "abc7e269c233dd93d6a031b5ff18f84a76f2041ccb0fa98c5173550ef7d9b55427d19767317b25fdf2993ed82b88e1fafa5af25292fe8d920d62e2954088820d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":24012,\"by\":\"B\",\"caravan\":{\"partition\":\"p121\",\"sender\":\"B_p121\",\"seq\":1},\"commitment\":\"9c8c296120a7f33c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":109,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "85841d2000df81ddce43464def378a39c4431207aae51e8a058a9a92063e6038b0e1ef1f16fadeedab5c5aab00cd41cb3d7d65de0eee708befdfe78d75c16a01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":2412,\"by\":\"B\",\"caravan\":{\"partition\":\"p13\",\"sender\":\"B_p13\",\"seq\":1},\"commitment\":\"e40ae8d6dfff2e03\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":12,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ef8eb73436460e41119a5fad5ddb91bbae8fe46e74ada75fd31032f3c943424056a771138ca7995e4552e3564d083ed3cc5d6636019ea77bb976346f33f67c00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":24212,\"by\":\"B\",\"caravan\":{\"partition\":\"p122\",\"sender\":\"B_p122\",\"seq\":1},\"commitment\":\"b062e5973cae9803\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":110,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c360004a7cfef552861748365906bff55fdc749ef1b1f84b3ca091d95704847ba80ec2c74fa5b3cfa23d55b165673d707f1cc0cdb9b57fda5fc0bd22e9675102"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":24412,\"by\":\"B\",\"caravan\":{\"partition\":\"p123\",\"sender\":\"B_p123\",\"seq\":1},\"commitment\":\"1d31efe4221a15f0\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":111,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e939ee8797c44602167954ee00a36a2cab802a14708cd9ad6fe8a9c1285fda3e84e0d0ce339ae6cff23a15297b50aaede173ef14e744afc55f2677880c11d80d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":24612,\"by\":\"B\",\"caravan\":{\"partition\":\"p124\",\"sender\":\"B_p124\",\"seq\":1},\"commitment\":\"9c0ee5148eae8616\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":112,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "260019125efa17808c5ff91f0796e61b44ef96c1df2fc0b8a4a841a3f329fbf0f8a2b7f5a9470aae3679b567ff6d28ff346b3854de9ba74db45a61e2dc73e50a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":24812,\"by\":\"B\",\"caravan\":{\"partition\":\"p125\",\"sender\":\"B_p125\",\"seq\":1},\"commitment\":\"2f184e2fb1d37e4c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":113,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4afacd5f5422c7e8e951b9bb16ee89c9fe9a0ed9e0163ebc5592f1733aeceb687c44cf632b4544f0f92e535a85d3301ccfdba8b4218c248ab73ab5cea6559806"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":25012,\"by\":\"B\",\"caravan\":{\"partition\":\"p126\",\"sender\":\"B_p126\",\"seq\":1},\"commitment\":\"fcd49984de85a457\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":114,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "53fc4d6da1c8f5f6feebb977c47273b1dee1fee1f9dc42afa89d16350123afc85f5f18fd79d0260628e577fb5b6eee524825282a455a5395dff52fdd9e5fc601"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":25212,\"by\":\"B\",\"caravan\":{\"partition\":\"p127\",\"sender\":\"B_p127\",\"seq\":1},\"commitment\":\"a36e28a9f62b1dfa\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":115,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "25ca8ef491d1e4c45df1be49a672907b54eb8a6c71c1999338bb0bba35e9383f5e5232769a175557462fa9c1290cce5980f357e99cf2d6c3f0b52d255582340a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":25412,\"by\":\"B\",\"caravan\":{\"partition\":\"p128\",\"sender\":\"B_p128\",\"seq\":1},\"commitment\":\"64b5e38939a5415c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":116,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "03f423bbed27daea9e6c01ea88ec401922c4516356ec7b741ef17a5c12594db477b7f744542348b389e98e03a5a323d439dc5574d576827639520d074fae0e00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":25612,\"by\":\"B\",\"caravan\":{\"partition\":\"p129\",\"sender\":\"B_p129\",\"seq\":1},\"commitment\":\"82380bf439237b3d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":117,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "931022140526fc0e5b6db71399799e5aae95abcb4b09dd6c0b03a1a1432e7fb017d2ed3e20a5aba3b6dcb8bc72b1cde1f74a369634bbe7bbfaa4c458b470770a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":26012,\"by\":\"B\",\"caravan\":{\"partition\":\"p131\",\"sender\":\"B_p131\",\"seq\":1},\"commitment\":\"8a2223e848e9f1f8\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":118,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "bd579f836a9e68545ed98ff1ba696b17a259314f3cffa8b50a891ed5a250d85936e641fcbec842f4c13208cac9be083168eee299c62166897dfd83fae05ed503"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":2612,\"by\":\"B\",\"caravan\":{\"partition\":\"p14\",\"sender\":\"B_p14\",\"seq\":1},\"commitment\":\"acf80dbba741b4e1\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":13,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d3fa56a346609af32a7af984bf4e69cbbb628c69ed69cb2f23275c88a9e3f065d874d69a2aa0e1f58dd7bc3cf2249f2c86a07a68feda95a568ee08bddd8c3d08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":26212,\"by\":\"B\",\"caravan\":{\"partition\":\"p132\",\"sender\":\"B_p132\",\"seq\":1},\"commitment\":\"f9bf419e862a15cb\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":119,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "52641772e06a28a8df3442d96e7489fcc23631cda8210593e2401b98aeaeec13f7d1ef4597a910b0f44e1cf6e345ecabeec1a00b3bdb39fe7c84bbc71d0f3d05"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":26412,\"by\":\"B\",\"caravan\":{\"partition\":\"p133\",\"sender\":\"B_p133\",\"seq\":1},\"commitment\":\"bb95f68b43e066e8\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":120,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "92c80fa495a543a4f49a23ec957e4665441c7f884419b4740cd25600db77c3f4f9d0124d669368791f0ae22a6c7a726247bdc40839eecf3fe352132064283303"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":26612,\"by\":\"B\",\"caravan\":{\"partition\":\"p134\",\"sender\":\"B_p134\",\"seq\":1},\"commitment\":\"980e6247026f1503\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":121,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c2cc301dcc89271f880d2e08bcc18fdc7349d28e7ad46b54969c95e9235c01080501d84abd93c9497b46731d6c53372e2c76136fa44be7ef10f0ae04a6682906"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":26812,\"by\":\"B\",\"caravan\":{\"partition\":\"p135\",\"sender\":\"B_p135\",\"seq\":1},\"commitment\":\"3a45b807a0a4e40f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":122,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "65f3e531402528296e27bcacadd62634008fe091f923e2c22b952ebc90194e860bb4380cedc2dd1fa8121efa1f442454fe31b64c209b9060973b11b8219d770c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":27012,\"by\":\"B\",\"caravan\":{\"partition\":\"p136\",\"sender\":\"B_p136\",\"seq\":1},\"commitment\":\"2d62c07f685ebe7e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":123,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "75482ee3130b8a05dede5912972e050546a84d108083e95b625744adcf852ebc0f4947bebaf13fa9d63fb79b2a04893fac9eacd32bcaca9a3ca7538cdd711900"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":27212,\"by\":\"B\",\"caravan\":{\"partition\":\"p137\",\"sender\":\"B_p137\",\"seq\":1},\"commitment\":\"5987cd601224bd87\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":124,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7e5af28fd7f6aa875b57516d6d8c0fc5740f14b51a45b017253c109c823ed6e33b76c9d819936400f53efb3eaa9e6083ba9d6c0959a3350be67db78e57b70a01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":27412,\"by\":\"B\",\"caravan\":{\"partition\":\"p138\",\"sender\":\"B_p138\",\"seq\":1},\"commitment\":\"abde94c69f277e0e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":125,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4e9b49dc3de5b1af216eb79b822fef662a413a3f67887cd8d30b8f367ae8dfa10b45274612b6889efff1b1e7875e7b2228f5a6f6af1e71990fd6017419b76906"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":27612,\"by\":\"B\",\"caravan\":{\"partition\":\"p139\",\"sender\":\"B_p139\",\"seq\":1},\"commitment\":\"653c041d81a25043\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":126,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d054de969ab1f9b382054ae8526b9d4cc3d93e820a8671a19b1b80c3635c97d404192afcab004f95d7b5344f71fa3db8d283a9a431e43ba78cc3e0ecb108280d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":28012,\"by\":\"B\",\"caravan\":{\"partition\":\"p141\",\"sender\":\"B_p141\",\"seq\":1},\"commitment\":\"de8ab5e9e8766663\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":127,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "883f54d1396c1482428526fd4c0b1bf25e937ef85ecc53bfbf093a64a2c4f646812b3ceea685d6b42d179b6410fbe6e326eaae6b330df2b1d5009c903f707d07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":2812,\"by\":\"B\",\"caravan\":{\"partition\":\"p15\",\"sender\":\"B_p15\",\"seq\":1},\"commitment\":\"f4a02525e1596f31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":14,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f9296d177bfbbfe683cc1dc4bcc2e7391e3bfcc3a01862e332bd1ad744810ce25e91f65785abfaeb67fef551b939893d7425620f9f94131fc4f1bfc7d417ea0d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":28212,\"by\":\"B\",\"caravan\":{\"partition\":\"p142\",\"sender\":\"B_p142\",\"seq\":1},\"commitment\":\"ec21c519125340ac\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":128,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "12e319e64f48bce056d83f09bfccd973b1a7124a82b80dec662aaa76820849972464df3e4b279eeab596fb3152c8e50bffc759c6abd3a460cc5a23ae00606500"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":28412,\"by\":\"B\",\"caravan\":{\"partition\":\"p143\",\"sender\":\"B_p143\",\"seq\":1},\"commitment\":\"a9a0eed2cc38c5c8\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":129,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7c785e639d7a220138e2c96aba041472964abfed6b704250a891e737b319f64286aea4e14538ad2af7c0342165c738f69f4ab44eaae6278ffca86d89c4ca4509"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":28612,\"by\":\"B\",\"caravan\":{\"partition\":\"p144\",\"sender\":\"B_p144\",\"seq\":1},\"commitment\":\"a833df9506af83d3\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":130,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0a7bb7ed28e4ecf57c130707ba361e50fb17c92e4818f92aa0dc32740a60ccd3d876601fa2c6b1e423af57ee41da5e8d051286cf6b394533a86f69511f46b002"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":28812,\"by\":\"B\",\"caravan\":{\"partition\":\"p145\",\"sender\":\"B_p145\",\"seq\":1},\"commitment\":\"661e08dbfa7ec227\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":131,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "340fdfd32635a7f507e5c0e4c29c329cc17a720d99749ac36c5fed835fab44152fc44eb99943463306c307b72505a775f61092cb06e44c2b6916ce547a3ee200"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":29012,\"by\":\"B\",\"caravan\":{\"partition\":\"p146\",\"sender\":\"B_p146\",\"seq\":1},\"commitment\":\"5d13286d8391feac\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":132,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7bb814705fbf795aa7270ab461b9d5414b0881ee40e92fad2164b96fb18bd28fefc320fe971690cae74b0309f84160a4559b9c846c052292bccdb76cfb7c4109"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":29212,\"by\":\"B\",\"caravan\":{\"partition\":\"p147\",\"sender\":\"B_p147\",\"seq\":1},\"commitment\":\"aa94470f6faf4999\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":133,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4a1b18c87a97f53faa702d6a8760b9a9d05178275dfcdcd45c5f465929587c74f7945ce3c9f73c11c846c10461c5dc43cc72579c4dde177b8caed5a2d9dcd108"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":29412,\"by\":\"B\",\"caravan\":{\"partition\":\"p148\",\"sender\":\"B_p148\",\"seq\":1},\"commitment\":\"fee2b0a80d7b2c2c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":134,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "873c4a26b2419e1bd3c5ee6f896e46044b9cfec1b39d4f8e9ba9330d774e7d62a164e00b46a8f92a3a19f8783dd57038af41691c3d91140384a8cedd349d9701"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":29612,\"by\":\"B\",\"caravan\":{\"partition\":\"p149\",\"sender\":\"B_p149\",\"seq\":1},\"commitment\":\"2846d6906fa30054\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":135,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "dba281ef461f88e5d919424ab189f6361b12cef925297453c96fa500f08a686b26382e46935a5429d2add6f032226e2351ff1c92d8a7041d06d97945f7e0b502"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":30012,\"by\":\"B\",\"caravan\":{\"partition\":\"p151\",\"sender\":\"B_p151\",\"seq\":1},\"commitment\":\"a76ab9a5502a0356\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":136,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8eab1730dfe85c4638dd71d98e21fe879a589b6022a6b39e521772c8a66121d0da667afa2c66cb2e4fd57a5bb21ee5a2ada0eb01f3d24906b9b6705fad3b900b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":3012,\"by\":\"B\",\"caravan\":{\"partition\":\"p16\",\"sender\":\"B_p16\",\"seq\":1},\"commitment\":\"83c9472ad5659206\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":15,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "bdfb03490a4ec42603a2a052b18306cffcdfd6005d9b1a98331603ed439aa878683bd0550890c27676106c00f6478e615d0dd061d3ee3f582d8364a72262b104"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":302,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":9},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "53260f0697a856f184b56446cfeb18cbb0acd023374d86da21a5e46e4dd5dae22ec5e24d4984524999a5c071b806448eefafa52be613249f10c95531f60f5a09"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":30212,\"by\":\"B\",\"caravan\":{\"partition\":\"p152\",\"sender\":\"B_p152\",\"seq\":1},\"commitment\":\"19e1d9a2f5996244\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":137,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ca0279b88aacd7ddc21dbb20a3de61e212cf3168dc2c60f96358ce2c4b1b57a801e75ea6c4e761dd4e94902ff529035e61f0379c5c77a70d579c5372a35afd02"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":30412,\"by\":\"B\",\"caravan\":{\"partition\":\"p153\",\"sender\":\"B_p153\",\"seq\":1},\"commitment\":\"0f2336c2d3089aef\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":138,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8eed3a2e4640075cb8356faeaf7ba415dc9d21b867153696b5391682c4e59d95a3272e7ac89beca11b7c5239fe4f431fe9043bf3e086a9dd7a9ffb2717034107"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":306,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b30fada34ac4fcb0da7366e3dde0230126cb832963f93bb2416f03531d5d8f74d89f38bc89855ea7479f5802136aca1cd792025123208f3f58d8af810b3da906"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":306,\"by\":\"B\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":8},\"commitment\":\"67a4e68aa364a9e2\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":2,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f0d80d11349efd7ce05274c4ac6f2cd8ee79ae7d8408beeb32770078d0ea8da250e9252fe34d54959b57498fc68e1bb23f7dfdec6d233772be6e60a4e442c70b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":30612,\"by\":\"B\",\"caravan\":{\"partition\":\"p154\",\"sender\":\"B_p154\",\"seq\":1},\"commitment\":\"1c4a57d8b833cfff\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":139,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "dfa35b34bd529e71bc023b13af4c844bffb392c175cd5e2650507bf5b76eb2a834d1b17c60b53d9671562cdc3307e81d98280a53b0ee1150ac2769102f0e070e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":30812,\"by\":\"B\",\"caravan\":{\"partition\":\"p155\",\"sender\":\"B_p155\",\"seq\":1},\"commitment\":\"805668f2b53711f0\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":140,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e773d7e99c09fe9557f42d5ed4d78d1584d91fb5bd5b3c9e1c4ee7a1503bd082ce7ec574c1b6bf014a254b63a722d310487f91dfffb044932ddca57f8dc24d03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":31012,\"by\":\"B\",\"caravan\":{\"partition\":\"p156\",\"sender\":\"B_p156\",\"seq\":1},\"commitment\":\"98081b977c0ea21a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":141,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "34c19c23d7af4b3f328814c1e3b85c7f936aa0aa8c96bee086f6f6d01b579957380831f580da88b9ac7c4bd64695e5d9dc74e090a07318284fcac747fbf8a008"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":31212,\"by\":\"B\",\"caravan\":{\"partition\":\"p157\",\"sender\":\"B_p157\",\"seq\":1},\"commitment\":\"f94d54df6f0d0d9b\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":142,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6c7e2979f57beae5a62fe19756f33d3e89fdd7420110d472d3ddf564664ddd42a6efc674625834080afc85752c87ec5cd16b5816b5eb983ce95808c3553eb40c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":31412,\"by\":\"B\",\"caravan\":{\"partition\":\"p158\",\"sender\":\"B_p158\",\"seq\":1},\"commitment\":\"bf42ab477d3ac787\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":143,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6026e1e01029bc04a19d8c39da3c1757ad1f751a2f2cc28ce1c459864e87ebd9be0096daba94a085d2f3627f4df14adb505b597b3324489f44cec253d5d7c00f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":31612,\"by\":\"B\",\"caravan\":{\"partition\":\"p159\",\"sender\":\"B_p159\",\"seq\":1},\"commitment\":\"ce5f5592012fe12e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":144,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e73a7221bf273f58511edfa5ba15e245b7455c9802e8b7072e2d79b53031dc2ed9af72fdc61a8ca4a2aa9259e7b002d266f7ad143d7e2a07165290d31e04cf01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":32012,\"by\":\"B\",\"caravan\":{\"partition\":\"p161\",\"sender\":\"B_p161\",\"seq\":1},\"commitment\":\"1a3b4f449e4a05c7\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":145,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "2967306e830029de3549b06c522fdac498a81f8bc6bcd8a92097d69daf8b8cf379e5a63172c7849624a4889f9645dda073d699130acdb18115eb96d599c6d009"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":3212,\"by\":\"B\",\"caravan\":{\"partition\":\"p17\",\"sender\":\"B_p17\",\"seq\":1},\"commitment\":\"4d12c9a93b374305\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":16,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3d67912a66a79dcbcf53c990b4af560d6efb1b11e165c87673bf496f50838598e9946e3c6fbb7098261c3fbe8ba6179b424aee3549c1f5b75289b8b649706c02"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":32212,\"by\":\"B\",\"caravan\":{\"partition\":\"p162\",\"sender\":\"B_p162\",\"seq\":1},\"commitment\":\"eb11a7cce62ac3d5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":146,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3fe36fdbeee0b9f5b05616cdc7893a06363ea0b853a767edb06675b25cf891ea6b1e2407aa4f6eb326710705a02294304f81f42d0f8c32ac5c8be420246f6209"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":32412,\"by\":\"B\",\"caravan\":{\"partition\":\"p163\",\"sender\":\"B_p163\",\"seq\":1},\"commitment\":\"29aa323e9d04aa1d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":147,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1fe9e104a96a8ec4c6d4fd07fbdb944ff5fca8c27831030b0a97215a4c99cfcbcf1dec47fd4a4f85d9e74d8d44e9a44e2f599830a92d36ff32ddd9e052f1580d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":32612,\"by\":\"B\",\"caravan\":{\"partition\":\"p164\",\"sender\":\"B_p164\",\"seq\":1},\"commitment\":\"70b6dcea19d4791d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":148,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d64e770437b6571d71bf82e977abce2566a1f62cc03299e1d732e56236110f9cfb2180e088ed6ca3f9841b5352a7e68da0a19b373702ab271b9e219989f1a005"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":32812,\"by\":\"B\",\"caravan\":{\"partition\":\"p165\",\"sender\":\"B_p165\",\"seq\":1},\"commitment\":\"4feac235a59cb2d5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":149,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "cffe2269e8044ef27b9101924b0c285e5e671befed9238dd43c5b79e9ec5395d675e025c4c9c94d69037cb3a3c0869b83a26083c4b315a7f2a4732feaac43000"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":33012,\"by\":\"B\",\"caravan\":{\"partition\":\"p166\",\"sender\":\"B_p166\",\"seq\":1},\"commitment\":\"ebf38c90b2986573\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":150,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6bd53c795860bc493aadfea49f259fa5e357b9a619025f3d52a97e6ae8185f1aeb90ffe1300e96dce86fa14c308dcb6677352507f93e06b1d177ba6f083a370d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":33212,\"by\":\"B\",\"caravan\":{\"partition\":\"p167\",\"sender\":\"B_p167\",\"seq\":1},\"commitment\":\"4e9bef0734100c38\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":151,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "597c016419d02c798b38c14eac43b5e1dca9146279a33a7a18094aa3b1b7481893251129933f59d3ec6cfd5f2bf7fa4058b036a08a2d243bddc5e8cd4451bd08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":33412,\"by\":\"B\",\"caravan\":{\"partition\":\"p168\",\"sender\":\"B_p168\",\"seq\":1},\"commitment\":\"dd6abaf2fb2b2cfd\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":152,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ba93a9129bd11bb036a1ad470ea5cb6ee2935eedfebdc68845da3f59788286918f086ba757fbf51d8f4ef9de09d079090811573faf519825323c43d8912adb01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":33612,\"by\":\"B\",\"caravan\":{\"partition\":\"p169\",\"sender\":\"B_p169\",\"seq\":1},\"commitment\":\"97e68dcc1c5bc972\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":153,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ee8cccffe884bb336653ea60d6a6ed12b755fd2bbafd77f91dfb95f5c7b662ccfe4d061a76e2fde31edf16f5d35090dfada024cb6b0b2c1c74849c161ae4b10d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":34012,\"by\":\"B\",\"caravan\":{\"partition\":\"p171\",\"sender\":\"B_p171\",\"seq\":1},\"commitment\":\"28876b5adaa26082\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":154,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "89d24400f98bb0e9aefbfa8f03ff1d60ba5129ccd2737f390bca7bf0e86b77bd81f96a29f787817c12d628be4415f0725a8973de8dbb20ea279d6b42cbc99d03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":3412,\"by\":\"B\",\"caravan\":{\"partition\":\"p18\",\"sender\":\"B_p18\",\"seq\":1},\"commitment\":\"4a82ce138beea924\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":17,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "31d46b9061ef2703789e075059d63c5c397d25d250dff5172c44229d39fdccd14175ac1a448a1d3200d62321a1428e83dfb915057d3c6fcc7d43a341a8d55202"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":34212,\"by\":\"B\",\"caravan\":{\"partition\":\"p172\",\"sender\":\"B_p172\",\"seq\":1},\"commitment\":\"f8828b2b4fa31d75\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":155,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "67a71f558b4f2905d55f0d173ad9cef6c00dc5690bdeca36fc3072fff31504e21778baa76a42c076a07f37428468defd5ae41cc17a55087f5b234b1b86e8c202"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":34412,\"by\":\"B\",\"caravan\":{\"partition\":\"p173\",\"sender\":\"B_p173\",\"seq\":1},\"commitment\":\"a2e635e53e09cbd8\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":156,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8408e739d4eca066dd328f99fbf4e23667b72592c70c034c3adfeaa85993bb9d4393c2f88aaa6958785616e7590db07a1dfb598da9adf2adbcf844f6e6347d0e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":34612,\"by\":\"B\",\"caravan\":{\"partition\":\"p174\",\"sender\":\"B_p174\",\"seq\":1},\"commitment\":\"b748324faecfd7f0\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":157,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "51306beadd600ff01c7bc9a1844db0b915b36c9f1d5bb85e5760b644c67f3bf5434483bcbde3dc36c405389c5a4955c03542a06493166f94f50b305836bb450b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":34812,\"by\":\"B\",\"caravan\":{\"partition\":\"p175\",\"sender\":\"B_p175\",\"seq\":1},\"commitment\":\"3416dae3ba6c841d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":158,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "59aca3829714b32d01af799553fd86f641284e2b532ebfe38bb3b84fea79a60948f562592716fb24ce48f9050a9d4c2dcb3c369fea183325dcf6efe14c329a0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":35012,\"by\":\"B\",\"caravan\":{\"partition\":\"p176\",\"sender\":\"B_p176\",\"seq\":1},\"commitment\":\"7805d669a360ad82\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":159,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6af0e2b0fbe816a6749e2bcc22aff7261247172a08af25afe864d07d65504db9889c95a6c6ae34c55521bde19b84f4d5336de0eae2f5a1b283aa62f2426b470b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":35212,\"by\":\"B\",\"caravan\":{\"partition\":\"p177\",\"sender\":\"B_p177\",\"seq\":1},\"commitment\":\"b254016e7c7ce1aa\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":160,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ff0b99dde21ef8c1c1928228d322bb01fe44d4d649e32a9a307ec56c7857ed3f81f06d3a9318d9cc7b16697a13a191b4dfbc135cdb632f106b1226043c8d6d07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":35412,\"by\":\"B\",\"caravan\":{\"partition\":\"p178\",\"sender\":\"B_p178\",\"seq\":1},\"commitment\":\"0b9d5688ded02611\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":161,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9ff5e9b6e67af46dea384630fa162451dde44573403ffbc45c9146e472c25505b6b04e5fa42d8e7946e611407bf4232b38eabe251ea976e397e3c3f007d8ae0b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":35612,\"by\":\"B\",\"caravan\":{\"partition\":\"p179\",\"sender\":\"B_p179\",\"seq\":1},\"commitment\":\"3557cf43c72e0a69\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":162,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "fb1df4f7a437fedee9ed0c0c24ffb893094c2e37fb9425e86fc3fbdc0b23e523d78e436c8e326588e33446dbebc7c6f7ae94101543b6b0ea637520745d6b8305"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":36012,\"by\":\"B\",\"caravan\":{\"partition\":\"p181\",\"sender\":\"B_p181\",\"seq\":1},\"commitment\":\"b2aad950f0bb7672\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":163,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d605afce1be15c3eee1d908ae01a306f6214fccf2b0c81e443bb928290ccc5c66b5ef36305ab313efc4e95ddd193f9a617a09e98452f3e4f747c223621808d0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":3612,\"by\":\"B\",\"caravan\":{\"partition\":\"p19\",\"sender\":\"B_p19\",\"seq\":1},\"commitment\":\"9a93339665bbf020\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":18,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "acb0b7822f38563a493254ef7927e7f7671a25e2e343b28bcba44dd0d9ac240f6fa6a8e67dec344d8b6c8ddff28a8c7a78a30785b1aae9a4cd7837c6a198cc06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":36212,\"by\":\"B\",\"caravan\":{\"partition\":\"p182\",\"sender\":\"B_p182\",\"seq\":1},\"commitment\":\"b030e67431f461ce\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":164,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "534e0039db2bc063a7b6894846550a73f840b501c59a2965d13fc8c8f02d3385f3e68c6a00393456047238597232db5d0f29d7e053c9495d87c480603cd56203"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":36412,\"by\":\"B\",\"caravan\":{\"partition\":\"p183\",\"sender\":\"B_p183\",\"seq\":1},\"commitment\":\"3dfcdd00f0dda20c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":165,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "5959d5758afdf16abe6ade66e325d07b7abdca0acda441e31cf158200f8e2764d4469d868b609c2ef461cc2b36f16c738b802db5f60d58428672b0129b947c09"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":36612,\"by\":\"B\",\"caravan\":{\"partition\":\"p184\",\"sender\":\"B_p184\",\"seq\":1},\"commitment\":\"205332c93420bc02\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":166,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6596bfe8874ba2645b6ac1cf012a9ebbd3754a5c5f4103be0b8a26da7e64c41ca112316db3730d03aa70a0ce90e135058d3c783f79040f2b1c4f59a41f3bd703"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":36812,\"by\":\"B\",\"caravan\":{\"partition\":\"p185\",\"sender\":\"B_p185\",\"seq\":1},\"commitment\":\"88c9a5500e9f2c27\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":167,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f277bad4f6388a20f96c2f923e709f42a497e0a47448532e7957a2052729939ddd6189fc21e682be8c4774b2cf6cfccbe5c99666046662b3d172fe326c3c1e03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":37012,\"by\":\"B\",\"caravan\":{\"partition\":\"p186\",\"sender\":\"B_p186\",\"seq\":1},\"commitment\":\"c1eb8cb6e82b2372\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":168,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "2ccea9a051de5938b1f0996fd0ca57adbb635e8331aa3b37ef114a1469778e88f574c3b7bdf064969bc15176e846cf5a091cb64efe883ebfd0fcd4e568b62604"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":37212,\"by\":\"B\",\"caravan\":{\"partition\":\"p187\",\"sender\":\"B_p187\",\"seq\":1},\"commitment\":\"7af5c81f78e0e26c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":169,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b03199b44ee070fcbf45c38b1a14a5a8bf6d044c7912dd1d8598cfd23a9f07e583ac08a6f61f2ed2250ef2c7a795b8a0db6932e395fb71c1910d1697ba647506"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":37412,\"by\":\"B\",\"caravan\":{\"partition\":\"p188\",\"sender\":\"B_p188\",\"seq\":1},\"commitment\":\"589f36c27981981b\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":170,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d853e6fe8a914dc5e0f3abead7227547cf3c72fbe4a4e7cb7bbf0d2ac005bdf754ef832ae16b66e45bdcc38aaefd564fb0eeb09cdf7aa08233c804254ffc1705"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":37612,\"by\":\"B\",\"caravan\":{\"partition\":\"p189\",\"sender\":\"B_p189\",\"seq\":1},\"commitment\":\"a6aeead85ed12da6\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":171,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "32d9f16a3a6b5aef1ef049a1e553eabf279d3e02414ca82ad6010f7020c5104d6b4c24286a25ecbca536b4f7964ac68aeba4f6dd0261f4c50e7bb632d55ba20b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":38012,\"by\":\"B\",\"caravan\":{\"partition\":\"p191\",\"sender\":\"B_p191\",\"seq\":1},\"commitment\":\"f4091a8c05eaa458\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":172,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "edd1217327d60e1e5b905144464c8d03063ead9ffea1e4116142f70414f50dfb3adfb28c4f63ab88c35365c34f89912682d46482d89118e96f90abcc4e573905"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":38212,\"by\":\"B\",\"caravan\":{\"partition\":\"p192\",\"sender\":\"B_p192\",\"seq\":1},\"commitment\":\"ccde1c13253d5f75\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":173,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "616f0ec3da15ad8c37a57e9b075b52527ee7d7234382cceae9e8a7000c8161133a958fde0482bba1922cd6c73b5b444c99635f00252c00b3a9b3d1fce275c40c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":38412,\"by\":\"B\",\"caravan\":{\"partition\":\"p193\",\"sender\":\"B_p193\",\"seq\":1},\"commitment\":\"63f6a43caf296edf\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":174,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e3902205cdc03f71aed5b91af78f3185125ac5ac4ff0d6cbc52da1100b783ae3517a194787828447828686c68ada559f024a94c3b4bf63f195e0438c85cb0709"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":38612,\"by\":\"B\",\"caravan\":{\"partition\":\"p194\",\"sender\":\"B_p194\",\"seq\":1},\"commitment\":\"70d29a0da55832ab\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":175,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "cd7f3f70115709f6690969f45ae538dfea6d3c6a1e88ea39edf1d8c9c45c0807c4bdae866c48f33086e5a2ba77c363de78e28c1ec1ef249ba47682a53f379800"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":38812,\"by\":\"B\",\"caravan\":{\"partition\":\"p195\",\"sender\":\"B_p195\",\"seq\":1},\"commitment\":\"2a67d28cf80bb7a9\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":176,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d6d4e672c93466beceb0e1e4560d0cbb0a8d5297f301c3477d2e331f1087e45447a935b8967d5d4146a2b78c8cd0f25e9a51bb579b107be5fb717d6c27d15f0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":39012,\"by\":\"B\",\"caravan\":{\"partition\":\"p196\",\"sender\":\"B_p196\",\"seq\":1},\"commitment\":\"5bdb784675752d51\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":177,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7f6636379b6013f9b17f5b73b6c58f3cc0324a3f59bb04cebcbd9562e1cf02547d526a13120b7e2df39886cc6714f45f45eb2a70b5b87f8b0754eb09351b1800"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":39212,\"by\":\"B\",\"caravan\":{\"partition\":\"p197\",\"sender\":\"B_p197\",\"seq\":1},\"commitment\":\"ccddb6f0766a992f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":178,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4fa6d36e329c9e6c1980e00d31f34dcc9b50f572c76599cb57864a485c370775a9fe9011a74140134bad1d72168773f89edbdf6934a0c4b3580c5e7d65680004"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":39412,\"by\":\"B\",\"caravan\":{\"partition\":\"p198\",\"sender\":\"B_p198\",\"seq\":1},\"commitment\":\"0c1265d729d1eb23\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":179,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "22b0a2e496d0975ac3bf63fb1d6dd8475a6f12d1e89c6d833ca2c7aff7931ed173bd53db73f193889920fdbeb88bef2ebbfddc82f0aa70dc549d1a5886d6b608"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":39612,\"by\":\"B\",\"caravan\":{\"partition\":\"p199\",\"sender\":\"B_p199\",\"seq\":1},\"commitment\":\"b7378caf4a86f252\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":180,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "76260fe0e2e52a62db0797b1517cc43b0bf329a455f6fc9ac58fe211ddbc8f669bd597a1148584861dc0c1ab474561fc6fc9c5724ea3a160b1ccd7cc6f004a0e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":40012,\"by\":\"B\",\"caravan\":{\"partition\":\"p201\",\"sender\":\"B_p201\",\"seq\":1},\"commitment\":\"b7124c51ec75602e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":181,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3a2dfe2c56e5e1afece5dd184d5dc5c815924cad132aabff23aba2667b6b3caa8d97ca1f60c44103956a0c5e4162d55d50c2354b4a4b950625b9dc7de30c7704"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":4012,\"by\":\"B\",\"caravan\":{\"partition\":\"p21\",\"sender\":\"B_p21\",\"seq\":1},\"commitment\":\"914fe8f99bbaac11\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":19,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "29c548701cc35436e9e18918018223d174e3e0397ed6de23d459910a3f85372016f7d760dd764c326f726acaca2675c850828511ffb17752cade133088c13c0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":40212,\"by\":\"B\",\"caravan\":{\"partition\":\"p202\",\"sender\":\"B_p202\",\"seq\":1},\"commitment\":\"b0e76d74239c0dbe\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":182,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "62ced353c248cf0cff9cc551572080142ba8dfccedbc224bb6f5c7343342cd88474d6e8528a3584fe0f89c321340004805678d36cccdabb5377a2d2b05183903"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":40412,\"by\":\"B\",\"caravan\":{\"partition\":\"p203\",\"sender\":\"B_p203\",\"seq\":1},\"commitment\":\"cb99821b6d779a11\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":183,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e327bc8995c5da4c9b1f585d8c06d69e5b7b9804cd963bf3473d412d68b98b75a5603ca2c5834c23d72dbf7db23db0fb1b2da8440c1ee09bf1b30d18767e5502"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":40612,\"by\":\"B\",\"caravan\":{\"partition\":\"p204\",\"sender\":\"B_p204\",\"seq\":1},\"commitment\":\"e736a745a371a821\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":184,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8942987136433a070be70a3830ec111e2fc6a9fb3b0fcae0cdbd66be63dac20c8e3b678648ebf2d2a5be6c066adff3a185751ca2eb7787150423cfa6b96ecc08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":40812,\"by\":\"B\",\"caravan\":{\"partition\":\"p205\",\"sender\":\"B_p205\",\"seq\":1},\"commitment\":\"13f8294b6244429c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":185,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8b01fcba557e720e8d060345e2f85a1b09c0343d1e9cf0ab7a7ec744146be9a3cb20c46d854a9170e166a5e6d95b84daafe1d405971e11529f1f299a39dec60a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":41012,\"by\":\"B\",\"caravan\":{\"partition\":\"p206\",\"sender\":\"B_p206\",\"seq\":1},\"commitment\":\"e6e1d8dda6913c60\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":186,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0abf9f2982abc7fe54e4c595276ffad92c5073757814f197397d577a3feb656359618762f517e9e25b3348ee8549d4c8f282136f94c9bed31e504e087124cb0a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":412,\"by\":\"B\",\"caravan\":{\"partition\":\"p3\",\"sender\":\"B_p3\",\"seq\":1},\"commitment\":\"7e148342cba6e8fd\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":3,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "07aa884d04180990456ce1ea7b27006ac45c058b04c6678bee0bc13e90aec891aa07a7b872610c86dcd7ac782834718276d724d969820508eedb9225ae4f160a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":41212,\"by\":\"B\",\"caravan\":{\"partition\":\"p207\",\"sender\":\"B_p207\",\"seq\":1},\"commitment\":\"02898c7bc3054383\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":187,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e0b4b8652544f9d1f8a61e1a7a8eab866d11e87ce62b26a32855e1f5402ec15dc59fcae899ece2b9336ee727582f57fe66a6292307094bf35a97b0eafea7e501"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":41412,\"by\":\"B\",\"caravan\":{\"partition\":\"p208\",\"sender\":\"B_p208\",\"seq\":1},\"commitment\":\"c738f757c4aefc45\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":188,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "94e2ad296f7e70b604708cedd70b4ee37c2c7f256a7b99dcc5e5a082f2d6386bde6db8982f30d75063ec2fa0d70f070ab1d77bb42fade9d442e713245a136701"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":41612,\"by\":\"B\",\"caravan\":{\"partition\":\"p209\",\"sender\":\"B_p209\",\"seq\":1},\"commitment\":\"3f2a80b7b38fe2cb\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":189,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "51c75f2fb3599ad4550e122d9da252e5ea2f52a2ddb5c77375eead063b9e44659d0d59dde4e21ad3bc1fd89ef22b3f438e0701d887eea0e0799e5c5ad7b77d01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":42012,\"by\":\"B\",\"caravan\":{\"partition\":\"p211\",\"sender\":\"B_p211\",\"seq\":1},\"commitment\":\"7ad5e2c67b496deb\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":190,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a25e8a049caabf59293b92e302a1ae6e6b666906e198d1bcf634d6efe94cd04a5da131b197c0eb8bc991d7afa32b507f2771436d4da3fd950a8da7febf423703"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":4212,\"by\":\"B\",\"caravan\":{\"partition\":\"p22\",\"sender\":\"B_p22\",\"seq\":1},\"commitment\":\"0c1b0d837cd795ea\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":20,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "fbda29146919ae8ae29496d4bc3313bc1036dfce39f13d87b512635425f99e3cf368076ec8223f88139caa02f779f0ace7cad0b4876e65620717329a64118b0a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":42212,\"by\":\"B\",\"caravan\":{\"partition\":\"p212\",\"sender\":\"B_p212\",\"seq\":1},\"commitment\":\"f5a37cd397e4dc4a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":191,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ce5cabf7fb78056be62e96941a8b79b3afe54dba188e0ff218b758e85df80fd17776d190ff38536bd45b4478ede5a3f1c18ebdc4caec6f9ba63d67477703b505"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":42412,\"by\":\"B\",\"caravan\":{\"partition\":\"p213\",\"sender\":\"B_p213\",\"seq\":1},\"commitment\":\"0be32b40d965d3a9\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":192,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "37d29e1e56427e248c83969fe1886b114fc23709b5fdd09bf510efb586dd52136ce9fb01eb859bf479ddb0f7549680e75d36bbdc2d32e371e4c69fac064bb20e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":42612,\"by\":\"B\",\"caravan\":{\"partition\":\"p214\",\"sender\":\"B_p214\",\"seq\":1},\"commitment\":\"03ae5d21876d01d7\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":193,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0c0bd35d6bcfff03bff7a3535a32a9736e63ee7da3ebe83d65eabe215def3c99751166d0944e05dbfdb46f1c85c2744953d9710ee24d2cc4f5189642f6717701"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":42812,\"by\":\"B\",\"caravan\":{\"partition\":\"p215\",\"sender\":\"B_p215\",\"seq\":1},\"commitment\":\"3067846e6572832f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":194,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8ac3ce6a1585614a7a3eb4602775fbfe9da0bdf309a6ed7e2320a5a552a184b295dbd42f34241690b737b00f8b9bcd2249ce0a275d9119b4d93f79beacb22603"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":43012,\"by\":\"B\",\"caravan\":{\"partition\":\"p216\",\"sender\":\"B_p216\",\"seq\":1},\"commitment\":\"ca0ff9dd9292e009\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":195,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b63363aec2147b9c80b6442a6409447a53bcd66c5edd0a13260ccc50b2f8602708ea812430051462af01ddc944e77a6bf39796bf1420835486b286fdb190a409"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":43212,\"by\":\"B\",\"caravan\":{\"partition\":\"p217\",\"sender\":\"B_p217\",\"seq\":1},\"commitment\":\"0d7cb60919f7c6a3\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":196,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6bb7b253ee854c26d680208349c9070967126bcc7b1e88887c20027bec06049c5cd8ba670501a8962354c359c4d7b03dbc96b3eb875968408b7e22ff2401f307"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":43412,\"by\":\"B\",\"caravan\":{\"partition\":\"p218\",\"sender\":\"B_p218\",\"seq\":1},\"commitment\":\"bce7d4389d170153\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":197,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0ea66a0ce124a013af68e12d97140337de803290a0a29cf8e92561d20d787a98cd84666f88a8b4c97d733d286493fb8921e42e75496875211c1627463fa30b06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":43612,\"by\":\"B\",\"caravan\":{\"partition\":\"p219\",\"sender\":\"B_p219\",\"seq\":1},\"commitment\":\"ae3ba80b2f4df848\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":198,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "bb8176b196b483216a73fd0c039cc6ffbed2ee71e167d28f7fe6025b64e7342a3f9f301e9fb4f29bb0696c2c33e75d18f06cadcd679068fb5a26781a31c6b50d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":44012,\"by\":\"B\",\"caravan\":{\"partition\":\"p221\",\"sender\":\"B_p221\",\"seq\":1},\"commitment\":\"7d1e1c5fe5455b4a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":199,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9bbca2e8918a95e7933bbfe22d4487aeb171c7cd4d5146c3828026f5fbb77a8b1d0f4cf8e50a1c4fb6e5ca134f7445ad3f08bb3c80c60051906b862b7edf5a09"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":4412,\"by\":\"B\",\"caravan\":{\"partition\":\"p23\",\"sender\":\"B_p23\",\"seq\":1},\"commitment\":\"3363b775413cbdaa\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":21,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "fdad1945cd58280d9c7848db2d6af7f4697cd96bea3b835d9bdcaeb04759277f022edeb3f1367883f85f5e3a7f2141539aae61b723455e793c608b9dd709320a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":44212,\"by\":\"B\",\"caravan\":{\"partition\":\"p222\",\"sender\":\"B_p222\",\"seq\":1},\"commitment\":\"6c56f3f9e51c29f7\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":200,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "bcdd2f0c0dc1152f2c438efeffa67486ea325473e85713d9f83cb28f716ee62387b953ad4eeadc80d7f0fe8d68b47a4712db08f56767b3c0c89b6c77e12c690c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":44412,\"by\":\"B\",\"caravan\":{\"partition\":\"p223\",\"sender\":\"B_p223\",\"seq\":1},\"commitment\":\"d25962aa4c25e71b\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":201,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0fd4af60f8d48ad85586092b64ce941c9bbdb6056fd7b9ab119d05890e3d3cfdd9557878a12a488f69b60cdfc2da8f25b04c05c00b2b2b8b627952801da3a50f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":44612,\"by\":\"B\",\"caravan\":{\"partition\":\"p224\",\"sender\":\"B_p224\",\"seq\":1},\"commitment\":\"3f48bc7b04fd572a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":202,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0098a7a1643bbe84d5d51fa76c9309f7cc15cf3ab7b5c1b970164c2fc94dcfaf92f27eea907fae8df00283ffb3749dfcf2939a7508968f521b219878467a9005"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":44812,\"by\":\"B\",\"caravan\":{\"partition\":\"p225\",\"sender\":\"B_p225\",\"seq\":1},\"commitment\":\"1e569040656be917\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":203,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "168a7568ce58247056deaf8c28fde95ef61aa5fc119dea5042ae75fc42e833e1b27f4fcfa61b6208c3c0e65c7bad66edec87d2f5db921774140644e346d20a04"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":45012,\"by\":\"B\",\"caravan\":{\"partition\":\"p226\",\"sender\":\"B_p226\",\"seq\":1},\"commitment\":\"45ecc92a0789e6e6\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":204,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "cc3a7817d6eebd2949dbe53fc17c0613a5565b5e1d2a287886295d6bc9f4dd12e57edcd5bd5471f0b22e358772430bc659c9216b006395e0813721e897207f0a"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":45212,\"by\":\"B\",\"caravan\":{\"partition\":\"p227\",\"sender\":\"B_p227\",\"seq\":1},\"commitment\":\"a898157441c5ec46\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":205,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "aca41c0fd38ca5a5c279956eabbd02ebabc6ed6172b5cc417e6f9ed1d0a0cdfb882d5a1a2d55771b66775d3cfe1968d6c03809aa840c8a7145c2857526d0330b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":45412,\"by\":\"B\",\"caravan\":{\"partition\":\"p228\",\"sender\":\"B_p228\",\"seq\":1},\"commitment\":\"a3b00edea5027b30\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":206,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7b7ff87c05eb11ee60b23a8347a69dda963a90b4dc5d8948c192d40a09948758d37d99d912fd2b407b101cc7be38e5815fd4615289d12c9dfd4bc9cb7ae23502"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":45612,\"by\":\"B\",\"caravan\":{\"partition\":\"p229\",\"sender\":\"B_p229\",\"seq\":1},\"commitment\":\"88c79a8300028086\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":207,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "32a703d717745fba7a671a5e4dbf2fcc6596c9b296409b49aedc5f20f1b8102d8bb8b752c37e54980f6cd0216844aa7d29f007348d448d8c3b6700afb2c8920e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":46012,\"by\":\"B\",\"caravan\":{\"partition\":\"p231\",\"sender\":\"B_p231\",\"seq\":1},\"commitment\":\"ceb882ec723de2db\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":208,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8cdbafb43e235f888ab3615097890d0576f21da7ce7fd431ed9816ed05c298366378f09879c34d1bcedc75612b062f6e761ace455f68b7631523deb7a7fddc0e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":4612,\"by\":\"B\",\"caravan\":{\"partition\":\"p24\",\"sender\":\"B_p24\",\"seq\":1},\"commitment\":\"d8834578c556bacb\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":22,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8453e8d1ccb397c772b92c176605368a53660ee42d586a7796d9cc8f442a99e08672f648d7f39898a3d1a3c85e1fe1567cc3046a1834c94df219d14dc08f940d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":46212,\"by\":\"B\",\"caravan\":{\"partition\":\"p232\",\"sender\":\"B_p232\",\"seq\":1},\"commitment\":\"c5b03529968fe164\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":209,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "baf445a7e506edebf5a30f504008e3a6357a294d3d7add6231a705a017df3922a542c687f039e4dee791c56fe83bdbefe784d4829d2dd45796118f82ea150707"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":46412,\"by\":\"B\",\"caravan\":{\"partition\":\"p233\",\"sender\":\"B_p233\",\"seq\":1},\"commitment\":\"1cdc4f444447d8f4\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":210,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1b15a98a825e69dc638f1be1a414ba62896f8cbacbbb789f95ac2a0c90d5694edfd2b725a3ce6df6186c0921a63ee0a57e6e9b4ec7f062eb30cba1b7646eeb01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":46612,\"by\":\"B\",\"caravan\":{\"partition\":\"p234\",\"sender\":\"B_p234\",\"seq\":1},\"commitment\":\"df143aaed9c565ea\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":211,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "de9b94175b9bee187190a0667cd349e6c27f5bbc03db10e0f95fddbaa8af446091ddae0481804101c01f610e159a96d2e3b93a5b1f9f365130dc8346fdf4f50d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":46812,\"by\":\"B\",\"caravan\":{\"partition\":\"p235\",\"sender\":\"B_p235\",\"seq\":1},\"commitment\":\"dcc3fbbeeb62913c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":212,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "029a45b561fcc72250f000b197a817a9996110ffe06f03efd819848ca27359a5e6a395d162290474a77d566ddb16f025e2b904aff201ff9006213e08e7523a08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":47012,\"by\":\"B\",\"caravan\":{\"partition\":\"p236\",\"sender\":\"B_p236\",\"seq\":1},\"commitment\":\"267cef81be62ae97\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":213,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "7d319af7d19ef4f0ac1e0dd9024a120004574b32147c9cee38110950bf0a7c2e2499774b3ee83fe1dfdc054417cfa6bca207b04d8e25242b299d55b5fcb6c103"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":47212,\"by\":\"B\",\"caravan\":{\"partition\":\"p237\",\"sender\":\"B_p237\",\"seq\":1},\"commitment\":\"ac142a17785b5fd9\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":214,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "368d8a1a9defa48694cfbbaf98f9ea66f3e0a4e2e4e5f7d7550db1e6b0121f9388515770c5b6e3378259de26a3a3cd5f2c7a32c90270f063cac9335047837c08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":47412,\"by\":\"B\",\"caravan\":{\"partition\":\"p238\",\"sender\":\"B_p238\",\"seq\":1},\"commitment\":\"6c7dfc7f5665c4a7\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":215,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c1ca1eb787993ead1ce31f527b91658f7de6eaba833155a804ac91f4ad5e8819ed3043787ea601f8b2322d7c4a346b415a25263f755f51aea057263129737901"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":47612,\"by\":\"B\",\"caravan\":{\"partition\":\"p239\",\"sender\":\"B_p239\",\"seq\":1},\"commitment\":\"0362eddeef423337\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":216,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "98f09d4e4c2c2df7b5977261a3bcd76ca7d74addd82a68615b3a34a04afc70d0b8a0382f4d0fc6048032c0c5c0b2736b17e0b274c131929f82845229086ae203"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":48012,\"by\":\"B\",\"caravan\":{\"partition\":\"p241\",\"sender\":\"B_p241\",\"seq\":1},\"commitment\":\"b0a1b6e1dacae307\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":217,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b564e12a07087dc18d3ef90e056f6d3bf0b4af28bd83d99ffe1d7b67fa6dd5e3048529401e075b0fa0480bcd5cdb0e4178a8086208f6d47f0323783e2739e808"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":4812,\"by\":\"B\",\"caravan\":{\"partition\":\"p25\",\"sender\":\"B_p25\",\"seq\":1},\"commitment\":\"97a09455f78d2503\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":23,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ea861e915782f5e14789973e2cda2ea35ede113e5164c26adc3bc0424b7721326d774dd9aadd440d1706d142b7bc60df3970d1b86f9c8dd1ed2e8369382e7004"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":48212,\"by\":\"B\",\"caravan\":{\"partition\":\"p242\",\"sender\":\"B_p242\",\"seq\":1},\"commitment\":\"1162d0857d9469f5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":218,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c0f3f47e1fc575cf6bca59ba5210b1a6013757a688b2df2485a62e832a36e23db6deddfd7b8487fe0d1b7d56e4ebb3e16e8a87acc82fae63a98b61601a313d06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":48412,\"by\":\"B\",\"caravan\":{\"partition\":\"p243\",\"sender\":\"B_p243\",\"seq\":1},\"commitment\":\"cc49bb48520ebd4c\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":219,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3cce7ff594d91c5b3f539b1df8debf95689b41d4f46b100d0d607a1ac6941b323d075ca83976b6b22d6b1e64820b6e70db1fe4a1e427e188e0b3dc8b966a2405"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":48612,\"by\":\"B\",\"caravan\":{\"partition\":\"p244\",\"sender\":\"B_p244\",\"seq\":1},\"commitment\":\"ff4c262d73da20ac\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":220,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "33a299b896c355402db5fb07ce1135892719c3bcb425e2d781cd3c68596296f1a23510cdc2c103fdd5177d91905be17525cbdc94f8410c056b666fed08954307"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":48812,\"by\":\"B\",\"caravan\":{\"partition\":\"p245\",\"sender\":\"B_p245\",\"seq\":1},\"commitment\":\"933991de45819b31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":221,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "76e70eec59711cb14a9728e536f25a1bb9a77a202a74f90e050adae643d3772e75e4397191a1ff4a05a18792fd484531024d33dc11d31b9d3b37eae655075c04"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":49012,\"by\":\"B\",\"caravan\":{\"partition\":\"p246\",\"sender\":\"B_p246\",\"seq\":1},\"commitment\":\"e77c6f13bfebc821\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":222,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4e369c20f03aa4cb069e08778b255a351a3268171df2786cadf571dd25dba7be3ae9dcb40e14c19adb78ba4116d6ead2652f62e3818e2ef8a0e997ed07c6410f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":49212,\"by\":\"B\",\"caravan\":{\"partition\":\"p247\",\"sender\":\"B_p247\",\"seq\":1},\"commitment\":\"e5859df9e82c3ca5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":223,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "11304acd0141b3d3e66455d8e8879051e4ffae7572ab1997a6260c6a114b4f75b308a29eb3fb44278f358d9d38d5de53a01ff1e861c1a1747c6938f93f9c1203"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":49412,\"by\":\"B\",\"caravan\":{\"partition\":\"p248\",\"sender\":\"B_p248\",\"seq\":1},\"commitment\":\"b57963cf1b348063\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":224,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "16820d929fb53ad25471646d209984d69c44825ddc871a73378dd7e95280e71eaee798272a7080bfcb50f345952de7350bed3519d338e3ef0f2a07d7ba77640c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":49612,\"by\":\"B\",\"caravan\":{\"partition\":\"p249\",\"sender\":\"B_p249\",\"seq\":1},\"commitment\":\"a4a90e39a2f37779\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":225,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "eb465f1cce49cc69e624f1a05901c24528f1aaf1c956473dee088b5a11a296947759979431ff5c77481ab9623b822c8c9941b7d1e42fdb0e2cf83c2d429e460f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":50012,\"by\":\"B\",\"caravan\":{\"partition\":\"p251\",\"sender\":\"B_p251\",\"seq\":1},\"commitment\":\"29ed8332693fde19\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":226,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3a2d93d38d84f881073f8ebbca68abb29ad26e1620f43dd360178610d8d9308e70ecad50ad3b78ecce86cac8701847dc724c59f501c265cab4de5de089119e02"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":5012,\"by\":\"B\",\"caravan\":{\"partition\":\"p26\",\"sender\":\"B_p26\",\"seq\":1},\"commitment\":\"7f07258d278f0464\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":24,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b89554611f179d2d8a83f4aaca0a78d65482e7a3437f5862f48ac0e2ee25c557a91d4482262e12a1fc8fa6fdcf29abb04a804f5ab8b418ba50eabab061b28602"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":50212,\"by\":\"B\",\"caravan\":{\"partition\":\"p252\",\"sender\":\"B_p252\",\"seq\":1},\"commitment\":\"30e950b7d2bc240a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":227,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b4c3b90be39bcc19bc3be5d9cf32742061307cbf4f81237e20048a1e82b115ce78d83156290d737630fb92212381d84acb2b56d237ce774beac9b9690fdb7e02"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":50412,\"by\":\"B\",\"caravan\":{\"partition\":\"p253\",\"sender\":\"B_p253\",\"seq\":1},\"commitment\":\"808f5be4dccf4f0a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":228,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4732c13d62818d895493a0c02fd4b9622a7e679f965737e82e85b73852b6e99452ec12c7234f8b65d78d83a69158bfe601573ffa29b008fe73477f4d26a3f309"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":50612,\"by\":\"B\",\"caravan\":{\"partition\":\"p254\",\"sender\":\"B_p254\",\"seq\":1},\"commitment\":\"5802fbeca5772bc5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":229,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a15c2ef46b17e736740dbced340655034e1de94fe7995adad5c9c6619849d6dce83eacf8e84a2f134183cb9fdf067e4b52c0a0e305a535385c796bb0974b2902"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":50812,\"by\":\"B\",\"caravan\":{\"partition\":\"p255\",\"sender\":\"B_p255\",\"seq\":1},\"commitment\":\"b413f06b5b547dd5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":230,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8038102f14a0e2de36bc0e58ccd782e9456e2333e847f212631c1ef3c17f93881e2373cd2cc06b2670fd48283ee8b333e358d8b4ba61c9be828875f5a053cd08"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":51012,\"by\":\"B\",\"caravan\":{\"partition\":\"p256\",\"sender\":\"B_p256\",\"seq\":1},\"commitment\":\"bea1f4f93a8a2977\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":231,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6fa70c954fe02ee185088eea07aa99fcd360778e5d5d5a3ed83ce4b8fd19212cd6fa13bcc1e57de9729a45571ce8d801df630fe09a704955bd507e41c60dc40c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":51212,\"by\":\"B\",\"caravan\":{\"partition\":\"p257\",\"sender\":\"B_p257\",\"seq\":1},\"commitment\":\"35139f6b753833c7\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":232,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8dfce8d094e5cd2af2a5fbef340cb3ff496821ceaf6d64ea61705f9226f0370b3403b1d8bd5570041dd97b95547d1224fa924c374a9759ae9b5f46e4f5ed250f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":51412,\"by\":\"B\",\"caravan\":{\"partition\":\"p258\",\"sender\":\"B_p258\",\"seq\":1},\"commitment\":\"25d33af87042bc02\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":233,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0398ad2af87feac812391b3fa385fe6548c85718604f88c6293bec9326904891160a4aad3622b3d6d14629c786af3bb6b1e521b89336153286aba8c7de21080d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":51612,\"by\":\"B\",\"caravan\":{\"partition\":\"p259\",\"sender\":\"B_p259\",\"seq\":1},\"commitment\":\"4341fc98b54116df\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":234,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "044fbe42e7722d83d7cfb45e0b2d6ee0733e1e05a3f494c5b90efd43a56150ff270581c194e8167f2e36431a470c7bf645e90601b1a829bd97eb680eca4ea509"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":52012,\"by\":\"B\",\"caravan\":{\"partition\":\"p261\",\"sender\":\"B_p261\",\"seq\":1},\"commitment\":\"df41a02170fd5c42\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":235,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "fcfbf75bda49cb927443ae8fbf9d698c3a1c2dcd51660bae863412f7be10ddbbc1a7433b813ca395a4079a2d8b0b7d722df5d7828bf12f7b089cc7f9b30dcd04"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":5212,\"by\":\"B\",\"caravan\":{\"partition\":\"p27\",\"sender\":\"B_p27\",\"seq\":1},\"commitment\":\"c27886aed87beb31\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":25,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "89aa7e8df4f248742565c984acb770d532ada43810f976ab46ef7e8ad02705decb59f4b023e8aa38c7bb7416bd0bb40972c8ab682fc06aab95e08e8ce628fe06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":52212,\"by\":\"B\",\"caravan\":{\"partition\":\"p262\",\"sender\":\"B_p262\",\"seq\":1},\"commitment\":\"0a341542e3a97d34\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":236,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c3c46ed268657574032f2ef3c41711e708991ae4c3c46c1a16d2ce2b3a7d40764fd2086560aed6f5ce31cb5cfc6d6fc3aedc2de7999389f38c04c4457291a307"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":52412,\"by\":\"B\",\"caravan\":{\"partition\":\"p263\",\"sender\":\"B_p263\",\"seq\":1},\"commitment\":\"36cda4ac4d37970a\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":237,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f21efb59677d103d29b69be56882fd0b094ab79b199e395d7863a652e718094a778058a2d291520d9c8fc2a9d4de19978436d5f495d9e022c75cc0360cd3ac0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":52612,\"by\":\"B\",\"caravan\":{\"partition\":\"p264\",\"sender\":\"B_p264\",\"seq\":1},\"commitment\":\"bd002c38b2d19471\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":238,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "5be95ab8d618c58b7942a0524099effe1376ef8ac63370c2a3ceedfa0a1dbeaecc29edaedd8ceb27cca0d0bdcb4072cfeefa3d53157923d5cd833ae0f8950e01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":52812,\"by\":\"B\",\"caravan\":{\"partition\":\"p265\",\"sender\":\"B_p265\",\"seq\":1},\"commitment\":\"901450ce15216cd1\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":239,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "13f77c55e0c7eebca82a179a0c269cea17e332c72b5ea3551c601d1ea491a143d04b2d592ccf1f7642cf0eac6aea48edcb68b33e56b032bacea3c1787b23060b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":53012,\"by\":\"B\",\"caravan\":{\"partition\":\"p266\",\"sender\":\"B_p266\",\"seq\":1},\"commitment\":\"f03f012edbdbf503\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":240,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "09e04df2f8513c3ddc2e60e706efa172b0a66fd6c6281ab502dfac31401ab001fa8fa01153f86789633f47fba4089f6e600f1ca3ce89f4a315a14174ec011b03"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":53212,\"by\":\"B\",\"caravan\":{\"partition\":\"p267\",\"sender\":\"B_p267\",\"seq\":1},\"commitment\":\"731e5f9fcb5895ec\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":241,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6dc7ee174d9d23c2320b98b4c2f6ff4f0d0f3f8fcdf8afd5439963cf419458eebe3e620cf0edf306abbf356174732ea6e26600645d0e1080202f3cd302e75601"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":53412,\"by\":\"B\",\"caravan\":{\"partition\":\"p268\",\"sender\":\"B_p268\",\"seq\":1},\"commitment\":\"84a44286cccd7c6e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":242,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "664d14cfd479dabd765c920a36358cc2e264e4ebd4fc3f0fb9a252444b79e28f0a60d6abfbe90d31f8f52aba11089042a486a10c688b6d5dd6df6ebfd9b5a50b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":53612,\"by\":\"B\",\"caravan\":{\"partition\":\"p269\",\"sender\":\"B_p269\",\"seq\":1},\"commitment\":\"e0ac5cd7866fc372\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":243,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0456a2e54e0e4777d66c0b3625be71dee306cdab82807fab097cd3f2f33f94b7ced0a836a6f32f5a04dc5805ee1985fcb48bb8b8677fc70e6364a0000601df0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":54012,\"by\":\"B\",\"caravan\":{\"partition\":\"p271\",\"sender\":\"B_p271\",\"seq\":1},\"commitment\":\"944bcfc87207fc76\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":244,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "83cb2d28400f451c703bd4737fe6237e519d50ec74d0fdf40ca6951593db8a3f386dabd80d46c13bd2768c77251138a56f44c4daa663214d02fec631de7cc003"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":5412,\"by\":\"B\",\"caravan\":{\"partition\":\"p28\",\"sender\":\"B_p28\",\"seq\":1},\"commitment\":\"bbd45699483c0866\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":26,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d623cc5b68e3596f3ce6781ede78f312477b46b6305372cecf08fe6f210c65e5320d9eeb9b0212a938674618e72b57b9bf87fa56ccf1e4b15045a24e97773f0b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":54212,\"by\":\"B\",\"caravan\":{\"partition\":\"p272\",\"sender\":\"B_p272\",\"seq\":1},\"commitment\":\"a85554bad7020412\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":245,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "e204238fa25e8aa6ab687579b861ab7178046e7ec6c90b41c3f0810921c939e475c68e730ab3886d65af2fa135f29e2539c786e50a78868c504417ded4b57e0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":54412,\"by\":\"B\",\"caravan\":{\"partition\":\"p273\",\"sender\":\"B_p273\",\"seq\":1},\"commitment\":\"3d598cb868f81008\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":246,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a9d047b9e169a003c7d98e9a51409db19abff8b40ee9369948f63f3e561bb0f2963b15301076d5959e11ac9c43d9e9d87faf9d84fd07f5a3f68ec4c0578aff0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":54612,\"by\":\"B\",\"caravan\":{\"partition\":\"p274\",\"sender\":\"B_p274\",\"seq\":1},\"commitment\":\"d21b3def335cc35f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":247,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0c6c42cf9eaaa829d89d91b777295fcf182f8c20ee2aace242b6e8a50f9c3179435eb0acf87b6437e08a6f2af052e8c6a682f8e5618e395c27ff77ca28d44506"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":54812,\"by\":\"B\",\"caravan\":{\"partition\":\"p275\",\"sender\":\"B_p275\",\"seq\":1},\"commitment\":\"a4e040de3ebd39d5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":248,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "feee000bfe057257e82562649638e98ed18a55ddec4f8a2357b536a8f26760528d0fe86037fa03501c31d9ade2a4f6ccb786843e837c0d8ed040fdc7bcfd1906"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":55012,\"by\":\"B\",\"caravan\":{\"partition\":\"p276\",\"sender\":\"B_p276\",\"seq\":1},\"commitment\":\"0173af67cd49f12f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":249,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "8b1d6f8535331e6609f8e08bbfb3f46a969e864d5a30dfea5edae2da97cebe952ad0ad51cb5a015a27be9a45beaed28b5c5a23cfb17d64dbb6a7ab517bfd5102"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":55212,\"by\":\"B\",\"caravan\":{\"partition\":\"p277\",\"sender\":\"B_p277\",\"seq\":1},\"commitment\":\"6cc8f40e093d54d5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":250,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "dc0a12b209059d9035ed3aaaad1156ba35008aaa54ed0e3cc8dd85c3165f914d8ee6fe4af3233fba17f5ebe13dc53823ad87182bf3eea8b9a0fcc534eec58302"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":55412,\"by\":\"B\",\"caravan\":{\"partition\":\"p278\",\"sender\":\"B_p278\",\"seq\":1},\"commitment\":\"c88e52f82abb964f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":251,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "88d487d90d297cb4fb4acbe454ae2b668d27880176211f7ccbfc947949896a3d5163ea08c898a9302cf971191077597a0186a223525e5debc19f81e49cbc5a04"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":55612,\"by\":\"B\",\"caravan\":{\"partition\":\"p279\",\"sender\":\"B_p279\",\"seq\":1},\"commitment\":\"29ef097b23e265b6\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":252,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6c9f8eed4ba53cd41efed0035a25b17636e26c7d7442d75a922f08a75cbbad938ceb605756dcf13e30c72e509dc8aee27151e609e811de27a8ac1eadc46bb90f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":56012,\"by\":\"B\",\"caravan\":{\"partition\":\"p281\",\"sender\":\"B_p281\",\"seq\":1},\"commitment\":\"b7cb6201094c023f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":253,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a419bd9e40f39ff890270005f43cfe381b9f7715bffd14768d39bb4c0b0989a3a8393b8af64b72dc0287ca13827d3c9495af7fb7c567f0d476ad0f4735090507"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":5612,\"by\":\"B\",\"caravan\":{\"partition\":\"p29\",\"sender\":\"B_p29\",\"seq\":1},\"commitment\":\"b14731b5b9506a1b\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":27,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "634e61144c9222729f4a9908aab833f0a179c41938254d9b37390951d9eae8d72891ea6e84408acbb2ee59659b9ed78d5ddce63070fbebbbd3f688890d950806"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":56212,\"by\":\"B\",\"caravan\":{\"partition\":\"p282\",\"sender\":\"B_p282\",\"seq\":1},\"commitment\":\"e149b835542c5b11\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":254,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "ae1e1124f7fc8faa756425e0ec1134784acef05058892e6b4d9d291b8718768d893121ebf2ceb9831c73d06e85881ff3c97c979217994f90042a86a6facc4104"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":56412,\"by\":\"B\",\"caravan\":{\"partition\":\"p283\",\"sender\":\"B_p283\",\"seq\":1},\"commitment\":\"2321306f23084d07\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":255,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "301bb5fe0864ad1838bb7f13e52f3567df5684380f224eb4e3d503a58d33b94b32101faf8c258eeb2e46f3575afd57ea03a600f61fea45f93bca295b80efe40d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":56612,\"by\":\"B\",\"caravan\":{\"partition\":\"p284\",\"sender\":\"B_p284\",\"seq\":1},\"commitment\":\"3f63043ebc3557db\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":256,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "2cf7f659f2d3ba73fb6e7acb8de3a6118cf40c1afcee292f763a3c1a2e1858863fc6e29816670a28cc6f99268ddf3c8426a170dd28adf6eca9ff3ca67194a205"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":56812,\"by\":\"B\",\"caravan\":{\"partition\":\"p285\",\"sender\":\"B_p285\",\"seq\":1},\"commitment\":\"343843a6746767d6\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":257,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0a2660b89b3fb6507dfa4c7a628187482271447350f879bd4cd882bbd39ff3e3b05562b9bd0e43b30354b96204d4fc4e67ad8a201f37f1df0a87f4193533da06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":57012,\"by\":\"B\",\"caravan\":{\"partition\":\"p286\",\"sender\":\"B_p286\",\"seq\":1},\"commitment\":\"6502a6dddf0f1b19\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":258,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "53e6fb14e7308145f81b2d1676c95bdb483ea8ef7a8fa5dbfa868f7cc673ac11ccca4426604116d80b5a5c82625359972924a872bd48409b3fb546e4ee4b1b06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":57212,\"by\":\"B\",\"caravan\":{\"partition\":\"p287\",\"sender\":\"B_p287\",\"seq\":1},\"commitment\":\"fc730630439c39ca\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":259,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1595e3be171604aa6a043898dbcdcbcd7d59d0262fd9d0a8056b2dfbe000aa531bffd619e368dfbd8cc28e54b391fc288fc5ecf1b890f094c170de121ab62f07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":57412,\"by\":\"B\",\"caravan\":{\"partition\":\"p288\",\"sender\":\"B_p288\",\"seq\":1},\"commitment\":\"6f1a5090427d8b52\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":260,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "061f7c6accfec76a49e6fb95ce94fdaed94cfeea77245fa8e2c562de8d11a7c3a3bf9e79be72802a84f2f27b51819c167ebe6f99ed951393b04b38cbc780c10c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":57612,\"by\":\"B\",\"caravan\":{\"partition\":\"p289\",\"sender\":\"B_p289\",\"seq\":1},\"commitment\":\"a4eb5bcd45c36bc4\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":261,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "68378a4851ef721169b7973aa03e76b547b7babde9ae972485b18cbbff57a6f36e622f23853f35fcd9051c6445e32f21c7d0f21ac89bda6313ac6ac3f9150b06"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":58012,\"by\":\"B\",\"caravan\":{\"partition\":\"p291\",\"sender\":\"B_p291\",\"seq\":1},\"commitment\":\"c99c127c341037af\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":262,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "9bdce2fe5f289c9ed99d637e4380abf121a37e59b67d2fd5f5a4f388e03d6f63d5bcd2adeae63acf195c5c7ff09ee133aa684ba38c2906ae4bdf3a861ecc1e0c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":58212,\"by\":\"B\",\"caravan\":{\"partition\":\"p292\",\"sender\":\"B_p292\",\"seq\":1},\"commitment\":\"aec5c88500ccf521\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":263,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "1b07de0bb3041900abfa3507a9cdc82f2060e3a8c2304e4a88e807cfcb28e8e9913da01fbae1ad3e66653c4345a692be709eec080e8409d4b5a54087cb5afd0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":58412,\"by\":\"B\",\"caravan\":{\"partition\":\"p293\",\"sender\":\"B_p293\",\"seq\":1},\"commitment\":\"df6fd1d17f9b0447\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":264,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "40718db945138f09fa02080386f7f81612a2d735deb2e053ed208f5cf89e7b4253d96886af9b327b3c80026fdc37d35dc96af547a0c2a83202401ea41dada200"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":58612,\"by\":\"B\",\"caravan\":{\"partition\":\"p294\",\"sender\":\"B_p294\",\"seq\":1},\"commitment\":\"602b6558ef112d8e\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":265,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "acd00519bc5396ae093315875d1f1677ffd4aa490d3917290a1b53aca7f22e013c1e0a5c8fb8b15085de0333158a08175c030d24007f57fdc9637965d2017a0b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":58812,\"by\":\"B\",\"caravan\":{\"partition\":\"p295\",\"sender\":\"B_p295\",\"seq\":1},\"commitment\":\"8ccaeb061eeea629\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":266,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "c8f878dc4d38d81337bdb4456c0024f4e8383dc52d2d7844ae3748d2630a63d55d552790618aaced33ecddd72072e01bf41bba53c30b87bd44559a0d1ef79800"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":59012,\"by\":\"B\",\"caravan\":{\"partition\":\"p296\",\"sender\":\"B_p296\",\"seq\":1},\"commitment\":\"48171eff3d0e5c55\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":267,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "73030ad76a5679e76413d49cf534b5964a4e9e060f49ed099a89ac8f648be3047b6a7d5adcf1d31f4ee98d026929d0002b31cbb181b38916af76c7d117e16205"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":59212,\"by\":\"B\",\"caravan\":{\"partition\":\"p297\",\"sender\":\"B_p297\",\"seq\":1},\"commitment\":\"ebb4f93dfa3c5ecf\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":268,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "51f852855ef85c975157a3cd59692055492c0e658f6ccfea49e57fc2d11b65d380e4f0bc7c8fcfcf8790003024c6ac265b5c64af2942d8550d2254ed4b65ec0b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":59412,\"by\":\"B\",\"caravan\":{\"partition\":\"p298\",\"sender\":\"B_p298\",\"seq\":1},\"commitment\":\"2b294dd616c56603\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":269,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "bef166a09ed72231c5cf24954e85f94ae451bca28ea46ad5d47b131ec6a60a92ac99044a98a1b217cf1c7a818dfc7c895a69935b7a3777157fc2fb7c18e3f50f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":59612,\"by\":\"B\",\"caravan\":{\"partition\":\"p299\",\"sender\":\"B_p299\",\"seq\":1},\"commitment\":\"50fa290ad3b6b6d9\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":270,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a16e385658f990b89df4d7fdeefbee501a844b92f063be02264abc1d20e20455527db66d6a63e7aa22d9f3ac7157c0a5178142876578ccb16953c77a3e803b0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":6012,\"by\":\"B\",\"caravan\":{\"partition\":\"p31\",\"sender\":\"B_p31\",\"seq\":1},\"commitment\":\"92cd3599cd160dbb\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":28,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "0fb5cc429c65857b2c7c0f4e66266ef523a1a239d2ff3040beb02315b63ea54a381e1893a1dec77d5eed5e623e8d5beab40c177b6b4d8be582dee7b46a0ff70c"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":612,\"by\":\"B\",\"caravan\":{\"partition\":\"p4\",\"sender\":\"B_p4\",\"seq\":1},\"commitment\":\"3486d9bf8d9e10dc\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":4,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b2ce97381726fe047d8a7e6ac0ff8cdff4a5675430afdafe2f974f95b1632f3c467b8de62f8a48132a4a27feb82440b22103fd62a7f6abeb30d621dedd876a01"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":6212,\"by\":\"B\",\"caravan\":{\"partition\":\"p32\",\"sender\":\"B_p32\",\"seq\":1},\"commitment\":\"cc44fd819aca14d8\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":29,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b7bc7e3dc5fd62eca906ea1f77123332281b49d72032eaaf00edd9270306807da10a29654e0d467ce58e8df982a31cfb2e46b0378d2e15fb897c37ebdee28e0b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":6412,\"by\":\"B\",\"caravan\":{\"partition\":\"p33\",\"sender\":\"B_p33\",\"seq\":1},\"commitment\":\"bd0723cd95b59376\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":30,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6203af4ddd58917f7f4041965192380478710a0844cd949d20601f8c73d93df4cb28d07ec1b61ea0ac208a6945252ec631ea05660ece1681e7ad1a09e47e3a07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":6612,\"by\":\"B\",\"caravan\":{\"partition\":\"p34\",\"sender\":\"B_p34\",\"seq\":1},\"commitment\":\"831cc35676190470\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":31,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "6128a28eee863a51dcfe63f51e2a51871bd3cd89cf9fd7626a7299237f2adb74b2dbea995a3b7bb084e908a2bdb21efd8062d6c6c0348876526f90f0fe7cc603"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":6812,\"by\":\"B\",\"caravan\":{\"partition\":\"p35\",\"sender\":\"B_p35\",\"seq\":1},\"commitment\":\"a247ac041d94ad10\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":32,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "00c8714c36ddbe0027a8d3126cd4243e1d976a2c51696db2b1ccea76f614b799576b76da6406d7343f5064c6b8abece7b342591853b0a24f401a094befcbe702"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":7012,\"by\":\"B\",\"caravan\":{\"partition\":\"p36\",\"sender\":\"B_p36\",\"seq\":1},\"commitment\":\"339e7206079edfdd\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":33,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "88527117a0bef21b22989d87cb051f6e02e3826afa91a9de2176b3b7f65fb9ea9778e76880f736fdda40a087cc971ed359b0abf127e55ff636f468aeb00aa902"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":7212,\"by\":\"B\",\"caravan\":{\"partition\":\"p37\",\"sender\":\"B_p37\",\"seq\":1},\"commitment\":\"e314d4345d1fca59\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":34,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b7f6084ac923b6a4e46d6a344da3edaa232085a92104e56ef199dcf246b379687116588830c27f918904485506171c733476c1a0eac7948a0c8762bfe0a07f07"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":7412,\"by\":\"B\",\"caravan\":{\"partition\":\"p38\",\"sender\":\"B_p38\",\"seq\":1},\"commitment\":\"9fad9f7ac2bc70f5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":35,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b88b21e90a24f93a117d37ac95dc0331fcf95f00aa100841dd6660da34e4aad792aa621197577ad540198a2cc52715d436aaeb050dfbba23dda0e65afa3e7e05"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":7612,\"by\":\"B\",\"caravan\":{\"partition\":\"p39\",\"sender\":\"B_p39\",\"seq\":1},\"commitment\":\"23a6f2d6057b1691\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":36,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "fa86c81b08f86d40e6ff63486b50d4e0fba951f08ee4b48bf7db07714ec67d61dc018925bfb15f747478851efee6790136ce13563889fe8b6cc3847fb4f59702"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":8012,\"by\":\"B\",\"caravan\":{\"partition\":\"p41\",\"sender\":\"B_p41\",\"seq\":1},\"commitment\":\"17445b5be36c93f5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":37,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "4d7004c688c86ea633dd4b40f042ce98b4f5ad48fe7f261e6a59facdbae0078d9573795d405b6482c4a7556a16bab82f267355d6f26edd69f81995aedf8c110d"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":812,\"by\":\"B\",\"caravan\":{\"partition\":\"p5\",\"sender\":\"B_p5\",\"seq\":1},\"commitment\":\"627198bf3944fe5f\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":5,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "60f423ac7e975fbe06800756303633ab7b9797cd0ce67667be425594d2a397cdfb05a1a5764889cb334ac850f96ca354b246671ab3be5c39c9291e09eaed3108"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":8212,\"by\":\"B\",\"caravan\":{\"partition\":\"p42\",\"sender\":\"B_p42\",\"seq\":1},\"commitment\":\"7067738374390185\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":38,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "d51860e08d3f1f695ae7481f9d7f17944a898f9f2612079df38c6b73504882c16feaf97f3bbbc35624a75a9e3d1cff314bc0729b6263478e35a03b18aa208605"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":8412,\"by\":\"B\",\"caravan\":{\"partition\":\"p43\",\"sender\":\"B_p43\",\"seq\":1},\"commitment\":\"6b5d57037feda705\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":39,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "26d7ae60090cc9029db4ab46473d38fcd2cc2d3d0431aa32840d3e84f192a9d5616fcc25a92f0bf085737d73d824130fc0904f658c080ffa016f0262666ea70b"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":8612,\"by\":\"B\",\"caravan\":{\"partition\":\"p44\",\"sender\":\"B_p44\",\"seq\":1},\"commitment\":\"1f7fd2d90f11a7e5\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":40,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "b9bf988c3e8b30de540facb312f9db9820a79e5e7eea7fa8eada763480b156378a969523e4493a73ce942a5f509171197926a28a471fb856139a88ca857a5d00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":8812,\"by\":\"B\",\"caravan\":{\"partition\":\"p45\",\"sender\":\"B_p45\",\"seq\":1},\"commitment\":\"29f034a498422211\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":41,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "3cd7f372fe4f70cb70d7762a78f5d6e0d239ba0c65fc36971e4d8bc8d824ce4618ad1a5c4006f6dfee8f77cb8f632292d38d62199b64cb26cccfc1d3e0055f0f"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":9012,\"by\":\"B\",\"caravan\":{\"partition\":\"p46\",\"sender\":\"B_p46\",\"seq\":1},\"commitment\":\"9cfdfbf8156bc3bd\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":42,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "f67d2b3994b1722e20d4f4f7bd46359537d53250e11445f79cfbb333a8b64235c5d0705ad1bf3ccec0cff7899cdc1ddc9e45773bda86d2b93212d12f92a4ac00"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":9212,\"by\":\"B\",\"caravan\":{\"partition\":\"p47\",\"sender\":\"B_p47\",\"seq\":1},\"commitment\":\"6e8debfddb8b7282\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":43,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "09a96ef3dd45a6233008e067c3cad958521409ba8a26c8ec9a4c8aab0ab04c383e34f5673553515117ae090f2d2b300f6265191d59df3a89b638e9495e13a80e"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":9412,\"by\":\"B\",\"caravan\":{\"partition\":\"p48\",\"sender\":\"B_p48\",\"seq\":1},\"commitment\":\"99e5801e279fc25d\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":44,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "a29182db8b3a599d39335794a5f69cb713e6a243de4126264bf8ee5d6124afb741b7c926fe32a4385e8d4bdbf1ad5c9113d7967c3bce6eba6d60fd1d0a97e507"
+  },
+  {
+   "tag": "B",
+   "bytes": "{\"bell\":9612,\"by\":\"B\",\"caravan\":{\"partition\":\"p49\",\"sender\":\"B_p49\",\"seq\":1},\"commitment\":\"54909ad69203b0a2\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":45,\"op\":\"set\",\"qty\":100,\"visibility\":{\"members\":[\"A\",\"B\"],\"scope\":\"parties\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "bc043d4034972dd0462e6d421f378bf4663896f4c9763b8b0689b6800d7d49e9f78ba8671501f2dd1edfe900599f8e6e6a45e4d4f81fe70e81db11186982b601"
+  },
+  {
+   "tag": "C",
+   "bytes": "{\"bell\":102,\"by\":\"C\",\"caravan\":{\"partition\":\"p1\",\"sender\":\"B_p1\",\"seq\":7},\"commitment\":\"f6053dbb25754692\",\"domain\":\"wylls-memory12-allocation/v2\",\"nonce\":1,\"op\":\"set\",\"qty\":100,\"visibility\":{\"scope\":\"public\"},\"world\":{\"cluster\":\"localnet-fixture\",\"world_id\":\"wylls-fixture-world\"}}",
+   "sig": "aa098068f64030ac0f30d16c64fc01a0f6335ceb9324192410c020b0a44d4b05c2a2b6f88f1e4634317d26604869c1577f1ff0c386c537f5fca19ba1cf7c2d0b"
+  }
+ ]
+}

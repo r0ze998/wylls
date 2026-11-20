@@ -1,10 +1,16 @@
-# Workstream 12 test files audited key-free, with every module they import (12's src and adapters, and
+# Workstream 12 test files audited key-free, with every module they import (12's src, adapters and fixtures, and
 # permutation-gateway citizens/memory {config,ledger,retrieve}, citizens/mind/sanitize, citizens/persona/names,
 # permutation-server web/frontier/people/identity): node:crypto is used only for createHash and, when a signed
 # allocation is present, createPublicKey + verify of someone else's signature. None of these files makes one.
-# Only these files are run (tools/test-nokey.sh). Not listed: files that use fixtures/scenario.mjs signed
-# allocations or keysFor, and adapters-ws13-real.test.mjs (it loads workstream 13's demo through the gateway, whose
-# callees were not audited here).
+# Only these files are run (tools/test-nokey.sh, CI memory12). (2026-11-20, ws12-next: 20 of 22 files.)
+#   - Signed allocations come from fixtures/presigned.mjs: the signatures the fixture's deterministic TEST-ONLY keys
+#     make, read from fixtures/presigned-signatures.json (tools/presign.mjs writes it). No key is derived or used.
+#   - memory12.test.mjs runs demo/run-demo.mjs as a child (same presigned fixture; this run's preloads go with it).
+#   - ws04-observe-cli.test.mjs calls 13's observe-canonical main with every I/O injected (execFile included).
+#   - adapters-ws13-real.test.mjs loads 13's demo world (needs `npm ci` in permutation-gateway, else it skips): 13's
+#     harness is keyless unless WS13_WITH_KEYS=1 (13 world/identity.mjs), so no resident makes a key.
+# Not listed (key tests: they sign with the fixture keys): allocation-signature.test.mjs (the signature IS the
+# subject: forged signer, tampered field, edited journal line) and presigned-table.test.mjs (re-signs the table).
 test/adapters-canonical.test.mjs
 test/adapters-ws13-canonical.test.mjs
 test/independent-world-boundary.test.mjs
@@ -13,3 +19,15 @@ test/citizens-characterization.test.mjs
 test/provenance-coverage.test.mjs
 test/evidence-basis.test.mjs
 test/persistence-keyfree.test.mjs
+test/adapters.test.mjs
+test/continuity.test.mjs
+test/contract-v3.test.mjs
+test/evidence.test.mjs
+test/longrun.test.mjs
+test/memory12.test.mjs
+test/quantity-units.test.mjs
+test/live-observation.test.mjs
+test/ws04-observation.test.mjs
+test/ws04-observe-cli.test.mjs
+test/adapters-ws13-real.test.mjs
+test/public-evidence-reader.test.mjs

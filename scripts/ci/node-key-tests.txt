@@ -457,14 +457,8 @@ workstreams/07-player-experience/tests/repro/siege-precheck.repro.test.mjs
 workstreams/07-player-experience/tests/return-summary.test.mjs
 workstreams/07-player-experience/tests/shortfall.test.mjs
 workstreams/07-player-experience/tests/siege-precheck.test.mjs
-workstreams/12-memory/test/adapters.test.mjs
-workstreams/12-memory/test/continuity.test.mjs
-workstreams/12-memory/test/contract-v3.test.mjs
-workstreams/12-memory/test/evidence.test.mjs
-workstreams/12-memory/test/longrun.test.mjs
-workstreams/12-memory/test/memory12.test.mjs
-workstreams/12-memory/test/quantity-units.test.mjs
-workstreams/12-memory/test/ws04-observe-cli.test.mjs
+workstreams/12-memory/test/allocation-signature.test.mjs
+workstreams/12-memory/test/presigned-table.test.mjs
 workstreams/13-citizens/test/continuity.test.mjs
 workstreams/13-citizens/test/cost.test.mjs
 workstreams/13-citizens/test/demo.test.mjs
@@ -544,7 +538,6 @@ workstreams/04-execution/clients/runs.test.mjs
 workstreams/05-ai-participation/model-api/test/multiprocess.test.mjs
 workstreams/05-ai-participation/model-api/test/safety-e2e.test.mjs
 workstreams/05-ai-participation/model-api/test/ws13-stop.test.mjs
-workstreams/12-memory/test/adapters-ws13-real.test.mjs
 workstreams/13-citizens/test/integration-records.test.mjs
 workstreams/14-central-tower/game/centre.test.mjs
 # seen by the guard (they reach a key API in src/ at run time; added by hand)

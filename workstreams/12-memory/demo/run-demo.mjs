@@ -5,7 +5,7 @@
 // understand the memory, nor that people find the result interesting.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { ARMS, A, SECOND_BELL, runArm } from '../fixtures/scenario.mjs';
+import { ARMS, A, SECOND_BELL, runArm } from '../fixtures/presigned.mjs';
 import { renderBlock, summarize } from '../src/index.mjs';
 import { canonical, sha256hex } from '../src/records.mjs';
 import { reliabilityOf } from '../src/fold.mjs';
