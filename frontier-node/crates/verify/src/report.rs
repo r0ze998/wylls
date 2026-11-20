@@ -109,6 +109,33 @@ pub fn markdown(r: &Report) -> String {
             ));
         }
     }
+    if let Some(b) = r
+        .history
+        .as_ref()
+        .and_then(|h| h["failBasis"].as_array())
+        .filter(|b| !b.is_empty())
+    {
+        let h = r.history.as_ref().unwrap();
+        let why: Vec<String> = b
+            .iter()
+            .filter_map(|x| x.as_str())
+            .map(|x| match x {
+                "self_contained" => format!(
+                    "{} FAIL finding(s) decided inside fetched transactions (self-contained, ⑪)",
+                    h["selfContainedFails"]
+                ),
+                "vg_witnessed" => format!(
+                    "VG's {} FAIL finding(s) (the pinned program re-executed from the Season's creation) over a history every witness served identically (VS; ⑰ Q-P2 — agreement lifts for FAIL only, never for PASS)",
+                    h["vgFails"]
+                ),
+                o => o.to_string(),
+            })
+            .collect();
+        s.push_str(&format!(
+            "- FAIL rests on (history not shown whole): {}\n",
+            why.join("; and ")
+        ));
+    }
     s.push_str(&format!("- Checks run: {}\n", r.checks_run.join(", ")));
     let c = &r.counts;
     s.push_str(&format!(
