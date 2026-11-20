@@ -190,10 +190,16 @@ pub async fn anchor_of<P: ChainPort>(
     Ok(None)
 }
 
+/// The fee payer of a size probe: build the probed instruction with its
+/// address (a payer the probe's key does not sign is a build error).
+pub fn size_signer() -> solana_keypair::Keypair {
+    solana_keypair::Keypair::new_from_array([7; 32])
+}
+
 /// The encoded size of `ixs` with the keeper's largest budget prefix (a dummy
 /// signer and blockhash: the size only).
 pub fn encoded_len(ixs: &[Instruction]) -> Result<usize, String> {
-    let k = solana_keypair::Keypair::new_from_array([7; 32]);
+    let k = size_signer();
     let budget = fclient::tx::TxBudget {
         cu_limit: fclient::abi::CU_MAX,
         cu_price: 1,
@@ -207,8 +213,12 @@ pub fn encoded_len(ixs: &[Instruction]) -> Result<usize, String> {
 impl ExpeditionDuty {
     pub fn on_outcome(&mut self, key: &str, o: &Outcome) {
         match o {
-            Outcome::Landed { slot, .. } => self.landed.push((key.to_string(), *slot)),
+            Outcome::Landed { slot, .. } => {
+                eprintln!("frontier-keeper: expeditions: {key} landed at slot {slot}");
+                self.landed.push((key.to_string(), *slot))
+            }
             Outcome::Failed { err, code, .. } | Outcome::Dead { reason: err, code } => {
+                eprintln!("frontier-keeper: expeditions: {key} refused: {err} (code {code:?})");
                 self.refused
                     .push((key.to_string(), format!("{err} (code {code:?})")));
                 if let Some(x) = transit_of(key) {
@@ -277,6 +287,10 @@ impl ExpeditionDuty {
                     format!("stopped: {stop}")
                 }
             };
+            if self.last.get(&external) != Some(&what) {
+                // (one line per change of decision: the operator's log)
+                eprintln!("frontier-keeper: expeditions: transit {external}: {what}");
+            }
             self.last.insert(external, what);
         }
         for (k, e) in &play.index.expeditions {
@@ -647,7 +661,7 @@ impl ExpeditionDuty {
             Ok(steps::Plan::Gather { bell, start }) => {
                 read_into(port, &steps::position_slots(a, arr.dest, bell), &mut acc).await?;
                 let read = |k: &Address| acc.get(k).cloned();
-                let dummy = adr([7; 32]);
+                let dummy = solana_signer::Signer::pubkey(&size_signer());
                 let mut best = 0u8;
                 for n in 1..=(steps::POSITIONS - start) {
                     let ix = match steps::gather_ix_with(
@@ -698,6 +712,8 @@ impl ExpeditionDuty {
                     t.slot,
                 ) {
                     engine.set_cu_limit(&key, CU_GATHER);
+                    // (a full batch writes past the default 32-KiB heap: P10 run 2's first version faulted)
+                    engine.set_heap(&key, fclient::abi::HEAP_FRAME_RETRY);
                 }
                 Ok(Ok(format!(
                     "ExpeditionGather(bell {bell}, from {start}, {best} positions)"
@@ -882,5 +898,75 @@ impl ExpeditionDuty {
                 Ok(Ok(format!("SettleMember (fate {fate})")))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef};
+
+    /// P10 run 3: the Gather's batch was sized with a probe whose fee payer was not the probe's signer, so every size
+    /// "failed" and the transit stopped ("no Gather batch from position 0 fits the packet"). The probe's payer is
+    /// [`size_signer`]'s; a one-position batch fits and the widest one stays within the packet.
+    #[test]
+    fn a_gather_batch_is_sized_against_the_packet_with_the_probe_signer() {
+        let a = fclient::addr::Addresses::new(Address::new_from_array([3; 32]), 1);
+        let ctx = steps::ctx_of(&a);
+        let resolver =
+            frontier_abi::world_index::expedition::AccountResolver::for_season(&ctx).unwrap();
+        let world = resolver
+            .legacy_host_ref(fclient::addr::host_id(128, 0, 1, 0, 0).unwrap())
+            .unwrap()
+            .key()
+            .world();
+        let dest = ProvinceKey::new(world, WideCoord::checked(129, 0).unwrap());
+        let host = WideHostRef::new(
+            ProvinceKey::new(world, WideCoord::checked(128, 0).unwrap()),
+            1,
+            0,
+            0,
+        )
+        .unwrap();
+        let arr = steps::Arrival {
+            transit_slot: 0,
+            external: Address::new_from_array([4; 32]),
+            host,
+            faction: 1,
+            arrive: 21,
+            dest,
+            dest_key: Address::new_from_array([5; 32]),
+            region: 2,
+            position: 4,
+            slot: Address::new_from_array([6; 32]),
+            commit: [0; 32],
+            seal: [0; frontier_abi::world_index::seal::WIDE_SEAL_LEN],
+        };
+        let read = |_: &Address| None;
+        let payer = solana_signer::Signer::pubkey(&size_signer());
+        let len = |n: u8| {
+            let ix =
+                steps::gather_ix_with(&read, &a, &payer, &arr, 21, 0, n, &a.anchor(21, 2)).unwrap();
+            encoded_len(std::slice::from_ref(&ix)).unwrap()
+        };
+        assert!(len(1) <= PACKET_BYTES, "one position fits: {}", len(1));
+        let widest = (1..=steps::POSITIONS)
+            .take_while(|&n| len(n) <= PACKET_BYTES)
+            .last()
+            .unwrap();
+        assert!(widest >= 1 && len(widest) <= PACKET_BYTES);
+        // a probe whose payer the key does not sign is an error, never a size
+        let ix = steps::gather_ix_with(
+            &read,
+            &a,
+            &Address::new_from_array([7; 32]),
+            &arr,
+            21,
+            0,
+            1,
+            &a.anchor(21, 2),
+        )
+        .unwrap();
+        assert!(encoded_len(std::slice::from_ref(&ix)).is_err());
     }
 }

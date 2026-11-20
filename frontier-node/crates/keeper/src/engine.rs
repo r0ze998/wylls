@@ -572,6 +572,14 @@ impl Engine {
     /// Sets the CU limit of a pending write (a duty that sizes its own,
     /// e.g. SkipQuiet's `90k + 30k` per recomputed bell, I-50, v1.7); the retry
     /// ladder continues from it.
+    /// Requests the retry heap frame from the first version of a pending write (a duty that knows its write needs
+    /// more than the default 32-KiB heap, e.g. P13's ExpeditionGather of a full batch); the ladder is unchanged.
+    pub fn set_heap(&mut self, key: &str, heap: u32) {
+        if let Some(p) = self.pending.get_mut(key) {
+            p.heap = Some(heap);
+        }
+    }
+
     pub fn set_cu_limit(&mut self, key: &str, cu: u32) {
         if let Some(p) = self.pending.get_mut(key) {
             p.cu_limit = cu.min(abi::CU_MAX);
