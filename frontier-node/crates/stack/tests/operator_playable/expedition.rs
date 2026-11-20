@@ -1,4 +1,4 @@
-//! P10 (devnet-expedition-keeper; devnet runbook gaps P10 + P13): a RIM → WIDE EXPEDITION on a devnet wide season,
+//! P11 (devnet-expedition-keeper; devnet runbook gaps P10 + P13): a RIM → WIDE EXPEDITION on a devnet wide season,
 //! offline, on the exact devnet `.so`, driven by keeper A after the player's ExpeditionDepart.
 //!
 //! After P5's world (the operator's setup; keeper A seeding the season, opening the rim's provinces and, with
@@ -54,9 +54,9 @@ fn program_rows(r: &Run<'_>, since_slot: u64) -> Vec<Value> {
         .collect()
 }
 
-/// verify-pr121 (`OPERATOR_P10_RESTARTS=1`): kill keeper A and start it again from the same config and journal.
+/// verify-pr121 (`OPERATOR_P11_RESTARTS=1`): kill keeper A and start it again from the same config and journal.
 fn restart_keeper(r: &mut Run<'_>, n: &mut u32, why: &str) {
-    let Some(restart) = r.c.p10_restarts.as_ref() else {
+    let Some(restart) = r.c.p11_restarts.as_ref() else {
         return;
     };
     let (bin, config) = (restart.bin.clone(), restart.config.clone());
@@ -66,7 +66,7 @@ fn restart_keeper(r: &mut Run<'_>, n: &mut u32, why: &str) {
         let _ = child.wait();
     }
     *n += 1;
-    eprintln!("p10: keeper A restart {n} ({why})");
+    eprintln!("p11: keeper A restart {n} ({why})");
     *r.c.keeper = std::process::Command::new(&bin)
         .args(["--config", config.to_str().unwrap()])
         .env("FRONTIER_KEEPER_TICK_LOG", "1")
@@ -524,7 +524,7 @@ pub(super) async fn flow(
     }
 
     // the verifier judges the whole season (the pinned .so given for VX's re-execution)
-    let verdict = r.judge_season("p10");
+    let verdict = r.judge_season("p11");
 
     let wanted = [
         "ExpeditionSettleOrigin",
@@ -558,7 +558,7 @@ pub(super) async fn flow(
         .collect();
     let once = json!({"restarts": restarts, "settle_origin": landed("ExpeditionSettleOrigin"), "reveal": landed("ExpeditionReveal"),
                       "settle_member": landed("SettleMember"), "gather": landed("ExpeditionGather"), "expedition_failed": exp_failed});
-    eprintln!("p10: exactly-once {once}");
+    eprintln!("p11: exactly-once {once}");
     assert_eq!(
         (
             landed("ExpeditionSettleOrigin"),
@@ -569,7 +569,7 @@ pub(super) async fn flow(
         "{once}"
     );
     assert!(exp_failed.is_empty(), "{once}");
-    let out = json!({"exactly_once": once, "p10_expedition": "a test participant's rim → wide expedition on the devnet .so: ONE ExpeditionDepart; keeper A sends every later step",
+    let out = json!({"exactly_once": once, "p11_expedition": "a test participant's rim → wide expedition on the devnet .so: ONE ExpeditionDepart; keeper A sends every later step",
         "plan": {"home": [hp, hq], "site": site, "nation": nation, "target": [target.p(), target.q()], "dest_region": dest_region,
                  "route": {"start_tile": start, "dirs": route.dirs, "dest_tile": route.dest_tile, "travel_upper_secs": upper},
                  "depart_bell": depart_bell, "arrive_bell": ARRIVE_BELL, "external": external.to_string()},
@@ -582,13 +582,13 @@ pub(super) async fn flow(
         "verifier": verdict, "rows": r.rows.clone(), "declared_patches": r.patches.clone(), "setup": extra});
     if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
         let _ = std::fs::write(
-            std::path::Path::new(&d).join("p10-flow.json"),
+            std::path::Path::new(&d).join("p11-flow.json"),
             serde_json::to_string_pretty(&out).unwrap(),
         );
     }
     assert_eq!(
         out["verifier"]["fails"], 0,
-        "the verifier FAILs the season (see p10-flow.json `verifier.not_warn`)"
+        "the verifier FAILs the season (see p11-flow.json `verifier.not_warn`)"
     );
     out
 }

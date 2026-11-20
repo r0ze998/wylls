@@ -40,6 +40,18 @@ pub const TROOPS: u32 = 400;
 /// The bells after the arrival the run waits for the capture and the return, at most.
 pub const AFTER_BELLS: u32 = 48;
 
+/// P10 (devnet-page-war-2): how the test stops and restarts keeper A (the same binary, config and journal) and
+/// drand-replay (the full archive, or the one without T(21)), on the same ports.
+#[derive(Clone)]
+pub struct Outage {
+    pub keeper_bin: std::path::PathBuf,
+    pub keeper_config: std::path::PathBuf,
+    pub drand_bin: std::path::PathBuf,
+    pub drand_full: Vec<String>,
+    pub drand_withheld: Vec<String>,
+    pub drand_port: u16,
+}
+
 /// `(T(21), its real signature)`: the S-TLOCK q4 vector's previous round (as `verify/tests/playable_march.rs`).
 pub fn arrive_round() -> (u64, [u8; 48]) {
     let p = fclient::seal::fixture_dir().join("q4-vector.json");
@@ -346,6 +358,9 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
     let war_plan = json!({"home": [hp, hq], "site": site, "nation": nation, "target": [tp, tq], "keep": format!("{keep0:?}"),
         "route": {"start_tile": start, "dirs": dirs}});
     if let Some(pg) = r.c.page.clone() {
+        if r.c.war.as_ref().is_some_and(|w| w.outage.is_some()) {
+            return page::flow_home(r, &pg, plan, war_plan, extra).await;
+        }
         return page::flow(r, &pg, plan, nation, war_plan, extra).await;
     }
 

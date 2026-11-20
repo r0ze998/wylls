@@ -19,7 +19,9 @@
 // seal_root), `signature` and `failure` (the send flow's record).
 //
 // Self-reveal (§9.1): at bell_start(arrive) + the delay, once; again only
-// if the ArrivalSlot is still absent 60 s later and the window is open;
+// if the ArrivalSlot is still absent 60 s later and the window is open
+// (devnet-page-war-2: an attempt the keeper never received — its link down —
+// is asked again every 60 s instead, at most MAX_SELF_TRIES in all);
 // never before the arrival bell starts, never after the window closed.
 // ⑱ (2026-10-31): with `notBefore` (the publication time of T(arrive) plus
 // a margin) never before the round that opens the seal exists either — the
@@ -32,6 +34,15 @@ export const MAX_ENTRIES = 64;
 export const REVEAL_DELAY_MAX = 20;
 export const RETRY_AFTER = 60;
 export const MAX_SELF_ATTEMPTS = 2;
+/**
+ * (devnet-page-war-2) Answers that say the material never reached a keeper: the relay could not reach its keeper link
+ * (`KeeperUnavailable`, 502/503), or the request itself never got an answer (`network`, `NoRelay`, `Unavailable`, a 5xx).
+ * Such an attempt is not one of the MAX_SELF_ATTEMPTS: the page asks again RETRY_AFTER later while the window is open,
+ * at most MAX_SELF_TRIES times in all — a keeper restarted inside the window (600 s on devnet) still gets the material.
+ */
+export const UNREACHED = Object.freeze(['KeeperUnavailable', 'network', 'NoRelay', 'Unavailable']);
+export const MAX_SELF_TRIES = 10;
+export const unreached = result => typeof result === 'string' && (UNREACHED.includes(result) || /^HTTP5\d\d$/.test(result));
 /** Seconds after T(arrive)'s round time before the material may leave (quicknet publishes within ≈ 2 s). */
 export const REVEAL_PUBLISH_MARGIN = 5;
 /** Keys an entry may never carry (the seal key and σ, web design §12). */
@@ -146,7 +157,8 @@ export function revealStep(entry, { now, bellStart, notBefore = -Infinity, windo
   if (slotPresent) return { action: 'none', reason: 'revealed' };
   if (!windowOpen) return { action: 'none', reason: 'windowClosed' };
   const self = entry.attempts.filter(a => a.route === 'self');
-  if (self.length >= MAX_SELF_ATTEMPTS) return { action: 'none', reason: 'attempted' };
+  // (an attempt that never reached a keeper is not counted: see UNREACHED; the whole is still bounded)
+  if (self.filter(a => !unreached(a.result)).length >= MAX_SELF_ATTEMPTS || self.length >= MAX_SELF_TRIES) return { action: 'none', reason: 'attempted' };
   const from = Math.max(bellStart, notBefore);
   const due = self.length === 0 ? from + (entry.revealDelay ?? 0) : Math.max(from, self[self.length - 1].t + RETRY_AFTER);
   if (now < from || now < due) return { action: 'wait', at: due };

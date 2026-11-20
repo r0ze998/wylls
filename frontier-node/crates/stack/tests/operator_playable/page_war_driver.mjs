@@ -21,6 +21,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(path.join(here, '../../../../../permutation-gateway/screens/package.json'));
 const { chromium } = require('playwright-core');
 const arg = name => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
+const SCENARIO = arg('scenario') ?? 'keep';   // 'keep' (P9) | 'home' (P10, devnet-page-war-2: the return march, keeper outages)
 const URL0 = arg('url'), OUT = arg('out'), SEED = fs.readFileSync(arg('seed-file'), 'utf8').trim(), NATION = Number(arg('nation')), INSPECT = Number(arg('inspect')), SYNC = arg('sync');
 fs.mkdirSync(OUT, { recursive: true });
 const t0 = Date.now();
@@ -32,6 +33,11 @@ const page = await ctx.newPage();
 page.on('pageerror', e => log('pageerror', String(e).slice(0, 300)));
 page.on('console', m => { if (m.type() === 'error') fs.appendFileSync(path.join(OUT, 'console.log'), m.text() + '\n'); });
 page.on('request', q => { if (q.url().includes('/gw/f/devnet-play/')) fs.appendFileSync(path.join(OUT, 'devnet-play-requests.log'), `${q.method()} ${new URL(q.url()).pathname} ${(q.postData() ?? '').slice(0, 160)}\n`); });
+// (P10: the self-reveal POSTs and their answers — the path, the status and the answer's code/track only: the body the page
+//  posts carries the plaintext and the salt, and is never logged)
+page.on('request', q => { if (new URL(q.url()).pathname.endsWith('/gw/f/reveal')) fs.appendFileSync(path.join(OUT, 'devnet-play-requests.log'), `${q.method()} /gw/f/reveal (material not logged)\n`); });
+page.on('response', async q => { if (!new URL(q.url()).pathname.endsWith('/gw/f/reveal')) return; let b = null; try { b = await q.json(); } catch { b = null; }
+  fs.appendFileSync(path.join(OUT, 'reveal-responses.log'), JSON.stringify({ at: Date.now(), status: q.status(), body: b ? { code: b.code ?? null, error: b.error ?? null, track: b.track ?? null, state: b.state ?? null } : null }) + '\n'); });
 const shot = async name => { const f = `${String(++shotN).padStart(2, '0')}-${name}.png`; await page.screenshot({ path: path.join(OUT, f) }); log('still', f); return f; };
 const ev = (fn, a) => page.evaluate(fn, a);
 const wait = ms => page.waitForTimeout(ms);
@@ -100,7 +106,7 @@ const bookNow = () => ev(async () => {
   if (!dp || !key || !FS.wallet) return { key, entries: null };
   const bk = await D.openDevnetBook(dp, FS.wallet.address);
   const plain = B.loadBook(B.browserStorage, key);
-  return { key, db: D.DEVNET_BOOK_DB, entries: B.loadBook(bk.storage, key).map(e => ({ host: String(e.host), arriveBell: e.arriveBell, state: e.state, transitSlot: e.transitSlot ?? null, attempts: (e.attempts ?? []).map(a => ({ route: a.route, result: a.result })), hasPlain: typeof e.plain_b64 === 'string' && e.plain_b64.length > 0 && typeof e.salt_b64 === 'string', signature: e.signature ?? null })),
+  return { key, db: D.DEVNET_BOOK_DB, entries: B.loadBook(bk.storage, key).map(e => ({ host: String(e.host), arriveBell: e.arriveBell, state: e.state, transitSlot: e.transitSlot ?? null, attempts: (e.attempts ?? []).map(a => ({ t: a.t ?? null, route: a.route, result: a.result })), hasPlain: typeof e.plain_b64 === 'string' && e.plain_b64.length > 0 && typeof e.salt_b64 === 'string', signature: e.signature ?? null })),
     plainLocalStorageEntries: plain.length };
 });
 const syncWait = async (name, secs = 3600) => {
@@ -150,6 +156,7 @@ await wait(5000);
 s = await state(); log('after muster', { notice: s.notice });
 await shot('muster-sent');
 fs.writeFileSync(path.join(SYNC, 'mustered.json'), JSON.stringify({ notice: s.notice }));
+if (SCENARIO === 'home') await home();
 const g = await syncWait('go-march');
 log('go-march', g);
 // the page's own keep march: compose onto the keep (stance by the keep's holder), the destination's route, the card
@@ -220,3 +227,91 @@ log('done');
 await wait(1000);
 await browser.close();
 process.exit(0);
+
+// ------------------------------------------------------------------ P10 (devnet-page-war-2): the return march home
+async function home() {
+  const g = await syncWait('go-march-home');
+  log('go-march-home', g);
+  // the page's own way home: 「村へ戻す」 (app 'host-return' → controller 'march-home': the draft from the host to its
+  // village's tile; the 軍勢 screen opens where the order card stands)
+  await act('host-return', { host: String(g.host) });
+  await wait(1500);
+  const composed = () => ev(async () => { const { FS } = await import('/frontier/frontier/fstate.mjs'); return !!FS.compose; });
+  let via = 'host-return';
+  if (!(await composed())) {
+    // (the hand's own host row may not be read yet: the controller's 'march-home' — the entry host-return calls — then
+    //  the 軍勢 tab, as host-return opens it)
+    via = 'march-home + 軍勢 tab';
+    await act('march-home', { host: String(g.host) });
+    await wait(1000);
+    await page.locator('[data-act="tab"][data-tab="marches"]').first().click({ timeout: 5000 }).catch(e => log('marches tab', String(e).slice(0, 120)));
+    await wait(1500);
+  }
+  log('the way home opened via', via);
+  const comp = () => ev(async () => { const { FS } = await import('/frontier/frontier/fstate.mjs'); const c = FS.compose; return c ? { arriveBell: c.arriveBell, earliest: c.earliest ?? null, dest: c.dest, home: !!c.home, route: c.route ? { secs: c.route.secs ?? null, dirs: c.route.dirs?.length ?? null } : null, pending: c.pending ? { untilBell: c.pending.untilBell } : null, sending: !!c.sending } : null; });
+  let c = null; for (let i = 0; i < 40; i++) { c = await comp(); if (c?.route) break; await wait(1000); }
+  log('compose (home)', c);
+  if (!c?.route || !c.home) await hold('the march home has no route on the page');
+  for (let i = 0; i < 6 && c.arriveBell !== g.arrive; i++) { await act('mc-bell', { d: String(Math.sign(g.arrive - c.arriveBell)) }); await wait(500); c = await comp(); }
+  if (c.arriveBell !== g.arrive) await hold(`the card cannot arrive at bell ${g.arrive}: ${JSON.stringify(c)}`);
+  await shot('home-march-card');
+  // what the page's own read says now: the home province's resolvedNext against the page's turn (fmarch NotResident)
+  const read = () => ev(async ({ p, q }) => { const { FS } = await import('/frontier/frontier/fstate.mjs'); const rn = FS.provinces.get(`${p},${q}`)?.province?.resolvedNext ?? null;
+    const items = [...document.querySelectorAll('.problems li')].map(x => x.textContent);
+    return { nowBell: FS.nowBell ?? null, resolvedNext: rn, notResident: rn === null || rn + 1 < FS.nowBell, problemTexts: items, waitOn: FS.marchWaitOn === true,
+      notice: FS.notice ? (typeof FS.notice.text === 'function' ? FS.notice.text() : FS.notice.text ?? null) : null }; }, { p: c.dest.p, q: c.dest.q });
+  const main = page.locator('button[data-act="march-send-wait"]:visible').first();
+  if (!(await main.count())) { await page.locator('[data-act="tab"][data-tab="marches"]').first().click({ timeout: 5000 }).catch(() => {}); await wait(1500); }
+  const r0 = await read();
+  log('before the press', r0, 'main button', await main.count(), await main.isEnabled().catch(() => null));
+  if (!(await main.count())) await hold('no waiting-send button on the devnet card (FS.marchWaitOn)');
+  if (!(await main.isEnabled())) await hold(`the card's main button is disabled while the home read lags: ${JSON.stringify(r0)}`);
+  // ONE press (never again)
+  await main.click({ timeout: 8000 });
+  await wait(1500);
+  const c1 = await comp(); const r1 = await read();
+  fs.writeFileSync(path.join(SYNC, 'pressed.json'), JSON.stringify({ problems: r0.notResident ? ['NotResident'] : [], read: r0, armed: !!c1?.pending, compose: c1, after: r1, presses: 1 }, null, 2));
+  log('pressed once', { compose: c1, read: r1 });
+  await shot('home-march-waiting');
+  // wait by itself: no more presses; note what the card says, until the order has left (the card closes)
+  let toldWait = false;
+  for (let i = 0; i < 600; i++) {
+    const cur = await comp(), rd = await read();
+    if (!toldWait && cur?.pending) { toldWait = true; fs.writeFileSync(path.join(SYNC, 'waiting.json'), JSON.stringify({ compose: cur, read: rd, label: await main.innerText().catch(() => null) }, null, 2)); }
+    if (i % 6 === 0) log('waiting (no press)', { compose: cur, read: rd });
+    if (!cur) break;
+    await wait(1000);
+  }
+  s = await state(); log('after the waiting send', { notice: s.notice });
+  await shot('home-march-sent');
+  const b1 = await bookNow();
+  await page.reload({ waitUntil: 'load' });
+  await wait(2500);
+  s = await connect();
+  await wait(4000);
+  const b2 = await bookNow();
+  fs.writeFileSync(path.join(SYNC, 'reloaded.json'), JSON.stringify({ before: b1, after: b2 }, null, 2));
+  await shot('after-reload');
+  let lastShot = 0;
+  while (!fs.existsSync(path.join(SYNC, 'go-final'))) {
+    const ms = await marchesNow(); s = await state();
+    const bk = await bookNow().catch(() => null);
+    if (bk) fs.writeFileSync(path.join(SYNC, 'book.json.tmp'), JSON.stringify(bk)), fs.renameSync(path.join(SYNC, 'book.json.tmp'), path.join(SYNC, 'book.json'));
+    log('marches', { bell: s.bell, marches: ms, book: bk?.entries ?? null });
+    if (Date.now() - lastShot > 45_000) { lastShot = Date.now(); await page.locator('[data-act="tab"][data-tab="marches"]').first().click({ timeout: 3000 }).catch(() => {}); await wait(800); await shot(`marches-bell-${s.bell}`); }
+    await wait(3000);
+  }
+  const fin = await syncWait('go-final');
+  log('go-final', fin);
+  await page.locator('[data-act="tab"][data-tab="marches"]').first().click({ timeout: 3000 }).catch(() => {});
+  await wait(1500);
+  await shot('marches-final');
+  await openVillage();
+  await shot('village-final');
+  const bf = await bookNow();
+  fs.writeFileSync(path.join(SYNC, 'done.json'), JSON.stringify({ book: bf, marches: await marchesNow(), holdings: (await state()).holdings, stills: shotN }, null, 2));
+  log('done');
+  await wait(1000);
+  await browser.close();
+  process.exit(0);
+}
