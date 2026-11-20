@@ -115,7 +115,9 @@ impl Pacer {
             .max(Duration::from_millis(500))
             .max(retry_after.unwrap_or_default())
             .min(self.max_penalty);
-        let until = tokio::time::Instant::now() + st.penalty;
+        // Jittered (verify-pr123): up to a quarter more, so clients of one
+        // endpoint in other processes do not retry in lockstep.
+        let until = tokio::time::Instant::now() + st.penalty + jitter(st.penalty / 4);
         st.next = Some(st.next.map_or(until, |n| n.max(until)));
     }
 
@@ -128,6 +130,23 @@ impl Pacer {
     pub async fn penalty(&self) -> Duration {
         self.state.lock().await.penalty
     }
+}
+
+/// A random duration in `[0, max]` (no RNG dependency: the std hasher's
+/// per-process random keys over the clock).
+fn jitter(max: Duration) -> Duration {
+    use std::hash::{BuildHasher, Hasher};
+    if max.is_zero() {
+        return Duration::ZERO;
+    }
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos()),
+    );
+    let ns = max.as_nanos().min(u64::MAX as u128) as u64;
+    Duration::from_nanos(h.finish() % (ns + 1))
 }
 
 impl RpcClient {
@@ -210,7 +229,8 @@ impl RpcClient {
             if self.pacer.is_none() {
                 // Unpaced: wait here (the server's hint, else doubling).
                 let back = Duration::from_millis(500 << tries.min(6));
-                tokio::time::sleep(hint.unwrap_or(back).min(Duration::from_secs(30))).await;
+                let wait = hint.unwrap_or(back).min(Duration::from_secs(30));
+                tokio::time::sleep(wait + jitter(wait / 4)).await;
             }
         };
         if resp.status != 200 {
@@ -1028,6 +1048,18 @@ mod bounded_response_tests {
 
 #[cfg(test)]
 mod tests {
+    /// verify-pr123: the backoff jitter stays in `[0, max]` and varies.
+    #[test]
+    fn backoff_jitter_is_bounded_and_varies() {
+        use std::time::Duration;
+        assert_eq!(super::jitter(Duration::ZERO), Duration::ZERO);
+        let max = Duration::from_millis(250);
+        let got: std::collections::BTreeSet<Duration> =
+            (0..64).map(|_| super::jitter(max)).collect();
+        assert!(got.iter().all(|d| *d <= max));
+        assert!(got.len() > 1, "{got:?}");
+    }
+
     #[test]
     fn get_transaction_balances_parse() {
         let v = json!({"slot": 3, "meta": {"err": null, "preBalances": [10, 0, 1], "postBalances": [5, 4, 1]}});

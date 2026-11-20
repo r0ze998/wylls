@@ -414,6 +414,16 @@ jobs:
           # reader never sees a healthy ingest as blocked (loop-play B4-D).
           cargo test --locked -p findex --test reader_during_ingest
           cargo test --locked -p herald --lib
+          # B5 (read-only devnet run): the recorded devnet answers replayed
+          # offline on loopback (429 + Retry-After retried and bounded, a
+          # version-1 transaction read and never stalling the keeper feed),
+          # the node-filtered getProgramAccounts on the in-memory localnet,
+          # and VS / V1 over the recorded devnet read (a v1 transaction of
+          # the program is never PASS). No key, no network beyond loopback.
+          cargo test --locked -p fclient --lib
+          cargo test --locked -p fclient --test rpc_devnet_replay
+          cargo test --locked -p keeper --test cluster_feed_v1
+          cargo test --locked -p verify --test devnet_b5_witness --test devnet_b5_program_accounts
       # Q16-1 = A (prize gate): the verifier's PLAYABLE lane (program version
       # 0x4804) is behind the `playable-lane` feature, which no other step
       # builds. Lint it, and run its checks over the committed recordings

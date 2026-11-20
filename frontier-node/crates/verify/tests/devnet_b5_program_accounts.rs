@@ -37,7 +37,8 @@ async fn program_accounts_are_filtered_by_the_node() {
     // Season 7: two accounts (one long); season 8; one too short to hold
     // a header; one of season 7's layout owned by another program.
     c.set_account(k(1), acct(program, header(7, 64))).unwrap();
-    c.set_account(k(2), acct(program, header(7, 4_000))).unwrap();
+    c.set_account(k(2), acct(program, header(7, 4_000)))
+        .unwrap();
     c.set_account(k(3), acct(program, header(8, 64))).unwrap();
     c.set_account(k(4), acct(program, vec![7; 12])).unwrap();
     c.set_account(k(5), acct(other, header(7, 64))).unwrap();
@@ -52,8 +53,10 @@ async fn program_accounts_are_filtered_by_the_node() {
         .await
         .unwrap();
     assert_eq!(got8, vec![k(3)]);
-    assert!(verify_core::input::program_accounts(&node.url(), &program, 9)
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(
+        verify_core::input::program_accounts(&node.url(), &program, 9)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

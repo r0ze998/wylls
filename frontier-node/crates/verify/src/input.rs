@@ -760,7 +760,15 @@ pub async fn program_accounts(
                     .unwrap_or_default()
             })
             .unwrap_or_default();
-        if data.get(..8).map(crate::world::le) == Some(season_id) {
+        // The 8-byte slice asked for; a node that ignored `dataSlice` (and
+        // perhaps the filter) sent the whole data: the id is at 8..16 there
+        // (verify-pr123: else such a node's accounts all read as missing).
+        let id_bytes = if data.len() == 8 {
+            data.get(..8)
+        } else {
+            data.get(8..16)
+        };
+        if id_bytes.map(crate::world::le) == Some(season_id) {
             out.push(k);
         }
     }

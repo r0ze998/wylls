@@ -112,3 +112,59 @@ fn w5_the_primary_as_its_own_witness_is_not_a_second_source() {
     let c = codes(&inp);
     assert!(c.iter().any(|x| x == WITNESS_UNAVAILABLE), "{c:?}");
 }
+
+/// The recorded devnet v1 wire (`getTransaction` with
+/// `maxSupportedTransactionVersion` 1, fclient's B5 fixture).
+fn v1_wire() -> Vec<u8> {
+    use base64::Engine as _;
+    let p = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../fclient/tests/fixtures/devnet-b5/getTransaction-v1-max1.json"
+    );
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+    let b = base64::engine::general_purpose::STANDARD
+        .decode(v["result"]["transaction"][0].as_str().unwrap())
+        .unwrap();
+    assert_eq!(b.first(), Some(&0x81));
+    b
+}
+
+/// W6 (verify-pr123): now that the readers fetch v1 transactions, a
+/// successful transaction of the program whose wire is v1 (legacy decoding
+/// refuses it: its accounts and instructions are unknown) must never let
+/// a season PASS: first, middle and last program transaction of the
+/// PASSing land recording, each served as the real devnet v1 bytes.
+#[test]
+fn w6_a_v1_transaction_of_the_program_is_never_pass() {
+    use verify_core::Verdict;
+    let base = common::land();
+    assert_eq!(verify_core::verify(&base).verdict, Verdict::Pass);
+    let id = base.cfg.program.to_string();
+    let ran: Vec<usize> = (0..base.txs.len())
+        .filter(|&i| {
+            base.txs[i].err.is_none()
+                && base.txs[i]
+                    .logs
+                    .iter()
+                    .any(|l| l.starts_with(&format!("Program {id} invoke")))
+        })
+        .collect();
+    assert!(ran.len() >= 3, "{}", ran.len());
+    let wire = v1_wire();
+    for i in [ran[0], ran[ran.len() / 2], ran[ran.len() - 1]] {
+        let mut inp = base.clone();
+        inp.txs[i].tx = wire.clone();
+        let r = verify_core::verify(&inp);
+        assert_ne!(
+            r.verdict,
+            Verdict::Pass,
+            "tx {i} served as v1:\n{}",
+            common::show(&r)
+        );
+        assert!(
+            r.fails_with(verify_core::codes::UNDECODABLE),
+            "{}",
+            common::show(&r)
+        );
+    }
+}
