@@ -413,6 +413,10 @@ const CLIENT_TEXT = {
   //  by itself within about a minute, once those commands' blockhashes expire (local-play-act.mjs createReplayBarrier)
   LocalActBusy: () => L`送ったばかりの命令がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。`,
   LocalMarchBusy: () => L`送ったばかりの進軍がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。`,
+  // (fix-loop5, L5-1: the wide village card's own answers — nothing was sent)
+  WideHostWait: () => L`いまは送れる一手がありません。送っていません。`,
+  WideHostWaiting: () => L`このページが待っています。送れるようになったら自動で一手を送ります。`,
+  WideHostBusy: () => L`前の一手を確かめています。結果を待ってください。`,
   HostStepUnknown: () => L`この軍勢には、その手順がありません。`,
   HostStepInFlight: () => L`この軍勢の別の手順が進んでいます。その結果を待ってください。`,
   RevealAlreadyIn: () => L`この封はすでに開けられています。`,

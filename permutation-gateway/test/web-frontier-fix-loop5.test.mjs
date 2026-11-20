@@ -83,3 +83,26 @@ test('L5-10: the 軍勢 tab shows the exploration card only with a scout or an e
   assert.equal(exploreRelevant({ holdings: [{ p: 0, q: 0, site: 1, explore: { state: 1, bell: 3 } }], activeHolding: 0 }, []), true, 'an exploration under way');
   assert.ok(src('app.mjs').includes("exploreScreen.exploreRelevant(FS, hostScreen.hostRows(FS)) ? exploreScreen.render(FS) : ''"));
 });
+
+test('B-13: an illustrated icon that failed to load is asked again (retry mark, both src and srcset), then gives way to the sprite glyph', async () => {
+  const { watchArtIcons, ART_RETRIES } = await import('../../permutation-server/web/frontier/hud/icons.mjs');
+  let handler = null; const timers = [];
+  const doc = { addEventListener: (k, f, cap) => { assert.equal(k, 'error'); assert.equal(cap, true); handler = f; }, removeEventListener: () => { handler = null; },
+    createElement: () => { const t = { content: { firstChild: null } }; Object.defineProperty(t, 'innerHTML', { set(v) { t.content.firstChild = { html: v }; } }); return t; } };
+  const attrs = { src: 'art/ui/illustrated/food-32.webp', srcset: 'art/ui/illustrated/food-32.webp 1x, art/ui/illustrated/food-64.webp 2x' };
+  let replaced = null;
+  const img = { tagName: 'IMG', className: 'ic ic-art ic-art-food res-ic res-c-Food', classList: { contains: c => c === 'ic-art' }, dataset: {}, isConnected: true,
+    getAttribute: k => attrs[k], setAttribute: (k, v) => { attrs[k] = v; }, replaceWith: x => { replaced = x; } };
+  const stop = watchArtIcons(doc, { later: (f, ms) => timers.push([f, ms]) });
+  for (let i = 1; i <= ART_RETRIES; i++) {
+    handler({ target: img }); assert.equal(timers.length, i); timers[i - 1][0]();
+    assert.equal(attrs.src, `art/ui/illustrated/food-32.webp?r=${i}`);
+    assert.equal(attrs.srcset, `art/ui/illustrated/food-32.webp?r=${i} 1x, art/ui/illustrated/food-64.webp?r=${i} 2x`);
+  }
+  handler({ target: img });
+  assert.match(replaced.html, /^<svg class="ic res-ic res-c-Food" aria-hidden="true" focusable="false"><use href="art\/ui\/icons\.svg#grain"\/><\/svg>$/);
+  handler({ target: { tagName: 'IMG', classList: { contains: () => false } } });   // (another picture: not ours)
+  assert.equal(timers.length, ART_RETRIES);
+  stop(); assert.equal(handler, null);
+  assert.ok(src('app.mjs').includes('watchArtIcons(globalThis.document);'));
+});

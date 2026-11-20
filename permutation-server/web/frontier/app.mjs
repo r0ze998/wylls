@@ -94,7 +94,7 @@ import * as pm from './proto/hand-model.mjs';
 import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports, setClockPace } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
 import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows, releaseRows } from './hud/drawer.mjs';
-import { icon, iconizeMapTools } from './hud/icons.mjs';
+import { icon, iconizeMapTools, watchArtIcons } from './hud/icons.mjs';
 import { hudInsets, noGoRects, CARDS_OVER_BOARD } from './hud/insets.mjs';
 import { mountTextures } from './hud/textures.mjs';
 import { createTerrain } from './map/terrain.mjs';
@@ -5015,6 +5015,8 @@ export async function boot() {
     }, true);
     // the map buttons take their icons from the sprite (hud/icons.mjs)
     iconizeMapTools(globalThis.document);
+    // (fix-loop5, B-13: an illustrated icon that failed to load — the server out of reach for a moment — is asked again)
+    watchArtIcons(globalThis.document);
     startFx({ map, canvas, effects: () => FS.ui?.effects });   // the effects layer and, with ?fx=, its demo switch (fx/index.mjs)
     // `?fx=hand-…`: the conquest panels alone, from records of finished runs, under the demo tag (hud/handdemo.mjs; loaded on demand)
     try { const q = new URLSearchParams(globalThis.location?.search ?? ''); if (/(^|,)\s*hand-/.test(q.get('fx') ?? '')) import('./hud/handdemo.mjs').then(m => m.startHandDemo({ params: q })).catch(e => console.warn('hand demo:', e)); } catch { /* no address */ }

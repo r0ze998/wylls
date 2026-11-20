@@ -1996,4 +1996,7 @@ export default {
   // fix-loop5 L5-4: a road ending on an unopened wide province
   '終点の州 {0},{1} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。いちばん近い開いた州は {2},{3}（{4} 州先）です。': 'The end province {0},{1} is not open in this world (only the provinces of rings 129–131 drawn on the map are open). The nearest open province is {2},{3} ({4} provinces away).',
   '終点の州 {0},{1} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。': 'The end province {0},{1} is not open in this world (only the provinces of rings 129–131 drawn on the map are open).',
+  'いまは送れる一手がありません。送っていません。': 'There is no step to send now. Nothing was sent.',
+  'このページが待っています。送れるようになったら自動で一手を送ります。': 'This page is waiting. It sends the step by itself as soon as it can.',
+  '前の一手を確かめています。結果を待ってください。': 'The last step is being checked. Wait for its result.',
 };
