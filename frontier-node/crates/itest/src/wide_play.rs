@@ -11,9 +11,10 @@
 //!   `CENTRE_PLAYABLE` = `CENTRE_CONCORD` (the devnet switch stays r0ze's). The ring-1 provinces are opened by the
 //!   setup ([`centre_provinces`]); (0,0) is not, because the page's wasm `generate_province` still draws the
 //!   Concord's land there (the program and verifier use `generate_province_in(.., centre_free)`).
-//! - the wide world only: conquest byte `outpost_tier_min` = 0 (a Hamlet first home anchors a wide claim; the
-//!   presets say 1 = Town, which takes 6 h and 1,000/600/300 units after a rim home exists). This is the local
-//!   answer to Q-W1 option (a); the devnet answer remains r0ze's.
+//! - the wide world only: conquest byte `outpost_tier_min` = 0 (a Hamlet first home anchors a wide claim; Town = 1
+//!   takes 6 h and 1,000/600/300 units after a rim home exists). Since owner decision Q-W1 (2026-11-20) the wide
+//!   world's own preset `S1_DEVNET_WIDE_7D` says 0 too, so this byte no longer differs from it (`S1_LOCAL_7D` keeps 1)
+//!   and [`rules_metadata`] lists it only if a preset ever differs again.
 //!
 //! **The steps** (wide world only):
 //!
@@ -74,10 +75,14 @@ pub fn rules_metadata(preset: &str, wide: bool) -> Value {
         json!({"byte": "conquest.centre (81)", "preset": 0, "local": 1,
         "why": "⑭ R2 centre-free: no Concord or Seats, rings 0-1 ordinary land (presets keep CENTRE_PLAYABLE = 0 until r0ze switches devnet)"}),
     ];
-    if wide {
+    // (the wide world runs on `S1_DEVNET_WIDE_7D`, whose own byte is the Hamlet since Q-W1: listed only if it differs)
+    let wide_preset_tier = frontier_abi::v2::presets::S1_DEVNET_WIDE_7D
+        .cq
+        .outpost_tier_min;
+    if wide && wide_preset_tier != WIDE_OUTPOST_TIER_MIN {
         changed.push(
-            json!({"byte": "conquest.outpost_tier_min", "preset": 1, "local": WIDE_OUTPOST_TIER_MIN,
-            "why": "a Hamlet rim home anchors a wide claim (Q-W1 option (a), local only)"}),
+            json!({"byte": "conquest.outpost_tier_min", "preset": wide_preset_tier, "local": WIDE_OUTPOST_TIER_MIN,
+            "why": "a Hamlet rim home anchors a wide claim (Q-W1)"}),
         );
     }
     json!({"mode": LOCAL_RULES_MODE, "preset": preset, "test_only": true, "changed": changed,
@@ -668,6 +673,19 @@ mod tests {
         assert_eq!(S1_DEVNET_WIDE_7D.cq.centre, CENTRE_CONCORD);
         assert_eq!(S1_DEVNET_WIDE_7D.cq.outpost_tier_min, WIDE_OUTPOST_TIER_MIN);
         assert_eq!(S1_LOCAL_7D.cq.outpost_tier_min, 1);
+        // (verify-pr104: the runner's statement names only bytes that differ from the wide world's preset)
+        let wide = rules_metadata("S1_DEVNET_WIDE_7D", true);
+        let bytes: Vec<&str> = wide["changed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["byte"].as_str().unwrap())
+            .collect();
+        assert_eq!(bytes, ["conquest.centre (81)"]);
+        assert_eq!(
+            local_wide(S1_DEVNET_WIDE_7D).to_bytes(),
+            local_free(S1_DEVNET_WIDE_7D).to_bytes()
+        );
     }
 
     #[test]
