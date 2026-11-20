@@ -49,8 +49,16 @@ export const marchTagText = bell => (Number.isInteger(bell) ? L`ターン ${fmtN
 // arrival: it says the host arrived and that where it stands is being read)
 // (the loop-play report B5: `nowBell` here is the turn of the herald's own latest sample — app.mjs `seenBell` — never the
 // local clock's extrapolation: in a world that had stopped on turn 8 the tag said "arrived on turn 10")
+// (reveal-under-load, verify-pr98 BREAK-2: a march whose result the chain has not settled yet stayed 'away' for 200+
+// turns and the tag said "loading its position" all along — nothing was loading. Past AWAY_SETTLE_GRACE turns after
+// the arrival turn it says what is true: the arrival turn was N turns ago and its result is not settled yet)
+export const AWAY_SETTLE_GRACE = 2;
 export const awayText = (bell, nowBell = null) => (Number.isInteger(bell)
-  ? (Number.isInteger(nowBell) && nowBell > bell ? L`軍勢はターン ${fmtNum(bell)} に到着 · 位置を読み込んでいます` : L`軍勢は進軍中 · ターン ${fmtNum(bell)} に到着`)
+  ? (Number.isInteger(nowBell) && nowBell > bell
+    ? (nowBell - bell > AWAY_SETTLE_GRACE
+      ? L`軍勢の到着ターン ${fmtNum(bell)} から ${nowBell - bell} ターン · 結果の確定を待っています`
+      : L`軍勢はターン ${fmtNum(bell)} に到着 · 位置を読み込んでいます`)
+    : L`軍勢は進軍中 · ターン ${fmtNum(bell)} に到着`)
   : L`軍勢は進軍中`);
 export const awaitKeyText = () => L`到着 · 開封を待っています（あなたにだけ見えます）`;
 export const gainText = n => L`+${fmtNum(n)} マス測量`;
