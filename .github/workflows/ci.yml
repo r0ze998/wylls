@@ -260,7 +260,7 @@ jobs:
   # other 12, which sign with fixed demo seeds; 14 of the 15 run are cleared by scripts/ci/node-key-reviewed.txt)
   # through the same runner and guard. No npm install (06 has no dependencies). Node 20 and 22, as 06's
   # tests run locally on both (the journal lock reads /proc on Linux, injectable in the tests). The ③/④ integration
-  # tests skip without WS03_ROOT, WS04_ROOT and RUNEXEC_BIN, as on a fresh checkout.
+  # tests skip without WS03_ROOT, WS04_ROOT and RUNEXEC_BIN, as on a fresh checkout; the runexec-live job runs them.
   creation06:
     name: Workstream 06 creation tests (key-free, Node ${{ matrix.node }})
     runs-on: ubuntu-24.04
@@ -574,6 +574,26 @@ jobs:
         run: |
           cargo fmt -- --check
           cargo test --locked
+
+  # Workstream 04's native `runexec` (2026-11-20, STATE D34): build it, run 04's own cargo tests (simulated world;
+  # the gateway cases stay #[ignore], their bridge signs with test keys) and 06's connect-live tests against this
+  # checkout's ③ and ④ with the binary just built (RUNEXEC_BIN_SHA256 names it for node-keyfree.sh). All 7
+  # connect-live tests must run, none skipped. Network: crates.io and npm only.
+  runexec-live:
+    name: Execution runexec + 06 connect-live (key-free, Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Build runexec, run 04's tests and 06's connect-live tests
+        run: scripts/ci/ws04-runexec-live.sh
 
   # ------------------------------------------------------------ key tests
   # Every check that generates, derives or signs with a key, unchanged from
