@@ -28,8 +28,9 @@
 //!
 //! Anything else stays a blocker exactly as before: a PSW1 body that does
 //! not decode, an unknown or not-accounted kind, a legacy or foreign
-//! identity, a PS2 body the legacy codec refuses (the expedition kinds
-//! 145..=148 among them), incomplete frames or truncated logs. New with P8,
+//! identity, a PS2 body the legacy codec refuses (the playable lane's
+//! kinds 145..=149: `Record::decode_v2` refuses every one of them, 149
+//! included), incomplete frames or truncated logs. New with P8,
 //! in every build: a record of any other format in the program's frame
 //! (`PSWC`, `PSWR`, `PSFF`, `PSFT`, … : the playable lane's conquest and
 //! expedition receipts, some logged alone while they write a legacy Holding
@@ -38,6 +39,37 @@
 //! indexes never read wide state from these records: the wide duties plan
 //! from chain reads ([`crate::rings`] P6, [`crate::widetickets`] P7). A
 //! keeper built without `playable-lane` refuses every PSW1 record as before.
+//!
+//! **Devnet gap P10 (feature `playable-lane`): the rim → wide expedition's
+//! records.** The version-2 dispatch wrapper's kinds 0–11 log, in the
+//! program's own frame (one instruction each; the records as the pinned
+//! devnet `.so` logs them, `fixtures/verify/playable-*.json.gz`):
+//!
+//! | kind | records |
+//! |---|---|
+//! | 0 Depart, 1 SettleOrigin | PS2 146 |
+//! | 2 Reveal, 3 Gather | PS2 147 |
+//! | 6 SettleMember, 7 SettleCamp | 0–3 PS2 DIVERT, then PS2 148 + PSW1 25 |
+//! | 4 Dissolve, 5 Return (resident) | PS2 149 + PSW1 26 |
+//! | 8, 9, 11 failure / forfeit / retained failure | 0–1 PS2 DIVERT, then PSFF v1 / v2 / v3 |
+//! | 10 CloseTerminal | PSFT v1 |
+//!
+//! A `playable-lane` reader **applies** these ([`WideScope::expedition`],
+//! [`ExpeditionFact`]) only when each decodes exactly with its own codec
+//! (`frontier_abi::world_index::expedition_*_event`, the canonical identity
+//! checks included: the host's home a LEGACY province of this Season's world,
+//! the destination / standing a WIDE one, the holding, transit and province
+//! addresses canonical) and the two parts of a pair are adjacent and carry the
+//! same identity and receipt (a 148 without its 25, a 25 alone, a 149 without
+//! its 26: blocker). What they change that the legacy indexes keep is applied
+//! conservatively, as a hint the duties re-read: the home province touched
+//! (a Depart's pending Spend, a SettleOrigin's freed entry, a member
+//! settlement's returning host), a settled or failed holding's `pool_owed`
+//! (`owes`), and the expedition's transit for keeper A's `expeditions` role
+//! (P13, [`crate::expeditions`]). Still a blocker: PS2 145 (the legacy
+//! source receipt of the wide CONQUEST kinds 12–18 only), the conquest PSW1
+//! kinds 18–24, PSWC, PSWR and every other format, and anything that does not
+//! decode or pair exactly.
 
 use base64::Engine as _;
 use fclient::ports::{PortError, PortResult, TxRecord};
@@ -212,6 +244,80 @@ pub fn bodies(tx: &TxRecord, program: &Address) -> Result<Vec<Vec<u8>>, String> 
 pub struct Bodies {
     pub ps2: Vec<Vec<u8>>,
     pub wide: Vec<&'static str>,
+    /// The expedition records applied (P10), in log order.
+    pub expedition: Vec<ExpeditionFact>,
+}
+
+/// The format of one expedition record line (P10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExpTag {
+    Ps2,
+    Psw1,
+    Psff,
+    Psft,
+}
+
+/// What one decoded, paired expedition record tells the legacy indexes
+/// (P10; module doc). Addresses are canonical (the codecs' identity checks);
+/// `home` is the host's LEGACY home province.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExpeditionFact {
+    /// PS2 146: the Depart (`settle_origin` false) or the SettleOrigin of
+    /// `holding`'s transit `slot` (record `external`) at bell `bell`.
+    Source {
+        settle_origin: bool,
+        holding: Address,
+        slot: u8,
+        external: Address,
+        home: (i16, i16),
+        bell: u32,
+    },
+    /// PS2 147: a Reveal of `holding`'s transit `slot` (`Some`) or a Gather
+    /// (`None`) at the wide destination `dest`.
+    Producer {
+        reveal: Option<(Address, u8, Address)>,
+        dest: (i64, i64),
+        bell: u32,
+    },
+    /// PS2 148 + PSW1 25: the member (or camp) settlement of the transit.
+    Settled {
+        holding: Address,
+        external: Address,
+        home: (i16, i16),
+        camp: bool,
+    },
+    /// PS2 149 + PSW1 26: a resident Dissolve or Return of the host.
+    Resident { holding: Address, home: (i16, i16) },
+    /// PSFF v1/v2/v3: a failure, forfeit or retained-failure settlement.
+    Failure {
+        holding: Address,
+        home: (i16, i16),
+        slot: u8,
+    },
+    /// PSFT: the terminal close of the transit marker.
+    Terminal { holding: Address, slot: u8 },
+}
+
+impl ExpeditionFact {
+    /// The status counter name (`wide_accounted`).
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Source {
+                settle_origin: false,
+                ..
+            } => "EXPEDITION_DEPART",
+            Self::Source { .. } => "EXPEDITION_SETTLE_ORIGIN",
+            Self::Producer {
+                reveal: Some(_), ..
+            } => "EXPEDITION_REVEAL",
+            Self::Producer { .. } => "EXPEDITION_GATHER",
+            Self::Settled { camp: false, .. } => "EXPEDITION_SETTLE_MEMBER",
+            Self::Settled { .. } => "EXPEDITION_SETTLE_CAMP",
+            Self::Resident { .. } => "EXPEDITION_RESIDENT",
+            Self::Failure { .. } => "EXPEDITION_FAILURE",
+            Self::Terminal { .. } => "EXPEDITION_TERMINAL",
+        }
+    }
 }
 
 /// [`bodies`], plus: with a [`WideScope`] (a `playable-lane` keeper), a
@@ -229,8 +335,11 @@ pub fn bodies_scoped(
     let mut saw_frame = false;
     let mut stack: Vec<&str> = vec![];
     let mut wide = vec![];
-    // (the accounted PSW1 lines, left out of the PS2 extraction below)
+    // (the accounted PSW1 lines and the expedition lines, left out of the PS2 extraction below)
     let mut skip = std::collections::BTreeSet::new();
+    // (P10: the expedition record lines, decoded and paired after the frame check)
+    let mut exp: Vec<(ExpTag, Vec<u8>)> = vec![];
+    let b64 = |p: &str| base64::engine::general_purpose::STANDARD.decode(p).ok();
     for (i, line) in tx.logs.iter().enumerate() {
         if line.contains("Log truncated") {
             return Err("incomplete log provenance".into());
@@ -241,6 +350,24 @@ pub fn bodies_scoped(
                 let tag = parts
                     .first()
                     .and_then(|p| base64::engine::general_purpose::STANDARD.decode(p).ok());
+                // P10: the expedition kinds (PS2 146..=149, PSW1 25/26) and PSFF / PSFT, with a scope only
+                // (PS2 145, the conquest kinds' legacy source receipt, is left to the PS2 codec: a blocker)
+                if let (Some(_), Some(t), [_, b]) = (scope, tag.as_deref(), parts.as_slice()) {
+                    let body = b64(b);
+                    let kind = body.as_ref().and_then(|x| x.get(1).copied());
+                    let et = match (t, kind) {
+                        (b"PS2", Some(146..=149)) => Some(ExpTag::Ps2),
+                        (b"PSW1", Some(25 | 26)) => Some(ExpTag::Psw1),
+                        (b"PSFF", Some(_)) => Some(ExpTag::Psff),
+                        (b"PSFT", Some(_)) => Some(ExpTag::Psft),
+                        _ => None,
+                    };
+                    if let (Some(et), Some(body)) = (et, body) {
+                        exp.push((et, body));
+                        skip.insert(i);
+                        continue;
+                    }
+                }
                 if tag.as_deref() == Some(b"PSW1") {
                     let Some(scope) = scope else {
                         return Err("unsupported PSW1 record".into());
@@ -295,6 +422,14 @@ pub fn bodies_scoped(
     if !saw_frame || !stack.is_empty() {
         return Err("incomplete log provenance".into());
     }
+    let expedition = match (scope, exp.is_empty()) {
+        (_, true) => vec![],
+        (Some(scope), false) => scope
+            .expedition(&exp)
+            .map_err(|e| format!("unsupported expedition record: {e}"))?,
+        (None, false) => unreachable!("expedition lines are collected with a scope only"),
+    };
+    wide.extend(expedition.iter().map(ExpeditionFact::name));
     let logs: Vec<String> = if skip.is_empty() {
         tx.logs.clone()
     } else {
@@ -312,7 +447,11 @@ pub fn bodies_scoped(
     for body in &bodies {
         fclient::log::Record::decode_v2(body).map_err(|e| format!("invalid PS2 body: {e:?}"))?;
     }
-    Ok(Bodies { ps2: bodies, wide })
+    Ok(Bodies {
+        ps2: bodies,
+        wide,
+        expedition,
+    })
 }
 
 /// What a legacy reader may account for in the wide world (P8). Without
@@ -321,6 +460,8 @@ pub fn bodies_scoped(
 pub struct WideScope {
     #[cfg(feature = "playable-lane")]
     resolver: frontier_abi::world_index::expedition::AccountResolver,
+    #[cfg(feature = "playable-lane")]
+    ctx: frontier_abi::addr::AddrCtx,
 }
 
 /// The PSW1 kinds a `playable-lane` legacy reader accounts for (module doc,
@@ -360,7 +501,7 @@ impl WideScope {
             let ctx = crate::widelane::ctx(addrs);
             frontier_abi::world_index::expedition::AccountResolver::for_season(&ctx)
                 .ok()
-                .map(|resolver| Self { resolver })
+                .map(|resolver| Self { resolver, ctx })
         }
         #[cfg(not(feature = "playable-lane"))]
         {
@@ -404,5 +545,229 @@ impl WideScope {
             let _ = body;
             Err("this keeper reads no PSW1 record".into())
         }
+    }
+
+    /// P10 (module doc): the expedition records of ONE accepted transaction,
+    /// in log order, decoded exactly and paired, as the facts the legacy
+    /// indexes apply; any record that does not decode, pair or name this
+    /// world's legacy home and wide destination is an error (a blocker).
+    pub fn expedition(&self, lines: &[(ExpTag, Vec<u8>)]) -> Result<Vec<ExpeditionFact>, String> {
+        #[cfg(feature = "playable-lane")]
+        {
+            self.expedition_lane(lines)
+        }
+        #[cfg(not(feature = "playable-lane"))]
+        {
+            let _ = lines;
+            Err("this keeper reads no expedition record".into())
+        }
+    }
+
+    #[cfg(feature = "playable-lane")]
+    fn legacy_home(
+        &self,
+        host: &frontier_abi::world_index::WideHostRef,
+    ) -> Result<(Address, (i16, i16)), String> {
+        use frontier_abi::world_index::expedition::AccountFamily;
+        let key = host.key();
+        match self.resolver.family(key) {
+            Ok(AccountFamily::Legacy) => {}
+            Ok(AccountFamily::Wide) => {
+                return Err("the host's home is not a legacy province".into())
+            }
+            Err(_) => return Err("the host is of another world".into()),
+        }
+        let holding = self
+            .resolver
+            .holding_address(host)
+            .map_err(|e| format!("holding: {e:?}"))?;
+        let c = key.coord();
+        let (p, q) = (
+            i16::try_from(c.p()).map_err(|_| "home coordinate")?,
+            i16::try_from(c.q()).map_err(|_| "home coordinate")?,
+        );
+        Ok((Address::new_from_array(holding), (p, q)))
+    }
+
+    #[cfg(feature = "playable-lane")]
+    fn wide_dest(&self, key: frontier_abi::world_index::ProvinceKey) -> Result<(i64, i64), String> {
+        use frontier_abi::world_index::expedition::AccountFamily;
+        match self.resolver.family(key) {
+            Ok(AccountFamily::Wide) => Ok((key.coord().p(), key.coord().q())),
+            Ok(AccountFamily::Legacy) => Err("the destination is not a wide province".into()),
+            Err(_) => Err("the destination is of another world".into()),
+        }
+    }
+
+    #[cfg(feature = "playable-lane")]
+    fn expedition_lane(&self, lines: &[(ExpTag, Vec<u8>)]) -> Result<Vec<ExpeditionFact>, String> {
+        use frontier_abi::world_index::{
+            expedition_event as source, expedition_failure_event as failure,
+            expedition_forfeit_event as forfeit, expedition_producer_event as producer,
+            expedition_resident_event as resident, expedition_retained_failure_event as retained,
+            expedition_settlement_event as settlement, expedition_terminal_event as terminal,
+        };
+        let ctx = &self.ctx;
+        let adr = Address::new_from_array;
+        let mut out = vec![];
+        let mut i = 0;
+        while i < lines.len() {
+            let (tag, body) = (&lines[i].0, &lines[i].1);
+            let kind = body.get(1).copied();
+            match (tag, kind) {
+                (ExpTag::Ps2, Some(source::KIND)) => {
+                    let r =
+                        source::Record::decode(ctx, body).map_err(|e| format!("PS2 146: {e:?}"))?;
+                    let id = r.source.identity;
+                    id.validate(ctx, r.source.receipt.action)
+                        .map_err(|e| format!("PS2 146 identity: {e:?}"))?;
+                    let (holding, _) = self.legacy_home(&id.host)?;
+                    // (the province whose bell holds the host's pending Spend: the origin, validated legacy above)
+                    let o = id.origin.coord();
+                    let home = (
+                        i16::try_from(o.p()).map_err(|_| "origin coordinate")?,
+                        i16::try_from(o.q()).map_err(|_| "origin coordinate")?,
+                    );
+                    if holding.to_bytes() != id.holding {
+                        return Err("PS2 146: the holding is not the host's".into());
+                    }
+                    out.push(ExpeditionFact::Source {
+                        settle_origin: r.source.receipt.action == source::Action::SettleOrigin,
+                        holding,
+                        slot: id.slot,
+                        external: adr(id.external),
+                        home,
+                        bell: r.source.bell,
+                    });
+                    i += 1;
+                }
+                (ExpTag::Ps2, Some(producer::KIND)) => {
+                    let r = producer::Record::decode(ctx, body)
+                        .map_err(|e| format!("PS2 147: {e:?}"))?;
+                    r.target
+                        .validate(ctx)
+                        .map_err(|e| format!("PS2 147 identity: {e:?}"))?;
+                    let dest = self.wide_dest(r.target.destination())?;
+                    let reveal = match r.target {
+                        producer::Target::Reveal { identity, .. } => {
+                            let (holding, _) = self.legacy_home(&identity.host)?;
+                            if holding.to_bytes() != identity.holding {
+                                return Err("PS2 147: the holding is not the host's".into());
+                            }
+                            Some((holding, identity.transit_slot, adr(identity.external)))
+                        }
+                        producer::Target::Gather { .. } => None,
+                    };
+                    out.push(ExpeditionFact::Producer {
+                        reveal,
+                        dest,
+                        bell: r.bell,
+                    });
+                    i += 1;
+                }
+                (ExpTag::Ps2, Some(settlement::ORIGINAL_KIND)) => {
+                    // (a member or camp settlement: the PS2 part, then at once its PSW1 25 part)
+                    let camp = body.get(6) == Some(&settlement::camp_v2::VERSION);
+                    let decode = |b: &[u8]| -> Result<settlement::Record, String> {
+                        if camp {
+                            settlement::camp_v2::CampRecord::decode(ctx, b)
+                                .map(|c| c.record)
+                                .map_err(|e| format!("{e:?}"))
+                        } else {
+                            settlement::Record::decode(ctx, b).map_err(|e| format!("{e:?}"))
+                        }
+                    };
+                    let a = decode(body).map_err(|e| format!("PS2 148: {e}"))?;
+                    let Some((ExpTag::Psw1, wb)) = lines.get(i + 1) else {
+                        return Err("PS2 148 without its PSW1 25 part".into());
+                    };
+                    if wb.get(1) != Some(&settlement::WIDE_KIND)
+                        || (wb.get(6) == Some(&settlement::camp_v2::VERSION)) != camp
+                    {
+                        return Err("PS2 148 without its PSW1 25 part".into());
+                    }
+                    let b = decode(wb).map_err(|e| format!("PSW1 25: {e}"))?;
+                    if a.identity != b.identity || a.receipt != b.receipt || a.bell != b.bell {
+                        return Err("PS2 148 and PSW1 25 are not one settlement".into());
+                    }
+                    a.identity
+                        .validate(ctx)
+                        .map_err(|e| format!("PS2 148 identity: {e:?}"))?;
+                    let (holding, home) = self.legacy_home(&a.identity.host)?;
+                    self.wide_dest(a.identity.destination)?;
+                    if holding.to_bytes() != a.identity.holding {
+                        return Err("PS2 148: the holding is not the host's".into());
+                    }
+                    out.push(ExpeditionFact::Settled {
+                        holding,
+                        external: adr(a.identity.external),
+                        home,
+                        camp,
+                    });
+                    i += 2;
+                }
+                (ExpTag::Ps2, Some(resident::ORIGINAL_KIND)) => {
+                    let a = resident::Record::decode(ctx, body)
+                        .map_err(|e| format!("PS2 149: {e:?}"))?;
+                    let Some((ExpTag::Psw1, wb)) = lines.get(i + 1) else {
+                        return Err("PS2 149 without its PSW1 26 part".into());
+                    };
+                    if wb.get(1) != Some(&resident::WIDE_KIND) {
+                        return Err("PS2 149 without its PSW1 26 part".into());
+                    }
+                    let b =
+                        resident::Record::decode(ctx, wb).map_err(|e| format!("PSW1 26: {e:?}"))?;
+                    if a.identity != b.identity
+                        || a.receipt.operation_id != b.receipt.operation_id
+                        || a.action != b.action
+                        || a.bell != b.bell
+                    {
+                        return Err("PS2 149 and PSW1 26 are not one resident operation".into());
+                    }
+                    let (holding, home) = self.legacy_home(&a.identity.host)?;
+                    self.wide_dest(a.identity.standing)?;
+                    if holding.to_bytes() != a.identity.holding {
+                        return Err("PS2 149: the holding is not the host's".into());
+                    }
+                    out.push(ExpeditionFact::Resident { holding, home });
+                    i += 2;
+                }
+                (ExpTag::Psff, _) => {
+                    let (host, dest, slot) = match body.get(4) {
+                        Some(1) => failure::Receipt::decode(ctx, body)
+                            .map(|r| (r.host, r.destination, r.slot))
+                            .map_err(|e| format!("PSFF v1: {e:?}"))?,
+                        Some(2) => forfeit::Receipt::decode(ctx, body)
+                            .map(|r| (r.host, r.destination, r.slot))
+                            .map_err(|e| format!("PSFF v2: {e:?}"))?,
+                        Some(3) => retained::Receipt::decode(ctx, body)
+                            .map(|r| (r.host, r.destination, r.slot))
+                            .map_err(|e| format!("PSFF v3: {e:?}"))?,
+                        v => return Err(format!("PSFF version {v:?}")),
+                    };
+                    let (holding, home) = self.legacy_home(&host)?;
+                    self.wide_dest(dest)?;
+                    out.push(ExpeditionFact::Failure {
+                        holding,
+                        home,
+                        slot,
+                    });
+                    i += 1;
+                }
+                (ExpTag::Psft, _) => {
+                    let r =
+                        terminal::Receipt::decode(ctx, body).map_err(|e| format!("PSFT: {e:?}"))?;
+                    let (holding, _) = self.legacy_home(&r.host)?;
+                    out.push(ExpeditionFact::Terminal {
+                        holding,
+                        slot: r.slot,
+                    });
+                    i += 1;
+                }
+                (ExpTag::Psw1, k) => return Err(format!("PSW1 {k:?} without its PS2 part")),
+                (ExpTag::Ps2, k) => return Err(format!("PS2 {k:?} is not an expedition record")),
+            }
+        }
+        Ok(out)
     }
 }

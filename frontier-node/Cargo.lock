@@ -2041,6 +2041,7 @@ dependencies = [
  "base64 0.22.1",
  "fclient",
  "findex",
+ "flate2",
  "frontier-abi",
  "hex",
  "localnet",

@@ -94,3 +94,6 @@ agents = { path = "../agents" }
 # the real `WideFindex` over literal records; dev only, never the binary.
 findex = { path = "../findex", features = ["wide-records-experimental"] }
 solana-program-runtime.workspace = true
+# P10 (`tests/expedition_feed_guard.rs`): reads the committed gzipped verifier recordings of the devnet `.so`
+# (a workspace dependency already in the lock; dev only).
+flate2.workspace = true

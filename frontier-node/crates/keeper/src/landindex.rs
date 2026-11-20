@@ -176,6 +176,14 @@ impl LandIndex {
             };
             // (P8: PSW1 records accounted for, never applied to this index)
             self.feed.account_wide(&bodies.wide);
+            // (P10: an expedition's settlement may raise its rim Holding's `pool_owed` with no TRANSIT_SETTLED)
+            for f in &bodies.expedition {
+                if let crate::feedguard::ExpeditionFact::Settled { holding, .. }
+                | crate::feedguard::ExpeditionFact::Failure { holding, .. } = f
+                {
+                    self.owes.insert(*holding);
+                }
+            }
             for b in bodies.ps2 {
                 self.ingest(&b, tx.slot, addrs);
                 n += 1;
