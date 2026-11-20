@@ -16,6 +16,8 @@
 import fs from 'node:fs/promises';
 import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
 import { loadKernel } from '../../../permutation-server/web/frontier/wasm.mjs';
+// (TEST-ONLY coexist lane: its Season's kernel is the S1 one, flocalplay-lane.mjs's one alias; elsewhere the hash itself)
+import { kernelRulesetFor } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { conquestEnabled, kernelFile, keepFromProvince } from '../../../permutation-server/web/frontier/fconquest.mjs';
 import { reachableKeeps } from '../../../permutation-server/web/frontier/fkeepreach.mjs';
 import { planRoute, sendMarch, earliestBell, arrivalWindow, tipOptions, departMargin, DEPART_STAMINA, freeTransitSlot } from '../../../permutation-server/web/frontier/fmarch.mjs';
@@ -167,7 +169,7 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     world.now = now; world.sampledAt = at; world.nowBell = bellAt(world.clock.genesisTs, now);
     const file = kernelFile(world.season);
     if (kernelFor !== file) {
-      kernel = await loadKernel({ url: new URL(file, WASM_DIR), fetch: fileFetch, ruleset: Buffer.from(world.season.rulesetHash).toString('hex') });
+      kernel = await loadKernel({ url: new URL(file, WASM_DIR), fetch: fileFetch, ruleset: kernelRulesetFor(Buffer.from(world.season.rulesetHash).toString('hex')) });
       kernelFor = file;
     }
     return world;

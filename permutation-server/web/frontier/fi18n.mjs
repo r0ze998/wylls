@@ -401,6 +401,12 @@ const CLIENT_TEXT = {
   LocalActUnconfirmed: () => L`命令は送りましたが、結果をまだ確認できません。あとで状態を確かめます。`,
   LocalActScopeChanged: () => L`命令の対象が、確かめたあとで変わりました。いまの状態を確かめてください。`,
   LocalActShape: () => L`命令の内容の形が正しくありません。送っていません。`,
+  // (TEST-ONLY, a coexist local world: ② rights — the relay's refusals before any send)
+  // (TEST-ONLY coexist lane, flocalplay-lane.mjs: a page asked to play another lane than the one it already plays)
+  LocalLaneFixed: () => L`このページはもう別の種類の試験世界を遊んでいます。新しいタブで開き直してください。`,
+  LocalLaneUnknown: () => L`知らない種類の試験世界です。`,
+  LocalActWalletOnly: () => L`権利を出すことと取り消すことは、あなたのウォレットだけができます。代理の住民からは送れません。送っていません。`,
+  LocalActGrant: () => L`この権利は、いまこの命令に使えません（ないか、相手や場所が違います）。送っていません。`,
   LocalMarchShape: () => L`命令の内容の形が正しくありません。送っていません。`,
   LocalActNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)

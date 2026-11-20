@@ -260,6 +260,8 @@ pub fn router(app: Shared) -> Router {
         .route("/h/bell/{bell}/region/{r}", get(bell_region))
         .route("/h/me/{wallet}", get(me))
         .route("/h/events", get(events))
+        // ② the Grants (`grants.rs`; feature `rights-records`, else 503 GrantsUnavailable)
+        .route("/h/grants", get(grants))
         .route("/h/wide-index/status", get(wide_index_status))
         .route("/h/wide-index/events", get(wide_index_events))
         .route("/h/ws", get(ws_route))
@@ -544,6 +546,30 @@ async fn world_wide_route(
         Ok(v) => json_answer(&v, "no-store"),
         Err(e) => err(wide_status(e), e.code()),
     }
+}
+
+/// `/h/grants?citizen=<base58>` (`grants.rs`): the season's ② Grants from
+/// their records; with `citizen`, only the Grants that Citizen is a party
+/// to (issuer or grantee) — the page asks with its own Citizen and draws
+/// no other (its fog rule). Unfiltered it is public, like the chain.
+#[cfg(feature = "rights-records")]
+async fn grants(State(app): State<Shared>, Query(q): Query<Vec<(String, String)>>) -> Response {
+    let filter = match q.as_slice() {
+        [] => None,
+        [(k, v)] if k == "citizen" => match v.parse::<solana_address::Address>() {
+            Ok(a) => Some(frontier_abi::addr::citizen_tag(&a.to_bytes())),
+            Err(_) => return err(StatusCode::BAD_REQUEST, "BadCitizen"),
+        },
+        _ => return err(StatusCode::BAD_REQUEST, "BadQuery"),
+    };
+    let f = read_fold(&app);
+    json_answer(&crate::grants::grants_json(&f, filter), "no-store")
+}
+
+/// Without the feature there are no Grant views (never an empty list dressed as one).
+#[cfg(not(feature = "rights-records"))]
+async fn grants(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "GrantsUnavailable")
 }
 
 /// Without the feature the recorded wide world is explicitly unavailable

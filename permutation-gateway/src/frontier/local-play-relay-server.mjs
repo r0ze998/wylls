@@ -14,6 +14,7 @@
 // Binds 127.0.0.1 only, answers loopback peers only, bodies ≤ 16 KiB of JSON.
 // Holds no key. Prints one public line when listening.
 import http from 'node:http';
+import { selectLocalLane, COEXIST_LANE } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import path from 'node:path';
 import { openSync, fstatSync, readSync, closeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -179,9 +180,11 @@ export function readConquestCapability(file, read = readBounded) {
 }
 /** The command line: `--local-play` and each flag exactly once; `--preview-bin` and `--resident-bin` may each be left out (then that route is not served). */
 export function parseArgs(argv) {
-  const cfg = {}; let localPlay = false;
+  const cfg = {}; let localPlay = false, coexist = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--local-play') { if (localPlay) throw new Error('--local-play twice'); localPlay = true; continue; }
+    // (TEST-ONLY: the ②+⑨+⑩ coexist lane — the launcher's `--coexist`; the relay's ruleset pin is then RULESET_HASH_V4)
+    if (argv[i] === '--coexist') { if (coexist) throw new Error('--coexist twice'); coexist = true; continue; }
     const k = FLAGS[argv[i]] ?? OPTIONAL[argv[i]];
     if (!k || i + 1 >= argv.length || Object.hasOwn(cfg, k)) throw new Error(`bad argument ${argv[i]}`);
     cfg[k] = argv[++i];
@@ -205,7 +208,7 @@ export function parseArgs(argv) {
   const residentTurns = cfg.residentTurns ?? null; delete cfg.residentTurns;   // (apart from the relay's closed configuration)
   if (residentTurns !== null && (!path.isAbsolute(residentTurns) || residentTurns.includes('\0'))) throw new Error('--resident-turns must be an absolute path');
   if (String(port) !== String(Number.parseInt(port, 10))) throw new Error('--listen-port');
-  return { port, cfg: { localPlay, ...cfg }, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy: economyWord !== null, marchTrial: trialWord !== null, ...(residentTurns === null ? {} : { residentTurns }) };
+  return { port, cfg: { localPlay, ...cfg }, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy: economyWord !== null, marchTrial: trialWord !== null, ...(residentTurns === null ? {} : { residentTurns }), ...(coexist ? { coexist: true } : {}) };
 }
 
 /**
@@ -263,7 +266,9 @@ export function relaysFromArgs({ cfg, residentBin = null, conquestBin = null, co
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
-    const { port, cfg, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy, marchTrial, residentTurns } = parseArgs(process.argv.slice(2));
+    const { port, cfg, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy, marchTrial, residentTurns, coexist } = parseArgs(process.argv.slice(2));
+    // (TEST-ONLY coexist lane: selected before anything is built, so every pin of this process follows it)
+    if (coexist === true) selectLocalLane(COEXIST_LANE);
     // (a resident's relay: one action per bell on every send route — the same lease for all of them)
     const turns = residentTurnsFromArgs(residentTurns);
     // (the three relays that SEND: depart, resident, conquest — with the one runner instance when the command line

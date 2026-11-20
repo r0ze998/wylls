@@ -56,16 +56,18 @@ test('the version bit rev 7 reserves for the land preview (0x0400) is used by no
 test('the exact version gates the land bit would touch are where CLAUDE-LAND-VERSION-BIT-COMPAT says', () => {
   const doc = read('docs/integration/CLAUDE-LAND-VERSION-BIT-COMPAT-20261116.md');
   const gates = [
-    ['permutation-server/web/frontier/flocalplay.mjs', /export const LOCAL_PLAY_PROGRAM_VERSION = 0x4804;/],
+    ['permutation-server/web/frontier/flocalplay.mjs', /export let LOCAL_PLAY_PROGRAM_VERSION = 0x4804;/],
     ['permutation-server/web/frontier/flocalplay-conquest.mjs', /program_version === String\(LOCAL_PLAY_PROGRAM_VERSION\)/],
-    ['permutation-server/web/frontier/fexpedition-prepare.mjs', /program_version === '18436'/],
-    ['permutation-server/web/frontier/fexpedition-depart-prepare.mjs', /DEPART_PREPARE_PROGRAM_VERSION = '18436'/],
+    ['permutation-server/web/frontier/fexpedition-prepare.mjs', /let PREPARE_VERSION = '18436';/],
+    ['permutation-server/web/frontier/fexpedition-depart-prepare.mjs', /export let DEPART_PREPARE_PROGRAM_VERSION = '18436'/],
     ['permutation-server/web/frontier/hud/hand.mjs', /program_version === '18436'/],
-    ['permutation-gateway/src/frontier/expedition-prepare.mjs', /const VERSION = '18436';/],
-    ['permutation-gateway/src/frontier/conquest-prepare.mjs', /const VERSION = '18436';/],
+    ['permutation-gateway/src/frontier/expedition-prepare.mjs', /let VERSION = '18436';/],
+    ['permutation-gateway/src/frontier/conquest-prepare.mjs', /let VERSION = '18436';/],
     ['permutation-gateway/src/frontier/expedition-depart-prepare.mjs', /DEPART_PREPARE_PROGRAM_VERSION = '18436'/],
     ['frontier-node/crates/herald/src/local_play.rs', /pub const PROGRAM_VERSION: u16 = 0x4804;/],
-    ['frontier-node/crates/itest/src/expedition_play.rs', /pub const PROGRAM_VERSION: u16 = 0x4804;/],
+    ['frontier-node/crates/itest/src/expedition_play.rs', /pub const PROGRAM_VERSION: u16 = wire::PROGRAM_VERSION;/],
+    // (rights-play: the plain lane's 0x4804 bits, and the TEST-ONLY coexist-lane's, in the one client constant)
+    ['frontier-abi/src/world_index/expedition_dispatch_ix.rs', /const LANE_BITS: u16 = VERSION_BIT;/],
   ];
   for (const [file, re] of gates) {
     assert.match(read(file), re, file);

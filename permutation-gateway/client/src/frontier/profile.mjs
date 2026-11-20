@@ -8,11 +8,16 @@
 //      S1 release .so is larger); its ruleset hash is RULESET_HASH_V3
 import { PRESETS as V1 } from './abi-presets.mjs';
 import { PRESETS as V2 } from './abi-v2-presets.mjs';
+/** frontier_abi::v2::presets::RULESET_HASH_V4 (not in the generated presets table). */
+export const RULESET_HASH_V4_HEX = 'a1ddb3590f7a15c166a77d10362dd2a499c97111a6021d1eb2baad0ed36c8b62';
 export function profileForHash(hash) {
   const hex = typeof hash === 'string' ? hash.toLowerCase() : Array.from(hash ?? [], b => b.toString(16).padStart(2, '0')).join('');
   if (hex === V1.ruleset_hash) return 1;
   if (hex === V2.ruleset_hash) return 2;
   if (V2.ruleset_hash_v3 && hex === V2.ruleset_hash_v3) return 3;
+  // S1 with custody (RULESET_HASH_V4, workstream 10's preview; the TEST-ONLY ②+⑨+⑩ coexist lane, 2026-11-20): the S1
+  // layouts and instructions exactly (its ruleset is S1's tables plus the custody tables), so profile 3.
+  if (hex === RULESET_HASH_V4_HEX) return 3;
   return null;
 }
 export function profileForSeason(season) {

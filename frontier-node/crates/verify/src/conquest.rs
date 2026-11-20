@@ -114,16 +114,22 @@ pub fn applies(input: &Input) -> bool {
         .any(|a| Season::decode(&a.data).is_ok_and(|s| s.program_version >= 3))
         || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V2
         || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V3
+        || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V4
 }
 
 /// An S1 season (redesign stage 1, program version 4): a Season with
-/// `program_version >= 4`, or the configured ruleset is `RULESET_HASH_V3`.
+/// `program_version >= 4`, or the configured ruleset is `RULESET_HASH_V3`
+/// (or `RULESET_HASH_V4`, S1 with custody).
 /// S1 keeps every MC rule, so [`applies`] is true too.
 pub fn s1_applies(input: &Input) -> bool {
     input.finals.values().flatten().any(|a| {
         Season::decode(&a.data)
             .is_ok_and(|s| s.program_version >= frontier_abi::v2::presets::PROGRAM_VERSION_S1)
     }) || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V3
+        // rights-play (2026-11-20): S1 with custody (`RULESET_HASH_V4` =
+        // the V3 tables with custody's appended, permutation-rules
+        // `ruleset_hash_input_v4`), as a Season of version >= 4 already is.
+        || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V4
 }
 
 /// Whether VX re-executes this successful transaction: a playable-lane

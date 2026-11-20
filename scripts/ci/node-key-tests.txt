@@ -66,6 +66,7 @@ permutation-gateway/test/frontier-local-play-relay.test.mjs
 permutation-gateway/test/frontier-local-play-resident-turns.test.mjs
 permutation-gateway/test/frontier-local-play-resident.test.mjs
 permutation-gateway/test/frontier-local-play-reveal.test.mjs
+permutation-gateway/test/frontier-local-play-rights.test.mjs
 permutation-gateway/test/frontier-local-play-runner-rejection.test.mjs
 permutation-gateway/test/frontier-prize.test.mjs
 permutation-gateway/test/frontier-process.test.mjs
@@ -185,6 +186,7 @@ permutation-gateway/test/frontier-conquest-v2-cli-report.test.mjs
 permutation-gateway/test/frontier-expedition-prepare.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
+permutation-gateway/test/frontier-local-play-coexist-lane.test.mjs
 permutation-gateway/test/frontier-local-play-coop-board.test.mjs
 permutation-gateway/test/frontier-local-play-external-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-fresh-map.test.mjs
@@ -336,6 +338,7 @@ permutation-gateway/test/web-frontier-ready-again-card.test.mjs
 permutation-gateway/test/web-frontier-ready-again.test.mjs
 permutation-gateway/test/web-frontier-recorded.test.mjs
 permutation-gateway/test/web-frontier-resident.test.mjs
+permutation-gateway/test/web-frontier-rights.test.mjs
 permutation-gateway/test/web-frontier-route-bounded.test.mjs
 permutation-gateway/test/web-frontier-rules-vectors.test.mjs
 permutation-gateway/test/web-frontier-s1-capture-lock.test.mjs

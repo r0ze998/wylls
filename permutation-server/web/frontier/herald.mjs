@@ -365,6 +365,13 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/nations.json`);
       return r.ok ? guard(() => ({ nations: parseNations(r.json) })) : r;
     },
+    // (TEST-ONLY, a coexist local world's herald — feature rights-records): ② Grants the Citizen `citizen` is a party
+    //  to (`?citizen=`). The answer is passed on as read; the page keeps its FOG RULE itself (flocalplay-rights.mjs
+    //  partyGrants). A herald without the feature answers 503 GrantsUnavailable: `{ok: false, code: 'HTTP503'}`.
+    async grants(citizen) {
+      const r = await get(f, `${root}/h/grants?citizen=${encodeURIComponent(String(citizen))}`);
+      return r.ok ? { ok: true, grants: r.json } : r;
+    },
     /**
      * GET /h/holding/{P},{Q},{site}.json: another's Holding (public chain data) for a siege or an expulsion:
      * `{ownerCitizen (base58), order, gen, p, q, site}`, decoded from its bytes and checked against the site asked

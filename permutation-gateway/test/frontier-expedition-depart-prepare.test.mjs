@@ -539,8 +539,7 @@ test('wiring: the relay serves the route with its own limits, reads its own sett
   assert.match(server, /apps\.ctx\.expeditionPreview\?\.close\(\); apps\.ctx\.expeditionPrepare\?\.close\(\); apps\.ctx\.expeditionDepartPrepare\?\.close\(\);/);
   // the adapter's own source: one child process API, nothing that signs, seals, connects a wallet or sends
   const code = adapter.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../../../permutation-server/web/frontier/faddr.mjs', '../../../permutation-server/web/frontier/fexpedition-depart.mjs',
-    '../../client/src/base58.mjs', '../../client/src/solana-tx.mjs', './expedition-preview.mjs', 'node:child_process', 'node:crypto', 'node:path']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../../../permutation-server/web/frontier/faddr.mjs', '../../../permutation-server/web/frontier/fexpedition-depart.mjs', '../../../permutation-server/web/frontier/flocalplay-lane.mjs', '../../client/src/base58.mjs', '../../client/src/solana-tx.mjs', './expedition-preview.mjs', 'node:child_process', 'node:crypto', 'node:path']);
   assert.doesNotMatch(code, /\bfetch\s*\(|Keypair|secretKey|privateKey|\.sign\(|signTransaction|sendTransaction|sendRawTransaction|simulateTransaction|process\.env|exec\(|execFile|fork\(/);
   assert.match(code, /stdio: \['pipe', 'pipe', 'ignore'\]/); assert.match(code, /shell: false, cwd: '\/', env: \{\}/);
 });
