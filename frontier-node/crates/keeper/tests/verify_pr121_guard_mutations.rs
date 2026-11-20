@@ -30,11 +30,18 @@ const FIXTURES: [&str; 8] = [
 ];
 
 fn load(name: &str) -> (Addresses, Vec<TxRecord>) {
-    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/verify")
-        .join(name);
+    load_path(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/verify")
+            .join(name),
+    )
+}
+
+fn load_path(p: &std::path::Path) -> (Addresses, Vec<TxRecord>) {
+    let name = p.display().to_string();
+    let name = name.as_str();
     let mut s = String::new();
-    flate2::read::GzDecoder::new(std::fs::File::open(&p).expect(name))
+    flate2::read::GzDecoder::new(std::fs::File::open(p).expect(name))
         .read_to_string(&mut s)
         .unwrap();
     let v: Value = serde_json::from_str(&s).unwrap();
@@ -725,4 +732,28 @@ fn p14_conquest_kinds_latch_keeper_a() {
         eprintln!("P14 kind {k}: {}", v[0]);
     }
     assert_eq!(seen.len(), 7, "kinds 12..=18 all in the recordings");
+}
+
+/// A whole season archive of an honest P10 run (`VERIFY_PR121_ARCHIVE=<p10-season.json.gz>`; skipped otherwise):
+/// both indexes read every transaction and never latch.
+#[test]
+fn an_honest_p10_season_never_latches() {
+    let Ok(path) = std::env::var("VERIFY_PR121_ARCHIVE") else {
+        eprintln!("skipped: VERIFY_PR121_ARCHIVE not set");
+        return;
+    };
+    let (a, txs) = load_path(std::path::Path::new(&path));
+    let mut land = LandIndex::default();
+    let mut play = PlayIndex::default();
+    for page in txs.chunks(50) {
+        land.ingest_page(page, &a);
+        play.ingest_page(page, &a);
+    }
+    assert!(land.feed.blocked().is_none(), "{:?}", land.feed.blocked());
+    assert!(play.feed.blocked().is_none(), "{:?}", play.feed.blocked());
+    let last = txs.iter().map(|t| t.seq).max().unwrap();
+    assert_eq!((land.cursor, play.cursor), (Cursor(last), Cursor(last)));
+    assert_eq!(play.expeditions.len(), 1);
+    assert!(play.expeditions.values().all(|e| e.ended));
+    eprintln!("honest season: {} transactions, cursor {last}", txs.len());
 }
