@@ -1283,6 +1283,14 @@ async fn playable_season(pt: Ports, mode: Mode) {
                     api: pt.keeper_api,
                     token: "test-token-operator-playable".into(),
                 }),
+                p10_restarts: (expedition
+                    && std::env::var("OPERATOR_P10_RESTARTS").ok().as_deref() == Some("1"))
+                .then(|| rim::Restart {
+                    bin: keeper_bin.clone(),
+                    config: kdir.join("keeper.toml"),
+                    api: pt.keeper_api,
+                    token: "test-token-operator-playable".into(),
+                }),
                 state: state.clone(),
                 a: a.clone(),
                 program,

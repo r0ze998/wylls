@@ -461,6 +461,7 @@ jobs:
           cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: config::
           cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
           cargo test --locked -p keeper --features playable-lane --test expedition_feed_guard
+          cargo test --locked -p keeper --features playable-lane --test verify_pr121_guard_mutations
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node

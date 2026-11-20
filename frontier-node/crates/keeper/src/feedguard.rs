@@ -422,6 +422,11 @@ pub fn bodies_scoped(
     if !saw_frame || !stack.is_empty() {
         return Err("incomplete log provenance".into());
     }
+    // (verify-pr121: the program never logs one record twice in an accepted transaction — every record carries
+    //  its operation's receipt and entity links — so an exact repeat is a replay: blocker)
+    if exp.iter().enumerate().any(|(i, a)| exp[..i].contains(a)) {
+        return Err("unsupported expedition record: a record repeated in one transaction".into());
+    }
     let expedition = match (scope, exp.is_empty()) {
         (_, true) => vec![],
         (Some(scope), false) => scope

@@ -117,6 +117,9 @@ pub struct Ctx<'a> {
     pub expedition: bool,
     /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
     pub after_wide: Option<Restart>,
+    /// P10 with `OPERATOR_P10_RESTARTS=1` (verify-pr121): keeper A is killed and restarted from the same config and
+    /// journal at three points of the expedition; every step must still land exactly once.
+    pub p10_restarts: Option<Restart>,
     /// P7: the page is the participant.
     pub page: Option<Page>,
     /// P8/P9: the legacy war (P9 with `page`).
