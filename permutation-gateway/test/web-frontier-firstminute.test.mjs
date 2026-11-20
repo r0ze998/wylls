@@ -65,7 +65,7 @@ test('the nation choice: six standing banners of cloth with the nation\'s charac
   const picked = String(joinScreen.render({ ...base, joinDraft: { faction: 2 } }));
   assert.match(picked, /data-f="2" data-nation="2" data-flourish="attack" aria-pressed="true"/);
   assert.equal((picked.match(/aria-pressed="true"/g) ?? []).length, 1);
-  assert.match(picked, /<button type="button" class="btn primary nc-btn" data-act="join" ><svg[^>]*><use href="art\/ui\/icons\.svg#banner"\/><\/svg>シンダーで始める<\/button>/);
+  assert.match(picked, /<button type="button" class="btn primary nc-btn" data-stable="join-go" data-act="join" ><svg[^>]*><use href="art\/ui\/icons\.svg#banner"\/><\/svg>シンダーで始める<\/button>/);
   assert.match(picked, /class="nc-pitch">[^<]+</);
   assert.match(picked, /<div class="nc-item nc-def" data-n="2" aria-live="polite">/, 'the chosen nation is the confirm line\'s default');
   assert.equal((picked.match(/class="bn-mark"/g) ?? []).length, 1, 'the chosen banner carries its mark (not colour alone)');

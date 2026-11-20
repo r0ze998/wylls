@@ -117,7 +117,7 @@ test('driver (muster): waits through the province finishing its turn and the tur
 
 test('driver (muster): an unknown earlier outcome, a cancel, a change, the turn limit, a closed gate, another world, the page hidden — withdrawn, never sent', () => {
   const cases = [
-    ['unknown', s => { s.held = true; }], ['changed', s => { s.intent = 'J'; }], ['changed', s => { s.sameCard = false; }], ['expired', s => { s.nowBell = 13; }],
+    ['unknown', s => { s.held = true; }], ['changed', s => { s.intent = 'J'; }], ['changed', s => { s.sameCard = false; }], ['expired', s => { s.nowBell = 13; s.problems = ['Cooldown']; s.problems = []; }],
     ['closed', s => { s.open = false; }], ['closed', s => { s.keyAlive = false; }], ['closed', s => { s.endsAt = 0; }], ['problem', s => { s.problems = ['NoReserve']; }],
   ];
   for (const [why, change] of cases) {

@@ -190,6 +190,7 @@ permutation-gateway/test/frontier-local-play-fresh-map.test.mjs
 permutation-gateway/test/frontier-local-play-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-natural.test.mjs
 permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs
+permutation-gateway/test/frontier-local-play-operator-war-everywhere.test.mjs
 permutation-gateway/test/frontier-local-play-operator-war.test.mjs
 permutation-gateway/test/frontier-local-play-operator-wide-march.test.mjs
 permutation-gateway/test/frontier-local-play-preview.test.mjs
@@ -253,6 +254,7 @@ permutation-gateway/test/web-frontier-firststeps.test.mjs
 permutation-gateway/test/web-frontier-fix-b10-b11.test.mjs
 permutation-gateway/test/web-frontier-fix-b17-b21.test.mjs
 permutation-gateway/test/web-frontier-fix-b6-b9.test.mjs
+permutation-gateway/test/web-frontier-fix-loop4.test.mjs
 permutation-gateway/test/web-frontier-fix2.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak2.test.mjs

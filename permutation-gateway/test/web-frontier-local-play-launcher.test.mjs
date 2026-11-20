@@ -83,7 +83,7 @@ test('launcher mode says what it is before anything is pressed: a memory-only ke
   assert.equal(points.length, 4, 'four short points'); assert.ok(points.every(e => e.tag === 'li' && e.parent.tag === 'ul'));
   assert.ok(points.some(e => /再読み込み/.test(e.textContent) && /続けられません/.test(e.textContent)));
   const said = points.map(e => e.textContent).join('\n');
-  for (const part of [/鍵は保存されない/, /再読み込み・ページを閉じると今の世界は続けられません/, /新しい世界から始めてください/, /通常速度では1ターン10分/, /同時に2つまで/, /既定は開始から2時間/, /自動的に終わり/, /進行は保存されません/, /勝手には止めません/]) assert.match(said, part);
+  for (const part of [/鍵は保存されない/, /再読み込み・ページを閉じると今の世界は続けられません/, /新しい世界から始めてください/, /通常速度では1ターン10分/, /同時に2つまで/, /自動的に終わり/, /進行は保存されません/, /勝手には止めません/]) assert.match(said, part);
   assert.equal(doc.byId('local-play-herald').hidden, true, 'no herald to name: the launcher answers where the world is');
   assert.equal(doc.byId('local-play-worlds').hidden, true); assert.equal(doc.byId('local-play-worlds-label').hidden, true); assert.deepEqual(rowsOf(doc), []);
   assert.match(doc.byId('local-play-status').textContent, /「新しい世界を開始」を押すと準備します/);
@@ -395,7 +395,7 @@ test('a verified launcher world gets a standing notice; after the page went away
   doc.byId('local-play-connect').click(); await gate.ready;
   const box = doc.byId('local-play-session'); assert.ok(box && doc.shown(box), 'shown once the world is verified');
   const said = doc.byClass('local-play-session-point').map(e => e.textContent).join('\n');
-  for (const part of [/再読み込み・タブを閉じると失われ/, /続けられません/, /このページでは確認できません/, /既定は開始から2時間/, /進行は保存されません/]) assert.match(said, part);
+  for (const part of [/再読み込み・タブを閉じると失われ/, /続けられません/, /このページでは確認できません/, /進行は保存されません/]) assert.match(said, part);
   assert.doesNotMatch(said, /[0-9]{1,2}:[0-9]{2}|残り/, 'no end time and no time left is made up (the end is not confirmed here)');
   assert.equal(doc.byClass('local-play-session-gone')[0].hidden, true);
   const asked = calls.length;
@@ -570,7 +570,7 @@ test('in English: the start, the wait, the boot; then the limit, the list, the e
     // before the press
     assert.equal(doc.byId('local-play-title').textContent, 'Play in a new world'); assert.equal(doc.byId('local-play-connect').textContent, 'Start a new world'); assert.equal(doc.byId('local-play-list').textContent, 'Check running worlds');
     const points = doc.byClass('local-play-note').filter(doc.shown).map(e => e.textContent); assert.equal(points.length, 4);
-    for (const [i, part] of [[0, /A test world on this machine only/], [1, /The key is never stored/], [1, /after a reload or closing the page this world cannot be continued/], [1, /start from a new world/], [2, /a turn takes 10 minutes/], [3, /At most two worlds/], [3, /two hours/], [3, /none is ended for you/]]) assert.match(points[i], part);
+    for (const [i, part] of [[0, /A test world on this machine only/], [1, /The key is never stored/], [1, /after a reload or closing the page this world cannot be continued/], [1, /start from a new world/], [2, /a turn takes 10 minutes/], [3, /At most two worlds/], [3, /its end time is shown once it starts/], [3, /none is ended for you/]]) assert.match(points[i], part);
     assert.equal(doc.byClass('local-play-label').filter(doc.shown)[0].textContent, 'This world\'s public address'); assert.equal(doc.byId('local-play-address').textContent, ME);
     assert.equal(status(doc), 'Press "Start a new world" to prepare one. Sending and signing are yours to confirm in the game.');
     allEnglish(doc, 'before the press');
