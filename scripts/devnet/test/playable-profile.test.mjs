@@ -188,5 +188,11 @@ test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and it
   assert.deepEqual(
     (({ extend, extend_max_ring, lazy_provinces }) => ({ extend, extend_max_ring, lazy_provinces }))(playable().services.keeperA.ringsDuty),
     { extend: true, extend_max_ring: season.rMaxCeiling, lazy_provinces: true });
+  // Q-W1 (owner 2026-11-20): rim first villages — keeper A opens the rim's provinces (rim_per_wedge) and settles
+  // the rim FileTickets (role tickets); the preset's Hamlet anchors a wide claim (outpost_tier_min 0), the S1 one keeps Town
+  assert.equal(playable().services.keeperA.ringsDuty.rim_per_wedge, 6);
+  assert.ok(playable().services.keeperA.roles.includes('tickets') && playable().services.keeperA.roles.includes('beacon'));
+  assert.equal(conquest.outpost_tier_min, 0);
+  assert.equal(local.conquest.outpost_tier_min, 1);
   assert.equal(sol(seasonCost(season, 6960).total), '106.2438');
 });

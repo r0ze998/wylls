@@ -90,7 +90,9 @@ pub struct RingDuty {
 /// duty would open with the same `n`. Pure.
 pub fn rim_plan(per_wedge: usize) -> Vec<(i32, i32)> {
     let r = i32::from(R_MAX_HARD) + 1;
-    let mut by_wedge: BTreeMap<u8, Vec<(f64, (i32, i32))>> = BTreeMap::new();
+    /// A ring-129 province with its angle along the ring.
+    type Along = (f64, (i32, i32));
+    let mut by_wedge: BTreeMap<u8, Vec<Along>> = BTreeMap::new();
     for p in -r..=r {
         for q in (-r).max(-p - r)..=r.min(-p + r) {
             let c = ProvinceCoord::new(p, q);
@@ -221,11 +223,11 @@ impl RingDuty {
         engine: &mut Engine,
     ) -> PortResult<()> {
         let rs = port.accounts(&[t.addrs.ring_seed(R_MAX_HARD)], 0).await?;
-        if !rs[0]
+        let seeded = rs[0]
             .as_ref()
             .and_then(|a| RingSeed::decode(&a.data).ok())
-            .is_some_and(|rs| rs.status == 2)
-        {
+            .is_some_and(|rs| rs.status == 2);
+        if !seeded {
             return Ok(());
         }
         let plan = rim_plan(t.cfg.rim_per_wedge as usize);
@@ -257,7 +259,9 @@ impl RingDuty {
                     class: Class::D,
                     bell: None,
                     region: Some(ix::region_of(p, q)),
-                    build: Arc::new(move |c: &BuildCtx| vec![ix::open_province(&a, c.payer, pi, qi)]),
+                    build: Arc::new(move |c: &BuildCtx| {
+                        vec![ix::open_province(&a, c.payer, pi, qi)]
+                    }),
                     deadline_slot: None,
                     not_before_slot: 0,
                     fixed_payer: None,
@@ -560,11 +564,18 @@ mod tests {
         assert!(rim_plan(1).len() < plan.len() && rim_plan(12).len() > plan.len());
         // the middle of a wedge, not its ends: far from the six corners (k·128 along an axis)
         for &(p, q) in &plan {
-            let corner = [(128, 0), (0, 128), (-128, 128), (-128, 0), (0, -128), (128, -128)]
-                .iter()
-                .map(|&(cp, cq)| ProvinceCoord::new(p, q).distance(ProvinceCoord::new(cp, cq)))
-                .min()
-                .unwrap();
+            let corner = [
+                (128, 0),
+                (0, 128),
+                (-128, 128),
+                (-128, 0),
+                (0, -128),
+                (128, -128),
+            ]
+            .iter()
+            .map(|&(cp, cq)| ProvinceCoord::new(p, q).distance(ProvinceCoord::new(cp, cq)))
+            .min()
+            .unwrap();
             assert!(corner > 40, "({p},{q}) is {corner} from a corner");
         }
     }

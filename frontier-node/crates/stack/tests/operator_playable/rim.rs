@@ -72,6 +72,17 @@ struct Run<'a> {
     c: Ctx<'a>,
     rows: Vec<Value>,
     patches: Vec<String>,
+    /// While recording the wide claim's witnessed segment (as `verify/tests/playable_wide_claims.rs`): the state of
+    /// every account a segment instruction names, read before its first use; the accounts the segment wrote; its
+    /// transactions.
+    witness: Option<Witness>,
+}
+
+#[derive(Default)]
+struct Witness {
+    snapshot: std::collections::BTreeMap<[u8; 32], Option<Account>>,
+    written: std::collections::BTreeSet<[u8; 32]>,
+    txs: Vec<fclient::ports::TxRecord>,
 }
 
 fn adr(k: [u8; 32]) -> Address {
@@ -145,7 +156,13 @@ impl<'a> Run<'a> {
         c.set_scale(1.0);
     }
     /// Lets the chain (and so keeper A) run at `scale` until `done` or `secs` wall seconds.
-    async fn run_until(&self, scale: f64, secs: u64, what: &str, mut done: impl FnMut(&Self) -> bool) {
+    async fn run_until(
+        &self,
+        scale: f64,
+        secs: u64,
+        what: &str,
+        mut done: impl FnMut(&Self) -> bool,
+    ) {
         {
             let mut c = self.lock();
             c.set_scale(scale);
@@ -154,7 +171,8 @@ impl<'a> Run<'a> {
         let t0 = Instant::now();
         while !done(self) {
             if t0.elapsed() > Duration::from_secs(secs) {
-                let log = std::fs::read_to_string(self.c.dir.join("keeper.log")).unwrap_or_default();
+                let log =
+                    std::fs::read_to_string(self.c.dir.join("keeper.log")).unwrap_or_default();
                 let tail: Vec<_> = log.lines().rev().take(60).collect();
                 let fails: Vec<String> = self
                     .lock()
@@ -163,7 +181,13 @@ impl<'a> Run<'a> {
                     .filter(|l| l.err.is_some())
                     .rev()
                     .take(12)
-                    .map(|l| format!("{:?} {:?}", l.err, l.logs.iter().rev().take(4).collect::<Vec<_>>()))
+                    .map(|l| {
+                        format!(
+                            "{:?} {:?}",
+                            l.err,
+                            l.logs.iter().rev().take(4).collect::<Vec<_>>()
+                        )
+                    })
                     .collect();
                 panic!(
                     "{what}: not reached in {secs} s (chain clock {}, bell {})\nlast failed program txs:\n{}\nkeeper log tail:\n{}",
@@ -179,9 +203,27 @@ impl<'a> Run<'a> {
         c.set_scale(1.0);
     }
     /// Sends one transaction on the paused chain (this slot), records its CU and lamports, returns its row.
-    fn try_send(&mut self, what: &str, ixs: &[Instruction], signers: &[&Keypair], who: &str) -> Value {
+    fn try_send(
+        &mut self,
+        what: &str,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+        who: &str,
+    ) -> Value {
         let mut c = self.c.state.lock().unwrap_or_else(|e| e.into_inner());
         c.set_paused(true);
+        if let Some(wit) = self.witness.as_mut() {
+            for i in ixs {
+                for m in &i.accounts {
+                    let k = m.pubkey.to_bytes();
+                    if wit.written.contains(&k) || wit.snapshot.contains_key(&k) {
+                        continue;
+                    }
+                    let acct = c.account(&m.pubkey).filter(|x| x.owner == self.c.program);
+                    wit.snapshot.insert(k, acct);
+                }
+            }
+        }
         let (bh, _) = c.latest_blockhash();
         let t = tx::build(ixs, &budget(), signers, &bh).expect("build");
         let payer = signers[0].pubkey();
@@ -190,12 +232,24 @@ impl<'a> Run<'a> {
             Ok(sig) => {
                 c.produce_block();
                 let l = c.transaction(&sig).cloned().expect("landed");
+                if let Some(wit) = self.witness.as_mut() {
+                    if l.err.is_none() {
+                        for i in ixs {
+                            for m in i.accounts.iter().filter(|m| m.is_writable) {
+                                wit.written.insert(m.pubkey.to_bytes());
+                            }
+                        }
+                    }
+                    wit.txs.push(l.record());
+                }
                 json!({"tx": what, "by": who, "ok": l.err.is_none(), "err": l.err, "code": l.code,
                     "compute_units": l.units, "fee": l.fee, "slot": l.slot, "chain_ts": c.unix_timestamp(),
                     "lamports_from_payer": before.saturating_sub(c.balance(&payer)),
                     "logs_tail": if l.err.is_some() { json!(l.logs.iter().rev().take(6).collect::<Vec<_>>()) } else { Value::Null }})
             }
-            Err(e) => json!({"tx": what, "by": who, "ok": false, "err": format!("refused before landing: {e}")}),
+            Err(e) => {
+                json!({"tx": what, "by": who, "ok": false, "err": format!("refused before landing: {e}")})
+            }
         };
         drop(c);
         self.rows.push(row.clone());
@@ -227,17 +281,29 @@ impl<'a> Run<'a> {
         let ctx = self.ctx();
         let (clock, sched, margin, genesis_ts) = self.clock();
         let a_ts = genesis_ts + 600 * (bell as i64 + 1) + 100;
-        let round = kb::seed_round(&clock, kb::reveal_close(a_ts, kb::window(&sched, bell)), margin);
+        let round = kb::seed_round(
+            &clock,
+            kb::reveal_close(a_ts, kb::window(&sched, bell)),
+            margin,
+        );
         let anchor_key = ctx.bell_anchor(bell, region);
         let mut ad = vec![0u8; K2::BellAnchor.size()];
-        assert!(frontier_abi::v2::layout::write_header(&mut ad, K2::BellAnchor, SEASON_ID));
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut ad,
+            K2::BellAnchor,
+            SEASON_ID
+        ));
         ad[BA::BELL..BA::BELL + 4].copy_from_slice(&bell.to_le_bytes());
         ad[BA::REGION] = region;
         ad[BA::ROUND..BA::ROUND + 8].copy_from_slice(&round.to_le_bytes());
         ad[BA::A..BA::A + 8].copy_from_slice(&a_ts.to_le_bytes());
         ad[BA::SLOT..BA::SLOT + 8].copy_from_slice(&1u64.to_le_bytes());
         let mut cd = vec![0u8; K2::SeedCache.size()];
-        assert!(frontier_abi::v2::layout::write_header(&mut cd, K2::SeedCache, SEASON_ID));
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut cd,
+            K2::SeedCache,
+            SEASON_ID
+        ));
         cd[SC::BELL..SC::BELL + 4].copy_from_slice(&bell.to_le_bytes());
         cd[SC::REGION] = region;
         cd[SC::ROUND..SC::ROUND + 8].copy_from_slice(&round.to_le_bytes());
@@ -251,7 +317,11 @@ impl<'a> Run<'a> {
             owner: program,
             executable: false,
         };
-        self.patch(adr(anchor_key), acct(ad), &format!("BellAnchor(bell {bell}, region {region}), round {round}"));
+        self.patch(
+            adr(anchor_key),
+            acct(ad),
+            &format!("BellAnchor(bell {bell}, region {region}), round {round}"),
+        );
         self.patch(
             adr(ctx.seed_cache(bell, region, 0)),
             acct(cd),
@@ -300,6 +370,7 @@ pub async fn run(c: Ctx<'_>) -> Value {
         c,
         rows: vec![],
         patches: vec![],
+        witness: None,
     };
     let a = r.c.a.clone();
     let ctx = r.ctx();
@@ -308,7 +379,10 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let gseed: [u8; 32] = sd[frontier_abi::v2::layout::world::season::GENESIS_SEED..][..32]
         .try_into()
         .unwrap();
-    assert_eq!(cq.outpost_tier_min, 0, "Q-W1: the devnet wide preset's Hamlet anchor");
+    assert_eq!(
+        cq.outpost_tier_min, 0,
+        "Q-W1: the devnet wide preset's Hamlet anchor"
+    );
     assert_eq!(cq.r_max_ceiling, R_MAX_HARD);
     let (clock, _, margin, genesis_ts) = r.clock();
     let rounds = FixtureDrand::load(&fb::fixture_dir(), fb::quicknet_info())
@@ -332,7 +406,8 @@ pub async fn run(c: Ctx<'_>) -> Value {
         "RingSeed(128) seeded (the genesis ring's seed, opened_bell 0)",
     );
     let mut fr = r.lock().account(&a.frontier()).expect("the Frontier");
-    fr.data[FR::RINGS_OPENED..FR::RINGS_OPENED + 2].copy_from_slice(&(R_MAX_HARD + 1).to_le_bytes());
+    fr.data[FR::RINGS_OPENED..FR::RINGS_OPENED + 2]
+        .copy_from_slice(&(R_MAX_HARD + 1).to_le_bytes());
     fr.data[FR::R_MAX_EXT..FR::R_MAX_EXT + 2].copy_from_slice(&R_MAX_HARD.to_le_bytes());
     for w in 0..6 {
         let o = FR::WEDGE_OPEN + 4 * w;
@@ -352,12 +427,17 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let plan = keeper_core::rings::rim_plan(PER_WEDGE);
     let t_rim = Instant::now();
     r.run_until(5.0, 240, "keeper A opens the rim's provinces", |r| {
-        plan.iter().all(|&(p, q)| r.lock().account(&r.c.a.province(p, q)).is_some())
+        plan.iter()
+            .all(|&(p, q)| r.lock().account(&r.c.a.province(p, q)).is_some())
     })
     .await;
     let rim_secs = t_rim.elapsed().as_secs_f64();
     let rim_open: Vec<Value> = r
-        .feed_rows(patched_slot, &[fclient::abi::tag::OPEN_PROVINCE], "keeper A")
+        .feed_rows(
+            patched_slot,
+            &[fclient::abi::tag::OPEN_PROVINCE],
+            "keeper A",
+        )
         .into_iter()
         .filter(|x| {
             let (p, q) = (x["p"].as_i64().unwrap_or(0), x["q"].as_i64().unwrap_or(0));
@@ -371,13 +451,23 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let (rp, rq, nation) = plan
         .iter()
         .find_map(|&(p, q)| {
-            let n = home_nation(ProvinceCoord::new(p, q), cq.placement, cq.heartland_max_ring, &gseed)?;
+            let n = home_nation(
+                ProvinceCoord::new(p, q),
+                cq.placement,
+                cq.heartland_max_ring,
+                &gseed,
+            )?;
             Some((p, q, n))
         })
         .expect("a rim province with a nation");
     let pd = r.data(&a.province(rp, rq)).unwrap();
     let rsite = (0..pd[PV::SITE_COUNT] as usize)
-        .find(|i| matches!(pd[PV::site(*i) + SM::STATE], SM::STATE_FREE | SM::STATE_RELEASED_FREE))
+        .find(|i| {
+            matches!(
+                pd[PV::site(*i) + SM::STATE],
+                SM::STATE_FREE | SM::STATE_RELEASED_FREE
+            )
+        })
         .expect("a free rim site") as u8;
     // The wide target: a ring-129 neighbour of the rim province.
     let target = [(1i64, 0i64), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
@@ -418,12 +508,29 @@ pub async fn run(c: Ctx<'_>) -> Value {
     for w in 0..6u8 {
         req.push(AccountMeta::new_readonly(adr(ctx.province_fund(w)), false));
     }
-    req.push(AccountMeta::new_readonly(fclient::addr::system_program(), false));
-    let ix_req = wide_ix(&a, req, wix::RequestRingSeed { ring: FIRST_WIDE_RING }.to_bytes().to_vec());
-    r.send("WideRequestRingSeed(129)", &[ix_req], &[&payer], "permissionless payer (test)");
+    req.push(AccountMeta::new_readonly(
+        fclient::addr::system_program(),
+        false,
+    ));
+    let ix_req = wide_ix(
+        &a,
+        req,
+        wix::RequestRingSeed {
+            ring: FIRST_WIDE_RING,
+        }
+        .to_bytes()
+        .to_vec(),
+    );
+    r.send(
+        "WideRequestRingSeed(129)",
+        &[ix_req],
+        &[&payer],
+        "permissionless payer (test)",
+    );
     r.advance_exact(round_time(clock.genesis, clock.period as u32, bound) + 1);
     let beacon = rounds.get(&bound).expect("the bound round");
-    let hints: [u8; frontier_abi::ix::HINTS_LEN] = fb::hints_bytes(bound).try_into().expect("hints");
+    let hints: [u8; frontier_abi::ix::HINTS_LEN] =
+        fb::hints_bytes(bound).try_into().expect("hints");
     let ix_consume = wide_ix(
         &a,
         vec![
@@ -509,17 +616,37 @@ pub async fn run(c: Ctx<'_>) -> Value {
     r.stage_seed(ticket_bell, region, [0x5A; 32]);
     let before_settle = r.lock().slot();
     let holding = a.holding(rp, rq, rsite);
-    r.run_until(2.0, 180, "keeper A's tickets role settles the rim ticket", |r| {
-        r.lock().account(&holding).is_some_and(|h| h.owner == r.c.program)
-    })
+    r.run_until(
+        2.0,
+        180,
+        "keeper A's tickets role settles the rim ticket",
+        |r| {
+            r.lock()
+                .account(&holding)
+                .is_some_and(|h| h.owner == r.c.program)
+        },
+    )
     .await;
-    let settle = r.feed_rows(before_settle, &[fclient::abi::tag::SETTLE_TICKET], "keeper A (tickets role)");
+    let settle = r.feed_rows(
+        before_settle,
+        &[fclient::abi::tag::SETTLE_TICKET],
+        "keeper A (tickets role)",
+    );
     assert!(settle.iter().any(|x| x["ok"] == true), "{settle:#?}");
     r.lock().set_paused(true);
     let hd = r.data(&holding).unwrap();
-    assert_eq!(hd[H::STATE], H::STATE_PROVISIONAL, "a provisional first holding");
+    assert_eq!(
+        hd[H::STATE],
+        H::STATE_PROVISIONAL,
+        "a provisional first holding"
+    );
     assert_eq!(hd[H::ORDER], 1, "the first village");
-    assert_eq!(adr(hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32].try_into().unwrap()), a.citizen(&w));
+    assert_eq!(
+        adr(hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32]
+            .try_into()
+            .unwrap()),
+        a.citizen(&w)
+    );
     let ring = ProvinceCoord::new(rp, rq).ring();
     assert!((126..=128).contains(&ring), "on the rim: ring {ring}");
     let final_ts = le_i64(&hd, H::FINAL_TS);
@@ -543,7 +670,10 @@ pub async fn run(c: Ctx<'_>) -> Value {
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     };
-    assert!(herald_shows_rim, "the herald did not show the rim village: {me_view}");
+    assert!(
+        herald_shows_rim,
+        "the herald did not show the rim village: {me_view}"
+    );
     let herald_season = super::http_get(r.c.herald, "/h/season").unwrap_or(Value::Null);
 
     // 7. Final, harvested, then the wide claim from the rim Hamlet.
@@ -591,7 +721,12 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let mut last_err = String::new();
     for _ in 0..12 {
         r.advance_exact(t);
-        let h = r.send("Harvest (rim village)", &[fclient::ix::v2::harvest(&a, &me, hold_ref)], &[&player], "rim participant");
+        let h = r.send(
+            "Harvest (rim village)",
+            &[fclient::ix::v2::harvest(&a, &me, hold_ref)],
+            &[&player],
+            "rim participant",
+        );
         harvests.push(h);
         let hd = r.data(&holding).unwrap();
         assert_eq!(hd[H::STATE], H::STATE_FINAL, "the lazy flip");
@@ -613,8 +748,13 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let csite = claim.unwrap_or_else(|| panic!("no wide claim fits ({last_err})"));
     let hd = r.data(&holding).unwrap();
     let tier = hd[H::TIER];
+    r.witness = Some(Witness::default());
     let cl = r.send(
-        &format!("WideClaimSite({}, {} site {csite}, slot 2) from the rim Hamlet", target.p(), target.q()),
+        &format!(
+            "WideClaimSite({}, {} site {csite}, slot 2) from the rim Hamlet",
+            target.p(),
+            target.q()
+        ),
         &[claim_ix(csite)],
         &[&player],
         "rim participant",
@@ -625,7 +765,8 @@ pub async fn run(c: Ctx<'_>) -> Value {
 
     // 8. Declared: the claim bell's anchor and seed in the wide province's region; then WideSettleTicket and
     //    WideFinalize (the itest run_claims duty's instructions).
-    let wp = WideProvince::read(&r.data(&adr(wl::province_address(&ctx, target))).unwrap()).expect("wide province");
+    let wp = WideProvince::read(&r.data(&adr(wl::province_address(&ctx, target))).unwrap())
+        .expect("wide province");
     r.advance_exact(genesis_ts + 600 * (rec.bell as i64 + 1) + 200);
     r.stage_seed(rec.bell, wp.region, [0xA5; 32]);
     let cdn = r.data(&citizen).unwrap();
@@ -647,7 +788,12 @@ pub async fn run(c: Ctx<'_>) -> Value {
         ],
         wix::SettleTicket { k: 0 }.to_bytes().to_vec(),
     );
-    let ws = r.send("WideSettleTicket(k 0)", &[settle_ix], &[&payer], "permissionless payer (test)");
+    let ws = r.send(
+        "WideSettleTicket(k 0)",
+        &[settle_ix],
+        &[&payer],
+        "permissionless payer (test)",
+    );
     let whd = r.data(&wholding).expect("the wide village's Holding");
     assert_eq!(whd[H::STATE], H::STATE_PROVISIONAL);
     let wfinal_ts = le_i64(&whd, H::FINAL_TS);
@@ -662,12 +808,103 @@ pub async fn run(c: Ctx<'_>) -> Value {
         wix::Finalize {}.to_bytes().to_vec(),
     );
     r.advance_exact(wfinal_ts.max(r.now()) + 1);
-    let wf = r.send("WideFinalize", &[finalize_ix], &[&payer], "permissionless payer (test)");
+    let wf = r.send(
+        "WideFinalize",
+        &[finalize_ix],
+        &[&payer],
+        "permissionless payer (test)",
+    );
     let whd = r.data(&wholding).unwrap();
     assert_eq!(whd[H::STATE], H::STATE_FINAL);
     let wide = wh::WideHolding::read(&whd).expect("a wide holding");
     assert_eq!(wide.slot, 2);
     assert_eq!(wide.owner_citizen, citizen.to_bytes());
+    // The verifier's VWL judges the claim, its settlement and the finalize from the execution witness (the
+    // claim bell's anchor and seed are in it as the declared patch left them): no FAIL, nothing UNVERIFIABLE.
+    let wit = r.witness.take().expect("the witness");
+    let so_hash: [u8; 32] = hex::decode(super::DEVNET_SO_SHA256)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let segment = verify_core::input::Input {
+        cfg: verify_core::input::Config {
+            program: r.c.program,
+            season_id: SEASON_ID,
+            quicknet_pk: fb::quicknet_info().public_key,
+            ruleset_hash: frontier_abi::v2::presets::RULESET_HASH_V3,
+            program_hash: Some(so_hash),
+        },
+        txs: wit.txs.clone(),
+        finals: Default::default(),
+        final_slot: r.lock().slot(),
+        program_hashes: vec![(0, so_hash)],
+        provenance: "stack/tests/operator_playable.rs P4: the rim Hamlet's wide claim segment"
+            .into(),
+        scenarios: vec!["p4-rim-claim-segment".into()],
+        history: Default::default(),
+        resident_feed: None,
+        program_so: None,
+        declared: vec![],
+        chain: Default::default(),
+    };
+    let found = verify_core::checks::vwl_wide_land::judge_segment(&segment, &wit.snapshot);
+    let vwl: Vec<Value> = found
+        .iter()
+        .map(|f| json!({"severity": format!("{:?}", f.severity), "check": f.check, "code": f.code, "entity": f.entity, "detail": f.detail}))
+        .collect();
+    assert!(
+        found
+            .iter()
+            .all(|f| f.severity == verify_core::Severity::Warn),
+        "VWL on the rim claim segment: {vwl:#?}"
+    );
+    // ...and it does judge them: (a) the Season read as a Town-anchor season (`outpost_tier_min` 1, every other
+    // preset's rule) makes the rim Hamlet's claim a FAIL; (b) a forged owner of the settled wide village is a FAIL.
+    let fails = |f: &[verify_core::Finding]| f.iter().filter(|x| x.fail()).count();
+    let mut town = wit.snapshot.clone();
+    {
+        let sk = r.c.a.season.to_bytes();
+        let acct = town
+            .get_mut(&sk)
+            .and_then(|x| x.as_mut())
+            .expect("the Season in the witness");
+        let o = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::OUTPOST_TIER_MIN;
+        assert_eq!(acct.data[o], 0);
+        acct.data[o] = 1;
+    }
+    let town_fails = fails(&verify_core::checks::vwl_wide_land::judge_segment(
+        &segment, &town,
+    ));
+    assert!(
+        town_fails > 0,
+        "a Hamlet claim in a Town-anchor season must FAIL"
+    );
+    let mut forged = segment.clone();
+    let wk = wholding.to_bytes();
+    let settle_at = forged
+        .txs
+        .iter()
+        .position(|t| {
+            t.post
+                .iter()
+                .any(|(k, a)| k.to_bytes() == wk && a.is_some())
+        })
+        .expect("the settlement wrote the wide village");
+    {
+        let (_, a) = forged.txs[settle_at]
+            .post
+            .iter_mut()
+            .find(|(k, _)| k.to_bytes() == wk)
+            .unwrap();
+        let a = a.as_mut().unwrap();
+        a.data[H::OWNER_CITIZEN] ^= 0xFF;
+    }
+    let forged_fails = fails(&verify_core::checks::vwl_wide_land::judge_segment(
+        &forged,
+        &wit.snapshot,
+    ));
+    assert!(forged_fails > 0, "a forged wide village must FAIL");
     r.lock().set_paused(false);
 
     let keeper_alive = r.c.keeper.try_wait().ok().flatten().is_none();
@@ -687,5 +924,7 @@ pub async fn run(c: Ctx<'_>) -> Value {
         "join": join, "file_ticket": file, "harvests": harvests, "wide_claim": cl, "wide_settle": ws, "wide_finalize": wf,
         "declared_patches": r.patches,
         "wide_ring_bound_round": bound,
+        "verifier_vwl_segment": {"transactions": wit.txs.len(), "snapshot_accounts": wit.snapshot.len(), "findings": vwl,
+            "mutation_town_season_fails": town_fails, "mutation_forged_owner_fails": forged_fails},
     })
 }

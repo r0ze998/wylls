@@ -571,7 +571,9 @@ impl KeeperConfig {
         if let Some(v) = take("rim_per_wedge") {
             let n = int(v, "rim_per_wedge")?;
             if n > u64::from(RIM_PER_WEDGE_MAX) {
-                return Err(format!("`rim_per_wedge` must be at most {RIM_PER_WEDGE_MAX}"));
+                return Err(format!(
+                    "`rim_per_wedge` must be at most {RIM_PER_WEDGE_MAX}"
+                ));
             }
             c.rim_per_wedge = n as u16;
         }
@@ -707,19 +709,13 @@ mod tests {
         // Q-W1: the rim's provinces only when asked
         assert_eq!(c.rim_per_wedge, 0);
         assert_eq!(KeeperConfig::new(p, 1, b).rim_per_wedge, 0);
-        let rim =
-            KeeperConfig::from_toml(&format!("{text}
-lazy_provinces = true
-rim_per_wedge = 6
-"))
-                .unwrap();
+        let rim = KeeperConfig::from_toml(&format!(
+            "{text}\nlazy_provinces = true\nrim_per_wedge = 6\n"
+        ))
+        .unwrap();
         assert_eq!(rim.rim_per_wedge, 6);
-        assert!(KeeperConfig::from_toml(&format!("{text}
-rim_per_wedge = 130
-")).is_err());
-        assert!(KeeperConfig::from_toml(&format!("{text}
-rim_per_wedge = -1
-")).is_err());
+        assert!(KeeperConfig::from_toml(&format!("{text}\nrim_per_wedge = 130\n")).is_err());
+        assert!(KeeperConfig::from_toml(&format!("{text}\nrim_per_wedge = -1\n")).is_err());
     }
 
     #[test]
