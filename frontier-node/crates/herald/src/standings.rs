@@ -5,8 +5,10 @@
 //! contributes to the score.
 //!
 //! **When an hour's row is written.** Hour h's map figures (provinces,
-//! banners, holdings, occupations) are taken from the control file of its
-//! last bell (`6h + 5`, or `end_bell − 1`). No March-fold wait is needed
+//! banners, holdings, occupations) are taken from the control bell of its
+//! last bell (`6h + 5`, or `end_bell − 1`): the provinces of its `PSFCT1`
+//! file, plus — counts only, never in the file — a grown map's rim past
+//! ring 127 and the wide land's keeps by holder (`crate::wide_keeps`). No March-fold wait is needed
 //! for the province counters. Cumulative fields count events of bells ≤ the hour's
 //! bell and the folds of hours ≤ h known when the row is written (never
 //! lower than the previous row). `members_active` and `members` are the

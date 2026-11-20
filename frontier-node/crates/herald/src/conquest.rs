@@ -1779,6 +1779,10 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
             n += 1;
         }
         cq.ct_next = Some(b);
+        #[cfg(feature = "wide-world-experimental")]
+        if let Some(w) = f.wide.as_mut() {
+            w.prune_keeps(b);
+        }
     }
     overview2(&mut cq, f, slot);
     // views no file still needs
@@ -1802,11 +1806,15 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
 
 /// Bell `b`'s control file, sieges file and their WS deltas.
 fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot: u64) -> bool {
-    // the opened provinces and their records at b
+    // the opened provinces and their records at b. `views` are the provinces of the dense `PSFCT1` file (rings
+    // 0..=CONTROL_MAX_RING, CF-2); a grown map's rim (ring 128, R_MAX_HARD) is opened past what that file can hold, so
+    // its provinces go to `grown`: counted in the hour's public figures (standings, 「支配する州」), never written
+    // positionally (no file, sieges, call or event names them — fog, #93 §4 item 13: public counts only). Before
+    // fix wide-herald-lag a rim province stopped every control bell after its opening (`rings > CONTROL_MAX_RING`).
     let mut rings = 0u32;
-    let mut any = false;
     let mut recs: BTreeMap<u32, fmt::ControlProvince> = BTreeMap::new();
     let mut views: Vec<(ProvinceCoord, View)> = vec![];
+    let mut grown: Vec<(ProvinceCoord, View)> = vec![];
     let metas: Vec<((i16, i16), crate::fold::ProvMeta)> =
         f.provinces.iter().map(|(k, m)| (*k, *m)).collect();
     for (pq, m) in metas {
@@ -1822,12 +1830,15 @@ fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot
             cq.alarms.replay_errors += 1;
             return false;
         };
-        any = true;
+        if c.ring() > fmt::CONTROL_MAX_RING {
+            grown.push((c, v));
+            continue;
+        }
         rings = rings.max(c.ring());
         recs.insert(i, v.ct);
         views.push((c, v));
     }
-    if !any || rings > fmt::CONTROL_MAX_RING {
+    if views.is_empty() {
         return false;
     }
     let day = b / fmt::BELLS_PER_DAY;
@@ -2010,7 +2021,7 @@ fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot
             bell: b,
             ..Default::default()
         };
-        for (c, v) in &views {
+        for (c, v) in views.iter().chain(&grown) {
             // (⑭ R2: a centre-free season's rings 0-1 are held land too)
             if (c.ring() >= 2 || si.is_some_and(|s| s.centre_free)) && v.ct.control < 6 {
                 hs.provinces[v.ct.control as usize] += 1;
@@ -2024,6 +2035,13 @@ fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot
         for r in &file.marches {
             if r.banner < 6 {
                 hs.banners[r.banner as usize] += 1;
+            }
+        }
+        // the wide land's keeps (ring 129+, not opened Provinces of the legacy map): counts only (`crate::wide_keeps`)
+        #[cfg(feature = "wide-world-experimental")]
+        if let Some(w) = f.wide.as_ref() {
+            for (x, n) in w.keep_counts_at(b).iter().enumerate() {
+                hs.provinces[x] = hs.provinces[x].saturating_add((*n).min(u16::MAX as u32) as u16);
             }
         }
         cq.latest_territory = Some(hs);

@@ -78,6 +78,9 @@ pub struct WideIndex {
     // Derived from authenticated capture bytes only, not ownership authority.
     inventory: BTreeMap<([u8; 32], u8), BTreeSet<[u8; 32]>>,
     inventory_of: BTreeMap<[u8; 32], ([u8; 32], u8)>,
+    /// Each captured wide Province's keep holder by bell: the public
+    /// per-nation counts of the control fold (`crate::wide_keeps`).
+    keeps: crate::wide_keeps::KeepHolders<WideCoord>,
     #[cfg(test)]
     inventory_reads: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
@@ -98,6 +101,7 @@ impl WideIndex {
             holdings: BTreeMap::new(),
             inventory: BTreeMap::new(),
             inventory_of: BTreeMap::new(),
+            keeps: Default::default(),
             #[cfg(test)]
             inventory_reads: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -148,6 +152,21 @@ impl WideIndex {
 
     pub fn refused(&self) -> u64 {
         self.refused
+    }
+
+    /// The wide Provinces held per nation at bell `b` (counts only).
+    pub fn keep_counts_at(&self, b: u32) -> [u32; 6] {
+        self.keeps.counts_at(b)
+    }
+
+    /// Forgets keep holders no control bell at or after `next` asks for.
+    pub fn prune_keeps(&mut self, next: u32) {
+        self.keeps.prune(next);
+    }
+
+    /// Keep-holder entries held (bounded-memory checks).
+    pub fn keep_entries(&self) -> usize {
+        self.keeps.entries()
     }
 
     pub fn key(&self, p: i16, q: i16) -> ProvinceKey {
@@ -593,6 +612,17 @@ pub(crate) fn index_capture(f: &mut Fold, key: &[u8; 32], d: &[u8]) -> bool {
     match captured {
         Some(CapturedWide::Province(p)) => {
             w.provinces.insert(p.coord, *key);
+            // (the keep's holder, read from the Province v2 prefix the wide record carries byte for byte)
+            let rn = frontier_abi::bytes::rd_u32(
+                d,
+                frontier_abi::v2::layout::province::province::RESOLVED_NEXT,
+            )
+            .unwrap_or(0);
+            let holder = frontier_abi::conquest_model::read_keep(d)
+                .ok()
+                .flatten()
+                .map(|k| k.holder);
+            w.keeps.observe(&p.coord, rn, holder);
             w.report_key(
                 ProvinceKey::new(p.world, p.coord),
                 ReportedState::Open,
@@ -655,6 +685,7 @@ pub(crate) fn capture_post(
             match captured {
                 Some(CapturedWide::Province(p)) => {
                     w.provinces.remove(&p.coord);
+                    w.keeps.remove(&p.coord);
                     w.report_key(
                         ProvinceKey::new(p.world, p.coord),
                         ReportedState::Closed,
