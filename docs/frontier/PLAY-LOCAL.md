@@ -253,10 +253,11 @@ training are the same rules as devnet.
   the world sweep meanwhile. A host whose arrival turn is more than 2 turns past shows "Host's arrival turn N was M
   turns ago · waiting for its result". A missed wide-land expedition still has no settlement in the program; that
   waits on r0ze (§−2.4f (d)).
-- **At ×60 your own province is one or two turns behind** (the runner-throughput check: median 2 on the page, never
-  more than 3; before it, median 4 and up to 8). The keeper loop now settles your home again before every AI village's
-  turn, so a muster or march is sent on the first press, usually within a few seconds (the check: muster 2.5–5 s, each
-  march within 4 s, none withdrawn in 30-minute ×60 sessions; one muster press in the turn's last second was refused and the
+- **At ×60 your own province is one or two turns behind** (the runner-throughput check: median 2 on the page, at
+  most 3–4; before it, median 4 and up to 8). The keeper loop now settles your home again before every AI village's
+  turn, so a muster or march is usually sent on the first press, within a few seconds (the check: muster 1.8–5 s, marches
+  2–14 s; the author's sessions withdrew none, the verify-pr109 session withdrew 2 of 12 marches, pressed while the home
+  was 3 turns behind, and each went on the next press; one muster press in the turn's last second was refused and the
   next press, 3 s later, went through). If one is still withdrawn (「送信待ちを取り消しました…」),
   press it again.
 - **A wide-land expedition whose reveal window was missed never settles.** The march screen stays on 「到着しました。

@@ -1705,20 +1705,6 @@ impl LegacyMarchDriver {
         batch_answer(landed, first_stop, first_wait, "no march of this village")
     }
 
-    /// The world phase: what the OTHER opened provinces need so that every opened province is resolved OR provably
-    /// quiet through each turn (the herald's `complete_through` takes the least of every opened province's resolved
-    /// or quiet-projected turn — rest.rs: a turn projects as quiet once its region's anchor window has closed — and only
-    /// then writes that turn's control snapshot, which the page's keeps and their holders read). So, per province, the
-    /// least that is safe:
-    ///   1. its region's missing anchors, posted early and bounded below `end_bell` (`anchor_to_post`);
-    ///   2. once their windows have closed, FastForward over the closed range is simulated and, when accepted, SENT: the
-    ///      province's `resolved_next` must move, or its anchor search (which starts there, 16 turns ahead) would stop
-    ///      after 16 turns and the herald's completeness would stall again; NotQuiet → the province goes through
-    ///      `destination_bell` (FastForward of the quiet prefix only when simulated, the not-quiet turn gathered,
-    ///      seeded and resolved for real). `world_plan` is the pure decision.
-    /// At most `WORLD_TX_PER_STEP` (4) transactions per step, each awaited and each decided on a fresh read, provinces in
-    /// round-robin order (`world_order`; a step may come back to a province it already served). An unknown outcome or a
-    /// refusal is returned as it is: the driver stops (fail-closed), nothing is resent. No account is written directly.
     /// The world phase: batched at the wide pace (`batch`), else `world_step` as always.
     async fn world_phase(
         &mut self,
@@ -1734,6 +1720,20 @@ impl LegacyMarchDriver {
         }
     }
 
+    /// The world phase: what the OTHER opened provinces need so that every opened province is resolved OR provably
+    /// quiet through each turn (the herald's `complete_through` takes the least of every opened province's resolved
+    /// or quiet-projected turn — rest.rs: a turn projects as quiet once its region's anchor window has closed — and only
+    /// then writes that turn's control snapshot, which the page's keeps and their holders read). So, per province, the
+    /// least that is safe:
+    ///   1. its region's missing anchors, posted early and bounded below `end_bell` (`anchor_to_post`);
+    ///   2. once their windows have closed, FastForward over the closed range is simulated and, when accepted, SENT: the
+    ///      province's `resolved_next` must move, or its anchor search (which starts there, 16 turns ahead) would stop
+    ///      after 16 turns and the herald's completeness would stall again; NotQuiet → the province goes through
+    ///      `destination_bell` (FastForward of the quiet prefix only when simulated, the not-quiet turn gathered,
+    ///      seeded and resolved for real). `world_plan` is the pure decision.
+    /// At most `WORLD_TX_PER_STEP` (4) transactions per step, each awaited and each decided on a fresh read, provinces in
+    /// round-robin order (`world_order`; a step may come back to a province it already served). An unknown outcome or a
+    /// refusal is returned as it is: the driver stops (fail-closed), nothing is resent. No account is written directly.
     async fn world_step(
         &mut self,
         state: &Shared,
