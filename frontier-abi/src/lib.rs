@@ -74,3 +74,9 @@ pub use error::FrontierError;
 /// ABI version carried in every chained header (`layout_version`) and in the
 /// vector files. Bumped only by a contract amendment (§16).
 pub const ABI_VERSION: u16 = 1;
+
+/// The single allocation registry of the experimental features (workstream
+/// 4, ABI-ALLOCATION rev 8): tests, and the combined local build
+/// (`--features feature-coexist`) only.
+#[cfg(any(test, feature = "feature-coexist"))]
+pub mod feature_registry;

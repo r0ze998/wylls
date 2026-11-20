@@ -7,7 +7,7 @@ use frontier_abi::world_index::expedition_dispatch_ix::{Command, Kind};
 // keeps the plain lane's 0x4804, the exact expression main had (so the
 // plain localnet and devnet playable artefacts stay byte-identical); the NFT
 // lane uses 0xC804. Each lane runs only its own Seasons.
-#[cfg(not(feature = "nft-experimental"))]
+#[cfg(not(any(feature = "nft-experimental", feature = "coexist-experimental")))]
 use frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION as LANE_VERSION;
 #[cfg(feature = "nft-experimental")]
 use frontier_abi::world_index::expedition_dispatch_ix::RESIDENT_PROGRAM_VERSION as LANE_VERSION;
@@ -94,3 +94,8 @@ fn conquest_kind(p: &Pubkey, a: &[AccountInfo], command: wix::WideCommand<'_>) -
         _ => Err(FrontierError::BadData.into()),
     }
 }
+
+// ②+⑨+⑩ on the playable lane (`coexist-experimental`, allocation rev 8): the
+// combined lane's own version 0x7805 (appended so no earlier line moves).
+#[cfg(feature = "coexist-experimental")]
+use frontier_abi::feature_registry::COEXIST_LANE_VERSION as LANE_VERSION;

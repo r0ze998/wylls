@@ -206,6 +206,28 @@ class Refusals(unittest.TestCase):
         self.assertIn("FRESH_MAP_MODE = 'local-fresh-map-v1'", read(os.path.join(ROOT, 'permutation-gateway/src/frontier/local-play-launcher.mjs')))
         self.assertIn('--random-map', run('--help')[1])
 
+    def test_coexist_is_opt_in_and_alone(self):
+        # (②+⑨+⑩, workstream 4 rev 8: without the flag nothing changes; with it, its own node, version and two ports)
+        self.assertNotIn('coexist-sbf', plan()['launcher'])
+        self.assertNotIn('coexist-play', plan()['launcher'])
+        p = plan('--coexist', '--port', '41450')
+        self.assertEqual((p['world'], p['program_version'], p['ports']), ('coexist', '0x7805', '41450-41451'))
+        self.assertIn('localnet-coexist-play --artifact ', p['node'])
+        self.assertIn('/deploy-localnet-coexist-sbf/permutation_frontier.so', p['node'])
+        self.assertIn('--rpc-port 41450 --ws-port 41451', p['node'])
+        self.assertNotIn('launcher', p)
+        for args in [('--demo',), ('--wide',), ('--two',), ('--random-map',), ('--ai', '1'), ('--speed', '30')]:
+            code, out, err = run('--print-plan', '--coexist', *args)
+            self.assertEqual((code, out), (2, ''), args)
+            self.assertIn('--coexist', err, args)
+        st, _ = kept_state()
+        code, out, err = run('--print-plan', '--coexist', '--resume', env_extra={'PLAY_LOCAL_STATE': st})
+        self.assertEqual((code, out), (2, ''))
+        self.assertEqual(run('--print-plan', '--coexist', '--port', '41969')[0], 2, '41969-41970 crosses 41970')
+        self.assertIn('--coexist', run('--help')[1])
+        self.assertIn('scripts/build-frontier-localnet-coexist-sbf.sh', read(SCRIPT))
+        self.assertIn('-p itest --features localnet-coexist-harness --bin localnet-coexist-play', read(SCRIPT))
+
     def test_wide_is_opt_in_memory_only_and_alone(self):
         # (without the flag: no wide land on the launcher line)
         self.assertNotIn('--wide-land', plan()['launcher'])

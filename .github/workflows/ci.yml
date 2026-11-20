@@ -360,6 +360,8 @@ jobs:
           cargo clippy --locked -p permutation-frontier --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features custody-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features capacity-preview,custody-preview --all-targets -- -D warnings
+          cargo clippy --locked -p frontier-abi --features capacity-preview,feature-coexist --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-frontier --features coexist-experimental --all-targets -- -D warnings
       - name: Host tests with the preview features
         run: |
           cargo test --locked -p permutation-rules --features capacity-preview
@@ -367,6 +369,9 @@ jobs:
           cargo test --locked -p permutation-frontier --features capacity-preview
           cargo test --locked -p permutation-frontier --features custody-preview
           cargo test --locked -p permutation-frontier --features capacity-preview,custody-preview
+          # ②+⑨+⑩ coexist (workstream 4 rev 8): the one registry, and the combined build on S1 (0x3005)
+          cargo test --locked -p frontier-abi --lib --features capacity-preview,land-preview,conquest-dispatch-experimental,feature-coexist feature_registry
+          cargo test --locked -p permutation-frontier --lib --features coexist-experimental -- --test-threads=1
 
   frontier-node:
     name: Frontier M1 off-chain workspace (keeper, herald, verifier, localnet)

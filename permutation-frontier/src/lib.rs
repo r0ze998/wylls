@@ -117,6 +117,7 @@ compile_error!("localnet-conquest-sbf extends the localnet-expedition-sbf lane o
 
 #[cfg(all(
     feature = "expedition-dispatch-experimental",
+    not(feature = "coexist-experimental"),
     any(
         feature = "rights-experimental",
         feature = "capacity-preview",
@@ -257,7 +258,8 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
     | capacity_bit();
 #[cfg(all(
     feature = "expedition-dispatch-experimental",
-    not(feature = "nft-experimental")
+    not(feature = "nft-experimental"),
+    not(feature = "coexist-experimental")
 ))]
 pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
 /// ⑳: the expedition revision with NFT residents (0xC804, provisional).
@@ -304,7 +306,7 @@ mod localnet_identity_tests {
 }
 /// Custody remains a separate preview. No version is allocated for its
 /// combination with NFT residents or the host-only wide writer.
-#[cfg(feature = "custody-preview")]
+#[cfg(all(feature = "custody-preview", not(feature = "coexist-experimental")))]
 pub const PROGRAM_VERSION: u16 =
     frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY | capacity_bit();
 
@@ -312,7 +314,10 @@ pub const PROGRAM_VERSION: u16 =
 /// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
 /// a capacity build's Seasons are its own; with custody it is the custody
 /// build's version with the bit (lots feed jobs there).
-#[cfg(not(feature = "expedition-dispatch-experimental"))]
+#[cfg(not(any(
+    feature = "expedition-dispatch-experimental",
+    feature = "coexist-experimental"
+)))]
 const fn capacity_bit() -> u16 {
     #[cfg(feature = "capacity-preview")]
     {
@@ -323,17 +328,33 @@ const fn capacity_bit() -> u16 {
         0
     }
 }
-#[cfg(all(feature = "capacity-preview", feature = "rights-experimental"))]
+#[cfg(all(
+    feature = "capacity-preview",
+    feature = "rights-experimental",
+    not(feature = "coexist-experimental")
+))]
 compile_error!("capacity-preview and rights-experimental together: the program version is undecided (workstream 4)");
 #[cfg(all(feature = "capacity-preview", feature = "nft-experimental"))]
 compile_error!("capacity-preview and nft-experimental together: the program version is undecided (workstream 4)");
-#[cfg(all(feature = "capacity-preview", feature = "wide-world-experimental"))]
+#[cfg(all(
+    feature = "capacity-preview",
+    feature = "wide-world-experimental",
+    not(feature = "coexist-experimental")
+))]
 compile_error!("capacity-preview and wide-world-experimental together: the program version is undecided (workstream 4)");
 #[cfg(all(feature = "custody-preview", feature = "nft-experimental"))]
 compile_error!("custody-preview and nft-experimental together: the program version is undecided (workstream 4)");
-#[cfg(all(feature = "custody-preview", feature = "rights-experimental"))]
+#[cfg(all(
+    feature = "custody-preview",
+    feature = "rights-experimental",
+    not(feature = "coexist-experimental")
+))]
 compile_error!("custody-preview and rights-experimental together: the ruleset and program version are undecided (workstream 4)");
-#[cfg(all(feature = "custody-preview", feature = "wide-world-experimental"))]
+#[cfg(all(
+    feature = "custody-preview",
+    feature = "wide-world-experimental",
+    not(feature = "coexist-experimental")
+))]
 compile_error!("custody-preview and wide-world-experimental together: the ruleset and program version are undecided");
 
 /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
@@ -601,3 +622,43 @@ mod entrypoint {
 compile_error!("localnet-wide-depart is the localnet lane's only (localnet-land-sbf)");
 #[cfg(all(feature = "localnet-wide-depart", feature = "devnet-playable-sbf"))]
 compile_error!("localnet-wide-depart never enters the devnet-playable build");
+
+// ②+⑨+⑩ in one LOCAL build (2026-11-20, workstream 4's allocation rev 8,
+// `frontier_abi::feature_registry`; provisional): `coexist-experimental`
+// carries rights, capacity and custody together under one exact version,
+// 0x3005 on S1 (host) or 0x7805 on the playable lane (the localnet land lane
+// plus the three, `localnet-coexist-sbf`). Custody's kernel is in the ruleset
+// hash, so the build embeds `RULESET_HASH_V4` (the custody arm above). Never
+// with NFT residents, never in the devnet build, and on SBF only through the
+// dedicated localnet lane (program id [0x45; 32], its marker and build script).
+#[cfg(all(
+    feature = "coexist-experimental",
+    not(feature = "expedition-dispatch-experimental")
+))]
+pub const PROGRAM_VERSION: u16 = frontier_abi::feature_registry::COEXIST_S1_VERSION;
+#[cfg(all(
+    feature = "coexist-experimental",
+    feature = "expedition-dispatch-experimental"
+))]
+pub const PROGRAM_VERSION: u16 = frontier_abi::feature_registry::COEXIST_LANE_VERSION;
+#[cfg(all(feature = "coexist-experimental", feature = "nft-experimental"))]
+compile_error!(
+    "coexist-experimental does not carry the NFT resident instructions (no version is allocated)"
+);
+#[cfg(all(feature = "coexist-experimental", feature = "devnet-playable-sbf"))]
+compile_error!("coexist-experimental never enters the devnet-playable build");
+#[cfg(all(
+    target_os = "solana",
+    feature = "coexist-experimental",
+    not(feature = "localnet-coexist-sbf")
+))]
+compile_error!(
+    "coexist-experimental on SBF requires localnet-coexist-sbf (its marker and build script)"
+);
+#[cfg(all(feature = "localnet-coexist-sbf", not(feature = "localnet-land-sbf")))]
+compile_error!("localnet-coexist-sbf extends the localnet land lane only");
+
+// Key-free host checks of the combined build (②+⑨+⑩): version, ruleset and
+// the three bands routed by the one dispatch.
+#[cfg(all(test, feature = "coexist-experimental"))]
+mod coexist_runtime_tests;
