@@ -41,7 +41,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
-import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources, viewClash } from './map/fog.mjs';
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
@@ -2576,7 +2576,12 @@ function checkMoments() {
     const key = `${m.p},${m.q},${m.site}`, village = m.kind === 'village';
     const lost = village && ownSitesSeen.has(key) && !mineNow.has(key);
     const taken = village && mineNow.has(key) && !ownSitesSeen.has(key) && Number.isInteger(m.from) && m.from < 6 && m.from !== FS.citizen?.faction;
-    fxEmit('moment', { ...m, lost, taken, own: lost || (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
+    const own = lost || (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q));
+    // (verify-pr117: under the local fog, another's moment — 「シンダーの新しい村」, a host setting out, an arrival, a camp
+    //  gone — plays only where its tile is in sight now. The page reads whole provinces it cannot see: AI villages' were
+    //  announced over blank, never-seen land)
+    if (!own && !taken && !viewTile(m.p, m.q, m.tile)) continue;
+    fxEmit('moment', { ...m, lost, taken, own });
   }
   if (FS.holdings) ownSitesSeen = mineNow;
 }

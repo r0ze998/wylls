@@ -70,7 +70,7 @@ import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProb
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
 // the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
-import { fogNow, viewKeeps } from './map/fog.mjs';
+import { fogNow, viewKeeps, viewTile } from './map/fog.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, homePlaceOf, homeRingsOf, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
@@ -2794,7 +2794,9 @@ function quickDestinations() {
   const out = [];
   for (const env of FS.provinces.values()) {
     const camp = env.province.camp;
-    if (camp?.state === 1) out.push({ kind: 'camp', p: env.province.p, q: env.province.q, tile: camp.tile });
+    // (verify-pr117: under the local fog, a camp only where its tile has been surveyed — last-known terrain is the
+    //  viewer's —: the page reads whole provinces it has never seen, and their camps were listed as 「近くの行き先」)
+    if (camp?.state === 1 && viewTile(env.province.p, env.province.q, camp.tile, 2)) out.push({ kind: 'camp', p: env.province.p, q: env.province.q, tile: camp.tile });
   }
   for (const h of FS.holdings ?? []) out.push({ kind: 'holding', p: h.p, q: h.q, tile: h.tile });
   return out;

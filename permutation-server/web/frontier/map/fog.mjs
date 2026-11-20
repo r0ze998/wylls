@@ -394,6 +394,16 @@ export const viewOverviews = fs => { const f = fogNow(); return f.on && f.overvi
 export const viewKeeps = keeps => { const f = fogNow(); return f.on ? f.keeps(keeps) : keeps; };
 /** Whether a clash (report, replay, scene) of `{p, q, keepTile, mine}` may be offered (always, without fog). */
 export const viewClash = x => { const f = fogNow(); return !f.on || !f.clashSeen || f.clashSeen(x); };
+/**
+ * (verify-pr117) Whether tile `tile` of (p, q) is at least at survey level `min` now (L3: in sight now; L2: surveyed,
+ * the last-known of terrain and what stood there). No tile: the province's best level. Always without fog.
+ */
+export const viewTile = (p, q, tile, min = L3) => {
+  const f = fogNow();
+  if (!f.on || !f.survey || f.survey.showAll) return true;
+  if (!int(p) || !int(q)) return false;
+  return int(tile) && tile >= 0 && tile < PROVINCE_TILES ? f.survey.levelOf(p, q, tile) >= min : maxOf(f.survey, p, q) >= min;
+};
 /** The keep tile of (p, q) as the raw overviews carry it (null: no keep, or the province not in an overview read). */
 export const keepTileIn = (overviews, p, q) => { for (const o of overviews?.values?.() ?? []) { const r = o?.provinces?.find?.(x => x.p === p && x.q === q); if (r) return r.keepTile ?? null; } return null; };
 /** Whether a chronicle/feed record may be shown (always, without fog). */

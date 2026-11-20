@@ -210,7 +210,9 @@ A player's view, as in Civ. It is display only: the local chain's records stay p
   the clashes your own marches arrived at are always yours to see. Opening a report out of sight says
   「この場所はいま見えていません。…」 and reads nothing. The map's clash marks (the red ring, the minimap dot,
   「このターンに衝突あり」), the chronicle's clash lines and 「最近の衝突」, and other nations' keep contests and captures
-  follow the same rule (keep news your own nation is in is always shown).
+  follow the same rule (keep news your own nation is in is always shown). Other nations' map moments (「…の新しい村」,
+  a host setting out, an arrival, a camp gone) play only where their tile is in sight now, and the march card's
+  「近くの行き先」 lists camps only on tiles you have surveyed.
 - In a fog world the map's 「記録」 view (every recorded province) and the link to the spectator page are **not shown**.
 - One switch: `LOCAL_FOG` in `permutation-server/web/frontier/map/fog.mjs` (`false` = no fog). The radii and the like
   are `FOG_RULES` in the same file. Devnet, the spectator page and the practice page have no fog.

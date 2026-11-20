@@ -7,9 +7,11 @@
 //   3. the scenes that play by themselves / the replay / the report: the page's one question (viewClash);
 //   4. the chronicle's CLASH line and its 「報告」 button;
 //   5. the chronicle's and the notices' keep events (争奪が始まった / 奪われた) — unless the viewer's nation is in them.
+//   6. the map's moments (「…の新しい村」, set out, arrival, camp gone) and the march card's 「近くの行き先」 camps.
 // Local-only (imports hud/inspect.mjs through src/), like web-frontier-fog-local-leak*.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as F from '../../permutation-server/web/frontier/map/fog.mjs';
 import * as S from '../../permutation-server/web/frontier/map/survey.mjs';
 import { tileHex } from '../../permutation-server/web/frontier/fgeo.mjs';
@@ -118,4 +120,25 @@ test('leak4/5 chronicle and notices: other nations\' keep events only while the 
   // the viewer's nation in it (attacked, or taking it): always told
   const ours = [keepEvent('keep_contest', ENEMY, VIEWER)];
   assert.equal(chron(world(NONE(), { events: ours })).length, 1); assert.equal(feed(world(NONE(), { events: ours })).length, 1);
+}));
+
+test('leak4/6 moments and the march card\'s 「近くの行き先」: another nation\'s new village / camp in a province the page read but never saw', () => run(() => {
+  // the page reads whole provinces it cannot see (AI villages' provinces): the tile decides, not the read
+  world(EDGE());
+  assert.equal(F.viewTile(-2, 0, RIM), true, 'the rim tile is in sight');
+  assert.equal(F.viewTile(-2, 0, KEEP), false, 'a moment on the keep tile (out of sight) does not play');
+  assert.equal(F.viewTile(-2, 0, KEEP, S.L2), false, 'never surveyed: no camp listed');
+  world(KNOWN());
+  assert.equal(F.viewTile(-2, 0, KEEP), false, 'surveyed before, not in sight: no moment');
+  assert.equal(F.viewTile(-2, 0, KEEP, S.L2), true, 'surveyed before: its camp may be listed (last-known terrain)');
+  world(NONE());
+  assert.equal(F.viewTile(-2, 0, KEEP, S.L2), false);
+  assert.equal(F.viewTile(-2, 0, null), false, 'no tile: the province\'s best level');
+  F.resetFogNow();
+  assert.equal(F.viewTile(-2, 0, KEEP), true, 'without fog: always');
+  // the wiring (app.mjs checkMoments, controller.mjs quickDestinations)
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.ok(app.includes("    if (!own && !taken && !viewTile(m.p, m.q, m.tile)) continue;\n    fxEmit('moment', { ...m, lost, taken, own });"));
+  const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  assert.ok(ctl.includes("if (camp?.state === 1 && viewTile(env.province.p, env.province.q, camp.tile, 2)) out.push({ kind: 'camp'"));
 }));
