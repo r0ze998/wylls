@@ -12,6 +12,7 @@ import { decode as fromBase58 } from '../../client/src/base58.mjs';
 import { expeditionPreviewConfigProblems } from './expedition-preview.mjs';
 import { expeditionPrepareConfigProblems } from './expedition-prepare.mjs';
 import { expeditionDepartPrepareConfigProblems } from './expedition-depart-prepare.mjs';
+import { devnetPlayConfigProblems } from './devnet-play-act.mjs';
 
 export const FRONTIER_DIR = path.join(LOCAL_DIR, 'frontier');
 
@@ -87,6 +88,11 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   agentStateFile: null,
   /** One action per resident per bell (resident-turns.mjs): its lease directory; null: `resident-turns/` next to --state-file. */
   residentTurnsDir: null,
+  /** Devnet gap P1: the page's own wallet-paid first-village and wide-land commands (devnet-play-act.mjs). Off by default. */
+  devnetPlay: false,
+  devnetPlayRulesetHash: null,
+  /** TEST ONLY: the devnet play routes over the in-process localnet on loopback (the offline proof of the devnet .so). */
+  devnetPlayOfflineRpc: false,
   /** Fixed test price of one model call (base units of the 6-decimal test mint: 10,000 = 0.01). TEST VALUE. */
   agentInferencePrice: 10_000,
   /** A JSON file `{actionName: baseUnits}` of USDC prices for game actions; none: every action stays free or resource-paid. */
@@ -122,7 +128,7 @@ export function portProblem(port, what = 'port') {
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
 /** Flags that take no value. */
-const BOOLEAN_FLAGS = Object.freeze({ dev: 'dev', 'agent-wallet': 'agentWallet', 'agent-runner': 'agentRunner', 'agent-llm-strict-schema': 'agentLlmStrictSchema', 'require-existing-state': 'requireExistingState' });
+const BOOLEAN_FLAGS = Object.freeze({ dev: 'dev', 'agent-wallet': 'agentWallet', 'agent-runner': 'agentRunner', 'agent-llm-strict-schema': 'agentLlmStrictSchema', 'require-existing-state': 'requireExistingState', 'devnet-play': 'devnetPlay', 'devnet-play-offline-rpc': 'devnetPlayOfflineRpc' });
 
 /**
  * The relay's configuration from flags (`--rpc URL --program ID --season N
@@ -199,6 +205,9 @@ export function loadFrontierConfig(argv = [], env = {}) {
     agentKeysDir: pick('agent-keys-dir', 'FRONTIER_AGENT_KEYS_DIR', d.agentKeysDir),
     agentStateFile: pick('agent-state-file', 'FRONTIER_AGENT_STATE_FILE', d.agentStateFile),
     residentTurnsDir: pick('resident-turns-dir', 'FRONTIER_RESIDENT_TURNS_DIR', d.residentTurnsDir),
+    devnetPlay: flags.devnetPlay === true || d.devnetPlay,
+    devnetPlayRulesetHash: pick('devnet-play-ruleset-hash', 'FRONTIER_DEVNET_PLAY_RULESET_HASH', d.devnetPlayRulesetHash),
+    devnetPlayOfflineRpc: flags.devnetPlayOfflineRpc === true || d.devnetPlayOfflineRpc,
     agentInferencePrice: int(pick('agent-inference-price', 'FRONTIER_AGENT_INFERENCE_PRICE', d.agentInferencePrice), '--agent-inference-price'),
     agentGamePricesFile: pick('agent-game-prices-file', 'FRONTIER_AGENT_GAME_PRICES_FILE', d.agentGamePricesFile),
     agentReconcileMs: int(pick('agent-reconcile-ms', 'FRONTIER_AGENT_RECONCILE_MS', d.agentReconcileMs), '--agent-reconcile-ms'),
@@ -220,7 +229,8 @@ export function loadFrontierConfig(argv = [], env = {}) {
 
 /** Problems with a configuration (empty when it may run). */
 export function checkFrontierConfig(cfg) {
-  const out = [...expeditionPreviewConfigProblems(cfg), ...expeditionPrepareConfigProblems(cfg), ...expeditionDepartPrepareConfigProblems(cfg)];
+  const out = [...expeditionPreviewConfigProblems(cfg), ...expeditionPrepareConfigProblems(cfg), ...expeditionDepartPrepareConfigProblems(cfg), ...devnetPlayConfigProblems(cfg)];
+  if (cfg.devnetPlayOfflineRpc && !cfg.devnetPlay) out.push('--devnet-play-offline-rpc needs --devnet-play');
   for (const [p, what] of [[cfg.port, '--port'], [cfg.publicPort, '--public-port']]) {
     const e = portProblem(p, what);
     if (e) out.push(e);

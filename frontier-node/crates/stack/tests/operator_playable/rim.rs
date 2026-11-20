@@ -70,9 +70,24 @@ pub const WIDE_RINGS: u64 = 3;
 const SOL: u64 = 1_000_000_000;
 const SEASON_ID: u64 = 1;
 
+/// P6 (devnet gap P1): the web page plays the participant's part instead of this test (see [`page_flow`]).
+#[derive(Clone)]
+pub struct Page {
+    /// The herald serving the page (`--web`) and proxying `/gw/*` to the gateway's devnet play routes.
+    pub herald: u16,
+    /// The driver's inspection listener (loopback).
+    pub inspect: u16,
+    /// `node` and the driver script (Playwright, headless Chromium).
+    pub driver: std::path::PathBuf,
+    /// Where the driver writes its stills and log.
+    pub out: std::path::PathBuf,
+}
+
 pub struct Ctx<'a> {
     /// P5: keeper A runs the wide rings (P6) and the `wide-tickets` role (P7).
     pub keeper_wide: bool,
+    /// P6: the page is the participant.
+    pub page: Option<Page>,
     pub state: Arc<Mutex<localnet::Chain>>,
     pub a: Addresses,
     pub program: Address,
@@ -716,6 +731,19 @@ pub async fn run(c: Ctx<'_>) -> Value {
         .find(|c| c.ring() == FIRST_WIDE_RING && (!keeper_wide || plan129.contains(c)))
         .expect("the rim province borders ring 129 (P5: a province keeper A opened)");
 
+    // P6: from here the web page is the participant (Join, the rim FileTicket, Harvest, WideClaimSite), signed by its
+    // connected wallet and sent through the gateway's devnet play routes; this test only moves the clock and declares
+    // the bells' anchors and seeds; keeper A settles and finalizes.
+    if let Some(pg) = r.c.page.clone() {
+        let extra = json!({
+            "rim_plan": {"per_wedge": PER_WEDGE, "provinces": plan.len(), "opened_by": "keeper A rings duty (rim_per_wedge)",
+                         "wall_secs": rim_secs, "open_province_txs": rim_open},
+            "wide_rings": ring_rounds, "wide_ring_txs": wide_ring_txs, "verifier_vwl_rings_segment": vwl_rings,
+            "province_funds_before_rings": funds_before, "province_funds_after_rings": funds_after_rings,
+        });
+        return page_flow(&mut r, &pg, &plan, nation, extra).await;
+    }
+
     // 6 (P4 only; P5's wide rings are keeper A's, above).
     let bound = if keeper_wide {
         first_bound.expect("ring 129's round")
@@ -1216,5 +1244,293 @@ pub async fn run(c: Ctx<'_>) -> Value {
         }) } else { Value::Null },
         "verifier_vwl_segment": {"transactions": wit.txs.len(), "snapshot_accounts": wit.snapshot.len(), "findings": vwl,
             "mutation_town_season_fails": town_fails, "mutation_forged_owner_fails": forged_fails},
+    })
+}
+
+/// Kills the page driver this test started (never anything else) on drop.
+struct KillChild(std::process::Child);
+impl Drop for KillChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// P6 (devnet gap P1): the PAGE plays the participant on the exact devnet `.so`, served by the herald (`--cluster
+/// devnet`) with the gateway's devnet play routes behind its `/gw`. The driver (headless Chromium) connects a Wallet
+/// Standard TEST wallet on `solana:devnet`, chooses `nation`, confirms the page's own first-village choice (an opened rim
+/// province, so the page files a one-site FileTicket), harvests, and presses the village screen's wide-claim button.
+/// This test sends NO player transaction: it moves the clock, declares each bell's anchor and seed (as P4/P5, the
+/// shipped rounds do not cover these bells), and keeper A settles (`tickets`, `wide-tickets`) and finalizes.
+async fn page_flow(
+    r: &mut Run<'_>,
+    pg: &Page,
+    plan: &[(i32, i32)],
+    nation: u8,
+    extra: Value,
+) -> Value {
+    use std::os::unix::fs::PermissionsExt;
+    let a = r.c.a.clone();
+    let ctx = r.ctx();
+    let sd = r.season();
+    let regions = sd[S::REGIONS];
+    let genesis_ts = r.clock().3;
+    let sync = r.c.dir.join("page");
+    std::fs::create_dir_all(&sync).unwrap();
+    std::fs::create_dir_all(&pg.out).unwrap();
+    // (the page reads the opened wide provinces from the herald's recorded wide world: a herald built without
+    //  `--features wide-world-experimental` answers 503 there, and the page never offers the wide claim)
+    assert!(
+        super::http_get(pg.herald, "/h/world/wide").is_some(),
+        "the herald serves no wide world: build it with `cargo build -p herald --features wide-world-experimental,expedition-records-experimental`"
+    );
+    let player = Keypair::new(); // TEST key: the page's wallet (this chain only)
+    let w = player.pubkey();
+    r.lock().airdrop(&w, 5 * SOL).unwrap();
+    let seed_file = sync.join("player.seed");
+    std::fs::write(&seed_file, hex::encode(&player.to_bytes()[..32])).unwrap();
+    std::fs::set_permissions(&seed_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    {
+        let mut c = r.lock();
+        c.set_scale(1.0);
+        c.set_paused(false);
+    }
+    let mut driver = KillChild(
+        std::process::Command::new("node")
+            .arg(&pg.driver)
+            .args([
+                "--url",
+                &format!("http://127.0.0.1:{}/frontier/frontier/", pg.herald),
+                "--out",
+                pg.out.to_str().unwrap(),
+                "--seed-file",
+                seed_file.to_str().unwrap(),
+                "--nation",
+                &nation.to_string(),
+                "--inspect",
+                &pg.inspect.to_string(),
+                "--sync",
+                sync.to_str().unwrap(),
+            ])
+            .stdout(std::fs::File::create(pg.out.join("driver.out.log")).unwrap())
+            .stderr(std::fs::File::create(pg.out.join("driver.err.log")).unwrap())
+            .spawn()
+            .expect("node (the page driver)"),
+    );
+    let citizen = a.citizen(&w);
+    let alive = |d: &mut KillChild| d.0.try_wait().ok().flatten().is_none();
+    let wait_for = |what: &str, secs: u64| {
+        let what = what.to_string();
+        (what, Instant::now(), Duration::from_secs(secs))
+    };
+    // 1. The page Joins and files the rim ticket (its own planner picks the province and site).
+    let (what, t0, lim) = wait_for("the page joins and files a rim ticket", 420);
+    let ticket_bell = loop {
+        if let Some(cd) = r.data(&citizen) {
+            // (`NO_TICKET` (u32::MAX) right after the Join: no ticket yet)
+            let tb = le_u32(&cd, C::TICKET_BELL);
+            if tb != C::NO_TICKET {
+                break tb;
+            }
+        }
+        assert!(alive(&mut driver), "{what}: the driver exited");
+        assert!(t0.elapsed() < lim, "{what}: not in {lim:?}");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    let cd = r.data(&citizen).unwrap();
+    let joined_nation = cd[C::FACTION];
+    // 2. Declared: the ticket bell's anchor and seed in every region (the page chose the province); keeper A settles.
+    r.advance_exact(genesis_ts + 600 * (ticket_bell as i64 + 1) + 200);
+    for region in 0..regions {
+        r.stage_seed(ticket_bell, region, [0x5A; 32]);
+    }
+    let since = r.lock().slot();
+    let find_home = |r: &Run<'_>| -> Option<(i32, i32, u8, Address)> {
+        for &(p, q) in plan {
+            for s in 0..12u8 {
+                let h = a.holding(p, q, s);
+                if let Some(d) = r.data(&h) {
+                    if d.len() > H::OWNER_CITIZEN + 32
+                        && d[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] == citizen.to_bytes()
+                    {
+                        return Some((p, q, s, h));
+                    }
+                }
+            }
+        }
+        None
+    };
+    r.run_until(
+        2.0,
+        240,
+        "keeper A's tickets role settles the page's rim ticket",
+        |r| find_home(r).is_some(),
+    )
+    .await;
+    let settle = r.feed_rows(
+        since,
+        &[fclient::abi::tag::SETTLE_TICKET],
+        "keeper A (tickets role)",
+    );
+    let (rp, rq, rsite, holding) = find_home(r).unwrap();
+    let hd = r.data(&holding).unwrap();
+    assert_eq!(
+        hd[H::STATE],
+        H::STATE_PROVISIONAL,
+        "a provisional first village"
+    );
+    assert_eq!(hd[H::ORDER], 1, "the first village");
+    let ring = ProvinceCoord::new(rp, rq).ring();
+    assert!((126..=128).contains(&ring), "on the rim: ring {ring}");
+    let final_ts = le_i64(&hd, H::FINAL_TS);
+    // 3. The clock runs on in 4-hour steps; the page harvests after each (its own button), and presses the wide claim
+    //    once the village's stores cover the settler cost.
+    let tk = adr(wt::ticket_address(&ctx, &citizen.to_bytes()));
+    let mut t = final_ts.max(r.now()) + 600;
+    let mut steps = vec![];
+    let mut claimed = false;
+    for _ in 0..16 {
+        r.advance_exact(t);
+        {
+            let mut c = r.lock();
+            c.set_scale(1.0);
+            c.set_paused(false);
+        }
+        let t0 = Instant::now();
+        let mut harvested = false;
+        while t0.elapsed() < Duration::from_secs(150) {
+            assert!(alive(&mut driver), "the driver exited while harvesting");
+            if r.data(&tk)
+                .is_some_and(|d| WideTicket::read(&d).is_ok_and(|x| x.status == TicketStatus::Open))
+            {
+                claimed = true;
+                break;
+            }
+            if !harvested
+                && r.data(&holding)
+                    .is_some_and(|d| le_i64(&d, H::LAST_OWNER_ACTION) >= t)
+            {
+                harvested = true;
+                // (a little longer: the page reads its stores again and may press the claim)
+                tokio::time::sleep(Duration::from_secs(20)).await;
+                if r.data(&tk).is_some_and(|d| {
+                    WideTicket::read(&d).is_ok_and(|x| x.status == TicketStatus::Open)
+                }) {
+                    claimed = true;
+                }
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        let hd = r.data(&holding).unwrap();
+        steps.push(json!({"clock": t, "harvested_by_page": harvested, "state": hd[H::STATE], "tier": hd[H::TIER]}));
+        if claimed {
+            break;
+        }
+        t += 4 * 3_600;
+    }
+    assert!(claimed, "the page did not file the wide claim: {steps:#?}");
+    let rec = WideTicket::read(&r.data(&tk).unwrap()).unwrap();
+    // 4. Declared: the claim bell's anchor and seed; keeper A's wide-tickets role settles, then finalizes.
+    r.advance_exact(genesis_ts + 600 * (rec.bell as i64 + 1) + 200);
+    for region in 0..regions {
+        r.stage_seed(rec.bell, region, [0xA5; 32]);
+    }
+    let wholding = adr(wh::holding_address(&ctx, rec.coord, rec.site));
+    let since = r.lock().slot();
+    r.run_until(
+        2.0,
+        240,
+        "keeper A's wide-tickets role settles the page's wide claim",
+        |r| {
+            r.lock()
+                .account(&wholding)
+                .is_some_and(|h| h.owner == r.c.program)
+        },
+    )
+    .await;
+    let ws = r.feed_rows(
+        since,
+        &[wix::WideIx::SettleTicket.tag()],
+        "keeper A (wide-tickets role)",
+    );
+    let whd = r.data(&wholding).expect("the wide village");
+    let wfinal_ts = le_i64(&whd, H::FINAL_TS);
+    r.advance_exact(wfinal_ts.max(r.now()) + 1);
+    let since = r.lock().slot();
+    r.run_until(
+        2.0,
+        240,
+        "keeper A's wide-tickets role finalizes the page's wide village",
+        |r| {
+            r.data(&wholding)
+                .is_some_and(|h| h[H::STATE] == H::STATE_FINAL)
+        },
+    )
+    .await;
+    let wf = r.feed_rows(
+        since,
+        &[wix::WideIx::Finalize.tag()],
+        "keeper A (wide-tickets role)",
+    );
+    let wide = wh::WideHolding::read(&r.data(&wholding).unwrap()).expect("a wide holding");
+    assert_eq!(wide.owner_citizen, citizen.to_bytes());
+    // 5. The page shows the wide village as final (the driver says so, then takes its last stills).
+    {
+        let mut c = r.lock();
+        c.set_scale(1.0);
+        c.set_paused(false);
+    }
+    std::fs::write(
+        sync.join("go-final"),
+        format!("{} {} {}\n", rec.coord.p(), rec.coord.q(), rec.site),
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    let done = loop {
+        if let Ok(t) = std::fs::read_to_string(sync.join("done.json")) {
+            break serde_json::from_str::<Value>(&t).unwrap_or(json!({"raw": t}));
+        }
+        assert!(
+            alive(&mut driver),
+            "the driver exited before it saw the wide village"
+        );
+        assert!(
+            t0.elapsed() < Duration::from_secs(300),
+            "the page did not show the final wide village"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    assert_eq!(done["wideVillageFinal"], true, "{done}");
+    drop(driver);
+    // Every page transaction: the participant wallet is fee payer and the only signer.
+    let page_txs: Vec<Value> = r
+        .lock()
+        .feed(0, 1_000_000, Some(&r.c.program))
+        .into_iter()
+        .filter_map(|l| {
+            let t = fclient::tx::from_wire(&l.wire).ok()?;
+            (t.message.account_keys.first() == Some(&w)).then(|| {
+                json!({"slot": l.slot, "ok": l.err.is_none(), "err": l.err, "signatures": t.signatures.len(),
+                       "tag": t.message.instructions.last().and_then(|i| i.data.first().copied()),
+                       "compute_units": l.units, "fee": l.fee,
+                       "lamports_from_wallet": l.pre_balances.first().zip(l.post_balances.first()).map(|(a, b)| a.saturating_sub(*b))})
+            })
+        })
+        .collect();
+    assert!(
+        page_txs.iter().all(|x| x["signatures"] == 1),
+        "{page_txs:#?}"
+    );
+    let keeper_alive = r.c.keeper.try_wait().ok().flatten().is_none();
+    assert!(keeper_alive, "keeper A exited");
+    json!({
+        "p6_page": "the web page as the participant: Join, rim FileTicket, Harvest, WideClaimSite — wallet-signed, wallet-paid, via the gateway's devnet play routes",
+        "participant": {"wallet": w.to_string(), "nation_hint": nation, "nation": joined_nation},
+        "rim_village": {"p": rp, "q": rq, "site": rsite, "ring": ring, "ticket_bell": ticket_bell, "final_ts": final_ts},
+        "keeper_settle_ticket": settle, "harvest_steps": steps,
+        "wide_village": {"p": rec.coord.p(), "q": rec.coord.q(), "site": rec.site, "ring": rec.coord.ring(), "slot": rec.slot, "ticket_bell": rec.bell},
+        "keeper_wide_settle": ws, "keeper_wide_finalize": wf,
+        "page_transactions": page_txs, "driver": done, "declared_patches": r.patches, "setup": extra,
     })
 }

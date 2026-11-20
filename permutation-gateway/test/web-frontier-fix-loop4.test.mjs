@@ -32,7 +32,7 @@ test('B-7: local play has no in-game key to fix — the key card is never its vi
   const join = src('screens/join.mjs');
   assert.match(join, /if \(!FS\.resident && !FS\.localPlay && \(!FS\.session \|\| FS\.sessionProblem\)\) return renderSessionFix\(FS\);\n  if \(stage === 'ticket'\) return renderTicket\(FS\);/);
   // (the controller asks for no session in local play either)
-  assert.match(src('controller.mjs'), /if \(!localPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{/);
+  assert.match(src('controller.mjs'), /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{/);
 });
 
 test('B-8: the picker\'s confirm, its banners and its blurb are data-stable (kept as the same nodes over a ×60 turn\'s re-render)', () => {

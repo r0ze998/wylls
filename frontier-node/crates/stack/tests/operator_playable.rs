@@ -41,6 +41,9 @@ const P3_PORT_BASE: u16 = 41_450;
 const P4_PORT_BASE: u16 = 41_560;
 /// P5's (`OPERATOR_WIDE_KEEPER_PORT_BASE` moves them).
 const P5_PORT_BASE: u16 = 41_590;
+/// P6's (`OPERATOR_PAGE_PORT_BASE` moves them): the page path also takes the gateway (+6 operator, +7 public) and the
+/// driver's inspection listener (+8).
+const P6_PORT_BASE: u16 = 41_700;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -469,6 +472,21 @@ async fn p5_keeper_a_opens_the_wide_rings_and_settles_the_wide_claim_offline() {
     .await;
 }
 
+/// P6 (devnet gap P1, B7 client side): P5's world, and the WEB PAGE as the participant — served by the herald in its
+/// devnet mode, sending through the gateway's devnet play routes (wallet-signed, wallet-paid), the way a devnet page
+/// would against an https RPC. Needs `node`, the gateway's npm packages and `permutation-gateway/screens`'
+/// playwright-core with its Chromium, and the herald built with `--features wide-world-experimental,expedition-records-experimental`
+/// (as play-local builds it); runs only when `DEVNET_PAGE_DRIVER=1` (skipped otherwise: CI has no browser).
+/// `OPERATOR_EVIDENCE_DIR` keeps the stills (`p6-page/`) and the summary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p6_the_page_plays_a_rim_village_and_a_wide_claim_on_the_devnet_so_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("p6: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(ports("OPERATOR_PAGE_PORT_BASE", P6_PORT_BASE), Mode::Page).await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// P3: the season's setup only.
@@ -477,6 +495,8 @@ enum Mode {
     Rim,
     /// P5: P4 with keeper A's wide rings (P6) and `wide-tickets` role (P7).
     KeeperWide,
+    /// P6 (devnet gap P1): P5 with the web page as the participant.
+    Page,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -486,6 +506,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Setup => "p3",
         Mode::Rim => "p4",
         Mode::KeeperWide => "p5",
+        Mode::Page => "p6",
     };
     let so = devnet_so();
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
@@ -706,12 +727,12 @@ async fn playable_season(pt: Ports, mode: Mode) {
         roles = match mode {
             Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
             Mode::Rim => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
-            Mode::KeeperWide => "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\"",
+            Mode::KeeperWide | Mode::Page => "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\"",
         },
         rim = match mode {
             Mode::Setup => String::new(),
             Mode::Rim => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
-            Mode::KeeperWide => format!(
+            Mode::KeeperWide | Mode::Page => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
@@ -950,8 +971,25 @@ async fn playable_season(pt: Ports, mode: Mode) {
     // The herald (the devnet mode: `--source rpc --cluster devnet`) folds the season and shows the home.
     let herald_bin = sibling_bin("FRONTIER_HERALD_BIN", "frontier-herald");
     let hdir = dir.join("herald");
+    // (P6: the herald also serves the page, `--web`, and proxies `/gw/*` to the gateway's public listener)
+    let (gw_op, gw_pub) = (pt.rpc + 6, pt.rpc + 7);
+    let web_args: Vec<String> = if mode == Mode::Page {
+        vec![
+            "--web".into(),
+            repo_root()
+                .join("permutation-server/web")
+                .to_str()
+                .unwrap()
+                .into(),
+            "--relay".into(),
+            format!("127.0.0.1:{gw_pub}"),
+        ]
+    } else {
+        vec![]
+    };
     let mut herald = Kill(
         Command::new(&herald_bin)
+            .args(&web_args)
             .args([
                 "--data",
                 hdir.to_str().unwrap(),
@@ -994,11 +1032,91 @@ async fn playable_season(pt: Ports, mode: Mode) {
     };
     assert_eq!(season_view["cluster"], "devnet");
     assert_eq!(season_view["programId"], program.to_string());
+    // P6: the gateway with its devnet play routes (`--devnet-play`), over THIS chain's RPC in its offline TEST form
+    // (`--devnet-play-offline-rpc`: loopback 41000-41999 only; a real devnet gateway names an https RPC). Its relay pool
+    // seed and invite secret are made fresh in this test's directory (TEST secrets; the devnet play routes sign nothing).
+    let _gateway = if mode == Mode::Page {
+        let gdir = dir.join("gateway");
+        std::fs::create_dir_all(&gdir).unwrap();
+        let sd = lock().account(&a.season).unwrap().data;
+        let rh = hex::encode(&sd[frontier_abi::layout::world::season::RULESET_HASH..][..32]);
+        let (prog_s, herald_s, keeper_s) = (
+            program.to_string(),
+            format!("http://127.0.0.1:{}", pt.herald),
+            format!("http://127.0.0.1:{}", pt.keeper_api),
+        );
+        let (op_s, pub_s) = (gw_op.to_string(), gw_pub.to_string());
+        let g = Kill(
+            Command::new("node")
+                .arg(repo_root().join("permutation-gateway/src/frontier/server.mjs"))
+                .args([
+                    "--cluster",
+                    "devnet",
+                    "--rpc",
+                    &url,
+                    "--program",
+                    &prog_s,
+                    "--season",
+                    "1",
+                    "--port",
+                    &op_s,
+                    "--public-port",
+                    &pub_s,
+                    "--herald",
+                    &herald_s,
+                    "--keeper",
+                    &keeper_s,
+                    "--dev",
+                    "--pool-size",
+                    "1",
+                    "--master-seed-file",
+                    gdir.join("relay-master.seed").to_str().unwrap(),
+                    "--invite-secret-file",
+                    gdir.join("invite.secret").to_str().unwrap(),
+                    "--state-file",
+                    gdir.join("relay-state.json").to_str().unwrap(),
+                    "--devnet-play",
+                    "--devnet-play-offline-rpc",
+                    "--devnet-play-ruleset-hash",
+                    &rh,
+                ])
+                .env(
+                    "FRONTIER_OPERATOR_TOKEN",
+                    "test-token-operator-playable-gateway",
+                )
+                .stdout(std::fs::File::create(dir.join("gateway.log")).unwrap())
+                .stderr(std::fs::File::create(dir.join("gateway.err.log")).unwrap())
+                .spawn()
+                .expect("node (the gateway)"),
+        );
+        let t0 = Instant::now();
+        while std::net::TcpStream::connect(("127.0.0.1", gw_pub)).is_err() {
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "the gateway did not listen: {}",
+                std::fs::read_to_string(dir.join("gateway.err.log")).unwrap_or_default()
+            );
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+        Some(g)
+    } else {
+        None
+    };
+    let page = (mode == Mode::Page).then(|| rim::Page {
+        herald: pt.herald,
+        inspect: pt.rpc + 8,
+        driver: repo_root()
+            .join("frontier-node/crates/stack/tests/operator_playable/page_driver.mjs"),
+        out: std::env::var("OPERATOR_EVIDENCE_DIR")
+            .map(|d| Path::new(&d).join("p6-page"))
+            .unwrap_or_else(|_| dir.join("page-out")),
+    });
     // P4: the rim first village and the wide claim (keeper and herald still running).
     let rim_summary = if rim_run {
         Some(
             rim::run(rim::Ctx {
-                keeper_wide: mode == Mode::KeeperWide,
+                keeper_wide: mode == Mode::KeeperWide || mode == Mode::Page,
+                page: page.clone(),
                 state: state.clone(),
                 a: a.clone(),
                 program,
@@ -1071,7 +1189,13 @@ async fn playable_season(pt: Ports, mode: Mode) {
         )
         .unwrap();
         std::fs::write(d.join(format!("{tag}-dry-run.txt")), &dry_run).unwrap();
-        for f in ["keeper.log", "drand-replay.log", "herald.log"] {
+        for f in [
+            "keeper.log",
+            "drand-replay.log",
+            "herald.log",
+            "gateway.log",
+            "gateway.err.log",
+        ] {
             let _ = std::fs::copy(dir.join(f), d.join(format!("{tag}-{f}")));
         }
         let _ = std::fs::copy(
