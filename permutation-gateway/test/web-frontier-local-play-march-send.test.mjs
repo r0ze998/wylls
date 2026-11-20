@@ -151,14 +151,15 @@ test('track reads only; landed, failed with the program code, or unconfirmed (he
 test('the memory book: the marchbook\'s storage shape, and nothing reaches the browser', () => {
   const m = P.memoryStorage(); assert.equal(m.get('k'), null); assert.equal(m.set('k', 'v'), true); assert.equal(m.get('k'), 'v');
   const src = readFileSync(new URL('../../permutation-server/web/frontier/flocalplay-march.mjs', import.meta.url), 'utf8');
-  assert.equal(src.split('LOCAL_MARCH_SUBMIT_PATH, {').length - 1, 1, 'one submit POST in the module');
+  assert.equal(src.split('post(origin, lane.submit, {').length - 1, 1, 'one submit POST in the module (local play\'s path, or devnet-page-war\'s devnet lane: LOCAL_MARCH_LANE is the default)');
+  assert.equal(P.LOCAL_MARCH_LANE.submit, P.LOCAL_MARCH_SUBMIT_PATH);
 });
 
 test('the controller: local play sends the march only when FS.localMarch is open, ONCE (sendMarch), with the memory book; never the retrying path', () => {
   const src = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(src, /if \(localPlay && FS\.localMarch\?\.open !== true\) return failed\(localPlayReadOnly\(\)\);/);
-  assert.match(src, /const r = localPlay \? await sendMarch\(m, \{/);
-  const local = src.slice(src.indexOf('const r = localPlay ? await sendMarch(m, {'), src.indexOf(') : await sendMarchRetrying(m, {'));
+  assert.match(src, /\}\) : localPlay \? await sendMarch\(m, \{/);
+  const local = src.slice(src.indexOf(') : localPlay ? await sendMarch(m, {'), src.indexOf(') : await sendMarchRetrying(m, {'));
   assert.ok(local.length > 0 && local.length < 800);
   for (const w of ['nudge', 'storage: book.browserStorage', 'bookKey()', 'session: FS.session', 'onRetry', 'refresh']) assert.ok(!local.includes(w), w);
   assert.match(local, /localMarchSenderNow\(\)\.depsFor\(/);
@@ -190,12 +191,12 @@ test('the gate: march=trial and the start answer must agree; the statement needs
 test('the controller: a local march with a signature is recorded as SENT (unconfirmed, or failed on chain), never as "not sent"', () => {
   const src = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   const from = src.indexOf('async function sendTheMarch()'), body = src.slice(from, src.indexOf('\n}\n', from));
-  assert.match(body, /const localSent = localPlay && !r\.ok && typeof r\.signature === 'string' && r\.signature !== '';/);
+  assert.match(body, /const localSent = \(localPlay \|\| !!dm\) && !r\.ok && typeof r\.signature === 'string' && r\.signature !== '';/);
   assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) orderUnconfirmed\(marchOrder, r\.signature\);/);
   assert.match(body, /localSent \? \{ code: r\.code \?\? null, sent: true, signature: r\.signature \} : \{ code: r\.code \?\? null, sent: false \}/);
   // (2026-11-19, fix-march-held) the unconfirmed notice carries its code (the "unconfirmed" state, never a refusal titled
   // with another action's words) and starts the bounded re-check; a runner rejection goes back to the card as "not sent"
-  assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); recheckHeldMarch\(r\.signature\); \}/);
+  assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); if \(localPlay\) recheckHeldMarch\(r\.signature\); \}/);
   assert.match(body, /else if \(localPlay && r\.code === 'LocalMarchRejected'\) failed\(\{ \.\.\.r, unsent: 'march-send'/);
   // "sent: false" appears exactly once in the function, and only on the branch without a local signature
   assert.equal(body.split('sent: false').length - 1, 1);
@@ -208,8 +209,8 @@ test('the controller: a local march with a signature is recorded as SENT (unconf
 });
 
 test('the order record by outcome (the controller\'s branch, replayed): signature + Unconfirmed → unconfirmed; signature + TransactionFailed → refused but sent; no signature → not sent', () => {
-  const recordOf = (localPlay, r) => {
-    const localSent = localPlay && !r.ok && typeof r.signature === 'string' && r.signature !== '';
+  const recordOf = (localPlay, r, dm = null) => {
+    const localSent = (localPlay || !!dm) && !r.ok && typeof r.signature === 'string' && r.signature !== '';
     if (localSent && r.code !== 'TransactionFailed') return { state: 'unconfirmed', sent: true, signature: r.signature };
     return { state: r.ok ? 'accepted' : 'refused', ...(r.ok ? {} : localSent ? { code: r.code, sent: true, signature: r.signature } : { code: r.code, sent: false }) };
   };
@@ -217,6 +218,8 @@ test('the order record by outcome (the controller\'s branch, replayed): signatur
   assert.deepEqual(recordOf(true, { ok: false, step: 'onChain', code: 'TransactionFailed', signature: 'S' }), { state: 'refused', code: 'TransactionFailed', sent: true, signature: 'S' });
   assert.deepEqual(recordOf(true, { ok: false, step: 'sent', code: 'LocalMarchCitizen' }), { state: 'refused', code: 'LocalMarchCitizen', sent: false });
   assert.deepEqual(recordOf(false, { ok: false, code: 'Unconfirmed', signature: 'S' }), { state: 'refused', code: 'Unconfirmed', sent: false }, 'the chain page is as it was');
+  // (devnet-page-war: the devnet sender's march with a signature is SENT, as local play's)
+  assert.deepEqual(recordOf(false, { ok: false, step: 'onChain', code: 'Unconfirmed', signature: 'S' }, {}), { state: 'unconfirmed', sent: true, signature: 'S' });
   // the replay is the controller's own text
   const src = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.ok(src.includes(recordOf.toString().split('\n')[1].trim()));
@@ -226,7 +229,7 @@ test('the controller: in local play the arrival offers no page SettleTransit (th
   const src = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   const lines = src.split('\n').filter(l => /const settleReady = /.test(l));
   assert.equal(lines.length, 1, 'one place decides settleReady');
-  assert.match(lines[0], /^\s*const settleReady = !localPlay && !!transit && !!env && transit\.state >= 2 && pl\.state === 'resolved' && pl\.close !== null && now\(\) >= pl\.close \+ 600;$/);
+  assert.match(lines[0], /^\s*const settleReady = !localPlay && !devnetPlay && !!transit && !!env && transit\.state >= 2 && pl\.state === 'resolved' && pl\.close !== null && now\(\) >= pl\.close \+ 600;$/);
   // (the card with no entry of this device never offers it either; and a settle asked anyway is still refused by act)
   // (round 29: the entry-less card now reads its stage when it can, but still never offers a settle)
   assert.match(src, /facts: \{ nowBell: b, pipeline: lf\?\.pipeline \?\? null, slotPresent: !!lf\?\.slot, settleReady: false \}/);

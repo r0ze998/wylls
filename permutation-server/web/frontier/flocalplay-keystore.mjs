@@ -30,10 +30,14 @@ const fail = (code, message) => { throw Object.assign(new Error(message ?? code)
 const req = r => new Promise((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error ?? new Error('IndexedDB')); });
 const done = tx => new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error ?? new Error('IndexedDB')); tx.onabort = () => reject(tx.error ?? new Error('IndexedDB aborted')); });
 
-/** Opens (creating once) the TEST key store. `idb` is `globalThis.indexedDB` (tests pass a fake). */
-export async function openKeyStore({ idb = globalThis.indexedDB } = {}) {
+/**
+ * Opens (creating once) the TEST key store. `idb` is `globalThis.indexedDB` (tests pass a fake). `db`
+ * (devnet-page-war): another database of the same two stores — the devnet page's march book (fdevnetbook.mjs), which
+ * keeps no key pair; local play's is the default, unchanged.
+ */
+export async function openKeyStore({ idb = globalThis.indexedDB, db: name = KEYSTORE_DB } = {}) {
   if (!idb?.open) fail('NoIndexedDB', 'this browser keeps no IndexedDB here (private mode?): the key cannot be kept');
-  const open = idb.open(KEYSTORE_DB, KEYSTORE_VERSION);
+  const open = idb.open(name, KEYSTORE_VERSION);
   open.onupgradeneeded = () => {
     const db = open.result;
     for (const s of [WALLETS, SECRETS]) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
