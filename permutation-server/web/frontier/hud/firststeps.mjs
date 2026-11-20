@@ -27,7 +27,11 @@ export const marchOpenFor = FS => (FS?.localPlay ? FS?.localMarch?.open === true
  */
 export function marchClosedText(FS) {
   if (marchOpenFor(FS)) return '';
-  switch (FS?.localMarch?.reason) {
+  return marchClosedReasonText(FS?.localMarch?.reason);
+}
+/** (fix-loop5, L5-8) The same sentence for one host's own answer (controller localMarchFor): by its reason, never "not yet". */
+export function marchClosedReasonText(reason) {
+  switch (reason) {
     case 'LocalMarchNoCapability': return L`この世界では、このページからの進軍は提供されていません。`;
     case 'LocalMarchGate': return L`このページの試験用の鍵と接続が確かめられないため、進軍は使えません。`;
     case 'LocalMarchWideHolding': return L`この村からは、このページの進軍は使えません。`;

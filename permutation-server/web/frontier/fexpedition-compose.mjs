@@ -163,8 +163,12 @@ export function reconcileOutbound(fs, ctx) {
   clearOutbound(fs); fs.expeditionCompose.error = 'SourceChanged'; return false;
 }
 function rebuild(fs, ctx) {
-  cancelRouteRead(fs); bump(fs);
   const s = fs.expeditionCompose;
+  // (fix-loop5, L5-3: a read still under way when the clock moves is dropped — it was read under the earlier clock. It
+  //  went back to nothing, silently (loop-play5, ×60). It is said now — `dropped` — and the page reads again by itself)
+  const dropped = s.routeCheck?.status === 'loading' ? 'route' : s.contextCheck?.status === 'loading' ? 'context' : null;
+  if (dropped) s.dropped = dropped;
+  cancelRouteRead(fs); bump(fs);
   s.routeCheck = null;
   s.contextCheck = null;
   s.review = null; s.trace = null; s.map = null; s.error = null; s.status = 'preparing';
@@ -244,7 +248,7 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {}, lo
   const s = fs.expeditionCompose;
   if (!s?.source || !s.directions.length) return;
   cancelRouteRead(fs);
-  s.contextCheck = null;
+  s.contextCheck = null; s.dropped = null;
   const controller = new AbortController(); routeReads.set(fs, controller);
   const source = s.source, directions = [...s.directions], seenAtStart = outboundClockSeen(fs);
   const season = fs.season;
@@ -287,7 +291,7 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
   if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return;
   const s = fs.expeditionCompose;
   if (!s?.source || !s.directions.length) return;
-  cancelRouteRead(fs); s.routeCheck = null;
+  cancelRouteRead(fs); s.routeCheck = null; s.dropped = null;
   const controller = new AbortController(); contextReads.set(fs, controller);
   const source = s.source, directions = [...s.directions], seenAtStart = outboundClockSeen(fs);
   s.contextCheck = { status: 'loading' }; changed();
@@ -384,4 +388,26 @@ export function outboundSketch(directions) {
   const points = [{ q: 0, r: 0 }];
   for (const d of directions) { const prev = points.at(-1), [q, r] = DIRECTIONS[d]; points.push({ q: prev.q + q, r: prev.r + r }); }
   return points;
+}
+
+/**
+ * (fix-loop5, L5-4) Whether a road's endpoint is an OPENED wide province of this local wide world (`targets`: the
+ * launcher's `wideLand.targets`, `[{p, q}]` decimal strings — only the drawn provinces of rings 129–131 are open), and
+ * the opened province nearest to it. → `{open, nearest: {p, q, away} | null}`, or null when nothing can be said (no
+ * endpoint inside the wide land, or no list). A road ending on an unopened province reads 「道の途中に、まだ読み取れて
+ * いない州があります。」 only after a read; this is said as soon as the road is drawn.
+ */
+export function outboundEndpointOpen(endpoint, targets) {
+  if (!endpoint || !Array.isArray(targets) || !targets.length) return null;
+  let p, q;
+  try { p = BigInt(endpoint.p); q = BigInt(endpoint.q); if (ringPosition(p, q).ring <= 128n) return null; } catch { return null; }
+  const abs = x => (x < 0n ? -x : x);
+  let nearest = null;
+  for (const t of targets) {
+    let tp, tq; try { tp = BigInt(t.p); tq = BigInt(t.q); } catch { continue; }
+    if (tp === p && tq === q) return { open: true, nearest: null };
+    const dp = tp - p, dq = tq - q, away = (abs(dp) + abs(dq) + abs(dp + dq)) / 2n;
+    if (!nearest || away < nearest.away) nearest = { p: String(tp), q: String(tq), away };
+  }
+  return { open: false, nearest: nearest ? { p: nearest.p, q: nearest.q, away: Number(nearest.away) } : null };
 }

@@ -88,7 +88,8 @@ test('the marching figures: the character at the head, a file behind it on the r
   // only a conquest season's board draws them: any other season keeps the marker it had
   const fmap = readFileSync(new URL('map/fmap.mjs', WEB), 'utf8');
   assert.match(fmap, /const spots = F\.KB \? marcherSpots\(at\.path, at\.k, \{ zoom: z, lead \}\)/);
-  assert.match(fmap, /marchTagText\(k\.m\.arriveBell\)/, 'the tag over it is kept: "Arrives on turn N · only you can see this"');
+  // (fix-loop5 L5-5: the tag is chosen by hostmarks.mjs markerTagText — marchTagText(arriveBell) while the march walks)
+  assert.match(fmap, /markerTagText\(k\.m\)/, 'the tag over it is kept: "Arrives on turn N · only you can see this"');
 });
 
 test('what the page hands the map: a conquest season\'s keep events and the viewer; nothing in any other season', () => {

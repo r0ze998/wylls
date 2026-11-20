@@ -200,7 +200,11 @@ export function fogProvince(rec, { survey, mem = null, sites = null, viewer = nu
     if (JSON.stringify(k) !== JSON.stringify(snap.k && { t: snap.k.t, n: snap.k.n, c: snap.k.c, h: snap.k.h })) { snap.k = { ...k, b: int(bell) ? bell : null }; changed = true; }
   }
   if (mem && (inSight || keepLive || snap.o.some((f, j) => ours(j))) && changed) mem.put(pk, snap);
-  Object.assign(out, { owners: snap.o, sites: snap.s, occupiers: snap.oc, siteKinds: snap.sk, hosts: inSight ? rec.hosts : hosts, clash: inSight ? !!rec.clash : false, fog: inSight ? 'sight' : 'memory' });
+  // (verify-pr117, L5-6 follow-up: the province's clash flag — the map's red ring, the minimap dot, the inspector's
+  //  「このターンに衝突あり」 — follows the clash rule of clashSeen below: the keep tile in sight (else the whole province),
+  //  or the viewer's nation there. One rim tile in sight no longer marks another nation's clash)
+  const clashLive = inSight && ((own !== null && (rec.control === own || snap.o.some((f, j) => ours(j)))) || clashSeen({ p: rec.p, q: rec.q, keepTile: rec.keepTile ?? null }, { survey }));
+  Object.assign(out, { owners: snap.o, sites: snap.s, occupiers: snap.oc, siteKinds: snap.sk, hosts: inSight ? rec.hosts : hosts, clash: clashLive ? !!rec.clash : false, fog: inSight ? 'sight' : 'memory' });
   if (!inSight) { out.siegeStates = blankSites(); out.immune = Array(12).fill(false); }
   else if (sites) {
     // (a site out of sight in a province partly in sight: no live siege on it)
@@ -301,14 +305,35 @@ export function fogIncoming(list, { nowBell = 0, departures = [], survey, viewer
  * one with no place, the viewer's own (`mine(record)`), or one whose place is in sight now. Positions out of sight —
  * another nation's village placed, a march set out, a clash — are not told (no "something happened somewhere").
  */
-export function recordSeen(x, { survey, mine = () => false } = {}) {
+export function recordSeen(x, { survey, mine = () => false, keepTileOf = () => null } = {}) {
   const r = x?.record ?? x;
   if (!r) return false;
   if (mine(r)) return true;
   const p = Number(r.p ?? r.origin_p ?? r.dest_p), q = Number(r.q ?? r.origin_q ?? r.dest_q);
   if (!int(p) || !int(q)) return true;
   const t = Number(r.tile ?? r.origin_tile ?? r.dest_tile);
-  return int(t) && t >= 0 && t < PROVINCE_TILES ? survey.levelOf(p, q, t) === L3 : maxOf(survey, p, q) === L3;
+  if (int(t) && t >= 0 && t < PROVINCE_TILES) return survey.levelOf(p, q, t) === L3;
+  // (verify-pr117, L5-6 follow-up: a CLASH record — keyed by province and turn, no tile — : the chronicle's 「…で衝突が
+  //  決着した」 and its 「報告」, the recent clashes list, follow the clash rule of clashSeen: its keep tile in sight, else
+  //  the whole province; one rim tile in sight is not enough. The viewer's own (a village there: `mine`) was told above)
+  if (r.name === 'CLASH') return clashSeen({ p, q, keepTile: keepTileOf(p, q) }, { survey });
+  return maxOf(survey, p, q) === L3;
+}
+
+/**
+ * (fix-loop5, L5-6) Whether a CLASH of province (p, q) — its report, its replay, its scene played on the map — may be
+ * offered or read under the fog. Always without fog, and always when it is the viewer's own (`mine`: a village of the
+ * viewer's there, a march of the viewer's arriving at it). Otherwise only while its place is in sight NOW (#93: other
+ * nations' clashes show only inside current vision; seen before is not enough): the keep tile when the province has a
+ * keep (a keep's clash is fought on it), else the whole province. A province with only a few rim tiles in sight is not
+ * enough (loop-play5: such a province offered 「戦いを再生」 and the full AI-vs-AI report).
+ */
+export function clashSeen({ p, q, keepTile = null, mine = false } = {}, { survey } = {}) {
+  if (mine) return true;
+  if (!survey || survey.showAll) return true;
+  if (!int(p) || !int(q)) return false;
+  if (int(keepTile) && keepTile >= 0 && keepTile < PROVINCE_TILES) return survey.levelOf(p, q, keepTile) === L3;
+  return survey.province(p, q).kind === 'sight';
 }
 
 // ------------------------------------------------------------------ the page's fog
@@ -350,7 +375,8 @@ export function createFogger({ storage = browserStorage } = {}) {
     if (sv.rev !== lastRev) { lastRev = sv.rev; mem.save(); }
     view = { on: true, survey: sv, overviews, wide: wideCache.out, keeps: keepsOf, memory: mem,
       incoming: (list, ctx = {}) => fogIncoming(list, { ...ctx, survey: sv, viewer: input.viewer }),
-      seen: (record, mine) => recordSeen(record, { survey: sv, mine }),
+      seen: (record, mine) => recordSeen(record, { survey: sv, mine, keepTileOf: (p, q) => keepTileIn(input.overviews, p, q) }),
+      clashSeen: x => clashSeen(x, { survey: sv }),
       departureSeen: d => departureSeen(d, { survey: sv, viewer: input.viewer }) };
     current = view;
     return view;
@@ -366,5 +392,19 @@ export const resetFogNow = () => { current = null; };
 export const viewOverviews = fs => { const f = fogNow(); return f.on && f.overviews ? f.overviews : fs?.overviews; };
 /** The keeps a surface that SHOWS them reads (FS.conquest.keeps, fogged under the fog). */
 export const viewKeeps = keeps => { const f = fogNow(); return f.on ? f.keeps(keeps) : keeps; };
+/** Whether a clash (report, replay, scene) of `{p, q, keepTile, mine}` may be offered (always, without fog). */
+export const viewClash = x => { const f = fogNow(); return !f.on || !f.clashSeen || f.clashSeen(x); };
+/**
+ * (verify-pr117) Whether tile `tile` of (p, q) is at least at survey level `min` now (L3: in sight now; L2: surveyed,
+ * the last-known of terrain and what stood there). No tile: the province's best level. Always without fog.
+ */
+export const viewTile = (p, q, tile, min = L3) => {
+  const f = fogNow();
+  if (!f.on || !f.survey || f.survey.showAll) return true;
+  if (!int(p) || !int(q)) return false;
+  return int(tile) && tile >= 0 && tile < PROVINCE_TILES ? f.survey.levelOf(p, q, tile) >= min : maxOf(f.survey, p, q) >= min;
+};
+/** The keep tile of (p, q) as the raw overviews carry it (null: no keep, or the province not in an overview read). */
+export const keepTileIn = (overviews, p, q) => { for (const o of overviews?.values?.() ?? []) { const r = o?.provinces?.find?.(x => x.p === p && x.q === q); if (r) return r.keepTile ?? null; } return null; };
 /** Whether a chronicle/feed record may be shown (always, without fog). */
 export const viewRecord = (record, mine = () => false) => { const f = fogNow(); return !f.on || f.seen(record, mine); };

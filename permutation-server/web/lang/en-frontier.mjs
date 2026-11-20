@@ -112,6 +112,7 @@ export default {
   '探索中 · 結果を待っています': 'Exploring · waiting for the result',
   'ターン {0} に到着 · あなたにだけ見えます': 'Arrives on turn {0} · only you can see this',
   '到着 · 開封を待っています（あなたにだけ見えます）': 'Arrived · waiting for the seal to open (only you can see this)',
+  '到着 · 封は開きました · 結果の確定を待っています（あなたにだけ見えます）': 'Arrived · the seal is open · waiting for the result (only you can see this)',
   // the keeps on the board (map/keeps.mjs, map/keepmount.mjs)
   '砦を保持中 · {0} / {1} ターン': 'Holding the keep · {0} / {1} turns',
   '{0}が砦を保持中 · {1} / {2} ターン': '{0} is holding the keep · {1} / {2} turns',

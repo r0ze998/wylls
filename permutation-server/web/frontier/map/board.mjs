@@ -197,7 +197,9 @@ export function ownMarches(fs) {
       if (!a || !b) continue;
       const depart = m.transit?.departBell;
       out.push({ host: String(m.transit?.hostId ?? x.host), departBell: int(depart) ? depart : null, arriveBell: x.arriveBell, route: null, hexes: [{ q: a.q, r: a.r }, { q: b.q, r: b.r }],
-        dest: x.dest, known: true, arrived: nowBell >= x.arriveBell, open: false, expedition: true });
+        dest: x.dest, known: true, arrived: nowBell >= x.arriveBell, open: false, expedition: true,
+        // (fix-loop5, L5-5: the seal is open — the runner revealed it — and only the result waits: the tag says so)
+        revealed: x.stage === 'revealed' });
       continue;
     }
     const e = m?.entry ?? null, t = m?.transit ?? null;
