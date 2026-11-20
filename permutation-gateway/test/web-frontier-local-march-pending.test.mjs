@@ -96,7 +96,7 @@ test('the controller: armed only on local play\'s test march with a known world 
   assert.doesNotMatch(block, /localStorage|sessionStorage|saveUi|indexedDB|book\.|setInterval/, 'memory only; the driver owns the timer');
   assert.match(c, /'march-wait-cancel': \(\) => pendingDriver\.cancel\('cancel'\),/);
   assert.match(c, /'compose-close': \(\) => \{ pendingDriver\.cancel\('cancel'\); FS\.compose = null;/);
-  assert.match(c, /const r = localPlay \? await sendMarch\(m, \{/, 'local play: one attempt, no resend (unchanged)');
+  assert.match(c, /\}\) : localPlay \? await sendMarch\(m, \{/, 'local play: one attempt, no resend (unchanged; devnet-page-war: after the devnet sender\'s own branch)');
   // the gate gives the world's end for EVERY launcher start (kept, plain, wide, demo — loop-play4 B-3: only the demo had
   // it, so every other world's pending send was withdrawn as 'closed' at once), from its checked expiry statement
   const gate = src('flocalplay.mjs');

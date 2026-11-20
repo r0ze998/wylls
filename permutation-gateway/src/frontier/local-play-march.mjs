@@ -137,9 +137,13 @@ export function localMarchMessage(intent, pins, blockhash) {
   return Uint8Array.from(compileMessage({ feePayer: pins.wallet, recentBlockhash: blockhash, instructions: [...prefix, built.expected] }));
 }
 
-/** A submit `{schema, name, subject, fields, transaction_b64}` → `{intent, message, signature}`; throws otherwise. Sends nothing. */
-export function localMarchSubmit(body, pins) {
-  check(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === LOCAL_MARCH_SUBMIT_SCHEMA
+/**
+ * A submit `{schema, name, subject, fields, transaction_b64}` → `{intent, message, signature}`; throws otherwise. Sends
+ * nothing. `schema` (devnet-page-war): the flow's own submit schema (the devnet play routes' `…devnet-play-march-
+ * submit-v1`); local play's by default, unchanged.
+ */
+export function localMarchSubmit(body, pins, { schema = LOCAL_MARCH_SUBMIT_SCHEMA } = {}) {
+  check(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === schema
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
   const intent = localMarchIntent({ name: body.name, subject: body.subject, fields: body.fields });
   const wire = Buffer.from(body.transaction_b64, 'base64');
@@ -153,14 +157,14 @@ export function localMarchSubmit(body, pins) {
   return Object.freeze({ intent, message: Uint8Array.from(tx.message), signature: encode(tx.signatures[0]), blockhash: tx.recentBlockhash });
 }
 
-function accountOf(row) {
+export function localMarchAccountOf(row) {
   if (row === null) return null;
   if (row === undefined || typeof row !== 'object' || typeof row.owner !== 'string' || row.executable === true || !Array.isArray(row.data) || row.data[1] !== 'base64' || typeof row.data[0] !== 'string') fail('LocalMarchRpcUnavailable');
   const bytes = Buffer.from(row.data[0], 'base64');
   if (bytes.toString('base64') !== row.data[0]) fail('LocalMarchRpcUnavailable');
   return { owner: row.owner, bytes: new Uint8Array(bytes) };
 }
-const ACT_TO_MARCH = { LocalActCitizen: 'LocalMarchCitizen', LocalActHolding: 'LocalMarchHolding', LocalActWideHolding: 'LocalMarchWideHolding', LocalActNotYourVillage: 'LocalMarchHolding' };
+export const ACT_TO_MARCH = { LocalActCitizen: 'LocalMarchCitizen', LocalActHolding: 'LocalMarchHolding', LocalActWideHolding: 'LocalMarchWideHolding', LocalActNotYourVillage: 'LocalMarchHolding' };
 
 /** The real accounts, as read `[citizen, holding, province]`: this wallet's Citizen, its legacy village, the program's province at (p, q). */
 export function localMarchAccountsCheck(intent, pins, { citizenAt, holdingAt }, [citizen, holding, province]) {
@@ -219,7 +223,7 @@ export function createLocalPlayMarch({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
       open();
       const slot = got.result?.context?.slot, rows = got.result?.value;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== 3) fail('LocalMarchRpcUnavailable');
-      localMarchAccountsCheck(ok.intent, pins, { citizenAt, holdingAt }, rows.map(accountOf));
+      localMarchAccountsCheck(ok.intent, pins, { citizenAt, holdingAt }, rows.map(localMarchAccountOf));
       if (runnerInstance !== null) {
         const p = await ask('getSignatureStatuses', [[ok.signature], { searchTransactionHistory: true }]);
         open();

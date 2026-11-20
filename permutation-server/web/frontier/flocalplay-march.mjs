@@ -19,7 +19,7 @@ import { ringPosition } from './map/wide.mjs';
 import { accountsFor, buildShape } from './fplay.mjs';
 import { seasonAddresses } from './faddr.mjs';
 import { localDepartSigned } from './flocalplay-depart.mjs';
-import { LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_CONTEXT_SCHEMA, LOCAL_ACT_SEASON_ID, LOCAL_ACT_LOADED_LIMIT } from './flocalplay-act.mjs';
+import { LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_CONTEXT_SCHEMA, LOCAL_ACT_SEASON_ID, LOCAL_ACT_LOADED_LIMIT, DEVNET_ACT_CONTEXT_PATH } from './flocalplay-act.mjs';
 import { profileForHash } from '../sdk/frontier/profile.mjs';
 import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
 import { budgetPrefix } from '../sdk/frontier/budgets.mjs';
@@ -159,7 +159,25 @@ export const LOCAL_MARCH_PRESEND_REFUSALS = Object.freeze(['LocalMarchInvalid', 
 export const LOCAL_MARCH_REJECTED = Object.freeze(['LocalMarchRejected']);
 export const LOCAL_MARCH_BOOK_KEY = 'local-march:memory';
 export const LOCAL_MARCH_MAX_BYTES = 16 * 1024;
-const POST_PATHS = Object.freeze([LOCAL_ACT_CONTEXT_PATH, LOCAL_MARCH_SUBMIT_PATH, LOCAL_MARCH_STATUS_PATH]);
+// DEVNET PLAY (devnet-page-war): the same sender against the gateway's wallet-paid devnet march routes
+// (permutation-gateway devnet-play-act.mjs `marchSubmit` / `marchStatus`): the connected wallet signs the Depart as fee
+// payer AND actor, the gateway rebuilds it for that one signer and the Season's real id. Reveal, settle and return are
+// keeper A's (its play roles); the page hands the owner's reveal material to the keeper (`POST /gw/f/reveal`).
+export const DEVNET_MARCH_SUBMIT_PATH = '/gw/f/devnet-play/march/submit';
+export const DEVNET_MARCH_STATUS_PATH = '/gw/f/devnet-play/march/status';
+export const DEVNET_MARCH_SUBMIT_SCHEMA = 'frontier-devnet-play-march-submit-v1';
+export const DEVNET_MARCH_STATUS_SCHEMA = 'frontier-devnet-play-march-status-v1';
+const POST_PATHS = Object.freeze([LOCAL_ACT_CONTEXT_PATH, LOCAL_MARCH_SUBMIT_PATH, LOCAL_MARCH_STATUS_PATH, DEVNET_ACT_CONTEXT_PATH, DEVNET_MARCH_SUBMIT_PATH, DEVNET_MARCH_STATUS_PATH]);
+/** WHICH MARCH TRANSPORT: local play's (the default, unchanged) or a devnet season's (`devnetMarchLane`). */
+export const LOCAL_MARCH_LANE = Object.freeze({ kind: 'local', cluster: 'localnet', seasonId: LOCAL_ACT_SEASON_ID,
+  context: LOCAL_ACT_CONTEXT_PATH, contextBody: () => ({ schema: LOCAL_ACT_CONTEXT_SCHEMA }),
+  submit: LOCAL_MARCH_SUBMIT_PATH, submitSchema: LOCAL_MARCH_SUBMIT_SCHEMA, status: LOCAL_MARCH_STATUS_PATH, statusSchema: LOCAL_MARCH_STATUS_SCHEMA });
+export function devnetMarchLane(seasonId) {
+  if (typeof seasonId !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(seasonId)) fail('DevnetPlaySeason');
+  return Object.freeze({ kind: 'devnet', cluster: 'devnet', seasonId,
+    context: DEVNET_ACT_CONTEXT_PATH, contextBody: wallet => ({ schema: 'frontier-devnet-play-act-context-v1', wallet }),
+    submit: DEVNET_MARCH_SUBMIT_PATH, submitSchema: DEVNET_MARCH_SUBMIT_SCHEMA, status: DEVNET_MARCH_STATUS_PATH, statusSchema: DEVNET_MARCH_STATUS_SCHEMA });
+}
 
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const check = (ok, code) => { if (!ok) fail(code); };
@@ -226,8 +244,8 @@ export function localMarchBinding(intent) {
 }
 
 /** The message of `intent` for `identity` on `blockhash`: the game's own Depart, the wallet as fee payer and actor (the relay rebuilds the same bytes). */
-export function localMarchMessageOf(intent, identity, rulesetHash, blockhash) {
-  const A = seasonAddresses(identity.programId, LOCAL_ACT_SEASON_ID);
+export function localMarchMessageOf(intent, identity, rulesetHash, blockhash, seasonId = LOCAL_ACT_SEASON_ID) {
+  const A = seasonAddresses(identity.programId, seasonId);
   check(A.season === identity.seasonAddress, 'LocalMarchIdentity');
   const profile = profileForHash(rulesetHash), wallet = identity.address;
   const v = { addresses: A, wallet, actor: wallet, profile, holding: intent.subject.holding, province: intent.subject.province };
@@ -247,6 +265,13 @@ export async function signWithMemoryWallet(w, wallet, message) {
   const [out] = await w.wallet.features['solana:signTransaction'].signTransaction({ account, transaction: wireTransaction(message, []) });
   return localDepartSigned(out?.signedTransaction ?? [], { message, digest: toHex(sha256(message)) }, wallet);
 }
+
+/**
+ * (devnet-page-war) The devnet sender's signing step: the connected Wallet Standard wallet's `signTransaction(wire)`
+ * (controller.mjs `wallet.signTransaction`) signs `message`; the signed bytes are checked as the memory wallet's are.
+ */
+export const connectedWalletSigner = signTransaction => async (_w, wallet, message) =>
+  localDepartSigned(await signTransaction(wireTransaction(message, [])), { message, digest: toHex(sha256(message)) }, wallet);
 
 /**
  * The relay's status answer → `{state: 'landed'|'failed'|'expired'|'pending', slot?, programCode?}`; throws on anything
@@ -275,18 +300,20 @@ function statusOf(v, signature) {
  *                       slots ≈ 60 s, so a transaction that never lands is read as `expired` inside it)
  * → `{storage, bookKey, held(host), depsFor({holding, province}), ask(signature)}`. Constructing it sends nothing.
  */
+// (devnet-page-war: `lane` = devnetMarchLane(seasonId), with `storage` / `bookKey` the devnet page's encrypted book
+//  (fdevnetbook.mjs) and `sign` the connected wallet; local play passes none of them and is unchanged)
 export function createLocalMarchSender({ allowed, open, identity, rulesetHash, signer, post = postLocalMarch, sign = signWithMemoryWallet,
-  wait = ms => new Promise(r => setTimeout(r, ms)), tries = 60, every = 1500 } = {}) {
-  const storage = keptStorage ?? memoryStorage(), bookKey = LOCAL_MARCH_BOOK_KEY;
+  wait = ms => new Promise(r => setTimeout(r, ms)), tries = 60, every = 1500, lane = LOCAL_MARCH_LANE, storage: laneStorage = null, bookKey: laneBookKey = null } = {}) {
+  const storage = laneStorage ?? keptStorage ?? memoryStorage(), bookKey = laneBookKey ?? LOCAL_MARCH_BOOK_KEY;
   const read = () => { try { const v = JSON.parse(storage.get(bookKey) ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
   const patch = (signature, p) => storage.set(bookKey, JSON.stringify(read().map(e => (e.signature === signature ? { ...e, ...p } : e))));
   const origins = new Map();   // signature → the relay origin it was sent through (asked only there)
   // (a march kept from before a reload — persisted worlds only — has no remembered origin: its status is read through
   //  the gate's relay of NOW, the same world's; a read only, nothing is sent again)
-  const originOf = signature => origins.get(signature) ?? (keptStorage && storage === keptStorage ? (() => { try { const a = allowed(); return a?.ok ? a.relay : null; } catch { return null; } })() : null);
+  const originOf = signature => origins.get(signature) ?? ((laneStorage && storage === laneStorage) || (keptStorage && storage === keptStorage) ? (() => { try { const a = allowed(); return a?.ok ? a.relay : null; } catch { return null; } })() : null);
   /** The signatures of `host`'s marches that were sent and whose outcome is not known (state `sent`). */
   const held = host => read().filter(e => (host === null || host === undefined || String(e.host) === String(host)) && e.state === 'sent' && typeof e.signature === 'string').map(e => e.signature);
-  const readStatus = async (origin, signature) => statusOf(await post(origin, LOCAL_MARCH_STATUS_PATH, { schema: LOCAL_MARCH_STATUS_SCHEMA, signature }), signature);
+  const readStatus = async (origin, signature) => statusOf(await post(origin, lane.status, { schema: lane.statusSchema, signature }), signature);
   return Object.freeze({
     storage, bookKey, held,
     depsFor({ holding, province }) {
@@ -300,14 +327,14 @@ export function createLocalMarchSender({ allowed, open, identity, rulesetHash, s
             const gate = () => { const a = allowed(); if (!a?.ok) fail(a?.code ?? 'LocalMarchGate'); if (open() !== true) fail('LocalMarchClosed'); return a.relay; };
             const origin = gate();
             const i = identity(), w = signer();
-            check(object(i) && address(i.address) && address(i.programId) && address(i.seasonAddress) && i.cluster === 'localnet', 'LocalMarchIdentity');
+            check(object(i) && address(i.address) && address(i.programId) && address(i.seasonAddress) && i.cluster === lane.cluster, 'LocalMarchIdentity');
             check(!!w && w.destroyed === false && w.address === i.address, 'LocalMarchSigner');
             const hash = rulesetHash(); check(typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash), 'LocalMarchIdentity');
             const intent = localMarchIntentOf(req.fields, holding, province);
             check(held(intent.fields.host_id).length === 0, 'LocalMarchHeld');
-            const ctx = await post(origin, LOCAL_ACT_CONTEXT_PATH, { schema: LOCAL_ACT_CONTEXT_SCHEMA });
+            const ctx = await post(origin, lane.context, lane.contextBody(i.address));
             check(object(ctx) && ctx.wallet === i.address && object(ctx.blockhash) && address(ctx.blockhash.hash) && uintText(ctx.blockhash.last_valid_block_height), 'BadLocalMarchContext');
-            const message = localMarchMessageOf(intent, i, hash, ctx.blockhash.hash);
+            const message = localMarchMessageOf(intent, i, hash, ctx.blockhash.hash, lane.seasonId);
             check(gate() === origin && signer() === w && w.destroyed === false && identity() === i, 'LocalMarchChanged');
             const signed = await sign(w, i.address, message);
             check(gate() === origin && signer() === w && w.destroyed === false && identity() === i, 'LocalMarchChanged');
@@ -315,7 +342,7 @@ export function createLocalMarchSender({ allowed, open, identity, rulesetHash, s
             sig = signed.signature;
             // from here the transaction may reach the chain: ONE POST, and the signature is this march's for good
             attempted = true; origins.set(sig, origin);
-            const answer = await post(origin, LOCAL_MARCH_SUBMIT_PATH, { schema: LOCAL_MARCH_SUBMIT_SCHEMA, ...intent, transaction_b64: toBase64(signed.wire) });
+            const answer = await post(origin, lane.submit, { schema: lane.submitSchema, ...intent, transaction_b64: toBase64(signed.wire) });
             const binding = localMarchBinding(intent);
             check(object(answer) && ['submitted', 'unknown'].includes(answer.status) && answer.signature === sig && answer.name === 'Depart'
               && answer.ct_hash === binding.ct_hash && answer.seal_root === binding.seal_root, 'BadLocalMarchSubmitted');
