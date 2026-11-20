@@ -6,8 +6,10 @@
 //! tile of its ring-129 destination (the host STAYS there, keeper A having sent every step after the Depart), nobody
 //! but the test sends a conquest step; keeper A is never asked to:
 //!
-//! 1. the destination caught up to the current bell by plain wide Resolves (a third party's, permissionless);
-//! 2. **DeclareSiege** (kind 12; the host's own wallet: the program's player prologue) of the Free City site;
+//! 1. the destination caught up to one bell behind the clock by plain wide Resolves (a third party's; a bell resolves
+//!    only after its reveal window closes, in the bell after next, so the cursor always lags by one);
+//! 2. **DeclareSiege** (kind 12; the host's own wallet) of the Free City site: with the cursor one bell behind it is a
+//!    RESERVATION (receipt action RESERVE, as in every recording of the pinned `.so`), applied at its bell;
 //! 3. **ResolveWithConquest** (13) every bell by a STRANGER key (permissionless); once the siege has progress, the
 //!    host leaves (**Dissolve**, kind 4, the host's wallet) so the siege FAILS;
 //! 4. **SettleSiege** (15, the stranger);
@@ -166,10 +168,15 @@ async fn keeper_reads(
     loop {
         let st = super::keeper_status(s.war.0, &s.war.1);
         if let Some(st) = &st {
+            // (`k` may name alternatives, `A|B`: their counts are summed)
             let ok = ["land", "play"].iter().all(|i| {
-                st["discovery"][i]["wide_accounted"][k]
-                    .as_u64()
-                    .unwrap_or(0)
+                k.split('|')
+                    .map(|x| {
+                        st["discovery"][i]["wide_accounted"][x]
+                            .as_u64()
+                            .unwrap_or(0)
+                    })
+                    .sum::<u64>()
                     >= n
             });
             if ok {
@@ -253,11 +260,39 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
     let mut guard: Vec<Value> = vec![];
     let row_of = |v: &Value, kind: &str| json!({"kind": kind, "row": v});
 
-    // 1. the destination resolved up to the current bell (plain wide Resolves), then the DeclareSiege in that bell
-    let t0 = Instant::now();
+    // 0. DECLARED PATCH: the rim village's stores hold two declarations' cost (the gold stake and the siege arms;
+    //    natural production would take days of chain time — as the recorder's patch 3 and P10's troops)
+    {
+        use frontier_abi::layout::player::accrual as AC;
+        use permutation_rules::frontier::{arms, holding::Resource};
+        let mut hd = r.lock().account(&s.holding).expect("the rim village");
+        for (res, need) in [
+            (Resource::Gold as usize, 2_000_000i64),
+            (arms::ARMS as usize, 200_000i64),
+        ] {
+            let o = H::store(res);
+            for f in [AC::VALUE, AC::CAP] {
+                let v = i64::from_le_bytes(hd.data[o + f..o + f + 8].try_into().unwrap()).max(need);
+                hd.data[o + f..o + f + 8].copy_from_slice(&v.to_le_bytes());
+            }
+        }
+        r.patch(
+            s.holding,
+            hd,
+            "the rim village's gold and arms stores: two DeclareSieges' cost (2,000 gold, 200 arms)",
+        );
+    }
+
+    // 1. the destination resolved to one bell behind the clock (plain wide Resolves), then the DeclareSiege
     let declared = loop {
-        while let Some(v) = resolve_next(r, beacon, &s, &stranger, false).await {
-            steps.push(row_of(&v, "WideResolve (catch-up)"));
+        // (a bell resolves only after THE anchor's reveal window closes, which is in the bell after next: the cursor
+        //  always lags the clock by one bell, so the declaration is a RESERVATION — as in every recording of the
+        //  pinned `.so` — applied when ResolveWithConquest reaches its bell)
+        while resolved_next(r, &s) + 1 < r.bell() {
+            match resolve_next(r, beacon, &s, &stranger, false).await {
+                Some(v) => steps.push(row_of(&v, "WideResolve (catch-up)")),
+                None => break,
+            }
         }
         r.lock().set_paused(true);
         let pd = r.data(&s.dest_key).unwrap();
@@ -295,17 +330,22 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
         if v["ok"] == true {
             break (entry, v);
         }
-        // (the bell turned between the catch-up and the declaration: catch up again)
-        assert!(
-            t0.elapsed() < Duration::from_secs(1200),
-            "DeclareSiege never lands: {v:#}"
-        );
+        // (fail fast: a refusal is a program answer, never retried in a loop)
+        panic!("DeclareSiege refused: {v:#}");
     };
     let (entry, v) = declared;
     steps.push(row_of(&v, "DeclareSiege (12)"));
     let table = |r: &Run<'_>| WideConquest::read(&r.data(&conquest_k)?, a.season_id, s.dest).ok();
     assert!(table(r).is_some(), "the conquest table exists");
-    let acc = keeper_reads(r, beacon, &s, "CONQUEST_DECLARED", 1, true).await;
+    let acc = keeper_reads(
+        r,
+        beacon,
+        &s,
+        "CONQUEST_DECLARED|CONQUEST_RESERVED",
+        1,
+        true,
+    )
+    .await;
     guard.push(json!({"after": "DeclareSiege", "wide_accounted": acc}));
 
     // 2. ResolveWithConquest every bell; the host leaves once the siege has progress; the siege fails
@@ -313,6 +353,7 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
     let mut left: Option<u32> = None;
     let mut rwc = 0u64;
     let mut ended = None;
+    let mut started = false;
     for _ in 0..80 {
         let Some(v) = resolve_next(r, beacon, &s, &stranger, true).await else {
             drive(r, beacon, 20.0, 900, "the next bell", |r| {
@@ -334,7 +375,13 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
                 )
             });
         steps.push(json!({"kind": "site record", "after_bell": resolved_next(r, &s) - 1, "record": format!("{e:?}")}));
+        if e.is_some_and(|(k, ..)| k != CR::KIND_NONE) {
+            started = true;
+        }
         match e {
+            // (a reservation not applied yet: no site entry, or none running)
+            None => {}
+            Some((k, ..)) if !started && k == CR::KIND_NONE => {}
             Some((k, _, _, src)) if k == CR::KIND_NONE || k == CR::KIND_CAPTURE_DUE => {
                 ended = Some((k, src));
                 break;
@@ -360,7 +407,6 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
                 steps.push(row_of(&v, "Dissolve (4)"));
                 left = Some(r.bell());
             }
-            None => panic!("the Free City's conquest entry is gone"),
             _ => {}
         }
     }
@@ -479,7 +525,15 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
         );
         steps.push(row_of(&v, "DeclareSiege (12, RESERVE)"));
         if v["ok"] == true {
-            let acc = keeper_reads(r, beacon, &s, "CONQUEST_RESERVED", 1, true).await;
+            let acc = keeper_reads(
+                r,
+                beacon,
+                &s,
+                "CONQUEST_DECLARED|CONQUEST_RESERVED",
+                2,
+                true,
+            )
+            .await;
             guard.push(json!({"after": "DeclareSiege (reservation)", "wide_accounted": acc}));
             let not_applied = |r: &Run<'_>| {
                 table(r)?
