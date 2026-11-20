@@ -49,7 +49,8 @@ verify = { path = "../verify", features = ["playable-lane"] }
 # preset S1_DEVNET_WIDE_7D (program version 0x4804) and its WideSetRules step,
 # which need the wide-land ABI tables (frontier-abi's opt-in world_index).
 # Off by default, so no other build of this workspace changes.
-playable-lane = ["frontier-abi/world-index-experimental"]
+# (P5 also reads the keeper's wide-land plan and builders, `keeper_core::widelane`: `keeper/playable-lane`.)
+playable-lane = ["frontier-abi/world-index-experimental", "keeper/playable-lane"]
 
 [[test]]
 name = "operator_playable"

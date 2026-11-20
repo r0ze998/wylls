@@ -184,16 +184,20 @@
         "lazy_provinces": true,
         "why": "S1_DEVNET_WIDE_7D grows the map one ring per bell to the legacy rim (r_max_ceiling 128) so the wide land (ring 129+) can be requested; lazy_provinces opens the genesis rings whole and every later ring without its provinces (they open on demand). Only the rings keeper (A) needs it.",
         "rim_per_wedge": 6,
-        "rimWhy": "Owner decision Q-W1 (2026-11-20 t398u): on this wide season a player's FIRST village may also be founded on the rim (rings 126-128, beside the wide land), as in local wide play. PlaceHome cannot name a province past the base r_max 16, so a rim first village is a one-site FileTicket; lazy_provinces leaves the rim without provinces, so once ring 128 is opened and seeded the rings duty opens the ring-128 provinces beside the middle 6 ring-129 provinces of each wedge (keeper::rings::rim_plan, the local wide world's rim): 42 provinces, 24,709,120 lamports of rent each from the wedge funds (1.038 SOL of the 36 SOL float at 5,080 lamports/byte, 1.422 SOL at 6,960; every fund still covers ring 129's balance check), about 140,000 CU each (measured offline, stack/tests/operator_playable.rs P4)."
+        "rimWhy": "Owner decision Q-W1 (2026-11-20 t398u): on this wide season a player's FIRST village may also be founded on the rim (rings 126-128, beside the wide land), as in local wide play. PlaceHome cannot name a province past the base r_max 16, so a rim first village is a one-site FileTicket; lazy_provinces leaves the rim without provinces, so once ring 128 is opened and seeded the rings duty opens the ring-128 provinces beside the middle 6 ring-129 provinces of each wedge (keeper::rings::rim_plan, the local wide world's rim): 42 provinces, 24,709,120 lamports of rent each from the wedge funds (1.038 SOL of the 36 SOL float at 5,080 lamports/byte, 1.422 SOL at 6,960; every fund still covers ring 129's balance check), about 140,000 CU each (measured offline, stack/tests/operator_playable.rs P4).",
+        "wide_rings": 3,
+        "wide_per_wedge": 6,
+        "wideWhy": "Devnet runbook gap P6 (closed in code, loopback test only): once ring 128 is seeded the rings duty opens the wide rings 129, 130 and 131 one at a time, each a bell after the previous one opened (the program's rule): WideRequestRingSeed (its 192-byte record 1,625,600 lamports of rent at 5,080 lamports/byte, 2,227,200 at 6,960, from keeper A's payer), WideConsumeRingSeed on the round the request bound (the beacon path: the drand port, BLS-verified by the program), then WideOpenProvince for the middle 6 provinces of each wedge's arc (keeper::rings::wide_plan, the local wide world's plan; every rim village is within outpost_range of a ring-129 one): 108 provinces, 25,359,360 lamports each from the wedge funds (2.739 SOL of the 36 SOL float at 5,080, 3.752 SOL at 6,960; every fund still clears ring 131's balance check, 3.32 / 4.55 SOL). Needs keeper A built with --features playable-lane. Measured offline (stack/tests/operator_playable.rs P5): request about 15,400 CU, consume about 331,000 CU, open 476,712-538,387 CU."
       },
       "roles": [
         "beacon",
         "archive",
         "rings",
         "fold",
-        "tickets"
+        "tickets",
+        "wide-tickets"
       ],
-      "rolesWhy": "tickets (Q-W1): settles every open FileTicket on its bell's seed (SettleTicket, class D) -- the rim first villages; the beacon role posts that seed (PostAnchor / PostSeed from the live quicknet rounds). Measured offline (P4): SettleTicket 21,306 CU. The wide claims' WideSettleTicket / WideFinalize have no production keeper role yet (runbook section 7 P7)."
+      "rolesWhy": "tickets (Q-W1): settles every open FileTicket on its bell's seed (SettleTicket, class D) -- the rim first villages; the beacon role posts that seed (PostAnchor / PostSeed from the live quicknet rounds). Measured offline (P4): SettleTicket 21,306 CU. wide-tickets (P7, closed in code, loopback test only; needs keeper A built with --features playable-lane): settles every open wide claim (0xD9 WideClaimSite) once its bell's seed is on chain (WideSettleTicket 0xDC, one per wide site in the lottery order, the displacing form when someone settled out of order; expired after 24 bells) and finalizes every provisional wide village once the program's own finality rule holds (WideFinalize 0xDF); fees only (the village's rent comes from the claim's escrow). Measured offline (P5): WideSettleTicket 21,410 CU, WideFinalize 6,424 CU."
     },
     "keeperB": {
       "api": "127.0.0.1:41051"

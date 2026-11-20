@@ -97,6 +97,9 @@ pub mod widefees;
 pub mod widefollow;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideindex;
+/// The playable lane's wide instructions and plan (P6, P7; one copy).
+#[cfg(feature = "playable-lane")]
+pub mod widelane;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideproof;
 #[cfg(feature = "wide-world-experimental")]
@@ -111,6 +114,9 @@ pub mod widesettle;
 pub mod widesnapshot;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widetick;
+/// P7: the `wide-tickets` role (WideSettleTicket, WideFinalize).
+#[cfg(feature = "playable-lane")]
+pub mod widetickets;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -144,7 +150,16 @@ use crate::seeds::SeedFinder;
 use crate::tickets::TicketDuty;
 
 /// Land roles that need the feed index.
-const LAND_ROLES: [&str; 5] = ["tickets", "explore", "dormancy", "sweep", "fold"];
+const LAND_ROLES: [&str; 6] = [
+    "tickets",
+    "explore",
+    "dormancy",
+    "sweep",
+    "fold",
+    // (P7: its Citizens come from the feed index; a role only a
+    //  `playable-lane` build accepts)
+    "wide-tickets",
+];
 /// Play roles (W4-C). **MC (W2R2-D3):** the conquest duty (settles, folds,
 /// the season-end flush) runs inside the play duty, on the Provinces and
 /// MarchStates the play reads. A role set with `fold` (a land role) but none
@@ -178,6 +193,7 @@ fn role_of_key(key: &str) -> Option<&'static str> {
         "settle" => Some("settle"),
         "close" => Some("close"),
         "claim" => Some("claims"),
+        "wide-settle" | "wide-final" => Some("wide-tickets"),
         _ => None,
     }
 }
@@ -309,6 +325,9 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     pub rings: RingDuty,
     pub fold: FoldDuty,
     pub tickets: TicketDuty,
+    /// P7 (`playable-lane`): the `wide-tickets` role.
+    #[cfg(feature = "playable-lane")]
+    pub wide_tickets: widetickets::WideTicketDuty,
     pub explore: ExploreDuty,
     pub holdings: HoldingDuty,
     pub index: LandIndex,
@@ -482,6 +501,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             rings: RingDuty::default(),
             fold: FoldDuty::default(),
             tickets: TicketDuty::default(),
+            #[cfg(feature = "playable-lane")]
+            wide_tickets: widetickets::WideTicketDuty::default(),
             explore: ExploreDuty::default(),
             holdings: HoldingDuty::default(),
             index: LandIndex::default(),
@@ -888,12 +909,28 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         let care = self.engine.budgets.get(0);
         let mut b = Budgets::canonical_for(v);
         b.set(0, care);
+        // (P6/P7: the wide writes' rows, on a playable-lane season only)
+        #[cfg(feature = "playable-lane")]
+        if v & fclient::budgets::LANE_VERSION_BIT != 0 {
+            crate::widelane::fill_budgets(&mut b);
+        }
         // The reveal floor follows the Reveal this table requests.
         let fr = crate::pools::reveal_floor_for(&self.cfg, &b);
         self.payers.reveal.floor = fr;
         self.payers.reveal.ceiling = fr.saturating_mul(2);
         self.engine.budgets = b;
         self.budgets_version = v;
+    }
+
+    fn wide_tickets_status(&self) -> Value {
+        #[cfg(feature = "playable-lane")]
+        {
+            self.wide_tickets.status()
+        }
+        #[cfg(not(feature = "playable-lane"))]
+        {
+            Value::Null
+        }
     }
 
     fn update_params(&mut self, s: &Season) {
@@ -1064,6 +1101,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             }
             if k.starts_with("ticket:") {
                 self.tickets.on_outcome(k, o);
+            }
+            #[cfg(feature = "playable-lane")]
+            if k.starts_with("wide-") {
+                self.wide_tickets.on_outcome(k, o);
             }
             let now_bell = bell.unwrap_or(0);
             self.play
@@ -1268,6 +1309,18 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                         &self.port,
                         &mut self.engine,
                         &mut self.index,
+                        &mut self.seeds,
+                        &self.beacon.anchors,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                #[cfg(feature = "playable-lane")]
+                self.wide_tickets
+                    .plan(
+                        &t,
+                        &self.port,
+                        &mut self.engine,
+                        &self.index,
                         &mut self.seeds,
                         &self.beacon.anchors,
                     )
@@ -1611,6 +1664,12 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "ring_waiting": self.rings.waiting.as_ref().map(|w| format!("{w:?}")),
                 "extend_waiting": self.rings.extend_waiting.as_ref().map(|w| format!("{w:?}")),
                 "rings_unsupported": self.rings.unsupported,
+                "rim_present": self.rings.rim_present,
+                "wide_rings": self.rings.wide.rings.iter().map(|(r, x)| json!({"ring": r, "requested": x.0, "seeded": x.1, "plan_present": x.2, "plan": x.3})).collect::<Vec<_>>(),
+                "wide_rings_done": self.rings.wide.done,
+                "wide_rings_waiting": self.rings.wide.waiting,
+                "wide_rings_unsupported": self.rings.wide.unsupported,
+                "wide_tickets": self.wide_tickets_status(),
                 "folded_bells": self.fold.folded.len(),
                 "tickets_open": self.index.tickets.len(),
                 "tickets_settled": self.tickets.settled.len(),
