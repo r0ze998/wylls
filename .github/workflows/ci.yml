@@ -408,8 +408,9 @@ jobs:
       # the ordinary sealed march judged by the S1 checks; playable_expedition,
       # the expedition wrapper and Free City conquest re-executed by VX with
       # the committed pinned .so in LiteSVM, signatures verified, none made;
-      # playable_witness, VS's second-source cross-check and ⑰ Q-P1's lift of
-      # an RPC history, over the genesis recording). These tests
+      # playable_witness, VS's second-source cross-check, ⑰ Q-P1's lift of
+      # an RPC history and ⑰ Q-P2's FAIL on agreeing witnesses, over the
+      # genesis recording). These tests
       # read recorded archives only: no key is generated, derived or signed
       # (every recorder in these files is #[ignore] and is not run here).
       - name: Verifier playable lane (lints, recorded-fixture tests; key-free)

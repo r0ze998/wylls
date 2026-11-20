@@ -21,7 +21,9 @@
 //!                                           signature list feeds findex's G3, and VS compares every
 //!                                           transaction, block, account and final with it. Only VG's
 //!                                           exact end state AND every witness agreeing lift ⑲'s
-//!                                           `unproven` (⑰ Q-P1 = (a)+(b), witness.rs)
+//!                                           `unproven` (⑰ Q-P1 = (a)+(b), witness.rs);
+//!                                           every witness agreeing with VG FAILing is
+//!                                           FAIL, never PASS (⑰ Q-P2, history.rs)
 //!          --resident-program ID            the NFT resident program, for V28: its feed from
 //!                                           --resident-archive DIR (its findex archive) or
 //!                                           from --rpc URL --localnet (same node, one ledger order);

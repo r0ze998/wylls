@@ -2,7 +2,9 @@
 //! rule (owner 2026-11-19 22:32): a public-RPC history is lifted from ⑲'s
 //! `unproven` ONLY when (a) VG reproduces every program-owned final state
 //! from the Season's creation AND (b) every witness RPC serves the same
-//! season item by item (`verify_core::witness`).
+//! season item by item (`verify_core::witness`). ⑰ Q-P2 (owner t398u,
+//! 2026-11-20 = FAIL): when every witness agrees and VG FAILs, the verdict
+//! is FAIL (`failBasis` `vg_witnessed`); never a PASS.
 //!
 //! Key-free: the committed recording `playable-lane-genesis.json.gz` (the
 //! natural playable-lane season, see `playable_genesis.rs`) read as a
@@ -204,14 +206,9 @@ fn a_witness_without_vg_is_not_enough() {
     assert!(f.detail.contains("(a) VG did not"), "{}", f.detail);
 }
 
-#[test]
-fn a_witnessed_season_vg_fails_stays_unverifiable_per_the_owner_rule() {
-    // Both sources serve the same forged log record (a lying pair, or a
-    // bad season): VG FAILs, so (a) does not hold and the history is not
-    // lifted; VG's FAIL is not self-contained, so the verdict is
-    // UNVERIFIABLE, not FAIL (owner Q-P1: lift ONLY with (a) AND (b);
-    // whether such a season should read FAIL is asked of r0ze).
-    let mut inp = primary();
+/// A cheating season: one successful transaction's `Program data:` record
+/// edited (a forged log). VG re-executes it and FAILs (`ReExecMismatch`).
+fn forge(inp: &mut Input) {
     let i = (21..inp.txs.len())
         .find(|&i| {
             inp.txs[i].err.is_none()
@@ -229,15 +226,171 @@ fn a_witnessed_season_vg_fails_stays_unverifiable_per_the_owner_rule() {
     let n = l.len() - 6;
     let c = if l.as_bytes()[n] == b'A' { "B" } else { "A" };
     l.replace_range(n..n + 1, c);
+}
+
+fn fail_basis(r: &Report) -> Vec<String> {
+    r.history.as_ref().unwrap()["failBasis"]
+        .as_array()
+        .map(|a| a.iter().map(|x| x.as_str().unwrap().to_string()).collect())
+        .unwrap_or_default()
+}
+
+fn vg_fails(r: &Report) -> bool {
+    r.findings.iter().any(|f| f.fail() && f.check == "VG")
+}
+
+// ------------------------------------------------------------ ⑰ Q-P2 = FAIL (owner 2026-11-20)
+
+#[test]
+fn a_cheating_season_served_identically_by_two_independent_sources_fails() {
+    // ⑰ Q-P2 (owner t398u, 2026-11-20 = FAIL): the witnesses agree on the
+    // season item by item, and VG shows that the pinned program does not
+    // produce it. Known-bad: FAIL, resting on VG over agreeing witnesses.
+    // The history is still not shown whole (never PASS): it stays unproven.
+    let mut inp = primary();
+    forge(&mut inp);
     inp.chain.cross = Some(mirror(&inp, "http://witness"));
     let r = verify_core::verify(&inp);
-    assert!(r.findings.iter().any(|f| f.fail() && f.check == "VG"));
+    if cfg!(feature = "mutate-vg") {
+        // The check of the check: without VG nothing shows it bad.
+        assert_ne!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
+        return;
+    }
+    assert!(vg_fails(&r), "{:#?}", show(&r));
     assert!(
         !r.findings.iter().any(|f| f.check == "VS"),
         "{:#?}",
         show(&r)
     );
+    assert_eq!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
+    assert_eq!(basis(&r), "unproven", "lifted for FAIL only");
+    assert!(has(&r, HISTORY_UNPROVEN));
+    assert_eq!(fail_basis(&r), ["vg_witnessed"]);
+    let h = r.history.as_ref().unwrap();
+    assert_eq!(h["selfContainedFails"], 0, "not a self-contained FAIL");
+    assert!(h["vgFails"].as_u64().unwrap() >= 1);
+    assert_eq!(h["witness"]["agrees"], true);
+    assert_eq!(h["witness"]["vgExact"], false);
+    assert_eq!(h["complete"], false);
+    let f = r
+        .findings
+        .iter()
+        .find(|f| f.code == HISTORY_UNPROVEN)
+        .unwrap();
+    assert!(
+        f.detail.contains("FAIL nonetheless (⑰ Q-P2)"),
+        "{}",
+        f.detail
+    );
+    let md = r.markdown();
+    assert!(md.contains("FAIL rests on"), "{md}");
+    assert!(md.contains("VG's"), "{md}");
+    assert!(md.contains("witness served identically"), "{md}");
+    assert!(!md.contains("self-contained, ⑪"), "{md}");
+    assert_eq!(r.json()["history"]["failBasis"], json!(["vg_witnessed"]));
+
+    // Two witnesses serving the same: still FAIL.
+    let mut two = inp.clone();
+    let mut w2 = cross(&mut two).witnesses[0].clone();
+    w2.url = "http://witness-2".into();
+    cross(&mut two).witnesses.push(w2);
+    let r = verify_core::verify(&two);
+    assert_eq!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
+    assert_eq!(fail_basis(&r), ["vg_witnessed"]);
+}
+
+#[test]
+fn the_same_cheating_season_from_one_source_is_unverifiable() {
+    // No witness: the primary alone could be leaving a range out, so VG's
+    // FAIL is not known-bad (⑲): UNVERIFIABLE, and the report says why.
+    let mut inp = primary();
+    forge(&mut inp);
+    let r = verify_core::verify(&inp);
+    if !cfg!(feature = "mutate-vg") {
+        assert!(vg_fails(&r), "{:#?}", show(&r));
+    }
     assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+    assert!(fail_basis(&r).is_empty());
+    assert!(!r.markdown().contains("FAIL rests on"));
+}
+
+#[test]
+fn a_cheating_primary_and_an_honest_witness_disagree_unverifiable() {
+    // The witness serves the chain's season, the primary a forged one:
+    // VS disagrees (one of them lies, not which), so VG's FAIL is not
+    // lifted: UNVERIFIABLE, as before Q-P2.
+    let honest = primary();
+    let mut inp = honest.clone();
+    forge(&mut inp);
+    inp.chain.cross = Some(mirror(&honest, "http://witness"));
+    let r = verify_core::verify(&inp);
+    if cfg!(feature = "mutate-vs") {
+        // The check of the check: a VS that trusts every witness blindly
+        // lets VG's FAIL through as `vg_witnessed`.
+        assert_eq!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
+        return;
+    }
+    assert!(has(&r, WITNESS_MISMATCH), "{:#?}", show(&r));
+    assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+    assert!(fail_basis(&r).is_empty());
+}
+
+#[test]
+fn a_cheating_season_with_an_unreachable_or_partial_witness_is_unverifiable() {
+    let mut forged = primary();
+    forge(&mut forged);
+    // Unreachable.
+    let mut inp = forged.clone();
+    let mut c = mirror(&inp, "http://127.0.0.1:41549");
+    c.witnesses[0] = verify_core::witness::SourceRead {
+        url: "http://127.0.0.1:41549".into(),
+        errors: vec!["getGenesisHash: connection refused".into()],
+        ..Default::default()
+    };
+    inp.chain.cross = Some(c);
+    let r = verify_core::verify(&inp);
+    assert!(has(&r, WITNESS_UNAVAILABLE), "{:#?}", show(&r));
+    assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+    // Partial: one transaction not served.
+    let mut inp = forged.clone();
+    inp.chain.cross = Some(mirror(&inp, "http://witness"));
+    let s = inp.txs[3].signature.to_string();
+    cross(&mut inp).witnesses[0].txs.insert(s, None);
+    let r = verify_core::verify(&inp);
+    assert!(has(&r, WITNESS_UNAVAILABLE), "{:#?}", show(&r));
+    assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+    // A gap in the pull is never lifted, not even for FAIL.
+    let mut inp = forged.clone();
+    inp.chain.cross = Some(mirror(&inp, "http://witness"));
+    inp.history = History::rpc(
+        json!({"state": "gap", "gap": "history gap: …", "unverifiable": [], "limit": "…"}),
+        "rpc http://primary",
+    );
+    let r = verify_core::verify(&inp);
+    assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+}
+
+#[test]
+fn witnesses_agree_and_vg_only_unverifiable_stays_unverifiable() {
+    // VG cannot judge part of the season (here: a transaction without
+    // archived balances; the same holds for an op it does not model): no
+    // FAIL, not exact. Agreement does not lift it either way.
+    let mut inp = primary();
+    let i = inp.txs.len() - 1;
+    let s = inp.txs[i].signature.to_string();
+    inp.chain.balances.remove(&s);
+    inp.chain.cross = Some(mirror(&inp, "http://witness"));
+    let r = verify_core::verify(&inp);
+    assert!(!vg_fails(&r), "{:#?}", show(&r));
+    assert!(
+        r.findings
+            .iter()
+            .any(|f| f.check == "VG" && f.severity == verify_core::Severity::Unverifiable),
+        "{:#?}",
+        show(&r)
+    );
+    assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+    assert!(fail_basis(&r).is_empty());
 }
 
 // ------------------------------------------------------------ a lying primary, an honest witness

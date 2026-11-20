@@ -52,6 +52,10 @@
 //! program-owned final state reproduced exactly), AND (b) at least one
 //! witness was read and VS has no finding for any witness. Then the season
 //! is judged as a whole history: PASS, or FAIL on any FAIL finding.
+//! **⑰ Q-P2 = FAIL** (owner 2026-11-20): when (b) holds and VG ran with a
+//! FAIL finding, both sources serve a season the pinned program does not
+//! produce: the verdict is FAIL (`history.failBasis` `vg_witnessed`), the
+//! history stays `unproven`, and agreement never lifts it to a PASS.
 //!
 //! **What stays trusted** (the residual, stated in every report): the
 //! witnesses are independent of the primary. Two RPCs that collude, or that

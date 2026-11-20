@@ -57,7 +57,8 @@
 //! their slots swapped too) whose effects commute (verify-pr91 mutations).
 //! ⑲'s history rule keeps an unproven history from a PASS (lifted only
 //! when VG has no finding AND every witness RPC agrees: VS, `witness.rs`,
-//! ⑰ Q-P1 = (a)+(b)); LiteSVM's runtime behaves as the cluster's for this
+//! ⑰ Q-P1 = (a)+(b); when every witness agrees and VG FAILs, the verdict is
+//! FAIL, never PASS: ⑰ Q-P2, `history.rs`); LiteSVM's runtime behaves as the cluster's for this
 //! program (rent 5,080 lamports per byte; fees re-based on the fee payer
 //! only); the program reads no account of another program (none in the
 //! playable lane; such a state is not in this archive). A program-owned
