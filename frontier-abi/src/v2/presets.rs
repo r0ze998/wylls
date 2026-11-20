@@ -813,7 +813,7 @@ pub const PFUND_DEVNET_WIDE: u64 = 36_000_000_000;
 /// The DEVNET playable season (owner decision B7: the playable lane,
 /// expedition / wide land / conquest, on devnet; Q-D3: a smaller preset is
 /// fine). `S1_LOCAL_7D` (centre-free placement, 7 days, `r_max` 16) with
-/// exactly three changes, so the wide land that starts at ring 129
+/// exactly four changes, the first three so the wide land that starts at ring 129
 /// (`world_index::land::FIRST_WIDE_RING`, which needs the legacy ring 128
 /// seeded) is reachable in one season:
 ///
@@ -826,19 +826,34 @@ pub const PFUND_DEVNET_WIDE: u64 = 36_000_000_000;
 /// - `pfund_initial` = [`PFUND_DEVNET_WIDE`] (the rim and ring 129 fund
 ///   checks).
 ///
+/// - `outpost_tier_min = 0` (Hamlet, [`OUTPOST_TIER_DEVNET_WIDE`]; owner
+///   decision Q-W1, 2026-11-20 t398u): a first village may also be founded
+///   on the RIM (rings 126–128, beside the wide land), as in local wide play,
+///   and that rim village anchors a wide claim while it is still a Hamlet.
+///   The rim first village itself needs no parameter: FileTicket names any
+///   opened ring of the player's nation and a keeper's `tickets` role settles
+///   it (PlaceHome stays capped at the base `r_max` 16).
+///
 /// From genesis ring 3 the rim is 125 openings away, one bell (600 s) each:
 /// ≈ 21 h of a 1,008-bell season, then ring 129 the bell after. Rings past
 /// the genesis are opened without their provinces (a keeper's
-/// `lazy_provinces`); a province opens when someone needs it.
+/// `lazy_provinces`); a province opens when someone needs it (the rim's by a
+/// keeper's `rim_per_wedge`).
 pub const S1_DEVNET_WIDE_7D: SeasonParamsV2 = devnet_wide(S1_LOCAL_7D);
 
-/// [`S1_DEVNET_WIDE_7D`]'s three changes over any S1 season.
+/// `outpost_tier_min` of [`S1_DEVNET_WIDE_7D`]: Hamlet (`holding::Tier::Hamlet
+/// as u8`), so a fresh rim first village anchors a wide claim (owner Q-W1, the
+/// local wide world's rule). Every other preset keeps Town (1).
+pub const OUTPOST_TIER_DEVNET_WIDE: u8 = 0;
+
+/// [`S1_DEVNET_WIDE_7D`]'s four changes over any S1 season.
 pub const fn devnet_wide(p: SeasonParamsV2) -> SeasonParamsV2 {
     let mut q = p;
     q.cq.r_max_ceiling = permutation_rules::frontier::geometry::R_MAX_HARD;
     q.base.theta_early_bps = THETA_DEVNET_WIDE_BPS;
     q.base.theta_late_bps = THETA_DEVNET_WIDE_BPS;
     q.base.pfund_initial = PFUND_DEVNET_WIDE;
+    q.cq.outpost_tier_min = OUTPOST_TIER_DEVNET_WIDE;
     q
 }
 
@@ -1039,8 +1054,14 @@ mod tests {
         assert_eq!((l.base.r_max, l.cq.r_max_ceiling), (16, 0));
         assert_eq!(d.cq.r_max_ceiling, R_MAX_HARD);
         assert_eq!(FIRST_WIDE_RING, d.cq.r_max_ceiling as u64 + 1);
-        // exactly the three changes
+        // exactly the four changes (Q-W1: a rim Hamlet anchors a wide claim)
+        assert_eq!((l.cq.outpost_tier_min, d.cq.outpost_tier_min), (1, 0));
+        assert_eq!(
+            d.to_bytes()[SEASON_PARAMS_LEN + cq_layout::OUTPOST_TIER_MIN],
+            0
+        );
         let mut back = d;
+        back.cq.outpost_tier_min = l.cq.outpost_tier_min;
         back.cq.r_max_ceiling = l.cq.r_max_ceiling;
         back.base.theta_early_bps = l.base.theta_early_bps;
         back.base.theta_late_bps = l.base.theta_late_bps;
