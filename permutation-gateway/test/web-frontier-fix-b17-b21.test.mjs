@@ -218,7 +218,9 @@ test('B20: the controller follows only the turn its own clock moved; the notice 
   assert.match(ctl, /  followed: \(card, p, moved\) => \{ card\.pending = p; setNotice\(\{ busy: false, waiting: true, text: L`時間が進んだため、到着はターン /);
   assert.match(ctl, /c\.moved = null;   \/\/ \(the turn is the player's own choice again\)/, 'a turn the player picks is never followed');
   assert.match(ctl, /send: card => \{ card\.pending = null; FS\.lastAct = \{ kind: 'act', name: 'march-send', data: \{\} \}; return sendTheMarch\(\); \},/, 'the send is the ordinary single send');
-  assert.match(ctl, /const r = localPlay \? await sendMarch\(m, \{/, 'one attempt, no resend (the #75 refusal handling is the send\'s own)');
+  // (devnet-page-war: the devnet sender's ONE attempt comes first, then local play's, both the ordinary single send)
+  assert.match(ctl, /const r = dm \? await sendMarch\(m, \{/, 'devnet: one attempt, no resend');
+  assert.match(ctl, /\}\) : localPlay \? await sendMarch\(m, \{/, 'one attempt, no resend (the #75 refusal handling is the send\'s own)');
   assert.equal((ctl.match(/followed:/g) ?? []).length, 1, 'the march\'s driver only: the muster\'s waiting send is as it was');
   setLang('en');
   const texts = [L`時間が進んだため、到着はターン ${37} になりました（さきほどまではターン ${36}）。送信待ちは続けています。州のターンの決着がつき次第、この到着ターンで1回だけ送ります（ターン ${39} まで。取り消せます）。`,

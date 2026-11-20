@@ -92,6 +92,7 @@ permutation-gateway/test/web-frontier-chainio.test.mjs
 permutation-gateway/test/web-frontier-controller.test.mjs
 permutation-gateway/test/web-frontier-coopboard-local.test.mjs
 permutation-gateway/test/web-frontier-delegation.test.mjs
+permutation-gateway/test/web-frontier-devnet-march.test.mjs
 permutation-gateway/test/web-frontier-devnet-play.test.mjs
 permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs
 permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs

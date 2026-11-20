@@ -433,7 +433,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_expedition --test playable_genesis --test playable_witness --test wallet_finals
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test wallet_finals
 
       # Devnet blocker B3 (owner decision B7): frontier-operator's playable-lane
       # preset S1_DEVNET_WIDE_7D (program version 0x4804) is behind the stack
@@ -656,7 +656,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war); P7 and P9 need a browser and skip)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |

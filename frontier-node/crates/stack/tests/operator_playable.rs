@@ -46,6 +46,11 @@ const P6_PORT_BASE: u16 = 41_650;
 /// P7's (`OPERATOR_PAGE_PORT_BASE` moves them): the page path also takes the gateway (+6 operator, +7 public) and the
 /// driver's inspection listener (+8).
 const P7_PORT_BASE: u16 = 41_700;
+/// P8's (`OPERATOR_WAR_PORT_BASE` moves them): the legacy war with a test participant (devnet-page-war).
+const P8_PORT_BASE: u16 = 41_950;
+/// P9's (`OPERATOR_PAGE_WAR_PORT_BASE` moves them): the legacy war with the page as the participant; as P7 (+6/+7
+/// gateway, +8 inspection). Never 41970: the gateway's offline RPC refuses it.
+const P9_PORT_BASE: u16 = 41_960;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -75,6 +80,11 @@ const DEVNET_PROGRAM_HASH: &str =
     "786ef80f132a9d2d18afc5708336a396afba32ff3d4c37ebf6c94425a51352df";
 /// The first of the 32 committed real quicknet rounds (`fclient/fixtures/quicknet`): the genesis round.
 const GENESIS_ROUND: u64 = 32_551_361;
+/// P8/P9 (devnet-page-war): a later shipped genesis round, so that the arrival bell [`rim::war::ARRIVE_BELL`]'s
+/// time-lock round T(21) = genesis + 200 · 23 = 32 556 349 is a REAL quicknet round (the S-TLOCK q4 vector's
+/// `prev_round_sig`, as `verify/tests/playable_march.rs`): keeper A then anchors that bell and opens the march's seal
+/// from the public round itself, as on devnet.
+const WAR_GENESIS_ROUND: u64 = 32_551_749;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -505,6 +515,35 @@ async fn p7_the_page_plays_a_rim_village_and_a_wide_claim_on_the_devnet_so_offli
     playable_season(ports("OPERATOR_PAGE_PORT_BASE", P7_PORT_BASE), Mode::Page).await;
 }
 
+/// P8 (devnet-page-war): a LEGACY WAR on the devnet `.so`, offline, with keeper A configured as the devnet profile
+/// now says (its play roles: `reveal`, `settle-departure`, `gather`, `resolve`, `skip`, `settle`, `close`,
+/// `claims`). A test participant founds its rim village (as P4), musters 400 and sends ONE sealed Depart onto the
+/// contestable keep of a neighbouring rim province, arriving at bell 21 whose time-lock round is a real one; keeper A
+/// anchors that bell, opens the seal from the public round, reveals, gathers, resolves the clash, settles the
+/// transit, holds the keep's bells, and settles the host's return. The test sends no keeper instruction; it declares
+/// the anchors and seeds of the bells no shipped round covers ([`rim::war`]). Same build as P5.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p8_keeper_a_plays_a_legacy_war_on_the_devnet_so_offline() {
+    playable_season(ports("OPERATOR_WAR_PORT_BASE", P8_PORT_BASE), Mode::War).await;
+}
+
+/// P9 (devnet-page-war): P8 with the WEB PAGE as the participant (as P7: the herald's `--web`, the gateway's devnet
+/// play routes, a Wallet Standard TEST wallet): it musters, composes and seals the march, its wallet signs the Depart
+/// (`/gw/f/devnet-play/march/submit`), its encrypted march book survives a reload, it hands the reveal material to
+/// keeper A (`/gw/f/reveal`), and it shows the clash and the return. `DEVNET_PAGE_DRIVER=1` only (as P7).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p9_the_page_plays_a_legacy_war_on_the_devnet_so_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("p9: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_WAR_PORT_BASE", P9_PORT_BASE),
+        Mode::PageWar,
+    )
+    .await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// P3: the season's setup only.
@@ -517,6 +556,11 @@ enum Mode {
     AfterWide,
     /// P7 (devnet gap P1): P5 with the web page as the participant.
     Page,
+    /// P8 (devnet-page-war): the rim world of P4, keeper A with the play roles, and a legacy war (muster, sealed
+    /// Depart onto a keep, reveal, clash, capture, return) by a test participant.
+    War,
+    /// P9 (devnet-page-war): P8 with the web page as the participant.
+    PageWar,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -528,6 +572,15 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::KeeperWide => "p5",
         Mode::AfterWide => "p6",
         Mode::Page => "p7",
+        Mode::War => "p8",
+        Mode::PageWar => "p9",
+    };
+    let war = matches!(mode, Mode::War | Mode::PageWar);
+    let page_mode = matches!(mode, Mode::Page | Mode::PageWar);
+    let genesis_round = if war {
+        WAR_GENESIS_ROUND
+    } else {
+        GENESIS_ROUND
     };
     let so = devnet_so();
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
@@ -536,7 +589,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let _c = Cleanup(dir.clone());
     let authority = Keypair::new(); // TEST key, this chain only
     let program = Keypair::new().pubkey(); // an address only
-    let t_create_min = align(GENESIS_ROUND);
+    let t_create_min = align(genesis_round);
     let chain0 = localnet::Chain::new(localnet::Config {
         g0: t_create_min - 86_400 - 900,
         ..localnet::Config::default()
@@ -613,7 +666,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     assert!(r.stdout.contains(&format!("program    sha256 {DEVNET_SO_SHA256} (3,657,488 B ELF; solana-verify program hash {DEVNET_PROGRAM_HASH}); markers PSF_DEVNET_PLAYABLE_BUILD")), "{}", r.stdout);
     assert!(
         r.stdout
-            .contains(&format!("genesis    round {GENESIS_ROUND} ")),
+            .contains(&format!("genesis    round {genesis_round} ")),
         "{}",
         r.stdout
     );
@@ -700,11 +753,29 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let s = fclient::decode::Season::decode(&lock().account(&a.season).unwrap().data).unwrap();
     assert_eq!(s.status, st::CREATED);
     assert_eq!(s.program_version, operator::PLAYABLE_VERSION);
-    assert_eq!(s.genesis_round, GENESIS_ROUND);
+    assert_eq!(s.genesis_round, genesis_round);
 
     // keeper A (the real binary; the devnet profile's rings duty; feed = "rpc", as on devnet) and a local
     // drand-replay serving the committed real quicknet rounds (gated by this chain's clock).
     let fixtures = repo_root().join("frontier-node/crates/fclient/fixtures");
+    // (P8/P9: the shipped rounds plus T(ARRIVE_BELL), the real round of the S-TLOCK q4 vector, in a copy of the archive)
+    let drand_archive = if war {
+        let d = dir.join("quicknet-archive");
+        std::fs::create_dir_all(&d).unwrap();
+        for e in std::fs::read_dir(fixtures.join("quicknet")).unwrap() {
+            let e = e.unwrap();
+            std::fs::copy(e.path(), d.join(e.file_name())).unwrap();
+        }
+        let (round, sig) = rim::war::arrive_round();
+        std::fs::write(
+            d.join(format!("{round}.json")),
+            json!({"round": round, "signature": hex::encode(sig)}).to_string(),
+        )
+        .unwrap();
+        d
+    } else {
+        fixtures.join("quicknet")
+    };
     let drand = Kill(
         Command::new(&drand_bin)
             .args([
@@ -712,7 +783,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "--port",
                 &pt.drand.to_string(),
                 "--archive",
-                fixtures.join("quicknet").to_str().unwrap(),
+                drand_archive.to_str().unwrap(),
                 "--info",
                 fixtures.join("quicknet-info.json").to_str().unwrap(),
                 "--clock",
@@ -751,10 +822,14 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
+            // (P8/P9: the devnet profile's keeper A with the play roles of the S1 playtest's keeper A)
+            Mode::War | Mode::PageWar => {
+                "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
+            }
         },
         rim = match mode {
             Mode::Setup => String::new(),
-            Mode::Rim => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
+            Mode::Rim | Mode::War | Mode::PageWar => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
@@ -810,7 +885,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let rt = permutation_rules::frontier::beacon::round_time(
         s.drand_genesis,
         s.drand_period,
-        GENESIS_ROUND,
+        genesis_round,
     );
     tokio::task::block_in_place(|| run_clock_to(s.genesis_ts + 30, 100.0));
     lock().set_scale(20.0);
@@ -996,7 +1071,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let hdir = dir.join("herald");
     // (P7: the herald also serves the page, `--web`, and proxies `/gw/*` to the gateway's public listener)
     let (gw_op, gw_pub) = (pt.rpc + 6, pt.rpc + 7);
-    let web_args: Vec<String> = if mode == Mode::Page {
+    let web_args: Vec<String> = if page_mode {
         vec![
             "--web".into(),
             repo_root()
@@ -1058,7 +1133,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     // P7: the gateway with its devnet play routes (`--devnet-play`), over THIS chain's RPC in its offline TEST form
     // (`--devnet-play-offline-rpc`: loopback 41000-41999 only; a real devnet gateway names an https RPC). Its relay pool
     // seed and invite secret are made fresh in this test's directory (TEST secrets; the devnet play routes sign nothing).
-    let _gateway = if mode == Mode::Page {
+    let _gateway = if page_mode {
         let gdir = dir.join("gateway");
         std::fs::create_dir_all(&gdir).unwrap();
         let sd = lock().account(&a.season).unwrap().data;
@@ -1069,6 +1144,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
             format!("http://127.0.0.1:{}", pt.keeper_api),
         );
         let (op_s, pub_s) = (gw_op.to_string(), gw_pub.to_string());
+        // (the keeper link's TEST token: the page's self-reveal goes `/gw/f/reveal` → keeper A's `/v1/reveal`)
+        let keeper_tok = kdir.join("keeper.token").to_str().unwrap().to_string();
         let g = Kill(
             Command::new("node")
                 .arg(repo_root().join("permutation-gateway/src/frontier/server.mjs"))
@@ -1089,6 +1166,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
                     &herald_s,
                     "--keeper",
                     &keeper_s,
+                    "--keeper-token-file",
+                    &keeper_tok,
                     "--dev",
                     "--pool-size",
                     "1",
@@ -1125,13 +1204,16 @@ async fn playable_season(pt: Ports, mode: Mode) {
     } else {
         None
     };
-    let page = (mode == Mode::Page).then(|| rim::Page {
+    let page = page_mode.then(|| rim::Page {
         herald: pt.herald,
         inspect: pt.rpc + 8,
-        driver: repo_root()
-            .join("frontier-node/crates/stack/tests/operator_playable/page_driver.mjs"),
+        driver: repo_root().join(if war {
+            "frontier-node/crates/stack/tests/operator_playable/page_war_driver.mjs"
+        } else {
+            "frontier-node/crates/stack/tests/operator_playable/page_driver.mjs"
+        }),
         out: std::env::var("OPERATOR_EVIDENCE_DIR")
-            .map(|d| Path::new(&d).join("p7-page"))
+            .map(|d| Path::new(&d).join(format!("{tag}-page")))
             .unwrap_or_else(|_| dir.join("page-out")),
     });
     // P4: the rim first village and the wide claim (keeper and herald still running).
@@ -1140,6 +1222,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
             rim::run(rim::Ctx {
                 keeper_wide: matches!(mode, Mode::KeeperWide | Mode::AfterWide | Mode::Page),
                 page: page.clone(),
+                war: war.then(|| rim::War {
+                    keeper_api: pt.keeper_api,
+                    token: "test-token-operator-playable".into(),
+                }),
                 after_wide: (mode == Mode::AfterWide).then(|| rim::Restart {
                     bin: keeper_bin.clone(),
                     config: kdir.join("keeper.toml"),
@@ -1203,7 +1289,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     );
     let summary = json!({
         "so_sha256": DEVNET_SO_SHA256, "program": program.to_string(), "season": a.season.to_string(),
-        "t_create_min": t_create_min, "genesis_round": GENESIS_ROUND, "planned_lamports": planned,
+        "t_create_min": t_create_min, "genesis_round": genesis_round, "planned_lamports": planned,
         "operator_records": records, "join": join.json(), "place_home": place.json(),
         "home": {"p": hp, "q": hq, "site": site, "nation": nation},
         "herald_season": season_view, "herald_me_holdings": me["holdings"].as_array().map(|h| h.len()),
