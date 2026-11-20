@@ -69,8 +69,9 @@ test('the demo pace the guide states is the source\'s', () => {
   // the values, whatever rustfmt's layout (one line or one field per line, with or without a trailing comma)
   assert.match(kl, /pub const DEMO_PACE: Pace = Pace::Demo \{\s*short: Duration::from_secs\(1\),\s*burst: 8,?\s*\};/);
   assert.equal(kl.match(/pub const DEMO_PACE\b/g)?.length, 1, 'one demo pace');
-  // (wide-local-playable: and the wide world's own TEST clock above 1x)
-  assert.match(bin, /let pace = if demo\.is_some\(\) \|\| wide_scale\.is_some_and\(\|s\| s > 1\) \{ itest::keeper_loop::DEMO_PACE \} else \{ itest::keeper_loop::Pace::Natural \};/);
+  // (wide-local-playable: and the wide world's own TEST clock above 1x — runner-throughput: its own pace, WIDE_PACE)
+  assert.match(bin, /let pace = if demo\.is_some\(\) \{ itest::keeper_loop::DEMO_PACE \} else if wide_scale\.is_some_and\(\|s\| s > 1\) \{ itest::keeper_loop::WIDE_PACE \} else \{ itest::keeper_loop::Pace::Natural \};/);
+  assert.match(kl, /pub const WIDE_PACE: Pace = Pace::Wide \{\s*short: Duration::from_millis\(250\),\s*idle: Duration::from_secs\(1\),?\s*\};/);
 });
 
 test('stopping says the key goes only with the world\'s own tab, and other tabs are left alone', () => {

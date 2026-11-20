@@ -180,7 +180,8 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
   are on other nations' rims, so the fog hides almost all of it; only an attack on your own nation's keep shows in
   「国と領土」.
 - **To watch an AI capture**, `--wide --speed 15` (a turn is 40 s) is the steady choice (the #102 check: standings kept
-  up, and a capture reached them about 90 turns after the start). A wide village's cost then takes about 2 hours to save.
+  up, and a capture reached them about 90 turns after the start). Since runner-throughput the standings keep up at ×60
+  too (a few turns behind), but a war goes by fast there. A wide village's cost then takes about 2 hours to save.
 - The faster the clock, the further this machine's load makes the world trail (§8). Stop other heavy work while you test.
 
 ## 5. Fog of war (every local test world, #93)
@@ -238,29 +239,37 @@ training are the same rules as devnet.
 
 ## 8. Known problems (2026-11-20, main)
 
-- **Contested provinces trail the chain under load.** At ×60, minutes after you join, every province can fall 10–24
-  turns behind (the #102 check, a loaded Mac). Meanwhile a muster or a departure waits; the page says 「この州の決着が N
+- **Contested provinces trail the chain under load.** At ×60 every province is normally two to four turns behind the
+  turn bar (the runner-throughput check, `--wide --random-map --ai 4`); before that change, and on a heavily loaded Mac,
+  10–24 turns (the #102 check). Meanwhile a muster or a departure waits; the page says 「この州の決着が N
   ターン遅れています。このマシンの負荷が高く…」 and sends it once when the province has caught up. No need to press again.
 - **An ordinary march whose reveal window (about 10 s at ×60) is missed no longer stops its province** (#105). The
   keeper loop reveals every due march at the start of each pass and again before each village's pass; a march that
   still misses it (seen: a 3-turn march under heavy load) is settled the way the program settles an unrevealed march —
   its destination's turns are resolved without it, then SettleTransit (the program decides: routed home, or bounced) —
   and the runner says `reveal-missed` on stderr. A village's march driver stopped by a refusal reads the chain again
-  after 6 steps (doubling to 96; one step per pass outside `--demo`), and the provinces where its hosts stand go back to
+  after 6 steps (doubling to 96; driver steps, not passes: one per pass in a kept world, up to 4 per round of a pass
+  with `--demo` and `--wide`), and the provinces where its hosts stand go back to
   the world sweep meanwhile. A host whose arrival turn is more than 2 turns past shows "Host's arrival turn N was M
   turns ago · waiting for its result". A missed wide-land expedition still has no settlement in the program; that
   waits on r0ze (§−2.4f (d)).
-- **At ×60 your own province is usually a few turns behind** (median 4, the #105 check), so a waiting muster or march
-  can be withdrawn when its arrival turn moves (「送信待ちを取り消しました…」). Press it again; it sends once the
-  province catches up (the #105 check: sent on the 4th press).
+- **At ×60 your own province is one or two turns behind** (the runner-throughput check: median 2 on the page, at
+  most 3–4; before it, median 4 and up to 8). The keeper loop now settles your home again before every AI village's
+  turn, so a muster or march is usually sent on the first press, within a few seconds (the check: muster 1.8–5 s, marches
+  2–14 s; the author's sessions withdrew none, the verify-pr109 session withdrew 2 of 12 marches, pressed while the home
+  was 3 turns behind, and each went on the next press; one muster press in the turn's last second was refused and the
+  next press, 3 s later, went through). If one is still withdrawn (「送信待ちを取り消しました…」),
+  press it again.
 - **A wide-land expedition whose reveal window was missed never settles.** The march screen stays on 「到着しました。
   封が開けられるのを待っています」. Worse, that rim village cannot send another expedition (the page finds no free
   transit slot: 「出発できませんでした（DepartRolesUnavailable）」). In this check, on a loaded Mac at ×60, the first
   expedition was missed (`runner.out`: `never revealed: transit 0: the reveal window of bell 262 closed unrevealed`;
   3 of the 4 AI residents' villages also logged missed reveal windows). On the arrival turn press 「封を開く」 yourself
   (§4 step 3).
-- **A sieged province advances only about one turn a minute** (1–2 turns a minute, a third to a sixth of the chain at ×60; the #105 checks). After a
-  capture it catches up quickly. The standings' 「第 N ターンまでの確定した得点」 is the slowest province's turn.
+- **A sieged province keeps up with the chain** at ×60 (the runner-throughput check: every province 5.9–6 turns a
+  minute against the chain's 6; before it, 1–2). The keeper loop resolves the other provinces' and the sieges' turns in
+  same-block batches. The standings' 「第 N ターンまでの確定した得点」 is the slowest province's turn: a few turns behind
+  the turn bar (before: up to hundreds, e.g. turn 251 at turn 495).
 - **A rim village that stays 「仮の村」** is confirmed by one action of your own (e.g. 「収穫する」), not at the
   「遅くとも…」 time the screen states.
 - **The AI residents spend many turns on refused sends** (e.g. training the stores cannot pay). They look slow; it is

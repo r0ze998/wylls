@@ -1,5 +1,7 @@
 # ④ 数ターンにまたがる処理を安全につなぐ実行基盤
 
+> **追記 2026-11-20（main `760a92b4`）：** native の `runexec` を macOS（rustc 1.89.0、cargo 1.89.0、C コンパイラ。Solana の道具は不要）で build し、`cargo test --release` は 144 件通過・10 件 ignored（`tests/gateway.rs` の 9 件は `permutation-gateway` の `npm ci` 後に `--ignored` で通過。もう 1 件は `tools/chain-flow.sh` の段階 B）。⑥ の `connect-live` 7 件は `WS03_ROOT`・`WS04_ROOT`・`RUNEXEC_BIN`・`WS06_RUN4_STORE` を付けて 7 件とも通過（Node 20 と 23）。手順は `scripts/ci/ws04-runexec-live.sh`、CI の `runexec-live` 職。下の `observe` の試験（`tests/observe_cli.rs`、`tests/store_observation.rs`）もこのとき初めて走り、通過した。
+>
 > **状況 2026-11-19（main `1d6c0039`、コードが正）：** Node のクライアントと HTTP の橋は確認済み（PR #28）。frontier-node の試験の修正は PR #41。CI の `exec-native` が `e2e-native` を走らせる。成果物は main にある（下の「main への統合を前提にしていない」は古い）。native の `runexec` は 11-18〜19 の作業では build も実行もしていない。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
 
 「材料が届く → 許可された施設を使う → 成果を送る → 到着を確認する」を、停止・重複・失敗があっても資源と権利を壊さずに進める実行器。基準 commit は `4cd901de`（PR #22 の統合候補）。**main への統合と、CI の全成功は前提にしていない**。
