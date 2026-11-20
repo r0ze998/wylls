@@ -36,3 +36,18 @@ hex.workspace = true
 # The operator tool's end-to-end test serves an in-process frontier-localnet
 # (in-workspace path crate, already in the lock).
 localnet.workspace = true
+# The playable-lane test reads the committed devnet .so fixture
+# (frontier-node/fixtures/verify/devnet-playable-da3dc1aa.so.gz; DECISIONS J2's
+# flate2, already a workspace dependency: no new crate).
+flate2.workspace = true
+
+[features]
+# Devnet blocker B3, owner decision B7: frontier-operator's playable-lane
+# preset S1_DEVNET_WIDE_7D (program version 0x4804) and its WideSetRules step,
+# which need the wide-land ABI tables (frontier-abi's opt-in world_index).
+# Off by default, so no other build of this workspace changes.
+playable-lane = ["frontier-abi/world-index-experimental"]
+
+[[test]]
+name = "operator_playable"
+required-features = ["playable-lane"]

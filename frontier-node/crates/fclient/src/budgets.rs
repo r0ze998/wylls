@@ -23,6 +23,13 @@ pub struct Budget {
     pub loaded_limit: u32,
 }
 
+/// The wide-experimental bit of a lane build's `program_version`
+/// (`frontier_abi::world_index::wide_ix::WIDE_EXPERIMENTAL_VERSION_BIT`;
+/// 0x4804 = S1 | this bit | the expedition bit).
+pub const LANE_VERSION_BIT: u16 = 0x4000;
+/// The runtime's largest loaded-accounts-data limit (64 MiB, SIMD-0186).
+pub const RUNTIME_MAX_LOADED_LIMIT: u32 = 64 * 1024 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Budgets {
     by_tag: BTreeMap<u8, Budget>,
@@ -77,10 +84,28 @@ impl Budgets {
         b
     }
 
+    /// The playable lane's table (a `program_version` with
+    /// [`LANE_VERSION_BIT`], e.g. 0x4804, the `devnet-playable-sbf` build):
+    /// the S1 CU limits, and every kind's loaded limit the runtime's
+    /// maximum [`RUNTIME_MAX_LOADED_LIMIT`]. The S1 `L(kind)` rows are sized
+    /// for the 1.4 MB S1 program; the lane's program alone loads 4.58 MB
+    /// (`MaxLoadedAccountsDataSizeExceeded` on every keeper write,
+    /// devnet-season-tool), and the lane's own clients already request the
+    /// maximum (`local-play-act.mjs` `LOCAL_ACT_LOADED_LIMIT`).
+    pub fn canonical_lane() -> Budgets {
+        let mut b = Budgets::canonical_s1();
+        for x in b.by_tag.values_mut() {
+            x.loaded_limit = RUNTIME_MAX_LOADED_LIMIT;
+        }
+        b
+    }
+
     /// The canonical table of a season's `program_version` (R-22; S1 its
-    /// own loaded limits).
+    /// own loaded limits; the playable lane [`Budgets::canonical_lane`]).
     pub fn canonical_for(program_version: u16) -> Budgets {
-        if program_version >= abi::PROGRAM_VERSION_S1 {
+        if program_version & LANE_VERSION_BIT != 0 {
+            Budgets::canonical_lane()
+        } else if program_version >= abi::PROGRAM_VERSION_S1 {
             Budgets::canonical_s1()
         } else if program_version >= abi::PROGRAM_VERSION_V2 {
             Budgets::canonical_v2()
@@ -194,6 +219,39 @@ mod tests {
         assert!(Budgets::from_json(&bad).is_err());
         assert_eq!(Budgets::retry_cu(26_000), 52_000);
         assert_eq!(Budgets::retry_cu(900_000), 1_400_000);
+    }
+
+    /// The playable lane (0x4804, and ⑳'s 0xC804): S1's CU limits, every
+    /// loaded limit the runtime's maximum (its program alone loads more
+    /// than any S1 `L(kind)`).
+    #[test]
+    fn the_playable_lane_requests_the_runtime_loaded_maximum() {
+        let s1 = Budgets::canonical_s1();
+        for v in [0x4804u16, 0xC804] {
+            let b = Budgets::canonical_for(v);
+            assert_eq!(b, Budgets::canonical_lane());
+            for row in abi::INSTRUCTIONS_V2.iter() {
+                assert_eq!(
+                    b.get(row.tag).cu_limit,
+                    s1.get(row.tag).cu_limit,
+                    "{}",
+                    row.name
+                );
+                assert_eq!(
+                    b.get(row.tag).loaded_limit,
+                    RUNTIME_MAX_LOADED_LIMIT,
+                    "{}",
+                    row.name
+                );
+                assert!(
+                    s1.get(row.tag).loaded_limit < 4_577_703,
+                    "{}: the S1 row is below the lane .so",
+                    row.name
+                );
+            }
+        }
+        // S1 itself is unchanged.
+        assert_eq!(Budgets::canonical_for(abi::PROGRAM_VERSION_S1), s1);
     }
 
     /// MC §5.4: the v2 file loads, carries `L(kind)` for every v2 kind,

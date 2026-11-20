@@ -11,6 +11,11 @@ use fclient::rpc::{RpcClient, RpcPort};
 use fclient::{tx, Address, Instruction, Keypair};
 use serde_json::{json, Value};
 
+/// The loaded-accounts-data limit of an operator transaction (S1 release).
+pub const OP_LOADED_LIMIT: u32 = 4 * 1024 * 1024;
+/// The runtime's maximum loaded-accounts-data limit (64 MiB).
+pub const MAX_LOADED_LIMIT: u32 = 64 * 1024 * 1024;
+
 /// Every RPC call of the stack gives up after this long.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -166,13 +171,28 @@ impl Chain {
         signers: &[&Keypair],
         limit: Duration,
     ) -> Result<(), String> {
+        self.send_op_with(ixs, signers, limit, OP_LOADED_LIMIT)
+            .await
+            .map(|_| ())
+    }
+
+    /// [`Chain::send_op`] with the transaction's loaded-accounts-data limit
+    /// (the playable lane's `.so` alone is larger than [`OP_LOADED_LIMIT`]:
+    /// its clients request [`MAX_LOADED_LIMIT`]); returns the signature.
+    pub async fn send_op_with(
+        &self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+        limit: Duration,
+        loaded_limit: u32,
+    ) -> Result<fclient::ports::Signature, String> {
         let (bh, _) = timed(self.port.blockhash())
             .await?
             .map_err(|e| format!("blockhash: {e}"))?;
         let budget = tx::TxBudget {
             cu_limit: 1_400_000,
             cu_price: 0,
-            loaded_limit: 4 * 1024 * 1024,
+            loaded_limit,
             heap: None,
         };
         let t = tx::build(ixs, &budget, signers, &bh)?;
@@ -186,7 +206,7 @@ impl Chain {
                 .map_err(|e| format!("statuses: {e}"))?;
             if let Some(Some(s)) = st.first() {
                 return match &s.err {
-                    None => Ok(()),
+                    None => Ok(sig),
                     Some(e) => {
                         let logs = self
                             .call(
