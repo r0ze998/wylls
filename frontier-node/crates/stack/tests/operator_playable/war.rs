@@ -545,7 +545,13 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
     )
     .await;
     let participant_txs = r.rows.clone();
-    json!({"p8_war": "a test participant's legacy war on the devnet .so: rim village, Muster, ONE sealed Depart onto a keep; keeper A does the rest",
+    // (verify-pr118) the verifier judges the whole season: no FAIL
+    let verifier = r.judge_season("p8");
+    assert_eq!(
+        verifier["fails"], 0,
+        "the verifier FAILs the season: {verifier:#}"
+    );
+    json!({"verifier_season": verifier, "p8_war": "a test participant's legacy war on the devnet .so: rim village, Muster, ONE sealed Depart onto a keep; keeper A does the rest",
         "plan": war_plan, "muster": muster, "depart": depart, "keeper_war": war, "rows": participant_txs,
         "declared_patches": r.patches, "setup": extra})
 }
