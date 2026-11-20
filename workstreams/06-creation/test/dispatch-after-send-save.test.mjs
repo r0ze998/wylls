@@ -1,8 +1,6 @@
 /**
- * WRITTEN, NOT RUN (2026-11-17, under an execution pause): no part of this file has been executed. Run it only with
- * its own approval. Its import closure is dispatch.test.mjs's (src/connect/dispatch.mjs → caravan.mjs → plan.mjs →
- * keys.mjs, which names a key API never reached here; src/canonical.mjs; src/scenario.mjs): it needs the same kind of
- * review entry before a key-free job may run it.
+ * Written 2026-11-17 under an execution pause; run since on Node 20 and 22. Its import closure is dispatch.test.mjs's (src/connect/dispatch.mjs → caravan.mjs → plan.mjs →
+ * keys.mjs, which names a key API never reached here; src/canonical.mjs; src/scenario.mjs): it is cleared by its entry in scripts/ci/node-key-reviewed.txt (ws06-next 2026-11-20), so the key-free job runs it.
  *
  * A save that throws AFTER ③'s send (the act route). Two different unknowns are kept apart: whether the journal holds
  * the newest state (`saved: false` in status) and what happened outside (each step's state and result). Nothing is
